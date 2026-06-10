@@ -37,6 +37,12 @@ from catalog_tools import (
     _raw_contexts_payload,
     _resolve_graded_context_entry,
     _resolve_raw_context_summary,
+    _cell_summary_from_row,
+    _cell_field,
+    price_history_cells_enabled,
+    price_history_cell_rows_for_day,
+    resolve_graded_entry_from_cells,
+    resolve_raw_summary_from_cells,
     DEFAULT_RAW_CONDITION,
     MATCHER_VERSION,
     RAW_CONDITION_PRIORITY,
@@ -3174,22 +3180,48 @@ class SpotlightScanService:
         grade = str(entry.get("grade") or "").strip() or None
         variant_name = str(entry.get("variantName") or "").strip() or None
 
-        if pricing_mode == "graded":
-            entry = _resolve_graded_context_entry(
-                _graded_contexts_payload(row["graded_contexts_json"]),
-                grader=grader,
-                grade=grade,
-                variant=variant_name,
+        # Phase 4: when the cell flag is on, resolve the per-day price from the
+        # normalized cell table instead of this row's raw/graded JSON blobs. The
+        # row still supplies card_id, price_date, the display currency, and the
+        # default_raw_* fallback columns.
+        use_cells = price_history_cells_enabled()
+        day_cells = (
+            price_history_cell_rows_for_day(
+                self.connection,
+                card_id=str(row["card_id"]),
+                price_date=str(row["price_date"]),
             )
-            summary = _coerce_price_summary_from_entry(entry)
-            if summary is None and variant_name:
+            if use_cells
+            else []
+        )
+
+        if pricing_mode == "graded":
+            if use_cells:
+                graded_cell = resolve_graded_entry_from_cells(
+                    day_cells, grader=grader, grade=grade, variant=variant_name
+                )
+                summary = _cell_summary_from_row(graded_cell) if graded_cell is not None else None
+                if summary is None and variant_name:
+                    graded_cell = resolve_graded_entry_from_cells(
+                        day_cells, grader=grader, grade=grade, variant=None
+                    )
+                    summary = _cell_summary_from_row(graded_cell) if graded_cell is not None else None
+            else:
                 entry = _resolve_graded_context_entry(
                     _graded_contexts_payload(row["graded_contexts_json"]),
                     grader=grader,
                     grade=grade,
-                    variant=None,
+                    variant=variant_name,
                 )
                 summary = _coerce_price_summary_from_entry(entry)
+                if summary is None and variant_name:
+                    entry = _resolve_graded_context_entry(
+                        _graded_contexts_payload(row["graded_contexts_json"]),
+                        grader=grader,
+                        grade=grade,
+                        variant=None,
+                    )
+                    summary = _coerce_price_summary_from_entry(entry)
             if summary is None:
                 return None
             return self._display_price_history_row(
@@ -3204,11 +3236,18 @@ class SpotlightScanService:
                 }
             )
 
-        _, _, summary = _resolve_raw_context_summary(
-            _raw_contexts_payload(row["raw_contexts_json"]),
-            variant=variant_name,
-            condition=condition_code,
-        )
+        if use_cells:
+            _, _, summary = resolve_raw_summary_from_cells(
+                day_cells,
+                variant=variant_name,
+                condition=condition_code,
+            )
+        else:
+            _, _, summary = _resolve_raw_context_summary(
+                _raw_contexts_payload(row["raw_contexts_json"]),
+                variant=variant_name,
+                condition=condition_code,
+            )
         if summary is None and self._history_primary_price_value(
             {
                 "market": row["default_raw_market_price"],

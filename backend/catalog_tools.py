@@ -3493,6 +3493,296 @@ def _coerce_price_float(value: Any) -> float | None:
         return None
 
 
+# --- Phase 4: price-history read source flag ---------------------------------
+#
+# ``PRICE_HISTORY_SOURCE`` selects which physical store the HISTORY readers use:
+#   - "json"  (default) parse the ``card_price_history_daily`` JSON blobs.
+#   - "cells" resolve from the normalized ``card_price_history_cell`` table.
+# Default stays "json" so nothing changes until the flag is explicitly flipped.
+# This ONLY gates ``card_price_history_daily`` JSON readers; ``card_price_snapshots``
+# readers keep their own JSON regardless of this flag.
+PRICE_HISTORY_SOURCE_JSON = "json"
+PRICE_HISTORY_SOURCE_CELLS = "cells"
+
+
+def price_history_source() -> str:
+    """Active price-history read source ("json" | "cells"), from env, default json."""
+    value = str(os.environ.get("PRICE_HISTORY_SOURCE") or "").strip().lower()
+    return PRICE_HISTORY_SOURCE_CELLS if value == PRICE_HISTORY_SOURCE_CELLS else PRICE_HISTORY_SOURCE_JSON
+
+
+def price_history_cells_enabled() -> bool:
+    """True when the HISTORY readers should resolve from the normalized cell table."""
+    return price_history_source() == PRICE_HISTORY_SOURCE_CELLS
+
+
+def _variant_match_key(value: str | None) -> str:
+    """Lowercase-alphanumeric reduction used to reconcile a variant *label*
+    ("Holofoil", "Reverse Holofoil") with a stored ``variant_key``
+    ("holofoil", "reverseHolofoil"). Empty/None reduces to "" (the implicit
+    Normal/default bucket)."""
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+
+
+# Normalized-default variant priority (mirrors RAW_VARIANT_PRIORITY but as match
+# keys, so it orders cells by their lowercase variant_key the same way the JSON
+# resolver orders by variant label).
+_RAW_VARIANT_PRIORITY_MATCH_KEYS = tuple(_variant_match_key(label) for label in RAW_VARIANT_PRIORITY)
+# The match key for the implicit "Normal" default bucket: a cell whose
+# variant_key reduces to "" or "normal"/"raw"/"standard" is treated as Normal,
+# matching _normalized_variant_label.
+_NORMAL_VARIANT_MATCH_KEYS = {"", "raw", "normal", "standard"}
+
+
+def _cell_variant_priority_rank(variant_match_key: str) -> tuple[int, str]:
+    """Rank a cell's variant match key against RAW_VARIANT_PRIORITY. The "Normal"
+    bucket collapses Normal/raw/standard/empty to the same rank the JSON resolver
+    gives the "Normal" label, so default-variant ordering is identical."""
+    key = "normal" if variant_match_key in _NORMAL_VARIANT_MATCH_KEYS else variant_match_key
+    try:
+        return (_RAW_VARIANT_PRIORITY_MATCH_KEYS.index(key), key)
+    except ValueError:
+        return (len(_RAW_VARIANT_PRIORITY_MATCH_KEYS), key)
+
+
+def _cell_summary_from_row(row: Any) -> dict[str, Any]:
+    """A price summary in the same shape ``_coerce_price_summary_from_entry``
+    returns, built from a cell row (sqlite Row / mapping / sequence-keyed dict).
+    Cells do not persist ``trendsPct`` or ``payload`` (those live only in the JSON
+    entry's ``payload``), so the JSON resolver always yields ``trendsPct=None`` and
+    ``payload={}`` for the price fields the parity harness compares; the cell
+    summary matches that."""
+    def _get(name: str) -> Any:
+        try:
+            return row[name]
+        except (KeyError, IndexError, TypeError):
+            return None
+
+    return {
+        "currencyCode": _get("currency_code"),
+        "low": _coerce_price_float(_get("low")),
+        "market": _coerce_price_float(_get("market")),
+        "mid": _coerce_price_float(_get("mid")),
+        "high": _coerce_price_float(_get("high")),
+        "directLow": _coerce_price_float(_get("direct_low")),
+        "trend": _coerce_price_float(_get("trend")),
+        "trendsPct": None,
+        "payload": {},
+    }
+
+
+def price_history_cell_rows_for_day(
+    connection: sqlite3.Connection,
+    *,
+    card_id: str,
+    price_date: str,
+    lane: str | None = None,
+) -> list[Any]:
+    """All cell rows for one ``(card_id, price_date)``, optionally lane-filtered.
+    Served by the ``(card_id, price_date, cell_key)`` UNIQUE index prefix."""
+    if not _table_exists(connection, "card_price_history_cell"):
+        return []
+    if lane:
+        return connection.execute(
+            "SELECT * FROM card_price_history_cell WHERE card_id = ? AND price_date = ? AND lane = ?",
+            (card_id, price_date, lane),
+        ).fetchall()
+    return connection.execute(
+        "SELECT * FROM card_price_history_cell WHERE card_id = ? AND price_date = ?",
+        (card_id, price_date),
+    ).fetchall()
+
+
+def resolve_raw_summary_from_cells(
+    cells: list[Any],
+    *,
+    variant: str | None = None,
+    condition: str | None = None,
+) -> tuple[str | None, str | None, dict[str, Any] | None]:
+    """Cell-backed twin of ``_resolve_raw_context_summary``.
+
+    Replicates: exact (variant, condition) -> for that variant, RAW_CONDITION_PRIORITY
+    -> default fallback (RAW_VARIANT_PRIORITY ordered, then condition priority, then
+    first variant's first condition). Returns ``(variant_label, condition, summary)``
+    where ``variant_label`` is renormalized through ``_normalized_variant_label`` so
+    it matches the JSON resolver's returned variant exactly."""
+    raw_cells = [c for c in cells if str(_cell_field(c, "lane") or "") == "raw"]
+    if not raw_cells:
+        return None, None, None
+
+    # Index by (variant_match_key, condition) and remember the original variant_key
+    # so we can re-normalize the resolved variant label identically to the JSON path.
+    by_variant: dict[str, dict[str, Any]] = {}
+    variant_key_by_match: dict[str, str] = {}
+    for cell in raw_cells:
+        vkey = str(_cell_field(cell, "variant_key") or "")
+        cond = _normalized_condition_code(_cell_field(cell, "condition"))
+        match_key = _variant_match_key(vkey)
+        match_key = "normal" if match_key in _NORMAL_VARIANT_MATCH_KEYS else match_key
+        by_variant.setdefault(match_key, {})[cond] = cell
+        variant_key_by_match.setdefault(match_key, vkey)
+
+    def _label(match_key: str) -> str:
+        return _normalized_variant_label(variant_key_by_match.get(match_key))
+
+    resolved_variant = _normalized_variant_label(variant) if variant else None
+    resolved_condition = _normalized_condition_code(condition) if condition else None
+
+    if resolved_variant:
+        target_key = _variant_match_key(resolved_variant)
+        target_key = "normal" if target_key in _NORMAL_VARIANT_MATCH_KEYS else target_key
+        conditions = by_variant.get(target_key)
+        if conditions:
+            cell = conditions.get(resolved_condition) if resolved_condition else None
+            if cell is None:
+                for candidate in RAW_CONDITION_PRIORITY:
+                    if candidate in conditions:
+                        cell = conditions[candidate]
+                        resolved_condition = candidate
+                        break
+            if cell is not None:
+                return _label(target_key), resolved_condition, _cell_summary_from_row(cell)
+
+    # Default fallback: variant-priority order, then condition priority.
+    ordered_keys = sorted(by_variant.keys(), key=_cell_variant_priority_rank)
+    for preferred_condition in RAW_CONDITION_PRIORITY:
+        for match_key in ordered_keys:
+            conditions = by_variant[match_key]
+            if preferred_condition in conditions:
+                return _label(match_key), preferred_condition, _cell_summary_from_row(conditions[preferred_condition])
+    # No priority condition anywhere: first variant's first condition. The JSON
+    # path uses dict insertion order for "first condition"; cells have no stable
+    # per-day insertion order, so order conditions by RAW_CONDITION_PRIORITY then
+    # natural sort to stay deterministic (the only case this differs from JSON is
+    # a variant carrying ONLY non-standard condition codes, which the catalog does
+    # not produce — see the parity report).
+    first_key = ordered_keys[0]
+    conditions = by_variant[first_key]
+    if not conditions:
+        return _label(first_key), None, None
+    cond_order = sorted(
+        conditions.keys(),
+        key=lambda c: (
+            RAW_CONDITION_PRIORITY.index(c) if c in RAW_CONDITION_PRIORITY else len(RAW_CONDITION_PRIORITY),
+            c,
+        ),
+    )
+    chosen = cond_order[0]
+    return _label(first_key), chosen, _cell_summary_from_row(conditions[chosen])
+
+
+def resolve_graded_entry_from_cells(
+    cells: list[Any],
+    *,
+    grader: str | None,
+    grade: str | None,
+    variant: str | None = None,
+) -> Any | None:
+    """Cell-backed twin of ``_resolve_graded_context_entry``. Returns the chosen
+    cell row (or ``None``); use ``_cell_summary_from_row`` to price it, or read its
+    flags/variant_key directly. UPPER-cases grader/grade; among matching cells,
+    prefers (variant match, not special) -> (variant match, any) -> (any, not
+    special) -> first."""
+    grader_key = str(grader or "").strip().upper()
+    grade_key = str(grade or "").strip().upper()
+    if not grader_key or not grade_key:
+        return None
+    matches = [
+        c
+        for c in cells
+        if str(_cell_field(c, "lane") or "") == "graded"
+        and str(_cell_field(c, "grader") or "").strip().upper() == grader_key
+        and str(_cell_field(c, "grade") or "").strip().upper() == grade_key
+    ]
+    if not matches:
+        return None
+    resolved_variant = _normalized_variant_label(variant) if variant else None
+    preferred: list[Any] = []
+    fallback: list[Any] = []
+    for cell in matches:
+        is_special = any(
+            bool(_cell_field(cell, flag)) for flag in ("is_perfect", "is_signed", "is_error")
+        )
+        cell_variant = _normalized_variant_label(_cell_field(cell, "variant_key"))
+        if resolved_variant:
+            if cell_variant == resolved_variant and not is_special:
+                return cell
+            if cell_variant == resolved_variant:
+                preferred.append(cell)
+        elif not is_special:
+            fallback.append(cell)
+        else:
+            preferred.append(cell)
+    if preferred:
+        return preferred[0]
+    if fallback:
+        return fallback[0]
+    return None
+
+
+def raw_cell_exact_from_cells(
+    cells: list[Any],
+    *,
+    variant: str | None,
+    condition: str | None,
+) -> Any | None:
+    """Cell-backed twin of ``_raw_context_entry`` (EXACT match, no priority
+    fallback). Reconciles a variant *label* to a stored ``variant_key`` by
+    lowercase-alphanumeric match. Returns the cell row or ``None``."""
+    target_variant = _normalized_variant_label(variant)
+    target_key = _variant_match_key(target_variant)
+    target_key = "normal" if target_key in _NORMAL_VARIANT_MATCH_KEYS else target_key
+    target_condition = _normalized_condition_code(condition)
+    for cell in cells:
+        if str(_cell_field(cell, "lane") or "") != "raw":
+            continue
+        vkey = _variant_match_key(_cell_field(cell, "variant_key"))
+        vkey = "normal" if vkey in _NORMAL_VARIANT_MATCH_KEYS else vkey
+        if vkey != target_key:
+            continue
+        if _normalized_condition_code(_cell_field(cell, "condition")) == target_condition:
+            return cell
+    return None
+
+
+def price_history_cell_rows_by_date(
+    connection: sqlite3.Connection,
+    *,
+    card_id: str,
+    provider: str,
+    price_dates: Iterable[str],
+) -> dict[str, list[Any]]:
+    """All cell rows for a card grouped by ``price_date`` (restricted to the given
+    dates). One query (chunked) so the trend-list point series resolves from cells
+    without a per-day round trip."""
+    if not _table_exists(connection, "card_price_history_cell"):
+        return {}
+    dates = [str(d) for d in price_dates if str(d or "").strip()]
+    result: dict[str, list[Any]] = {}
+    for start in range(0, len(dates), 400):
+        chunk = dates[start : start + 400]
+        if not chunk:
+            continue
+        placeholders = ",".join("?" for _ in chunk)
+        rows = connection.execute(
+            f"""
+            SELECT * FROM card_price_history_cell
+            WHERE card_id = ? AND provider = ? AND price_date IN ({placeholders})
+            """,
+            (card_id, provider, *chunk),
+        ).fetchall()
+        for row in rows:
+            result.setdefault(str(_cell_field(row, "price_date")), []).append(row)
+    return result
+
+
+def _cell_field(row: Any, name: str) -> Any:
+    try:
+        return row[name]
+    except (KeyError, IndexError, TypeError):
+        return None
+
+
 def price_history_cells_from_contexts(
     *,
     card_id: str,
@@ -3805,29 +4095,49 @@ def price_history_rows_for_card(
     query += " ORDER BY price_date DESC LIMIT ?"
     params.append(max(1, int(days)))
     rows = connection.execute(query, params).fetchall()
+    use_cells = price_history_cells_enabled() and _table_exists(connection, "card_price_history_cell")
     resolved_rows: list[dict[str, Any]] = []
     for row in rows:
-        raw_contexts = _raw_contexts_payload(row["raw_contexts_json"])
-        graded_contexts = _graded_contexts_payload(row["graded_contexts_json"])
         summary: dict[str, Any] | None = None
         resolved_variant: str | None = None
         resolved_condition: str | None = None
         resolved_mode = pricing_mode or (PSA_GRADE_PRICING_MODE if grader or grade else RAW_PRICING_MODE)
-        if resolved_mode == PSA_GRADE_PRICING_MODE:
-            entry = _resolve_graded_context_entry(
-                graded_contexts,
-                grader=grader,
-                grade=grade,
-                variant=variant,
+        if use_cells:
+            cells = price_history_cell_rows_for_day(
+                connection, card_id=card_id, price_date=str(row["price_date"])
             )
-            summary = _coerce_price_summary_from_entry(entry)
-            resolved_variant = _normalized_variant_label(entry.get("variant")) if isinstance(entry, dict) else variant
+            if resolved_mode == PSA_GRADE_PRICING_MODE:
+                entry = resolve_graded_entry_from_cells(
+                    cells, grader=grader, grade=grade, variant=variant
+                )
+                summary = _cell_summary_from_row(entry) if entry is not None else None
+                resolved_variant = (
+                    _normalized_variant_label(_cell_field(entry, "variant_key"))
+                    if entry is not None
+                    else variant
+                )
+            else:
+                resolved_variant, resolved_condition, summary = resolve_raw_summary_from_cells(
+                    cells, variant=variant, condition=condition
+                )
         else:
-            resolved_variant, resolved_condition, summary = _resolve_raw_context_summary(
-                raw_contexts,
-                variant=variant,
-                condition=condition,
-            )
+            raw_contexts = _raw_contexts_payload(row["raw_contexts_json"])
+            graded_contexts = _graded_contexts_payload(row["graded_contexts_json"])
+            if resolved_mode == PSA_GRADE_PRICING_MODE:
+                entry = _resolve_graded_context_entry(
+                    graded_contexts,
+                    grader=grader,
+                    grade=grade,
+                    variant=variant,
+                )
+                summary = _coerce_price_summary_from_entry(entry)
+                resolved_variant = _normalized_variant_label(entry.get("variant")) if isinstance(entry, dict) else variant
+            else:
+                resolved_variant, resolved_condition, summary = _resolve_raw_context_summary(
+                    raw_contexts,
+                    variant=variant,
+                    condition=condition,
+                )
         if summary is None:
             continue
         resolved_rows.append(
@@ -3879,9 +4189,32 @@ def latest_price_history_update_for_context(
     params: list[Any] = [card_id, provider]
     query += " ORDER BY price_date DESC, updated_at DESC"
     rows = connection.execute(query, params).fetchall()
+    use_cells = price_history_cells_enabled() and _table_exists(connection, "card_price_history_cell")
     resolved_mode = pricing_mode or (PSA_GRADE_PRICING_MODE if grader or grade else RAW_PRICING_MODE)
     for row in rows:
-        if resolved_mode == PSA_GRADE_PRICING_MODE:
+        if use_cells:
+            cells = price_history_cell_rows_for_day(
+                connection, card_id=card_id, price_date=str(row["price_date"])
+            )
+            if resolved_mode == PSA_GRADE_PRICING_MODE:
+                entry = resolve_graded_entry_from_cells(
+                    cells, grader=grader, grade=grade, variant=variant
+                )
+                if entry is None:
+                    continue
+                if is_perfect is not None and bool(_cell_field(entry, "is_perfect")) != bool(is_perfect):
+                    continue
+                if is_signed is not None and bool(_cell_field(entry, "is_signed")) != bool(is_signed):
+                    continue
+                if is_error is not None and bool(_cell_field(entry, "is_error")) != bool(is_error):
+                    continue
+            else:
+                _, _, summary = resolve_raw_summary_from_cells(
+                    cells, variant=variant, condition=condition
+                )
+                if summary is None:
+                    continue
+        elif resolved_mode == PSA_GRADE_PRICING_MODE:
             entry = _resolve_graded_context_entry(
                 _graded_contexts_payload(row["graded_contexts_json"]),
                 grader=grader,
@@ -4028,6 +4361,22 @@ def card_price_trend_list(
     ).fetchall()
     snapshot_row = price_snapshot_row(connection, card_id)
 
+    # When the cell flag is on, the per-day POINT SERIES is resolved from the
+    # normalized cell table instead of the history-daily JSON blobs (the snapshot
+    # below stays on card_price_snapshots JSON regardless — out of scope for the
+    # flag). Fetch all cells for the window once, grouped by date.
+    use_cells = price_history_cells_enabled() and _table_exists(connection, "card_price_history_cell")
+    cells_by_date: dict[str, list[Any]] = (
+        price_history_cell_rows_by_date(
+            connection,
+            card_id=card_id,
+            provider=provider,
+            price_dates=[str(r["price_date"]) for r in history_rows],
+        )
+        if use_cells
+        else {}
+    )
+
     rows: list[dict[str, Any]] = []
     currency_code = "USD"
 
@@ -4053,12 +4402,20 @@ def card_price_trend_list(
         for grader_key, grade_key in ordered_pairs:
             points: list[float] = []
             for row in history_rows:
-                entry = _resolve_graded_context_entry(
-                    _graded_contexts_payload(row["graded_contexts_json"]),
-                    grader=grader_key,
-                    grade=grade_key,
-                )
-                market = _price_trend_float(entry.get("market")) if isinstance(entry, dict) else None
+                if use_cells:
+                    cell = resolve_graded_entry_from_cells(
+                        cells_by_date.get(str(row["price_date"]), []),
+                        grader=grader_key,
+                        grade=grade_key,
+                    )
+                    market = _price_trend_float(_cell_field(cell, "market")) if cell is not None else None
+                else:
+                    entry = _resolve_graded_context_entry(
+                        _graded_contexts_payload(row["graded_contexts_json"]),
+                        grader=grader_key,
+                        grade=grade_key,
+                    )
+                    market = _price_trend_float(entry.get("market")) if isinstance(entry, dict) else None
                 if market is not None:
                     points.append(market)
             snapshot_entry = _resolve_graded_context_entry(
@@ -4104,12 +4461,20 @@ def card_price_trend_list(
     for condition_code in ordered_conditions:
         points = []
         for row in history_rows:
-            entry = _raw_context_entry(
-                _raw_contexts_payload(row["raw_contexts_json"]),
-                variant=resolved_variant,
-                condition=condition_code,
-            )
-            market = _price_trend_float(entry.get("market")) if isinstance(entry, dict) else None
+            if use_cells:
+                cell = raw_cell_exact_from_cells(
+                    cells_by_date.get(str(row["price_date"]), []),
+                    variant=resolved_variant,
+                    condition=condition_code,
+                )
+                market = _price_trend_float(_cell_field(cell, "market")) if cell is not None else None
+            else:
+                entry = _raw_context_entry(
+                    _raw_contexts_payload(row["raw_contexts_json"]),
+                    variant=resolved_variant,
+                    condition=condition_code,
+                )
+                market = _price_trend_float(entry.get("market")) if isinstance(entry, dict) else None
             if market is not None:
                 points.append(market)
         snapshot_entry = _raw_context_entry(snapshot_raw, variant=resolved_variant, condition=condition_code)
