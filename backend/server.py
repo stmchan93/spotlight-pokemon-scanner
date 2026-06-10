@@ -571,6 +571,11 @@ def _apply_price_history_cells_schema_patch(connection: sqlite3.Connection) -> N
     (``DROP TABLE card_price_history_cell``); the JSON columns on
     ``card_price_history_daily`` are untouched and remain the source of truth.
     """
+    # Regular rowid table (NOT `WITHOUT ROWID`): inserts append to the rowid heap
+    # regardless of arrival order, so the daily dual-write and the one-time backfill
+    # never pay clustered-B-tree page-split costs that compound as the table grows.
+    # Identity is enforced by a separate UNIQUE index (so a bulk backfill can drop
+    # it, load, and rebuild). Read paths are served by the lookup indexes below.
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS card_price_history_cell (
@@ -593,9 +598,17 @@ def _apply_price_history_cells_schema_patch(connection: sqlite3.Connection) -> N
             high REAL,
             direct_low REAL,
             trend REAL,
-            updated_at TEXT NOT NULL,
-            PRIMARY KEY (card_id, price_date, cell_key)
-        ) WITHOUT ROWID
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    # Identity: dedupe target for the dual-write/backfill upsert; its (card_id,
+    # price_date) prefix also serves the dashboard fan and the dual-write's
+    # per-(card,date) delete.
+    connection.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_cell_identity
+        ON card_price_history_cell (card_id, price_date, cell_key)
         """
     )
     # Raw-lane holding lookup: a card's condition history over a date window.
@@ -612,13 +625,6 @@ def _apply_price_history_cells_schema_patch(connection: sqlite3.Connection) -> N
         CREATE INDEX IF NOT EXISTS idx_cell_graded_lookup
         ON card_price_history_cell (card_id, grader, grade, variant_key, price_date)
         WHERE lane = 'graded'
-        """
-    )
-    # All cells for a card in a window (dashboard fan; PDP latest); MAX(price_date).
-    connection.execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_cell_card_date
-        ON card_price_history_cell (card_id, price_date)
         """
     )
     # Day-over-day diff for top-movers.

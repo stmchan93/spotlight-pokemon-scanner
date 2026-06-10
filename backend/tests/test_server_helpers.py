@@ -226,14 +226,14 @@ class ServerHelperTests(unittest.TestCase):
             for row in connection.execute("PRAGMA index_list(card_price_history_cell)").fetchall()
         }
         for expected_index in (
+            "idx_cell_identity",
             "idx_cell_raw_lookup",
             "idx_cell_graded_lookup",
-            "idx_cell_card_date",
             "idx_cell_date",
         ):
             self.assertIn(expected_index, indexes)
 
-        # A row round-trips through the PK + the partial-index lanes.
+        # A row round-trips through the table + the partial-index lanes.
         connection.execute(
             """
             INSERT INTO card_price_history_cell (
@@ -243,6 +243,17 @@ class ServerHelperTests(unittest.TestCase):
             """,
             ("c1", "scrydex", "2026-06-01", "2026-06-01T00:00:00Z"),
         )
+
+        # The unique identity index dedupes (card_id, price_date, cell_key): a
+        # second insert of the same identity must conflict.
+        with self.assertRaises(sqlite3.IntegrityError):
+            connection.execute(
+                """
+                INSERT INTO card_price_history_cell (
+                    card_id, provider, price_date, lane, cell_key, updated_at
+                ) VALUES ('c1', 'scrydex', '2026-06-01', 'raw', 'raw|holofoil|NM', 't')
+                """,
+            )
 
         # Idempotent: re-applying must not raise or disturb existing rows.
         _apply_price_history_cells_schema_patch(connection)
