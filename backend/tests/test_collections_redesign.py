@@ -551,5 +551,95 @@ class CollectionsRedesignTests(unittest.TestCase):
         self.assertGreaterEqual(insights["totalProfit"], 470.0)
 
 
+class PortfolioDashboardPrewarmTests(unittest.TestCase):
+    """The startup prewarm should warm the per-owner dashboard cache so the
+    first real refresh after a reboot is a cache hit instead of a cold read."""
+
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.database_path = Path(self.tempdir.name) / "dashboard-prewarm.sqlite"
+        connection = connect(self.database_path)
+        apply_schema(connection, BACKEND_ROOT / "schema.sql")
+        connection.close()
+        self.service = SpotlightScanService(self.database_path, REPO_ROOT)
+
+    def tearDown(self) -> None:
+        self.service.connection.close()
+        self.tempdir.cleanup()
+
+    def _identity(self, user_id: str = "vendor-a") -> RequestIdentity:
+        return RequestIdentity(user_id=user_id, auth_source="test")
+
+    def _insert_card(self) -> None:
+        upsert_card(
+            self.service.connection,
+            card_id="base-charizard-4",
+            name="Charizard",
+            set_name="Base Set",
+            number="4/102",
+            rarity="Holo Rare",
+            variant="Raw",
+            language="English",
+            source_provider="scrydex",
+            source_record_id="base-charizard-4",
+            set_id="base1",
+            set_ptcgo_code="BS",
+            set_release_date="1999-01-09",
+            source_payload={"id": "base-charizard-4"},
+        )
+        self.service.connection.commit()
+
+    def _seed_deck_entry(self, *, quantity: int = 1, user_id: str = "vendor-a") -> str:
+        deck_entry_id = upsert_deck_entry(
+            self.service.connection,
+            owner_user_id=user_id,
+            card_id="base-charizard-4",
+            condition="near_mint",
+            quantity=quantity,
+            unit_price=50.0,
+            currency_code="USD",
+        )
+        self.service.connection.commit()
+        return deck_entry_id
+
+    def test_prewarm_warms_each_active_owner(self) -> None:
+        self._insert_card()
+        self._seed_deck_entry(quantity=2, user_id="vendor-a")
+        self._seed_deck_entry(quantity=1, user_id="vendor-b")
+
+        result = self.service.prewarm_portfolio_dashboards()
+
+        self.assertEqual(result["ownerCount"], 2)
+        self.assertEqual(result["warmedCount"], 2)
+        # Both owners now have a populated dashboard cache entry.
+        cached_owners = {key[0] for key in self.service._dashboard_cache}
+        self.assertEqual(cached_owners, {"vendor-a", "vendor-b"})
+
+    def test_prewarmed_owner_serves_a_cache_hit(self) -> None:
+        self._insert_card()
+        self._seed_deck_entry(quantity=2, user_id="vendor-a")
+
+        self.service.prewarm_portfolio_dashboards()
+
+        # A subsequent request for the prewarmed owner is served from cache.
+        timings: list[str] = []
+        original = self.service._log_dashboard_timing
+        self.service._log_dashboard_timing = (  # type: ignore[method-assign]
+            lambda started_at, *, outcome: timings.append(outcome)
+        )
+        try:
+            with self.service.request_identity_context(self._identity("vendor-a")):
+                self.service.portfolio_dashboard()
+        finally:
+            self.service._log_dashboard_timing = original  # type: ignore[method-assign]
+
+        self.assertEqual(timings, ["hit"])
+
+    def test_prewarm_with_no_owners_is_a_noop(self) -> None:
+        result = self.service.prewarm_portfolio_dashboards()
+        self.assertEqual(result["ownerCount"], 0)
+        self.assertEqual(result["warmedCount"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -703,6 +703,17 @@ def _env_flag(name: str, *, default: bool = False) -> bool:
     return str(raw_value).strip().lower() in {"1", "true", "yes", "on"}
 
 
+# Startup portfolio-dashboard prewarm: after a reboot the OS page cache is empty
+# and the multi-GB DB sits on a slow disk, so the first dashboard refresh cold-
+# reads owner rows and can exceed the client timeout. We proactively warm each
+# active owner's dashboard at boot (see prewarm_portfolio_dashboards).
+PORTFOLIO_DASHBOARD_PREWARM_ENV = "PORTFOLIO_DASHBOARD_PREWARM"
+PORTFOLIO_DASHBOARD_PREWARM_MAX_OWNERS_ENV = "PORTFOLIO_DASHBOARD_PREWARM_MAX_OWNERS"
+PORTFOLIO_DASHBOARD_PREWARM_DELAY_ENV = "PORTFOLIO_DASHBOARD_PREWARM_DELAY_SECONDS"
+DEFAULT_PORTFOLIO_DASHBOARD_PREWARM_MAX_OWNERS = 50
+DEFAULT_PORTFOLIO_DASHBOARD_PREWARM_DELAY_SECONDS = 3.0
+
+
 @dataclass
 class ServerConfig:
     host: str = "127.0.0.1"
@@ -11882,6 +11893,77 @@ class SpotlightScanService:
             "refreshedAt": utc_now(),
         }
 
+    def prewarm_portfolio_dashboards(self, *, delay_seconds: float = 0.0) -> dict[str, Any]:
+        """Warm the per-owner dashboard cache at startup.
+
+        After a reboot the OS page cache is empty and the multi-GB DB lives on a
+        slow disk, so the first dashboard refresh cold-reads owner rows and can
+        exceed the client timeout (the exact failure seen after a VM resize). We
+        proactively compute each active owner's dashboard once — populating both
+        the in-process cache AND the OS page cache for their rows — so the first
+        real refresh is a ~1ms cache hit. Runs in a background daemon thread on
+        its own connection; every owner is best-effort and never blocks request
+        serving or startup. Tunable via PORTFOLIO_DASHBOARD_PREWARM* env vars."""
+        if delay_seconds > 0:
+            # Let the server finish coming up (and the visual prewarm grab the
+            # disk first) before we start cold-reading owner rows.
+            threading.Event().wait(delay_seconds)
+
+        started_at = perf_counter()
+        max_owners_raw = os.environ.get(PORTFOLIO_DASHBOARD_PREWARM_MAX_OWNERS_ENV)
+        try:
+            max_owners = (
+                max(1, int(max_owners_raw))
+                if max_owners_raw
+                else DEFAULT_PORTFOLIO_DASHBOARD_PREWARM_MAX_OWNERS
+            )
+        except (TypeError, ValueError):
+            max_owners = DEFAULT_PORTFOLIO_DASHBOARD_PREWARM_MAX_OWNERS
+
+        owners: list[str] = []
+        try:
+            rows = self.connection.execute(
+                """
+                SELECT owner_user_id, COUNT(*) AS entry_count
+                FROM deck_entries
+                WHERE owner_user_id IS NOT NULL AND TRIM(owner_user_id) != ''
+                GROUP BY owner_user_id
+                ORDER BY entry_count DESC
+                LIMIT ?
+                """,
+                (max_owners,),
+            ).fetchall()
+            owners = [str(row["owner_user_id"]) for row in rows]
+        except Exception:  # noqa: BLE001 - prewarm is best-effort, never fatal
+            traceback.print_exc()
+
+        warmed = 0
+        for owner_user_id in owners:
+            try:
+                identity = RequestIdentity(
+                    user_id=owner_user_id, auth_source="startup_prewarm"
+                )
+                with self.request_identity_context(identity):
+                    self.portfolio_dashboard()
+                warmed += 1
+            except Exception:  # noqa: BLE001 - one owner failing must not stop the rest
+                traceback.print_exc()
+
+        result = {
+            "ownerCount": len(owners),
+            "warmedCount": warmed,
+            "elapsedMs": round((perf_counter() - started_at) * 1000.0, 1),
+        }
+        self._emit_structured_log(
+            {
+                "severity": "INFO",
+                "event": "portfolio_dashboard_prewarm",
+                "source": "startup",
+                **result,
+            }
+        )
+        return result
+
     def portfolio_dashboard(self, *, time_zone_name: str | None = None) -> dict[str, Any]:
         """Cache-and-dogpile wrapper over the heavy dashboard computation.
 
@@ -14557,6 +14639,24 @@ def main() -> None:
     )
     server = SpotlightThreadingHTTPServer((config.host, config.port), SpotlightRequestHandler)
     print(f"Ekalight scan service listening on http://{config.host}:{config.port}", flush=True)
+
+    if _env_flag(PORTFOLIO_DASHBOARD_PREWARM_ENV, default=True):
+        delay_raw = os.environ.get(PORTFOLIO_DASHBOARD_PREWARM_DELAY_ENV)
+        try:
+            prewarm_delay = (
+                float(delay_raw)
+                if delay_raw
+                else DEFAULT_PORTFOLIO_DASHBOARD_PREWARM_DELAY_SECONDS
+            )
+        except (TypeError, ValueError):
+            prewarm_delay = DEFAULT_PORTFOLIO_DASHBOARD_PREWARM_DELAY_SECONDS
+        threading.Thread(
+            target=SpotlightRequestHandler.service.prewarm_portfolio_dashboards,
+            kwargs={"delay_seconds": prewarm_delay},
+            name="portfolio-dashboard-prewarm",
+            daemon=True,
+        ).start()
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:
