@@ -521,13 +521,6 @@ CREATE INDEX IF NOT EXISTS idx_card_price_history_daily_card_provider_lookup
 CREATE INDEX IF NOT EXISTS idx_card_price_history_daily_date
     ON card_price_history_daily(price_date DESC, card_id, updated_at DESC);
 
--- Covering index for the top-movers endpoint. Includes the four columns it
--- needs (price_date, card_id, default_raw_market_price, display_currency_code)
--- so SQLite can satisfy the query from index pages alone without touching the
--- 6.6 GB table — collapses cold-cache top-movers from ~55s to ~350ms.
-CREATE INDEX IF NOT EXISTS idx_price_history_daily_top_movers_covering
-    ON card_price_history_daily(price_date, card_id, default_raw_market_price, display_currency_code);
-
 CREATE INDEX IF NOT EXISTS idx_fx_rate_snapshots_lookup
     ON fx_rate_snapshots(base_currency, quote_currency, updated_at DESC);
 
