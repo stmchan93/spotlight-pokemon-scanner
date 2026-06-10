@@ -255,11 +255,18 @@ export function RawScannerCaptureSurface({
     [photoOutput],
   );
 
-  const isCameraAvailable = shouldMountCamera && hasCameraPermission && device != null;
+  // Keep the <Camera> MOUNTED whenever we have a device + permission, and let
+  // the `isActive` prop start/stop the capture session as the user pages between
+  // the scanner and the portfolio. Conditionally mounting on `shouldMountCamera`
+  // tore down and rebuilt the native camera session on every page swipe, which
+  // reliably hard-crashed the app on the portfolio->scanner return. This is
+  // vision-camera's documented pattern (mount once, toggle isActive) and is what
+  // the expo-camera->vision-camera migration intended ("drop the remount hack").
+  const isCameraMounted = hasCameraPermission && device != null;
 
   return (
     <View style={styles.previewCanvas}>
-      {isCameraAvailable ? (
+      {isCameraMounted ? (
         <Camera
           device={device}
           isActive={shouldMountCamera}

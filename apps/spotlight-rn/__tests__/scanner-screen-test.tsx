@@ -181,14 +181,19 @@ describe('ScannerScreen', () => {
     expect(previewStyle.right).toBeUndefined();
   });
 
-  it('does not show the camera permission card when the scanner is mounted offscreen with granted permission', () => {
+  it('keeps the camera mounted (inactive) offscreen with granted permission, without a permission card', () => {
+    // Regression guard: the camera must stay MOUNTED when the scanner is paged
+    // offscreen (activePage=portfolio) and only pause via isActive. Conditionally
+    // unmounting it here tore down/rebuilt the native session on every page swipe,
+    // which hard-crashed the app on the portfolio->scanner return.
     renderWithProviders(
       <TabsPageContext.Provider value={{ activePage: 'portfolio', chartScrubLockRef: { current: false } }}>
         <ScannerScreen />
       </TabsPageContext.Provider>,
     );
 
-    expect(screen.getByTestId('scanner-camera-fallback')).toBeTruthy();
+    expect(screen.getByTestId('scanner-camera')).toBeTruthy();
+    expect(screen.queryByTestId('scanner-camera-fallback')).toBeNull();
     expect(screen.queryByTestId('scanner-permission-card')).toBeNull();
     expect(screen.queryByText('Camera access needed')).toBeNull();
   });
