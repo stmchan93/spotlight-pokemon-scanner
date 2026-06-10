@@ -566,11 +566,17 @@ def _apply_price_history_cells_schema_patch(connection: sqlite3.Connection) -> N
 
     Creates the normalized ``card_price_history_cell`` table — one tiny row per
     price cell ``(card, date, lane, variant, condition | grader, grade)`` — plus
-    its read indexes. Nothing writes or reads it yet, so this is purely additive:
-    fresh DBs and existing ones both get the empty table. Fully reversible
-    (``DROP TABLE card_price_history_cell``); the JSON columns on
-    ``card_price_history_daily`` are untouched and remain the source of truth.
+    its read indexes. The JSON columns on ``card_price_history_daily`` are
+    untouched and remain the source of truth.
+
+    CRASH-LOOP GUARD: only do this when the table is ABSENT (a fresh DB). NEVER
+    build indexes at startup on an existing table — a populated cell table's index
+    build can exceed the systemd service start timeout and crash-loop the backend
+    (this happened 2026-06-10). Backfills/migrations own indexing on an existing
+    table; this patch only bootstraps a fresh DB. Reversible via DROP TABLE.
     """
+    if _sqlite_table_exists(connection, "card_price_history_cell"):
+        return
     # Regular rowid table (NOT `WITHOUT ROWID`): inserts append to the rowid heap
     # regardless of arrival order, so the daily dual-write and the one-time backfill
     # never pay clustered-B-tree page-split costs that compound as the table grows.
