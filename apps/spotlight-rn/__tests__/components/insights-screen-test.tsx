@@ -5,6 +5,13 @@ import { InsightsScreen } from '@/features/insights/screens/insights-screen';
 
 import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
 
+// TransactionThumb (via 03fbbfd) calls useAuth; these screens render it without
+// an AuthProvider in the harness, so stub the hook to the no-token path.
+jest.mock('@/providers/auth-provider', () => ({
+  ...jest.requireActual('@/providers/auth-provider'),
+  useAuth: () => ({ accessToken: null }),
+}));
+
 const sampleInsights: TransactionInsights = {
   currencyCode: 'USD',
   thisMonth: {
