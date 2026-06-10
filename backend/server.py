@@ -2921,6 +2921,114 @@ class SpotlightScanService:
         )
         return convert_price_trend_list_with_fx(self.connection, trend_list)
 
+    @staticmethod
+    def _prettify_variant_key(variant_key: str) -> str:
+        s = str(variant_key or "").strip()
+        if not s:
+            return ""
+        spaced = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", s)
+        return spaced[:1].upper() + spaced[1:]
+
+    def card_condition_history(
+        self,
+        card_id: str,
+        *,
+        lane: str = "raw",
+        days: int = 365,
+    ) -> dict[str, Any] | None:
+        """Per-condition (raw) / per-grade (graded) price history for a card, read
+        straight from the normalized ``card_price_history_cell`` table — one series
+        per ``(variant, condition)`` (raw) or ``(grader, grade, variant)`` (graded),
+        each a date-ordered list of points. Read-only SQLite (honors
+        live-pricing-off); native currency, no FX (single-card view). Empty series
+        are omitted. Returns None if the card doesn't exist."""
+        if card_by_id(self.connection, card_id) is None:
+            return None
+        resolved_lane = "graded" if str(lane or "").strip().lower() == "graded" else "raw"
+        clamped_days = max(7, min(int(days), 365))
+        start_date = (datetime.now(timezone.utc).date() - timedelta(days=clamped_days)).isoformat()
+
+        if resolved_lane == "raw":
+            rows = self.connection.execute(
+                """
+                SELECT variant_key, condition, price_date, low, market, mid, high, currency_code
+                FROM card_price_history_cell
+                WHERE card_id = ? AND lane = 'raw' AND price_date >= ?
+                ORDER BY variant_key, condition, price_date, updated_at
+                """,
+                (card_id, start_date),
+            ).fetchall()
+        else:
+            rows = self.connection.execute(
+                """
+                SELECT grader, grade, variant_key, price_date, low, market, mid, high, currency_code
+                FROM card_price_history_cell
+                WHERE card_id = ? AND lane = 'graded' AND price_date >= ?
+                ORDER BY grader, grade, variant_key, price_date, updated_at
+                """,
+                (card_id, start_date),
+            ).fetchall()
+
+        series_map: dict[tuple[str, ...], dict[str, Any]] = {}
+        order: list[tuple[str, ...]] = []
+        currency_counts: dict[str, int] = {}
+        for r in rows:
+            if resolved_lane == "raw":
+                vk = str(r["variant_key"] or "")
+                cond = str(r["condition"] or "")
+                key = (vk, cond)
+                if key not in series_map:
+                    order.append(key)
+                    series_map[key] = {
+                        "key": f"{vk}|{cond}",
+                        "label": (f"{self._prettify_variant_key(vk)} · {cond}" if vk else cond),
+                        "variantKey": vk or None,
+                        "condition": cond or None,
+                        "grader": None,
+                        "grade": None,
+                        "points": [],
+                    }
+            else:
+                grader = str(r["grader"] or "")
+                grade = str(r["grade"] or "")
+                vk = str(r["variant_key"] or "")
+                key = (grader, grade, vk)
+                if key not in series_map:
+                    order.append(key)
+                    label = f"{grader} {grade}".strip()
+                    if vk:
+                        label = f"{label} · {self._prettify_variant_key(vk)}"
+                    series_map[key] = {
+                        "key": f"{grader}|{grade}|{vk}",
+                        "label": label,
+                        "variantKey": vk or None,
+                        "condition": None,
+                        "grader": grader or None,
+                        "grade": grade or None,
+                        "points": [],
+                    }
+            cc = str(r["currency_code"] or "")
+            if cc:
+                currency_counts[cc] = currency_counts.get(cc, 0) + 1
+            series_map[key]["points"].append(
+                {
+                    "date": r["price_date"],
+                    "market": r["market"],
+                    "low": r["low"],
+                    "mid": r["mid"],
+                    "high": r["high"],
+                }
+            )
+
+        currency_code = max(currency_counts, key=currency_counts.get) if currency_counts else "USD"
+        series = [series_map[k] for k in order if series_map[k]["points"]]
+        return {
+            "cardId": card_id,
+            "lane": resolved_lane,
+            "currencyCode": currency_code,
+            "series": series,
+        }
+
     def top_movers(
         self,
         *,
@@ -13481,6 +13589,33 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.NOT_FOUND, {"error": "Card not found"})
                 return
 
+            self._write_json(HTTPStatus.OK, payload)
+            return
+
+        if parsed.path.startswith("/api/v1/cards/") and parsed.path.endswith("/condition-history"):
+            card_id = unquote(
+                parsed.path.removeprefix("/api/v1/cards/").removesuffix("/condition-history").rstrip("/")
+            )
+            if not card_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+            query = parse_qs(parsed.query)
+            lane = (query.get("lane", ["raw"])[0] or "raw").strip().lower()
+            if lane not in {"raw", "graded"}:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "lane must be 'raw' or 'graded'"})
+                return
+            try:
+                days = int(query.get("days", ["365"])[0])
+            except ValueError:
+                days = 365
+            try:
+                payload = self.service.card_condition_history(card_id, lane=lane, days=days)
+            except Exception as error:
+                self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"Condition history failed: {error}"})
+                return
+            if payload is None:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Card not found"})
+                return
             self._write_json(HTTPStatus.OK, payload)
             return
 

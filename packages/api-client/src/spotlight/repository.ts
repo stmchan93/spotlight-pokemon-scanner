@@ -21,6 +21,11 @@ import type {
   CardDetailRecord,
   CardEbayListingRecord,
   CardEbayListingsRecord,
+  CardConditionHistory,
+  CardConditionHistoryLane,
+  CardConditionHistoryPoint,
+  CardConditionHistoryQuery,
+  CardConditionHistorySeries,
   CardMarketInsight,
   CardPriceTrendList,
   CardPriceTrendMode,
@@ -121,6 +126,7 @@ export interface SpotlightRepository {
     variant?: string | null;
   }): Promise<CardDetailRecord['marketHistory'] | null>;
   getCardPriceTrends(query: CardPriceTrendsQuery): Promise<CardPriceTrendList | null>;
+  getCardConditionHistory(query: CardConditionHistoryQuery): Promise<CardConditionHistory | null>;
   getRawPricingMatrix(cardId: string): Promise<RawPricingMatrix>;
   getCardEbayListings(query: CardDetailQuery & {
     limit?: number;
@@ -423,6 +429,31 @@ type CardPriceTrendListDTO = {
     points?: Array<number | null> | null;
     trendPct?: number | null;
   }> | null;
+};
+
+type CardConditionHistoryPointDTO = {
+  date?: string | null;
+  market?: number | null;
+  low?: number | null;
+  mid?: number | null;
+  high?: number | null;
+};
+
+type CardConditionHistorySeriesDTO = {
+  key?: string | null;
+  label?: string | null;
+  variantKey?: string | null;
+  condition?: string | null;
+  grader?: string | null;
+  grade?: string | null;
+  points?: Array<CardConditionHistoryPointDTO | null> | null;
+};
+
+type CardConditionHistoryDTO = {
+  cardId?: string | null;
+  lane?: string | null;
+  currencyCode?: string | null;
+  series?: Array<CardConditionHistorySeriesDTO | null> | null;
 };
 
 type CardFavoriteDTO = {
@@ -2113,6 +2144,66 @@ function buildCardPriceTrendList(
   return { mode, provider, rows };
 }
 
+function buildCardConditionHistory(
+  payload: CardConditionHistoryDTO | null | undefined,
+  requestedLane: CardConditionHistoryLane,
+): CardConditionHistory | null {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const lane: CardConditionHistoryLane = payload.lane === 'graded' || payload.lane === 'raw'
+    ? payload.lane
+    : requestedLane;
+  const currencyCode = normalizeCurrencyCode(payload.currencyCode);
+
+  const series: CardConditionHistorySeries[] = Array.isArray(payload.series)
+    ? payload.series.flatMap((entry) => {
+      const key = normalizeString(entry?.key);
+      const label = normalizeString(entry?.label);
+      if (!key || !label) {
+        return [];
+      }
+      const points: CardConditionHistoryPoint[] = Array.isArray(entry?.points)
+        ? entry.points.flatMap((point) => {
+          const date = normalizeString(point?.date);
+          if (!date) {
+            return [];
+          }
+          return [{
+            date,
+            market: normalizeNumber(point?.market),
+            low: normalizeNumber(point?.low),
+            mid: normalizeNumber(point?.mid),
+            high: normalizeNumber(point?.high),
+          }];
+        })
+        : [];
+      // The endpoint omits series with no points, but defend against a stray
+      // empty series so the selector never renders a chartless option.
+      if (points.length === 0) {
+        return [];
+      }
+      return [{
+        key,
+        label,
+        variantKey: normalizeString(entry?.variantKey),
+        condition: normalizeString(entry?.condition),
+        grader: normalizeString(entry?.grader),
+        grade: normalizeString(entry?.grade),
+        points,
+      }];
+    })
+    : [];
+
+  return {
+    cardId: normalizeString(payload.cardId) ?? '',
+    lane,
+    currencyCode,
+    series,
+  };
+}
+
 function buildCardEbayListingRecord(
   listing: EbayCompsTransactionDTO,
   fallbackCurrencyCode: string,
@@ -2536,6 +2627,37 @@ export class MockSpotlightRepository implements SpotlightRepository {
           trendPct: null,
         }));
     return { mode, provider, rows };
+  }
+
+  async getCardConditionHistory(query: CardConditionHistoryQuery): Promise<CardConditionHistory | null> {
+    const lane: CardConditionHistoryLane = query.lane === 'graded' ? 'graded' : 'raw';
+    const detail = getMockCardDetail(this.cardDetails, this.inventoryEntries, { cardId: query.cardId });
+    if (!detail) {
+      return null;
+    }
+    const currencyCode = detail.currencyCode ?? 'USD';
+    const history = detail.marketHistory;
+    const points: CardConditionHistoryPoint[] = (history?.points ?? []).map((point) => ({
+      date: point.isoDate,
+      market: point.value ?? null,
+      low: null,
+      mid: null,
+      high: null,
+    }));
+    // The mock only carries a raw market-history series; the graded lane has no
+    // synthetic source, so it returns no series (drives the empty state).
+    const series: CardConditionHistorySeries[] = lane === 'graded' || points.length === 0
+      ? []
+      : (history?.availableConditions ?? []).map((option) => ({
+        key: `normal|${option.id}`,
+        label: option.label ?? option.id,
+        variantKey: 'normal',
+        condition: option.id,
+        grader: null,
+        grade: null,
+        points,
+      }));
+    return { cardId: query.cardId, lane, currencyCode, series };
   }
 
   async getRawPricingMatrix(cardId: string): Promise<RawPricingMatrix> {
@@ -3928,6 +4050,25 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     }
 
     return buildCardPriceTrendList(response.data);
+  }
+
+  async getCardConditionHistory(query: CardConditionHistoryQuery): Promise<CardConditionHistory | null> {
+    const lane: CardConditionHistoryLane = query.lane === 'graded' ? 'graded' : 'raw';
+    const historyQuery = new URLSearchParams();
+    historyQuery.set('lane', lane);
+    historyQuery.set('days', String(Math.max(7, Math.min(query.days ?? 365, 365))));
+
+    const response = await this.requestJson<CardConditionHistoryDTO>(
+      `${this.baseUrl}/api/v1/cards/${encodeURIComponent(query.cardId)}/condition-history?${historyQuery.toString()}`,
+      undefined,
+      { allowNotFound: true },
+    );
+
+    if (response.kind !== 'success' || response.data === null) {
+      return null;
+    }
+
+    return buildCardConditionHistory(response.data, lane);
   }
 
   async getCardEbayListings(query: CardDetailQuery & {

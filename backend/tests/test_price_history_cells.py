@@ -18,7 +18,7 @@ from catalog_tools import (  # noqa: E402
     upsert_card,
     upsert_price_history_daily,
 )
-from server import _apply_price_history_cells_schema_patch  # noqa: E402
+from server import SpotlightScanService, _apply_price_history_cells_schema_patch  # noqa: E402
 
 
 class PriceHistoryCellDualWriteTests(unittest.TestCase):
@@ -131,6 +131,33 @@ class PriceHistoryCellDualWriteTests(unittest.TestCase):
         ).fetchone()
         self.assertIsNotNone(row)
         self.assertIn("holofoil", str(row["raw_contexts_json"]))
+
+    def test_card_condition_history_groups_cells_into_per_condition_series(self) -> None:
+        from datetime import date, timedelta
+
+        d1 = (date.today() - timedelta(days=3)).isoformat()
+        d2 = (date.today() - timedelta(days=1)).isoformat()
+        for d, mkt in ((d1, 15.0), (d2, 18.0)):
+            upsert_price_history_daily(
+                self.connection, card_id="c1", pricing_mode=RAW_PRICING_MODE,
+                provider="scrydex", price_date=d, currency_code="USD",
+                variant="Holofoil", condition="NM",
+                low_price=mkt - 1, market_price=mkt, mid_price=mkt, high_price=mkt + 1,
+                payload={"provider": "scrydex", "variantKey": "holofoil"},
+            )
+        self.connection.commit()
+
+        svc = SpotlightScanService(self.database_path, BACKEND_ROOT.parent)
+        payload = svc.card_condition_history("c1", lane="raw", days=365)
+        self.assertEqual(payload["lane"], "raw")
+        self.assertEqual(payload["currencyCode"], "USD")
+        nm = next(s for s in payload["series"] if s["condition"] == "NM" and s["variantKey"] == "holofoil")
+        self.assertEqual(nm["key"], "holofoil|NM")
+        self.assertEqual(nm["label"], "Holofoil · NM")
+        self.assertEqual(len(nm["points"]), 2)
+        self.assertEqual(nm["points"][-1]["market"], 18.0)
+        # unknown card -> None (so the route returns 404)
+        self.assertIsNone(svc.card_condition_history("nope", lane="raw"))
 
     def test_decompose_handles_multi_variant_graded_grade_list(self) -> None:
         # A graded grade can hold a list of entries (multiple variants); each

@@ -21,6 +21,7 @@ import {
 import { Button, IconButton, colors, useSpotlightTheme } from '@spotlight/design-system';
 import { NavArrowLeft, ShareIos } from 'iconoir-react-native';
 
+import { CardConditionHistorySection } from '@/features/cards/components/card-condition-history-section';
 import { CardConfigurator } from '@/features/cards/components/card-configurator';
 import { GradeConditionSheet } from '@/features/cards/components/grade-condition-sheet';
 import { CardDetailHero } from '@/features/cards/components/card-detail-hero';
@@ -650,6 +651,14 @@ export function CardDetailScreen({
             ) : null}
             <CardPriceTrendList list={priceTrends} testID="detail-price-trends" />
           </View>
+        ) : null}
+
+        {detail ? (
+          <CardConditionHistorySection
+            cardId={detail.cardId}
+            lane={isRawLane ? 'raw' : 'graded'}
+            testID="detail-condition-history"
+          />
         ) : null}
 
         {detail?.cardText ? (

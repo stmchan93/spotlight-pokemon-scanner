@@ -639,6 +639,51 @@ export type CardPriceTrendsQuery = {
   grader?: string | null;
 };
 
+// --- Price history by condition / grade ---
+// Raw lane: one series per (variant, condition), e.g. "Holofoil · NM".
+// Graded lane: one series per (grader, grade, variant), e.g. "PSA 10 · Holofoil".
+export type CardConditionHistoryLane = 'raw' | 'graded';
+
+export type CardConditionHistoryPoint = {
+  date: string;
+  market: number | null;
+  low: number | null;
+  mid: number | null;
+  high: number | null;
+};
+
+export type CardConditionHistorySeries = {
+  /** Stable key: "<variant>|<condition>" (raw) or "<grader>|<grade>|<variant>" (graded). */
+  key: string;
+  /** Display label, e.g. "Holofoil · NM" (raw) or "PSA 10 · Holofoil" (graded). */
+  label: string;
+  /** Raw lane variant key, e.g. "holofoil"; may be set on the graded lane too. */
+  variantKey: string | null;
+  /** Raw lane condition code, e.g. "NM"; null on the graded lane. */
+  condition: string | null;
+  /** Graded lane grader, e.g. "PSA"; null on the raw lane. */
+  grader: string | null;
+  /** Graded lane grade, e.g. "10"; null on the raw lane. */
+  grade: string | null;
+  /** Market-price history, oldest → newest. */
+  points: CardConditionHistoryPoint[];
+};
+
+export type CardConditionHistory = {
+  cardId: string;
+  /** Echoes the requested lane. */
+  lane: CardConditionHistoryLane;
+  currencyCode: string;
+  series: CardConditionHistorySeries[];
+};
+
+export type CardConditionHistoryQuery = {
+  cardId: string;
+  lane: CardConditionHistoryLane;
+  /** Lookback window in days; defaults to 365. */
+  days?: number;
+};
+
 export type InventoryEntriesQuery = {
   favoritesOnly?: boolean;
   includeInactive?: boolean;

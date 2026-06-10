@@ -1479,4 +1479,153 @@ describe('HttpSpotlightRepository', () => {
       expect(result.venmoHandle).toBe('stephen-chan');
     });
   });
+
+  describe('getCardConditionHistory', () => {
+    it('normalizes a raw lane response with two series', async () => {
+      const fetchMock = jest.fn().mockImplementation(async (url: string) => {
+        if (url.includes('/api/v1/cards/me3-120/condition-history')) {
+          return jsonResponse(200, {
+            cardId: 'me3-120',
+            lane: 'raw',
+            currencyCode: 'USD',
+            series: [
+              {
+                key: 'holofoil|NM',
+                label: 'Holofoil · NM',
+                variantKey: 'holofoil',
+                condition: 'NM',
+                grader: null,
+                grade: null,
+                points: [
+                  { date: '2026-04-16', market: 102.66, low: 99.0, mid: null, high: null },
+                  { date: '2026-04-17', market: 104.1, low: 100.0, mid: null, high: null },
+                ],
+              },
+              {
+                key: 'holofoil|LP',
+                label: 'Holofoil · LP',
+                variantKey: 'holofoil',
+                condition: 'LP',
+                grader: null,
+                grade: null,
+                points: [
+                  { date: '2026-04-16', market: 80.0, low: null, mid: null, high: null },
+                ],
+              },
+            ],
+          });
+        }
+
+        throw new Error(`Unexpected URL: ${url}`);
+      }) as typeof fetch;
+      global.fetch = fetchMock;
+
+      const repository = new HttpSpotlightRepository('http://example.test');
+      const history = await repository.getCardConditionHistory({
+        cardId: 'me3-120',
+        lane: 'raw',
+      });
+
+      const requestedUrl = new URL(String((fetchMock as jest.Mock).mock.calls[0]?.[0]));
+      expect(requestedUrl.pathname).toBe('/api/v1/cards/me3-120/condition-history');
+      expect(requestedUrl.searchParams.get('lane')).toBe('raw');
+      expect(requestedUrl.searchParams.get('days')).toBe('365');
+
+      expect(history).toMatchObject({ cardId: 'me3-120', lane: 'raw', currencyCode: 'USD' });
+      expect(history?.series).toHaveLength(2);
+      expect(history?.series[0]).toMatchObject({
+        key: 'holofoil|NM',
+        label: 'Holofoil · NM',
+        variantKey: 'holofoil',
+        condition: 'NM',
+        grader: null,
+        grade: null,
+      });
+      expect(history?.series[0].points[0]).toEqual({
+        date: '2026-04-16',
+        market: 102.66,
+        low: 99.0,
+        mid: null,
+        high: null,
+      });
+      expect(history?.series[1].key).toBe('holofoil|LP');
+    });
+
+    it('passes the graded lane and maps grader/grade onto each series', async () => {
+      const fetchMock = jest.fn().mockImplementation(async (url: string) => {
+        if (url.includes('/api/v1/cards/me3-120/condition-history')) {
+          return jsonResponse(200, {
+            cardId: 'me3-120',
+            lane: 'graded',
+            currencyCode: 'USD',
+            series: [
+              {
+                key: 'PSA|10|holofoil',
+                label: 'PSA 10 · Holofoil',
+                variantKey: 'holofoil',
+                condition: null,
+                grader: 'PSA',
+                grade: '10',
+                points: [{ date: '2026-04-16', market: 500.0, low: null, mid: null, high: null }],
+              },
+            ],
+          });
+        }
+
+        throw new Error(`Unexpected URL: ${url}`);
+      }) as typeof fetch;
+      global.fetch = fetchMock;
+
+      const repository = new HttpSpotlightRepository('http://example.test');
+      const history = await repository.getCardConditionHistory({
+        cardId: 'me3-120',
+        lane: 'graded',
+        days: 365,
+      });
+
+      const requestedUrl = new URL(String((fetchMock as jest.Mock).mock.calls[0]?.[0]));
+      expect(requestedUrl.searchParams.get('lane')).toBe('graded');
+      expect(history?.lane).toBe('graded');
+      expect(history?.series[0]).toMatchObject({
+        key: 'PSA|10|holofoil',
+        label: 'PSA 10 · Holofoil',
+        grader: 'PSA',
+        grade: '10',
+        condition: null,
+      });
+    });
+
+    it('returns null when the endpoint 404s so the UI can show its empty state', async () => {
+      const fetchMock = jest.fn().mockResolvedValue(jsonResponse(404, { error: 'missing' })) as typeof fetch;
+      global.fetch = fetchMock;
+
+      const repository = new HttpSpotlightRepository('http://example.test');
+      const history = await repository.getCardConditionHistory({
+        cardId: 'me3-120',
+        lane: 'raw',
+      });
+
+      expect(history).toBeNull();
+    });
+
+    it('drops series that carry no points', async () => {
+      const fetchMock = jest.fn().mockResolvedValue(jsonResponse(200, {
+        cardId: 'me3-120',
+        lane: 'raw',
+        currencyCode: 'USD',
+        series: [
+          { key: 'holofoil|NM', label: 'Holofoil · NM', points: [] },
+        ],
+      })) as typeof fetch;
+      global.fetch = fetchMock;
+
+      const repository = new HttpSpotlightRepository('http://example.test');
+      const history = await repository.getCardConditionHistory({
+        cardId: 'me3-120',
+        lane: 'raw',
+      });
+
+      expect(history?.series).toEqual([]);
+    });
+  });
 });
