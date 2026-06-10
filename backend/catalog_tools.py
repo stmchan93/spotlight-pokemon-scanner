@@ -3860,6 +3860,108 @@ def price_history_cells_from_contexts(
     return list(cells.values())
 
 
+def reconstruct_raw_contexts_from_cells(
+    connection: sqlite3.Connection,
+    card_id: str,
+    price_date: str,
+) -> dict[str, Any]:
+    """Rebuild the raw-lane ``{"variants": {...}}`` context dict from the stored
+    ``card_price_history_cell`` rows for one ``(card_id, price_date)``.
+
+    This is the JSON-free replacement for reading ``raw_contexts_json`` when the
+    writer needs the *existing* raw lane in order to lane-merge (e.g. a graded-only
+    update that must preserve existing raw cells). Each cell becomes
+    ``variants[<variant_key>] -> {variant, variantKey, conditions[<cond>] -> {prices}}``.
+
+    Crucially the variants dict is keyed by ``variant_key`` AND each entry's
+    ``variant``/``variantKey`` are set to the same ``variant_key`` so that
+    re-decomposing through ``price_history_cells_from_contexts`` reproduces the
+    *identical* cell rows (the dual-write decomposition reads ``variantKey``).
+    Only the fields cells persist are emitted (no ``payload``/``trendsPct``/source),
+    which is exactly what the cell-backed default-raw + dual-write computations use.
+    """
+    rows = price_history_cell_rows_for_day(
+        connection, card_id=card_id, price_date=price_date, lane="raw"
+    )
+    variants: dict[str, Any] = {}
+    for row in rows:
+        variant_key = str(_cell_field(row, "variant_key") or "")
+        condition = str(_cell_field(row, "condition") or "")
+        # Key the variants dict by the *label* (as the original JSON did) so the
+        # default-raw resolver (_default_raw_field_values -> _raw_context_entry,
+        # which looks up via _normalized_variant_label) resolves identically to the
+        # JSON path. Keep ``variantKey`` = the cell's lowercase key so the
+        # dual-write decomposition (which reads ``variantKey``) reproduces the
+        # identical cell rows.
+        variant_label = _normalized_variant_label(variant_key)
+        bucket = variants.get(variant_label)
+        if bucket is None:
+            bucket = {
+                "variant": variant_label,
+                "variantKey": variant_key,
+                "conditions": {},
+            }
+            variants[variant_label] = bucket
+        bucket["conditions"][condition] = {
+            "currencyCode": _cell_field(row, "currency_code"),
+            "low": _coerce_price_float(_cell_field(row, "low")),
+            "market": _coerce_price_float(_cell_field(row, "market")),
+            "mid": _coerce_price_float(_cell_field(row, "mid")),
+            "high": _coerce_price_float(_cell_field(row, "high")),
+            "directLow": _coerce_price_float(_cell_field(row, "direct_low")),
+            "trend": _coerce_price_float(_cell_field(row, "trend")),
+        }
+    return {"variants": variants}
+
+
+def reconstruct_graded_contexts_from_cells(
+    connection: sqlite3.Connection,
+    card_id: str,
+    price_date: str,
+) -> dict[str, Any]:
+    """Rebuild the graded-lane ``{"graders": {...}}`` context dict from the stored
+    ``card_price_history_cell`` rows for one ``(card_id, price_date)``.
+
+    JSON-free replacement for reading ``graded_contexts_json`` during a lane-merge.
+    Shape: ``graders[<grader>] -> {<grade> -> [ {grader, grade, variant, variantKey,
+    isPerfect, isSigned, isError, prices} ]}`` (a list, since one grade can hold
+    multiple variants). Both ``variant`` and ``variantKey`` are set to the cell's
+    ``variant_key`` so re-decomposition reproduces the identical cells.
+    """
+    rows = price_history_cell_rows_for_day(
+        connection, card_id=card_id, price_date=price_date, lane="graded"
+    )
+    graders: dict[str, Any] = {}
+    for row in rows:
+        grader = str(_cell_field(row, "grader") or "")
+        grade = str(_cell_field(row, "grade") or "")
+        variant_key = str(_cell_field(row, "variant_key") or "")
+        grade_map = graders.setdefault(grader, {})
+        entries = grade_map.setdefault(grade, [])
+        entries.append(
+            {
+                "grader": grader,
+                "grade": grade,
+                # ``variant`` is the label (graded resolution compares via
+                # _normalized_variant_label) and ``variantKey`` stays the cell's
+                # lowercase key so re-decomposition reproduces identical cells.
+                "variant": _normalized_variant_label(variant_key),
+                "variantKey": variant_key,
+                "isPerfect": bool(_cell_field(row, "is_perfect")),
+                "isSigned": bool(_cell_field(row, "is_signed")),
+                "isError": bool(_cell_field(row, "is_error")),
+                "currencyCode": _cell_field(row, "currency_code"),
+                "low": _coerce_price_float(_cell_field(row, "low")),
+                "market": _coerce_price_float(_cell_field(row, "market")),
+                "mid": _coerce_price_float(_cell_field(row, "mid")),
+                "high": _coerce_price_float(_cell_field(row, "high")),
+                "directLow": _coerce_price_float(_cell_field(row, "direct_low")),
+                "trend": _coerce_price_float(_cell_field(row, "trend")),
+            }
+        )
+    return {"graders": graders}
+
+
 def replace_price_history_cells(
     connection: sqlite3.Connection,
     *,
@@ -3949,8 +4051,33 @@ def upsert_price_history_daily(
         """,
         (card_id, price_date),
     ).fetchone()
-    merged_raw_contexts = _raw_contexts_payload(existing_row["raw_contexts_json"] if existing_row is not None else None)
-    merged_graded_contexts = _graded_contexts_payload(existing_row["graded_contexts_json"] if existing_row is not None else None)
+
+    # Phase 5: detect whether the legacy JSON columns are still present on the
+    # daily table. After the slim-table swap they are gone, so the write must
+    # omit them AND the merge must source the existing lanes from the normalized
+    # cell table instead of the (absent) JSON blobs. We also prefer cells whenever
+    # the Phase-4 cells read source is active, so the merge is JSON-free in
+    # cells-mode even before the columns are physically dropped. The JSON-reading
+    # path is kept for json-mode/back-compat on a table that still has the blobs.
+    daily_columns = _table_columns(connection, "card_price_history_daily")
+    has_raw_json_column = "raw_contexts_json" in daily_columns
+    has_graded_json_column = "graded_contexts_json" in daily_columns
+    has_source_url_column = "source_url" in daily_columns
+    has_source_payload_column = "source_payload_json" in daily_columns
+    cells_table_present = _table_exists(connection, "card_price_history_cell")
+    source_existing_from_cells = cells_table_present and (
+        price_history_cells_enabled() or not has_raw_json_column or not has_graded_json_column
+    )
+
+    if source_existing_from_cells and existing_row is not None:
+        merged_raw_contexts = reconstruct_raw_contexts_from_cells(connection, card_id, price_date)
+        merged_graded_contexts = reconstruct_graded_contexts_from_cells(connection, card_id, price_date)
+    elif existing_row is not None and has_raw_json_column and has_graded_json_column:
+        merged_raw_contexts = _raw_contexts_payload(existing_row["raw_contexts_json"])
+        merged_graded_contexts = _graded_contexts_payload(existing_row["graded_contexts_json"])
+    else:
+        merged_raw_contexts = _raw_contexts_payload(None)
+        merged_graded_contexts = _graded_contexts_payload(None)
 
     if raw_contexts is not None:
         merged_raw_contexts = _raw_contexts_payload(json.dumps(raw_contexts))
@@ -4007,53 +4134,59 @@ def upsert_price_history_daily(
         )
         or "USD"
     )
+    # Build the column list dynamically so the same writer works BEFORE and AFTER
+    # the Phase-5 slim-table swap that drops the 4 JSON columns. The default_raw_*
+    # values and the dual-write cells below are identical either way — the only
+    # difference is whether the now-redundant JSON blobs are written.
+    insert_columns: list[str] = [
+        "card_id", "provider", "price_date", "display_currency_code",
+        "default_raw_variant", "default_raw_condition",
+        "default_raw_low_price", "default_raw_market_price", "default_raw_mid_price", "default_raw_high_price",
+        "default_raw_direct_low_price", "default_raw_trend_price",
+    ]
+    insert_values: list[Any] = [
+        card_id,
+        resolved_provider,
+        price_date,
+        resolved_currency_code,
+        default_raw_variant or default_fields["defaultRawVariant"],
+        default_raw_condition or default_fields["defaultRawCondition"],
+        default_raw_low_price if default_raw_low_price is not None else default_fields["defaultRawLowPrice"],
+        default_raw_market_price if default_raw_market_price is not None else default_fields["defaultRawMarketPrice"],
+        default_raw_mid_price if default_raw_mid_price is not None else default_fields["defaultRawMidPrice"],
+        default_raw_high_price if default_raw_high_price is not None else default_fields["defaultRawHighPrice"],
+        default_raw_direct_low_price if default_raw_direct_low_price is not None else default_fields["defaultRawDirectLowPrice"],
+        default_raw_trend_price if default_raw_trend_price is not None else default_fields["defaultRawTrendPrice"],
+    ]
+    if has_raw_json_column:
+        insert_columns.append("raw_contexts_json")
+        insert_values.append(json.dumps(merged_raw_contexts))
+    if has_graded_json_column:
+        insert_columns.append("graded_contexts_json")
+        insert_values.append(json.dumps(merged_graded_contexts))
+    if has_source_url_column:
+        insert_columns.append("source_url")
+        insert_values.append(source_url)
+    if has_source_payload_column:
+        insert_columns.append("source_payload_json")
+        insert_values.append(json.dumps(payload or {}))
+    insert_columns.append("updated_at")
+    insert_values.append(utc_now())
+
+    # Every non-PK column gets a DO UPDATE SET clause so an existing row is
+    # overwritten (mirrors the previous static UPSERT). card_id/price_date are the
+    # PK conflict target and are excluded from the SET list.
+    update_columns = [c for c in insert_columns if c not in ("card_id", "price_date")]
+    set_clause = ", ".join(f"{c}=excluded.{c}" for c in update_columns)
+    placeholders = ", ".join(["?"] * len(insert_columns))
     connection.execute(
-        """
-        INSERT INTO card_price_history_daily (
-            card_id, provider, price_date, display_currency_code,
-            default_raw_variant, default_raw_condition,
-            default_raw_low_price, default_raw_market_price, default_raw_mid_price, default_raw_high_price,
-            default_raw_direct_low_price, default_raw_trend_price,
-            raw_contexts_json, graded_contexts_json,
-            source_url, source_payload_json, updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        f"""
+        INSERT INTO card_price_history_daily ({", ".join(insert_columns)})
+        VALUES ({placeholders})
         ON CONFLICT(card_id, price_date) DO UPDATE SET
-            provider=excluded.provider,
-            display_currency_code=excluded.display_currency_code,
-            default_raw_variant=excluded.default_raw_variant,
-            default_raw_condition=excluded.default_raw_condition,
-            default_raw_low_price=excluded.default_raw_low_price,
-            default_raw_market_price=excluded.default_raw_market_price,
-            default_raw_mid_price=excluded.default_raw_mid_price,
-            default_raw_high_price=excluded.default_raw_high_price,
-            default_raw_direct_low_price=excluded.default_raw_direct_low_price,
-            default_raw_trend_price=excluded.default_raw_trend_price,
-            raw_contexts_json=excluded.raw_contexts_json,
-            graded_contexts_json=excluded.graded_contexts_json,
-            source_url=excluded.source_url,
-            source_payload_json=excluded.source_payload_json,
-            updated_at=excluded.updated_at
+            {set_clause}
         """,
-        (
-            card_id,
-            resolved_provider,
-            price_date,
-            resolved_currency_code,
-            default_raw_variant or default_fields["defaultRawVariant"],
-            default_raw_condition or default_fields["defaultRawCondition"],
-            default_raw_low_price if default_raw_low_price is not None else default_fields["defaultRawLowPrice"],
-            default_raw_market_price if default_raw_market_price is not None else default_fields["defaultRawMarketPrice"],
-            default_raw_mid_price if default_raw_mid_price is not None else default_fields["defaultRawMidPrice"],
-            default_raw_high_price if default_raw_high_price is not None else default_fields["defaultRawHighPrice"],
-            default_raw_direct_low_price if default_raw_direct_low_price is not None else default_fields["defaultRawDirectLowPrice"],
-            default_raw_trend_price if default_raw_trend_price is not None else default_fields["defaultRawTrendPrice"],
-            json.dumps(merged_raw_contexts),
-            json.dumps(merged_graded_contexts),
-            source_url,
-            json.dumps(payload or {}),
-            utc_now(),
-        ),
+        insert_values,
     )
 
     # Phase 2 dual-write: keep the normalized cell table in lockstep with the
