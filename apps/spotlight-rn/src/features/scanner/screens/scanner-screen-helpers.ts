@@ -1,5 +1,12 @@
 import { Platform, Vibration } from 'react-native';
 
+// Static import (matches the working portfolio-chart scrub haptic). The previous
+// lazy `await import('expo-haptics')` added first-call latency and obscured
+// failures. NOTE: expo-haptics is a NATIVE module — if it isn't compiled into
+// the installed binary, `impactAsync`/`notificationAsync` throw at runtime and
+// no JS change or OTA can fix it; only a fresh native build links it.
+import * as Haptics from 'expo-haptics';
+
 import {
   isSpotlightRepositoryRequestError,
   type CatalogSearchResult,
@@ -454,10 +461,14 @@ export async function triggerScannerHaptic() {
   }
 
   try {
-    const Haptics = await import('expo-haptics');
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  } catch {
-    if (Platform.OS !== 'web') {
+  } catch (error) {
+    // Most likely the native ExpoHaptics module isn't in this binary. Surface it
+    // instead of silently degrading — that silence is why past JS-only "fixes"
+    // looked like they did nothing. Android still gets a basic vibration;
+    // iOS Vibration with a ms duration is a no-op, so don't pretend otherwise.
+    console.warn('[scanner] capture haptic unavailable (native module missing?)', error);
+    if (Platform.OS === 'android') {
       Vibration.vibrate(10);
     }
   }
@@ -485,14 +496,14 @@ export async function triggerScannerProcessedHaptic(outcome: 'found' | 'done' = 
   lastProcessedHapticAt = now;
 
   try {
-    const Haptics = await import('expo-haptics');
     if (outcome === 'found') {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } else {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
-  } catch {
-    if (Platform.OS !== 'web') {
+  } catch (error) {
+    console.warn('[scanner] result haptic unavailable (native module missing?)', error);
+    if (Platform.OS === 'android') {
       Vibration.vibrate(outcome === 'found' ? [0, 30, 60, 30] : 10);
     }
   }
