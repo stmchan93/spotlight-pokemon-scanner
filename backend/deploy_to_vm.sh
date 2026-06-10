@@ -374,6 +374,10 @@ ExecStart=$SCRIPT_DIR/run_backend_vm.sh
 ExecStartPost=$SCRIPT_DIR/run_vm_prewarm_visual.sh
 Restart=always
 RestartSec=5
+# The visual model cold-loads from disk at startup; on a slow disk this can take
+# minutes. Keep the start timeout well above that so a slow cold-load can't trip a
+# crash-loop (systemd killing it at the timeout, restarting, re-reading cold). 2026-06-10.
+TimeoutStartSec=300
 
 [Install]
 WantedBy=multi-user.target
