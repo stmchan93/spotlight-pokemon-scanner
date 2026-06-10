@@ -3246,6 +3246,16 @@ class SpotlightScanService:
         include_raw_json: bool = True,
         include_graded_json: bool = True,
     ) -> dict[str, list[sqlite3.Row]]:
+        # When the cell table is the price-history source, the per-day resolver
+        # (_portfolio_history_price_row_from_history_row) reads every price from
+        # cells and never touches these JSON blobs — so reading them is pure dead
+        # weight: ~500MB+ of overflow-page I/O per dashboard refresh on a large
+        # portfolio, which is what makes the cold-cache dashboard read time out.
+        # Skip them; the NULL-aliased columns keep the row shape (and the
+        # resolver) unchanged, so cells-mode output is byte-identical.
+        if price_history_cells_enabled():
+            include_raw_json = False
+            include_graded_json = False
         rows_by_card_id: dict[str, list[sqlite3.Row]] = {}
         ordered_card_ids = sorted(card_id for card_id in card_ids if str(card_id or "").strip())
         select_columns = self._portfolio_history_select_columns(
@@ -3344,13 +3354,24 @@ class SpotlightScanService:
             return {}
         time_zone = self._portfolio_time_zone(time_zone_name)
         today_iso = datetime.now(time_zone).date().isoformat()
+        # Same JSON-blob avoidance as _portfolio_history_rows_by_card_id: in cells
+        # mode the resolver reads prices from cells, so project the JSON columns to
+        # NULL instead of paying for their overflow pages. JSON mode keeps SELECT *
+        # so its row shape is byte-identical to before.
+        select_columns = (
+            self._portfolio_history_select_columns(
+                include_raw_json=False, include_graded_json=False
+            )
+            if price_history_cells_enabled()
+            else "*"
+        )
         result: dict[str, sqlite3.Row | None] = {}
         for start in range(0, len(normalized_ids), 400):
             chunk = normalized_ids[start:start + 400]
             placeholders = ",".join("?" for _ in chunk)
             rows = self.connection.execute(
                 f"""
-                SELECT *
+                SELECT {select_columns}
                 FROM card_price_history_daily
                 WHERE provider = ?
                   AND price_date < ?
