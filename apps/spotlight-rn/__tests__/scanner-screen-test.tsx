@@ -1,7 +1,7 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import Constants from 'expo-constants';
 import type { ComponentProps } from 'react';
-import { Keyboard, LayoutAnimation, StyleSheet } from 'react-native';
+import { AppState, Keyboard, LayoutAnimation, StyleSheet } from 'react-native';
 
 import { TabsPageContext } from '@/contexts/tabs-page-context';
 import { rawScannerTrayEmptyPeekHeight } from '@/features/scanner/raw-scanner-capture-surface';
@@ -196,6 +196,43 @@ describe('ScannerScreen', () => {
     expect(screen.queryByTestId('scanner-camera-fallback')).toBeNull();
     expect(screen.queryByTestId('scanner-permission-card')).toBeNull();
     expect(screen.queryByText('Camera access needed')).toBeNull();
+  });
+
+  it('pauses the capture session while backgrounded and restores it on foreground', async () => {
+    // Regression guard for the "app is stuck after it sits idle" bug: when the OS
+    // backgrounds/locks the app, the camera session must pause (so it cleanly
+    // restarts on return) and the capture button must hide; coming back to the
+    // foreground must re-arm capture. Before the AppState wiring, the session was
+    // never told to stop, so the preview returned frozen and capture stayed dead.
+    const addEventListenerSpy = jest.spyOn(AppState, 'addEventListener');
+    renderScannerScreen();
+    await waitForScannerReady();
+    expect(screen.getByTestId('scanner-preview')).toBeTruthy();
+
+    const changeHandlers = addEventListenerSpy.mock.calls
+      .filter(([eventType]) => eventType === 'change')
+      .map(([, handler]) => handler as (state: string) => void);
+    expect(changeHandlers.length).toBeGreaterThan(0);
+
+    const emitAppState = (state: string) => {
+      act(() => {
+        changeHandlers.forEach((handler) => handler(state));
+      });
+    };
+
+    emitAppState('background');
+    // The <Camera> stays mounted (no remount thrash), but isActive/capture pause:
+    // the reticle capture button is gone because shouldMountCamera went false.
+    expect(screen.getByTestId('scanner-camera')).toBeTruthy();
+    expect(screen.queryByTestId('scanner-preview')).toBeNull();
+
+    // Returning to the foreground re-activates the session (shouldMountCamera true)
+    // so the capture surface comes back. In the real app the native session
+    // restart re-fires onStarted to re-arm the capture gate.
+    emitAppState('active');
+    expect(screen.getByTestId('scanner-preview')).toBeTruthy();
+
+    addEventListenerSpy.mockRestore();
   });
 
   it('resets top-level swipe handling to enabled on unmount', () => {

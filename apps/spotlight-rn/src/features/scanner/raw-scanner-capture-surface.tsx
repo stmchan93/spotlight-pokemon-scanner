@@ -74,7 +74,9 @@ type RawScannerCaptureSurfaceProps = {
   hasCameraPermission: boolean;
   isTrayExpanded?: boolean;
   layout: RawScannerCaptureLayout;
+  onCameraError?: (error: unknown) => void;
   onCameraReady: () => void;
+  onCameraStopped?: () => void;
   onCapture: () => void;
   prompt: string;
   shouldMountCamera: boolean;
@@ -152,7 +154,9 @@ export function RawScannerCaptureSurface({
   hasCameraPermission,
   isTrayExpanded = false,
   layout,
+  onCameraError,
   onCameraReady,
+  onCameraStopped,
   onCapture,
   prompt,
   shouldMountCamera,
@@ -227,9 +231,31 @@ export function RawScannerCaptureSurface({
         }
 
         const photo = await photoOutput.capturePhoto(
-          { flashMode: 'off', enableShutterSound: false },
+          {
+            flashMode: 'off',
+            enableShutterSound: false,
+            // Align the captured still's field-of-view to the live preview. The
+            // session enables lens distortion correction by default on iOS (a
+            // slightly NARROWER FOV with the edges trimmed), but photo capture
+            // defaults it OFF — so the still came out WIDER than what the user
+            // framed in the reticle, pulling in the cards around the target and
+            // matching the wrong one. Correcting the still too makes the captured
+            // frame match the preview. (Zoom is a device-level property and
+            // already applies to the still; this closes the remaining FOV gap.)
+            enableDistortionCorrection: true,
+          },
           {},
         );
+        // Dev-only: confirm on-device that the captured FOV now matches the
+        // preview. Compare these dims/zoom against what the reticle framed; the
+        // normalized crop should contain only the target card. Remove once
+        // validated on a build.
+        if (__DEV__) {
+          console.info(
+            `[SCANNER CAPTURE] photo=${photo.width}x${photo.height} ` +
+              `appliedZoom=${zoom.toFixed(3)} zoomFactor=${zoomFactor}`,
+          );
+        }
         try {
           const path = await photo.saveToTemporaryFileAsync();
           const uri = path.startsWith('file://') ? path : `file://${path}`;
@@ -252,7 +278,7 @@ export function RawScannerCaptureSurface({
         }
       },
     }),
-    [photoOutput],
+    [photoOutput, zoom, zoomFactor],
   );
 
   // Keep the <Camera> MOUNTED whenever we have a device + permission, and let
@@ -270,7 +296,9 @@ export function RawScannerCaptureSurface({
         <Camera
           device={device}
           isActive={shouldMountCamera}
+          onError={onCameraError}
           onStarted={onCameraReady}
+          onStopped={onCameraStopped}
           // Orient captures to the UI (locked to portrait) rather than the physical
           // device sensor. The default 'device' source rotates output with phone tilt
           // even under screen lock, which let a transitional orientation slip a sideways

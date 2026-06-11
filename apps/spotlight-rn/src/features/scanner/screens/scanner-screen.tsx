@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  AppState,
   Image,
   LayoutAnimation,
   Linking,
@@ -266,6 +267,13 @@ export function ScannerScreen({
   const { hasPermission, requestPermission } = useCameraPermission();
   const [isCameraReady, setIsCameraReady] = useState(isTestEnv);
   const [isCapturing, setIsCapturing] = useState(false);
+  // Whether the app is in the foreground. vision-camera's session is interrupted
+  // by the OS on screen-lock/background; without driving `isActive` off this, the
+  // session is never told to stop+restart and the preview returns frozen while the
+  // capture gate (re-armed only by `onStarted`) stays disabled — the "app is stuck
+  // after it sits idle" bug. Starts true (the app is foregrounded on mount); the
+  // listener below keeps it in sync.
+  const [isForeground, setIsForeground] = useState(true);
   const [inventoryEntries, setInventoryEntries] = useState<InventoryCardEntry[]>([]);
   const [recentCaptures, setRecentCaptures] = useState<RecentCapture[]>([]);
   // Mirrors `recentCaptures` so the unmount flush reads the latest tray without
@@ -361,7 +369,7 @@ export function ScannerScreen({
     y: captureSurfaceLayout.reticle.y,
   };
   const hasCameraPermission = hasPermission;
-  const shouldMountCamera = hasCameraPermission && isActiveTab;
+  const shouldMountCamera = hasCameraPermission && isActiveTab && isForeground;
   const scannerSmokeEnabled = resolveStagingSmokeModeEnabled({ allowDevelopment: true });
   const canCapture = shouldMountCamera
     && isCameraReady
@@ -486,6 +494,28 @@ export function ScannerScreen({
       setIsCapturing(false);
     }
   }, [isActiveTab]);
+
+  // Drive the camera off app foreground/background. On background we drop
+  // `isForeground` (so `shouldMountCamera`/`isActive` go false and vision-camera
+  // tears the session down cleanly) and reset the transient gates; on return to
+  // foreground the session restarts and `onStarted` re-arms `isCameraReady`. We
+  // also clear `isCapturing` so a capture interrupted mid-flight by backgrounding
+  // can't wedge the gate. Without this the OS interruption leaves the scanner
+  // frozen and unresponsive after the app sits idle.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      const nextIsForeground = nextAppState === 'active';
+      setIsForeground(nextIsForeground);
+      setIsCapturing(false);
+      if (!nextIsForeground) {
+        setIsCameraReady(false);
+      }
+    });
+
+    return () => {
+      subscription?.remove?.();
+    };
+  }, []);
 
   const commitTrayExpandedState = useCallback((nextExpanded: boolean) => {
     setIsTrayExpanded((current) => {
@@ -1967,9 +1997,22 @@ export function ScannerScreen({
         hasCameraPermission={hasCameraPermission}
         isTrayExpanded={isTrayExpanded}
         layout={captureSurfaceLayout}
+        onCameraError={() => {
+          // A session error (e.g. an unrecoverable interruption) — drop the gate
+          // so the UI reflects the dead session instead of a stuck-enabled button.
+          setIsCameraReady(false);
+          setIsCapturing(false);
+        }}
         onCameraReady={() => {
           if (!isTestEnv) {
             setIsCameraReady(true);
+          }
+        }}
+        onCameraStopped={() => {
+          // The session stopped (backgrounded / paged away). Re-arming happens via
+          // onCameraReady when it restarts; keep the gate closed until then.
+          if (!isTestEnv) {
+            setIsCameraReady(false);
           }
         }}
         onCapture={() => {
