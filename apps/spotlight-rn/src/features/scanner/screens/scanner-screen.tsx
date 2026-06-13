@@ -316,7 +316,6 @@ export function ScannerScreen({
   const [openActionRailKeys, setOpenActionRailKeys] = useState<Record<string, true>>({});
   const [isTrayExpanded, setIsTrayExpanded] = useState(false);
   const [isAddAllOpen, setIsAddAllOpen] = useState(false);
-  const [isAddingAll, setIsAddingAll] = useState(false);
   const { cardType, setCardType } = useScannerTargetConfig();
   const [zoomFactor, setZoomFactor] = useScannerZoomFactor();
   const [isScanTargetSheetOpen, setIsScanTargetSheetOpen] = useState(false);
@@ -2444,10 +2443,9 @@ export function ScannerScreen({
       })()}
 
       <AddAllConfirmModal
-        isSubmitting={isAddingAll}
         itemCount={recentCaptures.length}
         onCancel={() => setIsAddAllOpen(false)}
-        onConfirm={() => { void handleAddAll(); }}
+        onConfirm={handleAddAll}
         visible={isAddAllOpen}
       />
 
