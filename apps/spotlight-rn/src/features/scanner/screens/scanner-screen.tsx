@@ -15,7 +15,6 @@ import {
   Image,
   LayoutAnimation,
   Linking,
-  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -26,6 +25,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useCameraPermission } from 'react-native-vision-camera';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -47,10 +47,6 @@ import {
 } from '@spotlight/design-system';
 
 import { useTabsPage } from '@/contexts/tabs-page-context';
-import {
-  shouldSetRecentCaptureTrayShellResponder,
-  shouldSetRecentCaptureTrayVerticalResponder,
-} from '@/features/scanner/recent-capture-tray-gesture';
 import {
   saveScanCandidateReviewSession,
   type ScanSourceImageCrop,
@@ -179,7 +175,9 @@ function buildInventoryEntryArgs(
 // rows in the expanded tray, so the section stays reachable by scroll.
 const trayClearSectionHeight = 104;
 const traySwipeThreshold = 20;
-const trayVelocityThreshold = 0.22;
+// Fling velocity that commits an expand/collapse. gesture-handler reports
+// velocity in px/s, so this is the px/s equivalent of the old ~0.22 px/ms.
+const trayFlingVelocity = 220;
 const trayHeaderHitSlop = { bottom: 10, left: 12, right: 12, top: 12 } as const;
 const scannerTrayLayoutAnimation = {
   create: {
@@ -326,7 +324,6 @@ export function ScannerScreen({
   const hasFocusedScannerRef = useRef(false);
   const hasPromptedForPermissionRef = useRef(false);
   const cameraRef = useRef<RawScannerCameraHandle | null>(null);
-  const trayGestureCommittedRef = useRef(false);
   const trayScrollOffsetYRef = useRef(0);
   const trayScrollRef = useRef<ScrollView>(null);
   // True only while the tray is animating closed. During that window the
@@ -501,8 +498,6 @@ export function ScannerScreen({
   }, [isTopLevelSwipeEnabled, onTopLevelSwipeEnabledChange]);
 
   useFocusEffect(useCallback(() => {
-    trayGestureCommittedRef.current = false;
-
     if (hasFocusedScannerRef.current) {
       setIsCameraReady(false);
       setIsCapturing(false);
@@ -511,7 +506,6 @@ export function ScannerScreen({
     }
 
     return () => {
-      trayGestureCommittedRef.current = false;
       setIsCameraReady(false);
       setIsCapturing(false);
     };
@@ -1852,121 +1846,48 @@ export function ScannerScreen({
     router.push('/catalog/search');
   }, [router]);
 
-  const trayHeaderPanResponder = useMemo(() => PanResponder.create({
-    onMoveShouldSetPanResponder: (_, gestureState) =>
-      shouldSetRecentCaptureTrayVerticalResponder(gestureState),
-    onPanResponderGrant: () => {
-      trayGestureCommittedRef.current = false;
-    },
-    onPanResponderMove: (_, gestureState) => {
-      if (trayGestureCommittedRef.current) {
-        return;
-      }
+  // The inner scroll list participates in the gesture arena so the tray pan and
+  // the list scroll resolve together (swipe down at the top collapses; once
+  // scrolled, the same drag scrolls the list instead of collapsing).
+  const trayScrollNativeGesture = useMemo(() => Gesture.Native(), []);
+  // Scroll offset captured when a tray drag begins — collapse only fires when
+  // the list was already at the top at the start (so a scroll-to-top drag
+  // doesn't also collapse the tray).
+  const trayGestureStartScrollOffsetRef = useRef(0);
 
-      const shouldExpand = canToggleTray
-        && !isTrayExpanded
-        && gestureState.dy <= -traySwipeThreshold;
-      const shouldCollapse = isTrayExpanded
-        && gestureState.dy >= traySwipeThreshold;
+  // Vertical swipe to expand/collapse the tray. Lives in gesture-handler (not a
+  // JS PanResponder) so it shares one arena with the row swipe-to-action
+  // Swipeables; otherwise the native row recognizers swallow the vertical drag.
+  // `activeOffsetY` keeps it off horizontal row swipes; `failOffsetX` yields to
+  // them outright. Disabled while a row action rail is open (`isTopLevelSwipe`).
+  const trayPanGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .enabled(canToggleTray && isTopLevelSwipeEnabled)
+        .activeOffsetY([-10, 10])
+        .failOffsetX([-16, 16])
+        .simultaneousWithExternalGesture(trayScrollNativeGesture)
+        .onBegin(() => {
+          trayGestureStartScrollOffsetRef.current = trayScrollOffsetYRef.current;
+        })
+        .onEnd((event) => {
+          const { translationY, velocityY } = event;
+          const shouldExpand =
+            !isTrayExpanded
+            && (translationY <= -traySwipeThreshold || velocityY <= -trayFlingVelocity);
+          const shouldCollapse =
+            isTrayExpanded
+            && trayGestureStartScrollOffsetRef.current <= 0
+            && (translationY >= traySwipeThreshold || velocityY >= trayFlingVelocity);
 
-      if (shouldExpand) {
-        trayGestureCommittedRef.current = true;
-        commitTrayExpandedState(true);
-        return;
-      }
-
-      if (shouldCollapse) {
-        trayGestureCommittedRef.current = true;
-        commitTrayExpandedState(false);
-      }
-    },
-    onPanResponderRelease: (_, gestureState) => {
-      if (trayGestureCommittedRef.current) {
-        trayGestureCommittedRef.current = false;
-        return;
-      }
-
-      const shouldExpand = canToggleTray
-        && !isTrayExpanded
-        && (gestureState.dy <= -traySwipeThreshold || gestureState.vy <= -trayVelocityThreshold);
-      const shouldCollapse = isTrayExpanded
-        && (gestureState.dy >= traySwipeThreshold || gestureState.vy >= trayVelocityThreshold);
-
-      if (shouldExpand) {
-        commitTrayExpandedState(true);
-        return;
-      }
-      if (shouldCollapse) {
-        commitTrayExpandedState(false);
-        return;
-      }
-    },
-    onPanResponderTerminate: () => {
-      trayGestureCommittedRef.current = false;
-    },
-    onPanResponderTerminationRequest: () => false,
-  }), [canToggleTray, commitTrayExpandedState, isTrayExpanded]);
-
-  const trayShellPanResponder = useMemo(() => PanResponder.create({
-    onMoveShouldSetPanResponderCapture: (_, gestureState) =>
-      shouldSetRecentCaptureTrayShellResponder(gestureState, {
-        isTopLevelSwipeEnabled,
-        isTrayExpanded,
-        scrollOffsetY: trayScrollOffsetYRef.current,
-      }),
-    onPanResponderGrant: () => {
-      trayGestureCommittedRef.current = false;
-    },
-    onPanResponderMove: (_, gestureState) => {
-      if (trayGestureCommittedRef.current) {
-        return;
-      }
-
-      const shouldExpand = canToggleTray
-        && !isTrayExpanded
-        && gestureState.dy <= -traySwipeThreshold;
-      const shouldCollapse = isTrayExpanded
-        && trayScrollOffsetYRef.current <= 0
-        && gestureState.dy >= traySwipeThreshold;
-
-      if (shouldExpand) {
-        trayGestureCommittedRef.current = true;
-        commitTrayExpandedState(true);
-        return;
-      }
-
-      if (shouldCollapse) {
-        trayGestureCommittedRef.current = true;
-        commitTrayExpandedState(false);
-      }
-    },
-    onPanResponderRelease: (_, gestureState) => {
-      if (trayGestureCommittedRef.current) {
-        trayGestureCommittedRef.current = false;
-        return;
-      }
-
-      const shouldExpand = canToggleTray
-        && !isTrayExpanded
-        && (gestureState.dy <= -traySwipeThreshold || gestureState.vy <= -trayVelocityThreshold);
-      const shouldCollapse = isTrayExpanded
-        && trayScrollOffsetYRef.current <= 0
-        && (gestureState.dy >= traySwipeThreshold || gestureState.vy >= trayVelocityThreshold);
-
-      if (shouldExpand) {
-        commitTrayExpandedState(true);
-        return;
-      }
-
-      if (shouldCollapse) {
-        commitTrayExpandedState(false);
-      }
-    },
-    onPanResponderTerminate: () => {
-      trayGestureCommittedRef.current = false;
-    },
-    onPanResponderTerminationRequest: () => false,
-  }), [canToggleTray, commitTrayExpandedState, isTopLevelSwipeEnabled, isTrayExpanded]);
+          if (shouldExpand) {
+            commitTrayExpandedState(true);
+          } else if (shouldCollapse) {
+            commitTrayExpandedState(false);
+          }
+        }),
+    [canToggleTray, commitTrayExpandedState, isTopLevelSwipeEnabled, isTrayExpanded, trayScrollNativeGesture],
+  );
 
   const promptCopy = !hasPermission
     ? 'Allow camera access to scan'
@@ -2297,7 +2218,8 @@ export function ScannerScreen({
         )}
 
 
-        <View style={styles.trayShell} testID="scanner-tray" {...trayShellPanResponder.panHandlers}>
+        <GestureDetector gesture={trayPanGesture}>
+        <View style={styles.trayShell} testID="scanner-tray">
           <BlurView
             intensity={isTrayExpanded ? 80 : 24}
             pointerEvents="none"
@@ -2316,7 +2238,6 @@ export function ScannerScreen({
               pressed && canToggleTray ? styles.trayHeaderPressed : null,
             ]}
             testID="scanner-tray-header"
-            {...trayHeaderPanResponder.panHandlers}
           >
             <View style={styles.trayHandleWrap} testID="scanner-tray-handle">
               <View style={styles.trayHandle} />
@@ -2371,6 +2292,7 @@ export function ScannerScreen({
                 ]}
                 testID="scanner-tray-viewport"
               >
+                <GestureDetector gesture={trayScrollNativeGesture}>
                 <ScrollView
                   ref={trayScrollRef}
                   nestedScrollEnabled
@@ -2403,10 +2325,12 @@ export function ScannerScreen({
                     </View>
                   ) : null}
                 </ScrollView>
+                </GestureDetector>
               </View>
             )}
           </View>
         </View>
+        </GestureDetector>
       </RawScannerCaptureSurface>
       {(() => {
         if (!activePriceCaptureId) {

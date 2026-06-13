@@ -354,8 +354,9 @@ describe('ScannerScreen', () => {
       disabled: true,
     });
 
-    const trayShell = screen.getByTestId('scanner-tray');
-    expect(typeof trayShell.props.onMoveShouldSetResponderCapture).toBe('function');
+    // The tray shell renders; its expand/collapse swipe is now a
+    // gesture-handler GestureDetector (no inspectable JS responder props).
+    expect(screen.getByTestId('scanner-tray')).toBeTruthy();
   });
 
   it('sends a normalized reticle target to scanner matching', async () => {
