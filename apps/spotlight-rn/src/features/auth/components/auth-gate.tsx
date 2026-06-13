@@ -1,10 +1,33 @@
-import type { ReactNode } from 'react';
+import type { ComponentProps, ReactNode } from 'react';
+import { useState } from 'react';
 
 import type { AppUser, AuthState } from '@/features/auth/auth-models';
 
 import { AuthLoadingScreen } from './auth-loading-screen';
+import { EkalightIntroScreen } from './ekalight-intro-screen';
 import { ProfileOnboardingScreen } from './profile-onboarding-screen';
 import { SignInScreen } from './sign-in-screen';
+
+// Plays the filmstrip intro once per app launch (process lifetime), not on
+// every re-render and not again if the user signs out mid-session.
+let hasPlayedIntroThisLaunch = false;
+
+function SignedOutFlow(props: ComponentProps<typeof SignInScreen>) {
+  const [introDone, setIntroDone] = useState(hasPlayedIntroThisLaunch);
+
+  if (!introDone) {
+    return (
+      <EkalightIntroScreen
+        onDone={() => {
+          hasPlayedIntroThisLaunch = true;
+          setIntroDone(true);
+        }}
+      />
+    );
+  }
+
+  return <SignInScreen {...props} />;
+}
 
 type AuthGateProps = {
   appleSignInAvailable: boolean;
@@ -42,7 +65,7 @@ export function AuthGate({
       return <AuthLoadingScreen />;
     case 'signedOut':
       return (
-        <SignInScreen
+        <SignedOutFlow
           appleSignInAvailable={appleSignInAvailable}
           configurationIssue={configurationIssue}
           errorMessage={errorMessage}

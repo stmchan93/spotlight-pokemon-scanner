@@ -146,8 +146,13 @@ const captureRowHeight = 102;
 // A little breathing room between scan rows in the tray (Figma scan-tray spacing).
 const captureRowGap = 24;
 // How long the "ADDED" confirmation shows on a row before it's removed from the
-// tray. Long enough to register the success, short enough to feel immediate.
-const addedConfirmationDurationMs = 1100;
+// tray. Kept short so the real dismiss feedback is the row's reanimated exit
+// (slide-left + fade, 290ms) rather than a long static "ADDED" linger — the
+// row's removal is what plays that exit animation. Per the design-handoff
+// state machine: ADD fires the mutation + SCAN/TOTAL immediately, then the
+// card exits; the next card advances in (collapsed) or the tray collapses
+// (last card only).
+const addedConfirmationDurationMs = 320;
 
 // Shared payload for adding a scanned capture to the collection — used by both the
 // per-row ADD and the bulk ADD ALL flow so they can't drift.
@@ -192,7 +197,8 @@ const scannerTrayLayoutAnimation = {
   // the swipe is released. `easeInEaseOut` barely moves for its first ~70ms,
   // which read as a "wait, then snap" lag; a damped spring tracks immediately and
   // glides to rest. `springDamping: 0.88` keeps the settle smooth (no bounce).
-  duration: 300,
+  // 310ms matches the design-handoff tray-collapse spec (last-card collapse).
+  duration: 310,
   update: {
     springDamping: 0.88,
     type: LayoutAnimation.Types.spring,
@@ -1916,6 +1922,10 @@ export function ScannerScreen({
       <RecentCaptureSwipeRow
         key={capture.id}
         actionRailKey={capture.id}
+        // Collapsed tray shows a single row; after ADD the next card advances
+        // in with the slide-from-right enter. Expanded list opens without
+        // fanning every row, so enter is gated to the collapsed viewport.
+        enableEnterAnimation={!showExpandedTrayContent}
         isFavorite={candidate?.isFavorite ?? false}
         onActionRailVisibilityChange={handleCaptureActionRailVisibilityChange}
         onDelete={deleteRecentCapture}
@@ -2590,7 +2600,9 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   captureAddPillPressed: {
+    // Press-down feedback per the design-handoff ADD spec (scale 1 → 0.94).
     opacity: 0.78,
+    transform: [{ scale: 0.94 }],
   },
   captureAddPillLabel: {
     color: colors.scannerTextPrimary,

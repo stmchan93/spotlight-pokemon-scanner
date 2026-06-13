@@ -8,6 +8,15 @@ if (__globalAny.window && typeof __globalAny.window.dispatchEvent !== 'function'
   __globalAny.window.dispatchEvent = () => true;
 }
 
+// Reanimated v4 delegates its worklet runtime to react-native-worklets, whose
+// native module isn't present under jest. Mock it first so requiring the
+// reanimated mock doesn't try to initialize native worklets.
+jest.mock('react-native-worklets', () => require('react-native-worklets/lib/module/mock'));
+
+// Reanimated ships an official jest mock that no-ops the worklet runtime so
+// components render synchronously in tests.
+jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'));
+
 jest.mock('expo-font', () => ({
   useFonts: () => [true, null],
 }));

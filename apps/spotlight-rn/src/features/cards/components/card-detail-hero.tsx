@@ -1,9 +1,9 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { useSpotlightTheme } from '@spotlight/design-system';
-import { Heart, HeartSolid } from 'iconoir-react-native';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
+import { HeartToggle } from '@/components/heart-toggle';
 
 type CardDetailHeroProps = {
   imageUrl: string | null;
@@ -57,11 +57,14 @@ export function CardDetailHero({
         ]}
         testID={testID ? `${testID}-favorite` : undefined}
       >
-        {isFavorite ? (
-          <HeartSolid color={theme.colors.dangerStrong} height={20} width={20} />
-        ) : (
-          <Heart color={theme.colors.gray600} height={20} strokeWidth={2} width={20} />
-        )}
+        <HeartToggle
+          bounce="lively"
+          burst
+          filled={isFavorite}
+          fill={theme.colors.dangerStrong}
+          size={20}
+          stroke={theme.colors.gray600}
+        />
       </Pressable>
     </View>
   );

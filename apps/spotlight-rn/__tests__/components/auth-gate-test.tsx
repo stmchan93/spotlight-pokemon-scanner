@@ -1,6 +1,6 @@
 import type { ComponentProps } from 'react';
-import { fireEvent, render, screen } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { AccessibilityInfo, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { SpotlightThemeProvider } from '@spotlight/design-system';
@@ -50,13 +50,32 @@ function renderAuthGate(overrides: Partial<ComponentProps<typeof AuthGate>> = {}
 }
 
 describe('AuthGate', () => {
-  it('renders the sign-in screen when signed out', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
+
+  it('renders the sign-in screen when signed out', async () => {
+    // The signed-out flow plays the Ekalight intro first; reduced motion skips
+    // the filmstrip and resolves straight to the sign-in screen.
+    jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(true);
+    jest.useFakeTimers();
+
     const { onGoogleSignIn } = renderAuthGate({
       configurationIssue: 'Supabase URL is missing.',
       isConfigured: false,
     });
 
-    expect(screen.getByText('Sign into Ekalight')).toBeTruthy();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => {
+      jest.advanceTimersByTime(100);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Sign into Ekalight')).toBeTruthy();
+    });
     expect(screen.queryByText('Sync your account before scanner, inventory, and portfolio flows open up.')).toBeNull();
     expect(screen.getByText('Supabase URL is missing.')).toBeTruthy();
     expect(screen.getByTestId('auth-apple-button')).toBeTruthy();
