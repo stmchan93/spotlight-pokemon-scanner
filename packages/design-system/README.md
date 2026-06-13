@@ -301,6 +301,24 @@ Current API concepts:
 - optional `viewMoreLabel` (defaults to `"View More"`)
 - renders nothing when `!canViewMore && !onBackToTop`
 
+### ScrollToTopButton
+
+File: `src/components/scroll-to-top-button.tsx`
+
+Floating "Back to top" button per Figma node 1252-1335: a 40x40 `gray100`
+rounded (`radii.sm`) square with a `gray800` up arrow. Meant to appear once the
+user scrolls past the initial viewport and scroll the list back to the top on
+press.
+
+Current API concepts:
+
+- `visible` (fades / slides the button in or out; while hidden it is
+  `pointerEvents: 'none'` so it never blocks touches)
+- `onPress` (scroll-to-top handler)
+- optional `accessibilityLabel` (defaults to `"Back to top"`)
+- optional `style` — the consumer owns absolute positioning (e.g. the app's
+  `ScrollToTopFab` stacks it above the `+` add FAB) and scroll tracking
+
 ### SurfaceCard
 
 File: `src/components/surface-card.tsx`

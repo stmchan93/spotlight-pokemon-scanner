@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  FlatList,
   Image,
   Pressable,
   RefreshControl,
@@ -22,13 +23,13 @@ import type { CardFavoriteEntry } from '@spotlight/api-client';
 import {
   CardListRow,
   IconButton,
-  ListPaginationFooter,
   SearchField,
   colors,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
 import { AppBottomTabBar } from '@/components/app-bottom-tab-bar';
+import { ScrollToTopFab, useScrollToTop } from '@/components/scroll-to-top-fab';
 import { GridViewIcon, ListViewIcon } from '@/components/view-toggle-icons';
 import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
 import { saveCardDetailPreviewFromFavorite } from '@/features/cards/card-detail-preview-session';
@@ -53,6 +54,14 @@ function gradeLabelForFavorite(entry: CardFavoriteEntry): string | null {
 type WishlistFilterKey = 'all' | 'az' | 'price' | 'owned' | 'unowned';
 type WishlistViewMode = 'grid' | 'list';
 
+// One virtualized row of the wishlist. List view renders one card per row; card
+// view renders up to two tiles per ruled row (or a single boxed tile when the
+// wishlist has exactly one card).
+type WishlistRow =
+  | { kind: 'list'; key: string; entry: CardFavoriteEntry; firstInSection: boolean }
+  | { kind: 'grid'; key: string; rowEntries: CardFavoriteEntry[]; rowIndex: number }
+  | { kind: 'grid-single'; key: string; entry: CardFavoriteEntry };
+
 const FILTERS: readonly { key: WishlistFilterKey; label: string; hasArrow?: boolean }[] = [
   { key: 'all', label: 'All' },
   { key: 'az', label: 'A-Z' },
@@ -61,9 +70,18 @@ const FILTERS: readonly { key: WishlistFilterKey; label: string; hasArrow?: bool
   { key: 'owned', label: 'Owned' },
 ];
 
+const GRID_COLUMNS = 2;
+
 const WISHLIST_VIEW_MODE_STORAGE_KEY = '@spotlight/wishlist/view-mode';
 const DEFAULT_VIEW_MODE: WishlistViewMode = 'list';
-const LIST_PAGE_SIZE = 10;
+
+function chunkWishlistGridRows(entries: CardFavoriteEntry[]): CardFavoriteEntry[][] {
+  const rows: CardFavoriteEntry[][] = [];
+  for (let index = 0; index < entries.length; index += GRID_COLUMNS) {
+    rows.push(entries.slice(index, index + GRID_COLUMNS));
+  }
+  return rows;
+}
 
 function parseViewMode(raw: string | null): WishlistViewMode {
   return raw === 'grid' || raw === 'list' ? raw : DEFAULT_VIEW_MODE;
@@ -113,8 +131,7 @@ export function WishlistScreen() {
   const [activeFilter, setActiveFilter] = useState<WishlistFilterKey>('all');
   const [viewMode, setViewMode] = useWishlistViewMode();
   const [featuredCardId, setFeaturedCardId] = useState<string | null>(null);
-  const scrollRef = useRef<ScrollView>(null);
-  const [listVisibleCount, setListVisibleCount] = useState(LIST_PAGE_SIZE);
+  const scrollRef = useRef<FlatList<WishlistRow>>(null);
 
   const bottomNavClearance =
     theme.layout.bottomNavHeight
@@ -144,13 +161,12 @@ export function WishlistScreen() {
     };
   }, [dataVersion, loadFavorites]);
 
-  useEffect(() => {
-    setListVisibleCount(LIST_PAGE_SIZE);
-  }, [activeFilter, query, viewMode]);
-
-  const handleBackToTop = useCallback(() => {
-    scrollRef.current?.scrollTo({ y: 0, animated: true });
-  }, []);
+  const {
+    isVisible: showScrollTop,
+    handleScroll,
+    handleLayout,
+    scrollToTop,
+  } = useScrollToTop(scrollRef);
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -209,8 +225,8 @@ export function WishlistScreen() {
   // reached by tapping the hero card image (onOpenDetail).
   const handleFeatureEntry = useCallback((entry: CardFavoriteEntry) => {
     setFeaturedCardId(entry.cardId);
-    scrollRef.current?.scrollTo({ y: 0, animated: true });
-  }, []);
+    scrollToTop();
+  }, [scrollToTop]);
 
   const handleToggleViewMode = useCallback(() => {
     setViewMode(viewMode === 'list' ? 'grid' : 'list');
@@ -219,165 +235,218 @@ export function WishlistScreen() {
   const toggleAccessibilityLabel =
     viewMode === 'list' ? 'Switch to grid view' : 'Switch to list view';
 
+  const showLoading = isLoading && favorites.length === 0;
+  const hasContent = !showLoading && !errorMessage && visibleEntries.length > 0;
+
+  // The whole screen is one virtualized FlatList: the hero + search + filter
+  // chrome rides along as the list header, and the wishlist renders row-by-row
+  // (one card per row in list view, two tiles per ruled row in card view) so
+  // large wishlists stay smooth without a "View More" gate.
+  const listData = useMemo<WishlistRow[]>(() => {
+    if (!hasContent) {
+      return [];
+    }
+    if (viewMode === 'list') {
+      return visibleEntries.map((entry, index) => ({
+        kind: 'list',
+        key: entry.cardId,
+        entry,
+        firstInSection: index === 0,
+      }));
+    }
+    if (visibleEntries.length === 1) {
+      return [{ kind: 'grid-single', key: visibleEntries[0].cardId, entry: visibleEntries[0] }];
+    }
+    return chunkWishlistGridRows(visibleEntries).map((rowEntries, rowIndex) => ({
+      kind: 'grid',
+      key: rowEntries[0]?.cardId ?? `wishlist-grid-row-${rowIndex}`,
+      rowEntries,
+      rowIndex,
+    }));
+  }, [hasContent, viewMode, visibleEntries]);
+
+  const renderItem = useCallback(
+    ({ item }: { item: WishlistRow }) => {
+      if (item.kind === 'list') {
+        return (
+          <WishlistListRow
+            entry={item.entry}
+            firstInSection={item.firstInSection}
+            onPress={handleFeatureEntry}
+            theme={theme}
+          />
+        );
+      }
+      if (item.kind === 'grid-single') {
+        return (
+          <WishlistGridSingleRow entry={item.entry} onPress={handleFeatureEntry} theme={theme} />
+        );
+      }
+      return (
+        <WishlistGridRow
+          isFirstRow={item.rowIndex === 0}
+          onPress={handleFeatureEntry}
+          rowEntries={item.rowEntries}
+          rowIndex={item.rowIndex}
+          theme={theme}
+        />
+      );
+    },
+    [handleFeatureEntry, theme],
+  );
+
+  const listHeader = (
+    <View>
+      <WishlistHero
+        entry={featuredEntry}
+        onOpenDetail={() => {
+          if (featuredEntry) {
+            handleOpenDetail(featuredEntry);
+          }
+        }}
+        onOpenMenu={openDrawer}
+      />
+
+      <View style={[styles.controls, { paddingHorizontal: theme.layout.pageGutter }]}>
+        <View style={styles.searchRow}>
+          <View style={styles.searchFieldWrap}>
+            <SearchField
+              accessibilityLabel="Search your wishlist"
+              autoCapitalize="none"
+              autoCorrect={false}
+              clearButtonMode="while-editing"
+              containerTestID="wishlist-search-input"
+              onChangeText={setQuery}
+              placeholder="Search your wishlist"
+              returnKeyType="search"
+              size="collection"
+              surface="muted"
+              trailing={(
+                <FilterIcon color={theme.colors.gray500} height={16} width={16} />
+              )}
+              value={query}
+            />
+          </View>
+          <IconButton
+            accessibilityLabel={toggleAccessibilityLabel}
+            onPress={handleToggleViewMode}
+            shape="rounded"
+            size={40}
+            testID="wishlist-view-toggle"
+            variant="outlined"
+          >
+            {viewMode === 'list' ? (
+              <GridViewIcon color={theme.colors.gray900} size={18} />
+            ) : (
+              <ListViewIcon color={theme.colors.gray900} size={18} />
+            )}
+          </IconButton>
+        </View>
+
+        <ScrollView
+          contentContainerStyle={styles.filterRow}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          testID="wishlist-filter-row"
+        >
+          {FILTERS.map((filter) => {
+            const isSelected = filter.key === activeFilter;
+            return (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ selected: isSelected }}
+                key={filter.key}
+                onPress={() => setActiveFilter(filter.key)}
+                style={({ pressed }) => [
+                  styles.filterChip,
+                  {
+                    backgroundColor: theme.colors.gray0,
+                    borderColor: isSelected ? theme.colors.brand : theme.colors.gray300,
+                    opacity: pressed ? 0.88 : 1,
+                  },
+                ]}
+                testID={`wishlist-filter-${filter.key}`}
+              >
+                <Text
+                  style={[
+                    theme.typography.label,
+                    { color: theme.colors.gray900 },
+                  ]}
+                >
+                  {filter.label}
+                </Text>
+                {filter.hasArrow ? (
+                  <ArrowUp
+                    color={theme.colors.gray900}
+                    height={12}
+                    strokeWidth={2}
+                    width={12}
+                  />
+                ) : null}
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      <View style={styles.listTopSpacer} />
+    </View>
+  );
+
+  const listEmpty = showLoading ? (
+    <Text style={[styles.emptyText, { color: theme.colors.gray600 }]} testID="wishlist-loading">
+      Loading your wishlist…
+    </Text>
+  ) : errorMessage ? (
+    <Text style={[styles.emptyText, { color: theme.colors.gray600 }]} testID="wishlist-error">
+      {errorMessage}
+    </Text>
+  ) : (
+    <Text style={[styles.emptyText, { color: theme.colors.gray600 }]} testID="wishlist-empty">
+      {favorites.length === 0
+        ? 'Tap the heart on any card to add it here.'
+        : 'No cards match your filters.'}
+    </Text>
+  );
+
   return (
     <SafeAreaView
       edges={['left', 'right']}
       style={[styles.safeArea, { backgroundColor: colors.gray0 }]}
     >
-      <ScrollView
-        ref={scrollRef}
-        contentContainerStyle={[
-          styles.scrollContent,
-          { paddingBottom: bottomNavClearance + 16 },
-        ]}
-        refreshControl={(
-          <RefreshControl
-            onRefresh={handleRefresh}
-            refreshing={isRefreshing}
-            testID="wishlist-refresh-control"
-            tintColor={theme.colors.gray400}
-          />
-        )}
-        testID="wishlist-scroll"
-      >
-        <WishlistHero
-          entry={featuredEntry}
-          onOpenDetail={() => {
-            if (featuredEntry) {
-              handleOpenDetail(featuredEntry);
-            }
-          }}
-          onOpenMenu={openDrawer}
-        />
-
-        <View style={[styles.controls, { paddingHorizontal: theme.layout.pageGutter }]}>
-          <View style={styles.searchRow}>
-            <View style={styles.searchFieldWrap}>
-              <SearchField
-                accessibilityLabel="Search your wishlist"
-                autoCapitalize="none"
-                autoCorrect={false}
-                clearButtonMode="while-editing"
-                containerTestID="wishlist-search-input"
-                onChangeText={setQuery}
-                placeholder="Search your wishlist"
-                returnKeyType="search"
-                size="collection"
-                surface="muted"
-                trailing={(
-                  <FilterIcon color={theme.colors.gray500} height={16} width={16} />
-                )}
-                value={query}
-              />
-            </View>
-            <IconButton
-              accessibilityLabel={toggleAccessibilityLabel}
-              onPress={handleToggleViewMode}
-              shape="rounded"
-              size={40}
-              testID="wishlist-view-toggle"
-              variant="outlined"
-            >
-              {viewMode === 'list' ? (
-                <GridViewIcon color={theme.colors.gray900} size={18} />
-              ) : (
-                <ListViewIcon color={theme.colors.gray900} size={18} />
-              )}
-            </IconButton>
-          </View>
-
-          <ScrollView
-            contentContainerStyle={styles.filterRow}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            testID="wishlist-filter-row"
-          >
-            {FILTERS.map((filter) => {
-              const isSelected = filter.key === activeFilter;
-              return (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: isSelected }}
-                  key={filter.key}
-                  onPress={() => setActiveFilter(filter.key)}
-                  style={({ pressed }) => [
-                    styles.filterChip,
-                    {
-                      backgroundColor: theme.colors.gray0,
-                      borderColor: isSelected ? theme.colors.brand : theme.colors.gray300,
-                      opacity: pressed ? 0.88 : 1,
-                    },
-                  ]}
-                  testID={`wishlist-filter-${filter.key}`}
-                >
-                  <Text
-                    style={[
-                      theme.typography.label,
-                      { color: theme.colors.gray900 },
-                    ]}
-                  >
-                    {filter.label}
-                  </Text>
-                  {filter.hasArrow ? (
-                    <ArrowUp
-                      color={theme.colors.gray900}
-                      height={12}
-                      strokeWidth={2}
-                      width={12}
-                    />
-                  ) : null}
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        </View>
-
-        <View style={styles.listContainer} testID="wishlist-list">
-          {isLoading && favorites.length === 0 ? (
-            <Text
-              style={[styles.emptyText, { color: theme.colors.gray600 }]}
-              testID="wishlist-loading"
-            >
-              Loading your wishlist…
-            </Text>
-          ) : errorMessage ? (
-            <Text
-              style={[styles.emptyText, { color: theme.colors.gray600 }]}
-              testID="wishlist-error"
-            >
-              {errorMessage}
-            </Text>
-          ) : visibleEntries.length === 0 ? (
-            <Text
-              style={[styles.emptyText, { color: theme.colors.gray600 }]}
-              testID="wishlist-empty"
-            >
-              {favorites.length === 0
-                ? 'Tap the heart on any card to add it here.'
-                : 'No cards match your filters.'}
-            </Text>
-          ) : viewMode === 'list' ? (
-            <WishlistListView
-              entries={visibleEntries.slice(0, listVisibleCount)}
-              onPressEntry={handleFeatureEntry}
-            />
-          ) : (
-            <WishlistGridView
-              entries={visibleEntries.slice(0, listVisibleCount)}
-              onPressEntry={handleFeatureEntry}
+      <View style={styles.listWrap} testID="wishlist-list">
+        <FlatList
+          ref={scrollRef}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: bottomNavClearance + 16 },
+          ]}
+          data={listData}
+          keyExtractor={(item) => item.key}
+          ListEmptyComponent={listEmpty}
+          ListFooterComponent={listData.length > 0 ? <View style={styles.footerSpacer} /> : null}
+          ListHeaderComponent={listHeader}
+          onLayout={handleLayout}
+          onScroll={handleScroll}
+          refreshControl={(
+            <RefreshControl
+              onRefresh={handleRefresh}
+              refreshing={isRefreshing}
+              testID="wishlist-refresh-control"
+              tintColor={theme.colors.gray400}
             />
           )}
+          renderItem={renderItem}
+          scrollEventThrottle={16}
+          testID="wishlist-scroll"
+        />
+      </View>
 
-          {visibleEntries.length > 0 ? (
-            <ListPaginationFooter
-              canViewMore={visibleEntries.length > listVisibleCount}
-              onBackToTop={handleBackToTop}
-              onViewMore={() => setListVisibleCount((count) => count + LIST_PAGE_SIZE)}
-              testID="wishlist-list-pagination"
-            />
-          ) : null}
-        </View>
-      </ScrollView>
+      <ScrollToTopFab
+        onPress={scrollToTop}
+        testID="wishlist-scroll-to-top"
+        visible={showScrollTop}
+      />
 
       <CollectionAddFab />
       <AppBottomTabBar />
@@ -385,121 +454,101 @@ export function WishlistScreen() {
   );
 }
 
-type WishlistViewProps = {
-  entries: CardFavoriteEntry[];
-  onPressEntry: (entry: CardFavoriteEntry) => void;
+type WishlistListRowProps = {
+  entry: CardFavoriteEntry;
+  firstInSection: boolean;
+  onPress: (entry: CardFavoriteEntry) => void;
+  theme: ReturnType<typeof useSpotlightTheme>;
 };
 
-function WishlistListView({ entries, onPressEntry }: WishlistViewProps) {
-  const theme = useSpotlightTheme();
+function WishlistListRow({ entry, firstInSection, onPress, theme }: WishlistListRowProps) {
   return (
-    <View style={styles.listColumn}>
-      {entries.map((entry, index) => (
-        <View
-          key={entry.cardId}
-          style={styles.listRowWrap}
-          testID={`wishlist-row-wrap-${entry.cardId}`}
-        >
-          <CardListRow
-            cardNumber={entry.cardNumber}
-            currencyCode={entry.currencyCode ?? 'USD'}
-            firstInSection={index === 0}
-            gradeLabel={gradeLabelForFavorite(entry)}
-            imageUrl={entry.smallImageUrl ?? entry.imageUrl ?? null}
-            marketPrice={entry.marketPrice ?? null}
-            name={entry.name}
-            onPress={() => onPressEntry(entry)}
-            quantity={1}
-            setName={entry.setName}
-            testID={`wishlist-row-${entry.cardId}`}
-            trendChangeAmount={entry.dayChangeAmount ?? null}
-          />
-          <View
-            pointerEvents="none"
-            style={styles.heartBadge}
-            testID={`wishlist-row-heart-${entry.cardId}`}
-          >
-            <HeartSolid color={theme.colors.brand} height={16} width={16} />
-          </View>
-        </View>
-      ))}
+    <View style={styles.listRowWrap} testID={`wishlist-row-wrap-${entry.cardId}`}>
+      <CardListRow
+        cardNumber={entry.cardNumber}
+        currencyCode={entry.currencyCode ?? 'USD'}
+        firstInSection={firstInSection}
+        gradeLabel={gradeLabelForFavorite(entry)}
+        imageUrl={entry.smallImageUrl ?? entry.imageUrl ?? null}
+        marketPrice={entry.marketPrice ?? null}
+        name={entry.name}
+        onPress={() => onPress(entry)}
+        quantity={1}
+        setName={entry.setName}
+        testID={`wishlist-row-${entry.cardId}`}
+        trendChangeAmount={entry.dayChangeAmount ?? null}
+      />
+      <View
+        pointerEvents="none"
+        style={styles.heartBadge}
+        testID={`wishlist-row-heart-${entry.cardId}`}
+      >
+        <HeartSolid color={theme.colors.brand} height={16} width={16} />
+      </View>
     </View>
   );
 }
-
-const GRID_COLUMNS = 2;
 
 // Light delta-pill backgrounds, matching the collection tile + wishlist hero.
 const DELTA_UP_BACKGROUND = 'rgba(76, 175, 110, 0.15)';
 const DELTA_DOWN_BACKGROUND = 'rgba(224, 82, 76, 0.15)';
 
-function WishlistGridView({ entries, onPressEntry }: WishlistViewProps) {
-  const theme = useSpotlightTheme();
+type WishlistGridRowProps = {
+  rowEntries: CardFavoriteEntry[];
+  rowIndex: number;
+  isFirstRow: boolean;
+  onPress: (entry: CardFavoriteEntry) => void;
+  theme: ReturnType<typeof useSpotlightTheme>;
+};
 
-  // A lone card shouldn't render as a full-bleed ruled row (a wide rectangle
-  // with one tile in the corner). Box it at one column's width so the border
-  // hugs just that card — matching the collection card view's single-item case.
-  const soleEntry = entries.length === 1 ? entries[0] : null;
-  if (soleEntry) {
-    return (
-      <View style={styles.gridContainer} testID="wishlist-grid">
-        <View style={styles.gridSingleRow}>
-          <View style={[styles.gridSingleCell, { borderColor: theme.colors.gray100 }]}>
-            <WishlistGridTile
-              entry={soleEntry}
-              onPress={() => onPressEntry(soleEntry)}
-              theme={theme}
-            />
-          </View>
-        </View>
-      </View>
-    );
-  }
-
-  const rows: CardFavoriteEntry[][] = [];
-  for (let index = 0; index < entries.length; index += GRID_COLUMNS) {
-    rows.push(entries.slice(index, index + GRID_COLUMNS));
-  }
-
+function WishlistGridRow({ rowEntries, rowIndex, isFirstRow, onPress, theme }: WishlistGridRowProps) {
   return (
-    <View style={styles.gridContainer} testID="wishlist-grid">
-      {rows.map((row, rowIndex) => (
-        <View
-          key={row[0]?.cardId ?? `wishlist-grid-row-${rowIndex}`}
-          style={[
-            styles.gridRow,
-            { borderBottomColor: theme.colors.gray100 },
-            // Single hairlines: only the first row draws a top border.
-            rowIndex === 0
-              ? { borderTopColor: theme.colors.gray100, borderTopWidth: 1 }
-              : null,
-          ]}
-        >
-          {Array.from({ length: GRID_COLUMNS }).map((_, colIndex) => {
-            const entry = row[colIndex];
-            return (
-              <View
-                key={entry?.cardId ?? `wishlist-grid-row-${rowIndex}-col-${colIndex}`}
-                style={[
-                  styles.gridCell,
-                  // Middle vertical divider between the two columns.
-                  colIndex === 1 && entry
-                    ? { borderLeftColor: theme.colors.gray100, borderLeftWidth: 1 }
-                    : null,
-                ]}
-              >
-                {entry ? (
-                  <WishlistGridTile
-                    entry={entry}
-                    onPress={() => onPressEntry(entry)}
-                    theme={theme}
-                  />
-                ) : null}
-              </View>
-            );
-          })}
-        </View>
-      ))}
+    <View
+      style={[
+        styles.gridRow,
+        { borderBottomColor: theme.colors.gray100 },
+        // Single hairlines: only the first row draws a top border.
+        isFirstRow ? { borderTopColor: theme.colors.gray100, borderTopWidth: 1 } : null,
+      ]}
+    >
+      {Array.from({ length: GRID_COLUMNS }).map((_, colIndex) => {
+        const entry = rowEntries[colIndex];
+        return (
+          <View
+            key={entry?.cardId ?? `wishlist-grid-row-${rowIndex}-col-${colIndex}`}
+            style={[
+              styles.gridCell,
+              // Middle vertical divider between the two columns.
+              colIndex === 1 && entry
+                ? { borderLeftColor: theme.colors.gray100, borderLeftWidth: 1 }
+                : null,
+            ]}
+          >
+            {entry ? (
+              <WishlistGridTile entry={entry} onPress={() => onPress(entry)} theme={theme} />
+            ) : null}
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+type WishlistGridSingleRowProps = {
+  entry: CardFavoriteEntry;
+  onPress: (entry: CardFavoriteEntry) => void;
+  theme: ReturnType<typeof useSpotlightTheme>;
+};
+
+// A lone card shouldn't render as a full-bleed ruled row (a wide rectangle with
+// one tile in the corner). Box it at one column's width so the border hugs just
+// that card — matching the collection card view's single-item case.
+function WishlistGridSingleRow({ entry, onPress, theme }: WishlistGridSingleRowProps) {
+  return (
+    <View style={styles.gridSingleRow}>
+      <View style={[styles.gridSingleCell, { borderColor: theme.colors.gray100 }]}>
+        <WishlistGridTile entry={entry} onPress={() => onPress(entry)} theme={theme} />
+      </View>
     </View>
   );
 }
@@ -622,6 +671,9 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
+  listWrap: {
+    flex: 1,
+  },
   scrollContent: {
     paddingTop: 0,
   },
@@ -651,8 +703,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 16,
   },
-  listContainer: {
-    marginTop: 16,
+  // 32px gap below the filter row before the first ruled row, reproducing the
+  // old `listContainer` marginTop (16) + the list/grid's own paddingTop (16).
+  listTopSpacer: {
+    height: 32,
+  },
+  footerSpacer: {
+    height: 16,
   },
   emptyText: {
     fontFamily: 'SpotlightBodyRegular',
@@ -662,13 +719,6 @@ const styles = StyleSheet.create({
     paddingVertical: 32,
     textAlign: 'center',
   },
-  listColumn: {
-    // Rows stack flush (no inter-row gap) and full-bleed (no horizontal
-    // gutter) so the per-row top/bottom hairlines run edge to edge and form
-    // one continuous ruled list, matching the full-width Figma "Price
-    // Container" row (669:8573). Each row keeps its own 16px content padding.
-    paddingVertical: 16,
-  },
   listRowWrap: {
     position: 'relative',
   },
@@ -677,11 +727,6 @@ const styles = StyleSheet.create({
     left: 58,
     position: 'absolute',
     top: 12,
-  },
-  gridContainer: {
-    // Full-bleed ruled grid (matches the collection card view): rows stack with
-    // full-width top/bottom hairlines; no horizontal gutter or row gap.
-    paddingVertical: 16,
   },
   gridRow: {
     alignItems: 'stretch',

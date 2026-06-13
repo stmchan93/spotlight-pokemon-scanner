@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Pressable,
+  Alert,
+  Linking,
   ScrollView,
   Share,
   StyleSheet,
@@ -14,6 +15,7 @@ import {
   graderOptions,
   type CardDetailRecord,
   type CardPriceTrendList as CardPriceTrendListRecord,
+  type CardPriceTrendRow,
   type DeckConditionCode,
   type MarketHistoryOption,
   type SlabContext,
@@ -130,6 +132,11 @@ export function CardDetailScreen({
   const [isAddPending, setIsAddPending] = useState(false);
 
   const [priceTrends, setPriceTrends] = useState<CardPriceTrendListRecord | null>(null);
+  // Price-Trend row → marketplace deep-link state. `loadingRowKey` drives the row
+  // spinner while a graded row resolves its eBay sold-listing URL; the ref caches
+  // resolved URLs so a second tap on the same row opens instantly (no refetch).
+  const [trendLinkLoadingKey, setTrendLinkLoadingKey] = useState<string | null>(null);
+  const trendSaleUrlCacheRef = useRef<Map<string, string>>(new Map());
 
   const scanReviewSession = useMemo(
     () => getScanCandidateReviewSession(scanReviewId),
@@ -332,6 +339,73 @@ export function CardDetailScreen({
       cancelled = true;
     };
   }, [cardId, dataVersion, detail, isRawLane, selectedGrader, selectedVariantLabel, spotlightRepository]);
+
+  // Tap a Price-Trend row → open the marketplace for that exact grade/condition.
+  // Raw rows deep-link to a TCGplayer search (filtered to the condition + printing) —
+  // instant, no network. Graded rows resolve the most-recent eBay SOLD listing for
+  // that card+grader+grade via Scrydex (cached 24h on the backend, and per-row here),
+  // then open it. The row `key` carries the structured identity:
+  //   graded: "<grader>|<grade>|<variantKey>"   raw: "<variantKey>|<condition>"
+  const handleTrendRowPress = useCallback((row: CardPriceTrendRow) => {
+    if (!detail || !priceTrends) {
+      return;
+    }
+
+    if (priceTrends.mode === 'graded') {
+      const [grader, grade] = row.key.split('|');
+      if (!grader || !grade) {
+        return;
+      }
+      const cachedUrl = trendSaleUrlCacheRef.current.get(row.key);
+      if (cachedUrl) {
+        void Linking.openURL(cachedUrl);
+        return;
+      }
+      if (trendLinkLoadingKey) {
+        return;
+      }
+      setTrendLinkLoadingKey(row.key);
+      void spotlightRepository.getCardRecentSales({
+        cardId: detail.cardId,
+        slabContext: { grader, grade, variantName: selectedVariantLabel },
+        source: 'ebay',
+        limit: 10,
+        refresh: true,
+      })
+        .then((result) => {
+          const url = result?.sales?.[0]?.saleUrl ?? null;
+          if (url) {
+            trendSaleUrlCacheRef.current.set(row.key, url);
+            void Linking.openURL(url);
+          } else {
+            Alert.alert(
+              'No recent eBay sales',
+              `We couldn't find a recent ${grader} ${grade} sale for this card.`,
+            );
+          }
+        })
+        .catch(() => {
+          Alert.alert('Couldn’t load eBay sales', 'Please try again in a moment.');
+        })
+        .finally(() => {
+          setTrendLinkLoadingKey(null);
+        });
+      return;
+    }
+
+    // Raw lane → TCGplayer search filtered to the tapped condition + selected printing.
+    const [, condition] = row.key.split('|');
+    const url = buildTcgPlayerSearchUrl({
+      name: detail.name,
+      cardNumber: detail.cardNumber,
+      setName: detail.setName,
+      condition,
+      printing: selectedVariantLabel,
+    });
+    if (url) {
+      void Linking.openURL(url);
+    }
+  }, [detail, priceTrends, trendLinkLoadingKey, selectedVariantLabel, spotlightRepository]);
 
   const handleToggleFavorite = useCallback(() => {
     if (isFavoritePending) {
@@ -610,46 +684,12 @@ export function CardDetailScreen({
 
         {priceTrends && priceTrends.rows.length > 0 ? (
           <View style={styles.trendBlock}>
-            {variantOptions.length > 1 ? (
-              <ScrollView
-                contentContainerStyle={styles.variantSelectorRow}
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                testID="detail-variant-selector"
-              >
-                {variantOptions.map((option) => {
-                  const selected = option.id === selectedVariant;
-                  return (
-                    <Pressable
-                      key={option.id}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected }}
-                      onPress={() => setSelectedVariant(option.id)}
-                      style={({ pressed }) => [
-                        styles.variantChip,
-                        {
-                          borderRadius: theme.radii.sm,
-                          backgroundColor: selected ? theme.colors.gray900 : theme.colors.gray50,
-                          borderColor: selected ? theme.colors.gray900 : theme.colors.gray50,
-                          opacity: pressed ? 0.88 : 1,
-                        },
-                      ]}
-                      testID={`detail-variant-chip-${option.id}`}
-                    >
-                      <Text
-                        style={[
-                          theme.typography.label,
-                          { color: selected ? theme.colors.gray0 : theme.colors.gray900 },
-                        ]}
-                      >
-                        {option.label}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
-            ) : null}
-            <CardPriceTrendList list={priceTrends} testID="detail-price-trends" />
+            <CardPriceTrendList
+              list={priceTrends}
+              loadingRowKey={trendLinkLoadingKey}
+              onRowPress={handleTrendRowPress}
+              testID="detail-price-trends"
+            />
           </View>
         ) : null}
 
@@ -717,17 +757,5 @@ const styles = StyleSheet.create({
   trendBlock: {
     gap: 10,
     width: '100%',
-  },
-  variantChip: {
-    alignItems: 'center',
-    borderWidth: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 7,
-  },
-  variantSelectorRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 6,
   },
 });

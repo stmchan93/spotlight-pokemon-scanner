@@ -9628,13 +9628,16 @@ class SpotlightScanService:
         normalized_limit = max(1, min(normalized_limit, RECENT_SALES_MAX_LIMIT))
         if normalized_grader is None and normalized_grade is not None:
             normalized_grader = "PSA"
-        if normalized_grader != "PSA" or normalized_grade is None:
+        # Any grader+grade (PSA / BGS / CGC) is allowed through to the cached Scrydex
+        # listings fetch below — the grader is the Scrydex `company` token itself, so it
+        # round-trips with no mapping. We only require both a grader and a grade.
+        if normalized_grader is None or normalized_grade is None:
             return _recent_sales_payload(
                 None,
                 source=normalized_source,
-                grader=normalized_grader or "PSA",
+                grader=normalized_grader or "",
                 grade=normalized_grade or "",
-                unavailable_reason="Recent eBay sales are currently available for PSA slabs only.",
+                unavailable_reason="Recent eBay sales need both a grader and a grade.",
             )
 
         cached = slab_recent_sales_cache(

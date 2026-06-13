@@ -159,6 +159,71 @@ class CardRecentSalesTests(unittest.TestCase):
         self.assertEqual(payload["saleCount"], 0)
         self.assertEqual(payload["unavailableReason"], "No recent sold sales were returned for this slab.")
 
+    def test_service_card_recent_sales_supports_non_psa_graders(self) -> None:
+        # Regression: the PSA-only gate is lifted — CGC/BGS slabs must reach the
+        # (cached) Scrydex listings fetch, not return "PSA slabs only".
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        try:
+            with patch(
+                "server.fetch_scrydex_recent_sales",
+                return_value={
+                    "cardID": "gym1-60",
+                    "grader": "CGC",
+                    "grade": "10",
+                    "source": "ebay",
+                    "sourceURL": "https://api.scrydex.com/pokemon/v1/cards/gym1-60/listings?company=CGC&grade=10",
+                    "sourcePayload": {"data": []},
+                    "sales": [
+                        {
+                            "sourceSaleID": "sale-cgc-1",
+                            "rank": 1,
+                            "title": "CGC 10 Sabrina's Slowbro Gym Heroes 60/132",
+                            "soldAt": "2026-05-02T12:00:00Z",
+                            "price": 200.0,
+                            "currencyCode": "USD",
+                            "listingURL": "https://www.ebay.com/itm/cgc",
+                            "sourcePayload": {"id": "sale-cgc-1"},
+                        },
+                    ],
+                },
+            ) as mocked:
+                payload = service.card_recent_sales(
+                    "gym1-60",
+                    grader="CGC",
+                    grade="10",
+                    source="ebay",
+                    limit=5,
+                    refresh=True,
+                )
+        finally:
+            service.connection.close()
+
+        mocked.assert_called_once()
+        self.assertEqual(mocked.call_args.kwargs["grader"], "CGC")
+        self.assertEqual(payload["status"], "available")
+        self.assertEqual(payload["saleCount"], 1)
+        self.assertEqual(payload["sales"][0]["listingURL"], "https://www.ebay.com/itm/cgc")
+
+    def test_service_card_recent_sales_requires_grade(self) -> None:
+        # No grade → unavailable (and never calls Scrydex), for any grader.
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        try:
+            with patch("server.fetch_scrydex_recent_sales") as mocked:
+                payload = service.card_recent_sales(
+                    "gym1-60",
+                    grader="CGC",
+                    grade=None,
+                    source="ebay",
+                    limit=5,
+                    refresh=True,
+                )
+        finally:
+            service.connection.close()
+
+        mocked.assert_not_called()
+        self.assertEqual(payload["status"], "unavailable")
+        self.assertEqual(payload["saleCount"], 0)
+
     def test_recent_sales_route_dispatches_to_service(self) -> None:
         handler = SpotlightRequestHandler.__new__(SpotlightRequestHandler)
         handler.path = "/api/v1/cards/gym1-60/recent-sales?grader=PSA&grade=9&source=ebay&limit=5&refresh=1"

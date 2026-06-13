@@ -1,5 +1,6 @@
 import { type ReactNode, useMemo, useState } from 'react';
 import {
+  FlatList,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -155,6 +156,10 @@ function SaleCard({
   );
 }
 
+function SaleSeparator() {
+  return <View style={styles.saleSeparator} />;
+}
+
 function SalesHistorySkeleton() {
   const theme = useSpotlightTheme();
 
@@ -294,97 +299,104 @@ export function SalesHistoryScreen({ onBack }: SalesHistoryScreenProps) {
           value={searchQuery}
         />
 
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          {todaySummary ? (
-            <SurfaceCard padding={16} radius={20} style={styles.todayCard} testID="sales-history-today-card">
-              <Text style={[theme.typography.caption, styles.sectionLabel, { color: theme.colors.textSecondary }]}>Today</Text>
-              <View style={styles.todayCardStatsRow}>
-                <View style={styles.todayCardStatItem}>
-                  <Text style={theme.typography.display}>{todaySummary.count}</Text>
-                  <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>sold</Text>
-                </View>
-                <View style={styles.todayCardStatItem}>
-                  <Text style={theme.typography.display}>
-                    {formatCurrency(todaySummary.gross, todaySummary.currencyCode)}
-                  </Text>
-                  <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>gross</Text>
-                </View>
+        <FlatList
+          contentContainerStyle={styles.scrollContent}
+          data={displayedSales}
+          ItemSeparatorComponent={SaleSeparator}
+          keyExtractor={(sale) => sale.id}
+          ListHeaderComponent={(
+            <View style={styles.listHeader}>
+              {todaySummary ? (
+                <SurfaceCard padding={16} radius={20} style={styles.todayCard} testID="sales-history-today-card">
+                  <Text style={[theme.typography.caption, styles.sectionLabel, { color: theme.colors.textSecondary }]}>Today</Text>
+                  <View style={styles.todayCardStatsRow}>
+                    <View style={styles.todayCardStatItem}>
+                      <Text style={theme.typography.display}>{todaySummary.count}</Text>
+                      <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>sold</Text>
+                    </View>
+                    <View style={styles.todayCardStatItem}>
+                      <Text style={theme.typography.display}>
+                        {formatCurrency(todaySummary.gross, todaySummary.currencyCode)}
+                      </Text>
+                      <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>gross</Text>
+                    </View>
+                  </View>
+                  {todaySummary.loggedPaidCount > 0 ? (
+                    <Text
+                      style={[theme.typography.caption, { color: theme.colors.textSecondary, marginTop: 8 }]}
+                      testID="sales-history-today-paid"
+                    >
+                      {todaySummary.loggedPaidCount} logged paid
+                    </Text>
+                  ) : null}
+                  {todaySummary.topSaleName && todaySummary.topSalePrice != null ? (
+                    <Text
+                      style={[theme.typography.body, { color: theme.colors.textPrimary, marginTop: 6 }]}
+                      testID="sales-history-today-top"
+                    >
+                      Top: {todaySummary.topSaleName} · {formatCurrency(todaySummary.topSalePrice, todaySummary.currencyCode)}
+                    </Text>
+                  ) : null}
+                  {todaySummary.methodBreakdown.length > 0 ? (
+                    <Text
+                      style={[theme.typography.caption, { color: theme.colors.textSecondary, marginTop: 6 }]}
+                      testID="sales-history-today-methods"
+                    >
+                      {todaySummary.methodBreakdown.map(({ method, count }) => `${method} ${count}`).join(' · ')}
+                    </Text>
+                  ) : null}
+                </SurfaceCard>
+              ) : null}
+              <View style={styles.controlsCard}>
+                <ControlGroup title="SORT">
+                  {sortOptions.map((option) => (
+                    <PillButton
+                      key={option.value}
+                      label={option.label}
+                      onPress={() => setSortOption(option.value)}
+                      selected={sortOption === option.value}
+                      testID={`sales-sort-${option.value}`}
+                    />
+                  ))}
+                </ControlGroup>
+
+                <ControlGroup title="FILTER">
+                  {filterOptions.map((option) => (
+                    <PillButton
+                      key={option.value}
+                      label={option.label}
+                      onPress={() => setFilterOption(option.value)}
+                      selected={filterOption === option.value}
+                      testID={`sales-filter-${option.value}`}
+                    />
+                  ))}
+                </ControlGroup>
               </View>
-              {todaySummary.loggedPaidCount > 0 ? (
-                <Text
-                  style={[theme.typography.caption, { color: theme.colors.textSecondary, marginTop: 8 }]}
-                  testID="sales-history-today-paid"
-                >
-                  {todaySummary.loggedPaidCount} logged paid
-                </Text>
-              ) : null}
-              {todaySummary.topSaleName && todaySummary.topSalePrice != null ? (
-                <Text
-                  style={[theme.typography.body, { color: theme.colors.textPrimary, marginTop: 6 }]}
-                  testID="sales-history-today-top"
-                >
-                  Top: {todaySummary.topSaleName} · {formatCurrency(todaySummary.topSalePrice, todaySummary.currencyCode)}
-                </Text>
-              ) : null}
-              {todaySummary.methodBreakdown.length > 0 ? (
-                <Text
-                  style={[theme.typography.caption, { color: theme.colors.textSecondary, marginTop: 6 }]}
-                  testID="sales-history-today-methods"
-                >
-                  {todaySummary.methodBreakdown.map(({ method, count }) => `${method} ${count}`).join(' · ')}
-                </Text>
-              ) : null}
-            </SurfaceCard>
-          ) : null}
-          <View style={styles.controlsCard}>
-            <ControlGroup title="SORT">
-              {sortOptions.map((option) => (
-                <PillButton
-                  key={option.value}
-                  label={option.label}
-                  onPress={() => setSortOption(option.value)}
-                  selected={sortOption === option.value}
-                  testID={`sales-sort-${option.value}`}
-                />
-              ))}
-            </ControlGroup>
-
-            <ControlGroup title="FILTER">
-              {filterOptions.map((option) => (
-                <PillButton
-                  key={option.value}
-                  label={option.label}
-                  onPress={() => setFilterOption(option.value)}
-                  selected={filterOption === option.value}
-                  testID={`sales-filter-${option.value}`}
-                />
-              ))}
-            </ControlGroup>
-          </View>
-
-          {shouldShowSalesSkeleton ? (
-            <SalesHistorySkeleton />
-          ) : shouldShowInitialError ? (
-            <StateCard
-              message={model.loadError ?? 'Please try again once your backend is reachable.'}
-              style={styles.stateCard}
-              title="Could not load transactions"
-              variant="field"
-            />
-          ) : displayedSales.length === 0 ? (
-            <StateCard
-              message={emptyState.message}
-              style={styles.stateCard}
-              title={emptyState.title}
-            />
-          ) : (
-            <View style={styles.saleList}>
-              {displayedSales.map((sale) => (
-                <SaleCard key={sale.id} onPress={() => model.openSaleEditor(sale)} sale={sale} />
-              ))}
             </View>
           )}
-        </ScrollView>
+          ListEmptyComponent={
+            shouldShowSalesSkeleton ? (
+              <SalesHistorySkeleton />
+            ) : shouldShowInitialError ? (
+              <StateCard
+                message={model.loadError ?? 'Please try again once your backend is reachable.'}
+                style={styles.stateCard}
+                title="Could not load transactions"
+                variant="field"
+              />
+            ) : (
+              <StateCard
+                message={emptyState.message}
+                style={styles.stateCard}
+                title={emptyState.title}
+              />
+            )
+          }
+          renderItem={({ item }) => (
+            <SaleCard onPress={() => model.openSaleEditor(item)} sale={item} />
+          )}
+          showsVerticalScrollIndicator={false}
+        />
       </View>
 
       <SalePriceEditSheet
@@ -497,8 +509,18 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
   scrollContent: {
-    gap: 18,
     paddingBottom: 120,
+  },
+  // The Today card + sort/filter controls ride in the list header and keep the
+  // old 18px spacing, then leave 18px before the first sale card.
+  listHeader: {
+    gap: 18,
+    paddingBottom: 18,
+  },
+  // Sale cards used to sit in a `gap: 10` column; reproduce that spacing as a
+  // separator between virtualized rows.
+  saleSeparator: {
+    height: 10,
   },
   searchField: {
   },

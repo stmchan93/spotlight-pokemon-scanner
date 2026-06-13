@@ -1,5 +1,5 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
-import { Share } from 'react-native';
+import { Alert, Linking, Share } from 'react-native';
 
 import type { CardDetailRecord, CardText, InventoryCardEntry } from '@spotlight/api-client';
 import { CardDetailScreen } from '@/features/cards/screens/card-detail-screen';
@@ -271,6 +271,120 @@ describe('CardDetailScreen', () => {
     });
   });
 
+  // Marketplace deep-links use the REAL pipe-delimited row key the backend emits:
+  //   raw "<variantKey>|<condition>", graded "<grader>|<grade>|<variantKey>".
+  const trendRows = (mode: string) => ([
+    {
+      label: mode === 'graded' ? 'PSA 10' : 'Near Mint',
+      key: mode === 'graded' ? 'PSA|10|' : 'normal|near_mint',
+      currentPrice: 100,
+      currencyCode: 'USD',
+      points: [1, 2, 3],
+      trendPct: 2,
+    },
+  ]);
+
+  it('raw price-trend row deep-links to a TCGplayer search filtered to the condition', async () => {
+    const getCardPriceTrends = jest.fn(async (query: { mode: string }) => ({
+      mode: query.mode as 'raw' | 'graded',
+      provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
+      rows: trendRows(query.mode),
+    }));
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as never);
+
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} onOpenAddToCollection={jest.fn()} />,
+      { spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends }) },
+    );
+
+    fireEvent.press(await screen.findByTestId('detail-price-trends-row-normal|near_mint'));
+
+    await waitFor(() => {
+      expect(openURL).toHaveBeenCalledTimes(1);
+    });
+    const url = openURL.mock.calls[0][0] as string;
+    expect(url).toContain('tcgplayer.com/search');
+    expect(url).toContain('Condition=Near+Mint');
+  });
+
+  it('graded price-trend row opens the recent eBay sold listing via getCardRecentSales', async () => {
+    const getCardPriceTrends = jest.fn(async (query: { mode: string }) => ({
+      mode: query.mode as 'raw' | 'graded',
+      provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
+      rows: trendRows(query.mode),
+    }));
+    const getCardRecentSales = jest.fn(async () => ({
+      source: 'ebay' as const,
+      status: 'available' as const,
+      statusReason: null,
+      unavailableReason: null,
+      fetchedAt: '2026-06-10T00:00:00.000Z',
+      canRefresh: true,
+      saleCount: 1,
+      sales: [{
+        id: 's1',
+        title: 'PSA 10 Treecko',
+        soldAt: null,
+        priceAmount: 250,
+        currencyCode: 'USD',
+        saleUrl: 'https://www.ebay.com/itm/abc123',
+      }],
+    }));
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as never);
+
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} onOpenAddToCollection={jest.fn()} />,
+      { spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends, getCardRecentSales }) },
+    );
+
+    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA|10|'));
+
+    await waitFor(() => {
+      expect(getCardRecentSales).toHaveBeenCalledWith(expect.objectContaining({
+        cardId: 'sm7-1',
+        source: 'ebay',
+        slabContext: expect.objectContaining({ grader: 'PSA', grade: '10' }),
+      }));
+    });
+    await waitFor(() => {
+      expect(openURL).toHaveBeenCalledWith('https://www.ebay.com/itm/abc123');
+    });
+  });
+
+  it('graded row with no eBay sales alerts instead of opening a dead link', async () => {
+    const getCardPriceTrends = jest.fn(async (query: { mode: string }) => ({
+      mode: query.mode as 'raw' | 'graded',
+      provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
+      rows: trendRows(query.mode),
+    }));
+    const getCardRecentSales = jest.fn(async () => ({
+      source: 'ebay' as const,
+      status: 'unavailable' as const,
+      statusReason: 'no_results',
+      unavailableReason: null,
+      fetchedAt: null,
+      canRefresh: true,
+      saleCount: 0,
+      sales: [],
+    }));
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as never);
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} onOpenAddToCollection={jest.fn()} />,
+      { spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends, getCardRecentSales }) },
+    );
+
+    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA|10|'));
+
+    await waitFor(() => {
+      expect(alert).toHaveBeenCalled();
+    });
+    expect(openURL).not.toHaveBeenCalled();
+  });
+
   it('renders Product Details when the card detail includes cardText', async () => {
     const baseRepository = createTestSpotlightRepository();
 
@@ -470,10 +584,10 @@ describe('CardDetailScreen', () => {
       },
     );
 
-    // The selector renders above the trend with a chip per variant option.
-    expect(await screen.findByTestId('detail-variant-selector')).toBeTruthy();
-    expect(screen.getByTestId('detail-variant-chip-normal')).toBeTruthy();
-    expect(screen.getByTestId('detail-variant-chip-raw')).toBeTruthy();
+    // The configurator renders a single "Variant" chip row (one chip per option).
+    expect(await screen.findByTestId('detail-configurator')).toBeTruthy();
+    expect(screen.getByTestId('detail-configurator-variant-normal')).toBeTruthy();
+    expect(screen.getByTestId('detail-configurator-variant-raw')).toBeTruthy();
 
     // Initial fetch uses the seeded first variant ("Normal").
     await waitFor(() => {
@@ -485,7 +599,7 @@ describe('CardDetailScreen', () => {
     });
 
     // Switching to the "Raw" chip refetches trends with the new variant label.
-    fireEvent.press(screen.getByTestId('detail-variant-chip-raw'));
+    fireEvent.press(screen.getByTestId('detail-configurator-variant-raw'));
 
     await waitFor(() => {
       expect(getCardPriceTrends).toHaveBeenLastCalledWith(expect.objectContaining({
@@ -555,14 +669,14 @@ describe('CardDetailScreen', () => {
 
     // The "Normal" default is seeded once variantOptions resolve, so its chip is
     // the selected one even though the preview made hasSource true earlier.
-    await screen.findByTestId('detail-variant-chip-normal');
+    await screen.findByTestId('detail-configurator-variant-normal');
     await waitFor(() => {
       expect(
-        screen.getByTestId('detail-variant-chip-normal').props.accessibilityState?.selected,
+        screen.getByTestId('detail-configurator-variant-normal').props.accessibilityState?.selected,
       ).toBe(true);
     });
     expect(
-      screen.getByTestId('detail-variant-chip-raw').props.accessibilityState?.selected,
+      screen.getByTestId('detail-configurator-variant-raw').props.accessibilityState?.selected,
     ).toBe(false);
 
     // The raw-lane price fetch carries the seeded variant, not a null lens.

@@ -1,8 +1,12 @@
 import { Fragment } from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { IconChevronRight } from '@tabler/icons-react-native';
 
 import { useSpotlightTheme } from '@spotlight/design-system';
-import type { CardPriceTrendList as CardPriceTrendListType } from '@spotlight/api-client';
+import type {
+  CardPriceTrendList as CardPriceTrendListType,
+  CardPriceTrendRow,
+} from '@spotlight/api-client';
 
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
 
@@ -10,13 +14,20 @@ import { PriceSparkline } from './price-sparkline';
 
 type CardPriceTrendListProps = {
   list: CardPriceTrendListType;
+  /**
+   * When provided, each row becomes a button that deep-links to the marketplace
+   * for that grade/condition. Absent → rows render static (unchanged).
+   */
+  onRowPress?: (row: CardPriceTrendRow) => void;
+  /** Row key currently resolving its marketplace link (shows a spinner). */
+  loadingRowKey?: string | null;
   testID?: string;
 };
 
 const SPARKLINE_WIDTH = 62;
 const SPARKLINE_HEIGHT = 22;
 
-export function CardPriceTrendList({ list, testID }: CardPriceTrendListProps) {
+export function CardPriceTrendList({ list, onRowPress, loadingRowKey, testID }: CardPriceTrendListProps) {
   const theme = useSpotlightTheme();
   const logoSource =
     list.provider === 'ebay'
@@ -44,12 +55,11 @@ export function CardPriceTrendList({ list, testID }: CardPriceTrendListProps) {
           rows meet. */}
       <View style={[styles.divider, { backgroundColor: theme.colors.outlineSubtle }]} />
 
-      {list.rows.map((row) => (
-        <Fragment key={row.key}>
-          <View
-            style={styles.row}
-            testID={testID ? `${testID}-row-${row.key}` : undefined}
-          >
+      {list.rows.map((row) => {
+        const isLoading = row.key === loadingRowKey;
+        const rowTestID = testID ? `${testID}-row-${row.key}` : undefined;
+        const rowContent = (
+          <>
             <Text style={[theme.typography.bodyMedium, styles.label]} numberOfLines={1}>
               {row.label}
             </Text>
@@ -60,18 +70,50 @@ export function CardPriceTrendList({ list, testID }: CardPriceTrendListProps) {
               trendPct={row.trendPct}
               width={SPARKLINE_WIDTH}
             />
-            <Text
-              style={[theme.typography.titleSmall, styles.price]}
-              testID={testID ? `${testID}-price-${row.key}` : undefined}
-            >
-              {row.currentPrice == null
-                ? '—'
-                : formatCurrency(row.currentPrice, row.currencyCode)}
-            </Text>
-          </View>
-          <View style={[styles.divider, { backgroundColor: theme.colors.outlineSubtle }]} />
-        </Fragment>
-      ))}
+            {isLoading ? (
+              <View
+                style={[styles.price, styles.pricePending]}
+                testID={testID ? `${testID}-price-${row.key}` : undefined}
+              >
+                <ActivityIndicator color={theme.colors.gray400} size="small" />
+              </View>
+            ) : (
+              <Text
+                style={[theme.typography.titleSmall, styles.price]}
+                testID={testID ? `${testID}-price-${row.key}` : undefined}
+              >
+                {row.currentPrice == null
+                  ? '—'
+                  : formatCurrency(row.currentPrice, row.currencyCode)}
+              </Text>
+            )}
+            {onRowPress ? (
+              <IconChevronRight color={theme.colors.gray400} size={16} strokeWidth={2} />
+            ) : null}
+          </>
+        );
+
+        return (
+          <Fragment key={row.key}>
+            {onRowPress ? (
+              <Pressable
+                accessibilityRole="button"
+                disabled={isLoading}
+                onPress={() => onRowPress(row)}
+                style={({ pressed }) => [styles.row, { opacity: pressed ? 0.6 : 1 }]}
+                testID={rowTestID}
+              >
+                {rowContent}
+              </Pressable>
+            ) : (
+              <View style={styles.row} testID={rowTestID}>
+                {rowContent}
+              </View>
+            )}
+            <View style={[styles.divider, { backgroundColor: theme.colors.outlineSubtle }]} />
+          </Fragment>
+        );
+      })}
     </View>
   );
 }
@@ -103,6 +145,9 @@ const styles = StyleSheet.create({
   price: {
     minWidth: 72,
     textAlign: 'right',
+  },
+  pricePending: {
+    alignItems: 'flex-end',
   },
   root: {
     width: '100%',

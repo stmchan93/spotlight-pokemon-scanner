@@ -72,7 +72,7 @@ describe('WishlistScreen', () => {
     });
   });
 
-  it('paginates the list view: shows 10 rows + View More, then reveals more on tap', async () => {
+  it('renders the whole list view virtualized, with no View More gate', async () => {
     const favorites = Array.from({ length: 12 }, (_, index) =>
       buildFavoriteEntry({
         cardId: `page-${index}`,
@@ -90,33 +90,15 @@ describe('WishlistScreen', () => {
       expect(screen.getByTestId('wishlist-row-page-0')).toBeTruthy();
     });
 
-    // Only the first page of 10 rows is rendered initially (default is list view).
-    expect(screen.queryAllByTestId(/^wishlist-row-page-\d+$/).length).toBe(10);
+    // The list is virtualized (FlatList): the first window of rows mounts up
+    // front and the rest stream in on scroll. The data is no longer sliced
+    // behind a "View More" gate.
     expect(screen.getByTestId('wishlist-row-page-9')).toBeTruthy();
-    expect(screen.queryByTestId('wishlist-row-page-10')).toBeNull();
-    expect(screen.queryByTestId('wishlist-row-page-11')).toBeNull();
-
-    // The pagination footer shows the View More button.
-    expect(screen.getByTestId('wishlist-list-pagination')).toBeTruthy();
-    expect(screen.getByTestId('wishlist-list-pagination-view-more')).toBeTruthy();
-
-    // Tapping View More reveals the remaining rows.
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('wishlist-list-pagination-view-more'));
-    });
-
-    await waitFor(() => {
-      expect(screen.getByTestId('wishlist-row-page-10')).toBeTruthy();
-    });
-    expect(screen.getByTestId('wishlist-row-page-11')).toBeTruthy();
-    expect(screen.queryAllByTestId(/^wishlist-row-page-\d+$/).length).toBe(12);
-
-    // All rows are now visible, so View More is gone but Back to top remains.
+    expect(screen.queryByTestId('wishlist-list-pagination')).toBeNull();
     expect(screen.queryByTestId('wishlist-list-pagination-view-more')).toBeNull();
-    expect(screen.getByTestId('wishlist-list-pagination-back-to-top')).toBeTruthy();
   });
 
-  it('paginates the grid view: shows 10 tiles + View More, then reveals more on tap', async () => {
+  it('renders the whole grid view virtualized, with no View More gate', async () => {
     const favorites = Array.from({ length: 12 }, (_, index) =>
       buildFavoriteEntry({
         cardId: `page-${index}`,
@@ -143,30 +125,13 @@ describe('WishlistScreen', () => {
       expect(screen.getByTestId('wishlist-grid-tile-page-0')).toBeTruthy();
     });
 
-    // Only the first page of 10 tiles is rendered initially.
-    expect(screen.queryAllByTestId(/^wishlist-grid-tile-page-\d+$/).length).toBe(10);
-    expect(screen.getByTestId('wishlist-grid-tile-page-9')).toBeTruthy();
-    expect(screen.queryByTestId('wishlist-grid-tile-page-10')).toBeNull();
-    expect(screen.queryByTestId('wishlist-grid-tile-page-11')).toBeNull();
-
-    // The pagination footer shows the View More button in grid view too.
-    expect(screen.getByTestId('wishlist-list-pagination')).toBeTruthy();
-    expect(screen.getByTestId('wishlist-list-pagination-view-more')).toBeTruthy();
-
-    // Tapping View More reveals the remaining tiles.
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('wishlist-list-pagination-view-more'));
-    });
-
-    await waitFor(() => {
-      expect(screen.getByTestId('wishlist-grid-tile-page-10')).toBeTruthy();
-    });
+    // Card view packs two tiles per ruled row, so the whole 12-card wishlist
+    // fits in the FlatList's initial window — every tile is present and there
+    // is no "View More" gate.
     expect(screen.getByTestId('wishlist-grid-tile-page-11')).toBeTruthy();
     expect(screen.queryAllByTestId(/^wishlist-grid-tile-page-\d+$/).length).toBe(12);
-
-    // All tiles are now visible, so View More is gone but Back to top remains.
+    expect(screen.queryByTestId('wishlist-list-pagination')).toBeNull();
     expect(screen.queryByTestId('wishlist-list-pagination-view-more')).toBeNull();
-    expect(screen.getByTestId('wishlist-list-pagination-back-to-top')).toBeTruthy();
   });
 
   it('features the first favorite in the hero and re-features the tapped row', async () => {

@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
+  FlatList,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -11,11 +11,7 @@ import { Menu as MenuIcon } from 'iconoir-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { InventoryCardEntry } from '@spotlight/api-client';
-import {
-  ListPaginationFooter,
-  StateCard,
-  useSpotlightTheme,
-} from '@spotlight/design-system';
+import { StateCard, useSpotlightTheme } from '@spotlight/design-system';
 
 import {
   PortfolioChartCard,
@@ -28,20 +24,33 @@ import {
   CollectionFilterChipRow,
   type CollectionFilterKey,
 } from '@/features/portfolio/components/collection-filter-chip-row';
-import { CollectionMasonryGrid } from '@/features/portfolio/components/collection-masonry-grid';
-import { CollectionListView } from '@/features/portfolio/components/collection-list-view';
+import {
+  CollectionGridRow,
+  CollectionGridSingleRow,
+  chunkCollectionGridRows,
+} from '@/features/portfolio/components/collection-masonry-grid';
+import { CollectionListRow } from '@/features/portfolio/components/collection-list-view';
 import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
+import { ScrollToTopFab, useScrollToTop } from '@/components/scroll-to-top-fab';
 import { usePortfolioScreenModel } from '@/features/portfolio/hooks/use-portfolio-screen-model';
 import { usePortfolioViewMode } from '@/features/portfolio/hooks/use-portfolio-view-mode';
 import { usePortfolioSummaryVisibility } from '@/features/portfolio/use-portfolio-summary-visibility';
 import { useTabBarScrollHandler } from '@/contexts/tab-bar-chrome-context';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
 
-const LIST_PAGE_SIZE = 10;
+const GRID_TEST_ID = 'collection-masonry-grid';
 
 type PortfolioScreenProps = {
   onOpenInventoryEntry?: (entry: InventoryCardEntry) => void;
 };
+
+// One virtualized row of the collection list. In list view each entry is its
+// own row; in card view a row holds up to two tiles (or a single boxed tile
+// when the collection has exactly one card).
+type CollectionRow =
+  | { kind: 'list'; key: string; entry: InventoryCardEntry; firstInSection: boolean }
+  | { kind: 'grid'; key: string; rowEntries: InventoryCardEntry[]; rowIndex: number }
+  | { kind: 'grid-single'; key: string; entry: InventoryCardEntry };
 
 function applyInventorySearch(items: InventoryCardEntry[], query: string) {
   const normalized = query.trim().toLowerCase();
@@ -107,8 +116,7 @@ export function PortfolioScreen({
   const [activeChartPoint, setActiveChartPoint] = useState<PortfolioChartActivePoint | null>(null);
   const [isChartScrubbing, setIsChartScrubbing] = useState(false);
   const [activeFilter, setActiveFilter] = useState<CollectionFilterKey>('all');
-  const scrollRef = useRef<ScrollView>(null);
-  const [listVisibleCount, setListVisibleCount] = useState(LIST_PAGE_SIZE);
+  const scrollRef = useRef<FlatList<CollectionRow>>(null);
 
   const bottomNavClearance =
     theme.layout.bottomNavHeight
@@ -128,13 +136,12 @@ export function PortfolioScreen({
     return applyInventorySearch(filtered, model.searchQuery);
   }, [activeFilter, baseInventory, model.searchQuery]);
 
-  useEffect(() => {
-    setListVisibleCount(LIST_PAGE_SIZE);
-  }, [activeFilter, model.searchQuery, viewMode]);
-
-  const handleBackToTop = useCallback(() => {
-    scrollRef.current?.scrollTo({ y: 0, animated: true });
-  }, []);
+  const {
+    isVisible: showScrollTop,
+    handleScroll,
+    handleLayout,
+    scrollToTop,
+  } = useScrollToTop(scrollRef, handleTabBarScroll);
 
   const handlePressEntry = useCallback(
     (entry: InventoryCardEntry) => {
@@ -143,156 +150,213 @@ export function PortfolioScreen({
     [onOpenInventoryEntry],
   );
 
+  // The whole screen is one virtualized FlatList: the balance/chart/search/
+  // filter chrome rides along as the list header, and the collection renders
+  // row-by-row (one card per row in list view, two tiles per ruled row in card
+  // view) so large collections stay smooth without a "View More" gate.
+  const listData = useMemo<CollectionRow[]>(() => {
+    if (shouldShowInitialError) {
+      return [];
+    }
+    if (viewMode === 'list') {
+      return visibleInventory.map((entry, index) => ({
+        kind: 'list',
+        key: entry.id,
+        entry,
+        firstInSection: index === 0,
+      }));
+    }
+    if (visibleInventory.length === 1) {
+      return [{ kind: 'grid-single', key: visibleInventory[0].id, entry: visibleInventory[0] }];
+    }
+    return chunkCollectionGridRows(visibleInventory).map((rowEntries, rowIndex) => ({
+      kind: 'grid',
+      key: rowEntries[0]?.id ?? `grid-row-${rowIndex}`,
+      rowEntries,
+      rowIndex,
+    }));
+  }, [shouldShowInitialError, viewMode, visibleInventory]);
+
+  const renderItem = useCallback(
+    ({ item }: { item: CollectionRow }) => {
+      if (item.kind === 'list') {
+        return (
+          <CollectionListRow
+            entry={item.entry}
+            firstInSection={item.firstInSection}
+            onPress={handlePressEntry}
+          />
+        );
+      }
+      if (item.kind === 'grid-single') {
+        return (
+          <CollectionGridSingleRow
+            entry={item.entry}
+            onPressEntry={handlePressEntry}
+            testID={GRID_TEST_ID}
+          />
+        );
+      }
+      return (
+        <CollectionGridRow
+          isFirstRow={item.rowIndex === 0}
+          onPressEntry={handlePressEntry}
+          rowEntries={item.rowEntries}
+          rowIndex={item.rowIndex}
+          testID={GRID_TEST_ID}
+        />
+      );
+    },
+    [handlePressEntry],
+  );
+
+  const listHeader = (
+    <View style={styles.chrome}>
+      <View style={[styles.header, { paddingHorizontal: theme.layout.pageGutter }]}>
+        <Pressable
+          accessibilityLabel="Open menu"
+          accessibilityRole="button"
+          hitSlop={12}
+          onPress={openDrawer}
+          style={styles.headerIcon}
+          testID="portfolio-header-menu"
+        >
+          <MenuIcon color={theme.colors.gray900} height={24} width={24} />
+        </Pressable>
+        <Text
+          numberOfLines={1}
+          style={[theme.typography.titleMedium, styles.headerTitle]}
+          testID="portfolio-header-title"
+        >
+          Collection
+        </Text>
+        <View style={styles.headerSpacer} />
+      </View>
+
+      {shouldShowInitialError ? (
+        <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
+          <StateCard
+            message={model.loadError || 'Please try again once your backend is reachable.'}
+            title="Could not load your backend data"
+            variant="field"
+          />
+        </View>
+      ) : (
+        <>
+          <PortfolioBalanceHeader
+            summary={summary}
+            activeChartPoint={activeChartPoint}
+            isSummaryHidden={isSummaryHidden}
+            onToggleHidden={toggleSummaryHidden}
+          />
+
+          <View style={styles.chartWrap}>
+            <PortfolioChartCard
+              chartMode="portfolio"
+              dashboard={model.dashboard}
+              isLoading={model.isLoadingDashboard && !model.hasLoadedDashboard}
+              onActivePointChange={setActiveChartPoint}
+              onRangeChange={model.setSelectedRange}
+              onScrubLockChange={setIsChartScrubbing}
+              selectedRange={model.selectedRange}
+            />
+          </View>
+
+          {model.loadError ? (
+            <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
+              <StateCard
+                message={model.loadError}
+                title="Could not refresh your backend data"
+                variant="field"
+              />
+            </View>
+          ) : model.isDashboardStale ? (
+            <Text
+              style={[
+                theme.typography.captionMedium,
+                styles.staleHint,
+                { color: theme.colors.gray500 },
+              ]}
+              testID="portfolio-stale-hint"
+            >
+              Couldn’t refresh just now — showing your last update.
+            </Text>
+          ) : null}
+
+          <CollectionSearchRow
+            onChangeQuery={model.setSearchQuery}
+            onToggleViewMode={toggleViewMode}
+            query={model.searchQuery}
+            viewMode={viewMode}
+          />
+
+          <CollectionFilterChipRow
+            activeFilter={activeFilter}
+            onFilterChange={setActiveFilter}
+          />
+        </>
+      )}
+    </View>
+  );
+
+  const listEmpty = shouldShowInitialError ? null : (
+    <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
+      <StateCard
+        message="Add cards from the scanner or tap the + button to start your collection."
+        style={styles.emptyStateCard}
+        title="No cards match this filter"
+      />
+    </View>
+  );
+
   return (
     <SafeAreaView
       edges={['top', 'left', 'right']}
       style={[styles.safeArea, { backgroundColor: theme.colors.gray0 }]}
     >
-      <ScrollView
-        ref={scrollRef}
-        testID="portfolio-scroll-view"
-        contentContainerStyle={[
-          styles.content,
-          {
-            paddingBottom: bottomNavClearance,
-            paddingTop: theme.layout.pageTopInset,
-          },
-        ]}
-        refreshControl={(
-          <RefreshControl
-            onRefresh={model.refresh}
-            refreshing={model.isRefreshing}
-            testID="portfolio-refresh-control"
-            tintColor={theme.colors.gray400}
-          />
-        )}
-        scrollEnabled={!isChartScrubbing}
-        onScroll={handleTabBarScroll}
-        scrollEventThrottle={16}
+      <View
+        style={styles.listWrap}
+        testID={
+          shouldShowInitialError
+            ? undefined
+            : viewMode === 'grid'
+              ? 'collection-masonry-grid'
+              : 'collection-list-view'
+        }
       >
-        <View style={[styles.header, { paddingHorizontal: theme.layout.pageGutter }]}>
-          <Pressable
-            accessibilityLabel="Open menu"
-            accessibilityRole="button"
-            hitSlop={12}
-            onPress={openDrawer}
-            style={styles.headerIcon}
-            testID="portfolio-header-menu"
-          >
-            <MenuIcon color={theme.colors.gray900} height={24} width={24} />
-          </Pressable>
-          <Text
-            numberOfLines={1}
-            style={[theme.typography.titleMedium, styles.headerTitle]}
-            testID="portfolio-header-title"
-          >
-            Collection
-          </Text>
-          <View style={styles.headerSpacer} />
-        </View>
-
-        {shouldShowInitialError ? (
-          <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
-            <StateCard
-              message={model.loadError || 'Please try again once your backend is reachable.'}
-              title="Could not load your backend data"
-              variant="field"
+        <FlatList
+          ref={scrollRef}
+          contentContainerStyle={{
+            paddingTop: theme.layout.pageTopInset,
+            paddingBottom: bottomNavClearance,
+          }}
+          data={listData}
+          keyExtractor={(item) => item.key}
+          ListEmptyComponent={listEmpty}
+          ListFooterComponent={listData.length > 0 ? <View style={styles.footerSpacer} /> : null}
+          ListHeaderComponent={listHeader}
+          onLayout={handleLayout}
+          onScroll={handleScroll}
+          refreshControl={(
+            <RefreshControl
+              onRefresh={model.refresh}
+              refreshing={model.isRefreshing}
+              testID="portfolio-refresh-control"
+              tintColor={theme.colors.gray400}
             />
-          </View>
-        ) : (
-          <>
-            <PortfolioBalanceHeader
-              summary={summary}
-              activeChartPoint={activeChartPoint}
-              isSummaryHidden={isSummaryHidden}
-              onToggleHidden={toggleSummaryHidden}
-            />
+          )}
+          renderItem={renderItem}
+          scrollEnabled={!isChartScrubbing}
+          scrollEventThrottle={16}
+          testID="portfolio-scroll-view"
+        />
+      </View>
 
-            <View style={styles.chartWrap}>
-              <PortfolioChartCard
-                chartMode="portfolio"
-                dashboard={model.dashboard}
-                isLoading={model.isLoadingDashboard && !model.hasLoadedDashboard}
-                onActivePointChange={setActiveChartPoint}
-                onRangeChange={model.setSelectedRange}
-                onScrubLockChange={setIsChartScrubbing}
-                selectedRange={model.selectedRange}
-              />
-            </View>
-
-            {model.loadError ? (
-              <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
-                <StateCard
-                  message={model.loadError}
-                  title="Could not refresh your backend data"
-                  variant="field"
-                />
-              </View>
-            ) : model.isDashboardStale ? (
-              <Text
-                style={[
-                  theme.typography.captionMedium,
-                  styles.staleHint,
-                  { color: theme.colors.gray500 },
-                ]}
-                testID="portfolio-stale-hint"
-              >
-                Couldn’t refresh just now — showing your last update.
-              </Text>
-            ) : null}
-
-            <CollectionSearchRow
-              onChangeQuery={model.setSearchQuery}
-              onToggleViewMode={toggleViewMode}
-              query={model.searchQuery}
-              viewMode={viewMode}
-            />
-
-            <CollectionFilterChipRow
-              activeFilter={activeFilter}
-              onFilterChange={setActiveFilter}
-            />
-
-            {visibleInventory.length > 0 ? (
-              viewMode === 'list' ? (
-                <CollectionListView
-                  entries={visibleInventory.slice(0, listVisibleCount)}
-                  onPressEntry={handlePressEntry}
-                />
-              ) : (
-                <CollectionMasonryGrid
-                  entries={visibleInventory.slice(0, listVisibleCount)}
-                  onPressEntry={handlePressEntry}
-                />
-              )
-            ) : (
-              <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
-                <StateCard
-                  message="Add cards from the scanner or tap the + button to start your collection."
-                  style={styles.emptyStateCard}
-                  title="No cards match this filter"
-                />
-              </View>
-            )}
-
-            {visibleInventory.length > 0 ? (
-              <ListPaginationFooter
-                canViewMore={visibleInventory.length > listVisibleCount}
-                onBackToTop={handleBackToTop}
-                onViewMore={() => setListVisibleCount((count) => count + LIST_PAGE_SIZE)}
-                testID="portfolio-list-pagination"
-              />
-            ) : (
-              <Text
-                style={[theme.typography.captionMedium, styles.endOfList, { color: theme.colors.gray600 }]}
-                testID="portfolio-end-of-list"
-              >
-                End of List
-              </Text>
-            )}
-          </>
-        )}
-      </ScrollView>
+      <ScrollToTopFab
+        onPress={scrollToTop}
+        testID="portfolio-scroll-to-top"
+        visible={showScrollTop}
+      />
 
       <CollectionAddFab />
 
@@ -311,20 +375,25 @@ export function PortfolioScreen({
 const styles = StyleSheet.create({
   chartWrap: {
     // Figma puts the Time Filter Container 64px below the Portfolio Balance
-    // Container. The ScrollView `content` style adds a 16px gap between
-    // children, so we add 48 here to land at exactly 64.
+    // Container. The chrome wrapper adds a 16px gap between children, so we add
+    // 48 here to land at exactly 64.
     marginTop: 48,
     marginBottom: 16,
   },
-  content: {
+  chrome: {
+    // Mirror the legacy ScrollView `content` gap so the balance/chart/search/
+    // filter chrome keeps its original 16px inter-child spacing. The 32px tail
+    // reproduces the old spacing above the first ruled row (the parent `gap: 16`
+    // between the filters and the list + the list's own `paddingTop: 16`).
     gap: 16,
+    paddingBottom: 32,
   },
   emptyStateCard: {
     marginTop: 12,
   },
-  endOfList: {
-    marginTop: 24,
-    textAlign: 'center',
+  footerSpacer: {
+    // Matches the legacy list/grid `paddingBottom: 16` below the last row.
+    height: 16,
   },
   staleHint: {
     paddingHorizontal: 16,
@@ -345,6 +414,9 @@ const styles = StyleSheet.create({
   headerTitle: {
     flex: 1,
     textAlign: 'center',
+  },
+  listWrap: {
+    flex: 1,
   },
   safeArea: {
     flex: 1,

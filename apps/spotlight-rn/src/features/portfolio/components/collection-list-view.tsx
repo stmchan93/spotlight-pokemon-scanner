@@ -22,6 +22,35 @@ function gradeLabelFor(entry: InventoryCardEntry): string | null {
   return short.length > 0 ? short : null;
 }
 
+type CollectionListRowProps = {
+  entry: InventoryCardEntry;
+  firstInSection: boolean;
+  onPress: (entry: InventoryCardEntry) => void;
+};
+
+/**
+ * One full-bleed ruled list row, extracted so the collection screen can render
+ * it as a virtualized FlatList item while keeping identical markup/testIDs.
+ */
+export function CollectionListRow({ entry, firstInSection, onPress }: CollectionListRowProps) {
+  return (
+    <CardListRow
+      cardNumber={entry.cardNumber}
+      currencyCode={entry.currencyCode ?? 'USD'}
+      firstInSection={firstInSection}
+      gradeLabel={gradeLabelFor(entry)}
+      imageUrl={getCardImageUrl(entry, 'small')}
+      marketPrice={entry.hasMarketPrice ? entry.marketPrice : null}
+      name={entry.name}
+      onPress={() => onPress(entry)}
+      quantity={entry.quantity}
+      setName={entry.setName}
+      testID={`card-list-row-${entry.cardId}`}
+      trendChangeAmount={entry.dayChangeAmount ?? null}
+    />
+  );
+}
+
 export function CollectionListView({
   entries,
   onPressEntry,
@@ -30,20 +59,11 @@ export function CollectionListView({
   return (
     <View style={styles.list} testID={testID}>
       {entries.map((entry, index) => (
-        <CardListRow
+        <CollectionListRow
           key={entry.id}
+          entry={entry}
           firstInSection={index === 0}
-          imageUrl={getCardImageUrl(entry, 'small')}
-          name={entry.name}
-          cardNumber={entry.cardNumber}
-          setName={entry.setName}
-          gradeLabel={gradeLabelFor(entry)}
-          marketPrice={entry.hasMarketPrice ? entry.marketPrice : null}
-          currencyCode={entry.currencyCode ?? 'USD'}
-          trendChangeAmount={entry.dayChangeAmount ?? null}
-          quantity={entry.quantity}
-          onPress={() => onPressEntry(entry)}
-          testID={`card-list-row-${entry.cardId}`}
+          onPress={onPressEntry}
         />
       ))}
     </View>

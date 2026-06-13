@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  FlatList,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -28,6 +29,7 @@ import {
 } from '@spotlight/design-system';
 
 import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
+import { ScrollToTopFab, useScrollToTop } from '@/components/scroll-to-top-fab';
 import { TransactionRow, TransactionThumb } from '@/features/sales/components/transaction-row';
 import {
   groupTransactionsByDay,
@@ -42,6 +44,12 @@ import { useAppServices } from '@/providers/app-providers';
 import { AppBottomTabBar } from '@/components/app-bottom-tab-bar';
 
 type TransactionFilterKey = 'all' | CardTransactionKind;
+
+// Day-grouped transactions flattened into a single virtualized list: a sticky-
+// free day header row followed by that day's transaction rows.
+type SalesRow =
+  | { type: 'day'; key: string; dayKey: string; dayNumber: string; monthLabel: string }
+  | { type: 'txn'; key: string; record: CardTransactionRecord; firstInList: boolean };
 
 const kindFilters: readonly { label: string; value: TransactionFilterKey }[] = [
   { label: 'All', value: 'all' },
@@ -77,7 +85,7 @@ export function LatestSalesScreen() {
   const { spotlightRepository, dataVersion } = useAppServices();
   const { openDrawer } = useAppDrawer();
   const handleTabBarScroll = useTabBarScrollHandler();
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<FlatList<SalesRow>>(null);
 
   const [transactions, setTransactions] = useState<CardTransactionRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -139,9 +147,12 @@ export function LatestSalesScreen() {
     });
   }, []);
 
-  const handleBackToTop = useCallback(() => {
-    scrollRef.current?.scrollTo({ y: 0, animated: true });
-  }, []);
+  const {
+    isVisible: showScrollTop,
+    handleScroll,
+    handleLayout,
+    scrollToTop,
+  } = useScrollToTop(scrollRef, handleTabBarScroll);
 
   const bottomNavClearance =
     theme.layout.bottomNavHeight
@@ -206,6 +217,111 @@ export function LatestSalesScreen() {
     setYear(availableYears[nextIndex]);
   }, [availableYears, resolvedYear]);
 
+  // Flatten the day groups into one list so the whole transaction history can
+  // virtualize as a single FlatList (day header rows interleaved with their
+  // transaction rows) instead of mapping every record into a ScrollView.
+  const listData = useMemo<SalesRow[]>(() => {
+    const rows: SalesRow[] = [];
+    for (const group of visibleGroups) {
+      rows.push({
+        type: 'day',
+        key: `day-${group.dayKey}`,
+        dayKey: group.dayKey,
+        dayNumber: group.dayNumber,
+        monthLabel: group.monthLabel,
+      });
+      group.records.forEach((record, index) => {
+        rows.push({ type: 'txn', key: record.id, record, firstInList: index === 0 });
+      });
+    }
+    return rows;
+  }, [visibleGroups]);
+
+  const renderItem = useCallback(({ item }: { item: SalesRow }) => {
+    if (item.type === 'day') {
+      return (
+        <View style={salesStyles.dayHeaderRow} testID={`sales-day-group-${item.dayKey}`}>
+          <Text style={salesStyles.dayNumber}>{item.dayNumber}</Text>
+          <Text style={salesStyles.dayMonth}>{item.monthLabel}</Text>
+        </View>
+      );
+    }
+    return (
+      <TransactionRow
+        firstInList={item.firstInList}
+        record={item.record}
+        testID={`latest-transaction-card-${item.record.id}`}
+      />
+    );
+  }, []);
+
+  const listHeader = (
+    <View style={salesStyles.listHeader}>
+      <View style={salesStyles.searchRow}>
+        <SearchField
+          accessibilityLabel="Search your collection"
+          autoCorrect={false}
+          autoCapitalize="none"
+          clearButtonMode="while-editing"
+          onChangeText={setSearchQuery}
+          placeholder="Search your collection"
+          returnKeyType="search"
+          size="collection"
+          surface="muted"
+          value={searchQuery}
+        />
+      </View>
+
+      <ScrollView
+        contentContainerStyle={salesStyles.pillRowContent}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        testID="sales-filter-pills"
+      >
+        {kindFilters.map((filter) => (
+          <PillButton
+            key={filter.value}
+            label={filter.label}
+            onPress={() => setActiveFilter(filter.value)}
+            selected={activeFilter === filter.value}
+            testID={`sales-filter-${filter.value}`}
+            tone="filter"
+          />
+        ))}
+        <PillButton
+          label={sortDirectionLabel('Date', sortKey === 'date', sortDir)}
+          onPress={() => handleSortPress('date')}
+          selected={sortKey === 'date'}
+          testID="sales-sort-date"
+          tone="filter"
+        />
+        <PillButton
+          label={sortDirectionLabel('Price', sortKey === 'price', sortDir)}
+          onPress={() => handleSortPress('price')}
+          selected={sortKey === 'price'}
+          testID="sales-sort-price"
+          tone="filter"
+        />
+      </ScrollView>
+
+      {resolvedYear != null ? (
+        <View style={salesStyles.yearRow}>
+          <Pressable
+            accessibilityLabel={`Year ${resolvedYear}, change year`}
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={cycleYear}
+            style={salesStyles.yearPill}
+            testID="sales-year-pill"
+          >
+            <Text style={salesStyles.yearLabel}>{resolvedYear}</Text>
+            <NavArrowDown color={theme.colors.gray900} height={18} width={18} />
+          </Pressable>
+        </View>
+      ) : null}
+    </View>
+  );
+
   return (
     <SafeAreaView
       edges={['top', 'left', 'right']}
@@ -254,11 +370,35 @@ export function LatestSalesScreen() {
             title="No transactions yet"
           />
         ) : (
-          <ScrollView
+          <FlatList
             ref={scrollRef}
             contentContainerStyle={salesStyles.scrollContent}
-            onScroll={handleTabBarScroll}
-            scrollEventThrottle={16}
+            data={listData}
+            keyExtractor={(item) => item.key}
+            ListHeaderComponent={listHeader}
+            ListEmptyComponent={(
+              <View style={salesStyles.emptyWrap}>
+                <StateCard
+                  message="Try a different search or filter to find this transaction."
+                  title="No transactions match"
+                />
+              </View>
+            )}
+            ListFooterComponent={hasVisibleTransactions ? (
+              <Pressable
+                accessibilityLabel="Back to top"
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={scrollToTop}
+                style={salesStyles.backToTop}
+                testID="sales-back-to-top"
+              >
+                <NavArrowUp color={theme.colors.gray600} height={18} width={18} />
+                <Text style={salesStyles.backToTopLabel}>Back to top</Text>
+              </Pressable>
+            ) : null}
+            onLayout={handleLayout}
+            onScroll={handleScroll}
             refreshControl={(
               <RefreshControl
                 onRefresh={handleRefresh}
@@ -267,113 +407,18 @@ export function LatestSalesScreen() {
                 tintColor={theme.colors.gray400}
               />
             )}
-            testID="latest-sales-scroll"
-          >
-            <View style={salesStyles.searchRow}>
-              <SearchField
-                accessibilityLabel="Search your collection"
-                autoCorrect={false}
-                autoCapitalize="none"
-                clearButtonMode="while-editing"
-                onChangeText={setSearchQuery}
-                placeholder="Search your collection"
-                returnKeyType="search"
-                size="collection"
-                surface="muted"
-                value={searchQuery}
-              />
-            </View>
-
-            <ScrollView
-              contentContainerStyle={salesStyles.pillRowContent}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              testID="sales-filter-pills"
-            >
-              {kindFilters.map((filter) => (
-                <PillButton
-                  key={filter.value}
-                  label={filter.label}
-                  onPress={() => setActiveFilter(filter.value)}
-                  selected={activeFilter === filter.value}
-                  testID={`sales-filter-${filter.value}`}
-                  tone="filter"
-                />
-              ))}
-              <PillButton
-                label={sortDirectionLabel('Date', sortKey === 'date', sortDir)}
-                onPress={() => handleSortPress('date')}
-                selected={sortKey === 'date'}
-                testID="sales-sort-date"
-                tone="filter"
-              />
-              <PillButton
-                label={sortDirectionLabel('Price', sortKey === 'price', sortDir)}
-                onPress={() => handleSortPress('price')}
-                selected={sortKey === 'price'}
-                testID="sales-sort-price"
-                tone="filter"
-              />
-            </ScrollView>
-
-            {resolvedYear != null ? (
-              <View style={salesStyles.yearRow}>
-                <Pressable
-                  accessibilityLabel={`Year ${resolvedYear}, change year`}
-                  accessibilityRole="button"
-                  hitSlop={8}
-                  onPress={cycleYear}
-                  style={salesStyles.yearPill}
-                  testID="sales-year-pill"
-                >
-                  <Text style={salesStyles.yearLabel}>{resolvedYear}</Text>
-                  <NavArrowDown color={theme.colors.gray900} height={18} width={18} />
-                </Pressable>
-              </View>
-            ) : null}
-
-            {!hasVisibleTransactions ? (
-              <View style={salesStyles.emptyWrap}>
-                <StateCard
-                  message="Try a different search or filter to find this transaction."
-                  title="No transactions match"
-                />
-              </View>
-            ) : (
-              <View style={salesStyles.salesList} testID="latest-sales-list">
-                {visibleGroups.map((group) => (
-                  <View key={group.dayKey} testID={`sales-day-group-${group.dayKey}`}>
-                    <View style={salesStyles.dayHeaderRow}>
-                      <Text style={salesStyles.dayNumber}>{group.dayNumber}</Text>
-                      <Text style={salesStyles.dayMonth}>{group.monthLabel}</Text>
-                    </View>
-                    {group.records.map((transaction, index) => (
-                      <TransactionRow
-                        key={transaction.id}
-                        firstInList={index === 0}
-                        record={transaction}
-                        testID={`latest-transaction-card-${transaction.id}`}
-                      />
-                    ))}
-                  </View>
-                ))}
-
-                <Pressable
-                  accessibilityLabel="Back to top"
-                  accessibilityRole="button"
-                  hitSlop={8}
-                  onPress={handleBackToTop}
-                  style={salesStyles.backToTop}
-                  testID="sales-back-to-top"
-                >
-                  <NavArrowUp color={theme.colors.gray600} height={18} width={18} />
-                  <Text style={salesStyles.backToTopLabel}>Back to top</Text>
-                </Pressable>
-              </View>
-            )}
-          </ScrollView>
+            renderItem={renderItem}
+            scrollEventThrottle={16}
+            testID="latest-sales-list"
+          />
         )}
       </View>
+
+      <ScrollToTopFab
+        onPress={scrollToTop}
+        testID="sales-scroll-to-top"
+        visible={showScrollTop}
+      />
 
       <CollectionAddFab onPress={() => router.push('/card-transactions/new')} />
 
@@ -410,9 +455,15 @@ const salesStyles = StyleSheet.create({
     borderWidth: 0,
   },
   scrollContent: {
-    gap: 16,
     paddingBottom: 24,
     paddingTop: 8,
+  },
+  // The search/filter/year chrome rides in the list header and keeps the old
+  // 16px inter-row spacing. The transaction rows below stack flush (each day
+  // header owns its own top padding) so no gap is applied to the list itself.
+  listHeader: {
+    gap: 16,
+    paddingBottom: 16,
   },
   searchRow: {
     paddingHorizontal: 16,
@@ -450,9 +501,6 @@ const salesStyles = StyleSheet.create({
   dayMonth: {
     ...textStyles.overline,
     color: colors.gray600,
-  },
-  salesList: {
-    gap: 0,
   },
   backToTop: {
     alignItems: 'center',

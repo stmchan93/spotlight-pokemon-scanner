@@ -116,11 +116,10 @@ describe('PortfolioScreen', () => {
     expect(screen.getByTestId('portfolio-summary-delta-date')).toBeTruthy();
     expect(screen.getByTestId('portfolio-summary-visibility-toggle')).toBeTruthy();
 
-    // Scroll container & pagination footer. The default mock inventory is
-    // non-empty, so the footer renders (in both grid and list views) instead
-    // of the empty-state "End of List" marker.
+    // The whole screen is one virtualized FlatList now, so there is no
+    // "View More" pagination gate (and no legacy "End of List" marker).
     expect(screen.getByTestId('portfolio-scroll-view')).toBeTruthy();
-    expect(screen.getByTestId('portfolio-list-pagination')).toBeTruthy();
+    expect(screen.queryByTestId('portfolio-list-pagination')).toBeNull();
     expect(screen.queryByTestId('portfolio-end-of-list')).toBeNull();
 
     // Collection search row + filter chips.
@@ -462,7 +461,7 @@ describe('PortfolioScreen', () => {
     expect(menuButton).toBeTruthy();
   });
 
-  it('paginates the list view: shows 10 rows + View More, then reveals more on tap', async () => {
+  it('renders the whole list view virtualized, with no View More gate', async () => {
     const inventory = Array.from({ length: 12 }, (_, index) =>
       buildInventoryEntry({
         id: `page-${index}`,
@@ -492,39 +491,18 @@ describe('PortfolioScreen', () => {
       expect(screen.getByTestId('collection-list-view')).toBeTruthy();
     });
 
-    // Only the first page of 10 rows is rendered initially. The CardListRow
-    // primitive applies the same base testID to its pressable container and a
-    // `${testID}-*` to each inner element, so match only the container ids
-    // (`card-list-row-page-<n>` with no trailing suffix) to count rows.
-    const rowContainerPattern = /^card-list-row-page-\d+$/;
-    expect(screen.queryAllByTestId(rowContainerPattern).length).toBe(10);
+    // The list is virtualized (FlatList): the first window of rows mounts up
+    // front and the rest stream in on scroll. The point is that the data is no
+    // longer sliced behind a "View More" gate — every entry is in the list.
     expect(screen.getByTestId('card-list-row-page-0')).toBeTruthy();
     expect(screen.getByTestId('card-list-row-page-9')).toBeTruthy();
-    expect(screen.queryByTestId('card-list-row-page-10')).toBeNull();
-    expect(screen.queryByTestId('card-list-row-page-11')).toBeNull();
 
-    // The pagination footer shows the View More button (not the End of List marker).
-    expect(screen.getByTestId('portfolio-list-pagination')).toBeTruthy();
-    expect(screen.getByTestId('portfolio-list-pagination-view-more')).toBeTruthy();
-    expect(screen.queryByTestId('portfolio-end-of-list')).toBeNull();
-
-    // Tapping View More reveals the remaining rows.
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('portfolio-list-pagination-view-more'));
-    });
-
-    await waitFor(() => {
-      expect(screen.getByTestId('card-list-row-page-10')).toBeTruthy();
-    });
-    expect(screen.getByTestId('card-list-row-page-11')).toBeTruthy();
-    expect(screen.queryAllByTestId(rowContainerPattern).length).toBe(12);
-
-    // All rows are now visible, so the View More button is gone but Back to top remains.
+    // No "View More" pagination gate anymore.
+    expect(screen.queryByTestId('portfolio-list-pagination')).toBeNull();
     expect(screen.queryByTestId('portfolio-list-pagination-view-more')).toBeNull();
-    expect(screen.getByTestId('portfolio-list-pagination-back-to-top')).toBeTruthy();
   });
 
-  it('paginates the grid view: shows 10 tiles + View More, then reveals more on tap', async () => {
+  it('renders the whole grid view virtualized, with no View More gate', async () => {
     const inventory = Array.from({ length: 12 }, (_, index) =>
       buildInventoryEntry({
         id: `page-${index}`,
@@ -545,37 +523,20 @@ describe('PortfolioScreen', () => {
       expect(screen.getByTestId('collection-masonry-grid')).toBeTruthy();
     });
 
-    // The default view is the grid (card) view, so no toggle is needed.
-    // Only the first page of 10 tiles is rendered initially. The
-    // InventoryCardTile primitive applies the same base testID to its
-    // pressable container and `${testID}-*` to each inner element, so match
-    // only the container ids (`collection-masonry-grid-tile-page-<n>` with no
-    // trailing suffix) to count tiles.
+    // The default view is the grid (card) view. Every tile is rendered because
+    // the FlatList holds the full collection (no pagination slice). The
+    // InventoryCardTile primitive applies the same base testID to its pressable
+    // container and `${testID}-*` to each inner element, so match only the
+    // container ids (`collection-masonry-grid-tile-page-<n>` with no trailing
+    // suffix) to count tiles.
     const tileContainerPattern = /^collection-masonry-grid-tile-page-\d+$/;
-    expect(screen.queryAllByTestId(tileContainerPattern).length).toBe(10);
-    expect(screen.getByTestId('collection-masonry-grid-tile-page-0')).toBeTruthy();
-    expect(screen.queryByTestId('collection-masonry-grid-tile-page-10')).toBeNull();
-    expect(screen.queryByTestId('collection-masonry-grid-tile-page-11')).toBeNull();
-
-    // The pagination footer shows the View More button (not the End of List marker).
-    expect(screen.getByTestId('portfolio-list-pagination')).toBeTruthy();
-    expect(screen.getByTestId('portfolio-list-pagination-view-more')).toBeTruthy();
-    expect(screen.queryByTestId('portfolio-end-of-list')).toBeNull();
-
-    // Tapping View More reveals the remaining tiles.
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('portfolio-list-pagination-view-more'));
-    });
-
-    await waitFor(() => {
-      expect(screen.getByTestId('collection-masonry-grid-tile-page-10')).toBeTruthy();
-    });
-    expect(screen.getByTestId('collection-masonry-grid-tile-page-11')).toBeTruthy();
     expect(screen.queryAllByTestId(tileContainerPattern).length).toBe(12);
+    expect(screen.getByTestId('collection-masonry-grid-tile-page-0')).toBeTruthy();
+    expect(screen.getByTestId('collection-masonry-grid-tile-page-11')).toBeTruthy();
 
-    // All tiles are now visible, so the View More button is gone but Back to top remains.
+    // No "View More" pagination gate anymore.
+    expect(screen.queryByTestId('portfolio-list-pagination')).toBeNull();
     expect(screen.queryByTestId('portfolio-list-pagination-view-more')).toBeNull();
-    expect(screen.getByTestId('portfolio-list-pagination-back-to-top')).toBeTruthy();
   });
 
   it('navigates to the catalog search route when the FAB is tapped', async () => {

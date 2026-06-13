@@ -2702,7 +2702,8 @@ export class MockSpotlightRepository implements SpotlightRepository {
   }
 
   async getCardRecentSales(query: CardRecentSalesQuery) {
-    if (query.slabContext?.grader?.toUpperCase() !== 'PSA' || !query.slabContext?.grade) {
+    // Any grader+grade is supported (PSA / BGS / CGC); only require both to be present.
+    if (!query.slabContext?.grader || !query.slabContext?.grade) {
       return null;
     }
     const detail = getMockCardDetail(this.cardDetails, this.inventoryEntries, query);

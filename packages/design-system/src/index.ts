@@ -15,6 +15,7 @@ export * from './components/price-text';
 export * from './components/quantity-stepper';
 export * from './components/radio-dot';
 export * from './components/rolling-number-text';
+export * from './components/scroll-to-top-button';
 export * from './components/search-field';
 export * from './components/screen-header';
 export * from './components/segmented-control';

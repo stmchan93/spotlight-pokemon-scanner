@@ -14,10 +14,23 @@ type CollectionMasonryGridProps = {
   testID?: string;
 };
 
-const COLUMNS = 2;
+export const COLLECTION_GRID_COLUMNS = 2;
 
 function isLiveOnEbay(entry: InventoryCardEntry): boolean {
   return typeof entry.listingUrl === 'string' && entry.listingUrl.trim().length > 0;
+}
+
+/**
+ * Split inventory into fixed-width rows of {@link COLLECTION_GRID_COLUMNS} for
+ * the collection "card view". Each row is rendered independently so the screen
+ * can virtualize the grid one ruled row at a time.
+ */
+export function chunkCollectionGridRows(entries: InventoryCardEntry[]): InventoryCardEntry[][] {
+  const rows: InventoryCardEntry[][] = [];
+  for (let index = 0; index < entries.length; index += COLLECTION_GRID_COLUMNS) {
+    rows.push(entries.slice(index, index + COLLECTION_GRID_COLUMNS));
+  }
+  return rows;
 }
 
 /**
@@ -34,81 +47,139 @@ export function CollectionMasonryGrid({
   selectedEntryId,
   testID = 'collection-masonry-grid',
 }: CollectionMasonryGridProps) {
-  const theme = useSpotlightTheme();
-
   // A lone entry shouldn't render as a full-bleed ruled row — that reads as a
   // wide rectangle with one card stranded in the corner. Box it into a single
   // column-width tile so the hairline border hugs just that one item.
-  const soleEntry = entries.length === 1 ? entries[0] : null;
-  if (soleEntry) {
+  if (entries.length === 1) {
     return (
       <View style={styles.grid} testID={testID}>
-        <View style={styles.singleRow}>
-          <View style={[styles.singleCell, { borderColor: theme.colors.gray100 }]}>
-            <CollectionTileSlot
-              entry={soleEntry}
-              onPress={onPressEntry}
-              onLongPress={onLongPressEntry}
-              selected={selectedEntryId === soleEntry.id}
-              testIDPrefix={`${testID}-tile`}
-            />
-          </View>
-        </View>
+        <CollectionGridSingleRow
+          entry={entries[0]}
+          onPressEntry={onPressEntry}
+          onLongPressEntry={onLongPressEntry}
+          selectedEntryId={selectedEntryId}
+          testID={testID}
+        />
       </View>
     );
   }
 
-  const rows: InventoryCardEntry[][] = [];
-  for (let index = 0; index < entries.length; index += COLUMNS) {
-    rows.push(entries.slice(index, index + COLUMNS));
-  }
+  const rows = chunkCollectionGridRows(entries);
 
   return (
     <View style={styles.grid} testID={testID}>
-      {rows.map((row, rowIndex) => {
+      {rows.map((rowEntries, rowIndex) => (
+        <CollectionGridRow
+          key={rowEntries[0]?.id ?? `row-${rowIndex}`}
+          isFirstRow={rowIndex === 0}
+          onLongPressEntry={onLongPressEntry}
+          onPressEntry={onPressEntry}
+          rowEntries={rowEntries}
+          rowIndex={rowIndex}
+          selectedEntryId={selectedEntryId}
+          testID={testID}
+        />
+      ))}
+    </View>
+  );
+}
+
+type CollectionGridRowProps = {
+  rowEntries: InventoryCardEntry[];
+  rowIndex: number;
+  isFirstRow: boolean;
+  onPressEntry: (entry: InventoryCardEntry) => void;
+  onLongPressEntry?: (entry: InventoryCardEntry) => void;
+  selectedEntryId?: string | null;
+  testID?: string;
+};
+
+/**
+ * One full-bleed ruled row of up to {@link COLLECTION_GRID_COLUMNS} tiles. Only
+ * the first row draws a top hairline; every row draws its bottom hairline, so
+ * adjacent rows share one 1px line instead of stacking two.
+ */
+export function CollectionGridRow({
+  rowEntries,
+  rowIndex,
+  isFirstRow,
+  onPressEntry,
+  onLongPressEntry,
+  selectedEntryId,
+  testID = 'collection-masonry-grid',
+}: CollectionGridRowProps) {
+  const theme = useSpotlightTheme();
+
+  return (
+    <View
+      style={[
+        styles.row,
+        { borderBottomColor: theme.colors.gray100 },
+        isFirstRow ? { borderTopColor: theme.colors.gray100, borderTopWidth: 1 } : null,
+      ]}
+      testID={`${testID}-row-${rowIndex}`}
+    >
+      {Array.from({ length: COLLECTION_GRID_COLUMNS }).map((_, colIndex) => {
+        const entry = rowEntries[colIndex];
         return (
           <View
-            key={row[0]?.id ?? `row-${rowIndex}`}
+            key={entry?.id ?? `row-${rowIndex}-col-${colIndex}`}
             style={[
-              styles.row,
-              { borderBottomColor: theme.colors.gray100 },
-              // Single hairlines: only the first row draws a top border; every
-              // row draws its bottom border, so adjacent rows share one 1px
-              // line instead of stacking two.
-              rowIndex === 0
-                ? { borderTopColor: theme.colors.gray100, borderTopWidth: 1 }
+              styles.cell,
+              // Middle vertical divider between the two columns.
+              colIndex === 1 && entry
+                ? { borderLeftColor: theme.colors.gray100, borderLeftWidth: 1 }
                 : null,
             ]}
-            testID={`${testID}-row-${rowIndex}`}
           >
-            {Array.from({ length: COLUMNS }).map((_, colIndex) => {
-              const entry = row[colIndex];
-              return (
-                <View
-                  key={entry?.id ?? `row-${rowIndex}-col-${colIndex}`}
-                  style={[
-                    styles.cell,
-                    // Middle vertical divider between the two columns.
-                    colIndex === 1 && entry
-                      ? { borderLeftColor: theme.colors.gray100, borderLeftWidth: 1 }
-                      : null,
-                  ]}
-                >
-                  {entry ? (
-                    <CollectionTileSlot
-                      entry={entry}
-                      onPress={onPressEntry}
-                      onLongPress={onLongPressEntry}
-                      selected={selectedEntryId === entry.id}
-                      testIDPrefix={`${testID}-tile`}
-                    />
-                  ) : null}
-                </View>
-              );
-            })}
+            {entry ? (
+              <CollectionTileSlot
+                entry={entry}
+                onLongPress={onLongPressEntry}
+                onPress={onPressEntry}
+                selected={selectedEntryId === entry.id}
+                testIDPrefix={`${testID}-tile`}
+              />
+            ) : null}
           </View>
         );
       })}
+    </View>
+  );
+}
+
+type CollectionGridSingleRowProps = {
+  entry: InventoryCardEntry;
+  onPressEntry: (entry: InventoryCardEntry) => void;
+  onLongPressEntry?: (entry: InventoryCardEntry) => void;
+  selectedEntryId?: string | null;
+  testID?: string;
+};
+
+/**
+ * The lone-entry layout: box the single tile at one column's width with a full
+ * hairline border so it reads as a contained square, not a stretched row.
+ */
+export function CollectionGridSingleRow({
+  entry,
+  onPressEntry,
+  onLongPressEntry,
+  selectedEntryId,
+  testID = 'collection-masonry-grid',
+}: CollectionGridSingleRowProps) {
+  const theme = useSpotlightTheme();
+
+  return (
+    <View style={styles.singleRow}>
+      <View style={[styles.singleCell, { borderColor: theme.colors.gray100 }]}>
+        <CollectionTileSlot
+          entry={entry}
+          onLongPress={onLongPressEntry}
+          onPress={onPressEntry}
+          selected={selectedEntryId === entry.id}
+          testIDPrefix={`${testID}-tile`}
+        />
+      </View>
     </View>
   );
 }
