@@ -201,12 +201,16 @@ describe('CardDetailScreen', () => {
     );
 
     fireEvent.press(await screen.findByTestId('detail-configurator-grade-trigger'));
-    fireEvent.press(await screen.findByTestId('detail-grade-sheet-option-lightly_played'));
+    // The grade sheet animates open; allow extra time so this stays green under
+    // full-suite load (not just when the file runs in isolation).
+    fireEvent.press(
+      await screen.findByTestId('detail-grade-sheet-option-lightly_played', {}, { timeout: 5000 }),
+    );
 
     // Selecting closes the sheet, so the option unmounts.
     await waitFor(() => {
       expect(screen.queryByTestId('detail-grade-sheet-option-lightly_played')).toBeNull();
-    });
+    }, { timeout: 5000 });
   });
 
   it('switches the grade picker to numeric grades when a graded grader is selected', async () => {

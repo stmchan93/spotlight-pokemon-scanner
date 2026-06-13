@@ -11,7 +11,7 @@ export const RECENT_CAPTURES_MAX = 50;
 export const PERSIST_DEBOUNCE_MS = 500;
 export const PERSIST_ENVELOPE_VERSION = 1;
 
-export type DeleteReason = 'swipe' | 'clear_all' | 'cap_evict' | 'orphan_sweep' | 'copy_failed';
+export type DeleteReason = 'swipe' | 'clear_all' | 'cap_evict' | 'orphan_sweep' | 'copy_failed' | 'added';
 export type CopySource = 'normalized' | 'raw';
 
 type PersistedCapture = Pick<RecentCapture,

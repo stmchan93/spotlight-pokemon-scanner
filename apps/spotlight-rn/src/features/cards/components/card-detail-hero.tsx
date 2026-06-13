@@ -58,7 +58,7 @@ export function CardDetailHero({
         testID={testID ? `${testID}-favorite` : undefined}
       >
         {isFavorite ? (
-          <HeartSolid color={theme.colors.brandStrong} height={20} width={20} />
+          <HeartSolid color={theme.colors.dangerStrong} height={20} width={20} />
         ) : (
           <Heart color={theme.colors.gray600} height={20} strokeWidth={2} width={20} />
         )}

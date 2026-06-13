@@ -33,6 +33,7 @@ import {
   type CatalogSearchResult,
   type DeckConditionCode,
   type InventoryCardEntry,
+  type InventoryEntryCreateRequestPayload,
   type ScannerCapturePayload,
   type SlabContext,
 } from '@spotlight/api-client';
@@ -86,6 +87,7 @@ import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { resolveRuntimeBoolean, resolveRuntimeValue, resolveStagingSmokeModeEnabled } from '@/lib/runtime-config';
 import { useAppServices } from '@/providers/app-providers';
 
+import { AddAllConfirmModal } from '@/features/scanner/components/add-all-confirm-modal';
 import { ScanTargetPill } from '@/features/scanner/components/scan-target-pill';
 import { ScanningForSheet } from '@/features/scanner/components/scanning-for-sheet';
 import {
@@ -147,7 +149,32 @@ const rawCollectorNumberOcrEnabled = resolveRuntimeBoolean(
 const captureRowHeight = 102;
 // A little breathing room between scan rows in the tray (Figma scan-tray spacing).
 const captureRowGap = 24;
-const recentlyAddedDurationMs = 10000;
+// How long the "ADDED" confirmation shows on a row before it's removed from the
+// tray. Long enough to register the success, short enough to feel immediate.
+const addedConfirmationDurationMs = 1100;
+
+// Shared payload for adding a scanned capture to the collection — used by both the
+// per-row ADD and the bulk ADD ALL flow so they can't drift.
+function buildInventoryEntryArgs(
+  capture: RecentCapture,
+  activeCandidate: CatalogSearchResult,
+  addedAt: string,
+  conditionCode: DeckConditionCode,
+): InventoryEntryCreateRequestPayload {
+  return {
+    addedAt,
+    cardID: activeCandidate.cardId,
+    condition: capture.mode === 'slabs' ? null : conditionCode,
+    quantity: 1,
+    selectedRank: capture.activeCandidateIndex + 1,
+    selectionSource: capture.activeCandidateIndex === 0 ? 'top' : 'alternate',
+    slabContext: capture.slabContext,
+    sourceScanID: capture.scanID ?? null,
+    variantName: capture.slabContext?.variantName ?? null,
+    wasTopPrediction: capture.activeCandidateIndex === 0,
+  };
+}
+
 // Vertical space reserved for the "CLEAR ALL" footer appended below the scan
 // rows in the expanded tray, so the section stays reachable by scroll.
 const trayClearSectionHeight = 104;
@@ -169,6 +196,9 @@ const scannerTrayLayoutAnimation = {
     type: LayoutAnimation.Types.easeInEaseOut,
   },
 } as const;
+// Keep the expanded rows mounted for the length of the collapse so they slide
+// down behind the bar (clipped by the shrinking viewport) instead of fading.
+const scannerTrayCollapseDurationMs = scannerTrayLayoutAnimation.duration;
 
 
 function applyCapEviction(
@@ -281,6 +311,8 @@ export function ScannerScreen({
   const recentCapturesRef = useRef<RecentCapture[]>([]);
   const [openActionRailKeys, setOpenActionRailKeys] = useState<Record<string, true>>({});
   const [isTrayExpanded, setIsTrayExpanded] = useState(false);
+  const [isAddAllOpen, setIsAddAllOpen] = useState(false);
+  const [isAddingAll, setIsAddingAll] = useState(false);
   const { cardType, setCardType } = useScannerTargetConfig();
   const [zoomFactor, setZoomFactor] = useScannerZoomFactor();
   const [isScanTargetSheetOpen, setIsScanTargetSheetOpen] = useState(false);
@@ -293,6 +325,12 @@ export function ScannerScreen({
   const cameraRef = useRef<RawScannerCameraHandle | null>(null);
   const trayGestureCommittedRef = useRef(false);
   const trayScrollOffsetYRef = useRef(0);
+  const trayScrollRef = useRef<ScrollView>(null);
+  // True only while the tray is animating closed. During that window the
+  // expanded rows stay mounted so the shrinking viewport clips them downward
+  // (a slide-down) instead of unmounting them into a fade.
+  const [isTrayCollapsing, setIsTrayCollapsing] = useState(false);
+  const trayCollapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reticleSnapshotRef = useRef({ height: 0, previewHeight: 0, previewWidth: 0, width: 0, x: 0, y: 0 });
   const recentlyAddedTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
@@ -380,7 +418,10 @@ export function ScannerScreen({
   // with no peek sliver of the next row. The viewport height is fixed to a single
   // row, so the tray shows one clean card and the rest are revealed by expanding.
   const collapsedCaptures = recentCaptures.slice(0, collapsedVisibleCaptures);
-  const visibleCaptures = isTrayExpanded ? recentCaptures : collapsedCaptures;
+  // While collapsing we still render every row so it can slide down behind the
+  // bar; only the settled collapsed state trims to a single row.
+  const showExpandedTrayContent = isTrayExpanded || isTrayCollapsing;
+  const visibleCaptures = showExpandedTrayContent ? recentCaptures : collapsedCaptures;
   const trayExpandedBodyHeight = alignToFourPointGrid(
     Math.max(
       Math.round(windowHeight * 0.85) - rawScannerTrayHeaderHeight - trayBottomInset,
@@ -523,8 +564,23 @@ export function ScannerScreen({
         return current;
       }
 
+      if (trayCollapseTimerRef.current) {
+        clearTimeout(trayCollapseTimerRef.current);
+        trayCollapseTimerRef.current = null;
+      }
+
       if (!nextExpanded) {
         trayScrollOffsetYRef.current = 0;
+        // Anchor row 0 so the collapse reveals the top card, then hold the rest
+        // mounted for the slide so they're clipped (slide down) — not faded.
+        trayScrollRef.current?.scrollTo({ y: 0, animated: false });
+        setIsTrayCollapsing(true);
+        trayCollapseTimerRef.current = setTimeout(() => {
+          trayCollapseTimerRef.current = null;
+          setIsTrayCollapsing(false);
+        }, scannerTrayCollapseDurationMs);
+      } else {
+        setIsTrayCollapsing(false);
       }
 
       if (Platform.OS !== 'web') {
@@ -533,6 +589,12 @@ export function ScannerScreen({
 
       return nextExpanded;
     });
+  }, []);
+
+  useEffect(() => () => {
+    if (trayCollapseTimerRef.current) {
+      clearTimeout(trayCollapseTimerRef.current);
+    }
   }, []);
 
   const inventoryByCardId = useMemo(() => {
@@ -576,6 +638,38 @@ export function ScannerScreen({
       return current.filter((capture) => capture.id !== captureId);
     });
     setPriceSelection((current) => {
+      if (!current.has(captureId)) {
+        return current;
+      }
+      const next = new Map(current);
+      next.delete(captureId);
+      return next;
+    });
+  }, []);
+
+  // After a capture is added to the collection it leaves the tray. Same cleanup
+  // as a swipe-delete (free the local scan files + per-capture selection state),
+  // but tagged 'added' so telemetry can tell intentional adds from discards.
+  const removeCaptureAfterAdd = useCallback((captureId: string) => {
+    setRecentCaptures((current) => {
+      const removed = current.find((capture) => capture.id === captureId);
+      if (removed) {
+        void deleteScanFile(removed.normalizedImageUri, 'added');
+        if (removed.uri && removed.uri !== removed.normalizedImageUri) {
+          void deleteScanFile(removed.uri, 'added');
+        }
+      }
+      return current.filter((capture) => capture.id !== captureId);
+    });
+    setPriceSelection((current) => {
+      if (!current.has(captureId)) {
+        return current;
+      }
+      const next = new Map(current);
+      next.delete(captureId);
+      return next;
+    });
+    setEbayTrayState((current) => {
       if (!current.has(captureId)) {
         return current;
       }
@@ -1499,18 +1593,9 @@ export function ScannerScreen({
     try {
       trackCandidateSelectionIfNeeded(capture);
       const selectedCondition: DeckConditionCode = priceSelection.get(capture.id)?.conditionCode ?? 'near_mint';
-      await spotlightRepository.createInventoryEntry({
-        addedAt,
-        cardID: activeCandidate.cardId,
-        condition: capture.mode === 'slabs' ? null : selectedCondition,
-        quantity: 1,
-        selectedRank: capture.activeCandidateIndex + 1,
-        selectionSource: capture.activeCandidateIndex === 0 ? 'top' : 'alternate',
-        slabContext: capture.slabContext,
-        sourceScanID: capture.scanID ?? null,
-        variantName: capture.slabContext?.variantName ?? null,
-        wasTopPrediction: capture.activeCandidateIndex === 0,
-      });
+      await spotlightRepository.createInventoryEntry(
+        buildInventoryEntryArgs(capture, activeCandidate, addedAt, selectedCondition),
+      );
       capturePostHogEvent('scan_inventory_add_succeeded', {
         mode: capture.mode,
       });
@@ -1543,16 +1628,68 @@ export function ScannerScreen({
         if (existingTimer) {
           clearTimeout(existingTimer);
         }
+        // Show the "ADDED" confirmation briefly, then drop the row from the tray
+        // — once a card is in the collection it shouldn't linger in recent scans.
         const timerId = setTimeout(() => {
           recentlyAddedTimersRef.current.delete(captureId);
-          setRecentCaptures((current) => current.map((entry) => (
-            entry.id === captureId ? { ...entry, recentlyAdded: false } : entry
-          )));
-        }, recentlyAddedDurationMs);
+          removeCaptureAfterAdd(captureId);
+        }, addedConfirmationDurationMs);
         recentlyAddedTimersRef.current.set(captureId, timerId);
       }
     }
-  }, [priceSelection, recentCaptures, refreshData, spotlightRepository, trackCandidateSelectionIfNeeded]);
+  }, [priceSelection, recentCaptures, refreshData, removeCaptureAfterAdd, spotlightRepository, trackCandidateSelectionIfNeeded]);
+
+  // Bulk "ADD ALL": add every resolved scan to the collection, then (per Figma)
+  // clear the whole tray and collapse back to the scanner — regardless of any
+  // per-card failures (failures simply aren't added; their rows are cleared too).
+  const handleAddAll = useCallback(async () => {
+    const addable = recentCaptures.filter((capture) => (
+      !capture.isLoadingCandidates
+      && !capture.recentlyAdded
+      && activeCandidateForCapture(capture) != null
+    ));
+
+    setIsAddingAll(true);
+    const addedAt = new Date().toISOString();
+    const results = await Promise.allSettled(addable.map((capture) => {
+      const activeCandidate = activeCandidateForCapture(capture)!;
+      const condition: DeckConditionCode = priceSelection.get(capture.id)?.conditionCode ?? 'near_mint';
+      trackCandidateSelectionIfNeeded(capture);
+      return spotlightRepository.createInventoryEntry(
+        buildInventoryEntryArgs(capture, activeCandidate, addedAt, condition),
+      );
+    }));
+
+    const succeeded = results.filter((result) => result.status === 'fulfilled').length;
+    capturePostHogEvent('scan_add_all', {
+      attempted: addable.length,
+      succeeded,
+      failed: addable.length - succeeded,
+    });
+
+    try {
+      const nextEntries = await spotlightRepository.getInventoryEntries();
+      setInventoryEntries(nextEntries);
+    } catch {
+      // A failed inventory refresh just leaves the cached list; refreshData below
+      // still nudges dependent screens.
+    }
+    refreshData();
+
+    // Clear everything and return to the scanner (Figma annotation).
+    performClearAllCaptures();
+    commitTrayExpandedState(false);
+    setIsAddingAll(false);
+    setIsAddAllOpen(false);
+  }, [
+    commitTrayExpandedState,
+    performClearAllCaptures,
+    priceSelection,
+    recentCaptures,
+    refreshData,
+    spotlightRepository,
+    trackCandidateSelectionIfNeeded,
+  ]);
 
   const handleOpenCard = useCallback(async (captureId: string) => {
     const capture = recentCaptures.find((entry) => entry.id === captureId);
@@ -2164,10 +2301,23 @@ export function ScannerScreen({
               <View style={styles.trayHandle} />
             </View>
             <View style={styles.recentScansRow}>
-              <View style={styles.trayInfoPill}>
-                <Text style={styles.trayInfoPillLabel} testID="scanner-recent-title">
-                  {`SCAN: ${recentCaptures.length}`}
-                </Text>
+              <View style={styles.trayInfoLeftGroup}>
+                <View style={styles.trayInfoPill}>
+                  <Text style={styles.trayInfoPillLabel} testID="scanner-recent-title">
+                    {`SCAN: ${recentCaptures.length}`}
+                  </Text>
+                </View>
+                {isTrayExpanded && recentCaptures.length > 0 ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Add all scans to collection"
+                    hitSlop={8}
+                    onPress={() => setIsAddAllOpen(true)}
+                    testID="scanner-tray-add-all"
+                  >
+                    <Text style={styles.trayAddAllLabel}>ADD ALL</Text>
+                  </Pressable>
+                ) : null}
               </View>
               <View style={styles.trayInfoPill}>
                 <Text style={styles.trayInfoPillLabel} testID="scanner-value-pill-text">
@@ -2201,6 +2351,7 @@ export function ScannerScreen({
                 testID="scanner-tray-viewport"
               >
                 <ScrollView
+                  ref={trayScrollRef}
                   nestedScrollEnabled
                   onScroll={(event) => {
                     trayScrollOffsetYRef.current = Math.max(0, event.nativeEvent.contentOffset.y);
@@ -2213,7 +2364,7 @@ export function ScannerScreen({
                   testID="scanner-tray-scroll"
                 >
                   {visibleCaptures.map(renderCaptureRow)}
-                  {isTrayExpanded ? (
+                  {showExpandedTrayContent ? (
                     <View style={styles.trayClearSection}>
                       <Pressable
                         accessibilityRole="button"
@@ -2269,6 +2420,14 @@ export function ScannerScreen({
           />
         );
       })()}
+
+      <AddAllConfirmModal
+        isSubmitting={isAddingAll}
+        itemCount={recentCaptures.length}
+        onCancel={() => setIsAddAllOpen(false)}
+        onConfirm={() => { void handleAddAll(); }}
+        visible={isAddAllOpen}
+      />
 
       {(() => {
         const changeCapture = activeChangeCaptureId
@@ -2368,7 +2527,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.35)',
   },
   zoomPillLabel: {
-    ...textStyles.control,
+    // 13px / Medium / white per Figma 1390-1662/1665/1668 (the `control` role's
+    // 15px SemiBold read too large on the live camera dock).
+    ...textStyles.label,
     color: colors.gray0,
   },
   zoomPillLabelSelected: {
@@ -2500,6 +2661,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 4,
   },
+  trayInfoLeftGroup: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+  },
   trayInfoPill: {
     backgroundColor: colors.gray900,
     borderRadius: radii.pill,
@@ -2509,6 +2675,10 @@ const styles = StyleSheet.create({
   trayInfoPillLabel: {
     ...textStyles.labelStrong,
     color: colors.gray400,
+  },
+  trayAddAllLabel: {
+    ...textStyles.labelStrong,
+    color: colors.purple500,
   },
   trayClearSection: {
     alignItems: 'center',

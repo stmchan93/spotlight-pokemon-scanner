@@ -4,6 +4,25 @@ import { Text } from 'react-native';
 import { TopTabsPager } from '@/components/top-tabs-pager';
 import { renderWithProviders } from '../test-utils';
 
+// TopTabsPager (and the AppBottomTabBar it renders) reach for expo-router's
+// useFocusEffect / useRouter, which need a navigation context this unit render
+// doesn't provide. Run the focus effect as a plain effect and stub the router.
+jest.mock('expo-router', () => {
+  const React = jest.requireActual<typeof import('react')>('react');
+
+  return {
+    useFocusEffect: (effect: () => void | (() => void)) => {
+      React.useEffect(() => effect(), [effect]);
+    },
+    useRouter: () => ({
+      back: jest.fn(),
+      canGoBack: jest.fn(() => false),
+      push: jest.fn(),
+      replace: jest.fn(),
+    }),
+  };
+});
+
 describe('TopTabsPager', () => {
   it('renders both slots simultaneously', () => {
     renderWithProviders(

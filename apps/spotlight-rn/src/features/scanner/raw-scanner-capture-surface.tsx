@@ -101,19 +101,26 @@ export function makeRawScannerCaptureLayout({
   safeAreaTop: number;
   trayReservedHeight?: number;
 }): RawScannerCaptureLayout {
-  const horizontalInset = 20;
+  // Firm 40px left/right inset per Figma 1390-1649. The frame keeps the true
+  // card aspect ratio (rawCardReticleAspectRatio) rather than Figma's drawn box
+  // ratio, so the reticle crop maps 1:1 onto the 630x880 normalized target with
+  // no stretch.
+  const horizontalInset = 40;
   const topChromeBottom = safeAreaTop + chromeBackButtonSize + 16;
   const topSpacing = topChromeBottom + 4;
   const controlsTopSpacing = 10;
-  const maxHeight = Math.max(
-    360,
-    containerHeight - topSpacing - controlsTopSpacing - rawScannerModeToggleReservedHeight - trayReservedHeight,
-  );
+  // Vertical room the reticle can occupy between the top chrome and the
+  // controls + recent-capture tray reserved at the bottom.
+  const verticalBudget =
+    containerHeight - topSpacing - controlsTopSpacing - rawScannerModeToggleReservedHeight - trayReservedHeight;
+  const maxHeight = Math.max(360, verticalBudget);
   const widthFromHeightLimit = Math.floor(maxHeight / rawCardReticleAspectRatio);
   const width = Math.max(284, Math.min(containerWidth - horizontalInset * 2, widthFromHeightLimit));
   const height = Math.round(width * rawCardReticleAspectRatio);
   const x = (containerWidth - width) / 2;
-  const y = topSpacing + 24;
+  // Center the frame within that vertical budget (instead of pinning it near the
+  // top) so it reads as centered, keeping a minimum gap below the top chrome.
+  const y = topSpacing + Math.max(24, Math.round((verticalBudget - height) / 2));
 
   return {
     backButtonTop: safeAreaTop + 10,

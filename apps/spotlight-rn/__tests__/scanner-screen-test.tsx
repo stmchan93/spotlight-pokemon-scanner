@@ -742,6 +742,115 @@ describe('ScannerScreen', () => {
     expect(screen.getByText('CLEAR ALL')).toBeTruthy();
   });
 
+  const froakieAddAllRepository = (addPayloads: any[]) => createTestSpotlightRepository({
+    createInventoryEntry: async (payload) => {
+      addPayloads.push(payload);
+      return {
+        deckEntryID: 'entry-froakie',
+        cardID: payload.cardID,
+        variantName: null,
+        condition: payload.condition,
+        confirmationID: 'confirmation-froakie',
+        sourceScanID: payload.sourceScanID,
+        addedAt: payload.addedAt,
+      };
+    },
+    getInventoryEntries: async () => [],
+    matchScannerCapture: async () => ({
+      scanID: 'scan-froakie',
+      candidates: [{
+        id: 'froakie-candidate',
+        cardId: 'mcdonalds25-22',
+        name: 'Froakie',
+        cardNumber: '#22/25',
+        setName: "McDonald's Collection 2021",
+        imageUrl: 'https://cdn.spotlight.test/froakie.png',
+        marketPrice: 55,
+        currencyCode: 'USD',
+      }],
+    }),
+  });
+
+  it('shows ADD ALL only when the tray is expanded', async () => {
+    renderScannerScreen();
+
+    expect(screen.queryByTestId('scanner-tray-add-all')).toBeNull();
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    });
+
+    // Collapsed with a scan: no ADD ALL yet.
+    expect(screen.queryByTestId('scanner-tray-add-all')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('scanner-tray-header'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-add-all')).toBeTruthy();
+    });
+  });
+
+  it('ADD ALL adds the scan, then clears the tray and returns to the scanner', async () => {
+    const addPayloads: any[] = [];
+    renderScannerScreen({ spotlightRepository: froakieAddAllRepository(addPayloads) });
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    });
+
+    fireEvent.press(screen.getByTestId('scanner-tray-header'));
+    fireEvent.press(await screen.findByTestId('scanner-tray-add-all'));
+
+    // Confirmation modal with the count.
+    expect(await screen.findByTestId('scanner-add-all-modal')).toBeTruthy();
+    expect(screen.getByTestId('scanner-add-all-modal-subtitle').props.children)
+      .toBe('1 item will be added to your collection.');
+
+    fireEvent.press(screen.getByTestId('scanner-add-all-confirm'));
+
+    await waitFor(() => {
+      expect(addPayloads).toHaveLength(1);
+    });
+    expect(addPayloads[0]).toEqual(expect.objectContaining({
+      cardID: 'mcdonalds25-22',
+      sourceScanID: 'scan-froakie',
+      wasTopPrediction: true,
+    }));
+
+    // Tray cleared (SCAN: 0) + collapsed (modal + ADD ALL gone).
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-recent-title').props.children).toBe('SCAN: 0');
+    });
+    expect(screen.queryByTestId('scanner-add-all-modal')).toBeNull();
+    expect(screen.queryByTestId('scanner-tray-add-all')).toBeNull();
+  });
+
+  it('cancels ADD ALL without adding or clearing the tray', async () => {
+    const addPayloads: any[] = [];
+    renderScannerScreen({ spotlightRepository: froakieAddAllRepository(addPayloads) });
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    });
+
+    fireEvent.press(screen.getByTestId('scanner-tray-header'));
+    fireEvent.press(await screen.findByTestId('scanner-tray-add-all'));
+    fireEvent.press(await screen.findByTestId('scanner-add-all-cancel'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('scanner-add-all-modal')).toBeNull();
+    });
+    expect(addPayloads).toHaveLength(0);
+    expect(screen.getByTestId('scanner-recent-title').props.children).toBe('SCAN: 1');
+  });
+
   it('shows the pending tray row immediately before scanner matches resolve', async () => {
     let resolveMatch: ((value: any) => void) | undefined;
     const spotlightRepository = createTestSpotlightRepository({
@@ -1056,6 +1165,12 @@ describe('ScannerScreen', () => {
       selectedRank: 1,
       wasTopPrediction: true,
     }));
+
+    // Once a card is added to the collection it should leave the recent-scans
+    // tray (after a brief "ADDED" confirmation) rather than lingering.
+    await waitFor(() => {
+      expect(screen.queryByTestId('scanner-tray-row-0')).toBeNull();
+    }, { timeout: 2500 });
   });
 
   it('does not send a synthetic capture id when scanner add has no backend scan id', async () => {

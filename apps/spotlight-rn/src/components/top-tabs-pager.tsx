@@ -14,7 +14,8 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
+import { StatusBar, setStatusBarStyle } from 'expo-status-bar';
+import { useFocusEffect } from 'expo-router';
 
 import { AppBottomTabBar } from '@/components/app-bottom-tab-bar';
 import { TabsPageContext } from '@/contexts/tabs-page-context';
@@ -34,6 +35,10 @@ const swipeDistanceThreshold = 44;
 const swipeVelocityThreshold = 0.45;
 const swipeCompleteDuration = 180;
 const swipeCancelDuration = 150;
+// A page swipe may only begin when the finger first lands within this many px
+// of a screen edge — left edge to pull right into Collection, right edge to
+// pull left into Scanner. Dragging from the middle no longer moves the pages.
+const edgeSwipeZone = 40;
 
 function isHorizontalSwipe(gs: Pick<PanResponderGestureState, 'dx' | 'dy'>) {
   return Math.abs(gs.dx) > Math.abs(gs.dy) * 1.35;
@@ -53,6 +58,10 @@ export function TopTabsPager({
   const isTransitioningRef = useRef(false);
   const directionRef = useRef<'left' | 'right' | null>(null);
   const chartScrubLockRef = useRef(false);
+  // Absolute screen X where the current touch first landed. Captured on touch
+  // start because PanResponder's gestureState.x0 is still 0 during the
+  // move-should-set decision (it's only set once the responder is granted).
+  const startXRef = useRef<number | null>(null);
   const translateX = useRef(new Animated.Value(initialTranslateX)).current;
 
   useEffect(() => {
@@ -63,6 +72,17 @@ export function TopTabsPager({
     isTransitioningRef.current = false;
     translateX.setValue(targetX);
   }, [initialPage, translateX, width]);
+
+  // Re-assert the status-bar style whenever the tabs screen regains focus —
+  // e.g. returning from a pushed card detail / sheet / modal. The declarative
+  // <StatusBar> below only re-applies when `activePage` *changes*, so without
+  // this a stale "light" style can survive over the light Collection surface
+  // and make the battery/time/Wi-Fi icons invisible (white-on-white).
+  useFocusEffect(
+    useCallback(() => {
+      setStatusBarStyle(activePageRef.current === 'portfolio' ? 'dark' : 'light');
+    }, []),
+  );
 
   const goToPage = useCallback((page: TabsPage) => {
     const targetX = page === 'portfolio' ? 0 : -width;
@@ -112,6 +132,20 @@ export function TopTabsPager({
     if (!isFastSwipe && !isLongSwipe) {
       return false;
     }
+    // Only begin a page swipe when the finger first landed near a screen edge:
+    // right edge to pull left (portfolio → scanner), left edge to pull right
+    // (scanner → portfolio). Starts from the middle are ignored.
+    const startX = startXRef.current;
+    if (startX != null) {
+      const fromLeftEdge = startX <= edgeSwipeZone;
+      const fromRightEdge = startX >= width - edgeSwipeZone;
+      if (activePageRef.current === 'portfolio' && !fromRightEdge) {
+        return false;
+      }
+      if (activePageRef.current === 'scanner' && !fromLeftEdge) {
+        return false;
+      }
+    }
     if (activePageRef.current === 'portfolio' && gs.dx < 0) {
       return true;
     }
@@ -122,9 +156,16 @@ export function TopTabsPager({
       return true;
     }
     return false;
-  }, []);
+  }, [width]);
 
   const panResponder = useMemo(() => PanResponder.create({
+    // Record where the touch first landed so shouldSetResponder can require an
+    // edge start. Returns false so the start itself never claims the gesture —
+    // the existing move-based logic still decides.
+    onStartShouldSetPanResponder: (evt) => {
+      startXRef.current = evt.nativeEvent.pageX;
+      return false;
+    },
     onMoveShouldSetPanResponder: shouldSetResponder,
     // Capture mode only on portfolio to override the ScrollView
     onMoveShouldSetPanResponderCapture: (_, gs) =>
