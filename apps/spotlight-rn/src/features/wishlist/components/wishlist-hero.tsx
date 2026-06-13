@@ -6,30 +6,32 @@ import {
   View,
   type PanResponderGestureState,
 } from 'react-native';
-import { ArrowDown, ArrowUp, Menu as MenuIcon, Upload as ShareIcon } from 'iconoir-react-native';
+import {
+  ArrowDown,
+  ArrowUp,
+  Menu as MenuIcon,
+  Upload as ShareIcon,
+  Xmark,
+} from 'iconoir-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import type { CardFavoriteEntry } from '@spotlight/api-client';
 import { AppText, IconButton, useSpotlightTheme } from '@spotlight/design-system';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { getCardImageSource } from '@/lib/card-images';
-import { useImageDominantColor } from '@/lib/use-image-dominant-color';
 import { formatOptionalCurrency } from '@/features/portfolio/components/portfolio-formatting';
 
-// Card image is rendered at a fixed portrait size centred over the gradient.
+// Card image is rendered at a fixed portrait size centred over the grey backdrop.
 const CARD_WIDTH = 165;
 const CARD_HEIGHT = 240;
-// How far the card can slide during a drag; the gradient counter-shifts a
-// little for depth. Tuned to feel like a gentle parallax, not a swipe.
+// How far the card can slide during a drag, for a gentle parallax (not a swipe).
 const PARALLAX_MAX = 36;
-const GRADIENT_SHIFT = 12;
 // A release that never travelled past this is treated as a tap → open detail.
 const TAP_SLOP = 6;
 
-const DELTA_UP_BACKGROUND = 'rgba(76, 175, 110, 0.15)';
-const DELTA_DOWN_BACKGROUND = 'rgba(224, 82, 76, 0.15)';
+const DELTA_UP_BACKGROUND = '#E2F4E8';
+const DELTA_DOWN_BACKGROUND = '#FFE9E9';
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
@@ -63,6 +65,8 @@ type WishlistHeroProps = {
   onOpenMenu: () => void;
   onShare?: () => void;
   onOpenDetail: () => void;
+  /** Remove the featured card from the wishlist (the top-right X). */
+  onRemove?: () => void;
   testID?: string;
 };
 
@@ -71,43 +75,28 @@ export function WishlistHero({
   onOpenMenu,
   onShare,
   onOpenDetail,
+  onRemove,
   testID = 'wishlist-hero',
 }: WishlistHeroProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
 
   const imageSource = entry ? getCardImageSource(entry, 'large') : null;
-  const imageUri = imageSource?.uri ?? null;
-  const { color } = useImageDominantColor(imageUri);
 
-  // With a featured card the gradient bleeds up under the status bar + header
-  // and fades to white around the detail row; with no card it only tints the
-  // header strip so the empty state still reads as one screen.
+  // With a featured card the grey backdrop bleeds up under the status bar +
+  // header and frames the card; with no card it only tints the header strip so
+  // the empty state still reads as one screen.
   const backdropHeight = entry ? insets.top + 332 : insets.top + 64;
 
   const dragX = useRef(new Animated.Value(0)).current;
-  // Soft settle whenever the featured card (and thus the color) changes, so the
-  // gradient doesn't hard-cut between cards.
-  const backdropOpacity = useRef(new Animated.Value(1)).current;
+  // Settle the parallax back to centre whenever the featured card changes.
   useEffect(() => {
-    backdropOpacity.setValue(0.4);
-    // JS driver: this view's transform is driven by `dragX` (set imperatively
-    // via setValue during the drag), so its opacity must stay on the same
-    // driver — mixing native + JS on one view breaks the drag animation.
-    Animated.timing(backdropOpacity, {
-      duration: 260,
-      toValue: 1,
-      useNativeDriver: false,
-    }).start();
     dragX.setValue(0);
-  }, [backdropOpacity, color, dragX, entry?.cardId]);
+  }, [dragX, entry?.cardId]);
 
   const springBack = () => {
     // Must be JS-driven: `dragX` is updated with setValue() in onPanResponderMove,
     // and an Animated.Value cannot be driven by both the native and JS drivers.
-    // Spring-back with useNativeDriver:true moved dragX to the native driver on
-    // the first release, after which every subsequent drag's setValue was
-    // rejected and the parallax stopped responding.
     Animated.spring(dragX, {
       bounciness: 6,
       speed: 14,
@@ -139,12 +128,6 @@ export function WishlistHero({
     [dragX, onOpenDetail],
   );
 
-  const gradientTranslate = dragX.interpolate({
-    extrapolate: 'clamp',
-    inputRange: [-PARALLAX_MAX, PARALLAX_MAX],
-    outputRange: [GRADIENT_SHIFT, -GRADIENT_SHIFT],
-  });
-
   const metaLine = entry ? buildMetaLine(entry.cardNumber, entry.setName) : '';
   const gradeText = entry ? gradeLabelFor(entry) : null;
   const trend =
@@ -153,41 +136,15 @@ export function WishlistHero({
       : 0;
   const showTrend = trend !== 0;
   const trendIsDown = trend < 0;
-  const trendColor = trendIsDown ? theme.colors.redDelta : theme.colors.greenDelta;
+  const trendColor = trendIsDown ? theme.colors.deltaDownText : theme.colors.deltaUpText;
 
   return (
     <View style={styles.root} testID={testID}>
-      <Animated.View
+      <View
         pointerEvents="none"
-        style={[
-          styles.backdrop,
-          {
-            height: backdropHeight,
-            opacity: backdropOpacity,
-            transform: [{ translateX: gradientTranslate }],
-          },
-        ]}
-        testID={`${testID}-gradient`}
-      >
-        <Svg height="100%" preserveAspectRatio="none" viewBox="0 0 100 100" width="100%">
-          <Defs>
-            <LinearGradient
-              gradientUnits="userSpaceOnUse"
-              id="wishlist-hero-gradient"
-              x1="50"
-              x2="50"
-              y1="0"
-              y2="100"
-            >
-              <Stop offset="0" stopColor={color} stopOpacity={1} />
-              <Stop offset="0.3" stopColor={color} stopOpacity={0.82} />
-              <Stop offset="0.66" stopColor={color} stopOpacity={0.45} />
-              <Stop offset="1" stopColor={color} stopOpacity={0} />
-            </LinearGradient>
-          </Defs>
-          <Rect fill="url(#wishlist-hero-gradient)" height="100" width="100" x="0" y="0" />
-        </Svg>
-      </Animated.View>
+        style={[styles.backdrop, { backgroundColor: theme.colors.gray50, height: backdropHeight }]}
+        testID={`${testID}-backdrop`}
+      />
 
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <IconButton
@@ -220,58 +177,74 @@ export function WishlistHero({
       </View>
 
       {entry ? (
-        <Animated.View
-          style={[styles.cardWrap, { transform: [{ translateX: dragX }] }]}
-          testID={`${testID}-card`}
-          {...panResponder.panHandlers}
-        >
-          <View style={styles.cardShadow}>
-            {imageSource ? (
-              <CachedImage
-                accessibilityLabel={entry.name}
-                cachePolicy={imageCachePolicy.hero}
-                contentFit="contain"
-                source={imageSource}
-                style={styles.cardImage}
-                testID={`${testID}-card-image`}
-              />
-            ) : (
-              <View
-                style={[styles.cardFallback, { backgroundColor: theme.colors.field }]}
-                testID={`${testID}-card-fallback`}
-              >
-                <AppText color="textSecondary" numberOfLines={2} variant="caption">
-                  {entry.name}
-                </AppText>
-              </View>
-            )}
-          </View>
-        </Animated.View>
+        <View style={styles.cardArea}>
+          <Animated.View
+            style={[styles.cardWrap, { transform: [{ translateX: dragX }] }]}
+            testID={`${testID}-card`}
+            {...panResponder.panHandlers}
+          >
+            <View style={styles.cardShadow}>
+              {imageSource ? (
+                <CachedImage
+                  accessibilityLabel={entry.name}
+                  cachePolicy={imageCachePolicy.hero}
+                  contentFit="contain"
+                  source={imageSource}
+                  style={styles.cardImage}
+                  testID={`${testID}-card-image`}
+                />
+              ) : (
+                <View
+                  style={[styles.cardFallback, { backgroundColor: theme.colors.field }]}
+                  testID={`${testID}-card-fallback`}
+                >
+                  <AppText color="textSecondary" numberOfLines={2} variant="caption">
+                    {entry.name}
+                  </AppText>
+                </View>
+              )}
+            </View>
+          </Animated.View>
+
+          {onRemove ? (
+            <IconButton
+              accessibilityLabel="Remove from wishlist"
+              onPress={onRemove}
+              size={28}
+              style={styles.removeButton}
+              testID={`${testID}-remove`}
+              variant="elevated"
+            >
+              <Xmark color={theme.colors.gray600} height={16} width={16} />
+            </IconButton>
+          ) : null}
+        </View>
       ) : null}
 
       {entry ? (
         <View style={[styles.detailRow, { paddingHorizontal: theme.layout.pageGutter }]}>
           <View style={styles.detailLeft}>
-            <AppText color="textPrimary" numberOfLines={1} variant="bodyStrong">
+            <AppText color="gray900" numberOfLines={1} variant="titleSmall">
               {entry.name}
             </AppText>
             {metaLine ? (
-              <AppText color="textSecondary" numberOfLines={1} variant="caption">
+              <AppText color="gray600" numberOfLines={1} variant="label">
                 {metaLine}
               </AppText>
             ) : null}
             {gradeText ? (
-              <AppText color="textMuted" numberOfLines={1} variant="caption">
+              <AppText color="gray600" numberOfLines={1} variant="label">
                 {gradeText}
               </AppText>
             ) : null}
           </View>
           <View style={styles.detailRight}>
             <AppText
-              color="textPrimary"
+              color="gray900"
               numberOfLines={1}
+              style={styles.detailPrice}
               testID={`${testID}-price`}
-              variant="bodyStrong"
+              variant="priceCaption"
             >
               {formatOptionalCurrency(entry.marketPrice, entry.currencyCode)}
             </AppText>
@@ -281,7 +254,6 @@ export function WishlistHero({
                   styles.trendPill,
                   {
                     backgroundColor: trendIsDown ? DELTA_DOWN_BACKGROUND : DELTA_UP_BACKGROUND,
-                    borderRadius: theme.radii.pill,
                   },
                 ]}
                 testID={`${testID}-trend`}
@@ -291,12 +263,12 @@ export function WishlistHero({
                 ) : (
                   <ArrowUp color={trendColor} height={12} width={12} />
                 )}
-                <AppText numberOfLines={1} style={{ color: trendColor }} variant="caption">
+                <AppText numberOfLines={1} style={[styles.trendLabel, { color: trendColor }]} variant="label">
                   {formatOptionalCurrency(Math.abs(trend), entry.currencyCode)}
                 </AppText>
               </View>
             ) : null}
-            <AppText color="textMuted" numberOfLines={1} variant="caption">
+            <AppText color="gray600" numberOfLines={1} variant="label">
               Qty: 1
             </AppText>
           </View>
@@ -326,9 +298,14 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'center',
   },
+  cardArea: {
+    alignSelf: 'center',
+    marginTop: 20,
+    position: 'relative',
+    width: CARD_WIDTH,
+  },
   cardWrap: {
     alignItems: 'center',
-    marginTop: 20,
   },
   cardShadow: {
     elevation: 8,
@@ -349,6 +326,12 @@ const styles = StyleSheet.create({
     padding: 12,
     width: CARD_WIDTH,
   },
+  // Floating remove control on the card's top-right corner.
+  removeButton: {
+    position: 'absolute',
+    right: -6,
+    top: -6,
+  },
   detailRow: {
     alignItems: 'flex-start',
     flexDirection: 'row',
@@ -365,11 +348,19 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     gap: 2,
   },
+  detailPrice: {
+    fontSize: 14,
+    lineHeight: 21,
+  },
   trendPill: {
     alignItems: 'center',
+    borderRadius: 4,
     flexDirection: 'row',
     gap: 4,
     paddingHorizontal: 6,
     paddingVertical: 2,
+  },
+  trendLabel: {
+    // color overridden inline
   },
 });

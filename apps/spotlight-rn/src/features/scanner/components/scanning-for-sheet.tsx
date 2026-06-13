@@ -1,4 +1,5 @@
-import { Modal, Pressable, StyleSheet, View } from 'react-native';
+import { useMemo } from 'react';
+import { Modal, PanResponder, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
@@ -61,11 +62,13 @@ export function ScanningForSheet({
         />
         <SheetSurface
           padding={16}
-          showHandle
+          showHandle={false}
           testID={testID}
           tone="dark"
           style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}
         >
+          <DismissHandle onDismiss={onClose} testID={`${testID}-handle`} />
+
           <View style={styles.header}>
             <View style={styles.headerPill}>
               <AppText color="gray400" variant="labelStrong">
@@ -94,6 +97,46 @@ export function ScanningForSheet({
         </SheetSurface>
       </View>
     </Modal>
+  );
+}
+
+// The grab handle dismisses the sheet on TAP or a downward SWIPE — not just a
+// backdrop tap. PanResponder only claims the gesture on a deliberate downward
+// drag (so a stationary tap still fires the Pressable's onPress), mirroring the
+// recent-capture tray header pattern.
+function DismissHandle({
+  onDismiss,
+  testID,
+}: {
+  onDismiss: () => void;
+  testID?: string;
+}) {
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_event, gesture) =>
+          gesture.dy > 4 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+        onPanResponderRelease: (_event, gesture) => {
+          if (gesture.dy > 24 || gesture.vy > 0.5) {
+            onDismiss();
+          }
+        },
+      }),
+    [onDismiss],
+  );
+
+  return (
+    <Pressable
+      accessibilityLabel="Close scan target picker"
+      accessibilityRole="button"
+      hitSlop={16}
+      onPress={onDismiss}
+      style={styles.handleHitArea}
+      testID={testID}
+      {...panResponder.panHandlers}
+    >
+      <View style={styles.handleBar} />
+    </Pressable>
   );
 }
 
@@ -151,6 +194,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 8,
     paddingVertical: 4,
+  },
+  handleBar: {
+    backgroundColor: colors.gray100,
+    borderRadius: 999,
+    height: 4,
+    width: 48,
+  },
+  handleHitArea: {
+    alignItems: 'center',
+    paddingBottom: 16,
+    paddingTop: 4,
   },
   header: {
     alignItems: 'center',

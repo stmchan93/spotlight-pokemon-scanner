@@ -1,64 +1,20 @@
 import { StyleSheet, Text, View } from 'react-native';
-import { EditPencil, MediaImage } from 'iconoir-react-native';
+import { DataTransferBoth, MediaImage, Minus, Plus } from 'iconoir-react-native';
 
 import type { CardTransactionKind, CardTransactionRecord } from '@spotlight/api-client';
-import {
-  IconButton,
-  colors,
-  textStyles,
-  useSpotlightTheme,
-} from '@spotlight/design-system';
+import { colors, useSpotlightTheme } from '@spotlight/design-system';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
+import { paymentMethodLabel } from '@/features/sales/payment-method';
 import { useAuth } from '@/providers/auth-provider';
 
-// Display labels per Figma node 942-4174. Data kinds are unchanged; only the
-// human-facing text differs (`bought` reads as "PURCHASED").
-const kindLabel: Record<CardTransactionKind, string> = {
-  bought: 'PURCHASED',
-  sold: 'SOLD',
-  traded: 'TRADED',
+// Row title per Figma node 1313-7318: the data kind maps to a short verb.
+const kindTitle: Record<CardTransactionKind, string> = {
+  bought: 'Buy',
+  sold: 'Sell',
+  traded: 'Trade',
 };
-
-// Badge tone per design intent (Figma node 942-4174): PURCHASED green, SOLD
-// red, TRADED blue — each a pale `*100` fill with a saturated `*400` label.
-function kindBadgeTone(kind: CardTransactionKind, theme: ReturnType<typeof useSpotlightTheme>) {
-  switch (kind) {
-    case 'bought':
-      return { background: theme.colors.green100, text: theme.colors.success };
-    case 'traded':
-      return { background: theme.colors.blue100, text: theme.colors.blue400 };
-    case 'sold':
-    default:
-      return { background: theme.colors.red100, text: theme.colors.red400 };
-  }
-}
-
-function formatOccurredAt(isoText: string) {
-  const parsed = new Date(isoText);
-  if (Number.isNaN(parsed.getTime())) {
-    return isoText;
-  }
-
-  return parsed.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
-
-export function formatTransactionActionLabel(record: CardTransactionRecord) {
-  const verb = kindLabel[record.kind];
-  if (record.occurredAtLabel) {
-    // Normalize the verb so it always matches the kind, regardless of the
-    // backend-provided label prefix.
-    const dateOnly = record.occurredAtLabel.replace(/^(Bought|Sold|Traded) on\s+/i, '');
-    return `${verb} on ${dateOnly}`;
-  }
-
-  return `${verb} on ${formatOccurredAt(record.occurredAt)}`;
-}
 
 type TransactionThumbProps = {
   photoUrl: string | null;
@@ -108,7 +64,7 @@ export function TransactionThumb({ photoUrl, imageUrl, testID }: TransactionThum
       style={[styles.art, styles.artPlaceholder, { backgroundColor: theme.colors.gray100 }]}
       testID={testID}
     >
-      <MediaImage color={theme.colors.gray400} height={24} width={24} />
+      <MediaImage color={theme.colors.gray400} height={20} width={20} />
     </View>
   );
 }
@@ -130,16 +86,18 @@ export function TransactionRow({
 }: TransactionRowProps) {
   const theme = useSpotlightTheme();
   const resolvedTestID = testID ?? `transaction-row-${record.id}`;
-  const tone = kindBadgeTone(record.kind, theme);
 
-  // A trade has no sale price, so it always reads as an em dash; bought/sold
-  // show the amount, falling back to a dash when none was recorded.
-  const priceText =
-    record.kind === 'traded'
-      ? '—'
-      : record.amountCents != null
-        ? formatCurrency(record.amountCents / 100, record.currencyCode)
-        : '—';
+  const itemLabel = `${record.itemCount} ${record.itemCount === 1 ? 'Item' : 'Items'}`;
+  const subtitle = record.paymentMethod
+    ? `${itemLabel} · ${paymentMethodLabel(record.paymentMethod)}`
+    : itemLabel;
+
+  // Buy reads as money out (red, minus), Sell as money in (green, plus); a trade
+  // moves no money, so it shows the swap glyph and no amount (Figma 1313-7318).
+  const amountText =
+    record.amountCents != null
+      ? formatCurrency(record.amountCents / 100, record.currencyCode)
+      : '—';
 
   return (
     <View style={styles.cardWrapper} testID={resolvedTestID}>
@@ -151,40 +109,46 @@ export function TransactionRow({
             testID={`${resolvedTestID}-photo`}
           />
           <View style={styles.textColumn}>
-            <View
-              style={[styles.kindBadge, { backgroundColor: tone.background }]}
-              testID={`${resolvedTestID}-kind-badge`}
-            >
-              <Text style={[textStyles.overline, styles.kindBadgeLabel, { color: tone.text }]}>
-                {kindLabel[record.kind]}
-              </Text>
-            </View>
             <Text
               numberOfLines={1}
-              style={[styles.itemsText, { color: theme.colors.gray800 }]}
-              testID={`${resolvedTestID}-items`}
+              style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}
+              testID={`${resolvedTestID}-title`}
             >
-              Items: {record.itemCount}
+              {kindTitle[record.kind]}
+            </Text>
+            <Text
+              numberOfLines={1}
+              style={[theme.typography.label, { color: theme.colors.gray500 }]}
+              testID={`${resolvedTestID}-subtitle`}
+            >
+              {subtitle}
             </Text>
           </View>
         </View>
-        <View style={styles.rightGroup}>
-          <Text
-            style={[theme.typography.titleSmall, styles.priceText, { color: theme.colors.gray900 }]}
-            testID={`${resolvedTestID}-price`}
-          >
-            {priceText}
-          </Text>
-          <IconButton
-            accessibilityLabel="Edit transaction"
-            shape="rounded"
-            size={28}
-            style={styles.editButton}
-            testID={`${resolvedTestID}-edit`}
-            variant="ghost"
-          >
-            <EditPencil color={theme.colors.gray500} height={16} width={16} />
-          </IconButton>
+        <View style={styles.priceContainer} testID={`${resolvedTestID}-price`}>
+          {record.kind === 'traded' ? (
+            <DataTransferBoth color={theme.colors.gray900} height={20} width={20} />
+          ) : record.kind === 'bought' ? (
+            <>
+              <Minus color={theme.colors.red500} height={20} width={20} />
+              <Text
+                style={[theme.typography.titleSmall, styles.amount, { color: theme.colors.red500 }]}
+                testID={`${resolvedTestID}-amount`}
+              >
+                {amountText}
+              </Text>
+            </>
+          ) : (
+            <>
+              <Plus color={theme.colors.green500} height={20} width={20} />
+              <Text
+                style={[theme.typography.titleSmall, styles.amount, { color: theme.colors.green500 }]}
+                testID={`${resolvedTestID}-amount`}
+              >
+                {amountText}
+              </Text>
+            </>
+          )}
         </View>
       </View>
     </View>
@@ -199,13 +163,12 @@ const styles = StyleSheet.create({
   // single bottom hairline so adjacent rows share one 1px divider; only the
   // first row adds a top hairline (see `cardFirst`).
   card: {
-    // Top-align the image, the PURCHASED/Items column, and the price/edit
-    // column so all three sit flush to the top (Figma 942-4540/4541/4547).
-    alignItems: 'flex-start',
+    alignItems: 'center',
     backgroundColor: colors.gray0,
     borderBottomWidth: 1,
     borderColor: colors.gray100,
     flexDirection: 'row',
+    gap: 12,
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
@@ -214,16 +177,16 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
   },
   leftGroup: {
-    alignItems: 'flex-start',
+    alignItems: 'center',
     flex: 1,
     flexDirection: 'row',
-    gap: 16,
+    gap: 12,
     minWidth: 0,
   },
   art: {
-    borderRadius: 8,
-    height: 80,
-    width: 80,
+    borderRadius: 6,
+    height: 64,
+    width: 64,
   },
   artPlaceholder: {
     alignItems: 'center',
@@ -231,32 +194,16 @@ const styles = StyleSheet.create({
   },
   textColumn: {
     flex: 1,
-    gap: 8,
+    gap: 4,
     minWidth: 0,
   },
-  kindBadge: {
-    alignSelf: 'flex-start',
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+  priceContainer: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexShrink: 0,
+    gap: 2,
   },
-  kindBadgeLabel: {
-    letterSpacing: 0.6,
-  },
-  itemsText: {
-    ...textStyles.overline,
-  },
-  rightGroup: {
-    // Price stacked above the edit button, right-aligned (Figma 942-4547
-    // "Price Details": a top-anchored column, 8px gap).
-    alignItems: 'flex-end',
-    gap: 8,
-    minWidth: 68,
-  },
-  priceText: {
+  amount: {
     textAlign: 'right',
-  },
-  editButton: {
-    borderWidth: 0,
   },
 });

@@ -167,7 +167,7 @@ describe('WishlistScreen', () => {
     const heroPrice = await screen.findByTestId('wishlist-hero-price');
     expect(heroPrice).toHaveTextContent('$129,198.30');
     expect(screen.getByTestId('wishlist-hero-trend')).toBeTruthy();
-    expect(screen.getByTestId('wishlist-hero-gradient')).toBeTruthy();
+    expect(screen.getByTestId('wishlist-hero-backdrop')).toBeTruthy();
 
     // The list row carries the grade + price delta sourced from the favorite.
     await waitFor(() => {
@@ -197,6 +197,28 @@ describe('WishlistScreen', () => {
         params: expect.objectContaining({ cardId: 'gengar' }),
       }),
     );
+  });
+
+  it('removes the featured card from the wishlist via the hero X', async () => {
+    const setCardFavorite = jest.fn().mockResolvedValue(undefined);
+    const favorites = [
+      buildFavoriteEntry({ cardId: 'charizard', name: 'Charizard' }),
+      buildFavoriteEntry({ cardId: 'gengar', name: 'Gengar ex' }),
+    ];
+    const repository = createTestSpotlightRepository({
+      getCardFavorites: async () => favorites,
+      setCardFavorite,
+    });
+
+    renderWishlistScreen(repository);
+
+    await screen.findByTestId('wishlist-hero-remove');
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('wishlist-hero-remove'));
+    });
+
+    // The hero defaults to the first favorite, so the X unfavorites it.
+    expect(setCardFavorite).toHaveBeenCalledWith('charizard', false);
   });
 
   it('does not render the pagination footer when the wishlist is empty', async () => {

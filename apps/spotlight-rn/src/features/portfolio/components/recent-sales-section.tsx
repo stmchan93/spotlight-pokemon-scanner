@@ -82,7 +82,7 @@ function RecentSaleCard({
           <View style={styles.metaRow}>
             <Text
               numberOfLines={2}
-              style={[theme.typography.cardMeta, styles.metaText, { color: theme.colors.textMuted }]}
+              style={[theme.typography.label, styles.metaText, { color: theme.colors.gray600 }]}
             >
               {formattedCardNumber(sale.cardNumber)}
               {' · '}
@@ -91,9 +91,9 @@ function RecentSaleCard({
             {gain ? (
               <View style={styles.deltaInline}>
                 {gain.direction === 'down' ? (
-                  <ArrowDown color={theme.colors.redDelta} height={12} width={12} />
+                  <ArrowDown color={theme.colors.deltaDownText} height={12} width={12} />
                 ) : (
-                  <ArrowUp color={theme.colors.greenDelta} height={12} width={12} />
+                  <ArrowUp color={theme.colors.deltaUpText} height={12} width={12} />
                 )}
                 <Text
                   style={[
@@ -101,8 +101,8 @@ function RecentSaleCard({
                     {
                       color:
                         gain.direction === 'down'
-                          ? theme.colors.redDelta
-                          : theme.colors.greenDelta,
+                          ? theme.colors.deltaDownText
+                          : theme.colors.deltaUpText,
                     },
                   ]}
                 >
@@ -114,7 +114,7 @@ function RecentSaleCard({
           {sale.qualityLabel ? (
             <Text
               numberOfLines={1}
-              style={[theme.typography.cardMeta, { color: theme.colors.textMuted }]}
+              style={[theme.typography.label, { color: theme.colors.gray600 }]}
             >
               {sale.qualityLabel}
             </Text>
@@ -122,7 +122,7 @@ function RecentSaleCard({
           {sale.quantity != null ? (
             <Text
               numberOfLines={1}
-              style={[theme.typography.cardMeta, { color: theme.colors.textMuted }]}
+              style={[theme.typography.label, { color: theme.colors.gray600 }]}
             >
               {`Qty: ${sale.quantity}`}
             </Text>

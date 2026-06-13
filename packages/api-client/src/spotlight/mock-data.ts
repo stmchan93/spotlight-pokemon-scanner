@@ -410,6 +410,7 @@ export const mockCardTransactions: CardTransactionRecord[] = [
     photoUrl: `${cdn}/mcdonalds25/22.png`,
     imageUrl: `${cdn}/mcdonalds25/22.png`,
     createdAt: '2026-04-21T16:31:00.000Z',
+    paymentMethod: 'venmo',
   },
   {
     id: 'txn-2',
@@ -423,6 +424,7 @@ export const mockCardTransactions: CardTransactionRecord[] = [
     photoUrl: `${cdn}/mcdonalds25/4.png`,
     imageUrl: `${cdn}/mcdonalds25/4.png`,
     createdAt: '2026-04-20T12:06:00.000Z',
+    paymentMethod: 'cash',
   },
   {
     id: 'txn-3',
@@ -436,6 +438,7 @@ export const mockCardTransactions: CardTransactionRecord[] = [
     photoUrl: `${cdn}/xyp/XY111.png`,
     imageUrl: null,
     createdAt: '2026-04-19T09:16:00.000Z',
+    paymentMethod: 'cash',
   },
 ];
 

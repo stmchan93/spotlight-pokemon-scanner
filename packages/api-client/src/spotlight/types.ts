@@ -847,6 +847,8 @@ export type CreateCardTransactionPayload = {
   photo: CardTransactionPhotoUpload | null;
   /** Absolute card image URL carried from the source card (e.g. Sell Now). */
   imageUrl?: string | null;
+  /** How the money changed hands; surfaced in the transaction row subtitle. */
+  paymentMethod?: PaymentMethod | null;
 };
 
 export type CardTransactionRecord = {
@@ -862,6 +864,8 @@ export type CardTransactionRecord = {
   /** Absolute card image URL from the source card; falls back when no photoUrl. */
   imageUrl?: string | null;
   createdAt?: string | null;
+  /** How the money changed hands (cash/venmo/…); null when unspecified. */
+  paymentMethod?: PaymentMethod | null;
 };
 
 export type SaleStatus = 'paid' | 'pending' | 'voided';

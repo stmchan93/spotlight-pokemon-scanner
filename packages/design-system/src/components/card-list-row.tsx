@@ -30,8 +30,8 @@ export type CardListRowProps = {
   testID?: string;
 };
 
-const THUMBNAIL_WIDTH = 54;
-const THUMBNAIL_HEIGHT = 78;
+const THUMBNAIL_WIDTH = 58;
+const THUMBNAIL_HEIGHT = 80;
 const THUMBNAIL_RADIUS = 2;
 
 function formatCurrency(amount: number, currencyCode: string) {
@@ -84,8 +84,8 @@ export function CardListRow({
     : 0;
   const showTrend = trend !== 0;
   const trendIsDown = trend < 0;
-  const trendColor = trendIsDown ? theme.colors.red500 : theme.colors.green500;
-  const trendBackground = trendIsDown ? theme.colors.red50 : theme.colors.green50;
+  const trendColor = trendIsDown ? theme.colors.deltaDownText : theme.colors.deltaUpText;
+  const trendBackground = trendIsDown ? theme.colors.deltaDownSurface : theme.colors.deltaUpSurface;
 
   const Container = onPress ? Pressable : View;
   const containerProps = onPress
@@ -148,7 +148,7 @@ export function CardListRow({
       ) : null}
 
       <View style={styles.middle}>
-        <AppText color="gray900" numberOfLines={1} style={styles.nameText} variant="bodyStrong">
+        <AppText color="gray900" numberOfLines={1} variant="titleSmall">
           {name}
         </AppText>
         {metaLine ? (
@@ -199,7 +199,7 @@ export function CardListRow({
             <AppText
               numberOfLines={1}
               style={[styles.trendLabel, { color: trendColor }]}
-              variant="caption"
+              variant="label"
             >
               {formatCurrency(Math.abs(trend), currencyCode)}
             </AppText>
@@ -224,11 +224,6 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 4,
     minWidth: 0,
-  },
-  // Name: 15px Bold gray900 / 150% (Figma 992:10054).
-  nameText: {
-    fontFamily: 'SpotlightBodyBold',
-    lineHeight: 22.5,
   },
   // Price: 14px Bold gray900 / 150% (Figma 992:10059).
   priceText: {
@@ -263,11 +258,11 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
   },
-  // Delta label: 12px Regular, color set inline (Figma 992:10065).
+  // Delta label: 13px Medium, color set inline (Figma 1263:3148).
   trendLabel: {
-    fontFamily: 'SpotlightBodyRegular',
-    fontSize: 12,
-    lineHeight: 16.8,
+    fontFamily: 'SpotlightBodyMedium',
+    fontSize: 13,
+    lineHeight: 18.2,
   },
   // green/50 | red/50 pill with a 4px radius (Figma 992:10060).
   trendPill: {

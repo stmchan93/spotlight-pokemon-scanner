@@ -66,10 +66,10 @@ describe('InsightsScreen', () => {
     await waitFor(() => {
       expect(screen.getByTestId('insights-biggest-sale')).toBeTruthy();
     });
-    expect(screen.getByTestId('insights-biggest-sale-price').props.children).toBe('$1,200.00');
+    expect(screen.getByTestId('insights-biggest-sale-amount').props.children).toBe('$1,200.00');
 
     // Top sale this month renders with its price.
-    expect(screen.getByTestId('insights-top-sale-sale-1-price').props.children).toBe('$450.00');
+    expect(screen.getByTestId('insights-top-sale-sale-1-amount').props.children).toBe('$450.00');
 
     // Month + all-time stat cards present; the month-sold count shows 12.
     expect(screen.getByTestId('insights-month-sold')).toBeTruthy();

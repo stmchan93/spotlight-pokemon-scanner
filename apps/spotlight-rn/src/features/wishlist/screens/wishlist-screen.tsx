@@ -228,6 +228,21 @@ export function WishlistScreen() {
     scrollToTop();
   }, [scrollToTop]);
 
+  // The hero's top-right X removes the featured card from the wishlist. Drop it
+  // optimistically so the hero advances to the next card immediately, then
+  // persist; re-sync from the backend if the unfavorite didn't stick.
+  const handleRemoveFeatured = useCallback(() => {
+    if (!featuredEntry) {
+      return;
+    }
+    const removedId = featuredEntry.cardId;
+    setFeaturedCardId(null);
+    setFavorites((current) => current.filter((favorite) => favorite.cardId !== removedId));
+    void spotlightRepository.setCardFavorite(removedId, false).catch(() => {
+      void loadFavorites();
+    });
+  }, [featuredEntry, loadFavorites, spotlightRepository]);
+
   const handleToggleViewMode = useCallback(() => {
     setViewMode(viewMode === 'list' ? 'grid' : 'list');
   }, [setViewMode, viewMode]);
@@ -305,6 +320,7 @@ export function WishlistScreen() {
           }
         }}
         onOpenMenu={openDrawer}
+        onRemove={handleRemoveFeatured}
       />
 
       <View style={[styles.controls, { paddingHorizontal: theme.layout.pageGutter }]}>
@@ -489,10 +505,6 @@ function WishlistListRow({ entry, firstInSection, onPress, theme }: WishlistList
   );
 }
 
-// Light delta-pill backgrounds, matching the collection tile + wishlist hero.
-const DELTA_UP_BACKGROUND = 'rgba(76, 175, 110, 0.15)';
-const DELTA_DOWN_BACKGROUND = 'rgba(224, 82, 76, 0.15)';
-
 type WishlistGridRowProps = {
   rowEntries: CardFavoriteEntry[];
   rowIndex: number;
@@ -636,19 +648,19 @@ function WishlistGridTile({ entry, onPress, theme }: WishlistGridTileProps) {
           <View
             style={[
               styles.gridDeltaPill,
-              { backgroundColor: isDown ? DELTA_DOWN_BACKGROUND : DELTA_UP_BACKGROUND },
+              { backgroundColor: isDown ? theme.colors.deltaDownSurface : theme.colors.deltaUpSurface },
             ]}
             testID={`wishlist-grid-tile-${entry.cardId}-delta`}
           >
             {isDown ? (
-              <ArrowDown color={theme.colors.redDelta} height={12} width={12} />
+              <ArrowDown color={theme.colors.deltaDownText} height={12} width={12} />
             ) : (
-              <ArrowUp color={theme.colors.greenDelta} height={12} width={12} />
+              <ArrowUp color={theme.colors.deltaUpText} height={12} width={12} />
             )}
             <Text
               style={[
                 styles.gridDeltaLabel,
-                { color: isDown ? theme.colors.redDelta : theme.colors.greenDelta },
+                { color: isDown ? theme.colors.deltaDownText : theme.colors.deltaUpText },
               ]}
             >
               {deltaLabel}
@@ -776,10 +788,10 @@ const styles = StyleSheet.create({
     paddingTop: 16,
   },
   gridMeta: {
-    // Caption-medium: 12/500/140% gray-600 (Figma 992:9887/9888/9889).
+    // Label: 13/500/140% gray-600 (Figma 1263:3386/3387/3388).
     fontFamily: 'SpotlightBodyMedium',
-    fontSize: 12,
-    lineHeight: 16.8,
+    fontSize: 13,
+    lineHeight: 18.2,
   },
   gridPriceRow: {
     alignItems: 'center',
@@ -797,15 +809,16 @@ const styles = StyleSheet.create({
   },
   gridDeltaPill: {
     alignItems: 'center',
-    borderRadius: 999,
+    borderRadius: 4,
     flexDirection: 'row',
     gap: 4,
     paddingHorizontal: 6,
     paddingVertical: 2,
   },
   gridDeltaLabel: {
-    fontFamily: 'SpotlightBodySemiBold',
-    fontSize: 11,
-    lineHeight: 14.3,
+    // Label: 13/500/140% (Figma 1263:3396).
+    fontFamily: 'SpotlightBodyMedium',
+    fontSize: 13,
+    lineHeight: 18.2,
   },
 });

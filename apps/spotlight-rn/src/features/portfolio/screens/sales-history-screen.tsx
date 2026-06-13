@@ -135,13 +135,13 @@ function SaleCard({
               {formatCurrency(sale.soldPrice, sale.currencyCode)}
             </Text>
           </View>
-          <Text numberOfLines={2} style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
+          <Text numberOfLines={2} style={[theme.typography.label, { color: theme.colors.gray600 }]}>
             {formatCardNumber(sale.cardNumber)}
             {' • '}
             {sale.setName}
           </Text>
           <View style={styles.saleDetailRow}>
-            <Text style={[theme.typography.caption, styles.saleDate, { color: theme.colors.textSecondary }]}>
+            <Text style={[theme.typography.label, styles.saleDate, { color: theme.colors.gray600 }]}>
               {sale.soldAtLabel}
             </Text>
             {canEdit ? (

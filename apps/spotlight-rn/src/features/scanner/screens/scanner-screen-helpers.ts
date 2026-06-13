@@ -425,7 +425,11 @@ export function scannerCaptureThumbUri(capture: RecentCapture, candidate: Catalo
     return candidate?.imageUrl || capture.uri || null;
   }
 
-  return candidate?.imageUrl || capture.uri || null;
+  // Raw lane: while identifying (no candidate yet) prefer the reticle-cropped
+  // `normalizedImageUri` over the full `uri` (the un-cropped source photo) so the
+  // tray thumbnail shows the framed card, not a zoomed-out frame. Matches what the
+  // "change card" modal renders (`normalizedImageUri ?? uri`).
+  return candidate?.imageUrl || capture.normalizedImageUri || capture.uri || null;
 }
 
 export function scannerPreparationReviewReason(mode: ScannerMode, error: unknown) {

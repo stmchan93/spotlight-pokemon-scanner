@@ -5,9 +5,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { EncodingType, readAsStringAsync } from 'expo-file-system/legacy';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 
-import type { CardTransactionKind } from '@spotlight/api-client';
+import type { CardTransactionKind, PaymentMethod } from '@spotlight/api-client';
 import {
   Button,
+  PillButton,
   SectionHeader,
   SegmentedControl,
   SurfaceCard,
@@ -19,6 +20,7 @@ import {
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import { TransactionPhotoCapture } from '@/features/sales/components/transaction-photo-capture';
+import { PAYMENT_METHODS, paymentMethodLabel } from '@/features/sales/payment-method';
 import { parseSellPrice, sanitizeSellPriceText } from '@/features/sell/sell-order-helpers';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useAppServices } from '@/providers/app-providers';
@@ -102,6 +104,7 @@ export function LogTransactionScreen({
 
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [kind, setKind] = useState<CardTransactionKind>('sold');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null);
   const [itemCountText, setItemCountText] = useState('1');
   const [priceText, setPriceText] = useState('');
   const [submitState, setSubmitState] = useState<'idle' | 'saving' | 'success'>('idle');
@@ -145,6 +148,7 @@ export function LogTransactionScreen({
         itemCount,
         photo,
         imageUrl: cardImageUrl ?? null,
+        paymentMethod,
       });
 
       capturePostHogEvent('transaction_logged', { kind });
@@ -162,6 +166,7 @@ export function LogTransactionScreen({
     kind,
     onComplete,
     parsedPrice,
+    paymentMethod,
     photoUri,
     refreshData,
     spotlightRepository,
@@ -212,6 +217,24 @@ export function LogTransactionScreen({
               testID="log-transaction-kind"
               value={kind}
             />
+          </View>
+
+          <View style={styles.fieldBlock}>
+            <Text style={[theme.typography.micro, styles.fieldLabel]}>PAYMENT METHOD</Text>
+            <View style={styles.pillWrap}>
+              {PAYMENT_METHODS.map((method) => (
+                <PillButton
+                  key={method}
+                  label={paymentMethodLabel(method)}
+                  onPress={() =>
+                    setPaymentMethod((current) => (current === method ? null : method))
+                  }
+                  selected={paymentMethod === method}
+                  testID={`log-transaction-payment-${method}`}
+                  tone="filter"
+                />
+              ))}
+            </View>
           </View>
 
           <TextField
@@ -281,5 +304,10 @@ const styles = StyleSheet.create({
   },
   fieldLabel: {
     letterSpacing: 1.2,
+  },
+  pillWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
   },
 });

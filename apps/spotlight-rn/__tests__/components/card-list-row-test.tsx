@@ -87,11 +87,11 @@ describe('CardListRow', () => {
     const colors = flat
       .map((s: { color?: string } | null | undefined) => s && s.color)
       .filter(Boolean);
-    // red500 token value (Figma delta pill, 992:10065)
-    expect(colors).toContain('#D93025');
+    // deltaDownText token value (Figma delta pill red/600, 1263:3148)
+    expect(colors).toContain('#B22416');
   });
 
-  it('renders the thumbnail at the Figma dimensions (54x78, radius 2)', () => {
+  it('renders the thumbnail at the Figma dimensions (58x80, radius 2)', () => {
     renderRow();
 
     const thumbnail = screen.getByTestId('row-thumbnail');
@@ -100,8 +100,8 @@ describe('CardListRow', () => {
       : [thumbnail.props.style]
     ).filter(Boolean);
     const merged = Object.assign({}, ...flat);
-    expect(merged.width).toBe(54);
-    expect(merged.height).toBe(78);
+    expect(merged.width).toBe(58);
+    expect(merged.height).toBe(80);
     expect(merged.borderRadius).toBe(2);
     // no thumbnail border in the Figma spec
     expect(merged.borderWidth).toBeUndefined();

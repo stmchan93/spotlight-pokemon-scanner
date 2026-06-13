@@ -159,9 +159,20 @@ export function TopTabsPager({
   }, [width]);
 
   const panResponder = useMemo(() => PanResponder.create({
-    // Record where the touch first landed so shouldSetResponder can require an
-    // edge start. Returns false so the start itself never claims the gesture —
-    // the existing move-based logic still decides.
+    // Record where the touch first landed (CAPTURE phase) so the edge-start check
+    // in shouldSetResponder always has a fresh value. This must be capture, not
+    // bubble: when the touch lands on a greedy child that claims the start —
+    // the chart's scrub touch-target or a collection card Pressable — bubble-phase
+    // start handlers on the pager never run, leaving startX stale from a previous
+    // touch. A stale startX makes the edge check reject a genuine edge swipe, which
+    // is why "swipe at the edge" worked only intermittently. Returns false so
+    // recording the start never itself claims the gesture.
+    onStartShouldSetPanResponderCapture: (evt) => {
+      startXRef.current = evt.nativeEvent.pageX;
+      return false;
+    },
+    // Kept as a fallback for touches that don't hit a greedy child (capture above
+    // already records those too — harmless overlap).
     onStartShouldSetPanResponder: (evt) => {
       startXRef.current = evt.nativeEvent.pageX;
       return false;

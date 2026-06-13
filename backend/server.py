@@ -539,6 +539,11 @@ def _apply_card_transactions_schema_patch(connection: sqlite3.Connection) -> Non
     _sqlite_add_column_if_missing(
         connection, "card_transactions", "image_url", "TEXT"
     )
+    # Optional payment method (cash/venmo/cashapp/paypal/zelle/other). Additive,
+    # nullable; existing rows backfill to NULL.
+    _sqlite_add_column_if_missing(
+        connection, "card_transactions", "payment_method", "TEXT"
+    )
 
 
 def _apply_card_favorites_schema_patch(connection: sqlite3.Connection) -> None:
@@ -4691,6 +4696,14 @@ class SpotlightScanService:
         return {"results": results}
 
     _CARD_TRANSACTION_KINDS = {"bought", "sold", "traded"}
+    _CARD_TRANSACTION_PAYMENT_METHODS = {
+        "cash",
+        "venmo",
+        "cashapp",
+        "paypal",
+        "zelle",
+        "other",
+    }
 
     @staticmethod
     def _card_transaction_occurred_at_label(occurred_at: str | None) -> str | None:
@@ -4721,6 +4734,7 @@ class SpotlightScanService:
             "createdAt": str(row.get("created_at") or "") or None,
             "photoUrl": photo_url,
             "imageUrl": (str(row.get("image_url") or "").strip() or None),
+            "paymentMethod": (str(row.get("payment_method") or "").strip().lower() or None),
         }
 
     def create_card_transaction(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -4760,6 +4774,14 @@ class SpotlightScanService:
 
         # Optional catalog image URL (plain absolute URL string; no base64).
         image_url = str(payload.get("imageUrl") or "").strip() or None
+
+        # Optional payment method; missing/empty stores NULL, a present value must
+        # be one of the known methods.
+        payment_method = str(payload.get("paymentMethod") or "").strip().lower() or None
+        if payment_method is not None and payment_method not in self._CARD_TRANSACTION_PAYMENT_METHODS:
+            raise ValueError(
+                "paymentMethod must be one of cash, venmo, cashapp, paypal, zelle, other"
+            )
 
         occurred_at = str(payload.get("occurredAt") or "").strip()
         if not occurred_at:
@@ -4824,6 +4846,7 @@ class SpotlightScanService:
                 photo_width=photo_width,
                 photo_height=photo_height,
                 image_url=image_url,
+                payment_method=payment_method,
                 created_at=created_at,
             )
             self.connection.commit()

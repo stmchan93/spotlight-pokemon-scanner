@@ -2942,6 +2942,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
       photoUrl: payload.photo ? `data:image/jpeg;base64,${payload.photo.jpegBase64}` : null,
       imageUrl: payload.imageUrl ?? null,
       createdAt: new Date().toISOString(),
+      paymentMethod: payload.paymentMethod ?? null,
     };
     this.cardTransactions = [record, ...this.cardTransactions];
     return record;

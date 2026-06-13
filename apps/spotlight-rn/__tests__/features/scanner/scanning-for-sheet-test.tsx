@@ -81,4 +81,10 @@ describe('ScanningForSheet', () => {
     fireEvent.press(screen.getByTestId('scanning-for-sheet-backdrop'));
     expect(props.onClose).toHaveBeenCalledTimes(1);
   });
+
+  it('closes when the drag handle is tapped', () => {
+    const props = renderSheet();
+    fireEvent.press(screen.getByTestId('scanning-for-sheet-handle'));
+    expect(props.onClose).toHaveBeenCalledTimes(1);
+  });
 });

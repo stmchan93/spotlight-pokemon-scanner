@@ -53,9 +53,6 @@ export type InventoryCardTileProps = {
   testID?: string;
 };
 
-const DELTA_UP_BACKGROUND = 'rgba(76, 175, 110, 0.15)';
-const DELTA_DOWN_BACKGROUND = 'rgba(224, 82, 76, 0.15)';
-
 function formatCardNumberWithHash(value: string | null): string | null {
   if (value == null) {
     return null;
@@ -132,8 +129,8 @@ export function InventoryCardTile({
     dayChangeLabel !== null &&
     dayChangeLabel.trim().length > 0;
   const isDown = dayChangeDirection === 'down';
-  const deltaBackground = isDown ? DELTA_DOWN_BACKGROUND : DELTA_UP_BACKGROUND;
-  const deltaForeground = isDown ? theme.colors.redDelta : theme.colors.greenDelta;
+  const deltaBackground = isDown ? theme.colors.deltaDownSurface : theme.colors.deltaUpSurface;
+  const deltaForeground = isDown ? theme.colors.deltaDownText : theme.colors.deltaUpText;
 
   return (
     <Pressable
@@ -212,9 +209,9 @@ export function InventoryCardTile({
           <View style={styles.metaStack}>
             {setLine ? (
               <AppText
-                color="textMuted"
+                color="gray600"
                 numberOfLines={1}
-                variant="cardMeta"
+                variant="label"
               >
                 {setLine}
               </AppText>
@@ -222,15 +219,15 @@ export function InventoryCardTile({
 
             {qualityLine ? (
               <AppText
-                color="textMuted"
+                color="gray600"
                 numberOfLines={1}
-                variant="cardMeta"
+                variant="label"
               >
                 {qualityLine}
               </AppText>
             ) : null}
 
-            <AppText color="textMuted" numberOfLines={1} variant="cardMeta">
+            <AppText color="gray600" numberOfLines={1} variant="label">
               {`Qty: ${quantity}`}
             </AppText>
           </View>
@@ -250,7 +247,7 @@ export function InventoryCardTile({
                   styles.deltaPill,
                   {
                     backgroundColor: deltaBackground,
-                    borderRadius: theme.radii.pill,
+                    borderRadius: 4,
                   },
                 ]}
                 testID={testID ? `${testID}-delta` : undefined}
@@ -276,7 +273,7 @@ export function InventoryCardTile({
                 )}
                 <AppText
                   style={[styles.deltaLabel, { color: deltaForeground }]}
-                  variant="deltaPill"
+                  variant="label"
                 >
                   {dayChangeLabel}
                 </AppText>
@@ -407,6 +404,10 @@ const styles = StyleSheet.create({
   },
   price: {
     flexShrink: 1,
+    // Figma 1263:3390 — Bold 13/140% (priceCaption variant supplies the Bold
+    // family; this bumps the size from the 12px catalog default to 13).
+    fontSize: 13,
+    lineHeight: 18.2,
   },
   priceRow: {
     alignItems: 'center',

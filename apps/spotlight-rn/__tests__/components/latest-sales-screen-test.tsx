@@ -28,6 +28,7 @@ const sampleTransactions: CardTransactionRecord[] = [
     itemCount: 7,
     photoUrl: 'https://images.example/sold.png',
     createdAt: '2026-04-21T16:31:00.000Z',
+    paymentMethod: 'venmo',
   },
   {
     id: 'txn-bought',
@@ -62,7 +63,7 @@ function buildRepository(transactions: CardTransactionRecord[] = sampleTransacti
 }
 
 describe('LatestSalesScreen', () => {
-  it('renders transactions sourced from listCardTransactions with photo, kind badge, price, and item count', async () => {
+  it('renders transactions sourced from listCardTransactions with verb title, payment method, and signed amount', async () => {
     renderWithProviders(<LatestSalesScreen />, { spotlightRepository: buildRepository() });
 
     expect(await screen.findByTestId('sales-header-title')).toBeTruthy();
@@ -77,13 +78,17 @@ describe('LatestSalesScreen', () => {
     const soldRow = screen.getByTestId('latest-transaction-card-txn-sold');
     expect(soldRow).toBeTruthy();
     expect(screen.getByTestId('latest-transaction-card-txn-sold-photo')).toBeTruthy();
-    expect(screen.getByTestId('latest-transaction-card-txn-sold-kind-badge')).toBeTruthy();
-    expect(screen.getByTestId('latest-transaction-card-txn-sold-price').props.children).toBe('$45.00');
-    // Secondary line now shows the lot item count instead of a date.
-    expect(screen.getByTestId('latest-transaction-card-txn-sold-items').props.children).toEqual(['Items: ', 7]);
-    expect(screen.getByTestId('latest-transaction-card-txn-bought-items').props.children).toEqual(['Items: ', 27]);
-    // A trade always renders an em dash instead of a currency amount.
-    expect(screen.getByTestId('latest-transaction-card-txn-traded-price').props.children).toBe('—');
+    // Title is the verb (sold → Sell); subtitle is "N Items · <payment method>".
+    expect(screen.getByTestId('latest-transaction-card-txn-sold-title').props.children).toBe('Sell');
+    expect(screen.getByTestId('latest-transaction-card-txn-sold-subtitle').props.children).toBe('7 Items · Venmo');
+    expect(screen.getByTestId('latest-transaction-card-txn-sold-amount').props.children).toBe('$45.00');
+    // Bought reads as Buy and omits the payment method when none is set.
+    expect(screen.getByTestId('latest-transaction-card-txn-bought-title').props.children).toBe('Buy');
+    expect(screen.getByTestId('latest-transaction-card-txn-bought-subtitle').props.children).toBe('27 Items');
+    expect(screen.getByTestId('latest-transaction-card-txn-bought-amount').props.children).toBe('$12.00');
+    // A trade shows the swap glyph and no amount.
+    expect(screen.getByTestId('latest-transaction-card-txn-traded-title').props.children).toBe('Trade');
+    expect(screen.queryByTestId('latest-transaction-card-txn-traded-amount')).toBeNull();
   });
 
   it('shows the empty state when there are no transactions', async () => {
