@@ -594,7 +594,7 @@ export function CardDetailScreen({
           </IconButton>
           <Text
             numberOfLines={1}
-            style={[theme.typography.title, styles.headerTitle]}
+            style={[theme.typography.titleMedium, styles.headerTitle]}
             testID="detail-header-title"
           >
             {displayName}

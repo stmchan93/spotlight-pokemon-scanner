@@ -98,7 +98,7 @@ export function CardProductDetails({ cardText, testID }: CardProductDetailsProps
 
   return (
     <View style={[styles.root, { gap: theme.spacing.xs }]} testID={testID}>
-      <Text style={theme.typography.titleSmall}>Product Details</Text>
+      <Text style={theme.typography.titleMedium}>Product Details</Text>
       <View style={[styles.lines, { gap: theme.spacing.xxs }]}>
         {lines.map((line) => (
           <Fragment key={line.key}>
