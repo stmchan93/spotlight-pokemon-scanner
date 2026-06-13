@@ -207,12 +207,15 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   selector: {
+    // Fixed 160x32 dropdown box per Figma 1185-2491 (text padded 16 from the
+    // left, chevron pinned to the right edge), instead of stretching full width.
     alignItems: 'center',
     borderRadius: 8,
     flexDirection: 'row',
+    height: 32,
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 4,
+    width: 160,
   },
   group: {
     width: '100%',

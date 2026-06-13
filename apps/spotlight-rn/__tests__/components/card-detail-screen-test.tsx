@@ -271,12 +271,15 @@ describe('CardDetailScreen', () => {
     });
   });
 
-  // Marketplace deep-links use the REAL pipe-delimited row key the backend emits:
-  //   raw "<variantKey>|<condition>", graded "<grader>|<grade>|<variantKey>".
-  const trendRows = (mode: string) => ([
+  // The backend emits two row-key shapes depending on version: the staging shape
+  // (graded "PSA 10", raw "NM") and the pipe shape (graded "PSA|10|<variant>", raw
+  // "<variant>|NM"). The deep-link handler must parse BOTH.
+  const trendRows = (mode: string, pipeKeys = false) => ([
     {
       label: mode === 'graded' ? 'PSA 10' : 'Near Mint',
-      key: mode === 'graded' ? 'PSA|10|' : 'normal|near_mint',
+      key: mode === 'graded'
+        ? (pipeKeys ? 'PSA|10|' : 'PSA 10')
+        : (pipeKeys ? 'normal|near_mint' : 'NM'),
       currentPrice: 100,
       currencyCode: 'USD',
       points: [1, 2, 3],
@@ -284,7 +287,7 @@ describe('CardDetailScreen', () => {
     },
   ]);
 
-  it('raw price-trend row deep-links to a TCGplayer search filtered to the condition', async () => {
+  it('raw price-trend row deep-links to the card on TCGplayer with the condition filter (no printing)', async () => {
     const getCardPriceTrends = jest.fn(async (query: { mode: string }) => ({
       mode: query.mode as 'raw' | 'graded',
       provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
@@ -297,14 +300,18 @@ describe('CardDetailScreen', () => {
       { spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends }) },
     );
 
-    fireEvent.press(await screen.findByTestId('detail-price-trends-row-normal|near_mint'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-row-NM'));
 
     await waitFor(() => {
       expect(openURL).toHaveBeenCalledTimes(1);
     });
     const url = openURL.mock.calls[0][0] as string;
     expect(url).toContain('tcgplayer.com/search');
+    expect(url.toLowerCase()).toContain('treecko');
+    // Keep the helpful condition filter…
     expect(url).toContain('Condition=Near+Mint');
+    // …but never the Printing facet (it over-constrains promos → wrong card).
+    expect(url).not.toContain('Printing=');
   });
 
   it('graded price-trend row opens the recent eBay sold listing via getCardRecentSales', async () => {
@@ -338,7 +345,7 @@ describe('CardDetailScreen', () => {
     );
 
     fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
-    fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA|10|'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA 10'));
 
     await waitFor(() => {
       expect(getCardRecentSales).toHaveBeenCalledWith(expect.objectContaining({
@@ -377,12 +384,55 @@ describe('CardDetailScreen', () => {
     );
 
     fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
-    fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA|10|'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA 10'));
 
     await waitFor(() => {
       expect(alert).toHaveBeenCalled();
     });
     expect(openURL).not.toHaveBeenCalled();
+  });
+
+  it('parses the pipe-delimited graded row key too (backend version robustness)', async () => {
+    const getCardPriceTrends = jest.fn(async (query: { mode: string }) => ({
+      mode: query.mode as 'raw' | 'graded',
+      provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
+      rows: trendRows(query.mode, true),
+    }));
+    const getCardRecentSales = jest.fn(async () => ({
+      source: 'ebay' as const,
+      status: 'available' as const,
+      statusReason: null,
+      unavailableReason: null,
+      fetchedAt: '2026-06-10T00:00:00.000Z',
+      canRefresh: true,
+      saleCount: 1,
+      sales: [{
+        id: 's1',
+        title: 'PSA 10 Treecko',
+        soldAt: null,
+        priceAmount: 250,
+        currencyCode: 'USD',
+        saleUrl: 'https://www.ebay.com/itm/pipe',
+      }],
+    }));
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as never);
+
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} onOpenAddToCollection={jest.fn()} />,
+      { spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends, getCardRecentSales }) },
+    );
+
+    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA|10|'));
+
+    await waitFor(() => {
+      expect(getCardRecentSales).toHaveBeenCalledWith(expect.objectContaining({
+        slabContext: expect.objectContaining({ grader: 'PSA', grade: '10' }),
+      }));
+    });
+    await waitFor(() => {
+      expect(openURL).toHaveBeenCalledWith('https://www.ebay.com/itm/pipe');
+    });
   });
 
   it('renders Product Details when the card detail includes cardText', async () => {

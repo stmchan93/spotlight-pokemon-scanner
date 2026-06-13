@@ -1,4 +1,15 @@
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import {
+  Animated,
+  Dimensions,
+  Easing,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Check as IconCheck } from 'iconoir-react-native';
 
@@ -20,11 +31,13 @@ type GradeConditionSheetProps = {
   testID?: string;
 };
 
+const SCREEN_HEIGHT = Dimensions.get('window').height;
+
 /**
  * Bottom-sheet picker for the card-detail grade (graded lane) / condition (raw
- * lane) selection — Figma 1185:1808 / 1185:2471. Slides up from the bottom like
- * the scanner tray: a handle, a section title, and a scrollable option list
- * where the selected row is purple with a check.
+ * lane) selection — Figma 1185:1808 / 1185:2471. It opens like the scanner
+ * tray: the dark scrim cuts in instantly (no fade) while only the sheet panel
+ * slides up from the bottom; closing reverses the slide and then unmounts.
  */
 export function GradeConditionSheet({
   visible,
@@ -38,14 +51,52 @@ export function GradeConditionSheet({
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
 
+  // Keep the modal mounted through the closing slide-down, then unmount.
+  const [isRendered, setIsRendered] = useState(visible);
+  const translateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+
+  useEffect(() => {
+    if (visible) {
+      setIsRendered(true);
+      // Scrim is already at full opacity (rendered instantly); slide the panel
+      // up with a near-critically-damped spring so it pops in without bounce.
+      const animation = Animated.spring(translateY, {
+        toValue: 0,
+        damping: 34,
+        mass: 1,
+        stiffness: 320,
+        useNativeDriver: false,
+      });
+      animation.start();
+      return () => animation.stop();
+    }
+
+    const animation = Animated.timing(translateY, {
+      toValue: SCREEN_HEIGHT,
+      duration: 200,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: false,
+    });
+    animation.start(({ finished }) => {
+      if (finished) {
+        setIsRendered(false);
+      }
+    });
+    return () => animation.stop();
+  }, [translateY, visible]);
+
+  if (!isRendered) {
+    return null;
+  }
+
   return (
     <Modal
-      animationType="slide"
+      animationType="none"
       onRequestClose={onClose}
       presentationStyle="overFullScreen"
       statusBarTranslucent
       transparent
-      visible={visible}
+      visible
     >
       <View style={styles.root}>
         <Pressable
@@ -55,12 +106,13 @@ export function GradeConditionSheet({
           style={styles.backdrop}
           testID={`${testID}-backdrop`}
         />
-        <View
+        <Animated.View
           style={[
             styles.sheet,
             {
               backgroundColor: theme.colors.gray0,
               paddingBottom: Math.max(insets.bottom, 16) + 8,
+              transform: [{ translateY }],
             },
           ]}
           testID={testID}
@@ -104,7 +156,7 @@ export function GradeConditionSheet({
               );
             })}
           </ScrollView>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -117,7 +169,9 @@ const styles = StyleSheet.create({
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    // Instant flat scrim — #000000 at 40% (no fade curve), matching the
+    // scanner tray's pop-open feel.
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
   },
   sheet: {
     borderTopLeftRadius: 16,

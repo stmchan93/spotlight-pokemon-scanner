@@ -1,4 +1,5 @@
 import { StyleSheet, Text, View } from 'react-native';
+import type { TextInputProps } from 'react-native';
 
 import { IconButton, SearchField, colors, textStyles } from '@spotlight/design-system';
 
@@ -11,6 +12,7 @@ type CollectionSearchRowProps = {
   onChangeQuery: (value: string) => void;
   viewMode?: CollectionViewMode;
   onToggleViewMode?: () => void;
+  onFocus?: TextInputProps['onFocus'];
   testID?: string;
 };
 
@@ -19,6 +21,7 @@ export function CollectionSearchRow({
   onChangeQuery,
   viewMode,
   onToggleViewMode,
+  onFocus,
   testID = 'collection-search-row',
 }: CollectionSearchRowProps) {
   const showToggle = viewMode != null && onToggleViewMode != null;
@@ -38,6 +41,7 @@ export function CollectionSearchRow({
             clearButtonMode="while-editing"
             containerTestID={`${testID}-input`}
             onChangeText={onChangeQuery}
+            onFocus={onFocus}
             placeholder="Search your collection"
             returnKeyType="search"
             size="collection"

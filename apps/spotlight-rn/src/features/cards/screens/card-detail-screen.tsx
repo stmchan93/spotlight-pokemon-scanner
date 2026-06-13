@@ -352,7 +352,10 @@ export function CardDetailScreen({
     }
 
     if (priceTrends.mode === 'graded') {
-      const [grader, grade] = row.key.split('|');
+      // The graded row key format varies by backend version: "PSA 10" (space) on
+      // staging vs "PSA|10|<variant>" (pipe) on newer builds. Normalize pipes to
+      // spaces and take the first two tokens so both shapes yield grader + grade.
+      const [grader, grade] = row.key.replace(/\|/g, ' ').trim().split(/\s+/);
       if (!grader || !grade) {
         return;
       }
@@ -393,14 +396,20 @@ export function CardDetailScreen({
       return;
     }
 
-    // Raw lane → TCGplayer search filtered to the tapped condition + selected printing.
-    const [, condition] = row.key.split('|');
+    // Raw lane → TCGplayer product search for this exact card, filtered to the tapped
+    // condition (Near Mint, etc.) so the user lands on that grade's price. The raw row
+    // key is the bare condition code ("NM", staging) or "<variant>|<condition>" (pipe);
+    // the condition is the last non-empty segment in both shapes.
+    //
+    // We deliberately keep Condition but NOT Printing: the Printing facet over-constrains
+    // promos (their printing rarely matches TCGplayer's categorization), zeroing results
+    // so TCGplayer falls back to unrelated popular cards (a Mew promo surfacing Charizard).
+    const condition = row.key.split('|').filter(Boolean).pop() ?? null;
     const url = buildTcgPlayerSearchUrl({
       name: detail.name,
       cardNumber: detail.cardNumber,
       setName: detail.setName,
       condition,
-      printing: selectedVariantLabel,
     });
     if (url) {
       void Linking.openURL(url);

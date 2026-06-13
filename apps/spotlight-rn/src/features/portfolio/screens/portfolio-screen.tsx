@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
+  type LayoutChangeEvent,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -39,6 +40,11 @@ import { useTabBarScrollHandler } from '@/contexts/tab-bar-chrome-context';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
 
 const GRID_TEST_ID = 'collection-masonry-grid';
+
+// When the collection search gains focus, scroll the search row up to near the
+// top of the viewport so the keyboard can't cover it (and the filtered results
+// land directly underneath). This small gap keeps it off the very top edge.
+const SEARCH_FOCUS_TOP_GAP = 12;
 
 type PortfolioScreenProps = {
   onOpenInventoryEntry?: (entry: InventoryCardEntry) => void;
@@ -117,6 +123,9 @@ export function PortfolioScreen({
   const [isChartScrubbing, setIsChartScrubbing] = useState(false);
   const [activeFilter, setActiveFilter] = useState<CollectionFilterKey>('all');
   const scrollRef = useRef<FlatList<CollectionRow>>(null);
+  // Y offset of the search row within the list header chrome, captured on
+  // layout so focusing the field can scroll it into a keyboard-safe position.
+  const searchRowYRef = useRef(0);
 
   const bottomNavClearance =
     theme.layout.bottomNavHeight
@@ -149,6 +158,20 @@ export function PortfolioScreen({
     },
     [onOpenInventoryEntry],
   );
+
+  const handleSearchRowLayout = useCallback((event: LayoutChangeEvent) => {
+    searchRowYRef.current = event.nativeEvent.layout.y;
+  }, []);
+
+  // The search row lives inside the list header, so its content offset is the
+  // FlatList's top inset plus its measured y within the header chrome.
+  const handleSearchFocus = useCallback(() => {
+    const offset = Math.max(
+      theme.layout.pageTopInset + searchRowYRef.current - SEARCH_FOCUS_TOP_GAP,
+      0,
+    );
+    scrollRef.current?.scrollToOffset({ offset, animated: true });
+  }, [theme.layout.pageTopInset]);
 
   // The whole screen is one virtualized FlatList: the balance/chart/search/
   // filter chrome rides along as the list header, and the collection renders
@@ -283,12 +306,15 @@ export function PortfolioScreen({
             </Text>
           ) : null}
 
-          <CollectionSearchRow
-            onChangeQuery={model.setSearchQuery}
-            onToggleViewMode={toggleViewMode}
-            query={model.searchQuery}
-            viewMode={viewMode}
-          />
+          <View onLayout={handleSearchRowLayout}>
+            <CollectionSearchRow
+              onChangeQuery={model.setSearchQuery}
+              onFocus={handleSearchFocus}
+              onToggleViewMode={toggleViewMode}
+              query={model.searchQuery}
+              viewMode={viewMode}
+            />
+          </View>
 
           <CollectionFilterChipRow
             activeFilter={activeFilter}
