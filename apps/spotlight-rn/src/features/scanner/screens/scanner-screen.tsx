@@ -190,10 +190,14 @@ const scannerTrayLayoutAnimation = {
     property: LayoutAnimation.Properties.opacity,
     type: LayoutAnimation.Types.easeInEaseOut,
   },
-  duration: 240,
+  // The tray height change uses a spring so the panel starts moving the instant
+  // the swipe is released. `easeInEaseOut` barely moves for its first ~70ms,
+  // which read as a "wait, then snap" lag; a damped spring tracks immediately and
+  // glides to rest. `springDamping: 0.88` keeps the settle smooth (no bounce).
+  duration: 300,
   update: {
     springDamping: 0.88,
-    type: LayoutAnimation.Types.easeInEaseOut,
+    type: LayoutAnimation.Types.spring,
   },
 } as const;
 // Keep the expanded rows mounted for the length of the collapse so they slide
@@ -1639,50 +1643,68 @@ export function ScannerScreen({
     }
   }, [priceSelection, recentCaptures, refreshData, removeCaptureAfterAdd, spotlightRepository, trackCandidateSelectionIfNeeded]);
 
-  // Bulk "ADD ALL": add every resolved scan to the collection, then (per Figma)
-  // clear the whole tray and collapse back to the scanner — regardless of any
-  // per-card failures (failures simply aren't added; their rows are cleared too).
-  const handleAddAll = useCallback(async () => {
-    const addable = recentCaptures.filter((capture) => (
-      !capture.isLoadingCandidates
-      && !capture.recentlyAdded
-      && activeCandidateForCapture(capture) != null
-    ));
-
-    setIsAddingAll(true);
+  // Bulk "ADD ALL": optimistically close the modal + clear the tray NOW, then add
+  // every resolved scan to the collection in the BACKGROUND. Two reasons it isn't
+  // done inline:
+  //   - Speed: blocking on N parallel createInventoryEntry calls took 5-10s (the
+  //     backend serializes writes) with the modal stuck on "Adding…". Backgrounding
+  //     it feels instant.
+  //   - Stability: clearing via the empty→auto-collapse effect (no LayoutAnimation)
+  //     instead of an explicit animated collapse avoids the iOS crash from firing a
+  //     tray LayoutAnimation while the modal unmounts and N rows are removed in the
+  //     same frame.
+  // Per the user: add the good ones, drop failures, clear everything regardless.
+  const handleAddAll = useCallback(() => {
     const addedAt = new Date().toISOString();
-    const results = await Promise.allSettled(addable.map((capture) => {
-      const activeCandidate = activeCandidateForCapture(capture)!;
-      const condition: DeckConditionCode = priceSelection.get(capture.id)?.conditionCode ?? 'near_mint';
-      trackCandidateSelectionIfNeeded(capture);
-      return spotlightRepository.createInventoryEntry(
-        buildInventoryEntryArgs(capture, activeCandidate, addedAt, condition),
-      );
-    }));
+    // Snapshot what we need BEFORE clearing the tray (createInventoryEntry only
+    // needs the in-memory candidate data, not the scan image files).
+    const jobs = recentCaptures
+      .filter((capture) => (
+        !capture.isLoadingCandidates
+        && !capture.recentlyAdded
+        && activeCandidateForCapture(capture) != null
+      ))
+      .map((capture) => ({
+        activeCandidate: activeCandidateForCapture(capture)!,
+        capture,
+        condition: (priceSelection.get(capture.id)?.conditionCode ?? 'near_mint') as DeckConditionCode,
+      }));
 
-    const succeeded = results.filter((result) => result.status === 'fulfilled').length;
-    capturePostHogEvent('scan_add_all', {
-      attempted: addable.length,
-      succeeded,
-      failed: addable.length - succeeded,
-    });
-
-    try {
-      const nextEntries = await spotlightRepository.getInventoryEntries();
-      setInventoryEntries(nextEntries);
-    } catch {
-      // A failed inventory refresh just leaves the cached list; refreshData below
-      // still nudges dependent screens.
-    }
-    refreshData();
-
-    // Clear everything and return to the scanner (Figma annotation).
-    performClearAllCaptures();
-    commitTrayExpandedState(false);
-    setIsAddingAll(false);
     setIsAddAllOpen(false);
+    performClearAllCaptures();
+
+    if (jobs.length === 0) {
+      return;
+    }
+
+    void (async () => {
+      let succeeded = 0;
+      // Sequential — concurrent writes contend on the backend's SQLite store.
+      for (const job of jobs) {
+        try {
+          trackCandidateSelectionIfNeeded(job.capture);
+          await spotlightRepository.createInventoryEntry(
+            buildInventoryEntryArgs(job.capture, job.activeCandidate, addedAt, job.condition),
+          );
+          succeeded += 1;
+        } catch (error) {
+          logScannerDiagnostic(`[SCANNER] addAll entry failed: ${scannerErrorMessage(error)}`, error);
+        }
+      }
+      capturePostHogEvent('scan_add_all', {
+        attempted: jobs.length,
+        succeeded,
+        failed: jobs.length - succeeded,
+      });
+      try {
+        const nextEntries = await spotlightRepository.getInventoryEntries();
+        setInventoryEntries(nextEntries);
+      } catch {
+        // Leave the cached list; refreshData below still nudges dependent screens.
+      }
+      refreshData();
+    })();
   }, [
-    commitTrayExpandedState,
     performClearAllCaptures,
     priceSelection,
     recentCaptures,
