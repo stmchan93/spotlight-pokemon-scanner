@@ -330,11 +330,19 @@ export const textStyles = {
     lineHeight: 16.8,
     color: colors.textPrimary,
   } satisfies TextStyle,
-  // Bottom-tab labels — 10/600, no explicit lineHeight per Figma spec.
+  // Bottom-tab label, unselected — 11/500 (Medium) per Figma nav spec.
   navLabel: {
     ...numericFontVariant,
+    fontFamily: fontFamilies.bodyMedium,
+    fontSize: 11,
+    color: colors.textPrimary,
+  } satisfies TextStyle,
+  // Bottom-tab label, selected — 11/600 (SemiBold). Same color; weight conveys
+  // selection alongside the filled icon.
+  navLabelSelected: {
+    ...numericFontVariant,
     fontFamily: fontFamilies.bodySemiBold,
-    fontSize: 10,
+    fontSize: 11,
     color: colors.textPrimary,
   } satisfies TextStyle,
 } as const;

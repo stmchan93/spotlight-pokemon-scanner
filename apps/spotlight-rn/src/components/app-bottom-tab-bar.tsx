@@ -1,8 +1,9 @@
-import { Calendar, Scanning, Suitcase } from 'iconoir-react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BottomTabBar, useSpotlightTheme } from '@spotlight/design-system';
+
+import { CollectionTabIcon, EventsTabIcon, ScanTabIcon } from './nav-tab-icons';
 
 export type AppBottomTabKey = 'portfolio' | 'scan' | 'events';
 
@@ -23,6 +24,8 @@ export function AppBottomTabBar({
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
+  const iconColor = theme.colors.textPrimary;
+
   const goToPortfolio = onPressPortfolio
     ?? (() => router.push({ pathname: '/', params: { page: 'portfolio' } } as never));
   const goToScan = onPressScan
@@ -39,13 +42,7 @@ export function AppBottomTabBar({
           selected: activeKey === 'portfolio',
           onPress: goToPortfolio,
           testID: 'bottom-nav-portfolio',
-          icon: (
-            <Suitcase
-              color={theme.colors.textPrimary}
-              height={20}
-              width={20}
-            />
-          ),
+          icon: <CollectionTabIcon color={iconColor} filled={activeKey === 'portfolio'} />,
         },
         {
           key: 'scan',
@@ -53,13 +50,7 @@ export function AppBottomTabBar({
           selected: activeKey === 'scan',
           onPress: goToScan,
           testID: 'bottom-nav-scan',
-          icon: (
-            <Scanning
-              color={theme.colors.textPrimary}
-              height={20}
-              width={20}
-            />
-          ),
+          icon: <ScanTabIcon color={iconColor} />,
         },
         {
           key: 'events',
@@ -67,13 +58,7 @@ export function AppBottomTabBar({
           selected: activeKey === 'events',
           onPress: goToEvents,
           testID: 'bottom-nav-events',
-          icon: (
-            <Calendar
-              color={theme.colors.textPrimary}
-              height={20}
-              width={20}
-            />
-          ),
+          icon: <EventsTabIcon color={iconColor} filled={activeKey === 'events'} />,
         },
       ]}
     />

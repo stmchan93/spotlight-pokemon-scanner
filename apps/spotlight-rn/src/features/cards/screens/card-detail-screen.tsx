@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert,
   Linking,
   ScrollView,
   Share,
@@ -23,13 +22,12 @@ import {
 import { Button, IconButton, colors, useSpotlightTheme } from '@spotlight/design-system';
 import { NavArrowLeft, ShareIos } from 'iconoir-react-native';
 
-import { CardConditionHistorySection } from '@/features/cards/components/card-condition-history-section';
 import { CardConfigurator } from '@/features/cards/components/card-configurator';
 import { GradeConditionSheet } from '@/features/cards/components/grade-condition-sheet';
 import { CardDetailHero } from '@/features/cards/components/card-detail-hero';
 import { CardPriceTrendList } from '@/features/cards/components/card-price-trend-list';
 import { CardProductDetails } from '@/features/cards/components/card-product-details';
-import { buildTcgPlayerSearchUrl } from '@/features/cards/marketplace-urls';
+import { buildEbaySearchUrl, buildTcgPlayerSearchUrl } from '@/features/cards/marketplace-urls';
 import {
   cardDetailPreviewFromCatalogResult,
   cardDetailPreviewFromInventoryEntry,
@@ -132,11 +130,6 @@ export function CardDetailScreen({
   const [isAddPending, setIsAddPending] = useState(false);
 
   const [priceTrends, setPriceTrends] = useState<CardPriceTrendListRecord | null>(null);
-  // Price-Trend row → marketplace deep-link state. `loadingRowKey` drives the row
-  // spinner while a graded row resolves its eBay sold-listing URL; the ref caches
-  // resolved URLs so a second tap on the same row opens instantly (no refetch).
-  const [trendLinkLoadingKey, setTrendLinkLoadingKey] = useState<string | null>(null);
-  const trendSaleUrlCacheRef = useRef<Map<string, string>>(new Map());
 
   const scanReviewSession = useMemo(
     () => getScanCandidateReviewSession(scanReviewId),
@@ -359,40 +352,19 @@ export function CardDetailScreen({
       if (!grader || !grade) {
         return;
       }
-      const cachedUrl = trendSaleUrlCacheRef.current.get(row.key);
-      if (cachedUrl) {
-        void Linking.openURL(cachedUrl);
-        return;
+      // Open eBay's sold + completed listings for this exact graded card so the user
+      // sees the recent SALES (most-recent first) on eBay itself, instead of jumping
+      // to a single most-recent listing.
+      const ebayUrl = buildEbaySearchUrl({
+        name: detail.name,
+        cardNumber: detail.cardNumber,
+        setName: detail.setName,
+        grader,
+        grade,
+      });
+      if (ebayUrl) {
+        void Linking.openURL(ebayUrl);
       }
-      if (trendLinkLoadingKey) {
-        return;
-      }
-      setTrendLinkLoadingKey(row.key);
-      void spotlightRepository.getCardRecentSales({
-        cardId: detail.cardId,
-        slabContext: { grader, grade, variantName: selectedVariantLabel },
-        source: 'ebay',
-        limit: 10,
-        refresh: true,
-      })
-        .then((result) => {
-          const url = result?.sales?.[0]?.saleUrl ?? null;
-          if (url) {
-            trendSaleUrlCacheRef.current.set(row.key, url);
-            void Linking.openURL(url);
-          } else {
-            Alert.alert(
-              'No recent eBay sales',
-              `We couldn't find a recent ${grader} ${grade} sale for this card.`,
-            );
-          }
-        })
-        .catch(() => {
-          Alert.alert('Couldn’t load eBay sales', 'Please try again in a moment.');
-        })
-        .finally(() => {
-          setTrendLinkLoadingKey(null);
-        });
       return;
     }
 
@@ -414,7 +386,7 @@ export function CardDetailScreen({
     if (url) {
       void Linking.openURL(url);
     }
-  }, [detail, priceTrends, trendLinkLoadingKey, selectedVariantLabel, spotlightRepository]);
+  }, [detail, priceTrends]);
 
   const handleToggleFavorite = useCallback(() => {
     if (isFavoritePending) {
@@ -695,19 +667,10 @@ export function CardDetailScreen({
           <View style={styles.trendBlock}>
             <CardPriceTrendList
               list={priceTrends}
-              loadingRowKey={trendLinkLoadingKey}
               onRowPress={handleTrendRowPress}
               testID="detail-price-trends"
             />
           </View>
-        ) : null}
-
-        {detail ? (
-          <CardConditionHistorySection
-            cardId={detail.cardId}
-            lane={isRawLane ? 'raw' : 'graded'}
-            testID="detail-condition-history"
-          />
         ) : null}
 
         {detail?.cardText ? (

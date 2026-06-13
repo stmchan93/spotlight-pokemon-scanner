@@ -200,6 +200,20 @@ describe('buildEbaySearchUrl', () => {
     expect(url).toContain('LH_Complete=1');
   });
 
+  it('leads the query with grader + grade and sorts by most-recently-sold', () => {
+    const url = buildEbaySearchUrl({
+      setName: 'XY Promos',
+      name: 'Ditto',
+      cardNumber: '#XY177',
+      grader: 'PSA',
+      grade: '10',
+    });
+    // grader + grade first so the sold search is scoped to the graded card.
+    expect(url).toContain('_nkw=PSA+10+Ditto');
+    expect(url).toContain('LH_Sold=1');
+    expect(url).toContain('_sop=13');
+  });
+
   it('returns null when all fields are empty', () => {
     expect(buildEbaySearchUrl({ setName: '', name: '', cardNumber: '' })).toBeNull();
   });

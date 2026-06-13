@@ -110,8 +110,14 @@ export function buildEbaySearchUrl(params: {
   cardNumber: string;
   name: string;
   setName: string;
+  grader?: string | null;
+  grade?: string | null;
 }) {
   const query = [
+    // Grader + grade first (e.g. "PSA 10") so the search lands on graded sales of
+    // this exact card when tapped from a graded price row.
+    cleanedMarketplaceToken(params.grader),
+    cleanedMarketplaceToken(params.grade),
     cleanedMarketplaceToken(params.name),
     cleanedMarketplaceToken(params.cardNumber.replace(/^#/, '')),
     cleanedMarketplaceToken(params.setName),
@@ -125,8 +131,11 @@ export function buildEbaySearchUrl(params: {
 
   const searchParams = new URLSearchParams({
     _nkw: query,
+    // Sold + completed listings so the page shows the recent SALES for this card,
+    // sorted most-recent-first (_sop=13 = "ended recently").
     LH_Sold: '1',
     LH_Complete: '1',
+    _sop: '13',
   });
 
   return `https://www.ebay.com/sch/i.html?${searchParams.toString()}`;

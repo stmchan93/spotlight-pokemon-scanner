@@ -1,5 +1,5 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
-import { Alert, Linking, Share } from 'react-native';
+import { Linking, Share } from 'react-native';
 
 import type { CardDetailRecord, CardText, InventoryCardEntry } from '@spotlight/api-client';
 import { CardDetailScreen } from '@/features/cards/screens/card-detail-screen';
@@ -318,82 +318,30 @@ describe('CardDetailScreen', () => {
     expect(url).not.toContain('Printing=');
   });
 
-  it('graded price-trend row opens the recent eBay sold listing via getCardRecentSales', async () => {
+  it('graded price-trend row opens eBay sold-listings search scoped to the grade', async () => {
     const getCardPriceTrends = jest.fn(async (query: { mode: string }) => ({
       mode: query.mode as 'raw' | 'graded',
       provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
       rows: trendRows(query.mode),
     }));
-    const getCardRecentSales = jest.fn(async () => ({
-      source: 'ebay' as const,
-      status: 'available' as const,
-      statusReason: null,
-      unavailableReason: null,
-      fetchedAt: '2026-06-10T00:00:00.000Z',
-      canRefresh: true,
-      saleCount: 1,
-      sales: [{
-        id: 's1',
-        title: 'PSA 10 Treecko',
-        soldAt: null,
-        priceAmount: 250,
-        currencyCode: 'USD',
-        saleUrl: 'https://www.ebay.com/itm/abc123',
-      }],
-    }));
     const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as never);
 
     renderWithProviders(
       <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} onOpenAddToCollection={jest.fn()} />,
-      { spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends, getCardRecentSales }) },
+      { spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends }) },
     );
 
     fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
     fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA 10'));
 
     await waitFor(() => {
-      expect(getCardRecentSales).toHaveBeenCalledWith(expect.objectContaining({
-        cardId: 'sm7-1',
-        source: 'ebay',
-        slabContext: expect.objectContaining({ grader: 'PSA', grade: '10' }),
-      }));
+      expect(openURL).toHaveBeenCalledTimes(1);
     });
-    await waitFor(() => {
-      expect(openURL).toHaveBeenCalledWith('https://www.ebay.com/itm/abc123');
-    });
-  });
-
-  it('graded row with no eBay sales alerts instead of opening a dead link', async () => {
-    const getCardPriceTrends = jest.fn(async (query: { mode: string }) => ({
-      mode: query.mode as 'raw' | 'graded',
-      provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
-      rows: trendRows(query.mode),
-    }));
-    const getCardRecentSales = jest.fn(async () => ({
-      source: 'ebay' as const,
-      status: 'unavailable' as const,
-      statusReason: 'no_results',
-      unavailableReason: null,
-      fetchedAt: null,
-      canRefresh: true,
-      saleCount: 0,
-      sales: [],
-    }));
-    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as never);
-    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
-
-    renderWithProviders(
-      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} onOpenAddToCollection={jest.fn()} />,
-      { spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends, getCardRecentSales }) },
-    );
-
-    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
-    fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA 10'));
-
-    await waitFor(() => {
-      expect(alert).toHaveBeenCalled();
-    });
-    expect(openURL).not.toHaveBeenCalled();
+    const url = openURL.mock.calls[0][0] as string;
+    expect(url).toContain('https://www.ebay.com/sch/i.html');
+    expect(url).toContain('_nkw=PSA+10'); // grader + grade lead the sold-search query
+    expect(url).toContain('LH_Sold=1');
+    expect(url).toContain('LH_Complete=1');
   });
 
   it('parses the pipe-delimited graded row key too (backend version robustness)', async () => {
@@ -402,41 +350,21 @@ describe('CardDetailScreen', () => {
       provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
       rows: trendRows(query.mode, true),
     }));
-    const getCardRecentSales = jest.fn(async () => ({
-      source: 'ebay' as const,
-      status: 'available' as const,
-      statusReason: null,
-      unavailableReason: null,
-      fetchedAt: '2026-06-10T00:00:00.000Z',
-      canRefresh: true,
-      saleCount: 1,
-      sales: [{
-        id: 's1',
-        title: 'PSA 10 Treecko',
-        soldAt: null,
-        priceAmount: 250,
-        currencyCode: 'USD',
-        saleUrl: 'https://www.ebay.com/itm/pipe',
-      }],
-    }));
     const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as never);
 
     renderWithProviders(
       <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} onOpenAddToCollection={jest.fn()} />,
-      { spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends, getCardRecentSales }) },
+      { spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends }) },
     );
 
     fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
     fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA|10|'));
 
     await waitFor(() => {
-      expect(getCardRecentSales).toHaveBeenCalledWith(expect.objectContaining({
-        slabContext: expect.objectContaining({ grader: 'PSA', grade: '10' }),
-      }));
+      expect(openURL).toHaveBeenCalledTimes(1);
     });
-    await waitFor(() => {
-      expect(openURL).toHaveBeenCalledWith('https://www.ebay.com/itm/pipe');
-    });
+    // The pipe key "PSA|10|<variant>" still yields grader=PSA, grade=10 in the query.
+    expect(openURL.mock.calls[0][0] as string).toContain('_nkw=PSA+10');
   });
 
   it('renders Product Details when the card detail includes cardText', async () => {

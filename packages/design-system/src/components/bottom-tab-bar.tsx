@@ -67,7 +67,7 @@ export function BottomTabBar({
               <View style={styles.iconSlot}>{item.icon}</View>
               <Text
                 style={[
-                  theme.typography.navLabel,
+                  selected ? theme.typography.navLabelSelected : theme.typography.navLabel,
                   { color: theme.colors.textPrimary },
                 ]}
               >
@@ -92,9 +92,9 @@ const styles = StyleSheet.create({
   iconSlot: {
     alignItems: 'center',
     flexShrink: 0,
-    height: 20,
+    height: 16,
     justifyContent: 'center',
-    width: 20,
+    width: 16,
   },
   row: {
     alignItems: 'center',

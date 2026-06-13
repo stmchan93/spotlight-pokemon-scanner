@@ -5,7 +5,7 @@ import {
   IconHeartFilled,
   IconMinus,
 } from '@tabler/icons-react-native';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 
 import { textStyles } from '@spotlight/design-system';
@@ -68,48 +68,63 @@ function RecentCaptureSwipeRowInner({
     onDelete(actionRailKey);
   }, [actionRailKey, onDelete]);
 
-  const renderRightActions = useCallback(() => (
-    <View style={styles.captureActionRail} testID={`${testID}-actions-underlay`}>
-      <Pressable
-        accessibilityElementsHidden={!isOpen}
-        accessibilityLabel={isFavorite ? 'Remove favorite' : 'Favorite recent scan'}
-        accessibilityRole="button"
-        accessibilityState={{ disabled: !isOpen }}
-        importantForAccessibility={isOpen ? 'auto' : 'no-hide-descendants'}
-        onPress={isOpen ? handleFavorite : undefined}
-        style={({ pressed }) => [
-          styles.captureFavoriteButton,
-          pressed ? styles.captureFavoriteButtonPressed : null,
-        ]}
-        testID={`${testID}-favorite-button`}
+  const renderRightActions = useCallback((
+    progress: Animated.AnimatedInterpolation<number>,
+  ) => {
+    // Slide the whole rail in from the right edge in lockstep with the swipe so
+    // the buttons feel pushed out as the row opens (and pushed back in as it
+    // closes) — instead of sitting static while the row uncovers/recovers them.
+    const translateX = progress.interpolate({
+      inputRange: [0, 1],
+      outputRange: [recentCaptureActionRailRevealWidth, 0],
+      extrapolate: 'clamp',
+    });
+    return (
+      <Animated.View
+        style={[styles.captureActionRail, { transform: [{ translateX }] }]}
+        testID={`${testID}-actions-underlay`}
       >
-        <BlurView intensity={20} pointerEvents="none" style={StyleSheet.absoluteFill} tint="dark" />
-        {isFavorite ? (
-          <IconHeartFilled color={favoriteHeartColor} size={16} />
-        ) : (
-          <IconHeart color={favoriteHeartColor} size={16} strokeWidth={2} />
-        )}
-        <Text style={styles.captureFavoriteLabel}>Favorite</Text>
-      </Pressable>
-      <Pressable
-        accessibilityElementsHidden={!isOpen}
-        accessibilityLabel="Delete recent scan"
-        accessibilityRole="button"
-        accessibilityState={{ disabled: !isOpen }}
-        importantForAccessibility={isOpen ? 'auto' : 'no-hide-descendants'}
-        onPress={isOpen ? handleDelete : undefined}
-        style={({ pressed }) => [
-          styles.captureDeleteButton,
-          pressed ? styles.captureDeleteButtonPressed : null,
-        ]}
-        testID={`${testID}-delete-button`}
-      >
-        <BlurView intensity={20} pointerEvents="none" style={StyleSheet.absoluteFill} tint="dark" />
-        <IconMinus color="#FF453A" size={18} strokeWidth={2.4} />
-        <Text style={styles.captureDeleteLabel}>Delete</Text>
-      </Pressable>
-    </View>
-  ), [handleDelete, handleFavorite, isFavorite, isOpen, testID]);
+        <Pressable
+          accessibilityElementsHidden={!isOpen}
+          accessibilityLabel={isFavorite ? 'Remove favorite' : 'Favorite recent scan'}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: !isOpen }}
+          importantForAccessibility={isOpen ? 'auto' : 'no-hide-descendants'}
+          onPress={isOpen ? handleFavorite : undefined}
+          style={({ pressed }) => [
+            styles.captureFavoriteButton,
+            pressed ? styles.captureFavoriteButtonPressed : null,
+          ]}
+          testID={`${testID}-favorite-button`}
+        >
+          <BlurView intensity={20} pointerEvents="none" style={StyleSheet.absoluteFill} tint="dark" />
+          {isFavorite ? (
+            <IconHeartFilled color={favoriteHeartColor} size={16} />
+          ) : (
+            <IconHeart color={favoriteHeartColor} size={16} strokeWidth={2} />
+          )}
+          <Text style={styles.captureFavoriteLabel}>Favorite</Text>
+        </Pressable>
+        <Pressable
+          accessibilityElementsHidden={!isOpen}
+          accessibilityLabel="Delete recent scan"
+          accessibilityRole="button"
+          accessibilityState={{ disabled: !isOpen }}
+          importantForAccessibility={isOpen ? 'auto' : 'no-hide-descendants'}
+          onPress={isOpen ? handleDelete : undefined}
+          style={({ pressed }) => [
+            styles.captureDeleteButton,
+            pressed ? styles.captureDeleteButtonPressed : null,
+          ]}
+          testID={`${testID}-delete-button`}
+        >
+          <BlurView intensity={20} pointerEvents="none" style={StyleSheet.absoluteFill} tint="dark" />
+          <IconMinus color="#FF453A" size={18} strokeWidth={2.4} />
+          <Text style={styles.captureDeleteLabel}>Delete</Text>
+        </Pressable>
+      </Animated.View>
+    );
+  }, [handleDelete, handleFavorite, isFavorite, isOpen, testID]);
 
   useEffect(() => {
     return () => {
