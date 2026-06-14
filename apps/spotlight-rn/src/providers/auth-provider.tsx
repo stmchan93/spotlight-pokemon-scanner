@@ -1,4 +1,4 @@
-import { createContext, type PropsWithChildren, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, type PropsWithChildren, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import * as Linking from 'expo-linking';
 import type { Session } from '@supabase/supabase-js';
 
@@ -7,24 +7,43 @@ import {
   AuthCanceledError,
   bootstrapProfileIfNeeded,
   checkAppleSignInAvailability,
+  checkEmailExists,
   getAccessToken,
   getCurrentSession,
   getConfigurationIssue,
   getIsConfigured,
   getNeedsProfile,
   isAuthCanceledError,
+  resendSignupCode,
   resolveAppUserFromSession,
   restoreSessionFromUrl,
+  sendPasswordReset,
   signInWithApple,
+  signInWithEmailPassword,
   signInWithGoogle,
   signOut,
+  signUpWithEmail,
+  updatePassword as updatePasswordService,
   upsertProfile,
+  verifyRecoveryCode,
+  verifySignupCode,
 } from '@/features/auth/auth-service';
 import { getResolvedDisplayName } from '@/features/auth/auth-models';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { supabase } from '@/lib/supabase';
 
-type AuthContextValue = {
+type EmailAuthActions = {
+  checkEmail: (email: string) => Promise<boolean>;
+  signUpEmail: (input: { email: string; password: string; fullName: string }) => Promise<{ needsCode: boolean }>;
+  signInEmail: (input: { email: string; password: string }) => Promise<void>;
+  verifyCode: (input: { email: string; code: string; fullName: string }) => Promise<void>;
+  resendCode: (email: string) => Promise<void>;
+  sendReset: (email: string) => Promise<void>;
+  verifyResetCode: (input: { email: string; code: string }) => Promise<void>;
+  updatePassword: (newPassword: string) => Promise<void>;
+};
+
+type AuthContextValue = EmailAuthActions & {
   accessToken: string | null;
   appleSignInAvailable: boolean;
   configurationIssue: string | null;
@@ -41,6 +60,8 @@ type AuthContextValue = {
   state: AuthState;
   submitProfile: () => Promise<void>;
 };
+
+export type { EmailAuthActions };
 
 const testUser: AppUser = {
   adminEnabled: false,
@@ -109,13 +130,13 @@ function authReasonClassFromUnknown(error: unknown) {
   return 'UnknownError';
 }
 
-function captureAuthSignInSucceeded(provider: 'apple' | 'google') {
+function captureAuthSignInSucceeded(provider: 'apple' | 'google' | 'email') {
   capturePostHogEvent('auth_sign_in_succeeded', {
     provider,
   });
 }
 
-function captureAuthSignInFailed(provider: 'apple' | 'google', error: unknown) {
+function captureAuthSignInFailed(provider: 'apple' | 'google' | 'email', error: unknown) {
   const reasonClass = authReasonClassFromUnknown(error);
   if (!reasonClass) {
     return;
@@ -139,9 +160,18 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [profileDraftName, setProfileDraftName] = useState(shouldBypassAuthForTests ? getResolvedDisplayName(testUser) : '');
   const [appleSignInAvailable, setAppleSignInAvailable] = useState(false);
+  // While a password reset is mid-flight the recovery `verifyOtp` hands us a
+  // live session before the user has set a new password; hold them in the
+  // signed-out reset flow until `updatePassword` finishes rather than letting
+  // the auth listener flip the app to signedIn.
+  const recoveryInProgressRef = useRef(false);
 
   const updateFromSession = useCallback(async (session: Session | null) => {
     setCurrentSession(session);
+
+    if (session && recoveryInProgressRef.current) {
+      return;
+    }
 
     if (!session) {
       setCurrentUser(null);
@@ -197,6 +227,25 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setIsBusy(false);
     }
   }, [isBusy]);
+
+  // Like performAuthAction but returns the operation's result and rethrows on
+  // failure (after surfacing the message) so the email stepper can branch on
+  // success/failure of each step.
+  const runWithBusy = useCallback(async <T,>(operation: () => Promise<T>): Promise<T> => {
+    setIsBusy(true);
+    setErrorMessage(null);
+    try {
+      return await operation();
+    } catch (error) {
+      const nextMessage = errorMessageFromUnknown(error);
+      if (nextMessage) {
+        setErrorMessage(nextMessage);
+      }
+      throw error;
+    } finally {
+      setIsBusy(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (shouldBypassAuthForTests) {
@@ -269,6 +318,41 @@ export function AuthProvider({ children }: PropsWithChildren) {
     isConfigured: getIsConfigured(),
     profileDraftName,
     setProfileDraftName,
+    checkEmail: (email: string) => runWithBusy(() => checkEmailExists(email)),
+    signUpEmail: ({ email, password, fullName }) => runWithBusy(async () => {
+      const result = await signUpWithEmail({ email, password, fullName });
+      if (result.session) {
+        // No email confirmation required — persist the captured name and sign in.
+        await bootstrapProfileIfNeeded(result.session.user, fullName, null);
+        await updateFromSession(result.session);
+        captureAuthSignInSucceeded('email');
+      }
+      return { needsCode: result.needsCode };
+    }),
+    signInEmail: ({ email, password }) => runWithBusy(async () => {
+      const session = await signInWithEmailPassword({ email, password });
+      await updateFromSession(session);
+      captureAuthSignInSucceeded('email');
+    }),
+    verifyCode: ({ email, code, fullName }) => runWithBusy(async () => {
+      const session = await verifySignupCode({ email, code, fullName });
+      await updateFromSession(session);
+      captureAuthSignInSucceeded('email');
+    }),
+    resendCode: (email: string) => runWithBusy(() => resendSignupCode(email)),
+    sendReset: (email: string) => runWithBusy(() => sendPasswordReset(email)),
+    verifyResetCode: ({ email, code }) => runWithBusy(async () => {
+      recoveryInProgressRef.current = true;
+      await verifyRecoveryCode({ email, code });
+    }),
+    updatePassword: (newPassword: string) => runWithBusy(async () => {
+      await updatePasswordService(newPassword);
+      recoveryInProgressRef.current = false;
+      const session = await getCurrentSession();
+      if (session) {
+        await updateFromSession(session);
+      }
+    }),
     signInWithApple: async () => {
       await performAuthAction(async () => {
         const session = await signInWithApple();
@@ -341,6 +425,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     isBusy,
     performAuthAction,
     profileDraftName,
+    runWithBusy,
     state,
     updateFromSession,
   ]);

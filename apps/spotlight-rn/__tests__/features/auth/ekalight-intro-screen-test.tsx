@@ -1,16 +1,7 @@
 import { AccessibilityInfo } from 'react-native';
 import { act, render, screen, waitFor } from '@testing-library/react-native';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { SpotlightThemeProvider } from '@spotlight/design-system';
-
-import { AuthGate } from '@/features/auth/components/auth-gate';
 import { EkalightIntroScreen } from '@/features/auth/components/ekalight-intro-screen';
-
-const safeAreaMetrics = {
-  frame: { height: 852, width: 393, x: 0, y: 0 },
-  insets: { top: 59, right: 0, bottom: 34, left: 0 },
-};
 
 describe('EkalightIntroScreen', () => {
   afterEach(() => {
@@ -74,61 +65,6 @@ describe('EkalightIntroScreen', () => {
     });
 
     expect(onDone).toHaveBeenCalledTimes(1);
-    expect(screen.queryByTestId('ekalight-intro-filmstrip')).toBeNull();
-  });
-});
-
-describe('AuthGate signed-out intro', () => {
-  afterEach(() => {
-    jest.useRealTimers();
-    jest.restoreAllMocks();
-  });
-
-  it('plays the intro first, then resolves to the sign-in screen', async () => {
-    jest
-      .spyOn(AccessibilityInfo, 'isReduceMotionEnabled')
-      .mockResolvedValue(false);
-    jest.useFakeTimers();
-
-    render(
-      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
-        <SpotlightThemeProvider>
-          <AuthGate
-            appleSignInAvailable
-            authenticatedContent={null}
-            configurationIssue={null}
-            currentUser={null}
-            errorMessage={null}
-            isBusy={false}
-            isConfigured
-            onAppleSignIn={jest.fn()}
-            onChangeProfileDraftName={jest.fn()}
-            onGoogleSignIn={jest.fn()}
-            onSubmitProfile={jest.fn()}
-            profileDraftName=""
-            state="signedOut"
-          />
-        </SpotlightThemeProvider>
-      </SafeAreaProvider>,
-    );
-
-    // Before the intro resolves, the intro screen is mounted and the sign-in
-    // screen is not.
-    expect(screen.getByTestId('ekalight-intro-screen')).toBeTruthy();
-    expect(screen.queryByText('Sign into Ekalight')).toBeNull();
-
-    // Drive the intro to completion (reduced-motion flag flush + timers).
-    await act(async () => {
-      await Promise.resolve();
-    });
-    act(() => {
-      jest.advanceTimersByTime(2000);
-    });
-
-    // Once the intro calls onDone, the flow resolves to the sign-in screen.
-    await waitFor(() => {
-      expect(screen.getByText('Sign into Ekalight')).toBeTruthy();
-    });
     expect(screen.queryByTestId('ekalight-intro-filmstrip')).toBeNull();
   });
 });

@@ -224,16 +224,16 @@ export function WishlistHero({
       {entry ? (
         <View style={[styles.detailRow, { paddingHorizontal: theme.layout.pageGutter }]}>
           <View style={styles.detailLeft}>
-            <AppText color="gray900" numberOfLines={1} variant="titleSmall">
+            <AppText color="gray900" numberOfLines={1} variant="titleLarge">
               {entry.name}
             </AppText>
             {metaLine ? (
-              <AppText color="gray600" numberOfLines={1} variant="label">
+              <AppText color="gray600" numberOfLines={1} variant="bodyMedium">
                 {metaLine}
               </AppText>
             ) : null}
             {gradeText ? (
-              <AppText color="gray600" numberOfLines={1} variant="label">
+              <AppText color="gray600" numberOfLines={1} variant="bodyMedium">
                 {gradeText}
               </AppText>
             ) : null}
@@ -242,9 +242,8 @@ export function WishlistHero({
             <AppText
               color="gray900"
               numberOfLines={1}
-              style={styles.detailPrice}
               testID={`${testID}-price`}
-              variant="priceCaption"
+              variant="titleSmall"
             >
               {formatOptionalCurrency(entry.marketPrice, entry.currencyCode)}
             </AppText>
@@ -337,20 +336,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     justifyContent: 'space-between',
-    marginTop: 18,
+    // The grey hero backdrop ends 28px below the card (card bottom + the 28px
+    // pad baked into `backdropHeight`). Drop the product card a further 16px so
+    // it sits cleanly on white, 16px below the panel (Figma 1263-3543 @ y+16),
+    // instead of overlapping the grey edge.
+    marginTop: 44,
   },
   detailLeft: {
     flex: 1,
-    gap: 2,
+    gap: 4,
     minWidth: 0,
   },
   detailRight: {
     alignItems: 'flex-end',
-    gap: 2,
-  },
-  detailPrice: {
-    fontSize: 14,
-    lineHeight: 21,
+    gap: 4,
   },
   trendPill: {
     alignItems: 'center',

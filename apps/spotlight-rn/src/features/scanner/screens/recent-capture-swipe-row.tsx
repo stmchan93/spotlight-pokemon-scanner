@@ -153,9 +153,10 @@ function RecentCaptureSwipeRowInner({
   }, [actionRailKey, onActionRailVisibilityChange]);
 
   const handleFavorite = useCallback(() => {
+    // Toggle favorite in place and keep the row open — the heart fills via the
+    // updated `isFavorite` prop. Don't close here: the user expects to see the
+    // favorited state stay visible, and may tap again to unfavorite.
     onFavorite(actionRailKey);
-    setIsOpen(false);
-    swipeableRef.current?.close();
   }, [actionRailKey, onFavorite]);
 
   const handleDelete = useCallback(() => {

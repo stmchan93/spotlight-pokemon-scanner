@@ -1,6 +1,6 @@
 import type { ComponentProps } from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { AccessibilityInfo, StyleSheet } from 'react-native';
+import { fireEvent, render, screen } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { SpotlightThemeProvider } from '@spotlight/design-system';
@@ -12,11 +12,25 @@ const safeAreaMetrics = {
   insets: { top: 59, right: 0, bottom: 34, left: 0 },
 };
 
+function buildEmailAuth() {
+  return {
+    checkEmail: jest.fn().mockResolvedValue(false),
+    signUpEmail: jest.fn().mockResolvedValue({ needsCode: true }),
+    signInEmail: jest.fn().mockResolvedValue(undefined),
+    verifyCode: jest.fn().mockResolvedValue(undefined),
+    resendCode: jest.fn().mockResolvedValue(undefined),
+    sendReset: jest.fn().mockResolvedValue(undefined),
+    verifyResetCode: jest.fn().mockResolvedValue(undefined),
+    updatePassword: jest.fn().mockResolvedValue(undefined),
+  };
+}
+
 function renderAuthGate(overrides: Partial<ComponentProps<typeof AuthGate>> = {}) {
   const onGoogleSignIn = jest.fn();
   const onAppleSignIn = jest.fn();
   const onChangeProfileDraftName = jest.fn();
   const onSubmitProfile = jest.fn();
+  const emailAuth = buildEmailAuth();
 
   render(
     <SafeAreaProvider initialMetrics={safeAreaMetrics}>
@@ -26,6 +40,7 @@ function renderAuthGate(overrides: Partial<ComponentProps<typeof AuthGate>> = {}
           authenticatedContent={null}
           configurationIssue={null}
           currentUser={null}
+          emailAuth={emailAuth}
           errorMessage={null}
           isBusy={false}
           isConfigured={true}
@@ -42,6 +57,7 @@ function renderAuthGate(overrides: Partial<ComponentProps<typeof AuthGate>> = {}
   );
 
   return {
+    emailAuth,
     onAppleSignIn,
     onChangeProfileDraftName,
     onGoogleSignIn,
@@ -51,43 +67,22 @@ function renderAuthGate(overrides: Partial<ComponentProps<typeof AuthGate>> = {}
 
 describe('AuthGate', () => {
   afterEach(() => {
-    jest.useRealTimers();
     jest.restoreAllMocks();
   });
 
-  it('renders the sign-in screen when signed out', async () => {
-    // The signed-out flow plays the Ekalight intro first; reduced motion skips
-    // the filmstrip and resolves straight to the sign-in screen.
-    jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(true);
-    jest.useFakeTimers();
+  it('starts the signed-out flow on the Get started screen, then opens the email step', () => {
+    const { onGoogleSignIn } = renderAuthGate();
 
-    const { onGoogleSignIn } = renderAuthGate({
-      configurationIssue: 'Supabase URL is missing.',
-      isConfigured: false,
-    });
+    // Step 0: the branded "Get started" splash.
+    expect(screen.getByTestId('auth-get-started-screen')).toBeTruthy();
 
-    await act(async () => {
-      await Promise.resolve();
-    });
-    act(() => {
-      jest.advanceTimersByTime(100);
-    });
+    // Tapping Get started advances to the email "Login or sign up" step.
+    fireEvent.press(screen.getByTestId('auth-get-started-button'));
+    expect(screen.getByTestId('auth-email-input')).toBeTruthy();
 
-    await waitFor(() => {
-      expect(screen.getByText('Sign into Ekalight')).toBeTruthy();
-    });
-    expect(screen.queryByText('Sync your account before scanner, inventory, and portfolio flows open up.')).toBeNull();
-    expect(screen.getByText('Supabase URL is missing.')).toBeTruthy();
-    expect(screen.getByTestId('auth-apple-button')).toBeTruthy();
-    expect(screen.getByText('Continue with Google')).toBeTruthy();
-    expect(StyleSheet.flatten(screen.getByText('Continue with Google').props.style)).toMatchObject({
-      fontFamily: 'SpotlightBodySemiBold',
-      fontSize: 15,
-      lineHeight: 20,
-    });
-
+    // Google is wired straight through to the provider action.
     fireEvent.press(screen.getByTestId('auth-google-button'));
-    expect(onGoogleSignIn).not.toHaveBeenCalled();
+    expect(onGoogleSignIn).toHaveBeenCalledTimes(1);
   });
 
   it('renders the profile onboarding screen when a display name is required', () => {

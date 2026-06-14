@@ -121,6 +121,7 @@ function AuthenticatedRoot() {
       )}
       configurationIssue={auth.configurationIssue}
       currentUser={auth.currentUser}
+      emailAuth={auth}
       errorMessage={auth.errorMessage}
       isBusy={auth.isBusy}
       isConfigured={auth.isConfigured}

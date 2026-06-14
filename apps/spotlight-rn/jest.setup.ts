@@ -59,6 +59,8 @@ jest.mock('iconoir-react-native', () => {
     EyeClosed: make('eye-closed'),
     Filter: make('filter'),
     FilterList: make('filter-list'),
+    Apple: make('apple'),
+    Google: make('google'),
     GraphUp: make('graph-up'),
     GridPlus: make('grid-plus'),
     Heart: make('heart'),

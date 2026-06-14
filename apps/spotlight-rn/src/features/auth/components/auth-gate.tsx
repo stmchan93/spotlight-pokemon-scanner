@@ -1,39 +1,18 @@
-import type { ComponentProps, ReactNode } from 'react';
-import { useState } from 'react';
+import type { ReactNode } from 'react';
 
 import type { AppUser, AuthState } from '@/features/auth/auth-models';
+import type { EmailAuthActions } from '@/providers/auth-provider';
 
 import { AuthLoadingScreen } from './auth-loading-screen';
-import { EkalightIntroScreen } from './ekalight-intro-screen';
 import { ProfileOnboardingScreen } from './profile-onboarding-screen';
-import { SignInScreen } from './sign-in-screen';
-
-// Plays the filmstrip intro once per app launch (process lifetime), not on
-// every re-render and not again if the user signs out mid-session.
-let hasPlayedIntroThisLaunch = false;
-
-function SignedOutFlow(props: ComponentProps<typeof SignInScreen>) {
-  const [introDone, setIntroDone] = useState(hasPlayedIntroThisLaunch);
-
-  if (!introDone) {
-    return (
-      <EkalightIntroScreen
-        onDone={() => {
-          hasPlayedIntroThisLaunch = true;
-          setIntroDone(true);
-        }}
-      />
-    );
-  }
-
-  return <SignInScreen {...props} />;
-}
+import { SignedOutFlow } from './signed-out-flow';
 
 type AuthGateProps = {
   appleSignInAvailable: boolean;
   authenticatedContent: ReactNode;
   configurationIssue: string | null;
   currentUser: AppUser | null;
+  emailAuth: EmailAuthActions;
   errorMessage: string | null;
   isBusy: boolean;
   isConfigured: boolean;
@@ -50,9 +29,9 @@ export function AuthGate({
   authenticatedContent,
   configurationIssue,
   currentUser,
+  emailAuth,
   errorMessage,
   isBusy,
-  isConfigured,
   onAppleSignIn,
   onChangeProfileDraftName,
   onGoogleSignIn,
@@ -68,9 +47,9 @@ export function AuthGate({
         <SignedOutFlow
           appleSignInAvailable={appleSignInAvailable}
           configurationIssue={configurationIssue}
+          emailAuth={emailAuth}
           errorMessage={errorMessage}
           isBusy={isBusy}
-          isConfigured={isConfigured}
           onAppleSignIn={onAppleSignIn}
           onGoogleSignIn={onGoogleSignIn}
         />

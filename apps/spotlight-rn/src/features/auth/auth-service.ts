@@ -442,6 +442,180 @@ export async function signInWithApple() {
   }
 }
 
+export async function checkEmailExists(email: string): Promise<boolean> {
+  if (!supabase) {
+    throw new Error(supabaseAuthConfig.configurationIssue ?? 'Supabase Auth is not configured.');
+  }
+
+  const { data, error } = await supabase.rpc('email_exists', { p_email: email.trim() });
+  if (error) {
+    throw error;
+  }
+
+  return data === true;
+}
+
+export async function signUpWithEmail({
+  email,
+  password,
+  fullName,
+}: {
+  email: string;
+  password: string;
+  fullName: string;
+}): Promise<{ needsCode: boolean; session: Session | null }> {
+  if (!supabase) {
+    throw new Error(supabaseAuthConfig.configurationIssue ?? 'Supabase Auth is not configured.');
+  }
+
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      data: {
+        display_name: normalizeDisplayName(fullName) ?? fullName,
+      },
+    },
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return {
+    needsCode: data.session == null,
+    session: data.session,
+  };
+}
+
+export async function signInWithEmailPassword({
+  email,
+  password,
+}: {
+  email: string;
+  password: string;
+}): Promise<Session> {
+  if (!supabase) {
+    throw new Error(supabaseAuthConfig.configurationIssue ?? 'Supabase Auth is not configured.');
+  }
+
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data.session) {
+    throw new Error('Sign-in did not create a session.');
+  }
+
+  return data.session;
+}
+
+export async function verifySignupCode({
+  email,
+  code,
+  fullName,
+}: {
+  email: string;
+  code: string;
+  fullName?: string;
+}): Promise<Session> {
+  if (!supabase) {
+    throw new Error(supabaseAuthConfig.configurationIssue ?? 'Supabase Auth is not configured.');
+  }
+
+  const { data, error } = await supabase.auth.verifyOtp({
+    email,
+    token: code.trim(),
+    type: 'signup',
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data.session) {
+    throw new Error('Verification did not create a session.');
+  }
+
+  await bootstrapProfileIfNeeded(data.session.user, fullName ?? null);
+
+  return data.session;
+}
+
+export async function resendSignupCode(email: string): Promise<void> {
+  if (!supabase) {
+    throw new Error(supabaseAuthConfig.configurationIssue ?? 'Supabase Auth is not configured.');
+  }
+
+  const { error } = await supabase.auth.resend({
+    type: 'signup',
+    email,
+  });
+
+  if (error) {
+    throw error;
+  }
+}
+
+export async function sendPasswordReset(email: string): Promise<void> {
+  if (!supabase) {
+    throw new Error(supabaseAuthConfig.configurationIssue ?? 'Supabase Auth is not configured.');
+  }
+
+  const { error } = await supabase.auth.resetPasswordForEmail(email.trim());
+
+  if (error) {
+    throw error;
+  }
+}
+
+export async function verifyRecoveryCode({
+  email,
+  code,
+}: {
+  email: string;
+  code: string;
+}): Promise<Session> {
+  if (!supabase) {
+    throw new Error(supabaseAuthConfig.configurationIssue ?? 'Supabase Auth is not configured.');
+  }
+
+  const { data, error } = await supabase.auth.verifyOtp({
+    email,
+    token: code.trim(),
+    type: 'recovery',
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data.session) {
+    throw new Error('Recovery verification did not create a session.');
+  }
+
+  return data.session;
+}
+
+export async function updatePassword(newPassword: string): Promise<void> {
+  if (!supabase) {
+    throw new Error(supabaseAuthConfig.configurationIssue ?? 'Supabase Auth is not configured.');
+  }
+
+  const { error } = await supabase.auth.updateUser({
+    password: newPassword,
+  });
+
+  if (error) {
+    throw error;
+  }
+}
+
 export async function signOut() {
   if (!supabase) {
     return;
