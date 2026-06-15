@@ -1920,7 +1920,7 @@ export function ScannerScreen({
     const selection = priceSelection.get(capture.id) ?? null;
     const displayMarketPrice = isFinitePrice(selection?.marketPrice ?? null)
       ? (selection!.marketPrice as number)
-      : (isFinitePrice(baseMarketPrice) ? baseMarketPrice : 0);
+      : (isFinitePrice(baseMarketPrice) ? baseMarketPrice : null);
     const setAndNumberLine = candidate
       ? [candidate.setName, candidate.cardNumber ? `#${candidate.cardNumber.replace(/^#/, '')}` : null]
         .filter(Boolean)
@@ -2049,7 +2049,9 @@ export function ScannerScreen({
                     style={styles.capturePriceLogo}
                   />
                   <Text style={styles.capturePriceValue}>
-                    {formatCurrency(displayMarketPrice, currencyCode)}
+                    {isFinitePrice(displayMarketPrice)
+                      ? formatCurrency(displayMarketPrice, currencyCode)
+                      : '—'}
                   </Text>
                 </View>
               </Pressable>
