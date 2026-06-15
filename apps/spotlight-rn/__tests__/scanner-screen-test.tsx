@@ -359,6 +359,38 @@ describe('ScannerScreen', () => {
     expect(screen.getByTestId('scanner-tray')).toBeTruthy();
   });
 
+  it('shows a dash instead of $0.00 when a matched card has no market price', async () => {
+    const spotlightRepository = createTestSpotlightRepository({
+      matchScannerCapture: async () => ({
+        scanID: 'scan-poncho-pikachu',
+        candidates: [{
+          id: 'xy-promo-poncho-pikachu',
+          cardId: 'xy-promo-poncho-pikachu',
+          name: 'Poncho Pikachu',
+          cardNumber: '#202/XY-P',
+          setName: 'XY Promo',
+          imageUrl: 'https://images.pokemontcg.io/xyp/202.png',
+          marketPrice: null,
+          currencyCode: 'USD',
+        }],
+      }),
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    });
+
+    expect(screen.getByText('Poncho Pikachu')).toBeTruthy();
+    // No raw sales means no headline price: render an em-dash, never "$0.00".
+    expect(screen.getByTestId('scanner-tray-price-0')).toHaveTextContent('—');
+    expect(screen.queryByText('$0.00')).toBeNull();
+  });
+
   it('sends a normalized reticle target to scanner matching', async () => {
     const payloads: { height: number; jpegBase64: string; width: number }[] = [];
     const spotlightRepository = createTestSpotlightRepository({
