@@ -11,7 +11,6 @@ import {
   ArrowUp,
   Menu as MenuIcon,
   Upload as ShareIcon,
-  Xmark,
 } from 'iconoir-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -65,8 +64,6 @@ type WishlistHeroProps = {
   onOpenMenu: () => void;
   onShare?: () => void;
   onOpenDetail: () => void;
-  /** Remove the featured card from the wishlist (the top-right X). */
-  onRemove?: () => void;
   testID?: string;
 };
 
@@ -75,7 +72,6 @@ export function WishlistHero({
   onOpenMenu,
   onShare,
   onOpenDetail,
-  onRemove,
   testID = 'wishlist-hero',
 }: WishlistHeroProps) {
   const theme = useSpotlightTheme();
@@ -205,19 +201,6 @@ export function WishlistHero({
               )}
             </View>
           </Animated.View>
-
-          {onRemove ? (
-            <IconButton
-              accessibilityLabel="Remove from wishlist"
-              onPress={onRemove}
-              size={28}
-              style={styles.removeButton}
-              testID={`${testID}-remove`}
-              variant="elevated"
-            >
-              <Xmark color={theme.colors.gray600} height={16} width={16} />
-            </IconButton>
-          ) : null}
         </View>
       ) : null}
 
@@ -321,12 +304,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 12,
     width: CARD_WIDTH,
-  },
-  // Floating remove control on the card's top-right corner.
-  removeButton: {
-    position: 'absolute',
-    right: -6,
-    top: -6,
   },
   detailRow: {
     alignItems: 'flex-start',

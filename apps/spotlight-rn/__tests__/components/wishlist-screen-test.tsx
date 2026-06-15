@@ -199,7 +199,7 @@ describe('WishlistScreen', () => {
     );
   });
 
-  it('removes the featured card from the wishlist via the hero X', async () => {
+  it('removes a wishlist item via swipe-to-delete on the row', async () => {
     const setCardFavorite = jest.fn().mockResolvedValue(undefined);
     const favorites = [
       buildFavoriteEntry({ cardId: 'charizard', name: 'Charizard' }),
@@ -212,12 +212,14 @@ describe('WishlistScreen', () => {
 
     renderWishlistScreen(repository);
 
-    await screen.findByTestId('wishlist-hero-remove');
+    // The row's swipe-reveal Delete action unfavorites that card.
+    const deleteAction = await screen.findByTestId('wishlist-row-delete-charizard', {
+      includeHiddenElements: true,
+    });
     await act(async () => {
-      fireEvent.press(screen.getByTestId('wishlist-hero-remove'));
+      fireEvent.press(deleteAction);
     });
 
-    // The hero defaults to the first favorite, so the X unfavorites it.
     expect(setCardFavorite).toHaveBeenCalledWith('charizard', false);
   });
 

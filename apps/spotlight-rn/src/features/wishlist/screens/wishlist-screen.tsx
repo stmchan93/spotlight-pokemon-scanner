@@ -13,8 +13,9 @@ import {
   ArrowDown,
   ArrowUp,
   Filter as FilterIcon,
-  HeartSolid,
+  Trash,
 } from 'iconoir-react-native';
+import { Swipeable } from 'react-native-gesture-handler';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -231,20 +232,16 @@ export function WishlistScreen() {
     handleOpenDetail(entry);
   }, [handleOpenDetail]);
 
-  // The hero's top-right X removes the featured card from the wishlist. Drop it
-  // optimistically so the hero advances to the next card immediately, then
-  // persist; re-sync from the backend if the unfavorite didn't stick.
-  const handleRemoveFeatured = useCallback(() => {
-    if (!featuredEntry) {
-      return;
-    }
-    const removedId = featuredEntry.cardId;
-    setFeaturedCardId(null);
-    setFavorites((current) => current.filter((favorite) => favorite.cardId !== removedId));
-    void spotlightRepository.setCardFavorite(removedId, false).catch(() => {
+  // Swipe-to-delete on a row removes it from the wishlist. Drop it optimistically
+  // (clearing the hero if it was the featured card), then persist; re-sync from
+  // the backend if the unfavorite didn't stick.
+  const handleRemoveEntry = useCallback((cardId: string) => {
+    setFeaturedCardId((current) => (current === cardId ? null : current));
+    setFavorites((current) => current.filter((favorite) => favorite.cardId !== cardId));
+    void spotlightRepository.setCardFavorite(cardId, false).catch(() => {
       void loadFavorites();
     });
-  }, [featuredEntry, loadFavorites, spotlightRepository]);
+  }, [loadFavorites, spotlightRepository]);
 
   const handleToggleViewMode = useCallback(() => {
     setViewMode(viewMode === 'list' ? 'grid' : 'list');
@@ -290,6 +287,7 @@ export function WishlistScreen() {
           <WishlistListRow
             entry={item.entry}
             firstInSection={item.firstInSection}
+            onDelete={handleRemoveEntry}
             onPress={handleOpenEntry}
             theme={theme}
           />
@@ -310,7 +308,7 @@ export function WishlistScreen() {
         />
       );
     },
-    [handleOpenEntry, theme],
+    [handleOpenEntry, handleRemoveEntry, theme],
   );
 
   const listHeader = (
@@ -323,7 +321,6 @@ export function WishlistScreen() {
           }
         }}
         onOpenMenu={openDrawer}
-        onRemove={handleRemoveFeatured}
       />
 
       <View style={[styles.controls, { paddingHorizontal: theme.layout.pageGutter }]}>
@@ -476,13 +473,40 @@ export function WishlistScreen() {
 type WishlistListRowProps = {
   entry: CardFavoriteEntry;
   firstInSection: boolean;
+  onDelete: (cardId: string) => void;
   onPress: (entry: CardFavoriteEntry) => void;
   theme: ReturnType<typeof useSpotlightTheme>;
 };
 
-function WishlistListRow({ entry, firstInSection, onPress, theme }: WishlistListRowProps) {
+function WishlistListRow({ entry, firstInSection, onDelete, onPress, theme }: WishlistListRowProps) {
+  const swipeableRef = useRef<Swipeable>(null);
+
+  // Swipe the row left to reveal a Delete action that removes it from the
+  // wishlist. The rail closes before the optimistic removal so the row doesn't
+  // flash back open mid-animation.
+  const renderRightActions = () => (
+    <Pressable
+      accessibilityLabel="Remove from wishlist"
+      accessibilityRole="button"
+      onPress={() => {
+        swipeableRef.current?.close();
+        onDelete(entry.cardId);
+      }}
+      style={[styles.rowDeleteAction, { backgroundColor: theme.colors.dangerStrong }]}
+      testID={`wishlist-row-delete-${entry.cardId}`}
+    >
+      <Trash color={theme.colors.gray0} height={20} width={20} />
+      <Text style={[styles.rowDeleteLabel, { color: theme.colors.gray0 }]}>Delete</Text>
+    </Pressable>
+  );
+
   return (
-    <View style={styles.listRowWrap} testID={`wishlist-row-wrap-${entry.cardId}`}>
+    <Swipeable
+      ref={swipeableRef}
+      overshootRight={false}
+      renderRightActions={renderRightActions}
+      rightThreshold={40}
+    >
       <CardListRow
         cardNumber={entry.cardNumber}
         currencyCode={entry.currencyCode ?? 'USD'}
@@ -498,14 +522,7 @@ function WishlistListRow({ entry, firstInSection, onPress, theme }: WishlistList
         testID={`wishlist-row-${entry.cardId}`}
         trendChangeAmount={entry.dayChangeAmount ?? null}
       />
-      <View
-        pointerEvents="none"
-        style={styles.heartBadge}
-        testID={`wishlist-row-heart-${entry.cardId}`}
-      >
-        <HeartSolid color={theme.colors.brand} height={16} width={16} />
-      </View>
-    </View>
+    </Swipeable>
   );
 }
 
@@ -665,13 +682,6 @@ function WishlistGridTile({ entry, onPress, theme }: WishlistGridTileProps) {
           </View>
         ) : null}
       </View>
-      <View
-        pointerEvents="none"
-        style={styles.heartBadgeGrid}
-        testID={`wishlist-grid-tile-${entry.cardId}-heart`}
-      >
-        <HeartSolid color={theme.colors.brand} height={20} width={20} />
-      </View>
     </Pressable>
   );
 }
@@ -728,14 +738,18 @@ const styles = StyleSheet.create({
     paddingVertical: 32,
     textAlign: 'center',
   },
-  listRowWrap: {
-    position: 'relative',
+  // Swipe-to-delete action revealed behind a list row.
+  rowDeleteAction: {
+    alignItems: 'center',
+    flexDirection: 'column',
+    gap: 4,
+    justifyContent: 'center',
+    width: 88,
   },
-  // Purple filled heart over the row thumbnail (Figma 992:9863).
-  heartBadge: {
-    left: 58,
-    position: 'absolute',
-    top: 12,
+  rowDeleteLabel: {
+    fontFamily: 'SpotlightBodyMedium',
+    fontSize: 12,
+    lineHeight: 16,
   },
   gridRow: {
     alignItems: 'stretch',
@@ -770,13 +784,6 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     height: 104,
     width: 71,
-  },
-  // Purple filled heart 6px from the cell's top-right corner (Figma 992:9898),
-  // anchored to the tile so it sits clear of the small centered card.
-  heartBadgeGrid: {
-    position: 'absolute',
-    right: 6,
-    top: 6,
   },
   gridTextWrap: {
     // Card Details: 2px between the title/subtitle/condition/qty lines, 16px
