@@ -91,8 +91,9 @@ import type {
 } from './types';
 
 export interface SpotlightRepository {
-  loadPortfolioDashboard(): Promise<SpotlightRepositoryLoadResult<PortfolioDashboard>>;
+  loadPortfolioDashboard(options?: { range?: keyof PortfolioDashboard['ranges'] }): Promise<SpotlightRepositoryLoadResult<PortfolioDashboard>>;
   getPortfolioDashboard(): Promise<PortfolioDashboard>;
+  getPortfolioRange(range: keyof PortfolioDashboard['ranges']): Promise<PortfolioDashboard['ranges'][keyof PortfolioDashboard['ranges']]>;
   loadInventoryEntries(query?: InventoryEntriesQuery): Promise<SpotlightRepositoryLoadResult<InventoryCardEntry[]>>;
   getInventoryEntries(query?: InventoryEntriesQuery): Promise<InventoryCardEntry[]>;
   loadCatalogCards(query: string, limit?: number): Promise<SpotlightRepositoryLoadResult<CatalogSearchResult[]>>;
@@ -2409,7 +2410,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
     };
   }
 
-  async loadPortfolioDashboard() {
+  async loadPortfolioDashboard(_options?: { range?: keyof PortfolioDashboard['ranges'] }) {
     const dashboard = buildMockDashboard(this.inventoryEntriesForQuery(), this.recentSales);
     dashboard.inventoryItems = dashboard.inventoryItems.map((entry) => this.annotateInventoryEntry(entry));
     return buildLoadResult(
@@ -2421,6 +2422,11 @@ export class MockSpotlightRepository implements SpotlightRepository {
   async getPortfolioDashboard() {
     const result = await this.loadPortfolioDashboard();
     return result.data ?? buildEmptyPortfolioDashboard();
+  }
+
+  async getPortfolioRange(range: keyof PortfolioDashboard['ranges']) {
+    const dashboard = await this.getPortfolioDashboard();
+    return dashboard.ranges[range];
   }
 
   async loadInventoryEntries(query?: InventoryEntriesQuery) {
@@ -3337,21 +3343,38 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     return candidate;
   }
 
-  async loadPortfolioDashboard() {
+  async loadPortfolioDashboard(options?: { range?: keyof PortfolioDashboard['ranges'] }) {
     // Prefer the single consolidated endpoint (one request instead of ~14).
     // Falls back to the legacy per-section fan-out when the backend doesn't yet
     // expose the endpoint (404) or the consolidated call fails, so OTA clients
     // and backend deploys don't have to be in lockstep.
-    const consolidated = await this.loadPortfolioDashboardViaConsolidatedEndpoint();
+    const range = options?.range ?? '1W';
+    const consolidated = await this.loadPortfolioDashboardViaConsolidatedEndpoint(range);
     if (consolidated) {
       return consolidated;
     }
     return this.loadPortfolioDashboardViaFanout();
   }
 
-  private async loadPortfolioDashboardViaConsolidatedEndpoint():
-    Promise<SpotlightRepositoryLoadResult<PortfolioDashboard> | null> {
-    const queryParams = new URLSearchParams({ timeZone: 'America/Los_Angeles' });
+  // Fetch a single chart range on demand (the dashboard now computes only the
+  // open range; the chart fetches the rest when the user switches to them).
+  async getPortfolioRange(
+    range: keyof PortfolioDashboard['ranges'],
+  ): Promise<PortfolioDashboard['ranges'][keyof PortfolioDashboard['ranges']]> {
+    const [historyResult, ledgerResult] = await Promise.all([
+      this.loadPortfolioHistory(range),
+      this.loadPortfolioLedger(mapRangeToBackend(range)),
+    ]);
+    return {
+      portfolio: mapPortfolioSeries(historyResult.data ?? buildEmptyPortfolioHistory()),
+      sales: buildSalesSeries(ledgerResult.data ?? buildEmptyPortfolioLedger(), range),
+    };
+  }
+
+  private async loadPortfolioDashboardViaConsolidatedEndpoint(
+    range: keyof PortfolioDashboard['ranges'],
+  ): Promise<SpotlightRepositoryLoadResult<PortfolioDashboard> | null> {
+    const queryParams = new URLSearchParams({ timeZone: 'America/Los_Angeles', range });
     const url = `${this.baseUrl}/api/v1/portfolio/dashboard?${queryParams.toString()}`;
 
     // Retry transport/timeout failures with a short backoff: a cold-cache first
@@ -3453,6 +3476,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       ledger1y: ledgerResultFor('1Y'),
       ledgerAll: ledgerResultFor('ALL'),
       insights,
+      criticalRange: range,
     });
   }
 
@@ -3522,6 +3546,9 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     ledger1y: SpotlightRepositoryLoadResult<PortfolioLedgerDTO>;
     ledgerAll: SpotlightRepositoryLoadResult<PortfolioLedgerDTO>;
     insights: PortfolioInsights | null;
+    /** The open range the dashboard was scoped to — it (not always 1W) is the
+     *  must-have history slice for the partial-tolerance check below. */
+    criticalRange?: keyof PortfolioDashboard['ranges'];
   }): SpotlightRepositoryLoadResult<PortfolioDashboard> {
     const {
       inventoryResult,
@@ -3538,6 +3565,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       ledger1y,
       ledgerAll,
       insights,
+      criticalRange = '1W',
     } = parts;
 
     const safeInventoryEntries = inventoryResult.data ?? [];
@@ -3602,7 +3630,15 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     // single one timing out must NOT blank the whole screen. If a critical slice
     // fails we keep returning 'error' so the hook holds the last good dashboard
     // (showing the real value, not a spurious $0) and flags "couldn't refresh".
-    const criticalErrorMessage = [inventoryResult, history1w].find(
+    const historyByRange = {
+      '1W': history1w,
+      '1M': history1m,
+      '3M': history3m,
+      YTD: historyYtd,
+      '1Y': history1y,
+      ALL: historyAll,
+    } as const;
+    const criticalErrorMessage = [inventoryResult, historyByRange[criticalRange]].find(
       (result) => result.state === 'error',
     )?.errorMessage ?? null;
 

@@ -156,12 +156,13 @@ class PortfolioDashboardCellsBatchTests(unittest.TestCase):
         finally:
             server.price_history_cell_rows_for_day = original  # type: ignore[assignment]
 
-    def test_deck_history_batched_matches_standalone_end_to_end(self) -> None:
-        # End-to-end: in cells mode, deck_history with shared_inputs (which builds
-        # the bulk cells prefetch) must produce a byte-identical result to calling
-        # deck_history standalone (per-day cell query). This exercises the full
-        # wiring: _load_portfolio_history_shared_inputs → cells_by_card_date →
-        # deck_history → series builder → resolver.
+    def test_deck_history_cells_matches_json_mode_per_range(self) -> None:
+        # End-to-end: deck_history in cells mode (which now bulk-prefetches only the
+        # range's window of cells via _range_scoped_cells_by_card_date) must produce
+        # the same result as JSON mode for every range — proving the range-scoped
+        # batched path is correct, including the carry-in row that prices a range's
+        # early days. (The scalar default is corrupted to 999 in setUp, so a wrong
+        # source would surface it.)
         upsert_deck_entry(
             self.service.connection,
             owner_user_id="owner-a",
@@ -180,19 +181,25 @@ class PortfolioDashboardCellsBatchTests(unittest.TestCase):
                 return [strip_refreshed(v) for v in value]
             return value
 
-        with self.service.request_identity_context(RequestIdentity(user_id="owner-a", auth_source="test")):
-            shared_inputs = self.service._load_portfolio_history_shared_inputs()
-            # The prefetch builder must have populated cells for the seeded card.
-            self.assertIsNotNone(shared_inputs.get("cells_by_card_date"))
-            self.assertIn(CARD_ID, shared_inputs["cells_by_card_date"])
-            for label in ("1W", "30D", "90D", "YTD", "1Y", "ALL"):
-                batched = self.service.deck_history(days=365, range_label=label, shared_inputs=shared_inputs)
-                standalone = self.service.deck_history(days=365, range_label=label)
-                self.assertEqual(
-                    strip_refreshed(batched),
-                    strip_refreshed(standalone),
-                    f"cells-mode batched vs per-day history mismatch for {label}",
-                )
+        ident = RequestIdentity(user_id="owner-a", auth_source="test")
+        for label in ("1W", "30D", "90D", "YTD", "1Y", "ALL"):
+            os.environ["PRICE_HISTORY_SOURCE"] = "cells"
+            with self.service.request_identity_context(ident):
+                cells_result = self.service.deck_history(days=365, range_label=label)
+            os.environ["PRICE_HISTORY_SOURCE"] = "json"
+            with self.service.request_identity_context(ident):
+                json_result = self.service.deck_history(days=365, range_label=label)
+            os.environ["PRICE_HISTORY_SOURCE"] = "cells"
+            self.assertEqual(
+                strip_refreshed(cells_result),
+                strip_refreshed(json_result),
+                f"cells (range-scoped) vs json history mismatch for {label}",
+            )
+        # And the cells path resolves the real 15.0/20.0 — never the corrupted 999.
+        with self.service.request_identity_context(ident):
+            all_hist = self.service.deck_history(days=365, range_label="ALL")
+        markets = {round(p.get("value") or 0, 2) for p in all_hist.get("points", [])}
+        self.assertNotIn(999.0, markets)
 
 
 if __name__ == "__main__":

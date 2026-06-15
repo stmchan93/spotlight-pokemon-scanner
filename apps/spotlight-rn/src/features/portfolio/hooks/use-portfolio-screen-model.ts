@@ -260,6 +260,16 @@ export function usePortfolioScreenModel() {
   // — used to suppress the blocking error when we can keep showing the last chart.
   const hasUsableDashboardRef = useRef<boolean>(portfolioDashboardCache !== null);
   const [selectedRange, setSelectedRange] = useState<PortfolioHistoryRange>('1W');
+  // Open-range loading: the dashboard now computes only the open range; other
+  // ranges are fetched on demand when the user switches to them. `loadingRange`
+  // drives the chart skeleton during that fetch; `loadedRangesRef` tracks which
+  // ranges are already populated so re-selecting them is instant.
+  const [loadingRange, setLoadingRange] = useState<PortfolioHistoryRange | null>(null);
+  const selectedRangeRef = useRef<PortfolioHistoryRange>(selectedRange);
+  useEffect(() => {
+    selectedRangeRef.current = selectedRange;
+  }, [selectedRange]);
+  const loadedRangesRef = useRef<Set<PortfolioHistoryRange>>(new Set<PortfolioHistoryRange>(['1W']));
   const [chartMode, setChartMode] = useState<ChartMode>('portfolio');
   const [inventoryExpanded, setInventoryExpanded] = useState(true);
   const [recentSalesExpanded, setRecentSalesExpanded] = useState(true);
@@ -320,11 +330,18 @@ export function usePortfolioScreenModel() {
 
   const loadDashboard = useCallback(async () => {
     setIsLoadingDashboard(true);
-    const loadResult = await spotlightRepository.loadPortfolioDashboard();
+    // Compute only the open range; the rest are fetched on demand. Read it from a
+    // ref so this callback isn't re-created on every range switch (which would
+    // re-trigger the auto-refresh effect).
+    const openRange = selectedRangeRef.current;
+    const loadResult = await spotlightRepository.loadPortfolioDashboard({ range: openRange });
 
     if (loadResult.data && loadResult.state !== 'error') {
       const savedAt = new Date().toISOString();
       setDashboard(loadResult.data);
+      // A fresh dashboard only carries the open range; drop any previously
+      // on-demand-loaded ranges so a data change can't leave them stale.
+      loadedRangesRef.current = new Set<PortfolioHistoryRange>([openRange]);
       setPortfolioDashboardCache(loadResult.data);
       setInventoryEntriesCache(loadResult.data.inventoryItems);
       setHasLoadedDashboard(true);
@@ -344,6 +361,28 @@ export function usePortfolioScreenModel() {
     }
     setIsLoadingDashboard(false);
   }, [setInventoryEntriesCache, setPortfolioDashboardCache, spotlightRepository]);
+
+  // Switch the chart range. If the range hasn't been loaded yet (the dashboard
+  // only computed the open range), fetch just that range on demand and merge it
+  // in; the chart shows its skeleton via `loadingRange` until it arrives.
+  const selectRange = useCallback((range: PortfolioHistoryRange) => {
+    setSelectedRange(range);
+    if (loadedRangesRef.current.has(range)) {
+      return;
+    }
+    setLoadingRange(range);
+    void (async () => {
+      try {
+        const bucket = await spotlightRepository.getPortfolioRange(range);
+        loadedRangesRef.current.add(range);
+        setDashboard((prev) => ({ ...prev, ranges: { ...prev.ranges, [range]: bucket } }));
+      } catch {
+        // Leave the range empty — the chart shows its empty state, never crashes.
+      } finally {
+        setLoadingRange((current) => (current === range ? null : current));
+      }
+    })();
+  }, [spotlightRepository]);
 
   const refresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -469,6 +508,9 @@ export function usePortfolioScreenModel() {
     recentSalesExpanded,
     searchQuery,
     selectedRange,
+    // The chart shows its skeleton while the currently-selected range is being
+    // fetched on demand.
+    isLoadingSelectedRange: loadingRange === selectedRange,
     isRefreshing,
     closeSaleEditor,
     confirmSalePriceEdit,
@@ -478,7 +520,9 @@ export function usePortfolioScreenModel() {
     setInventoryExpanded,
     setRecentSalesExpanded,
     setSearchQuery,
-    setSelectedRange,
+    // Range switching goes through the on-demand fetcher (kept the exported name
+    // so callers don't change).
+    setSelectedRange: selectRange,
     updateEditingSalePriceText,
   };
 }

@@ -52,6 +52,10 @@ export function createTestSpotlightRepository(
       return overrides.getPortfolioDashboard?.(...args)
         ?? baseRepository.getPortfolioDashboard(...args);
     },
+    getPortfolioRange: (...args) => {
+      return overrides.getPortfolioRange?.(...args)
+        ?? baseRepository.getPortfolioRange(...args);
+    },
     loadInventoryEntries: (...args) => {
       return overrides.loadInventoryEntries?.(...args)
         ?? baseRepository.loadInventoryEntries(...args);

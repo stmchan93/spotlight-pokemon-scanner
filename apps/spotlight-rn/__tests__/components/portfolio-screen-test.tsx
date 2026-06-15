@@ -446,6 +446,53 @@ describe('PortfolioScreen', () => {
     expect(screen.getByTestId('collection-masonry-grid-tile-cheap')).toBeTruthy();
   });
 
+  it('fetches a chart range on demand only when it has not been loaded yet', async () => {
+    const point = { isoDate: '2026-06-01', shortLabel: 'Jun 1', value: 100 };
+    const dashboard = {
+      ...buildDashboardWithInventory([buildInventoryEntry({ id: 'a', name: 'Alpha' })]),
+      ranges: {
+        // Open range (1W) arrives populated from the dashboard; the rest empty
+        // until fetched on demand.
+        '1W': { portfolio: [point], sales: [] },
+        '1M': { portfolio: [], sales: [] },
+        '3M': { portfolio: [], sales: [] },
+        YTD: { portfolio: [], sales: [] },
+        '1Y': { portfolio: [], sales: [] },
+        ALL: { portfolio: [], sales: [] },
+      },
+    };
+    const getPortfolioRange = jest.fn(async () => ({
+      portfolio: [{ ...point, value: 250 }],
+      sales: [],
+    }));
+    const repository = createTestSpotlightRepository({
+      loadInventoryEntries: async () => ({ state: 'success', data: dashboard.inventoryItems, errorMessage: null }),
+      loadPortfolioDashboard: async () => ({ state: 'success', data: dashboard, errorMessage: null }),
+      getPortfolioRange,
+    });
+
+    renderPortfolioScreen({ repository });
+    await screen.findByTestId('portfolio-header-title');
+    await waitFor(() => {
+      expect(screen.getByTestId('range-1Y')).toBeTruthy();
+    });
+
+    // Switching to an unloaded range fetches just that range.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('range-1Y'));
+    });
+    await waitFor(() => {
+      expect(getPortfolioRange).toHaveBeenCalledWith('1Y');
+    });
+
+    // Re-selecting the already-loaded open range does NOT refetch.
+    getPortfolioRange.mockClear();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('range-1W'));
+    });
+    expect(getPortfolioRange).not.toHaveBeenCalled();
+  });
+
   it('opens the drawer when the hamburger header button is pressed', async () => {
     renderPortfolioScreen();
 

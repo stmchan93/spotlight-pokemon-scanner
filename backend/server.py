@@ -1177,6 +1177,29 @@ class SpotlightScanService:
                 self._raw_visual_matcher = RawVisualMatcher(repo_root=self.repo_root)
             return self._raw_visual_matcher
 
+    def refresh_visual_index(self, *, dry_run: bool = False, max_cards: int | None = None) -> dict[str, Any]:
+        """Embed catalog cards missing from the visual index, append them, and
+        hot-reload — so new Scrydex sets become scannable without a full rebuild
+        or a backend restart. Reuses the already-loaded encoder + adapter."""
+        from visual_index_incremental import run_refresh
+
+        matcher = self._raw_visual_matcher_instance()
+
+        def _logger(severity: str, message: str) -> None:
+            self._emit_structured_log(
+                {"severity": severity, "event": "visual_index_refresh", "message": message}
+            )
+
+        return run_refresh(
+            index=matcher.index,
+            connection=self.connection,
+            embed_images_fn=matcher.embed_reference_images,
+            model_id=matcher.model_id,
+            dry_run=dry_run,
+            max_cards=max_cards,
+            logger=_logger,
+        )
+
     def _prune_pending_visual_scans(self) -> None:
         cutoff = perf_counter() - self._pending_visual_scan_ttl_seconds
         with self._state_lock:
@@ -3526,6 +3549,47 @@ class SpotlightScanService:
             (owner_user_id,),
         ).fetchall()
 
+    def _range_scoped_cells_by_card_date(
+        self,
+        history_rows_by_card_id: dict[str, list[sqlite3.Row]],
+        *,
+        start_date: date,
+        end_date: date,
+    ) -> dict[str, dict[str, list[Any]]] | None:
+        """Bulk-prefetch the price-history cells the series resolver will touch for
+        THIS range only, so a single range (the dashboard's open range, or an
+        on-demand range) loads ~range-window days of cells instead of every day of
+        history. The dates the resolver actually hits for [start, end] are the
+        daily-row dates inside the window PLUS the one carry-in row just before the
+        window (it prices the range's early days). Returns None in JSON mode so the
+        resolver keeps its per-day-query fallback."""
+        if not price_history_cells_enabled():
+            return None
+        start_iso = start_date.isoformat()
+        end_iso = end_date.isoformat()
+        result: dict[str, dict[str, list[Any]]] = {}
+        for card_id, rows in history_rows_by_card_id.items():
+            needed: set[str] = set()
+            carry_in: str | None = None
+            for row in rows:  # rows are sorted ascending by price_date
+                price_date = str(row["price_date"] or "").strip()
+                if not price_date:
+                    continue
+                if price_date < start_iso:
+                    carry_in = price_date  # keep the latest row before the window
+                elif price_date <= end_iso:
+                    needed.add(price_date)
+            if carry_in is not None:
+                needed.add(carry_in)
+            if needed:
+                result[card_id] = price_history_cell_rows_by_date(
+                    self.connection,
+                    card_id=card_id,
+                    provider=SCRYDEX_PROVIDER,
+                    price_dates=needed,
+                )
+        return result
+
     def _load_portfolio_history_shared_inputs(
         self, *, time_zone_name: str | None = None
     ) -> dict[str, Any]:
@@ -3553,35 +3617,15 @@ class SpotlightScanService:
             include_raw_json=include_raw_json,
             include_graded_json=include_graded_json,
         )
-        # In cells mode, prefetch every cell row the per-day resolver will need in a
-        # few BULK queries (per card, dates chunked) instead of one tiny cold query
-        # per (card, day). The set of (card, price_date) pairs the resolver ever hits
-        # equals exactly the price_dates already present in the daily rows above, so
-        # we batch precisely those. This collapses the heavy-portfolio N+1
-        # (~117 cards × ~1000 days × 6 ranges) that made the cold dashboard compute
-        # blow past the client timeout. See project_portfolio_dashboard_perf.
-        cells_by_card_date: dict[str, dict[str, list[Any]]] | None = None
-        if price_history_cells_enabled():
-            cells_by_card_date = {}
-            for card_id, rows in history_rows_by_card_id.items():
-                price_dates = {
-                    str(row["price_date"] or "").strip()
-                    for row in rows
-                    if str(row["price_date"] or "").strip()
-                }
-                if not price_dates:
-                    continue
-                cells_by_card_date[card_id] = price_history_cell_rows_by_date(
-                    self.connection,
-                    card_id=card_id,
-                    provider=SCRYDEX_PROVIDER,
-                    price_dates=price_dates,
-                )
+        # NOTE: the price-history CELLS are no longer prefetched here. Each
+        # deck_history call now bulk-prefetches only ITS range's cells via
+        # _range_scoped_cells_by_card_date, so the dashboard's open range loads a
+        # small window instead of all of history. shared_inputs still shares the
+        # range-independent entries/events/daily-rows across whatever ranges run.
         return {
             "entry_rows": entry_rows,
             "event_rows": event_rows,
             "history_rows_by_card_id": history_rows_by_card_id,
-            "cells_by_card_date": cells_by_card_date,
         }
 
     def deck_history(
@@ -3764,10 +3808,11 @@ class SpotlightScanService:
                 provider=SCRYDEX_PROVIDER,
             )
         )
-        # Bulk-prefetched cells (dashboard path); None when standalone or JSON mode
-        # → the resolver falls back to its per-day query.
-        cells_by_card_date = (
-            shared_inputs.get("cells_by_card_date") if shared_inputs is not None else None
+        # Bulk-prefetch ONLY this range's cells (window + carry-in) so a single
+        # range loads ~range-window days of cells, not all of history. None in JSON
+        # mode → the resolver falls back to its per-day query.
+        cells_by_card_date = self._range_scoped_cells_by_card_date(
+            history_rows_by_card_id, start_date=start_date, end_date=end_date
         )
         price_series_by_context: dict[tuple[str, str, str, str, str, str], list[dict[str, Any] | None]] = {}
         for deck_entry_id, snapshot in snapshot_by_id.items():
@@ -12062,8 +12107,16 @@ class SpotlightScanService:
         )
         return result
 
-    def portfolio_dashboard(self, *, time_zone_name: str | None = None) -> dict[str, Any]:
+    def portfolio_dashboard(
+        self, *, time_zone_name: str | None = None, range_key: str | None = None
+    ) -> dict[str, Any]:
         """Cache-and-dogpile wrapper over the heavy dashboard computation.
+
+        ``range_key`` (the chart's open range, e.g. "1W"/"ALL") scopes the heavy
+        history/ledger work to just that range; the client fetches other ranges
+        on demand. ``None`` computes all six ranges (legacy / prewarm). The cache
+        is keyed per (owner, tz, range) so each range is computed at most once per
+        data-version.
 
         The computed dashboard is a pure function of the owner's portfolio data
         plus the latest daily price snapshot — it only changes when the user
@@ -12085,7 +12138,7 @@ class SpotlightScanService:
             traceback.print_exc()
             version = None
 
-        cache_key = (owner_user_id, resolved_tz)
+        cache_key = (owner_user_id, resolved_tz, range_key or "all")
         if version is not None:
             cached = self._dashboard_cache.get(cache_key)
             if cached is not None and cached[0] == version:
@@ -12101,7 +12154,10 @@ class SpotlightScanService:
                 if cached is not None and cached[0] == version:
                     self._log_dashboard_timing(started_at, outcome="hit_after_wait")
                     return cached[1]
-            payload = self._compute_portfolio_dashboard(time_zone_name=resolved_tz)
+            payload = self._compute_portfolio_dashboard(
+                time_zone_name=resolved_tz,
+                range_keys=[range_key] if range_key else None,
+            )
             if version is not None:
                 self._store_dashboard_cache(cache_key, version, payload)
             self._log_dashboard_timing(started_at, outcome="miss")
@@ -12140,7 +12196,7 @@ class SpotlightScanService:
         parts = [resolved_tz] + [str(row[key]) for key in row.keys()] if row is not None else [resolved_tz]
         return "|".join(parts)
 
-    def _dashboard_cache_lock_for(self, cache_key: tuple[str, str]) -> "threading.Lock":
+    def _dashboard_cache_lock_for(self, cache_key: tuple[str, str, str]) -> "threading.Lock":
         with self._dashboard_cache_locks_guard:
             lock = self._dashboard_cache_locks.get(cache_key)
             if lock is None:
@@ -12149,7 +12205,7 @@ class SpotlightScanService:
             return lock
 
     def _store_dashboard_cache(
-        self, cache_key: tuple[str, str], version: str, payload: dict[str, Any]
+        self, cache_key: tuple[str, str, str], version: str, payload: dict[str, Any]
     ) -> None:
         with self._dashboard_cache_locks_guard:
             # Simple bounded LRU-ish cap so the cache can't grow without limit as
@@ -12174,7 +12230,9 @@ class SpotlightScanService:
             }
         )
 
-    def _compute_portfolio_dashboard(self, *, time_zone_name: str | None = None) -> dict[str, Any]:
+    def _compute_portfolio_dashboard(
+        self, *, time_zone_name: str | None = None, range_keys: list[str] | None = None
+    ) -> dict[str, Any]:
         """Single-call portfolio dashboard: bundles inventory, every history and
         ledger range, and insights into one response so the client makes ONE
         request instead of ~14. Each section is computed independently; one that
@@ -12221,8 +12279,16 @@ class SpotlightScanService:
             traceback.print_exc()
             history_shared_inputs = None
 
+        # Only compute the requested range(s) — the client fetches the rest on
+        # demand. Unknown keys are ignored; None means all six (legacy/prewarm).
+        if range_keys is None:
+            keys_to_compute = list(range_labels.keys())
+        else:
+            keys_to_compute = [key for key in range_keys if key in range_labels]
+
         ranges: dict[str, Any] = {}
-        for key, label in range_labels.items():
+        for key in keys_to_compute:
+            label = range_labels[key]
             history = _section(
                 f"history.{key}",
                 lambda label=label: self.deck_history(
@@ -13398,9 +13464,14 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 return
             query = parse_qs(parsed.query)
             time_zone_name = query.get("timeZone", [""])[0].strip() or None
+            # The chart's open range — compute only this one; the client fetches
+            # the rest on demand via /portfolio/history. Absent → all six (legacy).
+            range_key = query.get("range", [""])[0].strip() or None
             try:
                 with self.service.request_identity_context(identity):
-                    payload = self.service.portfolio_dashboard(time_zone_name=time_zone_name)
+                    payload = self.service.portfolio_dashboard(
+                        time_zone_name=time_zone_name, range_key=range_key
+                    )
             except Exception as error:
                 traceback.print_exc()
                 self._write_json(
@@ -13823,6 +13894,28 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 return
 
             self._write_json(HTTPStatus.OK, payload)
+            return
+
+        if parsed.path == "/api/v1/ops/refresh-visual-index":
+            query = parse_qs(parsed.query)
+            expected_token = str(os.environ.get("SPOTLIGHT_OPS_REFRESH_TOKEN") or "").strip()
+            provided_token = query.get("token", [""])[0].strip()
+            if expected_token and provided_token != expected_token:
+                self._write_json(HTTPStatus.UNAUTHORIZED, {"error": "invalid ops token"})
+                return
+            dry_run = query.get("dryRun", ["0"])[0].lower() in {"1", "true", "yes"}
+            max_raw = query.get("max", [""])[0].strip()
+            max_cards = int(max_raw) if max_raw.isdigit() else None
+            try:
+                result = self.service.refresh_visual_index(dry_run=dry_run, max_cards=max_cards)
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"visual index refresh failed: {error}"},
+                )
+                return
+            self._write_json(HTTPStatus.OK, result)
             return
 
         payload = self._read_json_body()

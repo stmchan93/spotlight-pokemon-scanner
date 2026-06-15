@@ -291,7 +291,7 @@ export function PortfolioScreen({
             <PortfolioChartCard
               chartMode="portfolio"
               dashboard={model.dashboard}
-              isLoading={model.isLoadingDashboard && !model.hasLoadedDashboard}
+              isLoading={(model.isLoadingDashboard && !model.hasLoadedDashboard) || model.isLoadingSelectedRange}
               onActivePointChange={setActiveChartPoint}
               onRangeChange={model.setSelectedRange}
               onScrubLockChange={setIsChartScrubbing}

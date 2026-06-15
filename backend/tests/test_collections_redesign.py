@@ -99,6 +99,24 @@ class CollectionsRedesignTests(unittest.TestCase):
         self.assertIn("profit_cents", columns)
         self.assertIn("last_listing_snapshot", columns)
 
+    def test_dashboard_computes_only_requested_range(self) -> None:
+        # Open-range optimization: portfolio_dashboard(range_key=...) returns a
+        # partial ranges map (just that range), while no range computes all six.
+        self._insert_card()
+        self._seed_deck_entry(quantity=1)
+        with self.service.request_identity_context(self._identity()):
+            single = self.service.portfolio_dashboard(range_key="1W")
+            full = self.service.portfolio_dashboard()
+        self.assertEqual(set(single["ranges"].keys()), {"1W"})
+        self.assertEqual(
+            set(full["ranges"].keys()),
+            {"1W", "1M", "3M", "YTD", "1Y", "ALL"},
+        )
+        # Inventory + insights are still bundled in the scoped response.
+        self.assertIn("inventory", single)
+        self.assertIn("insights", single)
+        self.assertIsNotNone(single["ranges"]["1W"]["history"])
+
     def test_deck_entries_surfaces_favorited_at_for_favorited_cards(self) -> None:
         self._insert_card()
         self._seed_deck_entry(quantity=1)
