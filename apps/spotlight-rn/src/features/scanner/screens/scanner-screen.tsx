@@ -133,7 +133,6 @@ import type {
 } from './scanner-screen-types';
 
 const maxStoredCaptures = RECENT_CAPTURES_MAX;
-const collapsedVisibleCaptures = 1;
 
 // Phase 2 raw collector-number OCR (SECONDARY verification only). Default OFF.
 // Enable per-build for on-device latency measurement. Requires the custom dev
@@ -206,9 +205,6 @@ const scannerTrayLayoutAnimation = {
     type: LayoutAnimation.Types.spring,
   },
 } as const;
-// Keep the expanded rows mounted for the length of the collapse so they slide
-// down behind the bar (clipped by the shrinking viewport) instead of fading.
-const scannerTrayCollapseDurationMs = scannerTrayLayoutAnimation.duration;
 
 
 function applyCapEviction(
@@ -343,11 +339,6 @@ export function ScannerScreen({
   const cameraRef = useRef<RawScannerCameraHandle | null>(null);
   const trayScrollOffsetYRef = useRef(0);
   const trayScrollRef = useRef<ScrollView>(null);
-  // True only while the tray is animating closed. During that window the
-  // expanded rows stay mounted so the shrinking viewport clips them downward
-  // (a slide-down) instead of unmounting them into a fade.
-  const [isTrayCollapsing, setIsTrayCollapsing] = useState(false);
-  const trayCollapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reticleSnapshotRef = useRef({ height: 0, previewHeight: 0, previewWidth: 0, width: 0, x: 0, y: 0 });
   const recentlyAddedTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
@@ -434,14 +425,12 @@ export function ScannerScreen({
     && !isCapturing;
   const canToggleTray = recentCaptures.length > 0;
   const isTopLevelSwipeEnabled = Object.keys(openActionRailKeys).length === 0;
-  // In the collapsed state we render exactly `collapsedVisibleCaptures` (one) row
-  // with no peek sliver of the next row. The viewport height is fixed to a single
-  // row, so the tray shows one clean card and the rest are revealed by expanding.
-  const collapsedCaptures = recentCaptures.slice(0, collapsedVisibleCaptures);
-  // While collapsing we still render every row so it can slide down behind the
-  // bar; only the settled collapsed state trims to a single row.
-  const showExpandedTrayContent = isTrayExpanded || isTrayCollapsing;
-  const visibleCaptures = showExpandedTrayContent ? recentCaptures : collapsedCaptures;
+  // Every capture row stays mounted regardless of expand/collapse — the
+  // collapsed tray just clips them to a single-row viewport height. Keeping the
+  // row set stable means toggling never mounts/unmounts rows, so the rows'
+  // Reanimated enter/exit (reserved for genuine add/delete) never fire on a
+  // toggle. That mass mount/unmount on every swipe was crashing the tray.
+  const visibleCaptures = recentCaptures;
   const trayExpandedBodyHeight = alignToFourPointGrid(
     Math.max(
       Math.round(windowHeight * 0.85) - rawScannerTrayHeaderHeight - trayBottomInset,
@@ -587,41 +576,22 @@ export function ScannerScreen({
         return current;
       }
 
-      if (trayCollapseTimerRef.current) {
-        clearTimeout(trayCollapseTimerRef.current);
-        trayCollapseTimerRef.current = null;
-      }
-
       if (!nextExpanded) {
+        // Anchor row 0 so the collapse reveals the top card.
         trayScrollOffsetYRef.current = 0;
-        // Anchor row 0 so the collapse reveals the top card, then hold the rest
-        // mounted for the slide so they're clipped (slide down) — not faded.
         trayScrollRef.current?.scrollTo({ y: 0, animated: false });
-        setIsTrayCollapsing(true);
-        trayCollapseTimerRef.current = setTimeout(() => {
-          trayCollapseTimerRef.current = null;
-          setIsTrayCollapsing(false);
-        }, scannerTrayCollapseDurationMs);
-      } else {
-        setIsTrayCollapsing(false);
       }
 
-      // NOTE: do NOT fire a classic LayoutAnimation here. The capture rows now
-      // own their motion via Reanimated (entering/exiting/layout), and firing
-      // `LayoutAnimation.configureNext` in the same frame that rows mount/unmount
-      // crashes iOS — especially from a swipe, where this commit runs mid-gesture
-      // (onPanResponderMove) while gesture-handler is still processing the touch.
-      // (Tap survived only because it commits with no active drag.) The row
-      // Reanimated transitions cover the visual change.
+      // Smoothly spring the tray height open/closed. This is safe now that every
+      // capture row stays mounted across the toggle (see `visibleCaptures`): the
+      // iOS crash only happened when a classic LayoutAnimation coincided with
+      // rows being added/removed in the same frame, which no longer occurs here.
+      if (Platform.OS !== 'web') {
+        LayoutAnimation.configureNext(scannerTrayLayoutAnimation);
+      }
 
       return nextExpanded;
     });
-  }, []);
-
-  useEffect(() => () => {
-    if (trayCollapseTimerRef.current) {
-      clearTimeout(trayCollapseTimerRef.current);
-    }
   }, []);
 
   const inventoryByCardId = useMemo(() => {
@@ -1966,7 +1936,7 @@ export function ScannerScreen({
         // Collapsed tray shows a single row; after ADD the next card advances
         // in with the slide-from-right enter. Expanded list opens without
         // fanning every row, so enter is gated to the collapsed viewport.
-        enableEnterAnimation={!showExpandedTrayContent}
+        enableEnterAnimation={!isTrayExpanded}
         isFavorite={candidate?.isFavorite ?? false}
         onActionRailVisibilityChange={handleCaptureActionRailVisibilityChange}
         onDelete={deleteRecentCapture}
@@ -2365,7 +2335,7 @@ export function ScannerScreen({
                   testID="scanner-tray-scroll"
                 >
                   {visibleCaptures.map(renderCaptureRow)}
-                  {showExpandedTrayContent ? (
+                  {isTrayExpanded ? (
                     <View style={styles.trayClearSection}>
                       <Pressable
                         accessibilityRole="button"

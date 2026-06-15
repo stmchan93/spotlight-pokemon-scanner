@@ -1035,21 +1035,19 @@ describe('ScannerScreen', () => {
     }
 
     expect(screen.getByTestId('scanner-tray-header')).toBeTruthy();
-    // Collapsed shows EXACTLY one card (the newest, row 0) with no peek and no
-    // micro-scroll: the second-newest row is not rendered, and the viewport is
-    // sized to a single full row.
+    // Collapsed shows EXACTLY one card (the newest, row 0): every row stays
+    // mounted (so toggling never churns the row set), but the viewport is
+    // clipped to a single full row so only row 0 is visible.
     expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
-    expect(screen.queryByTestId('scanner-tray-row-1')).toBeNull();
     const collapsedViewportHeight =
       StyleSheet.flatten(screen.getByTestId('scanner-tray-viewport').props.style)?.height ?? 0;
     expect(collapsedViewportHeight).toBe(102); // exactly one full row, no peek
 
     fireEvent.press(screen.getByTestId('scanner-tray-header'));
-    // The tray must NOT fire a classic LayoutAnimation on expand/collapse —
-    // doing so in the same frame the capture rows mount/unmount crashed iOS
-    // (especially mid-swipe, where the commit runs during the gesture). The
-    // rows now animate via Reanimated, so this assertion guards the regression.
-    expect(mockConfigureNext).not.toHaveBeenCalled();
+    // Toggling springs the tray height via a classic LayoutAnimation. This is
+    // safe because every row stays mounted across the toggle, so it never
+    // coincides with rows being added/removed (the old iOS crash condition).
+    expect(mockConfigureNext).toHaveBeenCalled();
 
     await waitFor(() => {
       expect(screen.getByTestId('scanner-tray-scroll')).toBeTruthy();
