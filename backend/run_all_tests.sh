@@ -28,6 +28,7 @@ TEST_MODULES=(
   backend.tests.test_raw_visual_index
   backend.tests.test_raw_visual_model
   backend.tests.test_raw_visual_matcher
+  backend.tests.test_visual_index_incremental
   backend.tests.test_scrydex_adapter_helpers
   backend.tests.test_server_helpers
   backend.tests.test_scan_artifact_store_helpers

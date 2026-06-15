@@ -31,6 +31,22 @@ DATABASE_PATH="${SPOTLIGHT_DATABASE_PATH:-$SCRIPT_DIR/data/spotlight_scanner.sql
 HOSTNAME_VALUE="$(hostname -s 2>/dev/null || hostname)"
 export SPOTLIGHT_RUNTIME_LABEL="${SPOTLIGHT_RUNTIME_LABEL:-vm-sync:${HOSTNAME_VALUE}}"
 
-exec "$PYTHON_BIN" "$SCRIPT_DIR/sync_scrydex_catalog.py" \
+"$PYTHON_BIN" "$SCRIPT_DIR/sync_scrydex_catalog.py" \
   --database-path "$DATABASE_PATH" \
   --scheduled-for "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+# Post-sync: embed any newly-synced cards into the visual index and hot-reload
+# the matcher in place (no restart, no downtime), so new Scrydex sets become
+# scannable the same day instead of waiting for a manual full rebuild. This is
+# best-effort: a refresh failure must never fail the sync job.
+REFRESH_URL="http://127.0.0.1:8788/api/v1/ops/refresh-visual-index"
+if [ -n "${SPOTLIGHT_OPS_REFRESH_TOKEN:-}" ]; then
+  REFRESH_URL="${REFRESH_URL}?token=${SPOTLIGHT_OPS_REFRESH_TOKEN}"
+fi
+echo "[sync] triggering incremental visual-index refresh"
+if curl -sS -m 900 -X POST "$REFRESH_URL"; then
+  echo
+  echo "[sync] visual-index refresh complete"
+else
+  echo "[sync] visual-index refresh request failed (non-fatal)" >&2
+fi

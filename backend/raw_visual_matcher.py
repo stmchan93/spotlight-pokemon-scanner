@@ -533,6 +533,35 @@ class RawVisualMatcher:
                 self._user_photo_rerank_pool = pool
             self._runtime_ready = True
 
+    def reload_index(self) -> dict[str, Any]:
+        """Atomically swap in the on-disk index (no restart, no downtime).
+
+        Used after an incremental refresh writes new rows to the active npz +
+        manifest. The encoder/adapter are unchanged, so only the index reloads.
+        A failed reload keeps the previously-loaded index serving.
+        """
+        count = self.index.reload()
+        _emit_matcher_log(
+            "INFO", "visual_index_reloaded", entryCount=count, npzPath=str(self.index.npz_path)
+        )
+        return {"reloaded": True, "entryCount": count, "npzPath": str(self.index.npz_path)}
+
+    def embed_reference_images(self, images: list[Any]) -> np.ndarray:
+        """Embed catalog reference images with the SAME encoder + adapter the
+        query path uses, so incrementally-appended index rows live in the exact
+        same embedding space as the existing rows.
+        """
+        if not images:
+            return np.zeros((0, 0), dtype=np.float32)
+        self._ensure_runtime()
+        assert self._encoder is not None
+        embeddings = self._encoder.embed_images(images, batch_size=32)
+        if self._adapter is not None:
+            embeddings = project_embeddings_numpy(
+                self._adapter, embeddings, device=self._encoder.device, batch_size=64,
+            )
+        return np.asarray(embeddings, dtype=np.float32)
+
     def _load_query_image(self, payload: dict[str, Any]) -> DecodedQueryImage:
         try:
             from PIL import Image
