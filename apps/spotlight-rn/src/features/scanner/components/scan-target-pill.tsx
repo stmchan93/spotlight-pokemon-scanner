@@ -29,7 +29,9 @@ export function ScanTargetPill({
 
 const styles = StyleSheet.create({
   label: {
-    ...textStyles.control,
+    // Figma 1180-1278 "Label" — Plus Jakarta Sans Medium 13 (not the default
+    // 15/SemiBold control role), white over the translucent pill.
+    ...textStyles.label,
     color: colors.gray0,
   },
   pill: {

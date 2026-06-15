@@ -15,6 +15,11 @@ export type CardListRowProps = {
   trendChangeAmount?: number | null;
   quantity: number;
   /**
+   * When false, the "Qty: N" line is hidden — e.g. wishlist rows, which have no
+   * quantity concept. Defaults to true (collection rows show it).
+   */
+  showQuantity?: boolean;
+  /**
    * When false, the card thumbnail is omitted and the text stack sits flush
    * left (wishlist list row, Figma 992:10052). Defaults to true.
    */
@@ -62,6 +67,7 @@ export function CardListRow({
   currencyCode = 'USD',
   trendChangeAmount,
   quantity,
+  showQuantity = true,
   showThumbnail = true,
   firstInSection = false,
   onPress,
@@ -206,14 +212,16 @@ export function CardListRow({
           </View>
         ) : null}
 
-        <AppText
-          color="gray600"
-          numberOfLines={1}
-          testID={testID ? `${testID}-quantity` : undefined}
-          variant="label"
-        >
-          {`Qty: ${quantity}`}
-        </AppText>
+        {showQuantity ? (
+          <AppText
+            color="gray600"
+            numberOfLines={1}
+            testID={testID ? `${testID}-quantity` : undefined}
+            variant="label"
+          >
+            {`Qty: ${quantity}`}
+          </AppText>
+        ) : null}
       </View>
     </Container>
   );

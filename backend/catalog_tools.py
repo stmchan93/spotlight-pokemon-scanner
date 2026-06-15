@@ -4482,23 +4482,40 @@ def card_price_trend_list(
     is_graded = normalized_mode == PSA_GRADE_PRICING_MODE
     response_provider = "ebay" if is_graded else "tcgplayer"
 
-    history_rows = connection.execute(
-        """
-        SELECT price_date, raw_contexts_json, graded_contexts_json
-        FROM card_price_history_daily
-        WHERE card_id = ? AND provider = ?
-        ORDER BY price_date ASC, updated_at ASC
-        LIMIT ?
-        """,
-        (card_id, provider, max(1, int(days))),
-    ).fetchall()
+    # Decide the read source FIRST so the daily-history query can be projected.
+    # On the cells path the JSON blob columns are never read (the per-day POINT
+    # SERIES is resolved from the normalized cell table), so selecting only
+    # `price_date` keeps the query on the covering index
+    # (card_id, provider, price_date, updated_at) and avoids a cold-cache scan of
+    # the large raw/graded context blobs — the dominant cost on a card's first
+    # PDP open. The snapshot below stays on card_price_snapshots JSON regardless.
+    use_cells = price_history_cells_enabled() and _table_exists(connection, "card_price_history_cell")
+
+    if use_cells:
+        history_rows = connection.execute(
+            """
+            SELECT price_date
+            FROM card_price_history_daily
+            WHERE card_id = ? AND provider = ?
+            ORDER BY price_date ASC, updated_at ASC
+            LIMIT ?
+            """,
+            (card_id, provider, max(1, int(days))),
+        ).fetchall()
+    else:
+        history_rows = connection.execute(
+            """
+            SELECT price_date, raw_contexts_json, graded_contexts_json
+            FROM card_price_history_daily
+            WHERE card_id = ? AND provider = ?
+            ORDER BY price_date ASC, updated_at ASC
+            LIMIT ?
+            """,
+            (card_id, provider, max(1, int(days))),
+        ).fetchall()
     snapshot_row = price_snapshot_row(connection, card_id)
 
-    # When the cell flag is on, the per-day POINT SERIES is resolved from the
-    # normalized cell table instead of the history-daily JSON blobs (the snapshot
-    # below stays on card_price_snapshots JSON regardless — out of scope for the
-    # flag). Fetch all cells for the window once, grouped by date.
-    use_cells = price_history_cells_enabled() and _table_exists(connection, "card_price_history_cell")
+    # Fetch all cells for the window once, grouped by date (cells path only).
     cells_by_date: dict[str, list[Any]] = (
         price_history_cell_rows_by_date(
             connection,

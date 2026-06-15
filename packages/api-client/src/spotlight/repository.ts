@@ -267,6 +267,7 @@ type DeckEntryDTO = {
   listedAt?: string | null;
   addedAt?: string;
   isFavorite?: boolean | null;
+  favoritedAt?: string | null;
   dayChangeAmount?: number | null;
   dayChangePercent?: number | null;
 };
@@ -1522,6 +1523,7 @@ function mapDeckEntry(entry: DeckEntryDTO, baseUrl?: string): InventoryCardEntry
     costBasisPerUnit: explicitCostBasisPerUnit ?? derivedCostBasisPerUnit,
     costBasisTotal: costBasisTotal ?? null,
     isFavorite: normalizeBoolean(entry.isFavorite) ?? card.isFavorite,
+    favoritedAt: normalizeString(entry.favoritedAt) ?? null,
     dayChangeAmount: normalizeNumber(entry.dayChangeAmount) ?? null,
     dayChangePercent: normalizeNumber(entry.dayChangePercent) ?? null,
     listingUrl: normalizeString(entry.listingUrl) ?? null,

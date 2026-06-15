@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { Linking, Share } from 'react-native';
 
 import type { CardDetailRecord, CardText, InventoryCardEntry } from '@spotlight/api-client';
@@ -7,6 +7,10 @@ import {
   clearCardDetailPreviewSessions,
   saveCardDetailPreviewFromInventoryEntry,
 } from '@/features/cards/card-detail-preview-session';
+import {
+  clearCardDetailCache,
+  prefetchCardDetail,
+} from '@/features/cards/card-detail-prefetch';
 import {
   clearScanCandidateReviewSessions,
   saveScanCandidateReviewSession,
@@ -37,6 +41,7 @@ describe('CardDetailScreen', () => {
   afterEach(() => {
     clearCardDetailPreviewSessions();
     clearScanCandidateReviewSessions();
+    clearCardDetailCache();
     jest.clearAllMocks();
   });
 
@@ -667,6 +672,157 @@ describe('CardDetailScreen', () => {
         expect.objectContaining({ cardId: 'sm7-1', mode: 'raw', variant: 'Normal' }),
       );
     });
+  });
+
+  it('fires the price-trends request on mount (from the preview default lane) without waiting for variant seeding', async () => {
+    // A graded owned-entry preview is available on the first render, before
+    // getCardDetail resolves and variantOptions/seeding settle. The early
+    // parallel fetch must hit the trends endpoint immediately on the graded
+    // default lane — proving it is NOT serialized behind variant seeding.
+    const gradedEntry: InventoryCardEntry = {
+      addedAt: '2026-04-27T12:00:00.000Z',
+      cardId: 'sm7-1',
+      cardNumber: '#001/096',
+      conditionCode: null,
+      conditionLabel: null,
+      conditionShortLabel: null,
+      costBasisPerUnit: null,
+      costBasisTotal: null,
+      currencyCode: 'USD',
+      hasMarketPrice: true,
+      id: 'graded-treecko-psa10',
+      imageUrl: 'https://cdn.spotlight.test/sm7/treecko-psa10.png',
+      kind: 'graded',
+      marketPrice: 52,
+      name: 'Treecko',
+      quantity: 1,
+      setName: 'Sky Stream',
+      slabContext: { certNumber: '00012345', grade: '10', grader: 'PSA', variantName: 'PSA 10' },
+      variantName: 'PSA 10',
+    };
+    const previewId = saveCardDetailPreviewFromInventoryEntry(gradedEntry);
+
+    // getCardDetail never resolves: if the trends fetch were serialized behind
+    // detail + seeding, it would never fire. The early parallel fetch ignores it.
+    const getCardDetail = jest.fn(() => new Promise<never>(() => {}));
+    const getCardPriceTrends = jest.fn(async (query: { mode: string }) => ({
+      mode: query.mode as 'raw' | 'graded',
+      provider: 'ebay' as const,
+      rows: [
+        {
+          label: 'PSA 10',
+          key: 'PSA 10',
+          currentPrice: 1,
+          currencyCode: 'USD',
+          points: [1, 2, 3],
+          trendPct: 5,
+        },
+      ],
+    }));
+
+    renderWithProviders(
+      <CardDetailScreen
+        cardId="sm7-1"
+        entryId="graded-treecko-psa10"
+        onBack={jest.fn()}
+        onOpenAddToCollection={jest.fn()}
+        previewId={previewId}
+      />,
+      {
+        spotlightRepository: createTestSpotlightRepository({ getCardDetail, getCardPriceTrends }),
+      },
+    );
+
+    await waitFor(() => {
+      expect(getCardPriceTrends).toHaveBeenCalledWith(expect.objectContaining({
+        cardId: 'sm7-1',
+        mode: 'graded',
+        grader: 'PSA',
+      }));
+    });
+  });
+
+  it('shows the price-trend skeleton while the trends fetch is in flight, then the list', async () => {
+    type TrendList = Awaited<
+      ReturnType<ReturnType<typeof createTestSpotlightRepository>['getCardPriceTrends']>
+    >;
+    let resolveTrends: ((value: TrendList) => void) | null = null;
+    const getCardPriceTrends = jest.fn(
+      () =>
+        new Promise<TrendList>((resolve) => {
+          resolveTrends = resolve;
+        }),
+    );
+
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} onOpenAddToCollection={jest.fn()} />,
+      { spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends }) },
+    );
+
+    // While the fetch is pending the skeleton stands in for the list.
+    expect(await screen.findByTestId('detail-price-trends-skeleton')).toBeTruthy();
+    expect(screen.queryByTestId('detail-price-trends')).toBeNull();
+
+    const resolve = resolveTrends as ((value: TrendList) => void) | null;
+    await act(async () => {
+      resolve?.({
+        mode: 'raw',
+        provider: 'tcgplayer',
+        rows: [
+          {
+            label: 'Near Mint',
+            key: 'near_mint',
+            currentPrice: 1,
+            currencyCode: 'USD',
+            points: [1, 2, 3],
+            trendPct: 5,
+          },
+        ],
+      });
+    });
+
+    // Once data lands the list replaces the skeleton.
+    await waitFor(() => {
+      expect(screen.getByTestId('detail-price-trends')).toBeTruthy();
+    });
+    expect(screen.queryByTestId('detail-price-trends-skeleton')).toBeNull();
+  });
+
+  it('renders a prefetched/cached result without issuing a second trends request', async () => {
+    const getCardPriceTrends = jest.fn(async (query: { mode: string }) => ({
+      mode: query.mode as 'raw' | 'graded',
+      provider: 'tcgplayer' as const,
+      rows: [
+        {
+          label: 'Near Mint',
+          key: 'near_mint',
+          currentPrice: 1,
+          currencyCode: 'USD',
+          points: [1, 2, 3],
+          trendPct: 5,
+        },
+      ],
+    }));
+    const repository = createTestSpotlightRepository({ getCardPriceTrends });
+
+    // Simulate a navigation prefetch warming the default raw lane cache.
+    prefetchCardDetail(repository, 'sm7-1');
+    await waitFor(() => {
+      expect(getCardPriceTrends).toHaveBeenCalledTimes(1);
+    });
+    const callsAfterPrefetch = getCardPriceTrends.mock.calls.length;
+
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} onOpenAddToCollection={jest.fn()} />,
+      { spotlightRepository: repository },
+    );
+
+    // The screen reads through the cache → the trend list renders…
+    await waitFor(() => {
+      expect(screen.getByTestId('detail-price-trends')).toBeTruthy();
+    });
+    // …and the default raw/Normal lane was NOT re-requested over the network.
+    expect(getCardPriceTrends).toHaveBeenCalledTimes(callsAfterPrefetch);
   });
 
   it('renders an unavailable state when the repository returns no local card detail', async () => {

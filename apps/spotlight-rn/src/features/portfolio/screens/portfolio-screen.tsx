@@ -83,13 +83,21 @@ function applyInventorySearch(items: InventoryCardEntry[], query: string) {
   });
 }
 
-function applyCollectionFilter(
+// Parse an ISO timestamp to epoch ms; missing/invalid sort oldest (so they land
+// last under a descending "most recent first" sort).
+function timestampMs(value: string | null | undefined): number {
+  const parsed = value ? Date.parse(value) : NaN;
+  return Number.isNaN(parsed) ? -Infinity : parsed;
+}
+
+export function applyCollectionFilter(
   items: InventoryCardEntry[],
   filter: CollectionFilterKey,
 ): InventoryCardEntry[] {
   switch (filter) {
     case 'all':
-      return items;
+      // Recently added first.
+      return [...items].sort((a, b) => timestampMs(b.addedAt) - timestampMs(a.addedAt));
     case 'az':
       return [...items].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
     case 'price':
@@ -99,7 +107,13 @@ function applyCollectionFilter(
         return bp - ap;
       });
     case 'favorites':
-      return items.filter((entry) => entry.isFavorite === true);
+      // Recently favorited first (falls back to addedAt until favoritedAt is
+      // populated by the backend).
+      return items
+        .filter((entry) => entry.isFavorite === true)
+        .sort((a, b) => (
+          timestampMs(b.favoritedAt ?? b.addedAt) - timestampMs(a.favoritedAt ?? a.addedAt)
+        ));
     case 'ungraded':
       return items.filter((entry) => entry.kind !== 'graded');
     case 'graded':

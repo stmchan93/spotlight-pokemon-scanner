@@ -9,6 +9,13 @@ import {
 
 import { useSpotlightTheme } from '../theme';
 
+/**
+ * Visible bar height above the safe-area inset (Figma 1277-7732: 44 = 4px top
+ * pad + a 40px nav-item row). Exported so floating affordances (e.g. the add
+ * FAB) can sit a fixed gap above the bar.
+ */
+export const bottomTabBarHeight = 44;
+
 export type BottomTabBarItem = {
   key: string;
   label: string;
@@ -109,7 +116,8 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     flexShrink: 0,
     gap: 2,
-    height: 43,
+    // 40 + the row's 4px top padding = 44px bar (Figma 1277-7732).
+    height: 40,
     justifyContent: 'center',
     width: 59,
   },

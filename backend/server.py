@@ -41,6 +41,7 @@ from catalog_tools import (
     _cell_field,
     price_history_cells_enabled,
     price_history_cell_rows_for_day,
+    price_history_cell_rows_by_date,
     resolve_graded_entry_from_cells,
     resolve_raw_summary_from_cells,
     DEFAULT_RAW_CONDITION,
@@ -3080,6 +3081,7 @@ class SpotlightScanService:
         *,
         row: sqlite3.Row | dict[str, Any] | None,
         condition_code: str | None,
+        day_cells: list[Any] | None = None,
     ) -> dict[str, Any] | None:
         if row is None:
             return None
@@ -3092,16 +3094,20 @@ class SpotlightScanService:
         # normalized cell table instead of this row's raw/graded JSON blobs. The
         # row still supplies card_id, price_date, the display currency, and the
         # default_raw_* fallback columns.
+        #
+        # `day_cells` may be pre-fetched in bulk by the dashboard (see
+        # _load_portfolio_history_shared_inputs) to avoid a per-(card, day) query.
+        # `None` means "not pre-fetched" → fall back to the single-day query;
+        # an empty list means "this date genuinely has no cells".
         use_cells = price_history_cells_enabled()
-        day_cells = (
-            price_history_cell_rows_for_day(
+        if not use_cells:
+            day_cells = []
+        elif day_cells is None:
+            day_cells = price_history_cell_rows_for_day(
                 self.connection,
                 card_id=str(row["card_id"]),
                 price_date=str(row["price_date"]),
             )
-            if use_cells
-            else []
-        )
 
         if pricing_mode == "graded":
             if use_cells:
@@ -3298,6 +3304,7 @@ class SpotlightScanService:
         condition_code: str | None,
         history_rows: list[sqlite3.Row],
         day_dates: list[date],
+        cells_by_date: dict[str, list[Any]] | None = None,
     ) -> list[dict[str, Any] | None]:
         latest_row: sqlite3.Row | None = None
         row_index = 0
@@ -3307,11 +3314,20 @@ class SpotlightScanService:
             while row_index < len(history_rows) and str(history_rows[row_index]["price_date"] or "") <= day_iso:
                 latest_row = history_rows[row_index]
                 row_index += 1
+            # Hand the resolver the pre-fetched cells for this row's date (bulk
+            # path); `None` keeps the per-day-query fallback for callers that
+            # don't pre-fetch.
+            day_cells = (
+                cells_by_date.get(str(latest_row["price_date"] or ""), [])
+                if cells_by_date is not None and latest_row is not None
+                else None
+            )
             series.append(
                 self._portfolio_history_price_row_from_history_row(
                     entry,
                     row=latest_row,
                     condition_code=condition_code,
+                    day_cells=day_cells,
                 )
             )
         return series
@@ -3537,10 +3553,35 @@ class SpotlightScanService:
             include_raw_json=include_raw_json,
             include_graded_json=include_graded_json,
         )
+        # In cells mode, prefetch every cell row the per-day resolver will need in a
+        # few BULK queries (per card, dates chunked) instead of one tiny cold query
+        # per (card, day). The set of (card, price_date) pairs the resolver ever hits
+        # equals exactly the price_dates already present in the daily rows above, so
+        # we batch precisely those. This collapses the heavy-portfolio N+1
+        # (~117 cards × ~1000 days × 6 ranges) that made the cold dashboard compute
+        # blow past the client timeout. See project_portfolio_dashboard_perf.
+        cells_by_card_date: dict[str, dict[str, list[Any]]] | None = None
+        if price_history_cells_enabled():
+            cells_by_card_date = {}
+            for card_id, rows in history_rows_by_card_id.items():
+                price_dates = {
+                    str(row["price_date"] or "").strip()
+                    for row in rows
+                    if str(row["price_date"] or "").strip()
+                }
+                if not price_dates:
+                    continue
+                cells_by_card_date[card_id] = price_history_cell_rows_by_date(
+                    self.connection,
+                    card_id=card_id,
+                    provider=SCRYDEX_PROVIDER,
+                    price_dates=price_dates,
+                )
         return {
             "entry_rows": entry_rows,
             "event_rows": event_rows,
             "history_rows_by_card_id": history_rows_by_card_id,
+            "cells_by_card_date": cells_by_card_date,
         }
 
     def deck_history(
@@ -3723,10 +3764,17 @@ class SpotlightScanService:
                 provider=SCRYDEX_PROVIDER,
             )
         )
+        # Bulk-prefetched cells (dashboard path); None when standalone or JSON mode
+        # → the resolver falls back to its per-day query.
+        cells_by_card_date = (
+            shared_inputs.get("cells_by_card_date") if shared_inputs is not None else None
+        )
         price_series_by_context: dict[tuple[str, str, str, str, str, str], list[dict[str, Any] | None]] = {}
         for deck_entry_id, snapshot in snapshot_by_id.items():
             context_conditions = condition_codes_by_entry_id.get(deck_entry_id) or {None}
-            history_rows = history_rows_by_card_id.get(str(snapshot.get("cardID") or "").strip(), [])
+            card_id = str(snapshot.get("cardID") or "").strip()
+            history_rows = history_rows_by_card_id.get(card_id, [])
+            cells_by_date = cells_by_card_date.get(card_id) if cells_by_card_date else None
             for condition_code in context_conditions:
                 context_key = self._portfolio_history_context_key(snapshot, condition_code=condition_code)
                 if context_key is None or context_key in price_series_by_context:
@@ -3736,6 +3784,7 @@ class SpotlightScanService:
                     condition_code=condition_code,
                     history_rows=history_rows,
                     day_dates=day_dates,
+                    cells_by_date=cells_by_date,
                 )
 
         for day_index, current_day in enumerate(day_dates):
@@ -3798,12 +3847,14 @@ class SpotlightScanService:
                 else:
                     series = price_series_by_context.get(context_key)
                     if series is None:
-                        history_rows = history_rows_by_card_id.get(str(snapshot.get("cardID") or "").strip(), [])
+                        fallback_card_id = str(snapshot.get("cardID") or "").strip()
+                        history_rows = history_rows_by_card_id.get(fallback_card_id, [])
                         series = self._portfolio_history_series_for_context(
                             context_entry,
                             condition_code=condition_code,
                             history_rows=history_rows,
                             day_dates=day_dates,
+                            cells_by_date=(cells_by_card_date.get(fallback_card_id) if cells_by_card_date else None),
                         )
                         price_series_by_context[context_key] = series
                     row = series[day_index]
@@ -12707,6 +12758,13 @@ class SpotlightScanService:
                     "sourceScanID": row["source_scan_id"],
                     "sourceConfirmationID": row["source_confirmation_id"],
                     "isFavorite": card_id in favorite_rows_by_card_id,
+                    # When favorited, surface the favorite timestamp so the client
+                    # can sort the Favorites filter by most-recently-favorited.
+                    "favoritedAt": (
+                        str(favorite_rows_by_card_id[card_id]["created_at"] or "").strip() or None
+                        if card_id in favorite_rows_by_card_id
+                        else None
+                    ),
                     "dayChangeAmount": day_change_amount,
                     "dayChangePercent": day_change_percent,
                 }

@@ -1,11 +1,16 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { useSpotlightTheme, type SpotlightTheme } from '@spotlight/design-system';
+import { SkeletonBlock, useSpotlightTheme, type SpotlightTheme } from '@spotlight/design-system';
 import type { MarketHistoryOption } from '@spotlight/api-client';
 import { Minus, NavArrowDown, Plus } from 'iconoir-react-native';
 
 type CardConfiguratorProps = {
   variants: MarketHistoryOption[];
+  /**
+   * True while detail/variant data is still loading. When set and no variants
+   * have resolved yet, the Variant row renders a skeleton instead of collapsing.
+   */
+  variantsLoading?: boolean;
   selectedVariant: string | null;
   onSelectVariant: (id: string) => void;
   graders: string[];
@@ -79,6 +84,7 @@ function GroupTitle({ children, theme }: { children: string; theme: SpotlightThe
 
 export function CardConfigurator({
   variants,
+  variantsLoading = false,
   selectedVariant,
   onSelectVariant,
   graders,
@@ -110,6 +116,14 @@ export function CardConfigurator({
                 theme={theme}
               />
             ))}
+          </View>
+        </View>
+      ) : variantsLoading ? (
+        <View style={[styles.group, { gap: 10 }]} testID={testID ? `${testID}-variant-skeleton` : undefined}>
+          <GroupTitle theme={theme}>Variant</GroupTitle>
+          <View style={[styles.chipRow, { gap: 6 }]}>
+            <SkeletonBlock height={32} radius={theme.radii.sm} width={84} />
+            <SkeletonBlock height={32} radius={theme.radii.sm} width={72} />
           </View>
         </View>
       ) : null}

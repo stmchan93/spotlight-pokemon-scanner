@@ -99,6 +99,27 @@ class CollectionsRedesignTests(unittest.TestCase):
         self.assertIn("profit_cents", columns)
         self.assertIn("last_listing_snapshot", columns)
 
+    def test_deck_entries_surfaces_favorited_at_for_favorited_cards(self) -> None:
+        self._insert_card()
+        self._seed_deck_entry(quantity=1)
+        with self.service.request_identity_context(self._identity()):
+            self.service.set_card_favorite("base-charizard-4", is_favorite=True)
+            entries = self.service.deck_entries(limit=200, offset=0)["entries"]
+        self.assertEqual(len(entries), 1)
+        entry = entries[0]
+        self.assertTrue(entry["isFavorite"])
+        self.assertIsInstance(entry["favoritedAt"], str)
+        self.assertTrue(entry["favoritedAt"])
+
+    def test_deck_entries_favorited_at_is_none_when_not_favorited(self) -> None:
+        self._insert_card()
+        self._seed_deck_entry(quantity=1)
+        with self.service.request_identity_context(self._identity()):
+            entries = self.service.deck_entries(limit=200, offset=0)["entries"]
+        self.assertEqual(len(entries), 1)
+        self.assertFalse(entries[0]["isFavorite"])
+        self.assertIsNone(entries[0]["favoritedAt"])
+
     # ----- Inventory mutation routes ------------------------------------- #
 
     def test_record_buy_persists_cost_basis_per_unit_in_cents(self) -> None:

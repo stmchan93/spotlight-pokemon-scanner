@@ -267,9 +267,6 @@ export function WishlistHero({
                 </AppText>
               </View>
             ) : null}
-            <AppText color="gray600" numberOfLines={1} variant="label">
-              Qty: 1
-            </AppText>
           </View>
         </View>
       ) : null}

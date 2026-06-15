@@ -279,6 +279,8 @@ export type InventoryCardEntry = {
   costBasisPerUnit?: number | null;
   costBasisTotal?: number | null;
   isFavorite?: boolean;
+  /** ISO timestamp the card was favorited; drives the Favorites recency sort. */
+  favoritedAt?: string | null;
   // Day-over-day change in marketPrice computed from the previous day's price
   // history snapshot. Both fields are null when no yesterday snapshot exists,
   // and dayChangePercent is also null when yesterday's price was 0.

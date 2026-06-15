@@ -59,6 +59,7 @@ import {
 } from '@/features/scanner/scanner-normalized-target';
 import {
   getRawScannerCollapsedTrayReservedHeight,
+  getRawScannerEmptyTrayVisualHeight,
   makeRawScannerCaptureLayout,
   type RawScannerCameraHandle,
   RawScannerCaptureSurface,
@@ -79,6 +80,7 @@ import {
   schedulePersist,
   sweepOrphanScans,
 } from '@/features/scanner/recent-captures-persistence';
+import { prefetchCardDetail } from '@/features/cards/card-detail-prefetch';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { resolveRuntimeBoolean, resolveRuntimeValue, resolveStagingSmokeModeEnabled } from '@/lib/runtime-config';
 import { useAppServices } from '@/providers/app-providers';
@@ -312,6 +314,15 @@ export function ScannerScreen({
   // after it sits idle" bug. Starts true (the app is foregrounded on mount); the
   // listener below keeps it in sync.
   const [isForeground, setIsForeground] = useState(true);
+  // Whether the scanner ROUTE is focused (i.e. no other route — card detail,
+  // scan-review — is pushed over it). vision-camera re-arms the capture gate only
+  // on a session *start* (`onStarted`), so the camera must actually stop on blur
+  // and restart on focus to fire it. Relying on react-native-screens' freeze for
+  // that restart broke when an external link (eBay/Scrydex) backgrounded the app
+  // mid-detail: the foreground-return flipped `isActive` true while still blurred,
+  // spending the transition, so returning to the scanner never restarted the
+  // session and the gate stayed stuck closed. Defaults true (focused on mount).
+  const [isScreenFocused, setIsScreenFocused] = useState(true);
   const [inventoryEntries, setInventoryEntries] = useState<InventoryCardEntry[]>([]);
   const [recentCaptures, setRecentCaptures] = useState<RecentCapture[]>([]);
   // Mirrors `recentCaptures` so the unmount flush reads the latest tray without
@@ -397,6 +408,9 @@ export function ScannerScreen({
   const collapsedTrayReservedHeight = getRawScannerCollapsedTrayReservedHeight({
     bottomInset: trayBottomInset,
   });
+  const emptyTrayVisualHeight = getRawScannerEmptyTrayVisualHeight({
+    bottomInset: trayBottomInset,
+  });
   const captureSurfaceLayout = makeRawScannerCaptureLayout({
     containerHeight: windowHeight,
     containerWidth: windowWidth,
@@ -413,7 +427,7 @@ export function ScannerScreen({
     y: captureSurfaceLayout.reticle.y,
   };
   const hasCameraPermission = hasPermission;
-  const shouldMountCamera = hasCameraPermission && isActiveTab && isForeground;
+  const shouldMountCamera = hasCameraPermission && isActiveTab && isForeground && isScreenFocused;
   const scannerSmokeEnabled = resolveStagingSmokeModeEnabled({ allowDevelopment: true });
   const canCapture = shouldMountCamera
     && isCameraReady
@@ -504,6 +518,9 @@ export function ScannerScreen({
   }, [isTopLevelSwipeEnabled, onTopLevelSwipeEnabledChange]);
 
   useFocusEffect(useCallback(() => {
+    // Focused: let the camera session run (and restart, firing `onStarted` →
+    // re-arming the capture gate) regardless of how the app was backgrounded.
+    setIsScreenFocused(true);
     if (hasFocusedScannerRef.current) {
       setIsCameraReady(false);
       setIsCapturing(false);
@@ -512,6 +529,9 @@ export function ScannerScreen({
     }
 
     return () => {
+      // Blurred (a route covers the scanner): stop the session so returning
+      // produces a clean isActive false→true transition.
+      setIsScreenFocused(false);
       setIsCameraReady(false);
       setIsCapturing(false);
     };
@@ -586,9 +606,13 @@ export function ScannerScreen({
         setIsTrayCollapsing(false);
       }
 
-      if (Platform.OS !== 'web') {
-        LayoutAnimation.configureNext(scannerTrayLayoutAnimation);
-      }
+      // NOTE: do NOT fire a classic LayoutAnimation here. The capture rows now
+      // own their motion via Reanimated (entering/exiting/layout), and firing
+      // `LayoutAnimation.configureNext` in the same frame that rows mount/unmount
+      // crashes iOS — especially from a swipe, where this commit runs mid-gesture
+      // (onPanResponderMove) while gesture-handler is still processing the touch.
+      // (Tap survived only because it commits with no active drag.) The row
+      // Reanimated transitions cover the visual change.
 
       return nextExpanded;
     });
@@ -1602,10 +1626,18 @@ export function ScannerScreen({
       capturePostHogEvent('scan_inventory_add_succeeded', {
         mode: capture.mode,
       });
-      const nextEntries = await spotlightRepository.getInventoryEntries();
-      setInventoryEntries(nextEntries);
-      refreshData();
       didSucceed = true;
+      // Reconcile against the server's canonical list in the BACKGROUND. The
+      // optimistic add above already shows this card, so blocking the spinner on
+      // a second full-inventory refetch is exactly what made single-add feel
+      // slower than "Add all" (which never awaits this). Fire-and-forget so the
+      // spinner clears as soon as the write itself lands.
+      void spotlightRepository.getInventoryEntries()
+        .then((nextEntries) => setInventoryEntries(nextEntries))
+        .catch(() => {
+          // Optimistic state stands; refreshData below still nudges screens.
+        });
+      refreshData();
     } catch (error) {
       setInventoryEntries(previousInventoryEntries);
       capturePostHogEvent('scan_inventory_add_failed', {
@@ -1733,6 +1765,15 @@ export function ScannerScreen({
       sourceImageUri: capture.uri || null,
     });
     trackCandidateSelectionIfNeeded(capture);
+    // Warm the PDP caches: a graded slab capture → graded lane on its grader,
+    // otherwise the default raw lane.
+    prefetchCardDetail(
+      spotlightRepository,
+      candidate.cardId,
+      capture.slabContext?.grader
+        ? { grader: capture.slabContext.grader, mode: 'graded', variant: null }
+        : { grader: null, mode: 'raw', variant: 'Normal' },
+    );
     router.push({
       pathname: '/cards/[cardId]',
       params: {
@@ -1741,7 +1782,7 @@ export function ScannerScreen({
         scanReviewId,
       },
     });
-  }, [inventoryByCardId, recentCaptures, router, trackCandidateSelectionIfNeeded]);
+  }, [inventoryByCardId, recentCaptures, router, spotlightRepository, trackCandidateSelectionIfNeeded]);
 
   const handleEbayTrayTap = useCallback((captureId: string, slabContext: { grader?: string | null; grade?: string | null; certNumber?: string | null; variantName?: string | null } | null) => {
     const existing = ebayTrayState.get(captureId);
@@ -2195,7 +2236,14 @@ export function ScannerScreen({
             pointerEvents="box-none"
             style={[
               styles.controlsRow,
-              { left: 16, right: 16, top: captureSurfaceLayout.controlsTop },
+              // Sit 16px above the scan tray (Figma 1180-1278): anchored to the
+              // tray's top edge — taller collapsed tray once a scan exists, the
+              // shorter empty peek otherwise — rather than pinned under the reticle.
+              {
+                left: 16,
+                right: 16,
+                bottom: (recentCaptures.length > 0 ? collapsedTrayReservedHeight : emptyTrayVisualHeight) + 16,
+              },
             ]}
           >
             <ScanTargetPill

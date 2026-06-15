@@ -26,6 +26,7 @@ import { CardConfigurator } from '@/features/cards/components/card-configurator'
 import { GradeConditionSheet } from '@/features/cards/components/grade-condition-sheet';
 import { CardDetailHero } from '@/features/cards/components/card-detail-hero';
 import { CardPriceTrendList } from '@/features/cards/components/card-price-trend-list';
+import { CardPriceTrendSkeleton } from '@/features/cards/components/card-price-trend-skeleton';
 import { CardProductDetails } from '@/features/cards/components/card-product-details';
 import { buildEbaySearchUrl, buildTcgPlayerSearchUrl } from '@/features/cards/marketplace-urls';
 import {
@@ -33,6 +34,14 @@ import {
   cardDetailPreviewFromInventoryEntry,
   getCardDetailPreview,
 } from '@/features/cards/card-detail-preview-session';
+import {
+  defaultLaneFromPreview,
+  getCardDetailCached,
+  getCardPriceTrendsCached,
+  invalidateCardDetailCache,
+  laneKey,
+  type CardDetailLane,
+} from '@/features/cards/card-detail-prefetch';
 import {
   getScanCandidateReviewSession,
 } from '@/features/scanner/scan-candidate-review-session';
@@ -130,6 +139,16 @@ export function CardDetailScreen({
   const [isAddPending, setIsAddPending] = useState(false);
 
   const [priceTrends, setPriceTrends] = useState<CardPriceTrendListRecord | null>(null);
+  const [priceTrendsLoading, setPriceTrendsLoading] = useState(false);
+  // The lane key (mode|variant|grader) of the most recent trend fetch, so the
+  // lens-change effect refetches only when the resolved lane actually differs
+  // from what the early parallel fetch already loaded (no double fetch for the
+  // common raw/Normal case).
+  const lastFetchedLaneKeyRef = useRef<string | null>(null);
+  // Tracks the dataVersion the caches were last validated against, so a real
+  // bump (pull-to-refresh / mutation) invalidates this card's cached detail +
+  // trends, while the initial mount keeps any navigation-prefetched entries.
+  const cacheDataVersionRef = useRef<number | null>(null);
 
   const scanReviewSession = useMemo(
     () => getScanCandidateReviewSession(scanReviewId),
@@ -159,7 +178,17 @@ export function CardDetailScreen({
     setDetail((currentDetail) => (currentDetail?.cardId === cardId ? currentDetail : null));
     setErrorMessage(null);
 
-    void spotlightRepository.getCardDetail({ cardId })
+    // Drop cached detail+trends for this card when dataVersion actually bumps
+    // (refresh/mutation), but keep prefetched entries on the first mount.
+    if (cacheDataVersionRef.current !== null && cacheDataVersionRef.current !== dataVersion) {
+      invalidateCardDetailCache(cardId);
+      lastFetchedLaneKeyRef.current = null;
+    }
+    cacheDataVersionRef.current = dataVersion;
+
+    // Read through the short-TTL cache so a navigation prefetch (or a recent
+    // visit) resolves instantly; otherwise this fires and populates it.
+    void getCardDetailCached(spotlightRepository, cardId)
       .then((nextDetail) => {
         if (cancelled) {
           return;
@@ -194,6 +223,8 @@ export function CardDetailScreen({
     setSelectedCondition(null);
     setQuantity(1);
     setPriceTrends(null);
+    setPriceTrendsLoading(false);
+    lastFetchedLaneKeyRef.current = null;
     seededCardIdRef.current = null;
     seededVariantCardIdRef.current = null;
   }, [cardId]);
@@ -305,33 +336,93 @@ export function CardDetailScreen({
     return variantOptions.find((option) => option.id === selectedVariant)?.label ?? null;
   }, [selectedVariant, variantOptions]);
 
-  // Fetch price trends on mount and whenever the grader/variant lens changes.
+  // Monotonic request token. Each fetch claims the next token; only the most
+  // recent token's result is applied. This survives benign effect re-runs (e.g.
+  // when seeding flips selectedGrader and the early effect re-runs) — unlike a
+  // per-effect cancel flag, which would drop the in-flight result. Bumped on
+  // cardId change / unmount so a navigation away can't apply a stale lane.
+  const trendRequestTokenRef = useRef(0);
+  useEffect(() => {
+    return () => {
+      trendRequestTokenRef.current += 1;
+    };
+  }, [cardId]);
+
+  // Shared lane fetch used by BOTH the early parallel fetch (on mount, from the
+  // preview's default lane — no waiting on variantOptions/seeding) and the
+  // lens-change fetch (after the user switches grader/variant). Reads through
+  // the short-TTL cache, flips the loading flag, and records the fetched lane
+  // key so the lens-change effect can skip a redundant refetch.
+  const fetchTrendsForLane = useCallback(
+    (lane: CardDetailLane) => {
+      const key = laneKey(cardId, lane);
+      lastFetchedLaneKeyRef.current = key;
+      const token = trendRequestTokenRef.current + 1;
+      trendRequestTokenRef.current = token;
+      setPriceTrendsLoading(true);
+      return getCardPriceTrendsCached(spotlightRepository, cardId, lane)
+        .then((next) => {
+          if (trendRequestTokenRef.current !== token) {
+            return;
+          }
+          setPriceTrends(next);
+          setPriceTrendsLoading(false);
+        })
+        .catch(() => {
+          if (trendRequestTokenRef.current !== token) {
+            return;
+          }
+          // Allow a later lens change / refresh to retry this lane.
+          if (lastFetchedLaneKeyRef.current === key) {
+            lastFetchedLaneKeyRef.current = null;
+          }
+          setPriceTrends(null);
+          setPriceTrendsLoading(false);
+        });
+    },
+    [cardId, spotlightRepository],
+  );
+
+  // EARLY parallel fetch: as soon as the card id + early owned context are
+  // known, fetch the default lane (computed from the preview, mirroring the
+  // grader/variant seeds) IN PARALLEL with getCardDetail — without waiting for
+  // variantOptions or the seeding effects to settle. Guarded by the lane-key
+  // ref so it fires at most once per lane.
+  useEffect(() => {
+    // Once the lane is resolved/seeded (selectedGrader set), the lens-change
+    // effect owns fetching — so don't let the default lane stomp a graded lens
+    // on a dataVersion bump. This only kicks off the pre-seed default fetch.
+    if (selectedGrader != null) {
+      return;
+    }
+    const lane = defaultLaneFromPreview(detailPreview);
+    if (lastFetchedLaneKeyRef.current === laneKey(cardId, lane)) {
+      return;
+    }
+    void fetchTrendsForLane(lane);
+    // Intentionally keyed on cardId + the early lane signal only, NOT on the
+    // seeded selection state, so it runs before seeding completes.
+  }, [cardId, dataVersion, detailPreview, fetchTrendsForLane, selectedGrader]);
+
+  // LENS-CHANGE fetch: once the user's lane resolves (grader/variant seeded or
+  // changed), refetch ONLY when it differs from the lane already fetched. The
+  // common raw/Normal default matches the early fetch's lane key, so this is a
+  // no-op there (no double fetch); switching grader/variant refetches the new
+  // lane.
   useEffect(() => {
     if (!detail || selectedGrader == null) {
       return;
     }
-    let cancelled = false;
-    const mode = isRawLane ? 'raw' : 'graded';
-    void spotlightRepository.getCardPriceTrends({
-      cardId,
-      mode,
+    const lane: CardDetailLane = {
+      mode: isRawLane ? 'raw' : 'graded',
       variant: isRawLane ? (selectedVariantLabel ?? null) : null,
       grader: isRawLane ? null : selectedGrader,
-    })
-      .then((next) => {
-        if (!cancelled) {
-          setPriceTrends(next);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setPriceTrends(null);
-        }
-      });
-    return () => {
-      cancelled = true;
     };
-  }, [cardId, dataVersion, detail, isRawLane, selectedGrader, selectedVariantLabel, spotlightRepository]);
+    if (lastFetchedLaneKeyRef.current === laneKey(cardId, lane)) {
+      return;
+    }
+    void fetchTrendsForLane(lane);
+  }, [cardId, detail, fetchTrendsForLane, isRawLane, selectedGrader, selectedVariantLabel]);
 
   // Tap a Price-Trend row → open the marketplace for that exact grade/condition.
   // Raw rows deep-link to a TCGplayer search (filtered to the condition + printing) —
@@ -651,6 +742,7 @@ export function CardDetailScreen({
           selectedVariant={selectedVariant}
           testID="detail-configurator"
           variants={variantOptions}
+          variantsLoading={detail == null && errorMessage == null}
         />
 
         <GradeConditionSheet
@@ -670,6 +762,10 @@ export function CardDetailScreen({
               onRowPress={handleTrendRowPress}
               testID="detail-price-trends"
             />
+          </View>
+        ) : priceTrendsLoading ? (
+          <View style={styles.trendBlock}>
+            <CardPriceTrendSkeleton testID="detail-price-trends-skeleton" />
           </View>
         ) : null}
 

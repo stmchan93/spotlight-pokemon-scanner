@@ -107,6 +107,16 @@ jest.mock('@/features/cards/card-detail-preview-session', () => ({
   saveCardDetailPreviewFromInventoryEntry: (entry: InventoryCardEntry) => mockSaveInventoryPreview(entry),
 }));
 
+// Routes warm the PDP via prefetchCardDetail(useAppServices().spotlightRepository).
+// Stub both so the route wrappers render in isolation (no AppProviders here).
+jest.mock('@/features/cards/card-detail-prefetch', () => ({
+  prefetchCardDetail: jest.fn(),
+}));
+
+jest.mock('@/providers/app-providers', () => ({
+  useAppServices: () => ({ spotlightRepository: {} }),
+}));
+
 jest.mock('@/features/auth/auth-service', () => ({
   restoreSessionFromUrl: (url: string) => mockRestoreSessionFromUrl(url),
 }));

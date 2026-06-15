@@ -188,6 +188,13 @@ export function AppDrawer() {
       onPress: navigateToCollection,
     },
     {
+      key: 'wishlist',
+      label: 'Wishlist',
+      icon: Heart,
+      selected: activeKey === 'wishlist',
+      onPress: () => goTo('/wishlist'),
+    },
+    {
       key: 'sales',
       label: 'Transactions',
       icon: DollarCircle,
@@ -200,13 +207,6 @@ export function AppDrawer() {
       icon: GraphUp,
       selected: activeKey === 'insights',
       onPress: () => goTo('/insights'),
-    },
-    {
-      key: 'wishlist',
-      label: 'Wishlist',
-      icon: Heart,
-      selected: activeKey === 'wishlist',
-      onPress: () => goTo('/wishlist'),
     },
   ];
 

@@ -33,6 +33,7 @@ import { ScrollToTopFab, useScrollToTop } from '@/components/scroll-to-top-fab';
 import { GridViewIcon, ListViewIcon } from '@/components/view-toggle-icons';
 import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
 import { saveCardDetailPreviewFromFavorite } from '@/features/cards/card-detail-preview-session';
+import { prefetchCardDetail } from '@/features/cards/card-detail-prefetch';
 import { formatOptionalCurrency } from '@/features/portfolio/components/portfolio-formatting';
 import { WishlistHero } from '@/features/wishlist/components/wishlist-hero';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
@@ -211,6 +212,8 @@ export function WishlistScreen() {
   }, [featuredCardId, visibleEntries]);
 
   const handleOpenDetail = useCallback((entry: CardFavoriteEntry) => {
+    // Favorites carry no owned slab → warm the default raw lane before nav.
+    prefetchCardDetail(spotlightRepository, entry.cardId);
     const previewId = saveCardDetailPreviewFromFavorite(entry);
     router.push({
       pathname: '/cards/[cardId]',
@@ -219,14 +222,14 @@ export function WishlistScreen() {
         previewId,
       },
     });
-  }, [router]);
+  }, [router, spotlightRepository]);
 
-  // Tapping a row/tile promotes that card into the hero; the detail screen is
-  // reached by tapping the hero card image (onOpenDetail).
-  const handleFeatureEntry = useCallback((entry: CardFavoriteEntry) => {
+  // Tapping a row/tile opens its detail page AND features it in the hero, so
+  // returning from the PDP shows the card you tapped on top.
+  const handleOpenEntry = useCallback((entry: CardFavoriteEntry) => {
     setFeaturedCardId(entry.cardId);
-    scrollToTop();
-  }, [scrollToTop]);
+    handleOpenDetail(entry);
+  }, [handleOpenDetail]);
 
   // The hero's top-right X removes the featured card from the wishlist. Drop it
   // optimistically so the hero advances to the next card immediately, then
@@ -287,27 +290,27 @@ export function WishlistScreen() {
           <WishlistListRow
             entry={item.entry}
             firstInSection={item.firstInSection}
-            onPress={handleFeatureEntry}
+            onPress={handleOpenEntry}
             theme={theme}
           />
         );
       }
       if (item.kind === 'grid-single') {
         return (
-          <WishlistGridSingleRow entry={item.entry} onPress={handleFeatureEntry} theme={theme} />
+          <WishlistGridSingleRow entry={item.entry} onPress={handleOpenEntry} theme={theme} />
         );
       }
       return (
         <WishlistGridRow
           isFirstRow={item.rowIndex === 0}
-          onPress={handleFeatureEntry}
+          onPress={handleOpenEntry}
           rowEntries={item.rowEntries}
           rowIndex={item.rowIndex}
           theme={theme}
         />
       );
     },
-    [handleFeatureEntry, theme],
+    [handleOpenEntry, theme],
   );
 
   const listHeader = (
@@ -491,6 +494,7 @@ function WishlistListRow({ entry, firstInSection, onPress, theme }: WishlistList
         onPress={() => onPress(entry)}
         quantity={1}
         setName={entry.setName}
+        showQuantity={false}
         testID={`wishlist-row-${entry.cardId}`}
         trendChangeAmount={entry.dayChangeAmount ?? null}
       />
@@ -629,13 +633,6 @@ function WishlistGridTile({ entry, onPress, theme }: WishlistGridTileProps) {
             {gradeText}
           </Text>
         ) : null}
-        <Text
-          numberOfLines={1}
-          style={[styles.gridMeta, { color: theme.colors.gray600 }]}
-          testID={`wishlist-grid-tile-${entry.cardId}-qty`}
-        >
-          Qty: 1
-        </Text>
       </View>
       <View style={styles.gridPriceRow}>
         <Text

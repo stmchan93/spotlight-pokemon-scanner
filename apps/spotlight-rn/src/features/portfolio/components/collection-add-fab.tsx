@@ -3,7 +3,7 @@ import { Plus } from 'iconoir-react-native';
 import { Pressable, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { colors, useSpotlightTheme } from '@spotlight/design-system';
+import { bottomTabBarHeight, colors } from '@spotlight/design-system';
 
 type CollectionAddFabProps = {
   onPress?: () => void;
@@ -15,7 +15,6 @@ export function CollectionAddFab({
   testID = 'collection-add-fab',
 }: CollectionAddFabProps) {
   const router = useRouter();
-  const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
 
   const handlePress = () => {
@@ -26,11 +25,9 @@ export function CollectionAddFab({
     router.push('/catalog/search' as never);
   };
 
-  const bottom =
-    theme.layout.bottomNavHeight
-    + theme.layout.bottomNavBottomInset
-    + Math.max(insets.bottom - 8, 0)
-    + 16;
+  // Sit exactly 16px above the Collection/Scan/Events nav bar (the bar is
+  // bottomTabBarHeight tall and padded by the bottom safe-area inset).
+  const bottom = Math.max(insets.bottom, 0) + bottomTabBarHeight + 16;
 
   return (
     <Pressable

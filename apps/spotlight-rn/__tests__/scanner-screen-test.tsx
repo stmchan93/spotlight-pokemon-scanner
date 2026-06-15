@@ -1045,7 +1045,11 @@ describe('ScannerScreen', () => {
     expect(collapsedViewportHeight).toBe(102); // exactly one full row, no peek
 
     fireEvent.press(screen.getByTestId('scanner-tray-header'));
-    expect(mockConfigureNext).toHaveBeenCalled();
+    // The tray must NOT fire a classic LayoutAnimation on expand/collapse —
+    // doing so in the same frame the capture rows mount/unmount crashed iOS
+    // (especially mid-swipe, where the commit runs during the gesture). The
+    // rows now animate via Reanimated, so this assertion guards the regression.
+    expect(mockConfigureNext).not.toHaveBeenCalled();
 
     await waitFor(() => {
       expect(screen.getByTestId('scanner-tray-scroll')).toBeTruthy();
