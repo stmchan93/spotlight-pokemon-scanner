@@ -5,6 +5,8 @@ import type {
 } from '@spotlight/api-client';
 
 import type { CardDetailPreview } from '@/features/cards/card-detail-preview-session';
+import { imageCachePolicy } from '@/components/cached-image';
+import { prefetchImageUrls } from '@/lib/card-images';
 
 /**
  * Short-TTL in-memory read-through cache + navigation prefetch for the card
@@ -120,7 +122,10 @@ export function getCardDetailCached(
     detailCache,
     maxDetailEntries,
     cardId,
-    repository.getCardDetail({ cardId }),
+    // Skip the heavy full-collection fetch on the detail critical path so the
+    // card image + variants paint as soon as card + market-history resolve. The
+    // PDP sources owned context from the already-loaded inventory cache instead.
+    repository.getCardDetail({ cardId }, { includeOwnedEntries: false }),
   );
 }
 
@@ -170,6 +175,7 @@ export function prefetchCardDetail(
   repository: SpotlightRepository,
   cardId: string,
   lane?: CardDetailLane,
+  imageUrl?: string | null,
 ): void {
   if (!cardId) {
     return;
@@ -180,6 +186,11 @@ export function prefetchCardDetail(
     cardId,
     lane ?? { grader: null, mode: 'raw', variant: 'Normal' },
   ).catch(() => undefined);
+  // Warm the hero image into the same disk cache the PDP hero reads from, so the
+  // card art is already downloading (often resolved) before the page mounts.
+  if (imageUrl) {
+    void prefetchImageUrls([imageUrl], imageCachePolicy.hero).catch(() => undefined);
+  }
 }
 
 /**

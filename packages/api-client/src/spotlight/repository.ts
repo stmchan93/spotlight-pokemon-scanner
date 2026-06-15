@@ -17,6 +17,7 @@ import type {
   CardFavoriteEntry,
   CardFavoriteRecord,
   CardFavoritesQuery,
+  CardDetailLoadOptions,
   CardDetailQuery,
   CardDetailRecord,
   CardEbayListingRecord,
@@ -119,8 +120,8 @@ export interface SpotlightRepository {
     sessionID: string,
     payload?: { abortedAt?: string | null },
   ): Promise<LabelingSessionRecord>;
-  loadCardDetail(query: CardDetailQuery): Promise<SpotlightRepositoryLoadResult<CardDetailRecord | null>>;
-  getCardDetail(query: CardDetailQuery): Promise<CardDetailRecord | null>;
+  loadCardDetail(query: CardDetailQuery, options?: CardDetailLoadOptions): Promise<SpotlightRepositoryLoadResult<CardDetailRecord | null>>;
+  getCardDetail(query: CardDetailQuery, options?: CardDetailLoadOptions): Promise<CardDetailRecord | null>;
   getCardMarketHistory(query: CardDetailQuery & {
     condition?: string | null;
     days?: number;
@@ -2588,20 +2589,23 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return { ...nextSession };
   }
 
-  async loadCardDetail(query: CardDetailQuery) {
+  async loadCardDetail(query: CardDetailQuery, options?: CardDetailLoadOptions) {
+    const includeOwnedEntries = options?.includeOwnedEntries ?? true;
     const detail = getMockCardDetail(this.cardDetails, this.inventoryEntries, query);
     return detail
       ? buildLoadResult('success', {
         ...detail,
-        ownedEntries: detail.ownedEntries.map((entry) => this.annotateInventoryEntry(entry)),
+        ownedEntries: includeOwnedEntries
+          ? detail.ownedEntries.map((entry) => this.annotateInventoryEntry(entry))
+          : [],
         isFavorite: this.favoriteCardTimestamps.has(query.cardId),
         favoritedAt: this.favoriteTimestampForCard(query.cardId),
       })
       : buildLoadResult('not_found', null);
   }
 
-  async getCardDetail(query: CardDetailQuery) {
-    const result = await this.loadCardDetail(query);
+  async getCardDetail(query: CardDetailQuery, options?: CardDetailLoadOptions) {
+    const result = await this.loadCardDetail(query, options);
     return result.data;
   }
 
@@ -3916,14 +3920,24 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     );
   }
 
-  async loadCardDetail(query: CardDetailQuery) {
+  async loadCardDetail(query: CardDetailQuery, options?: CardDetailLoadOptions) {
     const detailQuery = buildDetailQueryParams(query);
 
     const detailUrl = `${this.baseUrl}/api/v1/cards/${query.cardId}${detailQuery.toString() ? `?${detailQuery.toString()}` : ''}`;
     const historyQuery = buildRawDefaultMarketHistoryQuery(query);
-    const [detailResponse, inventoryResult, historyResponse] = await Promise.all([
+
+    // Owned entries come from the full-collection endpoint, which is unrelated
+    // to the card identity/pricing the page needs to paint. Kick it off in
+    // parallel but DON'T gate the returned detail on it: when the caller opts
+    // out (the PDP fast path), skip it entirely so the card image + variants
+    // render as soon as detail + market-history resolve, instead of waiting on
+    // the user's entire collection. `getCardDetailCached` sources owned context
+    // from the already-loaded inventory cache instead.
+    const includeOwnedEntries = options?.includeOwnedEntries ?? true;
+    const inventoryPromise = includeOwnedEntries ? this.loadInventoryEntries() : null;
+
+    const [detailResponse, historyResponse] = await Promise.all([
       this.requestJson<CardDetailDTO>(detailUrl, undefined, { allowNotFound: true }),
-      this.loadInventoryEntries(),
       this.requestJson<CardMarketHistoryDTO>(`${this.baseUrl}/api/v1/cards/${query.cardId}/market-history?${historyQuery.toString()}`),
     ]);
 
@@ -3976,7 +3990,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         ...marketHistory,
         currentPrice: marketHistory.currentPrice ?? card.pricing.market ?? 0,
       },
-      ownedEntries: (inventoryResult.data ?? []).filter((entry: InventoryCardEntry) => entry.cardId === query.cardId),
+      ownedEntries: ((await inventoryPromise)?.data ?? []).filter((entry: InventoryCardEntry) => entry.cardId === query.cardId),
       variantOptions: marketHistory.availableVariants,
       isFavorite: normalizeBoolean(detailResponse.data.isFavorite) ?? card.isFavorite,
       favoritedAt: normalizeString(detailResponse.data.favoritedAt),
@@ -3987,8 +4001,8 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     return buildLoadResult('success', detail);
   }
 
-  async getCardDetail(query: CardDetailQuery) {
-    const result = await this.loadCardDetail(query);
+  async getCardDetail(query: CardDetailQuery, options?: CardDetailLoadOptions) {
+    const result = await this.loadCardDetail(query, options);
     if (result.state === 'error') {
       throw new SpotlightRepositoryRequestError(
         result.errorMessage ?? 'Could not load this card right now.',

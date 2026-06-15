@@ -29,11 +29,14 @@ export default function TabsRoot() {
         <PortfolioScreen
           onOpenInventoryEntry={(entry) => {
             // Warm the PDP caches with this card's default lane (graded if the
-            // entry is a slab, else raw/owned-variant) before navigation.
+            // entry is a slab, else raw/owned-variant) + hero image before
+            // navigation.
+            const preview = cardDetailPreviewFromInventoryEntry(entry);
             prefetchCardDetail(
               spotlightRepository,
               entry.cardId,
-              defaultLaneFromPreview(cardDetailPreviewFromInventoryEntry(entry)),
+              defaultLaneFromPreview(preview),
+              preview.largeImageUrl ?? preview.imageUrl,
             );
             router.push({
               pathname: '/cards/[cardId]',

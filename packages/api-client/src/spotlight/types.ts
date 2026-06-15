@@ -1041,6 +1041,18 @@ export type CardDetailQuery = {
   slabContext?: SlabContext | null;
 };
 
+export type CardDetailLoadOptions = {
+  /**
+   * When `false`, skip the heavy full-collection inventory fetch on the detail
+   * load critical path. `ownedEntries` is returned empty so the caller can
+   * source owned context from an already-loaded inventory cache instead. The
+   * product detail page (PDP) uses this so the card image + variants render as
+   * soon as card + market-history resolve, without waiting on the collection.
+   * Defaults to `true` (owned entries included).
+   */
+  includeOwnedEntries?: boolean;
+};
+
 export type CardRecentSalesQuery = CardDetailQuery & {
   source?: CardRecentSaleSource;
   limit?: number;
