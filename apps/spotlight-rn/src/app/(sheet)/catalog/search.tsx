@@ -19,7 +19,7 @@ export default function CatalogSearchRoute() {
       onClose={() => router.back()}
       onOpenCard={(result) => {
         // Catalog results have no owned context → warm the default raw lane.
-        prefetchCardDetail(spotlightRepository, result.cardId);
+        prefetchCardDetail(spotlightRepository, result.cardId, undefined, result.imageUrl);
         router.push({
           pathname: '/cards/[cardId]',
           params: {

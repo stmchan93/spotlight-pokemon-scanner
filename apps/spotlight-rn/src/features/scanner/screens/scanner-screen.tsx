@@ -1743,6 +1743,7 @@ export function ScannerScreen({
       capture.slabContext?.grader
         ? { grader: capture.slabContext.grader, mode: 'graded', variant: null }
         : { grader: null, mode: 'raw', variant: 'Normal' },
+      candidate.imageUrl,
     );
     router.push({
       pathname: '/cards/[cardId]',

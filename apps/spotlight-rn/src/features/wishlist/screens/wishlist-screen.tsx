@@ -213,8 +213,13 @@ export function WishlistScreen() {
   }, [featuredCardId, visibleEntries]);
 
   const handleOpenDetail = useCallback((entry: CardFavoriteEntry) => {
-    // Favorites carry no owned slab → warm the default raw lane before nav.
-    prefetchCardDetail(spotlightRepository, entry.cardId);
+    // Favorites carry no owned slab → warm the default raw lane + hero image.
+    prefetchCardDetail(
+      spotlightRepository,
+      entry.cardId,
+      undefined,
+      entry.largeImageUrl ?? entry.imageUrl,
+    );
     const previewId = saveCardDetailPreviewFromFavorite(entry);
     router.push({
       pathname: '/cards/[cardId]',

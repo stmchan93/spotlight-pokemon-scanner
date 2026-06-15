@@ -239,18 +239,29 @@ export function CardDetailScreen({
     });
   }, [detail]);
 
-  const selectedEntry = useMemo(() => {
-    if (!detail) {
-      const previewEntry = detailPreview?.ownedEntry ?? null;
-      if (!previewEntry) {
-        return null;
-      }
+  // Owned entries for this card from the already-loaded inventory cache. The PDP
+  // detail fast path resolves WITHOUT the heavy full-collection fetch (so its
+  // image + variants paint immediately), so owned context comes from here.
+  const cachedOwnedEntries = useMemo(() => {
+    const source = inventoryEntriesCache ?? portfolioDashboardCache?.inventoryItems ?? [];
+    return source.filter((entry) => entry.cardId === cardId);
+  }, [cardId, inventoryEntriesCache, portfolioDashboardCache]);
 
-      return !entryId || previewEntry.id === entryId ? previewEntry : null;
+  const selectedEntry = useMemo(() => {
+    // Prefer authoritative owned entries if a full detail carried them; else the
+    // inventory cache; else the navigation preview's single owned entry.
+    const ownedPool = detail?.ownedEntries.length ? detail.ownedEntries : cachedOwnedEntries;
+    if (ownedPool.length > 0) {
+      return ownedPool.find((entry) => entry.id === entryId) ?? ownedPool[0] ?? null;
     }
 
-    return detail.ownedEntries.find((entry) => entry.id === entryId) ?? detail.ownedEntries[0] ?? null;
-  }, [detail, detailPreview?.ownedEntry, entryId]);
+    const previewEntry = detailPreview?.ownedEntry ?? null;
+    if (!previewEntry) {
+      return null;
+    }
+
+    return !entryId || previewEntry.id === entryId ? previewEntry : null;
+  }, [cachedOwnedEntries, detail, detailPreview?.ownedEntry, entryId]);
 
   const ownedSlabContext = selectedEntry?.slabContext ?? scanReviewSession?.slabContext ?? null;
 

@@ -140,6 +140,47 @@ describe('HttpSpotlightRepository', () => {
     expect(detail?.largeImageUrl).toBeNull();
   });
 
+  it('skips the full-collection fetch on the detail critical path when owned entries are opted out', async () => {
+    const fetchedUrls: string[] = [];
+    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+      fetchedUrls.push(url);
+
+      if (url.includes('/api/v1/cards/sm7-1/market-history')) {
+        return jsonResponse(200, {
+          currencyCode: 'USD',
+          currentPrice: 0.31,
+          points: [],
+          availableVariants: [{ id: 'normal', label: 'Normal' }],
+          availableConditions: [],
+        });
+      }
+
+      if (url.includes('/api/v1/cards/sm7-1')) {
+        return jsonResponse(200, {
+          card: {
+            id: 'sm7-1',
+            name: 'Treecko',
+            setName: 'Celestial Storm',
+            number: '1',
+            pricing: { currencyCode: 'usd', market: 0.31 },
+          },
+        });
+      }
+
+      throw new Error(`Unexpected URL: ${url}`);
+    }) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    const detail = await repository.getCardDetail({ cardId: 'sm7-1' }, { includeOwnedEntries: false });
+
+    // The PDP fast path renders image + variants without waiting on the user's
+    // entire collection, so the deck-entries endpoint is never hit here.
+    expect(fetchedUrls.some((url) => url.includes('/api/v1/deck/entries'))).toBe(false);
+    expect(detail).not.toBeNull();
+    expect(detail?.ownedEntries).toEqual([]);
+    expect(detail?.variantOptions).toEqual([{ id: 'normal', label: 'Normal', currentPrice: null }]);
+  });
+
   it('maps recent eBay sales into the recent-sales payload', async () => {
     global.fetch = jest.fn().mockImplementation(async (url: string) => {
       if (url.includes('/api/v1/cards/sm7-1/recent-sales')) {
