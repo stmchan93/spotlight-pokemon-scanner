@@ -270,6 +270,11 @@ function buildExpoConfigForEnv(env = process.env, overridesPath = LOCAL_OVERRIDE
   if (releaseOverrides.iosBundleIdentifier) {
     ios.bundleIdentifier = releaseOverrides.iosBundleIdentifier;
   }
+  // Staging-only app icon — the Ekalight "E" mark. Production keeps its existing
+  // icon (baseExpoConfig.ios.icon); only the staging TestFlight build swaps it.
+  if (resolvedAppEnv === 'staging') {
+    ios.icon = './assets/images/ekalight-e-icon.png';
+  }
 
   const android = {
     ...(baseExpoConfig.android ?? {}),
