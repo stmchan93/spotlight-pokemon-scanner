@@ -259,6 +259,10 @@ export function usePortfolioScreenModel() {
   // True once we have any dashboard worth showing (live, in-memory, or persisted)
   // — used to suppress the blocking error when we can keep showing the last chart.
   const hasUsableDashboardRef = useRef<boolean>(portfolioDashboardCache !== null);
+  // Mirror the dashboard we're CURRENTLY showing into a ref so the async loaders
+  // can compare against it without being re-created on every dashboard change.
+  const dashboardRef = useRef(dashboard);
+  dashboardRef.current = dashboard;
   const [selectedRange, setSelectedRange] = useState<PortfolioHistoryRange>('1W');
   // Open-range loading: the dashboard now computes only the open range; other
   // ranges are fetched on demand when the user switches to them. `loadingRange`
@@ -336,7 +340,18 @@ export function usePortfolioScreenModel() {
     const openRange = selectedRangeRef.current;
     const loadResult = await spotlightRepository.loadPortfolioDashboard({ range: openRange });
 
-    if (loadResult.data && loadResult.state !== 'error') {
+    // The backend returns state 'empty' only when it sees NO inventory AND NO
+    // sales. For someone who already has a portfolio that's never legitimate — a
+    // real "sold everything" still has sale records, so it comes back 'success'.
+    // An 'empty' here means a transient read landed while the backend was busy
+    // (e.g. right after rapid scans, which serialize backend work). Accepting it
+    // would zero AND cache the value until an app restart, so treat it as a
+    // failed refresh: keep the real value and let it revalidate.
+    const current = dashboardRef.current;
+    const currentlyHasValue = current.inventoryCount > 0 || current.summary.currentValue > 0;
+    const isSuspiciousEmpty = loadResult.state === 'empty' && currentlyHasValue;
+
+    if (loadResult.data && loadResult.state !== 'error' && !isSuspiciousEmpty) {
       const savedAt = new Date().toISOString();
       setDashboard(loadResult.data);
       // A fresh dashboard only carries the open range; drop any previously
@@ -351,9 +366,10 @@ export function usePortfolioScreenModel() {
       hasUsableDashboardRef.current = true;
       persistDashboard(loadResult.data, savedAt);
       setLoadError(null);
-    } else if (loadResult.state === 'error') {
+    } else if (loadResult.state === 'error' || isSuspiciousEmpty) {
       // Stale-while-revalidate: if we already have a chart to show, keep it and
-      // flag "couldn't refresh" instead of surfacing a blocking error.
+      // flag "couldn't refresh" instead of surfacing a blocking error (or, for a
+      // suspicious empty, instead of zeroing the value).
       setIsDashboardStale(true);
       setLoadError(hasUsableDashboardRef.current ? null : loadResult.errorMessage);
     } else {

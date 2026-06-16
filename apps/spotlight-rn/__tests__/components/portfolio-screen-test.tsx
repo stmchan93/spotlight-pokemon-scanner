@@ -16,6 +16,22 @@ jest.mock('expo-router', () => ({
   useRouter: jest.fn(),
 }));
 
+// RollingNumberText is a slot-machine display (each digit is a column rendering
+// 0-9), so its text content isn't the literal value. Swap it for a plain Text so
+// tests can assert the displayed portfolio value directly.
+jest.mock('@spotlight/design-system', () => {
+  const actual = jest.requireActual('@spotlight/design-system');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const React = require('react');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { Text: RNText } = require('react-native');
+  return {
+    ...actual,
+    RollingNumberText: ({ value, testID, style }: { value: string; testID?: string; style?: unknown }) =>
+      React.createElement(RNText, { testID, style }, value),
+  };
+});
+
 // The portfolio dashboard refresh effect is gated on the tabs context's
 // activePage being 'portfolio' so the 13-call fan-out doesn't fire while
 // the user is on the scanner tab. The default context value is 'scanner'
@@ -270,6 +286,63 @@ describe('PortfolioScreen', () => {
     expect(screen.queryByText('Could not refresh your backend data')).toBeNull();
     expect(screen.queryByText('Could not load your backend data')).toBeNull();
     expect(screen.getByTestId('collection-masonry-grid')).toBeTruthy();
+  });
+
+  it('does not zero the portfolio value when a refresh returns a transient empty dashboard', async () => {
+    const inventory = [buildInventoryEntry({ id: 'a', name: 'Card A', marketPrice: 5 })];
+    const base = buildDashboardWithInventory(inventory); // summary.currentValue 100
+    // Give it a hydrated chart series so the inventory load merges (keeping the
+    // $100 summary) instead of recomputing the value from inventory.
+    const dashboard: PortfolioDashboard = {
+      ...base,
+      ranges: {
+        ...base.ranges,
+        '1W': { portfolio: [{ isoDate: '2026-05-01', shortLabel: 'May 1', value: 100 }], sales: [] },
+      },
+    };
+    const emptyDashboard: PortfolioDashboard = {
+      summary: { currentValue: 0, changeAmount: 0, changePercent: 0, asOfLabel: 'Current snapshot' },
+      inventoryCount: 0,
+      inventoryItems: [],
+      recentSales: [],
+      ranges: {
+        '1W': { portfolio: [], sales: [] },
+        '1M': { portfolio: [], sales: [] },
+        '3M': { portfolio: [], sales: [] },
+        YTD: { portfolio: [], sales: [] },
+        '1Y': { portfolio: [], sales: [] },
+        ALL: { portfolio: [], sales: [] },
+      },
+    };
+    let calls = 0;
+    const repository = createTestSpotlightRepository({
+      loadInventoryEntries: async () => ({ state: 'success' as const, data: inventory, errorMessage: null }),
+      loadPortfolioDashboard: async () => {
+        calls += 1;
+        // First load: real $100 dashboard. Refresh: an 'empty' dashboard, as the
+        // backend returns when momentarily busy (e.g. right after rapid scans).
+        return calls === 1
+          ? { state: 'success' as const, data: dashboard, errorMessage: null }
+          : { state: 'empty' as const, data: emptyDashboard, errorMessage: null };
+      },
+    });
+
+    renderPortfolioScreen({ repository });
+    await screen.findByTestId('portfolio-header-title');
+    await waitFor(() => {
+      expect(screen.getByTestId('portfolio-summary-value')).toHaveTextContent('$100.00');
+    });
+
+    const refreshControl = screen.getByTestId('portfolio-scroll-view').props.refreshControl;
+    await act(async () => {
+      refreshControl.props.onRefresh();
+    });
+
+    // The transient empty must NOT zero the value — it stays $100 and flags stale.
+    await waitFor(() => {
+      expect(screen.getByTestId('portfolio-stale-hint')).toBeTruthy();
+    });
+    expect(screen.getByTestId('portfolio-summary-value')).toHaveTextContent('$100.00');
   });
 
   it('filters to favorites only when the Favorites chip is tapped', async () => {
