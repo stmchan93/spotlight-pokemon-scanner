@@ -38,40 +38,43 @@ function renderScreen(overrides: Partial<React.ComponentProps<typeof EmailPasswo
 }
 
 describe('EmailPasswordScreen', () => {
-  it('renders signup title, the email field, full-name field and password field', () => {
+  it('renders the wordmark, email, full-name and password fields in signup mode', () => {
     renderScreen({ mode: 'signup' });
 
-    expect(screen.getByText('Create your account')).toBeTruthy();
+    expect(screen.getByTestId('auth-brand-wordmark')).toBeTruthy();
     expect(screen.getByTestId('auth-emailpw-email')).toBeTruthy();
     expect(screen.getByTestId('auth-fullname-input')).toBeTruthy();
     expect(screen.getByTestId('auth-password-input')).toBeTruthy();
     expect(screen.getByText('collector@example.com')).toBeTruthy();
   });
 
-  it('renders the login title and hides the full-name field in login mode', () => {
+  it('hides the full-name field in login mode', () => {
     renderScreen({ mode: 'login' });
 
-    expect(screen.getByText('Welcome back')).toBeTruthy();
+    expect(screen.getByTestId('auth-brand-wordmark')).toBeTruthy();
     expect(screen.queryByTestId('auth-fullname-input')).toBeNull();
   });
 
-  it('keeps Continue disabled in signup until name + 6-char password are set', () => {
-    const props = renderScreen({ mode: 'signup', fullName: '', password: 'secret1' });
+  it('keeps Continue disabled in signup until the name is set', () => {
+    const props = renderScreen({ mode: 'signup', fullName: '', password: 'Secret1!' });
     fireEvent.press(screen.getByTestId('auth-emailpw-continue'));
     expect(props.onContinue).not.toHaveBeenCalled();
-
-    const withShortPw = renderScreen({ mode: 'signup', fullName: 'Ada', password: 'short' });
-    fireEvent.press(screen.getByTestId('auth-emailpw-continue'));
-    expect(withShortPw.onContinue).not.toHaveBeenCalled();
   });
 
-  it('calls onContinue in signup when name and a valid password are present', () => {
+  it('keeps Continue disabled in signup when the password fails the rules', () => {
+    // "secret1" has 7 chars and no special character — fails the signup rules.
     const props = renderScreen({ mode: 'signup', fullName: 'Ada', password: 'secret1' });
+    fireEvent.press(screen.getByTestId('auth-emailpw-continue'));
+    expect(props.onContinue).not.toHaveBeenCalled();
+  });
+
+  it('calls onContinue in signup when name and a rule-passing password are present', () => {
+    const props = renderScreen({ mode: 'signup', fullName: 'Ada', password: 'Secret1!' });
     fireEvent.press(screen.getByTestId('auth-emailpw-continue'));
     expect(props.onContinue).toHaveBeenCalledTimes(1);
   });
 
-  it('calls onContinue in login mode once the password is long enough', () => {
+  it('calls onContinue in login mode once the password is entered', () => {
     const props = renderScreen({ mode: 'login', password: 'secret1' });
     fireEvent.press(screen.getByTestId('auth-emailpw-continue'));
     expect(props.onContinue).toHaveBeenCalledTimes(1);

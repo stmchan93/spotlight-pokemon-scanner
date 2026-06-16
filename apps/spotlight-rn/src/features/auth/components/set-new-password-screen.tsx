@@ -1,9 +1,15 @@
-import { Text } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
-import { useSpotlightTheme } from '@spotlight/design-system';
+import { fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
 
-import { AuthSheetLayout } from './auth-sheet-layout';
-import { AuthErrorLine, PasswordField, PrimaryButton } from './auth-controls';
+import { AuthScreenLayout } from './auth-screen-layout';
+import {
+  AuthErrorLine,
+  PasswordField,
+  PasswordRules,
+  PrimaryButton,
+} from './auth-controls';
+import { buildPasswordRules } from './email-password-screen';
 
 type SetNewPasswordScreenProps = {
   errorMessage?: string | null;
@@ -23,34 +29,56 @@ export function SetNewPasswordScreen({
   password,
 }: SetNewPasswordScreenProps) {
   const theme = useSpotlightTheme();
-  const canContinue = password.length >= 6 && !isBusy;
+  const rules = buildPasswordRules(password);
+  const canContinue = rules.every((rule) => rule.satisfied) && !isBusy;
 
   return (
-    <AuthSheetLayout
-      actions={
+    <AuthScreenLayout
+      backTestID="auth-newpassword-back"
+      onBack={onBack}
+      testID="auth-set-new-password-screen"
+      title="Sign in / Sign up"
+    >
+      <View style={styles.heading}>
+        <Text style={[styles.title, { color: theme.colors.gray900 }]}>Set a new password</Text>
+      </View>
+
+      <View style={styles.form}>
+        <PasswordField
+          onChangeText={onChangePassword}
+          placeholder="New password"
+          testID="auth-newpassword-input"
+          toggleTestID="auth-newpassword-toggle"
+          value={password}
+        />
+
+        <PasswordRules rules={rules} testID="auth-newpassword-rules" />
+
+        {errorMessage ? <AuthErrorLine message={errorMessage} /> : null}
+
         <PrimaryButton
           disabled={!canContinue}
           label="Update password"
           onPress={onContinue}
           testID="auth-newpassword-continue"
         />
-      }
-      backTestID="auth-newpassword-back"
-      onBack={onBack}
-      testID="auth-set-new-password-screen"
-    >
-      <Text style={[theme.typography.displayLarge, { color: theme.colors.gray900 }]}>
-        Set a new password
-      </Text>
-
-      <PasswordField
-        onChangeText={onChangePassword}
-        testID="auth-newpassword-input"
-        toggleTestID="auth-newpassword-toggle"
-        value={password}
-      />
-
-      {errorMessage ? <AuthErrorLine message={errorMessage} /> : null}
-    </AuthSheetLayout>
+      </View>
+    </AuthScreenLayout>
   );
 }
+
+const styles = StyleSheet.create({
+  form: {
+    gap: 16,
+    marginTop: 24,
+  },
+  heading: {
+    gap: 8,
+    marginTop: 8,
+  },
+  title: {
+    fontFamily: fontFamilies.bodyBold,
+    fontSize: 22,
+    lineHeight: 28,
+  },
+});

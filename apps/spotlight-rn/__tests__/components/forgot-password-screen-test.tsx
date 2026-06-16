@@ -36,7 +36,7 @@ describe('ForgotPasswordScreen', () => {
   it('renders the title, prefilled email input and the send button', () => {
     renderScreen({ email: 'collector@example.com' });
 
-    expect(screen.getByText('Reset password')).toBeTruthy();
+    expect(screen.getByText('Forgot your password?')).toBeTruthy();
     expect(screen.getByTestId('auth-forgot-email-input').props.value).toBe('collector@example.com');
     expect(screen.getByText('Send reset code')).toBeTruthy();
   });

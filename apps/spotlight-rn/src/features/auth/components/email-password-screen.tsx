@@ -1,15 +1,16 @@
-import { Text } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
-import { useSpotlightTheme } from '@spotlight/design-system';
-
-import { AuthSheetLayout } from './auth-sheet-layout';
+import { AuthScreenLayout } from './auth-screen-layout';
+import { AuthWordmark } from './auth-wordmark';
 import {
   AuthErrorLine,
   PasswordField,
+  PasswordRules,
   PrimaryButton,
   ReadOnlyField,
   SecondaryField,
   TertiaryButton,
+  type PasswordRule,
 } from './auth-controls';
 
 type EmailPasswordScreenProps = {
@@ -26,6 +27,14 @@ type EmailPasswordScreenProps = {
   password: string;
 };
 
+export function buildPasswordRules(password: string): PasswordRule[] {
+  return [
+    { label: 'Contains 8 characters', satisfied: password.length >= 8 },
+    { label: 'Contains at least one number', satisfied: /\d/.test(password) },
+    { label: 'Contains at least one special character', satisfied: /[^A-Za-z0-9]/.test(password) },
+  ];
+}
+
 export function EmailPasswordScreen({
   email,
   errorMessage,
@@ -39,61 +48,74 @@ export function EmailPasswordScreen({
   onForgotPassword,
   password,
 }: EmailPasswordScreenProps) {
-  const theme = useSpotlightTheme();
   const isSignup = mode === 'signup';
-  const passwordOk = password.length >= 6;
+  const rules = buildPasswordRules(password);
+  // Signups must satisfy every rule (Figma 1543:2291); logins just need a
+  // non-empty password so existing accounts created under older rules still work.
+  const passwordOk = isSignup ? rules.every((rule) => rule.satisfied) : password.length > 0;
   const nameOk = !isSignup || fullName.trim().length > 0;
   const canContinue = passwordOk && nameOk && !isBusy;
 
   return (
-    <AuthSheetLayout
-      actions={
-        <PrimaryButton
-          disabled={!canContinue}
-          label="Continue"
-          onPress={onContinue}
-          testID="auth-emailpw-continue"
-        />
-      }
+    <AuthScreenLayout
       backTestID="auth-emailpw-back"
       onBack={onBack}
       testID="auth-email-password-screen"
+      title="Sign in / Sign up"
     >
-      <Text style={[theme.typography.displayLarge, { color: theme.colors.gray900 }]}>
-        {isSignup ? 'Create your account' : 'Welcome back'}
-      </Text>
-      <Text style={[theme.typography.body, { color: theme.colors.gray600 }]}>
-        Scan, collect, sell, and build your ultimate collection.
-      </Text>
+      <View style={styles.brandSpacer} />
+      <AuthWordmark />
 
-      <ReadOnlyField label="Email" testID="auth-emailpw-email" value={email} />
+      <View style={styles.form}>
+        <ReadOnlyField label="Email" testID="auth-emailpw-email" value={email} />
 
-      {isSignup ? (
-        <SecondaryField
-          autoCapitalize="words"
-          autoCorrect={false}
-          floatingLabel="Full name"
-          onChangeText={onChangeFullName}
-          placeholder="Full name"
-          testID="auth-fullname-input"
-          value={fullName}
+        {isSignup ? (
+          <SecondaryField
+            autoCapitalize="words"
+            autoCorrect={false}
+            onChangeText={onChangeFullName}
+            placeholder="Full name"
+            testID="auth-fullname-input"
+            value={fullName}
+          />
+        ) : null}
+
+        <PasswordField
+          onChangeText={onChangePassword}
+          testID="auth-password-input"
+          toggleTestID="auth-password-toggle"
+          value={password}
         />
-      ) : null}
 
-      <PasswordField
-        onChangeText={onChangePassword}
-        testID="auth-password-input"
-        toggleTestID="auth-password-toggle"
-        value={password}
-      />
+        {isSignup ? <PasswordRules rules={rules} testID="auth-password-rules" /> : null}
 
-      {errorMessage ? <AuthErrorLine message={errorMessage} /> : null}
+        {errorMessage ? <AuthErrorLine message={errorMessage} /> : null}
 
-      <TertiaryButton
-        label="Forgot password"
-        onPress={onForgotPassword}
-        testID="auth-forgot-password"
-      />
-    </AuthSheetLayout>
+        <PrimaryButton
+          disabled={!canContinue}
+          label={isSignup ? 'Continue' : 'Submit'}
+          onPress={onContinue}
+          testID="auth-emailpw-continue"
+        />
+
+        {isSignup ? null : (
+          <TertiaryButton
+            label="Forgot password?"
+            onPress={onForgotPassword}
+            testID="auth-forgot-password"
+          />
+        )}
+      </View>
+    </AuthScreenLayout>
   );
 }
+
+const styles = StyleSheet.create({
+  brandSpacer: {
+    height: 64,
+  },
+  form: {
+    gap: 16,
+    marginTop: 32,
+  },
+});

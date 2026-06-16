@@ -1,8 +1,8 @@
-import { Text } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
-import { useSpotlightTheme } from '@spotlight/design-system';
+import { fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
 
-import { AuthSheetLayout } from './auth-sheet-layout';
+import { AuthScreenLayout } from './auth-screen-layout';
 import {
   AuthErrorLine,
   PrimaryButton,
@@ -19,6 +19,10 @@ type ForgotPasswordScreenProps = {
   onContinue: () => void;
 };
 
+/**
+ * Forgot password (Figma 1543:2170, bottom frames): a left-aligned heading +
+ * helper copy, an email underline field, and a Send button.
+ */
 export function ForgotPasswordScreen({
   email,
   errorMessage,
@@ -31,38 +35,65 @@ export function ForgotPasswordScreen({
   const canContinue = isValidLookingEmail(email) && !isBusy;
 
   return (
-    <AuthSheetLayout
-      actions={
+    <AuthScreenLayout
+      backTestID="auth-forgot-back"
+      onBack={onBack}
+      testID="auth-forgot-password-screen"
+      title="Sign in / Sign up"
+    >
+      <View style={styles.heading}>
+        <Text style={[styles.title, { color: theme.colors.gray900 }]}>
+          Forgot your password?
+        </Text>
+        <Text style={[styles.subtitle, { color: theme.colors.gray600 }]}>
+          Confirm the email address you used to create your account, and we&apos;ll send a
+          password reset email to it.
+        </Text>
+      </View>
+
+      <View style={styles.form}>
+        <SecondaryField
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="email-address"
+          onChangeText={onChangeEmail}
+          onSubmitEditing={canContinue ? onContinue : undefined}
+          placeholder="Email"
+          returnKeyType="send"
+          testID="auth-forgot-email-input"
+          value={email}
+        />
+
+        {errorMessage ? <AuthErrorLine message={errorMessage} /> : null}
+
         <PrimaryButton
           disabled={!canContinue}
           label="Send reset code"
           onPress={onContinue}
           testID="auth-forgot-continue"
         />
-      }
-      backTestID="auth-forgot-back"
-      onBack={onBack}
-      testID="auth-forgot-password-screen"
-    >
-      <Text style={[theme.typography.displayLarge, { color: theme.colors.gray900 }]}>
-        Reset password
-      </Text>
-      <Text style={[theme.typography.body, { color: theme.colors.gray600 }]}>
-        Enter your email and we&apos;ll send you a reset code.
-      </Text>
-
-      <SecondaryField
-        autoCapitalize="none"
-        autoCorrect={false}
-        floatingLabel="Email"
-        keyboardType="email-address"
-        onChangeText={onChangeEmail}
-        placeholder="Email"
-        testID="auth-forgot-email-input"
-        value={email}
-      />
-
-      {errorMessage ? <AuthErrorLine message={errorMessage} /> : null}
-    </AuthSheetLayout>
+      </View>
+    </AuthScreenLayout>
   );
 }
+
+const styles = StyleSheet.create({
+  form: {
+    gap: 16,
+    marginTop: 24,
+  },
+  heading: {
+    gap: 8,
+    marginTop: 8,
+  },
+  subtitle: {
+    fontFamily: fontFamilies.bodyRegular,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  title: {
+    fontFamily: fontFamilies.bodyBold,
+    fontSize: 22,
+    lineHeight: 28,
+  },
+});

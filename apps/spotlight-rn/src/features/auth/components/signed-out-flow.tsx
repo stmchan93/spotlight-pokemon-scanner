@@ -217,6 +217,14 @@ export function SignedOutFlow({
       );
     case 'getStarted':
     default:
-      return <GetStartedScreen onGetStarted={() => setStep('email')} />;
+      return (
+        <GetStartedScreen
+          appleSignInAvailable={appleSignInAvailable}
+          isBusy={isBusy}
+          onApple={onAppleSignIn}
+          onContinueWithEmail={() => setStep('email')}
+          onGoogle={onGoogleSignIn}
+        />
+      );
   }
 }

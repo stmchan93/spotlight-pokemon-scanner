@@ -73,16 +73,16 @@ describe('AuthGate', () => {
   it('starts the signed-out flow on the Get started screen, then opens the email step', () => {
     const { onGoogleSignIn } = renderAuthGate();
 
-    // Step 0: the branded "Get started" splash.
+    // Step 0: the branded "Get started" entry screen carries the social actions.
     expect(screen.getByTestId('auth-get-started-screen')).toBeTruthy();
-
-    // Tapping Get started advances to the email "Login or sign up" step.
-    fireEvent.press(screen.getByTestId('auth-get-started-button'));
-    expect(screen.getByTestId('auth-email-input')).toBeTruthy();
 
     // Google is wired straight through to the provider action.
     fireEvent.press(screen.getByTestId('auth-google-button'));
     expect(onGoogleSignIn).toHaveBeenCalledTimes(1);
+
+    // Tapping Continue with Email advances to the email step.
+    fireEvent.press(screen.getByTestId('auth-get-started-button'));
+    expect(screen.getByTestId('auth-email-input')).toBeTruthy();
   });
 
   it('renders the profile onboarding screen when a display name is required', () => {
@@ -101,11 +101,11 @@ describe('AuthGate', () => {
     });
 
     expect(screen.getByText('Finish your profile')).toBeTruthy();
-    expect(screen.getByText('collector@example.com')).toBeTruthy();
+    expect(screen.getByText('Signed in as collector@example.com')).toBeTruthy();
     expect(StyleSheet.flatten(screen.getByText('Continue').props.style)).toMatchObject({
-      fontFamily: 'SpotlightBodySemiBold',
-      fontSize: 15,
-      lineHeight: 20,
+      fontFamily: 'SpotlightBodyMedium',
+      fontSize: 14,
+      lineHeight: 21,
     });
 
     fireEvent.changeText(screen.getByTestId('auth-profile-input'), 'Stephen');

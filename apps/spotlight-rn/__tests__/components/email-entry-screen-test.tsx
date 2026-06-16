@@ -1,5 +1,4 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
-import { Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { SpotlightThemeProvider } from '@spotlight/design-system';
@@ -44,9 +43,8 @@ describe('EmailEntryScreen', () => {
     expect(screen.getByTestId('auth-email-entry-screen')).toBeTruthy();
     expect(screen.getByTestId('auth-email-input')).toBeTruthy();
     expect(screen.getByTestId('auth-email-continue')).toBeTruthy();
-    expect(screen.getByTestId('auth-google-button')).toBeTruthy();
     expect(screen.getByTestId('auth-email-back')).toBeTruthy();
-    expect(screen.getByText('Login or sign up')).toBeTruthy();
+    expect(screen.getByTestId('auth-brand-wordmark')).toBeTruthy();
   });
 
   it('disables Continue until the email looks valid, then calls onContinue', () => {
@@ -77,30 +75,15 @@ describe('EmailEntryScreen', () => {
     expect(props.onChangeEmail).toHaveBeenCalledWith('a@b.com');
   });
 
-  it('calls onGoogle and onBack from their controls', () => {
+  it('calls onBack from the header control', () => {
     const props = renderScreen();
-    fireEvent.press(screen.getByTestId('auth-google-button'));
-    expect(props.onGoogle).toHaveBeenCalledTimes(1);
     fireEvent.press(screen.getByTestId('auth-email-back'));
     expect(props.onBack).toHaveBeenCalledTimes(1);
   });
 
-  it('renders the Apple button on iOS when appleSignInAvailable', () => {
-    const original = Platform.OS;
-    Platform.OS = 'ios';
-    try {
-      const props = renderScreen({ appleSignInAvailable: true });
-      const appleButton = screen.getByTestId('auth-apple-button');
-      expect(appleButton).toBeTruthy();
-      fireEvent.press(appleButton);
-      expect(props.onApple).toHaveBeenCalledTimes(1);
-    } finally {
-      Platform.OS = original;
-    }
-  });
-
-  it('hides the Apple button when appleSignInAvailable is false', () => {
-    renderScreen({ appleSignInAvailable: false });
+  it('does not render social buttons (they live on the entry screen)', () => {
+    renderScreen({ appleSignInAvailable: true });
+    expect(screen.queryByTestId('auth-google-button')).toBeNull();
     expect(screen.queryByTestId('auth-apple-button')).toBeNull();
   });
 

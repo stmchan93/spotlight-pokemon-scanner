@@ -48,7 +48,8 @@ describe('SetNewPasswordScreen', () => {
   });
 
   it('calls onContinue with a valid password and toggles visibility', () => {
-    const props = renderScreen({ password: 'secret1' });
+    // Must satisfy the new password rules: 8+ chars, a number, a special char.
+    const props = renderScreen({ password: 'Secret1!' });
     fireEvent.press(screen.getByTestId('auth-newpassword-continue'));
     expect(props.onContinue).toHaveBeenCalledTimes(1);
 

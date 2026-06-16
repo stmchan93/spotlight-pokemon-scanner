@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -7,25 +7,24 @@ import {
   View,
   type TextInputProps,
 } from 'react-native';
-import { Eye, EyeClosed } from 'iconoir-react-native';
+import { CheckCircle, CheckCircleSolid, Eye, EyeClosed } from 'iconoir-react-native';
 
-import { useSpotlightTheme } from '@spotlight/design-system';
+import { fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
 
 /**
- * Presentational building blocks shared by the email-auth screens. All are
- * prop-driven; none own navigation or async state.
+ * Presentational building blocks shared by the redesigned (white full-screen)
+ * email-auth screens (Figma 1543:2170). All are prop-driven; none own
+ * navigation or async state.
  */
 
 type SecondaryFieldProps = Omit<TextInputProps, 'style'> & {
-  /** Floating label shown above the value when the field has a value. */
-  floatingLabel?: string;
   testID?: string;
-  trailing?: React.ReactNode;
+  trailing?: ReactNode;
   value?: string;
 };
 
+/** Underline input: a single bottom border (gray300), 14px text, optional trailing. */
 export function SecondaryField({
-  floatingLabel,
   placeholder,
   testID,
   trailing,
@@ -33,43 +32,17 @@ export function SecondaryField({
   ...inputProps
 }: SecondaryFieldProps) {
   const theme = useSpotlightTheme();
-  const hasValue = (value ?? '').length > 0;
 
   return (
-    <View
-      style={[
-        styles.fieldShell,
-        {
-          backgroundColor: theme.colors.gray0,
-          borderColor: theme.colors.gray300,
-        },
-      ]}
-    >
-      <View style={styles.fieldBody}>
-        {hasValue && floatingLabel ? (
-          <Text
-            style={[
-              theme.typography.overline,
-              styles.floatingLabel,
-              { color: theme.colors.gray400 },
-            ]}
-          >
-            {floatingLabel}
-          </Text>
-        ) : null}
-        <TextInput
-          placeholder={placeholder}
-          placeholderTextColor={theme.colors.gray500}
-          style={[
-            theme.typography.label,
-            styles.input,
-            { color: theme.colors.gray900 },
-          ]}
-          testID={testID}
-          value={value}
-          {...inputProps}
-        />
-      </View>
+    <View style={[styles.fieldShell, { borderBottomColor: theme.colors.gray300 }]}>
+      <TextInput
+        placeholder={placeholder}
+        placeholderTextColor={theme.colors.gray400}
+        style={[styles.input, { color: theme.colors.gray900 }]}
+        testID={testID}
+        value={value}
+        {...inputProps}
+      />
       {trailing ? <View style={styles.trailing}>{trailing}</View> : null}
     </View>
   );
@@ -80,7 +53,6 @@ type PasswordFieldProps = Omit<SecondaryFieldProps, 'trailing' | 'secureTextEntr
 };
 
 export function PasswordField({
-  floatingLabel = 'Password',
   placeholder = 'Password',
   testID,
   toggleTestID,
@@ -94,7 +66,6 @@ export function PasswordField({
     <SecondaryField
       autoCapitalize="none"
       autoCorrect={false}
-      floatingLabel={floatingLabel}
       placeholder={placeholder}
       secureTextEntry={!visible}
       testID={testID}
@@ -107,9 +78,9 @@ export function PasswordField({
           testID={toggleTestID}
         >
           {visible ? (
-            <Eye color={theme.colors.gray500} height={20} width={20} />
+            <Eye color={theme.colors.gray600} height={24} width={24} />
           ) : (
-            <EyeClosed color={theme.colors.gray500} height={20} width={20} />
+            <EyeClosed color={theme.colors.gray600} height={24} width={24} />
           )}
         </Pressable>
       }
@@ -120,39 +91,24 @@ export function PasswordField({
 }
 
 type ReadOnlyFieldProps = {
-  label: string;
+  label?: string;
   testID?: string;
   value: string;
 };
 
+/** Underline field showing a non-editable value (e.g. the chosen email). */
 export function ReadOnlyField({ label, testID, value }: ReadOnlyFieldProps) {
   const theme = useSpotlightTheme();
 
   return (
     <View
-      style={[
-        styles.fieldShell,
-        {
-          backgroundColor: theme.colors.gray0,
-          borderColor: theme.colors.gray300,
-        },
-      ]}
+      style={[styles.fieldShell, styles.readOnlyShell, { borderBottomColor: theme.colors.gray300 }]}
       testID={testID}
     >
-      <View style={styles.fieldBody}>
-        <Text
-          style={[
-            theme.typography.overline,
-            styles.floatingLabel,
-            { color: theme.colors.gray400 },
-          ]}
-        >
-          {label}
-        </Text>
-        <Text style={[theme.typography.label, { color: theme.colors.gray900 }]}>
-          {value}
-        </Text>
-      </View>
+      {label ? (
+        <Text style={[styles.readOnlyLabel, { color: theme.colors.gray400 }]}>{label}</Text>
+      ) : null}
+      <Text style={[styles.input, { color: theme.colors.gray600 }]}>{value}</Text>
     </View>
   );
 }
@@ -162,6 +118,7 @@ type PrimaryButtonProps = {
   enabledColor?: string;
   disabled?: boolean;
   label: string;
+  leadingIcon?: ReactNode;
   onPress: () => void;
   testID?: string;
 };
@@ -170,13 +127,13 @@ export function PrimaryButton({
   enabledColor,
   disabled = false,
   label,
+  leadingIcon,
   onPress,
   testID,
 }: PrimaryButtonProps) {
   const theme = useSpotlightTheme();
-  const background = disabled
-    ? theme.colors.gray300
-    : (enabledColor ?? theme.colors.purple500);
+  const background = disabled ? theme.colors.gray50 : (enabledColor ?? theme.colors.purple500);
+  const labelColor = disabled ? theme.colors.gray400 : theme.colors.gray0;
 
   return (
     <Pressable
@@ -184,14 +141,48 @@ export function PrimaryButton({
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
-        styles.primaryButton,
+        styles.button,
         { backgroundColor: background, opacity: pressed && !disabled ? 0.9 : 1 },
       ]}
       testID={testID}
     >
-      <Text style={[theme.typography.titleSmall, { color: theme.colors.gray0 }]}>
-        {label}
-      </Text>
+      {leadingIcon ? <View style={styles.buttonIcon}>{leadingIcon}</View> : null}
+      <Text style={[styles.buttonLabel, { color: labelColor }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+type SecondaryActionButtonProps = {
+  label: string;
+  leadingIcon?: ReactNode;
+  disabled?: boolean;
+  onPress: () => void;
+  testID?: string;
+};
+
+/** Neutral action button (Google / Apple): gray50 fill, dark label. */
+export function SecondaryActionButton({
+  label,
+  leadingIcon,
+  disabled = false,
+  onPress,
+  testID,
+}: SecondaryActionButtonProps) {
+  const theme = useSpotlightTheme();
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.button,
+        { backgroundColor: theme.colors.gray50, opacity: pressed && !disabled ? 0.9 : 1 },
+      ]}
+      testID={testID}
+    >
+      {leadingIcon ? <View style={styles.buttonIcon}>{leadingIcon}</View> : null}
+      <Text style={[styles.buttonLabel, { color: theme.colors.gray900 }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -212,10 +203,33 @@ export function TertiaryButton({ label, onPress, testID }: TertiaryButtonProps) 
       style={styles.tertiaryButton}
       testID={testID}
     >
-      <Text style={[theme.typography.bodyMedium, { color: theme.colors.gray900 }]}>
-        {label}
-      </Text>
+      <Text style={[styles.tertiaryLabel, { color: theme.colors.gray600 }]}>{label}</Text>
     </Pressable>
+  );
+}
+
+export type PasswordRule = {
+  label: string;
+  satisfied: boolean;
+};
+
+/** Checklist of password requirements (Figma 1543:2291): check-circle + 11px text. */
+export function PasswordRules({ rules, testID }: { rules: PasswordRule[]; testID?: string }) {
+  const theme = useSpotlightTheme();
+
+  return (
+    <View style={styles.rules} testID={testID}>
+      {rules.map((rule) => (
+        <View key={rule.label} style={styles.ruleRow}>
+          {rule.satisfied ? (
+            <CheckCircleSolid color={theme.colors.purple500} height={16} width={16} />
+          ) : (
+            <CheckCircle color={theme.colors.gray300} height={16} width={16} />
+          )}
+          <Text style={[styles.ruleLabel, { color: theme.colors.gray600 }]}>{rule.label}</Text>
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -223,42 +237,85 @@ export function AuthErrorLine({ message }: { message: string }) {
   const theme = useSpotlightTheme();
 
   return (
-    <Text style={[theme.typography.bodyMedium, { color: theme.colors.danger }]}>
-      {message}
-    </Text>
+    <Text style={[styles.errorLine, { color: theme.colors.danger }]}>{message}</Text>
   );
 }
 
 const styles = StyleSheet.create({
-  fieldBody: {
-    flex: 1,
+  button: {
+    alignItems: 'center',
+    borderRadius: 8,
+    flexDirection: 'row',
+    gap: 8,
+    height: 40,
     justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  buttonIcon: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buttonLabel: {
+    fontFamily: fontFamilies.bodyMedium,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  errorLine: {
+    fontFamily: fontFamilies.bodyMedium,
+    fontSize: 13,
+    lineHeight: 18,
   },
   fieldShell: {
     alignItems: 'center',
-    borderRadius: 8,
-    borderWidth: 1,
+    borderBottomWidth: 1,
     flexDirection: 'row',
-    gap: 12,
-    minHeight: 48,
-    paddingHorizontal: 16,
-  },
-  floatingLabel: {
-    marginBottom: 2,
+    gap: 8,
+    height: 40,
+    paddingLeft: 4,
+    paddingRight: 8,
   },
   input: {
+    flex: 1,
+    fontFamily: fontFamilies.bodyMedium,
+    fontSize: 14,
+    lineHeight: 21,
     padding: 0,
   },
-  primaryButton: {
-    alignItems: 'center',
-    borderRadius: 8,
+  readOnlyLabel: {
+    fontFamily: fontFamilies.bodyMedium,
+    fontSize: 11,
+    lineHeight: 14,
+  },
+  readOnlyShell: {
+    alignItems: 'flex-start',
+    flexDirection: 'column',
+    gap: 2,
+    height: undefined,
     justifyContent: 'center',
-    minHeight: 48,
+    paddingVertical: 6,
+  },
+  ruleLabel: {
+    fontFamily: fontFamilies.bodyMedium,
+    fontSize: 11,
+    lineHeight: 14,
+  },
+  ruleRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 4,
+  },
+  rules: {
+    gap: 8,
   },
   tertiaryButton: {
     alignItems: 'center',
-    height: 40,
+    height: 32,
     justifyContent: 'center',
+  },
+  tertiaryLabel: {
+    fontFamily: fontFamilies.bodyMedium,
+    fontSize: 13,
+    lineHeight: 18,
   },
   trailing: {
     alignItems: 'center',
@@ -271,3 +328,5 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export function isValidLookingEmail(email: string): boolean {
   return EMAIL_PATTERN.test(email.trim());
 }
+
+export type { SecondaryFieldProps };

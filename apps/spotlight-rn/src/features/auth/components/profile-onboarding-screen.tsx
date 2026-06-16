@@ -1,9 +1,11 @@
-import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { StyleSheet, Text, View } from 'react-native';
 
-import { SurfaceCard, colors, useSpotlightTheme } from '@spotlight/design-system';
+import { fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
 
 import { type AppUser, getResolvedDisplayName } from '@/features/auth/auth-models';
+
+import { AuthScreenLayout } from './auth-screen-layout';
+import { AuthErrorLine, PrimaryButton, SecondaryField } from './auth-controls';
 
 type ProfileOnboardingScreenProps = {
   errorMessage: string | null;
@@ -26,141 +28,67 @@ export function ProfileOnboardingScreen({
   const canContinue = profileDraftName.trim().length > 0 && !isBusy;
 
   return (
-    <SafeAreaView
-      edges={['top', 'left', 'right']}
-      style={[
-        styles.safeArea,
-        {
-          backgroundColor: colors.gray0,
-        },
-      ]}
-    >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.keyboardShell}
-      >
-        <View style={styles.shell}>
-          <View style={styles.header}>
-            <Text style={[theme.typography.display, { color: theme.colors.textPrimary }]}>
-              Finish your profile
-            </Text>
-            <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>
-              Pick the display name other collectors and future marketplace buyers will see.
-            </Text>
-          </View>
+    <AuthScreenLayout onShare={null} testID="auth-profile-onboarding-screen">
+      <View style={styles.heading}>
+        <Text style={[styles.title, { color: theme.colors.gray900 }]}>Finish your profile</Text>
+        <Text style={[styles.subtitle, { color: theme.colors.gray600 }]}>
+          Pick the display name other collectors and future marketplace buyers will see.
+        </Text>
+      </View>
 
-          <SurfaceCard padding={20} radius={28}>
-            <View style={styles.form}>
-              {user?.email ? (
-                <View style={styles.signedInAs}>
-                  <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
-                    Signed in as
-                  </Text>
-                  <Text style={[theme.typography.bodyStrong, { color: theme.colors.textPrimary }]}>
-                    {user.email}
-                  </Text>
-                </View>
-              ) : null}
+      <View style={styles.form}>
+        {user?.email ? (
+          <Text style={[styles.signedInAs, { color: theme.colors.gray600 }]}>
+            {`Signed in as ${user.email}`}
+          </Text>
+        ) : null}
 
-              <View style={styles.fieldWrap}>
-                <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
-                  Display name
-                </Text>
-                <TextInput
-                  autoCapitalize="words"
-                  autoCorrect={false}
-                  onChangeText={onChangeDraftName}
-                  onSubmitEditing={() => {
-                    if (canContinue) {
-                      onSubmit();
-                    }
-                  }}
-                  placeholder={user ? getResolvedDisplayName(user) : 'Your name or table alias'}
-                  placeholderTextColor="rgba(77, 79, 87, 0.48)"
-                  returnKeyType="done"
-                  style={[
-                    theme.typography.bodyStrong,
-                    styles.input,
-                    {
-                      backgroundColor: theme.colors.field,
-                      borderColor: theme.colors.outlineSubtle,
-                      color: theme.colors.textPrimary,
-                    },
-                  ]}
-                  testID="auth-profile-input"
-                  value={profileDraftName}
-                />
-              </View>
+        <SecondaryField
+          autoCapitalize="words"
+          autoCorrect={false}
+          onChangeText={onChangeDraftName}
+          onSubmitEditing={canContinue ? onSubmit : undefined}
+          placeholder={user ? getResolvedDisplayName(user) : 'Your name or table alias'}
+          returnKeyType="done"
+          testID="auth-profile-input"
+          value={profileDraftName}
+        />
 
-              {errorMessage ? (
-                <Text style={[theme.typography.body, { color: theme.colors.danger }]}>
-                  {errorMessage}
-                </Text>
-              ) : null}
+        {errorMessage ? <AuthErrorLine message={errorMessage} /> : null}
 
-              <Pressable
-                accessibilityRole="button"
-                disabled={!canContinue}
-                onPress={onSubmit}
-                style={[
-                  styles.continueButton,
-                  {
-                    backgroundColor: theme.colors.brand,
-                    opacity: canContinue ? 1 : 0.55,
-                  },
-                ]}
-                testID="auth-profile-submit"
-              >
-                <Text style={[theme.typography.control, { color: theme.colors.textPrimary }]}>
-                  Continue
-                </Text>
-              </Pressable>
-            </View>
-          </SurfaceCard>
-        </View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+        <PrimaryButton
+          disabled={!canContinue}
+          label="Continue"
+          onPress={onSubmit}
+          testID="auth-profile-submit"
+        />
+      </View>
+    </AuthScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  continueButton: {
-    alignItems: 'center',
-    borderRadius: 18,
-    justifyContent: 'center',
-    minHeight: 54,
-    paddingHorizontal: 18,
-  },
-  fieldWrap: {
-    gap: 8,
-  },
   form: {
-    gap: 18,
+    gap: 16,
+    marginTop: 24,
   },
-  header: {
-    gap: 10,
-  },
-  input: {
-    borderRadius: 18,
-    borderWidth: 1,
-    minHeight: 56,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  keyboardShell: {
-    flex: 1,
-  },
-  safeArea: {
-    flex: 1,
-  },
-  shell: {
-    flex: 1,
-    gap: 24,
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 24,
+  heading: {
+    gap: 8,
+    marginTop: 8,
   },
   signedInAs: {
-    gap: 4,
+    fontFamily: fontFamilies.bodyMedium,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  subtitle: {
+    fontFamily: fontFamilies.bodyRegular,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  title: {
+    fontFamily: fontFamilies.bodyBold,
+    fontSize: 22,
+    lineHeight: 28,
   },
 });
