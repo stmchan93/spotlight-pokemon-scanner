@@ -135,10 +135,10 @@ describe('LatestSalesScreen', () => {
     expect(screen.getByTestId('collection-add-fab')).toBeTruthy();
   });
 
-  it('renders a hamburger menu button', async () => {
+  it('renders a back button (Transactions is pushed in from the drawer)', async () => {
     renderWithProviders(<LatestSalesScreen />, { spotlightRepository: buildRepository() });
 
     await screen.findByTestId('sales-header-title');
-    expect(screen.getByTestId('sales-header-menu')).toBeTruthy();
+    expect(screen.getByTestId('sales-header-back')).toBeTruthy();
   });
 });

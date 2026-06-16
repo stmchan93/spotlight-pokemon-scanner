@@ -37,7 +37,6 @@ import { saveCardDetailPreviewFromFavorite } from '@/features/cards/card-detail-
 import { prefetchCardDetail } from '@/features/cards/card-detail-prefetch';
 import { formatOptionalCurrency } from '@/features/portfolio/components/portfolio-formatting';
 import { WishlistHeader } from '@/features/wishlist/components/wishlist-header';
-import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAppServices } from '@/providers/app-providers';
 
 function gradeLabelForFavorite(entry: CardFavoriteEntry): string | null {
@@ -123,7 +122,6 @@ export function WishlistScreen() {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { openDrawer } = useAppDrawer();
   const { spotlightRepository, dataVersion } = useAppServices();
   const [favorites, setFavorites] = useState<CardFavoriteEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -301,7 +299,7 @@ export function WishlistScreen() {
 
   const listHeader = (
     <View>
-      <WishlistHeader onOpenMenu={openDrawer} />
+      <WishlistHeader onBack={() => router.back()} />
 
       <View style={[styles.controls, { paddingHorizontal: theme.layout.pageGutter }]}>
         <View style={styles.searchRow}>
@@ -445,7 +443,7 @@ export function WishlistScreen() {
       />
 
       <CollectionAddFab />
-      <AppBottomTabBar />
+      <AppBottomTabBar activeKey="portfolio" />
     </SafeAreaView>
   );
 }

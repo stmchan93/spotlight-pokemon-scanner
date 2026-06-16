@@ -1,21 +1,21 @@
-import { Menu as MenuIcon, Upload as ShareIcon } from 'iconoir-react-native';
+import { NavArrowLeft, Upload as ShareIcon } from 'iconoir-react-native';
 import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppText, IconButton, useSpotlightTheme } from '@spotlight/design-system';
 
 type WishlistHeaderProps = {
-  onOpenMenu: () => void;
+  onBack: () => void;
   onShare?: () => void;
   testID?: string;
 };
 
-// Lean top bar for the Wishlist screen (Figma 813:15695 "after"): menu, centred
-// "Wishlist" title, share. The big featured hero card that used to sit below it
-// was removed — the screen now goes straight from this header into the
-// search/filter chrome and the card grid/list.
+// Lean top bar for the Wishlist screen: a circular back button (Figma 1263:3328
+// — gray/50 chip), centred "Wishlist" title, and share. Wishlist is reached by
+// pushing in from the drawer, so it carries a back button rather than the
+// hamburger (that lives on the root Collection screen).
 export function WishlistHeader({
-  onOpenMenu,
+  onBack,
   onShare,
   testID = 'wishlist-header',
 }: WishlistHeaderProps) {
@@ -25,13 +25,13 @@ export function WishlistHeader({
   return (
     <View style={[styles.header, { paddingTop: insets.top + 8 }]} testID={testID}>
       <IconButton
-        accessibilityLabel="Open menu"
-        onPress={onOpenMenu}
+        accessibilityLabel="Back"
+        onPress={onBack}
         size={36}
-        testID="wishlist-header-menu"
-        variant="elevated"
+        testID="wishlist-header-back"
+        variant="subtle"
       >
-        <MenuIcon color={theme.colors.gray900} height={20} width={20} />
+        <NavArrowLeft color={theme.colors.gray900} height={24} width={24} />
       </IconButton>
       <AppText
         color="textPrimary"
@@ -47,7 +47,7 @@ export function WishlistHeader({
         onPress={onShare}
         size={36}
         testID="wishlist-header-share"
-        variant="elevated"
+        variant="subtle"
       >
         <ShareIcon color={theme.colors.gray900} height={18} width={18} />
       </IconButton>

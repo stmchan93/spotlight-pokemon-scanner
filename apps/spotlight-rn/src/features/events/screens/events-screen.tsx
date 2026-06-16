@@ -1,7 +1,7 @@
 import { ScrollView, StyleSheet, Text } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { StateCard, colors, useSpotlightTheme } from '@spotlight/design-system';
+import { colors, useSpotlightTheme } from '@spotlight/design-system';
 
 import { useTabBarScrollHandler } from '@/contexts/tab-bar-chrome-context';
 
@@ -39,11 +39,12 @@ export function EventsScreen() {
           Events
         </Text>
 
-        <StateCard
-          message="Live drops, set releases, and tournaments will surface here once the schedule is wired up."
-          style={styles.placeholder}
-          title="Events are coming soon"
-        />
+        <Text
+          style={[theme.typography.bodyMedium, styles.placeholder, { color: theme.colors.gray600 }]}
+          testID="events-placeholder"
+        >
+          Information about live events are coming soon!
+        </Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -56,6 +57,7 @@ const styles = StyleSheet.create({
   },
   placeholder: {
     marginTop: 8,
+    textAlign: 'center',
   },
   safeArea: {
     flex: 1,

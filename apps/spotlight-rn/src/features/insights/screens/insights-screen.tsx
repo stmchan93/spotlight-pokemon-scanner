@@ -121,7 +121,7 @@ export function InsightsScreen() {
           style={styles.headerButton}
           testID="insights-header-back"
         >
-          <NavArrowLeft color={colors.gray900} height={22} width={22} />
+          <NavArrowLeft color={colors.gray900} height={24} width={24} />
         </Pressable>
         <Text style={styles.headerTitle} testID="insights-header-title">
           Insights
@@ -264,7 +264,7 @@ export function InsightsScreen() {
         </View>
       </ScrollView>
 
-      <AppBottomTabBar />
+      <AppBottomTabBar activeKey="portfolio" />
     </SafeAreaView>
   );
 }

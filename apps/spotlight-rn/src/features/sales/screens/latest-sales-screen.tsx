@@ -9,8 +9,8 @@ import {
   View,
 } from 'react-native';
 import {
-  Menu as MenuIcon,
   NavArrowDown,
+  NavArrowLeft,
   NavArrowUp,
   ShareIos,
 } from 'iconoir-react-native';
@@ -39,7 +39,6 @@ import {
   type TransactionSortKey,
 } from '@/features/sales/transaction-grouping';
 import { useTabBarScrollHandler } from '@/contexts/tab-bar-chrome-context';
-import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAppServices } from '@/providers/app-providers';
 import { AppBottomTabBar } from '@/components/app-bottom-tab-bar';
 
@@ -83,7 +82,6 @@ export function LatestSalesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { spotlightRepository, dataVersion } = useAppServices();
-  const { openDrawer } = useAppDrawer();
   const handleTabBarScroll = useTabBarScrollHandler();
   const scrollRef = useRef<FlatList<SalesRow>>(null);
 
@@ -329,28 +327,26 @@ export function LatestSalesScreen() {
     >
       <View style={[styles.screen, { paddingBottom: bottomNavClearance }]}>
         <View style={salesStyles.headerRow}>
-          <Pressable
-            accessibilityLabel="Open menu"
-            accessibilityRole="button"
-            hitSlop={12}
-            onPress={openDrawer}
-            style={salesStyles.headerIcon}
-            testID="sales-header-menu"
+          <IconButton
+            accessibilityLabel="Back"
+            onPress={() => router.back()}
+            size={36}
+            testID="sales-header-back"
+            variant="subtle"
           >
-            <MenuIcon color={theme.colors.gray900} height={24} width={24} />
-          </Pressable>
+            <NavArrowLeft color={theme.colors.gray900} height={24} width={24} />
+          </IconButton>
           <Text style={salesStyles.headerTitle} testID="sales-header-title">
             Transactions
           </Text>
           <IconButton
             accessibilityLabel="Export transactions"
-            shape="rounded"
-            size={24}
+            size={36}
             style={salesStyles.headerExport}
             testID="sales-header-export"
-            variant="ghost"
+            variant="subtle"
           >
-            <ShareIos color={theme.colors.gray900} height={22} width={22} />
+            <ShareIos color={theme.colors.gray900} height={20} width={20} />
           </IconButton>
         </View>
 
@@ -422,7 +418,7 @@ export function LatestSalesScreen() {
 
       <CollectionAddFab onPress={() => router.push('/card-transactions/new')} />
 
-      <AppBottomTabBar />
+      <AppBottomTabBar activeKey="portfolio" />
     </SafeAreaView>
   );
 }
