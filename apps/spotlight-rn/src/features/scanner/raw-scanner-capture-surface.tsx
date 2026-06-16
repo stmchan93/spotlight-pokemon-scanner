@@ -1,4 +1,6 @@
-import * as FileSystem from 'expo-file-system';
+// SDK 55: readAsStringAsync lives in /legacy; the new entry's stub throws at
+// runtime (silently dropped every scan's source image — see scanner dashboard).
+import * as FileSystem from 'expo-file-system/legacy';
 import type { ReactNode, RefObject } from 'react';
 import { useEffect, useImperativeHandle } from 'react';
 import {
