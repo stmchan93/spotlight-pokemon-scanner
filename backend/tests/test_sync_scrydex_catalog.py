@@ -14,13 +14,55 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
+import sqlite3
+
+import sync_scrydex_catalog
 from sync_scrydex_catalog import (
     _fetch_scrydex_cards_page_with_retries,
     _is_transient_scrydex_catalog_error,
     _parse_retry_after_seconds,
+    _refresh_fx_rates_for_catalog,
     _retry_after_from_error,
     _scrydex_catalog_page_retry_delay_seconds,
 )
+
+
+class RefreshFxRatesForCatalogTests(unittest.TestCase):
+    def _connection_with_currencies(self, codes: list[str]) -> sqlite3.Connection:
+        connection = sqlite3.connect(":memory:")
+        connection.row_factory = sqlite3.Row
+        connection.execute(
+            "CREATE TABLE card_price_snapshots (card_id TEXT PRIMARY KEY, display_currency_code TEXT NOT NULL)"
+        )
+        for index, code in enumerate(codes):
+            connection.execute(
+                "INSERT INTO card_price_snapshots (card_id, display_currency_code) VALUES (?, ?)",
+                (f"card-{index}", code),
+            )
+        connection.commit()
+        return connection
+
+    def test_refreshes_only_non_usd_currencies(self) -> None:
+        connection = self._connection_with_currencies(["USD", "JPY", "jpy", "EUR"])
+        fresh = {"isFresh": True}
+        with patch.object(sync_scrydex_catalog, "ensure_fx_rate_snapshot", return_value=fresh) as mock_ensure:
+            summary = _refresh_fx_rates_for_catalog(connection)
+
+        # USD is skipped; JPY/jpy collapse to one; EUR refreshed. Each fetch is allowed.
+        self.assertEqual(summary["currencies"], ["EUR", "JPY"])
+        self.assertEqual(summary["refreshed"], 2)
+        self.assertEqual(summary["failed"], 0)
+        called_currencies = sorted(call.kwargs["base_currency"] for call in mock_ensure.call_args_list)
+        self.assertEqual(called_currencies, ["EUR", "JPY"])
+        for call in mock_ensure.call_args_list:
+            self.assertEqual(call.kwargs["allow_fetch"], True)
+
+    def test_never_raises_when_a_currency_fetch_fails(self) -> None:
+        connection = self._connection_with_currencies(["JPY"])
+        with patch.object(sync_scrydex_catalog, "ensure_fx_rate_snapshot", side_effect=RuntimeError("ecb down")):
+            summary = _refresh_fx_rates_for_catalog(connection)
+        self.assertEqual(summary["failed"], 1)
+        self.assertEqual(summary["refreshed"], 0)
 
 
 class SyncScrydexCatalogHelperTests(unittest.TestCase):

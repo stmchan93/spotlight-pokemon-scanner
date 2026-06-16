@@ -22,6 +22,7 @@ from catalog_tools import (
     utc_now,
 )
 from env_loader import load_backend_env_file
+from fx_rates import ensure_fx_rate_snapshot
 from scrydex_adapter import (
     SCRYDEX_FULL_CATALOG_SYNC_SCOPE,
     SCRYDEX_PROVIDER,
@@ -165,6 +166,46 @@ def _is_sqlite_lock_error(exc: BaseException) -> bool:
     return "database is locked" in message or "database schema is locked" in message
 
 
+def _refresh_fx_rates_for_catalog(connection: sqlite3.Connection) -> dict[str, Any]:
+    """Refresh the FX snapshot for every non-USD currency the catalog prices in.
+
+    The card pricing / price-trend READ paths take cached FX rates without ever
+    blocking on a network fetch, so this scheduled refresh is what keeps those
+    rates current. Best-effort and isolated: a failed fetch for one currency (or
+    the whole step) never fails the catalog sync.
+    """
+    summary: dict[str, Any] = {"currencies": [], "refreshed": 0, "failed": 0}
+    try:
+        rows = connection.execute(
+            """
+            SELECT DISTINCT UPPER(display_currency_code) AS code
+            FROM card_price_snapshots
+            WHERE display_currency_code IS NOT NULL
+              AND UPPER(display_currency_code) <> 'USD'
+            """
+        ).fetchall()
+    except sqlite3.Error:
+        return summary
+
+    currencies = sorted({str(row["code"]).strip() for row in rows if str(row["code"] or "").strip()})
+    summary["currencies"] = currencies
+    for currency in currencies:
+        try:
+            snapshot = ensure_fx_rate_snapshot(
+                connection,
+                base_currency=currency,
+                quote_currency="USD",
+                allow_fetch=True,
+            )
+            if snapshot is not None and snapshot.get("isFresh") is True:
+                summary["refreshed"] += 1
+            else:
+                summary["failed"] += 1
+        except Exception:  # noqa: BLE001 - never let an FX refresh fail the sync
+            summary["failed"] += 1
+    return summary
+
+
 def _sync_scrydex_catalog_once(
     *,
     database_path: Path,
@@ -284,6 +325,9 @@ def _sync_scrydex_catalog_once(
             estimated_credits_used=totals["pagesFetched"],
         )
         connection.commit()
+        # Keep FX snapshots current for the read paths (which never fetch).
+        fx_summary = _refresh_fx_rates_for_catalog(connection)
+        connection.commit()
         return {
             "runID": run_id,
             "provider": SCRYDEX_PROVIDER,
@@ -293,6 +337,7 @@ def _sync_scrydex_catalog_once(
             "pageSize": page_size,
             **totals,
             "estimatedCreditsUsed": totals["pagesFetched"],
+            "fxRefresh": fx_summary,
             "completedAt": completed_at,
             "databasePath": str(database_path),
         }
