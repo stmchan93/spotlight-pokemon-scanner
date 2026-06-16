@@ -193,6 +193,30 @@ class FxRatesTests(unittest.TestCase):
         self.assertIs(result, stale_snapshot)
         connection.commit.assert_not_called()
 
+    @mock.patch.object(fx_rates, "fetch_ecb_cross_rate")
+    @mock.patch.object(fx_rates, "fx_rate_snapshot_for_pair")
+    def test_ensure_fx_rate_snapshot_skips_network_fetch_when_allow_fetch_false(
+        self,
+        mock_snapshot_for_pair: mock.Mock,
+        mock_fetch: mock.Mock,
+    ) -> None:
+        # Read paths pass allow_fetch=False: a stale snapshot is returned as-is
+        # without ever blocking on the ECB network fetch.
+        stale_snapshot = {"baseCurrency": "JPY", "quoteCurrency": "USD", "isFresh": False}
+        mock_snapshot_for_pair.return_value = stale_snapshot
+
+        connection = mock.Mock()
+        result = fx_rates.ensure_fx_rate_snapshot(
+            connection,
+            base_currency="jpy",
+            quote_currency="usd",
+            allow_fetch=False,
+        )
+
+        self.assertIs(result, stale_snapshot)
+        mock_fetch.assert_not_called()
+        connection.commit.assert_not_called()
+
     def test_convert_price_rounds_half_up_to_cents(self) -> None:
         self.assertEqual(
             fx_rates.convert_price(12.345, rate=Decimal("1.2345")),
@@ -276,7 +300,7 @@ class FxRatesTests(unittest.TestCase):
         converted = fx_rates.decorate_pricing_summary_with_fx(mock.Mock(), graded)
 
         mock_ensure_fx_rate_snapshot.assert_called_once_with(
-            mock.ANY, base_currency="JPY", quote_currency="USD"
+            mock.ANY, base_currency="JPY", quote_currency="USD", allow_fetch=False
         )
         self.assertEqual(converted["currencyCode"], "USD")
         self.assertEqual(converted["nativeCurrencyCode"], "JPY")
@@ -318,7 +342,7 @@ class FxRatesTests(unittest.TestCase):
 
         # Rate fetched once for the single JPY currency.
         mock_ensure_fx_rate_snapshot.assert_called_once_with(
-            mock.ANY, base_currency="JPY", quote_currency="USD"
+            mock.ANY, base_currency="JPY", quote_currency="USD", allow_fetch=False
         )
         row = result["rows"][0]
         self.assertEqual(row["currencyCode"], "USD")

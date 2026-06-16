@@ -136,11 +136,20 @@ def ensure_fx_rate_snapshot(
     *,
     base_currency: str,
     quote_currency: str,
+    allow_fetch: bool = True,
 ) -> dict[str, Any] | None:
     base = base_currency.upper()
     quote = quote_currency.upper()
     snapshot = fx_rate_snapshot_for_pair(connection, base, quote)
     if snapshot is not None and snapshot.get("isFresh") is True:
+        return snapshot
+
+    # Read-only callers (card pricing / price-trend endpoints) pass
+    # allow_fetch=False so a stale-or-missing snapshot never blocks the request
+    # on a synchronous ECB network fetch — they take the cached rate as-is. A
+    # stale rate (FX moves <1%/day) is fine for display; refresh happens on
+    # write/background paths that keep allow_fetch=True.
+    if not allow_fetch:
         return snapshot
 
     try:
@@ -180,7 +189,13 @@ def decorate_pricing_summary_with_fx(connection, pricing: dict[str, Any] | None)
     if not currency_code or currency_code == "USD":
         return pricing
 
-    fx_snapshot = ensure_fx_rate_snapshot(connection, base_currency=currency_code, quote_currency="USD")
+    # Read path: take the cached FX rate without blocking on a network fetch.
+    fx_snapshot = ensure_fx_rate_snapshot(
+        connection,
+        base_currency=currency_code,
+        quote_currency="USD",
+        allow_fetch=False,
+    )
     if fx_snapshot is None or not isinstance(fx_snapshot.get("rate"), (int, float)):
         return pricing
 
@@ -236,10 +251,12 @@ def convert_price_trend_list_with_fx(
     def _rate_for(currency: str) -> Decimal | None:
         if currency in rate_cache:
             return rate_cache[currency]
+        # Read path: cached FX rate only, never block on a network fetch.
         snapshot = ensure_fx_rate_snapshot(
             connection,
             base_currency=currency,
             quote_currency="USD",
+            allow_fetch=False,
         )
         rate: Decimal | None = None
         if snapshot is not None and isinstance(snapshot.get("rate"), (int, float)):
