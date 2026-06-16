@@ -709,6 +709,25 @@ def _env_flag(name: str, *, default: bool = False) -> bool:
     return str(raw_value).strip().lower() in {"1", "true", "yes", "on"}
 
 
+# The "Scanning for" EN/JP toggle hard-filters the raw-visual candidate list so
+# the headline pick can never be the wrong language. That filter, however, also
+# deletes the *actually scanned* card when the user has the wrong toggle on,
+# leaving it unreachable. When this flag is on we keep the toggle-language pick
+# as top-1 (ranking unchanged) but append the top 1-2 other-language matches to
+# the TAIL of the candidate list so a "Switch" can still reach the real card.
+# Default ON; set to a falsey value ("0"/"false"/"off") to restore the strict
+# hard-filter behavior.
+SCAN_KEEP_CROSSLANG_CANDIDATES_ENV = "SCAN_KEEP_CROSSLANG_CANDIDATES"
+SCAN_KEEP_CROSSLANG_CANDIDATES_MAX = 2
+
+
+def scan_keep_crosslang_candidates_enabled() -> bool:
+    """True when the raw-visual lane should append other-language matches to the
+    tail of the candidate list (so the actually-scanned card stays reachable as a
+    "Switch"). Default on; disable with a falsey ``SCAN_KEEP_CROSSLANG_CANDIDATES``."""
+    return _env_flag(SCAN_KEEP_CROSSLANG_CANDIDATES_ENV, default=True)
+
+
 # Startup portfolio-dashboard prewarm: after a reboot the OS page cache is empty
 # and the multi-GB DB sits on a slow disk, so the first dashboard refresh cold-
 # reads owner rows and can exceed the client timeout. We proactively warm each
@@ -1307,7 +1326,7 @@ class SpotlightScanService:
         payload: dict[str, Any],
         *,
         requested_top_k: int,
-    ) -> tuple[list[Any], dict[str, Any], float]:
+    ) -> tuple[list[Any], dict[str, Any], float, list[Any]]:
         started_at = perf_counter()
         # The "Scanning for" language toggle is authoritative for the raw lane:
         # a raw EN toggle must never surface a JP candidate/top-1 and vice versa.
@@ -1315,10 +1334,30 @@ class SpotlightScanService:
         # the shortlist of correct-language candidates, then trim back.
         scan_language = self._explicit_scan_language(payload)
         fetch_top_k = requested_top_k * 3 if scan_language else requested_top_k
-        matches, debug = self._raw_visual_matcher_instance().match_payload(payload, top_k=fetch_top_k)
-        matches = self._filter_visual_matches_by_scan_language(list(matches), scan_language)[:requested_top_k]
+        all_matches, debug = self._raw_visual_matcher_instance().match_payload(payload, top_k=fetch_top_k)
+        all_matches = list(all_matches)
+        # The toggle-language matches drive ranking / top-1 exactly as before.
+        matches = self._filter_visual_matches_by_scan_language(all_matches, scan_language)[:requested_top_k]
+        # ALSO surface the top other-language matches that the hard filter just
+        # dropped. These never enter ranking or the decision; the response builder
+        # only appends them to the TAIL of the candidate list so the actually-
+        # scanned card stays reachable as a "Switch". Highest similarity first is
+        # preserved by `match_payload`'s ordering (all_matches is already ranked).
+        other_language_matches: list[Any] = []
+        if scan_language in ("english", "japanese") and scan_keep_crosslang_candidates_enabled():
+            want_japanese = scan_language == "japanese"
+            kept_ids = {
+                str(getattr(match, "entry", {}).get("providerCardId") or "")
+                for match in matches
+            }
+            other_language_matches = [
+                match
+                for match in all_matches
+                if self._candidate_is_japanese(getattr(match, "entry", {}) or {}) != want_japanese
+                and str(getattr(match, "entry", {}).get("providerCardId") or "") not in kept_ids
+            ][:SCAN_KEEP_CROSSLANG_CANDIDATES_MAX]
         visual_match_ms = (perf_counter() - started_at) * 1000.0
-        return matches, dict(debug or {}), visual_match_ms
+        return matches, dict(debug or {}), visual_match_ms, other_language_matches
 
     def _build_raw_visual_only_response(
         self,
@@ -1330,6 +1369,7 @@ class SpotlightScanService:
         api_key: str | None = None,
         is_provisional: bool = False,
         finalize_response: bool = True,
+        other_language_matches: list[Any] | None = None,
     ) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
         self._prime_card_lookup_cache(
             [
@@ -1397,6 +1437,58 @@ class SpotlightScanService:
                     "finalScore": round(similarity, 4),
                 }
             )
+
+        # Cross-language "Switch" tail: when the "Scanning for" toggle hard-filtered
+        # the actually-scanned card out (e.g. an EN card scanned with the JP toggle
+        # on), append the top other-language matches to the END of both the live
+        # `topCandidates` and the persisted pool so the real card stays reachable.
+        # This runs AFTER the decision/ranking above, so top-1 and the main ranked
+        # order are untouched; these rows are only ever appended at the tail.
+        other_language_matches = other_language_matches or []
+        if other_language_matches:
+            existing_candidate_ids = {
+                str((row.get("candidate") or {}).get("id") or "").strip()
+                for row in storage_candidates
+            }
+            cross_lang_items: list[CandidateEncodingItem] = []
+            for match in other_language_matches:
+                stub = self._visual_candidate_stub(match.entry)
+                stub_id = str(stub.get("id") or "").strip()
+                if not stub_id or stub_id in existing_candidate_ids:
+                    continue
+                existing_candidate_ids.add(stub_id)
+                similarity = float(getattr(match, "similarity", 0.0) or 0.0)
+                cross_lang_items.append(
+                    CandidateEncodingItem(
+                        card=stub,
+                        image_score=similarity,
+                        collector_number_score=0.0,
+                        name_score=0.0,
+                        final_score=similarity,
+                        reasons=("visual_similarity", "cross_language_switch"),
+                        scored_fields={
+                            "visualScore": round(similarity, 4),
+                            "crossLanguageSwitch": True,
+                        },
+                    )
+                )
+            if cross_lang_items:
+                cross_encoded, cross_scored, _ = self._encode_top_candidates(
+                    cross_lang_items,
+                    pricing_context=self._raw_pricing_context(),
+                    pricing_policy=pricing_policy,
+                    trigger_source="scan_match_raw_cross_language",
+                    api_key=api_key,
+                )
+                # Re-rank the appended rows to follow the existing tail and tag the
+                # candidate language so the client can label the "Switch" entry.
+                for offset, encoded in enumerate(cross_encoded):
+                    tail_rank = len(storage_candidates) + 1
+                    encoded["rank"] = tail_rank
+                    encoded["crossLanguageSwitch"] = True
+                    encoded_candidates.append(encoded)
+                    scored_candidates.append(cross_scored[offset])
+                    storage_candidates.append(encoded)
 
         response = {
             "scanID": payload["scanID"],
@@ -8644,7 +8736,7 @@ class SpotlightScanService:
         api_key: str | None = None,
     ) -> dict[str, Any]:
         try:
-            matches, debug, visual_match_ms = self._run_raw_visual_phase(
+            matches, debug, visual_match_ms, other_language_matches = self._run_raw_visual_phase(
                 payload, requested_top_k=SCAN_CANDIDATE_POOL_SIZE
             )
         except Exception as exc:
@@ -8666,6 +8758,7 @@ class SpotlightScanService:
             visual_match_ms=visual_match_ms,
             api_key=api_key,
             is_provisional=False,
+            other_language_matches=other_language_matches,
         )
         return response
 
@@ -8928,7 +9021,7 @@ class SpotlightScanService:
         match_started = perf_counter()
         pre_visual_setup_ms = (match_started - handler_started_at) * 1000.0
         try:
-            matches, debug, visual_match_ms = self._run_raw_visual_phase(
+            matches, debug, visual_match_ms, other_language_matches = self._run_raw_visual_phase(
                 payload, requested_top_k=SCAN_CANDIDATE_POOL_SIZE
             )
         except Exception as exc:
@@ -8961,6 +9054,7 @@ class SpotlightScanService:
             api_key=api_key,
             is_provisional=True,
             finalize_response=False,
+            other_language_matches=other_language_matches,
         )
         build_response_total_ms = (perf_counter() - build_response_started_at) * 1000.0
         store_pending_started_at = perf_counter()
