@@ -3430,6 +3430,49 @@ class SpotlightScanService:
                     result[cid] = row
         return result
 
+    def _price_history_rows_on_or_before_by_card_id(
+        self,
+        card_ids: list[str],
+        *,
+        cutoff_date_iso: str,
+    ) -> dict[str, sqlite3.Row | None]:
+        """Latest price-history row dated on or before ``cutoff_date_iso`` for each
+        card, in ONE query (chunked). Modeled on
+        ``_yesterday_price_history_rows_by_card_id`` but with ``price_date <= ?``
+        (a fixed cutoff, e.g. ~30 days ago) instead of strictly-before-today.
+        Ordering by (card_id, price_date DESC, updated_at DESC) and keeping the
+        first row per card_id reproduces a per-card ``LIMIT 1`` result."""
+        normalized_ids = self._normalized_unique_card_ids(list(card_ids))
+        if not normalized_ids:
+            return {}
+        select_columns = (
+            self._portfolio_history_select_columns(
+                include_raw_json=False, include_graded_json=False
+            )
+            if price_history_cells_enabled()
+            else "*"
+        )
+        result: dict[str, sqlite3.Row | None] = {}
+        for start in range(0, len(normalized_ids), 400):
+            chunk = normalized_ids[start:start + 400]
+            placeholders = ",".join("?" for _ in chunk)
+            rows = self.connection.execute(
+                f"""
+                SELECT {select_columns}
+                FROM card_price_history_daily
+                WHERE provider = ?
+                  AND price_date <= ?
+                  AND card_id IN ({placeholders})
+                ORDER BY card_id ASC, price_date DESC, updated_at DESC
+                """,
+                (SCRYDEX_PROVIDER, cutoff_date_iso, *chunk),
+            ).fetchall()
+            for row in rows:
+                cid = str(row["card_id"] or "").strip()
+                if cid and cid not in result:
+                    result[cid] = row
+        return result
+
     def _day_change_for_entry(
         self,
         *,
@@ -5007,6 +5050,7 @@ class SpotlightScanService:
         all_time = empty_kinds()
         this_month = empty_kinds()
         biggest_sale_row: dict[str, Any] | None = None
+        biggest_purchase_row: dict[str, Any] | None = None
         month_sold_rows: list[dict[str, Any]] = []
 
         for raw_row in rows:
@@ -5034,10 +5078,106 @@ class SpotlightScanService:
                 if in_month:
                     month_sold_rows.append(row)
 
+            if kind == "bought" and row.get("amount_cents") is not None:
+                if biggest_purchase_row is None or int(row.get("amount_cents") or 0) > int(
+                    biggest_purchase_row.get("amount_cents") or 0
+                ):
+                    biggest_purchase_row = row
+
         month_sold_rows.sort(key=lambda r: int(r.get("amount_cents") or 0), reverse=True)
         top_sales_this_month = [
             self._card_transaction_row_to_payload(r) for r in month_sold_rows[:10]
         ]
+
+        scanned_count = 0
+        try:
+            scanned_row = self.connection.execute(
+                "SELECT COUNT(*) AS c FROM scan_events WHERE owner_user_id = ?",
+                (owner_user_id,),
+            ).fetchone()
+            if scanned_row is not None:
+                scanned_count = int(scanned_row["c"] or 0)
+        except Exception:
+            scanned_count = 0
+
+        wishlisted_count = 0
+        try:
+            wishlisted_row = self.connection.execute(
+                "SELECT COUNT(*) AS c FROM card_favorites WHERE owner_user_id = ?",
+                (owner_user_id,),
+            ).fetchone()
+            if wishlisted_row is not None:
+                wishlisted_count = int(wishlisted_row["c"] or 0)
+        except Exception:
+            wishlisted_count = 0
+
+        total_portfolio_value_cents = 0
+        top_growth: list[dict[str, Any]] = []
+        try:
+            dashboard = self.deck_entries(limit=2000, compute_day_change=False)
+            summary = dashboard.get("summary") or {}
+            total_portfolio_value_cents = int(round(float(summary.get("totalValue") or 0.0) * 100))
+
+            entries = dashboard.get("entries") or []
+            entry_card_ids = [
+                str((entry.get("card") or {}).get("id") or "").strip()
+                for entry in entries
+            ]
+            cutoff_date_iso = (today - timedelta(days=30)).isoformat()
+            past_rows_by_card_id = self._price_history_rows_on_or_before_by_card_id(
+                entry_card_ids, cutoff_date_iso=cutoff_date_iso
+            )
+
+            for entry in entries:
+                card = entry.get("card") or {}
+                card_id = str(card.get("id") or "").strip()
+                if not card_id:
+                    continue
+                pricing = card.get("pricing") or {}
+                current_price = self._history_primary_price_value(pricing)
+                if current_price is None:
+                    continue
+                past_row = past_rows_by_card_id.get(card_id)
+                if past_row is None:
+                    continue
+                slab_context = entry.get("slabContext") or {}
+                history_entry = {
+                    "cardID": card_id,
+                    "itemKind": entry.get("itemKind"),
+                    "grader": slab_context.get("grader"),
+                    "grade": slab_context.get("grade"),
+                    "variantName": entry.get("variantName"),
+                }
+                past_pricing = self._portfolio_history_price_row_from_history_row(
+                    history_entry,
+                    row=past_row,
+                    condition_code=self._portfolio_condition_code(entry.get("condition")),
+                )
+                past_price = self._history_primary_price_value(past_pricing)
+                if past_price is None or past_price <= 0:
+                    continue
+                if current_price <= past_price:
+                    continue
+                change_amount_cents = round((current_price - past_price) * 100)
+                change_pct = round((current_price - past_price) / past_price * 100, 2)
+                top_growth.append(
+                    {
+                        "cardId": card_id,
+                        "name": card.get("name") or "",
+                        "setName": card.get("setName") or "",
+                        "cardNumber": card.get("number") or "",
+                        "imageUrl": card.get("imageSmallURL") or card.get("imageLargeURL"),
+                        "currencyCode": "USD",
+                        "changeAmountCents": int(change_amount_cents),
+                        "changePct": change_pct,
+                    }
+                )
+
+            top_growth.sort(key=lambda g: g["changeAmountCents"], reverse=True)
+            top_growth = top_growth[:5]
+        except Exception:
+            total_portfolio_value_cents = 0
+            top_growth = []
 
         return {
             "currencyCode": "USD",
@@ -5048,7 +5188,16 @@ class SpotlightScanService:
                 if biggest_sale_row is not None
                 else None
             ),
+            "biggestPurchase": (
+                self._card_transaction_row_to_payload(biggest_purchase_row)
+                if biggest_purchase_row is not None
+                else None
+            ),
             "topSalesThisMonth": top_sales_this_month,
+            "scannedCount": scanned_count,
+            "wishlistedCount": wishlisted_count,
+            "totalPortfolioValueCents": total_portfolio_value_cents,
+            "topGrowth": top_growth,
             "refreshedAt": utc_now(),
         }
 

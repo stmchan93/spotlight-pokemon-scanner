@@ -505,6 +505,17 @@ class CollectionsRedesignTests(unittest.TestCase):
         )
         self.assertEqual(payload["topSalesThisMonth"][0]["note"], "Charizard")
 
+        # New highlights fields (biggest purchase + counts + portfolio value +
+        # top growth). Only one 'bought' row exists, so it's the biggest purchase.
+        self.assertIsNotNone(payload["biggestPurchase"])
+        self.assertEqual(payload["biggestPurchase"]["amountCents"], 8000)
+        self.assertEqual(payload["biggestPurchase"]["note"], "Pikachu")
+        # No scans / favorites / inventory for this owner → zero + empty growth.
+        self.assertEqual(payload["scannedCount"], 0)
+        self.assertEqual(payload["wishlistedCount"], 0)
+        self.assertEqual(payload["totalPortfolioValueCents"], 0)
+        self.assertEqual(payload["topGrowth"], [])
+
     def test_batched_yesterday_rows_match_per_card_query(self) -> None:
         self._insert_card()
         for price_date in ("2026-06-05", "2026-06-06"):

@@ -47,6 +47,7 @@ import type {
   InventoryEntryCreateResponsePayload,
   InventoryCardEntry,
   InventoryEntriesQuery,
+  InsightGrowthCard,
   LabelingSessionArtifactRecord,
   LabelingSessionArtifactUploadPayload,
   LabelingSessionCreatePayload,
@@ -3003,12 +3004,65 @@ export class MockSpotlightRepository implements SpotlightRepository {
     }
     monthSold.sort((left, right) => (right.amountCents ?? 0) - (left.amountCents ?? 0));
 
+    const sampleImage = 'https://images.pokemontcg.io/sm1/1.png';
+    const biggestPurchase: CardTransactionRecord = {
+      id: 'txn-mock-bought',
+      kind: 'bought',
+      amountCents: 8800,
+      currencyCode: 'USD',
+      occurredAt: '2026-06-08T18:00:00.000Z',
+      occurredAtLabel: 'Bought on Jun 8, 2026',
+      note: 'Booth pickup at the June show',
+      itemCount: 1,
+      photoUrl: sampleImage,
+      imageUrl: sampleImage,
+      createdAt: '2026-06-08T18:01:00.000Z',
+      paymentMethod: 'cash',
+    };
+    const topGrowth: InsightGrowthCard[] = [
+      {
+        cardId: 'sm1-1',
+        name: 'Ludicolo',
+        setName: 'Sun & Moon',
+        cardNumber: '1/149',
+        imageUrl: 'https://images.pokemontcg.io/sm1/1.png',
+        currencyCode: 'USD',
+        changeAmountCents: 399,
+        changePct: 3.2,
+      },
+      {
+        cardId: 'sm1-2',
+        name: 'Dartrix',
+        setName: 'Sun & Moon',
+        cardNumber: '9/149',
+        imageUrl: 'https://images.pokemontcg.io/sm1/9.png',
+        currencyCode: 'USD',
+        changeAmountCents: 250,
+        changePct: 1.8,
+      },
+      {
+        cardId: 'swsh1-25',
+        name: 'Zacian V',
+        setName: 'Sword & Shield',
+        cardNumber: '138/202',
+        imageUrl: 'https://images.pokemontcg.io/swsh1/138.png',
+        currencyCode: 'USD',
+        changeAmountCents: 1200,
+        changePct: 5.6,
+      },
+    ];
+
     return {
       currencyCode: 'USD',
       thisMonth,
       allTime,
       biggestSale: biggestSale ? { ...biggestSale } : null,
       topSalesThisMonth: monthSold.slice(0, 10).map((sale) => ({ ...sale })),
+      totalPortfolioValueCents: 180000,
+      scannedCount: 2876,
+      wishlistedCount: 40,
+      biggestPurchase,
+      topGrowth,
     };
   }
 
@@ -4379,12 +4433,31 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         headers: { 'Content-Type': 'application/json' },
       },
     );
+    const dto = payload as Record<string, unknown> & TransactionInsights;
+    const rawGrowth = Array.isArray(dto.topGrowth) ? (dto.topGrowth as Record<string, unknown>[]) : [];
+    const topGrowth: InsightGrowthCard[] = rawGrowth.map((x) => ({
+      cardId: String(x.cardId),
+      name: String(x.name ?? ''),
+      setName: (x.setName as string | null) ?? null,
+      cardNumber: (x.cardNumber as string | null) ?? null,
+      imageUrl: normalizeImageUrl((x.imageUrl as string | null) ?? null, this.baseUrl) || null,
+      currencyCode: String(x.currencyCode ?? 'USD'),
+      changeAmountCents: Number(x.changeAmountCents ?? 0),
+      changePct: Number(x.changePct ?? 0),
+    }));
     return {
       ...payload,
       biggestSale: payload.biggestSale ? this.absolutizeCardTransaction(payload.biggestSale) : null,
       topSalesThisMonth: (payload.topSalesThisMonth ?? []).map((sale) =>
         this.absolutizeCardTransaction(sale),
       ),
+      totalPortfolioValueCents: Number(dto.totalPortfolioValueCents ?? 0),
+      scannedCount: Number(dto.scannedCount ?? 0),
+      wishlistedCount: Number(dto.wishlistedCount ?? 0),
+      biggestPurchase: payload.biggestPurchase
+        ? this.absolutizeCardTransaction(payload.biggestPurchase)
+        : null,
+      topGrowth,
     };
   }
 

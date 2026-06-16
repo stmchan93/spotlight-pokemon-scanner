@@ -397,12 +397,28 @@ export type TransactionKindStats = {
  * (no cost basis / profit / inventory state): per-kind counts + dollar totals
  * for this month and all time, the top sales this month, and the biggest sale.
  */
+export type InsightGrowthCard = {
+  cardId: string;
+  name: string;
+  setName: string | null;
+  cardNumber: string | null;
+  imageUrl: string | null;
+  currencyCode: string;
+  changeAmountCents: number;
+  changePct: number;
+};
+
 export type TransactionInsights = {
   currencyCode: string;
   thisMonth: TransactionKindStats;
   allTime: TransactionKindStats;
   biggestSale: CardTransactionRecord | null;
   topSalesThisMonth: CardTransactionRecord[];
+  totalPortfolioValueCents: number;
+  scannedCount: number;
+  wishlistedCount: number;
+  biggestPurchase: CardTransactionRecord | null;
+  topGrowth: InsightGrowthCard[];
   refreshedAt?: string | null;
 };
 

@@ -36,6 +36,19 @@ const sampleInsights: TransactionInsights = {
     photoUrl: null,
     imageUrl: 'https://cdn.spotlight.test/moonbreon.png',
   },
+  biggestPurchase: {
+    id: 'purchase-1',
+    kind: 'bought',
+    amountCents: 88000,
+    currencyCode: 'USD',
+    occurredAt: '2026-04-18T00:00:00.000Z',
+    occurredAtLabel: 'Apr 18, 2026',
+    note: 'Booth pickup',
+    itemCount: 2,
+    photoUrl: null,
+    imageUrl: 'https://cdn.spotlight.test/booth.png',
+    paymentMethod: 'cash',
+  },
   topSalesThisMonth: [
     {
       id: 'sale-1',
@@ -50,34 +63,64 @@ const sampleInsights: TransactionInsights = {
       imageUrl: 'https://cdn.spotlight.test/charizard.png',
     },
   ],
+  totalPortfolioValueCents: 180000,
+  scannedCount: 2876,
+  wishlistedCount: 40,
+  topGrowth: [
+    {
+      cardId: 'sm1-1',
+      name: 'Ludicolo',
+      setName: 'Sun & Moon',
+      cardNumber: '1/149',
+      imageUrl: 'https://images.pokemontcg.io/sm1/1.png',
+      currencyCode: 'USD',
+      changeAmountCents: 399,
+      changePct: 3.2,
+    },
+  ],
 };
 
 describe('InsightsScreen', () => {
-  it('renders simple transaction-log analytics: month/all-time counts, top sale, biggest sale', async () => {
+  it('renders the redesigned highlights layout', async () => {
     renderWithProviders(<InsightsScreen />, {
       spotlightRepository: createTestSpotlightRepository({
         loadTransactionInsights: async () => sampleInsights,
       }),
     });
 
+    // Header title + monthly highlights eyebrow.
     expect(screen.getByTestId('insights-header-title').props.children).toBe('Insights');
+    expect(screen.getByTestId('insights-month-eyebrow').props.children).toBe(
+      'Monthly Highlights',
+    );
 
-    // Biggest sale highlight renders with its price.
+    // Top-growth card renders with its name + green change line.
     await waitFor(() => {
-      expect(screen.getByTestId('insights-biggest-sale')).toBeTruthy();
+      expect(screen.getByTestId('insights-growth-card-0')).toBeTruthy();
     });
-    expect(screen.getByTestId('insights-biggest-sale-amount').props.children).toBe('$1,200.00');
+    expect(screen.getByText('Ludicolo')).toBeTruthy();
+    expect(screen.getByText('+$3.99 (+3.20%)')).toBeTruthy();
 
-    // Top sale this month renders with its price.
-    expect(screen.getByTestId('insights-top-sale-sale-1-amount').props.children).toBe('$450.00');
+    // "Here's how you did" stat values.
+    expect(screen.getByTestId('insights-stat-total-portfolio-value-value').props.children).toBe(
+      '$1,800.00',
+    );
+    expect(screen.getByTestId('insights-stat-scanned-value').props.children).toBe('2,876');
+    expect(screen.getByTestId('insights-stat-wishlisted-value').props.children).toBe('40');
+    expect(screen.getByTestId('insights-stat-bought-value').props.children).toBe('98');
+    expect(screen.getByTestId('insights-stat-sold-value').props.children).toBe('142');
+    expect(screen.getByTestId('insights-stat-traded-value').props.children).toBe('21');
 
-    // Month + all-time stat cards present; the month-sold count shows 12.
-    expect(screen.getByTestId('insights-month-sold')).toBeTruthy();
-    expect(screen.getByTestId('insights-all-sold')).toBeTruthy();
-    expect(screen.getByText('12')).toBeTruthy();
+    // Biggest sale + biggest purchase amounts.
+    expect(screen.getByTestId('insights-biggest-sale')).toBeTruthy();
+    expect(screen.getByTestId('insights-biggest-sale-amount').props.children).toBe('+$1,200.00');
+    expect(screen.getByTestId('insights-biggest-purchase')).toBeTruthy();
+    expect(screen.getByTestId('insights-biggest-purchase-amount').props.children).toBe(
+      '+$880.00',
+    );
   });
 
-  it('shows empty states when there is no activity', async () => {
+  it('shows empty tiles when there is no activity', async () => {
     const empty: TransactionInsights = {
       currencyCode: 'USD',
       thisMonth: {
@@ -91,7 +134,12 @@ describe('InsightsScreen', () => {
         traded: { count: 0, amountCents: 0 },
       },
       biggestSale: null,
+      biggestPurchase: null,
       topSalesThisMonth: [],
+      totalPortfolioValueCents: 0,
+      scannedCount: 0,
+      wishlistedCount: 0,
+      topGrowth: [],
     };
 
     renderWithProviders(<InsightsScreen />, {
@@ -101,8 +149,13 @@ describe('InsightsScreen', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('Your highest-price sale will show up here.')).toBeTruthy();
+      expect(
+        screen.getByText('Your biggest monthly gainers will show up here.'),
+      ).toBeTruthy();
     });
+    expect(screen.getByText('Your biggest sale will show up here.')).toBeTruthy();
+    expect(screen.getByText('Your biggest purchase will show up here.')).toBeTruthy();
     expect(screen.queryByTestId('insights-biggest-sale')).toBeNull();
+    expect(screen.queryByTestId('insights-biggest-purchase')).toBeNull();
   });
 });
