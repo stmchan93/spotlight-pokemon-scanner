@@ -31,6 +31,11 @@ export const rawScannerTrayHeaderHeight = 61;
 export const rawScannerTrayEmptyPeekHeight = 12;
 export const rawScannerTrayCollapsedRowHeight = 102;
 export const rawScannerModeToggleReservedHeight = 89;
+// The bottom controls row (scan-target pill + zoom dock, 36px) sits 16px above
+// the recent-capture tray. The reticle keeps a uniform 40px gap above this whole
+// footer, so reserve its height + that 16px lift when placing the reticle bottom.
+export const rawScannerControlsRowHeight = 36;
+export const rawScannerControlsRowLift = 16;
 export const slabLabelDividerRatio = 0.28;
 export const slabLabelAnalysisBottomRatio = 0.34;
 export const scannerReticleGuideStrokeWidth = 1.7;
@@ -54,11 +59,24 @@ export type RawScannerCameraHandle = {
 
 export type RawScannerCaptureLayout = {
   backButtonTop: number;
+  // Card-shaped region actually sent to matching. Shares the visible reticle's
+  // width and center but keeps the true card aspect, so it extends past the
+  // (squatter) visible frame's top/bottom — no crop stretch.
+  captureCropRect: {
+    height: number;
+    width: number;
+    x: number;
+    y: number;
+  };
   controlsTop: number;
+  // Height of the grey top scrim/header (Figma 1041-4241: 121pt on a 59pt safe
+  // area). The reticle's 40px top padding is measured from its bottom edge.
+  headerHeight: number;
   modeToggleWidth: number;
   previewHeight: number;
   previewWidth: number;
   promptTop: number;
+  // The VISIBLE framing box (corner brackets + capture hit area).
   reticle: {
     height: number;
     width: number;
@@ -101,25 +119,33 @@ export function makeRawScannerCaptureLayout({
   safeAreaTop: number;
   trayReservedHeight?: number;
 }): RawScannerCaptureLayout {
-  // Firm 40px left/right inset (Figma 1056-1416). The frame keeps the TRUE card
-  // aspect ratio (rawCardReticleAspectRatio) — same card shape as before — so the
-  // reticle crop maps 1:1 onto the 630x880 normalized target with no stretch.
-  const horizontalInset = 40;
+  // UNIFORM 40px padding on all four sides (Figma 1390-1649 / 1041-4253): the
+  // visible frame is inset 40px from the screen edges, 40px below the top chrome,
+  // and 40px above the bottom controls row. The frame fills that box (so its shape
+  // tracks the device, ~card-shaped on a 393pt phone) — the crop sent to matching
+  // is decoupled below to keep the true card aspect.
+  const inset = 40;
   const topChromeBottom = safeAreaTop + chromeBackButtonSize + 16;
-  const topSpacing = topChromeBottom + 4;
+  // Grey header band (Figma 1041-4241): 121pt tall on a 59pt safe area = the back
+  // button (positioned at safeAreaTop+10, 34pt tall) plus 18pt below it. The
+  // reticle's top padding is measured from THIS bottom edge.
+  const headerHeight = safeAreaTop + chromeBackButtonSize + 28;
   const controlsTopSpacing = 10;
   const trayTop = containerHeight - trayReservedHeight;
-  // Camera area between the top chrome and the recent-capture tray. Centering the
-  // card frame in THIS whole zone (rather than only the smaller band above the
-  // reserved controls) gives balanced gaps above and below instead of pinning it
-  // high. The height cap keeps it from overflowing the tray on tight phones.
-  const cameraZone = trayTop - topSpacing;
-  const widthFromHeightLimit = Math.floor(cameraZone / rawCardReticleAspectRatio);
-  const width = Math.max(284, Math.min(containerWidth - horizontalInset * 2, widthFromHeightLimit));
-  const height = Math.round(width * rawCardReticleAspectRatio);
-  const x = (containerWidth - width) / 2;
-  // Center the frame in the camera zone (equal gap above and below).
-  const y = topSpacing + Math.max(24, Math.round((cameraZone - height) / 2));
+  // Top edge of the controls row (pill + zoom), which sits a fixed lift above the
+  // tray. The reticle bottom keeps `inset` clearance above it.
+  const controlsRowTop = trayTop - rawScannerControlsRowLift - rawScannerControlsRowHeight;
+  const x = inset;
+  const width = Math.max(284, containerWidth - inset * 2);
+  const y = headerHeight + inset;
+  const height = Math.max(240, controlsRowTop - inset - y);
+
+  // Crop sent to matching keeps the TRUE card aspect (no stretch): same width and
+  // horizontal center as the visible frame, centered vertically on it, so it
+  // extends past the (squatter) frame top/bottom to capture the whole card.
+  const cropHeight = Math.round(width * rawCardReticleAspectRatio);
+  const cropY = Math.round(y + (height - cropHeight) / 2);
+
   // controlsTop is clamped so it never drops into the tray's reserved band.
   const controlsTop = Math.min(
     y + height + controlsTopSpacing,
@@ -128,7 +154,14 @@ export function makeRawScannerCaptureLayout({
 
   return {
     backButtonTop: safeAreaTop + 10,
+    captureCropRect: {
+      height: cropHeight,
+      width,
+      x,
+      y: cropY,
+    },
     controlsTop,
+    headerHeight,
     modeToggleWidth: Math.min(containerWidth - 48, 264),
     previewHeight: containerHeight,
     previewWidth: containerWidth,

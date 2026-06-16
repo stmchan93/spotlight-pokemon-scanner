@@ -420,13 +420,15 @@ export function ScannerScreen({
     trayReservedHeight: collapsedTrayReservedHeight,
   });
   const runtimeAppEnv = resolveRuntimeValue([], ['spotlightAppEnv']);
+  // Card-shaped crop (not the squatter visible frame) so the normalized target
+  // keeps the true card aspect with no stretch.
   reticleSnapshotRef.current = {
-    height: captureSurfaceLayout.reticle.height,
+    height: captureSurfaceLayout.captureCropRect.height,
     previewHeight: captureSurfaceLayout.previewHeight,
     previewWidth: captureSurfaceLayout.previewWidth,
-    width: captureSurfaceLayout.reticle.width,
-    x: captureSurfaceLayout.reticle.x,
-    y: captureSurfaceLayout.reticle.y,
+    width: captureSurfaceLayout.captureCropRect.width,
+    x: captureSurfaceLayout.captureCropRect.x,
+    y: captureSurfaceLayout.captureCropRect.y,
   };
   const hasCameraPermission = hasPermission;
   const shouldMountCamera = hasCameraPermission && isActiveTab && isForeground && isScreenFocused;
@@ -2142,12 +2144,7 @@ export function ScannerScreen({
           pointerEvents="none"
           style={[
             styles.topChromeBackdrop,
-            {
-              height: Math.max(
-                captureSurfaceLayout.backButtonTop + 46,
-                captureSurfaceLayout.reticle.y - 12,
-              ),
-            },
+            { height: captureSurfaceLayout.headerHeight },
           ]}
         />
         <View
