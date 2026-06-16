@@ -1660,74 +1660,58 @@ export function ScannerScreen({
     void handleAddToInventoryRef.current(captureId);
   }, []);
 
-  // Bulk "ADD ALL": optimistically close the modal + clear the tray NOW, then add
-  // every resolved scan to the collection in the BACKGROUND. Two reasons it isn't
-  // done inline:
-  //   - Speed: blocking on N parallel createInventoryEntry calls took 5-10s (the
-  //     backend serializes writes) with the modal stuck on "Adding…". Backgrounding
-  //     it feels instant.
+  // Bulk "ADD ALL": optimistically close the modal + clear the tray NOW, then
+  // wishlist (favorite) every resolved scan in the BACKGROUND. Two reasons it
+  // isn't done inline:
+  //   - Speed: blocking on N sequential setCardFavorite calls would stall the
+  //     modal on "Adding…"; backgrounding the writes makes the dismiss instant.
   //   - Stability: clearing via the empty→auto-collapse effect (no LayoutAnimation)
   //     instead of an explicit animated collapse avoids the iOS crash from firing a
   //     tray LayoutAnimation while the modal unmounts and N rows are removed in the
   //     same frame.
-  // Per the user: add the good ones, drop failures, clear everything regardless.
+  // Per the user: wishlist the good ones, drop failures, clear everything regardless.
   const handleAddAll = useCallback(() => {
-    const addedAt = new Date().toISOString();
-    // Snapshot what we need BEFORE clearing the tray (createInventoryEntry only
-    // needs the in-memory candidate data, not the scan image files).
-    const jobs = recentCaptures
-      .filter((capture) => (
-        !capture.isLoadingCandidates
-        && !capture.recentlyAdded
-        && activeCandidateForCapture(capture) != null
-      ))
-      .map((capture) => ({
-        activeCandidate: activeCandidateForCapture(capture)!,
-        capture,
-        condition: (priceSelection.get(capture.id)?.conditionCode ?? 'near_mint') as DeckConditionCode,
-      }));
+    // Snapshot the resolved cardIds BEFORE clearing the tray; de-dupe so repeat
+    // scans of the same card only favorite it once.
+    const cardIds = Array.from(
+      new Set(
+        recentCaptures
+          .filter((capture) => !capture.isLoadingCandidates && !capture.recentlyAdded)
+          .map((capture) => activeCandidateForCapture(capture)?.cardId)
+          .filter((cardId): cardId is string => cardId != null),
+      ),
+    );
 
     setIsAddAllOpen(false);
     performClearAllCaptures();
 
-    if (jobs.length === 0) {
+    if (cardIds.length === 0) {
       return;
     }
 
     void (async () => {
       let succeeded = 0;
       // Sequential — concurrent writes contend on the backend's SQLite store.
-      for (const job of jobs) {
+      for (const cardId of cardIds) {
         try {
-          trackCandidateSelectionIfNeeded(job.capture);
-          await spotlightRepository.createInventoryEntry(
-            buildInventoryEntryArgs(job.capture, job.activeCandidate, addedAt, job.condition),
-          );
+          await spotlightRepository.setCardFavorite(cardId, true);
           succeeded += 1;
         } catch (error) {
-          logScannerDiagnostic(`[SCANNER] addAll entry failed: ${scannerErrorMessage(error)}`, error);
+          logScannerDiagnostic(`[SCANNER] addAll wishlist failed: ${scannerErrorMessage(error)}`, error);
         }
       }
       capturePostHogEvent('scan_add_all', {
-        attempted: jobs.length,
+        attempted: cardIds.length,
         succeeded,
-        failed: jobs.length - succeeded,
+        failed: cardIds.length - succeeded,
       });
-      try {
-        const nextEntries = await spotlightRepository.getInventoryEntries();
-        setInventoryEntries(nextEntries);
-      } catch {
-        // Leave the cached list; refreshData below still nudges dependent screens.
-      }
       refreshData();
     })();
   }, [
     performClearAllCaptures,
-    priceSelection,
     recentCaptures,
     refreshData,
     spotlightRepository,
-    trackCandidateSelectionIfNeeded,
   ]);
 
   const handleOpenCard = useCallback(async (captureId: string) => {

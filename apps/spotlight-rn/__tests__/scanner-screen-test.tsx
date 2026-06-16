@@ -775,20 +775,18 @@ describe('ScannerScreen', () => {
     expect(screen.getByText('CLEAR ALL')).toBeTruthy();
   });
 
-  const froakieAddAllRepository = (addPayloads: any[]) => createTestSpotlightRepository({
-    createInventoryEntry: async (payload) => {
-      addPayloads.push(payload);
+  const froakieAddAllRepository = (
+    favoritePayloads: { cardId: string; isFavorite: boolean }[],
+  ) => createTestSpotlightRepository({
+    setCardFavorite: async (cardId: string, isFavorite?: boolean | null) => {
+      const next = isFavorite ?? true;
+      favoritePayloads.push({ cardId, isFavorite: next });
       return {
-        deckEntryID: 'entry-froakie',
-        cardID: payload.cardID,
-        variantName: null,
-        condition: payload.condition,
-        confirmationID: 'confirmation-froakie',
-        sourceScanID: payload.sourceScanID,
-        addedAt: payload.addedAt,
+        cardId,
+        favoritedAt: next ? '2026-05-15T00:00:00.000Z' : null,
+        isFavorite: next,
       };
     },
-    getInventoryEntries: async () => [],
     matchScannerCapture: async () => ({
       scanID: 'scan-froakie',
       candidates: [{
@@ -826,9 +824,9 @@ describe('ScannerScreen', () => {
     });
   });
 
-  it('ADD ALL adds the scan, then clears the tray and returns to the scanner', async () => {
-    const addPayloads: any[] = [];
-    renderScannerScreen({ spotlightRepository: froakieAddAllRepository(addPayloads) });
+  it('ADD ALL wishlists the scan, then clears the tray and returns to the scanner', async () => {
+    const favoritePayloads: { cardId: string; isFavorite: boolean }[] = [];
+    renderScannerScreen({ spotlightRepository: froakieAddAllRepository(favoritePayloads) });
 
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
@@ -839,21 +837,17 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-tray-header'));
     fireEvent.press(await screen.findByTestId('scanner-tray-add-all'));
 
-    // Confirmation modal with the count.
+    // Confirmation modal with the count + wishlist copy.
     expect(await screen.findByTestId('scanner-add-all-modal')).toBeTruthy();
     expect(screen.getByTestId('scanner-add-all-modal-subtitle').props.children)
-      .toBe('1 item will be added to your collection.');
+      .toBe('1 item will be added to your wishlist.');
 
     fireEvent.press(screen.getByTestId('scanner-add-all-confirm'));
 
     await waitFor(() => {
-      expect(addPayloads).toHaveLength(1);
+      expect(favoritePayloads).toHaveLength(1);
     });
-    expect(addPayloads[0]).toEqual(expect.objectContaining({
-      cardID: 'mcdonalds25-22',
-      sourceScanID: 'scan-froakie',
-      wasTopPrediction: true,
-    }));
+    expect(favoritePayloads[0]).toEqual({ cardId: 'mcdonalds25-22', isFavorite: true });
 
     // Tray cleared (SCAN: 0) + collapsed (modal + ADD ALL gone).
     await waitFor(() => {
@@ -863,9 +857,9 @@ describe('ScannerScreen', () => {
     expect(screen.queryByTestId('scanner-tray-add-all')).toBeNull();
   });
 
-  it('cancels ADD ALL without adding or clearing the tray', async () => {
-    const addPayloads: any[] = [];
-    renderScannerScreen({ spotlightRepository: froakieAddAllRepository(addPayloads) });
+  it('cancels ADD ALL without wishlisting or clearing the tray', async () => {
+    const favoritePayloads: { cardId: string; isFavorite: boolean }[] = [];
+    renderScannerScreen({ spotlightRepository: froakieAddAllRepository(favoritePayloads) });
 
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
@@ -880,7 +874,7 @@ describe('ScannerScreen', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('scanner-add-all-modal')).toBeNull();
     });
-    expect(addPayloads).toHaveLength(0);
+    expect(favoritePayloads).toHaveLength(0);
     expect(screen.getByTestId('scanner-recent-title').props.children).toBe('SCAN: 1');
   });
 

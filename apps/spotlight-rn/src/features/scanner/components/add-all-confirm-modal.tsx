@@ -1,4 +1,4 @@
-import { GridPlus } from 'iconoir-react-native';
+import { Heart } from 'iconoir-react-native';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Button, useSpotlightTheme } from '@spotlight/design-system';
@@ -15,7 +15,7 @@ type AddAllConfirmModalProps = {
 };
 
 /**
- * Centered "Add all to collection?" confirmation dialog (Figma 1365:2276). Built
+ * Centered "Add all to Wishlist?" confirmation dialog (Figma 1365:2276). Built
  * from the shared design-system `Button` (accent = purple primary, outline =
  * secondary) and tokens — no ad-hoc styling.
  */
@@ -55,14 +55,14 @@ export function AddAllConfirmModal({
         >
           <View style={styles.topGroup}>
             <View style={[styles.iconCircle, { backgroundColor: theme.colors.gray100 }]}>
-              <GridPlus color={theme.colors.gray900} height={24} width={24} />
+              <Heart color={theme.colors.gray900} height={24} width={24} />
             </View>
-            <Text style={theme.typography.titleMedium}>Add all to collection?</Text>
+            <Text style={theme.typography.titleMedium}>Add all to Wishlist?</Text>
             <Text
               style={[theme.typography.bodyMedium, styles.subtitle, { color: theme.colors.textMuted }]}
               testID={`${testID}-subtitle`}
             >
-              {`${itemCount} ${itemNoun} will be added to your collection.`}
+              {`${itemCount} ${itemNoun} will be added to your wishlist.`}
             </Text>
           </View>
 
