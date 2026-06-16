@@ -500,20 +500,20 @@ describe('CardDetailScreen', () => {
     );
 
     const heart = await screen.findByTestId('detail-hero-card-favorite');
-    expect(heart.props.accessibilityLabel).toBe('Add to favorites');
+    expect(heart.props.accessibilityLabel).toBe('Add to wishlist');
 
     fireEvent.press(heart);
     await waitFor(() => {
       expect(setCardFavorite).toHaveBeenLastCalledWith('sm7-1', true);
       expect(screen.getByTestId('detail-hero-card-favorite').props.accessibilityLabel)
-        .toBe('Remove from favorites');
+        .toBe('Remove from wishlist');
     });
 
     fireEvent.press(screen.getByTestId('detail-hero-card-favorite'));
     await waitFor(() => {
       expect(setCardFavorite).toHaveBeenLastCalledWith('sm7-1', false);
       expect(screen.getByTestId('detail-hero-card-favorite').props.accessibilityLabel)
-        .toBe('Add to favorites');
+        .toBe('Add to wishlist');
     });
   });
 

@@ -42,7 +42,7 @@ export function CardDetailHero({
       />
 
       <Pressable
-        accessibilityLabel={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+        accessibilityLabel={isFavorite ? 'Remove from wishlist' : 'Add to wishlist'}
         accessibilityRole="button"
         accessibilityState={{ selected: isFavorite }}
         hitSlop={8}

@@ -61,7 +61,7 @@ export function CardHero({
         </Text>
         {favorite ? (
           <Pressable
-            accessibilityLabel={favorite.isFavorite ? 'Remove from favorites' : 'Favorite card'}
+            accessibilityLabel={favorite.isFavorite ? 'Remove from wishlist' : 'Add to wishlist'}
             accessibilityRole="button"
             hitSlop={8}
             onPress={favorite.onToggle}

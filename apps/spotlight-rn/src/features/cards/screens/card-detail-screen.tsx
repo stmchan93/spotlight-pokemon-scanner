@@ -566,7 +566,7 @@ export function CardDetailScreen({
       })
       .catch(() => {
         setFavoriteState(previousFavoriteState);
-        setErrorMessage('Could not update favorite right now.');
+        setErrorMessage('Could not update wishlist right now.');
         setIsFavoritePending(false);
       });
   }, [cardId, favoriteState, isFavoritePending, spotlightRepository]);
