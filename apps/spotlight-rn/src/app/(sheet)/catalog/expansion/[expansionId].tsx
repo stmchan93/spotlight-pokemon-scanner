@@ -1,10 +1,13 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
+import { prefetchCardDetail } from '@/features/cards/card-detail-prefetch';
 import { saveCardDetailPreviewFromCatalogResult } from '@/features/cards/card-detail-preview-session';
 import { ExpansionDetailScreen } from '@/features/catalog/screens/expansion-detail-screen';
+import { useAppServices } from '@/providers/app-providers';
 
 export default function ExpansionDetailRoute() {
   const router = useRouter();
+  const { spotlightRepository } = useAppServices();
   const params = useLocalSearchParams<{
     expansionId?: string | string[];
     name?: string | string[];
@@ -19,6 +22,11 @@ export default function ExpansionDetailRoute() {
       expansionName={expansionName}
       onClose={() => router.back()}
       onOpenCard={(result) => {
+        // Warm the detail + default-lane price-trend caches the instant the card
+        // is tapped (during the push animation) so the PDP's configurator/ADD
+        // ITEM + price trends aren't fetching cold on mount. Mirrors the catalog
+        // search route; catalog cards carry no owned context → default raw lane.
+        prefetchCardDetail(spotlightRepository, result.cardId, undefined, result.imageUrl);
         router.push({
           pathname: '/cards/[cardId]',
           params: {
