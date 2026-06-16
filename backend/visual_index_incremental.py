@@ -38,6 +38,7 @@ from typing import Any, Callable, Iterable
 import numpy as np
 
 from raw_visual_index import RawVisualIndex
+from visual_index_placeholders import is_card_back_image
 
 try:  # reuse the canonical alias derivation when available
     from catalog_tools import derive_card_title_aliases
@@ -69,15 +70,12 @@ def _log(logger: LogFn | None, severity: str, message: str) -> None:
 
 
 def _scrydex_reference_url(card_id: str | None, image_url: str | None) -> str | None:
-    url = (image_url or "").strip()
-    if url:
-        return url
-    cid = (card_id or "").strip()
-    if not cid:
-        return None
-    # Canonical large reference image (the same pattern the full build's manifest
-    # records, e.g. https://images.scrydex.com/pokemon/me4-73/large).
-    return f"https://images.scrydex.com/pokemon/{cid}/large"
+    # Return only a REAL catalog image_url. We intentionally do NOT fabricate a
+    # `https://images.scrydex.com/pokemon/{id}/large` fallback: cards with a NULL
+    # image_url are exactly the front-less cards for which Scrydex serves a generic
+    # card-back placeholder, and fabricating that URL is one of the two paths that
+    # pulled placeholders into the index (see visual_index_placeholders.py).
+    return (image_url or "").strip() or None
 
 
 def _default_download_image(url: str) -> Any:
@@ -272,6 +270,12 @@ def append_missing_cards(
             image.save(ref_path)
         except Exception:
             pass
+        # Content guard: even with a real image_url, the URL can SERVE a generic
+        # card-back placeholder (the McDonald's promo case). Hash the saved PNG and
+        # skip it so the placeholder never becomes a false attractor in the index.
+        if is_card_back_image(ref_path):
+            skipped_ids.append(cid)
+            continue
         images.append(image)
         kept.append((card, ref_path))
 

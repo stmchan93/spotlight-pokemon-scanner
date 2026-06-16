@@ -462,6 +462,15 @@ if compgen -G "$BACKEND_DIR/data/visual-index/visual_index_user_photos_rerank_po
   cp "$BACKEND_DIR"/data/visual-index/visual_index_user_photos_rerank_pool_* "$BUNDLE_ROOT/data/visual-index/"
 fi
 
+# Ship the placeholder card-back denylist (tiny) so the matcher excludes the
+# card-back "attractor" entries on the VM. The matcher reads it from beside the
+# active manifest (data/visual-index/placeholder_card_ids.json); additive extract
+# drops it in without touching the reference index already provisioned there.
+if [ -f "$BACKEND_DIR/data/visual-index/placeholder_card_ids.json" ]; then
+  mkdir -p "$BUNDLE_ROOT/data/visual-index"
+  cp "$BACKEND_DIR/data/visual-index/placeholder_card_ids.json" "$BUNDLE_ROOT/data/visual-index/"
+fi
+
 BUNDLE_ARCHIVE="$TMP_DIR/backend-bundle.tgz"
 COPYFILE_DISABLE=1 tar --exclude='./._*' -C "$BUNDLE_ROOT" -czf "$BUNDLE_ARCHIVE" .
 

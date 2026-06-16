@@ -16,6 +16,9 @@ class RawVisualSearchMatch:
     entry: dict[str, Any]
 
 
+PLACEHOLDER_DENYLIST_FILENAME = "placeholder_card_ids.json"
+
+
 class RawVisualIndex:
     def __init__(self, npz_path: Path, manifest_path: Path) -> None:
         self.npz_path = npz_path
@@ -23,6 +26,28 @@ class RawVisualIndex:
         self._matrix: np.ndarray | None = None
         self._entries: list[dict[str, Any]] | None = None
         self._load_lock = threading.Lock()
+        self._denylist_ids: frozenset[str] | None = None
+
+    @property
+    def denylist_ids(self) -> frozenset[str]:
+        """Cached set of placeholder ``providerCardId``s to exclude from results.
+
+        Resolved relative to the active index dir (the manifest's parent). Missing
+        or unparseable denylist files are treated as an EMPTY set — this loader
+        never throws and is a no-op when the file is absent.
+        """
+        if self._denylist_ids is None:
+            self._denylist_ids = self._read_denylist_from_disk()
+        return self._denylist_ids
+
+    def _read_denylist_from_disk(self) -> frozenset[str]:
+        path = self.manifest_path.parent / PLACEHOLDER_DENYLIST_FILENAME
+        try:
+            payload = json.loads(path.read_text())
+            card_ids = payload.get("cardIds", [])
+            return frozenset(str(card_id) for card_id in card_ids if card_id)
+        except (OSError, ValueError, AttributeError, TypeError):
+            return frozenset()
 
     def is_available(self) -> bool:
         return self.npz_path.exists() and self.manifest_path.exists()
@@ -89,16 +114,28 @@ class RawVisualIndex:
         query = query / norm
 
         scores = np.sum(matrix * query[None, :], axis=1, dtype=np.float64)
-        if top_k >= len(scores):
+        # Over-fetch by the denylist size so that, after dropping placeholder
+        # card-back entries, we still have up to top_k REAL candidates to return.
+        denylist = self.denylist_ids
+        fetch_k = top_k + len(denylist)
+        if fetch_k >= len(scores):
             top_indices = np.argsort(scores)[::-1]
         else:
-            top_indices = np.argpartition(scores, -top_k)[-top_k:]
+            top_indices = np.argpartition(scores, -fetch_k)[-fetch_k:]
             top_indices = top_indices[np.argsort(scores[top_indices])[::-1]]
-        return [
-            RawVisualSearchMatch(
-                row_index=int(index),
-                similarity=float(scores[index]),
-                entry=entries[int(index)],
+
+        matches: list[RawVisualSearchMatch] = []
+        for index in top_indices:
+            entry = entries[int(index)]
+            if denylist and str(entry.get("providerCardId") or "") in denylist:
+                continue
+            matches.append(
+                RawVisualSearchMatch(
+                    row_index=int(index),
+                    similarity=float(scores[index]),
+                    entry=entry,
+                )
             )
-            for index in top_indices
-        ]
+            if len(matches) >= top_k:
+                break
+        return matches

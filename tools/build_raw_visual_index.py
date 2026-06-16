@@ -27,6 +27,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from catalog_tools import derive_card_title_aliases  # noqa: E402
 from scrydex_adapter import map_scrydex_catalog_card, scrydex_api_request  # noqa: E402
 from raw_visual_model import RawVisualFrozenEncoder, load_projection_adapter, project_embeddings_numpy, resolve_torch_device  # noqa: E402
+from visual_index_placeholders import is_card_back_image  # noqa: E402
 
 
 USER_AGENT = "Ekalight/0.1 (+https://local.ekalight.app)"
@@ -525,6 +526,18 @@ def main() -> int:
                 card = future_to_card[future]
                 try:
                     resolved_card, reference_image_path = future.result()
+                    # Content guard: skip cards whose downloaded/cached reference
+                    # image is a known generic card-back placeholder, so it never
+                    # becomes a false attractor in the index (see
+                    # visual_index_placeholders.py).
+                    if is_card_back_image(reference_image_path):
+                        skipped.append(
+                            {
+                                "providerCardId": resolved_card.get("id"),
+                                "reason": "placeholder_card_back",
+                            }
+                        )
+                        continue
                     batch_cards_with_images.append((resolved_card, reference_image_path))
                 except Exception as exc:
                     skipped.append(

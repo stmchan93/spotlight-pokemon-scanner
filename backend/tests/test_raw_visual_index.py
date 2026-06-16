@@ -105,6 +105,42 @@ class RawVisualIndexTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Visual index row mismatch"):
                 index.load()
 
+    def test_search_excludes_denylisted_placeholder_cards_and_preserves_top_k(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir_str:
+            tempdir = Path(tempdir_str)
+            # mcd18-1 (a card-back placeholder) is the single closest row to the
+            # query, followed by two real cards.
+            npz_path, manifest_path = self._write_index(
+                tempdir,
+                embeddings=np.array(
+                    [[10.0, 0.0], [9.0, 1.0], [8.0, 2.0]],
+                    dtype=np.float32,
+                ),
+                entries=[
+                    {"providerCardId": "mcd18-1", "name": "Growlithe"},
+                    {"providerCardId": "base1-4", "name": "Charizard"},
+                    {"providerCardId": "base1-2", "name": "Blastoise"},
+                ],
+            )
+            index = RawVisualIndex(npz_path=npz_path, manifest_path=manifest_path)
+            query = np.array([1.0, 0.0], dtype=np.float32)
+
+            # No denylist file -> placeholder is returned (no-op behavior).
+            self.assertEqual(
+                [m.entry["providerCardId"] for m in index.search(query, top_k=2)],
+                ["mcd18-1", "base1-4"],
+            )
+
+            # With the denylist, the placeholder is dropped and top_k=2 still
+            # yields TWO real candidates (over-fetch covers the dropped row).
+            (tempdir / "placeholder_card_ids.json").write_text(
+                json.dumps({"cardIds": ["mcd18-1"]})
+            )
+            fresh = RawVisualIndex(npz_path=npz_path, manifest_path=manifest_path)
+            matches = fresh.search(query, top_k=2)
+            self.assertEqual([m.entry["providerCardId"] for m in matches], ["base1-4", "base1-2"])
+            self.assertNotIn("mcd18-1", [m.entry["providerCardId"] for m in matches])
+
     def test_search_rejects_zero_norm_query(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir_str:
             tempdir = Path(tempdir_str)
