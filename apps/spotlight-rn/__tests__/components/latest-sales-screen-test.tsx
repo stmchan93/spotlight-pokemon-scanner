@@ -118,7 +118,7 @@ describe('LatestSalesScreen', () => {
     await screen.findByTestId('latest-sales-list');
 
     fireEvent.changeText(
-      screen.getByPlaceholderText('Search your collection'),
+      screen.getByPlaceholderText('Search your transactions'),
       'show',
     );
 

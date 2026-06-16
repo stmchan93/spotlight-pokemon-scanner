@@ -257,12 +257,12 @@ export function LatestSalesScreen() {
     <View style={salesStyles.listHeader}>
       <View style={salesStyles.searchRow}>
         <SearchField
-          accessibilityLabel="Search your collection"
+          accessibilityLabel="Search your transactions"
           autoCorrect={false}
           autoCapitalize="none"
           clearButtonMode="while-editing"
           onChangeText={setSearchQuery}
-          placeholder="Search your collection"
+          placeholder="Search your transactions"
           returnKeyType="search"
           size="collection"
           surface="muted"
