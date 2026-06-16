@@ -32,6 +32,7 @@ import {
 
 import { StagingSmokeDiagnostics } from '@/components/staging-smoke-diagnostics';
 import { AuthGate } from '@/features/auth/components/auth-gate';
+import { AppErrorBoundary } from '@/lib/observability/app-error-boundary';
 import { PostHogAppProvider, identifyPostHogUser } from '@/lib/observability/posthog';
 import { PostHogScreenTracker } from '@/lib/observability/posthog-screen-tracker';
 import { AppProviders } from '@/providers/app-providers';
@@ -174,15 +175,17 @@ function RootLayout() {
             <AuthProvider>
               <PostHogAppProvider>
                 <ObservabilityAuthSync />
-                <AuthenticatedAppProviders>
-                  <AppDrawerProvider>
-                    <View style={{ flex: 1, backgroundColor: navigationTheme.colors.background }}>
-                      <RootNavigator />
-                      <StagingSmokeDiagnostics />
-                      <AppDrawer />
-                    </View>
-                  </AppDrawerProvider>
-                </AuthenticatedAppProviders>
+                <AppErrorBoundary>
+                  <AuthenticatedAppProviders>
+                    <AppDrawerProvider>
+                      <View style={{ flex: 1, backgroundColor: navigationTheme.colors.background }}>
+                        <RootNavigator />
+                        <StagingSmokeDiagnostics />
+                        <AppDrawer />
+                      </View>
+                    </AppDrawerProvider>
+                  </AuthenticatedAppProviders>
+                </AppErrorBoundary>
               </PostHogAppProvider>
             </AuthProvider>
           </NavigationThemeProvider>

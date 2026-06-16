@@ -96,6 +96,19 @@ function createPostHogClient() {
     disableRemoteConfig: true,
     disableSurveys: true,
     captureAppLifecycleEvents: false,
+    // Crash visibility without a separate crash reporter (no Sentry): PostHog's
+    // built-in error tracking chains the global JS error handler and the
+    // unhandled-rejection tracker, sending `$exception` events to Error Tracking.
+    // `console: false` keeps dev console.error noise out of the crash feed; React
+    // render errors are reported separately by AppErrorBoundary (which also shows
+    // a recovery screen). Native (non-JS) crashes are out of scope.
+    errorTracking: {
+      autocapture: {
+        uncaughtExceptions: true,
+        unhandledRejections: true,
+        console: false,
+      },
+    },
     enableSessionReplay: false,
     personProfiles: 'identified_only',
     setDefaultPersonProperties: false,
@@ -122,6 +135,21 @@ export function capturePostHogEvent(event: string, properties?: PostHogEventProp
   }
 
   client.capture(event, buildTrackedPostHogProperties(properties));
+}
+
+/**
+ * Report a caught/boundary error to PostHog Error Tracking as a `$exception`
+ * (shaped by the SDK's captureException). Used by AppErrorBoundary; global
+ * uncaught errors and unhandled rejections are auto-captured via the client's
+ * `errorTracking.autocapture` config.
+ */
+export function capturePostHogException(error: unknown, properties?: PostHogEventProperties) {
+  const client = getPostHogClient();
+  if (!client) {
+    return;
+  }
+
+  client.captureException(error, buildTrackedPostHogProperties(properties));
 }
 
 export function capturePostHogScreen(name: string, properties?: PostHogEventProperties) {
