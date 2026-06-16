@@ -264,7 +264,7 @@ export function InsightsScreen() {
         </View>
       </ScrollView>
 
-      <AppBottomTabBar activeKey="portfolio" />
+      <AppBottomTabBar dismissToTabs />
     </SafeAreaView>
   );
 }

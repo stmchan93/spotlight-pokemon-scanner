@@ -9,6 +9,10 @@ export type AppBottomTabKey = 'portfolio' | 'scan' | 'events';
 
 type AppBottomTabBarProps = {
   activeKey?: AppBottomTabKey | null;
+  // Pushed (stack) screens (wishlist/transactions/insights) set this so a tab tap
+  // collapses the pushed stack back to the target tab instead of pushing a
+  // duplicate `(tabs)` route on top (which made Back return to the page you left).
+  dismissToTabs?: boolean;
   onPressPortfolio?: () => void;
   onPressScan?: () => void;
   onPressEvents?: () => void;
@@ -16,6 +20,7 @@ type AppBottomTabBarProps = {
 
 export function AppBottomTabBar({
   activeKey = null,
+  dismissToTabs = false,
   onPressPortfolio,
   onPressScan,
   onPressEvents,
@@ -29,10 +34,17 @@ export function AppBottomTabBar({
   const NAV_ICON_SIZE = 22;
 
   const goToPortfolio = onPressPortfolio
-    ?? (() => router.push({ pathname: '/', params: { page: 'portfolio' } } as never));
+    ?? (dismissToTabs
+      ? (() => router.dismissTo({ pathname: '/', params: { page: 'portfolio' } } as never))
+      : (() => router.push({ pathname: '/', params: { page: 'portfolio' } } as never)));
   const goToScan = onPressScan
-    ?? (() => router.push({ pathname: '/', params: { page: 'scanner' } } as never));
-  const goToEvents = onPressEvents ?? (() => router.push('/events' as never));
+    ?? (dismissToTabs
+      ? (() => router.dismissTo({ pathname: '/', params: { page: 'scanner' } } as never))
+      : (() => router.push({ pathname: '/', params: { page: 'scanner' } } as never)));
+  const goToEvents = onPressEvents
+    ?? (dismissToTabs
+      ? (() => router.replace('/events' as never))
+      : (() => router.push('/events' as never)));
 
   return (
     <BottomTabBar

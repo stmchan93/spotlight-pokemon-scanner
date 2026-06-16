@@ -418,7 +418,7 @@ export function LatestSalesScreen() {
 
       <CollectionAddFab onPress={() => router.push('/card-transactions/new')} />
 
-      <AppBottomTabBar activeKey="portfolio" />
+      <AppBottomTabBar dismissToTabs />
     </SafeAreaView>
   );
 }
