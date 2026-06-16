@@ -39,11 +39,10 @@ export function VerifyCodeScreen({
       backTestID="auth-verify-back"
       onBack={onBack}
       testID="auth-verify-code-screen"
-      title="Sign in / Sign up"
     >
       <View style={styles.heading}>
-        <Text style={[styles.title, { color: theme.colors.gray900 }]}>Check your inbox</Text>
-        <Text style={[styles.subtitle, { color: theme.colors.gray600 }]}>
+        <Text style={[styles.title, { color: theme.colors.gray0 }]}>Check your inbox</Text>
+        <Text style={[styles.subtitle, { color: theme.colors.gray400 }]}>
           {`Enter the verification code sent to ${email}`}
         </Text>
       </View>

@@ -16,10 +16,10 @@ type GetStartedScreenProps = {
 };
 
 /**
- * Pre-login homepage (Figma 1543:2210): a clean white entry screen — the
- * EKALIGHT wordmark + tagline centered, then "Continue with Email" (purple) and
- * "Continue with Google" (gray) actions. Presentational only; all auth happens
- * via the passed handlers.
+ * Pre-login homepage (Figma 1481:4380): a black entry screen behind the flowing
+ * wave hero — the white EKALIGHT wordmark + tagline, then "Continue with Email"
+ * (purple), "Continue with Google" and "Continue with Apple" (white) actions.
+ * Presentational only; all auth happens via the passed handlers.
  */
 export function GetStartedScreen({
   appleSignInAvailable = false,
@@ -36,8 +36,6 @@ export function GetStartedScreen({
 
   return (
     <AuthScreenLayout onShare={null} testID="auth-get-started-screen">
-      <View style={styles.topSpacer} />
-
       <AuthWordmark />
 
       <View style={styles.buttons}>
@@ -65,21 +63,13 @@ export function GetStartedScreen({
           />
         ) : null}
       </View>
-
-      <View style={styles.bottomSpacer} />
     </AuthScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  bottomSpacer: {
-    flex: 1.2,
-  },
   buttons: {
     gap: 16,
     marginTop: 40,
-  },
-  topSpacer: {
-    flex: 1,
   },
 });

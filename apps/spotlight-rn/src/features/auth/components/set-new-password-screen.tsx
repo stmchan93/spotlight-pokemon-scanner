@@ -37,10 +37,9 @@ export function SetNewPasswordScreen({
       backTestID="auth-newpassword-back"
       onBack={onBack}
       testID="auth-set-new-password-screen"
-      title="Sign in / Sign up"
     >
       <View style={styles.heading}>
-        <Text style={[styles.title, { color: theme.colors.gray900 }]}>Set a new password</Text>
+        <Text style={[styles.title, { color: theme.colors.gray0 }]}>Set a new password</Text>
       </View>
 
       <View style={styles.form}>

@@ -6,46 +6,49 @@ import {
   ScrollView,
   Share,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NavArrowLeft, ShareIos } from 'iconoir-react-native';
 
-import { fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
+import { useSpotlightTheme } from '@spotlight/design-system';
+
+import { WaveBackground } from './wave-background';
 
 type AuthScreenLayoutProps = {
-  /** Pinned content below the scroll area is not used by the Figma; everything
-   *  flows top-down inside the scroll, so screens just pass children. */
+  /** Content flows top-down inside the scroll area, below the wave hero. */
   children: ReactNode;
-  /** Header title (e.g. "Sign / Signup"). Omit on the entry screen for no header. */
-  title?: string;
   onBack?: () => void;
   backTestID?: string;
-  /** Defaults to sharing the app; pass null to hide the share affordance. */
+  /** Pass a handler to show the share affordance (top-right); hidden by default. */
   onShare?: (() => void) | null;
   testID?: string;
 };
 
 const HEADER_BUTTON_SIZE = 36;
+/** Wave band height (Figma 1481:4380, "image 17": 0..264). */
+const HERO_HEIGHT = 264;
+/** Where the first content row (wordmark / heading) starts — Figma y≈320, which
+ *  leaves a black gap under the wave so it fades seamlessly into the screen. */
+const CONTENT_TOP = 312;
+const SURFACE = '#000000';
 
 /**
- * Shared presentation for the redesigned auth flow (Figma 1543:2170): a plain
- * white screen with an optional top header (back circle, centered title, share
- * circle) and a keyboard-aware scroll area with 32px content margins. Content
- * flows top-down (wordmark → fields → buttons); nothing is bottom-pinned.
- * Purely presentational — no navigation/auth logic.
+ * Shared presentation for the redesigned auth flow (Figma 1481:4380): a pure
+ * black screen with the flowing halftone wave hero filling the top band, a
+ * floating back/share header over it, and a keyboard-aware scroll area whose
+ * content begins just below the wave. Purely presentational — no nav/auth logic.
  */
 export function AuthScreenLayout({
   children,
-  title,
   onBack,
   backTestID,
   onShare,
   testID,
 }: AuthScreenLayoutProps) {
   const theme = useSpotlightTheme();
-  const showHeader = Boolean(title || onBack || onShare !== null);
+  const insets = useSafeAreaInsets();
+  const showShare = typeof onShare === 'function';
 
   const handleShare = onShare
     ?? (() => {
@@ -55,81 +58,79 @@ export function AuthScreenLayout({
     });
 
   return (
-    <SafeAreaView
-      edges={['top', 'left', 'right', 'bottom']}
-      style={[styles.safeArea, { backgroundColor: theme.colors.gray0 }]}
-      testID={testID}
-    >
-      {showHeader ? (
-        <View style={styles.header}>
-          {onBack ? (
-            <Pressable
-              accessibilityLabel="Back"
-              accessibilityRole="button"
-              hitSlop={8}
-              onPress={onBack}
-              style={({ pressed }) => [
-                styles.headerButton,
-                { backgroundColor: theme.colors.gray50, opacity: pressed ? 0.8 : 1 },
-              ]}
-              testID={backTestID}
-            >
-              <NavArrowLeft color={theme.colors.gray900} height={24} width={24} />
-            </Pressable>
-          ) : (
-            <View style={styles.headerButton} />
-          )}
-
-          <Text
-            numberOfLines={1}
-            style={[styles.headerTitle, { color: theme.colors.gray900 }]}
-          >
-            {title ?? ''}
-          </Text>
-
-          {onShare !== null ? (
-            <Pressable
-              accessibilityLabel="Share Ekalight"
-              accessibilityRole="button"
-              hitSlop={8}
-              onPress={handleShare}
-              style={({ pressed }) => [
-                styles.headerButton,
-                { backgroundColor: theme.colors.gray50, opacity: pressed ? 0.8 : 1 },
-              ]}
-              testID="auth-share-button"
-            >
-              <ShareIos color={theme.colors.gray900} height={20} width={20} />
-            </Pressable>
-          ) : (
-            <View style={styles.headerButton} />
-          )}
-        </View>
-      ) : null}
+    <View style={[styles.root, { backgroundColor: SURFACE }]} testID={testID}>
+      <WaveBackground height={HERO_HEIGHT} testID="auth-wave-background" />
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboardShell}
       >
         <ScrollView
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: insets.bottom + 32, paddingTop: CONTENT_TOP },
+          ]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
           {children}
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+
+      {/* Header floats over the wave: back (left) + optional share (right). */}
+      <View
+        pointerEvents="box-none"
+        style={[styles.header, { paddingTop: insets.top + 6 }]}
+      >
+        {onBack ? (
+          <Pressable
+            accessibilityLabel="Back"
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={onBack}
+            style={({ pressed }) => [
+              styles.headerButton,
+              { backgroundColor: theme.colors.gray800, opacity: pressed ? 0.8 : 1 },
+            ]}
+            testID={backTestID}
+          >
+            <NavArrowLeft color={theme.colors.gray0} height={24} width={24} />
+          </Pressable>
+        ) : (
+          <View style={styles.headerButton} />
+        )}
+
+        {showShare ? (
+          <Pressable
+            accessibilityLabel="Share Ekalight"
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={handleShare}
+            style={({ pressed }) => [
+              styles.headerButton,
+              { backgroundColor: theme.colors.gray800, opacity: pressed ? 0.8 : 1 },
+            ]}
+            testID="auth-share-button"
+          >
+            <ShareIos color={theme.colors.gray0} height={20} width={20} />
+          </Pressable>
+        ) : (
+          <View style={styles.headerButton} />
+        )}
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   header: {
-    alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
+    left: 0,
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    position: 'absolute',
+    right: 0,
+    top: 0,
   },
   headerButton: {
     alignItems: 'center',
@@ -138,23 +139,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: HEADER_BUTTON_SIZE,
   },
-  headerTitle: {
-    fontFamily: fontFamilies.bodySemiBold,
-    fontSize: 18,
-    lineHeight: 23,
-    textAlign: 'center',
-  },
   keyboardShell: {
     flex: 1,
   },
-  safeArea: {
+  root: {
     flex: 1,
   },
   scrollContent: {
     flexGrow: 1,
     gap: 16,
-    paddingBottom: 32,
     paddingHorizontal: 32,
-    paddingTop: 24,
   },
 });

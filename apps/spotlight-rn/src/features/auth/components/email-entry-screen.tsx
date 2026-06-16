@@ -25,9 +25,9 @@ type EmailEntryScreenProps = {
 };
 
 /**
- * Email entry (Figma 1543:2266): white screen with the header, EKALIGHT
- * wordmark, a single email underline field, and a Continue button that stays
- * disabled until the address looks valid.
+ * Email entry (Figma 1481:4380): black wave-hero screen with the back header,
+ * the EKALIGHT wordmark, a single email underline field, and a Continue button
+ * that stays disabled until the address looks valid.
  */
 export function EmailEntryScreen({
   configurationIssue,
@@ -45,10 +45,8 @@ export function EmailEntryScreen({
       backTestID="auth-email-back"
       onBack={onBack}
       testID="auth-email-entry-screen"
-      title="Sign in / Sign up"
     >
-      <View style={styles.brandSpacer} />
-      <AuthWordmark />
+      <AuthWordmark tagline={null} />
 
       <View style={styles.form}>
         <SecondaryField
@@ -78,9 +76,6 @@ export function EmailEntryScreen({
 }
 
 const styles = StyleSheet.create({
-  brandSpacer: {
-    height: 96,
-  },
   form: {
     gap: 16,
     marginTop: 40,

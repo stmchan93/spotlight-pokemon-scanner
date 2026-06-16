@@ -39,13 +39,12 @@ export function ForgotPasswordScreen({
       backTestID="auth-forgot-back"
       onBack={onBack}
       testID="auth-forgot-password-screen"
-      title="Sign in / Sign up"
     >
       <View style={styles.heading}>
-        <Text style={[styles.title, { color: theme.colors.gray900 }]}>
+        <Text style={[styles.title, { color: theme.colors.gray0 }]}>
           Forgot your password?
         </Text>
-        <Text style={[styles.subtitle, { color: theme.colors.gray600 }]}>
+        <Text style={[styles.subtitle, { color: theme.colors.gray400 }]}>
           Confirm the email address you used to create your account, and we&apos;ll send a
           password reset email to it.
         </Text>

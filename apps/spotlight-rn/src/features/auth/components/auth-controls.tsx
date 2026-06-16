@@ -12,9 +12,9 @@ import { CheckCircle, CheckCircleSolid, Eye, EyeClosed } from 'iconoir-react-nat
 import { fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
 
 /**
- * Presentational building blocks shared by the redesigned (white full-screen)
- * email-auth screens (Figma 1543:2170). All are prop-driven; none own
- * navigation or async state.
+ * Presentational building blocks shared by the redesigned (black full-screen,
+ * wave hero) email-auth screens (Figma 1481:4380). All are prop-driven; none
+ * own navigation or async state. Colors are tuned for the dark surface.
  */
 
 type SecondaryFieldProps = Omit<TextInputProps, 'style'> & {
@@ -34,11 +34,11 @@ export function SecondaryField({
   const theme = useSpotlightTheme();
 
   return (
-    <View style={[styles.fieldShell, { borderBottomColor: theme.colors.gray300 }]}>
+    <View style={[styles.fieldShell, { borderBottomColor: theme.colors.gray600 }]}>
       <TextInput
         placeholder={placeholder}
         placeholderTextColor={theme.colors.gray400}
-        style={[styles.input, { color: theme.colors.gray900 }]}
+        style={[styles.input, { color: theme.colors.gray0 }]}
         testID={testID}
         value={value}
         {...inputProps}
@@ -78,9 +78,9 @@ export function PasswordField({
           testID={toggleTestID}
         >
           {visible ? (
-            <Eye color={theme.colors.gray600} height={24} width={24} />
+            <Eye color={theme.colors.gray400} height={24} width={24} />
           ) : (
-            <EyeClosed color={theme.colors.gray600} height={24} width={24} />
+            <EyeClosed color={theme.colors.gray400} height={24} width={24} />
           )}
         </Pressable>
       }
@@ -102,13 +102,13 @@ export function ReadOnlyField({ label, testID, value }: ReadOnlyFieldProps) {
 
   return (
     <View
-      style={[styles.fieldShell, styles.readOnlyShell, { borderBottomColor: theme.colors.gray300 }]}
+      style={[styles.fieldShell, styles.readOnlyShell, { borderBottomColor: theme.colors.gray600 }]}
       testID={testID}
     >
       {label ? (
         <Text style={[styles.readOnlyLabel, { color: theme.colors.gray400 }]}>{label}</Text>
       ) : null}
-      <Text style={[styles.input, { color: theme.colors.gray600 }]}>{value}</Text>
+      <Text style={[styles.input, { color: theme.colors.gray200 }]}>{value}</Text>
     </View>
   );
 }
@@ -203,7 +203,7 @@ export function TertiaryButton({ label, onPress, testID }: TertiaryButtonProps) 
       style={styles.tertiaryButton}
       testID={testID}
     >
-      <Text style={[styles.tertiaryLabel, { color: theme.colors.gray600 }]}>{label}</Text>
+      <Text style={[styles.tertiaryLabel, { color: theme.colors.gray100 }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -222,11 +222,11 @@ export function PasswordRules({ rules, testID }: { rules: PasswordRule[]; testID
       {rules.map((rule) => (
         <View key={rule.label} style={styles.ruleRow}>
           {rule.satisfied ? (
-            <CheckCircleSolid color={theme.colors.purple500} height={16} width={16} />
+            <CheckCircleSolid color={theme.colors.gray0} height={16} width={16} />
           ) : (
-            <CheckCircle color={theme.colors.gray300} height={16} width={16} />
+            <CheckCircle color={theme.colors.gray600} height={16} width={16} />
           )}
-          <Text style={[styles.ruleLabel, { color: theme.colors.gray600 }]}>{rule.label}</Text>
+          <Text style={[styles.ruleLabel, { color: theme.colors.gray200 }]}>{rule.label}</Text>
         </View>
       ))}
     </View>

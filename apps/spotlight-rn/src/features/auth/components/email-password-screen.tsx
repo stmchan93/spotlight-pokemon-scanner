@@ -61,10 +61,8 @@ export function EmailPasswordScreen({
       backTestID="auth-emailpw-back"
       onBack={onBack}
       testID="auth-email-password-screen"
-      title="Sign in / Sign up"
     >
-      <View style={styles.brandSpacer} />
-      <AuthWordmark />
+      <AuthWordmark tagline={null} />
 
       <View style={styles.form}>
         <ReadOnlyField label="Email" testID="auth-emailpw-email" value={email} />
@@ -111,9 +109,6 @@ export function EmailPasswordScreen({
 }
 
 const styles = StyleSheet.create({
-  brandSpacer: {
-    height: 64,
-  },
   form: {
     gap: 16,
     marginTop: 32,

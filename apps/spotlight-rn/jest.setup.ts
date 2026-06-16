@@ -102,6 +102,17 @@ jest.mock('react-native-image-colors', () => ({
   })),
 }));
 
+jest.mock('react-native-webview', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  // Render a plain View in tests — the wave animation needs a real WebView,
+  // but screens only need it to mount without the native module present.
+  return {
+    WebView: (props: Record<string, unknown>) =>
+      React.createElement(View, { testID: props.testID ?? 'mock-webview' }),
+  };
+});
+
 jest.mock('expo-splash-screen', () => ({
   hideAsync: jest.fn(),
   preventAutoHideAsync: jest.fn(),
