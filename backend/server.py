@@ -3473,6 +3473,55 @@ class SpotlightScanService:
                     result[cid] = row
         return result
 
+    def _price_history_cells_by_card_and_date(
+        self,
+        *,
+        card_ids: list[str],
+        price_dates: list[str],
+    ) -> dict[tuple[str, str], list[Any]]:
+        """All price-history cells for the given (card_id, price_date) space in ONE
+        chunked query, grouped by (card_id, price_date). Used to feed ``day_cells``
+        to ``_portfolio_history_price_row_from_history_row`` in a loop so it never
+        falls back to a per-(card, day) cell query — the cold N+1 that made the
+        Insights ``transaction_insights`` compute take ~44s for a 126-card owner.
+        Daily snapshots mean cards share dates, so the date set is tiny and the
+        card×date over-fetch is bounded to a single indexed scan. Empty in JSON
+        mode so callers keep ``day_cells=None`` (their JSON-blob path)."""
+        if not price_history_cells_enabled():
+            return {}
+        cards = [c for c in {str(x or "").strip() for x in card_ids} if c]
+        dates = [d for d in {str(x or "").strip() for x in price_dates} if d]
+        if not cards or not dates:
+            return {}
+        result: dict[tuple[str, str], list[Any]] = {}
+        try:
+            for cstart in range(0, len(cards), 400):
+                cchunk = cards[cstart:cstart + 400]
+                cph = ",".join("?" for _ in cchunk)
+                for dstart in range(0, len(dates), 400):
+                    dchunk = dates[dstart:dstart + 400]
+                    dph = ",".join("?" for _ in dchunk)
+                    rows = self.connection.execute(
+                        f"""
+                        SELECT * FROM card_price_history_cell
+                        WHERE provider = ?
+                          AND card_id IN ({cph})
+                          AND price_date IN ({dph})
+                        """,
+                        (SCRYDEX_PROVIDER, *cchunk, *dchunk),
+                    ).fetchall()
+                    for row in rows:
+                        key = (
+                            str(row["card_id"] or "").strip(),
+                            str(row["price_date"] or "").strip(),
+                        )
+                        result.setdefault(key, []).append(row)
+        except sqlite3.OperationalError:
+            # Table absent (cells flag on but not yet migrated) → let callers fall
+            # back to their per-day path rather than crashing the insights payload.
+            return {}
+        return result
+
     def _day_change_for_entry(
         self,
         *,
@@ -5127,6 +5176,23 @@ class SpotlightScanService:
             past_rows_by_card_id = self._price_history_rows_on_or_before_by_card_id(
                 entry_card_ids, cutoff_date_iso=cutoff_date_iso
             )
+            # Bulk-load the cells for every past row's date up front so the resolver
+            # below reads them from memory instead of issuing one cold cell query
+            # per card (the N+1 that pushed cold compute to ~44s). Empty in JSON
+            # mode → day_cells stays None → resolver uses its JSON-blob path.
+            cells_prefetched = price_history_cells_enabled()
+            cells_by_card_date = (
+                self._price_history_cells_by_card_and_date(
+                    card_ids=entry_card_ids,
+                    price_dates=[
+                        str(row["price_date"] or "").strip()
+                        for row in past_rows_by_card_id.values()
+                        if row is not None
+                    ],
+                )
+                if cells_prefetched
+                else {}
+            )
 
             for entry in entries:
                 card = entry.get("card") or {}
@@ -5148,10 +5214,18 @@ class SpotlightScanService:
                     "grade": slab_context.get("grade"),
                     "variantName": entry.get("variantName"),
                 }
+                past_date = str(past_row["price_date"] or "").strip()
                 past_pricing = self._portfolio_history_price_row_from_history_row(
                     history_entry,
                     row=past_row,
                     condition_code=self._portfolio_condition_code(entry.get("condition")),
+                    # In cells mode pass the prefetched cells (or [] = "this date
+                    # has no cells") so the resolver never runs a per-day query.
+                    day_cells=(
+                        cells_by_card_date.get((card_id, past_date), [])
+                        if cells_prefetched
+                        else None
+                    ),
                 )
                 past_price = self._history_primary_price_value(past_pricing)
                 if past_price is None or past_price <= 0:

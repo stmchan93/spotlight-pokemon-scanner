@@ -156,6 +156,30 @@ class PortfolioDashboardCellsBatchTests(unittest.TestCase):
         finally:
             server.price_history_cell_rows_for_day = original  # type: ignore[assignment]
 
+    def test_cells_by_card_and_date_matches_per_day_reader(self) -> None:
+        # The Insights growth loop bulk-loads cells across many (card, date) pairs
+        # in ONE query (killing the per-card cold N+1 that made transaction_insights
+        # take ~44s). For each pair it must return exactly what the per-day reader
+        # returns, and a date with no cells must simply be absent (caller treats a
+        # missing key as [] = "no cells this date", never a per-day fallback query).
+        def _norm(rows):
+            return sorted(
+                (dict(r) for r in rows),
+                key=lambda d: repr(sorted(d.items())),
+            )
+
+        bulk = self.service._price_history_cells_by_card_and_date(
+            card_ids=[CARD_ID],
+            price_dates=[DAY_1, DAY_3, "2099-01-01"],
+        )
+        for price_date in (DAY_1, DAY_3):
+            per_day = server.price_history_cell_rows_for_day(
+                self.service.connection, card_id=CARD_ID, price_date=price_date
+            )
+            self.assertTrue(per_day, f"fixture should have cells on {price_date}")
+            self.assertEqual(_norm(bulk.get((CARD_ID, price_date), [])), _norm(per_day))
+        self.assertNotIn((CARD_ID, "2099-01-01"), bulk)
+
     def test_deck_history_cells_matches_json_mode_per_range(self) -> None:
         # End-to-end: deck_history in cells mode (which now bulk-prefetches only the
         # range's window of cells via _range_scoped_cells_by_card_date) must produce
