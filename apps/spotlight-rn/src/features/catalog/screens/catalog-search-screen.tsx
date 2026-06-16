@@ -1,35 +1,35 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  FlatList,
   Image,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { FilterList } from 'iconoir-react-native';
-
-import type { CatalogSearchResult } from '@spotlight/api-client';
+import type { CatalogSearchResult, ExpansionRecord } from '@spotlight/api-client';
 import { SearchField, StateCard, colors, useSpotlightTheme } from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
+import { ExpansionCell } from '@/features/catalog/components/expansion-cell';
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
 import { useAppServices } from '@/providers/app-providers';
 
 type CatalogSearchScreenProps = {
   initialQuery?: string;
+  /** Game whose expansions populate the browse grid (defaults to pokemon). */
+  game?: string;
   onClose: () => void;
   onOpenCard: (result: CatalogSearchResult) => void;
   /**
-   * Optional handler for the filter icon next to the search input. When
-   * provided, the icon is rendered and tapping it opens the expansion
-   * browser — mirroring the scanner's search affordance so users can
-   * browse all expansions instead of having to type a query.
+   * Tap handler for a set in the browse grid. When provided, the empty state
+   * shows every expansion (logo + name) so users can drill into one and search
+   * within it; typing in the search box still searches all cards globally.
    */
-  onOpenExpansionBrowser?: () => void;
+  onSelectExpansion?: (expansion: ExpansionRecord) => void;
 };
 
 function resultNumberLabel(result: CatalogSearchResult) {
@@ -158,9 +158,10 @@ function SearchResultRow({
 
 export function CatalogSearchScreen({
   initialQuery = '',
+  game = 'pokemon',
   onClose,
   onOpenCard,
-  onOpenExpansionBrowser,
+  onSelectExpansion,
 }: CatalogSearchScreenProps) {
   const theme = useSpotlightTheme();
   const { spotlightRepository } = useAppServices();
@@ -174,9 +175,42 @@ export function CatalogSearchScreen({
   const [openingResultId, setOpeningResultId] = useState<string | null>(null);
   const openingResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Browse grid: every expansion, shown when the search box is empty so users
+  // can drill into a set. Only fetched when a tap handler is wired.
+  const browseEnabled = Boolean(onSelectExpansion);
+  const [expansions, setExpansions] = useState<ExpansionRecord[]>([]);
+  const [isLoadingExpansions, setIsLoadingExpansions] = useState(browseEnabled);
+  const [hasLoadedExpansions, setHasLoadedExpansions] = useState(false);
+  const [expansionError, setExpansionError] = useState('');
+
   useEffect(() => {
     setQuery(initialQuery);
   }, [initialQuery]);
+
+  useEffect(() => {
+    if (!browseEnabled) {
+      return;
+    }
+    let cancelled = false;
+    setIsLoadingExpansions(true);
+    setExpansionError('');
+    void spotlightRepository.listExpansions(game)
+      .then((rows) => {
+        if (cancelled) return;
+        setExpansions(rows);
+        setHasLoadedExpansions(true);
+        setIsLoadingExpansions(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setExpansionError('Could not load sets. Try again in a moment.');
+        setHasLoadedExpansions(true);
+        setIsLoadingExpansions(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [browseEnabled, game, spotlightRepository]);
 
   useEffect(() => {
     return () => {
@@ -250,16 +284,124 @@ export function CatalogSearchScreen({
     }, 350);
   };
 
+  const renderBody = () => {
+    // Search mode: the box has a real query, so show card matches / states.
+    if (hasActiveQuery) {
+      if (isLoading && results.length === 0) {
+        return (
+          <View style={styles.bodyStateWrap}>
+            <StateCard
+              centered
+              loading
+              message="Looking up matching cards and inventory quantities."
+              style={styles.stateCard}
+              title="Searching catalog"
+            />
+          </View>
+        );
+      }
+      if (errorMessage) {
+        return (
+          <View style={styles.bodyStateWrap}>
+            <StateCard
+              actionLabel="Retry"
+              actionTestID="catalog-retry"
+              centered
+              message={errorMessage}
+              onActionPress={() => setSearchRevision((value) => value + 1)}
+              style={styles.stateCard}
+              title="Search unavailable"
+            />
+          </View>
+        );
+      }
+      if (hasSearched && results.length === 0) {
+        return (
+          <View style={styles.bodyStateWrap}>
+            <StateCard
+              centered
+              message="Try a shorter query, a different set name, or just the collector number."
+              style={styles.stateCard}
+              title="No matching cards"
+            />
+          </View>
+        );
+      }
+      if (hasVisibleResults) {
+        return (
+          <FlatList
+            contentContainerStyle={styles.resultsListContent}
+            data={results}
+            key="results"
+            keyExtractor={(item) => item.id}
+            keyboardShouldPersistTaps="handled"
+            renderItem={({ item }) => (
+              <SearchResultRow
+                isOpening={openingResultId === item.id}
+                onPress={() => openResult(item)}
+                result={item}
+              />
+            )}
+            showsVerticalScrollIndicator={false}
+            style={styles.body}
+          />
+        );
+      }
+      return null;
+    }
+
+    // Browse mode (empty box): show the expansions grid so users can drill in.
+    if (!browseEnabled) {
+      return null;
+    }
+    if (isLoadingExpansions && expansions.length === 0) {
+      return (
+        <View style={styles.bodyStateWrap}>
+          <StateCard centered loading message="Loading expansions from your card library." style={styles.stateCard} title="Loading sets" />
+        </View>
+      );
+    }
+    if (expansionError) {
+      return (
+        <View style={styles.bodyStateWrap}>
+          <StateCard centered message={expansionError} style={styles.stateCard} title="Could not load sets" />
+        </View>
+      );
+    }
+    if (hasLoadedExpansions && expansions.length === 0) {
+      return (
+        <View style={styles.bodyStateWrap}>
+          <StateCard centered message="No expansions are loaded yet. Sync the catalog and try again." style={styles.stateCard} title="No sets available" />
+        </View>
+      );
+    }
+    return (
+      <FlatList
+        contentContainerStyle={styles.expansionListContent}
+        data={expansions}
+        key="browse"
+        keyExtractor={(item) => item.id}
+        keyboardShouldPersistTaps="handled"
+        numColumns={2}
+        renderItem={({ item }) => (
+          <ExpansionCell
+            expansion={item}
+            onPress={() => onSelectExpansion?.(item)}
+            testID={`catalog-expansion-${item.id}`}
+          />
+        )}
+        showsVerticalScrollIndicator={false}
+        style={styles.body}
+      />
+    );
+  };
+
   return (
     <SafeAreaView
       edges={['top', 'left', 'right', 'bottom']}
       style={[styles.searchScreen, { backgroundColor: colors.gray0 }]}
     >
-      <ScrollView
-        contentContainerStyle={styles.searchContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
+      <View style={styles.fixedHeader}>
         <View style={styles.searchHeader} testID="catalog-header">
           <View style={styles.searchHeaderBackRow} testID="catalog-header-back-row">
             <ChromeBackButton
@@ -285,71 +427,36 @@ export function CatalogSearchScreen({
           onChangeText={setQuery}
           placeholder="Search by name, set, or number"
           returnKeyType="search"
-          trailing={onOpenExpansionBrowser ? (
-            <Pressable
-              accessibilityLabel="Browse all expansions"
-              hitSlop={8}
-              onPress={onOpenExpansionBrowser}
-              style={styles.filterIconPressable}
-              testID="catalog-search-expansion-trigger"
-            >
-              <FilterList color={theme.colors.gray400} height={16} width={16} />
-            </Pressable>
-          ) : undefined}
           value={query}
         />
+      </View>
 
-        {isLoading && results.length === 0 ? (
-          <StateCard
-            centered
-            loading
-            message="Looking up matching cards and inventory quantities."
-            style={styles.stateCard}
-            title="Searching catalog"
-          />
-        ) : errorMessage ? (
-          <StateCard
-            actionLabel="Retry"
-            actionTestID="catalog-retry"
-            centered
-            message={errorMessage}
-            onActionPress={() => setSearchRevision((value) => value + 1)}
-            style={styles.stateCard}
-            title="Search unavailable"
-          />
-        ) : !hasActiveQuery ? null : hasSearched && results.length === 0 ? (
-          <StateCard
-            centered
-            message="Try a shorter query, a different set name, or just the collector number."
-            style={styles.stateCard}
-            title="No matching cards"
-          />
-        ) : hasVisibleResults ? (
-          <View style={styles.resultsSection}>
-            <View style={styles.resultsList}>
-              {results.map((result) => (
-                <SearchResultRow
-                  key={result.id}
-                  isOpening={openingResultId === result.id}
-                  onPress={() => openResult(result)}
-                  result={result}
-                />
-              ))}
-            </View>
-          </View>
-        ) : null}
-      </ScrollView>
+      {renderBody()}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  body: {
+    flex: 1,
+  },
+  bodyStateWrap: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
   closeButton: {
     flexShrink: 0,
   },
-  filterIconPressable: {
+  expansionListContent: {
+    paddingBottom: 24,
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingTop: 4,
+  },
+  fixedHeader: {
+    gap: 20,
+    paddingHorizontal: 16,
+    paddingTop: 12,
   },
   ownedBadge: {
     borderRadius: 999,
@@ -406,11 +513,11 @@ const styles = StyleSheet.create({
     gap: 12,
     padding: 12,
   },
-  resultsList: {
+  resultsListContent: {
     gap: 12,
-  },
-  resultsSection: {
-    gap: 12,
+    paddingBottom: 24,
+    paddingHorizontal: 16,
+    paddingTop: 4,
   },
   resultSubtitle: {
     fontSize: 15,
@@ -421,12 +528,6 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '600',
     lineHeight: 22,
-  },
-  searchContent: {
-    gap: 20,
-    paddingBottom: 24,
-    paddingHorizontal: 16,
-    paddingTop: 12,
   },
   searchField: {
   },

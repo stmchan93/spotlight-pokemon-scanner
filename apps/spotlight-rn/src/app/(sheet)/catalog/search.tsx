@@ -28,7 +28,15 @@ export default function CatalogSearchRoute() {
           },
         });
       }}
-      onOpenExpansionBrowser={() => router.push('/catalog/expansion-browser')}
+      onSelectExpansion={(expansion) => {
+        router.push({
+          pathname: '/catalog/expansion/[expansionId]',
+          params: {
+            expansionId: expansion.id,
+            name: expansion.name,
+          },
+        });
+      }}
     />
   );
 }

@@ -78,6 +78,37 @@ describe('CatalogSearchScreen', () => {
     }));
   });
 
+  it('shows the expansions browse grid when the box is empty and opens a set', async () => {
+    const onSelectExpansion = jest.fn();
+    jest.spyOn(MockSpotlightRepository.prototype, 'listExpansions').mockResolvedValue([
+      { id: 'sv1', name: 'Scarlet & Violet', series: 'SV', code: 'sv1', releaseDate: '2023-03-31', imageUrl: '' },
+      { id: 'sm7', name: 'Celestial Storm', series: 'SM', code: 'sm7', releaseDate: '2018-08-03', imageUrl: '' },
+    ]);
+
+    renderWithProviders(
+      <CatalogSearchScreen
+        onClose={jest.fn()}
+        onOpenCard={jest.fn()}
+        onSelectExpansion={onSelectExpansion}
+      />,
+    );
+
+    // No query typed → the expansions grid loads (logos + set names).
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId('catalog-expansion-sv1')).toBeTruthy();
+    expect(screen.getByTestId('catalog-expansion-sm7')).toBeTruthy();
+    // The set name is shown (rendered as the label, plus the no-image fallback).
+    expect(screen.getAllByText('Scarlet & Violet').length).toBeGreaterThan(0);
+
+    // Tapping a set drills into it; global card search still works by typing.
+    fireEvent.press(screen.getByTestId('catalog-expansion-sv1'));
+    expect(onSelectExpansion).toHaveBeenCalledWith(expect.objectContaining({ id: 'sv1' }));
+  });
+
   it('hydrates and searches from an initial query', async () => {
     jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCards').mockResolvedValue(ownedCatalogResults);
 
