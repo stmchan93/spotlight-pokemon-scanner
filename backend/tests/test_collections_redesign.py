@@ -516,6 +516,37 @@ class CollectionsRedesignTests(unittest.TestCase):
         self.assertEqual(payload["totalPortfolioValueCents"], 0)
         self.assertEqual(payload["topGrowth"], [])
 
+    def test_transaction_insights_caches_and_invalidates_on_change(self) -> None:
+        owner = "vendor-a"
+        calls = {"n": 0}
+        real_compute = self.service._compute_transaction_insights
+
+        def counting(**kwargs):
+            calls["n"] += 1
+            return real_compute(**kwargs)
+
+        self.service._compute_transaction_insights = counting  # type: ignore[assignment]
+
+        with self.service.request_identity_context(self._identity(owner)):
+            self.service.transaction_insights()
+            self.service.transaction_insights()
+            # Second call is a cache hit → the heavy compute ran only once.
+            self.assertEqual(calls["n"], 1)
+
+            # A new scan changes the version token → next call recomputes.
+            self.service.connection.execute(
+                """
+                INSERT INTO scan_events
+                    (scan_id, owner_user_id, created_at, request_json, response_json)
+                VALUES (?,?,?,?,?)
+                """,
+                ("scan-x", owner, datetime.now(timezone.utc).isoformat(), "{}", "{}"),
+            )
+            self.service.connection.commit()
+            payload = self.service.transaction_insights()
+            self.assertEqual(calls["n"], 2)
+            self.assertEqual(payload["scannedCount"], 1)
+
     def test_batched_yesterday_rows_match_per_card_query(self) -> None:
         self._insert_card()
         for price_date in ("2026-06-05", "2026-06-06"):

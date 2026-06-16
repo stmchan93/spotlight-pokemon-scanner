@@ -5166,10 +5166,64 @@ class SpotlightScanService:
         }
 
     def transaction_insights(self, *, time_zone_name: str | None = None) -> dict[str, Any]:
-        """Simple, vendor-friendly analytics computed purely from the transaction
-        memory log (card_transactions): per-kind counts + dollar totals for this
-        month and all time, the top sales this month, and the biggest sale ever.
-        No cost basis / profit / inventory state — just what was logged."""
+        """Cache-and-dogpile wrapper over the heavy insights computation.
+
+        The compute materializes the owner's full portfolio (deck_entries) to
+        derive total value + 30-day top growth — which on a cold backend reads
+        ~126 cards' worth of JSON-context overflow pages off the slow disk and
+        can take tens of seconds, past the 20s client timeout. Without a cache
+        EVERY load recomputes that cold path and times out, so the user never
+        sees data. Keyed on a cheap version token (the dashboard's inputs plus
+        scan/favorite counts) so a hit serves the prior payload in ~1ms and
+        auto-invalidates on any mutation or the daily price sync. A timed-out
+        first call still completes here and stores the result, so the next load
+        is instant — the same self-healing the portfolio dashboard relies on."""
+        owner_user_id = self._current_owner_user_id()
+        resolved_tz = time_zone_name or "America/Los_Angeles"
+        try:
+            version = self._transaction_insights_version_token(owner_user_id, resolved_tz)
+        except Exception:  # noqa: BLE001 - never let cache bookkeeping break insights
+            traceback.print_exc()
+            version = None
+        cache_key = (owner_user_id, resolved_tz, "insights")
+        if version is not None:
+            cached = self._dashboard_cache.get(cache_key)
+            if cached is not None and cached[0] == version:
+                return cached[1]
+        lock = self._dashboard_cache_lock_for(cache_key)
+        with lock:
+            if version is not None:
+                cached = self._dashboard_cache.get(cache_key)
+                if cached is not None and cached[0] == version:
+                    return cached[1]
+            payload = self._compute_transaction_insights(time_zone_name=time_zone_name)
+            if version is not None:
+                self._store_dashboard_cache(cache_key, version, payload)
+            return payload
+
+    def _transaction_insights_version_token(
+        self, owner_user_id: str, resolved_tz: str
+    ) -> str:
+        """The dashboard's version token (deck entries/events/sales + latest price
+        snapshot) plus the owner's scan + favorite counts, since insights also
+        surfaces scannedCount / wishlistedCount. Changes whenever any input does."""
+        base = self._portfolio_dashboard_version_token(owner_user_id, resolved_tz)
+        row = self.connection.execute(
+            """
+            SELECT
+                (SELECT COUNT(*) FROM scan_events WHERE owner_user_id = ?) AS scans,
+                (SELECT COUNT(*) FROM card_favorites WHERE owner_user_id = ?) AS favs
+            """,
+            (owner_user_id, owner_user_id),
+        ).fetchone()
+        scans = str(row["scans"]) if row is not None else "0"
+        favs = str(row["favs"]) if row is not None else "0"
+        return f"{base}|scans={scans}|favs={favs}"
+
+    def _compute_transaction_insights(self, *, time_zone_name: str | None = None) -> dict[str, Any]:
+        """Heavy insights computation (see transaction_insights for the cache that
+        wraps it). Pure analytics from the transaction memory log plus portfolio
+        value + top growth; no cost basis / profit state — just what was logged."""
         owner_user_id = self._current_owner_user_id()
         time_zone = self._portfolio_time_zone(time_zone_name)
         today = datetime.now(time_zone).date()
