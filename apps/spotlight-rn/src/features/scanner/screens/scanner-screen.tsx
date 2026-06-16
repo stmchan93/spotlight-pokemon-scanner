@@ -13,7 +13,6 @@ import {
   Animated,
   AppState,
   Image,
-  LayoutAnimation,
   Linking,
   Platform,
   Pressable,
@@ -26,6 +25,11 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Reanimated, {
+  Easing,
+  useAnimatedStyle,
+  withTiming,
+} from 'react-native-reanimated';
 import { useCameraPermission } from 'react-native-vision-camera';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -187,25 +191,14 @@ const traySwipeThreshold = 20;
 // velocity in px/s, so this is the px/s equivalent of the old ~0.22 px/ms.
 const trayFlingVelocity = 220;
 const trayHeaderHitSlop = { bottom: 10, left: 12, right: 12, top: 12 } as const;
-const scannerTrayLayoutAnimation = {
-  create: {
-    property: LayoutAnimation.Properties.opacity,
-    type: LayoutAnimation.Types.easeInEaseOut,
-  },
-  delete: {
-    property: LayoutAnimation.Properties.opacity,
-    type: LayoutAnimation.Types.easeInEaseOut,
-  },
-  // The tray height change uses a spring so the panel starts moving the instant
-  // the swipe is released. `easeInEaseOut` barely moves for its first ~70ms,
-  // which read as a "wait, then snap" lag; a damped spring tracks immediately and
-  // glides to rest. `springDamping: 0.88` keeps the settle smooth (no bounce).
-  // 310ms matches the design-handoff tray-collapse spec (last-card collapse).
+// Tray expand/collapse height animation. Driven by Reanimated (NOT classic
+// LayoutAnimation): every tray row is a Reanimated.View (entering/exiting/layout
+// choreography), and running RN's LayoutAnimation over that same subtree is what
+// crashed the app on every swipe-to-expand/collapse. Keeping the height on the
+// same animation system as the rows removes that collision.
+const trayHeightTimingConfig = {
   duration: 310,
-  update: {
-    springDamping: 0.88,
-    type: LayoutAnimation.Types.spring,
-  },
+  easing: Easing.out(Easing.cubic),
 } as const;
 
 
@@ -460,6 +453,22 @@ export function ScannerScreen({
   const collapsedViewportHeight = captureRowHeight;
   const shouldLoadInventory = recentCaptures.length > 0 || dataVersion > 0;
 
+  // Tray viewport height, animated on the UI thread via Reanimated so the
+  // expand/collapse slide shares one animation system with the rows (replacing
+  // the classic LayoutAnimation that crashed when run over them). Deriving the
+  // target from `isTrayExpanded` (re-run only when the deps change) keeps it a
+  // single source of truth and lets `withTiming` animate from the live height
+  // to the new target on each toggle.
+  const trayViewportAnimatedStyle = useAnimatedStyle(
+    () => ({
+      height: withTiming(
+        isTrayExpanded ? trayScrollViewportHeight : collapsedViewportHeight,
+        trayHeightTimingConfig,
+      ),
+    }),
+    [collapsedViewportHeight, isTrayExpanded, trayScrollViewportHeight],
+  );
+
   useEffect(() => {
     if (!shouldLoadInventory) {
       return undefined;
@@ -595,14 +604,9 @@ export function ScannerScreen({
         trayScrollRef.current?.scrollTo({ y: 0, animated: false });
       }
 
-      // Smoothly spring the tray height open/closed. This is safe now that every
-      // capture row stays mounted across the toggle (see `visibleCaptures`): the
-      // iOS crash only happened when a classic LayoutAnimation coincided with
-      // rows being added/removed in the same frame, which no longer occurs here.
-      if (Platform.OS !== 'web') {
-        LayoutAnimation.configureNext(scannerTrayLayoutAnimation);
-      }
-
+      // The tray height itself springs via the Reanimated `trayViewportHeight`
+      // shared value (see the effect below) — NOT a classic LayoutAnimation,
+      // which would crash when run over the Reanimated tray rows.
       return nextExpanded;
     });
   }, []);
@@ -2312,13 +2316,8 @@ export function ScannerScreen({
             {recentCaptures.length === 0 ? (
               <View style={styles.trayEmptyFill} testID="scanner-tray-empty-fill" />
             ) : (
-              <View
-                style={[
-                  styles.trayViewport,
-                  {
-                    height: isTrayExpanded ? trayScrollViewportHeight : collapsedViewportHeight,
-                  },
-                ]}
+              <Reanimated.View
+                style={[styles.trayViewport, trayViewportAnimatedStyle]}
                 testID="scanner-tray-viewport"
               >
                 <GestureDetector gesture={trayScrollNativeGesture}>
@@ -2355,7 +2354,7 @@ export function ScannerScreen({
                   ) : null}
                 </ScrollView>
                 </GestureDetector>
-              </View>
+              </Reanimated.View>
             )}
           </View>
         </View>

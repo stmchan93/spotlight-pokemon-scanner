@@ -1070,10 +1070,10 @@ describe('ScannerScreen', () => {
     expect(collapsedViewportHeight).toBe(102); // exactly one full row, no peek
 
     fireEvent.press(screen.getByTestId('scanner-tray-header'));
-    // Toggling springs the tray height via a classic LayoutAnimation. This is
-    // safe because every row stays mounted across the toggle, so it never
-    // coincides with rows being added/removed (the old iOS crash condition).
-    expect(mockConfigureNext).toHaveBeenCalled();
+    // Toggling springs the tray height via a Reanimated shared value (NOT a
+    // classic LayoutAnimation, which crashed when run over the Reanimated tray
+    // rows). The classic LayoutAnimation path must no longer fire.
+    expect(mockConfigureNext).not.toHaveBeenCalled();
 
     await waitFor(() => {
       expect(screen.getByTestId('scanner-tray-scroll')).toBeTruthy();
