@@ -27,6 +27,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Reanimated, {
   Easing,
+  runOnJS,
   useAnimatedStyle,
   withTiming,
 } from 'react-native-reanimated';
@@ -1892,11 +1893,38 @@ export function ScannerScreen({
   // doesn't also collapse the tray).
   const trayGestureStartScrollOffsetRef = useRef(0);
 
+  // JS-thread handlers for the tray swipe. CRITICAL: gesture-handler callbacks
+  // are auto-workletized (react-native-worklets/plugin) and run on the UI
+  // thread, so they CANNOT touch refs or call setState directly — doing so
+  // crashed the app on every swipe-to-expand/collapse (tapping the handle was
+  // fine because that path is a normal JS-thread onPress). Both handlers below
+  // are hopped back to the JS thread via `runOnJS`.
+  const handleTrayPanBegin = useCallback(() => {
+    trayGestureStartScrollOffsetRef.current = trayScrollOffsetYRef.current;
+  }, []);
+  const handleTrayPanEnd = useCallback((translationY: number, velocityY: number) => {
+    const shouldExpand =
+      !isTrayExpanded
+      && (translationY <= -traySwipeThreshold || velocityY <= -trayFlingVelocity);
+    const shouldCollapse =
+      isTrayExpanded
+      && trayGestureStartScrollOffsetRef.current <= 0
+      && (translationY >= traySwipeThreshold || velocityY >= trayFlingVelocity);
+
+    if (shouldExpand) {
+      commitTrayExpandedState(true);
+    } else if (shouldCollapse) {
+      commitTrayExpandedState(false);
+    }
+  }, [commitTrayExpandedState, isTrayExpanded]);
+
   // Vertical swipe to expand/collapse the tray. Lives in gesture-handler (not a
   // JS PanResponder) so it shares one arena with the row swipe-to-action
   // Swipeables; otherwise the native row recognizers swallow the vertical drag.
   // `activeOffsetY` keeps it off horizontal row swipes; `failOffsetX` yields to
   // them outright. Disabled while a row action rail is open (`isTopLevelSwipe`).
+  // The callbacks only forward raw event values across `runOnJS` — all ref/state
+  // work happens in the JS-thread handlers above.
   const trayPanGesture = useMemo(
     () =>
       Gesture.Pan()
@@ -1905,25 +1933,12 @@ export function ScannerScreen({
         .failOffsetX([-16, 16])
         .simultaneousWithExternalGesture(trayScrollNativeGesture)
         .onBegin(() => {
-          trayGestureStartScrollOffsetRef.current = trayScrollOffsetYRef.current;
+          runOnJS(handleTrayPanBegin)();
         })
         .onEnd((event) => {
-          const { translationY, velocityY } = event;
-          const shouldExpand =
-            !isTrayExpanded
-            && (translationY <= -traySwipeThreshold || velocityY <= -trayFlingVelocity);
-          const shouldCollapse =
-            isTrayExpanded
-            && trayGestureStartScrollOffsetRef.current <= 0
-            && (translationY >= traySwipeThreshold || velocityY >= trayFlingVelocity);
-
-          if (shouldExpand) {
-            commitTrayExpandedState(true);
-          } else if (shouldCollapse) {
-            commitTrayExpandedState(false);
-          }
+          runOnJS(handleTrayPanEnd)(event.translationY, event.velocityY);
         }),
-    [canToggleTray, commitTrayExpandedState, isTopLevelSwipeEnabled, isTrayExpanded, trayScrollNativeGesture],
+    [canToggleTray, handleTrayPanBegin, handleTrayPanEnd, isTopLevelSwipeEnabled, trayScrollNativeGesture],
   );
 
   const promptCopy = !hasPermission
