@@ -91,7 +91,6 @@ type CardDetailScreenProps = {
   cardId: string;
   entryId?: string;
   onBack: () => void;
-  onOpenAddToCollection: (cardId: string, entryId?: string) => void;
   /** Opens the log-transaction flow (photo + bought/sold/traded) for this card. */
   onOpenTransaction?: (cardLabel: string, imageUrl?: string | null) => void;
   previewId?: string;
@@ -109,7 +108,6 @@ export function CardDetailScreen({
   cardId,
   entryId,
   onBack,
-  onOpenAddToCollection,
   onOpenTransaction,
   previewId,
   scanReviewId,
@@ -629,9 +627,9 @@ export function CardDetailScreen({
   }, [isRawLane, selectedGrade, selectedGrader]);
 
   const handleAddItem = useCallback(() => {
+    // ADD ITEM is disabled until `detail` resolves, so this always runs with a
+    // loaded card — add it directly with the variant/condition shown on the page.
     if (isAddPending || !detail) {
-      // Fall back to the dedicated sheet when detail hasn't resolved yet.
-      onOpenAddToCollection(detail?.cardId ?? cardId, undefined);
       return;
     }
     setIsAddPending(true);
@@ -658,12 +656,10 @@ export function CardDetailScreen({
         setIsAddPending(false);
       });
   }, [
-    cardId,
     configuredSlabContext,
     detail,
     isAddPending,
     isRawLane,
-    onOpenAddToCollection,
     quantity,
     refreshData,
     selectedCondition,
@@ -785,7 +781,9 @@ export function CardDetailScreen({
             variant="outline"
           />
           <Button
-            disabled={isAddPending}
+            // Disabled until the card resolves so ADD ITEM is always a direct
+            // add with the on-page variant/condition (never the old sheet).
+            disabled={isAddPending || !detail}
             label="ADD ITEM"
             labelStyleVariant="label"
             onPress={handleAddItem}

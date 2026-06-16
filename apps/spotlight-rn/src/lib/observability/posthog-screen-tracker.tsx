@@ -40,10 +40,6 @@ function resolveScreenName(pathname: string) {
     return 'log_transaction';
   }
 
-  if (pathname.startsWith('/collection/add/')) {
-    return 'collection_add';
-  }
-
   if (pathname === '/design-system') {
     return 'design_system';
   }

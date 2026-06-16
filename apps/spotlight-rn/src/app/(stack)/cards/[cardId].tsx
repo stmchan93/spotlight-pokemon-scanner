@@ -33,15 +33,6 @@ export default function CardDetailRoute() {
       cardId={cardId}
       entryId={entryId}
       onBack={() => router.back()}
-      onOpenAddToCollection={(nextCardId, nextEntryId) => {
-        router.push({
-          pathname: '/collection/add/[cardId]',
-          params: {
-            cardId: nextCardId,
-            entryId: nextEntryId,
-          },
-        });
-      }}
       onOpenTransaction={(cardLabel, imageUrl) => {
         router.push({
           pathname: '/card-transactions/new',

@@ -48,13 +48,11 @@ describe('CardDetailScreen', () => {
 
   it('renders the new layout: header, hero, identity, action buttons, configurator, price trend', async () => {
     const onBack = jest.fn();
-    const onOpenAddToCollection = jest.fn();
 
     renderWithProviders(
       <CardDetailScreen
         cardId="sm7-1"
         onBack={onBack}
-        onOpenAddToCollection={onOpenAddToCollection}
       />,
     );
 
@@ -101,7 +99,6 @@ describe('CardDetailScreen', () => {
       <CardDetailScreen
         cardId="sm7-1"
         onBack={jest.fn()}
-        onOpenAddToCollection={jest.fn()}
       />,
     );
 
@@ -123,7 +120,6 @@ describe('CardDetailScreen', () => {
       <CardDetailScreen
         cardId="sm7-1"
         onBack={jest.fn()}
-        onOpenAddToCollection={jest.fn()}
         onOpenTransaction={onOpenTransaction}
       />,
     );
@@ -144,14 +140,16 @@ describe('CardDetailScreen', () => {
       <CardDetailScreen
         cardId="sm7-1"
         onBack={jest.fn()}
-        onOpenAddToCollection={jest.fn()}
       />,
       {
         spotlightRepository: createTestSpotlightRepository({ createInventoryEntry }),
       },
     );
 
-    fireEvent.press(await screen.findByTestId('detail-add-item'));
+    // ADD ITEM is disabled until the card detail resolves, so wait for the
+    // loaded card before pressing — otherwise the press is a no-op.
+    await screen.findByTestId('detail-name');
+    fireEvent.press(screen.getByTestId('detail-add-item'));
 
     await waitFor(() => {
       expect(createInventoryEntry).toHaveBeenCalledWith(expect.objectContaining({
@@ -178,7 +176,6 @@ describe('CardDetailScreen', () => {
       <CardDetailScreen
         cardId="sm7-1"
         onBack={jest.fn()}
-        onOpenAddToCollection={jest.fn()}
       />,
       {
         spotlightRepository: createTestSpotlightRepository({ createInventoryEntry }),
@@ -202,7 +199,6 @@ describe('CardDetailScreen', () => {
       <CardDetailScreen
         cardId="sm7-1"
         onBack={jest.fn()}
-        onOpenAddToCollection={jest.fn()}
       />,
     );
 
@@ -224,7 +220,6 @@ describe('CardDetailScreen', () => {
       <CardDetailScreen
         cardId="sm7-1"
         onBack={jest.fn()}
-        onOpenAddToCollection={jest.fn()}
       />,
     );
 
@@ -256,7 +251,6 @@ describe('CardDetailScreen', () => {
       <CardDetailScreen
         cardId="sm7-1"
         onBack={jest.fn()}
-        onOpenAddToCollection={jest.fn()}
       />,
       {
         spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends }),
@@ -306,7 +300,7 @@ describe('CardDetailScreen', () => {
     const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as never);
 
     renderWithProviders(
-      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} onOpenAddToCollection={jest.fn()} />,
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
       { spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends }) },
     );
 
@@ -333,7 +327,7 @@ describe('CardDetailScreen', () => {
     const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as never);
 
     renderWithProviders(
-      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} onOpenAddToCollection={jest.fn()} />,
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
       { spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends }) },
     );
 
@@ -359,7 +353,7 @@ describe('CardDetailScreen', () => {
     const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as never);
 
     renderWithProviders(
-      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} onOpenAddToCollection={jest.fn()} />,
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
       { spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends }) },
     );
 
@@ -382,7 +376,7 @@ describe('CardDetailScreen', () => {
     const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as never);
 
     renderWithProviders(
-      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} onOpenAddToCollection={jest.fn()} />,
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
       { spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends }) },
     );
 
@@ -406,7 +400,7 @@ describe('CardDetailScreen', () => {
     const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as never);
 
     renderWithProviders(
-      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} onOpenAddToCollection={jest.fn()} />,
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
       { spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends }) },
     );
 
@@ -431,7 +425,7 @@ describe('CardDetailScreen', () => {
     const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as never);
 
     renderWithProviders(
-      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} onOpenAddToCollection={jest.fn()} />,
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
       { spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends }) },
     );
 
@@ -455,7 +449,6 @@ describe('CardDetailScreen', () => {
       <CardDetailScreen
         cardId="sm7-1"
         onBack={jest.fn()}
-        onOpenAddToCollection={jest.fn()}
       />,
       {
         spotlightRepository: createTestSpotlightRepository({
@@ -478,7 +471,6 @@ describe('CardDetailScreen', () => {
       <CardDetailScreen
         cardId="sm7-1"
         onBack={jest.fn()}
-        onOpenAddToCollection={jest.fn()}
       />,
     );
 
@@ -501,7 +493,6 @@ describe('CardDetailScreen', () => {
       <CardDetailScreen
         cardId="sm7-1"
         onBack={jest.fn()}
-        onOpenAddToCollection={jest.fn()}
       />,
       {
         spotlightRepository: createTestSpotlightRepository({ setCardFavorite }),
@@ -537,7 +528,6 @@ describe('CardDetailScreen', () => {
       <CardDetailScreen
         cardId="sm7-1"
         onBack={jest.fn()}
-        onOpenAddToCollection={jest.fn()}
       />,
       {
         spotlightRepository: createTestSpotlightRepository({ setCardFavorite }),
@@ -588,7 +578,6 @@ describe('CardDetailScreen', () => {
         cardId="sm7-1"
         entryId="graded-treecko-psa10"
         onBack={jest.fn()}
-        onOpenAddToCollection={jest.fn()}
       />,
       {
         spotlightRepository: createTestSpotlightRepository({
@@ -641,7 +630,6 @@ describe('CardDetailScreen', () => {
         cardId="mcdonalds25-21"
         entryId="entry-2"
         onBack={jest.fn()}
-        onOpenAddToCollection={jest.fn()}
         scanReviewId={scanReviewId}
       />,
     );
@@ -673,7 +661,6 @@ describe('CardDetailScreen', () => {
       <CardDetailScreen
         cardId="sm7-1"
         onBack={jest.fn()}
-        onOpenAddToCollection={jest.fn()}
       />,
       {
         spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends }),
@@ -755,7 +742,6 @@ describe('CardDetailScreen', () => {
         cardId="sm7-1"
         entryId="raw-treecko-nm"
         onBack={jest.fn()}
-        onOpenAddToCollection={jest.fn()}
         previewId={previewId}
       />,
       {
@@ -834,7 +820,6 @@ describe('CardDetailScreen', () => {
         cardId="sm7-1"
         entryId="graded-treecko-psa10"
         onBack={jest.fn()}
-        onOpenAddToCollection={jest.fn()}
         previewId={previewId}
       />,
       {
@@ -864,7 +849,7 @@ describe('CardDetailScreen', () => {
     );
 
     renderWithProviders(
-      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} onOpenAddToCollection={jest.fn()} />,
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
       { spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends }) },
     );
 
@@ -922,7 +907,7 @@ describe('CardDetailScreen', () => {
     const callsAfterPrefetch = getCardPriceTrends.mock.calls.length;
 
     renderWithProviders(
-      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} onOpenAddToCollection={jest.fn()} />,
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
       { spotlightRepository: repository },
     );
 
@@ -939,7 +924,6 @@ describe('CardDetailScreen', () => {
       <CardDetailScreen
         cardId="missing-card-id"
         onBack={jest.fn()}
-        onOpenAddToCollection={jest.fn()}
       />,
     );
 

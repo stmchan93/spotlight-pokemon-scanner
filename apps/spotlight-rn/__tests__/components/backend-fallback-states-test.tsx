@@ -3,7 +3,6 @@ import { screen, waitFor } from '@testing-library/react-native';
 import { HttpSpotlightRepository } from '../../../../packages/api-client/src/spotlight/repository';
 
 import { TabsPageContext } from '@/contexts/tabs-page-context';
-import { AddToCollectionScreen } from '@/features/collection/screens/add-to-collection-screen';
 import { InventoryBrowserScreen } from '@/features/inventory/screens/inventory-browser-screen';
 import { PortfolioScreen } from '@/features/portfolio/screens/portfolio-screen';
 
@@ -15,20 +14,6 @@ const portfolioTabsContext = {
   activePage: 'portfolio' as const,
   chartScrubLockRef: { current: false },
 };
-
-function jsonResponse(status: number, body?: unknown) {
-  return {
-    ok: status >= 200 && status < 300,
-    status,
-    text: async () => {
-      if (body === undefined) {
-        return '';
-      }
-
-      return typeof body === 'string' ? body : JSON.stringify(body);
-    },
-  } as Response;
-}
 
 describe('backend-backed fallback states', () => {
   const originalFetch = global.fetch;
@@ -77,38 +62,5 @@ describe('backend-backed fallback states', () => {
     expect(await screen.findByText('Could not load your backend data')).toBeTruthy();
     expect(screen.getByText('backend offline')).toBeTruthy();
     expect(screen.queryByText('Loading your inventory...')).toBeNull();
-  });
-
-  it('shows the load-error card for add-to-collection when the backend returns not found', async () => {
-    global.fetch = jest.fn().mockImplementation(async (url: string) => {
-      if (url.includes('/api/v1/cards/missing-card/market-history')) {
-        return jsonResponse(200, {
-          currencyCode: 'USD',
-          points: [],
-          availableVariants: [],
-          availableConditions: [],
-        });
-      }
-
-      if (url.includes('/api/v1/cards/missing-card')) {
-        return jsonResponse(404, { error: 'missing' });
-      }
-
-      if (url.includes('/api/v1/deck/entries')) {
-        return jsonResponse(200, { entries: [] });
-      }
-
-      throw new Error(`Unexpected URL: ${url}`);
-    }) as typeof fetch;
-    const repository = new HttpSpotlightRepository('http://example.test');
-
-    renderWithProviders(
-      <AddToCollectionScreen cardId="missing-card" onClose={jest.fn()} />,
-      { spotlightRepository: repository },
-    );
-
-    expect(await screen.findByText('Unable to load card')).toBeTruthy();
-    expect(screen.getByText('Unable to load this card right now.')).toBeTruthy();
-    expect(screen.getByTestId('add-to-collection-retry')).toBeTruthy();
   });
 });

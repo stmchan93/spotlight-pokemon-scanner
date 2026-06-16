@@ -126,14 +126,12 @@ jest.mock('@/features/cards/screens/card-detail-screen', () => ({
     cardId,
     entryId,
     onBack,
-    onOpenAddToCollection,
     previewId,
     scanReviewId,
   }: {
     cardId: string;
     entryId?: string;
     onBack: () => void;
-    onOpenAddToCollection: (nextCardId: string, nextEntryId?: string) => void;
     previewId?: string;
     scanReviewId?: string;
   }) => {
@@ -145,7 +143,6 @@ jest.mock('@/features/cards/screens/card-detail-screen', () => ({
         <Text testID="card-detail-preview">{previewId ?? 'none'}</Text>
         <Text testID="card-detail-scan-review">{scanReviewId ?? 'none'}</Text>
         <Pressable onPress={onBack} testID="card-detail-back" />
-        <Pressable onPress={() => onOpenAddToCollection(cardId, entryId)} testID="card-detail-add" />
       </>
     );
   },
@@ -181,27 +178,6 @@ jest.mock('@/features/inventory/screens/inventory-browser-screen', () => ({
   },
 }));
 
-jest.mock('@/features/collection/screens/add-to-collection-screen', () => ({
-  AddToCollectionScreen: ({
-    cardId,
-    entryId,
-    onClose,
-  }: {
-    cardId: string;
-    entryId?: string;
-    onClose: () => void;
-  }) => {
-    const { Pressable, Text } = require('react-native');
-    return (
-      <>
-        <Text testID="add-to-collection-card">{cardId}</Text>
-        <Text testID="add-to-collection-entry">{entryId ?? 'none'}</Text>
-        <Pressable onPress={onClose} testID="add-to-collection-close" />
-      </>
-    );
-  },
-}));
-
 jest.mock('@/features/labeling/screens/labeling-session-screen', () => ({
   LabelingSessionScreen: () => {
     const { Text } = require('react-native');
@@ -226,7 +202,6 @@ import ModalLayout from '@/app/(modal)/_layout';
 import AccountRoute from '@/app/(modal)/account';
 import CatalogSearchRoute from '@/app/(sheet)/catalog/search';
 import SheetLayout from '@/app/(sheet)/_layout';
-import AddToCollectionRoute from '@/app/(sheet)/collection/add/[cardId]';
 import BrowseStackLayout from '@/app/(stack)/_layout';
 import CardDetailRoute from '@/app/(stack)/cards/[cardId]';
 import DesignSystemRoute from '@/app/(stack)/design-system';
@@ -357,22 +332,6 @@ describe('misc route wrappers', () => {
     });
   });
 
-  it('returns null for add-to-collection when cardId is missing and closes when present', () => {
-    mockUseLocalSearchParams.mockReturnValue({ cardId: '' });
-    const { rerender } = render(<AddToCollectionRoute />);
-
-    expect(screen.queryByTestId('add-to-collection-card')).toBeNull();
-
-    mockUseLocalSearchParams.mockReturnValue({ cardId: ['base1-4'], entryId: ['entry-9'] });
-    rerender(<AddToCollectionRoute />);
-
-    expect(screen.getByTestId('add-to-collection-card').props.children).toBe('base1-4');
-    expect(screen.getByTestId('add-to-collection-entry').props.children).toBe('entry-9');
-
-    fireEvent.press(screen.getByTestId('add-to-collection-close'));
-    expect(mockBack).toHaveBeenCalled();
-  });
-
   it('returns null for card-detail when cardId is missing and wires nested navigation when present', () => {
     mockUseLocalSearchParams.mockReturnValue({ cardId: '' });
     const { rerender } = render(<CardDetailRoute />);
@@ -393,16 +352,8 @@ describe('misc route wrappers', () => {
     expect(screen.getByTestId('card-detail-scan-review').props.children).toBe('review-1');
 
     fireEvent.press(screen.getByTestId('card-detail-back'));
-    fireEvent.press(screen.getByTestId('card-detail-add'));
 
     expect(mockBack).toHaveBeenCalled();
-    expect(mockPush).toHaveBeenCalledWith({
-      pathname: '/collection/add/[cardId]',
-      params: {
-        cardId: 'base1-4',
-        entryId: 'entry-7',
-      },
-    });
   });
 
   it('restores the session from the login callback URL exactly once and then redirects', async () => {

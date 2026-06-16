@@ -3,8 +3,6 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Pressable, Text, TextInput, View } from 'react-native';
 
-import AddToCollectionRoute from '@/app/(sheet)/collection/add/[cardId]';
-
 import { renderAppRouter } from '../test-utils';
 
 function firstParam(value?: string | string[]) {
@@ -104,7 +102,6 @@ function CatalogSearchRouteHarness() {
 }
 
 function CardDetailRouteHarness() {
-  const router = useRouter();
   const params = useLocalSearchParams<{
     cardId?: string | string[];
     entryId?: string | string[];
@@ -112,39 +109,16 @@ function CardDetailRouteHarness() {
   const cardId = firstParam(params.cardId) ?? '';
   const entryId = firstParam(params.entryId);
 
+  // The add-to-collection sheet/route was removed; ADD ITEM now adds directly
+  // from the card detail screen. This harness just proves the add-card search
+  // flow reaches the card detail route, so the action button is inert.
   return (
     <View>
       <Text>{cardId || 'Card Detail'}</Text>
       {entryId ? (
-        <>
-          <Text testID="detail-collection-header-label">In your collection</Text>
-          <Pressable
-            onPress={() => {
-              router.push({
-                pathname: '/collection/add/[cardId]',
-                params: {
-                  cardId,
-                  entryId,
-                },
-              });
-            }}
-            testID="detail-edit-collection"
-          >
-            <Text>EDIT COLLECTION</Text>
-          </Pressable>
-        </>
+        <Text testID="detail-collection-header-label">In your collection</Text>
       ) : (
-        <Pressable
-          onPress={() => {
-            router.push({
-              pathname: '/collection/add/[cardId]',
-              params: {
-                cardId: cardId || 'sm7-1',
-              },
-            });
-          }}
-          testID="detail-add-to-collection"
-        >
+        <Pressable testID="detail-add-to-collection">
           <Text>ADD TO COLLECTION</Text>
         </Pressable>
       )}
@@ -180,15 +154,15 @@ describe('route wiring flows', () => {
     });
   });
 
-  it('navigates from add-card search to detail and through add-to-collection', async () => {
+  it('navigates from add-card search to the card detail screen', async () => {
     jest.useFakeTimers();
 
     // Add Card moved from the Portfolio screen to the Inventory Browser, so
-    // this flow now starts from `/inventory` instead of `/portfolio`.
+    // this flow now starts from `/inventory` instead of `/portfolio`. The old
+    // add-to-collection sheet was removed; reaching the card detail is the flow.
     renderAppRouter('/inventory', {
       'catalog/search': CatalogSearchRouteHarness,
       'cards/[cardId]': CardDetailRouteHarness,
-      'collection/add/[cardId]': AddToCollectionRoute,
     });
 
     fireEvent.press(await screen.findByTestId('inventory-add-card'));
@@ -205,48 +179,5 @@ describe('route wiring flows', () => {
     fireEvent.press(screen.getAllByText('Treecko')[0]!);
 
     expect(await screen.findByTestId('detail-add-to-collection')).toBeTruthy();
-
-    fireEvent.press(screen.getByTestId('detail-add-to-collection'));
-
-    expect(await screen.findByText('Add to Collection')).toBeTruthy();
-    expect(screen.getByText('Treecko')).toBeTruthy();
-    fireEvent.press(screen.getByTestId('add-to-collection-grader-PSA'));
-    expect(screen.getByTestId('add-to-collection-grade-10')).toBeTruthy();
-    fireEvent.press(screen.getByTestId('add-to-collection-quantity-increase'));
-    expect(screen.getByTestId('add-to-collection-quantity-value').props.children).toBe(2);
-
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('submit-add-to-collection'));
-    });
-
-    await waitFor(() => {
-      expect(screen.getByTestId('detail-add-to-collection')).toBeTruthy();
-      expect(screen.queryByText('Add to Collection')).toBeNull();
-    });
-  });
-
-  it('opens edit collection from owned detail and saves back to card detail', async () => {
-    renderAppRouter('/cards/mcdonalds25-21?entryId=entry-2', {
-      'cards/[cardId]': CardDetailRouteHarness,
-      'collection/add/[cardId]': AddToCollectionRoute,
-    });
-
-    expect(await screen.findByTestId('detail-edit-collection')).toBeTruthy();
-
-    fireEvent.press(screen.getByTestId('detail-edit-collection'));
-
-    expect(await screen.findByText('Edit Collection')).toBeTruthy();
-    expect(screen.getByTestId('add-to-collection-quantity-value').props.children).toBe(2);
-    fireEvent.press(screen.getByTestId('add-to-collection-quantity-increase'));
-    expect(screen.getByTestId('add-to-collection-quantity-value').props.children).toBe(3);
-
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('submit-add-to-collection'));
-    });
-
-    await waitFor(() => {
-      expect(screen.getByTestId('detail-edit-collection')).toBeTruthy();
-      expect(screen.queryByText('Edit Collection')).toBeNull();
-    });
   });
 });

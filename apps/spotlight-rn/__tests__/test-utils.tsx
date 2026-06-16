@@ -354,16 +354,6 @@ export function renderAppRouter(
   });
   registerRoute(routeMap, routeAliases, {
     candidates: [
-      {
-        key: '(sheet)/collection/add/[cardId]',
-        modulePath: '@/app/(sheet)/collection/add/[cardId]',
-      },
-      { key: 'collection/add/[cardId]', modulePath: '@/app/collection/add/[cardId]' },
-    ],
-    optional: true,
-  });
-  registerRoute(routeMap, routeAliases, {
-    candidates: [
       { key: '(sheet)/card-transactions/new', modulePath: '@/app/(sheet)/card-transactions/new' },
       { key: 'card-transactions/new', modulePath: '@/app/card-transactions/new' },
     ],
