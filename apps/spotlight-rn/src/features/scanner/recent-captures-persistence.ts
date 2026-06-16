@@ -34,6 +34,12 @@ type PersistedCapture = Pick<RecentCapture,
 
 type PersistedTrayEnvelope = {
   version: number;
+  // The account the persisted tray belongs to (Supabase user id, or null when
+  // signed out). Stamped on every write so a different account's load can detect
+  // the mismatch and clear the tray instead of showing the prior account's scans.
+  // Absent on envelopes written before this was introduced ("legacy") — those are
+  // adopted by whatever account first loads them, then re-stamped.
+  ownerKey?: string | null;
   items: PersistedCapture[];
 };
 
@@ -43,6 +49,21 @@ let pendingDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingSnapshot: RecentCapture[] | null = null;
 let pendingChangeCount = 0;
 let isWriting = false;
+// The owner the tray currently belongs to. Set by the scanner before it loads
+// (so a write/stamp uses the right account) and compared on load.
+let currentOwnerKey: string | null = null;
+
+function normalizeOwnerKey(ownerKey: string | null | undefined): string | null {
+  const trimmed = (ownerKey ?? '').trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+/** Tell the persistence layer which account the tray belongs to. Call this
+ * synchronously before loading the tray on scanner mount so account switches are
+ * detected and writes are stamped with the right owner. */
+export function setRecentCapturesOwner(ownerKey: string | null | undefined): void {
+  currentOwnerKey = normalizeOwnerKey(ownerKey);
+}
 
 function reportError(kind: 'write' | 'read' | 'copy' | 'delete' | 'sweep', error: unknown) {
   const message = error instanceof Error ? error.message : String(error ?? 'unknown');
@@ -201,6 +222,7 @@ async function writePersistedTray(items: RecentCapture[]): Promise<void> {
   const skippedLoading = items.length - persistable.length;
   const envelope: PersistedTrayEnvelope = {
     version: PERSIST_ENVELOPE_VERSION,
+    ownerKey: currentOwnerKey,
     items: persistable.map(toPersistedCapture),
   };
   const coalescedChangeCount = pendingChangeCount;
@@ -339,6 +361,24 @@ export async function loadPersistedTray(): Promise<RecentCapture[]> {
     });
     return [];
   }
+  // Account switch: if this tray was explicitly stamped for a DIFFERENT account,
+  // clear it (and its on-disk images) so the new account starts from an empty
+  // tray instead of inheriting the previous account's scans. A legacy tray
+  // (ownerKey absent) is adopted by the current account below, not cleared, so
+  // existing users don't lose their tray on the upgrade that introduced this.
+  if (envelope.ownerKey !== undefined && normalizeOwnerKey(envelope.ownerKey) !== currentOwnerKey) {
+    try {
+      await AsyncStorage.removeItem(RECENT_CAPTURES_STORAGE_KEY);
+    } catch (error) {
+      reportError('write', error);
+    }
+    await sweepOrphanScans(new Set());
+    capturePostHogEvent('scan_tray_cleared_account_switch', {
+      previous_item_count: envelope.items.length,
+    });
+    return [];
+  }
+
   const validItems = envelope.items.filter(isPersistedCapture);
   const verifyStartedAt = Date.now();
   const existsResults = await Promise.all(validItems.map(async (item) => {
@@ -371,6 +411,11 @@ export async function loadPersistedTray(): Promise<RecentCapture[]> {
     verify_ms: verifyMs,
     total_ms: Date.now() - totalStartedAt,
   });
+  // Legacy (unstamped) tray adopted by the current account: re-stamp it now so a
+  // later switch to another account detects the mismatch and clears it.
+  if (envelope.ownerKey === undefined && survivors.length > 0) {
+    void writePersistedTray(survivors);
+  }
   return survivors;
 }
 
@@ -415,4 +460,5 @@ export function __resetRecentCapturesPersistenceForTests(): void {
   pendingSnapshot = null;
   pendingChangeCount = 0;
   isWriting = false;
+  currentOwnerKey = null;
 }

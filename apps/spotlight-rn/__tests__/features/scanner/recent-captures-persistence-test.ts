@@ -14,6 +14,7 @@ import {
   RECENT_CAPTURES_MAX,
   RECENT_CAPTURES_STORAGE_KEY,
   schedulePersist,
+  setRecentCapturesOwner,
   sweepOrphanScans,
 } from '@/features/scanner/recent-captures-persistence';
 import type { RecentCapture } from '@/features/scanner/screens/scanner-screen-types';
@@ -243,6 +244,99 @@ describe('recent-captures-persistence', () => {
       await AsyncStorage.setItem(RECENT_CAPTURES_STORAGE_KEY, '{not valid json');
       const loaded = await loadPersistedTray();
       expect(loaded).toEqual([]);
+    });
+  });
+
+  describe('account scoping', () => {
+    it('stamps writes with the current account owner', async () => {
+      const cap = makeCapture();
+      mockedFs.__seedFile(cap.normalizedImageUri!);
+      setRecentCapturesOwner('user-a');
+      await flushPersist([cap]);
+
+      const envelope = JSON.parse((await AsyncStorage.getItem(RECENT_CAPTURES_STORAGE_KEY))!);
+      expect(envelope.ownerKey).toBe('user-a');
+    });
+
+    it('keeps the tray when reloaded under the same account', async () => {
+      const cap = makeCapture();
+      mockedFs.__seedFile(cap.normalizedImageUri!);
+      setRecentCapturesOwner('user-a');
+      await flushPersist([cap]);
+
+      setRecentCapturesOwner('user-a');
+      const loaded = await loadPersistedTray();
+      expect(loaded).toHaveLength(1);
+      expect(loaded[0].id).toBe(cap.id);
+    });
+
+    it('clears the tray + its images when loaded under a DIFFERENT account', async () => {
+      const cap = makeCapture();
+      mockedFs.__seedFile(cap.normalizedImageUri!);
+      setRecentCapturesOwner('user-a');
+      await flushPersist([cap]);
+
+      // Switching accounts: a new owner loads the tray.
+      setRecentCapturesOwner('user-b');
+      const loaded = await loadPersistedTray();
+
+      expect(loaded).toEqual([]);
+      // Storage wiped and the previous account's image swept off disk.
+      expect(await AsyncStorage.getItem(RECENT_CAPTURES_STORAGE_KEY)).toBeNull();
+      expect(mockedFs.__getFiles().has(cap.normalizedImageUri!)).toBe(false);
+    });
+
+    it('clears when a signed-in account loads a signed-out (null-owner) tray', async () => {
+      const cap = makeCapture();
+      mockedFs.__seedFile(cap.normalizedImageUri!);
+      setRecentCapturesOwner(null); // signed out
+      await flushPersist([cap]);
+
+      setRecentCapturesOwner('user-a'); // now signed in
+      const loaded = await loadPersistedTray();
+      expect(loaded).toEqual([]);
+    });
+
+    it('adopts a legacy (unstamped) tray and re-stamps it for the current account', async () => {
+      const cap = makeCapture();
+      mockedFs.__seedFile(cap.normalizedImageUri!);
+      // Pre-upgrade envelope: no ownerKey field at all.
+      await AsyncStorage.setItem(
+        RECENT_CAPTURES_STORAGE_KEY,
+        JSON.stringify({
+          version: PERSIST_ENVELOPE_VERSION,
+          items: [
+            {
+              id: cap.id,
+              scanID: cap.scanID,
+              mode: 'raw',
+              uri: cap.uri,
+              normalizedImageUri: cap.normalizedImageUri,
+              candidates: [],
+              activeCandidateIndex: 0,
+              totalCandidateCount: 0,
+              matchReviewDisposition: null,
+              matchReviewReason: null,
+              slabContext: null,
+              normalizedImageDimensions: null,
+              sourceImageCrop: null,
+              sourceImageDimensions: null,
+              sourceImageRotationDegrees: 0,
+            },
+          ],
+        }),
+      );
+
+      setRecentCapturesOwner('user-a');
+      const loaded = await loadPersistedTray();
+      expect(loaded).toHaveLength(1); // adopted, not cleared
+
+      // The legacy tray was re-stamped with the current account so a later switch
+      // to another account clears it. (loadPersistedTray re-writes fire-and-forget.)
+      await Promise.resolve();
+      await Promise.resolve();
+      const envelope = JSON.parse((await AsyncStorage.getItem(RECENT_CAPTURES_STORAGE_KEY))!);
+      expect(envelope.ownerKey).toBe('user-a');
     });
   });
 

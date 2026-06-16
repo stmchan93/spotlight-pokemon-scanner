@@ -78,9 +78,11 @@ import {
   loadPersistedTray,
   RECENT_CAPTURES_MAX,
   schedulePersist,
+  setRecentCapturesOwner,
   sweepOrphanScans,
 } from '@/features/scanner/recent-captures-persistence';
 import { prefetchCardDetail } from '@/features/cards/card-detail-prefetch';
+import { useAuth } from '@/providers/auth-provider';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { resolveRuntimeBoolean, resolveRuntimeValue, resolveStagingSmokeModeEnabled } from '@/lib/runtime-config';
 import { useAppServices } from '@/providers/app-providers';
@@ -350,6 +352,12 @@ export function ScannerScreen({
     };
   }, []);
 
+  // The account the scan tray belongs to (Supabase user id, or null signed out).
+  // The provider tree above remounts this screen when the account changes, so the
+  // rehydrate effect below re-runs and clears the tray if it was another account's.
+  const { currentSession } = useAuth();
+  const trayOwnerKey = currentSession?.user.id ?? null;
+
   // Rehydrate the tray from disk on first mount. Runs once per scanner-screen
   // lifecycle; the persistence module's own AsyncStorage read is cheap and
   // does not block paint (the scanner renders against the empty tray until
@@ -358,6 +366,9 @@ export function ScannerScreen({
   // accumulate forever.
   useEffect(() => {
     let cancelled = false;
+    // Stamp the active account synchronously before any load/write so loadPersistedTray
+    // can detect an account switch (and clear) and writes are tagged with the right owner.
+    setRecentCapturesOwner(trayOwnerKey);
     void (async () => {
       try {
         await ensureScansDir();
@@ -375,7 +386,7 @@ export function ScannerScreen({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [trayOwnerKey]);
 
   // Persist on every tray change, debounced inside the module so rapid scans
   // coalesce into one AsyncStorage write. Loading items are skipped by the
@@ -409,15 +420,13 @@ export function ScannerScreen({
     trayReservedHeight: collapsedTrayReservedHeight,
   });
   const runtimeAppEnv = resolveRuntimeValue([], ['spotlightAppEnv']);
-  // Send the card-shaped crop rect (not the shorter visible frame) to matching so
-  // the normalized target keeps the true card aspect with no stretch.
   reticleSnapshotRef.current = {
-    height: captureSurfaceLayout.captureCropRect.height,
+    height: captureSurfaceLayout.reticle.height,
     previewHeight: captureSurfaceLayout.previewHeight,
     previewWidth: captureSurfaceLayout.previewWidth,
-    width: captureSurfaceLayout.captureCropRect.width,
-    x: captureSurfaceLayout.captureCropRect.x,
-    y: captureSurfaceLayout.captureCropRect.y,
+    width: captureSurfaceLayout.reticle.width,
+    x: captureSurfaceLayout.reticle.x,
+    y: captureSurfaceLayout.reticle.y,
   };
   const hasCameraPermission = hasPermission;
   const shouldMountCamera = hasCameraPermission && isActiveTab && isForeground && isScreenFocused;
