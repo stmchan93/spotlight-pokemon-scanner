@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EncodingType, readAsStringAsync } from 'expo-file-system/legacy';
@@ -185,8 +185,20 @@ export function LogTransactionScreen({
       edges={['top', 'left', 'right', 'bottom']}
       style={[styles.safeArea, { backgroundColor: colors.gray0 }]}
     >
+      <KeyboardAvoidingView
+        // iOS keyboard handling is done by the ScrollView's
+        // automaticallyAdjustKeyboardInsets below (it scrolls the focused Items/
+        // Price field above the keyboard), so this only kicks in on Android.
+        behavior={Platform.OS === 'ios' ? undefined : 'height'}
+        style={styles.keyboardShell}
+      >
       <ScrollView
+        // Inset the scroll content by the keyboard height so a focused field
+        // (Items / Price near the bottom of the card) scrolls into view instead
+        // of being covered. Interactive dismiss lets a downward drag close it.
+        automaticallyAdjustKeyboardInsets
         contentContainerStyle={styles.content}
+        keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
         testID="log-transaction-scroll"
       >
@@ -278,12 +290,16 @@ export function LogTransactionScreen({
           />
         </SurfaceCard>
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safeArea: {
+    flex: 1,
+  },
+  keyboardShell: {
     flex: 1,
   },
   content: {
