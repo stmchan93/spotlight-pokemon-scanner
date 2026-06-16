@@ -134,7 +134,7 @@ describe('WishlistScreen', () => {
     expect(screen.queryByTestId('wishlist-list-pagination-view-more')).toBeNull();
   });
 
-  it('features the first favorite in the hero and re-features the tapped row', async () => {
+  it('renders the header (no hero) and opens the detail page when a row is tapped', async () => {
     const favorites = [
       buildFavoriteEntry({
         cardId: 'charizard',
@@ -163,34 +163,23 @@ describe('WishlistScreen', () => {
 
     renderWishlistScreen(repository);
 
-    // Hero defaults to the first favorite, with its price + grade + delta.
-    const heroPrice = await screen.findByTestId('wishlist-hero-price');
-    expect(heroPrice).toHaveTextContent('$129,198.30');
-    expect(screen.getByTestId('wishlist-hero-trend')).toBeTruthy();
-    expect(screen.getByTestId('wishlist-hero-backdrop')).toBeTruthy();
+    // The featured hero card was removed — the screen opens straight into the
+    // header + list, with no hero price/trend/backdrop/card.
+    expect(await screen.findByTestId('wishlist-header-title')).toBeTruthy();
+    expect(screen.queryByTestId('wishlist-hero-price')).toBeNull();
+    expect(screen.queryByTestId('wishlist-hero-trend')).toBeNull();
+    expect(screen.queryByTestId('wishlist-hero-backdrop')).toBeNull();
+    expect(screen.queryByTestId('wishlist-hero-card')).toBeNull();
 
-    // The list row carries the grade + price delta sourced from the favorite.
     await waitFor(() => {
       expect(screen.getByTestId('wishlist-row-gengar')).toBeTruthy();
     });
 
-    // Tapping the second row promotes it into the hero.
+    // Tapping a row opens that card's detail page.
     await act(async () => {
       fireEvent.press(screen.getByTestId('wishlist-row-gengar'));
     });
 
-    await waitFor(() => {
-      expect(screen.getByTestId('wishlist-hero-price')).toHaveTextContent('$450.12');
-    });
-
-    // Tapping the hero card (a release with no drag) opens the featured card's
-    // detail screen. The card is driven by PanResponder, so fire its release
-    // handler directly rather than a Pressable press.
-    await act(async () => {
-      fireEvent(screen.getByTestId('wishlist-hero-card'), 'responderRelease', {
-        nativeEvent: {},
-      });
-    });
     expect(push).toHaveBeenCalledWith(
       expect.objectContaining({
         pathname: '/cards/[cardId]',

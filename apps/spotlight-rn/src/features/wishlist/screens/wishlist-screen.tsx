@@ -36,7 +36,7 @@ import { CollectionAddFab } from '@/features/portfolio/components/collection-add
 import { saveCardDetailPreviewFromFavorite } from '@/features/cards/card-detail-preview-session';
 import { prefetchCardDetail } from '@/features/cards/card-detail-prefetch';
 import { formatOptionalCurrency } from '@/features/portfolio/components/portfolio-formatting';
-import { WishlistHero } from '@/features/wishlist/components/wishlist-hero';
+import { WishlistHeader } from '@/features/wishlist/components/wishlist-header';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAppServices } from '@/providers/app-providers';
 
@@ -132,7 +132,6 @@ export function WishlistScreen() {
   const [query, setQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<WishlistFilterKey>('all');
   const [viewMode, setViewMode] = useWishlistViewMode();
-  const [featuredCardId, setFeaturedCardId] = useState<string | null>(null);
   const scrollRef = useRef<FlatList<WishlistRow>>(null);
 
   const bottomNavClearance =
@@ -200,18 +199,6 @@ export function WishlistScreen() {
     return entries;
   }, [activeFilter, favorites, query]);
 
-  // The hero features the tapped card; it falls back to the first visible entry
-  // on load and whenever the selected card is filtered out of the list.
-  const featuredEntry = useMemo(() => {
-    if (visibleEntries.length === 0) {
-      return null;
-    }
-    const selected = featuredCardId
-      ? visibleEntries.find((entry) => entry.cardId === featuredCardId)
-      : null;
-    return selected ?? visibleEntries[0];
-  }, [featuredCardId, visibleEntries]);
-
   const handleOpenDetail = useCallback((entry: CardFavoriteEntry) => {
     // Favorites carry no owned slab → warm the default raw lane + hero image.
     prefetchCardDetail(
@@ -230,18 +217,14 @@ export function WishlistScreen() {
     });
   }, [router, spotlightRepository]);
 
-  // Tapping a row/tile opens its detail page AND features it in the hero, so
-  // returning from the PDP shows the card you tapped on top.
+  // Tapping a row/tile opens its detail page.
   const handleOpenEntry = useCallback((entry: CardFavoriteEntry) => {
-    setFeaturedCardId(entry.cardId);
     handleOpenDetail(entry);
   }, [handleOpenDetail]);
 
-  // Swipe-to-delete on a row removes it from the wishlist. Drop it optimistically
-  // (clearing the hero if it was the featured card), then persist; re-sync from
-  // the backend if the unfavorite didn't stick.
+  // Swipe-to-delete on a row removes it from the wishlist. Drop it optimistically,
+  // then persist; re-sync from the backend if the unfavorite didn't stick.
   const handleRemoveEntry = useCallback((cardId: string) => {
-    setFeaturedCardId((current) => (current === cardId ? null : current));
     setFavorites((current) => current.filter((favorite) => favorite.cardId !== cardId));
     void spotlightRepository.setCardFavorite(cardId, false).catch(() => {
       void loadFavorites();
@@ -318,15 +301,7 @@ export function WishlistScreen() {
 
   const listHeader = (
     <View>
-      <WishlistHero
-        entry={featuredEntry}
-        onOpenDetail={() => {
-          if (featuredEntry) {
-            handleOpenDetail(featuredEntry);
-          }
-        }}
-        onOpenMenu={openDrawer}
-      />
+      <WishlistHeader onOpenMenu={openDrawer} />
 
       <View style={[styles.controls, { paddingHorizontal: theme.layout.pageGutter }]}>
         <View style={styles.searchRow}>
