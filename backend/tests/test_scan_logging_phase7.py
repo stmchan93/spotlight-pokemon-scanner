@@ -1166,6 +1166,45 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         self.assertEqual(event_row["deck_entry_id"], first["deckEntryID"])
         self.assertEqual(confirmation_row["deck_entry_id"], first["deckEntryID"])
 
+    def test_create_deck_entry_respects_requested_quantity(self) -> None:
+        # Card-detail "Add Item" sends a quantity (e.g. 10 PSA 10s). The entry
+        # must store that quantity instead of defaulting to 1, and a second add
+        # accrues onto the same identity.
+        self._insert_card("base1-4", name="Charizard")
+
+        result = self.service.create_deck_entry(
+            {
+                "cardID": "base1-4",
+                "slabContext": {"grader": "PSA", "grade": "10", "variantName": "PSA 10"},
+                "quantity": 10,
+                "selectionSource": "manual_search",
+                "addedAt": "2026-04-14T20:10:00Z",
+            }
+        )
+        row = self.service.connection.execute(
+            "SELECT quantity, grader, grade FROM deck_entries WHERE id = ?",
+            (result["deckEntryID"],),
+        ).fetchone()
+        assert row is not None
+        self.assertEqual(row["quantity"], 10)
+        self.assertEqual(row["grader"], "PSA")
+        self.assertEqual(row["grade"], "10")
+
+        self.service.create_deck_entry(
+            {
+                "cardID": "base1-4",
+                "slabContext": {"grader": "PSA", "grade": "10", "variantName": "PSA 10"},
+                "quantity": 5,
+                "selectionSource": "manual_search",
+                "addedAt": "2026-04-14T20:11:00Z",
+            }
+        )
+        accrued = self.service.connection.execute(
+            "SELECT quantity FROM deck_entries WHERE id = ?",
+            (result["deckEntryID"],),
+        ).fetchone()
+        self.assertEqual(accrued["quantity"], 15)
+
     def test_deck_entries_reads_sql_backed_cards_and_summary(self) -> None:
         self._insert_card("gym1-60", name="Sabrina's Slowbro")
         self._insert_card("base1-4", name="Charizard")

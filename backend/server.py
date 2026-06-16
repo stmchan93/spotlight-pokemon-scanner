@@ -11485,6 +11485,13 @@ class SpotlightScanService:
         was_top_prediction = bool(payload.get("wasTopPrediction") is True)
         added_at = str(payload.get("addedAt") or utc_now()).strip() or utc_now()
 
+        try:
+            quantity = int(payload.get("quantity", 1))
+        except (TypeError, ValueError):
+            raise ValueError("quantity must be an integer") from None
+        if quantity < 1:
+            raise ValueError("quantity must be at least 1")
+
         confirmation_source_map = {
             "top": "add_top",
             "alternate": "add_alternate",
@@ -11504,6 +11511,7 @@ class SpotlightScanService:
                 cert_number=cert_number,
                 variant_name=variant_name,
                 condition=condition,
+                quantity=quantity,
                 added_at=added_at,
                 updated_at=added_at,
                 source_scan_id=scan_id,
