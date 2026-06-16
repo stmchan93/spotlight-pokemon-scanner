@@ -3776,6 +3776,51 @@ def price_history_cell_rows_by_date(
     return result
 
 
+# Exactly the cell columns the trend-list builder + its cell resolvers read
+# (resolve_graded_entry_from_cells / raw_cell_exact_from_cells match on lane +
+# grader/grade/variant_key/condition + the is_* flags; the builder reads market;
+# currency comes from the snapshot, not the cell). Projecting to these lets the
+# covering index `idx_cell_trend_market` serve the query INDEX-ONLY — avoiding the
+# scattered cold table-row fetches that dominate a card's first PDP open
+# (`SELECT *` was ~1.3s cold vs ~1ms index-only on the 27.5M-row cell table).
+_TREND_CELL_COLUMNS = (
+    "price_date, lane, grader, grade, variant_key, condition, "
+    "is_perfect, is_signed, is_error, market"
+)
+
+
+def price_history_cell_trend_rows_by_date(
+    connection: sqlite3.Connection,
+    *,
+    card_id: str,
+    provider: str,
+    price_dates: Iterable[str],
+) -> dict[str, list[Any]]:
+    """Like ``price_history_cell_rows_by_date`` but PROJECTED to only the columns
+    the price-trend list reads, so the read is served index-only by
+    ``idx_cell_trend_market`` (no cold scattered table-row fetches). Grouped by
+    ``price_date``. Falls back to no rows if the cell table is absent."""
+    if not _table_exists(connection, "card_price_history_cell"):
+        return {}
+    dates = [str(d) for d in price_dates if str(d or "").strip()]
+    result: dict[str, list[Any]] = {}
+    for start in range(0, len(dates), 400):
+        chunk = dates[start : start + 400]
+        if not chunk:
+            continue
+        placeholders = ",".join("?" for _ in chunk)
+        rows = connection.execute(
+            f"""
+            SELECT {_TREND_CELL_COLUMNS} FROM card_price_history_cell
+            WHERE card_id = ? AND provider = ? AND price_date IN ({placeholders})
+            """,
+            (card_id, provider, *chunk),
+        ).fetchall()
+        for row in rows:
+            result.setdefault(str(_cell_field(row, "price_date")), []).append(row)
+    return result
+
+
 def _cell_field(row: Any, name: str) -> Any:
     try:
         return row[name]
@@ -4517,7 +4562,7 @@ def card_price_trend_list(
 
     # Fetch all cells for the window once, grouped by date (cells path only).
     cells_by_date: dict[str, list[Any]] = (
-        price_history_cell_rows_by_date(
+        price_history_cell_trend_rows_by_date(
             connection,
             card_id=card_id,
             provider=provider,
