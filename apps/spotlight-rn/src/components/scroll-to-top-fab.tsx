@@ -7,7 +7,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ScrollToTopButton, useSpotlightTheme } from '@spotlight/design-system';
+import { ScrollToTopButton, bottomTabBarHeight } from '@spotlight/design-system';
 
 type ScrollEvent = NativeSyntheticEvent<NativeScrollEvent>;
 
@@ -75,19 +75,19 @@ type ScrollToTopFabProps = {
  * directly above the `+` add FAB at the bottom-right of the collection / sales
  * / wishlist screens.
  */
+// Mirror CollectionAddFab: it's a 40pt-tall FAB anchored 16px above the bottom
+// tab bar. We stack 12px above it (Figma 1263-2822).
+const ADD_FAB_HEIGHT = 40;
+const STACK_GAP = 12;
+
 export function ScrollToTopFab({ visible, onPress, testID }: ScrollToTopFabProps) {
-  const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
 
-  // Keep this in lockstep with CollectionAddFab's bottom math, then lift one
-  // FAB-height (40) + a 12px gap so the two buttons stack without overlapping.
+  // Use CollectionAddFab's exact bottom math (insets.bottom + bottomTabBarHeight
+  // + 16), then lift one FAB-height + a 12px gap so the up button sits exactly
+  // 12px above the + button.
   const bottom =
-    theme.layout.bottomNavHeight
-    + theme.layout.bottomNavBottomInset
-    + Math.max(insets.bottom - 8, 0)
-    + 16
-    + 40
-    + 12;
+    Math.max(insets.bottom, 0) + bottomTabBarHeight + 16 + ADD_FAB_HEIGHT + STACK_GAP;
 
   return (
     <ScrollToTopButton
