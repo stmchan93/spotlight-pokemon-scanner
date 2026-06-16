@@ -191,6 +191,10 @@ type JsonRequestResult<T> =
 // slow-but-working requests and surfaced a spurious "couldn't refresh" banner.
 const defaultHttpRequestTimeoutMs = 12000;
 const scanMatchRequestTimeoutMs = 20000;
+// The artifact upload carries the full normalized (+ optional source) image as
+// base64, so it's heavier than the match request and was being starved by the
+// 12s default while match got 20s. Give it its own, longer budget.
+const scanArtifactUploadTimeoutMs = 25000;
 // The consolidated dashboard endpoint computes every section server-side in one
 // request, so it gets a longer budget than a single section.
 const dashboardRequestTimeoutMs = 20000;
@@ -4901,12 +4905,26 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       return null;
     }
 
+    // Retry with backoff. The upload is idempotent (backend upserts by scanID),
+    // so a transient network/VM hiccup shouldn't permanently drop the artifact.
+    // After the first attempt we post a NORMALIZED-ONLY payload (the training-
+    // critical image) to roughly halve the body and improve the odds it lands on
+    // a weak uplink — the backend persists normalized-only fine, so there's no
+    // training-data cost. NOTE: in-session retries don't cover the app-
+    // backgrounded case; a persistent cross-launch upload queue (deferred) is the
+    // remaining gap.
+    const normalizedOnlyPayload = { ...uploadPayload, sourceImage: null };
+    const retryBackoffsMs = [750, 1500, 3000];
+
     let result = await this.postScanArtifacts(uploadPayload);
-    if (result.status === 'failed') {
-      // One retry. The upload is idempotent (backend upserts by scanID), so a
-      // transient network/VM hiccup shouldn't permanently drop the artifact.
-      await new Promise((resolve) => setTimeout(resolve, 750));
-      result = await this.postScanArtifacts(uploadPayload);
+    for (
+      let attempt = 0;
+      result.status === 'failed' && attempt < retryBackoffsMs.length;
+      attempt += 1
+    ) {
+      const jitterMs = Math.floor(Math.random() * 250);
+      await new Promise((resolve) => setTimeout(resolve, retryBackoffsMs[attempt] + jitterMs));
+      result = await this.postScanArtifacts(normalizedOnlyPayload);
     }
     return result;
   }
@@ -4928,6 +4946,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         candidateStrategy: 'single_active',
         logTransport: true,
         requestLabel: 'api/v1/scan-artifacts',
+        timeoutMs: scanArtifactUploadTimeoutMs,
       },
     );
 
