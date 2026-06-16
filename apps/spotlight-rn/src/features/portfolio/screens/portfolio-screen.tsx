@@ -282,7 +282,12 @@ export function PortfolioScreen({
         <>
           <PortfolioBalanceHeader
             summary={summary}
-            activeChartPoint={activeChartPoint}
+            // Only show a hovered point while a scrub is actually active. The
+            // scrub-lock flag flips off synchronously on release/terminate, so
+            // even if the active-point reset is ever lost (e.g. the chart
+            // unmounts mid-scrub) the header can't get stranded on a stale
+            // $0.00 baseline — it falls straight back to the real summary.
+            activeChartPoint={isChartScrubbing ? activeChartPoint : null}
             isSummaryHidden={isSummaryHidden}
             onToggleHidden={toggleSummaryHidden}
           />

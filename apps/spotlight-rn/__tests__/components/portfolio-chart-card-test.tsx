@@ -78,6 +78,29 @@ describe('PortfolioChartCard', () => {
 
   });
 
+  it('resets the parent and scrub-lock if it unmounts mid-scrub', () => {
+    // Regression: a chart that unmounts while scrubbing (tab switch, error
+    // swap) used to strand the parent on the last hovered point — e.g. a
+    // $0.00 baseline — so the portfolio value got stuck at 0 until restart.
+    const onScrubLockChange = jest.fn();
+    const { onActivePointChange, unmount } = renderChart({ onScrubLockChange });
+
+    const chartContainer = screen.getByTestId('portfolio-chart-portfolio');
+    fireEvent(chartContainer, 'layout', { nativeEvent: { layout: { width: 320, height: 200 } } });
+
+    const touchTarget = screen.getByTestId('portfolio-chart-touch-target');
+    fireEvent(touchTarget, 'responderGrant', { nativeEvent: { locationX: 160 } });
+
+    // Mid-scrub: a point is active and the scrub-lock is engaged.
+    expect(onScrubLockChange).toHaveBeenLastCalledWith(true);
+
+    unmount();
+
+    // Unmount cleanup must clear both so neither outlives the gesture.
+    expect(onScrubLockChange).toHaveBeenLastCalledWith(false);
+    expect(onActivePointChange).toHaveBeenLastCalledWith(null);
+  });
+
   it('shows the date/value tooltip and hides the range row while scrubbing', () => {
     renderChart();
 

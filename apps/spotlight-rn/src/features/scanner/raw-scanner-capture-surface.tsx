@@ -22,6 +22,12 @@ import {
 import { chromeBackButtonSize } from '@/components/chrome-back-button';
 import { rawCardReticleAspectRatio } from '@/features/scanner/scanner-normalized-target';
 
+// The VISIBLE reticle box uses Figma's drawn-frame proportions (1056-1416 —
+// 313×393 → ~1.256 tall:wide). It is deliberately shorter than the true card
+// shape so the frame can sit centered with breathing room top and bottom; the
+// crop sent to matching keeps the true card aspect (rawCardReticleAspectRatio).
+export const rawCardReticleVisualAspectRatio = 393 / 313;
+
 export const rawVisualCaptureQuality = 0.62;
 export const rawVisualPreferredLongSide = 1280;
 export const rawVisualMinimumLongSide = 900;
@@ -54,11 +60,21 @@ export type RawScannerCameraHandle = {
 
 export type RawScannerCaptureLayout = {
   backButtonTop: number;
+  // Card-shaped region actually sent to matching. Shares the visible reticle's
+  // width and horizontal center but keeps the true card aspect, so it extends a
+  // little past the visible frame's top/bottom (no crop stretch).
+  captureCropRect: {
+    height: number;
+    width: number;
+    x: number;
+    y: number;
+  };
   controlsTop: number;
   modeToggleWidth: number;
   previewHeight: number;
   previewWidth: number;
   promptTop: number;
+  // The VISIBLE framing box (corner brackets + capture hit area).
   reticle: {
     height: number;
     width: number;
@@ -101,36 +117,59 @@ export function makeRawScannerCaptureLayout({
   safeAreaTop: number;
   trayReservedHeight?: number;
 }): RawScannerCaptureLayout {
-  // Firm 40px left/right inset per Figma 1390-1649. The frame keeps the true
-  // card aspect ratio (rawCardReticleAspectRatio) rather than Figma's drawn box
-  // ratio, so the reticle crop maps 1:1 onto the 630x880 normalized target with
-  // no stretch.
+  // Firm 40px left/right inset (Figma 1056-1416). The VISIBLE box uses Figma's
+  // drawn-box proportions so it sits centered; the crop sent to matching keeps
+  // the TRUE card aspect (rawCardReticleAspectRatio) and maps 1:1 onto the
+  // 630x880 normalized target with no stretch (see captureCropRect below).
   const horizontalInset = 40;
   const topChromeBottom = safeAreaTop + chromeBackButtonSize + 16;
   const topSpacing = topChromeBottom + 4;
   const controlsTopSpacing = 10;
-  // Vertical room the reticle can occupy between the top chrome and the
-  // controls + recent-capture tray reserved at the bottom.
-  const verticalBudget =
-    containerHeight - topSpacing - controlsTopSpacing - rawScannerModeToggleReservedHeight - trayReservedHeight;
-  const maxHeight = Math.max(360, verticalBudget);
-  const widthFromHeightLimit = Math.floor(maxHeight / rawCardReticleAspectRatio);
-  const width = Math.max(284, Math.min(containerWidth - horizontalInset * 2, widthFromHeightLimit));
-  const height = Math.round(width * rawCardReticleAspectRatio);
+  const trayTop = containerHeight - trayReservedHeight;
+  // The whole camera area between the top chrome and the recent-capture tray.
+  // Centering the visible box in THIS zone (rather than only the smaller band
+  // above the controls) makes it read as vertically centered on screen instead
+  // of stranded high. The box's side corner brackets stay clear of the centered
+  // mode toggle even in the slice where the box overlaps the controls band.
+  const cameraZone = trayTop - topSpacing;
+  // Visible framing box: firm 40px side margins (Figma 1056-1416 — 313px wide at
+  // x=40 on a 393pt frame) and Figma's shorter drawn-box height, centered.
+  const width = Math.max(284, containerWidth - horizontalInset * 2);
+  const visualHeight = Math.min(
+    Math.round(width * rawCardReticleVisualAspectRatio),
+    cameraZone,
+  );
   const x = (containerWidth - width) / 2;
-  // Center the frame within that vertical budget (instead of pinning it near the
-  // top) so it reads as centered, keeping a minimum gap below the top chrome.
-  const y = topSpacing + Math.max(24, Math.round((verticalBudget - height) / 2));
+  // Center the visible box within the camera zone (equal gap above/below).
+  const y = topSpacing + Math.max(0, Math.round((cameraZone - visualHeight) / 2));
+
+  // Crop sent to matching keeps the TRUE card aspect (no stretch), same width and
+  // center as the visible box, so it extends a little past the box top/bottom.
+  const cropHeight = Math.round(width * rawCardReticleAspectRatio);
+  const cropY = Math.round(y + (visualHeight - cropHeight) / 2);
+
+  // Controls sit just below the visible box, clamped so the mode toggle never
+  // drops into the recent-capture tray.
+  const controlsTop = Math.min(
+    y + visualHeight + controlsTopSpacing,
+    trayTop - rawScannerModeToggleReservedHeight,
+  );
 
   return {
     backButtonTop: safeAreaTop + 10,
-    controlsTop: y + height + controlsTopSpacing,
+    captureCropRect: {
+      height: cropHeight,
+      width,
+      x,
+      y: cropY,
+    },
+    controlsTop,
     modeToggleWidth: Math.min(containerWidth - 48, 264),
     previewHeight: containerHeight,
     previewWidth: containerWidth,
     promptTop: Math.max(topChromeBottom + 8, y + 12),
     reticle: {
-      height,
+      height: visualHeight,
       width,
       x,
       y,

@@ -1202,16 +1202,12 @@ describe('ScannerScreen', () => {
     }, { timeout: 2500 });
   });
 
-  it('favorites a scanned card via the row WISHLIST pill, keeping it in the tray', async () => {
-    let nextIsFavorite = false;
-    const setCardFavorite = jest.fn(async (_cardId: string, isFavorite?: boolean | null) => {
-      nextIsFavorite = isFavorite ?? !nextIsFavorite;
-      return {
-        cardId: 'mcdonalds25-22',
-        favoritedAt: nextIsFavorite ? '2026-05-15T00:00:00.000Z' : null,
-        isFavorite: nextIsFavorite,
-      };
-    });
+  it('wishlists a scanned card via the row WISHLIST pill, then slides it out of the tray', async () => {
+    const setCardFavorite = jest.fn(async (cardId: string, isFavorite?: boolean | null) => ({
+      cardId,
+      favoritedAt: (isFavorite ?? true) ? '2026-05-15T00:00:00.000Z' : null,
+      isFavorite: isFavorite ?? true,
+    }));
     const spotlightRepository = createTestSpotlightRepository({
       setCardFavorite,
       matchScannerCapture: async () => ({
@@ -1245,12 +1241,11 @@ describe('ScannerScreen', () => {
       expect(setCardFavorite).toHaveBeenCalledWith('mcdonalds25-22', true);
     });
 
-    // Favoriting is reversible, so unlike a collection-add the row stays in the
-    // tray and the pill reflects the favorited state.
-    expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    // After wishlisting, the row slides out of the tray (same exit as a
+    // collection add) rather than lingering.
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-wishlist-0')).toHaveTextContent('WISHLISTED');
-    });
+      expect(screen.queryByTestId('scanner-tray-row-0')).toBeNull();
+    }, { timeout: 2500 });
   });
 
   it('does not send a synthetic capture id when scanner add has no backend scan id', async () => {

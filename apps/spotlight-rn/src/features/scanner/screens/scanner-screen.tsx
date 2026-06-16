@@ -409,13 +409,15 @@ export function ScannerScreen({
     trayReservedHeight: collapsedTrayReservedHeight,
   });
   const runtimeAppEnv = resolveRuntimeValue([], ['spotlightAppEnv']);
+  // Send the card-shaped crop rect (not the shorter visible frame) to matching so
+  // the normalized target keeps the true card aspect with no stretch.
   reticleSnapshotRef.current = {
-    height: captureSurfaceLayout.reticle.height,
+    height: captureSurfaceLayout.captureCropRect.height,
     previewHeight: captureSurfaceLayout.previewHeight,
     previewWidth: captureSurfaceLayout.previewWidth,
-    width: captureSurfaceLayout.reticle.width,
-    x: captureSurfaceLayout.reticle.x,
-    y: captureSurfaceLayout.reticle.y,
+    width: captureSurfaceLayout.captureCropRect.width,
+    x: captureSurfaceLayout.captureCropRect.x,
+    y: captureSurfaceLayout.captureCropRect.y,
   };
   const hasCameraPermission = hasPermission;
   const shouldMountCamera = hasCameraPermission && isActiveTab && isForeground && isScreenFocused;
@@ -1517,50 +1519,52 @@ export function ScannerScreen({
     setActiveChangeCaptureId(null);
   }, []);
 
-  // Backs the row's "WISHLIST" pill (Figma 1511:4096). Favorite/unfavorite the
-  // active candidate in place — the pill label flips to "WISHLISTED" via the
-  // updated `isFavorite` state and the row stays in the tray (favoriting is
-  // reversible; unlike a collection-add it doesn't dismiss the scan).
-  const handleToggleFavorite = useCallback(async (captureId: string) => {
+  // Backs the row's "WISHLIST" pill (Figma 1511:4096). Favorites the active
+  // candidate, then slides the row out of the tray exactly like the swipe-rail
+  // Collection action: optimistically flip the pill to "WISHLISTED", persist,
+  // and on success schedule `removeCaptureAfterAdd` after the same brief
+  // confirmation so the row plays its reanimated left-slide + fade exit. A
+  // failed write reverts the flip and keeps the row in the tray.
+  const handleRowWishlist = useCallback(async (captureId: string) => {
     const capture = recentCaptures.find((entry) => entry.id === captureId);
     const candidate = capture ? activeCandidateForCapture(capture) : null;
-    if (!candidate) {
+    if (!capture || !candidate) {
       return;
     }
+    const { cardId } = candidate;
 
+    // Instant feedback: flip the pill to WISHLISTED before the network settles.
+    setRecentCaptures((current) => withUpdatedCaptureFavoriteState(current, cardId, true));
+
+    let didSucceed = false;
     try {
-      const nextFavorite = await spotlightRepository.setCardFavorite(
-        candidate.cardId,
-        !(candidate.isFavorite ?? false),
-      );
-      setRecentCaptures((current) => withUpdatedCaptureFavoriteState(
-        current,
-        nextFavorite.cardId,
-        nextFavorite.isFavorite,
-      ));
-      setInventoryEntries((current) => withUpdatedInventoryFavoriteState(
-        current,
-        nextFavorite.cardId,
-        nextFavorite.isFavorite,
-      ));
+      await spotlightRepository.setCardFavorite(cardId, true);
+      setInventoryEntries((current) => withUpdatedInventoryFavoriteState(current, cardId, true));
       refreshData();
+      didSucceed = true;
     } catch (error) {
       logScannerDiagnostic(
-        `[SCANNER] favorite toggle failed cardID=${candidate.cardId} message=${scannerErrorMessage(error)}`,
+        `[SCANNER] wishlist add failed cardID=${cardId} message=${scannerErrorMessage(error)}`,
         error,
       );
+      // Revert the optimistic flip and leave the row in the tray to retry.
+      setRecentCaptures((current) => withUpdatedCaptureFavoriteState(current, cardId, false));
     }
-  }, [recentCaptures, refreshData, spotlightRepository]);
 
-  // Stable wrapper for the wishlist pill so React.memo doesn't re-render every
-  // row when handleToggleFavorite re-creates on recentCaptures change.
-  const handleToggleFavoriteRef = useRef(handleToggleFavorite);
-  useEffect(() => {
-    handleToggleFavoriteRef.current = handleToggleFavorite;
-  }, [handleToggleFavorite]);
-  const handleRowFavorite = useCallback((captureId: string) => {
-    void handleToggleFavoriteRef.current(captureId);
-  }, []);
+    if (didSucceed) {
+      const existingTimer = recentlyAddedTimersRef.current.get(captureId);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+      }
+      // Show the "WISHLISTED" confirmation briefly, then drop the row — its
+      // reanimated exit plays the left-slide + fade (same as a collection add).
+      const timerId = setTimeout(() => {
+        recentlyAddedTimersRef.current.delete(captureId);
+        removeCaptureAfterAdd(captureId);
+      }, addedConfirmationDurationMs);
+      recentlyAddedTimersRef.current.set(captureId, timerId);
+    }
+  }, [recentCaptures, refreshData, removeCaptureAfterAdd, spotlightRepository]);
 
   const handleAddToInventory = useCallback(async (captureId: string) => {
     const capture = recentCaptures.find((candidate) => candidate.id === captureId);
@@ -2056,15 +2060,11 @@ export function ScannerScreen({
                 </View>
               </Pressable>
               <Pressable
-                accessibilityLabel={
-                  (candidate.isFavorite ?? false)
-                    ? `Remove ${candidate.name} from wishlist`
-                    : `Add ${candidate.name} to wishlist`
-                }
+                accessibilityLabel={`Add ${candidate.name} to wishlist`}
                 accessibilityRole="button"
                 hitSlop={6}
                 onPress={() => {
-                  handleRowFavorite(capture.id);
+                  void handleRowWishlist(capture.id);
                 }}
                 style={({ pressed }) => [
                   styles.captureWishlistPill,

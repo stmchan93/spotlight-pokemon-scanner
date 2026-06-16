@@ -318,7 +318,11 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
   const [tooltipHeight, setTooltipHeight] = useState(0);
   const [activePointIndex, setActivePointIndex] = useState<number | null>(null);
   const chartHeight = 200;
-  const chartPadding = 12;
+  // The chart graphic runs full-bleed to the screen edges horizontally (Figma
+  // 1252-1763), so no horizontal inset; keep a small vertical inset so the line
+  // peak and the resting end dot don't clip at the top/bottom.
+  const chartPaddingX = 0;
+  const chartPaddingY = 12;
   const activeRange = dashboard.ranges[selectedRange];
   const series = chartMode === 'portfolio' ? activeRange.portfolio : activeRange.sales;
   const isChartSkeletonVisible = isLoading && series.length === 0;
@@ -331,8 +335,30 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
   const yAxisMaxValue = useMemo(() => {
     return buildRoundedCurrencyTicks(series.map((point) => point.value));
   }, [series]);
-  const plotWidth = Math.max(chartWidth - chartPadding * 2, 1);
-  const plotHeight = Math.max(chartHeight - chartPadding * 2, 1);
+  // The portfolio LINE auto-scales to the visible value range (not 0→max) so a
+  // small % move over the window reads as a real slope instead of a near-flat
+  // line. A little headroom on each side keeps the peak/trough off the edges.
+  // (Sales BARS keep the 0-baseline via `yAxisMaxValue` — they encode magnitude,
+  // not trend, so their height must stay proportional from zero.)
+  const lineYDomain = useMemo(() => {
+    const values = series
+      .map((point) => point.value)
+      .filter((value) => Number.isFinite(value));
+    if (values.length === 0) {
+      return { min: 0, max: 1 };
+    }
+    const dataMin = Math.min(...values);
+    const dataMax = Math.max(...values);
+    if (dataMax === dataMin) {
+      // Flat window — center the line with a small symmetric band.
+      const pad = Math.abs(dataMax) * 0.05 || 1;
+      return { min: dataMin - pad, max: dataMax + pad };
+    }
+    const pad = (dataMax - dataMin) * 0.1;
+    return { min: dataMin - pad, max: dataMax + pad };
+  }, [series]);
+  const plotWidth = Math.max(chartWidth - chartPaddingX * 2, 1);
+  const plotHeight = Math.max(chartHeight - chartPaddingY * 2, 1);
 
   useEffect(() => {
     setActivePointIndex(null);
@@ -345,14 +371,16 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
 
     const xStep = series.length > 1 ? plotWidth / (series.length - 1) : plotWidth / 2;
 
+    const domainSpan = Math.max(lineYDomain.max - lineYDomain.min, 1e-6);
+
     return series.map((point, index) => {
-      const normalizedY = point.value / yAxisMaxValue;
+      const normalizedY = (point.value - lineYDomain.min) / domainSpan;
       return {
-        x: chartPadding + (series.length > 1 ? index * xStep : plotWidth / 2),
-        y: chartPadding + plotHeight - normalizedY * plotHeight,
+        x: chartPaddingX + (series.length > 1 ? index * xStep : plotWidth / 2),
+        y: chartPaddingY + plotHeight - normalizedY * plotHeight,
       };
     });
-  }, [chartPadding, chartWidth, plotHeight, plotWidth, series, yAxisMaxValue]);
+  }, [chartPaddingX, chartPaddingY, chartWidth, lineYDomain, plotHeight, plotWidth, series]);
 
   const salesBars = useMemo(() => {
     if (chartWidth === 0 || series.length === 0) {
@@ -368,11 +396,11 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
       return {
         height,
         width: barWidth,
-        x: chartPadding + index * segmentWidth + gap / 2,
-        y: chartHeight - chartPadding - height,
+        x: chartPaddingX + index * segmentWidth + gap / 2,
+        y: chartHeight - chartPaddingY - height,
       };
     });
-  }, [chartHeight, chartPadding, chartWidth, plotHeight, plotWidth, series, yAxisMaxValue]);
+  }, [chartHeight, chartPaddingX, chartPaddingY, chartWidth, plotHeight, plotWidth, series, yAxisMaxValue]);
 
   const linePath = useMemo(() => {
     return buildLinePath(coordinates);
@@ -383,12 +411,12 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
       return '';
     }
 
-    const baseline = chartHeight - chartPadding;
+    const baseline = chartHeight - chartPaddingY;
     const first = coordinates[0];
     const last = coordinates[coordinates.length - 1];
 
     return `${buildLinePath(coordinates)} L ${last.x} ${baseline} L ${first.x} ${baseline} Z`;
-  }, [chartHeight, chartPadding, coordinates]);
+  }, [chartHeight, chartPaddingY, coordinates]);
 
   const onChartLayout = (event: LayoutChangeEvent) => {
     setChartWidth(event.nativeEvent.layout.width);
@@ -642,6 +670,30 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
     updateActivePoint(event);
   };
 
+  // Keep the latest parent callbacks in refs so the unmount cleanup can notify
+  // the parent without re-subscribing on every prop change.
+  const onActivePointChangeRef = useRef(onActivePointChange);
+  const onScrubLockChangeRef = useRef(onScrubLockChange);
+  onActivePointChangeRef.current = onActivePointChange;
+  onScrubLockChangeRef.current = onScrubLockChange;
+
+  // If the chart unmounts or remounts while a scrub is active — a tab switch,
+  // a transient load error swapping the chart out, a header remount — the
+  // release/terminate handlers never fire. That would strand the parent on the
+  // last hovered point (often a $0.00 left-edge baseline, which is exactly how
+  // the portfolio value "got stuck at 0" until an app restart) and leave the
+  // shared scrub-lock engaged, silently disabling the pager's horizontal swipe.
+  // Reset everything on unmount so neither can outlive the gesture.
+  useEffect(() => {
+    return () => {
+      clearLongPressTimer();
+      chartScrubLockRef.current = false;
+      onScrubLockChangeRef.current?.(false);
+      onActivePointChangeRef.current?.(null);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <View style={styles.container}>
       <View
@@ -728,8 +780,8 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
                         strokeWidth={1.5}
                         x1={activeSelection.x}
                         x2={activeSelection.x}
-                        y1={chartPadding}
-                        y2={chartHeight - chartPadding}
+                        y1={chartPaddingY}
+                        y2={chartHeight - chartPaddingY}
                       />
                       <Circle
                         cx={activeSelection.x}
@@ -740,7 +792,9 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
                     </>
                   ) : coordinates.length > 0 ? (
                     <Circle
-                      cx={coordinates[coordinates.length - 1]?.x ?? 0}
+                      // The last point now sits on the right edge (full-bleed),
+                      // so nudge the resting dot in by its radius to stay visible.
+                      cx={Math.min(coordinates[coordinates.length - 1]?.x ?? 0, chartWidth - 4)}
                       cy={coordinates[coordinates.length - 1]?.y ?? 0}
                       fill={chartAccentColor}
                       r={4}
@@ -770,8 +824,8 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
                       strokeWidth={1.5}
                       x1={activeSelection.x}
                       x2={activeSelection.x}
-                      y1={chartPadding}
-                      y2={chartHeight - chartPadding}
+                      y1={chartPaddingY}
+                      y2={chartHeight - chartPaddingY}
                     />
                   ) : null}
                 </>
