@@ -560,6 +560,11 @@ export function CardDetailScreen({
           isFavorite: result.isFavorite,
         });
         setIsFavoritePending(false);
+        // The short-TTL detail cache still holds the pre-toggle `isFavorite`;
+        // without this, reopening the PDP within the TTL shows the stale heart
+        // state (favorite persisted to the wishlist but the cached card detail
+        // didn't). Drop it so the next open refetches the true favorite state.
+        invalidateCardDetailCache(cardId);
       })
       .catch(() => {
         setFavoriteState(previousFavoriteState);

@@ -9,6 +9,7 @@ import {
 } from '@/features/cards/card-detail-preview-session';
 import {
   clearCardDetailCache,
+  hasFreshCardDetail,
   prefetchCardDetail,
 } from '@/features/cards/card-detail-prefetch';
 import {
@@ -522,6 +523,39 @@ describe('CardDetailScreen', () => {
       expect(setCardFavorite).toHaveBeenLastCalledWith('sm7-1', false);
       expect(screen.getByTestId('detail-hero-card-favorite').props.accessibilityLabel)
         .toBe('Add to favorites');
+    });
+  });
+
+  it('drops the cached card detail when favoriting so reopening shows the true heart state', async () => {
+    const setCardFavorite = jest.fn(async (cardId: string, isFavorite?: boolean | null) => ({
+      cardId,
+      favoritedAt: (isFavorite ?? true) ? '2026-05-15T00:00:00.000Z' : null,
+      isFavorite: isFavorite ?? true,
+    }));
+
+    renderWithProviders(
+      <CardDetailScreen
+        cardId="sm7-1"
+        onBack={jest.fn()}
+        onOpenAddToCollection={jest.fn()}
+      />,
+      {
+        spotlightRepository: createTestSpotlightRepository({ setCardFavorite }),
+      },
+    );
+
+    // The PDP load warms the short-TTL detail cache for this card.
+    await waitFor(() => {
+      expect(hasFreshCardDetail('sm7-1')).toBe(true);
+    });
+
+    // Toggling favorite must drop that cache entry — otherwise reopening the PDP
+    // within the TTL would read the stale (pre-toggle) `isFavorite` and show the
+    // wrong heart even though the favorite persisted to the wishlist.
+    fireEvent.press(await screen.findByTestId('detail-hero-card-favorite'));
+    await waitFor(() => {
+      expect(setCardFavorite).toHaveBeenCalledWith('sm7-1', true);
+      expect(hasFreshCardDetail('sm7-1')).toBe(false);
     });
   });
 
