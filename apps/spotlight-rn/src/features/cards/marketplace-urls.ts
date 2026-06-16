@@ -1,5 +1,16 @@
 function cleanedMarketplaceToken(value: string | null | undefined) {
-  return (value ?? '').replace(/[^A-Za-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  // Keep a decimal point ONLY between two digits so half-grades survive ("9.5"
+  // must not become "9 5", which searches eBay for an unrelated "9 5"); every
+  // other period (and all other punctuation) becomes a space.
+  return (value ?? '')
+    .replace(/[^A-Za-z0-9. ]+/g, ' ')
+    .replace(/\.+/g, (match, offset: number, source: string) => {
+      const before = source[offset - 1] ?? '';
+      const after = source[offset + match.length] ?? '';
+      return /\d/.test(before) && /\d/.test(after) ? '.' : ' ';
+    })
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function cleanedTcgPlayerToken(value: string | null | undefined) {

@@ -214,6 +214,18 @@ describe('buildEbaySearchUrl', () => {
     expect(url).toContain('_sop=13');
   });
 
+  it('preserves a half-grade so the sold search is not split ("9.5" not "9 5")', () => {
+    const url = buildEbaySearchUrl({
+      setName: 'XY Promos',
+      name: 'Ditto',
+      cardNumber: '#XY177',
+      grader: 'CGC',
+      grade: '9.5',
+    });
+    expect(url).toContain('_nkw=CGC+9.5+Ditto');
+    expect(url).not.toContain('9+5');
+  });
+
   it('returns null when all fields are empty', () => {
     expect(buildEbaySearchUrl({ setName: '', name: '', cardNumber: '' })).toBeNull();
   });

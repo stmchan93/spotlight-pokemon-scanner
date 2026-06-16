@@ -19,6 +19,13 @@ type CardPriceTrendListProps = {
    * for that grade/condition. Absent → rows render static (unchanged).
    */
   onRowPress?: (row: CardPriceTrendRow) => void;
+  /**
+   * When provided, the provider logo (eBay / TCGplayer) becomes a button that
+   * deep-links to the marketplace for the grade/condition currently selected on
+   * the PDP — TCGplayer Near Mint for raw, eBay sold listings for the selected
+   * grade/grader. Absent → the logo renders as a static image (unchanged).
+   */
+  onProviderPress?: () => void;
   /** Row key currently resolving its marketplace link (shows a spinner). */
   loadingRowKey?: string | null;
   testID?: string;
@@ -27,7 +34,7 @@ type CardPriceTrendListProps = {
 const SPARKLINE_WIDTH = 62;
 const SPARKLINE_HEIGHT = 22;
 
-export function CardPriceTrendList({ list, onRowPress, loadingRowKey, testID }: CardPriceTrendListProps) {
+export function CardPriceTrendList({ list, onRowPress, onProviderPress, loadingRowKey, testID }: CardPriceTrendListProps) {
   const theme = useSpotlightTheme();
   const logoSource =
     list.provider === 'ebay'
@@ -42,12 +49,25 @@ export function CardPriceTrendList({ list, onRowPress, loadingRowKey, testID }: 
     <View style={styles.root} testID={testID}>
       <View style={styles.header}>
         <Text style={theme.typography.titleMedium}>Price Trend</Text>
-        <Image
-          accessibilityLabel={providerLabel}
-          resizeMode="contain"
-          source={logoSource}
-          style={logoStyle}
-        />
+        {onProviderPress ? (
+          <Pressable
+            accessibilityLabel={`Open on ${providerLabel}`}
+            accessibilityRole="button"
+            hitSlop={12}
+            onPress={onProviderPress}
+            style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+            testID={testID ? `${testID}-provider` : undefined}
+          >
+            <Image resizeMode="contain" source={logoSource} style={logoStyle} />
+          </Pressable>
+        ) : (
+          <Image
+            accessibilityLabel={providerLabel}
+            resizeMode="contain"
+            source={logoSource}
+            style={logoStyle}
+          />
+        )}
       </View>
 
       {/* Full-bleed hairline under the title, then one under every row (Figma

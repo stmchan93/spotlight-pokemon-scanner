@@ -372,6 +372,81 @@ describe('CardDetailScreen', () => {
     expect(openURL.mock.calls[0][0] as string).toContain('_nkw=PSA+10');
   });
 
+  it('tapping the TCGplayer logo (raw lane) opens the Near Mint search', async () => {
+    const getCardPriceTrends = jest.fn(async (query: { mode: string }) => ({
+      mode: query.mode as 'raw' | 'graded',
+      provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
+      rows: trendRows(query.mode),
+    }));
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as never);
+
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} onOpenAddToCollection={jest.fn()} />,
+      { spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends }) },
+    );
+
+    fireEvent.press(await screen.findByTestId('detail-price-trends-provider'));
+
+    await waitFor(() => {
+      expect(openURL).toHaveBeenCalledTimes(1);
+    });
+    const url = openURL.mock.calls[0][0] as string;
+    expect(url).toContain('tcgplayer.com/search');
+    expect(url).toContain('Condition=Near+Mint');
+    expect(url).not.toContain('Printing=');
+  });
+
+  it('tapping the eBay logo (graded lane) opens sold listings for the selected grade', async () => {
+    const getCardPriceTrends = jest.fn(async (query: { mode: string }) => ({
+      mode: query.mode as 'raw' | 'graded',
+      provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
+      rows: trendRows(query.mode),
+    }));
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as never);
+
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} onOpenAddToCollection={jest.fn()} />,
+      { spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends }) },
+    );
+
+    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-provider'));
+
+    await waitFor(() => {
+      expect(openURL).toHaveBeenCalledTimes(1);
+    });
+    const url = openURL.mock.calls[0][0] as string;
+    expect(url).toContain('https://www.ebay.com/sch/i.html');
+    expect(url).toContain('_nkw=PSA+10'); // defaults to the seeded PSA 10
+    expect(url).toContain('LH_Sold=1');
+  });
+
+  it('eBay logo link tracks the grade chosen in the dropdown', async () => {
+    const getCardPriceTrends = jest.fn(async (query: { mode: string }) => ({
+      mode: query.mode as 'raw' | 'graded',
+      provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
+      rows: trendRows(query.mode),
+    }));
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as never);
+
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} onOpenAddToCollection={jest.fn()} />,
+      { spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends }) },
+    );
+
+    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
+    // Switch the dropdown grade from the seeded 10 to 9.5.
+    fireEvent.press(await screen.findByTestId('detail-configurator-grade-trigger'));
+    fireEvent.press(await screen.findByTestId('detail-grade-sheet-option-9.5'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-provider'));
+
+    await waitFor(() => {
+      expect(openURL).toHaveBeenCalledTimes(1);
+    });
+    // The eBay link now reflects PSA 9.5, not the default 10 (half-grade preserved).
+    expect(openURL.mock.calls[0][0] as string).toContain('_nkw=PSA+9.5');
+  });
+
   it('renders Product Details when the card detail includes cardText', async () => {
     const baseRepository = createTestSpotlightRepository();
 

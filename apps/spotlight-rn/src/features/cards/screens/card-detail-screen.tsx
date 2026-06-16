@@ -490,6 +490,59 @@ export function CardDetailScreen({
     }
   }, [detail, priceTrends]);
 
+  // Tap the provider logo (eBay / TCGplayer) in the Price-Trend header → open the
+  // marketplace for the grade/grader currently selected on the PDP (the dropdown),
+  // mirroring the per-row deep-links but keyed off the live configurator selection:
+  //   raw lane    → TCGplayer search filtered to Near Mint (the standard raw price)
+  //   graded lane → eBay sold + completed listings for the selected grader + grade
+  // so switching the dropdown to "CGC 9.5" makes the eBay link land on CGC 9.5.
+  const handleProviderPress = useCallback(() => {
+    if (!detail || !priceTrends) {
+      return;
+    }
+
+    if (priceTrends.mode === 'graded') {
+      // Prefer the dropdown's live grader+grade; if it hasn't seeded yet, fall
+      // back to the top graded row so the tap is never a dead end.
+      let grader = selectedGrader;
+      let grade = selectedGrade;
+      if (!grader || grader === 'Raw' || !grade) {
+        const [rowGrader, rowGrade] = (priceTrends.rows[0]?.key ?? '')
+          .replace(/\|/g, ' ')
+          .trim()
+          .split(/\s+/);
+        grader = grader && grader !== 'Raw' ? grader : rowGrader;
+        grade = grade ?? rowGrade;
+      }
+      if (!grader || grader === 'Raw' || !grade) {
+        return;
+      }
+      const ebayUrl = buildEbaySearchUrl({
+        name: detail.name,
+        cardNumber: detail.cardNumber,
+        setName: detail.setName,
+        grader,
+        grade,
+      });
+      if (ebayUrl) {
+        void Linking.openURL(ebayUrl);
+      }
+      return;
+    }
+
+    // Raw lane → TCGplayer Near Mint (printing intentionally omitted; see
+    // handleTrendRowPress for why the Printing facet zeroes out promos).
+    const url = buildTcgPlayerSearchUrl({
+      name: detail.name,
+      cardNumber: detail.cardNumber,
+      setName: detail.setName,
+      condition: 'Near Mint',
+    });
+    if (url) {
+      void Linking.openURL(url);
+    }
+  }, [detail, priceTrends, selectedGrade, selectedGrader]);
+
   const handleToggleFavorite = useCallback(() => {
     if (isFavoritePending) {
       return;
@@ -770,6 +823,7 @@ export function CardDetailScreen({
           <View style={styles.trendBlock}>
             <CardPriceTrendList
               list={priceTrends}
+              onProviderPress={handleProviderPress}
               onRowPress={handleTrendRowPress}
               testID="detail-price-trends"
             />
