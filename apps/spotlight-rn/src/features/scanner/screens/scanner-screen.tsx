@@ -1517,6 +1517,10 @@ export function ScannerScreen({
     setActiveChangeCaptureId(null);
   }, []);
 
+  // Backs the row's "WISHLIST" pill (Figma 1511:4096). Favorite/unfavorite the
+  // active candidate in place — the pill label flips to "WISHLISTED" via the
+  // updated `isFavorite` state and the row stays in the tray (favoriting is
+  // reversible; unlike a collection-add it doesn't dismiss the scan).
   const handleToggleFavorite = useCallback(async (captureId: string) => {
     const capture = recentCaptures.find((entry) => entry.id === captureId);
     const candidate = capture ? activeCandidateForCapture(capture) : null;
@@ -1548,8 +1552,8 @@ export function ScannerScreen({
     }
   }, [recentCaptures, refreshData, spotlightRepository]);
 
-  // Stable wrapper for the swipe row so React.memo doesn't re-render every row
-  // when handleToggleFavorite re-creates on recentCaptures change.
+  // Stable wrapper for the wishlist pill so React.memo doesn't re-render every
+  // row when handleToggleFavorite re-creates on recentCaptures change.
   const handleToggleFavoriteRef = useRef(handleToggleFavorite);
   useEffect(() => {
     handleToggleFavoriteRef.current = handleToggleFavorite;
@@ -1643,6 +1647,18 @@ export function ScannerScreen({
       }
     }
   }, [priceSelection, recentCaptures, refreshData, removeCaptureAfterAdd, spotlightRepository, trackCandidateSelectionIfNeeded]);
+
+  // Stable wrapper for the swipe row's "Collection" action so React.memo doesn't
+  // re-render every row when handleAddToInventory re-creates on recentCaptures
+  // change. The rail's Collection button adds the scan to the collection — the
+  // same flow as the row's ADD pill.
+  const handleAddToInventoryRef = useRef(handleAddToInventory);
+  useEffect(() => {
+    handleAddToInventoryRef.current = handleAddToInventory;
+  }, [handleAddToInventory]);
+  const handleRowAddToCollection = useCallback((captureId: string) => {
+    void handleAddToInventoryRef.current(captureId);
+  }, []);
 
   // Bulk "ADD ALL": optimistically close the modal + clear the tray NOW, then add
   // every resolved scan to the collection in the BACKGROUND. Two reasons it isn't
@@ -1938,10 +1954,9 @@ export function ScannerScreen({
         // in with the slide-from-right enter. Expanded list opens without
         // fanning every row, so enter is gated to the collapsed viewport.
         enableEnterAnimation={!isTrayExpanded}
-        isFavorite={candidate?.isFavorite ?? false}
         onActionRailVisibilityChange={handleCaptureActionRailVisibilityChange}
+        onAddToCollection={handleRowAddToCollection}
         onDelete={deleteRecentCapture}
-        onFavorite={handleRowFavorite}
         testID={`scanner-tray-swipe-${index}`}
       >
         <View style={styles.captureRow} testID={`scanner-tray-row-${index}`}>
@@ -2058,31 +2073,24 @@ export function ScannerScreen({
               </Pressable>
               <Pressable
                 accessibilityLabel={
-                  capture.recentlyAdded
-                    ? `${candidate.name} added to inventory`
-                    : `Add ${candidate.name} to inventory`
+                  (candidate.isFavorite ?? false)
+                    ? `Remove ${candidate.name} from wishlist`
+                    : `Add ${candidate.name} to wishlist`
                 }
                 accessibilityRole="button"
-                disabled={capture.isAddingToInventory || capture.recentlyAdded}
                 hitSlop={6}
                 onPress={() => {
-                  void handleAddToInventory(capture.id);
+                  handleRowFavorite(capture.id);
                 }}
                 style={({ pressed }) => [
-                  styles.captureAddPill,
-                  (pressed || capture.isAddingToInventory || capture.recentlyAdded)
-                    ? styles.captureAddPillPressed
-                    : null,
+                  styles.captureWishlistPill,
+                  pressed ? styles.captureWishlistPillPressed : null,
                 ]}
-                testID={`scanner-tray-add-${index}`}
+                testID={`scanner-tray-wishlist-${index}`}
               >
-                {capture.isAddingToInventory ? (
-                  <ActivityIndicator color={colors.brand} size="small" />
-                ) : (
-                  <Text style={styles.captureAddPillLabel}>
-                    {capture.recentlyAdded ? 'ADDED' : 'ADD'}
-                  </Text>
-                )}
+                <Text style={styles.captureWishlistPillLabel}>
+                  {(candidate.isFavorite ?? false) ? 'WISHLISTED' : 'WISHLIST'}
+                </Text>
               </Pressable>
             </View>
           ) : null}
@@ -2609,9 +2617,13 @@ const styles = StyleSheet.create({
   capturePriceColumn: {
     alignItems: 'flex-end',
     gap: 12,
-    width: 84,
+    // Widened from 84 so the "WISHLISTED" pill (longer than the old "ADD")
+    // fits without overflowing the right column into the title/price area.
+    width: 108,
   },
-  captureAddPill: {
+  captureWishlistPill: {
+    // Figma "Tag Button Container" (node 1511:4096): purple/500 #A54BFA,
+    // px-12/py-4, radius-8, Plus Jakarta Sans SemiBold 13, white label.
     alignItems: 'center',
     backgroundColor: colors.scannerAddPurple,
     borderRadius: radii.sm,
@@ -2620,12 +2632,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 4,
   },
-  captureAddPillPressed: {
-    // Press-down feedback per the design-handoff ADD spec (scale 1 → 0.94).
+  captureWishlistPillPressed: {
+    // Press-down feedback (scale 1 → 0.94), matching the other tray controls.
     opacity: 0.78,
     transform: [{ scale: 0.94 }],
   },
-  captureAddPillLabel: {
+  captureWishlistPillLabel: {
     color: colors.scannerTextPrimary,
     fontFamily: fontFamilies.bodySemiBold,
     fontSize: 13,

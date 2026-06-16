@@ -1,6 +1,5 @@
-import { BlurView } from 'expo-blur';
 import { memo, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
-import { IconMinus } from '@tabler/icons-react-native';
+import { IconLayoutGridAdd, IconTrash } from '@tabler/icons-react-native';
 import { AccessibilityInfo, Animated, Dimensions, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import Reanimated, {
@@ -13,14 +12,18 @@ import Reanimated, {
 
 import { textStyles } from '@spotlight/design-system';
 
-import { HeartToggle } from '@/components/heart-toggle';
 import {
+  recentCaptureActionCircleSize,
+  recentCaptureActionGap,
+  recentCaptureActionIconSize,
+  recentCaptureActionRailPadding,
   recentCaptureActionRailRevealWidth,
-  recentCaptureDeleteRevealWidth,
-  recentCaptureFavoriteRevealWidth,
 } from '@/features/scanner/recent-capture-swipe';
 
-const favoriteHeartColor = '#E83E8C';
+// Action-circle fills (Figma 1511:4098): Collection = yellow/400, Delete = red/500.
+const collectionCircleColor = '#FFC233';
+const deleteCircleColor = '#D93025';
+const actionIconColor = '#FFFFFF';
 const captureRowHeight = 102;
 // Release distance (from rest) at which the rail snaps open instead of closing.
 // Kept small so a short, easy drag reliably reveals Favorite/Delete.
@@ -98,9 +101,8 @@ export type RecentCaptureSwipeRowProps = {
   // tray doesn't fan every row in at once.
   enableEnterAnimation?: boolean;
   onActionRailVisibilityChange?: (key: string, visible: boolean) => void;
+  onAddToCollection: (id: string) => void;
   onDelete: (id: string) => void;
-  onFavorite: (id: string) => void;
-  isFavorite: boolean;
   testID: string;
 };
 
@@ -128,10 +130,9 @@ function RecentCaptureSwipeRowInner({
   actionRailKey,
   children,
   enableEnterAnimation = false,
-  isFavorite,
   onActionRailVisibilityChange,
+  onAddToCollection,
   onDelete,
-  onFavorite,
   testID,
 }: RecentCaptureSwipeRowProps) {
   const swipeableRef = useRef<Swipeable>(null);
@@ -152,12 +153,13 @@ function RecentCaptureSwipeRowInner({
     onActionRailVisibilityChange?.(actionRailKey, false);
   }, [actionRailKey, onActionRailVisibilityChange]);
 
-  const handleFavorite = useCallback(() => {
-    // Toggle favorite in place and keep the row open — the heart fills via the
-    // updated `isFavorite` prop. Don't close here: the user expects to see the
-    // favorited state stay visible, and may tap again to unfavorite.
-    onFavorite(actionRailKey);
-  }, [actionRailKey, onFavorite]);
+  const handleAddToCollection = useCallback(() => {
+    // Add the scan to the collection (same flow as the row's ADD pill) and close
+    // the rail — the row shows its "ADDED" confirmation and then advances out of
+    // the tray, so leaving the rail open would just flash empty space.
+    onAddToCollection(actionRailKey);
+    swipeableRef.current?.close();
+  }, [actionRailKey, onAddToCollection]);
 
   const handleDelete = useCallback(() => {
     onDelete(actionRailKey);
@@ -181,20 +183,21 @@ function RecentCaptureSwipeRowInner({
       >
         <Pressable
           accessibilityElementsHidden={!isOpen}
-          accessibilityLabel={isFavorite ? 'Remove favorite' : 'Favorite recent scan'}
+          accessibilityLabel="Add recent scan to collection"
           accessibilityRole="button"
           accessibilityState={{ disabled: !isOpen }}
           importantForAccessibility={isOpen ? 'auto' : 'no-hide-descendants'}
-          onPress={isOpen ? handleFavorite : undefined}
+          onPress={isOpen ? handleAddToCollection : undefined}
           style={({ pressed }) => [
-            styles.captureFavoriteButton,
-            pressed ? styles.captureFavoriteButtonPressed : null,
+            styles.captureActionGroup,
+            pressed ? styles.captureActionGroupPressed : null,
           ]}
-          testID={`${testID}-favorite-button`}
+          testID={`${testID}-collection-button`}
         >
-          <BlurView intensity={20} pointerEvents="none" style={StyleSheet.absoluteFill} tint="dark" />
-          <HeartToggle bounce="lively" burst fill={favoriteHeartColor} filled={isFavorite} size={16} />
-          <Text style={styles.captureFavoriteLabel}>Favorite</Text>
+          <View style={[styles.captureActionCircle, styles.captureCollectionCircle]}>
+            <IconLayoutGridAdd color={actionIconColor} size={recentCaptureActionIconSize} strokeWidth={2} />
+          </View>
+          <Text style={styles.captureActionLabel}>Collection</Text>
         </Pressable>
         <Pressable
           accessibilityElementsHidden={!isOpen}
@@ -204,18 +207,19 @@ function RecentCaptureSwipeRowInner({
           importantForAccessibility={isOpen ? 'auto' : 'no-hide-descendants'}
           onPress={isOpen ? handleDelete : undefined}
           style={({ pressed }) => [
-            styles.captureDeleteButton,
-            pressed ? styles.captureDeleteButtonPressed : null,
+            styles.captureActionGroup,
+            pressed ? styles.captureActionGroupPressed : null,
           ]}
           testID={`${testID}-delete-button`}
         >
-          <BlurView intensity={20} pointerEvents="none" style={StyleSheet.absoluteFill} tint="dark" />
-          <IconMinus color="#FF453A" size={18} strokeWidth={2.4} />
-          <Text style={styles.captureDeleteLabel}>Delete</Text>
+          <View style={[styles.captureActionCircle, styles.captureDeleteCircle]}>
+            <IconTrash color={actionIconColor} size={recentCaptureActionIconSize} strokeWidth={2} />
+          </View>
+          <Text style={styles.captureActionLabel}>Delete</Text>
         </Pressable>
       </Animated.View>
     );
-  }, [handleDelete, handleFavorite, isFavorite, isOpen, testID]);
+  }, [handleAddToCollection, handleDelete, isOpen, testID]);
 
   useEffect(() => {
     return () => {
@@ -276,54 +280,42 @@ function RecentCaptureSwipeRowInner({
 export const RecentCaptureSwipeRow = memo(RecentCaptureSwipeRowInner);
 
 const styles = StyleSheet.create({
+  // Right-aligned rail of circular actions, vertically centered against the row,
+  // 16px between each group (Figma 1511:4098).
   captureActionRail: {
-    alignItems: 'stretch',
+    alignItems: 'center',
     flexDirection: 'row',
-    gap: 6,
-    paddingLeft: 6,
+    gap: recentCaptureActionGap,
+    justifyContent: 'flex-end',
+    minHeight: captureRowHeight,
+    paddingHorizontal: recentCaptureActionRailPadding,
     width: recentCaptureActionRailRevealWidth,
   },
-  captureDeleteButton: {
+  // One action: colored circle with a label centered underneath (gap 4).
+  captureActionGroup: {
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
-    borderRadius: 18,
-    gap: 6,
-    justifyContent: 'center',
-    minHeight: captureRowHeight,
-    overflow: 'hidden',
-    width: recentCaptureDeleteRevealWidth,
+    gap: 4,
   },
-  captureDeleteButtonPressed: {
-    opacity: 0.82,
+  captureActionGroupPressed: {
+    opacity: 0.8,
   },
-  captureDeleteLabel: {
-    ...textStyles.control,
-    color: '#FF453A',
-    fontSize: 10,
-    lineHeight: 12,
-    textAlign: 'center',
-    textTransform: 'none',
-  },
-  captureFavoriteButton: {
+  captureActionCircle: {
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
-    borderRadius: 18,
-    gap: 6,
+    borderRadius: recentCaptureActionCircleSize / 2,
+    height: recentCaptureActionCircleSize,
     justifyContent: 'center',
-    minHeight: captureRowHeight,
-    overflow: 'hidden',
-    width: recentCaptureFavoriteRevealWidth,
+    width: recentCaptureActionCircleSize,
   },
-  captureFavoriteButtonPressed: {
-    opacity: 0.84,
+  captureCollectionCircle: {
+    backgroundColor: collectionCircleColor,
   },
-  captureFavoriteLabel: {
-    ...textStyles.control,
-    color: favoriteHeartColor,
-    fontSize: 10,
-    lineHeight: 12,
+  captureDeleteCircle: {
+    backgroundColor: deleteCircleColor,
+  },
+  captureActionLabel: {
+    ...textStyles.overline,
+    color: '#FFFFFF',
     textAlign: 'center',
-    textTransform: 'none',
   },
   captureSwipeContent: {
     width: '100%',

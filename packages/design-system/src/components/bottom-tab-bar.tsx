@@ -97,11 +97,12 @@ const styles = StyleSheet.create({
     right: 0,
   },
   iconSlot: {
+    // 22×22 glyph per Figma nav (node 1313:7454 — `size-[22px]`).
     alignItems: 'center',
     flexShrink: 0,
-    height: 16,
+    height: 22,
     justifyContent: 'center',
-    width: 16,
+    width: 22,
   },
   row: {
     alignItems: 'center',

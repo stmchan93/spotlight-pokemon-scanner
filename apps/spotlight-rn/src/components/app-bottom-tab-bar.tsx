@@ -25,6 +25,8 @@ export function AppBottomTabBar({
   const router = useRouter();
 
   const iconColor = theme.colors.textPrimary;
+  // Figma nav glyph size (node 1313:7454 — `size-[22px]`).
+  const NAV_ICON_SIZE = 22;
 
   const goToPortfolio = onPressPortfolio
     ?? (() => router.push({ pathname: '/', params: { page: 'portfolio' } } as never));
@@ -42,7 +44,7 @@ export function AppBottomTabBar({
           selected: activeKey === 'portfolio',
           onPress: goToPortfolio,
           testID: 'bottom-nav-portfolio',
-          icon: <CollectionTabIcon color={iconColor} filled={activeKey === 'portfolio'} />,
+          icon: <CollectionTabIcon color={iconColor} filled={activeKey === 'portfolio'} size={NAV_ICON_SIZE} />,
         },
         {
           key: 'scan',
@@ -50,7 +52,7 @@ export function AppBottomTabBar({
           selected: activeKey === 'scan',
           onPress: goToScan,
           testID: 'bottom-nav-scan',
-          icon: <ScanTabIcon color={iconColor} />,
+          icon: <ScanTabIcon color={iconColor} size={NAV_ICON_SIZE} />,
         },
         {
           key: 'events',
@@ -58,7 +60,7 @@ export function AppBottomTabBar({
           selected: activeKey === 'events',
           onPress: goToEvents,
           testID: 'bottom-nav-events',
-          icon: <EventsTabIcon color={iconColor} filled={activeKey === 'events'} />,
+          icon: <EventsTabIcon color={iconColor} filled={activeKey === 'events'} size={NAV_ICON_SIZE} />,
         },
       ]}
     />

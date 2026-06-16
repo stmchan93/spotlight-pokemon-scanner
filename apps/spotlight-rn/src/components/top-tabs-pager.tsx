@@ -19,6 +19,7 @@ import { useFocusEffect } from 'expo-router';
 
 import { AppBottomTabBar } from '@/components/app-bottom-tab-bar';
 import { TabsPageContext } from '@/contexts/tabs-page-context';
+import { useAppDrawer } from '@/providers/app-drawer-provider';
 
 type TabsPage = 'portfolio' | 'scanner';
 
@@ -50,6 +51,11 @@ export function TopTabsPager({
   renderScannerSlot,
 }: TopTabsPagerProps) {
   const { width } = useWindowDimensions();
+  const { openDrawer } = useAppDrawer();
+  // Held in a ref so the memoized PanResponder always calls the latest opener
+  // without being rebuilt.
+  const openDrawerRef = useRef(openDrawer);
+  openDrawerRef.current = openDrawer;
 
   const initialTranslateX = initialPage === 'portfolio' ? 0 : -width;
   const [activePage, setActivePage] = useState<TabsPage>(initialPage);
@@ -58,6 +64,9 @@ export function TopTabsPager({
   const isTransitioningRef = useRef(false);
   const directionRef = useRef<'left' | 'right' | null>(null);
   const chartScrubLockRef = useRef(false);
+  // Guards the drawer-open swipe so it fires once per gesture (the move-should-set
+  // predicate runs repeatedly during a drag). Reset on each new touch.
+  const drawerSwipeHandledRef = useRef(false);
   // Absolute screen X where the current touch first landed. Captured on touch
   // start because PanResponder's gestureState.x0 is still 0 during the
   // move-should-set decision (it's only set once the responder is granted).
@@ -139,6 +148,17 @@ export function TopTabsPager({
     if (startX != null) {
       const fromLeftEdge = startX <= edgeSwipeZone;
       const fromRightEdge = startX >= width - edgeSwipeZone;
+      // A left-edge rightward swipe on the Collection page opens the hamburger
+      // drawer (Collection is already the left-most page, so this gesture was
+      // otherwise dead). The drawer animates itself in; we never claim the page
+      // gesture, so the pages don't move.
+      if (activePageRef.current === 'portfolio' && fromLeftEdge && gs.dx > 0) {
+        if (!drawerSwipeHandledRef.current) {
+          drawerSwipeHandledRef.current = true;
+          openDrawerRef.current();
+        }
+        return false;
+      }
       if (activePageRef.current === 'portfolio' && !fromRightEdge) {
         return false;
       }
@@ -169,12 +189,14 @@ export function TopTabsPager({
     // recording the start never itself claims the gesture.
     onStartShouldSetPanResponderCapture: (evt) => {
       startXRef.current = evt.nativeEvent.pageX;
+      drawerSwipeHandledRef.current = false;
       return false;
     },
     // Kept as a fallback for touches that don't hit a greedy child (capture above
     // already records those too — harmless overlap).
     onStartShouldSetPanResponder: (evt) => {
       startXRef.current = evt.nativeEvent.pageX;
+      drawerSwipeHandledRef.current = false;
       return false;
     },
     onMoveShouldSetPanResponder: shouldSetResponder,

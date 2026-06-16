@@ -1189,7 +1189,7 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-reveal-actions', {
       hidden: true,
     }));
-    fireEvent.press(screen.getByTestId('scanner-tray-add-0'));
+    fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-collection-button'));
 
     await waitFor(() => {
       expect(addPayloads).toHaveLength(1);
@@ -1206,6 +1206,57 @@ describe('ScannerScreen', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('scanner-tray-row-0')).toBeNull();
     }, { timeout: 2500 });
+  });
+
+  it('favorites a scanned card via the row WISHLIST pill, keeping it in the tray', async () => {
+    let nextIsFavorite = false;
+    const setCardFavorite = jest.fn(async (_cardId: string, isFavorite?: boolean | null) => {
+      nextIsFavorite = isFavorite ?? !nextIsFavorite;
+      return {
+        cardId: 'mcdonalds25-22',
+        favoritedAt: nextIsFavorite ? '2026-05-15T00:00:00.000Z' : null,
+        isFavorite: nextIsFavorite,
+      };
+    });
+    const spotlightRepository = createTestSpotlightRepository({
+      setCardFavorite,
+      matchScannerCapture: async () => ({
+        scanID: 'scan-froakie',
+        candidates: [{
+          id: 'froakie-candidate',
+          cardId: 'mcdonalds25-22',
+          name: 'Froakie',
+          cardNumber: '#22/25',
+          setName: "McDonald's Collection 2021",
+          imageUrl: 'https://cdn.spotlight.test/froakie.png',
+          marketPrice: 55,
+          currencyCode: 'USD',
+        }],
+      }),
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    expect(await screen.findByText('Froakie')).toBeTruthy();
+
+    // The inline WISHLIST pill (Figma 1511:4096) favorites the active candidate.
+    const wishlistPill = await screen.findByTestId('scanner-tray-wishlist-0');
+    expect(wishlistPill).toHaveTextContent('WISHLIST');
+    fireEvent.press(wishlistPill);
+
+    await waitFor(() => {
+      expect(setCardFavorite).toHaveBeenCalledWith('mcdonalds25-22', true);
+    });
+
+    // Favoriting is reversible, so unlike a collection-add the row stays in the
+    // tray and the pill reflects the favorited state.
+    expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-wishlist-0')).toHaveTextContent('WISHLISTED');
+    });
   });
 
   it('does not send a synthetic capture id when scanner add has no backend scan id', async () => {
@@ -1249,7 +1300,7 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-reveal-actions', {
       hidden: true,
     }));
-    fireEvent.press(screen.getByTestId('scanner-tray-add-0'));
+    fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-collection-button'));
 
     await waitFor(() => {
       expect(addPayloads).toHaveLength(1);
@@ -1389,7 +1440,7 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-reveal-actions', {
       hidden: true,
     }));
-    fireEvent.press(screen.getByTestId('scanner-tray-add-0'));
+    fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-collection-button'));
 
     await waitFor(() => {
       expect(addPayloads).toHaveLength(1);
