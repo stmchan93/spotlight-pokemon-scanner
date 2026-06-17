@@ -11,13 +11,16 @@ falls back to the grade's real entry.
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = BACKEND_ROOT.parent
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
+from catalog_tools import apply_schema, connect, upsert_catalog_card  # noqa: E402
 from server import SpotlightScanService  # noqa: E402
 
 
@@ -48,6 +51,75 @@ class SanitizeSlabVariantNameTest(unittest.TestCase):
         self.assertIsNone(self.sanitize(None, "PSA", "10"))
         self.assertIsNone(self.sanitize("", "PSA", "10"))
         self.assertIsNone(self.sanitize("   ", "PSA", "10"))
+
+
+class CreateDeckEntrySlabVariantTest(unittest.TestCase):
+    """The ADD ITEM direct-add path (`create_deck_entry`) must sanitize a
+    grade-label variantName too — not just record_buy / replace_deck_entry. A
+    regression here re-introduced the "—" Collection price for graded slabs.
+    """
+
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory()
+        database_path = Path(self.tempdir.name) / "deck-entry.sqlite"
+        connection = connect(database_path)
+        apply_schema(connection, BACKEND_ROOT / "schema.sql")
+        upsert_catalog_card(
+            connection,
+            {
+                "id": "topsun_ja-88",
+                "name": "Grimer",
+                "setName": "Topsun",
+                "number": "088",
+                "setId": "topsun_ja",
+            },
+            REPO_ROOT,
+            "2026-06-17T00:00:00Z",
+            refresh_embeddings=False,
+        )
+        connection.commit()
+        connection.close()
+        self.service = SpotlightScanService(database_path, REPO_ROOT)
+
+    def tearDown(self) -> None:
+        self.service.connection.close()
+        self.tempdir.cleanup()
+
+    def test_grade_label_variant_is_dropped_on_add(self) -> None:
+        self.service.create_deck_entry(
+            {
+                "cardID": "topsun_ja-88",
+                "selectionSource": "manual_search",
+                "quantity": 1,
+                "addedAt": "2026-06-17T07:27:30Z",
+                "slabContext": {"grader": "PSA", "grade": "10", "variantName": "PSA 10"},
+            }
+        )
+        row = self.service.connection.execute(
+            "SELECT variant_name, identity_key FROM deck_entries WHERE card_id = ?",
+            ("topsun_ja-88",),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        # variant_name stored as NULL so the graded snapshot resolver falls back
+        # to the grade's real entry instead of collapsing to "—".
+        self.assertIsNone(row["variant_name"])
+        self.assertNotIn("PSA 10", row["identity_key"])
+
+    def test_real_print_variant_is_preserved_on_add(self) -> None:
+        self.service.create_deck_entry(
+            {
+                "cardID": "topsun_ja-88",
+                "selectionSource": "manual_search",
+                "quantity": 1,
+                "addedAt": "2026-06-17T07:30:00Z",
+                "slabContext": {"grader": "PSA", "grade": "10", "variantName": "Blue Back"},
+            }
+        )
+        row = self.service.connection.execute(
+            "SELECT variant_name FROM deck_entries WHERE card_id = ?",
+            ("topsun_ja-88",),
+        ).fetchone()
+        self.assertEqual(row["variant_name"], "Blue Back")
 
 
 if __name__ == "__main__":
