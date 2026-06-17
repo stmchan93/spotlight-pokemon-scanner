@@ -254,7 +254,16 @@ export function AppDrawer() {
         testID="app-drawer-panel"
       >
         <View style={styles.contentInner}>
-          <View style={styles.profileRow}>
+          <Pressable
+            accessibilityLabel="Account settings"
+            accessibilityRole="button"
+            onPress={() => {
+              closeDrawer();
+              setTimeout(() => router.push('/account' as never), ANIM_DURATION_MS / 2);
+            }}
+            style={styles.profileRow}
+            testID="app-drawer-profile"
+          >
             {user?.avatarURL ? (
               <Image
                 accessibilityIgnoresInvertColors
@@ -276,7 +285,7 @@ export function AppDrawer() {
                 </Text>
               ) : null}
             </View>
-          </View>
+          </Pressable>
 
           <View style={styles.statsRow}>
             <View style={styles.statTile}>

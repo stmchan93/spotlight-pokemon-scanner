@@ -130,6 +130,32 @@ describe('AppDrawer', () => {
     expect(screen.getByText('Member since Jan 2024')).toBeTruthy();
   });
 
+  it('opens the account screen when the profile row is tapped', async () => {
+    jest.useFakeTimers();
+    try {
+      renderWithProviders(
+        <>
+          <DrawerController />
+          <AppDrawer />
+        </>,
+      );
+
+      act(() => {
+        drawerHandleRef.current?.open();
+      });
+
+      fireEvent.press(screen.getByTestId('app-drawer-profile'));
+
+      act(() => {
+        jest.advanceTimersByTime(500);
+      });
+
+      expect(push).toHaveBeenCalledWith('/account');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('navigates to /sales when the Sales nav item is tapped', async () => {
     jest.useFakeTimers();
     try {
