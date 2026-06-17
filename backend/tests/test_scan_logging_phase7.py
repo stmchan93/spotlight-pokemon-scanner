@@ -223,7 +223,7 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         self.assertEqual([(row["rank"], row["card_id"]) for row in candidate_rows], [(1, "obf-223")])
         self.assertEqual([(row["rank"], row["card_id"]) for row in price_rows], [(1, "obf-223")])
 
-    def test_encode_top_candidates_caches_show_mode_lookup_and_exposes_hydration_timings(self) -> None:
+    def test_encode_top_candidates_exposes_hydration_timings(self) -> None:
         self._insert_card("gym1-60", name="Sabrina's Slowbro")
         upsert_card_price_summary(
             self.service.connection,
@@ -260,14 +260,11 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
             ),
         ]
 
-        with (
-            patch.object(self.service, "_card_show_mode_active", wraps=self.service._card_show_mode_active) as show_mode_mock,
-            patch.object(
-                self.service,
-                "_batched_card_hydration_context",
-                wraps=self.service._batched_card_hydration_context,
-            ) as hydration_context_mock,
-        ):
+        with patch.object(
+            self.service,
+            "_batched_card_hydration_context",
+            wraps=self.service._batched_card_hydration_context,
+        ) as hydration_context_mock:
             encoded_candidates, scored_candidates, encode_debug = self.service._encode_top_candidates(
                 items,
                 pricing_context=self.service._raw_pricing_context(),
@@ -275,7 +272,7 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
                 trigger_source="scan_match_raw",
             )
 
-        self.assertEqual(show_mode_mock.call_count, 1)
+        # Show mode is decoupled from pricing — encode no longer looks it up.
         self.assertEqual(hydration_context_mock.call_count, 1)
         self.assertEqual(len(encoded_candidates), 2)
         self.assertEqual(len(scored_candidates), 2)

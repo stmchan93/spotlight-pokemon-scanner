@@ -1783,21 +1783,23 @@ class SpotlightScanService:
         if not isinstance(payload, dict):
             payload = {}
 
-        until_raw = str(payload.get("until") or "").strip() or None
         set_at = str(payload.get("setAt") or "").strip() or None
         note = str(payload.get("note") or "").strip() or None
 
-        now = datetime.now(timezone.utc)
-        until_at = self._coerce_utc_datetime(until_raw)
-        active = bool(until_at is not None and until_at > now)
-        remaining_seconds = max(0, int((until_at - now).total_seconds())) if until_at is not None else 0
+        # Show mode is a plain on/off switch: ON until the admin turns it OFF.
+        # Back-compat: older records used a time window `until`; treat a
+        # still-future window as ON so an already-enabled record keeps working.
+        active = bool(payload.get("active"))
+        if not active:
+            until_at = self._coerce_utc_datetime(str(payload.get("until") or "").strip() or None)
+            active = bool(until_at is not None and until_at > datetime.now(timezone.utc))
 
         return {
             "active": active,
-            "until": until_at.isoformat() if until_at is not None else until_raw,
+            "until": None,
             "setAt": set_at,
             "note": note,
-            "remainingSeconds": remaining_seconds,
+            "remainingSeconds": 0,
         }
 
     def _card_show_mode_active(self) -> bool:
@@ -1806,26 +1808,21 @@ class SpotlightScanService:
     def set_card_show_mode(
         self,
         *,
-        until: str | None = None,
-        duration_hours: float | None = None,
         note: str | None = None,
+        **_legacy: Any,
     ) -> dict[str, Any]:
-        now = datetime.now(timezone.utc)
-        if until is not None:
-            until_at = self._coerce_utc_datetime(until)
-            if until_at is None:
-                raise ValueError("until must be an ISO-8601 timestamp")
-        else:
-            hours = float(duration_hours if duration_hours is not None else DEFAULT_CARD_SHOW_MODE_HOURS)
-            if hours <= 0:
-                raise ValueError("durationHours must be greater than 0")
-            until_at = now + timedelta(hours=hours)
+        """Turn show mode ON. Stays ON until ``clear_card_show_mode`` turns it OFF.
 
+        A plain on/off switch — no expiry window. Legacy time kwargs (``until`` /
+        ``duration_hours``) are accepted and ignored so existing callers keep
+        working.
+        """
+        now = datetime.now(timezone.utc)
         upsert_runtime_setting(
             self.connection,
             key=CARD_SHOW_MODE_SETTING_KEY,
             value={
-                "until": until_at.isoformat(),
+                "active": True,
                 "setAt": now.isoformat(),
                 "note": str(note or "").strip() or None,
             },
@@ -8894,7 +8891,10 @@ class SpotlightScanService:
         pricing_refresh_ms = 0.0
         candidate_build_started_at = perf_counter()
         if card_show_mode_active is None:
-            card_show_mode_active = self._card_show_mode_active()
+            # Show mode gates app ACCESS only; it must NEVER force a live pricing
+            # refresh (that burns Scrydex credits). Pricing refresh follows the
+            # missing/stale rules + the independent live-pricing controls only.
+            card_show_mode_active = False
         pricing_missing = pricing is None
         pricing_stale = pricing is not None and not self._pricing_within_live_refresh_window(pricing)
         should_force_show_mode_refresh = card_show_mode_active and force_show_mode_refresh
@@ -8971,7 +8971,8 @@ class SpotlightScanService:
         candidate_timings: list[dict[str, Any]] = []
         candidate_hydration_ms = 0.0
         candidate_hydration_max_ms = 0.0
-        card_show_mode_active = self._card_show_mode_active()
+        # Show mode gates app ACCESS only — it never forces live pricing refresh.
+        card_show_mode_active = False
         limited_items = items[:pricing_policy.limit]
         _, price_snapshot_rows = self._batched_card_hydration_context(
             [str((item.card or {}).get("id") or "").strip() for item in limited_items]
@@ -10261,7 +10262,8 @@ class SpotlightScanService:
         api_key: str | None = None,
         force_refresh: bool = False,
     ) -> dict[str, Any] | None:
-        effective_force_refresh = force_refresh or self._card_show_mode_active()
+        # Show mode gates app ACCESS only — never forces live pricing refresh.
+        effective_force_refresh = force_refresh
         if pricing_context.is_graded:
             if not pricing_context.grader or not pricing_context.grade:
                 return self._card_detail_for_context(card_id, pricing_context=pricing_context)
@@ -10399,7 +10401,8 @@ class SpotlightScanService:
                 snapshot_row=price_snapshot_rows.get(card_id),
             )
             pricing = ((detail or {}).get("card") or {}).get("pricing") if isinstance(detail, dict) else None
-            effective_force_refresh = force_refresh or (self._card_show_mode_active() and live_refresh_allowed)
+            # Show mode gates app ACCESS only — never forces live pricing refresh.
+            effective_force_refresh = force_refresh
             needs_refresh = live_refresh_allowed and not self._should_use_cached_pricing_snapshot(
                 pricing,
                 force_refresh=effective_force_refresh,
@@ -14868,17 +14871,9 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
                 return
             active = bool(payload.get("active"))
-            hours_value = payload.get("hours")
-            try:
-                hours = float(hours_value) if hours_value is not None else None
-            except (TypeError, ValueError):
-                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "hours must be a number"})
-                return
+            # Plain on/off: ON stays on until the admin turns it OFF.
             if active:
-                # "On" stays on until the admin turns it off. card_show_mode is
-                # window-based, so use a far-future window (effectively permanent);
-                # an explicit `hours` can still override.
-                show_mode_state = self.service.set_card_show_mode(duration_hours=hours or (24 * 365 * 100))
+                show_mode_state = self.service.set_card_show_mode()
             else:
                 show_mode_state = self.service.clear_card_show_mode()
             self._write_json(HTTPStatus.OK, {**show_mode_state, "accessOpen": active})

@@ -547,7 +547,8 @@ class PricingPhase6Tests(unittest.TestCase):
             service.connection.close()
 
         self.assertTrue(enabled["active"])
-        self.assertIsNotNone(enabled["until"])
+        # Show mode is a plain on/off switch now — no expiry window.
+        self.assertIsNone(enabled["until"])
         self.assertEqual(enabled["note"], "trade night")
         self.assertFalse(disabled["active"])
         self.assertIsNone(disabled["until"])
