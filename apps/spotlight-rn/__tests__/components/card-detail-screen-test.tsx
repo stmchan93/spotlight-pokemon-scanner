@@ -1,5 +1,5 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
-import { Alert, Linking, Share } from 'react-native';
+import { Linking, Share } from 'react-native';
 
 import type { CardDetailRecord, CardText, InventoryCardEntry } from '@spotlight/api-client';
 import { CardDetailScreen } from '@/features/cards/screens/card-detail-screen';
@@ -664,26 +664,29 @@ describe('CardDetailScreen', () => {
     });
   });
 
-  it('Remove from collection deletes the entry (quantity 0) and navigates back', async () => {
+  it('drops the quantity to 0 via the stepper (button reads REMOVE) to remove the card and go back', async () => {
     const onBack = jest.fn();
     const setPortfolioEntryQuantity = jest.fn(async (payload: { deckEntryID: string; quantity: number }) => ({
       deckEntryID: payload.deckEntryID,
       cardID: 'sm7-1',
       quantity: payload.quantity,
-      deleted: true,
+      deleted: payload.quantity === 0,
     }));
-    const alertSpy = jest.spyOn(Alert, 'alert');
 
     renderOwnedGraded({ onBack }, { setPortfolioEntryQuantity });
 
-    fireEvent.press(await screen.findByTestId('detail-remove-item'));
+    // Seeds 6; decrementing to 0 (managed mode allows it) flips the action to REMOVE.
+    const quantityValue = await screen.findByTestId('detail-configurator-quantity-value');
+    await waitFor(() => expect(quantityValue.props.children).toBe(6));
+    for (let i = 0; i < 6; i += 1) {
+      fireEvent.press(screen.getByTestId('detail-configurator-quantity-decrement'));
+    }
+    await waitFor(() =>
+      expect(screen.getByTestId('detail-configurator-quantity-value').props.children).toBe(0),
+    );
+    expect(screen.getByText('REMOVE')).toBeTruthy();
 
-    // Confirm via the destructive button in the Alert.
-    expect(alertSpy).toHaveBeenCalled();
-    const buttons = alertSpy.mock.calls[0][2] ?? [];
-    const confirm = buttons.find((button) => button.style === 'destructive');
-    confirm?.onPress?.();
-
+    fireEvent.press(screen.getByTestId('detail-update-item'));
     await waitFor(() => {
       expect(setPortfolioEntryQuantity).toHaveBeenCalledWith({
         deckEntryID: 'graded-treecko-psa10',
@@ -691,8 +694,6 @@ describe('CardDetailScreen', () => {
       });
       expect(onBack).toHaveBeenCalled();
     });
-
-    alertSpy.mockRestore();
   });
 
   it('no longer renders the similar-cards button even with scan candidates present', async () => {
