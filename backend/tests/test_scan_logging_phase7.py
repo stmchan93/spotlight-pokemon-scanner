@@ -1482,7 +1482,10 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         self.assertAlmostEqual(entry_by_identity[("gym1-60", "Holofoil", "near_mint")]["card"]["pricing"]["market"], 12.5, places=2)
         self.assertAlmostEqual(entry_by_identity[("gym1-60", "Holofoil", "lightly_played")]["card"]["pricing"]["market"], 8.75, places=2)
 
-    def test_deck_entries_do_not_fallback_to_near_mint_for_other_raw_conditions(self) -> None:
+    def test_deck_entries_show_nearest_condition_price_for_unpriced_raw_conditions(self) -> None:
+        # A raw condition Scrydex doesn't price must show the NEAREST available
+        # real price (here only NM exists), not "—". (Reverses the earlier
+        # intentional "show nothing for non-NM conditions" behavior.)
         self._insert_card("gym1-60", name="Sabrina's Slowbro")
         upsert_price_snapshot(
             self.service.connection,
@@ -1519,7 +1522,9 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         self.assertEqual(entry["card"]["id"], "gym1-60")
         self.assertEqual(entry["variantName"], "Holofoil")
         self.assertEqual(entry["condition"], "lightly_played")
-        self.assertIsNone(entry["card"].get("pricing"))
+        pricing = entry["card"].get("pricing")
+        self.assertIsNotNone(pricing)
+        self.assertEqual(pricing["market"], 12.5)
 
     def test_replace_deck_entry_moves_raw_entry_to_specific_variant_row(self) -> None:
         self._insert_card("gym1-60", name="Sabrina's Slowbro")

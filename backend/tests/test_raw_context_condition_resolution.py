@@ -94,6 +94,16 @@ class ResolveRawContextSummaryConditionTest(unittest.TestCase):
         self.assertEqual(condition, "NM")
         self.assertEqual(summary["market"], 17.06)
 
+    def test_variantless_heavily_played_with_no_hp_comp_uses_nearest_condition(self) -> None:
+        # Marill has NM/LP/MP/DM but no HP. A Heavily Played add must show the
+        # nearest available real price; MP and DM are equidistant from HP, so the
+        # closer playable grade (MP) wins — never "—" and never the inflated NM.
+        _, condition, summary = _resolve_raw_context_summary(
+            _marill_raw_contexts(), variant=None, condition="heavily_played"
+        )
+        self.assertEqual(condition, "MP")
+        self.assertEqual(summary["market"], 14.99)
+
     def test_missing_condition_falls_back_through_priority(self) -> None:
         # A requested condition with no entry falls back to the best available
         # (priority NM, LP, MP, HP, DM) rather than returning nothing.

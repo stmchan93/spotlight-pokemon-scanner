@@ -1829,7 +1829,23 @@ def _resolve_raw_context_summary(
         resolved_variant, _, _ = _resolve_default_raw_context(raw_contexts)
     entry = _raw_context_entry(raw_contexts, variant=resolved_variant, condition=resolved_condition) if resolved_variant else None
     if entry is None and resolved_variant:
-        for candidate in RAW_CONDITION_PRIORITY:
+        # Requested condition isn't priced. Pick the NEAREST available condition
+        # (by position on the NM..DM quality ladder, preferring the closer-grade
+        # side on a tie) so e.g. a Heavily Played card with no HP comp shows the
+        # Moderately Played price instead of "—" or the inflated NM price. With
+        # no specific condition requested, keep the NM-first default order.
+        if resolved_condition in RAW_CONDITION_PRIORITY:
+            target = RAW_CONDITION_PRIORITY.index(resolved_condition)
+            fallback_order = sorted(
+                RAW_CONDITION_PRIORITY,
+                key=lambda code: (
+                    abs(RAW_CONDITION_PRIORITY.index(code) - target),
+                    RAW_CONDITION_PRIORITY.index(code),
+                ),
+            )
+        else:
+            fallback_order = RAW_CONDITION_PRIORITY
+        for candidate in fallback_order:
             entry = _raw_context_entry(raw_contexts, variant=resolved_variant, condition=candidate)
             if entry is not None:
                 resolved_condition = candidate

@@ -2499,12 +2499,11 @@ class SpotlightScanService:
         if not isinstance(pricing, dict):
             return False
 
-        payload = pricing.get("payload") if isinstance(pricing.get("payload"), dict) else {}
-        pricing_condition = self._portfolio_condition_code(str(payload.get("condition") or "").strip() or None)
-        requested_condition = self._portfolio_condition_code(preferred_condition)
-        if requested_condition and pricing_condition != requested_condition:
-            return False
-
+        # Condition is owned by the resolver: it returns the exact requested
+        # condition when Scrydex prices it, otherwise the NEAREST available one.
+        # So a differing condition here is a legitimate best-available fallback
+        # (e.g. Heavily Played with no HP comp -> MP/DM), not a mismatch to
+        # reject with "—". Only the variant must still line up.
         if preferred_variant:
             requested_variant = _normalized_variant_label(preferred_variant)
             pricing_variant = _normalized_variant_label(str(pricing.get("variant") or "").strip() or None)
