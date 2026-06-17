@@ -81,6 +81,16 @@ const sampleInsights: TransactionInsights = {
 };
 
 describe('InsightsScreen', () => {
+  it('highlights the Collection tab in the bottom nav', async () => {
+    renderWithProviders(<InsightsScreen />, {
+      spotlightRepository: createTestSpotlightRepository({
+        loadTransactionInsights: async () => sampleInsights,
+      }),
+    });
+    const tab = await screen.findByTestId('bottom-nav-portfolio');
+    expect(tab.props.accessibilityState?.selected).toBe(true);
+  });
+
   it('renders the redesigned highlights layout', async () => {
     renderWithProviders(<InsightsScreen />, {
       spotlightRepository: createTestSpotlightRepository({

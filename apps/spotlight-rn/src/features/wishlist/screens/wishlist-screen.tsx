@@ -443,7 +443,7 @@ export function WishlistScreen() {
       />
 
       <CollectionAddFab />
-      <AppBottomTabBar dismissToTabs />
+      <AppBottomTabBar activeKey="portfolio" dismissToTabs />
     </SafeAreaView>
   );
 }

@@ -72,6 +72,12 @@ describe('WishlistScreen', () => {
     });
   });
 
+  it('highlights the Collection tab in the bottom nav', async () => {
+    renderWishlistScreen();
+    const tab = await screen.findByTestId('bottom-nav-portfolio');
+    expect(tab.props.accessibilityState?.selected).toBe(true);
+  });
+
   it('renders the whole list view virtualized, with no View More gate', async () => {
     const favorites = Array.from({ length: 12 }, (_, index) =>
       buildFavoriteEntry({

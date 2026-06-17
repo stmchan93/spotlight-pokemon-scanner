@@ -687,9 +687,21 @@ export function CardDetailScreen({
         return false;
       }
       if (isRawLane) {
-        const ownedVariant = (entry.variantName ?? '').trim().toLowerCase();
-        const selVariant = (selectedVariantLabel ?? '').trim().toLowerCase();
-        return ownedVariant === selVariant && (entry.conditionCode ?? null) === selectedCondition;
+        // Compare using the SAME defaults the configurator seeds with, so a raw
+        // entry stored without a variant/condition (e.g. a basic energy) still
+        // matches the seeded "Normal" + default-condition lane instead of reading
+        // as a brand-new item. Resolve the entry's effective variant option id the
+        // way the variant seed does (owned label → Normal → first), and default a
+        // missing condition to the first option.
+        const ownedName = entry.kind === 'raw' ? (entry.variantName ?? '').trim() : '';
+        const ownedVariantId = (ownedName
+          ? variantOptions.find((option) => option.label.toLowerCase() === ownedName.toLowerCase())?.id
+          : undefined)
+          ?? variantOptions.find((option) => option.label.trim().toLowerCase() === 'normal')?.id
+          ?? variantOptions[0]?.id
+          ?? null;
+        const ownedCondition = entry.conditionCode ?? deckConditionOptions[0]?.code ?? null;
+        return ownedVariantId === selectedVariant && ownedCondition === selectedCondition;
       }
       const ownedGrader = (entry.slabContext?.grader ?? '').trim().toLowerCase();
       const ownedGrade = (entry.slabContext?.grade ?? '').trim().toLowerCase();
@@ -704,7 +716,8 @@ export function CardDetailScreen({
     selectedCondition,
     selectedGrade,
     selectedGrader,
-    selectedVariantLabel,
+    selectedVariant,
+    variantOptions,
   ]);
 
   const isManaged = matchedOwnedEntry != null;

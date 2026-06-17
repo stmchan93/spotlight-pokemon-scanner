@@ -63,6 +63,12 @@ function buildRepository(transactions: CardTransactionRecord[] = sampleTransacti
 }
 
 describe('LatestSalesScreen', () => {
+  it('highlights the Collection tab in the bottom nav', async () => {
+    renderWithProviders(<LatestSalesScreen />, { spotlightRepository: buildRepository() });
+    const tab = await screen.findByTestId('bottom-nav-portfolio');
+    expect(tab.props.accessibilityState?.selected).toBe(true);
+  });
+
   it('renders transactions sourced from listCardTransactions with verb title, payment method, and signed amount', async () => {
     renderWithProviders(<LatestSalesScreen />, { spotlightRepository: buildRepository() });
 

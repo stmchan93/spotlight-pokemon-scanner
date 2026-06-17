@@ -664,6 +664,37 @@ describe('CardDetailScreen', () => {
     });
   });
 
+  it('shows UPDATE (not ADD ITEM) for an owned raw card stored without a variant/condition', async () => {
+    // Regression (e.g. a basic energy): the entry has no variantName/conditionCode,
+    // so it must still match the seeded "Normal" + default-condition lane.
+    const baseRepository = createTestSpotlightRepository();
+    const rawEntry: InventoryCardEntry = {
+      ...ownedGradedEntry(3),
+      id: 'raw-treecko',
+      kind: 'raw',
+      conditionCode: null,
+      conditionLabel: null,
+      conditionShortLabel: null,
+      slabContext: null,
+      variantName: null,
+    };
+
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" entryId="raw-treecko" onBack={jest.fn()} />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardDetail: async (query) => {
+            const detail = await baseRepository.getCardDetail(query);
+            return detail ? ({ ...detail, ownedEntries: [rawEntry] } satisfies CardDetailRecord) : null;
+          },
+        }),
+      },
+    );
+
+    expect(await screen.findByText('UPDATE')).toBeTruthy();
+    expect(screen.queryByTestId('detail-add-item')).toBeNull();
+  });
+
   it('drops the quantity to 0 via the stepper (button reads REMOVE) to remove the card and go back', async () => {
     const onBack = jest.fn();
     const setPortfolioEntryQuantity = jest.fn(async (payload: { deckEntryID: string; quantity: number }) => ({
