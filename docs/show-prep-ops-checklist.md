@@ -12,11 +12,10 @@ Created 2026-05-27.
 
 ## A. Free tweaks — do once, effectively zero regression
 
-- [ ] **Pin PyTorch threads to 2 per scan** so concurrent scans don't each grab every core and thrash.
-  - Add `OMP_NUM_THREADS=2` (and/or `torch.set_num_threads(2)`) to the backend service env.
-  - Single isolated scan: ~no change (ViT-B/32 barely scales past 2 threads). Concurrent scans: large smoothing win.
+- [x] **Pin BLAS/OpenMP threads to 2 per scan** so concurrent scans don't each grab every core and thrash. — DONE 2026-06-16: `Environment=OMP_NUM_THREADS=2` + `OPENBLAS_NUM_THREADS=2` now baked into the systemd unit (`deploy_to_vm.sh`). ONNX session threads were already capped via `SPOTLIGHT_VISUAL_ONNX_INTRA/INTER_OP_THREADS` in `.env.staging`. Ships on the next `backend:deploy:staging`.
+- [x] **Soft memory ceiling** so a burst degrades gracefully instead of a kernel OOM-kill. — DONE 2026-06-16: `MemoryHigh=75%` added to the unit (auto-scales: ~6 GB on `-2`, ~12 GB on `-4`); pairs with swap. Intentionally NOT using `OOMScoreAdjust` (protecting the backend could redirect the OOM-killer to caddy/litestream, which is worse).
 - [x] **Add 4 GB swap** as an OOM safety net (free; turns a hard crash into a brief slowdown). — DONE 2026-05-27: `/swapfile`, active, in `/etc/fstab`. Optional follow-up: lower `vm.swappiness` 60→10 so swap stays an emergency net rather than routine paging.
-- [x] Confirm swap persists across reboot (`/etc/fstab` entry added). Thread-pin still pending (see below).
+- [x] Confirm swap persists across reboot (`/etc/fstab` entry added).
 
 ## B. Show-day — resize up (morning of)
 
@@ -59,8 +58,11 @@ sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapf
 echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 ```
 
-Pin torch threads: add `Environment=OMP_NUM_THREADS=2` to the `[Service]` block of the
-`spotlight-backend.service` unit (or its EnvironmentFile), then `sudo systemctl daemon-reload && sudo systemctl restart spotlight-backend`.
+Thread caps + memory ceiling: now generated into the `[Service]` block automatically by
+`deploy_to_vm.sh` (`OMP_NUM_THREADS=2`, `OPENBLAS_NUM_THREADS=2`, `MemoryHigh=75%`). They take
+effect on the next `pnpm backend:deploy:staging` (which runs `daemon-reload` + restart). No
+manual unit edit needed. To apply without a full deploy, add them as a systemd drop-in and
+`sudo systemctl daemon-reload && sudo systemctl restart spotlight-backend`.
 
 ## Gotchas
 

@@ -378,6 +378,17 @@ RestartSec=5
 # minutes. Keep the start timeout well above that so a slow cold-load can't trip a
 # crash-loop (systemd killing it at the timeout, restarting, re-reading cold). 2026-06-10.
 TimeoutStartSec=300
+# Load protection for the beta / show bursts (2026-06-16). MemoryHigh is a soft
+# ceiling that throttles + reclaims this cgroup BEFORE the kernel OOM-killer fires,
+# so a burst of concurrent scans degrades gracefully instead of hard-crashing.
+# Expressed as a percentage so it auto-scales across a t2d-standard-2 <-> -4 resize
+# (~6 GB on the -2, ~12 GB on the -4). Pairs with the existing 4 GB swap.
+MemoryHigh=75%
+# Cap BLAS/OpenMP threads so one scan's index matmul (numpy) can't grab every core
+# and starve the others under concurrency. The ONNX session threads are already
+# capped via SPOTLIGHT_VISUAL_ONNX_INTRA/INTER_OP_THREADS in the env file.
+Environment=OMP_NUM_THREADS=2
+Environment=OPENBLAS_NUM_THREADS=2
 
 [Install]
 WantedBy=multi-user.target
