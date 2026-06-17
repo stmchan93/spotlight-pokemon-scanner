@@ -16,11 +16,13 @@ import {
 type EmailPasswordScreenProps = {
   email: string;
   errorMessage?: string | null;
-  fullName: string;
+  firstName: string;
+  lastName: string;
   isBusy: boolean;
   mode: 'signup' | 'login';
   onBack: () => void;
-  onChangeFullName: (value: string) => void;
+  onChangeFirstName: (value: string) => void;
+  onChangeLastName: (value: string) => void;
   onChangePassword: (value: string) => void;
   onContinue: () => void;
   onForgotPassword: () => void;
@@ -38,11 +40,13 @@ export function buildPasswordRules(password: string): PasswordRule[] {
 export function EmailPasswordScreen({
   email,
   errorMessage,
-  fullName,
+  firstName,
+  lastName,
   isBusy,
   mode,
   onBack,
-  onChangeFullName,
+  onChangeFirstName,
+  onChangeLastName,
   onChangePassword,
   onContinue,
   onForgotPassword,
@@ -53,7 +57,7 @@ export function EmailPasswordScreen({
   // Signups must satisfy every rule (Figma 1543:2291); logins just need a
   // non-empty password so existing accounts created under older rules still work.
   const passwordOk = isSignup ? rules.every((rule) => rule.satisfied) : password.length > 0;
-  const nameOk = !isSignup || fullName.trim().length > 0;
+  const nameOk = !isSignup || (firstName.trim().length > 0 && lastName.trim().length > 0);
   const canContinue = passwordOk && nameOk && !isBusy;
 
   return (
@@ -68,14 +72,24 @@ export function EmailPasswordScreen({
         <ReadOnlyField label="Email" testID="auth-emailpw-email" value={email} />
 
         {isSignup ? (
-          <SecondaryField
-            autoCapitalize="words"
-            autoCorrect={false}
-            onChangeText={onChangeFullName}
-            placeholder="Full name"
-            testID="auth-fullname-input"
-            value={fullName}
-          />
+          <>
+            <SecondaryField
+              autoCapitalize="words"
+              autoCorrect={false}
+              onChangeText={onChangeFirstName}
+              placeholder="First name"
+              testID="auth-firstname-input"
+              value={firstName}
+            />
+            <SecondaryField
+              autoCapitalize="words"
+              autoCorrect={false}
+              onChangeText={onChangeLastName}
+              placeholder="Last name"
+              testID="auth-lastname-input"
+              value={lastName}
+            />
+          </>
         ) : null}
 
         <PasswordField

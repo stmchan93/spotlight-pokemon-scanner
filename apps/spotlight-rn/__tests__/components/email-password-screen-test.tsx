@@ -14,11 +14,13 @@ function renderScreen(overrides: Partial<React.ComponentProps<typeof EmailPasswo
   const props: React.ComponentProps<typeof EmailPasswordScreen> = {
     email: 'collector@example.com',
     errorMessage: null,
-    fullName: '',
+    firstName: '',
+    lastName: '',
     isBusy: false,
     mode: 'signup',
     onBack: jest.fn(),
-    onChangeFullName: jest.fn(),
+    onChangeFirstName: jest.fn(),
+    onChangeLastName: jest.fn(),
     onChangePassword: jest.fn(),
     onContinue: jest.fn(),
     onForgotPassword: jest.fn(),
@@ -38,38 +40,41 @@ function renderScreen(overrides: Partial<React.ComponentProps<typeof EmailPasswo
 }
 
 describe('EmailPasswordScreen', () => {
-  it('renders the wordmark, email, full-name and password fields in signup mode', () => {
+  it('renders the wordmark, email, first/last name and password fields in signup mode', () => {
     renderScreen({ mode: 'signup' });
 
     expect(screen.getByTestId('auth-brand-wordmark')).toBeTruthy();
     expect(screen.getByTestId('auth-emailpw-email')).toBeTruthy();
-    expect(screen.getByTestId('auth-fullname-input')).toBeTruthy();
+    expect(screen.getByTestId('auth-firstname-input')).toBeTruthy();
+    expect(screen.getByTestId('auth-lastname-input')).toBeTruthy();
     expect(screen.getByTestId('auth-password-input')).toBeTruthy();
     expect(screen.getByText('collector@example.com')).toBeTruthy();
   });
 
-  it('hides the full-name field in login mode', () => {
+  it('hides the name fields in login mode', () => {
     renderScreen({ mode: 'login' });
 
     expect(screen.getByTestId('auth-brand-wordmark')).toBeTruthy();
-    expect(screen.queryByTestId('auth-fullname-input')).toBeNull();
+    expect(screen.queryByTestId('auth-firstname-input')).toBeNull();
+    expect(screen.queryByTestId('auth-lastname-input')).toBeNull();
   });
 
-  it('keeps Continue disabled in signup until the name is set', () => {
-    const props = renderScreen({ mode: 'signup', fullName: '', password: 'Secret1!' });
+  it('keeps Continue disabled in signup until both first and last name are set', () => {
+    // Only a first name → still disabled (last name required too).
+    const props = renderScreen({ mode: 'signup', firstName: 'Ada', lastName: '', password: 'Secret1!' });
     fireEvent.press(screen.getByTestId('auth-emailpw-continue'));
     expect(props.onContinue).not.toHaveBeenCalled();
   });
 
   it('keeps Continue disabled in signup when the password fails the rules', () => {
     // "secret1" has 7 chars and no special character — fails the signup rules.
-    const props = renderScreen({ mode: 'signup', fullName: 'Ada', password: 'secret1' });
+    const props = renderScreen({ mode: 'signup', firstName: 'Ada', lastName: 'Lovelace', password: 'secret1' });
     fireEvent.press(screen.getByTestId('auth-emailpw-continue'));
     expect(props.onContinue).not.toHaveBeenCalled();
   });
 
-  it('calls onContinue in signup when name and a rule-passing password are present', () => {
-    const props = renderScreen({ mode: 'signup', fullName: 'Ada', password: 'Secret1!' });
+  it('calls onContinue in signup when both names and a rule-passing password are present', () => {
+    const props = renderScreen({ mode: 'signup', firstName: 'Ada', lastName: 'Lovelace', password: 'Secret1!' });
     fireEvent.press(screen.getByTestId('auth-emailpw-continue'));
     expect(props.onContinue).toHaveBeenCalledTimes(1);
   });
@@ -80,10 +85,12 @@ describe('EmailPasswordScreen', () => {
     expect(props.onContinue).toHaveBeenCalledTimes(1);
   });
 
-  it('forwards full name and password edits', () => {
+  it('forwards first name, last name and password edits', () => {
     const props = renderScreen({ mode: 'signup' });
-    fireEvent.changeText(screen.getByTestId('auth-fullname-input'), 'Ada Lovelace');
-    expect(props.onChangeFullName).toHaveBeenCalledWith('Ada Lovelace');
+    fireEvent.changeText(screen.getByTestId('auth-firstname-input'), 'Ada');
+    expect(props.onChangeFirstName).toHaveBeenCalledWith('Ada');
+    fireEvent.changeText(screen.getByTestId('auth-lastname-input'), 'Lovelace');
+    expect(props.onChangeLastName).toHaveBeenCalledWith('Lovelace');
     fireEvent.changeText(screen.getByTestId('auth-password-input'), 'hunter2');
     expect(props.onChangePassword).toHaveBeenCalledWith('hunter2');
   });

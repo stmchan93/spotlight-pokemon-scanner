@@ -44,7 +44,10 @@ export function SignedOutFlow({
 }: SignedOutFlowProps) {
   const [step, setStep] = useState<Step>('getStarted');
   const [email, setEmail] = useState('');
-  const [fullName, setFullName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  // The auth service / profile stores a single display name; combine first + last.
+  const fullName = [firstName, lastName].map((value) => value.trim()).filter(Boolean).join(' ');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
 
@@ -140,11 +143,13 @@ export function SignedOutFlow({
         <EmailPasswordScreen
           email={email}
           errorMessage={errorMessage}
-          fullName={fullName}
+          firstName={firstName}
+          lastName={lastName}
           isBusy={isBusy}
           mode="signup"
           onBack={() => setStep('email')}
-          onChangeFullName={setFullName}
+          onChangeFirstName={setFirstName}
+          onChangeLastName={setLastName}
           onChangePassword={setPassword}
           onContinue={() => void handleSignUp()}
           onForgotPassword={() => setStep('forgot')}
@@ -156,11 +161,13 @@ export function SignedOutFlow({
         <EmailPasswordScreen
           email={email}
           errorMessage={errorMessage}
-          fullName={fullName}
+          firstName={firstName}
+          lastName={lastName}
           isBusy={isBusy}
           mode="login"
           onBack={() => setStep('email')}
-          onChangeFullName={setFullName}
+          onChangeFirstName={setFirstName}
+          onChangeLastName={setLastName}
           onChangePassword={setPassword}
           onContinue={() => void handleLogin()}
           onForgotPassword={() => setStep('forgot')}
