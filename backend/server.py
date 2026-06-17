@@ -2066,6 +2066,31 @@ class SpotlightScanService:
         )
 
     @staticmethod
+    def _sanitize_slab_variant_name(
+        variant_name: str | None,
+        grader: str | None,
+        grade: str | None,
+    ) -> str | None:
+        """Reject a slab variant_name that is really the grade label.
+
+        A slab's variant_name must be the card's print variant (e.g. "Holofoil"),
+        which is how the graded price snapshot is keyed. Some client add paths
+        compose `${grader} ${grade}` (e.g. "PSA 10") into variantName; stored as
+        the variant it never matches the snapshot's real variant, so the graded
+        price collapses to "—" on the Collection/Wishlist. Drop such values so the
+        pricing resolver falls back to the grade's real entry.
+        """
+        candidate = str(variant_name or "").strip()
+        if not candidate:
+            return None
+        g = str(grader or "").strip()
+        gr = str(grade or "").strip()
+        grade_labels = {label.casefold() for label in (f"{g} {gr}".strip(), gr, g) if label}
+        if candidate.casefold() in grade_labels:
+            return None
+        return candidate
+
+    @staticmethod
     def _slab_pricing_context(
         *,
         grader: str | None,
@@ -4488,7 +4513,11 @@ class SpotlightScanService:
         cert_number = str(slab_context.get("certNumber") or "").strip() or None
         raw_variant_name = str(payload.get("variantName") or "").strip() or None
         slab_variant_name = str(slab_context.get("variantName") or "").strip() or None
-        variant_name = slab_variant_name if any([grader, grade, cert_number]) else raw_variant_name
+        variant_name = (
+            self._sanitize_slab_variant_name(slab_variant_name, grader, grade)
+            if any([grader, grade, cert_number])
+            else raw_variant_name
+        )
         condition = self._normalized_deck_card_condition(payload.get("condition"))
 
         try:
@@ -4602,7 +4631,11 @@ class SpotlightScanService:
         cert_number = str(slab_context.get("certNumber") or "").strip() or None
         raw_variant_name = str(payload.get("variantName") or "").strip() or None
         slab_variant_name = str(slab_context.get("variantName") or "").strip() or None
-        variant_name = slab_variant_name if any([grader, grade, cert_number]) else raw_variant_name
+        variant_name = (
+            self._sanitize_slab_variant_name(slab_variant_name, grader, grade)
+            if any([grader, grade, cert_number])
+            else raw_variant_name
+        )
         condition = self._normalized_deck_card_condition(payload.get("condition"))
 
         try:
