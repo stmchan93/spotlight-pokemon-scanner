@@ -46,7 +46,7 @@ export function EmailEntryScreen({
       onBack={onBack}
       testID="auth-email-entry-screen"
     >
-      <AuthWordmark tagline={null} />
+      <AuthWordmark />
 
       <View style={styles.form}>
         <SecondaryField

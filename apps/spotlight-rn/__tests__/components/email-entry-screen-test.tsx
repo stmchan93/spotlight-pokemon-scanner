@@ -45,6 +45,9 @@ describe('EmailEntryScreen', () => {
     expect(screen.getByTestId('auth-email-continue')).toBeTruthy();
     expect(screen.getByTestId('auth-email-back')).toBeTruthy();
     expect(screen.getByTestId('auth-brand-wordmark')).toBeTruthy();
+    // The tagline must persist past "Continue with Email" (regression: it was
+    // suppressed on this step and vanished when leaving the get-started screen).
+    expect(screen.getByText('Scan, Price, and Track your collection')).toBeTruthy();
   });
 
   it('disables Continue until the email looks valid, then calls onContinue', () => {
