@@ -31,6 +31,7 @@ import {
 } from '@spotlight/design-system';
 
 import { StagingSmokeDiagnostics } from '@/components/staging-smoke-diagnostics';
+import { AccessGate } from '@/features/auth/components/access-gate';
 import { AuthGate } from '@/features/auth/components/auth-gate';
 import { AppErrorBoundary } from '@/lib/observability/app-error-boundary';
 import { PostHogAppProvider, identifyPostHogUser } from '@/lib/observability/posthog';
@@ -101,24 +102,26 @@ function AuthenticatedRoot() {
     <AuthGate
       appleSignInAvailable={auth.appleSignInAvailable}
       authenticatedContent={(
-        <View style={{ flex: 1 }}>
-          <StatusBar style={Platform.OS === 'android' ? 'dark' : 'dark'} />
-          <PostHogScreenTracker />
-          <Stack
-            screenOptions={{
-              animation: 'default',
-              contentStyle: {
-                backgroundColor: 'transparent',
-              },
-              headerShown: false,
-            }}
-          >
-            <Stack.Screen name="(tabs)" />
-            <Stack.Screen name="(stack)" />
-            <Stack.Screen name="(sheet)" />
-            <Stack.Screen name="(modal)" />
-          </Stack>
-        </View>
+        <AccessGate>
+          <View style={{ flex: 1 }}>
+            <StatusBar style={Platform.OS === 'android' ? 'dark' : 'dark'} />
+            <PostHogScreenTracker />
+            <Stack
+              screenOptions={{
+                animation: 'default',
+                contentStyle: {
+                  backgroundColor: 'transparent',
+                },
+                headerShown: false,
+              }}
+            >
+              <Stack.Screen name="(tabs)" />
+              <Stack.Screen name="(stack)" />
+              <Stack.Screen name="(sheet)" />
+              <Stack.Screen name="(modal)" />
+            </Stack>
+          </View>
+        </AccessGate>
       )}
       configurationIssue={auth.configurationIssue}
       currentUser={auth.currentUser}

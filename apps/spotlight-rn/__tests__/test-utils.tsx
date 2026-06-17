@@ -232,6 +232,34 @@ export function createTestSpotlightRepository(
       return overrides.listCardsInExpansion?.(...args)
         ?? baseRepository.listCardsInExpansion(...args);
     },
+    getAccessStatus: (...args) => {
+      return overrides.getAccessStatus?.(...args)
+        ?? baseRepository.getAccessStatus(...args);
+    },
+    redeemInviteCode: (...args) => {
+      return overrides.redeemInviteCode?.(...args)
+        ?? baseRepository.redeemInviteCode(...args);
+    },
+    joinAccessWaitlist: (...args) => {
+      return overrides.joinAccessWaitlist?.(...args)
+        ?? baseRepository.joinAccessWaitlist(...args);
+    },
+    setCardShowMode: (...args) => {
+      return overrides.setCardShowMode?.(...args)
+        ?? baseRepository.setCardShowMode(...args);
+    },
+    getAccessWhitelist: (...args) => {
+      return overrides.getAccessWhitelist?.(...args)
+        ?? baseRepository.getAccessWhitelist(...args);
+    },
+    addAccessWhitelistEmail: (...args) => {
+      return overrides.addAccessWhitelistEmail?.(...args)
+        ?? baseRepository.addAccessWhitelistEmail(...args);
+    },
+    removeAccessWhitelistEmail: (...args) => {
+      return overrides.removeAccessWhitelistEmail?.(...args)
+        ?? baseRepository.removeAccessWhitelistEmail(...args);
+    },
   };
 }
 

@@ -1095,3 +1095,44 @@ export type CardRecentSalesQuery = CardDetailQuery & {
 export function deckConditionFromCode(code?: DeckConditionCode | null) {
   return deckConditionOptions.find((option) => option.code === code) ?? null;
 }
+
+// --- Access gate (public-launch gating) ---
+// When the backend "access gate" is CLOSED, only allowed users (admin,
+// whitelisted emails, or anyone who redeemed an invite code) get the full app;
+// everyone else is held on the "between shows" screen.
+export type AccessShowMode = {
+  /** Whether card-show mode is currently active (gate open for everyone). */
+  active: boolean;
+  /** ISO timestamp the show window ends, or null when not time-bounded. */
+  until?: string | null;
+  /** Seconds remaining in the active show window; 0 when inactive. */
+  remainingSeconds?: number;
+};
+
+export type AccessStatus = {
+  /** Whether the access gate is open for everyone (e.g. card-show mode on). */
+  accessOpen: boolean;
+  /** Whether THIS user may enter the app (admin / whitelisted / redeemed / open). */
+  allowed: boolean;
+  /** Whether this user is the admin (drives the show-mode toggle). */
+  isAdmin: boolean;
+  /** Current card-show mode window. */
+  showMode: AccessShowMode;
+};
+
+export type AccessRedeemResult = {
+  redeemed: boolean;
+  allowed: boolean;
+};
+
+export type AccessWaitlistResult = {
+  ok: boolean;
+};
+
+export type CardShowModeResult = {
+  accessOpen: boolean;
+};
+
+export type AccessWhitelist = {
+  emails: string[];
+};

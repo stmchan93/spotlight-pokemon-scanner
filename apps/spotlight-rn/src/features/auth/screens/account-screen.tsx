@@ -1,11 +1,12 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
   Button,
   SurfaceCard,
+  TextField,
   colors,
   useSpotlightTheme,
 } from '@spotlight/design-system';
@@ -15,6 +16,8 @@ import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-mo
 import { useAuth } from '@/providers/auth-provider';
 import { useAppServices } from '@/providers/app-providers';
 
+const ADMIN_EMAIL = 'stmchan8953@gmail.com';
+
 export function AccountScreen() {
   const router = useRouter();
   const theme = useSpotlightTheme();
@@ -23,6 +26,104 @@ export function AccountScreen() {
   const { spotlightRepository } = useAppServices();
 
   const [isDeleting, setIsDeleting] = useState(false);
+
+  const isAdmin = auth.currentUser?.email === ADMIN_EMAIL;
+  const [showModeActive, setShowModeActive] = useState(false);
+  const [showModeBusy, setShowModeBusy] = useState(false);
+  const [whitelistEmails, setWhitelistEmails] = useState<string[]>([]);
+  const [newWhitelistEmail, setNewWhitelistEmail] = useState('');
+  const [whitelistBusy, setWhitelistBusy] = useState(false);
+
+  useEffect(() => {
+    if (!isAdmin) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    void spotlightRepository
+      .getAccessStatus()
+      .then((status) => {
+        if (!cancelled) {
+          setShowModeActive(status.showMode.active);
+        }
+      })
+      .catch(() => {
+        // Leave the toggle in its default off state if the status can't load.
+      });
+    void spotlightRepository
+      .getAccessWhitelist()
+      .then((result) => {
+        if (!cancelled) {
+          setWhitelistEmails(result.emails);
+        }
+      })
+      .catch(() => {
+        // Leave the list empty if it can't load.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin, spotlightRepository]);
+
+  const handleAddWhitelistEmail = useCallback(async () => {
+    const email = newWhitelistEmail.trim();
+    if (!email || whitelistBusy) {
+      return;
+    }
+    setWhitelistBusy(true);
+    try {
+      const result = await spotlightRepository.addAccessWhitelistEmail(email);
+      setWhitelistEmails(result.emails);
+      setNewWhitelistEmail('');
+    } catch {
+      Alert.alert('Could not add email', 'Check the address and try again.');
+    } finally {
+      setWhitelistBusy(false);
+    }
+  }, [newWhitelistEmail, whitelistBusy, spotlightRepository]);
+
+  const handleRemoveWhitelistEmail = useCallback(
+    async (email: string) => {
+      if (whitelistBusy) {
+        return;
+      }
+      setWhitelistBusy(true);
+      try {
+        const result = await spotlightRepository.removeAccessWhitelistEmail(email);
+        setWhitelistEmails(result.emails);
+      } catch {
+        Alert.alert('Could not remove email', 'Please try again.');
+      } finally {
+        setWhitelistBusy(false);
+      }
+    },
+    [whitelistBusy, spotlightRepository],
+  );
+
+  const handleToggleShowMode = useCallback(
+    async (nextActive: boolean) => {
+      if (showModeBusy) {
+        return;
+      }
+      // Optimistically reflect the new position; revert on failure.
+      const previousActive = showModeActive;
+      setShowModeActive(nextActive);
+      setShowModeBusy(true);
+      try {
+        await spotlightRepository.setCardShowMode(nextActive);
+      } catch {
+        setShowModeActive(previousActive);
+        Alert.alert(
+          'Could not update card show mode',
+          'Something went wrong updating card show mode. Please try again.',
+        );
+      } finally {
+        setShowModeBusy(false);
+      }
+    },
+    [showModeActive, showModeBusy, spotlightRepository],
+  );
 
   const confirmDeleteAccount = useCallback(async () => {
     setIsDeleting(true);
@@ -118,6 +219,101 @@ export function AccountScreen() {
           </View>
         </SurfaceCard>
 
+        {isAdmin ? (
+          <SurfaceCard padding={20} radius={28}>
+            <View style={styles.showModeRow}>
+              <View style={styles.showModeCopy}>
+                <Text style={[theme.typography.titleCompact, { color: theme.colors.textPrimary }]}>
+                  Card show mode
+                </Text>
+                <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>
+                  Opens the access gate so everyone can use the app.
+                </Text>
+              </View>
+              <Switch
+                disabled={showModeBusy}
+                onValueChange={(nextActive) => {
+                  void handleToggleShowMode(nextActive);
+                }}
+                testID="account-show-mode-toggle"
+                value={showModeActive}
+              />
+            </View>
+          </SurfaceCard>
+        ) : null}
+
+        {isAdmin ? (
+          <SurfaceCard padding={20} radius={28}>
+            <View style={styles.whitelistCard}>
+              <View style={styles.showModeCopy}>
+                <Text style={[theme.typography.titleCompact, { color: theme.colors.textPrimary }]}>
+                  Early-access whitelist
+                </Text>
+                <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>
+                  These emails always have access, even when the gate is closed.
+                </Text>
+              </View>
+
+              <View style={styles.whitelistInputRow}>
+                <View style={styles.whitelistInput}>
+                  <TextField
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    keyboardType="email-address"
+                    onChangeText={setNewWhitelistEmail}
+                    onSubmitEditing={() => {
+                      void handleAddWhitelistEmail();
+                    }}
+                    placeholder="name@email.com"
+                    returnKeyType="done"
+                    testID="account-whitelist-input"
+                    value={newWhitelistEmail}
+                  />
+                </View>
+                <Button
+                  disabled={whitelistBusy || newWhitelistEmail.trim().length === 0}
+                  label="Add"
+                  onPress={() => {
+                    void handleAddWhitelistEmail();
+                  }}
+                  size="md"
+                  testID="account-whitelist-add"
+                  variant="accent"
+                />
+              </View>
+
+              {whitelistEmails.length > 0 ? (
+                <View style={styles.whitelistList}>
+                  {whitelistEmails.map((email) => (
+                    <View key={email} style={styles.whitelistItem}>
+                      <Text
+                        numberOfLines={1}
+                        style={[theme.typography.body, styles.whitelistEmail, { color: theme.colors.textPrimary }]}
+                      >
+                        {email}
+                      </Text>
+                      <Pressable
+                        accessibilityLabel={`Remove ${email}`}
+                        accessibilityRole="button"
+                        disabled={whitelistBusy}
+                        hitSlop={10}
+                        onPress={() => {
+                          void handleRemoveWhitelistEmail(email);
+                        }}
+                        testID={`account-whitelist-remove-${email}`}
+                      >
+                        <Text style={[theme.typography.control, { color: theme.colors.danger }]}>
+                          Remove
+                        </Text>
+                      </Pressable>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+            </View>
+          </SurfaceCard>
+        ) : null}
+
         <Pressable
           accessibilityRole="button"
           disabled={auth.isBusy}
@@ -186,6 +382,38 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   safeArea: {
+    flex: 1,
+  },
+  showModeCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  showModeRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 14,
+  },
+  whitelistCard: {
+    gap: 16,
+  },
+  whitelistInputRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  whitelistInput: {
+    flex: 1,
+  },
+  whitelistList: {
+    gap: 12,
+  },
+  whitelistItem: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+  },
+  whitelistEmail: {
     flex: 1,
   },
   signOutButton: {

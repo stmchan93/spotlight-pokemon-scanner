@@ -111,6 +111,120 @@ describe('AccountScreen', () => {
     alertSpy.mockRestore();
   });
 
+  it('hides the admin show-mode toggle AND whitelist editor for non-admin users', () => {
+    renderWithProviders(<AccountScreen />);
+
+    expect(screen.queryByTestId('account-show-mode-toggle')).toBeNull();
+    expect(screen.queryByTestId('account-whitelist-input')).toBeNull();
+    expect(screen.queryByTestId('account-whitelist-add')).toBeNull();
+  });
+
+  it('shows the card show mode toggle for the admin email and toggles it', async () => {
+    (useAuth as jest.Mock).mockReturnValue({
+      appleSignInAvailable: true,
+      configurationIssue: null,
+      currentUser: {
+        adminEnabled: true,
+        avatarURL: null,
+        displayName: 'Stephen',
+        email: 'stmchan8953@gmail.com',
+        id: 'admin-1',
+        labelerEnabled: true,
+        providers: ['email'],
+      },
+      errorMessage: null,
+      isBusy: false,
+      isConfigured: true,
+      profileDraftName: '',
+      setProfileDraftName: jest.fn(),
+      signInWithApple: jest.fn(),
+      signInWithGoogle: jest.fn(),
+      signOut,
+      state: 'authenticated',
+      submitProfile: jest.fn(),
+    });
+
+    const getAccessStatus = jest.fn().mockResolvedValue({
+      accessOpen: true,
+      allowed: true,
+      isAdmin: true,
+      showMode: { active: true, until: null, remainingSeconds: 0 },
+    });
+    const setCardShowMode = jest.fn().mockResolvedValue({ accessOpen: false });
+    const spotlightRepository = createTestSpotlightRepository({
+      getAccessStatus,
+      setCardShowMode,
+    });
+
+    renderWithProviders(<AccountScreen />, { spotlightRepository });
+
+    const toggle = await screen.findByTestId('account-show-mode-toggle');
+    expect(toggle).toBeTruthy();
+
+    await waitFor(() => {
+      expect(getAccessStatus).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(toggle.props.value).toBe(true);
+    });
+
+    await act(async () => {
+      fireEvent(toggle, 'valueChange', false);
+    });
+
+    await waitFor(() => {
+      expect(setCardShowMode).toHaveBeenCalledWith(false);
+    });
+  });
+
+  it('lets the admin whitelist a user by email', async () => {
+    (useAuth as jest.Mock).mockReturnValue({
+      appleSignInAvailable: true,
+      configurationIssue: null,
+      currentUser: {
+        adminEnabled: true,
+        avatarURL: null,
+        displayName: 'Stephen',
+        email: 'stmchan8953@gmail.com',
+        id: 'admin-1',
+        labelerEnabled: true,
+        providers: ['email'],
+      },
+      errorMessage: null,
+      isBusy: false,
+      isConfigured: true,
+      profileDraftName: '',
+      setProfileDraftName: jest.fn(),
+      signInWithApple: jest.fn(),
+      signInWithGoogle: jest.fn(),
+      signOut,
+      state: 'authenticated',
+      submitProfile: jest.fn(),
+    });
+
+    const getAccessWhitelist = jest.fn().mockResolvedValue({ emails: [] });
+    const addAccessWhitelistEmail = jest
+      .fn()
+      .mockResolvedValue({ emails: ['friend@example.com'] });
+    const spotlightRepository = createTestSpotlightRepository({
+      getAccessWhitelist,
+      addAccessWhitelistEmail,
+    });
+
+    renderWithProviders(<AccountScreen />, { spotlightRepository });
+
+    const input = await screen.findByTestId('account-whitelist-input');
+    fireEvent.changeText(input, 'friend@example.com');
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('account-whitelist-add'));
+    });
+
+    await waitFor(() => {
+      expect(addAccessWhitelistEmail).toHaveBeenCalledWith('friend@example.com');
+    });
+    expect(await screen.findByText('friend@example.com')).toBeTruthy();
+  });
+
   it('does not sign out when account deletion fails', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert');
     const deleteAccount = jest.fn().mockRejectedValue(new Error('boom'));

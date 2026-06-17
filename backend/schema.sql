@@ -661,3 +661,29 @@ CREATE INDEX IF NOT EXISTS idx_scan_labeling_reviews_scan_id
 
 CREATE INDEX IF NOT EXISTS idx_scan_labeling_reviews_reviewer
     ON scan_labeling_reviews(reviewer_user_id, created_at DESC);
+
+-- Public App Store ACCESS GATE. When the card-show gate is CLOSED, only allowed
+-- users may use the protected backend. ``access_grants`` persists a redeemed
+-- invite-code grant per account; ``access_waitlist`` captures early-access email
+-- sign-ups from blocked users. Both are additive and reversible (DROP TABLE).
+CREATE TABLE IF NOT EXISTS access_grants (
+    user_id TEXT PRIMARY KEY,
+    email TEXT,
+    granted_via TEXT,
+    granted_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS access_waitlist (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT,
+    user_id TEXT,
+    created_at TEXT
+);
+
+-- Local mirror of Supabase user emails (we only receive them live from the JWT),
+-- captured on access checks + backfilled from auth.users via the admin sync.
+CREATE TABLE IF NOT EXISTS user_emails (
+    user_id TEXT PRIMARY KEY,
+    email TEXT,
+    updated_at TEXT
+);

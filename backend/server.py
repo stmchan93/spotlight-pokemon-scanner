@@ -175,6 +175,15 @@ _REVIEW_QUEUE_ID_PATTERN = re.compile(r"[^A-Za-z0-9_-]")
 CARD_SHOW_MODE_SETTING_KEY = "card_show_mode"
 LIVE_PRICING_SETTING_KEY = "live_pricing"
 
+# --- Public App Store ACCESS GATE -------------------------------------------
+# When the gate is CLOSED (card-show-mode inactive), only allowed users may use
+# the protected backend surface. Allowed = gate OPEN, OR admin email, OR a
+# whitelisted email, OR a redeemed invite-code grant persisted to the account.
+ACCESS_ADMIN_EMAILS = {"stmchan8953@gmail.com"}
+ACCESS_INVITE_CODES = {"ekalight_special_guest"}
+# Runtime-settings key holding the dynamic email whitelist: {"emails": [...]}.
+ACCESS_WHITELIST_SETTING_KEY = "access_whitelist_emails"
+
 # Size of the persisted scan candidate pool. The live scan response still hydrates
 # exactly the top 10 candidates (with pricing); the remainder of the pool is stored
 # as LIGHTWEIGHT rows (no per-candidate DB lookup, no pricing) so that the "load
@@ -702,6 +711,95 @@ def _apply_scan_labeling_reviews_schema_patch(connection: sqlite3.Connection) ->
     )
 
 
+def _apply_access_gate_schema_patch(connection: sqlite3.Connection) -> None:
+    """Additive tables for the public-App-Store ACCESS GATE.
+
+    - ``access_grants`` records a per-account redeemed-invite-code grant so that a
+      whitelisted/invited user keeps access across sessions even when the card-show
+      gate is closed.
+    - ``access_waitlist`` captures early-access email sign-ups from blocked users.
+
+    Both are additive and reversible (DROP TABLE). schema.sql also creates them for
+    fresh databases; this patch backfills existing staging DBs on startup the same
+    way the other patches do.
+    """
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS access_grants (
+            user_id TEXT PRIMARY KEY,
+            email TEXT,
+            granted_via TEXT,
+            granted_at TEXT
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS access_waitlist (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT,
+            user_id TEXT,
+            created_at TEXT
+        )
+        """
+    )
+    # Local mirror of Supabase emails (we only get them live from the JWT).
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_emails (
+            user_id TEXT PRIMARY KEY,
+            email TEXT,
+            updated_at TEXT
+        )
+        """
+    )
+
+    # One-time backfill: grant every EXISTING user (anyone who already has data in
+    # the app) persistent access, so current users aren't locked out when the gate
+    # goes live. Guarded by a runtime flag so it runs exactly once — later manual
+    # revokes stick, and it never re-grants on subsequent startups. The backend
+    # only knows users by Supabase user_id (no stored emails), so the whitelist is
+    # by user_id. Wrapped defensively so a fresh DB (tables not yet populated)
+    # never breaks startup.
+    try:
+        already = runtime_setting(connection, "access_existing_users_backfilled")
+        if already is None:
+            now_iso = datetime.now(timezone.utc).isoformat()
+            rows = connection.execute(
+                """
+                SELECT DISTINCT owner_user_id FROM (
+                    SELECT owner_user_id FROM deck_entries
+                    UNION SELECT owner_user_id FROM scan_events
+                    UNION SELECT owner_user_id FROM sale_events
+                    UNION SELECT owner_user_id FROM card_favorites
+                )
+                WHERE owner_user_id IS NOT NULL AND TRIM(owner_user_id) != ''
+                """
+            ).fetchall()
+            for row in rows:
+                uid = str(row[0] or "").strip()
+                if not uid:
+                    continue
+                connection.execute(
+                    """
+                    INSERT OR IGNORE INTO access_grants
+                        (user_id, email, granted_via, granted_at)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (uid, None, "existing_user_backfill", now_iso),
+                )
+            upsert_runtime_setting(
+                connection,
+                key="access_existing_users_backfilled",
+                value={"at": now_iso, "count": len(rows)},
+            )
+            connection.commit()
+    except sqlite3.OperationalError:
+        # A user-data table doesn't exist yet (fresh DB / patch ordering) — nothing
+        # to backfill. The flag stays unset so it can run once data tables exist.
+        pass
+
+
 def _env_flag(name: str, *, default: bool = False) -> bool:
     raw_value = os.environ.get(name)
     if raw_value is None:
@@ -911,6 +1009,7 @@ class SpotlightScanService:
             _apply_card_transactions_schema_patch(bootstrap_connection)
             _apply_scan_labeling_reviews_schema_patch(bootstrap_connection)
             _apply_price_history_cells_schema_patch(bootstrap_connection)
+            _apply_access_gate_schema_patch(bootstrap_connection)
             bootstrap_connection.commit()
             self.index = load_index(bootstrap_connection)
         finally:
@@ -1738,6 +1837,190 @@ class SpotlightScanService:
         delete_runtime_setting(self.connection, CARD_SHOW_MODE_SETTING_KEY)
         self.connection.commit()
         return self._card_show_mode_state()
+
+    # --- Public App Store ACCESS GATE --------------------------------------
+    def _access_whitelist_emails(self) -> set[str]:
+        record = runtime_setting(self.connection, ACCESS_WHITELIST_SETTING_KEY)
+        payload = (record or {}).get("value") if isinstance(record, dict) else {}
+        if not isinstance(payload, dict):
+            return set()
+        emails = payload.get("emails")
+        if not isinstance(emails, list):
+            return set()
+        return {
+            str(item).strip().lower()
+            for item in emails
+            if str(item or "").strip()
+        }
+
+    def list_whitelist_emails(self) -> list[str]:
+        return sorted(self._access_whitelist_emails())
+
+    def add_whitelist_email(self, email: str) -> list[str]:
+        normalized = str(email or "").strip().lower()
+        if not normalized or "@" not in normalized:
+            raise ValueError("invalid_email")
+        emails = self._access_whitelist_emails()
+        emails.add(normalized)
+        upsert_runtime_setting(
+            self.connection,
+            key=ACCESS_WHITELIST_SETTING_KEY,
+            value={"emails": sorted(emails)},
+        )
+        self.connection.commit()
+        return sorted(emails)
+
+    def remove_whitelist_email(self, email: str) -> list[str]:
+        normalized = str(email or "").strip().lower()
+        emails = self._access_whitelist_emails()
+        emails.discard(normalized)
+        upsert_runtime_setting(
+            self.connection,
+            key=ACCESS_WHITELIST_SETTING_KEY,
+            value={"emails": sorted(emails)},
+        )
+        self.connection.commit()
+        return sorted(emails)
+
+    def _is_admin_email(self, email: str | None) -> bool:
+        return str(email or "").strip().lower() in ACCESS_ADMIN_EMAILS
+
+    def _access_email_allowed(self, email: str | None) -> bool:
+        normalized = str(email or "").strip().lower()
+        if not normalized:
+            return False
+        if normalized in ACCESS_ADMIN_EMAILS:
+            return True
+        return normalized in self._access_whitelist_emails()
+
+    def _access_has_grant(self, user_id: str | None) -> bool:
+        normalized = str(user_id or "").strip()
+        if not normalized:
+            return False
+        row = self.connection.execute(
+            "SELECT 1 FROM access_grants WHERE user_id = ? LIMIT 1",
+            (normalized,),
+        ).fetchone()
+        return row is not None
+
+    def access_allowed(self, identity: RequestIdentity) -> bool:
+        return (
+            self._card_show_mode_active()
+            or self._access_email_allowed(getattr(identity, "email", "") )
+            or self._access_has_grant(getattr(identity, "user_id", ""))
+        )
+
+    def access_status(self, identity: RequestIdentity) -> dict[str, Any]:
+        # Mirror this user's email locally (we only receive it live from the JWT).
+        # access_status is hit by every signed-in user on launch, so this captures
+        # everyone's email over time without a per-request write hot path.
+        self._record_user_email(
+            getattr(identity, "user_id", ""), getattr(identity, "email", "")
+        )
+        return {
+            "accessOpen": self._card_show_mode_active(),
+            "allowed": self.access_allowed(identity),
+            "isAdmin": self._is_admin_email(getattr(identity, "email", "")),
+            "showMode": self._card_show_mode_state(),
+        }
+
+    def redeem_invite_code(self, identity: RequestIdentity, code: str) -> dict[str, Any]:
+        normalized = str(code or "").strip().lower()
+        if normalized not in ACCESS_INVITE_CODES:
+            raise ValueError("invalid_code")
+        user_id = str(getattr(identity, "user_id", "") or "").strip()
+        if not user_id:
+            raise ValueError("invalid_code")
+        self.connection.execute(
+            """
+            INSERT INTO access_grants (user_id, email, granted_via, granted_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                email = excluded.email,
+                granted_via = excluded.granted_via,
+                granted_at = excluded.granted_at
+            """,
+            (
+                user_id,
+                str(getattr(identity, "email", "") or "").strip() or None,
+                "invite_code",
+                utc_now(),
+            ),
+        )
+        self.connection.commit()
+        return {"redeemed": True, "allowed": True}
+
+    def add_waitlist_email(self, identity: RequestIdentity, email: str) -> dict[str, Any]:
+        self.connection.execute(
+            """
+            INSERT INTO access_waitlist (email, user_id, created_at)
+            VALUES (?, ?, ?)
+            """,
+            (
+                str(email or "").strip() or None,
+                str(getattr(identity, "user_id", "") or "").strip() or None,
+                utc_now(),
+            ),
+        )
+        self.connection.commit()
+        return {"ok": True}
+
+    def _record_user_email(self, user_id: str | None, email: str | None) -> None:
+        """Mirror a user's Supabase email into our own DB. We only ever receive the
+        email live from the JWT (it's not stored locally otherwise), so capturing it
+        here lets us list / whitelist / contact users by email instead of opaque IDs.
+        Also fills in the email on any existing grant for this user."""
+        uid = str(user_id or "").strip()
+        em = str(email or "").strip()
+        if not uid or not em:
+            return
+        now = utc_now()
+        self.connection.execute(
+            """
+            INSERT INTO user_emails (user_id, email, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                email = excluded.email, updated_at = excluded.updated_at
+            """,
+            (uid, em, now),
+        )
+        self.connection.execute(
+            "UPDATE access_grants SET email = ? WHERE user_id = ? AND (email IS NULL OR email = '')",
+            (em, uid),
+        )
+        self.connection.commit()
+
+    def sync_user_emails_from_supabase(self) -> dict[str, Any]:
+        """One-shot pull of every existing user's email from Supabase `auth.users`
+        (admin API + service-role key) into `user_emails` — backfills users who
+        signed up before we started mirroring emails locally. Paginated."""
+        base = str(os.environ.get("SUPABASE_URL") or "").strip().rstrip("/")
+        key = str(os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
+        if not base or not key:
+            raise RuntimeError("supabase_not_configured")
+        from urllib.request import Request, urlopen
+
+        synced = 0
+        page = 1
+        per_page = 200
+        while True:
+            url = f"{base}/auth/v1/admin/users?page={page}&per_page={per_page}"
+            request = Request(url, headers={"Authorization": f"Bearer {key}", "apikey": key})
+            with urlopen(request, timeout=30) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            users = payload.get("users") if isinstance(payload, dict) else payload
+            if not users:
+                break
+            for user in users:
+                uid = str((user or {}).get("id") or "").strip()
+                email = str((user or {}).get("email") or "").strip()
+                if uid and email:
+                    self._record_user_email(uid, email)
+                    synced += 1
+            if len(users) < per_page:
+                break
+            page += 1
+        return {"synced": synced}
 
     def _live_pricing_record(self) -> dict[str, Any] | None:
         return runtime_setting(self.connection, LIVE_PRICING_SETTING_KEY)
@@ -11668,7 +11951,16 @@ class SpotlightScanService:
         grader = str(slab_context.get("grader") or "").strip() or None
         grade = str(slab_context.get("grade") or "").strip() or None
         cert_number = str(slab_context.get("certNumber") or "").strip() or None
-        variant_name = str(slab_context.get("variantName") or "").strip() or None
+        raw_slab_variant_name = str(slab_context.get("variantName") or "").strip() or None
+        # A slab variantName equal to the grade label ("PSA 10") is not a print
+        # variant; stored as-is it never matches the graded price snapshot and the
+        # Collection/Wishlist value collapses to "—". Drop it so the resolver falls
+        # back to the grade's real entry. Mirrors record_buy / replace_deck_entry.
+        variant_name = (
+            self._sanitize_slab_variant_name(raw_slab_variant_name, grader, grade)
+            if any([grader, grade, cert_number])
+            else raw_slab_variant_name
+        )
         condition = self._normalized_deck_card_condition(payload.get("condition"))
         if payload.get("condition") is not None and condition is None:
             raise ValueError("condition is invalid")
@@ -13655,6 +13947,21 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         )
         return False
 
+    def _require_access(self, identity: RequestIdentity) -> bool:
+        """Public App Store ACCESS GATE (defense in depth).
+
+        Returns True (and writes nothing) when the caller is allowed; otherwise
+        writes a 403 ``access_closed`` and returns False. Call this right after the
+        request identity is resolved in each PROTECTED handler.
+        """
+        if self.service.access_allowed(identity):
+            return True
+        self._write_json(
+            HTTPStatus.FORBIDDEN,
+            {"error": "access_closed", "message": "Ekalight is between shows."},
+        )
+        return False
+
     def _write_image(self, status: HTTPStatus, body: bytes) -> None:
         self.send_response(status.value)
         self.send_header("Content-Type", "image/jpeg")
@@ -13687,6 +13994,25 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
+
+        # --- Public App Store ACCESS GATE: status (auth, never access-gated) ---
+        if parsed.path == "/api/v1/access/status":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            with self.service.request_identity_context(identity):
+                self._write_json(HTTPStatus.OK, self.service.access_status(identity))
+            return
+
+        if parsed.path == "/api/v1/ops/access/whitelist":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            if not self.service._is_admin_email(getattr(identity, "email", "")):
+                self._write_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+                return
+            self._write_json(HTTPStatus.OK, {"emails": self.service.list_whitelist_emails()})
+            return
 
         # --- Reviewer-gated "label unlabeled scans" web surface (additive) ---
         if parsed.path == "/api/v1/review/config":
@@ -13889,6 +14215,8 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             identity = self._require_request_identity()
             if identity is None:
                 return
+            if not self._require_access(identity):
+                return
             try:
                 limit = int(query.get("limit", ["200"])[0])
             except (TypeError, ValueError):
@@ -14033,6 +14361,8 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/v1/portfolio/dashboard":
             identity = self._require_request_identity()
             if identity is None:
+                return
+            if not self._require_access(identity):
                 return
             query = parse_qs(parsed.query)
             time_zone_name = query.get("timeZone", [""])[0].strip() or None
@@ -14241,6 +14571,11 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path.startswith("/api/v1/cards/") and parsed.path.endswith("/recent-sales"):
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            if not self._require_access(identity):
+                return
             card_id = parsed.path.removeprefix("/api/v1/cards/").removesuffix("/recent-sales").rstrip("/")
             if not card_id:
                 self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
@@ -14496,6 +14831,96 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 getattr(self, "_json_body_error_status", HTTPStatus.BAD_REQUEST),
                 {"error": getattr(self, "_json_body_error_message", "Invalid JSON body")},
             )
+            return
+
+        # --- Public App Store ACCESS GATE: redeem (auth, never access-gated) ---
+        if parsed.path == "/api/v1/access/redeem":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            code = str(payload.get("code") or "")
+            with self.service.request_identity_context(identity):
+                try:
+                    result = self.service.redeem_invite_code(identity, code)
+                except ValueError:
+                    self._write_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_code"})
+                    return
+            self._write_json(HTTPStatus.OK, result)
+            return
+
+        # --- Public App Store ACCESS GATE: waitlist (auth, never access-gated) ---
+        if parsed.path == "/api/v1/access/waitlist":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            email = str(payload.get("email") or "")
+            with self.service.request_identity_context(identity):
+                result = self.service.add_waitlist_email(identity, email)
+            self._write_json(HTTPStatus.OK, result)
+            return
+
+        # --- Public App Store ACCESS GATE: admin gate control (auth + admin) ---
+        if parsed.path == "/api/v1/ops/card-show-mode":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            if not self.service._is_admin_email(getattr(identity, "email", "")):
+                self._write_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+                return
+            active = bool(payload.get("active"))
+            hours_value = payload.get("hours")
+            try:
+                hours = float(hours_value) if hours_value is not None else None
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "hours must be a number"})
+                return
+            if active:
+                # "On" stays on until the admin turns it off. card_show_mode is
+                # window-based, so use a far-future window (effectively permanent);
+                # an explicit `hours` can still override.
+                show_mode_state = self.service.set_card_show_mode(duration_hours=hours or (24 * 365 * 100))
+            else:
+                show_mode_state = self.service.clear_card_show_mode()
+            self._write_json(HTTPStatus.OK, {**show_mode_state, "accessOpen": active})
+            return
+
+        if parsed.path == "/api/v1/ops/access/sync-emails":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            if not self.service._is_admin_email(getattr(identity, "email", "")):
+                self._write_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+                return
+            try:
+                result = self.service.sync_user_emails_from_supabase()
+            except RuntimeError as exc:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+                return
+            except Exception:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "sync_failed"})
+                return
+            self._write_json(HTTPStatus.OK, result)
+            return
+
+        if parsed.path == "/api/v1/ops/access/whitelist":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            if not self.service._is_admin_email(getattr(identity, "email", "")):
+                self._write_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+                return
+            email = str(payload.get("email") or "").strip()
+            action = str(payload.get("action") or "add").strip().lower()
+            try:
+                if action == "remove":
+                    emails = self.service.remove_whitelist_email(email)
+                else:
+                    emails = self.service.add_whitelist_email(email)
+            except ValueError:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_email"})
+                return
+            self._write_json(HTTPStatus.OK, {"emails": emails})
             return
 
         if parsed.path.startswith("/api/v1/cards/") and parsed.path.endswith("/favorite"):
@@ -14978,6 +15403,8 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/v1/scan/match":
             identity = self._require_request_identity()
             if identity is None:
+                return
+            if not self._require_access(identity):
                 return
             request_started_at = perf_counter()
             try:

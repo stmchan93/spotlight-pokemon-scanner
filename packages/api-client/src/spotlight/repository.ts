@@ -13,8 +13,13 @@ import {
 } from './mock-data';
 import { labelingSessionAngleLabels } from './types';
 import type {
+  AccessRedeemResult,
+  AccessStatus,
+  AccessWaitlistResult,
+  AccessWhitelist,
   AccountDeleteResponsePayload,
   AddToCollectionOptions,
+  CardShowModeResult,
   CardFavoriteEntry,
   CardFavoriteRecord,
   CardFavoritesQuery,
@@ -165,6 +170,13 @@ export interface SpotlightRepository {
   commitPortfolioImportJob(jobID: string): Promise<PortfolioImportCommitResponsePayload>;
   listExpansions(game?: string): Promise<ExpansionRecord[]>;
   listCardsInExpansion(expansionId: string, query?: string, limit?: number): Promise<CatalogSearchResult[]>;
+  getAccessStatus(): Promise<AccessStatus>;
+  redeemInviteCode(code: string): Promise<AccessRedeemResult>;
+  joinAccessWaitlist(email: string): Promise<AccessWaitlistResult>;
+  setCardShowMode(active: boolean, hours?: number): Promise<CardShowModeResult>;
+  getAccessWhitelist(): Promise<AccessWhitelist>;
+  addAccessWhitelistEmail(email: string): Promise<AccessWhitelist>;
+  removeAccessWhitelistEmail(email: string): Promise<AccessWhitelist>;
 }
 
 type SpotlightRepositoryErrorKind = 'request_failed' | 'invalid_response' | 'not_found';
@@ -2398,6 +2410,9 @@ export class MockSpotlightRepository implements SpotlightRepository {
   private portfolioImportJobs = new Map<string, PortfolioImportJobRecord>();
   private labelingSessions = new Map<string, LabelingSessionRecord>();
   private labelingSessionArtifacts = new Map<string, LabelingSessionArtifactRecord>();
+  // Access gate is OPEN in mock/dev so local + test flows aren't gated.
+  private accessShowModeActive = true;
+  private accessWhitelist: string[] = [];
 
   private favoriteTimestampForCard(cardId: string) {
     return this.favoriteCardTimestamps.get(cardId) ?? null;
@@ -3305,6 +3320,51 @@ export class MockSpotlightRepository implements SpotlightRepository {
       return [];
     }
     return this.searchCatalogCards(query);
+  }
+
+  async getAccessStatus(): Promise<AccessStatus> {
+    return {
+      accessOpen: this.accessShowModeActive,
+      allowed: true,
+      isAdmin: false,
+      showMode: {
+        active: this.accessShowModeActive,
+        until: null,
+        remainingSeconds: 0,
+      },
+    };
+  }
+
+  async redeemInviteCode(code: string): Promise<AccessRedeemResult> {
+    const redeemed = code.trim() === 'ekalight_special_guest';
+    return { redeemed, allowed: redeemed };
+  }
+
+  async joinAccessWaitlist(_email: string): Promise<AccessWaitlistResult> {
+    return { ok: true };
+  }
+
+  async setCardShowMode(active: boolean, _hours?: number): Promise<CardShowModeResult> {
+    this.accessShowModeActive = active;
+    return { accessOpen: active };
+  }
+
+  async getAccessWhitelist(): Promise<AccessWhitelist> {
+    return { emails: [...this.accessWhitelist] };
+  }
+
+  async addAccessWhitelistEmail(email: string): Promise<AccessWhitelist> {
+    const normalized = email.trim().toLowerCase();
+    if (normalized && !this.accessWhitelist.includes(normalized)) {
+      this.accessWhitelist = [...this.accessWhitelist, normalized].sort();
+    }
+    return { emails: [...this.accessWhitelist] };
+  }
+
+  async removeAccessWhitelistEmail(email: string): Promise<AccessWhitelist> {
+    const normalized = email.trim().toLowerCase();
+    this.accessWhitelist = this.accessWhitelist.filter((value) => value !== normalized);
+    return { emails: [...this.accessWhitelist] };
   }
 }
 
@@ -4681,6 +4741,128 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         isFavorite: card.isFavorite,
       }];
     });
+  }
+
+  async getAccessStatus(): Promise<AccessStatus> {
+    const response = await this.requestJson<{
+      accessOpen?: boolean | null;
+      allowed?: boolean | null;
+      isAdmin?: boolean | null;
+      showMode?: {
+        active?: boolean | null;
+        until?: string | null;
+        remainingSeconds?: number | null;
+      } | null;
+    }>(`${this.baseUrl}/api/v1/access/status`);
+
+    if (response.kind !== 'success' || !response.data) {
+      // FAIL OPEN: a transport error / empty body must never lock a user out.
+      return {
+        accessOpen: true,
+        allowed: true,
+        isAdmin: false,
+        showMode: { active: false, until: null, remainingSeconds: 0 },
+      };
+    }
+
+    const data = response.data;
+    return {
+      accessOpen: normalizeBoolean(data.accessOpen) ?? false,
+      allowed: normalizeBoolean(data.allowed) ?? false,
+      isAdmin: normalizeBoolean(data.isAdmin) ?? false,
+      showMode: {
+        active: normalizeBoolean(data.showMode?.active) ?? false,
+        until: normalizeString(data.showMode?.until),
+        remainingSeconds: normalizeNumber(data.showMode?.remainingSeconds) ?? 0,
+      },
+    };
+  }
+
+  async redeemInviteCode(code: string): Promise<AccessRedeemResult> {
+    const response = await this.requestJson<{ redeemed?: boolean | null; allowed?: boolean | null }>(
+      `${this.baseUrl}/api/v1/access/redeem`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      },
+    );
+
+    // A 400 means an invalid code — surface it as a non-throwing failure so the
+    // BetweenShows screen can show "that code didn't work" without try/catch.
+    if (response.kind !== 'success' || !response.data) {
+      return { redeemed: false, allowed: false };
+    }
+
+    return {
+      redeemed: normalizeBoolean(response.data.redeemed) ?? false,
+      allowed: normalizeBoolean(response.data.allowed) ?? false,
+    };
+  }
+
+  async joinAccessWaitlist(email: string): Promise<AccessWaitlistResult> {
+    const response = await this.requestJson<{ ok?: boolean | null }>(
+      `${this.baseUrl}/api/v1/access/waitlist`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      },
+    );
+
+    if (response.kind !== 'success' || !response.data) {
+      return { ok: false };
+    }
+
+    return { ok: normalizeBoolean(response.data.ok) ?? false };
+  }
+
+  async setCardShowMode(active: boolean, hours?: number): Promise<CardShowModeResult> {
+    const body: { active: boolean; hours?: number } = { active };
+    if (typeof hours === 'number' && Number.isFinite(hours)) {
+      body.hours = hours;
+    }
+    const response = await this.requestJsonOrThrow<{ active?: boolean | null; accessOpen?: boolean | null }>(
+      `${this.baseUrl}/api/v1/ops/card-show-mode`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    );
+
+    return { accessOpen: normalizeBoolean(response.accessOpen) ?? active };
+  }
+
+  async getAccessWhitelist(): Promise<AccessWhitelist> {
+    const response = await this.requestJsonOrThrow<{ emails?: unknown }>(
+      `${this.baseUrl}/api/v1/ops/access/whitelist`,
+    );
+    return { emails: Array.isArray(response.emails) ? response.emails.map((value) => String(value)) : [] };
+  }
+
+  async addAccessWhitelistEmail(email: string): Promise<AccessWhitelist> {
+    const response = await this.requestJsonOrThrow<{ emails?: unknown }>(
+      `${this.baseUrl}/api/v1/ops/access/whitelist`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, action: 'add' }),
+      },
+    );
+    return { emails: Array.isArray(response.emails) ? response.emails.map((value) => String(value)) : [] };
+  }
+
+  async removeAccessWhitelistEmail(email: string): Promise<AccessWhitelist> {
+    const response = await this.requestJsonOrThrow<{ emails?: unknown }>(
+      `${this.baseUrl}/api/v1/ops/access/whitelist`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, action: 'remove' }),
+      },
+    );
+    return { emails: Array.isArray(response.emails) ? response.emails.map((value) => String(value)) : [] };
   }
 
   private async loadPortfolioHistory(range: keyof PortfolioDashboard['ranges']) {

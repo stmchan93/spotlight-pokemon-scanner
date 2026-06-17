@@ -15,6 +15,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from catalog_tools import apply_schema, connect, replace_slab_recent_sales_cache, upsert_card  # noqa: E402
+from request_auth import RequestIdentity  # noqa: E402
 from scrydex_adapter import fetch_scrydex_recent_sales  # noqa: E402
 from server import SpotlightRequestHandler, SpotlightScanService  # noqa: E402
 
@@ -227,7 +228,13 @@ class CardRecentSalesTests(unittest.TestCase):
     def test_recent_sales_route_dispatches_to_service(self) -> None:
         handler = SpotlightRequestHandler.__new__(SpotlightRequestHandler)
         handler.path = "/api/v1/cards/gym1-60/recent-sales?grader=PSA&grade=9&source=ebay&limit=5&refresh=1"
+        handler.headers = {"Authorization": "Bearer test"}
         handler.service = Mock()
+        # The recent-sales route is access-gated: resolve an identity and allow it.
+        handler.service.authenticator.resolve_identity.return_value = RequestIdentity(
+            user_id="u-test", email="guest@example.com", auth_source="test"
+        )
+        handler.service.access_allowed.return_value = True
         handler.service.card_recent_sales.return_value = {"status": "available", "saleCount": 1, "sales": []}
         captured: dict[str, object] = {}
 
