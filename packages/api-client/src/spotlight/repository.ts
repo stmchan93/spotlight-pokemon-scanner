@@ -201,8 +201,12 @@ const scanMatchRequestTimeoutMs = 20000;
 // 12s default while match got 20s. Give it its own, longer budget.
 const scanArtifactUploadTimeoutMs = 25000;
 // The consolidated dashboard endpoint computes every section server-side in one
-// request, so it gets a longer budget than a single section.
-const dashboardRequestTimeoutMs = 20000;
+// request, so it gets a longer budget than a single section. Raised to 30s so a
+// cold-cache first load on the small VM (re-reading price history from disk) has
+// room to *finish* — which warms the cache — instead of getting aborted at 20s and
+// surfacing "couldn't refresh." Normal warm loads are sub-second, so this ceiling
+// only ever applies to the rare cold path.
+const dashboardRequestTimeoutMs = 30000;
 // The first dashboard call after the backend's page cache goes cold can be slow
 // enough to time out, but that attempt warms the cache, so a single short-backoff
 // retry usually lands fast. Retry only on transport/timeout failures (never on a
