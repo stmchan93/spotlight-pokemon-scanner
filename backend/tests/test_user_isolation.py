@@ -307,6 +307,93 @@ class UserIsolationTests(unittest.TestCase):
             still_owned = self.service.list_card_transactions()
             self.assertEqual(still_owned["count"], 1)
 
+    def _owner_row_count(self, table_name: str, owner_user_id: str) -> int:
+        row = self.service.connection.execute(
+            f"SELECT COUNT(*) FROM {table_name} WHERE owner_user_id = ?",
+            (owner_user_id,),
+        ).fetchone()
+        return int(row[0])
+
+    def test_delete_account_removes_all_owner_scoped_rows(self) -> None:
+        # SUPABASE_SERVICE_ROLE_KEY is unset in the test environment, so the
+        # Supabase admin delete is a no-op and never touches the network.
+        self.assertIsNone(os.environ.get("SUPABASE_SERVICE_ROLE_KEY"))
+
+        self._insert_card(
+            card_id="base-charizard-4",
+            name="Charizard",
+            set_name="Base Set",
+            number="4/102",
+            set_code="BS",
+        )
+
+        owner_tables = self.service._ACCOUNT_DELETION_TABLES
+
+        # Populate several owner-scoped tables for user-a: a buy (deck_entries +
+        # deck_entry_events + scan provenance is optional), a card transaction
+        # ledger row, and a favorite.
+        with self.service.request_identity_context(self._identity("user-a")):
+            self.service.record_buy(
+                {
+                    "cardID": "base-charizard-4",
+                    "quantity": 2,
+                    "unitPrice": 9.0,
+                    "currencyCode": "USD",
+                    "boughtAt": "2026-06-01T09:00:00Z",
+                    "condition": "near_mint",
+                }
+            )
+            self.service.create_card_transaction(
+                {
+                    "kind": "bought",
+                    "amountCents": 1800,
+                    "currencyCode": "USD",
+                    "occurredAt": "2026-06-01T09:00:00Z",
+                    "note": None,
+                    "photo": None,
+                }
+            )
+            self.service.set_card_favorite("base-charizard-4", is_favorite=True)
+
+        # A second owner whose data must survive the deletion of user-a.
+        with self.service.request_identity_context(self._identity("user-b")):
+            self.service.record_buy(
+                {
+                    "cardID": "base-charizard-4",
+                    "quantity": 1,
+                    "unitPrice": 11.0,
+                    "currencyCode": "USD",
+                    "boughtAt": "2026-06-01T10:00:00Z",
+                    "condition": "near_mint",
+                }
+            )
+            self.service.set_card_favorite("base-charizard-4", is_favorite=True)
+
+        # Sanity: user-a actually owns rows in several tables before deletion.
+        self.assertGreater(self._owner_row_count("deck_entries", "user-a"), 0)
+        self.assertGreater(self._owner_row_count("deck_entry_events", "user-a"), 0)
+        self.assertGreater(self._owner_row_count("card_transactions", "user-a"), 0)
+        self.assertGreater(self._owner_row_count("card_favorites", "user-a"), 0)
+
+        with self.service.request_identity_context(self._identity("user-a")):
+            result = self.service.delete_account({})
+
+        self.assertEqual(result["deleted"], True)
+        # No service-role key configured, so the auth user delete was skipped.
+        self.assertEqual(result["authUserDeleted"], False)
+
+        # Every owner-scoped table is empty for user-a.
+        for table_name in owner_tables:
+            self.assertEqual(
+                self._owner_row_count(table_name, "user-a"),
+                0,
+                f"expected no user-a rows left in {table_name}",
+            )
+
+        # user-b's data is untouched.
+        self.assertGreater(self._owner_row_count("deck_entries", "user-b"), 0)
+        self.assertGreater(self._owner_row_count("card_favorites", "user-b"), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

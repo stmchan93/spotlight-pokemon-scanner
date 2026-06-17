@@ -148,6 +148,10 @@ export function createTestSpotlightRepository(
       return overrides.deletePortfolioEntry?.(...args)
         ?? baseRepository.deletePortfolioEntry(...args);
     },
+    deleteAccount: (...args) => {
+      return overrides.deleteAccount?.(...args)
+        ?? baseRepository.deleteAccount(...args);
+    },
     setPortfolioEntryQuantity: (...args) => {
       return overrides.setPortfolioEntryQuantity?.(...args)
         ?? baseRepository.setPortfolioEntryQuantity(...args);

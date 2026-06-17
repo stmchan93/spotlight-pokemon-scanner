@@ -13,6 +13,7 @@ import {
 } from './mock-data';
 import { labelingSessionAngleLabels } from './types';
 import type {
+  AccountDeleteResponsePayload,
   AddToCollectionOptions,
   CardFavoriteEntry,
   CardFavoriteRecord,
@@ -144,6 +145,7 @@ export interface SpotlightRepository {
   createPortfolioBuy(payload: PortfolioBuyRequestPayload): Promise<PortfolioBuyResponsePayload>;
   replacePortfolioEntry(payload: PortfolioEntryReplaceRequestPayload): Promise<PortfolioEntryReplaceResponsePayload>;
   deletePortfolioEntry(payload: PortfolioEntryDeleteRequestPayload): Promise<PortfolioEntryDeleteResponsePayload>;
+  deleteAccount(): Promise<AccountDeleteResponsePayload>;
   setPortfolioEntryQuantity(payload: SetPortfolioEntryQuantityRequestPayload): Promise<SetPortfolioEntryQuantityResponsePayload>;
   createPortfolioSale(payload: PortfolioSaleRequestPayload): Promise<PortfolioSaleResponsePayload>;
   createPortfolioSalesBatch(payloads: PortfolioSaleRequestPayload[]): Promise<PortfolioSaleResponsePayload[]>;
@@ -2931,6 +2933,10 @@ export class MockSpotlightRepository implements SpotlightRepository {
     };
   }
 
+  async deleteAccount(): Promise<AccountDeleteResponsePayload> {
+    return { deleted: true };
+  }
+
   async setPortfolioEntryQuantity(payload: SetPortfolioEntryQuantityRequestPayload) {
     return {
       deckEntryID: payload.deckEntryID,
@@ -4386,6 +4392,15 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
+    });
+  }
+
+  async deleteAccount() {
+    return this.requestJsonOrThrow<AccountDeleteResponsePayload>(`${this.baseUrl}/api/v1/account/delete`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
     });
   }
 

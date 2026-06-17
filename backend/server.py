@@ -4809,6 +4809,119 @@ class SpotlightScanService:
             "cardID": resolved_card_id,
         }
 
+    # Ordered children-before-parents per the owner-scoped foreign-key graph so
+    # the deletes never trip a foreign-key constraint while the account is torn
+    # down. Every table below carries an ``owner_user_id`` column (verified via
+    # the applied schema): deck_entry_events/sale_events/deck_entries reference
+    # scan_events + scan_confirmations; scan_artifacts/scan_confirmations
+    # reference scan_events, which must be deleted last. card_favorites,
+    # card_transactions, and portfolio_import_jobs are independent owner-scoped
+    # tables.
+    _ACCOUNT_DELETION_TABLES: tuple[str, ...] = (
+        "deck_entry_events",
+        "sale_events",
+        "deck_entries",
+        "scan_artifacts",
+        "scan_confirmations",
+        "scan_events",
+        "card_favorites",
+        "card_transactions",
+        "portfolio_import_jobs",
+    )
+
+    def delete_account(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Permanently delete every owner-scoped row for the calling user, then
+        best-effort delete their Supabase auth user.
+
+        Required for App Store guideline 5.1.1(v) (in-app account deletion).
+        Local data deletion runs in one transaction. The Supabase admin delete
+        is best-effort: if the service-role key is missing or the call fails we
+        log a warning and still report success, because the user's app data is
+        already gone and auth-user deletion can be reconciled later.
+        """
+        owner_user_id = self._current_owner_user_id()
+
+        try:
+            for table_name in self._ACCOUNT_DELETION_TABLES:
+                self.connection.execute(
+                    f"DELETE FROM {table_name} WHERE owner_user_id = ?",
+                    (owner_user_id,),
+                )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+
+        auth_user_deleted = self._delete_supabase_auth_user(owner_user_id)
+
+        return {"deleted": True, "authUserDeleted": auth_user_deleted}
+
+    def _delete_supabase_auth_user(self, owner_user_id: str) -> bool:
+        """Best-effort deletion of the Supabase auth user via the Admin API.
+
+        Returns True only when the auth user was deleted. Never raises: a
+        missing service-role key or a failed call logs a warning and returns
+        False so account deletion still succeeds.
+        """
+        supabase_url = str(
+            os.environ.get(SUPABASE_URL_ENV)
+            or os.environ.get("EXPO_PUBLIC_SPOTLIGHT_SUPABASE_URL")
+            or os.environ.get("SPOTLIGHT_SUPABASE_URL")
+            or ""
+        ).strip()
+        service_role_key = str(
+            os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+            or os.environ.get("SPOTLIGHT_SUPABASE_SERVICE_ROLE_KEY")
+            or ""
+        ).strip()
+
+        if not service_role_key or not supabase_url:
+            self._emit_structured_log(
+                {
+                    "severity": "WARNING",
+                    "event": "account_deletion_auth_user_skipped",
+                    "ownerUserID": owner_user_id,
+                    "reason": "missing_service_role_key" if not service_role_key else "missing_supabase_url",
+                }
+            )
+            return False
+
+        from urllib.request import Request, urlopen
+
+        admin_url = f"{supabase_url.rstrip('/')}/auth/v1/admin/users/{owner_user_id}"
+        request = Request(
+            admin_url,
+            method="DELETE",
+            headers={
+                "Authorization": f"Bearer {service_role_key}",
+                "apikey": service_role_key,
+            },
+        )
+        try:
+            with urlopen(request, timeout=10) as response:
+                status_code = int(getattr(response, "status", 0) or response.getcode())
+            if 200 <= status_code < 300:
+                return True
+            self._emit_structured_log(
+                {
+                    "severity": "WARNING",
+                    "event": "account_deletion_auth_user_failed",
+                    "ownerUserID": owner_user_id,
+                    "statusCode": status_code,
+                }
+            )
+            return False
+        except Exception as error:  # best-effort: never block account deletion
+            self._emit_structured_log(
+                {
+                    "severity": "WARNING",
+                    "event": "account_deletion_auth_user_error",
+                    "ownerUserID": owner_user_id,
+                    "error": str(error),
+                }
+            )
+            return False
+
     def set_deck_entry_quantity(self, payload: dict[str, Any]) -> dict[str, Any]:
         owner_user_id = self._current_owner_user_id()
         deck_entry_id = str(payload.get("deckEntryID") or "").strip()
@@ -15070,6 +15183,26 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Deck entry delete failed: {error}"})
                 return
             self._write_json(HTTPStatus.OK, delete_payload)
+            return
+
+        if parsed.path == "/api/v1/account/delete":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    account_payload = self.service.delete_account(payload)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except RequestAuthError as error:
+                self._write_json(HTTPStatus.UNAUTHORIZED, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Account deletion failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, account_payload)
             return
 
         if parsed.path == "/api/v1/deck/entries/quantity":

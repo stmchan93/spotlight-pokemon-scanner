@@ -836,6 +836,11 @@ export type PortfolioEntryDeleteResponsePayload = {
   cardID: string;
 };
 
+export type AccountDeleteResponsePayload = {
+  deleted: boolean;
+  authUserDeleted?: boolean;
+};
+
 export type SetPortfolioEntryQuantityRequestPayload = {
   deckEntryID: string;
   quantity: number;

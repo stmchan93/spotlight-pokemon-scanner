@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { VendorWalletHandles } from '@spotlight/api-client';
 import {
+  Button,
   SectionHeader,
   SurfaceCard,
   TextField,
@@ -30,6 +31,8 @@ export function AccountScreen() {
   const [discountText, setDiscountText] = useState<string>(
     discountPct == null ? '' : String(discountPct),
   );
+
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const [walletHandles, setWalletHandles] = useState<VendorWalletHandles | null>(null);
   const [venmoText, setVenmoText] = useState('');
@@ -76,6 +79,37 @@ export function AccountScreen() {
   const openLabelingSession = useCallback(() => {
     router.push('/labeling/session');
   }, [router]);
+
+  const confirmDeleteAccount = useCallback(async () => {
+    setIsDeleting(true);
+    try {
+      await spotlightRepository.deleteAccount();
+      await auth.signOut();
+    } catch {
+      setIsDeleting(false);
+      Alert.alert(
+        'Could not delete account',
+        'Something went wrong deleting your account. Please try again.',
+      );
+    }
+  }, [auth, spotlightRepository]);
+
+  const handleDeleteAccount = useCallback(() => {
+    Alert.alert(
+      'Delete account',
+      'This permanently deletes your account and your whole collection. This can’t be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            void confirmDeleteAccount();
+          },
+        },
+      ],
+    );
+  }, [confirmDeleteAccount]);
 
   const handleDiscountChange = useCallback(
     (rawValue: string) => {
@@ -292,6 +326,16 @@ export function AccountScreen() {
             Sign out
           </Text>
         </Pressable>
+
+        <Button
+          disabled={isDeleting || auth.isBusy}
+          label="Delete Account"
+          labelStyle={{ color: theme.colors.danger }}
+          onPress={handleDeleteAccount}
+          size="lg"
+          testID="account-delete"
+          variant="outline"
+        />
       </ScrollView>
     </SafeAreaView>
   );

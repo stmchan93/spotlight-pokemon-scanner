@@ -1,11 +1,11 @@
-import { fireEvent, screen } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { useRouter } from 'expo-router';
-import { StyleSheet } from 'react-native';
+import { Alert, StyleSheet } from 'react-native';
 
 import { AccountScreen } from '@/features/auth/screens/account-screen';
 import { useAuth } from '@/providers/auth-provider';
 
-import { renderWithProviders } from '../test-utils';
+import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
 
 jest.mock('expo-router', () => ({
   useRouter: jest.fn(),
@@ -109,5 +109,66 @@ describe('AccountScreen', () => {
     fireEvent.press(screen.getByTestId('account-label-session'));
 
     expect(push).toHaveBeenCalledWith('/labeling/session');
+  });
+
+  it('renders a destructive Delete Account action', () => {
+    renderWithProviders(<AccountScreen />);
+
+    expect(screen.getByTestId('account-delete')).toBeTruthy();
+    expect(screen.getByText('Delete Account')).toBeTruthy();
+  });
+
+  it('deletes the account then signs out after confirming the alert', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert');
+    const deleteAccount = jest.fn().mockResolvedValue({ deleted: true });
+    const spotlightRepository = createTestSpotlightRepository({ deleteAccount });
+
+    renderWithProviders(<AccountScreen />, { spotlightRepository });
+
+    fireEvent.press(screen.getByTestId('account-delete'));
+
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+    const buttons = alertSpy.mock.calls[0][2];
+    const destructiveButton = buttons?.find((button) => button.style === 'destructive');
+    expect(destructiveButton).toBeDefined();
+
+    await act(async () => {
+      destructiveButton?.onPress?.();
+    });
+
+    await waitFor(() => {
+      expect(deleteAccount).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(signOut).toHaveBeenCalledTimes(1);
+    });
+
+    alertSpy.mockRestore();
+  });
+
+  it('does not sign out when account deletion fails', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert');
+    const deleteAccount = jest.fn().mockRejectedValue(new Error('boom'));
+    const spotlightRepository = createTestSpotlightRepository({ deleteAccount });
+
+    renderWithProviders(<AccountScreen />, { spotlightRepository });
+
+    fireEvent.press(screen.getByTestId('account-delete'));
+    const destructiveButton = alertSpy.mock.calls[0][2]?.find(
+      (button) => button.style === 'destructive',
+    );
+    await act(async () => {
+      destructiveButton?.onPress?.();
+    });
+
+    await waitFor(() => {
+      expect(deleteAccount).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(alertSpy).toHaveBeenCalledTimes(2);
+    });
+    expect(signOut).not.toHaveBeenCalled();
+
+    alertSpy.mockRestore();
   });
 });
