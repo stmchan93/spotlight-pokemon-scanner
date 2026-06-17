@@ -1491,6 +1491,16 @@ DEFAULT_RAW_CONDITION = "NM"
 DEFAULT_RAW_VARIANT = "Normal"
 RAW_VARIANT_PRIORITY = ("Normal", "Holofoil", "Reverse Holofoil")
 RAW_CONDITION_PRIORITY = ("NM", "LP", "MP", "HP", "DM")
+# Deck entries store conditions in snake_case ("lightly_played"); raw price
+# contexts are keyed by the two-letter code ("LP"). Map the long forms so a
+# requested condition actually resolves instead of silently falling back to NM.
+_RAW_CONDITION_CODE_ALIASES = {
+    "near_mint": "NM",
+    "lightly_played": "LP",
+    "moderately_played": "MP",
+    "heavily_played": "HP",
+    "damaged": "DM",
+}
 
 
 def _normalized_variant_label(value: str | None) -> str:
@@ -1511,7 +1521,10 @@ def _normalized_variant_label(value: str | None) -> str:
 
 
 def _normalized_condition_code(value: str | None) -> str:
-    return str(value or DEFAULT_RAW_CONDITION).strip().upper() or DEFAULT_RAW_CONDITION
+    raw = str(value or "").strip()
+    if not raw:
+        return DEFAULT_RAW_CONDITION
+    return _RAW_CONDITION_CODE_ALIASES.get(raw.lower(), raw.upper()) or DEFAULT_RAW_CONDITION
 
 
 def _empty_raw_contexts() -> dict[str, Any]:
@@ -1808,6 +1821,12 @@ def _resolve_raw_context_summary(
 ) -> tuple[str | None, str | None, dict[str, Any] | None]:
     resolved_variant = _normalized_variant_label(variant) if variant else None
     resolved_condition = _normalized_condition_code(condition) if condition else None
+    if resolved_variant is None and resolved_condition is not None:
+        # A condition was requested without an explicit variant (e.g. a raw deck
+        # entry with variant_name=NULL): resolve the default/best variant but
+        # still honor the requested condition within it, instead of dropping
+        # straight to the NM default and showing "—" for a real LP/MP price.
+        resolved_variant, _, _ = _resolve_default_raw_context(raw_contexts)
     entry = _raw_context_entry(raw_contexts, variant=resolved_variant, condition=resolved_condition) if resolved_variant else None
     if entry is None and resolved_variant:
         for candidate in RAW_CONDITION_PRIORITY:
