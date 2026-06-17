@@ -56,6 +56,8 @@ import type {
   PortfolioEntryDeleteResponsePayload,
   PortfolioEntryReplaceRequestPayload,
   PortfolioEntryReplaceResponsePayload,
+  SetPortfolioEntryQuantityRequestPayload,
+  SetPortfolioEntryQuantityResponsePayload,
   PortfolioImportCommitResponsePayload,
   PortfolioImportJobRecord,
   PortfolioImportJobStatus,
@@ -142,6 +144,7 @@ export interface SpotlightRepository {
   createPortfolioBuy(payload: PortfolioBuyRequestPayload): Promise<PortfolioBuyResponsePayload>;
   replacePortfolioEntry(payload: PortfolioEntryReplaceRequestPayload): Promise<PortfolioEntryReplaceResponsePayload>;
   deletePortfolioEntry(payload: PortfolioEntryDeleteRequestPayload): Promise<PortfolioEntryDeleteResponsePayload>;
+  setPortfolioEntryQuantity(payload: SetPortfolioEntryQuantityRequestPayload): Promise<SetPortfolioEntryQuantityResponsePayload>;
   createPortfolioSale(payload: PortfolioSaleRequestPayload): Promise<PortfolioSaleResponsePayload>;
   createPortfolioSalesBatch(payloads: PortfolioSaleRequestPayload[]): Promise<PortfolioSaleResponsePayload[]>;
   createCardTransaction(payload: CreateCardTransactionPayload): Promise<CardTransactionRecord>;
@@ -2928,6 +2931,15 @@ export class MockSpotlightRepository implements SpotlightRepository {
     };
   }
 
+  async setPortfolioEntryQuantity(payload: SetPortfolioEntryQuantityRequestPayload) {
+    return {
+      deckEntryID: payload.deckEntryID,
+      cardID: 'mock-card',
+      quantity: payload.quantity,
+      deleted: payload.quantity === 0,
+    };
+  }
+
   async createPortfolioSale(payload: PortfolioSaleRequestPayload) {
     const { updatedEntries, saleResponse, recentSale } = updateInventoryForSale(
       this.inventoryEntries,
@@ -4369,6 +4381,16 @@ export class HttpSpotlightRepository implements SpotlightRepository {
 
   async deletePortfolioEntry(payload: PortfolioEntryDeleteRequestPayload) {
     return this.requestJsonOrThrow<PortfolioEntryDeleteResponsePayload>(`${this.baseUrl}/api/v1/deck/entries/delete`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async setPortfolioEntryQuantity(payload: SetPortfolioEntryQuantityRequestPayload) {
+    return this.requestJsonOrThrow<SetPortfolioEntryQuantityResponsePayload>(`${this.baseUrl}/api/v1/deck/entries/quantity`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

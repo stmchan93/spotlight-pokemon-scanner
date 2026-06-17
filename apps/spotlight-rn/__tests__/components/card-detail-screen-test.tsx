@@ -1,5 +1,5 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
-import { Linking, Share } from 'react-native';
+import { Alert, Linking, Share } from 'react-native';
 
 import type { CardDetailRecord, CardText, InventoryCardEntry } from '@spotlight/api-client';
 import { CardDetailScreen } from '@/features/cards/screens/card-detail-screen';
@@ -593,6 +593,106 @@ describe('CardDetailScreen', () => {
 
     // The grade trigger surfaces the owned slab grade for the PSA lane.
     expect(await screen.findByText('PSA 10')).toBeTruthy();
+  });
+
+  function ownedGradedEntry(quantity: number): InventoryCardEntry {
+    return {
+      addedAt: '2026-04-27T12:00:00.000Z',
+      cardId: 'sm7-1',
+      cardNumber: '#001/096',
+      conditionCode: null,
+      conditionLabel: null,
+      conditionShortLabel: null,
+      costBasisPerUnit: null,
+      costBasisTotal: null,
+      currencyCode: 'USD',
+      hasMarketPrice: true,
+      id: 'graded-treecko-psa10',
+      imageUrl: 'https://cdn.spotlight.test/sm7/treecko-psa10.png',
+      kind: 'graded',
+      marketPrice: 52,
+      name: 'Treecko',
+      quantity,
+      setName: 'Sky Stream',
+      slabContext: { certNumber: '00012345', grade: '10', grader: 'PSA', variantName: 'PSA 10' },
+      variantName: 'PSA 10',
+    };
+  }
+
+  function renderOwnedGraded(
+    overrides: Partial<React.ComponentProps<typeof CardDetailScreen>>,
+    repoOverrides: Parameters<typeof createTestSpotlightRepository>[0],
+  ) {
+    const baseRepository = createTestSpotlightRepository();
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" entryId="graded-treecko-psa10" onBack={jest.fn()} {...overrides} />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardDetail: async (query) => {
+            const detail = await baseRepository.getCardDetail(query);
+            return detail
+              ? ({ ...detail, ownedEntries: [ownedGradedEntry(6)] } satisfies CardDetailRecord)
+              : null;
+          },
+          ...repoOverrides,
+        }),
+      },
+    );
+  }
+
+  it('seeds the owned quantity and UPDATE sets it via setPortfolioEntryQuantity', async () => {
+    const setPortfolioEntryQuantity = jest.fn(async (payload: { deckEntryID: string; quantity: number }) => ({
+      deckEntryID: payload.deckEntryID,
+      cardID: 'sm7-1',
+      quantity: payload.quantity,
+      deleted: payload.quantity === 0,
+    }));
+
+    renderOwnedGraded({}, { setPortfolioEntryQuantity });
+
+    // The owned quantity (6) seeds into the stepper, and the action is UPDATE.
+    const quantityValue = await screen.findByTestId('detail-configurator-quantity-value');
+    await waitFor(() => expect(quantityValue.props.children).toBe(6));
+    expect(screen.queryByTestId('detail-add-item')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('detail-update-item'));
+    await waitFor(() => {
+      expect(setPortfolioEntryQuantity).toHaveBeenCalledWith({
+        deckEntryID: 'graded-treecko-psa10',
+        quantity: 6,
+      });
+    });
+  });
+
+  it('Remove from collection deletes the entry (quantity 0) and navigates back', async () => {
+    const onBack = jest.fn();
+    const setPortfolioEntryQuantity = jest.fn(async (payload: { deckEntryID: string; quantity: number }) => ({
+      deckEntryID: payload.deckEntryID,
+      cardID: 'sm7-1',
+      quantity: payload.quantity,
+      deleted: true,
+    }));
+    const alertSpy = jest.spyOn(Alert, 'alert');
+
+    renderOwnedGraded({ onBack }, { setPortfolioEntryQuantity });
+
+    fireEvent.press(await screen.findByTestId('detail-remove-item'));
+
+    // Confirm via the destructive button in the Alert.
+    expect(alertSpy).toHaveBeenCalled();
+    const buttons = alertSpy.mock.calls[0][2] ?? [];
+    const confirm = buttons.find((button) => button.style === 'destructive');
+    confirm?.onPress?.();
+
+    await waitFor(() => {
+      expect(setPortfolioEntryQuantity).toHaveBeenCalledWith({
+        deckEntryID: 'graded-treecko-psa10',
+        quantity: 0,
+      });
+      expect(onBack).toHaveBeenCalled();
+    });
+
+    alertSpy.mockRestore();
   });
 
   it('no longer renders the similar-cards button even with scan candidates present', async () => {

@@ -4776,6 +4776,53 @@ class SpotlightScanService:
             "cardID": resolved_card_id,
         }
 
+    def set_deck_entry_quantity(self, payload: dict[str, Any]) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        deck_entry_id = str(payload.get("deckEntryID") or "").strip()
+        if not deck_entry_id:
+            raise ValueError("deckEntryID is required")
+
+        try:
+            quantity = int(payload.get("quantity", 0))
+        except (TypeError, ValueError):
+            raise ValueError("quantity must be an integer") from None
+        if quantity < 0:
+            raise ValueError("quantity must be at least 0")
+
+        existing_row = self._owned_deck_entry_row_by_reference(deck_entry_id)
+        if existing_row is None:
+            raise FileNotFoundError("deck entry not found")
+        resolved_deck_entry_id = str(existing_row["id"] or "").strip()
+        resolved_card_id = str(existing_row["card_id"] or "").strip()
+
+        try:
+            if quantity == 0:
+                self.connection.execute(
+                    "DELETE FROM deck_entries WHERE id = ? AND owner_user_id = ?",
+                    (resolved_deck_entry_id, owner_user_id),
+                )
+            else:
+                self.connection.execute(
+                    """
+                    UPDATE deck_entries
+                    SET quantity = ?, updated_at = ?
+                    WHERE id = ?
+                      AND owner_user_id = ?
+                    """,
+                    (quantity, utc_now(), resolved_deck_entry_id, owner_user_id),
+                )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+
+        return {
+            "deckEntryID": resolved_deck_entry_id,
+            "cardID": resolved_card_id,
+            "quantity": 0 if quantity == 0 else quantity,
+            "deleted": quantity == 0,
+        }
+
     def preview_portfolio_import(self, payload: dict[str, Any]) -> dict[str, Any]:
         return preview_portfolio_import(self.connection, payload, owner_user_id=self._current_owner_user_id())
 
@@ -14990,6 +15037,26 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Deck entry delete failed: {error}"})
                 return
             self._write_json(HTTPStatus.OK, delete_payload)
+            return
+
+        if parsed.path == "/api/v1/deck/entries/quantity":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    quantity_payload = self.service.set_deck_entry_quantity(payload)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Deck quantity update failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, quantity_payload)
             return
 
         if parsed.path == "/api/v1/deck/entries/purchase-price":

@@ -1205,6 +1205,49 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         ).fetchone()
         self.assertEqual(accrued["quantity"], 15)
 
+    def test_set_deck_entry_quantity_sets_and_deletes(self) -> None:
+        # The collection "set quantity" endpoint must set an absolute quantity
+        # (not accrue) and delete the entry when quantity drops to 0.
+        self._insert_card("base1-4", name="Charizard")
+
+        created = self.service.create_deck_entry(
+            {
+                "cardID": "base1-4",
+                "slabContext": {"grader": "PSA", "grade": "10", "variantName": "PSA 10"},
+                "quantity": 6,
+                "selectionSource": "manual_search",
+                "addedAt": "2026-04-14T20:10:00Z",
+            }
+        )
+        deck_entry_id = created["deckEntryID"]
+
+        set_result = self.service.set_deck_entry_quantity(
+            {"deckEntryID": deck_entry_id, "quantity": 4}
+        )
+        self.assertEqual(set_result["quantity"], 4)
+        self.assertFalse(set_result["deleted"])
+        row = self.service.connection.execute(
+            "SELECT quantity FROM deck_entries WHERE id = ?",
+            (deck_entry_id,),
+        ).fetchone()
+        self.assertEqual(row["quantity"], 4)
+
+        delete_result = self.service.set_deck_entry_quantity(
+            {"deckEntryID": deck_entry_id, "quantity": 0}
+        )
+        self.assertTrue(delete_result["deleted"])
+        self.assertEqual(delete_result["quantity"], 0)
+        gone = self.service.connection.execute(
+            "SELECT quantity FROM deck_entries WHERE id = ?",
+            (deck_entry_id,),
+        ).fetchone()
+        self.assertIsNone(gone)
+
+        with self.assertRaises(ValueError):
+            self.service.set_deck_entry_quantity(
+                {"deckEntryID": deck_entry_id, "quantity": -1}
+            )
+
     def test_deck_entries_reads_sql_backed_cards_and_summary(self) -> None:
         self._insert_card("gym1-60", name="Sabrina's Slowbro")
         self._insert_card("base1-4", name="Charizard")

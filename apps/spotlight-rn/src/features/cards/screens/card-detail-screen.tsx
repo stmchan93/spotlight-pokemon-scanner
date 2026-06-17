@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Alert,
   Linking,
   ScrollView,
   Share,
@@ -135,6 +136,7 @@ export function CardDetailScreen({
   const [quantity, setQuantity] = useState(1);
   const [gradeSheetOpen, setGradeSheetOpen] = useState(false);
   const [isAddPending, setIsAddPending] = useState(false);
+  const [isManagePending, setIsManagePending] = useState(false);
 
   const [priceTrends, setPriceTrends] = useState<CardPriceTrendListRecord | null>(null);
   const [priceTrendsLoading, setPriceTrendsLoading] = useState(false);
@@ -225,6 +227,7 @@ export function CardDetailScreen({
     lastFetchedLaneKeyRef.current = null;
     seededCardIdRef.current = null;
     seededVariantCardIdRef.current = null;
+    seededQuantityEntryIdRef.current = null;
   }, [cardId]);
 
   useEffect(() => {
@@ -667,6 +670,106 @@ export function CardDetailScreen({
     spotlightRepository,
   ]);
 
+  // "Manage mode": the configurator's current selection (lane + grade/grader or
+  // variant/condition) matches the identity of the owned entry, so the primary
+  // action manages the existing entry's quantity instead of accruing a new one.
+  // When the user changes a dropdown to a non-owned config, this flips false and
+  // the page reverts to ADD ITEM accrue mode.
+  const isManaged = useMemo(() => {
+    if (!selectedEntry) {
+      return false;
+    }
+    const entryIsRaw = selectedEntry.kind === 'raw';
+    if (isRawLane !== entryIsRaw) {
+      return false;
+    }
+    if (isRawLane) {
+      const ownedVariant = (selectedEntry.variantName ?? '').trim().toLowerCase();
+      const selVariant = (selectedVariantLabel ?? '').trim().toLowerCase();
+      const ownedCondition = selectedEntry.conditionCode ?? null;
+      return ownedVariant === selVariant && ownedCondition === selectedCondition;
+    }
+    const ownedGrader = (selectedEntry.slabContext?.grader ?? '').trim().toLowerCase();
+    const ownedGrade = (selectedEntry.slabContext?.grade ?? '').trim().toLowerCase();
+    const selGrader = (selectedGrader ?? '').trim().toLowerCase();
+    const selGrade = (selectedGrade ?? '').trim().toLowerCase();
+    return ownedGrader === selGrader && ownedGrade === selGrade;
+  }, [
+    isRawLane,
+    selectedCondition,
+    selectedEntry,
+    selectedGrade,
+    selectedGrader,
+    selectedVariantLabel,
+  ]);
+
+  // Seed the quantity stepper from the owned entry exactly once per owned entry
+  // id (mirrors the grader/variant seed guards), so opening a managed card shows
+  // its real owned quantity — without clobbering the user's later manual −/+
+  // edits. Re-seeds only when a different owned entry id resolves.
+  const seededQuantityEntryIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!selectedEntry) {
+      return;
+    }
+    if (seededQuantityEntryIdRef.current === selectedEntry.id) {
+      return;
+    }
+    seededQuantityEntryIdRef.current = selectedEntry.id;
+    setQuantity(Math.max(1, selectedEntry.quantity));
+  }, [selectedEntry]);
+
+  const handleUpdateItem = useCallback(() => {
+    if (isManagePending || !selectedEntry) {
+      return;
+    }
+    setIsManagePending(true);
+    void spotlightRepository
+      .setPortfolioEntryQuantity({ deckEntryID: selectedEntry.id, quantity: Math.max(1, quantity) })
+      .then(() => {
+        refreshData();
+      })
+      .catch(() => {
+        setErrorMessage('Could not update this card right now.');
+      })
+      .finally(() => {
+        setIsManagePending(false);
+      });
+  }, [isManagePending, quantity, refreshData, selectedEntry, spotlightRepository]);
+
+  const handleRemoveItem = useCallback(() => {
+    if (isManagePending || !selectedEntry) {
+      return;
+    }
+    const entryId = selectedEntry.id;
+    Alert.alert(
+      'Remove from collection',
+      'Remove this card from your collection?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: () => {
+            setIsManagePending(true);
+            void spotlightRepository
+              .setPortfolioEntryQuantity({ deckEntryID: entryId, quantity: 0 })
+              .then(() => {
+                refreshData();
+                onBack();
+              })
+              .catch(() => {
+                setErrorMessage('Could not remove this card right now.');
+              })
+              .finally(() => {
+                setIsManagePending(false);
+              });
+          },
+        },
+      ],
+    );
+  }, [isManagePending, onBack, refreshData, selectedEntry, spotlightRepository]);
+
   // Grade/Condition dropdown wiring for the configurator.
   // Both lanes title this section "Grade" per Figma (992-7373 graded /
   // 1080-3404 raw); the raw dropdown still lists conditions (Near Mint…Damaged).
@@ -780,19 +883,35 @@ export function CardDetailScreen({
             testID="detail-sell-now"
             variant="outline"
           />
-          <Button
-            // Disabled until the card resolves so ADD ITEM is always a direct
-            // add with the on-page variant/condition (never the old sheet).
-            disabled={isAddPending || !detail}
-            label="ADD ITEM"
-            labelStyleVariant="label"
-            onPress={handleAddItem}
-            shape="rounded"
-            size="md"
-            style={styles.actionButton}
-            testID="detail-add-item"
-            variant="accent"
-          />
+          {isManaged ? (
+            // Owned card with the configured lane matching the owned entry:
+            // UPDATE sets the holding to the stepper quantity (not accrue).
+            <Button
+              disabled={isManagePending || !detail}
+              label="UPDATE"
+              labelStyleVariant="label"
+              onPress={handleUpdateItem}
+              shape="rounded"
+              size="md"
+              style={styles.actionButton}
+              testID="detail-update-item"
+              variant="accent"
+            />
+          ) : (
+            <Button
+              // Disabled until the card resolves so ADD ITEM is always a direct
+              // add with the on-page variant/condition (never the old sheet).
+              disabled={isAddPending || !detail}
+              label="ADD ITEM"
+              labelStyleVariant="label"
+              onPress={handleAddItem}
+              shape="rounded"
+              size="md"
+              style={styles.actionButton}
+              testID="detail-add-item"
+              variant="accent"
+            />
+          )}
         </View>
 
         <CardConfigurator
@@ -811,6 +930,19 @@ export function CardDetailScreen({
           variants={variantOptions}
           variantsLoading={detail == null && errorMessage == null}
         />
+
+        {isManaged ? (
+          <Button
+            disabled={isManagePending}
+            label="Remove from collection"
+            labelStyleVariant="label"
+            onPress={handleRemoveItem}
+            shape="rounded"
+            size="md"
+            testID="detail-remove-item"
+            variant="outline"
+          />
+        ) : null}
 
         <GradeConditionSheet
           onClose={() => setGradeSheetOpen(false)}

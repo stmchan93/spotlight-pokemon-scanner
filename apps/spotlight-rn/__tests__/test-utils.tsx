@@ -148,6 +148,10 @@ export function createTestSpotlightRepository(
       return overrides.deletePortfolioEntry?.(...args)
         ?? baseRepository.deletePortfolioEntry(...args);
     },
+    setPortfolioEntryQuantity: (...args) => {
+      return overrides.setPortfolioEntryQuantity?.(...args)
+        ?? baseRepository.setPortfolioEntryQuantity(...args);
+    },
     createPortfolioSale: (...args) => {
       return overrides.createPortfolioSale?.(...args)
         ?? baseRepository.createPortfolioSale(...args);
