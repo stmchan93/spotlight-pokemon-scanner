@@ -316,6 +316,11 @@ describe('CardDetailScreen', () => {
     expect(url).toContain('Condition=Near+Mint');
     // …but never the Printing facet (it over-constrains promos → wrong card).
     expect(url).not.toContain('Printing=');
+    // Tracked for the "checks pricing" funnel.
+    expect(capturePostHogEvent).toHaveBeenCalledWith('pricing_link_opened', {
+      marketplace: 'tcgplayer',
+      lane: 'raw',
+    });
   });
 
   it('graded price-trend row opens eBay sold-listings search scoped to the grade', async () => {
@@ -342,6 +347,11 @@ describe('CardDetailScreen', () => {
     expect(url).toContain('_nkw=PSA+10'); // grader + grade lead the sold-search query
     expect(url).toContain('LH_Sold=1');
     expect(url).toContain('LH_Complete=1');
+    // Tracked for the "checks pricing" funnel.
+    expect(capturePostHogEvent).toHaveBeenCalledWith('pricing_link_opened', {
+      marketplace: 'ebay',
+      lane: 'graded',
+    });
   });
 
   it('parses the pipe-delimited graded row key too (backend version robustness)', async () => {

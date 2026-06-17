@@ -465,6 +465,7 @@ export function CardDetailScreen({
         grade,
       });
       if (ebayUrl) {
+        capturePostHogEvent('pricing_link_opened', { marketplace: 'ebay', lane: 'graded' });
         void Linking.openURL(ebayUrl);
       }
       return;
@@ -486,6 +487,7 @@ export function CardDetailScreen({
       condition,
     });
     if (url) {
+      capturePostHogEvent('pricing_link_opened', { marketplace: 'tcgplayer', lane: 'raw' });
       void Linking.openURL(url);
     }
   }, [detail, priceTrends]);
@@ -525,6 +527,7 @@ export function CardDetailScreen({
         grade,
       });
       if (ebayUrl) {
+        capturePostHogEvent('pricing_link_opened', { marketplace: 'ebay', lane: 'graded' });
         void Linking.openURL(ebayUrl);
       }
       return;
@@ -539,6 +542,7 @@ export function CardDetailScreen({
       condition: 'Near Mint',
     });
     if (url) {
+      capturePostHogEvent('pricing_link_opened', { marketplace: 'tcgplayer', lane: 'raw' });
       void Linking.openURL(url);
     }
   }, [detail, priceTrends, selectedGrade, selectedGrader]);

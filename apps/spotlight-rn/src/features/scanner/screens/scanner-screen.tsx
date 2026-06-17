@@ -1558,6 +1558,7 @@ export function ScannerScreen({
       setInventoryEntries((current) => withUpdatedInventoryFavoriteState(current, cardId, true));
       refreshData();
       didSucceed = true;
+      capturePostHogEvent('scan_wishlist_added', { mode: capture.mode });
     } catch (error) {
       logScannerDiagnostic(
         `[SCANNER] wishlist add failed cardID=${cardId} message=${scannerErrorMessage(error)}`,
