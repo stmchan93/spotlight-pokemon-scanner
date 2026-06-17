@@ -76,41 +76,6 @@ describe('AccountScreen', () => {
     expect(back).toHaveBeenCalledTimes(1);
   });
 
-  it('shows a label-session entry for labeler-enabled users and routes into the labeling flow', () => {
-    (useAuth as jest.Mock).mockReturnValue({
-      appleSignInAvailable: true,
-      configurationIssue: null,
-      currentUser: {
-        adminEnabled: false,
-        avatarURL: null,
-        displayName: 'Labeler',
-        email: 'labeler@example.com',
-        id: 'user-2',
-        labelerEnabled: true,
-        providers: ['apple'],
-      },
-      errorMessage: null,
-      isBusy: false,
-      isConfigured: true,
-      profileDraftName: '',
-      setProfileDraftName: jest.fn(),
-      signInWithApple: jest.fn(),
-      signInWithGoogle: jest.fn(),
-      signOut,
-      state: 'authenticated',
-      submitProfile: jest.fn(),
-    });
-
-    renderWithProviders(<AccountScreen />);
-
-    expect(screen.getByTestId('account-label-session')).toBeTruthy();
-    expect(screen.getByText('+ Label Session')).toBeTruthy();
-
-    fireEvent.press(screen.getByTestId('account-label-session'));
-
-    expect(push).toHaveBeenCalledWith('/labeling/session');
-  });
-
   it('renders a destructive Delete Account action', () => {
     renderWithProviders(<AccountScreen />);
 

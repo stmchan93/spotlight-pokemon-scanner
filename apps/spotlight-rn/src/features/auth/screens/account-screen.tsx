@@ -1,21 +1,17 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import type { VendorWalletHandles } from '@spotlight/api-client';
 import {
   Button,
-  SectionHeader,
   SurfaceCard,
-  TextField,
   colors,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
-import { useSuggestedDiscount } from '@/features/pricing/use-suggested-discount';
 import { useAuth } from '@/providers/auth-provider';
 import { useAppServices } from '@/providers/app-providers';
 
@@ -24,61 +20,9 @@ export function AccountScreen() {
   const theme = useSpotlightTheme();
   const auth = useAuth();
   const user = auth.currentUser;
-  const canStartLabelingSession = !!(user?.labelerEnabled || user?.adminEnabled);
   const { spotlightRepository } = useAppServices();
 
-  const { discountPct, setDiscountPct } = useSuggestedDiscount();
-  const [discountText, setDiscountText] = useState<string>(
-    discountPct == null ? '' : String(discountPct),
-  );
-
   const [isDeleting, setIsDeleting] = useState(false);
-
-  const [walletHandles, setWalletHandles] = useState<VendorWalletHandles | null>(null);
-  const [venmoText, setVenmoText] = useState('');
-  const [cashappText, setCashappText] = useState('');
-  const [paypalText, setPaypalText] = useState('');
-  const [zelleText, setZelleText] = useState('');
-
-  useEffect(() => {
-    void spotlightRepository.getVendorWalletHandles().then((handles) => {
-      setWalletHandles(handles);
-      setVenmoText(handles.venmoHandle ?? '');
-      setCashappText(handles.cashappHandle ?? '');
-      setPaypalText(handles.paypalMeSlug ?? '');
-      setZelleText(handles.zelleEmailOrPhone ?? '');
-    }).catch(() => {});
-  }, [spotlightRepository]);
-
-  const saveWalletHandles = useCallback((update: Partial<VendorWalletHandles>) => {
-    if (!walletHandles) return;
-    const merged = { ...walletHandles, ...update };
-    setWalletHandles(merged);
-    void spotlightRepository.updateVendorWalletHandles({
-      venmoHandle: merged.venmoHandle ?? null,
-      cashappHandle: merged.cashappHandle ?? null,
-      paypalMeSlug: merged.paypalMeSlug ?? null,
-      zelleEmailOrPhone: merged.zelleEmailOrPhone ?? null,
-    }).catch(() => {});
-  }, [spotlightRepository, walletHandles]);
-
-  useEffect(() => {
-    // Keep the input mirror in sync if the persisted value changes elsewhere
-    // (e.g. async hydration on mount or another mount of this screen). We only
-    // overwrite if the integer parse of the current text doesn't already match
-    // the persisted value, so the user's in-progress typing isn't stomped.
-    const parsed = discountText === '' ? null : Number.parseInt(discountText, 10);
-    const parsedMatchesStored =
-      (parsed == null && discountPct == null) ||
-      (Number.isFinite(parsed) && parsed === discountPct);
-    if (!parsedMatchesStored) {
-      setDiscountText(discountPct == null ? '' : String(discountPct));
-    }
-  }, [discountPct, discountText]);
-
-  const openLabelingSession = useCallback(() => {
-    router.push('/labeling/session');
-  }, [router]);
 
   const confirmDeleteAccount = useCallback(async () => {
     setIsDeleting(true);
@@ -110,26 +54,6 @@ export function AccountScreen() {
       ],
     );
   }, [confirmDeleteAccount]);
-
-  const handleDiscountChange = useCallback(
-    (rawValue: string) => {
-      // Allow only digits, max 3 characters; clamp to 0–100 and persist.
-      const digitsOnly = rawValue.replace(/[^0-9]/g, '').slice(0, 3);
-      setDiscountText(digitsOnly);
-
-      if (digitsOnly === '') {
-        setDiscountPct(null);
-        return;
-      }
-
-      const parsed = Number.parseInt(digitsOnly, 10);
-      if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) {
-        return;
-      }
-      setDiscountPct(parsed);
-    },
-    [setDiscountPct],
-  );
 
   return (
     <SafeAreaView
@@ -193,119 +117,6 @@ export function AccountScreen() {
             </View>
           </View>
         </SurfaceCard>
-
-        <View style={styles.section} testID="account-pricing-section">
-          <SectionHeader
-            subtitle="Optional markdown applied to market prices when shown in the app."
-            testID="account-pricing-header"
-            title="Pricing"
-          />
-          <SurfaceCard padding={20} radius={28}>
-            <TextField
-              helperText="Leave empty to hide suggested price"
-              keyboardType="number-pad"
-              label="Suggested discount"
-              maxLength={3}
-              onChangeText={handleDiscountChange}
-              placeholder="0"
-              returnKeyType="done"
-              testID="account-pricing-discount-input"
-              trailing={
-                <Text
-                  style={[theme.typography.body, { color: theme.colors.textSecondary }]}
-                  testID="account-pricing-discount-suffix"
-                >
-                  %
-                </Text>
-              }
-              value={discountText}
-            />
-          </SurfaceCard>
-        </View>
-
-        <View style={styles.section} testID="account-payment-section">
-          <SectionHeader
-            subtitle="Used to generate QR codes and payment links when you sell."
-            testID="account-payment-header"
-            title="Payment handles"
-          />
-          <SurfaceCard padding={20} radius={28} style={styles.paymentCard}>
-            <TextField
-              autoCapitalize="none"
-              autoCorrect={false}
-              label="Venmo"
-              leading={<Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>@</Text>}
-              onBlur={() => saveWalletHandles({ venmoHandle: venmoText.replace(/^@/, '') || null })}
-              onChangeText={setVenmoText}
-              placeholder="username"
-              returnKeyType="done"
-              testID="account-payment-venmo"
-              value={venmoText}
-            />
-            <TextField
-              autoCapitalize="none"
-              autoCorrect={false}
-              label="Cash App"
-              leading={<Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>$</Text>}
-              onBlur={() => saveWalletHandles({ cashappHandle: cashappText.replace(/^\$/, '') || null })}
-              onChangeText={setCashappText}
-              placeholder="cashtag"
-              returnKeyType="done"
-              testID="account-payment-cashapp"
-              value={cashappText}
-            />
-            <TextField
-              autoCapitalize="none"
-              autoCorrect={false}
-              label="PayPal"
-              leading={<Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>paypal.me/</Text>}
-              onBlur={() => saveWalletHandles({ paypalMeSlug: paypalText || null })}
-              onChangeText={setPaypalText}
-              placeholder="slug"
-              returnKeyType="done"
-              testID="account-payment-paypal"
-              value={paypalText}
-            />
-            <TextField
-              autoCapitalize="none"
-              autoCorrect={false}
-              label="Zelle"
-              onBlur={() => saveWalletHandles({ zelleEmailOrPhone: zelleText || null })}
-              onChangeText={setZelleText}
-              placeholder="Email or phone number"
-              returnKeyType="done"
-              testID="account-payment-zelle"
-              value={zelleText}
-            />
-          </SurfaceCard>
-        </View>
-
-        {canStartLabelingSession ? (
-          <SurfaceCard padding={20} radius={28}>
-            <Pressable
-              accessibilityLabel="Start label session"
-              accessibilityRole="button"
-              onPress={openLabelingSession}
-              style={({ pressed }) => [
-                styles.labelSessionButton,
-                {
-                  backgroundColor: theme.colors.brand,
-                  opacity: pressed ? 0.9 : 1,
-                },
-              ]}
-              testID="account-label-session"
-            >
-              <View style={styles.labelSessionCopy}>
-                <Text style={[theme.typography.control, { color: theme.colors.textInverse }]}>
-                  + Label Session
-                </Text>
-                <Text style={[theme.typography.caption, { color: theme.colors.textInverse }]}>
-                  Capture labeling photos with the existing scanner flow.
-                </Text>
-              </View>
-            </Pressable>
-          </SurfaceCard>
-        ) : null}
 
         <Pressable
           accessibilityRole="button"
@@ -374,23 +185,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 14,
   },
-  labelSessionButton: {
-    borderRadius: 24,
-    minHeight: 78,
-    paddingHorizontal: 18,
-    paddingVertical: 16,
-  },
-  labelSessionCopy: {
-    gap: 6,
-  },
   safeArea: {
     flex: 1,
-  },
-  paymentCard: {
-    gap: 16,
-  },
-  section: {
-    gap: 12,
   },
   signOutButton: {
     alignItems: 'center',
