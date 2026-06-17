@@ -66,7 +66,7 @@ export function EmailPasswordScreen({
       onBack={onBack}
       testID="auth-email-password-screen"
     >
-      <AuthWordmark tagline={null} />
+      <AuthWordmark />
 
       <View style={styles.form}>
         <ReadOnlyField label="Email" testID="auth-emailpw-email" value={email} />

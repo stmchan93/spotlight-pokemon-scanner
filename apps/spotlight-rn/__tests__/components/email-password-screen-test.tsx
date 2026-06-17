@@ -44,6 +44,8 @@ describe('EmailPasswordScreen', () => {
     renderScreen({ mode: 'signup' });
 
     expect(screen.getByTestId('auth-brand-wordmark')).toBeTruthy();
+    // The value-prop tagline persists through the whole email flow.
+    expect(screen.getByText('Scan, Price, and Track your collection')).toBeTruthy();
     expect(screen.getByTestId('auth-emailpw-email')).toBeTruthy();
     expect(screen.getByTestId('auth-firstname-input')).toBeTruthy();
     expect(screen.getByTestId('auth-lastname-input')).toBeTruthy();
