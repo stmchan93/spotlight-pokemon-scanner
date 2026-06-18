@@ -835,7 +835,7 @@ describe('HttpSpotlightRepository', () => {
     }
   });
 
-  it('does not retry scanner match requests across fallback base URLs', async () => {
+  it('retries raw scanner match on the active host without fanning out to fallback base URLs', async () => {
     global.fetch = jest.fn().mockImplementation(async (url: string) => {
       if (url.startsWith('http://bad.local:8788/api/v1/scan/visual-match')) {
         throw new Error('backend offline');
@@ -846,6 +846,11 @@ describe('HttpSpotlightRepository', () => {
           scanID: 'scan-should-not-succeed',
           topCandidates: [],
         });
+      }
+
+      if (url.includes('scan-artifacts')) {
+        // Deferred raw artifact upload fires after the match; let it resolve.
+        return jsonResponse(200, { normalizedObjectPath: 'n', storage: 'gcs' });
       }
 
       throw new Error(`Unexpected URL: ${url}`);
@@ -866,14 +871,14 @@ describe('HttpSpotlightRepository', () => {
       message: 'backend offline',
     });
 
-    expect((global.fetch as jest.Mock).mock.calls).toEqual([
-      [
-        'http://bad.local:8788/api/v1/scan/visual-match',
-        expect.objectContaining({
-          method: 'POST',
-        }),
-      ],
-    ]);
+    // The raw match retries on transient failure, but every attempt stays on the ACTIVE
+    // host — it must never fall back to the secondary base URL (single_active strategy).
+    const matchUrls = (global.fetch as jest.Mock).mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.includes('/api/v1/scan/visual-match'));
+    expect(matchUrls.length).toBeGreaterThan(1); // retried
+    expect(matchUrls.every((url) => url.startsWith('http://bad.local:8788/'))).toBe(true);
+    expect(matchUrls.some((url) => url.includes('192.168.1.146'))).toBe(false); // no fallback host
   });
 
   it('preserves slab review reasons when scan match returns unsupported without candidates', async () => {
@@ -1193,9 +1198,14 @@ describe('HttpSpotlightRepository', () => {
     });
   });
 
-  it('uses a longer timeout budget for scanner match requests', async () => {
+  it('uses a short per-attempt timeout and retries a stalled raw match before giving up', async () => {
     jest.useFakeTimers();
-    global.fetch = jest.fn().mockImplementation((_url: string, init?: RequestInit) => {
+    global.fetch = jest.fn().mockImplementation((url: string, init?: RequestInit) => {
+      // The deferred raw artifact upload fires after the match exhausts its retries; let
+      // it resolve so it never hangs the test.
+      if (String(url).includes('scan-artifacts')) {
+        return Promise.resolve(jsonResponse(200, { normalizedObjectPath: 'n', storage: 'gcs' }));
+      }
       return new Promise<Response>((_, reject) => {
         const signal = init?.signal;
         const abort = () => {
@@ -1222,12 +1232,21 @@ describe('HttpSpotlightRepository', () => {
     });
     const capturedRejection = matchPromise.catch((error: unknown) => error);
 
-    await jest.advanceTimersByTimeAsync(19000);
-    await Promise.resolve();
-    expect(global.fetch).toHaveBeenCalledTimes(1);
+    const matchCallCount = () => (global.fetch as jest.Mock).mock.calls
+      .filter(([url]) => String(url).includes('/api/v1/scan/visual-match')).length;
 
-    await jest.advanceTimersByTimeAsync(1000);
+    // The first attempt is still in flight just under the ~10s per-attempt timeout.
+    await jest.advanceTimersByTimeAsync(9000);
+    expect(matchCallCount()).toBe(1);
 
+    // Cross the per-attempt timeout → attempt 1 aborts, and after the backoff a SECOND
+    // attempt fires (the retry the old single-attempt path never had).
+    await jest.advanceTimersByTimeAsync(3000);
+    expect(matchCallCount()).toBeGreaterThanOrEqual(2);
+
+    // Let all remaining attempts + backoffs elapse → it surfaces the timeout, bounded.
+    await jest.advanceTimersByTimeAsync(60000);
+    expect(matchCallCount()).toBe(3); // 1 initial + 2 retries, no infinite loop
     await expect(capturedRejection).resolves.toMatchObject({
       kind: 'request_failed',
       message: 'Request timed out while contacting the Spotlight backend.',

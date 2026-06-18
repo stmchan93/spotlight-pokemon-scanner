@@ -208,6 +208,16 @@ type JsonRequestResult<T> =
 // slow-but-working requests and surfaced a spurious "couldn't refresh" banner.
 const defaultHttpRequestTimeoutMs = 12000;
 const scanMatchRequestTimeoutMs = 20000;
+// Raw visual matches return in <1s on a healthy network. Give each raw attempt a short
+// timeout and retry transient transport/timeout/HTTP failures a couple of times, so one
+// stalled upload (weak wifi, a far VPN exit) recovers on the next attempt instead of
+// dead-ending to "Photo captured, but matches could not load". Retrying is safe: the
+// backend upserts by the stable client-generated scanID (idempotent). Slabs are NOT
+// retried here and keep the single long timeout above — their matches take 40-50s and a
+// short timeout would false-fail them.
+const rawMatchPerAttemptTimeoutMs = 10000;
+const rawMatchAttempts = 3; // 1 initial attempt + up to 2 retries
+const rawMatchRetryBackoffsMs = [500, 1000];
 // The artifact upload carries the full normalized (+ optional source) image as
 // base64, so it's heavier than the match request and was being starved by the
 // 12s default while match got 20s. Give it its own, longer budget.
@@ -3893,16 +3903,19 @@ export class HttpSpotlightRepository implements SpotlightRepository {
   async matchScannerCapture(payload: ScannerCapturePayload, options?: ScannerMatchOptions) {
     const endpointPath = scannerMatchEndpointPath(payload);
     const startedAt = Date.now();
-    // Generate the scanID up-front so the artifact upload can fire in parallel with the match
-    // request. Slab matches take 40-50s on staging; if the upload were chained behind the match
-    // response the user often backgrounds the app before it ever kicks off, leaving zero slab
-    // artifacts in GCS. See repo bug investigation 2026-05-19.
+    // Generate the scanID up-front so the same id keys both the match and the artifact
+    // upload (the backend upserts by it). See the per-mode upload timing below.
     const scanID = createPseudoUUID();
+    const isRawMatch = payload.mode === 'raw';
 
-    const matchRequestPromise = this.requestJson<ScanMatchResponseDTO>(
+    // Build the request body once and reuse it across retry attempts.
+    const matchRequestBody = JSON.stringify(
+      createScannerMatchPayload(payload, scanID, this.clientContext ?? undefined),
+    );
+    const runMatchRequest = () => this.requestJson<ScanMatchResponseDTO>(
       `${this.baseUrl}/${endpointPath}`,
       {
-        body: JSON.stringify(createScannerMatchPayload(payload, scanID, this.clientContext ?? undefined)),
+        body: matchRequestBody,
         headers: {
           'Content-Type': 'application/json',
         },
@@ -3912,31 +3925,63 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         candidateStrategy: 'single_active',
         logTransport: true,
         requestLabel: endpointPath,
-        timeoutMs: scanMatchRequestTimeoutMs,
+        // Raw matches return in <1s; use a short per-attempt timeout so a stalled
+        // upload gives up fast and a retry can land. Slabs keep the single long timeout
+        // (their matches legitimately take 40-50s).
+        timeoutMs: isRawMatch ? rawMatchPerAttemptTimeoutMs : scanMatchRequestTimeoutMs,
       },
     );
 
-    // Fire-and-forget the artifact upload immediately, in parallel with the match request,
-    // so it never depends on (or is blocked by) the slow slab match response. The backend
-    // accepts the same client-generated scanID for both endpoints.
-    const artifactUploadPromise = this.uploadScanArtifactsForMatch(payload, scanID)
-      .then((result) => {
-        options?.onArtifactUploadComplete?.(result);
-        return result;
-      })
-      .catch((error: unknown) => {
-        const failure: ScannerArtifactUploadResult = {
-          status: 'failed',
-          errorKind: 'request_failed',
-          errorMessage: error instanceof Error ? error.message : String(error),
-        };
-        options?.onArtifactUploadComplete?.(failure);
-        return failure;
-      });
-    // Silence unhandled-rejection warnings; failures are surfaced via the callback above.
-    void artifactUploadPromise;
+    // Fire-and-forget the artifact (training image) upload. The backend accepts the same
+    // client-generated scanID for both endpoints, and failures are surfaced via the
+    // callback rather than thrown.
+    const fireArtifactUpload = () => {
+      void this.uploadScanArtifactsForMatch(payload, scanID)
+        .then((result) => {
+          options?.onArtifactUploadComplete?.(result);
+          return result;
+        })
+        .catch((error: unknown) => {
+          const failure: ScannerArtifactUploadResult = {
+            status: 'failed',
+            errorKind: 'request_failed',
+            errorMessage: error instanceof Error ? error.message : String(error),
+          };
+          options?.onArtifactUploadComplete?.(failure);
+          return failure;
+        });
+    };
 
-    const response = await matchRequestPromise;
+    // Slab matches take 40-50s on staging; if the heavier artifact upload were chained
+    // behind the match, users often background the app before it kicks off, leaving zero
+    // slab artifacts in GCS (see repo bug investigation 2026-05-19). So slabs upload in
+    // PARALLEL. Raw matches are <1s, so we DEFER the raw artifact upload until after the
+    // match resolves — that way the heavier source-image upload never competes with the
+    // match for uplink bandwidth on weak networks (the show-floor / VPN failure mode).
+    if (!isRawMatch) {
+      fireArtifactUpload();
+    }
+
+    // Retry the raw match on transient transport/timeout/HTTP failures (mirrors the
+    // dashboard retry). A `200` — including a low-confidence/wrong match — is a success
+    // and is never retried. Retrying is idempotent (backend upserts by scanID). Slabs run
+    // a single attempt (no retry) to preserve their long-match behavior.
+    let response = await runMatchRequest();
+    if (isRawMatch) {
+      for (
+        let attempt = 2;
+        attempt <= rawMatchAttempts && response.kind === 'error';
+        attempt += 1
+      ) {
+        const backoffMs = rawMatchRetryBackoffsMs[attempt - 2]
+          ?? rawMatchRetryBackoffsMs[rawMatchRetryBackoffsMs.length - 1];
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        response = await runMatchRequest();
+      }
+      // Deferred raw artifact upload: the match is done (success or final failure), so the
+      // upload now gets the uplink to itself.
+      fireArtifactUpload();
+    }
 
     if (response.kind !== 'success') {
       throw response.error;

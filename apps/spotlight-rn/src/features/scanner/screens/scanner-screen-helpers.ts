@@ -106,7 +106,7 @@ export function captureFailureSubtitle(capture: RecentCapture) {
     return reviewReason;
   }
 
-  return 'Photo captured, but matches could not load';
+  return 'Photo captured, but matches could not load. Please try again.';
 }
 
 export function activeCandidateForCapture(capture: RecentCapture) {
