@@ -15779,6 +15779,11 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return None
 
         body = self.rfile.read(content_length)
+        # An absent/empty body is a valid POST — treat it as an empty object so
+        # bodyless requests (e.g. /api/v1/account/delete) reach their handler
+        # instead of being rejected with a 400 before dispatch.
+        if not body.strip():
+            return {}
         try:
             return json.loads(body.decode("utf-8"))
         except json.JSONDecodeError:
