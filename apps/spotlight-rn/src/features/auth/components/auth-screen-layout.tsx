@@ -13,10 +13,8 @@ import { NavArrowLeft, ShareIos } from 'iconoir-react-native';
 
 import { useSpotlightTheme } from '@spotlight/design-system';
 
-import { WaveBackground } from './wave-background';
-
 type AuthScreenLayoutProps = {
-  /** Content flows top-down inside the scroll area, below the wave hero. */
+  /** Content flows top-down inside the scroll area on the plain black screen. */
   children: ReactNode;
   onBack?: () => void;
   backTestID?: string;
@@ -26,18 +24,14 @@ type AuthScreenLayoutProps = {
 };
 
 const HEADER_BUTTON_SIZE = 36;
-/** Wave band height (Figma 1481:4380, "image 17": 0..264). */
-const HERO_HEIGHT = 264;
-/** Where the first content row (wordmark / heading) starts — Figma y≈320, which
- *  leaves a black gap under the wave so it fades seamlessly into the screen. */
-const CONTENT_TOP = 312;
+/** Top offset for the first content row (wordmark / heading) on the black screen. */
+const CONTENT_TOP = 132;
 const SURFACE = '#000000';
 
 /**
- * Shared presentation for the redesigned auth flow (Figma 1481:4380): a pure
- * black screen with the flowing halftone wave hero filling the top band, a
- * floating back/share header over it, and a keyboard-aware scroll area whose
- * content begins just below the wave. Purely presentational — no nav/auth logic.
+ * Shared presentation for the auth flow: a pure black screen with a floating
+ * back/share header and a keyboard-aware scroll area. Purely presentational —
+ * no nav/auth logic.
  */
 export function AuthScreenLayout({
   children,
@@ -59,8 +53,6 @@ export function AuthScreenLayout({
 
   return (
     <View style={[styles.root, { backgroundColor: SURFACE }]} testID={testID}>
-      <WaveBackground height={HERO_HEIGHT} testID="auth-wave-background" />
-
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboardShell}

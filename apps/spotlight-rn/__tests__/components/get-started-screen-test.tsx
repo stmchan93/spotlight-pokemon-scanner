@@ -37,8 +37,8 @@ describe('GetStartedScreen (pre-login homepage)', () => {
     renderScreen();
 
     expect(screen.getByTestId('auth-get-started-screen')).toBeTruthy();
-    // The flowing wave hero (WebView) mounts behind the content.
-    expect(screen.getByTestId('auth-wave-background')).toBeTruthy();
+    // The wave hero graphic was removed — the screen is plain black above the wordmark.
+    expect(screen.queryByTestId('auth-wave-background')).toBeNull();
     expect(screen.getByText('EKALIGHT')).toBeTruthy();
     expect(screen.getByText('Scan, Price, and Track your collection')).toBeTruthy();
     expect(screen.getByText('Continue with Email')).toBeTruthy();
