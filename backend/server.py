@@ -15607,22 +15607,28 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/v1/account/delete":
+            print(f"[ACCT-DELETE] request hasAuth={bool(self.headers.get('Authorization'))}", flush=True)
             identity = self._require_request_identity()
             if identity is None:
+                print("[ACCT-DELETE] 401 unauthorized (identity is None)", flush=True)
                 return
+            print(f"[ACCT-DELETE] identity userId={getattr(identity, 'user_id', None)!r} email={getattr(identity, 'email', None)!r}", flush=True)
             try:
                 with self.service.request_identity_context(identity):
                     account_payload = self.service.delete_account(payload)
             except ValueError as error:
+                print(f"[ACCT-DELETE] 400 ValueError: {error}", flush=True)
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
                 return
             except RequestAuthError as error:
+                print(f"[ACCT-DELETE] 401 RequestAuthError: {error}", flush=True)
                 self._write_json(HTTPStatus.UNAUTHORIZED, {"error": str(error)})
                 return
             except Exception as error:
                 traceback.print_exc()
                 self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Account deletion failed: {error}"})
                 return
+            print(f"[ACCT-DELETE] 200 OK payload={account_payload}", flush=True)
             self._write_json(HTTPStatus.OK, account_payload)
             return
 
