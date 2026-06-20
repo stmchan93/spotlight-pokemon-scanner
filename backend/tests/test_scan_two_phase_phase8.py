@@ -505,6 +505,25 @@ class TwoPhaseScanTests(unittest.TestCase):
             server_module.DEFAULT_JSON_BODY_LIMIT_BYTES = original_default_limit
             server_module.SCAN_ARTIFACT_JSON_BODY_LIMIT_BYTES = original_artifact_limit
 
+    def test_read_json_body_treats_empty_body_as_empty_object(self) -> None:
+        # A bodyless POST (e.g. /api/v1/account/delete sends no body) must parse
+        # as {} and reach its handler, not get rejected with a 400 before
+        # dispatch. Regression: json.loads("") raised -> None -> 400.
+        for headers, body in (
+            ({"Content-Length": "0"}, b""),
+            ({}, b""),  # no Content-Length header at all
+            ({"Content-Length": "3"}, b"   "),  # whitespace-only body
+        ):
+            handler = SpotlightRequestHandler.__new__(SpotlightRequestHandler)
+            handler.path = "/api/v1/account/delete"
+            handler.headers = headers
+            handler.rfile = io.BytesIO(body)
+
+            payload = handler._read_json_body()
+
+            self.assertEqual(payload, {})
+            self.assertIsNone(handler._json_body_error_status)
+
     def test_concurrent_two_phase_requests_keep_cached_shortlists_isolated(self) -> None:
         class FakeVisualMatcher:
             def __init__(self) -> None:
