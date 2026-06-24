@@ -1491,6 +1491,30 @@ DEFAULT_RAW_CONDITION = "NM"
 DEFAULT_RAW_VARIANT = "Normal"
 RAW_VARIANT_PRIORITY = ("Normal", "Holofoil", "Reverse Holofoil")
 RAW_CONDITION_PRIORITY = ("NM", "LP", "MP", "HP", "DM")
+
+
+def _raw_variant_fallback_penalty(label: str) -> int:
+    """Sub-rank for variant labels not in ``RAW_VARIANT_PRIORITY`` (e.g. vintage printings).
+
+    The default raw price should reflect the printing a scanned card is most likely to be. For
+    vintage cards that exist in several printings, that is the **Unlimited** printing — the
+    mass-printed one, and the default TCGplayer/Cardmarket surface — not the rarer First Edition /
+    Shadowless printings (whose Scrydex data is also occasionally mislabeled). Without this, such
+    labels fall back to alphabetical order, where "First Edition…" wrongly beats "Unlimited…".
+
+    Lower is preferred.
+    """
+    text = label.lower()
+    penalty = 0
+    if "first edition" in text or "1st edition" in text:
+        penalty += 30
+    if "shadowless" in text:
+        penalty += 20
+    if any(token in text for token in ("metal", "jumbo", "staff", "prerelease", "pre-release")):
+        penalty += 40
+    if "unlimited" in text:
+        penalty -= 5
+    return penalty
 # Deck entries store conditions in snake_case ("lightly_played"); raw price
 # contexts are keyed by the two-letter code ("LP"). Map the long forms so a
 # requested condition actually resolves instead of silently falling back to NM.
@@ -1752,11 +1776,14 @@ def _resolve_default_raw_context(raw_contexts: dict[str, Any]) -> tuple[str | No
     if not variants:
         return None, None, None
 
-    def variant_rank(label: str) -> tuple[int, str]:
+    def variant_rank(label: str) -> tuple[int, int, str]:
         try:
-            return (RAW_VARIANT_PRIORITY.index(label), label)
+            return (RAW_VARIANT_PRIORITY.index(label), 0, label)
         except ValueError:
-            return (len(RAW_VARIANT_PRIORITY), label)
+            # Labels outside the explicit priority (e.g. vintage printings) keep a stable,
+            # intentional order via a keyword penalty instead of falling back to alphabetical,
+            # which would default to "First Edition…" over "Unlimited…".
+            return (len(RAW_VARIANT_PRIORITY), _raw_variant_fallback_penalty(label), label)
 
     ordered_variants = sorted(variants, key=variant_rank)
     for preferred_condition in RAW_CONDITION_PRIORITY:
