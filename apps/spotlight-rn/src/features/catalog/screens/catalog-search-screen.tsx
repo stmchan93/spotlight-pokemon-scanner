@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
-  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -13,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { CatalogSearchResult, ExpansionRecord } from '@spotlight/api-client';
 import { SearchField, StateCard, colors, useSpotlightTheme } from '@spotlight/design-system';
 
+import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import { ExpansionCell } from '@/features/catalog/components/expansion-cell';
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
@@ -39,14 +39,20 @@ function resultNumberLabel(result: CatalogSearchResult) {
 function ResultArtwork({
   fallbackTestID,
   imageUrl,
+  smallImageUrl,
   title,
 }: {
   fallbackTestID: string;
   imageUrl: string;
+  smallImageUrl?: string | null;
   title: string;
 }) {
   const theme = useSpotlightTheme();
   const [hasImageError, setHasImageError] = useState(false);
+
+  // Prefer the small/thumbnail-resolution image so result rows stay fast on
+  // poor connections; fall back to the large url when no small one exists.
+  const artworkUri = smallImageUrl ?? imageUrl;
 
   return (
     <View
@@ -58,11 +64,13 @@ function ResultArtwork({
         },
       ]}
     >
-      {!hasImageError && imageUrl ? (
-        <Image
+      {!hasImageError && artworkUri ? (
+        <CachedImage
+          cachePolicy={imageCachePolicy.thumbnail}
+          contentFit="contain"
           onError={() => setHasImageError(true)}
-          source={{ uri: imageUrl }}
           style={styles.resultArt}
+          uri={artworkUri}
         />
       ) : (
         <Text
@@ -110,6 +118,7 @@ function SearchResultRow({
           <ResultArtwork
             fallbackTestID={`catalog-artwork-fallback-${result.id}`}
             imageUrl={result.imageUrl}
+            smallImageUrl={result.smallImageUrl}
             title={result.name}
           />
 
@@ -469,7 +478,6 @@ const styles = StyleSheet.create({
   },
   resultArt: {
     height: '100%',
-    resizeMode: 'contain',
     width: '100%',
   },
   resultArtFallback: {

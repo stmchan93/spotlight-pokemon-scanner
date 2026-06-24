@@ -19,6 +19,8 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { CatalogSearchResult } from '@spotlight/api-client';
 import { colors } from '@spotlight/design-system';
 
+import { CachedImage, imageCachePolicy } from '@/components/cached-image';
+
 import {
   matchConfidenceColor,
   matchPercentFromScore,
@@ -270,11 +272,12 @@ export function ChangeCardPicker({
                 <View style={styles.heroColumn}>
                   <View style={styles.matchImageFrame}>
                     {heroCandidate?.imageUrl ? (
-                      <Image
-                        source={{ uri: heroCandidate.imageUrl }}
+                      <CachedImage
+                        cachePolicy={imageCachePolicy.thumbnail}
+                        contentFit="contain"
                         style={styles.matchImage}
-                        resizeMode="contain"
                         testID={`${testID}-hero`}
+                        uri={heroCandidate.imageUrl}
                       />
                     ) : (
                       <View style={[styles.matchImage, styles.heroPlaceholder]} />
@@ -318,10 +321,11 @@ export function ChangeCardPicker({
                     testID={`${testID}-row-${index}`}
                   >
                     {candidate.imageUrl ? (
-                      <Image
-                        source={{ uri: candidate.imageUrl }}
+                      <CachedImage
+                        cachePolicy={imageCachePolicy.thumbnail}
+                        contentFit="cover"
                         style={styles.thumb}
-                        resizeMode="cover"
+                        uri={candidate.smallImageUrl ?? candidate.imageUrl}
                       />
                     ) : (
                       <View style={[styles.thumb, styles.thumbPlaceholder]} />

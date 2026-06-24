@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { CatalogSearchResult } from '@spotlight/api-client';
 import { SectionHeader, colors, useSpotlightTheme } from '@spotlight/design-system';
 
+import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import {
   formatCurrency,
@@ -148,7 +149,11 @@ export function ScanCandidateReviewScreen({
               ]}
               testID="detail-scan-candidate-closest"
             >
-              <Image source={{ uri: closestMatch.imageUrl }} style={styles.scanCandidateArt} />
+              <CachedImage
+                cachePolicy={imageCachePolicy.thumbnail}
+                style={styles.scanCandidateArt}
+                uri={closestMatch.smallImageUrl ?? closestMatch.imageUrl}
+              />
 
               <View style={styles.scanCandidateCopy}>
                 <Text numberOfLines={1} style={[theme.typography.caption, styles.scanCandidateMeta]}>
@@ -188,7 +193,11 @@ export function ScanCandidateReviewScreen({
                   ]}
                   testID={`detail-scan-candidate-${index}`}
                 >
-                  <Image source={{ uri: candidate.imageUrl }} style={styles.scanCandidateArt} />
+                  <CachedImage
+                    cachePolicy={imageCachePolicy.thumbnail}
+                    style={styles.scanCandidateArt}
+                    uri={candidate.smallImageUrl ?? candidate.imageUrl}
+                  />
 
                   <View style={styles.scanCandidateCopy}>
                     <Text numberOfLines={1} style={[theme.typography.caption, styles.scanCandidateMeta]}>

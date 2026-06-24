@@ -422,14 +422,21 @@ export function scannerCapturePriceLabel(capture: RecentCapture) {
 
 export function scannerCaptureThumbUri(capture: RecentCapture, candidate: CatalogSearchResult | null) {
   if (capture.mode === 'slabs') {
-    return candidate?.imageUrl || capture.uri || null;
+    return candidate?.smallImageUrl || candidate?.imageUrl || capture.uri || null;
   }
 
   // Raw lane: while identifying (no candidate yet) prefer the reticle-cropped
   // `normalizedImageUri` over the full `uri` (the un-cropped source photo) so the
   // tray thumbnail shows the framed card, not a zoomed-out frame. Matches what the
-  // "change card" modal renders (`normalizedImageUri ?? uri`).
-  return candidate?.imageUrl || capture.normalizedImageUri || capture.uri || null;
+  // "change card" modal renders (`normalizedImageUri ?? uri`). Prefer the small
+  // candidate image so bad-wifi tray thumbnails don't pull full-res art.
+  return (
+    candidate?.smallImageUrl
+    || candidate?.imageUrl
+    || capture.normalizedImageUri
+    || capture.uri
+    || null
+  );
 }
 
 export function scannerPreparationReviewReason(mode: ScannerMode, error: unknown) {

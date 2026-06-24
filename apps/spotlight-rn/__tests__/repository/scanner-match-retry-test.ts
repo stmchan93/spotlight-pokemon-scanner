@@ -130,6 +130,47 @@ describe('scanner visual-match — retry + deferred raw artifact upload', () => 
     expect(order.indexOf('raw-match')).toBeLessThan(order.indexOf('artifact'));
   }, 15000);
 
+  it('exposes a distinct non-null smallImageUrl on a mapped scan candidate so RN can fetch thumbnails', async () => {
+    // The backend returns BOTH imageSmallURL and imageLargeURL per candidate. The mapper
+    // must surface them as smallImageUrl/largeImageUrl (thumbnail vs full-res) while keeping
+    // imageUrl preferring the large url for back-compat.
+    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+      if (callKind(url) === 'raw-match') {
+        return jsonResponse(200, {
+          scanID: 'scan-test',
+          candidates: [],
+          topCandidates: [
+            {
+              finalScore: 0.91,
+              candidate: {
+                id: 'sv1-1',
+                name: 'Sprigatito',
+                setName: 'Scarlet & Violet',
+                number: '1/198',
+                imageSmallURL: 'https://cdn.example.test/sv1/1-small.png',
+                imageLargeURL: 'https://cdn.example.test/sv1/1-large.png',
+                pricing: { currencyCode: 'USD', market: 1.23 },
+              },
+            },
+          ],
+        });
+      }
+      return jsonResponse(200, { normalizedObjectPath: 'n', storage: 'gcs' });
+    }) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    const result = await repository.matchScannerCapture(rawPayload());
+
+    expect(result.candidates).toHaveLength(1);
+    const candidate = result.candidates[0];
+    expect(candidate.smallImageUrl).toBe('https://cdn.example.test/sv1/1-small.png');
+    expect(candidate.largeImageUrl).toBe('https://cdn.example.test/sv1/1-large.png');
+    // small must be distinct from large so RN actually downloads the smaller asset
+    expect(candidate.smallImageUrl).not.toBe(candidate.largeImageUrl);
+    // imageUrl stays large-preferring for back-compat
+    expect(candidate.imageUrl).toBe('https://cdn.example.test/sv1/1-large.png');
+  }, 15000);
+
   it('does NOT retry slab matches (they keep a single long attempt)', async () => {
     let slabAttempts = 0;
     global.fetch = jest.fn().mockImplementation(async (url: string) => {

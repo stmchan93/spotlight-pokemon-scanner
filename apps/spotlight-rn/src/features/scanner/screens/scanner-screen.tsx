@@ -87,6 +87,8 @@ import {
   sweepOrphanScans,
 } from '@/features/scanner/recent-captures-persistence';
 import { prefetchCardDetail } from '@/features/cards/card-detail-prefetch';
+import { CachedImage, imageCachePolicy } from '@/components/cached-image';
+import { prefetchImageUrls } from '@/lib/card-images';
 import { useAuth } from '@/providers/auth-provider';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { resolveRuntimeBoolean, resolveRuntimeValue, resolveStagingSmokeModeEnabled } from '@/lib/runtime-config';
@@ -891,6 +893,15 @@ export function ScannerScreen({
           uri: mode === 'slabs' ? capture.uri : matchTarget.normalizedImageUri,
         };
       });
+      // Warm the disk cache for this scan's candidate thumbnails (small urls)
+      // so swiping into the change-card picker on bad wifi paints instantly.
+      // Fire-and-forget off the scan hot path; raw lane only.
+      if (mode === 'raw') {
+        const candidateThumbUrls = matchResult.candidates
+          .map((candidate) => candidate.smallImageUrl ?? candidate.imageUrl)
+          .filter(Boolean) as string[];
+        void prefetchImageUrls(candidateThumbUrls, imageCachePolicy.thumbnail).catch(() => {});
+      }
       void triggerScannerProcessedHaptic('found');
       // Persistence copy. Fire-and-forget AFTER the result has been painted —
       // the user already sees their match. We measure the gap between paint
@@ -1988,10 +1999,11 @@ export function ScannerScreen({
                 onPress={canCycleCandidate ? () => openChangeCardPicker(capture.id) : undefined}
               >
                 {scannerCaptureThumbUri(capture, candidate) ? (
-                  <Image
-                    source={{ uri: scannerCaptureThumbUri(capture, candidate) ?? '' }}
+                  <CachedImage
+                    cachePolicy={imageCachePolicy.thumbnail}
                     style={styles.captureThumb}
                     testID={`scanner-tray-image-${index}`}
+                    uri={scannerCaptureThumbUri(capture, candidate)}
                   />
                 ) : (
                   <View style={styles.captureThumb} testID={`scanner-tray-image-${index}`} />

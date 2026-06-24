@@ -444,6 +444,10 @@ export type CatalogSearchResult = {
   setName: string;
   subtitle?: string | null;
   imageUrl: string;
+  /** Small/thumbnail-resolution image URL when the source provides one; null otherwise. */
+  smallImageUrl?: string | null;
+  /** Large/full-resolution image URL when the source provides one; null otherwise. */
+  largeImageUrl?: string | null;
   marketPrice?: number | null;
   currencyCode?: string | null;
   ownedQuantity?: number;
