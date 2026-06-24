@@ -169,14 +169,14 @@ export function CardConfigurator({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Decrease quantity"
-            accessibilityState={{ disabled: quantity <= 0 }}
-            disabled={quantity <= 0}
+            accessibilityState={{ disabled: quantity <= 1 }}
+            disabled={quantity <= 1}
             onPress={onDecrement}
             style={({ pressed }) => [
               styles.stepperButton,
               {
                 backgroundColor: theme.colors.gray50,
-                opacity: pressed || quantity <= 0 ? 0.5 : 1,
+                opacity: pressed || quantity <= 1 ? 0.5 : 1,
               },
             ]}
             testID={testID ? `${testID}-quantity-decrement` : undefined}

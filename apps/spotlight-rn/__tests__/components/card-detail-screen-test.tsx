@@ -650,7 +650,7 @@ describe('CardDetailScreen', () => {
     );
   }
 
-  it('seeds the owned quantity and UPDATE sets it via setPortfolioEntryQuantity', async () => {
+  it('seeds the owned quantity; SAVE is disabled until changed, then sets it via setPortfolioEntryQuantity', async () => {
     const setPortfolioEntryQuantity = jest.fn(async (payload: { deckEntryID: string; quantity: number }) => ({
       deckEntryID: payload.deckEntryID,
       cardID: 'sm7-1',
@@ -660,21 +660,87 @@ describe('CardDetailScreen', () => {
 
     renderOwnedGraded({}, { setPortfolioEntryQuantity });
 
-    // The owned quantity (6) seeds into the stepper, and the action is UPDATE.
+    // The owned quantity (6) seeds into the stepper, and the action is SAVE.
     const quantityValue = await screen.findByTestId('detail-configurator-quantity-value');
     await waitFor(() => expect(quantityValue.props.children).toBe(6));
     expect(screen.queryByTestId('detail-add-item')).toBeNull();
 
+    // Nothing changed yet → SAVE is disabled (no accidental no-op writes).
+    expect(screen.getByTestId('detail-update-item').props.accessibilityState?.disabled).toBe(true);
+
+    // Bump the count → SAVE enables and writes the new quantity (sets, not accrues).
+    fireEvent.press(screen.getByTestId('detail-configurator-quantity-increment'));
+    await waitFor(() =>
+      expect(screen.getByTestId('detail-configurator-quantity-value').props.children).toBe(7),
+    );
     fireEvent.press(screen.getByTestId('detail-update-item'));
     await waitFor(() => {
       expect(setPortfolioEntryQuantity).toHaveBeenCalledWith({
         deckEntryID: 'graded-treecko-psa10',
-        quantity: 6,
+        quantity: 7,
       });
     });
   });
 
-  it('shows UPDATE (not ADD ITEM) for an owned raw card stored without a variant/condition', async () => {
+  it('SAVE rewrites the line in place via replacePortfolioEntry when the grade changes', async () => {
+    const replacePortfolioEntry = jest.fn(async (payload: { deckEntryID: string; quantity: number; unitPrice: number | null; updatedAt: string }) => ({
+      previousDeckEntryID: payload.deckEntryID,
+      deckEntryID: 'graded-treecko-psa9',
+      cardID: 'sm7-1',
+      quantity: payload.quantity,
+      unitPrice: payload.unitPrice,
+      updatedAt: payload.updatedAt,
+    }));
+
+    renderOwnedGraded({}, { replacePortfolioEntry });
+
+    await screen.findByTestId('detail-configurator-quantity-value');
+
+    // Change the grade PSA 10 → PSA 9.5: an attribute change, so SAVE replaces
+    // (rewrites) the SAME line instead of adding a duplicate.
+    fireEvent.press(await screen.findByTestId('detail-configurator-grade-trigger'));
+    fireEvent.press(await screen.findByTestId('detail-grade-sheet-option-9.5'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('detail-update-item').props.accessibilityState?.disabled).toBe(false),
+    );
+    fireEvent.press(screen.getByTestId('detail-update-item'));
+    await waitFor(() => {
+      expect(replacePortfolioEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deckEntryID: 'graded-treecko-psa10',
+          cardID: 'sm7-1',
+          condition: null,
+          quantity: 6,
+          slabContext: expect.objectContaining({ grader: 'PSA', grade: '9.5' }),
+        }),
+      );
+    });
+    // No new line was created.
+    expect(screen.queryByTestId('detail-add-item')).toBeNull();
+  });
+
+  it('"+ Add copy" drops to ADD mode for a separate line; Cancel restores edit mode', async () => {
+    renderOwnedGraded({}, {});
+
+    await screen.findByTestId('detail-configurator-quantity-value');
+    // Owned → SAVE (no ADD ITEM).
+    expect(screen.getByTestId('detail-update-item')).toBeTruthy();
+    expect(screen.queryByTestId('detail-add-item')).toBeNull();
+
+    // Add copy → ADD mode (ADD ITEM + Cancel appear; SAVE gone).
+    fireEvent.press(screen.getByTestId('detail-add-copy'));
+    await waitFor(() => expect(screen.getByTestId('detail-add-item')).toBeTruthy());
+    expect(screen.getByTestId('detail-cancel-add-copy')).toBeTruthy();
+    expect(screen.queryByTestId('detail-update-item')).toBeNull();
+
+    // Cancel → back to editing the original line.
+    fireEvent.press(screen.getByTestId('detail-cancel-add-copy'));
+    await waitFor(() => expect(screen.getByTestId('detail-update-item')).toBeTruthy());
+    expect(screen.queryByTestId('detail-add-item')).toBeNull();
+  });
+
+  it('shows SAVE (not ADD ITEM) for an owned raw card stored without a variant/condition', async () => {
     // Regression (e.g. a basic energy): the entry has no variantName/conditionCode,
     // so it must still match the seeded "Normal" + default-condition lane.
     const baseRepository = createTestSpotlightRepository();
@@ -701,39 +767,34 @@ describe('CardDetailScreen', () => {
       },
     );
 
-    expect(await screen.findByText('UPDATE')).toBeTruthy();
+    expect(await screen.findByText('SAVE')).toBeTruthy();
     expect(screen.queryByTestId('detail-add-item')).toBeNull();
   });
 
-  it('drops the quantity to 0 via the stepper (button reads REMOVE) to remove the card and go back', async () => {
-    const onBack = jest.fn();
-    const setPortfolioEntryQuantity = jest.fn(async (payload: { deckEntryID: string; quantity: number }) => ({
+  it('removes the line via the Remove button (deletePortfolioEntry); the stepper floors at 1', async () => {
+    const deletePortfolioEntry = jest.fn(async (payload: { deckEntryID: string }) => ({
       deckEntryID: payload.deckEntryID,
       cardID: 'sm7-1',
-      quantity: payload.quantity,
-      deleted: payload.quantity === 0,
     }));
 
-    renderOwnedGraded({ onBack }, { setPortfolioEntryQuantity });
+    renderOwnedGraded({}, { deletePortfolioEntry });
 
-    // Seeds 6; decrementing to 0 (managed mode allows it) flips the action to REMOVE.
+    // Seeds 6; the stepper now floors at 1 (no qty→0 = remove hack).
     const quantityValue = await screen.findByTestId('detail-configurator-quantity-value');
     await waitFor(() => expect(quantityValue.props.children).toBe(6));
-    for (let i = 0; i < 6; i += 1) {
+    for (let i = 0; i < 10; i += 1) {
       fireEvent.press(screen.getByTestId('detail-configurator-quantity-decrement'));
     }
     await waitFor(() =>
-      expect(screen.getByTestId('detail-configurator-quantity-value').props.children).toBe(0),
+      expect(screen.getByTestId('detail-configurator-quantity-value').props.children).toBe(1),
     );
-    expect(screen.getByText('REMOVE')).toBeTruthy();
 
-    fireEvent.press(screen.getByTestId('detail-update-item'));
+    // Removal is an explicit action, not a quantity edge case.
+    fireEvent.press(screen.getByTestId('detail-remove-item'));
     await waitFor(() => {
-      expect(setPortfolioEntryQuantity).toHaveBeenCalledWith({
+      expect(deletePortfolioEntry).toHaveBeenCalledWith({
         deckEntryID: 'graded-treecko-psa10',
-        quantity: 0,
       });
-      expect(onBack).toHaveBeenCalled();
     });
   });
 

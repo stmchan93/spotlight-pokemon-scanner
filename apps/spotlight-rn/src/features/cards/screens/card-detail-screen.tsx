@@ -16,11 +16,12 @@ import {
   type CardPriceTrendList as CardPriceTrendListRecord,
   type CardPriceTrendRow,
   type DeckConditionCode,
+  type InventoryCardEntry,
   type MarketHistoryOption,
   type SlabContext,
 } from '@spotlight/api-client';
 import { Button, IconButton, colors, useSpotlightTheme } from '@spotlight/design-system';
-import { NavArrowLeft, ShareIos } from 'iconoir-react-native';
+import { NavArrowLeft, ShareIos, Trash } from 'iconoir-react-native';
 
 import { CardConfigurator } from '@/features/cards/components/card-configurator';
 import { GradeConditionSheet } from '@/features/cards/components/grade-condition-sheet';
@@ -136,6 +137,16 @@ export function CardDetailScreen({
   const [gradeSheetOpen, setGradeSheetOpen] = useState(false);
   const [isAddPending, setIsAddPending] = useState(false);
   const [isManagePending, setIsManagePending] = useState(false);
+  // The owned line the page is currently editing (sticky). null = ADD mode (the
+  // card isn't owned, or the user tapped "+ Add copy" to create a new line).
+  // Seeded once per card from the arrived-at entry; never recomputed from the
+  // live selection, so changing the condition edits the SAME line instead of
+  // flipping to ADD and duplicating it.
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
+  // True only while ADD mode was entered via "+ Add copy" from an owned card, so
+  // the action row can offer a Cancel back to the line we were editing.
+  const [isAddingCopy, setIsAddingCopy] = useState(false);
+  const previousEditingEntryIdRef = useRef<string | null>(null);
 
   const [priceTrends, setPriceTrends] = useState<CardPriceTrendListRecord | null>(null);
   const [priceTrendsLoading, setPriceTrendsLoading] = useState(false);
@@ -223,6 +234,9 @@ export function CardDetailScreen({
     setQuantity(1);
     setPriceTrends(null);
     setPriceTrendsLoading(false);
+    setEditingEntryId(null);
+    setIsAddingCopy(false);
+    previousEditingEntryIdRef.current = null;
     lastFetchedLaneKeyRef.current = null;
     seededCardIdRef.current = null;
     seededVariantCardIdRef.current = null;
@@ -288,6 +302,11 @@ export function CardDetailScreen({
       return;
     }
     seededCardIdRef.current = cardId;
+
+    // Seed the sticky edit target to the line we arrived at (the tapped
+    // collection entry via `entryId`, else the primary owned line). null when the
+    // card isn't owned → the page stays in ADD mode.
+    setEditingEntryId(selectedEntry?.id ?? null);
 
     if (ownedSlabContext?.grader) {
       const graderMatch = graderOptions.find(
@@ -648,11 +667,15 @@ export function CardDetailScreen({
       sourceScanID: null,
       addedAt: new Date().toISOString(),
     })
-      .then(() => {
+      .then((response) => {
         capturePostHogEvent('card_detail_add_item_succeeded', {
           kind: isRawLane ? 'raw' : 'graded',
           quantity: Math.max(1, quantity),
         });
+        // The card is now owned → switch the page into edit mode for the new (or
+        // merged) line so the same controls update it from here on.
+        setIsAddingCopy(false);
+        setEditingEntryId(response.deckEntryID);
         refreshData();
       })
       .catch(() => {
@@ -673,30 +696,28 @@ export function CardDetailScreen({
     spotlightRepository,
   ]);
 
-  // The owned entry (if any) whose identity matches the CURRENT configurator
-  // selection (lane + variant/condition for raw, grader/grade for slab). When one
-  // matches, this exact item is already in the collection → the primary action
-  // UPDATEs that entry's quantity; otherwise it's a new item to ADD. Changing a
-  // dropdown re-evaluates this live against every owned entry for the card.
-  const matchedOwnedEntry = useMemo(() => {
-    const pool = detail?.ownedEntries?.length
-      ? detail.ownedEntries
-      : cachedOwnedEntries.length
-        ? cachedOwnedEntries
-        : detailPreview?.ownedEntry
-          ? [detailPreview.ownedEntry]
-          : [];
-    return pool.find((entry) => {
+  // All owned lines for this card (full detail → inventory cache → nav preview).
+  const ownedEntries = useMemo(() => {
+    if (detail?.ownedEntries?.length) {
+      return detail.ownedEntries;
+    }
+    if (cachedOwnedEntries.length) {
+      return cachedOwnedEntries;
+    }
+    return detailPreview?.ownedEntry ? [detailPreview.ownedEntry] : [];
+  }, [cachedOwnedEntries, detail?.ownedEntries, detailPreview?.ownedEntry]);
+
+  // Does the CURRENT configurator selection still describe `entry`'s identity?
+  // Used to tell a quantity-only edit (→ setQuantity) from an attribute change
+  // (→ replace, which rewrites the line in place). Mirrors the seed defaults so a
+  // raw entry stored without a variant/condition still matches the seeded
+  // "Normal" + default-condition lane.
+  const selectionMatchesEntry = useCallback(
+    (entry: InventoryCardEntry) => {
       if (isRawLane !== (entry.kind === 'raw')) {
         return false;
       }
       if (isRawLane) {
-        // Compare using the SAME defaults the configurator seeds with, so a raw
-        // entry stored without a variant/condition (e.g. a basic energy) still
-        // matches the seeded "Normal" + default-condition lane instead of reading
-        // as a brand-new item. Resolve the entry's effective variant option id the
-        // way the variant seed does (owned label → Normal → first), and default a
-        // missing condition to the first option.
         const ownedName = entry.kind === 'raw' ? (entry.variantName ?? '').trim() : '';
         const ownedVariantId = (ownedName
           ? variantOptions.find((option) => option.label.toLowerCase() === ownedName.toLowerCase())?.id
@@ -711,62 +732,149 @@ export function CardDetailScreen({
       const ownedGrade = (entry.slabContext?.grade ?? '').trim().toLowerCase();
       return ownedGrader === (selectedGrader ?? '').trim().toLowerCase()
         && ownedGrade === (selectedGrade ?? '').trim().toLowerCase();
-    }) ?? null;
-  }, [
-    cachedOwnedEntries,
-    detail,
-    detailPreview?.ownedEntry,
-    isRawLane,
-    selectedCondition,
-    selectedGrade,
-    selectedGrader,
-    selectedVariant,
-    variantOptions,
-  ]);
+    },
+    [isRawLane, selectedCondition, selectedGrade, selectedGrader, selectedVariant, variantOptions],
+  );
 
-  const isManaged = matchedOwnedEntry != null;
+  // The line being edited (sticky — driven by editingEntryId, not the live
+  // selection). null id ⇒ ADD mode. isManaged keys off the id (not the resolved
+  // entry) so the edit UI doesn't flicker to ADD during a post-mutation refresh.
+  const editingEntry = useMemo(
+    () => (editingEntryId ? ownedEntries.find((entry) => entry.id === editingEntryId) ?? null : null),
+    [editingEntryId, ownedEntries],
+  );
+  const isManaged = editingEntryId != null;
 
-  // Seed the stepper from the matched owned entry's real quantity, re-seeding
-  // when the matched entry changes and resetting to 1 when nothing matches (ADD
-  // mode). The id ref guard keeps the user's manual −/+ edits from being clobbered
-  // on re-render. In manage mode the stepper may reach 0 (UPDATE → remove).
+  // SAVE is enabled only when the pending edit differs from what's stored — an
+  // attribute change (condition/variant/grade) or a quantity change.
+  const isDirty = useMemo(() => {
+    if (!editingEntry) {
+      return false;
+    }
+    if (!selectionMatchesEntry(editingEntry)) {
+      return true;
+    }
+    return Math.max(1, quantity) !== editingEntry.quantity;
+  }, [editingEntry, quantity, selectionMatchesEntry]);
+
+  // Seed the stepper from the edited line's real quantity (min 1), once per
+  // target. The id ref guard keeps manual −/+ edits from being clobbered on
+  // re-render; ADD mode (no target) resets to 1.
   const seededQuantityEntryIdRef = useRef<string | null>(null);
   useEffect(() => {
-    const matchedId = matchedOwnedEntry?.id ?? null;
-    if (seededQuantityEntryIdRef.current === matchedId) {
+    if (editingEntryId == null) {
+      if (seededQuantityEntryIdRef.current !== null) {
+        seededQuantityEntryIdRef.current = null;
+        setQuantity(1);
+      }
       return;
     }
-    seededQuantityEntryIdRef.current = matchedId;
-    setQuantity(matchedOwnedEntry ? Math.max(0, matchedOwnedEntry.quantity) : 1);
-  }, [matchedOwnedEntry]);
+    // Wait for the entry to resolve so we seed its real quantity, not a stale 1.
+    if (!editingEntry || seededQuantityEntryIdRef.current === editingEntryId) {
+      return;
+    }
+    seededQuantityEntryIdRef.current = editingEntryId;
+    setQuantity(Math.max(1, editingEntry.quantity));
+  }, [editingEntry, editingEntryId]);
 
-  // UPDATE: set the matched entry's holding to the stepper quantity. Setting it to
-  // 0 removes the card (the backend deletes at 0), so we leave the now-empty view.
-  const handleUpdateItem = useCallback(() => {
-    if (isManagePending || !matchedOwnedEntry) {
+  // SAVE: commit the pending edit to the active line. A quantity-only change sets
+  // the holding; an attribute change rewrites the line via replace (the backend
+  // merges into an existing matching line and returns its id — so adopt the
+  // returned id as the new edit target).
+  const handleSave = useCallback(() => {
+    if (isManagePending || !editingEntry || !isDirty) {
       return;
     }
-    const nextQuantity = Math.max(0, quantity);
+    const nextQuantity = Math.max(1, quantity);
+    const attrsChanged = !selectionMatchesEntry(editingEntry);
     setIsManagePending(true);
-    void spotlightRepository
-      .setPortfolioEntryQuantity({ deckEntryID: matchedOwnedEntry.id, quantity: nextQuantity })
+    const request = attrsChanged
+      ? spotlightRepository
+          .replacePortfolioEntry({
+            deckEntryID: editingEntry.id,
+            cardID: editingEntry.cardId,
+            slabContext: configuredSlabContext,
+            variantName: isRawLane ? (selectedVariantLabel ?? null) : null,
+            condition: isRawLane ? selectedCondition : null,
+            quantity: nextQuantity,
+            unitPrice: editingEntry.costBasisPerUnit ?? 0,
+            currencyCode: editingEntry.currencyCode ?? 'USD',
+            updatedAt: new Date().toISOString(),
+          })
+          .then((response) => {
+            seededQuantityEntryIdRef.current = null;
+            setEditingEntryId(response.deckEntryID);
+          })
+      : spotlightRepository.setPortfolioEntryQuantity({
+          deckEntryID: editingEntry.id,
+          quantity: nextQuantity,
+        });
+    void request
       .then(() => {
+        capturePostHogEvent('card_detail_update_item_succeeded', {
+          attrsChanged,
+          kind: isRawLane ? 'raw' : 'graded',
+          quantity: nextQuantity,
+        });
         refreshData();
-        if (nextQuantity === 0) {
-          onBack();
-        }
       })
       .catch(() => {
-        setErrorMessage(
-          nextQuantity === 0
-            ? 'Could not remove this card right now.'
-            : 'Could not update this card right now.',
-        );
+        setErrorMessage('Could not update this card right now.');
       })
       .finally(() => {
         setIsManagePending(false);
       });
-  }, [isManagePending, matchedOwnedEntry, onBack, quantity, refreshData, spotlightRepository]);
+  }, [
+    configuredSlabContext,
+    editingEntry,
+    isDirty,
+    isManagePending,
+    isRawLane,
+    quantity,
+    refreshData,
+    selectedCondition,
+    selectedVariantLabel,
+    selectionMatchesEntry,
+    spotlightRepository,
+  ]);
+
+  // REMOVE: delete the active line, then drop to the next owned line (if any) or
+  // ADD mode.
+  const handleRemove = useCallback(() => {
+    if (isManagePending || !editingEntry) {
+      return;
+    }
+    const removedId = editingEntry.id;
+    setIsManagePending(true);
+    void spotlightRepository
+      .deletePortfolioEntry({ deckEntryID: removedId })
+      .then(() => {
+        const remaining = ownedEntries.filter((entry) => entry.id !== removedId);
+        seededQuantityEntryIdRef.current = null;
+        setIsAddingCopy(false);
+        setEditingEntryId(remaining[0]?.id ?? null);
+        refreshData();
+      })
+      .catch(() => {
+        setErrorMessage('Could not remove this card right now.');
+      })
+      .finally(() => {
+        setIsManagePending(false);
+      });
+  }, [editingEntry, isManagePending, ownedEntries, refreshData, spotlightRepository]);
+
+  // "+ Add copy": leave the edited line untouched and drop to ADD mode so the
+  // user can create a SEPARATE line (e.g. own NM and LP). Cancel restores it.
+  const handleAddCopy = useCallback(() => {
+    previousEditingEntryIdRef.current = editingEntryId;
+    setIsAddingCopy(true);
+    setEditingEntryId(null);
+  }, [editingEntryId]);
+
+  const handleCancelAddCopy = useCallback(() => {
+    setIsAddingCopy(false);
+    setEditingEntryId(previousEditingEntryIdRef.current);
+  }, []);
 
   // Grade/Condition dropdown wiring for the configurator.
   // Both lanes title this section "Grade" per Figma (992-7373 graded /
@@ -869,55 +977,100 @@ export function CardDetailScreen({
           </Text>
         </View>
 
-        <View style={styles.actionRow}>
-          <Button
-            disabled={!onOpenTransaction}
-            label="SELL NOW"
-            labelStyleVariant="label"
-            onPress={handleSellNow}
-            shape="rounded"
-            size="md"
-            style={styles.actionButton}
-            testID="detail-sell-now"
-            variant="outline"
-          />
+        <View style={styles.actionSection}>
+          <View style={styles.actionRow}>
+            <Button
+              disabled={!onOpenTransaction}
+              label="SELL NOW"
+              labelStyleVariant="label"
+              onPress={handleSellNow}
+              shape="rounded"
+              size="md"
+              style={styles.actionButton}
+              testID="detail-sell-now"
+              variant="outline"
+            />
+            {isManaged ? (
+              // Owned: SAVE commits the pending edit to THIS line (quantity, or
+              // condition/variant via replace). Enabled only when something
+              // changed. Never silently turns into ADD.
+              <Button
+                disabled={isManagePending || !detail || !isDirty}
+                label="SAVE"
+                labelStyleVariant="label"
+                onPress={handleSave}
+                shape="rounded"
+                size="md"
+                style={styles.actionButton}
+                testID="detail-update-item"
+                variant="accent"
+              />
+            ) : (
+              <Button
+                // Disabled until the card resolves so ADD ITEM is always a direct
+                // add with the on-page variant/condition (never the old sheet).
+                disabled={isAddPending || !detail}
+                label="ADD ITEM"
+                labelStyleVariant="label"
+                onPress={handleAddItem}
+                shape="rounded"
+                size="md"
+                style={styles.actionButton}
+                testID="detail-add-item"
+                variant="accent"
+              />
+            )}
+          </View>
           {isManaged ? (
-            // This exact item is already in the collection: UPDATE sets the
-            // holding to the stepper quantity (not accrue). Drop the stepper to 0
-            // to remove it — the button reads REMOVE and deletes the entry.
-            <Button
-              disabled={isManagePending || !detail}
-              label={quantity === 0 ? 'REMOVE' : 'UPDATE'}
-              labelStyleVariant="label"
-              onPress={handleUpdateItem}
-              shape="rounded"
-              size="md"
-              style={styles.actionButton}
-              testID="detail-update-item"
-              variant="accent"
-            />
-          ) : (
-            <Button
-              // Disabled until the card resolves so ADD ITEM is always a direct
-              // add with the on-page variant/condition (never the old sheet).
-              disabled={isAddPending || !detail}
-              label="ADD ITEM"
-              labelStyleVariant="label"
-              onPress={handleAddItem}
-              shape="rounded"
-              size="md"
-              style={styles.actionButton}
-              testID="detail-add-item"
-              variant="accent"
-            />
-          )}
+            // Quiet secondary row: add a separate copy / remove this line. Kept
+            // low-emphasis so the two buttons above stay the primary actions.
+            <View style={styles.manageRow}>
+              <Button
+                disabled={isManagePending}
+                label="+ Add copy"
+                labelStyleVariant="label"
+                onPress={handleAddCopy}
+                size="sm"
+                style={styles.manageLink}
+                testID="detail-add-copy"
+                variant="ghost"
+              />
+              <Button
+                disabled={isManagePending}
+                label="Remove"
+                labelStyle={{ color: theme.colors.dangerStrong }}
+                labelStyleVariant="label"
+                leadingAccessory={<Trash color={theme.colors.dangerStrong} height={18} width={18} />}
+                onPress={handleRemove}
+                size="sm"
+                style={styles.manageLink}
+                testID="detail-remove-item"
+                variant="ghost"
+              />
+            </View>
+          ) : isAddingCopy ? (
+            // ADD mode reached via "+ Add copy": offer a way back to the line we
+            // were editing.
+            <View style={styles.manageRow}>
+              <Button
+                disabled={isAddPending}
+                label="Cancel"
+                labelStyleVariant="label"
+                onPress={handleCancelAddCopy}
+                size="sm"
+                style={styles.manageLink}
+                testID="detail-cancel-add-copy"
+                variant="ghost"
+              />
+            </View>
+          ) : null}
         </View>
 
         <CardConfigurator
           gradeLabel={gradeLabel}
           gradeTitle={gradeTitle}
           graders={[...graderOptions]}
-          onDecrement={() => setQuantity((current) => Math.max(isManaged ? 0 : 1, current - 1))}
+          onDecrement={() => setQuantity((current) => Math.max(1, current - 1))}
           onIncrement={() => setQuantity((current) => current + 1)}
           onOpenGradePicker={() => setGradeSheetOpen(true)}
           onSelectGrader={handleSelectGrader}
@@ -970,6 +1123,19 @@ const styles = StyleSheet.create({
   actionRow: {
     flexDirection: 'row',
     gap: 12,
+  },
+  actionSection: {
+    gap: 8,
+  },
+  manageLink: {
+    borderWidth: 0,
+    paddingHorizontal: 4,
+  },
+  manageRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
   },
   content: {
     // 32px between stacked sections (Figma PDP): actions↔configurator,
