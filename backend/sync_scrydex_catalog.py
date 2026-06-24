@@ -40,7 +40,11 @@ SCRYDEX_CATALOG_PAGE_MAX_ATTEMPTS = 5
 SCRYDEX_CATALOG_PAGE_RETRY_BASE_DELAY_SECONDS = 2.0
 SCRYDEX_CATALOG_PAGE_RETRY_MAX_DELAY_SECONDS = 30.0
 SCRYDEX_CATALOG_PAGE_RETRY_JITTER_SECONDS = 1.0
-SCRYDEX_TRANSIENT_HTTP_STATUS_CODES = {408, 429, 500, 502, 503, 504}
+# 404 is included: during catalog pagination Scrydex signals end-of-pages with an EMPTY page
+# (`if not cards: break`), never with a 404, so a 404 mid-sync is always a transient gateway/edge
+# blip (observed 2026-06-24: an 11s stalled request immediately followed by an 80ms 404). Retrying
+# with backoff recovers it; without 404 here, a single transient 404 aborts the entire nightly sync.
+SCRYDEX_TRANSIENT_HTTP_STATUS_CODES = {404, 408, 429, 500, 502, 503, 504}
 
 
 def _parse_retry_after_seconds(value: str | None) -> float | None:

@@ -97,10 +97,20 @@ class SyncScrydexCatalogHelperTests(unittest.TestCase):
             hdrs={},
             fp=None,
         )))
-        self.assertFalse(_is_transient_scrydex_catalog_error(HTTPError(
+        # 404 is retryable in the catalog-pagination context: end-of-pages is an empty page, so a
+        # 404 mid-sync is a transient gateway blip, not a real "not found".
+        self.assertTrue(_is_transient_scrydex_catalog_error(HTTPError(
             url="https://scrydex.example/cards",
             code=404,
             msg="Not Found",
+            hdrs={},
+            fp=None,
+        )))
+        # Genuine non-retryable client errors (e.g. auth) must still abort.
+        self.assertFalse(_is_transient_scrydex_catalog_error(HTTPError(
+            url="https://scrydex.example/cards",
+            code=401,
+            msg="Unauthorized",
             hdrs={},
             fp=None,
         )))
@@ -148,8 +158,8 @@ class SyncScrydexCatalogHelperTests(unittest.TestCase):
             "sync_scrydex_catalog.fetch_scrydex_cards_page",
             side_effect=HTTPError(
                 url="https://scrydex.example/cards",
-                code=404,
-                msg="Not Found",
+                code=401,
+                msg="Unauthorized",
                 hdrs={},
                 fp=None,
             ),
