@@ -30,6 +30,7 @@ from catalog_tools import (  # noqa: E402
     RAW_PRICING_MODE,
     apply_schema,
     connect,
+    price_history_cell_portfolio_rows_by_card_date,
     price_history_cell_rows_by_date,
     upsert_card,
     upsert_deck_entry,
@@ -179,6 +180,36 @@ class PortfolioDashboardCellsBatchTests(unittest.TestCase):
             self.assertTrue(per_day, f"fixture should have cells on {price_date}")
             self.assertEqual(_norm(bulk.get((CARD_ID, price_date), [])), _norm(per_day))
         self.assertNotIn((CARD_ID, "2099-01-01"), bulk)
+
+    def test_portfolio_batched_reader_matches_per_card_reader(self) -> None:
+        # The dashboard's range-scoped prefetch reads the whole portfolio's cells in
+        # ONE batched query (price_history_cell_portfolio_rows_by_card_date) instead
+        # of the per-card N+1. For every card it must return exactly the same cells
+        # (on the projected columns the resolver reads) as the per-card reader, in the
+        # nested {card_id: {price_date: [rows]}} shape the resolver consumes.
+        cols = (
+            "lane", "grader", "grade", "variant_key", "condition",
+            "is_perfect", "is_signed", "is_error",
+            "currency_code", "low", "market", "mid", "high", "direct_low", "trend",
+        )
+
+        def projected(rows):
+            return sorted(tuple(r[c] for c in cols) for r in rows)
+
+        batched = price_history_cell_portfolio_rows_by_card_date(
+            self.service.connection,
+            provider=SCRYDEX,
+            card_ids=[CARD_ID],
+            price_dates=[DAY_1, DAY_3, "2099-01-01"],
+        )
+        for price_date in (DAY_1, DAY_3):
+            per_card = price_history_cell_rows_by_date(
+                self.service.connection, card_id=CARD_ID, provider=SCRYDEX, price_dates={price_date}
+            ).get(price_date, [])
+            self.assertTrue(per_card, f"fixture should have cells on {price_date}")
+            self.assertEqual(projected(batched.get(CARD_ID, {}).get(price_date, [])), projected(per_card))
+        # A date with no cells is simply absent (caller reads a missing key as []).
+        self.assertNotIn("2099-01-01", batched.get(CARD_ID, {}))
 
     def test_deck_history_cells_matches_json_mode_per_range(self) -> None:
         # End-to-end: deck_history in cells mode (which now bulk-prefetches only the

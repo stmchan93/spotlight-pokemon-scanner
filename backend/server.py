@@ -42,6 +42,7 @@ from catalog_tools import (
     price_history_cells_enabled,
     price_history_cell_rows_for_day,
     price_history_cell_rows_by_date,
+    price_history_cell_portfolio_rows_by_card_date,
     resolve_graded_entry_from_cells,
     resolve_raw_summary_from_cells,
     DEFAULT_RAW_CONDITION,
@@ -4055,7 +4056,10 @@ class SpotlightScanService:
             return None
         start_iso = start_date.isoformat()
         end_iso = end_date.isoformat()
-        result: dict[str, dict[str, list[Any]]] = {}
+        # First pass: work out, per card, exactly which dates the resolver will hit
+        # (the daily-row dates inside the window plus the one carry-in row before it).
+        needed_by_card: dict[str, set[str]] = {}
+        all_dates: set[str] = set()
         for card_id, rows in history_rows_by_card_id.items():
             needed: set[str] = set()
             carry_in: str | None = None
@@ -4070,12 +4074,28 @@ class SpotlightScanService:
             if carry_in is not None:
                 needed.add(carry_in)
             if needed:
-                result[card_id] = price_history_cell_rows_by_date(
-                    self.connection,
-                    card_id=card_id,
-                    provider=SCRYDEX_PROVIDER,
-                    price_dates=needed,
-                )
+                needed_by_card[card_id] = needed
+                all_dates.update(needed)
+        if not needed_by_card:
+            return {}
+        # One batched, projected read for the WHOLE portfolio instead of a query per
+        # card (the old N+1 that pinned the box on a large collection). Daily snapshot
+        # dates are shared across cards, so the union of dates is small.
+        grouped = price_history_cell_portfolio_rows_by_card_date(
+            self.connection,
+            provider=SCRYDEX_PROVIDER,
+            card_ids=needed_by_card.keys(),
+            price_dates=all_dates,
+        )
+        # Re-scope each card to its OWN needed dates so the output is identical to the
+        # per-card read (extra union dates a card may carry are never looked up anyway).
+        result: dict[str, dict[str, list[Any]]] = {}
+        for card_id, needed in needed_by_card.items():
+            by_date = grouped.get(card_id)
+            if not by_date:
+                result[card_id] = {}
+                continue
+            result[card_id] = {date: by_date[date] for date in needed if date in by_date}
         return result
 
     def _load_portfolio_history_shared_inputs(

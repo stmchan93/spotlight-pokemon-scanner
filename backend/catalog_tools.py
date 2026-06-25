@@ -3966,6 +3966,64 @@ def price_history_cell_trend_rows_by_date(
     return result
 
 
+# Every cell column the PORTFOLIO-dashboard resolvers read: the raw/graded match
+# keys (lane/grader/grade/variant_key/condition + the is_* flags) plus the full
+# price summary `_cell_summary_from_row` builds (currency + low/market/mid/high/
+# direct_low/trend). card_id/price_date are carried so results can be regrouped.
+# Projecting to these — instead of `SELECT *` — lets the dashboard read skip the
+# wide row (cell_key/provider/updated_at) and the scattered cold table-row fetches
+# that dominate a large portfolio's first refresh.
+_PORTFOLIO_CELL_COLUMNS = (
+    "card_id, price_date, lane, grader, grade, variant_key, condition, "
+    "is_perfect, is_signed, is_error, currency_code, low, market, mid, high, "
+    "direct_low, trend"
+)
+
+
+def price_history_cell_portfolio_rows_by_card_date(
+    connection: sqlite3.Connection,
+    *,
+    provider: str,
+    card_ids: Iterable[str],
+    price_dates: Iterable[str],
+) -> dict[str, dict[str, list[Any]]]:
+    """Batched, projected cell read for the portfolio dashboard's range-scoped
+    prefetch. Replaces the per-card N+1 (``price_history_cell_rows_by_date`` called
+    once per owned card — hundreds-to-thousands of queries against the 31M-row cell
+    table per range) with chunked ``card_id IN (...) AND price_date IN (...)``
+    queries served by the ``(card_id, price_date, cell_key)`` unique index. Daily
+    snapshot dates are shared across cards, so the union of needed dates is small.
+    Returns ``{card_id: {price_date: [rows]}}`` — the same shape the resolver
+    consumes — projected to ``_PORTFOLIO_CELL_COLUMNS``."""
+    if not _table_exists(connection, "card_price_history_cell"):
+        return {}
+    ids = [str(c) for c in card_ids if str(c or "").strip()]
+    dates = [str(d) for d in price_dates if str(d or "").strip()]
+    result: dict[str, dict[str, list[Any]]] = {}
+    if not ids or not dates:
+        return result
+    for date_start in range(0, len(dates), 400):
+        date_chunk = dates[date_start : date_start + 400]
+        date_placeholders = ",".join("?" for _ in date_chunk)
+        for id_start in range(0, len(ids), 400):
+            id_chunk = ids[id_start : id_start + 400]
+            id_placeholders = ",".join("?" for _ in id_chunk)
+            rows = connection.execute(
+                f"""
+                SELECT {_PORTFOLIO_CELL_COLUMNS} FROM card_price_history_cell
+                WHERE provider = ?
+                  AND card_id IN ({id_placeholders})
+                  AND price_date IN ({date_placeholders})
+                """,
+                (provider, *id_chunk, *date_chunk),
+            ).fetchall()
+            for row in rows:
+                card_id = str(_cell_field(row, "card_id"))
+                price_date = str(_cell_field(row, "price_date"))
+                result.setdefault(card_id, {}).setdefault(price_date, []).append(row)
+    return result
+
+
 def _cell_field(row: Any, name: str) -> Any:
     try:
         return row[name]
