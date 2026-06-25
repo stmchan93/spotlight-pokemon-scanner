@@ -768,6 +768,32 @@ export function CardDetailScreen({
     return Math.max(1, quantity) !== editingEntry.quantity;
   }, [editingEntry, quantity, selectionMatchesEntry]);
 
+  // TEMP DIAGNOSTIC (remove once the "SAVE stuck disabled after Add" report is
+  // pinned): fire only in the genuinely-stuck state — managed mode, detail
+  // loaded, but the edit target never resolved (so SAVE can never enable). The
+  // payload distinguishes the candidate causes: ownedEntryCount===0 means the
+  // refetched list never surfaced the new line; a routeCardId/detailCardId/
+  // ownedEntryCardIds mismatch means the cardId filter dropped it; editingEntryId
+  // absent from ownedEntryIds despite count>0 would mean a true id mismatch.
+  const diagnosedEditTargetRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isManaged || !editingEntryId || !detail || editingEntry != null) {
+      return;
+    }
+    if (diagnosedEditTargetRef.current === editingEntryId) {
+      return;
+    }
+    diagnosedEditTargetRef.current = editingEntryId;
+    capturePostHogEvent('card_detail_edit_target_unresolved', {
+      routeCardId: cardId,
+      detailCardId: detail.cardId,
+      editingEntryId,
+      ownedEntryCount: ownedEntries.length,
+      ownedEntryIds: ownedEntries.map((entry) => entry.id),
+      ownedEntryCardIds: ownedEntries.map((entry) => entry.cardId),
+    });
+  }, [isManaged, editingEntryId, detail, editingEntry, ownedEntries, cardId]);
+
   // Seed the stepper from the edited line's real quantity (min 1), once per
   // target. The id ref guard keeps manual −/+ edits from being clobbered on
   // re-render; ADD mode (no target) resets to 1.
