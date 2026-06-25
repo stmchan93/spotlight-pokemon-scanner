@@ -2454,7 +2454,12 @@ export function ScannerScreen({
       <ScanningForSheet
         visible={isScanTargetSheetOpen}
         cardType={cardType}
-        onSelectCardType={setCardType}
+        onSelectCardType={(type) => {
+          // Picking a language is a one-tap action: apply it and close the sheet
+          // so the user doesn't have to also tap out of the modal to dismiss it.
+          setCardType(type);
+          setIsScanTargetSheetOpen(false);
+        }}
         onClose={() => setIsScanTargetSheetOpen(false)}
       />
     </SafeAreaView>

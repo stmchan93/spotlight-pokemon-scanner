@@ -496,8 +496,8 @@ describe('ScannerScreen', () => {
     renderScannerScreen({ spotlightRepository });
 
     fireEvent.press(screen.getByTestId('scanner-target-pill'));
+    // Selecting a language now closes the sheet in one tap (no separate dismiss).
     fireEvent.press(screen.getByTestId('scanning-for-sheet-type-pokemon-jp'));
-    fireEvent.press(screen.getByTestId('scanning-for-sheet-backdrop'));
 
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
