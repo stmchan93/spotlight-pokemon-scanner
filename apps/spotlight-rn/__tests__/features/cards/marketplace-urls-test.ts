@@ -200,7 +200,7 @@ describe('buildEbaySearchUrl', () => {
     expect(url).toContain('LH_Complete=1');
   });
 
-  it('leads the query with grader + grade and sorts by most-recently-sold', () => {
+  it('leads the query with a QUOTED grader + grade phrase and sorts by most-recently-sold', () => {
     const url = buildEbaySearchUrl({
       setName: 'XY Promos',
       name: 'Ditto',
@@ -208,13 +208,25 @@ describe('buildEbaySearchUrl', () => {
       grader: 'PSA',
       grade: '10',
     });
-    // grader + grade first so the sold search is scoped to the graded card.
-    expect(url).toContain('_nkw=PSA+10+Ditto');
+    // grader + grade first, as an exact phrase, so eBay can't relax the grade number
+    // and backfill with the high-volume grade ("%22" is the encoded double-quote).
+    expect(url).toContain('_nkw=%22PSA+10%22+Ditto');
     expect(url).toContain('LH_Sold=1');
     expect(url).toContain('_sop=13');
   });
 
-  it('preserves a half-grade so the sold search is not split ("9.5" not "9 5")', () => {
+  it('quotes a low grade so eBay does not backfill with high-grade solds (PSA 3 ≠ PSA 10)', () => {
+    const url = buildEbaySearchUrl({
+      setName: 'Evolving Skies',
+      name: 'Umbreon VMAX',
+      cardNumber: '215/203',
+      grader: 'PSA',
+      grade: '3',
+    });
+    expect(url).toContain('_nkw=%22PSA+3%22+Umbreon');
+  });
+
+  it('preserves a half-grade inside the quoted phrase ("9.5" not "9 5")', () => {
     const url = buildEbaySearchUrl({
       setName: 'XY Promos',
       name: 'Ditto',
@@ -222,8 +234,18 @@ describe('buildEbaySearchUrl', () => {
       grader: 'CGC',
       grade: '9.5',
     });
-    expect(url).toContain('_nkw=CGC+9.5+Ditto');
+    expect(url).toContain('_nkw=%22CGC+9.5%22+Ditto');
     expect(url).not.toContain('9+5');
+  });
+
+  it('does not quote when there is no grade (raw card sold search stays loose)', () => {
+    const url = buildEbaySearchUrl({
+      setName: 'Base Set',
+      name: 'Charizard',
+      cardNumber: '4/102',
+    });
+    expect(url).not.toContain('%22');
+    expect(url).toContain('_nkw=Charizard');
   });
 
   it('returns null when all fields are empty', () => {

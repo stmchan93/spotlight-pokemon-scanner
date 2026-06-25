@@ -124,11 +124,22 @@ export function buildEbaySearchUrl(params: {
   grader?: string | null;
   grade?: string | null;
 }) {
+  const graderToken = cleanedMarketplaceToken(params.grader);
+  const gradeToken = cleanedMarketplaceToken(params.grade);
+
+  // Quote the grader+grade as an EXACT phrase (e.g. "PSA 3") so eBay matches the grade
+  // strictly. As loose keywords, eBay relaxes the low-signal grade number — a bare "3"
+  // collides with card numbers ("215/203") and gets dropped, backfilling the page with
+  // high-volume PSA 10 solds. A quoted "PSA 3" can't match a "PSA 10" title. Only quote
+  // when both are present; a lone bare number quoted would over-filter.
+  const gradeTerm =
+    graderToken && gradeToken
+      ? `"${graderToken} ${gradeToken}"`
+      : [graderToken, gradeToken].filter(Boolean).join(' ');
+
   const query = [
-    // Grader + grade first (e.g. "PSA 10") so the search lands on graded sales of
-    // this exact card when tapped from a graded price row.
-    cleanedMarketplaceToken(params.grader),
-    cleanedMarketplaceToken(params.grade),
+    // Grader + grade first so the search lands on graded sales of this exact card.
+    gradeTerm,
     cleanedMarketplaceToken(params.name),
     cleanedMarketplaceToken(params.cardNumber.replace(/^#/, '')),
     cleanedMarketplaceToken(params.setName),
