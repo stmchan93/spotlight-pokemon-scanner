@@ -171,6 +171,45 @@ describe('scanner visual-match — retry + deferred raw artifact upload', () => 
     expect(candidate.imageUrl).toBe('https://cdn.example.test/sv1/1-large.png');
   }, 15000);
 
+  it('keeps an unnumbered promo candidate (blank collector number) instead of dropping it', async () => {
+    // Regression for the 2026-06 "my scanned card is never in the list" bug: unnumbered JP
+    // promos (e.g. Game Boy Dragonite miscp_ja-68, Ancient Mew) carry a blank `number`.
+    // normalizeCardCandidate used to require a non-empty number, so it silently dropped these
+    // ~589 cards from scan candidates — a perfect match was invisible in the UI. They must
+    // now survive mapping, with the blank number rendered as the '--' placeholder.
+    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+      if (callKind(url) === 'raw-match') {
+        return jsonResponse(200, {
+          scanID: 'scan-test',
+          candidates: [],
+          topCandidates: [
+            {
+              finalScore: 0.67,
+              candidate: {
+                id: 'miscp_ja-68',
+                name: 'Dragonite',
+                setName: 'Unnumbered Promos',
+                number: '',
+                imageSmallURL: 'https://cdn.example.test/gb/small.png',
+                imageLargeURL: 'https://cdn.example.test/gb/large.png',
+                pricing: { currencyCode: 'USD', market: null },
+              },
+            },
+          ],
+        });
+      }
+      return jsonResponse(200, { normalizedObjectPath: 'n', storage: 'gcs' });
+    }) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    const result = await repository.matchScannerCapture(rawPayload());
+
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0].cardId).toBe('miscp_ja-68');
+    // blank number renders as the '--' placeholder rather than dropping the card
+    expect(result.candidates[0].cardNumber).toBe('#--');
+  }, 15000);
+
   it('does NOT retry slab matches (they keep a single long attempt)', async () => {
     let slabAttempts = 0;
     global.fetch = jest.fn().mockImplementation(async (url: string) => {

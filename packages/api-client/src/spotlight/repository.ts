@@ -1320,9 +1320,13 @@ function normalizeCardCandidate(candidate: CardCandidateDTO | null | undefined, 
   const id = normalizeString(candidate?.id);
   const name = normalizeString(candidate?.name);
   const setName = normalizeString(candidate?.setName);
-  const number = normalizeString(candidate?.number);
+  // Unnumbered promos (e.g. JP Game Boy Dragonite, Ancient Mew) have a blank
+  // collector number but are valid, selectable cards. Don't gate visibility on
+  // `number` — default it to '--' so these don't silently drop out of scan
+  // candidates. id + name + setName already identify the candidate.
+  const number = normalizeCardNumber(candidate?.number);
 
-  if (!id || !name || !setName || !number) {
+  if (!id || !name || !setName) {
     return null;
   }
 
