@@ -344,7 +344,7 @@ describe('CardDetailScreen', () => {
     });
     const url = openURL.mock.calls[0][0] as string;
     expect(url).toContain('https://www.ebay.com/sch/i.html');
-    expect(url).toContain('_nkw=PSA+10'); // grader + grade lead the sold-search query
+    expect(url).toContain('_nkw=%22PSA+10%22'); // grader + grade lead the sold-search query
     expect(url).toContain('LH_Sold=1');
     expect(url).toContain('LH_Complete=1');
     // Tracked for the "checks pricing" funnel.
@@ -374,7 +374,7 @@ describe('CardDetailScreen', () => {
       expect(openURL).toHaveBeenCalledTimes(1);
     });
     // The pipe key "PSA|10|<variant>" still yields grader=PSA, grade=10 in the query.
-    expect(openURL.mock.calls[0][0] as string).toContain('_nkw=PSA+10');
+    expect(openURL.mock.calls[0][0] as string).toContain('_nkw=%22PSA+10%22');
   });
 
   it('tapping the TCGplayer logo (raw lane) opens the Near Mint search', async () => {
@@ -422,7 +422,7 @@ describe('CardDetailScreen', () => {
     });
     const url = openURL.mock.calls[0][0] as string;
     expect(url).toContain('https://www.ebay.com/sch/i.html');
-    expect(url).toContain('_nkw=PSA+10'); // defaults to the seeded PSA 10
+    expect(url).toContain('_nkw=%22PSA+10%22'); // defaults to the seeded PSA 10
     expect(url).toContain('LH_Sold=1');
   });
 
@@ -449,7 +449,7 @@ describe('CardDetailScreen', () => {
       expect(openURL).toHaveBeenCalledTimes(1);
     });
     // The eBay link now reflects PSA 9.5, not the default 10 (half-grade preserved).
-    expect(openURL.mock.calls[0][0] as string).toContain('_nkw=PSA+9.5');
+    expect(openURL.mock.calls[0][0] as string).toContain('_nkw=%22PSA+9.5%22');
   });
 
   it('renders Product Details when the card detail includes cardText', async () => {
