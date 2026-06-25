@@ -79,7 +79,7 @@ Date: 2026-04-13
   - `selected_card_id`
   - `confirmed_card_id`
 - Current pricing-cache operating decision:
-  - the current live beta is the same-host VM mirror path with a scheduled Scrydex sync every 12 hours
+  - the current live beta is the same-host VM mirror path with a scheduled Scrydex sync once daily at 6 PM PT (`0 18 * * *`)
   - the backend server and the scheduled sync job share one SQLite database on that VM
   - when the mirror path is turned on, full Scrydex sync runs at `6:00 AM` and `6:00 PM America/Los_Angeles`
   - that sync persists card metadata plus raw and graded price snapshots from the same `include=prices` payload
