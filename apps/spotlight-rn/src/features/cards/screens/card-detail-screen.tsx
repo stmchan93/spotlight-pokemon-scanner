@@ -739,10 +739,21 @@ export function CardDetailScreen({
   // The line being edited (sticky — driven by editingEntryId, not the live
   // selection). null id ⇒ ADD mode. isManaged keys off the id (not the resolved
   // entry) so the edit UI doesn't flicker to ADD during a post-mutation refresh.
-  const editingEntry = useMemo(
-    () => (editingEntryId ? ownedEntries.find((entry) => entry.id === editingEntryId) ?? null : null),
-    [editingEntryId, ownedEntries],
-  );
+  const editingEntry = useMemo(() => {
+    if (!editingEntryId) {
+      return null;
+    }
+    const exact = ownedEntries.find((entry) => entry.id === editingEntryId);
+    if (exact) {
+      return exact;
+    }
+    // After add/replace the backend returns a `deckEntryID` that may not equal the
+    // card-detail entry id (the two come from different endpoints with different id
+    // forms). Without this, the just-added line never resolves, leaving SAVE
+    // permanently disabled. When exactly one line is owned the edit target is
+    // unambiguous, so resolve to it instead of stranding the editor.
+    return ownedEntries.length === 1 ? ownedEntries[0] : null;
+  }, [editingEntryId, ownedEntries]);
   const isManaged = editingEntryId != null;
 
   // SAVE is enabled only when the pending edit differs from what's stored — an
@@ -1022,18 +1033,19 @@ export function CardDetailScreen({
             )}
           </View>
           {isManaged ? (
-            // Quiet secondary row: add a separate copy / remove this line. Kept
-            // low-emphasis so the two buttons above stay the primary actions.
-            <View style={styles.manageRow}>
+            // Secondary row mirrors the primary action row's shell (md / rounded /
+            // outline) so the controls read as one consistent set. UX polish TBD.
+            <View style={styles.actionRow}>
               <Button
                 disabled={isManagePending}
                 label="+ Add copy"
                 labelStyleVariant="label"
                 onPress={handleAddCopy}
-                size="sm"
-                style={styles.manageLink}
+                shape="rounded"
+                size="md"
+                style={styles.actionButton}
                 testID="detail-add-copy"
-                variant="ghost"
+                variant="outline"
               />
               <Button
                 disabled={isManagePending}
@@ -1042,10 +1054,11 @@ export function CardDetailScreen({
                 labelStyleVariant="label"
                 leadingAccessory={<Trash color={theme.colors.dangerStrong} height={18} width={18} />}
                 onPress={handleRemove}
-                size="sm"
-                style={styles.manageLink}
+                shape="rounded"
+                size="md"
+                style={styles.actionButton}
                 testID="detail-remove-item"
-                variant="ghost"
+                variant="outline"
               />
             </View>
           ) : isAddingCopy ? (
