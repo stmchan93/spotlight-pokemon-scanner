@@ -3791,7 +3791,10 @@ def resolve_graded_entry_from_cells(
     cell row (or ``None``); use ``_cell_summary_from_row`` to price it, or read its
     flags/variant_key directly. UPPER-cases grader/grade, then defers to
     ``_pick_graded_item`` (base printing when no exact variant requested, median
-    market among duplicates) so it stays in lock-step with the snapshot resolver."""
+    market among duplicates) so it stays in lock-step with the snapshot resolver.
+    Then drops the result if it's a corrupt-pull outlier vs same-day peer graders
+    (see ``_graded_cell_is_corrupt``) — returns ``None`` so the trend gaps that day
+    rather than spiking to a garbage value."""
     grader_key = str(grader or "").strip().upper()
     grade_key = str(grade or "").strip().upper()
     if not grader_key or not grade_key:
@@ -3805,7 +3808,7 @@ def resolve_graded_entry_from_cells(
     ]
     if not matches:
         return None
-    return _pick_graded_item(
+    chosen = _pick_graded_item(
         matches,
         variant=variant,
         get_variant=lambda cell: _cell_field(cell, "variant_key"),
@@ -3814,6 +3817,52 @@ def resolve_graded_entry_from_cells(
             bool(_cell_field(cell, flag)) for flag in ("is_perfect", "is_signed", "is_error")
         ),
     )
+    if chosen is not None and _graded_cell_is_corrupt(chosen, cells, grade_key=grade_key, grader_key=grader_key):
+        return None
+    return chosen
+
+
+# A single corrupt cell (a Scrydex bad pull — e.g. a "$198 PSA 10" beside $2k–$5k
+# peers) must not surface as a graded price, especially once the signed/perfect
+# records that used to mask it are filtered out. We reject the chosen cell only
+# when its market collapses *far* below what OTHER graders report for the SAME
+# grade that day: comparing within a grade (PSA 10 vs BGS/CGC/ACE 10) keeps
+# legitimate low grades safe (a PSA 5 sits next to other graders' 5s), and the
+# 4x-below floor never trips on normal grader spreads (the cheapest legit grader
+# of a tier is ~0.5–0.7x the peer median, far above 0.25x). Needs >=3 peers so the
+# reference median is stable; otherwise the guard stays out of the way.
+_GRADED_OUTLIER_FLOOR_FRAC = 0.25
+_GRADED_OUTLIER_MIN_PEERS = 3
+
+
+def _graded_cell_is_corrupt(
+    chosen: Any,
+    cells: list[Any],
+    *,
+    grade_key: str,
+    grader_key: str,
+) -> bool:
+    chosen_market = _cell_field(chosen, "market")
+    if not isinstance(chosen_market, (int, float)):
+        return False
+    peers: list[float] = []
+    for c in cells:
+        if str(_cell_field(c, "lane") or "") != "graded":
+            continue
+        if str(_cell_field(c, "grade") or "").strip().upper() != grade_key:
+            continue
+        if str(_cell_field(c, "grader") or "").strip().upper() == grader_key:
+            continue
+        if any(bool(_cell_field(c, flag)) for flag in ("is_perfect", "is_signed", "is_error")):
+            continue
+        market = _cell_field(c, "market")
+        if isinstance(market, (int, float)):
+            peers.append(float(market))
+    if len(peers) < _GRADED_OUTLIER_MIN_PEERS:
+        return False
+    peers.sort()
+    peer_median = peers[len(peers) // 2]
+    return peer_median > 0 and float(chosen_market) < _GRADED_OUTLIER_FLOOR_FRAC * peer_median
 
 
 def raw_cell_exact_from_cells(
