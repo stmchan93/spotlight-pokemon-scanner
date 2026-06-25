@@ -1898,6 +1898,63 @@ def _default_raw_field_values(raw_contexts: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# Vintage cards (Base Set, Jungle, ...) store several printings under ONE card id —
+# "Unlimited Holofoil", "Unlimited Shadowless Holofoil", "First Edition Shadowless
+# Holofoil", novelty "Metal"/"Jumbo", etc. — and the provider stores multiple, often
+# noisy, price records per (variant, grade). The helpers below pick a *sane* graded
+# entry: prefer the base printing when no exact variant is requested (never a
+# 1st-edition / shadowless / novelty record just because of storage order), and take
+# the MEDIAN market among duplicate records so a single bad scrape (a raw price
+# mislabeled as a PSA 9, or a shadowless sale leaking into the unlimited bucket) can
+# never be the surfaced price.
+_NOVELTY_VARIANT_TOKENS = (
+    "first edition", "1st edition", "1st ed", "shadowless",
+    "metal", "jumbo", "promo", "staff", "prerelease", "pre-release",
+)
+
+
+def _graded_variant_demerit(label: str) -> int:
+    low = str(label or "").lower()
+    return sum(1 for token in _NOVELTY_VARIANT_TOKENS if token in low)
+
+
+def _median_market_item(items: list[Any], get_market) -> Any | None:
+    if not items:
+        return None
+    priced = [
+        (float(market), item)
+        for item, market in ((item, get_market(item)) for item in items)
+        if isinstance(market, (int, float))
+    ]
+    if not priced:
+        return items[0]
+    priced.sort(key=lambda pair: pair[0])
+    return priced[len(priced) // 2][1]
+
+
+def _pick_graded_item(items, *, variant, get_variant, get_market, is_special):
+    """Shared selection for the snapshot + cell graded resolvers. Picks the base
+    printing when no matching variant is requested (so an unlimited slab never shows a
+    1st-edition / novelty price), then the median-market record among duplicates.
+    Special (perfect / signed / error) records are a last resort."""
+    requested = _normalized_variant_label(variant) if variant else None
+    pool = [item for item in items if not is_special(item)] or list(items)
+    if not pool:
+        return None
+    by_variant: dict[str, list[Any]] = {}
+    for item in pool:
+        by_variant.setdefault(_normalized_variant_label(get_variant(item)), []).append(item)
+    if requested and requested in by_variant:
+        group = by_variant[requested]
+    else:
+        best_label = min(
+            by_variant,
+            key=lambda label: (_graded_variant_demerit(label), -len(by_variant[label]), label),
+        )
+        group = by_variant[best_label]
+    return _median_market_item(group, get_market)
+
+
 def _resolve_graded_context_entry(
     graded_contexts: dict[str, Any],
     *,
@@ -1918,28 +1975,18 @@ def _resolve_graded_context_entry(
     entries = grade_map.get(grade_key)
     if not isinstance(entries, list):
         return None
-    resolved_variant = _normalized_variant_label(variant) if variant else None
-    preferred = []
-    fallback = []
-    for entry in entries:
-        if not isinstance(entry, dict):
-            continue
-        is_special = any(bool(entry.get(flag)) for flag in ("isPerfect", "isSigned", "isError"))
-        entry_variant = _normalized_variant_label(entry.get("variant"))
-        if resolved_variant:
-            if entry_variant == resolved_variant and not is_special:
-                return entry
-            if entry_variant == resolved_variant:
-                preferred.append(entry)
-        elif not is_special:
-            fallback.append(entry)
-        else:
-            preferred.append(entry)
-    if preferred:
-        return preferred[0]
-    if fallback:
-        return fallback[0]
-    return None
+    items = [entry for entry in entries if isinstance(entry, dict)]
+    if not items:
+        return None
+    return _pick_graded_item(
+        items,
+        variant=variant,
+        get_variant=lambda entry: entry.get("variant"),
+        get_market=lambda entry: entry.get("market"),
+        is_special=lambda entry: any(
+            bool(entry.get(flag)) for flag in ("isPerfect", "isSigned", "isError")
+        ),
+    )
 
 
 def _graded_variants_for_context(
@@ -3742,9 +3789,9 @@ def resolve_graded_entry_from_cells(
 ) -> Any | None:
     """Cell-backed twin of ``_resolve_graded_context_entry``. Returns the chosen
     cell row (or ``None``); use ``_cell_summary_from_row`` to price it, or read its
-    flags/variant_key directly. UPPER-cases grader/grade; among matching cells,
-    prefers (variant match, not special) -> (variant match, any) -> (any, not
-    special) -> first."""
+    flags/variant_key directly. UPPER-cases grader/grade, then defers to
+    ``_pick_graded_item`` (base printing when no exact variant requested, median
+    market among duplicates) so it stays in lock-step with the snapshot resolver."""
     grader_key = str(grader or "").strip().upper()
     grade_key = str(grade or "").strip().upper()
     if not grader_key or not grade_key:
@@ -3758,28 +3805,15 @@ def resolve_graded_entry_from_cells(
     ]
     if not matches:
         return None
-    resolved_variant = _normalized_variant_label(variant) if variant else None
-    preferred: list[Any] = []
-    fallback: list[Any] = []
-    for cell in matches:
-        is_special = any(
+    return _pick_graded_item(
+        matches,
+        variant=variant,
+        get_variant=lambda cell: _cell_field(cell, "variant_key"),
+        get_market=lambda cell: _cell_field(cell, "market"),
+        is_special=lambda cell: any(
             bool(_cell_field(cell, flag)) for flag in ("is_perfect", "is_signed", "is_error")
-        )
-        cell_variant = _normalized_variant_label(_cell_field(cell, "variant_key"))
-        if resolved_variant:
-            if cell_variant == resolved_variant and not is_special:
-                return cell
-            if cell_variant == resolved_variant:
-                preferred.append(cell)
-        elif not is_special:
-            fallback.append(cell)
-        else:
-            preferred.append(cell)
-    if preferred:
-        return preferred[0]
-    if fallback:
-        return fallback[0]
-    return None
+        ),
+    )
 
 
 def raw_cell_exact_from_cells(
