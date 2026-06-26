@@ -87,6 +87,7 @@ import {
   sweepOrphanScans,
 } from '@/features/scanner/recent-captures-persistence';
 import { prefetchCardDetail } from '@/features/cards/card-detail-prefetch';
+import { saveCardDetailPreviewFromCatalogResult } from '@/features/cards/card-detail-preview-session';
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { prefetchImageUrls } from '@/lib/card-images';
 import { useAuth } from '@/providers/auth-provider';
@@ -1782,6 +1783,10 @@ export function ScannerScreen({
       params: {
         cardId: candidate.cardId,
         entryId: matchingInventoryEntries[0],
+        // Seed a preview (the tapped candidate IS a CatalogSearchResult) so the
+        // PDP body renders instantly instead of a blank "Loading card…" while
+        // getCardDetail resolves — matching search / portfolio / wishlist nav.
+        previewId: saveCardDetailPreviewFromCatalogResult(candidate),
         scanReviewId,
       },
     });
