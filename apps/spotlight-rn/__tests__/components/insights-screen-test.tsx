@@ -117,17 +117,6 @@ describe('InsightsScreen', () => {
     );
     expect(screen.getByTestId('insights-stat-scanned-value').props.children).toBe('2,876');
     expect(screen.getByTestId('insights-stat-wishlisted-value').props.children).toBe('40');
-    expect(screen.getByTestId('insights-stat-bought-value').props.children).toBe('98');
-    expect(screen.getByTestId('insights-stat-sold-value').props.children).toBe('142');
-    expect(screen.getByTestId('insights-stat-traded-value').props.children).toBe('21');
-
-    // Biggest sale + biggest purchase amounts.
-    expect(screen.getByTestId('insights-biggest-sale')).toBeTruthy();
-    expect(screen.getByTestId('insights-biggest-sale-amount').props.children).toBe('+$1,200.00');
-    expect(screen.getByTestId('insights-biggest-purchase')).toBeTruthy();
-    expect(screen.getByTestId('insights-biggest-purchase-amount').props.children).toBe(
-      '+$880.00',
-    );
   });
 
   it('shows empty tiles when there is no activity', async () => {
@@ -163,9 +152,5 @@ describe('InsightsScreen', () => {
         screen.getByText('Your biggest monthly gainers will show up here.'),
       ).toBeTruthy();
     });
-    expect(screen.getByText('Your biggest sale will show up here.')).toBeTruthy();
-    expect(screen.getByText('Your biggest purchase will show up here.')).toBeTruthy();
-    expect(screen.queryByTestId('insights-biggest-sale')).toBeNull();
-    expect(screen.queryByTestId('insights-biggest-purchase')).toBeNull();
   });
 });

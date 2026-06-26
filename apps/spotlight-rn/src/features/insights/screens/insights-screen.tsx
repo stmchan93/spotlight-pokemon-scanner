@@ -12,9 +12,6 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import {
-  Cart,
-  DataTransferBoth,
-  DollarCircle,
   GraphUp,
   Heart,
   NavArrowLeft,
@@ -23,7 +20,6 @@ import {
 } from 'iconoir-react-native';
 
 import type {
-  CardTransactionRecord,
   InsightGrowthCard,
   TransactionInsights,
 } from '@spotlight/api-client';
@@ -31,7 +27,6 @@ import { colors, textStyles, useSpotlightTheme } from '@spotlight/design-system'
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { formatOptionalCurrency } from '@/features/portfolio/components/portfolio-formatting';
-import { paymentMethodLabel } from '@/features/sales/payment-method';
 import { useTabBarScrollHandler } from '@/contexts/tab-bar-chrome-context';
 import { useAppServices } from '@/providers/app-providers';
 import { AppBottomTabBar } from '@/components/app-bottom-tab-bar';
@@ -217,50 +212,7 @@ export function InsightsScreen() {
               label="Wishlisted"
               value={(insights?.wishlistedCount ?? 0).toLocaleString('en-US')}
             />
-            <StatRow
-              icon={<Cart color={colors.gray900} height={18} width={18} />}
-              label="Bought"
-              value={String(insights?.allTime.bought.count ?? 0)}
-            />
-            <StatRow
-              icon={<DollarCircle color={colors.gray900} height={18} width={18} />}
-              label="Sold"
-              value={String(insights?.allTime.sold.count ?? 0)}
-            />
-            <StatRow
-              icon={<DataTransferBoth color={colors.gray900} height={18} width={18} />}
-              label="Traded"
-              value={String(insights?.allTime.traded.count ?? 0)}
-            />
           </View>
-        </View>
-
-        {/* Biggest sale highlight. */}
-        <View style={styles.section}>
-          {insights?.biggestSale ? (
-            <BiggestTransaction
-              record={insights.biggestSale}
-              title="Biggest Sale"
-              currencyCode={currencyCode}
-              testID="insights-biggest-sale"
-            />
-          ) : (
-            <EmptyTile text="Your biggest sale will show up here." />
-          )}
-        </View>
-
-        {/* Biggest purchase highlight. */}
-        <View style={styles.section}>
-          {insights?.biggestPurchase ? (
-            <BiggestTransaction
-              record={insights.biggestPurchase}
-              title="Biggest Purchase"
-              currencyCode={currencyCode}
-              testID="insights-biggest-purchase"
-            />
-          ) : (
-            <EmptyTile text="Your biggest purchase will show up here." />
-          )}
         </View>
       </ScrollView>
 
@@ -335,66 +287,6 @@ function StatRow({
       <Text style={styles.statValue} testID={`insights-stat-${slugify(label)}-value`}>
         {value}
       </Text>
-    </View>
-  );
-}
-
-function BiggestTransaction({
-  record,
-  title,
-  currencyCode,
-  testID,
-}: {
-  record: CardTransactionRecord;
-  title: string;
-  currencyCode: string;
-  testID: string;
-}) {
-  const imageUri = record.photoUrl ?? record.imageUrl ?? null;
-  const dateLabel =
-    record.occurredAtLabel
-    ?? new Date(record.occurredAt).toLocaleDateString('en-US', {
-      month: 'long',
-      day: 'numeric',
-    });
-  const amountText = `+${formatOptionalCurrency(
-    (record.amountCents ?? 0) / 100,
-    record.currencyCode || currencyCode,
-  )}`;
-  const itemLabel = `${record.itemCount} ${record.itemCount === 1 ? 'item' : 'items'}`;
-  const caption = record.paymentMethod
-    ? `${itemLabel} · ${paymentMethodLabel(record.paymentMethod)}`
-    : itemLabel;
-
-  return (
-    <View testID={testID}>
-      <View style={styles.bigImageWrap}>
-        {imageUri ? (
-          <CachedImage
-            cachePolicy={imageCachePolicy.hero}
-            contentFit="cover"
-            style={styles.bigImage}
-            uri={imageUri}
-          />
-        ) : (
-          <View style={styles.bigImage} />
-        )}
-      </View>
-      <View style={styles.bigFooter}>
-        <View style={styles.bigFooterLeft}>
-          <Text style={styles.bigTitle}>{title}</Text>
-          <Text style={styles.bigCaption}>{dateLabel}</Text>
-        </View>
-        <View style={styles.bigFooterRight}>
-          <Text
-            style={[styles.bigAmount, { color: colors.deltaUpText }]}
-            testID={`${testID}-amount`}
-          >
-            {amountText}
-          </Text>
-          <Text style={styles.bigCaption}>{caption}</Text>
-        </View>
-      </View>
     </View>
   );
 }
@@ -514,44 +406,6 @@ const styles = StyleSheet.create({
     ...textStyles.bodyMedium,
     color: colors.gray900,
     textAlign: 'right',
-  },
-  bigImageWrap: {
-    aspectRatio: 1,
-    backgroundColor: colors.gray50,
-    borderRadius: 16,
-    overflow: 'hidden',
-    width: '100%',
-  },
-  bigImage: {
-    height: '100%',
-    width: '100%',
-  },
-  bigFooter: {
-    alignItems: 'flex-start',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 12,
-  },
-  bigFooterLeft: {
-    flex: 1,
-    gap: 2,
-    minWidth: 0,
-  },
-  bigFooterRight: {
-    alignItems: 'flex-end',
-    flexShrink: 0,
-    gap: 2,
-  },
-  bigTitle: {
-    ...textStyles.titleMedium,
-    color: colors.gray900,
-  },
-  bigAmount: {
-    ...textStyles.titleMedium,
-  },
-  bigCaption: {
-    ...textStyles.captionMedium,
-    color: colors.gray500,
   },
   emptyTile: {
     backgroundColor: colors.gray50,
