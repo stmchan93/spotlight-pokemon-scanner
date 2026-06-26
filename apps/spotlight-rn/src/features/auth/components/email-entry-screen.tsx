@@ -4,14 +4,16 @@ import { AuthScreenLayout } from './auth-screen-layout';
 import { AuthWordmark } from './auth-wordmark';
 import {
   AuthErrorLine,
+  PasswordField,
   PrimaryButton,
   SecondaryField,
+  TertiaryButton,
   isValidLookingEmail,
 } from './auth-controls';
 
 type EmailEntryScreenProps = {
-  // Social handlers live on the entry screen now; kept optional so the stepper
-  // can still pass them without rendering duplicate buttons here.
+  // Social handlers are accepted for parity with the stepper but rendered on the
+  // get-started screen, not here.
   appleSignInAvailable?: boolean;
   configurationIssue?: string | null;
   email: string;
@@ -20,14 +22,19 @@ type EmailEntryScreenProps = {
   onApple?: () => void;
   onBack: () => void;
   onChangeEmail: (value: string) => void;
+  onChangePassword: (value: string) => void;
   onContinue: () => void;
+  onForgotPassword: () => void;
   onGoogle?: () => void;
+  password: string;
 };
 
 /**
- * Email entry (Figma 1481:4380): black wave-hero screen with the back header,
- * the EKALIGHT wordmark, a single email underline field, and a Continue button
- * that stays disabled until the address looks valid.
+ * Email + password entry (black wave-hero screen): back header, the EKALIGHT
+ * wordmark, and the email and password fields shown TOGETHER on one screen — no
+ * separate password step. Continue stays disabled until the address looks valid
+ * AND a password is entered; it signs an existing account in directly and routes
+ * a new address to sign-up.
  */
 export function EmailEntryScreen({
   configurationIssue,
@@ -36,9 +43,12 @@ export function EmailEntryScreen({
   isBusy,
   onBack,
   onChangeEmail,
+  onChangePassword,
   onContinue,
+  onForgotPassword,
+  password,
 }: EmailEntryScreenProps) {
-  const canContinue = isValidLookingEmail(email) && !isBusy;
+  const canContinue = isValidLookingEmail(email) && password.length > 0 && !isBusy;
 
   return (
     <AuthScreenLayout
@@ -54,11 +64,18 @@ export function EmailEntryScreen({
           autoCorrect={false}
           keyboardType="email-address"
           onChangeText={onChangeEmail}
-          onSubmitEditing={canContinue ? onContinue : undefined}
           placeholder="Email"
           returnKeyType="next"
           testID="auth-email-input"
           value={email}
+        />
+
+        <PasswordField
+          onChangeText={onChangePassword}
+          onSubmitEditing={canContinue ? onContinue : undefined}
+          testID="auth-password-input"
+          toggleTestID="auth-password-toggle"
+          value={password}
         />
 
         {configurationIssue ? <AuthErrorLine message={configurationIssue} /> : null}
@@ -69,6 +86,12 @@ export function EmailEntryScreen({
           label="Continue"
           onPress={onContinue}
           testID="auth-email-continue"
+        />
+
+        <TertiaryButton
+          label="Forgot password?"
+          onPress={onForgotPassword}
+          testID="auth-forgot-password"
         />
       </View>
     </AuthScreenLayout>

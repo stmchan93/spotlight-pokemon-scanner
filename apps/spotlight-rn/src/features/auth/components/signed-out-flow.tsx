@@ -17,7 +17,6 @@ type Step =
   | 'getStarted'
   | 'email'
   | 'create'
-  | 'login'
   | 'verify'
   | 'forgot'
   | 'forgotVerify'
@@ -53,14 +52,21 @@ export function SignedOutFlow({
 
   // Each handler advances only on success; failures surface through the
   // provider's `errorMessage`, so the catch keeps the user on the same step.
+  // The combined email+password screen submits both at once: an existing account
+  // signs in directly (no separate password step); a new address goes to sign-up
+  // with the typed password carried over.
   const handleEmailContinue = useCallback(async () => {
     try {
       const exists = await emailAuth.checkEmail(email);
-      setStep(exists ? 'login' : 'create');
+      if (exists) {
+        await emailAuth.signInEmail({ email, password });
+      } else {
+        setStep('create');
+      }
     } catch {
       /* errorMessage already set by the provider */
     }
-  }, [email, emailAuth]);
+  }, [email, emailAuth, password]);
 
   const handleSignUp = useCallback(async () => {
     try {
@@ -73,14 +79,6 @@ export function SignedOutFlow({
       /* stay on the create step */
     }
   }, [email, emailAuth, fullName, password]);
-
-  const handleLogin = useCallback(async () => {
-    try {
-      await emailAuth.signInEmail({ email, password });
-    } catch {
-      /* stay on the login step */
-    }
-  }, [email, emailAuth, password]);
 
   const handleVerifySignup = useCallback(async () => {
     try {
@@ -134,8 +132,11 @@ export function SignedOutFlow({
           onApple={onAppleSignIn}
           onBack={() => setStep('getStarted')}
           onChangeEmail={setEmail}
+          onChangePassword={setPassword}
           onContinue={() => void handleEmailContinue()}
+          onForgotPassword={() => setStep('forgot')}
           onGoogle={onGoogleSignIn}
+          password={password}
         />
       );
     case 'create':
@@ -152,24 +153,6 @@ export function SignedOutFlow({
           onChangeLastName={setLastName}
           onChangePassword={setPassword}
           onContinue={() => void handleSignUp()}
-          onForgotPassword={() => setStep('forgot')}
-          password={password}
-        />
-      );
-    case 'login':
-      return (
-        <EmailPasswordScreen
-          email={email}
-          errorMessage={errorMessage}
-          firstName={firstName}
-          lastName={lastName}
-          isBusy={isBusy}
-          mode="login"
-          onBack={() => setStep('email')}
-          onChangeFirstName={setFirstName}
-          onChangeLastName={setLastName}
-          onChangePassword={setPassword}
-          onContinue={() => void handleLogin()}
           onForgotPassword={() => setStep('forgot')}
           password={password}
         />

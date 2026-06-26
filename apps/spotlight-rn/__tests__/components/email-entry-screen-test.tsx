@@ -20,8 +20,11 @@ function renderScreen(overrides: Partial<React.ComponentProps<typeof EmailEntryS
     onApple: jest.fn(),
     onBack: jest.fn(),
     onChangeEmail: jest.fn(),
+    onChangePassword: jest.fn(),
     onContinue: jest.fn(),
+    onForgotPassword: jest.fn(),
     onGoogle: jest.fn(),
+    password: '',
     ...overrides,
   };
 
@@ -42,6 +45,9 @@ describe('EmailEntryScreen', () => {
 
     expect(screen.getByTestId('auth-email-entry-screen')).toBeTruthy();
     expect(screen.getByTestId('auth-email-input')).toBeTruthy();
+    // Password is shown together with email on this screen (no separate step).
+    expect(screen.getByTestId('auth-password-input')).toBeTruthy();
+    expect(screen.getByTestId('auth-forgot-password')).toBeTruthy();
     expect(screen.getByTestId('auth-email-continue')).toBeTruthy();
     expect(screen.getByTestId('auth-email-back')).toBeTruthy();
     expect(screen.getByTestId('auth-brand-wordmark')).toBeTruthy();
@@ -66,16 +72,30 @@ describe('EmailEntryScreen', () => {
     expect(props.onContinue).not.toHaveBeenCalled();
   });
 
-  it('calls onContinue when pressed with a valid email and not busy', () => {
-    const props = renderScreen({ email: 'collector@example.com' });
+  it('keeps Continue disabled with a valid email but no password', () => {
+    const props = renderScreen({ email: 'collector@example.com', password: '' });
+    fireEvent.press(screen.getByTestId('auth-email-continue'));
+    expect(props.onContinue).not.toHaveBeenCalled();
+  });
+
+  it('calls onContinue when pressed with a valid email AND password, not busy', () => {
+    const props = renderScreen({ email: 'collector@example.com', password: 'secret123' });
     fireEvent.press(screen.getByTestId('auth-email-continue'));
     expect(props.onContinue).toHaveBeenCalledTimes(1);
   });
 
-  it('forwards typing to onChangeEmail', () => {
+  it('forwards typing to onChangeEmail and onChangePassword', () => {
     const props = renderScreen();
     fireEvent.changeText(screen.getByTestId('auth-email-input'), 'a@b.com');
     expect(props.onChangeEmail).toHaveBeenCalledWith('a@b.com');
+    fireEvent.changeText(screen.getByTestId('auth-password-input'), 'hunter2!');
+    expect(props.onChangePassword).toHaveBeenCalledWith('hunter2!');
+  });
+
+  it('invokes onForgotPassword from the reset link', () => {
+    const props = renderScreen();
+    fireEvent.press(screen.getByTestId('auth-forgot-password'));
+    expect(props.onForgotPassword).toHaveBeenCalledTimes(1);
   });
 
   it('calls onBack from the header control', () => {
