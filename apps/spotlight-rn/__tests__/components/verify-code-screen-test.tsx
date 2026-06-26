@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { SpotlightThemeProvider } from '@spotlight/design-system';
@@ -70,11 +70,35 @@ describe('VerifyCodeScreen', () => {
     expect(props.onChangeCode).toHaveBeenCalledWith('999000');
   });
 
-  it('calls onResend and onBack from their controls', () => {
+  it('calls onBack from the back control', () => {
     const props = renderScreen();
-    fireEvent.press(screen.getByTestId('auth-resend'));
-    expect(props.onResend).toHaveBeenCalledTimes(1);
     fireEvent.press(screen.getByTestId('auth-verify-back'));
     expect(props.onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables Resend until the cooldown elapses, then forwards the tap', () => {
+    jest.useFakeTimers();
+    try {
+      const props = renderScreen();
+
+      // The email was just sent by the flow that landed here, so the resend
+      // cooldown is seeded on mount — tapping immediately is a no-op (mirrors
+      // Supabase's 60s per-address max_frequency, avoiding a surprise 429).
+      fireEvent.press(screen.getByTestId('auth-resend'));
+      expect(props.onResend).not.toHaveBeenCalled();
+
+      // Once the interval elapses the button re-enables and forwards the tap.
+      // The countdown reschedules a 1s timeout on each tick, so advance one
+      // second at a time, flushing React state between ticks.
+      for (let second = 0; second < 60; second += 1) {
+        act(() => {
+          jest.advanceTimersByTime(1000);
+        });
+      }
+      fireEvent.press(screen.getByTestId('auth-resend'));
+      expect(props.onResend).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
