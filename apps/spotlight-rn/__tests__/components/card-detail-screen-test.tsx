@@ -66,7 +66,6 @@ describe('CardDetailScreen', () => {
     expect(screen.getByTestId('detail-hero-card-favorite')).toBeTruthy();
 
     // Action buttons.
-    expect(screen.getByTestId('detail-sell-now')).toBeTruthy();
     expect(screen.getByTestId('detail-add-item')).toBeTruthy();
 
     // Configurator (variant + grader rows + grade trigger + quantity).
@@ -111,22 +110,6 @@ describe('CardDetailScreen', () => {
     expect(typeof arg.url).toBe('string');
 
     shareSpy.mockRestore();
-  });
-
-  it('SELL NOW opens the transaction logger with the card label', async () => {
-    const onOpenTransaction = jest.fn();
-
-    renderWithProviders(
-      <CardDetailScreen
-        cardId="sm7-1"
-        onBack={jest.fn()}
-        onOpenTransaction={onOpenTransaction}
-      />,
-    );
-
-    fireEvent.press(await screen.findByTestId('detail-sell-now'));
-    expect(onOpenTransaction).toHaveBeenCalledTimes(1);
-    expect(onOpenTransaction.mock.calls[0][0]).toContain('Treecko');
   });
 
   it('ADD ITEM creates a raw inventory entry with the configured selection and refreshes', async () => {
@@ -838,8 +821,7 @@ describe('CardDetailScreen', () => {
     );
 
     // The action buttons still render, but the "N similar" button is gone.
-    expect(await screen.findByTestId('detail-sell-now')).toBeTruthy();
-    expect(screen.getByTestId('detail-add-item')).toBeTruthy();
+    expect(await screen.findByTestId('detail-add-item')).toBeTruthy();
     expect(screen.queryByTestId('detail-similar-cards-button')).toBeNull();
     expect(screen.queryByText('9 similar')).toBeNull();
   });

@@ -33,12 +33,6 @@ export default function CardDetailRoute() {
       cardId={cardId}
       entryId={entryId}
       onBack={() => router.back()}
-      onOpenTransaction={(cardLabel, imageUrl) => {
-        router.push({
-          pathname: '/card-transactions/new',
-          params: { note: cardLabel, ...(imageUrl ? { imageUrl } : {}) },
-        });
-      }}
       previewId={previewId}
       scanReviewId={scanReviewId}
     />

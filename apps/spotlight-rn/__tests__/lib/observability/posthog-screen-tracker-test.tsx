@@ -37,12 +37,6 @@ describe('PostHogScreenTracker', () => {
     await waitFor(() => {
       expect(mockCapturePostHogScreen).toHaveBeenNthCalledWith(3, 'scan_review');
     });
-
-    mockedPathname = '/card-transactions/new';
-    view.rerender(<PostHogScreenTracker />);
-    await waitFor(() => {
-      expect(mockCapturePostHogScreen).toHaveBeenNthCalledWith(4, 'log_transaction');
-    });
   });
 
   it('deduplicates repeated screen names and skips untracked routes', async () => {

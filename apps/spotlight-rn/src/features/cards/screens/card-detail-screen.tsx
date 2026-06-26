@@ -92,8 +92,6 @@ type CardDetailScreenProps = {
   cardId: string;
   entryId?: string;
   onBack: () => void;
-  /** Opens the log-transaction flow (photo + bought/sold/traded) for this card. */
-  onOpenTransaction?: (cardLabel: string, imageUrl?: string | null) => void;
   previewId?: string;
   scanReviewId?: string;
 };
@@ -109,7 +107,6 @@ export function CardDetailScreen({
   cardId,
   entryId,
   onBack,
-  onOpenTransaction,
   previewId,
   scanReviewId,
 }: CardDetailScreenProps) {
@@ -634,10 +631,6 @@ export function CardDetailScreen({
     ).catch(() => undefined);
   }, [marketplaceUrl, transactionLabel]);
 
-  const handleSellNow = useCallback(() => {
-    onOpenTransaction?.(transactionLabel, displayImageUrl);
-  }, [displayImageUrl, onOpenTransaction, transactionLabel]);
-
   // Builds the slab context for the configured ADD ITEM action.
   const configuredSlabContext = useMemo<SlabContext | null>(() => {
     if (isRawLane || !selectedGrader) {
@@ -1016,17 +1009,6 @@ export function CardDetailScreen({
 
         <View style={styles.actionSection}>
           <View style={styles.actionRow}>
-            <Button
-              disabled={!onOpenTransaction}
-              label="SELL NOW"
-              labelStyleVariant="label"
-              onPress={handleSellNow}
-              shape="rounded"
-              size="md"
-              style={styles.actionButton}
-              testID="detail-sell-now"
-              variant="outline"
-            />
             {isManaged ? (
               // Owned: SAVE commits the pending edit to THIS line (quantity, or
               // condition/variant via replace). Enabled only when something

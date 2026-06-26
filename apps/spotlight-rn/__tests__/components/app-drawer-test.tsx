@@ -107,7 +107,6 @@ describe('AppDrawer', () => {
     });
 
     expect(screen.getByTestId('app-drawer-nav-collection')).toBeTruthy();
-    expect(screen.getByTestId('app-drawer-nav-sales')).toBeTruthy();
     expect(screen.getByTestId('app-drawer-nav-insights')).toBeTruthy();
     expect(screen.getByTestId('app-drawer-nav-wishlist')).toBeTruthy();
     expect(screen.getByTestId('app-drawer-nav-scan')).toBeTruthy();
@@ -156,33 +155,6 @@ describe('AppDrawer', () => {
     }
   });
 
-  it('navigates to /sales when the Sales nav item is tapped', async () => {
-    jest.useFakeTimers();
-    try {
-      renderWithProviders(
-        <>
-          <DrawerController />
-          <AppDrawer />
-        </>,
-      );
-
-      act(() => {
-        drawerHandleRef.current?.open();
-      });
-
-      fireEvent.press(screen.getByTestId('app-drawer-nav-sales'));
-
-      // goTo defers router.push by ANIM_DURATION_MS / 2 (= 120ms).
-      act(() => {
-        jest.advanceTimersByTime(500);
-      });
-
-      expect(push).toHaveBeenCalledWith('/sales');
-    } finally {
-      jest.useRealTimers();
-    }
-  });
-
   it('marks the Collection row active when pathname is /portfolio', () => {
     (usePathname as jest.Mock).mockReturnValue('/portfolio');
 
@@ -198,26 +170,7 @@ describe('AppDrawer', () => {
     });
 
     expect(screen.queryByTestId('app-drawer-nav-collection-active-dot')).toBeTruthy();
-    expect(screen.queryByTestId('app-drawer-nav-sales-active-dot')).toBeNull();
     expect(screen.queryByTestId('app-drawer-nav-insights-active-dot')).toBeNull();
-  });
-
-  it('marks the Sales row active when pathname is /sales', () => {
-    (usePathname as jest.Mock).mockReturnValue('/sales');
-
-    renderWithProviders(
-      <>
-        <DrawerController />
-        <AppDrawer />
-      </>,
-    );
-
-    act(() => {
-      drawerHandleRef.current?.open();
-    });
-
-    expect(screen.queryByTestId('app-drawer-nav-sales-active-dot')).toBeTruthy();
-    expect(screen.queryByTestId('app-drawer-nav-collection-active-dot')).toBeNull();
   });
 
   it('marks the Insights row active when pathname is /insights', () => {
@@ -238,10 +191,10 @@ describe('AppDrawer', () => {
     expect(screen.queryByTestId('app-drawer-nav-collection-active-dot')).toBeNull();
   });
 
-  it('navigates back to /portfolio when Collection is tapped from /sales', () => {
+  it('navigates back to /portfolio when Collection is tapped from a stack route', () => {
     jest.useFakeTimers();
     try {
-      (usePathname as jest.Mock).mockReturnValue('/sales');
+      (usePathname as jest.Mock).mockReturnValue('/insights');
 
       renderWithProviders(
         <>

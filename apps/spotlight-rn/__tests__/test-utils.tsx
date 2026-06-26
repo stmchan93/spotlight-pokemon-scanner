@@ -388,13 +388,6 @@ export function renderAppRouter(
     ],
     optional: true,
   });
-  registerRoute(routeMap, routeAliases, {
-    candidates: [
-      { key: '(sheet)/card-transactions/new', modulePath: '@/app/(sheet)/card-transactions/new' },
-      { key: 'card-transactions/new', modulePath: '@/app/card-transactions/new' },
-    ],
-    optional: true,
-  });
 
   for (const [routeKey, component] of Object.entries(routeOverrides)) {
     routeMap[routeAliases.get(routeKey) ?? routeKey] = component;

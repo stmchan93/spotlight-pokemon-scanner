@@ -22,7 +22,7 @@ import {
   formatEditableSellPrice,
   parseSellPrice,
   sanitizeSellPriceText,
-} from '@/features/sell/sell-order-helpers';
+} from '@/lib/price-input';
 import { useAppServices } from '@/providers/app-providers';
 
 const maxRecentSales = 9;

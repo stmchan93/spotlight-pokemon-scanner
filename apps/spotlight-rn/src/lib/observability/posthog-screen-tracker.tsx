@@ -36,10 +36,6 @@ function resolveScreenName(pathname: string) {
     return 'card_detail';
   }
 
-  if (pathname.startsWith('/card-transactions/new')) {
-    return 'log_transaction';
-  }
-
   if (pathname === '/design-system') {
     return 'design_system';
   }

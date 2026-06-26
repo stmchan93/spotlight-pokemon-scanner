@@ -1,7 +1,5 @@
 import { usePathname, useRouter } from 'expo-router';
 import {
-  Calendar,
-  DollarCircle,
   GraphUp,
   Heart,
   LogOut,
@@ -126,11 +124,9 @@ export function AppDrawer() {
   // Derive the active nav key from the current route so the yellow indicator
   // dot updates when the user navigates between drawer destinations.
   const normalizedPathname = pathname ?? '';
-  let activeKey: 'collection' | 'sales' | 'insights' | 'wishlist' | 'scan' | null;
+  let activeKey: 'collection' | 'insights' | 'wishlist' | 'scan' | null;
   if (normalizedPathname === '/' || normalizedPathname.startsWith('/portfolio')) {
     activeKey = 'collection';
-  } else if (normalizedPathname.startsWith('/sales')) {
-    activeKey = 'sales';
   } else if (normalizedPathname.startsWith('/insights')) {
     activeKey = 'insights';
   } else if (normalizedPathname.startsWith('/wishlist')) {
@@ -193,13 +189,6 @@ export function AppDrawer() {
       icon: Heart,
       selected: activeKey === 'wishlist',
       onPress: () => goTo('/wishlist'),
-    },
-    {
-      key: 'sales',
-      label: 'Transactions',
-      icon: DollarCircle,
-      selected: activeKey === 'sales',
-      onPress: () => goTo('/sales'),
     },
     {
       key: 'insights',
