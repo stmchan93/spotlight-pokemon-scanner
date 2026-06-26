@@ -662,6 +662,20 @@ def _apply_price_history_cells_schema_patch(connection: sqlite3.Connection) -> N
         ON card_price_history_cell (price_date)
         """
     )
+    # Price-trend COVERING index: serves the projected single-card trend read
+    # (`price_history_cell_trend_rows_by_date`, catalog_tools.py) INDEX-ONLY —
+    # the leading (card_id, provider, price_date) satisfies the WHERE, and the
+    # trailing columns supply every projected field, avoiding the scattered cold
+    # table-row fetches that dominate a card's first PDP open (~1.3s cold → ~1ms).
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_cell_trend_market
+        ON card_price_history_cell (
+            card_id, provider, price_date, lane, grader, grade, variant_key,
+            condition, is_perfect, is_signed, is_error, market
+        )
+        """
+    )
 
 
 def _apply_scan_labeling_reviews_schema_patch(connection: sqlite3.Connection) -> None:
