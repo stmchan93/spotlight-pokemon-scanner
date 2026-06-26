@@ -3707,6 +3707,16 @@ def price_history_cells_enabled() -> bool:
     return price_history_source() == PRICE_HISTORY_SOURCE_CELLS
 
 
+def pricing_provider() -> str:
+    """The provider whose rows the PRICE read/write paths use (snapshot, daily,
+    cell). Defaults to ``"scrydex"``; set env ``PRICING_PROVIDER=ppt`` to serve
+    PokemonPriceTracker prices (written under the same one-row-per-card key, so the
+    cutover is a flag flip — revert by flipping back + re-running the Scrydex sync).
+    Catalog/identity/search/expansion/sync-ops stay on ``SCRYDEX_PROVIDER``
+    regardless — only PRICING follows this flag."""
+    return str(os.environ.get("PRICING_PROVIDER") or "").strip().lower() or "scrydex"
+
+
 def _variant_match_key(value: str | None) -> str:
     """Lowercase-alphanumeric reduction used to reconcile a variant *label*
     ("Holofoil", "Reverse Holofoil") with a stored ``variant_key``

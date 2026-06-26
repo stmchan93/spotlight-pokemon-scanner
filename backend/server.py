@@ -40,6 +40,7 @@ from catalog_tools import (
     _cell_summary_from_row,
     _cell_field,
     price_history_cells_enabled,
+    pricing_provider,
     price_history_cell_rows_for_day,
     price_history_cell_rows_by_date,
     price_history_cell_portfolio_rows_by_card_date,
@@ -2751,7 +2752,7 @@ class SpotlightScanService:
         history_row = latest_price_history_row_for_card(
             self.connection,
             card_id,
-            provider=SCRYDEX_PROVIDER,
+            provider=pricing_provider(),
         )
         if history_row is None:
             return {}
@@ -2764,7 +2765,7 @@ class SpotlightScanService:
         history_row = latest_price_history_row_for_card(
             self.connection,
             card_id,
-            provider=SCRYDEX_PROVIDER,
+            provider=pricing_provider(),
         )
         if history_row is None:
             return {}
@@ -3183,7 +3184,7 @@ class SpotlightScanService:
                 self.connection,
                 card_id=card_id,
                 pricing_mode="graded",
-                provider=SCRYDEX_PROVIDER,
+                provider=pricing_provider(),
                 grader=pricing_context.grader,
                 grade=pricing_context.grade,
             )
@@ -3199,7 +3200,7 @@ class SpotlightScanService:
                 self.connection,
                 card_id,
                 pricing_mode="graded",
-                provider=SCRYDEX_PROVIDER,
+                provider=pricing_provider(),
                 days=days,
                 variant=selected_variant,
                 grader=pricing_context.grader,
@@ -3210,7 +3211,7 @@ class SpotlightScanService:
                     self.connection,
                     card_id,
                     pricing_mode="graded",
-                    provider=SCRYDEX_PROVIDER,
+                    provider=pricing_provider(),
                     days=days,
                     grader=pricing_context.grader,
                     grade=pricing_context.grade,
@@ -3229,7 +3230,7 @@ class SpotlightScanService:
                     self.connection,
                     card_id,
                     pricing_mode="graded",
-                    provider=SCRYDEX_PROVIDER,
+                    provider=pricing_provider(),
                     days=days,
                     variant=selected_variant,
                     grader=pricing_context.grader,
@@ -3257,7 +3258,7 @@ class SpotlightScanService:
                     "days14": self._history_delta_payload(points, 14),
                     "days30": self._history_delta_payload(points, 30),
                 },
-                "source": SCRYDEX_PROVIDER,
+                "source": pricing_provider(),
                 "isFresh": self._history_is_fresh(refreshed_at),
                 "refreshedAt": refreshed_at,
                 "livePricingEnabled": self._live_pricing_enabled(),
@@ -3275,7 +3276,7 @@ class SpotlightScanService:
             self.connection,
             card_id=card_id,
             pricing_mode="raw",
-            provider=SCRYDEX_PROVIDER,
+            provider=pricing_provider(),
             variant=selected_variant,
         )
         self._backfill_market_history_if_needed(
@@ -3300,7 +3301,7 @@ class SpotlightScanService:
             self.connection,
             card_id,
             pricing_mode="raw",
-            provider=SCRYDEX_PROVIDER,
+            provider=pricing_provider(),
             days=days,
             variant=selected_variant,
             condition=selected_condition,
@@ -3326,7 +3327,7 @@ class SpotlightScanService:
             self.connection,
             card_id=card_id,
             pricing_mode="raw",
-            provider=SCRYDEX_PROVIDER,
+            provider=pricing_provider(),
             variant=selected_variant,
             condition=selected_condition,
         ) or ((pricing_summary or {}).get("refreshedAt") if isinstance(pricing_summary, dict) else None)
@@ -3346,7 +3347,7 @@ class SpotlightScanService:
                 "days14": self._history_delta_payload(points, 14),
                 "days30": self._history_delta_payload(points, 30),
             },
-            "source": SCRYDEX_PROVIDER,
+            "source": pricing_provider(),
             "isFresh": self._history_is_fresh(refreshed_at),
             "refreshedAt": refreshed_at,
             "livePricingEnabled": self._live_pricing_enabled(),
@@ -3372,7 +3373,7 @@ class SpotlightScanService:
             self.connection,
             card_id,
             mode=mode,
-            provider=SCRYDEX_PROVIDER,
+            provider=pricing_provider(),
             variant=variant,
             grader=grader,
         )
@@ -3500,7 +3501,7 @@ class SpotlightScanService:
         row = latest_price_history_row_for_card(
             self.connection,
             card_id,
-            provider=SCRYDEX_PROVIDER,
+            provider=pricing_provider(),
             as_of_date=as_of_date.isoformat(),
         )
         return self._portfolio_history_price_row_from_history_row(
@@ -3790,7 +3791,7 @@ class SpotlightScanService:
             ORDER BY price_date DESC, updated_at DESC
             LIMIT 1
             """,
-            (normalized_card_id, SCRYDEX_PROVIDER, today_iso),
+            (normalized_card_id, pricing_provider(), today_iso),
         ).fetchone()
 
     def _yesterday_price_history_rows_by_card_id(
@@ -3833,7 +3834,7 @@ class SpotlightScanService:
                   AND card_id IN ({placeholders})
                 ORDER BY card_id ASC, price_date DESC, updated_at DESC
                 """,
-                (SCRYDEX_PROVIDER, today_iso, *chunk),
+                (pricing_provider(), today_iso, *chunk),
             ).fetchall()
             for row in rows:
                 cid = str(row["card_id"] or "").strip()
@@ -3876,7 +3877,7 @@ class SpotlightScanService:
                   AND card_id IN ({placeholders})
                 ORDER BY card_id ASC, price_date DESC, updated_at DESC
                 """,
-                (SCRYDEX_PROVIDER, cutoff_date_iso, *chunk),
+                (pricing_provider(), cutoff_date_iso, *chunk),
             ).fetchall()
             for row in rows:
                 cid = str(row["card_id"] or "").strip()
@@ -3919,7 +3920,7 @@ class SpotlightScanService:
                           AND card_id IN ({cph})
                           AND price_date IN ({dph})
                         """,
-                        (SCRYDEX_PROVIDER, *cchunk, *dchunk),
+                        (pricing_provider(), *cchunk, *dchunk),
                     ).fetchall()
                     for row in rows:
                         key = (
@@ -4097,7 +4098,7 @@ class SpotlightScanService:
         # dates are shared across cards, so the union of dates is small.
         grouped = price_history_cell_portfolio_rows_by_card_date(
             self.connection,
-            provider=SCRYDEX_PROVIDER,
+            provider=pricing_provider(),
             card_ids=needed_by_card.keys(),
             price_dates=all_dates,
         )
@@ -4135,7 +4136,7 @@ class SpotlightScanService:
         history_rows_by_card_id = self._portfolio_history_rows_by_card_id(
             card_ids={str(row["card_id"] or "").strip() for row in entry_rows},
             end_date=end_date,
-            provider=SCRYDEX_PROVIDER,
+            provider=pricing_provider(),
             include_raw_json=include_raw_json,
             include_graded_json=include_graded_json,
         )
@@ -4327,7 +4328,7 @@ class SpotlightScanService:
             else self._portfolio_history_rows_by_card_id(
                 card_ids={str(snapshot.get("cardID") or "").strip() for snapshot in snapshot_by_id.values()},
                 end_date=end_date,
-                provider=SCRYDEX_PROVIDER,
+                provider=pricing_provider(),
             )
         )
         # Bulk-prefetch ONLY this range's cells (window + carry-in) so a single
