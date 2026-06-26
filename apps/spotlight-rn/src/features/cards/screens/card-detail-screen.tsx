@@ -125,6 +125,9 @@ export function CardDetailScreen({
     favoritedAt: null,
     isFavorite: false,
   });
+  // Public social-proof counts. `likeCount` mutates optimistically alongside the
+  // favorite toggle; `watcherCount` is read-only ("people watching").
+  const [likeCount, setLikeCount] = useState(0);
   // Configurator local state.
   const [selectedVariant, setSelectedVariant] = useState<string | null>(null);
   const [selectedGrader, setSelectedGrader] = useState<string | null>(null);
@@ -224,6 +227,7 @@ export function CardDetailScreen({
 
   useEffect(() => {
     setFavoriteState({ favoritedAt: null, isFavorite: false });
+    setLikeCount(0);
     setSelectedVariant(null);
     setSelectedGrader(null);
     setSelectedGrade(null);
@@ -248,6 +252,7 @@ export function CardDetailScreen({
       favoritedAt: detail.favoritedAt ?? null,
       isFavorite: detail.isFavorite ?? false,
     });
+    setLikeCount(detail.likeCount ?? 0);
   }, [detail]);
 
   // Owned entries for this card from the already-loaded inventory cache. The PDP
@@ -569,8 +574,13 @@ export function CardDetailScreen({
     }
 
     const previousFavoriteState = favoriteState;
+    const previousLikeCount = likeCount;
     const nextIsFavorite = !favoriteState.isFavorite;
     setFavoriteState((current) => ({ ...current, isFavorite: nextIsFavorite }));
+    // The like count == the public wishlist count, so toggling the heart moves
+    // it by one. The favorite POST doesn't return the count; we keep this
+    // optimistic value until the next detail fetch reconciles it.
+    setLikeCount((current) => Math.max(0, current + (nextIsFavorite ? 1 : -1)));
     setIsFavoritePending(true);
 
     void spotlightRepository.setCardFavorite(cardId, nextIsFavorite)
@@ -588,10 +598,11 @@ export function CardDetailScreen({
       })
       .catch(() => {
         setFavoriteState(previousFavoriteState);
+        setLikeCount(previousLikeCount);
         setErrorMessage('Could not update wishlist right now.');
         setIsFavoritePending(false);
       });
-  }, [cardId, favoriteState, isFavoritePending, spotlightRepository]);
+  }, [cardId, favoriteState, isFavoritePending, likeCount, spotlightRepository]);
 
   const hasDisplayContent = detail != null || detailPreview != null;
 
@@ -990,9 +1001,11 @@ export function CardDetailScreen({
         <CardDetailHero
           imageUrl={displayImageUrl}
           isFavorite={isFavorite}
+          likeCount={likeCount}
           name={displayName}
           onToggleFavorite={handleToggleFavorite}
           testID="detail-hero-card"
+          watcherCount={detail?.watcherCount ?? 0}
         />
 
         <View style={styles.identityBlock} testID="detail-identity">

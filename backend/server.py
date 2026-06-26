@@ -301,6 +301,8 @@ def _recent_sales_payload(
 SCAN_ARTIFACT_UPLOADS_SETTING_KEY = "scan_artifact_uploads"
 DEFAULT_CARD_SHOW_MODE_HOURS = 8.0
 LIVE_PRICING_REFRESH_WINDOW_HOURS = 1.0
+# Rolling window for the passive "people watching" count on the card detail.
+CARD_WATCHER_WINDOW_DAYS = 7
 DEFAULT_JSON_BODY_LIMIT_BYTES = 12 * 1024 * 1024
 SCAN_ARTIFACT_JSON_BODY_LIMIT_BYTES = 32 * 1024 * 1024
 DECK_CARD_CONDITIONS = {
@@ -1292,6 +1294,65 @@ class SpotlightScanService:
             "isFavorite": favorite_row is not None,
             "favoritedAt": favorite_row["created_at"] if favorite_row is not None else None,
         }
+
+    def _card_like_count(self, card_id: str) -> int:
+        """Public "like" count == number of users who wishlisted this card."""
+        normalized_card_id = str(card_id or "").strip()
+        if not normalized_card_id:
+            return 0
+        row = self.connection.execute(
+            "SELECT COUNT(*) FROM card_favorites WHERE card_id = ?",
+            (normalized_card_id,),
+        ).fetchone()
+        return int(row[0]) if row else 0
+
+    def _card_watcher_count(self, card_id: str) -> int:
+        """Distinct viewers of this card within the rolling watcher window."""
+        normalized_card_id = str(card_id or "").strip()
+        if not normalized_card_id:
+            return 0
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=CARD_WATCHER_WINDOW_DAYS)
+        ).isoformat()
+        row = self.connection.execute(
+            """
+            SELECT COUNT(DISTINCT owner_user_id)
+            FROM card_views
+            WHERE card_id = ?
+              AND viewed_at >= ?
+            """,
+            (normalized_card_id, cutoff),
+        ).fetchone()
+        return int(row[0]) if row else 0
+
+    def _record_card_view(self, card_id: str, *, owner_user_id: str | None) -> None:
+        """Log a passive card view, deduped to one row per (user, card, UTC day).
+
+        Best-effort: a view that fails to persist must never break the detail
+        fetch, so failures are swallowed.
+        """
+        normalized_owner_user_id = str(owner_user_id or "").strip()
+        normalized_card_id = str(card_id or "").strip()
+        if not normalized_owner_user_id or not normalized_card_id:
+            return
+        now = utc_now()
+        viewed_on = now[:10]  # YYYY-MM-DD bucket for daily dedupe
+        try:
+            self.connection.execute(
+                """
+                INSERT INTO card_views (owner_user_id, card_id, viewed_on, viewed_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(owner_user_id, card_id, viewed_on)
+                DO UPDATE SET viewed_at = excluded.viewed_at
+                """,
+                (normalized_owner_user_id, normalized_card_id, viewed_on, now),
+            )
+            self.connection.commit()
+        except sqlite3.Error:
+            try:
+                self.connection.rollback()
+            except sqlite3.Error:
+                pass
 
     def refresh_index(self) -> None:
         connection = self._new_connection()
@@ -5139,6 +5200,7 @@ class SpotlightScanService:
         "scan_confirmations",
         "scan_events",
         "card_favorites",
+        "card_views",
         "card_transactions",
         "portfolio_import_jobs",
     )
@@ -10472,6 +10534,7 @@ class SpotlightScanService:
         card: dict[str, Any] | None = None,
         snapshot_row: sqlite3.Row | None = None,
         owner_user_id: str | None = None,
+        include_social_counts: bool = False,
     ) -> dict[str, Any] | None:
         resolved_card = card or card_by_id(self.connection, card_id)
         if resolved_card is None:
@@ -10483,7 +10546,7 @@ class SpotlightScanService:
         )
         favorite_row = self._favorite_row(card_id, owner_user_id=owner_user_id)
         resolved_variant = pricing_context.preferred_variant or (str((pricing or {}).get("variant") or "").strip() or None)
-        return {
+        payload: dict[str, Any] = {
             "card": {
                 "id": resolved_card["id"],
                 "name": resolved_card["name"],
@@ -10515,6 +10578,10 @@ class SpotlightScanService:
             "favoritedAt": favorite_row["created_at"] if favorite_row is not None else None,
             "cardText": card_text_from_card(resolved_card),
         }
+        if include_social_counts:
+            payload["likeCount"] = self._card_like_count(card_id)
+            payload["watcherCount"] = self._card_watcher_count(card_id)
+        return payload
 
     def card_detail(
         self,
@@ -10535,10 +10602,14 @@ class SpotlightScanService:
             if grader or grade
             else self._raw_pricing_context()
         )
+        owner_user_id = self._optional_owner_user_id()
+        # Log the view first so this viewer is reflected in the watcher count.
+        self._record_card_view(card_id, owner_user_id=owner_user_id)
         return self._card_detail_for_context(
             card_id,
             pricing_context=pricing_context,
-            owner_user_id=self._optional_owner_user_id(),
+            owner_user_id=owner_user_id,
+            include_social_counts=True,
         )
 
     def set_card_favorite(self, card_id: str, *, is_favorite: bool | None = None) -> dict[str, Any]:

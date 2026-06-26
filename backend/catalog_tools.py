@@ -931,6 +931,69 @@ def _replace_card_title_aliases(
         )
 
 
+def _replace_card_artist_aliases(
+    connection: sqlite3.Connection,
+    *,
+    card_id: str,
+    artist: object,
+) -> None:
+    if not _table_exists(connection, "card_artist_aliases"):
+        return
+
+    connection.execute("DELETE FROM card_artist_aliases WHERE card_id = ?", (card_id,))
+
+    raw_artist = str(artist or "").strip()
+    normalized_artist = _normalized_alias_text(artist)
+    if not normalized_artist:
+        return
+
+    # Index the full normalized artist ("ken sugimori") AND each token ("ken",
+    # "sugimori") so a single typed surname finds the card. De-duped, order kept.
+    forms: list[str] = [normalized_artist]
+    for token in tokenize(raw_artist):
+        if token and token not in forms:
+            forms.append(token)
+
+    now = utc_now()
+    for form in forms:
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO card_artist_aliases (
+                card_id, artist_token, normalized_token, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (card_id, raw_artist, form, now, now),
+        )
+
+
+def _backfill_missing_card_artist_aliases(connection: sqlite3.Connection) -> None:
+    if not _table_exists(connection, "card_artist_aliases"):
+        return
+
+    rows = connection.execute(
+        """
+        SELECT c.id, c.artist
+        FROM cards c
+        LEFT JOIN (
+            SELECT DISTINCT card_id
+            FROM card_artist_aliases
+        ) aliases
+          ON aliases.card_id = c.id
+        WHERE aliases.card_id IS NULL
+          AND c.artist IS NOT NULL
+          AND TRIM(c.artist) != ''
+        """
+    ).fetchall()
+
+    for row in rows:
+        _replace_card_artist_aliases(
+            connection,
+            card_id=str(row["id"]),
+            artist=row["artist"],
+        )
+
+
 def _backfill_missing_card_title_aliases(connection: sqlite3.Connection) -> None:
     if not _table_exists(connection, "card_name_aliases"):
         return
@@ -1146,6 +1209,7 @@ def apply_schema(connection: sqlite3.Connection, schema_path: Path) -> None:
     _seed_deck_entry_events_from_existing_rows(connection)
     _reconcile_deck_entry_quantities_from_events(connection)
     _backfill_missing_card_title_aliases(connection)
+    _backfill_missing_card_artist_aliases(connection)
     connection.commit()
 
 
@@ -2544,6 +2608,11 @@ def upsert_card(
         language=language,
         source_payload=source_payload or {},
     )
+    _replace_card_artist_aliases(
+        connection,
+        card_id=card_id,
+        artist=artist,
+    )
 
 
 def backfill_cards_tcgplayer_id(
@@ -2996,6 +3065,54 @@ def _manual_search_candidate_rows_for_phrase(
     return [(card_id, best_scores[card_id]) for card_id in ordered_ids[:clause_limit]]
 
 
+def _manual_search_candidate_rows_for_artist(
+    connection: sqlite3.Connection,
+    phrase: str,
+    *,
+    limit: int,
+) -> list[tuple[str, float]]:
+    # Match the illustrator. Scores are intentionally BELOW the name (420–500) and
+    # set (380) tiers in _manual_search_candidate_rows_for_phrase, so a card pulled
+    # in by its artist never outranks a genuine name/set match.
+    if not _table_exists(connection, "card_artist_aliases"):
+        return []
+    normalized_phrase = _normalized_alias_text(phrase)
+    if not normalized_phrase:
+        return []
+
+    query_specs: list[tuple[str, tuple[object, ...]]] = [
+        (
+            "SELECT card_id AS id, 320.0 AS score FROM card_artist_aliases WHERE normalized_token = ? LIMIT ?",
+            (normalized_phrase,),
+        ),
+        (
+            "SELECT card_id AS id, 280.0 AS score FROM card_artist_aliases WHERE normalized_token >= ? AND normalized_token < ? LIMIT ?",
+            _manual_search_prefix_bounds(normalized_phrase),
+        ),
+    ]
+
+    clause_limit = max(1, min(int(limit), 100))
+    fetch_limit = min(max(clause_limit * 2, min(clause_limit, 25)), 200)
+    best_scores: dict[str, float] = {}
+    ordered_ids: list[str] = []
+    seen_ids: set[str] = set()
+
+    for sql, values in query_specs:
+        rows = connection.execute(sql, (*values, fetch_limit)).fetchall()
+        for row in rows:
+            card_id = str(row["id"] or "").strip()
+            if not card_id:
+                continue
+            score = float(row["score"] or 0.0)
+            if card_id not in seen_ids:
+                seen_ids.add(card_id)
+                ordered_ids.append(card_id)
+            best_scores[card_id] = max(best_scores.get(card_id, 0.0), score)
+
+    ordered_ids.sort(key=lambda card_id: (-best_scores.get(card_id, 0.0), card_id))
+    return [(card_id, best_scores[card_id]) for card_id in ordered_ids[:clause_limit]]
+
+
 # Promo set codes printed on cards as a number suffix, e.g. "172/SM-P",
 # "024/ADV-P", "129/SV-P". Reviewers type the code they see ("sm-p"); we target
 # the matching ".../SM-P" number suffix so the right promo set surfaces.
@@ -3278,6 +3395,14 @@ def search_cards(connection: sqlite3.Connection, query: str, limit: int = 20) ->
             limit=per_phrase_limit,
         ):
             add_candidate(card_id, score)
+        # Illustrator match (e.g. "sugimori" → Ken Sugimori's cards). Scored below
+        # name/set so artist-only hits rank under genuine name matches.
+        for card_id, score in _manual_search_candidate_rows_for_artist(
+            connection,
+            phrase,
+            limit=per_phrase_limit,
+        ):
+            add_candidate(card_id, score)
 
     # Name + set/code intersection (e.g. "pikachu sun moon promos", "pikachu
     # sm-p"). Pulls in prints that the per-phrase retrieval misses because a
@@ -3322,6 +3447,11 @@ def search_cards(connection: sqlite3.Connection, query: str, limit: int = 20) ->
                             str(card.get("setName") or ""),
                             str(card.get("setID") or ""),
                             str(card.get("setPtcgoCode") or ""),
+                            # Include the illustrator so a card legitimately matched
+                            # by its artist isn't treated as a number-only hit and
+                            # ×0.2-penalized (it still ranks below name matches via
+                            # its lower retrieval/search score).
+                            str(card.get("artist") or ""),
                         ]
                     )
                 )

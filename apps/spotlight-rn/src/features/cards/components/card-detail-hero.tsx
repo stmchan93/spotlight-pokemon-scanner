@@ -6,7 +6,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
-import { useSpotlightTheme } from '@spotlight/design-system';
+import { Badge, useSpotlightTheme } from '@spotlight/design-system';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { HeartToggle } from '@/components/heart-toggle';
@@ -16,8 +16,20 @@ type CardDetailHeroProps = {
   name: string;
   isFavorite: boolean;
   onToggleFavorite: () => void;
+  /** Public "like" count (wishlist count) shown as social proof. */
+  likeCount?: number;
+  /** Distinct recent viewers ("people watching") shown as social proof. */
+  watcherCount?: number;
   testID?: string;
 };
+
+function likesLabel(count: number): string {
+  return `${count.toLocaleString()} ${count === 1 ? 'like' : 'likes'}`;
+}
+
+function watchingLabel(count: number): string {
+  return `${count.toLocaleString()} watching`;
+}
 
 // Portrait trading-card aspect (5:7).
 const CARD_ASPECT = 5 / 7;
@@ -32,6 +44,8 @@ export function CardDetailHero({
   name,
   isFavorite,
   onToggleFavorite,
+  likeCount = 0,
+  watcherCount = 0,
   testID,
 }: CardDetailHeroProps) {
   const theme = useSpotlightTheme();
@@ -99,6 +113,27 @@ export function CardDetailHero({
           stroke={theme.colors.gray600}
         />
       </Pressable>
+
+      {(likeCount > 0 || watcherCount > 0) ? (
+        <View style={styles.stats} testID={testID ? `${testID}-stats` : undefined}>
+          {likeCount > 0 ? (
+            <Badge
+              label={likesLabel(likeCount)}
+              size="sm"
+              testID={testID ? `${testID}-like-count` : undefined}
+              tone="danger"
+            />
+          ) : null}
+          {watcherCount > 0 ? (
+            <Badge
+              label={watchingLabel(watcherCount)}
+              size="sm"
+              testID={testID ? `${testID}-watcher-count` : undefined}
+              tone="info"
+            />
+          ) : null}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -128,6 +163,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.18,
     shadowRadius: 20,
     width: `${CARD_WIDTH_RATIO * 100}%`,
+  },
+  stats: {
+    bottom: 16,
+    flexDirection: 'row',
+    gap: 8,
+    left: 16,
+    position: 'absolute',
   },
   root: {
     alignItems: 'center',

@@ -379,5 +379,63 @@ class ManualCardSearchTests(unittest.TestCase):
         self.assertGreater(len(captured["payload"]["results"]), 0)
 
 
+class ArtistSearchTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.database_path = Path(self.tempdir.name) / "artist-search.sqlite"
+        self.connection = connect(self.database_path)
+        apply_schema(self.connection, BACKEND_ROOT / "schema.sql")
+
+    def tearDown(self) -> None:
+        self.connection.close()
+        self.tempdir.cleanup()
+
+    def _seed(self, *, card_id: str, name: str, artist: str, number: str, set_id: str = "art") -> None:
+        card = catalog_card(
+            card_id=card_id,
+            name=name,
+            set_name="Art Set",
+            number=number,
+            set_id=set_id,
+        )
+        card["artist"] = artist
+        upsert_catalog_card(self.connection, card, REPO_ROOT, "2026-04-20T12:00:00Z", refresh_embeddings=False)
+        self.connection.commit()
+
+    def _ids(self, query: str) -> list[str]:
+        return [row["id"] for row in search_cards(self.connection, query, limit=10)]
+
+    def test_matches_by_artist_surname_token(self) -> None:
+        # Typing one token of a multi-word artist finds the card.
+        self._seed(card_id="art-snorlax", name="Snorlax", artist="Ken Sugimori", number="010/100")
+        self.assertIn("art-snorlax", self._ids("sugimori"))
+
+    def test_matches_by_full_artist_name(self) -> None:
+        self._seed(card_id="art-snorlax", name="Snorlax", artist="Ken Sugimori", number="010/100")
+        self.assertIn("art-snorlax", self._ids("ken sugimori"))
+
+    def test_name_match_ranks_above_artist_match(self) -> None:
+        # A card NAMED "Hoshi" must outrank a card merely ILLUSTRATED by "Hoshi".
+        self._seed(card_id="named-hoshi", name="Hoshi", artist="Some Artist", number="011/100")
+        self._seed(card_id="art-hoshi", name="Bulbasaur", artist="Hoshi", number="012/100")
+        ids = self._ids("hoshi")
+        self.assertIn("named-hoshi", ids)
+        self.assertIn("art-hoshi", ids)
+        self.assertLess(ids.index("named-hoshi"), ids.index("art-hoshi"))
+
+    def test_backfill_repopulates_artist_aliases(self) -> None:
+        from catalog_tools import _backfill_missing_card_artist_aliases
+
+        self._seed(card_id="art-eevee", name="Eevee", artist="Mitsuhiro Arita", number="013/100")
+        # Simulate a pre-feature row whose artist aliases were never built.
+        self.connection.execute("DELETE FROM card_artist_aliases WHERE card_id = ?", ("art-eevee",))
+        self.connection.commit()
+        self.assertNotIn("art-eevee", self._ids("arita"))
+
+        _backfill_missing_card_artist_aliases(self.connection)
+        self.connection.commit()
+        self.assertIn("art-eevee", self._ids("arita"))
+
+
 if __name__ == "__main__":
     unittest.main()

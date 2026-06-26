@@ -577,6 +577,16 @@ export type CardDetailRecord = {
   isFavorite?: boolean;
   favoritedAt?: string | null;
   /**
+   * Public "like" count == number of users who wishlisted this card. Surfaced
+   * as social proof next to the favorite heart. Absent on list/preview payloads.
+   */
+  likeCount?: number;
+  /**
+   * eBay-style "people watching" count == distinct viewers of this card within
+   * the backend's rolling watcher window. Absent on list/preview payloads.
+   */
+  watcherCount?: number;
+  /**
    * Scrydex percent-change trends for the active pricing context's resolved
    * condition. Values are nullable when the upstream provider omits a bucket.
    * Null at the top level when the snapshot has no trend data at all.

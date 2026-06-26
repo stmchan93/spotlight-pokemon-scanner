@@ -60,6 +60,19 @@ CREATE TABLE IF NOT EXISTS card_name_aliases (
     PRIMARY KEY (card_id, normalized_alias, alias_kind)
 );
 
+-- Searchable illustrator/artist tokens: one row per normalized token of a card's
+-- artist (plus the full normalized name), so a single typed token ("sugimori")
+-- matches a multi-word artist ("Ken Sugimori"). Mirrors card_name_aliases but is
+-- scored below name/set in search so artist hits never bury name hits.
+CREATE TABLE IF NOT EXISTS card_artist_aliases (
+    card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+    artist_token TEXT NOT NULL,
+    normalized_token TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (card_id, normalized_token)
+);
+
 CREATE TABLE IF NOT EXISTS card_price_snapshots (
     card_id TEXT PRIMARY KEY REFERENCES cards(id) ON DELETE CASCADE,
     provider TEXT NOT NULL,
@@ -250,6 +263,19 @@ CREATE TABLE IF NOT EXISTS card_favorites (
     card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
     created_at TEXT NOT NULL,
     PRIMARY KEY (owner_user_id, card_id)
+);
+
+-- Passive "people watching" signal. One row per (user, card, UTC day) so a
+-- viewer is counted at most once per day no matter how often they reopen the
+-- card. `viewed_at` is the full timestamp, used for the rolling-window count
+-- ("N watching" = distinct viewers in the last few days) and for pruning old
+-- rows. Logged server-side on card-detail GET; never user-facing membership.
+CREATE TABLE IF NOT EXISTS card_views (
+    owner_user_id TEXT NOT NULL,
+    card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+    viewed_on TEXT NOT NULL,
+    viewed_at TEXT NOT NULL,
+    PRIMARY KEY (owner_user_id, card_id, viewed_on)
 );
 
 CREATE TABLE IF NOT EXISTS deck_entries (
@@ -509,6 +535,12 @@ CREATE INDEX IF NOT EXISTS idx_card_name_aliases_normalized_alias
 CREATE INDEX IF NOT EXISTS idx_card_name_aliases_card_id
     ON card_name_aliases(card_id);
 
+CREATE INDEX IF NOT EXISTS idx_card_artist_aliases_normalized_token
+    ON card_artist_aliases(normalized_token);
+
+CREATE INDEX IF NOT EXISTS idx_card_artist_aliases_card_id
+    ON card_artist_aliases(card_id);
+
 CREATE INDEX IF NOT EXISTS idx_card_price_snapshots_lookup
     ON card_price_snapshots(card_id, updated_at DESC);
 
@@ -577,6 +609,12 @@ CREATE INDEX IF NOT EXISTS idx_card_favorites_owner_user_id
     ON card_favorites(owner_user_id, created_at DESC, card_id);
 CREATE INDEX IF NOT EXISTS idx_card_favorites_card_id
     ON card_favorites(card_id, created_at DESC);
+
+-- Covering index for the rolling-window watcher count
+-- (COUNT(DISTINCT owner_user_id) WHERE card_id = ? AND viewed_at >= cutoff)
+-- and for pruning old rows by viewed_at.
+CREATE INDEX IF NOT EXISTS idx_card_views_card_id
+    ON card_views(card_id, viewed_at, owner_user_id);
 
 CREATE INDEX IF NOT EXISTS idx_deck_entries_card_id
     ON deck_entries(card_id);

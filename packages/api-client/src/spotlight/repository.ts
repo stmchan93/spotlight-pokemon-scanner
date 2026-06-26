@@ -454,6 +454,8 @@ type CardDetailDTO = {
   imageLargeURL?: string | null;
   isFavorite?: boolean | null;
   favoritedAt?: string | null;
+  likeCount?: number | null;
+  watcherCount?: number | null;
   cardText?: CardTextDTO | null;
 };
 
@@ -2649,6 +2651,8 @@ export class MockSpotlightRepository implements SpotlightRepository {
           : [],
         isFavorite: this.favoriteCardTimestamps.has(query.cardId),
         favoritedAt: this.favoriteTimestampForCard(query.cardId),
+        likeCount: detail.likeCount ?? (this.favoriteCardTimestamps.has(query.cardId) ? 1 : 0),
+        watcherCount: detail.watcherCount ?? 0,
       })
       : buildLoadResult('not_found', null);
   }
@@ -4193,6 +4197,8 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       variantOptions: marketHistory.availableVariants,
       isFavorite: normalizeBoolean(detailResponse.data.isFavorite) ?? card.isFavorite,
       favoritedAt: normalizeString(detailResponse.data.favoritedAt),
+      likeCount: normalizeInteger(detailResponse.data.likeCount),
+      watcherCount: normalizeInteger(detailResponse.data.watcherCount),
       trendsPct: card.pricing.trendsPct ?? null,
       cardText: buildCardText(detailResponse.data.cardText),
     };
