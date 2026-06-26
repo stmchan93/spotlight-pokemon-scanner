@@ -22,10 +22,13 @@ CREATE TABLE IF NOT EXISTS cards (
     national_pokedex_numbers_json TEXT NOT NULL DEFAULT '[]',
     image_url TEXT,
     image_small_url TEXT,
+    tcgplayer_id TEXT,
     source_payload_json TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_cards_tcgplayer_id ON cards(tcgplayer_id);
 
 CREATE TABLE IF NOT EXISTS expansions (
     id TEXT PRIMARY KEY,

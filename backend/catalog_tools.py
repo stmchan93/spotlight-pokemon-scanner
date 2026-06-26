@@ -427,6 +427,15 @@ def _apply_additive_runtime_migrations(connection: sqlite3.Connection) -> None:
     _add_column_if_missing(connection, "deck_entry_events", "currency_code", "TEXT")
     _add_column_if_missing(connection, "deck_entry_events", "payment_method", "TEXT")
     _add_column_if_missing(connection, "portfolio_import_jobs", "owner_user_id", "TEXT")
+    # Join anchor to PokemonPriceTracker: PPT keys cards by TCGplayer product id
+    # (`tcgPlayerId`), and Scrydex stores the same id in each card's payload
+    # (variants[].marketplaces[name=tcgplayer].product_id). Persisting it as a
+    # first-class column lets the PPT pricing sync join EN+JP deterministically.
+    _add_column_if_missing(connection, "cards", "tcgplayer_id", "TEXT")
+    if _table_exists(connection, "cards") and "tcgplayer_id" in _table_columns(connection, "cards"):
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cards_tcgplayer_id ON cards(tcgplayer_id)"
+        )
     if _table_exists(connection, "labeling_sessions"):
         labeling_session_table_columns = _table_columns(connection, "labeling_sessions")
         if {"provider_card_id", "created_at"}.issubset(labeling_session_table_columns):
@@ -2406,6 +2415,34 @@ def card_text_from_card(card: dict[str, Any] | None) -> dict[str, Any] | None:
     }
 
 
+def extract_tcgplayer_product_id(source_payload: dict[str, Any] | None) -> str | None:
+    """The TCGplayer product id Scrydex stores per variant
+    (``variants[].marketplaces[name=tcgplayer].product_id``). It is identical to
+    PokemonPriceTracker's ``tcgPlayerId`` (verified: swsh7-215 -> 246723 on both),
+    so it is our deterministic, language-independent join key to PPT pricing.
+    Returns the first TCGplayer product id found (primary printing), or ``None``
+    when the card has no TCGplayer product (~3% of JP, which PPT can't price anyway)."""
+    if not isinstance(source_payload, dict):
+        return None
+    variants = source_payload.get("variants")
+    if not isinstance(variants, list):
+        return None
+    for variant in variants:
+        if not isinstance(variant, dict):
+            continue
+        marketplaces = variant.get("marketplaces")
+        if not isinstance(marketplaces, list):
+            continue
+        for marketplace in marketplaces:
+            if not isinstance(marketplace, dict):
+                continue
+            if str(marketplace.get("name") or "").strip().lower() == "tcgplayer":
+                product_id = marketplace.get("product_id")
+                if product_id is not None and str(product_id).strip():
+                    return str(product_id).strip()
+    return None
+
+
 def upsert_card(
     connection: sqlite3.Connection,
     *,
@@ -2430,19 +2467,23 @@ def upsert_card(
     national_pokedex_numbers: list[int] | None = None,
     image_url: str | None = None,
     image_small_url: str | None = None,
+    tcgplayer_id: str | None = None,
     source_payload: dict[str, Any] | None = None,
 ) -> None:
     now = utc_now()
+    # Auto-derive the TCGplayer product id from the Scrydex payload when the caller
+    # didn't pass one, so the PPT join anchor stays populated on every catalog sync.
+    resolved_tcgplayer_id = tcgplayer_id or extract_tcgplayer_product_id(source_payload)
     connection.execute(
         """
         INSERT INTO cards (
             id, name, set_name, number, rarity, variant, language,
             source_provider, source_record_id, set_id, set_series, set_ptcgo_code, set_release_date,
             supertype, subtypes_json, types_json, artist, regulation_mark,
-            national_pokedex_numbers_json, image_url, image_small_url, source_payload_json,
+            national_pokedex_numbers_json, image_url, image_small_url, tcgplayer_id, source_payload_json,
             created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             name=excluded.name,
             set_name=excluded.set_name,
@@ -2464,6 +2505,7 @@ def upsert_card(
             national_pokedex_numbers_json=excluded.national_pokedex_numbers_json,
             image_url=excluded.image_url,
             image_small_url=excluded.image_small_url,
+            tcgplayer_id=excluded.tcgplayer_id,
             source_payload_json=excluded.source_payload_json,
             updated_at=excluded.updated_at
         """,
@@ -2489,6 +2531,7 @@ def upsert_card(
             json.dumps(national_pokedex_numbers or []),
             image_url,
             image_small_url,
+            resolved_tcgplayer_id,
             json.dumps(source_payload or {}),
             now,
             now,
@@ -2501,6 +2544,45 @@ def upsert_card(
         language=language,
         source_payload=source_payload or {},
     )
+
+
+def backfill_cards_tcgplayer_id(
+    connection: sqlite3.Connection, *, batch_size: int = 2000
+) -> dict[str, int]:
+    """One-time backfill of ``cards.tcgplayer_id`` from each card's stored Scrydex
+    payload (``extract_tcgplayer_product_id``). Idempotent and safe to re-run: it
+    walks every card by an id cursor (so it always advances, never loops) and
+    re-writes the same product id harmlessly. Going forward ``upsert_card`` keeps it
+    current. Returns ``{"scanned","updated","missing"}`` counts."""
+    if not _table_exists(connection, "cards") or "tcgplayer_id" not in _table_columns(connection, "cards"):
+        return {"scanned": 0, "updated": 0, "missing": 0}
+    scanned = updated = missing = 0
+    last_id = ""
+    while True:
+        rows = connection.execute(
+            "SELECT id, source_payload_json FROM cards WHERE id > ? ORDER BY id LIMIT ?",
+            (last_id, batch_size),
+        ).fetchall()
+        if not rows:
+            break
+        updates: list[tuple[str, str]] = []
+        for row in rows:
+            scanned += 1
+            last_id = str(row[0])
+            try:
+                payload = json.loads(row[1] or "{}")
+            except (TypeError, ValueError):
+                payload = {}
+            product_id = extract_tcgplayer_product_id(payload)
+            if product_id:
+                updates.append((product_id, str(row[0])))
+            else:
+                missing += 1
+        if updates:
+            connection.executemany("UPDATE cards SET tcgplayer_id = ? WHERE id = ?", updates)
+            updated += len(updates)
+        connection.commit()
+    return {"scanned": scanned, "updated": updated, "missing": missing}
 
 
 def card_by_id(connection: sqlite3.Connection, card_id: str) -> dict[str, Any] | None:
