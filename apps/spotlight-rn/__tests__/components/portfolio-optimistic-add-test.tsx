@@ -32,6 +32,7 @@ jest.mock('@spotlight/design-system', () => {
 
 const portfolioTabsContext = {
   activePage: 'portfolio' as const,
+  isScannerPrewarming: false,
   chartScrubLockRef: { current: false },
 };
 

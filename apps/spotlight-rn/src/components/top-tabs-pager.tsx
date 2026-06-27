@@ -59,6 +59,10 @@ export function TopTabsPager({
 
   const initialTranslateX = initialPage === 'portfolio' ? 0 : -width;
   const [activePage, setActivePage] = useState<TabsPage>(initialPage);
+  // True only while a portfolio→scanner swipe is in flight, so the scanner can
+  // start its camera early and converge focus during the swipe (no blur on
+  // arrival). Cleared on commit/cancel so the camera never runs off the scanner.
+  const [isScannerPrewarming, setIsScannerPrewarming] = useState(false);
   const activePageRef = useRef<TabsPage>(initialPage);
   const isScannerSwipeEnabledRef = useRef(true);
   const isTransitioningRef = useRef(false);
@@ -99,6 +103,8 @@ export function TopTabsPager({
     setActivePage(page);
     isTransitioningRef.current = true;
     directionRef.current = null;
+    // Commit reached — `isActiveTab` now drives the camera; drop the prewarm flag.
+    setIsScannerPrewarming(false);
     Animated.timing(translateX, {
       toValue: targetX,
       duration: swipeCompleteDuration,
@@ -111,6 +117,8 @@ export function TopTabsPager({
   const cancelSwipe = useCallback(() => {
     const restoreX = activePageRef.current === 'portfolio' ? 0 : -width;
     directionRef.current = null;
+    // Swipe abandoned — stop any prewarm so the camera doesn't linger on portfolio.
+    setIsScannerPrewarming(false);
     Animated.timing(translateX, {
       toValue: restoreX,
       duration: swipeCancelDuration,
@@ -216,6 +224,9 @@ export function TopTabsPager({
       if (!directionRef.current) {
         if (gs.dx <= -8 && page === 'portfolio') {
           directionRef.current = 'left';
+          // Heading toward the scanner — start its camera now so focus converges
+          // during the swipe. (Idempotent: React bails if already true.)
+          setIsScannerPrewarming(true);
         } else if (gs.dx >= 8 && page === 'scanner') {
           directionRef.current = 'right';
         }
@@ -253,7 +264,7 @@ export function TopTabsPager({
   const goToPortfolio = useCallback(() => goToPage('portfolio'), [goToPage]);
 
   return (
-    <TabsPageContext.Provider value={{ activePage, chartScrubLockRef }}>
+    <TabsPageContext.Provider value={{ activePage, isScannerPrewarming, chartScrubLockRef }}>
       <View {...panResponder.panHandlers} style={styles.container} testID="top-tabs-pager">
         {/* Portfolio and scanner are both mounted side-by-side. expo-status-bar
             uses the most-recently-mounted StatusBar, so we need exactly one

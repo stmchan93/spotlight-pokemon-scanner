@@ -301,7 +301,7 @@ export function ScannerScreen({
   onTopLevelSwipeEnabledChange,
 }: ScannerScreenProps = {}) {
   const isTestEnv = process.env.NODE_ENV === 'test';
-  const { activePage } = useTabsPage();
+  const { activePage, isScannerPrewarming } = useTabsPage();
   const isActiveTab = activePage === 'scanner';
   const theme = useSpotlightTheme();
   const router = useRouter();
@@ -442,9 +442,16 @@ export function ScannerScreen({
     y: captureSurfaceLayout.captureCropRect.y,
   };
   const hasCameraPermission = hasPermission;
-  const shouldMountCamera = hasCameraPermission && isActiveTab && isForeground && isScreenFocused;
+  // Start the session when the scanner is active OR a swipe toward it is in flight
+  // (prewarm), so autofocus/exposure converge before arrival and the preview isn't
+  // blurry on landing.
+  const shouldMountCamera =
+    hasCameraPermission && isForeground && isScreenFocused && (isActiveTab || isScannerPrewarming);
   const scannerSmokeEnabled = resolveStagingSmokeModeEnabled({ allowDevelopment: true });
   const canCapture = shouldMountCamera
+    // Prewarm can start the camera before arrival, but the shutter must stay
+    // gated to actually being on the scanner.
+    && isActiveTab
     && isCameraReady
     && !isCapturing
     // Hold the shutter until the persisted zoom has loaded so the first capture

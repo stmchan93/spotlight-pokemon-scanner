@@ -12,6 +12,7 @@ import { renderWithProviders } from '../test-utils';
 // Default context value is 'scanner', so isolated test renders must override.
 const portfolioTabsContext = {
   activePage: 'portfolio' as const,
+  isScannerPrewarming: false,
   chartScrubLockRef: { current: false },
 };
 

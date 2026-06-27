@@ -187,7 +187,7 @@ describe('ScannerScreen', () => {
     // unmounting it here tore down/rebuilt the native session on every page swipe,
     // which hard-crashed the app on the portfolio->scanner return.
     renderWithProviders(
-      <TabsPageContext.Provider value={{ activePage: 'portfolio', chartScrubLockRef: { current: false } }}>
+      <TabsPageContext.Provider value={{ activePage: 'portfolio', isScannerPrewarming: false, chartScrubLockRef: { current: false } }}>
         <ScannerScreen />
       </TabsPageContext.Provider>,
     );
@@ -196,6 +196,30 @@ describe('ScannerScreen', () => {
     expect(screen.queryByTestId('scanner-camera-fallback')).toBeNull();
     expect(screen.queryByTestId('scanner-permission-card')).toBeNull();
     expect(screen.queryByText('Camera access needed')).toBeNull();
+  });
+
+  it('prewarms the camera during a swipe toward the scanner, but keeps capture disabled until arrival', async () => {
+    const visionCamera = jest.requireMock('react-native-vision-camera') as {
+      __mockFocusTo: jest.Mock;
+    };
+    visionCamera.__mockFocusTo.mockClear();
+
+    renderWithProviders(
+      <TabsPageContext.Provider
+        value={{ activePage: 'portfolio', isScannerPrewarming: true, chartScrubLockRef: { current: false } }}
+      >
+        <ScannerScreen />
+      </TabsPageContext.Provider>,
+    );
+
+    // Even though we're still on the portfolio page, the prewarm flag starts the
+    // camera session and the background pre-focus runs (so it's sharp on arrival).
+    await waitFor(() => {
+      expect(visionCamera.__mockFocusTo).toHaveBeenCalled();
+    });
+
+    // ...but the shutter stays disabled until the scanner is actually the active tab.
+    expect(screen.getByTestId('scanner-preview').props.accessibilityState?.disabled).toBe(true);
   });
 
   it('pauses the capture session while backgrounded and restores it on foreground', async () => {
