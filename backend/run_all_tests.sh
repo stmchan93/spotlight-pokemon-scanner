@@ -44,6 +44,7 @@ TEST_MODULES=(
   backend.tests.test_raw_pricing_matrix
   backend.tests.test_card_language_link
   backend.tests.test_card_language_linker
+  backend.tests.test_day_change_condition_match
 )
 
 run_targeted_tests() {

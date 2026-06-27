@@ -32,6 +32,7 @@ from catalog_tools import (
     _graded_variants_for_context,
     _is_raw_phantom_price,
     _ppt_graded_signal_row,
+    _normalized_condition_code,
     _normalized_variant_label,
     _raw_context_conditions,
     _raw_context_entry,
@@ -3666,7 +3667,16 @@ class SpotlightScanService:
         row: sqlite3.Row | dict[str, Any] | None,
         condition_code: str | None,
         day_cells: list[Any] | None = None,
+        require_condition_match: bool = False,
     ) -> dict[str, Any] | None:
+        """Price one entry from a single day's history row/cells.
+
+        ``require_condition_match`` (used by the day-change path) returns ``None``
+        rather than a price when the requested raw condition cannot be resolved
+        exactly — the resolvers otherwise fall back to a nearby/NM condition, which
+        would diff e.g. an LP entry against the NM default and surface a phantom
+        change. Day-over-day deltas must compare like-for-like or not at all.
+        """
         if row is None:
             return None
         pricing_mode = "graded" if str(entry.get("itemKind") or "").strip().lower() == "slab" else "raw"
@@ -3735,17 +3745,29 @@ class SpotlightScanService:
             )
 
         if use_cells:
-            _, _, summary = resolve_raw_summary_from_cells(
+            _, resolved_condition, summary = resolve_raw_summary_from_cells(
                 day_cells,
                 variant=variant_name,
                 condition=condition_code,
             )
         else:
-            _, _, summary = _resolve_raw_context_summary(
+            _, resolved_condition, summary = _resolve_raw_context_summary(
                 _raw_contexts_payload(row["raw_contexts_json"]),
                 variant=variant_name,
                 condition=condition_code,
             )
+        # Like-for-like guard: when an exact condition is required, bail out if the
+        # resolver had to substitute a different condition (the phantom-delta bug).
+        requested_condition = _normalized_condition_code(condition_code) if condition_code else None
+        if (
+            require_condition_match
+            and requested_condition
+            and (
+                summary is None
+                or _normalized_condition_code(resolved_condition) != requested_condition
+            )
+        ):
+            return None
         if summary is None and self._history_primary_price_value(
             {
                 "market": row["default_raw_market_price"],
@@ -3754,6 +3776,10 @@ class SpotlightScanService:
                 "high": row["default_raw_high_price"],
             }
         ) is not None:
+            # The default raw context is NM-by-default, not the requested condition;
+            # never use it when an exact condition match is required.
+            if require_condition_match and requested_condition:
+                return None
             summary = {
                 "currencyCode": row["display_currency_code"],
                 "low": row["default_raw_low_price"],
@@ -4132,6 +4158,9 @@ class SpotlightScanService:
             history_entry,
             row=yesterday_row,
             condition_code=self._portfolio_condition_code(condition_code),
+            # Compare like-for-like: if yesterday can't price this exact condition,
+            # report "no change" rather than diffing against the NM default.
+            require_condition_match=True,
         )
         yesterday_price = self._history_primary_price_value(yesterday_pricing)
         if yesterday_price is None:
