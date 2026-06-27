@@ -133,6 +133,25 @@ describe('CardDetailScreen', () => {
     shareSpy.mockRestore();
   });
 
+  it('Add to Collection sheet hosts the full configurator + Condition dropdown, pre-filled from the PDP', async () => {
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
+    );
+
+    fireEvent.press(await screen.findByTestId('detail-add-item'));
+
+    // Language / Variant / Grader chips live in the sheet too, pre-filled to the
+    // PDP selection (EN + Raw by default).
+    const sheetEN = await screen.findByTestId('detail-add-sheet-configurator-language-EN');
+    expect(sheetEN.props.accessibilityState?.selected).toBe(true);
+    expect(screen.getByTestId('detail-add-sheet-configurator-grader-Raw').props.accessibilityState?.selected).toBe(true);
+
+    // Raw lane → the dropdown is titled "Condition", and Quantity seeds to 1.
+    const conditionTrigger = screen.getByTestId('detail-add-sheet-grade-trigger');
+    expect(conditionTrigger.props.accessibilityLabel).toContain('Condition');
+    expect(screen.getByTestId('detail-add-sheet-quantity-value').props.children).toBe(1);
+  });
+
   it('renders the EN/JP Language chip row defaulting to EN', async () => {
     renderWithProviders(
       <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,

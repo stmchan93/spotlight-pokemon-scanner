@@ -741,10 +741,10 @@ export function CardDetailScreen({
     setAddSheetOpen(true);
   }, []);
 
-  // Grade/Condition dropdown wiring for the configurator.
-  // Both lanes title this section "Grade" per Figma (992-7373 graded /
-  // 1080-3404 raw); the raw dropdown still lists conditions (Near Mint…Damaged).
-  const gradeTitle = 'Grade';
+  // Grade/Condition dropdown wiring for the Add to Collection sheet. The raw lane
+  // titles this section "Condition" (Figma 1664:2201 — Near Mint…Damaged); the
+  // graded lane titles it "Grade" (numeric).
+  const gradeTitle = isRawLane ? 'Condition' : 'Grade';
   const gradeLabel = isRawLane
     ? deckConditionLabel(selectedCondition)
     : (selectedGrade ? `${selectedGrader} ${selectedGrade}` : null);
@@ -866,17 +866,27 @@ export function CardDetailScreen({
 
         <AddToCollectionSheet
           confirmDisabled={isAddPending || !detail}
-          confirmLabel="Add to Collection"
+          confirmLabel="CONFIRM"
           gradeLabel={gradeLabel}
           gradeTitle={gradeTitle}
+          graders={[...graderOptions]}
+          languages={[...languageOptions]}
           onClose={() => setAddSheetOpen(false)}
           onConfirm={handleAddItem}
           onDecrement={() => setQuantity((current) => Math.max(1, current - 1))}
           onIncrement={() => setQuantity((current) => current + 1)}
           onOpenGradePicker={() => setGradeSheetOpen(true)}
+          onSelectGrader={handleSelectGrader}
+          onSelectLanguage={setSelectedLanguage}
+          onSelectVariant={setSelectedVariant}
           quantity={quantity}
+          selectedGrader={selectedGrader}
+          selectedLanguage={selectedLanguage}
+          selectedVariant={selectedVariant}
           testID="detail-add-sheet"
           title="Add to Collection"
+          variants={variantOptions}
+          variantsLoading={detail == null && errorMessage == null}
           visible={addSheetOpen}
         />
 

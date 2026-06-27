@@ -5,6 +5,7 @@ import {
   Easing,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -13,22 +14,38 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Minus, NavArrowDown, Plus } from 'iconoir-react-native';
 
 import { Button, useSpotlightTheme } from '@spotlight/design-system';
+import type { MarketHistoryOption } from '@spotlight/api-client';
+
+import { CardConfigurator } from '@/features/cards/components/card-configurator';
 
 type AddToCollectionSheetProps = {
   visible: boolean;
   onClose: () => void;
-  /** Sheet heading — "Add to Collection" (add) or "Edit details" (owned line). */
+  /** Sheet heading — "Add to Collection". */
   title?: string;
-  /** Section title for the grade selector (e.g. "Grade"). */
+  /** Language chips (EN/JP) — pre-filled from the PDP selection. */
+  languages: string[];
+  selectedLanguage: string;
+  onSelectLanguage: (language: string) => void;
+  /** Variant chips — pre-filled from the PDP selection. */
+  variants: MarketHistoryOption[];
+  variantsLoading?: boolean;
+  selectedVariant: string | null;
+  onSelectVariant: (id: string) => void;
+  /** Grader chips (Raw/PSA/BGS/CGC) — pre-filled from the PDP selection. */
+  graders: string[];
+  selectedGrader: string | null;
+  onSelectGrader: (grader: string) => void;
+  /** Dropdown section title — "Condition" (raw) or "Grade" (graded). */
   gradeTitle: string;
-  /** Current grade/condition label, or null when nothing is chosen yet. */
+  /** Current condition/grade label, or null when nothing is chosen yet. */
   gradeLabel: string | null;
-  /** Opens the grade/condition picker (the existing GradeConditionSheet). */
+  /** Opens the condition/grade picker (the existing GradeConditionSheet). */
   onOpenGradePicker: () => void;
   quantity: number;
   onIncrement: () => void;
   onDecrement: () => void;
-  /** Primary CTA label — "Add to Collection" (add) or "Save changes" (edit). */
+  /** Primary CTA label — "CONFIRM". */
   confirmLabel: string;
   onConfirm: () => void;
   confirmDisabled?: boolean;
@@ -38,17 +55,28 @@ type AddToCollectionSheetProps = {
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 
 /**
- * Bottom sheet that hosts the Grade + Quantity controls pulled out of the
- * always-visible configurator (Figma 1664:255 — these move into "Add to
- * Collection", surfaced when the user taps ADD ITEM). Mirrors GradeConditionSheet's
- * pop-open slide so the two sheets feel like one system; the grade picker it opens
- * stacks on top. Mode-agnostic: the screen supplies the confirm label/action so the
- * same sheet drives both the add and the owned-line edit flows.
+ * Bottom sheet that finalizes an add to the collection (Figma 1664:2011 /
+ * 1664:2201). Hosts the full configurator — Language, Variant, Grader, then a
+ * Condition/Grade dropdown + Quantity — pre-filled from the PDP's live selection
+ * (the screen owns that state, so the chips reflect what the page shows). CONFIRM
+ * commits; the page's action bar then flashes "SAVED". Mirrors GradeConditionSheet's
+ * pop-open slide so the two sheets feel like one system; the grade picker stacks
+ * on top.
  */
 export function AddToCollectionSheet({
   visible,
   onClose,
   title = 'Add to Collection',
+  languages,
+  selectedLanguage,
+  onSelectLanguage,
+  variants,
+  variantsLoading = false,
+  selectedVariant,
+  onSelectVariant,
+  graders,
+  selectedGrader,
+  onSelectGrader,
   gradeTitle,
   gradeLabel,
   onOpenGradePicker,
@@ -133,7 +161,25 @@ export function AddToCollectionSheet({
             {title}
           </Text>
 
-          <View style={styles.body}>
+          <ScrollView
+            contentContainerStyle={styles.body}
+            showsVerticalScrollIndicator={false}
+            style={styles.scroll}
+          >
+            <CardConfigurator
+              graders={graders}
+              languages={languages}
+              onSelectGrader={onSelectGrader}
+              onSelectLanguage={onSelectLanguage}
+              onSelectVariant={onSelectVariant}
+              selectedGrader={selectedGrader}
+              selectedLanguage={selectedLanguage}
+              selectedVariant={selectedVariant}
+              testID={`${testID}-configurator`}
+              variants={variants}
+              variantsLoading={variantsLoading}
+            />
+
             <View style={styles.group}>
               <Text style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}>
                 {gradeTitle}
@@ -197,7 +243,9 @@ export function AddToCollectionSheet({
                 </Pressable>
               </View>
             </View>
+          </ScrollView>
 
+          <View style={styles.footer}>
             <Button
               disabled={confirmDisabled}
               label={confirmLabel}
@@ -222,8 +270,13 @@ const styles = StyleSheet.create({
   },
   body: {
     gap: 24,
+    paddingBottom: 16,
     paddingHorizontal: 16,
     paddingTop: 16,
+  },
+  footer: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
   },
   group: {
     gap: 10,
@@ -242,6 +295,9 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'flex-end',
   },
+  scroll: {
+    flexGrow: 0,
+  },
   selector: {
     alignItems: 'center',
     borderRadius: 8,
@@ -254,7 +310,7 @@ const styles = StyleSheet.create({
   sheet: {
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
-    maxHeight: '70%',
+    maxHeight: '88%',
     paddingTop: 10,
   },
   stepper: {
