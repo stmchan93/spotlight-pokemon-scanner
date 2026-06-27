@@ -2,7 +2,7 @@
 // runtime (silently dropped every scan's source image — see scanner dashboard).
 import * as FileSystem from 'expo-file-system/legacy';
 import type { ReactNode, RefObject } from 'react';
-import { useEffect, useImperativeHandle } from 'react';
+import { useEffect, useImperativeHandle, useRef, useState } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import {
   Camera,
+  type CameraRef,
   CommonResolutions,
   useCameraDevice,
   usePhotoOutput,
@@ -229,6 +230,12 @@ export function RawScannerCaptureSurface({
     qualityPrioritization: 'balanced',
   });
 
+  // Ref to the live vision-camera so we can pre-focus in the background.
+  const visionCameraRef = useRef<CameraRef>(null);
+  // True only once the native session has actually started (onStarted) — focusTo
+  // throws if called before that, so we gate the background pre-focus on it.
+  const [cameraStarted, setCameraStarted] = useState(false);
+
   // Detect whether the chosen device bundles the ultra-wide (so zoom=1 is the
   // ultra-wide ~0.5x). `device.physicalDevices` is an array of lens descriptors;
   // handle both string and {type} shapes defensively across vision-camera builds.
@@ -265,6 +272,36 @@ export function RawScannerCaptureSurface({
     );
   }, [zoomFactor, zoom, device, hasUltraWide, wideBaseline, lensesLabel]);
 
+  // Background pre-focus: as soon as the session is live (and again after a
+  // zoom/lens change or reticle move), converge AF/AE on the reticle center while
+  // the user is still lining up the card — NOT at capture time. Continuous AF then
+  // keeps it locked, so the tap stays focus-free (zero added capture latency) yet
+  // the very first frame is already sharp (fixes "first scan wrong, second right").
+  // Fire-and-forget: it never blocks capture, and focusTo's reject (camera not
+  // ready / device lacks focus metering) is swallowed.
+  const reticleCenterX = layout.reticle.x + layout.reticle.width / 2;
+  const reticleCenterY = layout.reticle.y + layout.reticle.height / 2;
+  useEffect(() => {
+    if (!cameraStarted || layout.reticle.width <= 0) {
+      return;
+    }
+    const camera = visionCameraRef.current;
+    if (!camera?.focusTo) {
+      return;
+    }
+    const startedAt = Date.now();
+    void camera
+      .focusTo({ x: reticleCenterX, y: reticleCenterY })
+      .then(() => {
+        if (__DEV__) {
+          console.info(`[SCANNER FOCUS] pre-focus settled ${Date.now() - startedAt}ms`);
+        }
+      })
+      .catch(() => {
+        // Camera not ready yet / no focus metering — continuous AF still runs.
+      });
+  }, [cameraStarted, zoom, reticleCenterX, reticleCenterY, layout.reticle.width]);
+
   useImperativeHandle(
     cameraRef,
     () => ({
@@ -276,6 +313,8 @@ export function RawScannerCaptureSurface({
           return null;
         }
 
+        // No focus wait here — the camera is pre-focused in the background (above)
+        // so the tap stays instant.
         const photo = await photoOutput.capturePhoto(
           {
             flashMode: 'off',
@@ -340,11 +379,20 @@ export function RawScannerCaptureSurface({
     <View style={styles.previewCanvas}>
       {isCameraMounted ? (
         <Camera
+          ref={visionCameraRef}
           device={device}
           isActive={shouldMountCamera}
           onError={onCameraError}
-          onStarted={onCameraReady}
-          onStopped={onCameraStopped}
+          onStarted={() => {
+            setCameraStarted(true);
+            onCameraReady();
+          }}
+          onStopped={() => {
+            // Session stopped (e.g. swiped to portfolio) → require a fresh
+            // pre-focus when it restarts, since the lens may have switched.
+            setCameraStarted(false);
+            onCameraStopped?.();
+          }}
           // Orient captures to the UI (locked to portrait) rather than the physical
           // device sensor. The default 'device' source rotates output with phone tilt
           // even under screen lock, which let a transitional orientation slip a sideways
