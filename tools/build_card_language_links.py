@@ -115,6 +115,74 @@ def select_counterpart(
     return best_id, best_score
 
 
+import re
+
+
+def _norm_num(value: str | None) -> str:
+    s = (value or "").split("/")[0].strip().lower()
+    return str(int(s)) if s.isdigit() else re.sub(r"\s+", "", s)
+
+
+def detect_set_pairs(conn: sqlite3.Connection, *, min_overlap: int = 15) -> dict[str, str]:
+    """Confirmed EN→JP set correspondences: two sets pair when >= min_overlap
+    cards share the same normalized collector number AND English name. Returns
+    {en_set_id: jp_set_id} (best 1:1 per EN set). Independent of artwork."""
+    conn.row_factory = sqlite3.Row
+    from collections import defaultdict
+
+    en: dict[str, dict[str, str]] = defaultdict(dict)
+    jp: dict[str, dict[str, str]] = defaultdict(dict)
+    for r in conn.execute("SELECT set_id, language, name, number FROM cards"):
+        if not r["set_id"]:
+            continue
+        bucket = en if r["language"] == "English" else jp if r["language"] == "Japanese" else None
+        if bucket is None:
+            continue
+        bucket[r["set_id"]].setdefault(_norm_num(r["number"]), str(r["name"] or "").strip().lower())
+
+    key_jp: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for sid, m in jp.items():
+        for num, name in m.items():
+            key_jp[(num, name)].append(sid)
+    counts: dict[tuple[str, str], int] = defaultdict(int)
+    for sid, m in en.items():
+        for num, name in m.items():
+            for jsid in key_jp.get((num, name), ()):
+                counts[(sid, jsid)] += 1
+
+    best: dict[str, tuple[str, int]] = {}
+    for (esid, jsid), cnt in counts.items():
+        if cnt >= min_overlap and (esid not in best or cnt > best[esid][1]):
+            best[esid] = (jsid, cnt)
+    return {esid: jsid for esid, (jsid, _) in best.items()}
+
+
+def deterministic_links(
+    conn: sqlite3.Connection, set_pairs: dict[str, str]
+) -> dict[str, tuple[str, str, str]]:
+    """Bidirectional links by collector number within confirmed set pairs.
+    Returns {card_id: (counterpart_card_id, counterpart_language, 'set_number')}."""
+    conn.row_factory = sqlite3.Row
+    from collections import defaultdict
+
+    by_set: dict[str, dict[str, tuple[str, str]]] = defaultdict(dict)  # set_id -> num -> (name, card_id)
+    wanted = set(set_pairs) | set(set_pairs.values())
+    for r in conn.execute("SELECT id, set_id, name, number FROM cards"):
+        if r["set_id"] in wanted:
+            by_set[r["set_id"]].setdefault(_norm_num(r["number"]), (str(r["name"] or "").strip().lower(), r["id"]))
+
+    out: dict[str, tuple[str, str, str]] = {}
+    for en_set, jp_set in set_pairs.items():
+        em, jm = by_set.get(en_set, {}), by_set.get(jp_set, {})
+        for num, (name, en_card) in em.items():
+            jp_entry = jm.get(num)
+            if jp_entry and jp_entry[0] == name:
+                jp_card = jp_entry[1]
+                out.setdefault(en_card, (jp_card, "Japanese", "set_number"))
+                out.setdefault(jp_card, (en_card, "English", "set_number"))
+    return out
+
+
 EmbedArtCrops = Callable[[list[str]], dict[str, "list[float]"]]
 
 
@@ -137,24 +205,43 @@ def build_links(
     now: str | None = None,
     name_filter: set[str] | None = None,
     replace_table: bool = True,
+    use_set_pairs: bool = True,
+    min_overlap: int = 15,
 ) -> int:
     """Compute counterpart links and write the card_language_links table.
 
+    Hybrid: PRIMARY deterministic links by collector number within confirmed
+    EN↔JP set pairs (correct by construction), then the art embedding as a
+    FALLBACK for every card a set pair doesn't already cover.
+
     Returns the number of directed link rows written. `name_filter` (lowercased
     names) restricts the card universe for a pilot run; `replace_table=False`
-    upserts without clearing (used so pilots don't wipe a full table)."""
+    upserts without clearing."""
     conn.row_factory = sqlite3.Row
+    stamp = now or datetime.now(timezone.utc).isoformat()
+
+    # PRIMARY: deterministic set-pair + number links.
+    det: dict[str, tuple[str, str, str]] = (
+        deterministic_links(conn, detect_set_pairs(conn, min_overlap=min_overlap))
+        if use_set_pairs else {}
+    )
+
     cards = [card_meta_from_row(r) for r in conn.execute(
         "SELECT id, language, name, artist, national_pokedex_numbers_json, regulation_mark FROM cards"
     )]
     if name_filter is not None:
-        cards = [c for c in cards if c.name_key in name_filter]
+        names_in = name_filter
+        cards = [c for c in cards if c.name_key in names_in]
+        det = {cid: v for cid, v in det.items() if any(c.card_id == cid for c in cards)}
     index = build_candidate_index(cards)
 
-    # Only cards that actually have at least one pruned candidate need embeddings.
+    # FALLBACK embedding: only cards a deterministic link doesn't already cover
+    # AND that have a pruned candidate.
     candidates_by_card: dict[str, list[CardMeta]] = {}
     need_embed: set[str] = set()
     for card in cards:
+        if card.card_id in det:
+            continue
         pruned = prune_candidates(card, index)
         if pruned:
             candidates_by_card[card.card_id] = pruned
@@ -163,8 +250,9 @@ def build_links(
 
     vecs = embed_art_crops(sorted(need_embed)) if need_embed else {}
 
-    stamp = now or datetime.now(timezone.utc).isoformat()
-    rows: list[tuple] = []
+    rows: list[tuple] = [
+        (cid, cp, lang, None, method, stamp) for cid, (cp, lang, method) in det.items()
+    ]
     for card_id, pruned in candidates_by_card.items():
         query_vec = vecs.get(card_id)
         if query_vec is None:
@@ -214,7 +302,10 @@ def _default_embedder(
         # Heavy imports kept local so the module loads cheaply for unit tests.
         import sys
 
+        # backend/ for raw_visual_model, tools/ (this file's dir) for
+        # build_raw_visual_index — works regardless of how the script is invoked.
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
         from raw_visual_model import RawVisualFrozenEncoder  # type: ignore
         from build_raw_visual_index import ARTWORK_V1_CROP_BOX, apply_crop_preset  # type: ignore  # noqa: F401
 
