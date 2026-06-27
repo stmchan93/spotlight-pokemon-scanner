@@ -188,19 +188,25 @@ export function SecondaryActionButton({
 }
 
 type TertiaryButtonProps = {
+  disabled?: boolean;
   label: string;
   onPress: () => void;
   testID?: string;
 };
 
-export function TertiaryButton({ label, onPress, testID }: TertiaryButtonProps) {
+export function TertiaryButton({ disabled = false, label, onPress, testID }: TertiaryButtonProps) {
   const theme = useSpotlightTheme();
 
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      disabled={disabled}
       onPress={onPress}
-      style={styles.tertiaryButton}
+      style={({ pressed }) => [
+        styles.tertiaryButton,
+        { opacity: disabled ? 0.5 : pressed ? 0.7 : 1 },
+      ]}
       testID={testID}
     >
       <Text style={[styles.tertiaryLabel, { color: theme.colors.gray100 }]}>{label}</Text>

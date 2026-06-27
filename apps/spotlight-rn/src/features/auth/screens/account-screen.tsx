@@ -314,6 +314,17 @@ export function AccountScreen() {
           </SurfaceCard>
         ) : null}
 
+        <Button
+          disabled={auth.isBusy}
+          label="Change password"
+          onPress={() => {
+            router.push('/change-password' as never);
+          }}
+          size="lg"
+          testID="account-change-password"
+          variant="outline"
+        />
+
         <Pressable
           accessibilityRole="button"
           disabled={auth.isBusy}
