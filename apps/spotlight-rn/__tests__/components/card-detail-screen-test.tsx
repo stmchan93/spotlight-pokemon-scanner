@@ -547,7 +547,7 @@ describe('CardDetailScreen', () => {
     expect(url).toContain('LH_Sold=1');
   });
 
-  it('eBay logo link tracks the grade chosen in the dropdown', async () => {
+  it('keeps the PDP eBay link independent of the Add to Collection grade dropdown', async () => {
     const getCardPriceTrends = jest.fn(async (query: { mode: string }) => ({
       mode: query.mode as 'raw' | 'graded',
       provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
@@ -561,8 +561,9 @@ describe('CardDetailScreen', () => {
     );
 
     fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
-    // Switch the grade from the seeded 10 to 9.5 via the Add to Collection sheet,
-    // then dismiss it so the provider logo on the page is tappable again.
+    // Pick a different grade (9.5) INSIDE the Add to Collection sheet, then dismiss
+    // it. The sheet owns its own selection now, so this must NOT change the page —
+    // the PDP's eBay link keeps the grader's seeded default (PSA 10).
     fireEvent.press(screen.getByTestId('detail-add-item'));
     fireEvent.press(await screen.findByTestId('detail-add-sheet-grade-trigger'));
     fireEvent.press(await screen.findByTestId('detail-grade-sheet-option-9.5'));
@@ -572,8 +573,8 @@ describe('CardDetailScreen', () => {
     await waitFor(() => {
       expect(openURL).toHaveBeenCalledTimes(1);
     });
-    // The eBay link now reflects PSA 9.5, not the default 10 (half-grade preserved).
-    expect(openURL.mock.calls[0][0] as string).toContain('_nkw=%22PSA+9.5%22');
+    // The add-sheet selection did NOT leak to the page: still PSA 10, not 9.5.
+    expect(openURL.mock.calls[0][0] as string).toContain('_nkw=%22PSA+10%22');
   });
 
   it('renders Product Details when the card detail includes cardText', async () => {

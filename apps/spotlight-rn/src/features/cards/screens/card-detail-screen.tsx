@@ -149,6 +149,12 @@ export function CardDetailScreen({
   // The "Add to Collection" sheet hosts Grade + Quantity (moved out of the
   // always-visible configurator). Opened by ADD ITEM (add) or Edit (owned line).
   const [addSheetOpen, setAddSheetOpen] = useState(false);
+  // The add sheet owns its OWN variant/grader/grade/condition, seeded from the page
+  // when it opens. Editing the sheet must NOT change what the PDP shows behind it.
+  const [addVariant, setAddVariant] = useState<string | null>(null);
+  const [addGrader, setAddGrader] = useState<string | null>(null);
+  const [addGrade, setAddGrade] = useState<string | null>(null);
+  const [addCondition, setAddCondition] = useState<DeckConditionCode | null>(null);
   const [isAddPending, setIsAddPending] = useState(false);
   // Graded only (Figma 1640-5770): after a successful add the CTA flashes "SAVED"
   // for 5s and reverts to "ADD ITEM" — the page stays in ADD mode so the user can
@@ -692,18 +698,53 @@ export function CardDetailScreen({
     ).catch(() => undefined);
   }, [marketplaceUrl, transactionLabel]);
 
-  // Builds the slab context for the configured ADD ITEM action.
-  const configuredSlabContext = useMemo<SlabContext | null>(() => {
-    if (isRawLane || !selectedGrader) {
+  // --- Add to Collection sheet's OWN selection (independent of the page) ---
+  // The raw lane titles the dropdown "Condition" (Figma 1664:2201 — Near Mint…
+  // Damaged); the graded lane titles it "Grade" (numeric).
+  const addIsRaw = addGrader == null || addGrader === 'Raw';
+  const addVariantLabel = useMemo(() => {
+    if (!addVariant) {
+      return null;
+    }
+    return variantOptions.find((option) => option.id === addVariant)?.label ?? null;
+  }, [addVariant, variantOptions]);
+  const handleAddSelectGrader = useCallback((grader: string) => {
+    setAddGrader(grader);
+    if (grader === 'Raw') {
+      setAddCondition((current) => current ?? deckConditionOptions[0]?.code ?? null);
+    } else {
+      setAddGrade((current) => current ?? ownedSlabContext?.grade ?? '10');
+    }
+  }, [ownedSlabContext]);
+  const handleAddGradePick = useCallback((id: string) => {
+    if (addIsRaw) {
+      setAddCondition(id as DeckConditionCode);
+    } else {
+      setAddGrade(id);
+    }
+  }, [addIsRaw]);
+  const addGradeTitle = addIsRaw ? 'Condition' : 'Grade';
+  const addGradeLabel = addIsRaw
+    ? deckConditionLabel(addCondition)
+    : (addGrade ? `${addGrader} ${addGrade}` : null);
+  const addGradePickerOptions = useMemo<DropdownOption[]>(() => {
+    if (addIsRaw) {
+      return deckConditionOptions.map((option) => ({ id: option.code, label: option.label }));
+    }
+    return numericGradeOptions.map((grade) => ({ id: grade, label: `${addGrader} ${grade}` }));
+  }, [addIsRaw, addGrader]);
+  const addGradePickerSelectedId = addIsRaw ? addCondition : addGrade;
+  const addConfiguredSlabContext = useMemo<SlabContext | null>(() => {
+    if (addIsRaw || !addGrader) {
       return null;
     }
     return {
-      grader: selectedGrader,
-      grade: selectedGrade,
+      grader: addGrader,
+      grade: addGrade,
       certNumber: null,
-      variantName: selectedGrade ? `${selectedGrader} ${selectedGrade}` : null,
+      variantName: addGrade ? `${addGrader} ${addGrade}` : null,
     };
-  }, [isRawLane, selectedGrade, selectedGrader]);
+  }, [addIsRaw, addGrade, addGrader]);
 
   const handleAddItem = useCallback(() => {
     // ADD ITEM is disabled until `detail` resolves, so this always runs with a
@@ -714,16 +755,16 @@ export function CardDetailScreen({
     setIsAddPending(true);
     void spotlightRepository.createInventoryEntry({
       cardID: detail.cardId,
-      slabContext: configuredSlabContext,
-      variantName: isRawLane ? (selectedVariantLabel ?? null) : null,
-      condition: isRawLane ? selectedCondition : null,
+      slabContext: addConfiguredSlabContext,
+      variantName: addIsRaw ? (addVariantLabel ?? null) : null,
+      condition: addIsRaw ? addCondition : null,
       quantity: Math.max(1, quantity),
       sourceScanID: null,
       addedAt: new Date().toISOString(),
     })
       .then(() => {
         capturePostHogEvent('card_detail_add_item_succeeded', {
-          kind: isRawLane ? 'raw' : 'graded',
+          kind: addIsRaw ? 'raw' : 'graded',
           quantity: Math.max(1, quantity),
         });
         setAddSheetOpen(false);
@@ -745,45 +786,28 @@ export function CardDetailScreen({
         setIsAddPending(false);
       });
   }, [
-    configuredSlabContext,
+    addConfiguredSlabContext,
+    addCondition,
+    addIsRaw,
+    addVariantLabel,
     detail,
     isAddPending,
-    isRawLane,
     quantity,
     refreshData,
-    selectedCondition,
-    selectedVariantLabel,
     spotlightRepository,
   ]);
 
   // Opening the Add to Collection sheet always starts a fresh add (quantity 1) —
   // the PDP no longer edits owned lines in place (Figma 1640:4077).
   const handleOpenAddSheet = useCallback(() => {
+    // Seed the sheet's selection from the page, then keep all edits local to it.
+    setAddVariant(selectedVariant);
+    setAddGrader(selectedGrader);
+    setAddGrade(selectedGrade);
+    setAddCondition(selectedCondition);
     setQuantity(1);
     setAddSheetOpen(true);
-  }, []);
-
-  // Grade/Condition dropdown wiring for the Add to Collection sheet. The raw lane
-  // titles this section "Condition" (Figma 1664:2201 — Near Mint…Damaged); the
-  // graded lane titles it "Grade" (numeric).
-  const gradeTitle = isRawLane ? 'Condition' : 'Grade';
-  const gradeLabel = isRawLane
-    ? deckConditionLabel(selectedCondition)
-    : (selectedGrade ? `${selectedGrader} ${selectedGrade}` : null);
-  const gradePickerOptions = useMemo<DropdownOption[]>(() => {
-    if (isRawLane) {
-      return deckConditionOptions.map((option) => ({ id: option.code, label: option.label }));
-    }
-    return numericGradeOptions.map((grade) => ({ id: grade, label: `${selectedGrader} ${grade}` }));
-  }, [isRawLane, selectedGrader]);
-  const gradePickerSelectedId = isRawLane ? selectedCondition : selectedGrade;
-  const handleGradePick = useCallback((id: string) => {
-    if (isRawLane) {
-      setSelectedCondition(id as DeckConditionCode);
-    } else {
-      setSelectedGrade(id);
-    }
-  }, [isRawLane]);
+  }, [selectedCondition, selectedGrade, selectedGrader, selectedVariant]);
 
   const isFavorite = favoriteState.isFavorite;
 
@@ -889,25 +913,25 @@ export function CardDetailScreen({
         <AddToCollectionSheet
           confirmDisabled={isAddPending || !detail}
           confirmLabel="CONFIRM"
-          gradeLabel={gradeLabel}
-          gradeTitle={gradeTitle}
+          gradeLabel={addGradeLabel}
+          gradeTitle={addGradeTitle}
           graders={[...graderOptions]}
           languages={[]}
           onClose={() => setAddSheetOpen(false)}
           onConfirm={handleAddItem}
           onDecrement={() => setQuantity((current) => Math.max(1, current - 1))}
           onIncrement={() => setQuantity((current) => current + 1)}
-          gradeOptions={gradePickerOptions}
-          gradeSelectedId={gradePickerSelectedId}
-          onSelectGrade={handleGradePick}
+          gradeOptions={addGradePickerOptions}
+          gradeSelectedId={addGradePickerSelectedId}
+          onSelectGrade={handleAddGradePick}
           gradePickerTestID="detail-grade-sheet"
-          onSelectGrader={handleSelectGrader}
+          onSelectGrader={handleAddSelectGrader}
           onSelectLanguage={handleSwitchLanguage}
-          onSelectVariant={setSelectedVariant}
+          onSelectVariant={setAddVariant}
           quantity={quantity}
-          selectedGrader={selectedGrader}
+          selectedGrader={addGrader}
           selectedLanguage={selectedLanguageChip}
-          selectedVariant={selectedVariant}
+          selectedVariant={addVariant}
           testID="detail-add-sheet"
           title="Add to Collection"
           variants={variantOptions}
