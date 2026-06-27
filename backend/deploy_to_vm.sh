@@ -240,6 +240,7 @@ SYNC_LOCK_FILE="$DATA_DIR/scrydex-sync.lock"
 SYNC_LOG_FILE="$LOG_DIR/scrydex_sync.log"
 HEALTH_MONITOR_LOG_FILE="$LOG_DIR/health_monitor.log"
 RESOURCE_MONITOR_LOG_FILE="$LOG_DIR/resource_monitor.log"
+PPT_POPULATION_LOG_FILE="$LOG_DIR/ppt_population.log"
 TORCH_CPU_INDEX_URL="${SPOTLIGHT_VM_TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}"
 TORCH_PACKAGE_SPEC="${SPOTLIGHT_VM_TORCH_PACKAGE_SPEC:-torch==2.11.0+cpu}"
 SYNC_CRON_SCHEDULE="${SPOTLIGHT_VM_SYNC_CRON:-0 18 * * *}"
@@ -416,6 +417,10 @@ CRON_END="# END spotlight-backend-vm"
 SYNC_LINE="* * * * * cd $REPO_ROOT && $SCRIPT_DIR/run_sync_vm_scheduled.sh"
 HEALTH_LINE="$HEALTH_CRON_SCHEDULE cd $REPO_ROOT && $SCRIPT_DIR/run_vm_health_check.sh >> $HEALTH_MONITOR_LOG_FILE 2>&1"
 RESOURCE_LINE="$RESOURCE_CRON_SCHEDULE cd $REPO_ROOT && $SCRIPT_DIR/run_vm_resource_snapshot.sh >> $RESOURCE_MONITOR_LOG_FILE 2>&1"
+# PPT GemRate population refresh — daily at 06:30 UTC, just after the PPT /export
+# resets at 06:00 UTC (VM clock is UTC). Enrichment-only; no-ops if PPT_API_KEY is
+# absent from the secrets file.
+PPT_POPULATION_LINE="30 6 * * * cd $REPO_ROOT && $SCRIPT_DIR/run_ppt_population_vm.sh >> $PPT_POPULATION_LOG_FILE 2>&1"
 
 CURRENT_CRONTAB="$(mktemp "${TMPDIR:-/tmp}/spotlight-crontab.XXXXXX")"
 trap 'rm -f "$CURRENT_CRONTAB"' EXIT
@@ -450,6 +455,7 @@ PY
   echo "$SYNC_LINE"
   echo "$HEALTH_LINE"
   echo "$RESOURCE_LINE"
+  echo "$PPT_POPULATION_LINE"
   echo "$CRON_END"
 } | crontab -
 
