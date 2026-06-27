@@ -4998,6 +4998,11 @@ def _ppt_graded_signal_row(
 # noise isn't worth a "no price" surface (matches the phantom-price analysis).
 _RAW_PHANTOM_MIN_USD = 20.0
 
+# Raw must exceed the PSA 10 by this multiple to count as "phantom". A margin keeps
+# thin/under-traded PSA 10 data (which can read artificially low) from suppressing a
+# legit raw price that's merely near or slightly above the slab.
+_RAW_PHANTOM_MARGIN = 1.5
+
 
 def _amount_to_usd(
     connection: sqlite3.Connection,
@@ -5024,38 +5029,33 @@ def _is_raw_phantom_price(
     raw_contexts: dict[str, Any] | None,
     graded_contexts: dict[str, Any] | None,
 ) -> bool:
-    """True when a card's RAW NM market exceeds its OWN PSA 10 market in a common
-    currency (USD) — an illiquid "phantom" raw price (a raw card cannot be worth
-    more than its graded slab). CURRENCY-AWARE: both sides are converted to USD via
+    """True when a SINGLE-PRINTING card's RAW NM market sits well above its OWN PSA
+    10 market (USD) — an illiquid "phantom" raw price (a raw card cannot be worth
+    much more than its graded slab). CURRENCY-AWARE: both sides convert to USD via
     the cached FX snapshot before comparing.
 
     Conservative by design:
+    - **Single raw variant only.** Multi-printing cards are NEVER judged: a high-
+      value parallel (e.g. Reverse Holofoil) legitimately exceeds the base printing's
+      PSA 10, so a cross-variant raw-vs-slab comparison false-flags the whole card
+      (it nulled common vintage Machops). One printing = unambiguous to compare.
     - No PSA 10 (or PSA 10 <= 0) -> False (never suppress when we can't compare).
-    - Raw NM USD below the small ``_RAW_PHANTOM_MIN_USD`` floor -> False (skip
-      sub-$20 trivia).
-    - Suppress only when raw_nm_usd > psa10_usd."""
+    - Raw NM USD below ``_RAW_PHANTOM_MIN_USD`` -> False (skip sub-$20 trivia).
+    - Suppress only when raw_nm_usd > psa10_usd * ``_RAW_PHANTOM_MARGIN``."""
     if not isinstance(raw_contexts, dict) or not isinstance(graded_contexts, dict):
         return False
 
-    # Best raw NM market across all variants, in USD (take the max).
-    raw_nm_usd: float | None = None
     variants = raw_contexts.get("variants")
-    if isinstance(variants, dict):
-        for variant_bucket in variants.values():
-            if not isinstance(variant_bucket, dict):
-                continue
-            conditions = variant_bucket.get("conditions")
-            if not isinstance(conditions, dict):
-                continue
-            cell = conditions.get("NM")
-            if not isinstance(cell, dict):
-                continue
-            converted = _amount_to_usd(connection, cell.get("market"), cell.get("currencyCode"))
-            if converted is None:
-                continue
-            if raw_nm_usd is None or converted > raw_nm_usd:
-                raw_nm_usd = converted
-
+    if not isinstance(variants, dict) or len(variants) != 1:
+        return False
+    (variant_bucket,) = variants.values()
+    if not isinstance(variant_bucket, dict):
+        return False
+    conditions = variant_bucket.get("conditions")
+    cell = conditions.get("NM") if isinstance(conditions, dict) else None
+    if not isinstance(cell, dict):
+        return False
+    raw_nm_usd = _amount_to_usd(connection, cell.get("market"), cell.get("currencyCode"))
     if raw_nm_usd is None or raw_nm_usd < _RAW_PHANTOM_MIN_USD:
         return False
 
@@ -5066,7 +5066,7 @@ def _is_raw_phantom_price(
     if psa10_usd is None or psa10_usd <= 0:
         return False
 
-    return raw_nm_usd > psa10_usd
+    return raw_nm_usd > psa10_usd * _RAW_PHANTOM_MARGIN
 
 
 def card_price_trend_list(

@@ -529,8 +529,25 @@ class RawPhantomSuppressionTests(unittest.TestCase):
         }]}}}
 
     def test_raw_above_psa10_is_phantom(self):
-        # raw NM $50 > PSA10 $100? no — use raw $50 vs PSA10 $40 -> raw>slab -> phantom.
-        self.assertTrue(_is_raw_phantom_price(self.connection, self._raw(50.0), self._graded(40.0)))
+        # Single printing, raw $50 well above PSA10 $20 (2.5x > 1.5 margin) -> phantom.
+        self.assertTrue(_is_raw_phantom_price(self.connection, self._raw(50.0), self._graded(20.0)))
+
+    def test_within_margin_not_phantom(self):
+        # raw $100 only slightly above PSA10 $90 (1.1x < 1.5 margin) -> NOT phantom
+        # (thin PSA10 data shouldn't null a legit near-slab raw price).
+        self.assertFalse(_is_raw_phantom_price(self.connection, self._raw(100.0), self._graded(90.0)))
+
+    def test_multi_variant_never_phantom(self):
+        # A high-value parallel's raw legitimately exceeds the base printing's PSA 10,
+        # so multi-printing cards are never judged (the Machop false-positive: Normal
+        # $0.74 + Reverse Holofoil $200 vs Normal PSA10 $84 must NOT suppress).
+        multi = {"variants": {
+            "Normal": {"variant": "Normal", "conditions": {
+                "NM": {"condition": "NM", "variant": "Normal", "currencyCode": "USD", "market": 0.74}}},
+            "Reverse Holofoil": {"variant": "Reverse Holofoil", "conditions": {
+                "NM": {"condition": "NM", "variant": "Reverse Holofoil", "currencyCode": "USD", "market": 200.0}}},
+        }}
+        self.assertFalse(_is_raw_phantom_price(self.connection, multi, self._graded(84.93)))
 
     def test_raw_below_psa10_not_phantom(self):
         # raw $5 vs PSA10 $50 -> raw < slab -> NOT phantom (also below $20 floor anyway).
