@@ -417,10 +417,14 @@ CRON_END="# END spotlight-backend-vm"
 SYNC_LINE="* * * * * cd $REPO_ROOT && $SCRIPT_DIR/run_sync_vm_scheduled.sh"
 HEALTH_LINE="$HEALTH_CRON_SCHEDULE cd $REPO_ROOT && $SCRIPT_DIR/run_vm_health_check.sh >> $HEALTH_MONITOR_LOG_FILE 2>&1"
 RESOURCE_LINE="$RESOURCE_CRON_SCHEDULE cd $REPO_ROOT && $SCRIPT_DIR/run_vm_resource_snapshot.sh >> $RESOURCE_MONITOR_LOG_FILE 2>&1"
-# PPT GemRate population refresh — daily at 06:30 UTC, just after the PPT /export
-# resets at 06:00 UTC (VM clock is UTC). Enrichment-only; no-ops if PPT_API_KEY is
-# absent from the secrets file.
-PPT_POPULATION_LINE="30 6 * * * cd $REPO_ROOT && $SCRIPT_DIR/run_ppt_population_vm.sh >> $PPT_POPULATION_LOG_FILE 2>&1"
+# PPT GemRate population refresh — WEEKLY, Mon 6:30pm Pacific (= Tue 02:30 UTC),
+# ~30+ min after the daily 6pm-PT Scrydex sync. Population counts move slowly, so
+# weekly is plenty and it keeps the daily 2-download /export budget free for a
+# signals refresh later. Cron runs on the VM's UTC system clock; CRON_TZ is not
+# supported by Ubuntu's vixie cron, so we anchor in UTC — 02:30 UTC stays after
+# the 6pm-PT sync in both PST (6:30pm) and PDT (7:30pm). Enrichment-only; no-ops
+# if PPT_API_KEY is absent from the secrets file.
+PPT_POPULATION_LINE="30 2 * * 2 cd $REPO_ROOT && $SCRIPT_DIR/run_ppt_population_vm.sh >> $PPT_POPULATION_LOG_FILE 2>&1"
 
 CURRENT_CRONTAB="$(mktemp "${TMPDIR:-/tmp}/spotlight-crontab.XXXXXX")"
 trap 'rm -f "$CURRENT_CRONTAB"' EXIT
