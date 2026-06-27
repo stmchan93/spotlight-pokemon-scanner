@@ -147,10 +147,20 @@ def build_ppt_graded_contexts(card: dict[str, Any], *, provider: str = PPT_PROVI
         if parsed is None:
             continue
         grader, grade = parsed
-        market = _coerce_price(value.get("medianPrice"))
-        if market is None:
-            market = _coerce_price(value.get("averagePrice"))
-        if market is None:
+        median = _coerce_price(value.get("medianPrice"))
+        average = _coerce_price(value.get("averagePrice"))
+        smart = _coerce_price(value.get("smartMarketPrice"))
+        confidence = str(value.get("smartMarketConfidence") or "").strip().lower()
+        # Prefer PPT's current-market (smartMarketPrice) when it's trustworthy
+        # (high/medium confidence); fall back to the lagging-but-stable median for
+        # thin / low-confidence grades (low-confidence smart can be wildly off).
+        if smart is not None and confidence in ("high", "medium"):
+            market = smart
+        elif median is not None:
+            market = median
+        elif average is not None:
+            market = average
+        else:
             continue  # no usable graded price for this grade
         _upsert_graded_context_entry(
             graded_contexts,
@@ -161,13 +171,14 @@ def build_ppt_graded_contexts(card: dict[str, Any], *, provider: str = PPT_PROVI
             currency_code="USD",
             low_price=_coerce_price(value.get("minPrice")),
             market_price=market,
-            mid_price=_coerce_price(value.get("averagePrice")),
+            mid_price=median if median is not None else average,
             high_price=_coerce_price(value.get("maxPrice")),
-            trend_price=_coerce_price(value.get("marketPrice7Day")),
+            trend_price=_coerce_price(value.get("marketPrice7Day")) or smart,
             is_perfect=False,
             is_signed=False,
             is_error=False,
-            payload={"count": value.get("count"), "source": "ppt-ebay"},
+            payload={"count": value.get("count"), "source": "ppt-ebay",
+                     "median": median, "smart": smart, "confidence": confidence or None},
         )
     return graded_contexts
 

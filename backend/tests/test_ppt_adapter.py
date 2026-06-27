@@ -94,6 +94,18 @@ class PptContextsTests(unittest.TestCase):
         self.assertIsNone(conditions["NM"]["low"])  # PPT has no low/mid/high per condition
         self.assertIsNone(conditions["NM"]["high"])
 
+    def test_graded_prefers_smart_market_when_confident(self):
+        card = {"ebay": {"salesByGrade": {
+            "psa10": {"medianPrice": 3499, "smartMarketPrice": 4525, "smartMarketConfidence": "high",
+                      "marketPrice7Day": 4500},
+            "psa9": {"medianPrice": 1900, "smartMarketPrice": 46, "smartMarketConfidence": "low"},
+        }}}
+        graded = build_ppt_graded_contexts(card)["graders"]["PSA"]
+        # high confidence -> smartMarketPrice (current market, not the lagging median)
+        self.assertEqual(graded["10"][0]["market"], 4525)
+        # low confidence -> fall back to median (low-confidence smart can be wild)
+        self.assertEqual(graded["9"][0]["market"], 1900)
+
     def test_raw_headline_used_when_variants_absent(self):
         card = {"prices": {"market": 99.5, "low": 80.0, "primaryPrinting": "Normal"}}
         conditions = build_ppt_raw_contexts(card)["variants"]["Normal"]["conditions"]

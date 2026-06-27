@@ -87,6 +87,11 @@ def upsert_ppt_card_pricing(
 
     raw_contexts = bundle["raw_contexts"]
     graded_contexts = bundle["graded_contexts"]
+    # If PPT has NO usable price for this card (no raw variant + no graded grade),
+    # skip it entirely so its existing Scrydex row stays intact — the unpriced-tail
+    # fallback (illiquid JP/promo with no TCGplayer listings). Never blank a price.
+    if not raw_contexts.get("variants") and not graded_contexts.get("graders"):
+        return {"matched": 0, "reason": "no_price", "tcgplayerId": tcgplayer_id}
     headline = _headline_raw(raw_contexts)
     now = utc_now()
     for card_id in card_ids:
@@ -117,14 +122,17 @@ def sync_ppt_cards(
 ) -> dict[str, int]:
     """Drive a batch of PPT card records through upsert_ppt_card_pricing. Returns
     {seen, matched, unmatched_no_tcg, unmatched_no_card}."""
-    stats = {"seen": 0, "matched": 0, "unmatched_no_tcg": 0, "unmatched_no_card": 0}
+    stats = {"seen": 0, "matched": 0, "unmatched_no_tcg": 0, "unmatched_no_card": 0, "skipped_no_price": 0}
     for index, ppt_card in enumerate(ppt_cards, start=1):
         stats["seen"] += 1
         result = upsert_ppt_card_pricing(connection, ppt_card, price_date=price_date, provider=provider)
+        reason = result.get("reason")
         if result["matched"]:
             stats["matched"] += result["matched"]
-        elif result.get("reason") == "no_tcgplayer_id":
+        elif reason == "no_tcgplayer_id":
             stats["unmatched_no_tcg"] += 1
+        elif reason == "no_price":
+            stats["skipped_no_price"] += 1
         else:
             stats["unmatched_no_card"] += 1
         if index % commit_every == 0:
@@ -176,6 +184,66 @@ def download_ppt_export(api_key: str, export_type: str) -> bytes:
     return body
 
 
-# NOTE: the /export CSV column layout is not in the OpenAPI spec and must be
-# confirmed against a real Business dump before finalizing the row->PPT-card mapping
-# (parse_export_cards_row / parse_export_ebay_row). Tracked for the Business key step.
+# --- /export CSV parsers (column layout confirmed against a real Business dump) -----
+# cards dump cols: tcgPlayerId,name,setName,setId,cardNumber,rarity,language,printing,
+#                  marketPrice,lowPrice,sellers,lastPriceUpdate
+# ebay  dump cols: tcgPlayerId,grade,salesCount,averagePrice,medianPrice,
+#                  smartMarketPrice,smartMarketConfidence,marketPrice7Day,marketTrend,
+#                  salesVelocityWeekly   (grade e.g. psa10/cgc9_5; "ungraded" is skipped
+#                  downstream by parse_ppt_grade_key)
+import csv as _csv
+
+
+def parse_export_cards(path: str) -> dict[str, dict[str, Any]]:
+    """cards dump -> {tcgPlayerId: partial PPT card dict (prices + variants)}."""
+    by_id: dict[str, dict[str, Any]] = {}
+    with open(path, newline="") as f:
+        for row in _csv.DictReader(f):
+            tid = str(row.get("tcgPlayerId") or "").strip()
+            if not tid:
+                continue
+            printing = str(row.get("printing") or "").strip() or "Normal"
+            market = row.get("marketPrice")
+            card = by_id.setdefault(
+                tid,
+                {"tcgPlayerId": tid, "name": row.get("name"), "language": row.get("language"),
+                 "prices": {}, "variants": {}},
+            )
+            # headline = the first printing that carries a market price
+            if not card["prices"].get("market") and str(market or "").strip():
+                card["prices"] = {"market": market, "low": row.get("lowPrice"), "primaryPrinting": printing}
+            card["variants"].setdefault(printing, {})["Near Mint"] = {"price": market}
+    return by_id
+
+
+def parse_export_ebay(path: str) -> dict[str, dict[str, Any]]:
+    """ebay dump -> {tcgPlayerId: {grade: salesByGrade-entry}}."""
+    by_id: dict[str, dict[str, Any]] = {}
+    with open(path, newline="") as f:
+        for row in _csv.DictReader(f):
+            tid = str(row.get("tcgPlayerId") or "").strip()
+            grade = str(row.get("grade") or "").strip()
+            if not tid or not grade:
+                continue
+            by_id.setdefault(tid, {})[grade] = {
+                "medianPrice": row.get("medianPrice"),
+                "averagePrice": row.get("averagePrice"),
+                "smartMarketPrice": row.get("smartMarketPrice"),
+                "smartMarketConfidence": row.get("smartMarketConfidence"),
+                "marketPrice7Day": row.get("marketPrice7Day"),
+                "count": row.get("salesCount"),
+            }
+    return by_id
+
+
+def iter_ppt_cards_from_exports(cards_path: str, ebay_path: str):
+    """Merge the two dumps into PPT card dicts (one per tcgPlayerId present in either),
+    ready for build_ppt_pricing_bundle / sync_ppt_cards."""
+    cards = parse_export_cards(cards_path)
+    ebay = parse_export_ebay(ebay_path)
+    for tid in set(cards) | set(ebay):
+        card = cards.get(tid) or {"tcgPlayerId": tid, "prices": {}, "variants": {}}
+        sales = ebay.get(tid)
+        if sales:
+            card["ebay"] = {"salesByGrade": sales}
+        yield card
