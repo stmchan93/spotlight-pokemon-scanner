@@ -175,41 +175,72 @@ describe('CardDetailScreen', () => {
     expect(screen.queryByTestId('detail-configurator-language-JP')).toBeNull();
   });
 
-  it('shows the EN/JP toggle for a linked card and navigates to the counterpart on switch', async () => {
+  it('swaps EN→JP in place: new art + trends, grade/grader kept, variant by name, no navigation', async () => {
     const baseRepository = createTestSpotlightRepository();
+    // Two linked cards: EN sm7-1 (Treecko) ↔ JP sm7-1-jp (distinct name/art),
+    // both carrying the "Normal" variant so it carries over by name.
+    const getCardDetail = jest.fn(async (query: { cardId: string }) => {
+      const base = await baseRepository.getCardDetail({ ...query, cardId: 'sm7-1' });
+      if (!base) {
+        return null;
+      }
+      if (query.cardId === 'sm7-1-jp') {
+        return {
+          ...base,
+          cardId: 'sm7-1-jp',
+          name: 'Treecko (JP)',
+          largeImageUrl: 'https://cdn.spotlight.test/sm7/treecko-jp.png',
+          language: 'japanese',
+          counterpartCardId: 'sm7-1',
+          counterpartLanguage: 'english',
+        } satisfies CardDetailRecord;
+      }
+      return {
+        ...base,
+        language: 'english',
+        counterpartCardId: 'sm7-1-jp',
+        counterpartLanguage: 'japanese',
+      } satisfies CardDetailRecord;
+    });
+    // Record which card the trends were fetched for.
+    const trendCardIds: string[] = [];
+    const getCardPriceTrends = jest.fn(async (query: { cardId: string; mode: string }) => {
+      trendCardIds.push(query.cardId);
+      return {
+        mode: query.mode as 'raw' | 'graded',
+        provider: 'tcgplayer' as const,
+        rows: [
+          { label: 'Near Mint', key: 'near_mint', currentPrice: 1, currencyCode: 'USD', points: [1, 2, 3], trendPct: 5 },
+        ],
+      };
+    });
 
     renderWithProviders(
       <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
-      {
-        spotlightRepository: createTestSpotlightRepository({
-          getCardDetail: async (query) => {
-            const detail = await baseRepository.getCardDetail(query);
-            return detail
-              ? ({
-                ...detail,
-                language: 'english',
-                counterpartCardId: 'sm7-1-jp',
-                counterpartLanguage: 'japanese',
-              } satisfies CardDetailRecord)
-              : null;
-          },
-        }),
-      },
+      { spotlightRepository: createTestSpotlightRepository({ getCardDetail, getCardPriceTrends }) },
     );
 
-    const en = await screen.findByTestId('detail-configurator-language-EN');
-    const jp = screen.getByTestId('detail-configurator-language-JP');
-    expect(en.props.accessibilityState?.selected).toBe(true);
-    expect(jp.props.accessibilityState?.selected).toBe(false);
+    // English card shown, EN selected, Normal variant + Raw grader seeded.
+    expect((await screen.findByTestId('detail-name')).props.children).toBe('Treecko');
+    expect(screen.getByTestId('detail-configurator-language-EN').props.accessibilityState?.selected).toBe(true);
+    await waitFor(() =>
+      expect(screen.getByTestId('detail-configurator-variant-normal').props.accessibilityState?.selected).toBe(true),
+    );
 
-    // Switching to JP navigates to the counterpart card (its own PDP).
-    fireEvent.press(jp);
+    fireEvent.press(screen.getByTestId('detail-configurator-language-JP'));
+
+    // In-place swap: the SAME screen now shows the JP card's name/art…
     await waitFor(() => {
-      expect(mockReplace).toHaveBeenCalledWith({
-        pathname: '/cards/[cardId]',
-        params: { cardId: 'sm7-1-jp' },
-      });
+      expect(screen.getByTestId('detail-name').props.children).toBe('Treecko (JP)');
     });
+    // …grader stays Raw, the variant carries over by name (Normal), JP chip is selected…
+    expect(screen.getByTestId('detail-configurator-grader-Raw').props.accessibilityState?.selected).toBe(true);
+    expect(screen.getByTestId('detail-configurator-variant-normal').props.accessibilityState?.selected).toBe(true);
+    expect(screen.getByTestId('detail-configurator-language-JP').props.accessibilityState?.selected).toBe(true);
+    // …trends refetched for the JP card (the name swap above already proves the
+    // JP detail loaded in place), and NO navigation happened.
+    await waitFor(() => expect(trendCardIds).toContain('sm7-1-jp'));
+    expect(mockReplace).not.toHaveBeenCalled();
   });
 
   it('ADD ITEM creates a raw inventory entry with the configured selection and refreshes', async () => {
