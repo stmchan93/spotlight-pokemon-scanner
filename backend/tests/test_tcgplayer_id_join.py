@@ -25,6 +25,7 @@ from catalog_tools import (  # noqa: E402
     backfill_cards_tcgplayer_id,
     connect,
     extract_tcgplayer_product_id,
+    tcgplayer_variants_subset,
     upsert_card,
 )
 
@@ -73,6 +74,48 @@ class ExtractTcgplayerProductIdTests(unittest.TestCase):
             ]
         }
         self.assertEqual(extract_tcgplayer_product_id(payload), "555")
+
+
+class TcgplayerVariantsSubsetTests(unittest.TestCase):
+    """The compact per-printing map the card-detail API ships to the client for
+    exact-product deep links — NOT the full Scrydex payload."""
+
+    def test_keeps_distinct_product_id_per_printing(self):
+        payload = {
+            "variants": [
+                {
+                    "name": "unlimited holofoil",
+                    "marketplaces": [
+                        {"name": "cardmarket", "product_id": "x"},
+                        {"name": "tcgplayer", "product_id": 42382},
+                    ],
+                },
+                {"name": "1st edition holofoil", "marketplaces": [{"name": "tcgplayer", "product_id": "106999"}]},
+            ]
+        }
+        self.assertEqual(
+            tcgplayer_variants_subset(payload),
+            {
+                "variants": [
+                    {"name": "unlimited holofoil", "marketplaces": [{"name": "tcgplayer", "product_id": "42382"}]},
+                    {"name": "1st edition holofoil", "marketplaces": [{"name": "tcgplayer", "product_id": "106999"}]},
+                ]
+            },
+        )
+
+    def test_drops_non_tcgplayer_and_idless_variants(self):
+        payload = {
+            "variants": [
+                {"name": "normal", "marketplaces": [{"name": "ebay", "product_id": "1"}]},
+                {"name": "holo", "marketplaces": []},
+            ]
+        }
+        self.assertIsNone(tcgplayer_variants_subset(payload))
+
+    def test_none_on_garbage_input(self):
+        self.assertIsNone(tcgplayer_variants_subset(None))
+        self.assertIsNone(tcgplayer_variants_subset({}))
+        self.assertIsNone(tcgplayer_variants_subset({"variants": "nope"}))
 
 
 class UpsertCardTcgplayerIdTests(unittest.TestCase):

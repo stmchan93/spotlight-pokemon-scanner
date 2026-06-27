@@ -62,6 +62,7 @@ from catalog_tools import (
     card_by_id,
     card_price_trend_list,
     card_text_from_card,
+    tcgplayer_variants_subset,
     cards_by_ids,
     append_deck_entry_event,
     connect,
@@ -10559,6 +10560,10 @@ class SpotlightScanService:
                 "imageLargeURL": resolved_card["imageURL"],
                 "pricing": pricing,
                 "isFavorite": favorite_row is not None,
+                # Compact per-printing TCGplayer product ids (NOT the full Scrydex
+                # blob) so the PDP can deep-link "View on TCGplayer" to the exact
+                # printing; None when the card has no TCGplayer product.
+                "sourcePayload": tcgplayer_variants_subset(resolved_card.get("sourcePayload")),
             },
             "slabContext": self._slab_context_payload_for_pricing_context(
                 pricing_context,

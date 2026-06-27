@@ -26,6 +26,7 @@ import type {
   CardDetailLoadOptions,
   CardDetailQuery,
   CardDetailRecord,
+  TcgPlayerVariantMarketplace,
   CardEbayListingRecord,
   CardEbayListingsRecord,
   CardConditionHistory,
@@ -281,6 +282,17 @@ type CardCandidateDTO = {
   imageLargeURL?: string | null;
   pricing?: CardPricingSummaryDTO | null;
   isFavorite?: boolean | null;
+  // Raw Scrydex catalog payload; we only read `variants[].marketplaces` to
+  // surface per-printing TCGplayer product ids for deep links.
+  sourcePayload?: {
+    variants?: Array<{
+      name?: string | null;
+      marketplaces?: Array<{
+        name?: string | null;
+        product_id?: string | number | null;
+      } | null> | null;
+    } | null> | null;
+  } | null;
 };
 
 type DeckEntryDTO = {
@@ -689,6 +701,7 @@ type NormalizedCardCandidate = {
     condition?: string | null;
     trendsPct?: NormalizedCardPricingTrendsPct | null;
   };
+  tcgPlayerVariants: TcgPlayerVariantMarketplace[];
 };
 
 function normalizePricingTrendsPct(
@@ -1349,7 +1362,34 @@ function normalizeCardCandidate(candidate: CardCandidateDTO | null | undefined, 
       condition: normalizeString(candidate?.pricing?.payload?.condition),
       trendsPct: normalizePricingTrendsPct(candidate?.pricing?.trendsPct ?? null),
     },
+    tcgPlayerVariants: normalizeTcgPlayerVariants(candidate?.sourcePayload?.variants),
   } satisfies NormalizedCardCandidate;
+}
+
+// Carry only the printing name + marketplace ids from the Scrydex sourcePayload
+// so the PDP can deep-link "View on TCGplayer" to the exact per-printing product
+// page. Defensive against missing/oddly-shaped JSON.
+function normalizeTcgPlayerVariants(
+  variants: NonNullable<CardCandidateDTO['sourcePayload']>['variants'],
+): TcgPlayerVariantMarketplace[] {
+  if (!Array.isArray(variants)) {
+    return [];
+  }
+  const normalized: TcgPlayerVariantMarketplace[] = [];
+  for (const variant of variants) {
+    if (!variant || typeof variant !== 'object') {
+      continue;
+    }
+    const marketplaces = Array.isArray(variant.marketplaces)
+      ? variant.marketplaces
+          .filter(
+            (entry): entry is NonNullable<typeof entry> => !!entry && typeof entry === 'object',
+          )
+          .map((entry) => ({ name: entry.name ?? null, product_id: entry.product_id ?? null }))
+      : [];
+    normalized.push({ name: variant.name ?? null, marketplaces });
+  }
+  return normalized;
 }
 
 function createScannerMatchPayload(
@@ -4210,6 +4250,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       watcherCount: normalizeInteger(detailResponse.data.watcherCount),
       trendsPct: card.pricing.trendsPct ?? null,
       cardText: buildCardText(detailResponse.data.cardText),
+      tcgPlayerVariants: card.tcgPlayerVariants,
     };
 
     return buildLoadResult('success', detail);

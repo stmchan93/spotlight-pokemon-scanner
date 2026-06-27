@@ -597,6 +597,26 @@ export type CardDetailRecord = {
    * payload. Null for non-Pokémon or when the source payload lacks it.
    */
   cardText?: CardText | null;
+  /**
+   * Per-variant TCGplayer product ids sourced from the Scrydex `sourcePayload`
+   * (`variants[].marketplaces[name=='tcgplayer'].product_id`). Used to deep-link
+   * "View on TCGplayer" to the exact product page for the selected printing.
+   * Empty/absent when the upstream payload carries no variant marketplace ids.
+   */
+  tcgPlayerVariants?: TcgPlayerVariantMarketplace[] | null;
+};
+
+/**
+ * Minimal client-facing view of a Scrydex `sourcePayload` variant, carrying only
+ * the printing name and its marketplace ids. Defensive/untyped upstream JSON, so
+ * every field is optional.
+ */
+export type TcgPlayerVariantMarketplace = {
+  name?: string | null;
+  marketplaces?: Array<{
+    name?: string | null;
+    product_id?: string | number | null;
+  } | null> | null;
 };
 
 // --- Product Details (card rules text) — sourced from the catalog payload ---

@@ -2507,6 +2507,44 @@ def extract_tcgplayer_product_id(source_payload: dict[str, Any] | None) -> str |
     return None
 
 
+def tcgplayer_variants_subset(source_payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Compact per-printing TCGplayer product-id map for the client deep-link
+    resolver: ``{"variants": [{"name", "marketplaces": [{"name": "tcgplayer",
+    "product_id"}]}]}``. Only variants that actually carry a TCGplayer product id
+    are included, and only the tcgplayer marketplace is kept — so the card-detail
+    response stays lean and never ships the full Scrydex ``sourcePayload`` blob.
+    Returns ``None`` when the card has no TCGplayer product (PDP then falls back to
+    a keyword search). Mirrors ``extract_tcgplayer_product_id``'s traversal."""
+    if not isinstance(source_payload, dict):
+        return None
+    variants = source_payload.get("variants")
+    if not isinstance(variants, list):
+        return None
+    out_variants: list[dict[str, Any]] = []
+    for variant in variants:
+        if not isinstance(variant, dict):
+            continue
+        marketplaces = variant.get("marketplaces")
+        if not isinstance(marketplaces, list):
+            continue
+        for marketplace in marketplaces:
+            if not isinstance(marketplace, dict):
+                continue
+            if str(marketplace.get("name") or "").strip().lower() != "tcgplayer":
+                continue
+            product_id = marketplace.get("product_id")
+            if product_id is None or not str(product_id).strip():
+                continue
+            out_variants.append({
+                "name": variant.get("name"),
+                "marketplaces": [{"name": "tcgplayer", "product_id": str(product_id).strip()}],
+            })
+            break  # one tcgplayer id per printing is enough for the deep link
+    if not out_variants:
+        return None
+    return {"variants": out_variants}
+
+
 def upsert_card(
     connection: sqlite3.Connection,
     *,

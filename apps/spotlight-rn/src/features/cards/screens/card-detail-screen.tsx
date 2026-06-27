@@ -29,7 +29,12 @@ import { CardDetailHero } from '@/features/cards/components/card-detail-hero';
 import { CardPriceTrendList } from '@/features/cards/components/card-price-trend-list';
 import { CardPriceTrendSkeleton } from '@/features/cards/components/card-price-trend-skeleton';
 import { CardProductDetails } from '@/features/cards/components/card-product-details';
-import { buildEbaySearchUrl, buildTcgPlayerSearchUrl } from '@/features/cards/marketplace-urls';
+import {
+  buildEbaySearchUrl,
+  buildTcgPlayerProductUrl,
+  buildTcgPlayerSearchUrl,
+  resolveTcgPlayerProductId,
+} from '@/features/cards/marketplace-urls';
 import {
   cardDetailPreviewFromCatalogResult,
   cardDetailPreviewFromInventoryEntry,
@@ -501,17 +506,22 @@ export function CardDetailScreen({
     // promos (their printing rarely matches TCGplayer's categorization), zeroing results
     // so TCGplayer falls back to unrelated popular cards (a Mew promo surfacing Charizard).
     const condition = row.key.split('|').filter(Boolean).pop() ?? null;
-    const url = buildTcgPlayerSearchUrl({
-      name: detail.name,
-      cardNumber: detail.cardNumber,
-      setName: detail.setName,
-      condition,
-    });
+    // Prefer an exact product-page deep link for the selected printing; fall back
+    // to the keyword search when no product_id resolves.
+    const productId = resolveTcgPlayerProductId(detail.tcgPlayerVariants, selectedVariantLabel);
+    const url =
+      (productId ? buildTcgPlayerProductUrl({ productId, condition }) : null) ??
+      buildTcgPlayerSearchUrl({
+        name: detail.name,
+        cardNumber: detail.cardNumber,
+        setName: detail.setName,
+        condition,
+      });
     if (url) {
       capturePostHogEvent('pricing_link_opened', { marketplace: 'tcgplayer', lane: 'raw' });
       void Linking.openURL(url);
     }
-  }, [detail, priceTrends]);
+  }, [detail, priceTrends, selectedVariantLabel]);
 
   // Tap the provider logo (eBay / TCGplayer) in the Price-Trend header → open the
   // marketplace for the grade/grader currently selected on the PDP (the dropdown),
@@ -554,19 +564,24 @@ export function CardDetailScreen({
       return;
     }
 
-    // Raw lane → TCGplayer Near Mint (printing intentionally omitted; see
-    // handleTrendRowPress for why the Printing facet zeroes out promos).
-    const url = buildTcgPlayerSearchUrl({
-      name: detail.name,
-      cardNumber: detail.cardNumber,
-      setName: detail.setName,
-      condition: 'Near Mint',
-    });
+    // Raw lane → exact TCGplayer product page for the selected printing at Near
+    // Mint when we can resolve a product_id; otherwise fall back to the keyword
+    // search (printing intentionally omitted there; see handleTrendRowPress for
+    // why the Printing facet zeroes out promos).
+    const productId = resolveTcgPlayerProductId(detail.tcgPlayerVariants, selectedVariantLabel);
+    const url =
+      (productId ? buildTcgPlayerProductUrl({ productId, condition: 'Near Mint' }) : null) ??
+      buildTcgPlayerSearchUrl({
+        name: detail.name,
+        cardNumber: detail.cardNumber,
+        setName: detail.setName,
+        condition: 'Near Mint',
+      });
     if (url) {
       capturePostHogEvent('pricing_link_opened', { marketplace: 'tcgplayer', lane: 'raw' });
       void Linking.openURL(url);
     }
-  }, [detail, priceTrends, selectedGrade, selectedGrader]);
+  }, [detail, priceTrends, selectedGrade, selectedGrader, selectedVariantLabel]);
 
   const handleToggleFavorite = useCallback(() => {
     if (isFavoritePending) {
@@ -622,13 +637,23 @@ export function CardDetailScreen({
     .filter(Boolean)
     .join(' · ');
 
-  const marketplaceUrl = useMemo(() => buildTcgPlayerSearchUrl({
-    cardNumber: displayCardNumber,
-    name: displayName,
-    setName: displaySetName,
-    condition: deckConditionLabel(selectedCondition),
-    printing: selectedVariantLabel,
-  }), [displayCardNumber, displayName, displaySetName, selectedCondition, selectedVariantLabel]);
+  const marketplaceUrl = useMemo(() => {
+    const condition = deckConditionLabel(selectedCondition);
+    // Exact product page for the selected printing when the detail payload
+    // carries product ids; otherwise the keyword search (also the path before
+    // `detail` resolves, where only preview fields are available).
+    const productId = resolveTcgPlayerProductId(detail?.tcgPlayerVariants, selectedVariantLabel);
+    return (
+      (productId ? buildTcgPlayerProductUrl({ productId, condition }) : null) ??
+      buildTcgPlayerSearchUrl({
+        cardNumber: displayCardNumber,
+        name: displayName,
+        setName: displaySetName,
+        condition,
+        printing: selectedVariantLabel,
+      })
+    );
+  }, [detail, displayCardNumber, displayName, displaySetName, selectedCondition, selectedVariantLabel]);
 
   const handleShare = useCallback(() => {
     const message = [transactionLabel, marketplaceUrl].filter(Boolean).join('\n');

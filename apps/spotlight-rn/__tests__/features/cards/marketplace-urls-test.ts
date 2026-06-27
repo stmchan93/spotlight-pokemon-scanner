@@ -1,4 +1,9 @@
-import { buildTcgPlayerSearchUrl, buildEbaySearchUrl } from '@/features/cards/marketplace-urls';
+import {
+  buildEbaySearchUrl,
+  buildTcgPlayerProductUrl,
+  buildTcgPlayerSearchUrl,
+  resolveTcgPlayerProductId,
+} from '@/features/cards/marketplace-urls';
 
 describe('buildTcgPlayerSearchUrl', () => {
   it('matches the Rare Candy format for an English card with apostrophe in name', () => {
@@ -185,6 +190,98 @@ describe('buildTcgPlayerSearchUrl', () => {
       printing: 'Holofoil',
     });
     expect(url).toContain('&Condition=Near+Mint&Printing=Holofoil');
+  });
+});
+
+describe('buildTcgPlayerProductUrl', () => {
+  it('builds the exact product page url without a condition filter', () => {
+    expect(buildTcgPlayerProductUrl({ productId: '12345' })).toBe(
+      'https://www.tcgplayer.com/product/12345',
+    );
+  });
+
+  it('appends ?Condition=Near+Mint when a known condition is passed', () => {
+    expect(buildTcgPlayerProductUrl({ productId: '12345', condition: 'Near Mint' })).toBe(
+      'https://www.tcgplayer.com/product/12345?Condition=Near+Mint',
+    );
+  });
+
+  it('accepts short/normalized condition codes', () => {
+    expect(buildTcgPlayerProductUrl({ productId: '12345', condition: 'NM' })).toBe(
+      'https://www.tcgplayer.com/product/12345?Condition=Near+Mint',
+    );
+    expect(buildTcgPlayerProductUrl({ productId: '12345', condition: 'lightly_played' })).toBe(
+      'https://www.tcgplayer.com/product/12345?Condition=Lightly+Played',
+    );
+  });
+
+  it('omits the condition filter when the condition is unknown or null', () => {
+    expect(buildTcgPlayerProductUrl({ productId: '12345', condition: 'Brand New' })).toBe(
+      'https://www.tcgplayer.com/product/12345',
+    );
+    expect(buildTcgPlayerProductUrl({ productId: '12345', condition: null })).toBe(
+      'https://www.tcgplayer.com/product/12345',
+    );
+  });
+
+  it('returns null when productId is empty or whitespace', () => {
+    expect(buildTcgPlayerProductUrl({ productId: '' })).toBeNull();
+    expect(buildTcgPlayerProductUrl({ productId: '   ' })).toBeNull();
+  });
+});
+
+describe('resolveTcgPlayerProductId', () => {
+  const variants = [
+    {
+      name: 'holofoil',
+      marketplaces: [{ name: 'tcgplayer', product_id: '111' }],
+    },
+    {
+      name: 'reverse holofoil',
+      marketplaces: [{ name: 'tcgplayer', product_id: '222' }],
+    },
+    {
+      name: 'unlimited holofoil',
+      marketplaces: [{ name: 'tcgplayer', product_id: '333' }],
+    },
+  ];
+
+  it('picks the reverse-holo product_id over the first when reverse holo is selected', () => {
+    expect(resolveTcgPlayerProductId(variants, 'Reverse Holofoil')).toBe('222');
+  });
+
+  it('matches case/space/underscore-insensitively', () => {
+    expect(resolveTcgPlayerProductId(variants, 'reverse_holofoil')).toBe('222');
+    expect(resolveTcgPlayerProductId(variants, '  REVERSE   HOLOFOIL ')).toBe('222');
+  });
+
+  it('coerces a numeric product_id to a string', () => {
+    const numericVariants = [{ name: 'holofoil', marketplaces: [{ name: 'tcgplayer', product_id: 999 }] }];
+    expect(resolveTcgPlayerProductId(numericVariants, 'Holofoil')).toBe('999');
+  });
+
+  it('falls back to the first variant with a tcgplayer id when no label matches', () => {
+    expect(resolveTcgPlayerProductId(variants, 'Cosmos Holo')).toBe('111');
+    expect(resolveTcgPlayerProductId(variants, null)).toBe('111');
+  });
+
+  it('returns null when no variant has a tcgplayer marketplace', () => {
+    const noTcg = [
+      { name: 'holofoil', marketplaces: [{ name: 'cardmarket', product_id: 'abc' }] },
+      { name: 'normal', marketplaces: [] },
+    ];
+    expect(resolveTcgPlayerProductId(noTcg, 'Holofoil')).toBeNull();
+  });
+
+  it('is defensive against undefined / empty / oddly-shaped data', () => {
+    expect(resolveTcgPlayerProductId(undefined, 'Holofoil')).toBeNull();
+    expect(resolveTcgPlayerProductId([], 'Holofoil')).toBeNull();
+    expect(
+      resolveTcgPlayerProductId(
+        [null, { name: 'holofoil' }, { name: 'normal', marketplaces: null }] as never,
+        'Holofoil',
+      ),
+    ).toBeNull();
   });
 });
 
