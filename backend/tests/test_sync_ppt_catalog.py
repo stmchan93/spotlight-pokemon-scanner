@@ -30,6 +30,8 @@ from catalog_tools import (  # noqa: E402
 )
 from server import _apply_price_history_cells_schema_patch  # noqa: E402
 from sync_ppt_catalog import (  # noqa: E402
+    _coerce_signal_count,
+    _coerce_signal_float,
     iter_ppt_cards_from_exports,
     parse_export_cards,
     parse_export_ebay,
@@ -39,6 +41,26 @@ from sync_ppt_catalog import (  # noqa: E402
     upsert_ppt_card_population,
     upsert_ppt_card_pricing,
 )
+
+
+class SignalCoercionTests(unittest.TestCase):
+    """csv.DictReader yields strings, so the eBay export's salesCount/prices arrive
+    as text ("37", "288.23"). The coercers must parse numeric strings — the old
+    int/float-only guard silently dropped them, NULLing saleCount on every row."""
+
+    def test_count_parses_numeric_strings(self):
+        self.assertEqual(_coerce_signal_count("37"), 37)
+        self.assertEqual(_coerce_signal_count("1,234"), 1234)
+        self.assertEqual(_coerce_signal_count(37), 37)
+        self.assertIsNone(_coerce_signal_count(""))
+        self.assertIsNone(_coerce_signal_count(None))
+        self.assertIsNone(_coerce_signal_count(True))
+
+    def test_float_parses_numeric_strings(self):
+        self.assertEqual(_coerce_signal_float("288.23"), 288.23)
+        self.assertEqual(_coerce_signal_float("$1,234.5"), 1234.5)
+        self.assertIsNone(_coerce_signal_float(""))
+        self.assertIsNone(_coerce_signal_float("n/a"))
 
 PPT_MOONBREON = {
     "tcgPlayerId": "246723",

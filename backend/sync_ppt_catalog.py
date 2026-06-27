@@ -82,15 +82,37 @@ def card_ids_for_tcgplayer_id(connection, tcgplayer_id: str | None) -> list[str]
 
 
 def _coerce_signal_count(value: Any) -> int | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    # csv.DictReader yields strings, so the export's salesCount arrives as "37" —
+    # parse numeric strings too (the int/float-only guard silently dropped them).
+    if isinstance(value, bool):
         return None
-    return int(value)
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str):
+        text = value.strip().replace(",", "")
+        if not text:
+            return None
+        try:
+            return int(float(text))
+        except ValueError:
+            return None
+    return None
 
 
 def _coerce_signal_float(value: Any) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    if isinstance(value, bool):
         return None
-    return float(value)
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        text = value.strip().replace("$", "").replace(",", "")
+        if not text:
+            return None
+        try:
+            return float(text)
+        except ValueError:
+            return None
+    return None
 
 
 def _annotate_existing_graded_signals(
