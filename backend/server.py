@@ -2586,6 +2586,25 @@ class SpotlightScanService:
             )
         ):
             return None
+        # Phantom raw suppression at the display chokepoint so it applies to EVERY
+        # read path — incl. the cells-based contextual_pricing_summary_for_card
+        # above, which bypasses _pricing_summary_from_snapshot_row's guard. A raw
+        # price above the card's own PSA 10 is a fake illiquid number; show nothing.
+        if (
+            not pricing_context.is_graded
+            and pricing is not None
+            and pricing.get("market") is not None
+        ):
+            phantom_row = snapshot_row or price_snapshot_row(self.connection, card_id)
+            if phantom_row is not None and _is_raw_phantom_price(
+                self.connection,
+                _raw_contexts_payload(phantom_row["raw_contexts_json"]),
+                _graded_contexts_payload(phantom_row["graded_contexts_json"]),
+            ):
+                for _k in ("market", "low", "mid", "high", "trend", "directLow", "trendsPct"):
+                    if _k in pricing:
+                        pricing[_k] = None
+                pricing["suppressionReason"] = "phantom"
         return pricing
 
     def _raw_pricing_matches_context(
