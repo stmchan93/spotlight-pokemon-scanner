@@ -43,8 +43,6 @@ fi
 
 python3 tools/import_raw_visual_training_photos.py "${import_args[@]}"
 
-zsh tools/generate_raw_runtime_artifacts.sh "$fixture_root"
-
 visual_python="python3"
 if [[ ! -x ".venv-raw-visual-poc/bin/python" ]]; then
   python3 -m venv .venv-raw-visual-poc

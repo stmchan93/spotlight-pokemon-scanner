@@ -937,7 +937,6 @@ def main() -> int:
         env.update(load_env_file(BACKEND_ROOT / ".env"))
 
         if safe_new_training_entries or safe_training_augment_entries:
-            run_command(["zsh", str(REPO_ROOT / "tools" / "generate_raw_runtime_artifacts.sh"), str(training_root)])
             visual_python = ensure_visual_python()
             run_command(
                 [
@@ -966,7 +965,6 @@ def main() -> int:
                 env=env,
             )
         if expansion_holdout_entries:
-            run_command(["zsh", str(REPO_ROOT / "tools" / "generate_raw_runtime_artifacts.sh"), str(batch_expansion_holdout_root)])
             visual_python = ensure_visual_python()
             run_command(
                 [

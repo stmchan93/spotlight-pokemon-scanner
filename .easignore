@@ -4,10 +4,6 @@
 # Large non-mobile surfaces
 /backend/
 /qa/
-/Spotlight/
-/Spotlight.xcodeproj/
-/SpotlightTests/
-/SpotlightUITests/
 /docs/
 /tools/
 /AGENTS.md
