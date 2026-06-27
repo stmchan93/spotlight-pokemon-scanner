@@ -17,6 +17,7 @@ import type {
 } from '@spotlight/api-client';
 
 import { useTabsPage } from '@/contexts/tabs-page-context';
+import { reflectInventoryCacheIntoDashboard } from '@/features/portfolio/optimistic-inventory';
 import { prefetchCardImages } from '@/lib/card-images';
 import {
   formatEditableSellPrice,
@@ -425,6 +426,24 @@ export function usePortfolioScreenModel() {
     void loadInventory();
     void loadDashboard();
   }, [dataVersion, isPortfolioActive, loadDashboard, loadInventory]);
+
+  // Live-reflect external optimistic adds. When a card is added from the card
+  // detail or scanner, `prependOptimisticInventoryEntry` prepends it into the
+  // shared inventory cache immediately — but this model owns `dashboard` as
+  // local state that doesn't auto-track the cache after mount. Merge any cache
+  // entries the on-screen dashboard hasn't seen yet so the new card appears at
+  // the top of the grid/list instantly, without waiting on the slow dashboard
+  // refetch. Idempotent: `reflectInventoryCacheIntoDashboard` returns the same
+  // dashboard reference when the cache introduces no new ids, so this never
+  // fights the model's own loads (which set the cache and dashboard together)
+  // and the eventual refetch — carrying the same id — replaces the optimistic
+  // row seamlessly rather than duplicating it.
+  useEffect(() => {
+    if (inventoryEntriesCache === null) {
+      return;
+    }
+    setDashboard((current) => reflectInventoryCacheIntoDashboard(current, inventoryEntriesCache));
+  }, [inventoryEntriesCache]);
 
   useEffect(() => {
     if (dashboard.inventoryItems.length === 0 && dashboard.recentSales.length === 0) {

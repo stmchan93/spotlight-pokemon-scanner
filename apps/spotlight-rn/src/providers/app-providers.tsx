@@ -20,6 +20,10 @@ import {
 } from '@spotlight/api-client';
 
 import { TabBarChromeProvider } from '@/contexts/tab-bar-chrome-context';
+import {
+  prependDashboardInventoryEntry,
+  prependInventoryEntry,
+} from '@/features/portfolio/optimistic-inventory';
 import { prefetchCardImages } from '@/lib/card-images';
 import { resolveRuntimeValue } from '@/lib/runtime-config';
 
@@ -151,6 +155,15 @@ type AppServices = {
   setInventoryEntriesCache: Dispatch<SetStateAction<InventoryCardEntry[] | null>>;
   portfolioDashboardCache: PortfolioDashboard | null;
   setPortfolioDashboardCache: Dispatch<SetStateAction<PortfolioDashboard | null>>;
+  /**
+   * Optimistically surface a just-added card at the top of the Collection
+   * without waiting on the slow portfolio dashboard refetch. Prepends (deduping
+   * by id) into both the shared inventory cache and the dashboard cache, and
+   * bumps the dashboard summary/count so totals aren't briefly stale. Pass the
+   * REAL entry id from the create response so the background refetch reconciles
+   * by id (replacing the optimistic row instead of duplicating it).
+   */
+  prependOptimisticInventoryEntry: (entry: InventoryCardEntry) => void;
 };
 
 const AppServicesContext = createContext<AppServices | null>(null);
@@ -213,6 +226,13 @@ export function AppProviders({
     setDataVersion((value) => value + 1);
   }, []);
 
+  const prependOptimisticInventoryEntry = useCallback((entry: InventoryCardEntry) => {
+    setInventoryEntriesCache((current) => prependInventoryEntry(current ?? [], entry));
+    setPortfolioDashboardCache((current) => (
+      current ? prependDashboardInventoryEntry(current, entry) : current
+    ));
+  }, [setInventoryEntriesCache, setPortfolioDashboardCache]);
+
   useEffect(() => {
     if (process.env.NODE_ENV === 'test') {
       return undefined;
@@ -245,8 +265,18 @@ export function AppProviders({
       setInventoryEntriesCache,
       portfolioDashboardCache,
       setPortfolioDashboardCache,
+      prependOptimisticInventoryEntry,
     };
-  }, [dataVersion, inventoryEntriesCache, portfolioDashboardCache, refreshData, spotlightRepository]);
+  }, [
+    dataVersion,
+    inventoryEntriesCache,
+    portfolioDashboardCache,
+    prependOptimisticInventoryEntry,
+    refreshData,
+    setInventoryEntriesCache,
+    setPortfolioDashboardCache,
+    spotlightRepository,
+  ]);
 
   return (
     <AppServicesContext.Provider value={services}>

@@ -226,6 +226,48 @@ export function isFinitePrice(value: number | null | undefined): value is number
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+/**
+ * Build a complete optimistic {@link InventoryCardEntry} from a matched scan
+ * candidate. `id` should be the REAL inventory entry id from the create response
+ * so a later collection refetch reconciles (dedupes) by id; pass a temp
+ * `optimistic|...` id only when no server id is available yet.
+ */
+export function buildOptimisticInventoryEntry(
+  candidate: CatalogSearchResult,
+  addedAt: string,
+  options: {
+    mode: ScannerMode;
+    slabContext: SlabContext | null;
+  },
+  id: string,
+): InventoryCardEntry {
+  const slabContext = options.slabContext;
+  const isSlab = options.mode === 'slabs';
+
+  return {
+    addedAt,
+    cardId: candidate.cardId,
+    cardNumber: candidate.cardNumber,
+    conditionCode: isSlab ? null : 'near_mint',
+    conditionLabel: isSlab ? null : 'Near Mint',
+    conditionShortLabel: isSlab ? null : 'NM',
+    costBasisPerUnit: null,
+    costBasisTotal: 0,
+    currencyCode: candidate.currencyCode ?? 'USD',
+    hasMarketPrice: candidate.marketPrice != null,
+    id,
+    imageUrl: candidate.imageUrl,
+    kind: isSlab ? 'graded' : 'raw',
+    marketPrice: candidate.marketPrice ?? 0,
+    name: candidate.name,
+    quantity: 1,
+    setName: candidate.setName,
+    slabContext,
+    isFavorite: candidate.isFavorite,
+    variantName: slabContext?.variantName ?? null,
+  };
+}
+
 export function withOptimisticInventoryAdd(
   entries: InventoryCardEntry[],
   candidate: CatalogSearchResult,
@@ -256,31 +298,12 @@ export function withOptimisticInventoryAdd(
     ));
   }
 
+  const optimisticId = isSlab
+    ? `optimistic|graded|${candidate.cardId}|${slabContext?.grader ?? 'unknown'}|${slabContext?.grade ?? 'unknown'}|${slabContext?.certNumber ?? 'uncertified'}`
+    : `optimistic|raw|${candidate.cardId}`;
+
   return [
-    {
-      addedAt,
-      cardId: candidate.cardId,
-      cardNumber: candidate.cardNumber,
-      conditionCode: isSlab ? null : 'near_mint',
-      conditionLabel: isSlab ? null : 'Near Mint',
-      conditionShortLabel: isSlab ? null : 'NM',
-      costBasisPerUnit: null,
-      costBasisTotal: 0,
-      currencyCode: candidate.currencyCode ?? 'USD',
-      hasMarketPrice: candidate.marketPrice != null,
-      id: isSlab
-        ? `optimistic|graded|${candidate.cardId}|${slabContext?.grader ?? 'unknown'}|${slabContext?.grade ?? 'unknown'}|${slabContext?.certNumber ?? 'uncertified'}`
-        : `optimistic|raw|${candidate.cardId}`,
-      imageUrl: candidate.imageUrl,
-      kind: isSlab ? 'graded' : 'raw',
-      marketPrice: candidate.marketPrice ?? 0,
-      name: candidate.name,
-      quantity: 1,
-      setName: candidate.setName,
-      slabContext,
-      isFavorite: candidate.isFavorite,
-      variantName: slabContext?.variantName ?? null,
-    },
+    buildOptimisticInventoryEntry(candidate, addedAt, options, optimisticId),
     ...entries,
   ];
 }

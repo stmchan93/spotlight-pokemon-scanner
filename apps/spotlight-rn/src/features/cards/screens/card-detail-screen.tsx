@@ -8,7 +8,6 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
 
 import {
   deckConditionOptions,
@@ -48,6 +47,7 @@ import {
   getCardPriceTrendsCached,
   invalidateCardDetailCache,
   laneKey,
+  prefetchCardDetail,
   type CardDetailLane,
 } from '@/features/cards/card-detail-prefetch';
 import {
@@ -122,14 +122,21 @@ export function CardDetailScreen({
   scanReviewId,
 }: CardDetailScreenProps) {
   const theme = useSpotlightTheme();
-  const router = useRouter();
   const {
     spotlightRepository,
     dataVersion,
     refreshData,
     inventoryEntriesCache,
     portfolioDashboardCache,
+    prependOptimisticInventoryEntry,
   } = useAppServices();
+  // The card currently DISPLAYED. Starts as the routed `cardId`, but the EN/JP
+  // language toggle repoints it to the other-language counterpart IN PLACE (no
+  // navigation), so every card-derived fetch keys off this, not the route prop.
+  const [activeCardId, setActiveCardId] = useState(cardId);
+  // Optimistic chip highlight during a swap, before the counterpart detail (and
+  // its real `language`) lands. Cleared once the new detail arrives.
+  const [languageOverride, setLanguageOverride] = useState<string | null>(null);
   const [detail, setDetail] = useState<CardDetailRecord | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isFavoritePending, setIsFavoritePending] = useState(false);
@@ -173,6 +180,16 @@ export function CardDetailScreen({
   // bump (pull-to-refresh / mutation) invalidates this card's cached detail +
   // trends, while the initial mount keeps any navigation-prefetched entries.
   const cacheDataVersionRef = useRef<number | null>(null);
+  // On an EN/JP swap, the variant LABEL the user had selected — re-resolved
+  // against the counterpart card's (differently-id'd) variant list by name.
+  const pendingVariantLabelRef = useRef<string | null>(null);
+
+  // Defensive: keep activeCardId in sync if the route prop ever changes without a
+  // remount. Normally the route `key` remounts the screen, so this is inert; it
+  // never fires during an in-place language swap (the prop stays put then).
+  useEffect(() => {
+    setActiveCardId(cardId);
+  }, [cardId]);
 
   const scanReviewSession = useMemo(
     () => getScanCandidateReviewSession(scanReviewId),
@@ -199,20 +216,23 @@ export function CardDetailScreen({
 
   useEffect(() => {
     let cancelled = false;
-    setDetail((currentDetail) => (currentDetail?.cardId === cardId ? currentDetail : null));
     setErrorMessage(null);
+    // Intentionally do NOT null `detail` here: on a language swap (activeCardId
+    // changes mid-mount) keeping the prior card visible until the counterpart
+    // detail resolves avoids a blank "Loading card…" flash. The fetch below
+    // replaces it; the request token guards against a stale result landing late.
 
     // Drop cached detail+trends for this card when dataVersion actually bumps
     // (refresh/mutation), but keep prefetched entries on the first mount.
     if (cacheDataVersionRef.current !== null && cacheDataVersionRef.current !== dataVersion) {
-      invalidateCardDetailCache(cardId);
+      invalidateCardDetailCache(activeCardId);
       lastFetchedLaneKeyRef.current = null;
     }
     cacheDataVersionRef.current = dataVersion;
 
     // Read through the short-TTL cache so a navigation prefetch (or a recent
     // visit) resolves instantly; otherwise this fires and populates it.
-    void getCardDetailCached(spotlightRepository, cardId)
+    void getCardDetailCached(spotlightRepository, activeCardId)
       .then((nextDetail) => {
         if (cancelled) {
           return;
@@ -237,8 +257,11 @@ export function CardDetailScreen({
     return () => {
       cancelled = true;
     };
-  }, [cardId, dataVersion, spotlightRepository]);
+  }, [activeCardId, dataVersion, spotlightRepository]);
 
+  // Per-MOUNT reset, keyed on the route prop `cardId` (NOT activeCardId) so it
+  // fires only on a real navigation/remount — never on an in-place EN/JP swap,
+  // which must preserve the user's grade/grader/condition/variant.
   useEffect(() => {
     setFavoriteState({ favoritedAt: null, isFavorite: false });
     setLikeCount(0);
@@ -249,7 +272,9 @@ export function CardDetailScreen({
     setQuantity(1);
     setPriceTrends(null);
     setPriceTrendsLoading(false);
+    setLanguageOverride(null);
     lastFetchedLaneKeyRef.current = null;
+    pendingVariantLabelRef.current = null;
     seededCardIdRef.current = null;
     seededVariantCardIdRef.current = null;
   }, [cardId]);
@@ -263,6 +288,9 @@ export function CardDetailScreen({
       isFavorite: detail.isFavorite ?? false,
     });
     setLikeCount(detail.likeCount ?? 0);
+    // The counterpart detail (real `language`) is in — drop the optimistic chip
+    // override so the toggle reflects the loaded card.
+    setLanguageOverride(null);
   }, [detail]);
 
   // Owned entries for this card from the already-loaded inventory cache. The PDP
@@ -270,8 +298,8 @@ export function CardDetailScreen({
   // image + variants paint immediately), so owned context comes from here.
   const cachedOwnedEntries = useMemo(() => {
     const source = inventoryEntriesCache ?? portfolioDashboardCache?.inventoryItems ?? [];
-    return source.filter((entry) => entry.cardId === cardId);
-  }, [cardId, inventoryEntriesCache, portfolioDashboardCache]);
+    return source.filter((entry) => entry.cardId === activeCardId);
+  }, [activeCardId, inventoryEntriesCache, portfolioDashboardCache]);
 
   const selectedEntry = useMemo(() => {
     // Prefer authoritative owned entries if a full detail carried them; else the
@@ -344,11 +372,25 @@ export function CardDetailScreen({
   // first available option.
   const seededVariantCardIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (variantOptions.length === 0 || seededVariantCardIdRef.current === cardId) {
+    // Wait until the ACTIVE card's own detail (hence its variant list) has loaded,
+    // so an EN/JP swap re-resolves against the counterpart's options — not the
+    // outgoing card's (which we keep visible during the swap to avoid a flash).
+    if (
+      variantOptions.length === 0
+      || detail?.cardId !== activeCardId
+      || seededVariantCardIdRef.current === activeCardId
+    ) {
       return;
     }
-    seededVariantCardIdRef.current = cardId;
+    seededVariantCardIdRef.current = activeCardId;
 
+    // Preference order: the variant carried over from an EN/JP swap (matched by
+    // NAME), then the owned variant, then "Normal", then the first option.
+    const carriedLabel = pendingVariantLabelRef.current;
+    pendingVariantLabelRef.current = null;
+    const carriedMatch = carriedLabel
+      ? variantOptions.find((option) => option.label.toLowerCase() === carriedLabel.toLowerCase())
+      : null;
     const ownedVariant = selectedEntry?.kind === 'raw' ? selectedEntry.variantName?.trim() : null;
     const variantMatch = ownedVariant
       ? variantOptions.find((option) => option.label.toLowerCase() === ownedVariant.toLowerCase())
@@ -356,8 +398,10 @@ export function CardDetailScreen({
     const normalVariant = variantOptions.find(
       (option) => option.label.trim().toLowerCase() === 'normal',
     );
-    setSelectedVariant(variantMatch?.id ?? normalVariant?.id ?? variantOptions[0]?.id ?? null);
-  }, [cardId, selectedEntry, variantOptions]);
+    setSelectedVariant(
+      carriedMatch?.id ?? variantMatch?.id ?? normalVariant?.id ?? variantOptions[0]?.id ?? null,
+    );
+  }, [activeCardId, detail?.cardId, selectedEntry, variantOptions]);
 
   // Reset the per-lane selection whenever the grader switches so the grade
   // label always reflects the active lane.
@@ -390,7 +434,7 @@ export function CardDetailScreen({
     return () => {
       trendRequestTokenRef.current += 1;
     };
-  }, [cardId]);
+  }, [activeCardId]);
 
   // Shared lane fetch used by BOTH the early parallel fetch (on mount, from the
   // preview's default lane — no waiting on variantOptions/seeding) and the
@@ -399,12 +443,12 @@ export function CardDetailScreen({
   // key so the lens-change effect can skip a redundant refetch.
   const fetchTrendsForLane = useCallback(
     (lane: CardDetailLane) => {
-      const key = laneKey(cardId, lane);
+      const key = laneKey(activeCardId, lane);
       lastFetchedLaneKeyRef.current = key;
       const token = trendRequestTokenRef.current + 1;
       trendRequestTokenRef.current = token;
       setPriceTrendsLoading(true);
-      return getCardPriceTrendsCached(spotlightRepository, cardId, lane)
+      return getCardPriceTrendsCached(spotlightRepository, activeCardId, lane)
         .then((next) => {
           if (trendRequestTokenRef.current !== token) {
             return;
@@ -424,7 +468,7 @@ export function CardDetailScreen({
           setPriceTrendsLoading(false);
         });
     },
-    [cardId, spotlightRepository],
+    [activeCardId, spotlightRepository],
   );
 
   // EARLY parallel fetch: as soon as the card id + early owned context are
@@ -440,13 +484,13 @@ export function CardDetailScreen({
       return;
     }
     const lane = defaultLaneFromPreview(detailPreview);
-    if (lastFetchedLaneKeyRef.current === laneKey(cardId, lane)) {
+    if (lastFetchedLaneKeyRef.current === laneKey(activeCardId, lane)) {
       return;
     }
     void fetchTrendsForLane(lane);
-    // Intentionally keyed on cardId + the early lane signal only, NOT on the
+    // Intentionally keyed on activeCardId + the early lane signal only, NOT on the
     // seeded selection state, so it runs before seeding completes.
-  }, [cardId, dataVersion, detailPreview, fetchTrendsForLane, selectedGrader]);
+  }, [activeCardId, dataVersion, detailPreview, fetchTrendsForLane, selectedGrader]);
 
   // LENS-CHANGE fetch: once the user's lane resolves (grader/variant seeded or
   // changed), refetch ONLY when it differs from the lane already fetched. The
@@ -454,7 +498,9 @@ export function CardDetailScreen({
   // no-op there (no double fetch); switching grader/variant refetches the new
   // lane.
   useEffect(() => {
-    if (!detail || selectedGrader == null) {
+    // Gate on the ACTIVE card's own detail so a swap fetches trends for the
+    // counterpart with its re-resolved variant label, not the outgoing card's.
+    if (!detail || detail.cardId !== activeCardId || selectedGrader == null) {
       return;
     }
     const lane: CardDetailLane = {
@@ -462,11 +508,11 @@ export function CardDetailScreen({
       variant: isRawLane ? (selectedVariantLabel ?? null) : null,
       grader: isRawLane ? null : selectedGrader,
     };
-    if (lastFetchedLaneKeyRef.current === laneKey(cardId, lane)) {
+    if (lastFetchedLaneKeyRef.current === laneKey(activeCardId, lane)) {
       return;
     }
     void fetchTrendsForLane(lane);
-  }, [cardId, detail, fetchTrendsForLane, isRawLane, selectedGrader, selectedVariantLabel]);
+  }, [activeCardId, detail, fetchTrendsForLane, isRawLane, selectedGrader, selectedVariantLabel]);
 
   // Tap a Price-Trend row → open the marketplace for that exact grade/condition.
   // Raw rows deep-link to a TCGplayer search (filtered to the condition + printing) —
@@ -605,7 +651,7 @@ export function CardDetailScreen({
     setLikeCount((current) => Math.max(0, current + (nextIsFavorite ? 1 : -1)));
     setIsFavoritePending(true);
 
-    void spotlightRepository.setCardFavorite(cardId, nextIsFavorite)
+    void spotlightRepository.setCardFavorite(activeCardId, nextIsFavorite)
       .then((result) => {
         setFavoriteState({
           favoritedAt: result.favoritedAt ?? null,
@@ -616,7 +662,7 @@ export function CardDetailScreen({
         // without this, reopening the PDP within the TTL shows the stale heart
         // state (favorite persisted to the wishlist but the cached card detail
         // didn't). Drop it so the next open refetches the true favorite state.
-        invalidateCardDetailCache(cardId);
+        invalidateCardDetailCache(activeCardId);
       })
       .catch(() => {
         setFavoriteState(previousFavoriteState);
@@ -624,18 +670,28 @@ export function CardDetailScreen({
         setErrorMessage('Could not update wishlist right now.');
         setIsFavoritePending(false);
       });
-  }, [cardId, favoriteState, isFavoritePending, likeCount, spotlightRepository]);
+  }, [activeCardId, favoriteState, isFavoritePending, likeCount, spotlightRepository]);
 
   // EN/JP toggle: derived from the loaded card's language + its other-language
-  // counterpart. The toggle is shown only when a confident counterpart link
-  // exists; switching navigates to that distinct card (its own set/pricing).
+  // counterpart. Shown only when a confident counterpart link exists. Switching
+  // swaps the displayed card IN PLACE (no navigation) — see handleSwitchLanguage.
   const currentCardLanguage = detail?.language ?? null;
   const counterpartCardId = detail?.counterpartCardId ?? null;
   const hasLanguageCounterpart = Boolean(
     currentCardLanguage && counterpartCardId && detail?.counterpartLanguage,
   );
-  const selectedLanguageChip = currentCardLanguage === 'japanese' ? 'JP' : 'EN';
+  // Optimistic override highlights the tapped chip instantly; otherwise reflect
+  // the loaded card's own language.
+  const selectedLanguageChip =
+    languageOverride ?? (currentCardLanguage === 'japanese' ? 'JP' : 'EN');
   const languageToggleOptions = hasLanguageCounterpart ? [...languageOptions] : [];
+
+  // Warm the counterpart's detail + default lane so the EN/JP swap is instant.
+  useEffect(() => {
+    if (counterpartCardId) {
+      void prefetchCardDetail(spotlightRepository, counterpartCardId);
+    }
+  }, [counterpartCardId, spotlightRepository]);
 
   const handleSwitchLanguage = useCallback(
     (chip: string) => {
@@ -643,11 +699,24 @@ export function CardDetailScreen({
       if (!counterpartCardId || target === currentCardLanguage) {
         return;
       }
-      // Replace (not push) so toggling EN↔JP doesn't grow the back stack; the
-      // route's `key` remounts the screen with the counterpart card.
-      router.replace({ pathname: '/cards/[cardId]', params: { cardId: counterpartCardId } });
+      // Swap the displayed card IN PLACE — the page stays mounted (scroll, open
+      // sheets, and the language-agnostic grade/grader/condition all preserved).
+      // The variant carries over by NAME (re-resolved against the counterpart's
+      // options in the variant-seed effect); art + price trends refetch for the
+      // counterpart. No router navigation, matching the prior no-back-stack intent.
+      pendingVariantLabelRef.current = selectedVariantLabel;
+      seededVariantCardIdRef.current = null;
+      lastFetchedLaneKeyRef.current = null;
+      setPriceTrends(null);
+      setPriceTrendsLoading(true);
+      setLanguageOverride(chip);
+      capturePostHogEvent('card_detail_language_switched', {
+        from: currentCardLanguage,
+        to: target,
+      });
+      setActiveCardId(counterpartCardId);
     },
-    [counterpartCardId, currentCardLanguage, router],
+    [counterpartCardId, currentCardLanguage, selectedVariantLabel],
   );
 
   const hasDisplayContent = detail != null || detailPreview != null;
@@ -753,16 +822,48 @@ export function CardDetailScreen({
       return;
     }
     setIsAddPending(true);
+    const addedAt = new Date().toISOString();
+    const addedQuantity = Math.max(1, quantity);
+    const addedCondition = addIsRaw ? addCondition : null;
+    const addedVariantName = addIsRaw ? (addVariantLabel ?? null) : addConfiguredSlabContext?.variantName ?? null;
     void spotlightRepository.createInventoryEntry({
       cardID: detail.cardId,
       slabContext: addConfiguredSlabContext,
       variantName: addIsRaw ? (addVariantLabel ?? null) : null,
-      condition: addIsRaw ? addCondition : null,
-      quantity: Math.max(1, quantity),
+      condition: addedCondition,
+      quantity: addedQuantity,
       sourceScanID: null,
-      addedAt: new Date().toISOString(),
+      addedAt,
     })
-      .then(() => {
+      .then((response) => {
+        // Optimistic insert: surface the new card at the top of the Collection
+        // immediately (using the REAL entry id from the create response so the
+        // background refreshData() refetch reconciles by id instead of
+        // duplicating). Only runs on success — a failed add never inserts.
+        const conditionOption = addedCondition
+          ? deckConditionOptions.find((option) => option.code === addedCondition) ?? null
+          : null;
+        prependOptimisticInventoryEntry({
+          id: response.deckEntryID,
+          cardId: detail.cardId,
+          name: detail.name,
+          cardNumber: detail.cardNumber,
+          setName: detail.setName,
+          imageUrl: detail.imageUrl,
+          largeImageUrl: detail.largeImageUrl ?? null,
+          marketPrice: detail.marketPrice ?? 0,
+          hasMarketPrice: detail.marketPrice != null,
+          currencyCode: detail.currencyCode,
+          quantity: addedQuantity,
+          addedAt: response.addedAt || addedAt,
+          kind: addIsRaw ? 'raw' : 'graded',
+          variantName: addedVariantName,
+          conditionCode: addedCondition,
+          conditionLabel: conditionOption?.label ?? null,
+          conditionShortLabel: conditionOption?.shortLabel ?? null,
+          slabContext: addConfiguredSlabContext,
+          isFavorite: detail.isFavorite ?? false,
+        });
         capturePostHogEvent('card_detail_add_item_succeeded', {
           kind: addIsRaw ? 'raw' : 'graded',
           quantity: Math.max(1, quantity),
@@ -792,6 +893,7 @@ export function CardDetailScreen({
     addVariantLabel,
     detail,
     isAddPending,
+    prependOptimisticInventoryEntry,
     quantity,
     refreshData,
     spotlightRepository,

@@ -111,6 +111,7 @@ import {
   activeCandidateForCapture,
   alignToFourPointGrid,
   analyzeSlabCapture,
+  buildOptimisticInventoryEntry,
   buildScanMatchFailureProperties,
   buildScanMatchSuccessProperties,
   buildScanSelectionProperties,
@@ -257,8 +258,12 @@ function parseScannerZoomFactor(raw: string | null): ScannerZoomFactor {
 
 // Persisted zoom selection — mirrors the wishlist view-mode hook
 // (`useWishlistViewMode`): in-memory default of 1×, hydrated from AsyncStorage.
-function useScannerZoomFactor(): [ScannerZoomFactor, (next: ScannerZoomFactor) => void] {
+function useScannerZoomFactor(): [ScannerZoomFactor, (next: ScannerZoomFactor) => void, boolean] {
   const [zoomFactor, setZoomFactorState] = useState<ScannerZoomFactor>(1);
+  // Until the persisted zoom is read back, captures must wait — otherwise the
+  // first scan can fire at the 1× default before the saved zoom applies, changing
+  // the field-of-view and pulling in neighboring cards.
+  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -270,6 +275,10 @@ function useScannerZoomFactor(): [ScannerZoomFactor, (next: ScannerZoomFactor) =
         }
       } catch {
         // ignore — keep the 1× default
+      } finally {
+        if (!cancelled) {
+          setHydrated(true);
+        }
       }
     })();
     return () => {
@@ -284,7 +293,7 @@ function useScannerZoomFactor(): [ScannerZoomFactor, (next: ScannerZoomFactor) =
     });
   }, []);
 
-  return [zoomFactor, setZoomFactor];
+  return [zoomFactor, setZoomFactor, hydrated];
 }
 
 export function ScannerScreen({
@@ -296,7 +305,12 @@ export function ScannerScreen({
   const isActiveTab = activePage === 'scanner';
   const theme = useSpotlightTheme();
   const router = useRouter();
-  const { dataVersion, refreshData, spotlightRepository } = useAppServices();
+  const {
+    dataVersion,
+    refreshData,
+    spotlightRepository,
+    prependOptimisticInventoryEntry,
+  } = useAppServices();
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const { hasPermission, requestPermission } = useCameraPermission();
@@ -327,7 +341,7 @@ export function ScannerScreen({
   const [isTrayExpanded, setIsTrayExpanded] = useState(false);
   const [isAddAllOpen, setIsAddAllOpen] = useState(false);
   const { cardType, setCardType } = useScannerTargetConfig();
-  const [zoomFactor, setZoomFactor] = useScannerZoomFactor();
+  const [zoomFactor, setZoomFactor, zoomHydrated] = useScannerZoomFactor();
   const [isScanTargetSheetOpen, setIsScanTargetSheetOpen] = useState(false);
   const [ebayTrayState, setEbayTrayState] = useState<Map<string, { loading: boolean; url: string | null }>>(new Map());
   const [priceSelection, setPriceSelection] = useState<Map<string, ScanPriceSheetSelection>>(new Map());
@@ -432,7 +446,11 @@ export function ScannerScreen({
   const scannerSmokeEnabled = resolveStagingSmokeModeEnabled({ allowDevelopment: true });
   const canCapture = shouldMountCamera
     && isCameraReady
-    && !isCapturing;
+    && !isCapturing
+    // Hold the shutter until the persisted zoom has loaded so the first capture
+    // uses the saved field-of-view, not the transient 1× default. (Test env seeds
+    // ready synchronously, matching isCameraReady.)
+    && (zoomHydrated || isTestEnv);
   const canToggleTray = recentCaptures.length > 0;
   const isTopLevelSwipeEnabled = Object.keys(openActionRailKeys).length === 0;
   // Every capture row stays mounted regardless of expand/collapse — the
@@ -1627,13 +1645,27 @@ export function ScannerScreen({
     try {
       trackCandidateSelectionIfNeeded(capture);
       const selectedCondition: DeckConditionCode = priceSelection.get(capture.id)?.conditionCode ?? 'near_mint';
-      await spotlightRepository.createInventoryEntry(
+      const createResponse = await spotlightRepository.createInventoryEntry(
         buildInventoryEntryArgs(capture, activeCandidate, addedAt, selectedCondition),
       );
       capturePostHogEvent('scan_inventory_add_succeeded', {
         mode: capture.mode,
       });
       didSucceed = true;
+      // Surface the new card at the top of the Collection instantly. Reuse the
+      // REAL entry id from the create response so the background refetch
+      // reconciles (dedupes) by id instead of duplicating the optimistic row.
+      // The scanner's own tray inventory was already updated above via
+      // `withOptimisticInventoryAdd`; this bridges it into the shared portfolio
+      // cache + on-screen collection without waiting on the slow dashboard.
+      prependOptimisticInventoryEntry(
+        buildOptimisticInventoryEntry(
+          activeCandidate,
+          createResponse.addedAt || addedAt,
+          { mode: capture.mode, slabContext: capture.slabContext },
+          createResponse.deckEntryID,
+        ),
+      );
       // Reconcile against the server's canonical list in the BACKGROUND. The
       // optimistic add above already shows this card, so blocking the spinner on
       // a second full-inventory refetch is exactly what made single-add feel
@@ -1679,7 +1711,7 @@ export function ScannerScreen({
         recentlyAddedTimersRef.current.set(captureId, timerId);
       }
     }
-  }, [priceSelection, recentCaptures, refreshData, removeCaptureAfterAdd, spotlightRepository, trackCandidateSelectionIfNeeded]);
+  }, [prependOptimisticInventoryEntry, priceSelection, recentCaptures, refreshData, removeCaptureAfterAdd, spotlightRepository, trackCandidateSelectionIfNeeded]);
 
   // Stable wrapper for the swipe row's "Collection" action so React.memo doesn't
   // re-render every row when handleAddToInventory re-creates on recentCaptures
