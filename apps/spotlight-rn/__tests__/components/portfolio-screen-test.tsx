@@ -39,7 +39,6 @@ jest.mock('@spotlight/design-system', () => {
 // it so the loading effects run.
 const portfolioTabsContext = {
   activePage: 'portfolio' as const,
-  isScannerPrewarming: false,
   chartScrubLockRef: { current: false },
 };
 
