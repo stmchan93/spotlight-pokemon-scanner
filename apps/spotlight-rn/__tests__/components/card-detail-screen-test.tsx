@@ -267,8 +267,9 @@ describe('CardDetailScreen', () => {
       },
     );
 
-    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
-    fireEvent.press(screen.getByTestId('detail-add-item'));
+    // Add Item opens at the Raw default; switch the grader to PSA inside the sheet.
+    fireEvent.press(await screen.findByTestId('detail-add-item'));
+    fireEvent.press(await screen.findByTestId('detail-add-sheet-configurator-grader-PSA'));
     fireEvent.press(await screen.findByTestId('detail-add-sheet-confirm'));
 
     await waitFor(() => {
@@ -292,9 +293,9 @@ describe('CardDetailScreen', () => {
       { spotlightRepository: createTestSpotlightRepository({ createInventoryEntry }) },
     );
 
-    // Graded lane add.
-    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
-    fireEvent.press(screen.getByTestId('detail-add-item'));
+    // Graded lane add — Add Item opens at Raw, switch to PSA inside the sheet.
+    fireEvent.press(await screen.findByTestId('detail-add-item'));
+    fireEvent.press(await screen.findByTestId('detail-add-sheet-configurator-grader-PSA'));
     fireEvent.press(await screen.findByTestId('detail-add-sheet-confirm'));
 
     // The CTA flashes SAVED (disabled) and the page stays in ADD mode — it does
@@ -343,8 +344,10 @@ describe('CardDetailScreen', () => {
       />,
     );
 
-    fireEvent.press(await screen.findByTestId('detail-configurator-grader-BGS'));
-    fireEvent.press(screen.getByTestId('detail-add-item'));
+    // Add Item opens at Raw; switching the grader to BGS inside the sheet flips
+    // the grade picker from conditions to numeric grades.
+    fireEvent.press(await screen.findByTestId('detail-add-item'));
+    fireEvent.press(await screen.findByTestId('detail-add-sheet-configurator-grader-BGS'));
     fireEvent.press(await screen.findByTestId('detail-add-sheet-grade-trigger'));
 
     expect(await screen.findByTestId('detail-grade-sheet-option-10')).toBeTruthy();
@@ -394,6 +397,8 @@ describe('CardDetailScreen', () => {
         grader: 'PSA',
       }));
     });
+    // …and the graded rows actually RENDER (not just fetched).
+    expect(await screen.findByTestId('detail-price-trends-row-PSA 10')).toBeTruthy();
   });
 
   // The backend emits two row-key shapes depending on version: the staging shape
@@ -561,10 +566,12 @@ describe('CardDetailScreen', () => {
     );
 
     fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
-    // Pick a different grade (9.5) INSIDE the Add to Collection sheet, then dismiss
-    // it. The sheet owns its own selection now, so this must NOT change the page —
-    // the PDP's eBay link keeps the grader's seeded default (PSA 10).
+    // Add Item opens at the Raw default; switch it to PSA and pick a different
+    // grade (9.5) INSIDE the sheet, then dismiss it. The sheet owns its own
+    // selection now, so this must NOT change the page — the PDP's eBay link keeps
+    // its own selection (PSA 10).
     fireEvent.press(screen.getByTestId('detail-add-item'));
+    fireEvent.press(await screen.findByTestId('detail-add-sheet-configurator-grader-PSA'));
     fireEvent.press(await screen.findByTestId('detail-add-sheet-grade-trigger'));
     fireEvent.press(await screen.findByTestId('detail-grade-sheet-option-9.5'));
     fireEvent.press(screen.getByTestId('detail-add-sheet-backdrop'));
@@ -684,7 +691,7 @@ describe('CardDetailScreen', () => {
     });
   });
 
-  it('defaults the grader to the owned slab grader for a graded entry', async () => {
+  it('always opens Add to Collection at the Raw / Near Mint default, even for an owned graded entry', async () => {
     const baseRepository = createTestSpotlightRepository();
     const gradedEntry: InventoryCardEntry = {
       addedAt: '2026-04-27T12:00:00.000Z',
@@ -726,11 +733,15 @@ describe('CardDetailScreen', () => {
       },
     );
 
-    // The grader seeds to the owned slab (PSA 10): opening the Add to Collection
-    // sheet surfaces that grade on its trigger.
+    // Add Item always starts a fresh Raw / Near Mint add regardless of the owned
+    // slab — the grader seeds to Raw and the condition trigger reads "Near Mint".
     fireEvent.press(await screen.findByTestId('detail-add-item'));
     const trigger = await screen.findByTestId('detail-add-sheet-grade-trigger');
-    expect(within(trigger).getByText('PSA 10')).toBeTruthy();
+    expect(
+      screen.getByTestId('detail-add-sheet-configurator-grader-Raw').props.accessibilityState
+        ?.selected,
+    ).toBe(true);
+    expect(within(trigger).getByText('Near Mint')).toBeTruthy();
   });
 
   function ownedGradedEntry(quantity: number): InventoryCardEntry {

@@ -797,17 +797,17 @@ export function CardDetailScreen({
     spotlightRepository,
   ]);
 
-  // Opening the Add to Collection sheet always starts a fresh add (quantity 1) —
-  // the PDP no longer edits owned lines in place (Figma 1640:4077).
+  // Opening the Add to Collection sheet always starts a fresh add at a fixed
+  // default — first variant, Raw / Near Mint, quantity 1 — regardless of what the
+  // PDP is currently showing. Edits stay local to the sheet (Figma 1640:4077).
   const handleOpenAddSheet = useCallback(() => {
-    // Seed the sheet's selection from the page, then keep all edits local to it.
-    setAddVariant(selectedVariant);
-    setAddGrader(selectedGrader);
-    setAddGrade(selectedGrade);
-    setAddCondition(selectedCondition);
+    setAddVariant(variantOptions[0]?.id ?? null);
+    setAddGrader('Raw');
+    setAddGrade(null);
+    setAddCondition('near_mint');
     setQuantity(1);
     setAddSheetOpen(true);
-  }, [selectedCondition, selectedGrade, selectedGrader, selectedVariant]);
+  }, [variantOptions]);
 
   const isFavorite = favoriteState.isFavorite;
 
