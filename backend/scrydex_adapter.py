@@ -806,6 +806,24 @@ def _scrydex_variant_display_name(value: str | None) -> str:
     return display or "Normal"
 
 
+def _price_currency_is_usd(price: Any) -> bool:
+    return str((price or {}).get("currency") or "").strip().upper() == "USD"
+
+
+def _prices_usd_preferred(prices: list[Any]) -> list[Any]:
+    """Order a card's price entries so USD is processed LAST.
+
+    Scrydex sends a card's price in MULTIPLE currencies for the same
+    (variant, condition) — e.g. Gastly NM raw as both ``{4000 JPY}`` and
+    ``{42.99 USD}``. The context upserts key by (variant, condition) and
+    last-write-wins, so plain array order made the displayed price (and currency)
+    flip whenever Scrydex reordered the list (the $24.73↔$42.99 jump). Sorting USD
+    last makes the USD/TCGplayer price deterministically win per (variant, condition);
+    a card with no USD price (non-TCGplayer tail, e.g. a JP-only promo) keeps its JPY
+    price, FX-converted for display. Stable, sort is not in place."""
+    return sorted(prices, key=_price_currency_is_usd)
+
+
 def build_scrydex_pricing_bundle_from_card_payload(payload: dict[str, Any]) -> dict[str, Any]:
     data = _scrydex_card_data(payload)
     variants = data.get("variants") if isinstance(data.get("variants"), list) else []
@@ -818,7 +836,7 @@ def build_scrydex_pricing_bundle_from_card_payload(payload: dict[str, Any]) -> d
         variant_key = str(variant.get("name") or "normal").strip() or "normal"
         variant_label = _scrydex_variant_display_name(variant_key)
         prices = variant.get("prices") if isinstance(variant.get("prices"), list) else []
-        for price in prices:
+        for price in _prices_usd_preferred(prices):
             if not isinstance(price, dict):
                 continue
             price_type = str(price.get("type") or "").strip().lower()
@@ -1019,7 +1037,7 @@ def _contexts_from_variant_payloads(
         variant_key = str(variant.get("name") or "raw").strip() or "raw"
         variant_label = _humanize_scrydex_variant_name(variant_key) or variant_key
         prices = variant.get("prices") if isinstance(variant.get("prices"), list) else []
-        for price in prices:
+        for price in _prices_usd_preferred(prices):
             if not isinstance(price, dict):
                 continue
             price_type = str(price.get("type") or "").strip().lower()
