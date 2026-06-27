@@ -25,11 +25,12 @@ function sortedGradeEntries(grades: Record<string, number>): [string, number][] 
 }
 
 /**
- * Dynamic population report (Figma 1640:4229 + 1640:4231): a "<GRADER> Population
- * Report: <total>" heading over a horizontally-scrolling row of grade cells, each
- * stacking the grade label over its slab count. Re-renders whenever `grader`
- * flips. Renders nothing for the raw lane or when the selected grader has no
- * synced population, so the PDP simply omits the section.
+ * Dynamic population report (Figma 1640:4229 title + 1640:4230 grade values): a
+ * centered "<GRADER> Population Report: <total>" heading over a horizontally-
+ * scrolling row of grade cells, each stacking the grade label over its slab count
+ * inside a top/bottom-ruled container. Re-renders whenever `grader` flips. Renders
+ * nothing for the raw lane or when the selected grader has no synced population, so
+ * the PDP simply omits the section.
  */
 export function CardPopulationReport({ population, grader, testID }: CardPopulationReportProps) {
   const theme = useSpotlightTheme();
@@ -48,7 +49,7 @@ export function CardPopulationReport({ population, grader, testID }: CardPopulat
   return (
     <View style={styles.root} testID={testID}>
       <Text
-        style={[theme.typography.label, { color: theme.colors.gray600 }]}
+        style={[theme.typography.label, styles.title, { color: theme.colors.gray600 }]}
         testID={testID ? `${testID}-title` : undefined}
       >
         {`${normalizedGrader} Population Report: ${formatCount(entry.totalPopulation)}`}
@@ -62,15 +63,15 @@ export function CardPopulationReport({ population, grader, testID }: CardPopulat
         {grades.map(([grade, count]) => (
           <View
             key={grade}
-            style={styles.cell}
+            style={[styles.cell, { borderColor: theme.colors.gray100 }]}
             testID={testID ? `${testID}-grade-${grade}` : undefined}
           >
-            <Text style={[theme.typography.caption, { color: theme.colors.gray500 }]}>
-              {grade}
-            </Text>
-            <Text style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}>
-              {formatCount(count)}
-            </Text>
+            <View style={styles.cellInner}>
+              <Text style={[theme.typography.overline, { color: theme.colors.gray600 }]}>
+                {grade}
+              </Text>
+              <Text style={theme.typography.bodyMedium}>{formatCount(count)}</Text>
+            </View>
           </View>
         ))}
       </ScrollView>
@@ -79,18 +80,31 @@ export function CardPopulationReport({ population, grader, testID }: CardPopulat
 }
 
 const styles = StyleSheet.create({
+  // Figma 1640:4231 — each grade sits in a 12px-padded container ruled top and
+  // bottom (gray-100); adjacent cells share the rule into one continuous band.
   cell: {
-    gap: 6,
-    minWidth: 64,
-    paddingVertical: 4,
+    alignItems: 'center',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    justifyContent: 'center',
+    padding: 12,
+  },
+  cellInner: {
+    alignItems: 'center',
+    gap: 8,
+    width: 56,
   },
   root: {
     gap: 12,
     width: '100%',
   },
+  // Figma 1640:4229 — the report title is centered, full-width.
   row: {
+    alignItems: 'center',
     flexDirection: 'row',
-    gap: 16,
+  },
+  title: {
+    textAlign: 'center',
   },
 });
 
