@@ -2,7 +2,7 @@ import { Fragment } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { IconChevronRight } from '@tabler/icons-react-native';
 
-import { useSpotlightTheme } from '@spotlight/design-system';
+import { colors, useSpotlightTheme } from '@spotlight/design-system';
 import type {
   CardPriceTrendList as CardPriceTrendListType,
   CardPriceTrendRow,
@@ -90,7 +90,7 @@ export function CardPriceTrendList({ list, onRowPress, onProviderPress, loadingR
         const rowContent = (
           <>
             <View style={styles.label}>
-              <Text style={theme.typography.bodyMedium} numberOfLines={1}>
+              <Text style={[theme.typography.body, styles.gradeLabel]} numberOfLines={1}>
                 {row.label}
               </Text>
               {trustLine ? (
@@ -103,30 +103,34 @@ export function CardPriceTrendList({ list, onRowPress, onProviderPress, loadingR
                 </Text>
               ) : null}
             </View>
-            <PriceSparkline
-              height={SPARKLINE_HEIGHT}
-              points={row.points}
-              testID={testID ? `${testID}-spark-${row.key}` : undefined}
-              trendPct={row.trendPct}
-              width={SPARKLINE_WIDTH}
-            />
-            {isLoading ? (
-              <View
-                style={[styles.price, styles.pricePending]}
-                testID={testID ? `${testID}-price-${row.key}` : undefined}
-              >
-                <ActivityIndicator color={theme.colors.gray400} size="small" />
-              </View>
-            ) : (
-              <Text
-                style={[theme.typography.titleSmall, styles.price]}
-                testID={testID ? `${testID}-price-${row.key}` : undefined}
-              >
-                {row.currentPrice == null
-                  ? '—'
-                  : formatCurrency(row.currentPrice, row.currencyCode)}
-              </Text>
-            )}
+            {/* Sparkline + price as one right-aligned group (Figma 1664:1090
+                "Price Chart": 62×22 sparkline, gap 32, Body-medium price). */}
+            <View style={styles.priceGroup}>
+              <PriceSparkline
+                height={SPARKLINE_HEIGHT}
+                points={row.points}
+                testID={testID ? `${testID}-spark-${row.key}` : undefined}
+                trendPct={row.trendPct}
+                width={SPARKLINE_WIDTH}
+              />
+              {isLoading ? (
+                <View
+                  style={[styles.price, styles.pricePending]}
+                  testID={testID ? `${testID}-price-${row.key}` : undefined}
+                >
+                  <ActivityIndicator color={theme.colors.gray400} size="small" />
+                </View>
+              ) : (
+                <Text
+                  style={[theme.typography.bodyMedium, styles.price]}
+                  testID={testID ? `${testID}-price-${row.key}` : undefined}
+                >
+                  {row.currentPrice == null
+                    ? '—'
+                    : formatCurrency(row.currentPrice, row.currencyCode)}
+                </Text>
+              )}
+            </View>
             {onRowPress ? (
               <IconChevronRight color={theme.colors.gray400} size={16} strokeWidth={2} />
             ) : null}
@@ -171,6 +175,13 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 4,
   },
+  // Figma 1664:1090 grade label: Body (Plus Jakarta Regular) at 14/gray-700,
+  // muted so the price stays the emphasis.
+  gradeLabel: {
+    color: colors.gray700,
+    fontSize: 14,
+    lineHeight: 21,
+  },
   label: {
     flex: 1,
   },
@@ -185,6 +196,13 @@ const styles = StyleSheet.create({
   price: {
     minWidth: 72,
     textAlign: 'right',
+  },
+  // Figma 1664:1090 "Price Chart": the sparkline and price sit together,
+  // right-aligned, with a 32px gap between them.
+  priceGroup: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 32,
   },
   pricePending: {
     alignItems: 'flex-end',
