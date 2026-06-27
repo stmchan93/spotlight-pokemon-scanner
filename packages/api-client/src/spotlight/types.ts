@@ -653,6 +653,13 @@ export type CardPriceTrendRow = {
   points: number[];
   /** Percent change across the series; drives the up/down tint. */
   trendPct?: number | null;
+  /**
+   * Graded only: PPT smartMarketPrice confidence ("high" | "medium" | "low") and
+   * the number of eBay sales behind it. Drives the "· high · 37 sales" trust line.
+   * Null for providers/rows that don't carry them (e.g. raw, Scrydex graded).
+   */
+  confidence?: 'high' | 'medium' | 'low' | null;
+  saleCount?: number | null;
 };
 
 export type CardPriceTrendList = {

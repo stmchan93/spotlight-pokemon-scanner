@@ -469,6 +469,8 @@ type CardPriceTrendListDTO = {
     currencyCode?: string | null;
     points?: Array<number | null> | null;
     trendPct?: number | null;
+    confidence?: string | null;
+    saleCount?: number | null;
   }> | null;
 };
 
@@ -2182,6 +2184,11 @@ function buildCardPriceTrendList(
       const points = Array.isArray(row?.points)
         ? row.points.map((point) => normalizeNumber(point) ?? 0)
         : [];
+      const confidenceRaw = normalizeString(row?.confidence)?.toLowerCase();
+      const confidence =
+        confidenceRaw === 'high' || confidenceRaw === 'medium' || confidenceRaw === 'low'
+          ? confidenceRaw
+          : null;
       return [{
         label,
         key,
@@ -2189,6 +2196,8 @@ function buildCardPriceTrendList(
         currencyCode: normalizeCurrencyCode(row?.currencyCode),
         points,
         trendPct: normalizeNumber(row?.trendPct),
+        confidence,
+        saleCount: normalizeNumber(row?.saleCount),
       }];
     })
     : [];

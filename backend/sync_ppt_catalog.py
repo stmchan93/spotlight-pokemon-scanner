@@ -77,7 +77,7 @@ def upsert_ppt_card_pricing(
     """Join one PPT card to our catalog by tcgPlayerId and write its snapshot + daily
     rows (cells auto-written by the upserts). Returns a small result dict; callers
     aggregate. Does not commit (the batch driver commits)."""
-    bundle = build_ppt_pricing_bundle(ppt_card, as_of=price_date)
+    bundle = build_ppt_pricing_bundle(ppt_card)
     tcgplayer_id = bundle["tcgplayer_id"]
     if not tcgplayer_id:
         return {"matched": 0, "reason": "no_tcgplayer_id"}

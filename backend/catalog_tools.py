@@ -5048,6 +5048,14 @@ def card_price_trend_list(
                 continue
             if isinstance(snapshot_entry, dict) and str(snapshot_entry.get("currencyCode") or "").strip():
                 currency_code = str(snapshot_entry.get("currencyCode"))
+            # Trust signals from the snapshot entry's payload — populated by the PPT
+            # adapter (smartMarketPrice confidence + eBay sale count); None for
+            # providers that don't carry them (e.g. Scrydex).
+            entry_payload = snapshot_entry.get("payload") if isinstance(snapshot_entry, dict) else None
+            entry_payload = entry_payload if isinstance(entry_payload, dict) else {}
+            confidence = str(entry_payload.get("confidence") or "").strip().lower() or None
+            raw_count = entry_payload.get("count")
+            sale_count = int(raw_count) if isinstance(raw_count, (int, float)) and not isinstance(raw_count, bool) else None
             label = f"{grader_key} {grade_key}"
             rows.append(
                 {
@@ -5057,6 +5065,8 @@ def card_price_trend_list(
                     "currencyCode": currency_code,
                     "points": points,
                     "trendPct": _trend_pct_from_points(points, snapshot_entry),
+                    "confidence": confidence,
+                    "saleCount": sale_count,
                 }
             )
         return {"mode": PSA_GRADE_PRICING_MODE, "provider": response_provider, "rows": rows}

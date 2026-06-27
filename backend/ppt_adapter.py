@@ -30,7 +30,6 @@ from catalog_tools import (
     _upsert_graded_context_entry,
     _upsert_raw_context_entry,
 )
-from ppt_card_ladder import card_ladder_values_from_card
 
 PPT_PROVIDER = "ppt"
 
@@ -136,63 +135,33 @@ def build_ppt_raw_contexts(card: dict[str, Any], *, provider: str = PPT_PROVIDER
     return raw_contexts
 
 
-def build_ppt_graded_contexts(
-    card: dict[str, Any], *, provider: str = PPT_PROVIDER, as_of: Any = None
-) -> dict[str, Any]:
-    """graded_contexts for a PPT card (one flat entry per grader/grade).
-
-    Prefers a **Card Ladder value** (last-sold-day average + recency confidence +
-    grade-ratio fallback) computed from individual `ebay.soldListings` — present only
-    on the per-card `includeBoth` path. Where soldListings are absent (the aggregate
-    `/export` path), falls back to `salesByGrade` (smartMarketPrice when confident,
-    else median). `as_of` (the sync's price_date) anchors the recency math.
-    """
+def build_ppt_graded_contexts(card: dict[str, Any], *, provider: str = PPT_PROVIDER) -> dict[str, Any]:
+    """graded_contexts from `ebay.salesByGrade` (one flat entry per grader/grade)."""
     graded_contexts = _empty_graded_contexts()
     ebay = card.get("ebay") if isinstance(card.get("ebay"), dict) else {}
     sales_by_grade = ebay.get("salesByGrade") if isinstance(ebay.get("salesByGrade"), dict) else {}
-
-    cl_values: dict[str, Any] = {}
-    if as_of is not None:
-        try:
-            cl_values = card_ladder_values_from_card(card, as_of)
-        except (ValueError, TypeError):
-            cl_values = {}
-
-    for key in set(sales_by_grade) | set(cl_values):
+    for key, value in sales_by_grade.items():
+        if not isinstance(value, dict):
+            continue
         parsed = parse_ppt_grade_key(key)
         if parsed is None:
             continue
         grader, grade = parsed
-        value = sales_by_grade.get(key) if isinstance(sales_by_grade.get(key), dict) else {}
         median = _coerce_price(value.get("medianPrice"))
         average = _coerce_price(value.get("averagePrice"))
         smart = _coerce_price(value.get("smartMarketPrice"))
-        smart_confidence = str(value.get("smartMarketConfidence") or "").strip().lower()
-        cl = cl_values.get(key)
-
-        if cl is not None:
-            # Card Ladder: last-sold day average (relists deduped) + 1-5 recency
-            # confidence, grade-ratio fallback when stale. Takes precedence.
-            market = cl["value"]
-            payload = {
-                "source": "ppt-cardladder",
-                "method": cl["method"],
-                "confidence": cl["confidence"],
-                "lastSoldDate": cl.get("lastSoldDate"),
-                "sourceGrade": cl.get("sourceGrade"),
-                "count": cl.get("count"),
-            }
-        elif smart is not None and smart_confidence in ("high", "medium"):
+        confidence = str(value.get("smartMarketConfidence") or "").strip().lower()
+        # Prefer PPT's current-market (smartMarketPrice) when it's trustworthy
+        # (high/medium confidence); fall back to the lagging-but-stable median for
+        # thin / low-confidence grades (low-confidence smart can be wildly off).
+        if smart is not None and confidence in ("high", "medium"):
             market = smart
-            payload = {"count": value.get("count"), "source": "ppt-ebay",
-                       "median": median, "smart": smart, "confidence": smart_confidence or None}
-        elif median is not None or average is not None:
-            market = median if median is not None else average
-            payload = {"count": value.get("count"), "source": "ppt-ebay",
-                       "median": median, "smart": smart, "confidence": smart_confidence or None}
+        elif median is not None:
+            market = median
+        elif average is not None:
+            market = average
         else:
             continue  # no usable graded price for this grade
-
         _upsert_graded_context_entry(
             graded_contexts,
             grader=grader,
@@ -208,22 +177,22 @@ def build_ppt_graded_contexts(
             is_perfect=False,
             is_signed=False,
             is_error=False,
-            payload=payload,
+            payload={"count": value.get("count"), "source": "ppt-ebay",
+                     "median": median, "smart": smart, "confidence": confidence or None},
         )
     return graded_contexts
 
 
 def build_ppt_pricing_bundle(
-    card: dict[str, Any], *, provider: str = PPT_PROVIDER, as_of: Any = None
+    card: dict[str, Any], *, provider: str = PPT_PROVIDER
 ) -> dict[str, Any]:
     """Full PPT → contexts bundle for one card: the inputs upsert_price_snapshot /
     upsert_price_history_daily need. `tcgplayer_id` is PPT's `tcgPlayerId` — the
-    join key to our cards.tcgplayer_id. `as_of` (price_date) anchors the Card Ladder
-    recency math for graded values."""
+    join key to our cards.tcgplayer_id."""
     return {
         "tcgplayer_id": str(card.get("tcgPlayerId") or "").strip() or None,
         "external_catalog_id": str(card.get("externalCatalogId") or "").strip() or None,
         "currency_code": "USD",
         "raw_contexts": build_ppt_raw_contexts(card, provider=provider),
-        "graded_contexts": build_ppt_graded_contexts(card, provider=provider, as_of=as_of),
+        "graded_contexts": build_ppt_graded_contexts(card, provider=provider),
     }
