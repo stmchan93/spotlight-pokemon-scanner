@@ -77,7 +77,7 @@ def upsert_ppt_card_pricing(
     """Join one PPT card to our catalog by tcgPlayerId and write its snapshot + daily
     rows (cells auto-written by the upserts). Returns a small result dict; callers
     aggregate. Does not commit (the batch driver commits)."""
-    bundle = build_ppt_pricing_bundle(ppt_card)
+    bundle = build_ppt_pricing_bundle(ppt_card, as_of=price_date)
     tcgplayer_id = bundle["tcgplayer_id"]
     if not tcgplayer_id:
         return {"matched": 0, "reason": "no_tcgplayer_id"}
@@ -247,3 +247,36 @@ def iter_ppt_cards_from_exports(cards_path: str, ebay_path: str):
         if sales:
             card["ebay"] = {"salesByGrade": sales}
         yield card
+
+
+def _main(argv: list[str] | None = None) -> int:
+    import argparse
+    import sqlite3
+    from catalog_tools import backfill_cards_tcgplayer_id
+
+    parser = argparse.ArgumentParser(description="Sync PPT /export dumps into the price tables")
+    parser.add_argument("--cards-csv", required=True)
+    parser.add_argument("--ebay-csv", required=True)
+    parser.add_argument("--database-path", required=True)
+    parser.add_argument("--price-date", required=True, help="YYYY-MM-DD")
+    parser.add_argument("--provider", default=PPT_PROVIDER)
+    parser.add_argument("--backfill", action="store_true", help="backfill cards.tcgplayer_id first")
+    args = parser.parse_args(argv)
+
+    connection = sqlite3.connect(args.database_path, timeout=60.0)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA journal_mode=WAL")
+    try:
+        if args.backfill:
+            stats = backfill_cards_tcgplayer_id(connection)
+            print(f"[backfill] {json.dumps(stats)}")
+        cards = iter_ppt_cards_from_exports(args.cards_csv, args.ebay_csv)
+        stats = sync_ppt_cards(connection, cards, price_date=args.price_date, provider=args.provider)
+        print(f"[sync] {json.dumps(stats)}")
+    finally:
+        connection.close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())
