@@ -1,5 +1,5 @@
 import { StyleSheet, Text, View } from 'react-native';
-import { Heart } from 'iconoir-react-native';
+import { HeartSolid } from 'iconoir-react-native';
 
 import { useSpotlightTheme } from '@spotlight/design-system';
 
@@ -29,7 +29,7 @@ export function CardWishlistCounter({ count, testID }: CardWishlistCounterProps)
 
   return (
     <View style={styles.root} testID={testID}>
-      <Heart color={theme.colors.gray600} height={16} width={16} />
+      <HeartSolid color={theme.colors.gray600} height={16} width={16} />
       <Text
         style={[theme.typography.label, { color: theme.colors.gray600 }]}
         testID={testID ? `${testID}-value` : undefined}
