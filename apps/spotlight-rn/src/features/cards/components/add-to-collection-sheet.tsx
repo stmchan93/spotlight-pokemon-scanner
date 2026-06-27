@@ -157,7 +157,7 @@ export function AddToCollectionSheet({
           testID={testID}
         >
           <View style={[styles.handle, { backgroundColor: theme.colors.gray200 }]} />
-          <Text style={[theme.typography.titleMedium, styles.title, { color: theme.colors.gray900 }]}>
+          <Text style={[theme.typography.bodyMedium, styles.title, { color: theme.colors.gray600 }]}>
             {title}
           </Text>
 
@@ -329,6 +329,7 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
     paddingHorizontal: 16,
     paddingTop: 18,
+    textAlign: 'center',
   },
 });
 

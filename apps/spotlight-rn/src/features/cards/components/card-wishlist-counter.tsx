@@ -29,9 +29,9 @@ export function CardWishlistCounter({ count, testID }: CardWishlistCounterProps)
 
   return (
     <View style={styles.root} testID={testID}>
-      <Heart color={theme.colors.gray500} height={16} width={16} />
+      <Heart color={theme.colors.gray600} height={16} width={16} />
       <Text
-        style={[theme.typography.captionMedium, { color: theme.colors.gray600 }]}
+        style={[theme.typography.label, { color: theme.colors.gray600 }]}
         testID={testID ? `${testID}-value` : undefined}
       >
         {wishlistLabel(count)}
@@ -44,7 +44,7 @@ const styles = StyleSheet.create({
   root: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 4,
+    gap: 3,
   },
 });
 

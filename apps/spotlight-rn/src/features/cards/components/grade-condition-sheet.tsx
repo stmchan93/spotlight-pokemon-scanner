@@ -137,24 +137,16 @@ export function GradeConditionSheet({
                     onSelect(option.id);
                     onClose();
                   }}
-                  // Selected = filled purple pill (Figma 1664:727); the old purple
-                  // text + checkmark read as too subtle, so the whole row fills.
+                  // Selected = full-width pale-purple band (Figma 1664:2597); dark
+                  // text either way, no checkmark — the fill alone marks selection.
                   style={({ pressed }) => [
                     styles.row,
-                    selected && {
-                      backgroundColor: theme.colors.purple500,
-                      borderRadius: theme.radii.sm,
-                    },
+                    selected && { backgroundColor: theme.colors.purple50 },
                     { opacity: pressed ? 0.7 : 1 },
                   ]}
                   testID={`${testID}-option-${option.id}`}
                 >
-                  <Text
-                    style={[
-                      selected ? theme.typography.bodyStrong : theme.typography.body,
-                      { color: selected ? theme.colors.gray0 : theme.colors.gray900 },
-                    ]}
-                  >
+                  <Text style={[theme.typography.body, { color: theme.colors.gray900 }]}>
                     {option.label}
                   </Text>
                 </Pressable>
@@ -204,10 +196,8 @@ const styles = StyleSheet.create({
   row: {
     alignItems: 'center',
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginHorizontal: 8,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 10,
   },
 });
 
