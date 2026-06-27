@@ -427,6 +427,11 @@ def _apply_additive_runtime_migrations(connection: sqlite3.Connection) -> None:
     _add_column_if_missing(connection, "deck_entry_events", "currency_code", "TEXT")
     _add_column_if_missing(connection, "deck_entry_events", "payment_method", "TEXT")
     _add_column_if_missing(connection, "portfolio_import_jobs", "owner_user_id", "TEXT")
+    # GemRate population overlay (PPT Business). Additive, metadata-only column on the
+    # price snapshot so the population sync never has to touch price columns.
+    _add_column_if_missing(
+        connection, "card_price_snapshots", "population_json", "TEXT NOT NULL DEFAULT '{}'"
+    )
     # Join anchor to PokemonPriceTracker: PPT keys cards by TCGplayer product id
     # (`tcgPlayerId`), and Scrydex stores the same id in each card's payload
     # (variants[].marketplaces[name=tcgplayer].product_id). Persisting it as a
@@ -4969,6 +4974,101 @@ def _trend_pct_from_points(points: list[float], entry: dict[str, Any] | None) ->
     return None
 
 
+def _ppt_graded_signal_row(
+    connection: sqlite3.Connection,
+    card_id: str,
+    grader: str,
+    grade: str,
+) -> sqlite3.Row | None:
+    """Look up the durable PPT trust-signal row for (card_id, grader, grade).
+
+    Returns None when the table is absent (older DBs) or no row matches. Defensive:
+    never raises on a missing table so reads degrade to the snapshot-payload
+    fallback."""
+    if not _table_exists(connection, "ppt_graded_signals"):
+        return None
+    return connection.execute(
+        "SELECT confidence, count, smart, source, median "
+        "FROM ppt_graded_signals WHERE card_id = ? AND grader = ? AND grade = ? LIMIT 1",
+        (card_id, str(grader or "").strip().upper(), str(grade or "").strip().upper()),
+    ).fetchone()
+
+
+# Below this raw-vs-graded sanity floor we don't bother suppressing — sub-$20 raw
+# noise isn't worth a "no price" surface (matches the phantom-price analysis).
+_RAW_PHANTOM_MIN_USD = 20.0
+
+
+def _amount_to_usd(
+    connection: sqlite3.Connection,
+    amount: float | None,
+    currency_code: str | None,
+) -> float | None:
+    """Convert ``amount`` in ``currency_code`` to USD using the cached FX snapshot
+    (read path: never blocks on a network fetch). USD/empty passes through. Returns
+    None when the amount is missing or no FX rate is available for a non-USD code."""
+    if not isinstance(amount, (int, float)) or isinstance(amount, bool):
+        return None
+    code = str(currency_code or "USD").strip().upper() or "USD"
+    if code == "USD":
+        return float(amount)
+    snapshot = fx_rate_snapshot_for_pair(connection, code, "USD")
+    rate = snapshot.get("rate") if isinstance(snapshot, dict) else None
+    if not isinstance(rate, (int, float)) or isinstance(rate, bool):
+        return None
+    return float(amount) * float(rate)
+
+
+def _is_raw_phantom_price(
+    connection: sqlite3.Connection,
+    raw_contexts: dict[str, Any] | None,
+    graded_contexts: dict[str, Any] | None,
+) -> bool:
+    """True when a card's RAW NM market exceeds its OWN PSA 10 market in a common
+    currency (USD) — an illiquid "phantom" raw price (a raw card cannot be worth
+    more than its graded slab). CURRENCY-AWARE: both sides are converted to USD via
+    the cached FX snapshot before comparing.
+
+    Conservative by design:
+    - No PSA 10 (or PSA 10 <= 0) -> False (never suppress when we can't compare).
+    - Raw NM USD below the small ``_RAW_PHANTOM_MIN_USD`` floor -> False (skip
+      sub-$20 trivia).
+    - Suppress only when raw_nm_usd > psa10_usd."""
+    if not isinstance(raw_contexts, dict) or not isinstance(graded_contexts, dict):
+        return False
+
+    # Best raw NM market across all variants, in USD (take the max).
+    raw_nm_usd: float | None = None
+    variants = raw_contexts.get("variants")
+    if isinstance(variants, dict):
+        for variant_bucket in variants.values():
+            if not isinstance(variant_bucket, dict):
+                continue
+            conditions = variant_bucket.get("conditions")
+            if not isinstance(conditions, dict):
+                continue
+            cell = conditions.get("NM")
+            if not isinstance(cell, dict):
+                continue
+            converted = _amount_to_usd(connection, cell.get("market"), cell.get("currencyCode"))
+            if converted is None:
+                continue
+            if raw_nm_usd is None or converted > raw_nm_usd:
+                raw_nm_usd = converted
+
+    if raw_nm_usd is None or raw_nm_usd < _RAW_PHANTOM_MIN_USD:
+        return False
+
+    psa10_entry = _resolve_graded_context_entry(graded_contexts, grader="PSA", grade="10")
+    if not isinstance(psa10_entry, dict):
+        return False
+    psa10_usd = _amount_to_usd(connection, psa10_entry.get("market"), psa10_entry.get("currencyCode"))
+    if psa10_usd is None or psa10_usd <= 0:
+        return False
+
+    return raw_nm_usd > psa10_usd
+
+
 def card_price_trend_list(
     connection: sqlite3.Connection,
     card_id: str,
@@ -5086,13 +5186,21 @@ def card_price_trend_list(
                 continue
             if isinstance(snapshot_entry, dict) and str(snapshot_entry.get("currencyCode") or "").strip():
                 currency_code = str(snapshot_entry.get("currencyCode"))
-            # Trust signals from the snapshot entry's payload — populated by the PPT
-            # adapter (smartMarketPrice confidence + eBay sale count); None for
-            # providers that don't carry them (e.g. Scrydex).
+            # Trust signals: prefer the DURABLE ppt_graded_signals side table
+            # (survives the daily Scrydex sync that overwrites graded_contexts_json),
+            # falling back to the snapshot entry's payload for back-compat. None for
+            # grades PPT has no signal for (e.g. Scrydex-only).
+            signal_row = _ppt_graded_signal_row(connection, card_id, grader_key, grade_key)
             entry_payload = snapshot_entry.get("payload") if isinstance(snapshot_entry, dict) else None
             entry_payload = entry_payload if isinstance(entry_payload, dict) else {}
-            confidence = str(entry_payload.get("confidence") or "").strip().lower() or None
-            raw_count = entry_payload.get("count")
+            if signal_row is not None and signal_row["confidence"] is not None:
+                confidence = str(signal_row["confidence"]).strip().lower() or None
+            else:
+                confidence = str(entry_payload.get("confidence") or "").strip().lower() or None
+            if signal_row is not None and signal_row["count"] is not None:
+                raw_count = signal_row["count"]
+            else:
+                raw_count = entry_payload.get("count")
             sale_count = int(raw_count) if isinstance(raw_count, (int, float)) and not isinstance(raw_count, bool) else None
             label = f"{grader_key} {grade_key}"
             rows.append(
@@ -5113,6 +5221,12 @@ def card_price_trend_list(
     snapshot_raw = (
         _raw_contexts_payload(snapshot_row["raw_contexts_json"]) if snapshot_row is not None else _empty_raw_contexts()
     )
+    # Suppress illiquid "phantom" raw prices (raw NM > own PSA 10): null the
+    # currentPrice and flag the row so the trend surface matches the headline read.
+    snapshot_graded_for_phantom = (
+        _graded_contexts_payload(snapshot_row["graded_contexts_json"]) if snapshot_row is not None else _empty_graded_contexts()
+    )
+    raw_is_phantom = _is_raw_phantom_price(connection, snapshot_raw, snapshot_graded_for_phantom)
     resolved_variant = _normalized_variant_label(variant) if variant else None
     if resolved_variant is None or not _raw_context_conditions(snapshot_raw, resolved_variant):
         default_variant, _, _ = _resolve_default_raw_context(snapshot_raw)
@@ -5151,16 +5265,20 @@ def card_price_trend_list(
             continue
         if isinstance(snapshot_entry, dict) and str(snapshot_entry.get("currencyCode") or "").strip():
             currency_code = str(snapshot_entry.get("currencyCode"))
-        rows.append(
-            {
-                "label": _RAW_CONDITION_LABELS.get(condition_code, condition_code),
-                "key": condition_code,
-                "currentPrice": current_price,
-                "currencyCode": currency_code,
-                "points": points,
-                "trendPct": _trend_pct_from_points(points, snapshot_entry),
-            }
-        )
+        row_dict: dict[str, Any] = {
+            "label": _RAW_CONDITION_LABELS.get(condition_code, condition_code),
+            "key": condition_code,
+            "currentPrice": current_price,
+            "currencyCode": currency_code,
+            "points": points,
+            "trendPct": _trend_pct_from_points(points, snapshot_entry),
+        }
+        if raw_is_phantom:
+            row_dict["currentPrice"] = None
+            row_dict["points"] = []
+            row_dict["trendPct"] = None
+            row_dict["suppressionReason"] = "phantom"
+        rows.append(row_dict)
     return {"mode": RAW_PRICING_MODE, "provider": response_provider, "rows": rows}
 
 

@@ -196,3 +196,95 @@ def build_ppt_pricing_bundle(
         "raw_contexts": build_ppt_raw_contexts(card, provider=provider),
         "graded_contexts": build_ppt_graded_contexts(card, provider=provider),
     }
+
+
+# ---------------------------------------------------------------------------
+# GemRate population (PPT `/population` + Business `/export type=population`)
+# ---------------------------------------------------------------------------
+
+# `GraderPopulation` count keys are `g1`..`g10` plus half grades `g1_5`..`g9_5`.
+# Everything else on that object (gemRate, totalPopulation, perfect, pristine,
+# qualifiers, auth) is metadata, not a per-grade count.
+_GRADE_COUNT_KEY_RE = re.compile(r"^g(\d+(?:_\d+)?)$", re.IGNORECASE)
+
+# PPT names Beckett "BECKETT" in populationByGrader, but the app's grader chips
+# (and Scrydex graded contexts) call it "BGS". Normalize so the PDP's BGS lane
+# actually resolves a report. Confirmed against a live /population response.
+_GRADER_ALIASES = {"BECKETT": "BGS"}
+
+
+def _normalize_grader_key(grader: Any) -> str:
+    key = str(grader or "").strip().upper()
+    return _GRADER_ALIASES.get(key, key)
+
+
+def _normalize_gem_rate(value: Any) -> float | None:
+    """PPT's per-grader `gemRate` arrives as a 0–1 fraction in the live API (e.g.
+    0.3489 = 34.9%), but the published spec example showed it pre-multiplied
+    (20.83). Normalize both to a percentage: scale up only when it looks like a
+    fraction (≤ 1)."""
+    rate = _coerce_price(value)
+    if rate is None:
+        return None
+    return rate * 100 if 0 < rate <= 1 else rate
+
+
+def _coerce_count(value: Any) -> int | None:
+    """Non-negative integer count, or None. Floats/strings are coerced; bools are not."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return int(value) if value >= 0 else None
+    if isinstance(value, str):
+        text = value.strip().replace(",", "")
+        if not text:
+            return None
+        try:
+            number = int(float(text))
+        except ValueError:
+            return None
+        return number if number >= 0 else None
+    return None
+
+
+def build_population_entry(grader_pop: dict[str, Any]) -> dict[str, Any] | None:
+    """One `GraderPopulation` dict (e.g. the PSA value of `populationByGrader`) →
+    our normalized entry `{"totalPopulation", "gemRate", "grades": {"10": n, "9.5": n}}`.
+    Grade keys are dotted decimals ("9.5") for direct display; gemRate is a
+    percentage. Only grades with a NON-ZERO count are kept (the live API returns a
+    full g1..g10 ladder mostly zeroed — storing/showing those is just noise).
+    Returns None when the grader has no populated grade at all."""
+    if not isinstance(grader_pop, dict):
+        return None
+    grades: dict[str, int] = {}
+    for key, value in grader_pop.items():
+        match = _GRADE_COUNT_KEY_RE.match(str(key))
+        if not match:
+            continue
+        count = _coerce_count(value)
+        if not count:  # drop None and 0 — only populated grades are meaningful
+            continue
+        grades[match.group(1).replace("_", ".")] = count
+    if not grades:
+        return None
+    total = _coerce_count(grader_pop.get("totalPopulation"))
+    if total is None:
+        total = sum(grades.values())
+    return {"totalPopulation": total, "gemRate": _normalize_gem_rate(grader_pop.get("gemRate")),
+            "grades": grades}
+
+
+def build_card_population(gemrate_data: dict[str, Any]) -> dict[str, Any]:
+    """A `GemrateData` dict (the `/population` response's `data`, or one tcgPlayerId's
+    merged export rows) → `{grader: entry}` keyed by grading company (PSA/BGS/CGC/SGC).
+    Beckett is normalized to "BGS" to match the app's grader chips. Skips graders
+    with no populated grade. Empty dict when nothing is usable."""
+    by_grader = gemrate_data.get("populationByGrader") if isinstance(gemrate_data, dict) else None
+    if not isinstance(by_grader, dict):
+        return {}
+    out: dict[str, Any] = {}
+    for grader, grader_pop in by_grader.items():
+        entry = build_population_entry(grader_pop)
+        if entry is not None:
+            out[_normalize_grader_key(grader)] = entry
+    return out

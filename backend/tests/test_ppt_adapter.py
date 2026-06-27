@@ -21,6 +21,8 @@ from catalog_tools import (  # noqa: E402
     resolve_raw_summary_from_cells,
 )
 from ppt_adapter import (  # noqa: E402
+    build_card_population,
+    build_population_entry,
     build_ppt_graded_contexts,
     build_ppt_pricing_bundle,
     build_ppt_raw_contexts,
@@ -139,6 +141,73 @@ class PptRoundTripTests(unittest.TestCase):
         _, _, raw_summary = resolve_raw_summary_from_cells(rows, variant="Holofoil", condition="NM")
         self.assertIsNotNone(raw_summary)
         self.assertEqual(raw_summary["market"], 2276.45)
+
+
+class PptPopulationTests(unittest.TestCase):
+    # The documented GemrateData example from the PPT /population spec.
+    GEMRATE = {
+        "tcgPlayerId": "490294",
+        "populationByGrader": {
+            "PSA": {"g10": 2500, "g9": 9500, "totalPopulation": 12000, "gemRate": 20.83},
+            "BGS": {"g10": 100, "g9_5": 730, "pristine": 50, "perfect": 10,
+                    "totalPopulation": 1830, "gemRate": 7.1},
+            "SGC": {"g10": 30, "g9": 100, "totalPopulation": 130, "gemRate": 23.08},
+        },
+    }
+
+    def test_build_card_population_normalizes_grades_and_meta(self):
+        out = build_card_population(self.GEMRATE)
+        self.assertEqual(set(out), {"PSA", "BGS", "SGC"})
+        self.assertEqual(out["PSA"]["grades"], {"10": 2500, "9": 9500})
+        self.assertEqual(out["PSA"]["totalPopulation"], 12000)
+        self.assertEqual(out["PSA"]["gemRate"], 20.83)
+        # Half grades become dotted decimals; non-grade meta (pristine/perfect) dropped.
+        self.assertEqual(out["BGS"]["grades"], {"10": 100, "9.5": 730})
+
+    def test_total_population_falls_back_to_grade_sum(self):
+        entry = build_population_entry({"g10": 5, "g9": 7})
+        self.assertEqual(entry["totalPopulation"], 12)
+        self.assertIsNone(entry["gemRate"])
+
+    def test_grader_without_grade_counts_is_dropped(self):
+        self.assertIsNone(build_population_entry({"gemRate": 5, "totalPopulation": 100}))
+        self.assertEqual(build_card_population({"populationByGrader": {"PSA": {"gemRate": 5}}}), {})
+
+    def test_string_counts_coerce(self):
+        entry = build_population_entry(
+            {"g10": "1,234", "g9_5": "50", "totalPopulation": "2000", "gemRate": "12.5"}
+        )
+        self.assertEqual(entry["grades"], {"10": 1234, "9.5": 50})
+        self.assertEqual(entry["totalPopulation"], 2000)
+        self.assertEqual(entry["gemRate"], 12.5)
+
+    def test_malformed_input_is_safe(self):
+        self.assertEqual(build_card_population({}), {})
+        self.assertEqual(build_card_population({"populationByGrader": None}), {})
+        self.assertIsNone(build_population_entry("nope"))
+
+    def test_live_api_shape_beckett_alias_fraction_gemrate_and_zero_drop(self):
+        # Shape from a real /population response: Beckett is keyed "BECKETT", the
+        # per-grader gemRate is a 0–1 fraction, and the grade ladder is mostly zeros.
+        live = {
+            "tcgPlayerId": "490294",
+            "populationByGrader": {
+                "PSA": {"g1": 0, "g6": 4, "g7": 14, "g8": 69, "g9": 240, "g10": 179,
+                        "g8_5": 1, "g9_5": 0, "qualifiers": 4, "totalPopulation": 513,
+                        "gemRate": 0.3489278752436647},
+                "BECKETT": {"g6": 1, "g8": 1, "g9": 6, "g10": 0, "totalPopulation": 13,
+                            "gemRate": 0.3076923076923077},
+            },
+        }
+        out = build_card_population(live)
+        # Beckett → BGS so the app's BGS lane resolves.
+        self.assertEqual(set(out), {"PSA", "BGS"})
+        # Zero-count grades dropped (no "1", no "9.5"); half grade kept when nonzero.
+        self.assertEqual(out["PSA"]["grades"], {"6": 4, "7": 14, "8": 69, "9": 240, "10": 179, "8.5": 1})
+        # Fractional gemRate scaled to a percentage.
+        self.assertAlmostEqual(out["PSA"]["gemRate"], 34.89278752436647)
+        # BGS had g10=0 → dropped; only its nonzero grades remain.
+        self.assertEqual(out["BGS"]["grades"], {"6": 1, "8": 1, "9": 6})
 
 
 if __name__ == "__main__":

@@ -30,6 +30,8 @@ from catalog_tools import (
     _coerce_price_summary_from_entry,
     _graded_contexts_payload,
     _graded_variants_for_context,
+    _is_raw_phantom_price,
+    _ppt_graded_signal_row,
     _normalized_variant_label,
     _raw_context_conditions,
     _raw_context_entry,
@@ -1306,6 +1308,25 @@ class SpotlightScanService:
             (normalized_card_id,),
         ).fetchone()
         return int(row[0]) if row else 0
+
+    def _card_population(self, card_id: str) -> dict[str, Any]:
+        """GemRate population for this card, keyed by grader (PSA/BGS/CGC/SGC). Empty
+        dict when none is synced. Populated by the PPT population overlay; read-only
+        metadata that never affects a displayed price."""
+        normalized_card_id = str(card_id or "").strip()
+        if not normalized_card_id:
+            return {}
+        row = self.connection.execute(
+            "SELECT population_json FROM card_price_snapshots WHERE card_id = ? LIMIT 1",
+            (normalized_card_id,),
+        ).fetchone()
+        if not row or not row[0]:
+            return {}
+        try:
+            parsed = json.loads(row[0])
+        except (ValueError, TypeError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
 
     def _card_watcher_count(self, card_id: str) -> int:
         """Distinct viewers of this card within the rolling watcher window."""
@@ -2639,6 +2660,24 @@ class SpotlightScanService:
                 else pricing_context.preferred_variant
             )
             resolved_payload = summary.get("payload") or {}
+            # Merge DURABLE PPT trust signals (ppt_graded_signals) into the headline
+            # graded summary so the trust line survives a Scrydex sync that
+            # overwrites graded_contexts_json. Defensive: no row -> leave as-is.
+            signal_row = _ppt_graded_signal_row(
+                self.connection,
+                snapshot_row["card_id"],
+                pricing_context.grader,
+                pricing_context.grade,
+            )
+            if signal_row is not None:
+                resolved_payload = dict(resolved_payload)
+                if signal_row["confidence"] is not None:
+                    confidence_raw = str(signal_row["confidence"]).strip().lower()
+                    if confidence_raw:
+                        resolved_payload["confidenceLabel"] = confidence_raw.capitalize()
+                        resolved_payload["confidenceLevel"] = confidence_raw
+                if signal_row["count"] is not None:
+                    resolved_payload["compCount"] = signal_row["count"]
         else:
             resolved_variant, _, summary = _resolve_raw_context_summary(
                 raw_contexts,
@@ -2659,6 +2698,15 @@ class SpotlightScanService:
             if summary is None:
                 return None
             resolved_payload = summary.get("payload") or {}
+            # FREE Scrydex-only suppression: if this raw NM market exceeds the
+            # card's OWN PSA 10 (currency-aware), it's an illiquid "phantom" price.
+            # Showing a fake number is worse than showing nothing — null the raw
+            # price fields and flag the reason. Only triggers on raw>own-PSA10, NOT
+            # on mere illiquidity (a valid flat-priced card is never blanked).
+            if _is_raw_phantom_price(self.connection, raw_contexts, graded_contexts):
+                for key in ("market", "low", "mid", "high", "trend", "directLow"):
+                    summary[key] = None
+                summary["suppressionReason"] = "phantom"
 
         pricing = {
             "id": snapshot_row["card_id"],
@@ -2677,6 +2725,7 @@ class SpotlightScanService:
             "directLow": summary.get("directLow"),
             "trend": summary.get("trend"),
             "trendsPct": summary.get("trendsPct"),
+            "suppressionReason": summary.get("suppressionReason"),
             "sourceURL": snapshot_row["source_url"],
             "updatedAt": snapshot_row["source_updated_at"],
             "refreshedAt": snapshot_row["updated_at"],
@@ -10582,6 +10631,9 @@ class SpotlightScanService:
             "isFavorite": favorite_row is not None,
             "favoritedAt": favorite_row["created_at"] if favorite_row is not None else None,
             "cardText": card_text_from_card(resolved_card),
+            # GemRate population keyed by grader (PSA/BGS/CGC/SGC); {} when unsynced.
+            # Drives the PDP's dynamic-by-grader population report.
+            "population": self._card_population(card_id),
         }
         if include_social_counts:
             payload["likeCount"] = self._card_like_count(card_id)

@@ -87,6 +87,9 @@ CREATE TABLE IF NOT EXISTS card_price_snapshots (
     default_raw_trend_price REAL,
     raw_contexts_json TEXT NOT NULL DEFAULT '{}',
     graded_contexts_json TEXT NOT NULL DEFAULT '{}',
+    -- GemRate population (PPT), keyed by grader: {"PSA": {"totalPopulation", "gemRate",
+    -- "grades": {"10": n, ...}}, ...}. Metadata only — never feeds a displayed price.
+    population_json TEXT NOT NULL DEFAULT '{}',
     source_url TEXT,
     source_updated_at TEXT,
     source_payload_json TEXT NOT NULL DEFAULT '{}',
@@ -124,6 +127,19 @@ CREATE TABLE IF NOT EXISTS fx_rate_snapshots (
     source_url TEXT,
     source_payload_json TEXT NOT NULL DEFAULT '{}',
     updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS ppt_graded_signals (
+    card_id TEXT NOT NULL,
+    grader TEXT NOT NULL,
+    grade TEXT NOT NULL,
+    confidence TEXT,
+    count INTEGER,
+    smart REAL,
+    source TEXT,
+    median REAL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (card_id, grader, grade)
 );
 
 CREATE TABLE IF NOT EXISTS scan_events (
