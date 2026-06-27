@@ -27,12 +27,11 @@ function renderReport(props: React.ComponentProps<typeof CardPopulationReport>) 
 }
 
 describe('CardPopulationReport', () => {
-  it('renders the selected grader’s grade distribution', () => {
+  it('renders the selected grader’s grade distribution as a "<GRADER> Population Report: <total>" cell row', () => {
     renderReport({ population: POPULATION, grader: 'PSA', testID: 'pop' });
 
-    expect(screen.getByText('PSA Population')).toBeTruthy();
-    expect(screen.getByText('12,000 total · 20.8% gem')).toBeTruthy();
-    // Highest grade first, with comma-formatted counts.
+    expect(screen.getByText('PSA Population Report: 12,000')).toBeTruthy();
+    // Highest grade first, with comma-formatted counts in horizontal cells.
     expect(screen.getByTestId('pop-grade-10')).toBeTruthy();
     expect(screen.getByTestId('pop-grade-9')).toBeTruthy();
     expect(screen.getByText('2,500')).toBeTruthy();
@@ -41,7 +40,7 @@ describe('CardPopulationReport', () => {
 
   it('switches the report when the grader changes (dynamic by grading company)', () => {
     const { rerender } = renderReport({ population: POPULATION, grader: 'PSA', testID: 'pop' });
-    expect(screen.getByText('PSA Population')).toBeTruthy();
+    expect(screen.getByText('PSA Population Report: 12,000')).toBeTruthy();
 
     rerender(
       <SafeAreaProvider initialMetrics={safeAreaMetrics}>
@@ -51,8 +50,8 @@ describe('CardPopulationReport', () => {
       </SafeAreaProvider>,
     );
 
-    expect(screen.queryByText('PSA Population')).toBeNull();
-    expect(screen.getByText('BGS Population')).toBeTruthy();
+    expect(screen.queryByText('PSA Population Report: 12,000')).toBeNull();
+    expect(screen.getByText('BGS Population Report: 1,830')).toBeTruthy();
     expect(screen.getByTestId('pop-grade-9.5')).toBeTruthy();
   });
 
@@ -60,7 +59,7 @@ describe('CardPopulationReport', () => {
     // Raw lane → no report.
     renderReport({ population: POPULATION, grader: 'Raw', testID: 'pop' });
     expect(screen.queryByTestId('pop')).toBeNull();
-    expect(screen.queryByText(/Population$/)).toBeNull();
+    expect(screen.queryByText(/Population Report/)).toBeNull();
 
     // Grader the card has no synced population for → no report.
     renderReport({ population: POPULATION, grader: 'CGC', testID: 'pop' });

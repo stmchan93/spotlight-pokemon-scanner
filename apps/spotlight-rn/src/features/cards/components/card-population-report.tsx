@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useSpotlightTheme } from '@spotlight/design-system';
 import type { CardPopulation } from '@spotlight/api-client';
@@ -16,8 +16,8 @@ function formatCount(value: number): string {
 }
 
 // Grade labels are dotted-decimal strings ("10", "9.5", "9", …). Drop any zero
-// counts and sort highest grade first so the report reads top-down like a real
-// PSA/BGS pop report.
+// counts and sort highest grade first so the report reads left-to-right like a
+// real PSA/BGS pop report.
 function sortedGradeEntries(grades: Record<string, number>): [string, number][] {
   return Object.entries(grades)
     .filter(([, count]) => count > 0)
@@ -25,11 +25,11 @@ function sortedGradeEntries(grades: Record<string, number>): [string, number][] 
 }
 
 /**
- * Dynamic population report: renders the grade distribution for the grading
- * company currently selected on the PDP (Figma 1664:255 — PSA selected shows the
- * PSA pop report). Re-renders whenever `grader` flips. Renders nothing for the raw
- * lane or when the selected grader has no synced population, so the PDP simply
- * omits the section rather than showing an empty shell.
+ * Dynamic population report (Figma 1640:4229 + 1640:4231): a "<GRADER> Population
+ * Report: <total>" heading over a horizontally-scrolling row of grade cells, each
+ * stacking the grade label over its slab count. Re-renders whenever `grader`
+ * flips. Renders nothing for the raw lane or when the selected grader has no
+ * synced population, so the PDP simply omits the section.
  */
 export function CardPopulationReport({ population, grader, testID }: CardPopulationReportProps) {
   const theme = useSpotlightTheme();
@@ -44,84 +44,53 @@ export function CardPopulationReport({ population, grader, testID }: CardPopulat
   if (grades.length === 0) {
     return null;
   }
-  // Scale bars to the most-populous grade so the distribution is legible even
-  // when one grade dwarfs the rest.
-  const maxCount = grades.reduce((max, [, count]) => Math.max(max, count), 0) || 1;
 
   return (
     <View style={styles.root} testID={testID}>
-      <View style={styles.header}>
-        <Text style={theme.typography.titleMedium}>{`${normalizedGrader} Population`}</Text>
-        <Text style={[theme.typography.bodyMedium, { color: theme.colors.gray600 }]}>
-          {entry.gemRate != null
-            ? `${formatCount(entry.totalPopulation)} total · ${entry.gemRate.toFixed(1)}% gem`
-            : `${formatCount(entry.totalPopulation)} total`}
-        </Text>
-      </View>
+      <Text
+        style={[theme.typography.label, { color: theme.colors.gray600 }]}
+        testID={testID ? `${testID}-title` : undefined}
+      >
+        {`${normalizedGrader} Population Report: ${formatCount(entry.totalPopulation)}`}
+      </Text>
 
-      <View style={styles.rows}>
+      <ScrollView
+        contentContainerStyle={styles.row}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+      >
         {grades.map(([grade, count]) => (
-          <View key={grade} style={styles.row} testID={testID ? `${testID}-grade-${grade}` : undefined}>
-            <Text style={[theme.typography.label, styles.gradeLabel, { color: theme.colors.gray900 }]}>
+          <View
+            key={grade}
+            style={styles.cell}
+            testID={testID ? `${testID}-grade-${grade}` : undefined}
+          >
+            <Text style={[theme.typography.caption, { color: theme.colors.gray500 }]}>
               {grade}
             </Text>
-            <View style={[styles.track, { backgroundColor: theme.colors.gray50 }]}>
-              <View
-                style={[
-                  styles.fill,
-                  {
-                    backgroundColor: theme.colors.gray900,
-                    width: `${Math.max(2, (count / maxCount) * 100)}%`,
-                  },
-                ]}
-              />
-            </View>
-            <Text
-              style={[theme.typography.bodyMedium, styles.count, { color: theme.colors.gray700 }]}
-            >
+            <Text style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}>
               {formatCount(count)}
             </Text>
           </View>
         ))}
-      </View>
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  count: {
-    minWidth: 56,
-    textAlign: 'right',
-  },
-  fill: {
-    borderRadius: 999,
-    height: '100%',
-  },
-  gradeLabel: {
-    minWidth: 32,
-  },
-  header: {
-    alignItems: 'baseline',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  cell: {
+    gap: 6,
+    minWidth: 64,
+    paddingVertical: 4,
   },
   root: {
     gap: 12,
     width: '100%',
   },
   row: {
-    alignItems: 'center',
     flexDirection: 'row',
-    gap: 12,
-  },
-  rows: {
-    gap: 8,
-  },
-  track: {
-    borderRadius: 999,
-    flex: 1,
-    height: 8,
-    overflow: 'hidden',
+    gap: 16,
   },
 });
 

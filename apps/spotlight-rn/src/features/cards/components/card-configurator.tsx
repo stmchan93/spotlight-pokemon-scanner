@@ -4,6 +4,10 @@ import { SkeletonBlock, useSpotlightTheme, type SpotlightTheme } from '@spotligh
 import type { MarketHistoryOption } from '@spotlight/api-client';
 
 type CardConfiguratorProps = {
+  /** Language options (e.g. "EN", "JP") rendered as the first chip row. */
+  languages: string[];
+  selectedLanguage: string;
+  onSelectLanguage: (language: string) => void;
   variants: MarketHistoryOption[];
   /**
    * True while detail/variant data is still loading. When set and no variants
@@ -75,6 +79,9 @@ function GroupTitle({ children, theme }: { children: string; theme: SpotlightThe
 }
 
 export function CardConfigurator({
+  languages,
+  selectedLanguage,
+  onSelectLanguage,
   variants,
   variantsLoading = false,
   selectedVariant,
@@ -88,6 +95,22 @@ export function CardConfigurator({
 
   return (
     <View style={[styles.root, { gap: 16 }]} testID={testID}>
+      <View style={[styles.group, { gap: 10 }]}>
+        <GroupTitle theme={theme}>Language</GroupTitle>
+        <View style={[styles.chipRow, { gap: 6 }]}>
+          {languages.map((language) => (
+            <OptionChip
+              key={language}
+              label={language}
+              onPress={() => onSelectLanguage(language)}
+              selected={language === selectedLanguage}
+              testID={testID ? `${testID}-language-${language}` : undefined}
+              theme={theme}
+            />
+          ))}
+        </View>
+      </View>
+
       {variants.length > 0 ? (
         <View style={[styles.group, { gap: 10 }]}>
           <GroupTitle theme={theme}>Variant</GroupTitle>

@@ -16,18 +16,18 @@ import {
   type CardPriceTrendList as CardPriceTrendListRecord,
   type CardPriceTrendRow,
   type DeckConditionCode,
-  type InventoryCardEntry,
   type MarketHistoryOption,
   type SlabContext,
 } from '@spotlight/api-client';
 import { Button, IconButton, colors, useSpotlightTheme } from '@spotlight/design-system';
-import { NavArrowLeft, ShareIos, Trash } from 'iconoir-react-native';
+import { NavArrowLeft, ShareIos } from 'iconoir-react-native';
 
 import { AddToCollectionSheet } from '@/features/cards/components/add-to-collection-sheet';
 import { CardConfigurator } from '@/features/cards/components/card-configurator';
 import { GradeConditionSheet } from '@/features/cards/components/grade-condition-sheet';
 import { CardDetailHero } from '@/features/cards/components/card-detail-hero';
 import { CardPopulationReport } from '@/features/cards/components/card-population-report';
+import { CardWishlistCounter } from '@/features/cards/components/card-wishlist-counter';
 import { CardPriceTrendList } from '@/features/cards/components/card-price-trend-list';
 import { CardPriceTrendSkeleton } from '@/features/cards/components/card-price-trend-skeleton';
 import { CardProductDetails } from '@/features/cards/components/card-product-details';
@@ -90,6 +90,10 @@ const numericGradeOptions: readonly string[] = [
   '1',
 ] as const;
 
+// EN/JP language selector (Figma 1640:4087). Pre-fills to English; a JP card's
+// PDP can switch the lens to Japanese. UI-only for now (not sent to the backend).
+const languageOptions: readonly string[] = ['EN', 'JP'] as const;
+
 type DropdownOption = {
   id: string;
   label: string;
@@ -132,10 +136,11 @@ export function CardDetailScreen({
     favoritedAt: null,
     isFavorite: false,
   });
-  // Public social-proof counts. `likeCount` mutates optimistically alongside the
-  // favorite toggle; `watcherCount` is read-only ("people watching").
+  // Public wishlist count shown as social proof; mutates optimistically
+  // alongside the favorite toggle.
   const [likeCount, setLikeCount] = useState(0);
   // Configurator local state.
+  const [selectedLanguage, setSelectedLanguage] = useState<string>(languageOptions[0]);
   const [selectedVariant, setSelectedVariant] = useState<string | null>(null);
   const [selectedGrader, setSelectedGrader] = useState<string | null>(null);
   const [selectedGrade, setSelectedGrade] = useState<string | null>(null);
@@ -151,17 +156,6 @@ export function CardDetailScreen({
   // add another slab, instead of flipping into the owned/Edit state.
   const [justSaved, setJustSaved] = useState(false);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [isManagePending, setIsManagePending] = useState(false);
-  // The owned line the page is currently editing (sticky). null = ADD mode (the
-  // card isn't owned, or the user tapped "+ Add copy" to create a new line).
-  // Seeded once per card from the arrived-at entry; never recomputed from the
-  // live selection, so changing the condition edits the SAME line instead of
-  // flipping to ADD and duplicating it.
-  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
-  // True only while ADD mode was entered via "+ Add copy" from an owned card, so
-  // the action row can offer a Cancel back to the line we were editing.
-  const [isAddingCopy, setIsAddingCopy] = useState(false);
-  const previousEditingEntryIdRef = useRef<string | null>(null);
 
   const [priceTrends, setPriceTrends] = useState<CardPriceTrendListRecord | null>(null);
   const [priceTrendsLoading, setPriceTrendsLoading] = useState(false);
@@ -243,6 +237,7 @@ export function CardDetailScreen({
   useEffect(() => {
     setFavoriteState({ favoritedAt: null, isFavorite: false });
     setLikeCount(0);
+    setSelectedLanguage(languageOptions[0]);
     setSelectedVariant(null);
     setSelectedGrader(null);
     setSelectedGrade(null);
@@ -250,13 +245,9 @@ export function CardDetailScreen({
     setQuantity(1);
     setPriceTrends(null);
     setPriceTrendsLoading(false);
-    setEditingEntryId(null);
-    setIsAddingCopy(false);
-    previousEditingEntryIdRef.current = null;
     lastFetchedLaneKeyRef.current = null;
     seededCardIdRef.current = null;
     seededVariantCardIdRef.current = null;
-    seededQuantityEntryIdRef.current = null;
   }, [cardId]);
 
   useEffect(() => {
@@ -326,11 +317,6 @@ export function CardDetailScreen({
       return;
     }
     seededCardIdRef.current = cardId;
-
-    // Seed the sticky edit target to the line we arrived at (the tapped
-    // collection entry via `entryId`, else the primary owned line). null when the
-    // card isn't owned → the page stays in ADD mode.
-    setEditingEntryId(selectedEntry?.id ?? null);
 
     if (ownedSlabContext?.grader) {
       const graderMatch = graderOptions.find(
@@ -713,26 +699,21 @@ export function CardDetailScreen({
       sourceScanID: null,
       addedAt: new Date().toISOString(),
     })
-      .then((response) => {
+      .then(() => {
         capturePostHogEvent('card_detail_add_item_succeeded', {
           kind: isRawLane ? 'raw' : 'graded',
           quantity: Math.max(1, quantity),
         });
         setAddSheetOpen(false);
-        if (isRawLane) {
-          // Raw: the card is now owned → switch the page into edit mode for the
-          // new (or merged) line so the same controls update it from here on.
-          setIsAddingCopy(false);
-          setEditingEntryId(response.deckEntryID);
-        } else {
-          // Graded (Figma 1640-5770): stay in ADD mode and flash "SAVED" on the
-          // CTA for 5s, reverting to "ADD ITEM" so another slab can be added.
-          setJustSaved(true);
-          if (savedTimerRef.current) {
-            clearTimeout(savedTimerRef.current);
-          }
-          savedTimerRef.current = setTimeout(() => setJustSaved(false), 5000);
+        // The PDP always stays in ADD mode (Figma 1640:4077 — the action bar is
+        // just ADD ITEM + SHARE; owned-line edit/remove lives in Collection). The
+        // CTA flashes "SAVED" for 5s, then reverts to "ADD ITEM" so the user can
+        // add another copy/slab.
+        setJustSaved(true);
+        if (savedTimerRef.current) {
+          clearTimeout(savedTimerRef.current);
         }
+        savedTimerRef.current = setTimeout(() => setJustSaved(false), 5000);
         refreshData();
       })
       .catch(() => {
@@ -753,222 +734,11 @@ export function CardDetailScreen({
     spotlightRepository,
   ]);
 
-  // All owned lines for this card (full detail → inventory cache → nav preview).
-  const ownedEntries = useMemo(() => {
-    if (detail?.ownedEntries?.length) {
-      return detail.ownedEntries;
-    }
-    if (cachedOwnedEntries.length) {
-      return cachedOwnedEntries;
-    }
-    return detailPreview?.ownedEntry ? [detailPreview.ownedEntry] : [];
-  }, [cachedOwnedEntries, detail?.ownedEntries, detailPreview?.ownedEntry]);
-
-  // Does the CURRENT configurator selection still describe `entry`'s identity?
-  // Used to tell a quantity-only edit (→ setQuantity) from an attribute change
-  // (→ replace, which rewrites the line in place). Mirrors the seed defaults so a
-  // raw entry stored without a variant/condition still matches the seeded
-  // "Normal" + default-condition lane.
-  const selectionMatchesEntry = useCallback(
-    (entry: InventoryCardEntry) => {
-      if (isRawLane !== (entry.kind === 'raw')) {
-        return false;
-      }
-      if (isRawLane) {
-        const ownedName = entry.kind === 'raw' ? (entry.variantName ?? '').trim() : '';
-        const ownedVariantId = (ownedName
-          ? variantOptions.find((option) => option.label.toLowerCase() === ownedName.toLowerCase())?.id
-          : undefined)
-          ?? variantOptions.find((option) => option.label.trim().toLowerCase() === 'normal')?.id
-          ?? variantOptions[0]?.id
-          ?? null;
-        const ownedCondition = entry.conditionCode ?? deckConditionOptions[0]?.code ?? null;
-        return ownedVariantId === selectedVariant && ownedCondition === selectedCondition;
-      }
-      const ownedGrader = (entry.slabContext?.grader ?? '').trim().toLowerCase();
-      const ownedGrade = (entry.slabContext?.grade ?? '').trim().toLowerCase();
-      return ownedGrader === (selectedGrader ?? '').trim().toLowerCase()
-        && ownedGrade === (selectedGrade ?? '').trim().toLowerCase();
-    },
-    [isRawLane, selectedCondition, selectedGrade, selectedGrader, selectedVariant, variantOptions],
-  );
-
-  // The line being edited (sticky — driven by editingEntryId, not the live
-  // selection). null id ⇒ ADD mode. isManaged keys off the id (not the resolved
-  // entry) so the edit UI doesn't flicker to ADD during a post-mutation refresh.
-  const editingEntry = useMemo(() => {
-    if (!editingEntryId) {
-      return null;
-    }
-    const exact = ownedEntries.find((entry) => entry.id === editingEntryId);
-    if (exact) {
-      return exact;
-    }
-    // After add/replace the backend returns a `deckEntryID` that may not equal the
-    // card-detail entry id (the two come from different endpoints with different id
-    // forms). Without this, the just-added line never resolves, leaving SAVE
-    // permanently disabled. When exactly one line is owned the edit target is
-    // unambiguous, so resolve to it instead of stranding the editor.
-    return ownedEntries.length === 1 ? ownedEntries[0] : null;
-  }, [editingEntryId, ownedEntries]);
-  const isManaged = editingEntryId != null;
-
-  // SAVE is enabled only when the pending edit differs from what's stored — an
-  // attribute change (condition/variant/grade) or a quantity change.
-  const isDirty = useMemo(() => {
-    if (!editingEntry) {
-      return false;
-    }
-    if (!selectionMatchesEntry(editingEntry)) {
-      return true;
-    }
-    return Math.max(1, quantity) !== editingEntry.quantity;
-  }, [editingEntry, quantity, selectionMatchesEntry]);
-
-  // TEMP DIAGNOSTIC (remove once the "SAVE stuck disabled after Add" report is
-  // pinned): fire only in the genuinely-stuck state — managed mode, detail
-  // loaded, but the edit target never resolved (so SAVE can never enable). The
-  // payload distinguishes the candidate causes: ownedEntryCount===0 means the
-  // refetched list never surfaced the new line; a routeCardId/detailCardId/
-  // ownedEntryCardIds mismatch means the cardId filter dropped it; editingEntryId
-  // absent from ownedEntryIds despite count>0 would mean a true id mismatch.
-  const diagnosedEditTargetRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!isManaged || !editingEntryId || !detail || editingEntry != null) {
-      return;
-    }
-    if (diagnosedEditTargetRef.current === editingEntryId) {
-      return;
-    }
-    diagnosedEditTargetRef.current = editingEntryId;
-    capturePostHogEvent('card_detail_edit_target_unresolved', {
-      routeCardId: cardId,
-      detailCardId: detail.cardId,
-      editingEntryId,
-      ownedEntryCount: ownedEntries.length,
-      ownedEntryIds: ownedEntries.map((entry) => entry.id),
-      ownedEntryCardIds: ownedEntries.map((entry) => entry.cardId),
-    });
-  }, [isManaged, editingEntryId, detail, editingEntry, ownedEntries, cardId]);
-
-  // Seed the stepper from the edited line's real quantity (min 1), once per
-  // target. The id ref guard keeps manual −/+ edits from being clobbered on
-  // re-render; ADD mode (no target) resets to 1.
-  const seededQuantityEntryIdRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (editingEntryId == null) {
-      if (seededQuantityEntryIdRef.current !== null) {
-        seededQuantityEntryIdRef.current = null;
-        setQuantity(1);
-      }
-      return;
-    }
-    // Wait for the entry to resolve so we seed its real quantity, not a stale 1.
-    if (!editingEntry || seededQuantityEntryIdRef.current === editingEntryId) {
-      return;
-    }
-    seededQuantityEntryIdRef.current = editingEntryId;
-    setQuantity(Math.max(1, editingEntry.quantity));
-  }, [editingEntry, editingEntryId]);
-
-  // SAVE: commit the pending edit to the active line. A quantity-only change sets
-  // the holding; an attribute change rewrites the line via replace (the backend
-  // merges into an existing matching line and returns its id — so adopt the
-  // returned id as the new edit target).
-  const handleSave = useCallback(() => {
-    if (isManagePending || !editingEntry || !isDirty) {
-      return;
-    }
-    const nextQuantity = Math.max(1, quantity);
-    const attrsChanged = !selectionMatchesEntry(editingEntry);
-    setIsManagePending(true);
-    const request = attrsChanged
-      ? spotlightRepository
-          .replacePortfolioEntry({
-            deckEntryID: editingEntry.id,
-            cardID: editingEntry.cardId,
-            slabContext: configuredSlabContext,
-            variantName: isRawLane ? (selectedVariantLabel ?? null) : null,
-            condition: isRawLane ? selectedCondition : null,
-            quantity: nextQuantity,
-            unitPrice: editingEntry.costBasisPerUnit ?? 0,
-            currencyCode: editingEntry.currencyCode ?? 'USD',
-            updatedAt: new Date().toISOString(),
-          })
-          .then((response) => {
-            seededQuantityEntryIdRef.current = null;
-            setEditingEntryId(response.deckEntryID);
-          })
-      : spotlightRepository.setPortfolioEntryQuantity({
-          deckEntryID: editingEntry.id,
-          quantity: nextQuantity,
-        });
-    void request
-      .then(() => {
-        capturePostHogEvent('card_detail_update_item_succeeded', {
-          attrsChanged,
-          kind: isRawLane ? 'raw' : 'graded',
-          quantity: nextQuantity,
-        });
-        setAddSheetOpen(false);
-        refreshData();
-      })
-      .catch(() => {
-        setErrorMessage('Could not update this card right now.');
-      })
-      .finally(() => {
-        setIsManagePending(false);
-      });
-  }, [
-    configuredSlabContext,
-    editingEntry,
-    isDirty,
-    isManagePending,
-    isRawLane,
-    quantity,
-    refreshData,
-    selectedCondition,
-    selectedVariantLabel,
-    selectionMatchesEntry,
-    spotlightRepository,
-  ]);
-
-  // REMOVE: delete the active line, then drop to the next owned line (if any) or
-  // ADD mode.
-  const handleRemove = useCallback(() => {
-    if (isManagePending || !editingEntry) {
-      return;
-    }
-    const removedId = editingEntry.id;
-    setIsManagePending(true);
-    void spotlightRepository
-      .deletePortfolioEntry({ deckEntryID: removedId })
-      .then(() => {
-        const remaining = ownedEntries.filter((entry) => entry.id !== removedId);
-        seededQuantityEntryIdRef.current = null;
-        setIsAddingCopy(false);
-        setEditingEntryId(remaining[0]?.id ?? null);
-        refreshData();
-      })
-      .catch(() => {
-        setErrorMessage('Could not remove this card right now.');
-      })
-      .finally(() => {
-        setIsManagePending(false);
-      });
-  }, [editingEntry, isManagePending, ownedEntries, refreshData, spotlightRepository]);
-
-  // "+ Add copy": leave the edited line untouched and drop to ADD mode so the
-  // user can create a SEPARATE line (e.g. own NM and LP). Cancel restores it.
-  const handleAddCopy = useCallback(() => {
-    previousEditingEntryIdRef.current = editingEntryId;
-    setIsAddingCopy(true);
-    setEditingEntryId(null);
-  }, [editingEntryId]);
-
-  const handleCancelAddCopy = useCallback(() => {
-    setIsAddingCopy(false);
-    setEditingEntryId(previousEditingEntryIdRef.current);
+  // Opening the Add to Collection sheet always starts a fresh add (quantity 1) —
+  // the PDP no longer edits owned lines in place (Figma 1640:4077).
+  const handleOpenAddSheet = useCallback(() => {
+    setQuantity(1);
+    setAddSheetOpen(true);
   }, []);
 
   // Grade/Condition dropdown wiring for the configurator.
@@ -1021,7 +791,11 @@ export function CardDetailScreen({
       edges={['top', 'left', 'right', 'bottom']}
       style={[styles.safeArea, { backgroundColor: colors.gray0 }]}
     >
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        style={styles.scroll}
+      >
         <View style={styles.headerRow}>
           <IconButton
             accessibilityLabel="Go back"
@@ -1055,111 +829,35 @@ export function CardDetailScreen({
         <CardDetailHero
           imageUrl={displayImageUrl}
           isFavorite={isFavorite}
-          likeCount={likeCount}
           name={displayName}
           onToggleFavorite={handleToggleFavorite}
           testID="detail-hero-card"
-          watcherCount={detail?.watcherCount ?? 0}
         />
 
-        <View style={styles.identityBlock} testID="detail-identity">
-          <Text style={theme.typography.titleLarge} testID="detail-name">
-            {displayName}
-          </Text>
-          <Text style={[theme.typography.bodyMedium, styles.identityMeta]}>
-            {displayNumber(displayCardNumber)}
-          </Text>
-          <Text style={[theme.typography.bodyMedium, styles.identityMeta]}>
-            {displaySetName}
-          </Text>
-        </View>
-
-        <View style={styles.actionSection}>
-          <View style={styles.actionRow}>
-            {isManaged ? (
-              // Owned: open the Add-to-Collection sheet to edit Grade + Quantity
-              // for THIS line, then SAVE from inside the sheet (enabled only when
-              // something changed). Grade/Quantity no longer live on the page.
-              <Button
-                disabled={isManagePending || !detail}
-                label="Edit"
-                labelStyleVariant="label"
-                onPress={() => setAddSheetOpen(true)}
-                shape="rounded"
-                size="md"
-                style={styles.actionButton}
-                testID="detail-update-item"
-                variant="accent"
-              />
-            ) : (
-              <Button
-                // Opens the Add-to-Collection sheet (Grade + Quantity) per Figma
-                // 1664:255 — the add no longer commits straight from the page.
-                // After a graded add the label flashes "SAVED" for 5s (1640-5770).
-                disabled={isAddPending || !detail || justSaved}
-                label={justSaved ? 'SAVED' : 'ADD ITEM'}
-                labelStyleVariant="label"
-                onPress={() => setAddSheetOpen(true)}
-                shape="rounded"
-                size="md"
-                style={styles.actionButton}
-                testID="detail-add-item"
-                variant="accent"
-              />
-            )}
+        <View style={styles.identityRow}>
+          <View style={[styles.identityBlock, styles.identityText]} testID="detail-identity">
+            <Text style={theme.typography.titleLarge} testID="detail-name">
+              {displayName}
+            </Text>
+            <Text style={[theme.typography.bodyMedium, styles.identityMeta]}>
+              {displayNumber(displayCardNumber)}
+            </Text>
+            <Text style={[theme.typography.bodyMedium, styles.identityMeta]}>
+              {displaySetName}
+            </Text>
           </View>
-          {isManaged ? (
-            // Secondary row mirrors the primary action row's shell (md / rounded /
-            // outline) so the controls read as one consistent set. UX polish TBD.
-            <View style={styles.actionRow}>
-              <Button
-                disabled={isManagePending}
-                label="+ Add copy"
-                labelStyleVariant="label"
-                onPress={handleAddCopy}
-                shape="rounded"
-                size="md"
-                style={styles.actionButton}
-                testID="detail-add-copy"
-                variant="outline"
-              />
-              <Button
-                disabled={isManagePending}
-                label="Remove"
-                labelStyle={{ color: theme.colors.dangerStrong }}
-                labelStyleVariant="label"
-                leadingAccessory={<Trash color={theme.colors.dangerStrong} height={18} width={18} />}
-                onPress={handleRemove}
-                shape="rounded"
-                size="md"
-                style={styles.actionButton}
-                testID="detail-remove-item"
-                variant="outline"
-              />
-            </View>
-          ) : isAddingCopy ? (
-            // ADD mode reached via "+ Add copy": offer a way back to the line we
-            // were editing.
-            <View style={styles.manageRow}>
-              <Button
-                disabled={isAddPending}
-                label="Cancel"
-                labelStyleVariant="label"
-                onPress={handleCancelAddCopy}
-                size="sm"
-                style={styles.manageLink}
-                testID="detail-cancel-add-copy"
-                variant="ghost"
-              />
-            </View>
-          ) : null}
+          {/* Wishlist social-proof counter (heart + count, max 9999+). */}
+          <CardWishlistCounter count={likeCount} testID="detail-wishlist-counter" />
         </View>
 
         <CardConfigurator
           graders={[...graderOptions]}
+          languages={[...languageOptions]}
           onSelectGrader={handleSelectGrader}
+          onSelectLanguage={setSelectedLanguage}
           onSelectVariant={setSelectedVariant}
           selectedGrader={selectedGrader}
+          selectedLanguage={selectedLanguage}
           selectedVariant={selectedVariant}
           testID="detail-configurator"
           variants={variantOptions}
@@ -1167,18 +865,18 @@ export function CardDetailScreen({
         />
 
         <AddToCollectionSheet
-          confirmDisabled={isManaged ? (isManagePending || !isDirty) : (isAddPending || !detail)}
-          confirmLabel={isManaged ? 'Save changes' : 'Add to Collection'}
+          confirmDisabled={isAddPending || !detail}
+          confirmLabel="Add to Collection"
           gradeLabel={gradeLabel}
           gradeTitle={gradeTitle}
           onClose={() => setAddSheetOpen(false)}
-          onConfirm={isManaged ? handleSave : handleAddItem}
+          onConfirm={handleAddItem}
           onDecrement={() => setQuantity((current) => Math.max(1, current - 1))}
           onIncrement={() => setQuantity((current) => current + 1)}
           onOpenGradePicker={() => setGradeSheetOpen(true)}
           quantity={quantity}
           testID="detail-add-sheet"
-          title={isManaged ? 'Edit details' : 'Add to Collection'}
+          title="Add to Collection"
           visible={addSheetOpen}
         />
 
@@ -1217,36 +915,52 @@ export function CardDetailScreen({
           <CardProductDetails cardText={detail.cardText} testID="detail-product-details" />
         ) : null}
       </ScrollView>
+
+      {/* Sticky action bar (Figma 1640:4298): ADD ITEM (accent) + SHARE (outline).
+          ADD ITEM flashes "SAVED" for 5s after a successful add. */}
+      <View style={[styles.actionBar, { borderTopColor: theme.colors.outlineSubtle }]}>
+        <Button
+          disabled={isAddPending || !detail || justSaved}
+          label={justSaved ? 'SAVED' : 'ADD ITEM'}
+          labelStyleVariant="label"
+          onPress={handleOpenAddSheet}
+          shape="rounded"
+          size="md"
+          style={styles.actionButton}
+          testID="detail-add-item"
+          variant="accent"
+        />
+        <Button
+          label="SHARE"
+          labelStyleVariant="label"
+          onPress={handleShare}
+          shape="rounded"
+          size="md"
+          style={styles.actionButton}
+          testID="detail-share-button"
+          variant="outline"
+        />
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  actionBar: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+  },
   actionButton: {
     flex: 1,
   },
-  actionRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  actionSection: {
-    gap: 8,
-  },
-  manageLink: {
-    borderWidth: 0,
-    paddingHorizontal: 4,
-  },
-  manageRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 4,
-  },
   content: {
-    // 32px between stacked sections (Figma PDP): actions↔configurator,
+    // 32px between stacked sections (Figma PDP): identity↔configurator,
     // configurator↔price-trend, price-trend↔product-details, etc.
     gap: 32,
-    paddingBottom: 120,
+    paddingBottom: 24,
     paddingHorizontal: 16,
     paddingTop: 12,
   },
@@ -1270,6 +984,15 @@ const styles = StyleSheet.create({
   identityMeta: {
     color: colors.gray600,
   },
+  identityRow: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+  },
+  identityText: {
+    flex: 1,
+  },
   loadingState: {
     alignItems: 'center',
     flex: 1,
@@ -1277,6 +1000,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   safeArea: {
+    flex: 1,
+  },
+  scroll: {
     flex: 1,
   },
   trendBlock: {

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react-native';
+import { fireEvent, render, screen } from '@testing-library/react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { SpotlightThemeProvider } from '@spotlight/design-system';
@@ -27,24 +27,23 @@ function renderHero(props: Partial<React.ComponentProps<typeof CardDetailHero>> 
   );
 }
 
-describe('CardDetailHero wishlist counter', () => {
-  it('labels the count as "Wishlisted" with a comma-formatted value', () => {
-    renderHero({ likeCount: 1234 });
-    expect(screen.getByText('1,234 Wishlisted')).toBeTruthy();
+describe('CardDetailHero', () => {
+  it('renders the hero with a favorite toggle', () => {
+    renderHero();
+    expect(screen.getByTestId('hero')).toBeTruthy();
+    const favorite = screen.getByTestId('hero-favorite');
+    expect(favorite.props.accessibilityLabel).toBe('Add to wishlist');
   });
 
-  it('caps the counter at 9999+', () => {
-    renderHero({ likeCount: 25000 });
-    expect(screen.getByText('9999+ Wishlisted')).toBeTruthy();
+  it('reflects the favorited state in the accessibility label', () => {
+    renderHero({ isFavorite: true });
+    expect(screen.getByTestId('hero-favorite').props.accessibilityLabel).toBe('Remove from wishlist');
   });
 
-  it('shows 9,999 exactly (only values above the cap collapse to 9999+)', () => {
-    renderHero({ likeCount: 9999 });
-    expect(screen.getByText('9,999 Wishlisted')).toBeTruthy();
-  });
-
-  it('hides the counter when nobody has wishlisted the card', () => {
-    renderHero({ likeCount: 0 });
-    expect(screen.queryByTestId('hero-like-count')).toBeNull();
+  it('invokes onToggleFavorite when the heart is pressed', () => {
+    const onToggleFavorite = jest.fn();
+    renderHero({ onToggleFavorite });
+    fireEvent.press(screen.getByTestId('hero-favorite'));
+    expect(onToggleFavorite).toHaveBeenCalledTimes(1);
   });
 });
