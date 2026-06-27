@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import { Linking, Share } from 'react-native';
 
 import type { CardDetailRecord, CardText, InventoryCardEntry } from '@spotlight/api-client';
@@ -68,12 +68,20 @@ describe('CardDetailScreen', () => {
     // Action buttons.
     expect(screen.getByTestId('detail-add-item')).toBeTruthy();
 
-    // Configurator (variant + grader rows + grade trigger + quantity).
+    // Configurator now holds only the variant + grader rows; Grade + Quantity
+    // moved into the Add to Collection sheet (Figma 1664:255).
     expect(screen.getByTestId('detail-configurator')).toBeTruthy();
     expect(screen.getByTestId('detail-configurator-grader-Raw')).toBeTruthy();
     expect(screen.getByTestId('detail-configurator-grader-PSA')).toBeTruthy();
-    expect(screen.getByTestId('detail-configurator-grade-trigger')).toBeTruthy();
-    expect(screen.getByTestId('detail-configurator-quantity-value').props.children).toBe(1);
+    expect(screen.queryByTestId('detail-configurator-grade-trigger')).toBeNull();
+    expect(screen.queryByTestId('detail-configurator-quantity-value')).toBeNull();
+
+    // Tapping ADD ITEM opens the sheet, which hosts Grade + Quantity.
+    fireEvent.press(screen.getByTestId('detail-add-item'));
+    expect(await screen.findByTestId('detail-add-sheet-grade-trigger')).toBeTruthy();
+    expect(screen.getByTestId('detail-add-sheet-quantity-value').props.children).toBe(1);
+    // Dismiss the sheet so the rest of the page is interactable again.
+    fireEvent.press(screen.getByTestId('detail-add-sheet-backdrop'));
 
     // Price trend rows (raw lane → per-condition).
     await waitFor(() => {
@@ -130,9 +138,11 @@ describe('CardDetailScreen', () => {
     );
 
     // ADD ITEM is disabled until the card detail resolves, so wait for the
-    // loaded card before pressing — otherwise the press is a no-op.
+    // loaded card before pressing — otherwise the press is a no-op. ADD ITEM now
+    // opens the Add to Collection sheet; the add commits from its confirm CTA.
     await screen.findByTestId('detail-name');
     fireEvent.press(screen.getByTestId('detail-add-item'));
+    fireEvent.press(await screen.findByTestId('detail-add-sheet-confirm'));
 
     await waitFor(() => {
       expect(createInventoryEntry).toHaveBeenCalledWith(expect.objectContaining({
@@ -167,6 +177,7 @@ describe('CardDetailScreen', () => {
 
     fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
     fireEvent.press(screen.getByTestId('detail-add-item'));
+    fireEvent.press(await screen.findByTestId('detail-add-sheet-confirm'));
 
     await waitFor(() => {
       expect(createInventoryEntry).toHaveBeenCalledWith(expect.objectContaining({
@@ -177,6 +188,37 @@ describe('CardDetailScreen', () => {
     });
   });
 
+  it('graded ADD flashes SAVED, stays in ADD mode, and reverts to ADD ITEM after 5s', async () => {
+    const createInventoryEntry = jest.fn(async () => ({
+      deckEntryID: 'g1',
+      cardID: 'sm7-1',
+      addedAt: '2026-06-04T00:00:00.000Z',
+    }));
+
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
+      { spotlightRepository: createTestSpotlightRepository({ createInventoryEntry }) },
+    );
+
+    // Graded lane add.
+    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
+    fireEvent.press(screen.getByTestId('detail-add-item'));
+    fireEvent.press(await screen.findByTestId('detail-add-sheet-confirm'));
+
+    // The CTA flashes SAVED (disabled) and the page stays in ADD mode — it does
+    // NOT flip into the owned/Edit state (no detail-update-item).
+    await waitFor(() => expect(screen.getByText('SAVED')).toBeTruthy());
+    expect(screen.getByTestId('detail-add-item').props.accessibilityState?.disabled).toBe(true);
+    expect(screen.queryByTestId('detail-update-item')).toBeNull();
+
+    // After 5s the label reverts to ADD ITEM and the button re-enables.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5100));
+    });
+    expect(screen.getByText('ADD ITEM')).toBeTruthy();
+    expect(screen.getByTestId('detail-add-item').props.accessibilityState?.disabled).toBe(false);
+  }, 10000);
+
   it('opens the grade/condition picker and selects a new condition for the raw lane', async () => {
     renderWithProviders(
       <CardDetailScreen
@@ -185,7 +227,10 @@ describe('CardDetailScreen', () => {
       />,
     );
 
-    fireEvent.press(await screen.findByTestId('detail-configurator-grade-trigger'));
+    // Grade lives in the Add to Collection sheet now: open it, then its grade
+    // trigger opens the grade/condition picker.
+    fireEvent.press(await screen.findByTestId('detail-add-item'));
+    fireEvent.press(await screen.findByTestId('detail-add-sheet-grade-trigger'));
     // The grade sheet animates open; allow extra time so this stays green under
     // full-suite load (not just when the file runs in isolation).
     fireEvent.press(
@@ -207,7 +252,8 @@ describe('CardDetailScreen', () => {
     );
 
     fireEvent.press(await screen.findByTestId('detail-configurator-grader-BGS'));
-    fireEvent.press(screen.getByTestId('detail-configurator-grade-trigger'));
+    fireEvent.press(screen.getByTestId('detail-add-item'));
+    fireEvent.press(await screen.findByTestId('detail-add-sheet-grade-trigger'));
 
     expect(await screen.findByTestId('detail-grade-sheet-option-10')).toBeTruthy();
     expect(screen.getByTestId('detail-grade-sheet-option-9.5')).toBeTruthy();
@@ -423,9 +469,12 @@ describe('CardDetailScreen', () => {
     );
 
     fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
-    // Switch the dropdown grade from the seeded 10 to 9.5.
-    fireEvent.press(await screen.findByTestId('detail-configurator-grade-trigger'));
+    // Switch the grade from the seeded 10 to 9.5 via the Add to Collection sheet,
+    // then dismiss it so the provider logo on the page is tappable again.
+    fireEvent.press(screen.getByTestId('detail-add-item'));
+    fireEvent.press(await screen.findByTestId('detail-add-sheet-grade-trigger'));
     fireEvent.press(await screen.findByTestId('detail-grade-sheet-option-9.5'));
+    fireEvent.press(screen.getByTestId('detail-add-sheet-backdrop'));
     fireEvent.press(await screen.findByTestId('detail-price-trends-provider'));
 
     await waitFor(() => {
@@ -584,8 +633,10 @@ describe('CardDetailScreen', () => {
       },
     );
 
-    // The grade trigger surfaces the owned slab grade for the PSA lane.
-    expect(await screen.findByText('PSA 10')).toBeTruthy();
+    // Open the edit sheet; its grade trigger surfaces the owned slab grade.
+    fireEvent.press(await screen.findByTestId('detail-update-item'));
+    const trigger = await screen.findByTestId('detail-add-sheet-grade-trigger');
+    expect(within(trigger).getByText('PSA 10')).toBeTruthy();
   });
 
   function ownedGradedEntry(quantity: number): InventoryCardEntry {
@@ -643,20 +694,23 @@ describe('CardDetailScreen', () => {
 
     renderOwnedGraded({}, { setPortfolioEntryQuantity });
 
-    // The owned quantity (6) seeds into the stepper, and the action is SAVE.
-    const quantityValue = await screen.findByTestId('detail-configurator-quantity-value');
-    await waitFor(() => expect(quantityValue.props.children).toBe(6));
+    // Owned → the primary action is Edit (opens the sheet), not ADD ITEM.
     expect(screen.queryByTestId('detail-add-item')).toBeNull();
+    fireEvent.press(await screen.findByTestId('detail-update-item'));
 
-    // Nothing changed yet → SAVE is disabled (no accidental no-op writes).
-    expect(screen.getByTestId('detail-update-item').props.accessibilityState?.disabled).toBe(true);
+    // The owned quantity (6) seeds into the sheet's stepper.
+    const quantityValue = await screen.findByTestId('detail-add-sheet-quantity-value');
+    await waitFor(() => expect(quantityValue.props.children).toBe(6));
 
-    // Bump the count → SAVE enables and writes the new quantity (sets, not accrues).
-    fireEvent.press(screen.getByTestId('detail-configurator-quantity-increment'));
+    // Nothing changed yet → Save is disabled (no accidental no-op writes).
+    expect(screen.getByTestId('detail-add-sheet-confirm').props.accessibilityState?.disabled).toBe(true);
+
+    // Bump the count → Save enables and writes the new quantity (sets, not accrues).
+    fireEvent.press(screen.getByTestId('detail-add-sheet-quantity-increment'));
     await waitFor(() =>
-      expect(screen.getByTestId('detail-configurator-quantity-value').props.children).toBe(7),
+      expect(screen.getByTestId('detail-add-sheet-quantity-value').props.children).toBe(7),
     );
-    fireEvent.press(screen.getByTestId('detail-update-item'));
+    fireEvent.press(screen.getByTestId('detail-add-sheet-confirm'));
     await waitFor(() => {
       expect(setPortfolioEntryQuantity).toHaveBeenCalledWith({
         deckEntryID: 'graded-treecko-psa10',
@@ -677,17 +731,15 @@ describe('CardDetailScreen', () => {
 
     renderOwnedGraded({}, { replacePortfolioEntry });
 
-    await screen.findByTestId('detail-configurator-quantity-value');
-
-    // Change the grade PSA 10 → PSA 9.5: an attribute change, so SAVE replaces
-    // (rewrites) the SAME line instead of adding a duplicate.
-    fireEvent.press(await screen.findByTestId('detail-configurator-grade-trigger'));
+    // Open the edit sheet and change the grade PSA 10 → PSA 9.5: an attribute
+    // change, so Save replaces (rewrites) the SAME line instead of duplicating.
+    fireEvent.press(await screen.findByTestId('detail-update-item'));
+    fireEvent.press(await screen.findByTestId('detail-add-sheet-grade-trigger'));
     fireEvent.press(await screen.findByTestId('detail-grade-sheet-option-9.5'));
 
-    await waitFor(() =>
-      expect(screen.getByTestId('detail-update-item').props.accessibilityState?.disabled).toBe(false),
-    );
-    fireEvent.press(screen.getByTestId('detail-update-item'));
+    const confirm = await screen.findByTestId('detail-add-sheet-confirm');
+    await waitFor(() => expect(confirm.props.accessibilityState?.disabled).toBe(false));
+    fireEvent.press(confirm);
     await waitFor(() => {
       expect(replacePortfolioEntry).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -706,9 +758,8 @@ describe('CardDetailScreen', () => {
   it('"+ Add copy" drops to ADD mode for a separate line; Cancel restores edit mode', async () => {
     renderOwnedGraded({}, {});
 
-    await screen.findByTestId('detail-configurator-quantity-value');
-    // Owned → SAVE (no ADD ITEM).
-    expect(screen.getByTestId('detail-update-item')).toBeTruthy();
+    // Owned → Edit (no ADD ITEM).
+    expect(await screen.findByTestId('detail-update-item')).toBeTruthy();
     expect(screen.queryByTestId('detail-add-item')).toBeNull();
 
     // Add copy → ADD mode (ADD ITEM + Cancel appear; SAVE gone).
@@ -723,7 +774,7 @@ describe('CardDetailScreen', () => {
     expect(screen.queryByTestId('detail-add-item')).toBeNull();
   });
 
-  it('shows SAVE (not ADD ITEM) for an owned raw card stored without a variant/condition', async () => {
+  it('shows Edit (not ADD ITEM) for an owned raw card stored without a variant/condition', async () => {
     // Regression (e.g. a basic energy): the entry has no variantName/conditionCode,
     // so it must still match the seeded "Normal" + default-condition lane.
     const baseRepository = createTestSpotlightRepository();
@@ -750,7 +801,7 @@ describe('CardDetailScreen', () => {
       },
     );
 
-    expect(await screen.findByText('SAVE')).toBeTruthy();
+    expect(await screen.findByText('Edit')).toBeTruthy();
     expect(screen.queryByTestId('detail-add-item')).toBeNull();
   });
 
@@ -762,17 +813,19 @@ describe('CardDetailScreen', () => {
 
     renderOwnedGraded({}, { deletePortfolioEntry });
 
-    // Seeds 6; the stepper now floors at 1 (no qty→0 = remove hack).
-    const quantityValue = await screen.findByTestId('detail-configurator-quantity-value');
+    // Open the edit sheet: it seeds 6; the stepper now floors at 1 (no qty→0 hack).
+    fireEvent.press(await screen.findByTestId('detail-update-item'));
+    const quantityValue = await screen.findByTestId('detail-add-sheet-quantity-value');
     await waitFor(() => expect(quantityValue.props.children).toBe(6));
     for (let i = 0; i < 10; i += 1) {
-      fireEvent.press(screen.getByTestId('detail-configurator-quantity-decrement'));
+      fireEvent.press(screen.getByTestId('detail-add-sheet-quantity-decrement'));
     }
     await waitFor(() =>
-      expect(screen.getByTestId('detail-configurator-quantity-value').props.children).toBe(1),
+      expect(screen.getByTestId('detail-add-sheet-quantity-value').props.children).toBe(1),
     );
 
-    // Removal is an explicit action, not a quantity edge case.
+    // Removal is an explicit action (the Remove button on the page), not a
+    // quantity edge case.
     fireEvent.press(screen.getByTestId('detail-remove-item'));
     await waitFor(() => {
       expect(deletePortfolioEntry).toHaveBeenCalledWith({

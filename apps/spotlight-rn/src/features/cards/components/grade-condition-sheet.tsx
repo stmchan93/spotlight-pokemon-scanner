@@ -11,7 +11,6 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Check as IconCheck } from 'iconoir-react-native';
 
 import { useSpotlightTheme } from '@spotlight/design-system';
 
@@ -138,20 +137,26 @@ export function GradeConditionSheet({
                     onSelect(option.id);
                     onClose();
                   }}
-                  style={({ pressed }) => [styles.row, { opacity: pressed ? 0.7 : 1 }]}
+                  // Selected = filled purple pill (Figma 1664:727); the old purple
+                  // text + checkmark read as too subtle, so the whole row fills.
+                  style={({ pressed }) => [
+                    styles.row,
+                    selected && {
+                      backgroundColor: theme.colors.purple500,
+                      borderRadius: theme.radii.sm,
+                    },
+                    { opacity: pressed ? 0.7 : 1 },
+                  ]}
                   testID={`${testID}-option-${option.id}`}
                 >
                   <Text
                     style={[
                       selected ? theme.typography.bodyStrong : theme.typography.body,
-                      { color: selected ? theme.colors.purple500 : theme.colors.gray900 },
+                      { color: selected ? theme.colors.gray0 : theme.colors.gray900 },
                     ]}
                   >
                     {option.label}
                   </Text>
-                  {selected ? (
-                    <IconCheck color={theme.colors.purple500} height={24} width={24} />
-                  ) : null}
                 </Pressable>
               );
             })}
@@ -200,6 +205,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
+    marginHorizontal: 8,
     paddingHorizontal: 16,
     paddingVertical: 12,
   },

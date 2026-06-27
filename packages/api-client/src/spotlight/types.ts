@@ -604,7 +604,27 @@ export type CardDetailRecord = {
    * Empty/absent when the upstream payload carries no variant marketplace ids.
    */
   tcgPlayerVariants?: TcgPlayerVariantMarketplace[] | null;
+  /**
+   * GemRate population (from PPT), keyed by grading company (PSA/BGS/CGC/SGC).
+   * Drives the PDP's dynamic-by-grader population report. Absent/empty when the
+   * card has no synced population data.
+   */
+  population?: CardPopulation | null;
 };
+
+/**
+ * GemRate population for one grading company: the per-grade slab counts plus the
+ * grader's total population and gem rate. `grades` is keyed by grade label
+ * ("10", "9.5", "9", …) → count.
+ */
+export type CardPopulationGrader = {
+  totalPopulation: number;
+  gemRate: number | null;
+  grades: Record<string, number>;
+};
+
+/** Population keyed by grading company (e.g. "PSA", "BGS", "CGC", "SGC"). */
+export type CardPopulation = Record<string, CardPopulationGrader>;
 
 /**
  * Minimal client-facing view of a Scrydex `sourcePayload` variant, carrying only

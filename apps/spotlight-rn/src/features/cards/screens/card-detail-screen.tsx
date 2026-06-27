@@ -23,9 +23,11 @@ import {
 import { Button, IconButton, colors, useSpotlightTheme } from '@spotlight/design-system';
 import { NavArrowLeft, ShareIos, Trash } from 'iconoir-react-native';
 
+import { AddToCollectionSheet } from '@/features/cards/components/add-to-collection-sheet';
 import { CardConfigurator } from '@/features/cards/components/card-configurator';
 import { GradeConditionSheet } from '@/features/cards/components/grade-condition-sheet';
 import { CardDetailHero } from '@/features/cards/components/card-detail-hero';
+import { CardPopulationReport } from '@/features/cards/components/card-population-report';
 import { CardPriceTrendList } from '@/features/cards/components/card-price-trend-list';
 import { CardPriceTrendSkeleton } from '@/features/cards/components/card-price-trend-skeleton';
 import { CardProductDetails } from '@/features/cards/components/card-product-details';
@@ -140,7 +142,15 @@ export function CardDetailScreen({
   const [selectedCondition, setSelectedCondition] = useState<DeckConditionCode | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [gradeSheetOpen, setGradeSheetOpen] = useState(false);
+  // The "Add to Collection" sheet hosts Grade + Quantity (moved out of the
+  // always-visible configurator). Opened by ADD ITEM (add) or Edit (owned line).
+  const [addSheetOpen, setAddSheetOpen] = useState(false);
   const [isAddPending, setIsAddPending] = useState(false);
+  // Graded only (Figma 1640-5770): after a successful add the CTA flashes "SAVED"
+  // for 5s and reverts to "ADD ITEM" — the page stays in ADD mode so the user can
+  // add another slab, instead of flipping into the owned/Edit state.
+  const [justSaved, setJustSaved] = useState(false);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isManagePending, setIsManagePending] = useState(false);
   // The owned line the page is currently editing (sticky). null = ADD mode (the
   // card isn't owned, or the user tapped "+ Add copy" to create a new line).
@@ -302,6 +312,13 @@ export function CardDetailScreen({
   // default. The variant default is seeded in a separate effect below because
   // variantOptions only resolves with full detail, which can land after the
   // owned-entry preview makes hasSource true.
+  // Clear the pending "SAVED" revert timer if the screen unmounts mid-flash.
+  useEffect(() => () => {
+    if (savedTimerRef.current) {
+      clearTimeout(savedTimerRef.current);
+    }
+  }, []);
+
   const seededCardIdRef = useRef<string | null>(null);
   useEffect(() => {
     const hasSource = detail != null || selectedEntry != null || ownedSlabContext != null;
@@ -701,10 +718,21 @@ export function CardDetailScreen({
           kind: isRawLane ? 'raw' : 'graded',
           quantity: Math.max(1, quantity),
         });
-        // The card is now owned → switch the page into edit mode for the new (or
-        // merged) line so the same controls update it from here on.
-        setIsAddingCopy(false);
-        setEditingEntryId(response.deckEntryID);
+        setAddSheetOpen(false);
+        if (isRawLane) {
+          // Raw: the card is now owned → switch the page into edit mode for the
+          // new (or merged) line so the same controls update it from here on.
+          setIsAddingCopy(false);
+          setEditingEntryId(response.deckEntryID);
+        } else {
+          // Graded (Figma 1640-5770): stay in ADD mode and flash "SAVED" on the
+          // CTA for 5s, reverting to "ADD ITEM" so another slab can be added.
+          setJustSaved(true);
+          if (savedTimerRef.current) {
+            clearTimeout(savedTimerRef.current);
+          }
+          savedTimerRef.current = setTimeout(() => setJustSaved(false), 5000);
+        }
         refreshData();
       })
       .catch(() => {
@@ -882,6 +910,7 @@ export function CardDetailScreen({
           kind: isRawLane ? 'raw' : 'graded',
           quantity: nextQuantity,
         });
+        setAddSheetOpen(false);
         refreshData();
       })
       .catch(() => {
@@ -1048,14 +1077,14 @@ export function CardDetailScreen({
         <View style={styles.actionSection}>
           <View style={styles.actionRow}>
             {isManaged ? (
-              // Owned: SAVE commits the pending edit to THIS line (quantity, or
-              // condition/variant via replace). Enabled only when something
-              // changed. Never silently turns into ADD.
+              // Owned: open the Add-to-Collection sheet to edit Grade + Quantity
+              // for THIS line, then SAVE from inside the sheet (enabled only when
+              // something changed). Grade/Quantity no longer live on the page.
               <Button
-                disabled={isManagePending || !detail || !isDirty}
-                label="SAVE"
+                disabled={isManagePending || !detail}
+                label="Edit"
                 labelStyleVariant="label"
-                onPress={handleSave}
+                onPress={() => setAddSheetOpen(true)}
                 shape="rounded"
                 size="md"
                 style={styles.actionButton}
@@ -1064,12 +1093,13 @@ export function CardDetailScreen({
               />
             ) : (
               <Button
-                // Disabled until the card resolves so ADD ITEM is always a direct
-                // add with the on-page variant/condition (never the old sheet).
-                disabled={isAddPending || !detail}
-                label="ADD ITEM"
+                // Opens the Add-to-Collection sheet (Grade + Quantity) per Figma
+                // 1664:255 — the add no longer commits straight from the page.
+                // After a graded add the label flashes "SAVED" for 5s (1640-5770).
+                disabled={isAddPending || !detail || justSaved}
+                label={justSaved ? 'SAVED' : 'ADD ITEM'}
                 labelStyleVariant="label"
-                onPress={handleAddItem}
+                onPress={() => setAddSheetOpen(true)}
                 shape="rounded"
                 size="md"
                 style={styles.actionButton}
@@ -1126,20 +1156,30 @@ export function CardDetailScreen({
         </View>
 
         <CardConfigurator
-          gradeLabel={gradeLabel}
-          gradeTitle={gradeTitle}
           graders={[...graderOptions]}
-          onDecrement={() => setQuantity((current) => Math.max(1, current - 1))}
-          onIncrement={() => setQuantity((current) => current + 1)}
-          onOpenGradePicker={() => setGradeSheetOpen(true)}
           onSelectGrader={handleSelectGrader}
           onSelectVariant={setSelectedVariant}
-          quantity={quantity}
           selectedGrader={selectedGrader}
           selectedVariant={selectedVariant}
           testID="detail-configurator"
           variants={variantOptions}
           variantsLoading={detail == null && errorMessage == null}
+        />
+
+        <AddToCollectionSheet
+          confirmDisabled={isManaged ? (isManagePending || !isDirty) : (isAddPending || !detail)}
+          confirmLabel={isManaged ? 'Save changes' : 'Add to Collection'}
+          gradeLabel={gradeLabel}
+          gradeTitle={gradeTitle}
+          onClose={() => setAddSheetOpen(false)}
+          onConfirm={isManaged ? handleSave : handleAddItem}
+          onDecrement={() => setQuantity((current) => Math.max(1, current - 1))}
+          onIncrement={() => setQuantity((current) => current + 1)}
+          onOpenGradePicker={() => setGradeSheetOpen(true)}
+          quantity={quantity}
+          testID="detail-add-sheet"
+          title={isManaged ? 'Edit details' : 'Add to Collection'}
+          visible={addSheetOpen}
         />
 
         <GradeConditionSheet
@@ -1150,6 +1190,12 @@ export function CardDetailScreen({
           testID="detail-grade-sheet"
           title={gradeTitle}
           visible={gradeSheetOpen}
+        />
+
+        <CardPopulationReport
+          grader={selectedGrader}
+          population={detail?.population}
+          testID="detail-population-report"
         />
 
         {priceTrends && priceTrends.rows.length > 0 ? (

@@ -26,6 +26,7 @@ import type {
   CardDetailLoadOptions,
   CardDetailQuery,
   CardDetailRecord,
+  CardPopulation,
   TcgPlayerVariantMarketplace,
   CardEbayListingRecord,
   CardEbayListingsRecord,
@@ -469,6 +470,7 @@ type CardDetailDTO = {
   likeCount?: number | null;
   watcherCount?: number | null;
   cardText?: CardTextDTO | null;
+  population?: unknown;
 };
 
 type CardPriceTrendListDTO = {
@@ -1238,6 +1240,45 @@ function normalizeInteger(value: unknown, fallback = 0) {
 
 function normalizeCurrencyCode(value: unknown) {
   return normalizeString(value)?.toUpperCase() ?? 'USD';
+}
+
+// GemRate population is defensive/untyped upstream JSON: keep only graders that
+// carry at least one valid grade count, drop everything malformed. Returns null
+// when nothing usable survives so the PDP can branch on presence.
+function normalizeCardPopulation(value: unknown): CardPopulation | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const out: CardPopulation = {};
+  for (const [grader, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (!raw || typeof raw !== 'object') {
+      continue;
+    }
+    const rawGrades = (raw as { grades?: unknown }).grades;
+    const grades: Record<string, number> = {};
+    if (rawGrades && typeof rawGrades === 'object') {
+      for (const [grade, count] of Object.entries(rawGrades as Record<string, unknown>)) {
+        if (typeof count === 'number' && Number.isFinite(count) && count >= 0) {
+          grades[grade] = Math.round(count);
+        }
+      }
+    }
+    if (Object.keys(grades).length === 0) {
+      continue;
+    }
+    const rawTotal = (raw as { totalPopulation?: unknown }).totalPopulation;
+    const rawGemRate = (raw as { gemRate?: unknown }).gemRate;
+    const totalPopulation =
+      typeof rawTotal === 'number' && Number.isFinite(rawTotal)
+        ? Math.max(0, Math.round(rawTotal))
+        : Object.values(grades).reduce((sum, n) => sum + n, 0);
+    out[grader.toUpperCase()] = {
+      totalPopulation,
+      gemRate: typeof rawGemRate === 'number' && Number.isFinite(rawGemRate) ? rawGemRate : null,
+      grades,
+    };
+  }
+  return Object.keys(out).length > 0 ? out : null;
 }
 
 function normalizeConditionCode(condition?: string | null): InventoryCardEntry['conditionCode'] {
@@ -4251,6 +4292,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       trendsPct: card.pricing.trendsPct ?? null,
       cardText: buildCardText(detailResponse.data.cardText),
       tcgPlayerVariants: card.tcgPlayerVariants,
+      population: normalizeCardPopulation(detailResponse.data.population),
     };
 
     return buildLoadResult('success', detail);

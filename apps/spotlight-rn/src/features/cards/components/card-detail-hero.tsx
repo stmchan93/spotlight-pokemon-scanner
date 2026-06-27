@@ -23,8 +23,11 @@ type CardDetailHeroProps = {
   testID?: string;
 };
 
-function likesLabel(count: number): string {
-  return `${count.toLocaleString()} ${count === 1 ? 'like' : 'likes'}`;
+// Wishlist count shown as social proof. Capped at "9999+" so a viral card can't
+// blow out the badge width (Figma 1664:255 — "Wishlisted" counter, max 9999+).
+function wishlistedLabel(count: number): string {
+  const display = count > 9999 ? '9999+' : count.toLocaleString();
+  return `${display} Wishlisted`;
 }
 
 function watchingLabel(count: number): string {
@@ -118,7 +121,7 @@ export function CardDetailHero({
         <View style={styles.stats} testID={testID ? `${testID}-stats` : undefined}>
           {likeCount > 0 ? (
             <Badge
-              label={likesLabel(likeCount)}
+              label={wishlistedLabel(likeCount)}
               size="sm"
               testID={testID ? `${testID}-like-count` : undefined}
               tone="danger"

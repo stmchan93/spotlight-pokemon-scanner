@@ -2,7 +2,6 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { SkeletonBlock, useSpotlightTheme, type SpotlightTheme } from '@spotlight/design-system';
 import type { MarketHistoryOption } from '@spotlight/api-client';
-import { Minus, NavArrowDown, Plus } from 'iconoir-react-native';
 
 type CardConfiguratorProps = {
   variants: MarketHistoryOption[];
@@ -16,13 +15,6 @@ type CardConfiguratorProps = {
   graders: string[];
   selectedGrader: string | null;
   onSelectGrader: (grader: string) => void;
-  gradeLabel: string | null;
-  gradeTitle: string;
-  /** Opens the grade/condition bottom sheet (Figma 1185:1808). */
-  onOpenGradePicker: () => void;
-  quantity: number;
-  onDecrement: () => void;
-  onIncrement: () => void;
   testID?: string;
 };
 
@@ -90,12 +82,6 @@ export function CardConfigurator({
   graders,
   selectedGrader,
   onSelectGrader,
-  gradeLabel,
-  gradeTitle,
-  onOpenGradePicker,
-  quantity,
-  onDecrement,
-  onIncrement,
   testID,
 }: CardConfiguratorProps) {
   const theme = useSpotlightTheme();
@@ -143,66 +129,6 @@ export function CardConfigurator({
           ))}
         </View>
       </View>
-
-      <View style={[styles.group, { gap: 10 }]}>
-        <GroupTitle theme={theme}>{gradeTitle}</GroupTitle>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`${gradeTitle}: ${gradeLabel ?? 'Select'}`}
-          onPress={onOpenGradePicker}
-          style={({ pressed }) => [
-            styles.selector,
-            { backgroundColor: theme.colors.gray50, opacity: pressed ? 0.9 : 1 },
-          ]}
-          testID={testID ? `${testID}-grade-trigger` : undefined}
-        >
-          <Text style={[theme.typography.label, { color: theme.colors.gray700 }]}>
-            {gradeLabel ?? 'Select'}
-          </Text>
-          <NavArrowDown color={theme.colors.gray700} height={24} width={24} />
-        </Pressable>
-      </View>
-
-      <View style={[styles.group, { gap: 10 }]}>
-        <GroupTitle theme={theme}>Quantity</GroupTitle>
-        <View style={styles.stepper}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Decrease quantity"
-            accessibilityState={{ disabled: quantity <= 1 }}
-            disabled={quantity <= 1}
-            onPress={onDecrement}
-            style={({ pressed }) => [
-              styles.stepperButton,
-              {
-                backgroundColor: theme.colors.gray50,
-                opacity: pressed || quantity <= 1 ? 0.5 : 1,
-              },
-            ]}
-            testID={testID ? `${testID}-quantity-decrement` : undefined}
-          >
-            <Minus color={theme.colors.gray900} height={20} width={20} />
-          </Pressable>
-          <Text
-            style={[styles.quantityValue, theme.typography.titleMedium]}
-            testID={testID ? `${testID}-quantity-value` : undefined}
-          >
-            {quantity}
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Increase quantity"
-            onPress={onIncrement}
-            style={({ pressed }) => [
-              styles.stepperButton,
-              { backgroundColor: theme.colors.gray50, opacity: pressed ? 0.5 : 1 },
-            ]}
-            testID={testID ? `${testID}-quantity-increment` : undefined}
-          >
-            <Plus color={theme.colors.gray900} height={20} width={20} />
-          </Pressable>
-        </View>
-      </View>
     </View>
   );
 }
@@ -220,38 +146,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
   },
-  selector: {
-    // Fixed 160x32 dropdown box per Figma 1185-2491 (text padded 16 from the
-    // left, chevron pinned to the right edge), instead of stretching full width.
-    alignItems: 'center',
-    borderRadius: 8,
-    flexDirection: 'row',
-    height: 32,
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    width: 160,
-  },
   group: {
     width: '100%',
   },
-  quantityValue: {
-    minWidth: 24,
-    textAlign: 'center',
-  },
   root: {
     width: '100%',
-  },
-  stepper: {
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    gap: 24,
-  },
-  stepperButton: {
-    alignItems: 'center',
-    borderRadius: 999,
-    justifyContent: 'center',
-    padding: 6,
   },
 });
 
