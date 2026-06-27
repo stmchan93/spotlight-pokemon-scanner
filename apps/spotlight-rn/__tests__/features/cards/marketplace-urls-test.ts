@@ -265,6 +265,21 @@ describe('resolveTcgPlayerProductId', () => {
     expect(resolveTcgPlayerProductId(variants, null)).toBe('111');
   });
 
+  it('bridges camelCase payload keys to the humanized PDP label (live Base Charizard)', () => {
+    // sourcePayload names are camelCase; the PDP label is humanized + spaced.
+    // Without the camelCase bridge this falls back to the first id (the WRONG
+    // printing), which is the bug this guards against.
+    const baseCharizard = [
+      { name: 'firstEditionShadowlessHolofoil', marketplaces: [{ name: 'tcgplayer', product_id: '106999' }] },
+      { name: 'jumbo', marketplaces: [{ name: 'tcgplayer', product_id: '179079' }] },
+      { name: 'metal', marketplaces: [{ name: 'tcgplayer', product_id: '252517' }] },
+      { name: 'unlimitedHolofoil', marketplaces: [{ name: 'tcgplayer', product_id: '42382' }] },
+    ];
+    expect(resolveTcgPlayerProductId(baseCharizard, 'Unlimited Holofoil')).toBe('42382');
+    expect(resolveTcgPlayerProductId(baseCharizard, 'First Edition Shadowless Holofoil')).toBe('106999');
+    expect(resolveTcgPlayerProductId(baseCharizard, 'Metal')).toBe('252517');
+  });
+
   it('returns null when no variant has a tcgplayer marketplace', () => {
     const noTcg = [
       { name: 'holofoil', marketplaces: [{ name: 'cardmarket', product_id: 'abc' }] },

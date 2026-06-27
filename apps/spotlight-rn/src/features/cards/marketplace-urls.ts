@@ -131,7 +131,13 @@ export type TcgPlayerSourceVariant = {
 // runs of spaces/underscores to a single space so "Reverse_Holofoil",
 // "reverse holofoil", and "Reverse  Holofoil" all compare equal.
 function normalizeVariantMatchKey(value: string | null | undefined) {
+  // The PDP's variant labels are humanized ("Unlimited Holofoil") while the
+  // Scrydex sourcePayload keys are camelCase ("unlimitedHolofoil"). Insert a
+  // boundary before an interior capital so both collapse to the same key
+  // ("unlimited holofoil"); otherwise the match fails and we fall back to the
+  // first (wrong) printing's product_id.
   return (value ?? '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     .toLowerCase()
     .replace(/[\s_]+/g, ' ')
     .trim();
