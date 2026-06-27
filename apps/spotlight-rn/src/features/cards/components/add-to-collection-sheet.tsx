@@ -17,6 +17,7 @@ import { Button, useSpotlightTheme } from '@spotlight/design-system';
 import type { MarketHistoryOption } from '@spotlight/api-client';
 
 import { CardConfigurator } from '@/features/cards/components/card-configurator';
+import { SheetDismissHandle } from '@/components/sheet-dismiss-handle';
 
 type AddToCollectionSheetProps = {
   visible: boolean;
@@ -137,7 +138,11 @@ export function AddToCollectionSheet({
       transparent
       visible
     >
-      <View style={styles.root}>
+      {/* The instant the sheet starts closing (visible=false) the whole overlay
+          stops intercepting touches, so the page behind is tappable again even
+          if the slide-down's unmount callback never fires (prevents a stuck
+          full-screen backdrop from freezing the grader/controls). */}
+      <View pointerEvents={visible ? 'auto' : 'none'} style={styles.root}>
         <Pressable
           accessibilityLabel="Close"
           accessibilityRole="button"
@@ -156,7 +161,11 @@ export function AddToCollectionSheet({
           ]}
           testID={testID}
         >
-          <View style={[styles.handle, { backgroundColor: theme.colors.gray200 }]} />
+          <SheetDismissHandle
+            barColor={theme.colors.gray200}
+            onDismiss={onClose}
+            testID={`${testID}-handle`}
+          />
           <Text style={[theme.typography.bodyMedium, styles.title, { color: theme.colors.gray600 }]}>
             {title}
           </Text>
@@ -280,12 +289,6 @@ const styles = StyleSheet.create({
   },
   group: {
     gap: 10,
-  },
-  handle: {
-    alignSelf: 'center',
-    borderRadius: 2,
-    height: 4,
-    width: 36,
   },
   quantityValue: {
     minWidth: 24,

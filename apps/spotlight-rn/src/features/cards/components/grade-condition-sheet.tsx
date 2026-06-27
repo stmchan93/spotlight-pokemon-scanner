@@ -14,6 +14,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useSpotlightTheme } from '@spotlight/design-system';
 
+import { SheetDismissHandle } from '@/components/sheet-dismiss-handle';
+
 export type GradeConditionOption = {
   id: string;
   label: string;
@@ -97,7 +99,10 @@ export function GradeConditionSheet({
       transparent
       visible
     >
-      <View style={styles.root}>
+      {/* Stop intercepting touches the moment the sheet starts closing so the
+          page behind never freezes if the slide-down's unmount callback is
+          interrupted (same guard as add-to-collection-sheet). */}
+      <View pointerEvents={visible ? 'auto' : 'none'} style={styles.root}>
         <Pressable
           accessibilityLabel="Close"
           accessibilityRole="button"
@@ -116,7 +121,11 @@ export function GradeConditionSheet({
           ]}
           testID={testID}
         >
-          <View style={[styles.handle, { backgroundColor: theme.colors.gray200 }]} />
+          <SheetDismissHandle
+            barColor={theme.colors.gray200}
+            onDismiss={onClose}
+            testID={`${testID}-handle`}
+          />
           <Text style={[theme.typography.titleSmall, styles.title, { color: theme.colors.gray900 }]}>
             {title}
           </Text>
@@ -175,12 +184,6 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 16,
     maxHeight: '70%',
     paddingTop: 10,
-  },
-  handle: {
-    alignSelf: 'center',
-    borderRadius: 2,
-    height: 4,
-    width: 36,
   },
   title: {
     paddingBottom: 4,
