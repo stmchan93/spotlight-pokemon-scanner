@@ -30,12 +30,14 @@ import urllib.request
 from typing import Any, Iterable
 
 from catalog_tools import (
+    _graded_contexts_payload,
+    _resolve_graded_context_entry,
     pricing_provider,
     upsert_price_history_daily,
     upsert_price_snapshot,
     utc_now,
 )
-from ppt_adapter import PPT_PROVIDER, build_ppt_pricing_bundle
+from ppt_adapter import PPT_PROVIDER, build_ppt_graded_contexts, build_ppt_pricing_bundle
 
 PPT_API_BASE = "https://www.pokemonpricetracker.com/api/v2"
 
@@ -67,16 +69,93 @@ def card_ids_for_tcgplayer_id(connection, tcgplayer_id: str | None) -> list[str]
     return [str(r[0]) for r in rows]
 
 
+# Payload keys carrying PPT's graded "trust signals" — the ONLY fields a
+# signals-only merge writes onto an existing (Scrydex) graded entry's payload.
+# Everything else on the entry (market/low/high/mid/trend/provider/currencyCode/
+# variant/flags) is left untouched, so a signals-only merge can never change a
+# displayed price or its provider.
+_PPT_SIGNAL_PAYLOAD_KEYS = ("confidence", "count", "smart", "source", "median")
+
+
+def _annotate_existing_graded_signals(
+    connection,
+    card_id: str,
+    ppt_graded_contexts: dict[str, Any],
+) -> dict[str, Any]:
+    """Signals-only annotation. Read the card's EXISTING snapshot graded contexts,
+    and for each PPT grade that ALSO exists in those contexts, merge ONLY the PPT
+    trust-signal payload fields (confidence, eBay sale count, smartMarketPrice,
+    source, median) into the existing entry's ``payload``. Price/provider columns
+    and every other field on the entry are preserved verbatim, then ONLY the
+    snapshot's ``graded_contexts_json`` column is rewritten (no provider change, no
+    raw lane touch, no daily/cell rewrite). PPT-only grades (not present in the
+    existing Scrydex contexts) are SKIPPED — never adds a new graded row.
+
+    Returns ``{"annotated": int, "skipped_ppt_only": int}``. No-op (and no write)
+    when the card has no snapshot or no matching grades. Does not commit."""
+    row = connection.execute(
+        "SELECT graded_contexts_json FROM card_price_snapshots WHERE card_id = ? LIMIT 1",
+        (card_id,),
+    ).fetchone()
+    if row is None:
+        return {"annotated": 0, "skipped_ppt_only": 0, "reason": "no_snapshot"}
+    existing = _graded_contexts_payload(row["graded_contexts_json"])
+
+    annotated = 0
+    skipped = 0
+    graders = ppt_graded_contexts.get("graders") if isinstance(ppt_graded_contexts, dict) else None
+    if not isinstance(graders, dict):
+        return {"annotated": 0, "skipped_ppt_only": 0}
+    for grader_key, grade_map in graders.items():
+        if not isinstance(grade_map, dict):
+            continue
+        for grade_key, ppt_entries in grade_map.items():
+            ppt_entry = next((e for e in (ppt_entries or []) if isinstance(e, dict)), None)
+            ppt_payload = (ppt_entry or {}).get("payload") if isinstance(ppt_entry, dict) else None
+            if not isinstance(ppt_payload, dict):
+                continue
+            target = _resolve_graded_context_entry(existing, grader=grader_key, grade=grade_key)
+            if not isinstance(target, dict):
+                # PPT has this grade but our existing (Scrydex) contexts do not.
+                # Skip — adding a row could surface a price/grade we don't trust.
+                skipped += 1
+                continue
+            merged_payload = dict(target.get("payload") or {})
+            changed = False
+            for key in _PPT_SIGNAL_PAYLOAD_KEYS:
+                if key in ppt_payload and ppt_payload.get(key) is not None:
+                    merged_payload[key] = ppt_payload[key]
+                    changed = True
+            if changed:
+                target["payload"] = merged_payload
+                annotated += 1
+
+    if annotated:
+        connection.execute(
+            "UPDATE card_price_snapshots SET graded_contexts_json = ?, updated_at = ? WHERE card_id = ?",
+            (json.dumps(existing), utc_now(), card_id),
+        )
+    return {"annotated": annotated, "skipped_ppt_only": skipped}
+
+
 def upsert_ppt_card_pricing(
     connection,
     ppt_card: dict[str, Any],
     *,
     price_date: str,
     provider: str = PPT_PROVIDER,
+    signals_only: bool = False,
 ) -> dict[str, Any]:
     """Join one PPT card to our catalog by tcgPlayerId and write its snapshot + daily
     rows (cells auto-written by the upserts). Returns a small result dict; callers
-    aggregate. Does not commit (the batch driver commits)."""
+    aggregate. Does not commit (the batch driver commits).
+
+    When ``signals_only`` is True, this does NOT write prices/provider at all. It
+    only annotates the card's EXISTING graded entries' payloads with PPT trust
+    signals (confidence, eBay sale count, smartMarketPrice) via
+    ``_annotate_existing_graded_signals`` — a metadata-only, fully-reversible
+    overlay that cannot change a displayed price (the displayed price + provider
+    stay whatever they already were, e.g. Scrydex)."""
     bundle = build_ppt_pricing_bundle(ppt_card)
     tcgplayer_id = bundle["tcgplayer_id"]
     if not tcgplayer_id:
@@ -84,6 +163,22 @@ def upsert_ppt_card_pricing(
     card_ids = card_ids_for_tcgplayer_id(connection, tcgplayer_id)
     if not card_ids:
         return {"matched": 0, "reason": "no_local_card", "tcgplayerId": tcgplayer_id}
+
+    if signals_only:
+        ppt_graded_contexts = build_ppt_graded_contexts(ppt_card)
+        if not ppt_graded_contexts.get("graders"):
+            return {"matched": 0, "reason": "no_graded_signals", "tcgplayerId": tcgplayer_id}
+        annotated_total = 0
+        skipped_total = 0
+        for card_id in card_ids:
+            result = _annotate_existing_graded_signals(connection, card_id, ppt_graded_contexts)
+            annotated_total += result.get("annotated", 0)
+            skipped_total += result.get("skipped_ppt_only", 0)
+        if not annotated_total:
+            return {"matched": 0, "reason": "no_matching_grades", "tcgplayerId": tcgplayer_id,
+                    "skippedPptOnly": skipped_total}
+        return {"matched": len(card_ids), "cardIds": card_ids, "tcgplayerId": tcgplayer_id,
+                "annotated": annotated_total, "skippedPptOnly": skipped_total, "signalsOnly": True}
 
     raw_contexts = bundle["raw_contexts"]
     graded_contexts = bundle["graded_contexts"]
@@ -119,20 +214,30 @@ def sync_ppt_cards(
     price_date: str,
     provider: str = PPT_PROVIDER,
     commit_every: int = 500,
+    signals_only: bool = False,
 ) -> dict[str, int]:
     """Drive a batch of PPT card records through upsert_ppt_card_pricing. Returns
-    {seen, matched, unmatched_no_tcg, unmatched_no_card}."""
-    stats = {"seen": 0, "matched": 0, "unmatched_no_tcg": 0, "unmatched_no_card": 0, "skipped_no_price": 0}
+    {seen, matched, unmatched_no_tcg, unmatched_no_card, ...}.
+
+    With ``signals_only`` the batch annotates existing graded entries with PPT trust
+    signals instead of writing prices (see ``upsert_ppt_card_pricing``)."""
+    stats = {"seen": 0, "matched": 0, "unmatched_no_tcg": 0, "unmatched_no_card": 0,
+             "skipped_no_price": 0, "annotated": 0, "skipped_no_match": 0}
     for index, ppt_card in enumerate(ppt_cards, start=1):
         stats["seen"] += 1
-        result = upsert_ppt_card_pricing(connection, ppt_card, price_date=price_date, provider=provider)
+        result = upsert_ppt_card_pricing(
+            connection, ppt_card, price_date=price_date, provider=provider, signals_only=signals_only
+        )
         reason = result.get("reason")
         if result["matched"]:
             stats["matched"] += result["matched"]
+            stats["annotated"] += result.get("annotated", 0)
         elif reason == "no_tcgplayer_id":
             stats["unmatched_no_tcg"] += 1
-        elif reason == "no_price":
+        elif reason in ("no_price", "no_graded_signals"):
             stats["skipped_no_price"] += 1
+        elif reason == "no_matching_grades":
+            stats["skipped_no_match"] += 1
         else:
             stats["unmatched_no_card"] += 1
         if index % commit_every == 0:
@@ -261,6 +366,13 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--price-date", required=True, help="YYYY-MM-DD")
     parser.add_argument("--provider", default=PPT_PROVIDER)
     parser.add_argument("--backfill", action="store_true", help="backfill cards.tcgplayer_id first")
+    parser.add_argument(
+        "--signals-only",
+        action="store_true",
+        help="metadata-only: annotate existing graded entries with PPT trust signals "
+        "(confidence + eBay sale count + smartMarketPrice) WITHOUT changing any "
+        "displayed price or provider",
+    )
     args = parser.parse_args(argv)
 
     connection = sqlite3.connect(args.database_path, timeout=60.0)
@@ -271,8 +383,11 @@ def _main(argv: list[str] | None = None) -> int:
             stats = backfill_cards_tcgplayer_id(connection)
             print(f"[backfill] {json.dumps(stats)}")
         cards = iter_ppt_cards_from_exports(args.cards_csv, args.ebay_csv)
-        stats = sync_ppt_cards(connection, cards, price_date=args.price_date, provider=args.provider)
-        print(f"[sync] {json.dumps(stats)}")
+        stats = sync_ppt_cards(
+            connection, cards, price_date=args.price_date, provider=args.provider,
+            signals_only=args.signals_only,
+        )
+        print(f"[sync{' signals-only' if args.signals_only else ''}] {json.dumps(stats)}")
     finally:
         connection.close()
     return 0

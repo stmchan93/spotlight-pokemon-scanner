@@ -16,10 +16,13 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from catalog_tools import (  # noqa: E402
+    _graded_contexts_payload,
+    _resolve_graded_context_entry,
     apply_schema,
     connect,
     resolve_graded_entry_from_cells,
     upsert_card,
+    upsert_price_snapshot,
 )
 from server import _apply_price_history_cells_schema_patch  # noqa: E402
 from sync_ppt_catalog import (  # noqa: E402
@@ -112,6 +115,123 @@ class SyncPptCatalogTests(unittest.TestCase):
         )
         self.assertEqual(result["matched"], 0)
         self.assertEqual(result["reason"], "no_tcgplayer_id")
+
+
+class SignalsOnlyMergeTests(unittest.TestCase):
+    """signals_only annotates an existing (Scrydex) graded entry's payload with PPT
+    trust signals WITHOUT changing the displayed price, provider, or the raw lane."""
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tempdir.cleanup)
+        self.connection = connect(Path(self.tempdir.name) / "ppt.sqlite")
+        self.addCleanup(self.connection.close)
+        apply_schema(self.connection, BACKEND_ROOT / "schema.sql")
+        _apply_price_history_cells_schema_patch(self.connection)
+        upsert_card(
+            self.connection, card_id="swsh7-215", name="Umbreon VMAX",
+            set_name="Evolving Skies", number="215/203", rarity="Secret",
+            variant="Raw", language="English", source_provider="scrydex",
+            tcgplayer_id="246723",
+        )
+        # Seed the EXISTING Scrydex snapshot: a raw NM lane + a graded PSA 10 entry,
+        # both carrying scrydex provider + scrydex prices and NO trust-signal payload.
+        scrydex_graded = {"graders": {"PSA": {"10": [{
+            "grader": "PSA", "grade": "10", "variant": None,
+            "isPerfect": False, "isSigned": False, "isError": False,
+            "provider": "scrydex", "currencyCode": "USD",
+            "low": 4000.0, "market": 4400.0, "mid": 4350.0, "high": 4800.0,
+            "trend": 4380.0, "payload": {},
+        }]}}}
+        scrydex_raw = {"variants": {"Holofoil": {
+            "variant": "Holofoil", "variantKey": "holofoil",
+            "conditions": {"NM": {
+                "condition": "NM", "variant": "Holofoil", "provider": "scrydex",
+                "currencyCode": "USD", "market": 2200.0, "low": 2000.0, "payload": {},
+            }},
+        }}}
+        upsert_price_snapshot(
+            self.connection, card_id="swsh7-215", provider="scrydex",
+            display_currency_code="USD",
+            raw_contexts=scrydex_raw, graded_contexts=scrydex_graded,
+            default_raw_market_price=2200.0, default_raw_low_price=2000.0,
+        )
+        self.connection.commit()
+
+    def _snapshot(self):
+        row = self.connection.execute(
+            "SELECT provider, graded_contexts_json, raw_contexts_json "
+            "FROM card_price_snapshots WHERE card_id='swsh7-215'"
+        ).fetchone()
+        return {
+            "provider": row[0],
+            "graded": _graded_contexts_payload(row[1]),
+            "raw": json.loads(row[2]),
+        }
+
+    # Same join key as PPT_MOONBREON but with the full eBay trust-signal set on PSA 10.
+    PPT_WITH_SIGNALS = {
+        "tcgPlayerId": "246723",
+        "ebay": {"salesByGrade": {
+            "psa10": {"medianPrice": 4524.88, "smartMarketPrice": 4524.88,
+                      "smartMarketConfidence": "high", "count": 37},
+            "psa9": {"medianPrice": 2305.0, "count": 12},
+        }},
+    }
+
+    def test_signals_only_keeps_scrydex_price_and_provider_gains_payload(self):
+        stats = sync_ppt_cards(
+            self.connection, [self.PPT_WITH_SIGNALS], price_date="2026-06-25", signals_only=True
+        )
+        self.assertEqual(stats["matched"], 1)
+        self.assertEqual(stats["annotated"], 1)
+
+        snap = self._snapshot()
+        # Snapshot provider unchanged (still scrydex — signals-only never flips it).
+        self.assertEqual(snap["provider"], "scrydex")
+        entry = _resolve_graded_context_entry(snap["graded"], grader="PSA", grade="10")
+        # Displayed graded price (and low/high/trend/provider) is the ORIGINAL Scrydex
+        # value, NOT the PPT median (4524.88) — the price cannot move.
+        self.assertEqual(entry["market"], 4400.0)
+        self.assertEqual(entry["low"], 4000.0)
+        self.assertEqual(entry["high"], 4800.0)
+        self.assertEqual(entry["trend"], 4380.0)
+        self.assertEqual(entry["provider"], "scrydex")
+        # Payload now carries the PPT trust signals the RN trust line renders.
+        self.assertEqual(entry["payload"]["confidence"], "high")
+        self.assertEqual(entry["payload"]["count"], 37)
+        self.assertEqual(entry["payload"]["smart"], 4524.88)
+
+    def test_signals_only_leaves_raw_lane_untouched(self):
+        sync_ppt_cards(self.connection, [self.PPT_WITH_SIGNALS], price_date="2026-06-25", signals_only=True)
+        raw_nm = self._snapshot()["raw"]["variants"]["Holofoil"]["conditions"]["NM"]
+        self.assertEqual(raw_nm["market"], 2200.0)
+        self.assertEqual(raw_nm["provider"], "scrydex")
+        self.assertEqual(raw_nm["payload"], {})
+
+    def test_signals_only_skips_ppt_only_grade_no_new_row(self):
+        # PSA 9 exists in PPT but NOT in our seeded Scrydex contexts -> must be skipped
+        # (never adds a new graded entry that could surface an untrusted price).
+        stats = sync_ppt_cards(self.connection, [self.PPT_WITH_SIGNALS], price_date="2026-06-25", signals_only=True)
+        self.assertEqual(stats["skipped_no_match"], 0)  # PSA 10 matched, so card counts as matched
+        graded = self._snapshot()["graded"]["graders"]["PSA"]
+        self.assertNotIn("9", graded)  # PPT-only PSA 9 was skipped, not added
+        self.assertIn("10", graded)
+
+    def test_signals_only_no_snapshot_does_not_create_priced_row(self):
+        # A different card with NO existing snapshot: signals-only must not create one.
+        upsert_card(
+            self.connection, card_id="other-1", name="Other", set_name="S", number="1",
+            rarity="C", variant="Raw", language="English", source_provider="scrydex",
+            tcgplayer_id="246723",
+        )
+        # Two cards share the tcgplayer id; only swsh7-215 has a snapshot to annotate.
+        stats = sync_ppt_cards(self.connection, [self.PPT_WITH_SIGNALS], price_date="2026-06-25", signals_only=True)
+        self.assertEqual(stats["annotated"], 1)  # only the seeded card annotated
+        none_snap = self.connection.execute(
+            "SELECT COUNT(*) FROM card_price_snapshots WHERE card_id='other-1'"
+        ).fetchone()[0]
+        self.assertEqual(none_snap, 0)  # no priced row fabricated for the unsnapshotted card
 
 
 class ExportParserTests(unittest.TestCase):
