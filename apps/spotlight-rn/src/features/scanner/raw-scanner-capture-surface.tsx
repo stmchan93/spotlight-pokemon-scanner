@@ -235,6 +235,11 @@ export function RawScannerCaptureSurface({
   // True only once the native session has actually started (onStarted) — focusTo
   // throws if called before that, so we gate the background pre-focus on it.
   const [cameraStarted, setCameraStarted] = useState(false);
+  // Holds the in-flight background pre-focus promise (settling after a zoom/lens
+  // change or session start), or null once it has converged. A capture that fires
+  // while this is non-null waits for it, so tapping mid-refocus can't grab a soft
+  // transitional frame.
+  const focusInFlightRef = useRef<Promise<void> | null>(null);
 
   // Detect whether the chosen device bundles the ultra-wide (so zoom=1 is the
   // ultra-wide ~0.5x). `device.physicalDevices` is an array of lens descriptors;
@@ -290,7 +295,10 @@ export function RawScannerCaptureSurface({
       return;
     }
     const startedAt = Date.now();
-    void camera
+    // Track this focus as in-flight so a capture during the converge window waits
+    // for it (see takePicture). Cleared when it settles, unless a newer pre-focus
+    // (e.g. a fresh zoom change) has already replaced it.
+    const settle = camera
       .focusTo({ x: reticleCenterX, y: reticleCenterY })
       .then(() => {
         if (__DEV__) {
@@ -300,6 +308,12 @@ export function RawScannerCaptureSurface({
       .catch(() => {
         // Camera not ready yet / no focus metering — continuous AF still runs.
       });
+    focusInFlightRef.current = settle;
+    void settle.finally(() => {
+      if (focusInFlightRef.current === settle) {
+        focusInFlightRef.current = null;
+      }
+    });
   }, [cameraStarted, zoom, reticleCenterX, reticleCenterY, layout.reticle.width]);
 
   useImperativeHandle(
@@ -313,8 +327,26 @@ export function RawScannerCaptureSurface({
           return null;
         }
 
-        // No focus wait here — the camera is pre-focused in the background (above)
-        // so the tap stays instant.
+        // Normally the background pre-focus has already converged, so this is a
+        // no-op and the tap is instant. But if the user taps WHILE a pre-focus is
+        // still settling (e.g. right after a 2x→1x lens switch), wait for it so we
+        // don't capture a soft transitional frame. Time-boxed so a hung/unsupported
+        // focus can never block the capture.
+        const pendingFocus = focusInFlightRef.current;
+        if (pendingFocus) {
+          let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+          await Promise.race([
+            pendingFocus,
+            new Promise<void>((resolve) => {
+              timeoutHandle = setTimeout(resolve, 700);
+            }),
+          ]).finally(() => {
+            if (timeoutHandle) {
+              clearTimeout(timeoutHandle);
+            }
+          });
+        }
+
         const photo = await photoOutput.capturePhoto(
           {
             flashMode: 'off',
