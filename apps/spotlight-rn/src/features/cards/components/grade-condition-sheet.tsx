@@ -29,6 +29,13 @@ type GradeConditionSheetProps = {
   selectedId: string | null;
   onSelect: (id: string) => void;
   onClose: () => void;
+  /**
+   * Render as an absolute-fill overlay instead of a React Native `<Modal>`. Set
+   * this when the picker is hosted INSIDE another open modal (the add-to-collection
+   * sheet): a nested `<Modal>` silently fails to present over an already-presented
+   * modal on iOS, so it must overlay the host's content directly.
+   */
+  embedded?: boolean;
   testID?: string;
 };
 
@@ -36,9 +43,12 @@ const SCREEN_HEIGHT = Dimensions.get('window').height;
 
 /**
  * Bottom-sheet picker for the card-detail grade (graded lane) / condition (raw
- * lane) selection — Figma 1185:1808 / 1185:2471. It opens like the scanner
- * tray: the dark scrim cuts in instantly (no fade) while only the sheet panel
- * slides up from the bottom; closing reverses the slide and then unmounts.
+ * lane) selection — Figma 1185:1808 / 1185:2471 (condition list 1664:2576). It
+ * opens like the scanner tray: the dark scrim cuts in instantly (no fade) while
+ * only the sheet panel slides up from the bottom; closing reverses the slide and
+ * then unmounts. When `embedded`, it renders as an overlay (no own Modal) so it
+ * can stack on top of the add-to-collection sheet (nested RN modals don't present
+ * over each other on iOS).
  */
 export function GradeConditionSheet({
   visible,
@@ -47,6 +57,7 @@ export function GradeConditionSheet({
   selectedId,
   onSelect,
   onClose,
+  embedded = false,
   testID = 'grade-condition-sheet',
 }: GradeConditionSheetProps) {
   const theme = useSpotlightTheme();
@@ -90,6 +101,78 @@ export function GradeConditionSheet({
     return null;
   }
 
+  // Stop intercepting touches the moment the sheet starts closing so the page
+  // behind never freezes if the slide-down's unmount callback is interrupted
+  // (same guard as add-to-collection-sheet).
+  const content = (
+    <View pointerEvents={visible ? 'auto' : 'none'} style={styles.root}>
+      <Pressable
+        accessibilityLabel="Close"
+        accessibilityRole="button"
+        onPress={onClose}
+        style={styles.backdrop}
+        testID={`${testID}-backdrop`}
+      />
+      <Animated.View
+        style={[
+          styles.sheet,
+          {
+            backgroundColor: theme.colors.gray0,
+            paddingBottom: Math.max(insets.bottom, 16) + 8,
+            transform: [{ translateY }],
+          },
+        ]}
+        testID={testID}
+      >
+        <SheetDismissHandle
+          barColor={theme.colors.gray200}
+          onDismiss={onClose}
+          testID={`${testID}-handle`}
+        />
+        <Text style={[theme.typography.titleSmall, styles.title, { color: theme.colors.gray900 }]}>
+          {title}
+        </Text>
+        <ScrollView
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator
+          style={styles.list}
+          testID={`${testID}-list`}
+        >
+          {options.map((option) => {
+            const selected = option.id === selectedId;
+            return (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                key={option.id}
+                onPress={() => {
+                  onSelect(option.id);
+                  onClose();
+                }}
+                // Selected = full-width pale-purple band (Figma 1664:2597); dark
+                // text either way, no checkmark — the fill alone marks selection.
+                style={({ pressed }) => [
+                  styles.row,
+                  selected && { backgroundColor: theme.colors.purple50 },
+                  { opacity: pressed ? 0.7 : 1 },
+                ]}
+                testID={`${testID}-option-${option.id}`}
+              >
+                <Text style={[theme.typography.body, { color: theme.colors.gray900 }]}>
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </Animated.View>
+    </View>
+  );
+
+  if (embedded) {
+    return <View style={StyleSheet.absoluteFillObject}>{content}</View>;
+  }
+
   return (
     <Modal
       animationType="none"
@@ -99,71 +182,7 @@ export function GradeConditionSheet({
       transparent
       visible
     >
-      {/* Stop intercepting touches the moment the sheet starts closing so the
-          page behind never freezes if the slide-down's unmount callback is
-          interrupted (same guard as add-to-collection-sheet). */}
-      <View pointerEvents={visible ? 'auto' : 'none'} style={styles.root}>
-        <Pressable
-          accessibilityLabel="Close"
-          accessibilityRole="button"
-          onPress={onClose}
-          style={styles.backdrop}
-          testID={`${testID}-backdrop`}
-        />
-        <Animated.View
-          style={[
-            styles.sheet,
-            {
-              backgroundColor: theme.colors.gray0,
-              paddingBottom: Math.max(insets.bottom, 16) + 8,
-              transform: [{ translateY }],
-            },
-          ]}
-          testID={testID}
-        >
-          <SheetDismissHandle
-            barColor={theme.colors.gray200}
-            onDismiss={onClose}
-            testID={`${testID}-handle`}
-          />
-          <Text style={[theme.typography.titleSmall, styles.title, { color: theme.colors.gray900 }]}>
-            {title}
-          </Text>
-          <ScrollView
-            contentContainerStyle={styles.listContent}
-            showsVerticalScrollIndicator
-            style={styles.list}
-            testID={`${testID}-list`}
-          >
-            {options.map((option) => {
-              const selected = option.id === selectedId;
-              return (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityState={{ selected }}
-                  key={option.id}
-                  onPress={() => {
-                    onSelect(option.id);
-                    onClose();
-                  }}
-                  // Selected = full-width pale-purple band (Figma 1664:2597); dark
-                  // text either way, no checkmark — the fill alone marks selection.
-                  style={({ pressed }) => [
-                    styles.row,
-                    selected && { backgroundColor: theme.colors.purple50 },
-                    { opacity: pressed ? 0.7 : 1 },
-                  ]}
-                  testID={`${testID}-option-${option.id}`}
-                >
-                  <Text style={[theme.typography.body, { color: theme.colors.gray900 }]}>
-                    {option.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        </Animated.View>
-      </View>
+      {content}
     </Modal>
   );
 }

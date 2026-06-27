@@ -17,6 +17,10 @@ import { Button, useSpotlightTheme } from '@spotlight/design-system';
 import type { MarketHistoryOption } from '@spotlight/api-client';
 
 import { CardConfigurator } from '@/features/cards/components/card-configurator';
+import {
+  GradeConditionSheet,
+  type GradeConditionOption,
+} from '@/features/cards/components/grade-condition-sheet';
 import { SheetDismissHandle } from '@/components/sheet-dismiss-handle';
 
 type AddToCollectionSheetProps = {
@@ -41,8 +45,13 @@ type AddToCollectionSheetProps = {
   gradeTitle: string;
   /** Current condition/grade label, or null when nothing is chosen yet. */
   gradeLabel: string | null;
-  /** Opens the condition/grade picker (the existing GradeConditionSheet). */
-  onOpenGradePicker: () => void;
+  /** Condition/grade picker, hosted as an overlay INSIDE this sheet (a nested RN
+   *  modal can't present over this one on iOS, so it must live within it). */
+  gradeOptions: GradeConditionOption[];
+  gradeSelectedId: string | null;
+  onSelectGrade: (id: string) => void;
+  /** testID for the embedded picker; defaults to `<testID>-grade-picker`. */
+  gradePickerTestID?: string;
   quantity: number;
   onIncrement: () => void;
   onDecrement: () => void;
@@ -80,7 +89,10 @@ export function AddToCollectionSheet({
   onSelectGrader,
   gradeTitle,
   gradeLabel,
-  onOpenGradePicker,
+  gradeOptions,
+  gradeSelectedId,
+  onSelectGrade,
+  gradePickerTestID,
   quantity,
   onIncrement,
   onDecrement,
@@ -96,6 +108,8 @@ export function AddToCollectionSheet({
   // sheet so the transition reads identically).
   const [isRendered, setIsRendered] = useState(visible);
   const translateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+  // The condition/grade picker is hosted INSIDE this sheet (see import note).
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   useEffect(() => {
     if (visible) {
@@ -111,6 +125,8 @@ export function AddToCollectionSheet({
       return () => animation.stop();
     }
 
+    // The host sheet is closing — collapse the grade picker overlay too.
+    setPickerOpen(false);
     const animation = Animated.timing(translateY, {
       toValue: SCREEN_HEIGHT,
       duration: 200,
@@ -196,7 +212,7 @@ export function AddToCollectionSheet({
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={`${gradeTitle}: ${gradeLabel ?? 'Select'}`}
-                onPress={onOpenGradePicker}
+                onPress={() => setPickerOpen(true)}
                 style={({ pressed }) => [
                   styles.selector,
                   { backgroundColor: theme.colors.gray50, opacity: pressed ? 0.9 : 1 },
@@ -267,6 +283,19 @@ export function AddToCollectionSheet({
             />
           </View>
         </Animated.View>
+
+        {/* Condition/grade picker overlays this sheet from within its own modal
+            (a nested RN <Modal> won't present over an open one on iOS). */}
+        <GradeConditionSheet
+          embedded
+          onClose={() => setPickerOpen(false)}
+          onSelect={onSelectGrade}
+          options={gradeOptions}
+          selectedId={gradeSelectedId}
+          testID={gradePickerTestID ?? `${testID}-grade-picker`}
+          title={gradeTitle}
+          visible={pickerOpen}
+        />
       </View>
     </Modal>
   );

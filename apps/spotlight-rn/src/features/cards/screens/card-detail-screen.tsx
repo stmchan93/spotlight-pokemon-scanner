@@ -25,7 +25,6 @@ import { NavArrowLeft, ShareIos } from 'iconoir-react-native';
 
 import { AddToCollectionSheet } from '@/features/cards/components/add-to-collection-sheet';
 import { CardConfigurator } from '@/features/cards/components/card-configurator';
-import { GradeConditionSheet } from '@/features/cards/components/grade-condition-sheet';
 import { CardDetailHero } from '@/features/cards/components/card-detail-hero';
 import { CardPopulationReport } from '@/features/cards/components/card-population-report';
 import { CardWishlistCounter } from '@/features/cards/components/card-wishlist-counter';
@@ -147,7 +146,6 @@ export function CardDetailScreen({
   const [selectedGrade, setSelectedGrade] = useState<string | null>(null);
   const [selectedCondition, setSelectedCondition] = useState<DeckConditionCode | null>(null);
   const [quantity, setQuantity] = useState(1);
-  const [gradeSheetOpen, setGradeSheetOpen] = useState(false);
   // The "Add to Collection" sheet hosts Grade + Quantity (moved out of the
   // always-visible configurator). Opened by ADD ITEM (add) or Edit (owned line).
   const [addSheetOpen, setAddSheetOpen] = useState(false);
@@ -899,7 +897,10 @@ export function CardDetailScreen({
           onConfirm={handleAddItem}
           onDecrement={() => setQuantity((current) => Math.max(1, current - 1))}
           onIncrement={() => setQuantity((current) => current + 1)}
-          onOpenGradePicker={() => setGradeSheetOpen(true)}
+          gradeOptions={gradePickerOptions}
+          gradeSelectedId={gradePickerSelectedId}
+          onSelectGrade={handleGradePick}
+          gradePickerTestID="detail-grade-sheet"
           onSelectGrader={handleSelectGrader}
           onSelectLanguage={handleSwitchLanguage}
           onSelectVariant={setSelectedVariant}
@@ -912,16 +913,6 @@ export function CardDetailScreen({
           variants={variantOptions}
           variantsLoading={detail == null && errorMessage == null}
           visible={addSheetOpen}
-        />
-
-        <GradeConditionSheet
-          onClose={() => setGradeSheetOpen(false)}
-          onSelect={handleGradePick}
-          options={gradePickerOptions}
-          selectedId={gradePickerSelectedId}
-          testID="detail-grade-sheet"
-          title={gradeTitle}
-          visible={gradeSheetOpen}
         />
 
         <CardPopulationReport
