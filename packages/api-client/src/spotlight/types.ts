@@ -586,6 +586,15 @@ export type CardDetailRecord = {
    * the backend's rolling watcher window. Absent on list/preview payloads.
    */
   watcherCount?: number;
+  /** This card's language ('english' | 'japanese'), used to orient the PDP EN/JP toggle. */
+  language?: ScannerCardLanguage | null;
+  /**
+   * The other-language counterpart card id (same illustration), or null when no
+   * confident EN↔JP link exists. When null the PDP hides the language toggle.
+   */
+  counterpartCardId?: string | null;
+  /** Language of {@link counterpartCardId} ('english' | 'japanese'), or null. */
+  counterpartLanguage?: ScannerCardLanguage | null;
   /**
    * Scrydex percent-change trends for the active pricing context's resolved
    * condition. Values are nullable when the upstream provider omits a bucket.

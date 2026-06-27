@@ -1,5 +1,6 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import { Linking, Share } from 'react-native';
+import { useRouter } from 'expo-router';
 
 import type { CardDetailRecord, CardText, InventoryCardEntry } from '@spotlight/api-client';
 import { CardDetailScreen } from '@/features/cards/screens/card-detail-screen';
@@ -25,6 +26,12 @@ jest.mock('@/lib/observability/posthog', () => ({
   capturePostHogEvent: jest.fn(),
 }));
 
+jest.mock('expo-router', () => ({
+  useRouter: jest.fn(),
+}));
+
+const mockReplace = jest.fn();
+
 const sampleCardText: CardText = {
   number: '001/096',
   rarity: 'Illustration Rare',
@@ -39,6 +46,10 @@ const sampleCardText: CardText = {
 };
 
 describe('CardDetailScreen', () => {
+  beforeEach(() => {
+    (useRouter as jest.Mock).mockReturnValue({ replace: mockReplace, push: jest.fn(), back: jest.fn() });
+  });
+
   afterEach(() => {
     clearCardDetailPreviewSessions();
     clearScanCandidateReviewSessions();
@@ -140,11 +151,12 @@ describe('CardDetailScreen', () => {
 
     fireEvent.press(await screen.findByTestId('detail-add-item'));
 
-    // Language / Variant / Grader chips live in the sheet too, pre-filled to the
-    // PDP selection (EN + Raw by default).
-    const sheetEN = await screen.findByTestId('detail-add-sheet-configurator-language-EN');
-    expect(sheetEN.props.accessibilityState?.selected).toBe(true);
+    // Variant / Grader chips live in the sheet, pre-filled to the PDP selection
+    // (Raw by default). The language row is NOT in the sheet — EN/JP lives on the
+    // PDP body and switching navigates to the counterpart card.
+    expect(await screen.findByTestId('detail-add-sheet-configurator-grader-Raw')).toBeTruthy();
     expect(screen.getByTestId('detail-add-sheet-configurator-grader-Raw').props.accessibilityState?.selected).toBe(true);
+    expect(screen.queryByTestId('detail-add-sheet-configurator-language-EN')).toBeNull();
 
     // Raw lane → the dropdown is titled "Condition", and Quantity seeds to 1.
     const conditionTrigger = screen.getByTestId('detail-add-sheet-grade-trigger');
@@ -152,9 +164,37 @@ describe('CardDetailScreen', () => {
     expect(screen.getByTestId('detail-add-sheet-quantity-value').props.children).toBe(1);
   });
 
-  it('renders the EN/JP Language chip row defaulting to EN', async () => {
+  it('hides the EN/JP language toggle when the card has no counterpart', async () => {
     renderWithProviders(
       <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
+    );
+
+    // The default mock card has no EN↔JP link, so the language row never renders.
+    await screen.findByTestId('detail-configurator');
+    expect(screen.queryByTestId('detail-configurator-language-EN')).toBeNull();
+    expect(screen.queryByTestId('detail-configurator-language-JP')).toBeNull();
+  });
+
+  it('shows the EN/JP toggle for a linked card and navigates to the counterpart on switch', async () => {
+    const baseRepository = createTestSpotlightRepository();
+
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardDetail: async (query) => {
+            const detail = await baseRepository.getCardDetail(query);
+            return detail
+              ? ({
+                ...detail,
+                language: 'english',
+                counterpartCardId: 'sm7-1-jp',
+                counterpartLanguage: 'japanese',
+              } satisfies CardDetailRecord)
+              : null;
+          },
+        }),
+      },
     );
 
     const en = await screen.findByTestId('detail-configurator-language-EN');
@@ -162,10 +202,13 @@ describe('CardDetailScreen', () => {
     expect(en.props.accessibilityState?.selected).toBe(true);
     expect(jp.props.accessibilityState?.selected).toBe(false);
 
-    // Switching to JP updates the selection.
+    // Switching to JP navigates to the counterpart card (its own PDP).
     fireEvent.press(jp);
     await waitFor(() => {
-      expect(screen.getByTestId('detail-configurator-language-JP').props.accessibilityState?.selected).toBe(true);
+      expect(mockReplace).toHaveBeenCalledWith({
+        pathname: '/cards/[cardId]',
+        params: { cardId: 'sm7-1-jp' },
+      });
     });
   });
 

@@ -42,6 +42,8 @@ TEST_MODULES=(
   backend.tests.test_user_isolation
   backend.tests.test_show_summary
   backend.tests.test_raw_pricing_matrix
+  backend.tests.test_card_language_link
+  backend.tests.test_card_language_linker
 )
 
 run_targeted_tests() {

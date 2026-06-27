@@ -95,21 +95,25 @@ export function CardConfigurator({
 
   return (
     <View style={[styles.root, { gap: 16 }]} testID={testID}>
-      <View style={[styles.group, { gap: 10 }]}>
-        <GroupTitle theme={theme}>Language</GroupTitle>
-        <View style={[styles.chipRow, { gap: 6 }]}>
-          {languages.map((language) => (
-            <OptionChip
-              key={language}
-              label={language}
-              onPress={() => onSelectLanguage(language)}
-              selected={language === selectedLanguage}
-              testID={testID ? `${testID}-language-${language}` : undefined}
-              theme={theme}
-            />
-          ))}
+      {/* Language row only renders when there's an actual other-language
+          counterpart to switch to (driven by `languages`); hidden otherwise. */}
+      {languages.length > 0 ? (
+        <View style={[styles.group, { gap: 10 }]}>
+          <GroupTitle theme={theme}>Language</GroupTitle>
+          <View style={[styles.chipRow, { gap: 6 }]}>
+            {languages.map((language) => (
+              <OptionChip
+                key={language}
+                label={language}
+                onPress={() => onSelectLanguage(language)}
+                selected={language === selectedLanguage}
+                testID={testID ? `${testID}-language-${language}` : undefined}
+                theme={theme}
+              />
+            ))}
+          </View>
         </View>
-      </View>
+      ) : null}
 
       {variants.length > 0 ? (
         <View style={[styles.group, { gap: 10 }]}>

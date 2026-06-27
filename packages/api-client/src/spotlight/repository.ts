@@ -469,6 +469,9 @@ type CardDetailDTO = {
   favoritedAt?: string | null;
   likeCount?: number | null;
   watcherCount?: number | null;
+  language?: string | null;
+  counterpartCardID?: string | null;
+  counterpartLanguage?: string | null;
   cardText?: CardTextDTO | null;
   population?: unknown;
 };
@@ -1240,6 +1243,15 @@ function normalizeInteger(value: unknown, fallback = 0) {
 
 function normalizeCurrencyCode(value: unknown) {
   return normalizeString(value)?.toUpperCase() ?? 'USD';
+}
+
+// Backend sends 'English'/'Japanese'; the app uses lowercase ScannerCardLanguage.
+function normalizeCardLanguage(value: unknown): ScannerCardLanguage | null {
+  const text = normalizeString(value)?.toLowerCase();
+  if (text === 'english' || text === 'japanese') {
+    return text;
+  }
+  return null;
 }
 
 // GemRate population is defensive/untyped upstream JSON: keep only graders that
@@ -2743,6 +2755,9 @@ export class MockSpotlightRepository implements SpotlightRepository {
         favoritedAt: this.favoriteTimestampForCard(query.cardId),
         likeCount: detail.likeCount ?? (this.favoriteCardTimestamps.has(query.cardId) ? 1 : 0),
         watcherCount: detail.watcherCount ?? 0,
+        language: detail.language ?? null,
+        counterpartCardId: detail.counterpartCardId ?? null,
+        counterpartLanguage: detail.counterpartLanguage ?? null,
       })
       : buildLoadResult('not_found', null);
   }
@@ -4289,6 +4304,9 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       favoritedAt: normalizeString(detailResponse.data.favoritedAt),
       likeCount: normalizeInteger(detailResponse.data.likeCount),
       watcherCount: normalizeInteger(detailResponse.data.watcherCount),
+      language: normalizeCardLanguage(detailResponse.data.language),
+      counterpartCardId: normalizeString(detailResponse.data.counterpartCardID),
+      counterpartLanguage: normalizeCardLanguage(detailResponse.data.counterpartLanguage),
       trendsPct: card.pricing.trendsPct ?? null,
       cardText: buildCardText(detailResponse.data.cardText),
       tcgPlayerVariants: card.tcgPlayerVariants,

@@ -294,6 +294,21 @@ CREATE TABLE IF NOT EXISTS card_views (
     PRIMARY KEY (owner_user_id, card_id, viewed_on)
 );
 
+-- EN↔JP counterpart links. One directed row per card (PK card_id) pointing at
+-- the same illustration's card in the other language, so the PDP language toggle
+-- can switch to a distinct product (its own set/image/pricing). Built offline by
+-- tools/build_card_language_links.py: prune by english name + artist (+ pokedex/
+-- regulation_mark), then pick the best artwork-embedding match above a cosine
+-- floor; cards with no confident match get NO row and the toggle stays hidden.
+CREATE TABLE IF NOT EXISTS card_language_links (
+    card_id TEXT PRIMARY KEY REFERENCES cards(id) ON DELETE CASCADE,
+    counterpart_card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+    counterpart_language TEXT NOT NULL,
+    match_score REAL,
+    match_method TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS deck_entries (
     id TEXT PRIMARY KEY,
     owner_user_id TEXT,

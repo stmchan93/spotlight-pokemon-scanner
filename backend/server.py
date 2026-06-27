@@ -1376,6 +1376,25 @@ class SpotlightScanService:
             except sqlite3.Error:
                 pass
 
+    def _card_counterpart(self, card_id: str) -> sqlite3.Row | None:
+        """The other-language counterpart for this card, or None when unlinked.
+
+        Backed by card_language_links (built offline). Absence of a row is the
+        normal case — the PDP hides the EN/JP toggle when there is no counterpart.
+        """
+        normalized_card_id = str(card_id or "").strip()
+        if not normalized_card_id:
+            return None
+        return self.connection.execute(
+            """
+            SELECT counterpart_card_id, counterpart_language
+            FROM card_language_links
+            WHERE card_id = ?
+            LIMIT 1
+            """,
+            (normalized_card_id,),
+        ).fetchone()
+
     def refresh_index(self) -> None:
         connection = self._new_connection()
         try:
@@ -10657,6 +10676,17 @@ class SpotlightScanService:
         if include_social_counts:
             payload["likeCount"] = self._card_like_count(card_id)
             payload["watcherCount"] = self._card_watcher_count(card_id)
+            # Card's own language + EN↔JP counterpart for the PDP language toggle.
+            # counterpart* are None when the card has no confident link → the
+            # client hides the toggle.
+            payload["language"] = resolved_card["language"]
+            counterpart_row = self._card_counterpart(card_id)
+            payload["counterpartCardID"] = (
+                counterpart_row["counterpart_card_id"] if counterpart_row is not None else None
+            )
+            payload["counterpartLanguage"] = (
+                counterpart_row["counterpart_language"] if counterpart_row is not None else None
+            )
         return payload
 
     def card_detail(

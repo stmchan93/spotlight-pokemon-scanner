@@ -8,6 +8,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 
 import {
   deckConditionOptions,
@@ -122,6 +123,7 @@ export function CardDetailScreen({
   scanReviewId,
 }: CardDetailScreenProps) {
   const theme = useSpotlightTheme();
+  const router = useRouter();
   const {
     spotlightRepository,
     dataVersion,
@@ -140,7 +142,6 @@ export function CardDetailScreen({
   // alongside the favorite toggle.
   const [likeCount, setLikeCount] = useState(0);
   // Configurator local state.
-  const [selectedLanguage, setSelectedLanguage] = useState<string>(languageOptions[0]);
   const [selectedVariant, setSelectedVariant] = useState<string | null>(null);
   const [selectedGrader, setSelectedGrader] = useState<string | null>(null);
   const [selectedGrade, setSelectedGrade] = useState<string | null>(null);
@@ -237,7 +238,6 @@ export function CardDetailScreen({
   useEffect(() => {
     setFavoriteState({ favoritedAt: null, isFavorite: false });
     setLikeCount(0);
-    setSelectedLanguage(languageOptions[0]);
     setSelectedVariant(null);
     setSelectedGrader(null);
     setSelectedGrade(null);
@@ -622,6 +622,30 @@ export function CardDetailScreen({
       });
   }, [cardId, favoriteState, isFavoritePending, likeCount, spotlightRepository]);
 
+  // EN/JP toggle: derived from the loaded card's language + its other-language
+  // counterpart. The toggle is shown only when a confident counterpart link
+  // exists; switching navigates to that distinct card (its own set/pricing).
+  const currentCardLanguage = detail?.language ?? null;
+  const counterpartCardId = detail?.counterpartCardId ?? null;
+  const hasLanguageCounterpart = Boolean(
+    currentCardLanguage && counterpartCardId && detail?.counterpartLanguage,
+  );
+  const selectedLanguageChip = currentCardLanguage === 'japanese' ? 'JP' : 'EN';
+  const languageToggleOptions = hasLanguageCounterpart ? [...languageOptions] : [];
+
+  const handleSwitchLanguage = useCallback(
+    (chip: string) => {
+      const target = chip === 'JP' ? 'japanese' : 'english';
+      if (!counterpartCardId || target === currentCardLanguage) {
+        return;
+      }
+      // Replace (not push) so toggling EN↔JP doesn't grow the back stack; the
+      // route's `key` remounts the screen with the counterpart card.
+      router.replace({ pathname: '/cards/[cardId]', params: { cardId: counterpartCardId } });
+    },
+    [counterpartCardId, currentCardLanguage, router],
+  );
+
   const hasDisplayContent = detail != null || detailPreview != null;
 
   const displayName = detail?.name ?? detailPreview?.name ?? '';
@@ -852,12 +876,12 @@ export function CardDetailScreen({
 
         <CardConfigurator
           graders={[...graderOptions]}
-          languages={[...languageOptions]}
+          languages={languageToggleOptions}
           onSelectGrader={handleSelectGrader}
-          onSelectLanguage={setSelectedLanguage}
+          onSelectLanguage={handleSwitchLanguage}
           onSelectVariant={setSelectedVariant}
           selectedGrader={selectedGrader}
-          selectedLanguage={selectedLanguage}
+          selectedLanguage={selectedLanguageChip}
           selectedVariant={selectedVariant}
           testID="detail-configurator"
           variants={variantOptions}
@@ -870,18 +894,18 @@ export function CardDetailScreen({
           gradeLabel={gradeLabel}
           gradeTitle={gradeTitle}
           graders={[...graderOptions]}
-          languages={[...languageOptions]}
+          languages={[]}
           onClose={() => setAddSheetOpen(false)}
           onConfirm={handleAddItem}
           onDecrement={() => setQuantity((current) => Math.max(1, current - 1))}
           onIncrement={() => setQuantity((current) => current + 1)}
           onOpenGradePicker={() => setGradeSheetOpen(true)}
           onSelectGrader={handleSelectGrader}
-          onSelectLanguage={setSelectedLanguage}
+          onSelectLanguage={handleSwitchLanguage}
           onSelectVariant={setSelectedVariant}
           quantity={quantity}
           selectedGrader={selectedGrader}
-          selectedLanguage={selectedLanguage}
+          selectedLanguage={selectedLanguageChip}
           selectedVariant={selectedVariant}
           testID="detail-add-sheet"
           title="Add to Collection"
