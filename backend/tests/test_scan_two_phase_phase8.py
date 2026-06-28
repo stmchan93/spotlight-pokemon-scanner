@@ -4,6 +4,7 @@ import contextlib
 import io
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -768,6 +769,63 @@ class TwoPhaseScanTests(unittest.TestCase):
         self.assertEqual(reranked_count, 1)
         self.assertEqual(fallback_count, 1)
         self.service.match_scan.assert_called_once_with(payload)
+
+
+class ScanInferenceGuardTests(unittest.TestCase):
+    """The concurrency guard bounds in-flight encoder runs: requests queue, and a
+    request that can't get a slot in time returns a 503 (which the app retries
+    silently) WITHOUT running the encoder. The slot is always released."""
+
+    @staticmethod
+    def _visual_match_handler(captured: dict[str, object]) -> SpotlightRequestHandler:
+        handler = SpotlightRequestHandler.__new__(SpotlightRequestHandler)
+        handler.path = "/api/v1/scan/visual-match"
+        handler.service = Mock()
+        handler.service.request_identity_context.return_value = contextlib.nullcontext()
+        handler.service.visual_match_scan.return_value = {"stage": "visual"}
+
+        def write_json(status: HTTPStatus, payload: dict[str, object]) -> None:
+            captured["status"] = status
+            captured["payload"] = payload
+
+        handler._read_json_body = lambda: {"scanID": "scan-guard"}  # type: ignore[method-assign]
+        handler._require_request_identity = lambda: object()  # type: ignore[method-assign]
+        handler._write_json = write_json  # type: ignore[method-assign]
+        return handler
+
+    def test_returns_503_without_running_inference_when_no_slot_frees(self) -> None:
+        original_sem = server_module._scan_inference_semaphore
+        original_timeout = server_module.SCAN_INFERENCE_ACQUIRE_TIMEOUT_S
+        server_module._scan_inference_semaphore = threading.BoundedSemaphore(1)
+        server_module.SCAN_INFERENCE_ACQUIRE_TIMEOUT_S = 0.05
+        try:
+            # Hold the only slot so the request waits, then sheds.
+            self.assertTrue(server_module._scan_inference_semaphore.acquire(blocking=False))
+            captured: dict[str, object] = {}
+            handler = self._visual_match_handler(captured)
+            handler.do_POST()
+            self.assertEqual(captured["status"], HTTPStatus.SERVICE_UNAVAILABLE)
+            self.assertEqual(captured["payload"]["errorType"], "ScannerBusy")  # type: ignore[index]
+            handler.service.visual_match_scan.assert_not_called()
+        finally:
+            server_module._scan_inference_semaphore = original_sem
+            server_module.SCAN_INFERENCE_ACQUIRE_TIMEOUT_S = original_timeout
+
+    def test_releases_slot_after_success(self) -> None:
+        original_sem = server_module._scan_inference_semaphore
+        sem = threading.BoundedSemaphore(1)
+        server_module._scan_inference_semaphore = sem
+        try:
+            captured: dict[str, object] = {}
+            handler = self._visual_match_handler(captured)
+            handler.do_POST()
+            self.assertEqual(captured["status"], HTTPStatus.OK)
+            handler.service.visual_match_scan.assert_called_once()
+            # The slot was released in the finally, so it can be acquired again.
+            self.assertTrue(sem.acquire(blocking=False))
+            sem.release()
+        finally:
+            server_module._scan_inference_semaphore = original_sem
 
 
 if __name__ == "__main__":

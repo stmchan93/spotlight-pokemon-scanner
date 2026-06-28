@@ -215,6 +215,45 @@ ACCESS_WHITELIST_SETTING_KEY = "access_whitelist_emails"
 # latency to the live scan path.
 SCAN_CANDIDATE_POOL_SIZE = int(os.environ.get("SPOTLIGHT_SCAN_CANDIDATE_POOL_SIZE", "30"))
 
+# --- Scan inference concurrency guard (queue/wait, not fail-fast) ------------
+# The HTTP server is threaded (one thread per request) and the visual encoder
+# (ONNX forward) is CPU-bound. With nothing bounding how many encoder runs
+# execute at once, a burst of concurrent/retried scans on a small VM makes every
+# inference fight for CPU: a normally ~60ms forward balloons to ~60s, the load
+# average spikes, and every request times out client-side. Worse, when the app
+# aborts a slow request and retries, the abandoned request keeps burning CPU
+# (the server only notices the disconnect when it tries to write the response),
+# so retries pile MORE load on. That is the failure we saw.
+#
+# This semaphore caps concurrent encoder-bearing scans so they take turns —
+# each one stays fast on a free core instead of all thrashing. A request that
+# can't get a slot WAITS in line (it does not fail immediately); only if the
+# wait exceeds the acquire timeout does it return 503. That timeout is set
+# deliberately BELOW the app's per-scan request timeout, so any shed load comes
+# back as a quick 503 that the app's existing (invisible) retry re-submits once
+# the queue has drained — the user just keeps seeing "scanning…", not an error.
+# A request that never gets a slot runs zero inference, so 503s are cheap and
+# self-healing.
+#
+# Concurrency defaults to (CPU count - 1) so the encoder can't starve the
+# request-accept loop / pricing lookups, and it auto-scales when the VM is
+# resized (e.g. 2 vCPU -> 1 concurrent, 4 vCPU -> 3). Both are env-overridable.
+SCAN_INFERENCE_MAX_CONCURRENCY = max(
+    1,
+    int(
+        os.environ.get("SPOTLIGHT_MAX_CONCURRENT_SCAN_INFERENCES")
+        or max(1, (os.cpu_count() or 2) - 1)
+    ),
+)
+# Kept below the client's per-scan request timeout (raw match = 10s) so a queued
+# request that can't get a slot in time returns 503 BEFORE the app aborts it,
+# letting the app's silent retry absorb it. Override with
+# SPOTLIGHT_SCAN_INFERENCE_ACQUIRE_TIMEOUT_S.
+SCAN_INFERENCE_ACQUIRE_TIMEOUT_S = float(
+    os.environ.get("SPOTLIGHT_SCAN_INFERENCE_ACQUIRE_TIMEOUT_S") or "6.0"
+)
+_scan_inference_semaphore = threading.BoundedSemaphore(SCAN_INFERENCE_MAX_CONCURRENCY)
+
 RECENT_SALES_DEFAULT_LIMIT = 5
 RECENT_SALES_MAX_LIMIT = 25
 RECENT_SALES_FRESHNESS_HOURS = 24
@@ -14074,6 +14113,29 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         )
         return False
 
+    def _acquire_scan_inference_slot(self) -> bool:
+        """Reserve a slot before running the CPU-bound encoder (queue/wait).
+
+        Bounds how many encoder-bearing scans run at once so they take turns and
+        each stays fast, instead of all thrashing the CPU (which turns a ~60ms
+        forward into ~60s). A request without a free slot WAITS in line up to the
+        acquire timeout; on success the caller MUST release the slot in a
+        ``finally``. Only if the wait is exceeded does this write a 503 — set
+        below the app's request timeout so its silent retry re-submits once the
+        queue drains, keeping the UI on "scanning…" rather than an error.
+        """
+        if _scan_inference_semaphore.acquire(timeout=SCAN_INFERENCE_ACQUIRE_TIMEOUT_S):
+            return True
+        self._write_json(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            {
+                "error": "Scanner is busy right now. Please try again.",
+                "errorType": "ScannerBusy",
+                "retryable": True,
+            },
+        )
+        return False
+
     def _write_image(self, status: HTTPStatus, body: bytes) -> None:
         self.send_response(status.value)
         self.send_header("Content-Type", "image/jpeg")
@@ -15510,6 +15572,8 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 return
             if not self._require_access(identity):
                 return
+            if not self._acquire_scan_inference_slot():
+                return
             try:
                 with self.service.request_identity_context(identity):
                     self._write_json(
@@ -15527,11 +15591,15 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                         "errorType": type(error).__name__,
                     },
                 )
+            finally:
+                _scan_inference_semaphore.release()
             return
 
         if parsed.path == "/api/v1/scan/visual-match":
             identity = self._require_request_identity()
             if identity is None:
+                return
+            if not self._acquire_scan_inference_slot():
                 return
             try:
                 with self.service.request_identity_context(identity):
@@ -15548,6 +15616,8 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                         "errorType": type(error).__name__,
                     },
                 )
+            finally:
+                _scan_inference_semaphore.release()
             return
 
         if parsed.path == "/api/v1/scan/rerank":
