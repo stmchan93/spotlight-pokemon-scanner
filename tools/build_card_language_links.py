@@ -379,6 +379,73 @@ def _default_embedder(
     return embed
 
 
+def add_unique_name_artist_links(
+    conn: sqlite3.Connection,
+    *,
+    embed_art_crops: EmbedArtCrops,
+    unique_floor: float = 0.6,
+    denylist: frozenset[str] = frozenset(),
+    now: str | None = None,
+) -> int:
+    """Overlay: link cards that have EXACTLY ONE same-name+artist cross-language
+    candidate (so the counterpart is unambiguous) even when art similarity is
+    below the normal floor — this recovers full-art / alt-art chase cards
+    (e.g. Moonbreon) whose EN/JP layouts differ. A low `unique_floor` cosine gate
+    still rejects genuinely-unrelated pairs. Skips any denylisted card_id /
+    "card_id,counterpart_id". Only adds cards not already linked. Returns count."""
+    conn.row_factory = sqlite3.Row
+    stamp = now or datetime.now(timezone.utc).isoformat()
+    cards = [card_meta_from_row(r) for r in conn.execute(
+        "SELECT id, language, name, artist, national_pokedex_numbers_json, regulation_mark FROM cards"
+    )]
+    index = build_candidate_index(cards)
+    existing = {r[0] for r in conn.execute("SELECT card_id FROM card_language_links")}
+
+    pairs: list[tuple[str, str, str]] = []
+    need: set[str] = set()
+    for card in cards:
+        if card.card_id in existing:
+            continue
+        cand = prune_candidates(card, index)
+        if len(cand) == 1:
+            pairs.append((card.card_id, cand[0].card_id, cand[0].language))
+            need.add(card.card_id)
+            need.add(cand[0].card_id)
+
+    vecs = embed_art_crops(sorted(need)) if need else {}
+    rows = []
+    for cid, cp, lang in pairs:
+        if cid in denylist or f"{cid},{cp}" in denylist:
+            continue
+        if cid not in vecs or cp not in vecs:
+            continue
+        score = _cosine(vecs[cid], vecs[cp])
+        if score < unique_floor:
+            continue
+        rows.append((cid, cp, lang, score, "name_artist_unique", stamp))
+    conn.executemany(
+        """
+        INSERT OR REPLACE INTO card_language_links
+            (card_id, counterpart_card_id, counterpart_language, match_score, match_method, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        rows,
+    )
+    conn.commit()
+    return len(rows)
+
+
+def load_denylist(path: str | None) -> frozenset[str]:
+    if not path or not Path(path).exists():
+        return frozenset()
+    out = set()
+    for line in Path(path).read_text().splitlines():
+        s = line.split("#", 1)[0].strip()
+        if s:
+            out.add(s)
+    return frozenset(out)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", required=True)
@@ -388,11 +455,11 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--cache-dir", default="backend/data/visual-index/.cache/reference_images")
     parser.add_argument("--names", default="", help="Comma-separated card names to restrict a pilot run")
+    parser.add_argument("--unique-overlay", action="store_true",
+                        help="Only overlay unique-name+artist links onto the existing table (no full rebuild)")
+    parser.add_argument("--unique-floor", type=float, default=0.6)
+    parser.add_argument("--denylist", default="tools/card_language_link_denylist.txt")
     args = parser.parse_args()
-
-    name_filter = (
-        {n.strip().lower() for n in args.names.split(",") if n.strip()} if args.names else None
-    )
 
     conn = sqlite3.connect(args.db)
     embedder = _default_embedder(
@@ -401,6 +468,18 @@ def main() -> None:
         device=args.device,
         cache_dir=Path(args.cache_dir),
         batch_size=args.batch_size,
+    )
+    if args.unique_overlay:
+        added = add_unique_name_artist_links(
+            conn, embed_art_crops=embedder, unique_floor=args.unique_floor,
+            denylist=load_denylist(args.denylist),
+        )
+        conn.close()
+        print(f"name_artist_unique links added: {added}")
+        return
+
+    name_filter = (
+        {n.strip().lower() for n in args.names.split(",") if n.strip()} if args.names else None
     )
     written = build_links(
         conn,

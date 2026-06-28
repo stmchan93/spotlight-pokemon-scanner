@@ -20,16 +20,32 @@ import sqlite3
 from pathlib import Path
 
 
-def run(db_path: Path, csv_path: Path, *, replace: bool = True) -> None:
+def _load_denylist(path: str | None) -> set[str]:
+    if not path or not Path(path).exists():
+        return set()
+    out = set()
+    for line in Path(path).read_text().splitlines():
+        s = line.split("#", 1)[0].strip()
+        if s:
+            out.add(s)
+    return out
+
+
+def run(db_path: Path, csv_path: Path, *, replace: bool = True, denylist_path: str | None = None) -> None:
     con = sqlite3.connect(str(db_path))
     existing = {r[0] for r in con.execute("SELECT id FROM cards")}
+    denylist = _load_denylist(denylist_path)
 
     rows: list[tuple] = []
     skipped = 0
+    denied = 0
     with csv_path.open(newline="") as fh:
         for row in csv.DictReader(fh):
             cid = row["card_id"]
             cp = row["counterpart_card_id"]
+            if cid in denylist or f"{cid},{cp}" in denylist:
+                denied += 1
+                continue
             if cid not in existing or cp not in existing:
                 skipped += 1
                 continue
@@ -53,7 +69,7 @@ def run(db_path: Path, csv_path: Path, *, replace: bool = True) -> None:
     con.commit()
     total = con.execute("SELECT COUNT(*) FROM card_language_links").fetchone()[0]
     con.close()
-    print(f"imported: {len(rows)}  skipped (id not in catalog): {skipped}  table total: {total}")
+    print(f"imported: {len(rows)}  skipped (id not in catalog): {skipped}  denylisted: {denied}  table total: {total}")
 
 
 def main() -> None:
@@ -61,8 +77,10 @@ def main() -> None:
     parser.add_argument("--db", required=True)
     parser.add_argument("--csv", required=True)
     parser.add_argument("--append", action="store_true", help="Keep existing rows (default replaces)")
+    parser.add_argument("--denylist", default="tools/card_language_link_denylist.txt",
+                        help="File of bad card_id or card_id,counterpart_id to skip")
     args = parser.parse_args()
-    run(Path(args.db), Path(args.csv), replace=not args.append)
+    run(Path(args.db), Path(args.csv), replace=not args.append, denylist_path=args.denylist)
 
 
 if __name__ == "__main__":

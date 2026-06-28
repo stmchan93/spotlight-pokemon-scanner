@@ -1,0 +1,82 @@
+# EN↔JP card-language-link denylist — iterative false-positive filtering.
+# One entry per line; lines after '#' are comments.
+#   <card_id>                 -> drop ALL links for this card (either direction)
+#   <card_id>,<counterpart>   -> drop only this specific directed link
+#
+# Loop: audit (tools/build_link_audit_montage.py) -> add bad entries here ->
+# re-run the importer (tools/import_card_language_links.py --denylist this-file)
+# to update staging in seconds, no re-embed.
+#
+# (empty = nothing filtered yet)
+
+# --- placeholder/card-back cards (auto-added 2026-06-27, no usable front image) ---
+bwp_ja-153
+hsp-HGSS18
+mcd14-1
+mcd14-10
+mcd14-11
+mcd14-12
+mcd14-2
+mcd14-3
+mcd14-4
+mcd14-5
+mcd14-6
+mcd14-7
+mcd14-8
+mcd14-9
+mcd15-1
+mcd15-10
+mcd15-11
+mcd15-12
+mcd15-2
+mcd15-3
+mcd15-4
+mcd15-5
+mcd15-6
+mcd15-7
+mcd15-8
+mcd15-9
+mcd17-1
+mcd17-10
+mcd17-11
+mcd17-12
+mcd17-2
+mcd17-3
+mcd17-4
+mcd17-5
+mcd17-6
+mcd17-7
+mcd17-8
+mcd17-9
+mcd18-1
+mcd18-10
+mcd18-11
+mcd18-12
+mcd18-2
+mcd18-3
+mcd18-4
+mcd18-5
+mcd18-6
+mcd18-7
+mcd18-8
+mcd18-9
+miscp_ja-150
+miscp_ja-154
+miscp_ja-157
+miscp_ja-164
+miscp_ja-165
+miscp_ja-173
+miscp_ja-174
+miscp_ja-175
+miscp_ja-177
+miscp_ja-192
+miscp_ja-194
+miscp_ja-210
+miscp_ja-212
+miscp_ja-213
+miscp_ja-215
+sv1v_ja-86
+sv1v_ja-92
+swsh4a_ja-312
+swsh4a_ja-313
+xyp_ja-299
