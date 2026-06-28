@@ -1609,7 +1609,14 @@ def _normalized_variant_label(value: str | None) -> str:
     text = str(value or "").strip()
     if not text:
         return DEFAULT_RAW_VARIANT
+    # Canonicalize the edition token so "1st Edition" (TCGplayer/PPT spelling)
+    # matches Scrydex's "First Edition" spelling. Without this the graded
+    # per-printing lookup silently falls back to the base printing.
+    text = re.sub(r"\b1st\b", "First", text, flags=re.IGNORECASE)
     normalized_key = re.sub(r"[^a-z0-9]+", "", text.lower())
+    # Collapse the edition spelling in the compared key too ("1stedition" was
+    # already rewritten to "firstedition" above, but guard explicitly).
+    normalized_key = normalized_key.replace("1stedition", "firstedition")
     if normalized_key in {"", "raw", "normal", "standard"}:
         return DEFAULT_RAW_VARIANT
     if normalized_key == "holofoil":
@@ -5140,6 +5147,10 @@ def card_price_trend_list(
 
     if is_graded:
         grader_filter = str(grader or "").strip().upper() or None
+        # Honor the selected printing (e.g. "First Edition Holofoil" vs
+        # "Unlimited Holofoil") so the per-grade row price matches the headline.
+        # None falls back to the base printing inside the resolvers.
+        graded_variant = variant
         snapshot_graded = (
             _graded_contexts_payload(snapshot_row["graded_contexts_json"]) if snapshot_row is not None else _empty_graded_contexts()
         )
@@ -5165,6 +5176,7 @@ def card_price_trend_list(
                         cells_by_date.get(str(row["price_date"]), []),
                         grader=grader_key,
                         grade=grade_key,
+                        variant=graded_variant,
                     )
                     market = _price_trend_float(_cell_field(cell, "market")) if cell is not None else None
                 else:
@@ -5172,6 +5184,7 @@ def card_price_trend_list(
                         _graded_contexts_payload(row["graded_contexts_json"]),
                         grader=grader_key,
                         grade=grade_key,
+                        variant=graded_variant,
                     )
                     market = _price_trend_float(entry.get("market")) if isinstance(entry, dict) else None
                 if market is not None:
@@ -5180,6 +5193,7 @@ def card_price_trend_list(
                 snapshot_graded,
                 grader=grader_key,
                 grade=grade_key,
+                variant=graded_variant,
             )
             current_price = _price_trend_float(snapshot_entry.get("market")) if isinstance(snapshot_entry, dict) else None
             if not points and current_price is None:
@@ -5487,6 +5501,26 @@ def contextual_pricing_summary_for_card(
     )
 
 
+def _slab_recent_sales_source_key(source: str, variant_key: str | None) -> str:
+    """Compose the cache `source` token with an optional printing dimension so
+    1st-Edition and Unlimited comps (now edition-specific eBay queries) don't
+    collide under one (card_id, grader, grade, source) key. `variant_key=None` —
+    or the DEFAULT raw printing ("Normal"/"Raw") — preserves the prior bare key
+    exactly, so existing cache rows still round-trip. Only a real, non-default
+    printing is normalized + slugified and appended after a `#` separator
+    (e.g. "ebay#firstedition" vs "ebay#unlimitedholofoil")."""
+    base = str(source or "").strip().lower()
+    if not variant_key:
+        return base
+    normalized = _normalized_variant_label(variant_key)
+    if normalized == DEFAULT_RAW_VARIANT:
+        return base
+    slug = re.sub(r"[^a-z0-9]+", "", normalized.lower())
+    if not slug:
+        return base
+    return f"{base}#{slug}"
+
+
 def slab_recent_sales_cache(
     connection: sqlite3.Connection,
     *,
@@ -5494,12 +5528,13 @@ def slab_recent_sales_cache(
     grader: str,
     grade: str,
     source: str = "ebay",
+    variant_key: str | None = None,
     limit: int = 5,
 ) -> dict[str, Any] | None:
     normalized_card_id = str(card_id or "").strip()
     normalized_grader = str(grader or "").strip().upper()
     normalized_grade = str(grade or "").strip().upper()
-    normalized_source = str(source or "").strip().lower()
+    normalized_source = _slab_recent_sales_source_key(source, variant_key)
     if not normalized_card_id or not normalized_grader or not normalized_grade or not normalized_source:
         return None
     if not _table_exists(connection, "slab_recent_sales_cache"):
@@ -5576,6 +5611,7 @@ def replace_slab_recent_sales_cache(
     grader: str,
     grade: str,
     source: str = "ebay",
+    variant_key: str | None = None,
     sales: list[dict[str, Any]] | None = None,
     fetched_at: str | None = None,
     source_url: str | None = None,
@@ -5584,7 +5620,7 @@ def replace_slab_recent_sales_cache(
     normalized_card_id = str(card_id or "").strip()
     normalized_grader = str(grader or "").strip().upper()
     normalized_grade = str(grade or "").strip().upper()
-    normalized_source = str(source or "").strip().lower()
+    normalized_source = _slab_recent_sales_source_key(source, variant_key)
     if not normalized_card_id or not normalized_grader or not normalized_grade or not normalized_source:
         raise ValueError("card_id, grader, grade, and source are required")
     if not _card_exists(connection, normalized_card_id):

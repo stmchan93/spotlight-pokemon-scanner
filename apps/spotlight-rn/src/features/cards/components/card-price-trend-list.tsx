@@ -78,11 +78,11 @@ export function CardPriceTrendList({ list, onRowPress, onProviderPress, loadingR
       {list.rows.map((row) => {
         const isLoading = row.key === loadingRowKey;
         const rowTestID = testID ? `${testID}-row-${row.key}` : undefined;
-        // Trust line under graded grades: smartMarketPrice confidence + eBay sale
-        // count ("High · 37 sales"). Only renders when the row carries them (PPT
-        // graded); raw / Scrydex rows show just the grade label.
+        // Trust line under graded grades: eBay sale count ("37 sales"). Only
+        // renders when the row carries it (PPT graded); raw / Scrydex rows show
+        // just the grade label. The High/Medium/Low confidence word is
+        // intentionally omitted.
         const trustLine = [
-          row.confidence ? `${row.confidence[0].toUpperCase()}${row.confidence.slice(1)}` : null,
           row.saleCount != null ? `${row.saleCount} ${row.saleCount === 1 ? 'sale' : 'sales'}` : null,
         ]
           .filter(Boolean)

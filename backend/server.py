@@ -10700,6 +10700,7 @@ class SpotlightScanService:
         *,
         grader: str | None = None,
         grade: str | None = None,
+        variant: str | None = None,
         limit: int = DEFAULT_EBAY_LISTING_LIMIT,
     ) -> dict[str, Any] | None:
         card = card_by_id(self.connection, card_id)
@@ -10707,6 +10708,10 @@ class SpotlightScanService:
             return None
         normalized_grader = str(grader or "").strip().upper() or None
         normalized_grade = str(grade or "").strip() or None
+        # Prefer the request-selected printing (the slab_context/variant the user is
+        # viewing), fall back to the card's stored variant, so the eBay link is
+        # edition-scoped (1st Edition vs Unlimited) when the card has that split.
+        selected_variant = str(variant or "").strip() or str(card.get("variant") or "").strip() or None
         try:
             normalized_limit = int(limit)
         except (TypeError, ValueError):
@@ -10718,6 +10723,7 @@ class SpotlightScanService:
             card,
             grader=normalized_grader,
             selected_grade=normalized_grade,
+            variant=selected_variant,
             limit=normalized_limit,
         )
 
@@ -10728,6 +10734,7 @@ class SpotlightScanService:
         grader: str | None = None,
         grade: str | None = None,
         source: str = "ebay",
+        variant: str | None = None,
         limit: int = RECENT_SALES_DEFAULT_LIMIT,
         refresh: bool = False,
     ) -> dict[str, Any] | None:
@@ -10738,6 +10745,10 @@ class SpotlightScanService:
         normalized_source = str(source or "").strip().lower() or "ebay"
         normalized_grader = str(grader or "").strip().upper() or None
         normalized_grade = str(grade or "").strip().upper() or None
+        # Prefer the request-selected printing, fall back to the card's stored
+        # variant, so 1st-Edition and Unlimited comps cache under distinct keys
+        # once the eBay query is edition-specific. None preserves prior behavior.
+        variant_key = str(variant or "").strip() or str(card.get("variant") or "").strip() or None
         try:
             normalized_limit = int(limit)
         except (TypeError, ValueError):
@@ -10763,6 +10774,7 @@ class SpotlightScanService:
             grader=normalized_grader,
             grade=normalized_grade,
             source=normalized_source,
+            variant_key=variant_key,
             limit=normalized_limit,
         )
         cached_payload = _recent_sales_payload(
@@ -10797,6 +10809,7 @@ class SpotlightScanService:
             grader=normalized_grader,
             grade=normalized_grade,
             source=normalized_source,
+            variant_key=variant_key,
             sales=list(remote_payload.get("sales") or []),
             fetched_at=utc_now(),
             source_url=str(remote_payload.get("sourceURL") or "").strip() or None,
@@ -14718,6 +14731,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             query = parse_qs(parsed.query)
             grade = query.get("grade", [""])[0].strip() or None
             grader = query.get("grader", [""])[0].strip() or None
+            variant = query.get("variant", [""])[0].strip() or None
             if grader is None and grade is not None:
                 grader = "PSA"
             try:
@@ -14731,6 +14745,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                     card_id,
                     grader=grader,
                     grade=grade,
+                    variant=variant,
                     limit=limit,
                 )
             except Exception as error:
@@ -14759,6 +14774,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             grade = query.get("grade", [""])[0].strip() or None
             grader = query.get("grader", [""])[0].strip() or None
             source = query.get("source", ["ebay"])[0].strip() or "ebay"
+            variant = query.get("variant", [""])[0].strip() or None
             refresh = query.get("refresh", [""])[0].strip().lower() in {"1", "true", "yes", "on"}
             if grader is None and grade is not None:
                 grader = "PSA"
@@ -14774,6 +14790,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                     grader=grader,
                     grade=grade,
                     source=source,
+                    variant=variant,
                     limit=limit,
                     refresh=refresh,
                 )

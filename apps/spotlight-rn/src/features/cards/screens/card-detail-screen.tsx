@@ -183,6 +183,10 @@ export function CardDetailScreen({
   // On an EN/JP swap, the variant LABEL the user had selected — re-resolved
   // against the counterpart card's (differently-id'd) variant list by name.
   const pendingVariantLabelRef = useRef<string | null>(null);
+  // Same idea for the Add sheet's OWN variant: an EN/JP swap from inside the sheet
+  // must re-resolve `addVariant` against the counterpart's options by name (the
+  // sheet's variant is independent of the page's, so it needs its own carry-over).
+  const pendingAddVariantLabelRef = useRef<string | null>(null);
 
   // Defensive: keep activeCardId in sync if the route prop ever changes without a
   // remount. Normally the route `key` remounts the screen, so this is inert; it
@@ -403,6 +407,27 @@ export function CardDetailScreen({
     );
   }, [activeCardId, detail?.cardId, selectedEntry, variantOptions]);
 
+  // Carry the Add sheet's OWN variant across an in-sheet EN/JP swap: re-resolve
+  // `addVariant` by NAME against the counterpart's (differently-id'd) options,
+  // falling back to the first option. Only fires when a swap actually queued a
+  // pending label, and waits for the counterpart's detail (hence its variant
+  // list) to land — otherwise the sheet's Variant chip would latch to a stale id.
+  useEffect(() => {
+    if (
+      pendingAddVariantLabelRef.current == null
+      || variantOptions.length === 0
+      || detail?.cardId !== activeCardId
+    ) {
+      return;
+    }
+    const carriedLabel = pendingAddVariantLabelRef.current;
+    pendingAddVariantLabelRef.current = null;
+    const carriedMatch = variantOptions.find(
+      (option) => option.label.toLowerCase() === carriedLabel.toLowerCase(),
+    );
+    setAddVariant(carriedMatch?.id ?? variantOptions[0]?.id ?? null);
+  }, [activeCardId, detail?.cardId, variantOptions]);
+
   // Reset the per-lane selection whenever the grader switches so the grade
   // label always reflects the active lane.
   const handleSelectGrader = useCallback((grader: string) => {
@@ -505,7 +530,12 @@ export function CardDetailScreen({
     }
     const lane: CardDetailLane = {
       mode: isRawLane ? 'raw' : 'graded',
-      variant: isRawLane ? (selectedVariantLabel ?? null) : null,
+      // Carry the selected printing on BOTH lanes. The backend graded resolver
+      // reads it as slab_context.variantName; without it, graded always returns
+      // the base printing's price (e.g. Unlimited) regardless of the chip. The
+      // variant is part of laneKey, so switching the printing in graded mode
+      // changes the key and triggers a refetch below.
+      variant: selectedVariantLabel ?? null,
       grader: isRawLane ? null : selectedGrader,
     };
     if (lastFetchedLaneKeyRef.current === laneKey(activeCardId, lane)) {
@@ -542,6 +572,9 @@ export function CardDetailScreen({
         setName: detail.setName,
         grader,
         grade,
+        // Scope sold comps to the selected printing/edition (1st Edition vs
+        // Unlimited) so the recent-sales list isn't a mix of both.
+        variant: selectedVariantLabel,
       });
       if (ebayUrl) {
         capturePostHogEvent('pricing_link_opened', { marketplace: 'ebay', lane: 'graded' });
@@ -609,6 +642,9 @@ export function CardDetailScreen({
         setName: detail.setName,
         grader,
         grade,
+        // Scope sold comps to the selected printing/edition (1st Edition vs
+        // Unlimited) so the recent-sales list isn't a mix of both.
+        variant: selectedVariantLabel,
       });
       if (ebayUrl) {
         capturePostHogEvent('pricing_link_opened', { marketplace: 'ebay', lane: 'graded' });
@@ -777,6 +813,17 @@ export function CardDetailScreen({
     }
     return variantOptions.find((option) => option.id === addVariant)?.label ?? null;
   }, [addVariant, variantOptions]);
+  // EN/JP toggle inside the Add sheet: swap the active card in place (same as the
+  // page's toggle) but first queue the sheet's current variant LABEL so it carries
+  // over to the counterpart's options. Grader/grade/condition are language-agnostic
+  // and stay as-is.
+  const handleSheetSwitchLanguage = useCallback(
+    (chip: string) => {
+      pendingAddVariantLabelRef.current = addVariantLabel;
+      handleSwitchLanguage(chip);
+    },
+    [addVariantLabel, handleSwitchLanguage],
+  );
   const handleAddSelectGrader = useCallback((grader: string) => {
     setAddGrader(grader);
     if (grader === 'Raw') {
@@ -1018,7 +1065,7 @@ export function CardDetailScreen({
           gradeLabel={addGradeLabel}
           gradeTitle={addGradeTitle}
           graders={[...graderOptions]}
-          languages={[]}
+          languages={languageToggleOptions}
           onClose={() => setAddSheetOpen(false)}
           onConfirm={handleAddItem}
           onDecrement={() => setQuantity((current) => Math.max(1, current - 1))}
@@ -1028,7 +1075,7 @@ export function CardDetailScreen({
           onSelectGrade={handleAddGradePick}
           gradePickerTestID="detail-grade-sheet"
           onSelectGrader={handleAddSelectGrader}
-          onSelectLanguage={handleSwitchLanguage}
+          onSelectLanguage={handleSheetSwitchLanguage}
           onSelectVariant={setAddVariant}
           quantity={quantity}
           selectedGrader={addGrader}

@@ -328,7 +328,9 @@ class EbayCompsTests(unittest.TestCase):
 
         handler.do_GET()
 
-        handler.service.card_ebay_comps.assert_called_once_with("gym1-60", grader="PSA", grade="9", limit=5)
+        handler.service.card_ebay_comps.assert_called_once_with(
+            "gym1-60", grader="PSA", grade="9", variant=None, limit=5
+        )
         self.assertEqual(captured["status"], HTTPStatus.OK)
         self.assertEqual(captured["payload"], {"status": "available"})
 
@@ -351,6 +353,7 @@ class EbayCompsTests(unittest.TestCase):
             "gym1-60",
             grader=None,
             grade=None,
+            variant=None,
             limit=DEFAULT_RESULT_LIMIT,
         )
         self.assertEqual(captured["status"], HTTPStatus.OK)
@@ -371,9 +374,64 @@ class EbayCompsTests(unittest.TestCase):
 
         handler.do_GET()
 
-        handler.service.card_ebay_comps.assert_called_once_with("gym1-60", grader=None, grade=None, limit=5)
+        handler.service.card_ebay_comps.assert_called_once_with(
+            "gym1-60", grader=None, grade=None, variant=None, limit=5
+        )
         self.assertEqual(captured["status"], HTTPStatus.OK)
         self.assertEqual(captured["payload"], {"status": "available"})
+
+
+class EbaySearchQueryEditionTests(unittest.TestCase):
+    """_build_search_query / edition-aware eBay scoping for split printings."""
+
+    CARD = {
+        "id": "neo1-9",
+        "name": "Lugia",
+        "setName": "Neo Genesis",
+        "number": "9/111",
+    }
+
+    def test_first_edition_appends_positive_token(self) -> None:
+        from ebay_comps import _build_search_query
+
+        query = _build_search_query(
+            self.CARD, grader="PSA", selected_grade="10", variant="First Edition Holofoil"
+        )
+        self.assertIn("1st Edition", query)
+
+    def test_1st_edition_spelling_also_appends_token(self) -> None:
+        from ebay_comps import _build_search_query
+
+        query = _build_search_query(
+            self.CARD, grader="PSA", selected_grade="10", variant="1st Edition Holofoil"
+        )
+        self.assertIn("1st Edition", query)
+
+    def test_unlimited_excludes_first_edition_on_web_path_only(self) -> None:
+        from ebay_comps import _build_search_query, _build_live_search_url, _edition_qualifiers
+
+        query = _build_search_query(
+            self.CARD, grader="PSA", selected_grade="10", variant="Unlimited Holofoil"
+        )
+        # The positive Browse-API query must NOT carry the exclusion operator.
+        self.assertNotIn("-", query.replace("9/111", ""))
+        self.assertNotIn("1st Edition", query)
+        positive, web_exclude = _edition_qualifiers("Unlimited Holofoil")
+        self.assertIsNone(positive)
+        self.assertEqual(web_exclude, '-"1st Edition"')
+        # The tapped web URL carries the exclusion.
+        web_url = _build_live_search_url(query, limit=5, exclude=web_exclude)
+        self.assertIn("1st+Edition", web_url)  # url-encoded -"1st Edition"
+
+    def test_modern_holofoil_leaves_query_unchanged(self) -> None:
+        from ebay_comps import _build_search_query, _edition_qualifiers
+
+        query = _build_search_query(
+            self.CARD, grader="PSA", selected_grade="10", variant="Holofoil"
+        )
+        self.assertNotIn("1st Edition", query)
+        self.assertEqual(_edition_qualifiers("Holofoil"), (None, None))
+        self.assertEqual(_edition_qualifiers(None), (None, None))
 
 
 if __name__ == "__main__":

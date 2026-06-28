@@ -117,17 +117,53 @@ def build_psa_grade_options(
     ]
 
 
-def _build_search_query(card: dict[str, Any], *, grader: str, selected_grade: str | None) -> str:
+def _edition_qualifiers(variant: str | None) -> tuple[str | None, str | None]:
+    """Map a printing/variant label to eBay edition qualifiers.
+
+    Returns ``(positive_token, web_exclude_token)``:
+    - First/1st Edition printings -> positive token ``1st Edition`` (works on both
+      the web _nkw search and the Browse-API q).
+    - Unlimited printings -> a NEGATIVE web exclusion ``-"1st Edition"``. Unlimited
+      eBay listings rarely say "Unlimited", so excluding 1st-Edition listings is the
+      only honest way to scope to Unlimited. The exclusion is web-only because the
+      Browse-API ``q`` does not support the ``-`` operator cleanly.
+    - Anything else (modern Holofoil/Normal, no edition split) -> no qualifier.
+    """
+    low = str(variant or "").strip().lower()
+    if not low:
+        return None, None
+    if "first edition" in low or "1st edition" in low:
+        return "1st Edition", None
+    if "unlimited" in low:
+        return None, '-"1st Edition"'
+    return None, None
+
+
+def _build_search_query(
+    card: dict[str, Any],
+    *,
+    grader: str,
+    selected_grade: str | None,
+    variant: str | None = None,
+) -> str:
     card_name = str(card.get("name") or card.get("cardName") or "").strip()
     set_name = str(card.get("setName") or card.get("set_name") or "").strip()
     card_number = str(card.get("number") or "").strip()
-    parts = [part for part in [card_name, set_name, card_number, grader, selected_grade] if part]
+    edition_token, _ = _edition_qualifiers(variant)
+    parts = [
+        part
+        for part in [card_name, set_name, card_number, grader, selected_grade, edition_token]
+        if part
+    ]
     return " ".join(parts)
 
 
-def _build_live_search_url(search_query: str, *, limit: int) -> str:
+def _build_live_search_url(search_query: str, *, limit: int, exclude: str | None = None) -> str:
+    # The web _nkw search supports inline negative phrases (-"phrase"); append the
+    # Unlimited exclusion here so the link the user taps is edition-scoped.
+    nkw = f"{search_query} {exclude}".strip() if exclude else search_query
     params = {
-        "_nkw": search_query,
+        "_nkw": nkw,
         "_ipg": str(max(1, min(int(limit), 100))),
         "_sop": EBAY_WEB_LOWEST_PRICE_SORT,
         "rt": "nc",
@@ -472,6 +508,7 @@ def fetch_graded_card_ebay_comps(
     grader: str | None = "PSA",
     selected_grade: str | None = None,
     available_grades: Iterable[str] = (),
+    variant: str | None = None,
     limit: int = DEFAULT_RESULT_LIMIT,
     fetch_json: Callable[..., dict[str, Any]] | None = None,
     timeout_seconds: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
@@ -505,8 +542,12 @@ def fetch_graded_card_ebay_comps(
         card,
         grader=normalized_grader or "",
         selected_grade=normalized_selected_grade,
+        variant=variant,
     )
-    search_url = _build_live_search_url(search_query, limit=normalized_limit)
+    # Web-only Unlimited exclusion (the Browse-API q cannot take a `-` operator);
+    # the tapped link is edition-scoped while the Browse fetch stays operator-safe.
+    _, web_exclude = _edition_qualifiers(variant)
+    search_url = _build_live_search_url(search_query, limit=normalized_limit, exclude=web_exclude)
 
     browse_search_ready_reason = _browse_search_ready_reason()
     if browse_search_ready_reason is not None:

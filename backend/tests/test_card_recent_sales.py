@@ -251,6 +251,7 @@ class CardRecentSalesTests(unittest.TestCase):
             grader="PSA",
             grade="9",
             source="ebay",
+            variant=None,
             limit=5,
             refresh=True,
         )

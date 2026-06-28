@@ -8,7 +8,55 @@ market among duplicate records so a raw price mislabeled as a PSA 9 ($632) or a
 shadowless leak ($9,885) can't be surfaced. It must still honor an explicit variant.
 """
 
-from catalog_tools import _resolve_graded_context_entry, resolve_graded_entry_from_cells
+from catalog_tools import (
+    DEFAULT_RAW_VARIANT,
+    _normalized_variant_label,
+    _resolve_graded_context_entry,
+    resolve_graded_entry_from_cells,
+)
+
+
+def test_normalized_variant_label_equates_1st_and_first_edition():
+    # The key fix: TCGplayer/PPT "1st Edition" must canonicalize to Scrydex's
+    # "First Edition" spelling so the per-printing graded lookup matches.
+    assert _normalized_variant_label("1st Edition Holofoil") == "First Edition Holofoil"
+    assert _normalized_variant_label("First Edition Holofoil") == "First Edition Holofoil"
+    assert _normalized_variant_label("1st Edition Holofoil") == _normalized_variant_label(
+        "First Edition Holofoil"
+    )
+
+
+def test_normalized_variant_label_preserves_special_cases():
+    assert _normalized_variant_label(None) == DEFAULT_RAW_VARIANT
+    assert _normalized_variant_label("") == DEFAULT_RAW_VARIANT
+    assert _normalized_variant_label("Normal") == DEFAULT_RAW_VARIANT
+    assert _normalized_variant_label("raw") == DEFAULT_RAW_VARIANT
+    assert _normalized_variant_label("standard") == DEFAULT_RAW_VARIANT
+    assert _normalized_variant_label("holofoil") == "Holofoil"
+    assert _normalized_variant_label("reverseHolofoil") == "Reverse Holofoil"
+    assert _normalized_variant_label("Unlimited Holofoil") == "Unlimited Holofoil"
+
+
+def test_normalized_variant_label_matches_split_graded_entry():
+    # Mirrors the live neo1-9 split: First Edition vs Unlimited under one grade.
+    graded = {
+        "graders": {
+            "PSA": {
+                "10": [
+                    {"variant": "First Edition Holofoil", "market": 38024.0, "currencyCode": "USD"},
+                    {"variant": "Unlimited Holofoil", "market": 8786.0, "currencyCode": "USD"},
+                ]
+            }
+        }
+    }
+    first_ed = _resolve_graded_context_entry(
+        graded, grader="PSA", grade="10", variant="1st Edition Holofoil"
+    )
+    assert first_ed is not None and first_ed["market"] == 38024.0
+    unlimited = _resolve_graded_context_entry(
+        graded, grader="PSA", grade="10", variant=None
+    )
+    assert unlimited is not None and unlimited["market"] == 8786.0
 
 
 def _entry(variant, market):

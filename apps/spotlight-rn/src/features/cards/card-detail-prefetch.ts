@@ -150,7 +150,10 @@ export function getCardPriceTrendsCached(
     repository.getCardPriceTrends({
       cardId,
       mode: lane.mode,
-      variant: lane.mode === 'raw' ? lane.variant : null,
+      // Forward the printing on BOTH lanes. In graded mode the backend resolves
+      // the price for slab_context.variantName, so dropping it here would always
+      // return the base printing (e.g. Unlimited) regardless of the selection.
+      variant: lane.variant,
       grader: lane.mode === 'raw' ? null : lane.grader,
     }),
   );
