@@ -290,17 +290,8 @@ jest.mock('react-native-vision-camera', () => {
   });
   const mockCapturePhoto = jest.fn(async () => makeMockPhoto());
 
-  // Imperative CameraRef methods used by the capture surface (cold focus-settle).
-  const mockFocusTo = jest.fn(async () => {});
-  const mockResetFocus = jest.fn(async () => {});
-
-  // <Camera> fires onStarted when "ready", exposes the CameraRef methods, and
-  // renders a View so testIDs resolve.
-  const Camera = React.forwardRef(({ onStarted, device: _device, outputs: _outputs, isActive: _isActive, ...props }: any, ref: any) => {
-    React.useImperativeHandle(ref, () => ({
-      focusTo: mockFocusTo,
-      resetFocus: mockResetFocus,
-    }));
+  // <Camera> fires onStarted when "ready" and renders a View so testIDs resolve.
+  const Camera = React.forwardRef(({ onStarted, device: _device, outputs: _outputs, isActive: _isActive, ...props }: any, _ref: any) => {
     React.useEffect(() => {
       onStarted?.();
     }, [onStarted]);
@@ -329,8 +320,6 @@ jest.mock('react-native-vision-camera', () => {
       requestPermission: jest.fn(async () => true),
     }),
     usePhotoOutput: () => ({ capturePhoto: mockCapturePhoto }),
-    // Exposed for tests asserting the cold focus-settle path.
-    __mockFocusTo: mockFocusTo,
   };
 });
 

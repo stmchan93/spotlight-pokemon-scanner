@@ -359,30 +359,6 @@ describe('ScannerScreen', () => {
     expect(screen.getByTestId('scanner-tray')).toBeTruthy();
   });
 
-  it('pre-focuses in the background once the camera is ready, and capture stays focus-free', async () => {
-    const visionCamera = jest.requireMock('react-native-vision-camera') as {
-      __mockFocusTo: jest.Mock;
-    };
-    visionCamera.__mockFocusTo.mockClear();
-
-    renderScannerScreen();
-    await waitForScannerReady();
-
-    // The camera pre-focuses on the reticle center in the background (not at tap
-    // time), so the first frame is already sharp.
-    await waitFor(() => {
-      expect(visionCamera.__mockFocusTo).toHaveBeenCalled();
-    });
-    const callsAfterPreFocus = visionCamera.__mockFocusTo.mock.calls.length;
-
-    // Capturing must NOT add a focus wait — the tap is instant.
-    fireEvent.press(screen.getByTestId('scanner-preview'));
-    await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
-    });
-    expect(visionCamera.__mockFocusTo.mock.calls.length).toBe(callsAfterPreFocus);
-  });
-
   it('shows a dash instead of $0.00 when a matched card has no market price', async () => {
     const spotlightRepository = createTestSpotlightRepository({
       matchScannerCapture: async () => ({

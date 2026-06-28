@@ -2,7 +2,7 @@
 // runtime (silently dropped every scan's source image — see scanner dashboard).
 import * as FileSystem from 'expo-file-system/legacy';
 import type { ReactNode, RefObject } from 'react';
-import { useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { useEffect, useImperativeHandle } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -11,7 +11,6 @@ import {
 } from 'react-native';
 import {
   Camera,
-  type CameraRef,
   CommonResolutions,
   useCameraDevice,
   usePhotoOutput,
@@ -228,17 +227,6 @@ export function RawScannerCaptureSurface({
     qualityPrioritization: 'balanced',
   });
 
-  // Ref to the live vision-camera so we can pre-focus in the background.
-  const visionCameraRef = useRef<CameraRef>(null);
-  // True only once the native session has actually started (onStarted) — focusTo
-  // throws if called before that, so we gate the background pre-focus on it.
-  const [cameraStarted, setCameraStarted] = useState(false);
-  // Holds the in-flight background pre-focus promise (settling after a zoom/lens
-  // change or session start), or null once it has converged. A capture that fires
-  // while this is non-null waits for it, so tapping mid-refocus can't grab a soft
-  // transitional frame.
-  const focusInFlightRef = useRef<Promise<void> | null>(null);
-
   // Detect whether the chosen device bundles the ultra-wide (so zoom=1 is the
   // ultra-wide ~0.5x). `device.physicalDevices` is an array of lens descriptors;
   // handle both string and {type} shapes defensively across vision-camera builds.
@@ -275,45 +263,6 @@ export function RawScannerCaptureSurface({
     );
   }, [zoomFactor, zoom, device, hasUltraWide, wideBaseline, lensesLabel]);
 
-  // Background pre-focus: as soon as the session is live (and again after a
-  // zoom/lens change or reticle move), converge AF/AE on the reticle center while
-  // the user is still lining up the card — NOT at capture time. Continuous AF then
-  // keeps it locked, so the tap stays focus-free (zero added capture latency) yet
-  // the very first frame is already sharp (fixes "first scan wrong, second right").
-  // Fire-and-forget: it never blocks capture, and focusTo's reject (camera not
-  // ready / device lacks focus metering) is swallowed.
-  const reticleCenterX = layout.reticle.x + layout.reticle.width / 2;
-  const reticleCenterY = layout.reticle.y + layout.reticle.height / 2;
-  useEffect(() => {
-    if (!cameraStarted || layout.reticle.width <= 0) {
-      return;
-    }
-    const camera = visionCameraRef.current;
-    if (!camera?.focusTo) {
-      return;
-    }
-    const startedAt = Date.now();
-    // Track this focus as in-flight so a capture during the converge window waits
-    // for it (see takePicture). Cleared when it settles, unless a newer pre-focus
-    // (e.g. a fresh zoom change) has already replaced it.
-    const settle = camera
-      .focusTo({ x: reticleCenterX, y: reticleCenterY })
-      .then(() => {
-        if (__DEV__) {
-          console.info(`[SCANNER FOCUS] pre-focus settled ${Date.now() - startedAt}ms`);
-        }
-      })
-      .catch(() => {
-        // Camera not ready yet / no focus metering — continuous AF still runs.
-      });
-    focusInFlightRef.current = settle;
-    void settle.finally(() => {
-      if (focusInFlightRef.current === settle) {
-        focusInFlightRef.current = null;
-      }
-    });
-  }, [cameraStarted, zoom, reticleCenterX, reticleCenterY, layout.reticle.width]);
-
   useImperativeHandle(
     cameraRef,
     () => ({
@@ -323,26 +272,6 @@ export function RawScannerCaptureSurface({
       async takePicture(_opts) {
         if (!photoOutput) {
           return null;
-        }
-
-        // Normally the background pre-focus has already converged, so this is a
-        // no-op and the tap is instant. But if the user taps WHILE a pre-focus is
-        // still settling (e.g. right after a 2x→1x lens switch), wait for it so we
-        // don't capture a soft transitional frame. Time-boxed so a hung/unsupported
-        // focus can never block the capture.
-        const pendingFocus = focusInFlightRef.current;
-        if (pendingFocus) {
-          let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-          await Promise.race([
-            pendingFocus,
-            new Promise<void>((resolve) => {
-              timeoutHandle = setTimeout(resolve, 700);
-            }),
-          ]).finally(() => {
-            if (timeoutHandle) {
-              clearTimeout(timeoutHandle);
-            }
-          });
         }
 
         const photo = await photoOutput.capturePhoto(
@@ -409,20 +338,11 @@ export function RawScannerCaptureSurface({
     <View style={styles.previewCanvas}>
       {isCameraMounted ? (
         <Camera
-          ref={visionCameraRef}
           device={device}
           isActive={shouldMountCamera}
           onError={onCameraError}
-          onStarted={() => {
-            setCameraStarted(true);
-            onCameraReady();
-          }}
-          onStopped={() => {
-            // Session stopped (e.g. swiped to portfolio) → require a fresh
-            // pre-focus when it restarts, since the lens may have switched.
-            setCameraStarted(false);
-            onCameraStopped?.();
-          }}
+          onStarted={onCameraReady}
+          onStopped={onCameraStopped}
           // Orient captures to the UI (locked to portrait) rather than the physical
           // device sensor. The default 'device' source rotates output with phone tilt
           // even under screen lock, which let a transitional orientation slip a sideways
