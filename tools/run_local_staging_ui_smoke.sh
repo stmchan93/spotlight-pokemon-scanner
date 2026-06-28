@@ -96,6 +96,16 @@ cleanup() {
   if [ -n "$TEMP_MOBILE_ENV_FILE" ] && [ -f "$TEMP_MOBILE_ENV_FILE" ]; then
     rm -f "$TEMP_MOBILE_ENV_FILE"
   fi
+  # Maestro writes `takeScreenshot` output to the working dir (the repo root),
+  # which litters `staging-smoke-*.png` there. Tuck them into a gitignored
+  # `qa/smoke/` folder instead so the repo root stays clean. Best-effort — never
+  # let this fail the run; nothing downstream reads these by path.
+  local shots=( "$REPO_ROOT"/staging-smoke-*.png )
+  if [ -e "${shots[0]}" ]; then
+    mkdir -p "$REPO_ROOT/qa/smoke" \
+      && mv -f "$REPO_ROOT"/staging-smoke-*.png "$REPO_ROOT/qa/smoke/" 2>/dev/null \
+      && echo "Moved staging smoke screenshots to qa/smoke/" || true
+  fi
 }
 
 trap cleanup EXIT INT TERM
