@@ -87,6 +87,8 @@ tmp/
 
 # Local smoke artifacts
 backend/data/scan-artifacts/labeling-sessions/
+# Private scan captures are runtime/local only — never commit them (repo invariant).
+backend/data/scan-artifacts/scans/
 staging-smoke-*.png
 
 # Xcode user state
