@@ -32,6 +32,10 @@ Date: 2026-04-09
 
 ## Current Fixture Outputs
 
+> Removed 2026-06-27: `qa/ocr-fixtures` and `qa/ocr-golden` — and the legacy Swift OCR
+> harnesses that produced them — were deleted in the repo dead-weight cleanup. The paths
+> referenced below are historical; OCR logic is now covered by the React Native test suite.
+
 - Canonical fixture manifests live under:
   - [qa/ocr-fixtures](/Users/stephenchan/Code/spotlight/qa/ocr-fixtures)
 - Host-side manifest validation and baseline materialization writes to:
