@@ -321,9 +321,10 @@ export function ScannerScreen({
   const captureFlashOpacity = useRef(new Animated.Value(0)).current;
   const triggerCaptureFlash = useCallback(() => {
     captureFlashOpacity.setValue(0.9);
+    // ~Half-second fade so it reads as a deliberate shutter flash, not a blink.
     Animated.timing(captureFlashOpacity, {
       toValue: 0,
-      duration: 200,
+      duration: 450,
       useNativeDriver: true,
     }).start();
   }, [captureFlashOpacity]);

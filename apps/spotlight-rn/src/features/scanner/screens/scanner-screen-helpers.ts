@@ -1,4 +1,4 @@
-import { Platform, Vibration } from 'react-native';
+import { Vibration } from 'react-native';
 
 // Static import (matches the working portfolio-chart scrub haptic). The previous
 // lazy `await import('expo-haptics')` added first-call latency and obscured
@@ -499,14 +499,12 @@ export async function triggerScannerHaptic() {
     // firm "ka-chunk"), like an iOS screenshot. Light read as barely-there.
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
   } catch (error) {
-    // Most likely the native ExpoHaptics module isn't in this binary. Surface it
-    // instead of silently degrading — that silence is why past JS-only "fixes"
-    // looked like they did nothing. Android still gets a basic vibration;
-    // iOS Vibration with a ms duration is a no-op, so don't pretend otherwise.
+    // ExpoHaptics native module likely isn't active in this binary (OTA can't add
+    // native code). Fall back to the CORE Vibration API, which is always compiled
+    // in, so the capture is still FELT. On iOS the ms arg is ignored but it still
+    // fires the system vibration — it is NOT a no-op (earlier belief was wrong).
     console.warn('[scanner] capture haptic unavailable (native module missing?)', error);
-    if (Platform.OS === 'android') {
-      Vibration.vibrate(25);
-    }
+    Vibration.vibrate(25);
   }
 }
 
@@ -541,8 +539,8 @@ export async function triggerScannerProcessedHaptic(outcome: 'found' | 'done' = 
     }
   } catch (error) {
     console.warn('[scanner] result haptic unavailable (native module missing?)', error);
-    if (Platform.OS === 'android') {
-      Vibration.vibrate(outcome === 'found' ? [0, 45, 60, 45] : 15);
-    }
+    // Core Vibration fallback (always compiled in) so the result is felt on iOS
+    // and Android even when the ExpoHaptics native module isn't in the binary.
+    Vibration.vibrate(outcome === 'found' ? [0, 45, 60, 45] : 15);
   }
 }
