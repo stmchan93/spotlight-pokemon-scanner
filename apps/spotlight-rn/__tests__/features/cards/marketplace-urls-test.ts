@@ -454,6 +454,59 @@ describe('buildEbaySearchUrl', () => {
     expect(withVariant).not.toContain('Edition');
   });
 
+  it('drops the collector number for a vintage 1st Edition graded card', () => {
+    const url = buildEbaySearchUrl({
+      name: 'Lugia',
+      setName: 'Neo Genesis',
+      cardNumber: '9/111',
+      grader: 'PSA',
+      grade: '10',
+      variant: '1st Edition Holofoil',
+    })!;
+    expect(url).toContain('%22PSA+10%22+Lugia');
+    expect(url).toContain('Neo+Genesis');
+    expect(url).toContain('1st+Edition');
+    // The collector number is dropped so the AND-matched keywords don't zero out.
+    expect(url).not.toContain('111');
+  });
+
+  it('keeps the collector number for a modern graded card (no edition qualifier)', () => {
+    const url = buildEbaySearchUrl({
+      name: 'Umbreon VMAX',
+      setName: 'Evolving Skies',
+      cardNumber: '215/203',
+      grader: 'PSA',
+      grade: '10',
+      variant: 'Holofoil',
+    })!;
+    // Modern same-name prints (alt art vs regular) are disambiguated by the number.
+    expect(url).toContain('215');
+    expect(url).toContain('203');
+  });
+
+  it('drops the collector number and keeps the exclusion for a vintage Unlimited graded card', () => {
+    const url = buildEbaySearchUrl({
+      name: 'Charizard',
+      setName: 'Base Set',
+      cardNumber: '4/102',
+      grader: 'PSA',
+      grade: '10',
+      variant: 'Unlimited Holofoil',
+    })!;
+    expect(url).toContain('-%221st+Edition%22');
+    expect(url).not.toContain('102');
+  });
+
+  it('keeps the collector number for a raw vintage card (no grade ⇒ not graded)', () => {
+    const url = buildEbaySearchUrl({
+      name: 'Charizard',
+      setName: 'Base Set',
+      cardNumber: '4/102',
+      variant: '1st Edition Holofoil',
+    })!;
+    expect(url).toContain('102');
+  });
+
   it('expands the δ Delta Species glyph to words instead of dropping it', () => {
     const url = buildEbaySearchUrl({
       setName: 'EX Delta Species',

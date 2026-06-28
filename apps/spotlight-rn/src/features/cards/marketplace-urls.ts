@@ -298,6 +298,17 @@ export function buildEbaySearchUrl(params: {
   const gradeToken = cleanedMarketplaceToken(params.grade);
   const editionToken = editionKeywordToken(params.variant);
 
+  // Drop the collector number for VINTAGE GRADED cards (an edition qualifier +
+  // a grade are present). Slab sellers title these by name+set+grade and omit
+  // the number (the slab shows it), so requiring it as keywords ("9 111") zeroes
+  // out the sold search. Name+set+edition already uniquely identifies a vintage
+  // card. Modern graded (no edition) KEEPS the number — there it separates
+  // same-name prints (alt art vs regular), which modern slab titles include.
+  const dropCollectorNumber = Boolean(editionToken && gradeToken);
+  const numberToken = dropCollectorNumber
+    ? null
+    : cleanedMarketplaceToken(params.cardNumber.replace(/^#/, ''));
+
   // Quote the grader+grade as an EXACT phrase (e.g. "PSA 3") so eBay matches the grade
   // strictly. As loose keywords, eBay relaxes the low-signal grade number — a bare "3"
   // collides with card numbers ("215/203") and gets dropped, backfilling the page with
@@ -312,7 +323,7 @@ export function buildEbaySearchUrl(params: {
     // Grader + grade first so the search lands on graded sales of this exact card.
     gradeTerm,
     cleanedMarketplaceToken(params.name),
-    cleanedMarketplaceToken(params.cardNumber.replace(/^#/, '')),
+    numberToken,
     cleanedMarketplaceToken(params.setName),
     // Edition qualifier LAST, appended raw (not through cleanedMarketplaceToken,
     // which would strip the leading "-" and the quotes the exclusion relies on).
