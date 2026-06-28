@@ -145,6 +145,26 @@ def audit_backend(
     )
     require_non_placeholder(secret_values, "SCRYDEX_API_KEY", failures)
     require_non_placeholder(secret_values, "SCRYDEX_TEAM_ID", failures)
+
+    # Account deletion (App Store guideline 5.1.1(v)) deletes the Supabase auth user
+    # via the Admin API. Without the service-role key the delete silently skips the
+    # auth user, the login survives a "Delete Account", and App Review re-rejects.
+    # Require it server-side so a deploy fails loudly instead of shipping that.
+    service_role_key = (
+        secret_values.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+        or secret_values.get("SPOTLIGHT_SUPABASE_SERVICE_ROLE_KEY", "").strip()
+        or env_values.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+        or env_values.get("SPOTLIGHT_SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    )
+    require(
+        bool(service_role_key) and not has_placeholder(service_role_key),
+        (
+            f"{backend_secrets_path.name} must set SUPABASE_SERVICE_ROLE_KEY (the Supabase "
+            "service_role secret) so account deletion removes the auth user — App Store "
+            "guideline 5.1.1(v). Without it a 'Delete Account' leaves the login working."
+        ),
+        failures,
+    )
     require(
         not secret_values.get("SPOTLIGHT_AUTH_FALLBACK_USER_ID", "").strip(),
         f"{backend_secrets_path.name} must not set SPOTLIGHT_AUTH_FALLBACK_USER_ID for {environment}",

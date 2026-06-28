@@ -5329,8 +5329,9 @@ class SpotlightScanService:
         Required for App Store guideline 5.1.1(v) (in-app account deletion).
         Local data deletion runs in one transaction. The Supabase admin delete
         is best-effort: if the service-role key is missing or the call fails we
-        log a warning and still report success, because the user's app data is
-        already gone and auth-user deletion can be reconciled later.
+        log an ERROR (so a misconfigured deploy is visible — leaving the auth user
+        alive re-triggers a 5.1.1(v) rejection) and still report success, because
+        the user's app data is already gone and the auth user can be reconciled.
         """
         owner_user_id = self._current_owner_user_id()
 
@@ -5353,7 +5354,7 @@ class SpotlightScanService:
         """Best-effort deletion of the Supabase auth user via the Admin API.
 
         Returns True only when the auth user was deleted. Never raises: a
-        missing service-role key or a failed call logs a warning and returns
+        missing service-role key or a failed call logs an ERROR and returns
         False so account deletion still succeeds.
         """
         supabase_url = str(
@@ -5371,7 +5372,7 @@ class SpotlightScanService:
         if not service_role_key or not supabase_url:
             self._emit_structured_log(
                 {
-                    "severity": "WARNING",
+                    "severity": "ERROR",
                     "event": "account_deletion_auth_user_skipped",
                     "ownerUserID": owner_user_id,
                     "reason": "missing_service_role_key" if not service_role_key else "missing_supabase_url",
@@ -5397,7 +5398,7 @@ class SpotlightScanService:
                 return True
             self._emit_structured_log(
                 {
-                    "severity": "WARNING",
+                    "severity": "ERROR",
                     "event": "account_deletion_auth_user_failed",
                     "ownerUserID": owner_user_id,
                     "statusCode": status_code,
@@ -5407,7 +5408,7 @@ class SpotlightScanService:
         except Exception as error:  # best-effort: never block account deletion
             self._emit_structured_log(
                 {
-                    "severity": "WARNING",
+                    "severity": "ERROR",
                     "event": "account_deletion_auth_user_error",
                     "ownerUserID": owner_user_id,
                     "error": str(error),

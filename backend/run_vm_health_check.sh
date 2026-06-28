@@ -84,3 +84,16 @@ if [ -n "$public_base_url" ]; then
 fi
 
 echo "[$timestamp] health-check complete"
+
+# Dead-man's-switch ping (e.g. Healthchecks.io). This line is only reached when
+# EVERY check above passed, because `set -euo pipefail` + `curl -fsS` abort the
+# script on any failure. A missed ping — a failed check, the cron not running, or
+# the whole VM being down — is what trips the external alert. No-op until
+# SPOTLIGHT_HEALTHCHECK_PING_URL is set in the runtime env/secrets.
+if [ -n "${SPOTLIGHT_HEALTHCHECK_PING_URL:-}" ]; then
+  if curl -fsS --max-time 10 "$SPOTLIGHT_HEALTHCHECK_PING_URL" >/dev/null 2>&1; then
+    echo "[$timestamp] healthcheck-ping ok"
+  else
+    echo "[$timestamp] healthcheck-ping failed (non-fatal)" >&2
+  fi
+fi
