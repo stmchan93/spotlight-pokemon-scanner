@@ -318,10 +318,7 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
             },
         }
 
-        with (
-            patch("server.scrydex_request_stats_snapshot", return_value={"total": 9, "recent": []}),
-            patch("builtins.print") as print_mock,
-        ):
+        with patch("server.scrydex_request_stats_snapshot", return_value={"total": 9, "recent": []}):
             SpotlightScanService._log_scrydex_match_usage(  # noqa: SLF001
                 "scan-phase7-rerank",
                 before_total=9,
@@ -329,15 +326,14 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
                 response=response_payload,
             )
 
-        logged_lines = "\n".join(str(call.args[0]) for call in print_mock.call_args_list)
-        self.assertIn("[MATCH PERF] scan=scan-phase7-rerank stage=reranked", logged_lines)
-        self.assertIn("[MATCH PERF TIMING] scan=scan-phase7-rerank stage=reranked", logged_lines)
-        self.assertIn("cacheLookupMs", logged_lines)
-        self.assertIn("rerankResolveMs", logged_lines)
-        self.assertIn("candidateHydrationMs", logged_lines)
-        self.assertIn("responseAssemblyMs", logged_lines)
-        self.assertIn("backendTimings", response_payload["performance"])
-        self.assertEqual(response_payload["performance"]["scrydexRequestCount"], 0)
+        performance = response_payload["performance"]
+        self.assertIn("phaseTimings", performance)
+        self.assertIn("matcherTimings", performance)
+        self.assertEqual(performance["backendTimings"]["cacheLookupMs"], 1.25)
+        self.assertEqual(performance["backendTimings"]["rerankResolveMs"], 18.5)
+        self.assertEqual(performance["backendTimings"]["candidateHydrationMs"], 42.5)
+        self.assertEqual(performance["backendTimings"]["responseAssemblyMs"], 4.0)
+        self.assertEqual(performance["scrydexRequestCount"], 0)
 
     def test_visual_matcher_timing_fields_extracts_sub_phases(self) -> None:
         debug = {

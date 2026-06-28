@@ -185,8 +185,26 @@ LIVE_PRICING_SETTING_KEY = "live_pricing"
 # When the gate is CLOSED (card-show-mode inactive), only allowed users may use
 # the protected backend surface. Allowed = gate OPEN, OR admin email, OR a
 # whitelisted email, OR a redeemed invite-code grant persisted to the account.
-ACCESS_ADMIN_EMAILS = {"stmchan8953@gmail.com"}
-ACCESS_INVITE_CODES = {"ekalight_special_guest"}
+#
+# Admin emails and invite codes are configured via environment (comma-separated)
+# so they are not baked into the public repo. Set them in the gitignored secrets
+# file that the VM sources before launch:
+#   SPOTLIGHT_ACCESS_ADMIN_EMAILS=admin@example.com,other@example.com
+#   SPOTLIGHT_ACCESS_INVITE_CODES=some_invite_code
+ACCESS_ADMIN_EMAILS_ENV = "SPOTLIGHT_ACCESS_ADMIN_EMAILS"
+ACCESS_INVITE_CODES_ENV = "SPOTLIGHT_ACCESS_INVITE_CODES"
+
+
+def _access_admin_emails() -> set[str]:
+    raw = os.environ.get(ACCESS_ADMIN_EMAILS_ENV) or ""
+    return {part.strip().lower() for part in raw.split(",") if part.strip()}
+
+
+def _access_invite_codes() -> set[str]:
+    raw = os.environ.get(ACCESS_INVITE_CODES_ENV) or ""
+    return {part.strip().lower() for part in raw.split(",") if part.strip()}
+
+
 # Runtime-settings key holding the dynamic email whitelist: {"emails": [...]}.
 ACCESS_WHITELIST_SETTING_KEY = "access_whitelist_emails"
 
@@ -1469,17 +1487,6 @@ class SpotlightScanService:
         with self._state_lock:
             self._prune_pending_visual_scans()
             self._pending_visual_scans[scan_id] = pending
-        top_candidate_id = ""
-        if pending.visual_matches:
-            top_candidate_id = str(getattr(pending.visual_matches[0].entry, "card_id", "") or "")
-        print(
-            "[SCAN CACHE] Stored visual shortlist: "
-            f"scanID={scan_id} "
-            f"topK={pending.requested_top_k} "
-            f"matches={len(pending.visual_matches)} "
-            f"visualMatchMs={pending.visual_match_ms:.1f} "
-            f"top1={top_candidate_id or '<none>'}"
-        )
 
     def _pending_visual_scan(self, scan_id: str, *, owner_user_id: str | None = None) -> PendingVisualScan | None:
         scan_id = str(scan_id or "").strip()
@@ -1489,24 +1496,9 @@ class SpotlightScanService:
             self._prune_pending_visual_scans()
             pending = self._pending_visual_scans.get(scan_id)
         if pending is not None and owner_user_id is not None and pending.owner_user_id != owner_user_id:
-            print(
-                "[SCAN CACHE] Rejected visual shortlist owner mismatch: "
-                f"scanID={scan_id} "
-                f"owner={owner_user_id} "
-                f"cachedOwner={pending.owner_user_id}"
-            )
             return None
         if pending is None:
-            print(f"[SCAN CACHE] Missed visual shortlist: scanID={scan_id}")
             return None
-        age_ms = (perf_counter() - pending.created_at) * 1000.0
-        print(
-            "[SCAN CACHE] Reusing visual shortlist: "
-            f"scanID={scan_id} "
-            f"ageMs={age_ms:.1f} "
-            f"matches={len(pending.visual_matches)} "
-            f"visualMatchMs={pending.visual_match_ms:.1f}"
-        )
         return pending
 
     def _take_pending_visual_scan(self, scan_id: str, *, owner_user_id: str | None = None) -> PendingVisualScan | None:
@@ -1521,16 +1513,7 @@ class SpotlightScanService:
             elif pending is not None:
                 self._pending_visual_scans.pop(scan_id, None)
         if pending is None:
-            print(f"[SCAN CACHE] Missed visual shortlist: scanID={scan_id}")
             return None
-        age_ms = (perf_counter() - pending.created_at) * 1000.0
-        print(
-            "[SCAN CACHE] Reusing visual shortlist: "
-            f"scanID={scan_id} "
-            f"ageMs={age_ms:.1f} "
-            f"matches={len(pending.visual_matches)} "
-            f"visualMatchMs={pending.visual_match_ms:.1f}"
-        )
         return pending
 
     def _clear_pending_visual_scan(self, scan_id: str) -> None:
@@ -1999,13 +1982,13 @@ class SpotlightScanService:
         return sorted(emails)
 
     def _is_admin_email(self, email: str | None) -> bool:
-        return str(email or "").strip().lower() in ACCESS_ADMIN_EMAILS
+        return str(email or "").strip().lower() in _access_admin_emails()
 
     def _access_email_allowed(self, email: str | None) -> bool:
         normalized = str(email or "").strip().lower()
         if not normalized:
             return False
-        if normalized in ACCESS_ADMIN_EMAILS:
+        if normalized in _access_admin_emails():
             return True
         return normalized in self._access_whitelist_emails()
 
@@ -2042,7 +2025,7 @@ class SpotlightScanService:
 
     def redeem_invite_code(self, identity: RequestIdentity, code: str) -> dict[str, Any]:
         normalized = str(code or "").strip().lower()
-        if normalized not in ACCESS_INVITE_CODES:
+        if normalized not in _access_invite_codes():
             raise ValueError("invalid_code")
         user_id = str(getattr(identity, "user_id", "") or "").strip()
         if not user_id:
@@ -2374,16 +2357,7 @@ class SpotlightScanService:
         recent = list(stats.get("recent") or [])
         recent_entries = recent[-delta:] if delta > 0 else []
         types = [str(entry.get("type") or "unknown") for entry in recent_entries]
-        details = [
-            {
-                "type": str(entry.get("type") or "unknown"),
-                "path": str(entry.get("path") or ""),
-                "query": str(entry.get("query") or "").strip() or None,
-            }
-            for entry in recent_entries
-        ]
         server_processing_ms = max(0.0, (perf_counter() - started_at) * 1000.0)
-        matching_stage = str(response.get("matchingStage") or "").strip() or "unknown"
         response["performance"] = {
             "serverProcessingMs": round(server_processing_ms, 3),
             "scrydexRequestCount": delta,
@@ -2393,42 +2367,11 @@ class SpotlightScanService:
         phase_timings = visual_hybrid_debug.get("phaseTimings") or {}
         matcher_timings = visual_hybrid_debug.get("timings") or {}
         backend_timings = response.get("backendTimingDebug") or {}
-        backend_timing_summary = {
-            key: round(float(value), 3)
-            for key, value in backend_timings.items()
-            if isinstance(value, (int, float))
-        }
         if phase_timings or matcher_timings:
             response["performance"]["phaseTimings"] = phase_timings
             response["performance"]["matcherTimings"] = matcher_timings
         if backend_timings:
             response["performance"]["backendTimings"] = backend_timings
-        print(
-            "[MATCH PERF] "
-            f"scan={scan_id} "
-            f"stage={matching_stage} "
-            f"resolverPath={response.get('resolverPath') or 'unknown'} "
-            f"confidence={response.get('confidence') or 'unknown'} "
-            f"serverMs={server_processing_ms:.1f} "
-            f"requests={delta} "
-            f"types={types or ['none']} "
-            f"details={details or []}"
-        )
-        if backend_timing_summary:
-            print(
-                "[MATCH PERF TIMING] "
-                f"scan={scan_id} "
-                f"stage={matching_stage} "
-                f"backend={backend_timing_summary}"
-            )
-        if phase_timings or matcher_timings or backend_timings:
-            print(
-                "[MATCH PERF DETAIL] "
-                f"scan={scan_id} "
-                f"phases={phase_timings or {}} "
-                f"matcher={matcher_timings or {}} "
-                f"backend={backend_timings or {}}"
-            )
 
     def _display_pricing_summary_for_card(
         self,
@@ -7256,31 +7199,6 @@ class SpotlightScanService:
             "sourceURL": pricing.get("sourceURL"),
         }
 
-    def _log_pricing_provenance(
-        self,
-        context: str,
-        card_id: str,
-        *,
-        grader: str | None = None,
-        grade: str | None = None,
-    ) -> None:
-        provenance = self._pricing_provenance_for_card(card_id, grader=grader, grade=grade)
-        if provenance is None:
-            print(f"[PRICING DEBUG] {context}: card={card_id} has no stored pricing snapshot")
-            return
-        print(
-            "[PRICING DEBUG] "
-            f"{context}: "
-            f"card={card_id} "
-            f"provider={provenance.get('provider') or 'unknown'} "
-            f"source={provenance.get('source') or 'unknown'} "
-            f"variant={provenance.get('variant') or 'n/a'} "
-            f"price={provenance.get('primaryPrice', self._primary_price_value(provenance))} "
-            f"currency={provenance.get('currencyCode') or 'USD'} "
-            f"refreshedAt={provenance.get('refreshedAt') or 'n/a'} "
-            f"url={provenance.get('sourceURL') or 'n/a'}"
-        )
-
     def _scan_log_payload(
         self,
         request_payload: dict[str, Any],
@@ -9817,33 +9735,17 @@ class SpotlightScanService:
             scored_candidates,
             prediction_candidates=storage_candidates,
         )
-        print(
-            "[SCAN CACHE] Visual phase ready for rerank: "
-            f"scanID={scan_id} "
-            f"visualMatchMs={visual_match_ms:.1f} "
-            f"resolverPath={response.get('resolverPath') or '<none>'} "
-            f"provisional={bool(response.get('isProvisional'))}"
-        )
         self._record_backend_timing(
             response,
             preVisualSetupMs=pre_visual_setup_ms,
             buildResponseTotalMs=build_response_total_ms,
             storePendingVisualScanMs=store_pending_ms,
         )
-        scrydex_usage_log_started_at = perf_counter()
         self._log_scrydex_match_usage(
             scan_id,
             before_total=scrydex_before_total,
             started_at=match_started,
             response=response,
-        )
-        scrydex_usage_log_ms = (perf_counter() - scrydex_usage_log_started_at) * 1000.0
-        visual_match_scan_total_ms = (perf_counter() - handler_started_at) * 1000.0
-        print(
-            "[SCAN HANDLER TIMING] "
-            f"scan={scan_id} "
-            f"scrydexUsageLogMs={scrydex_usage_log_ms:.1f} "
-            f"visualMatchScanTotalMs={visual_match_scan_total_ms:.1f}"
         )
         return response
 
@@ -9866,7 +9768,6 @@ class SpotlightScanService:
             image_bytes = str(image_payload.get("jpegBase64") or "").strip()
             if not image_bytes:
                 raise ValueError("Cached visual shortlist expired; full rerank retry requires image.jpegBase64")
-            print(f"[SCAN CACHE] Cache unavailable for rerank, falling back live: scanID={scan_id}")
             return self.match_scan(payload)
         cache_clear_ms = 0.0
 
@@ -9883,7 +9784,6 @@ class SpotlightScanService:
             )
             resolve_ms = (perf_counter() - resolve_started_at) * 1000.0
         except Exception as exc:
-            print(f"[SCAN CACHE] Cached rerank failed, returning unavailable response: scanID={scan_id} error={exc}")
             response = self._unsupported_match_response(
                 payload,
                 resolver_mode="raw_card",
@@ -9917,15 +9817,6 @@ class SpotlightScanService:
             cacheClearMs=cache_clear_ms,
             rerankResolveMs=resolve_ms,
             rerankServiceTotalMs=(perf_counter() - match_started) * 1000.0,
-        )
-        print(
-            "[SCAN CACHE] Cached rerank completed: "
-            f"scanID={scan_id} "
-            f"resolverPath={response.get('resolverPath') or '<none>'} "
-            f"confidence={response.get('confidence') or '<none>'} "
-            f"cacheLookupMs={cache_lookup_ms:.1f} "
-            f"cacheClearMs={cache_clear_ms:.1f} "
-            f"resolveMs={resolve_ms:.1f}"
         )
         self._log_scrydex_match_usage(
             scan_id,
@@ -10484,21 +10375,9 @@ class SpotlightScanService:
 
             existing_pricing = self._display_pricing_summary_for_context(card_id, pricing_context=pricing_context)
             if self._should_use_cached_pricing_snapshot(existing_pricing, force_refresh=effective_force_refresh):
-                self._log_pricing_provenance(
-                    "refresh_slab_cached",
-                    card_id,
-                    grader=pricing_context.grader,
-                    grade=pricing_context.grade,
-                )
                 return self._card_detail_for_context(card_id, pricing_context=pricing_context)
 
             if not self._live_scrydex_pricing_refresh_allowed():
-                self._log_pricing_provenance(
-                    "refresh_slab_manual_mirror_cached_only",
-                    card_id,
-                    grader=pricing_context.grader,
-                    grade=pricing_context.grade,
-                )
                 return self._card_detail_for_context(card_id, pricing_context=pricing_context)
 
             existing_card = card_by_id(self.connection, card_id)
@@ -10512,30 +10391,21 @@ class SpotlightScanService:
                 refresh_kwargs["preferred_variant"] = pricing_context.preferred_variant
             if pricing_context.variant_hints:
                 refresh_kwargs["variant_hints"] = pricing_context.variant_hints
-            refresh_result = psa_provider.refresh_psa_pricing(
+            psa_provider.refresh_psa_pricing(
                 self.connection,
                 card_id,
                 pricing_context.grader,
                 pricing_context.grade,
                 **refresh_kwargs,
             )
-            if refresh_result.success:
-                self._log_pricing_provenance(
-                    "refresh_slab",
-                    card_id,
-                    grader=pricing_context.grader,
-                    grade=pricing_context.grade,
-                )
             return self._card_detail_for_context(card_id, pricing_context=pricing_context)
 
         existing_card = card_by_id(self.connection, card_id)
         existing_pricing = self._display_pricing_summary_for_context(card_id, pricing_context=pricing_context)
         if self._should_use_cached_pricing_snapshot(existing_pricing, force_refresh=effective_force_refresh):
-            self._log_pricing_provenance("refresh_raw_cached", card_id)
             return self._card_detail_for_context(card_id, pricing_context=pricing_context)
 
         if not self._live_scrydex_pricing_refresh_allowed():
-            self._log_pricing_provenance("refresh_raw_manual_mirror_cached_only", card_id)
             return self._card_detail_for_context(card_id, pricing_context=pricing_context)
 
         provider_id = str((existing_card or {}).get("sourceProvider") or "scrydex")
@@ -10543,9 +10413,7 @@ class SpotlightScanService:
         if raw_provider is None or not raw_provider.is_ready() or not raw_provider.get_metadata().supports_raw_pricing:
             return self._card_detail_for_context(card_id, pricing_context=pricing_context)
 
-        provider_refresh_result = raw_provider.refresh_raw_pricing(self.connection, card_id)
-        if provider_refresh_result.success:
-            self._log_pricing_provenance("refresh_raw", card_id)
+        raw_provider.refresh_raw_pricing(self.connection, card_id)
         return self._card_detail_for_context(card_id, pricing_context=pricing_context)
 
     def refresh_card_pricing(
@@ -15642,27 +15510,22 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 return
             if not self._require_access(identity):
                 return
-            request_started_at = perf_counter()
             try:
                 with self.service.request_identity_context(identity):
-                    self._write_json_timed(
+                    self._write_json(
                         HTTPStatus.OK,
                         self.service.match_scan(payload),
-                        label="scan_match",
-                        started_at=request_started_at,
                     )
             except Exception as error:
                 traceback.print_exc()
                 with self.service.request_identity_context(identity):
                     self.service._emit_structured_log(self.service._scan_error_log_payload(payload, error))
-                self._write_json_timed(
+                self._write_json(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                     {
                         "error": "Scan match failed",
                         "errorType": type(error).__name__,
                     },
-                    label="scan_match",
-                    started_at=request_started_at,
                 )
             return
 
@@ -15670,25 +15533,20 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             identity = self._require_request_identity()
             if identity is None:
                 return
-            request_started_at = perf_counter()
             try:
                 with self.service.request_identity_context(identity):
-                    self._write_json_timed(
+                    self._write_json(
                         HTTPStatus.OK,
                         self.service.visual_match_scan(payload),
-                        label="scan_visual_match",
-                        started_at=request_started_at,
                     )
             except Exception as error:
                 traceback.print_exc()
-                self._write_json_timed(
+                self._write_json(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                     {
                         "error": "Visual scan match failed",
                         "errorType": type(error).__name__,
                     },
-                    label="scan_visual_match",
-                    started_at=request_started_at,
                 )
             return
 
@@ -15696,35 +15554,28 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             identity = self._require_request_identity()
             if identity is None:
                 return
-            request_started_at = perf_counter()
             try:
                 with self.service.request_identity_context(identity):
-                    self._write_json_timed(
+                    self._write_json(
                         HTTPStatus.OK,
                         self.service.rerank_visual_match(payload),
-                        label="scan_rerank",
-                        started_at=request_started_at,
                     )
             except ValueError as error:
-                self._write_json_timed(
+                self._write_json(
                     HTTPStatus.CONFLICT,
                     {
                         "error": str(error),
                         "errorType": type(error).__name__,
                     },
-                    label="scan_rerank",
-                    started_at=request_started_at,
                 )
             except Exception as error:
                 traceback.print_exc()
-                self._write_json_timed(
+                self._write_json(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                     {
                         "error": "Scan rerank failed",
                         "errorType": type(error).__name__,
                     },
-                    label="scan_rerank",
-                    started_at=request_started_at,
                 )
             return
 
@@ -16040,26 +15891,6 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 "[HTTP] Client disconnected before response write completed: "
                 f"path={getattr(self, 'path', '<unknown>')} status={status.value}"
             )
-
-    def _write_json_timed(
-        self,
-        status: HTTPStatus,
-        payload: dict[str, Any],
-        *,
-        label: str,
-        started_at: float,
-    ) -> None:
-        write_started_at = perf_counter()
-        self._write_json(status, payload)
-        write_ms = (perf_counter() - write_started_at) * 1000.0
-        total_ms = (perf_counter() - started_at) * 1000.0
-        print(
-            "[HTTP PERF] "
-            f"label={label} "
-            f"status={status.value} "
-            f"writeJsonMs={write_ms:.1f} "
-            f"totalMs={total_ms:.1f}"
-        )
 
 
 def cli_value(flag: str) -> str | None:

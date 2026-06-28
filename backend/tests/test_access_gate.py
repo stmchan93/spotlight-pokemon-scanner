@@ -12,10 +12,12 @@ Covers the service-level gate logic added for the public-store rollout:
 
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = BACKEND_ROOT.parent
@@ -30,6 +32,16 @@ from server import SpotlightScanService  # noqa: E402
 
 class AccessGateTests(unittest.TestCase):
     def setUp(self) -> None:
+        # Admin emails + invite codes are configured via environment (not source),
+        # so provide the fixtures the gate logic reads.
+        self._env_patch = patch.dict(
+            os.environ,
+            {
+                "SPOTLIGHT_ACCESS_ADMIN_EMAILS": "stmchan8953@gmail.com",
+                "SPOTLIGHT_ACCESS_INVITE_CODES": "ekalight_special_guest",
+            },
+        )
+        self._env_patch.start()
         self.tempdir = tempfile.TemporaryDirectory()
         self.database_path = Path(self.tempdir.name) / "access-gate.sqlite"
         connection = connect(self.database_path)
@@ -42,6 +54,7 @@ class AccessGateTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.service.connection.close()
         self.tempdir.cleanup()
+        self._env_patch.stop()
 
     @staticmethod
     def _identity(user_id: str, email: str = "") -> RequestIdentity:

@@ -449,13 +449,13 @@ class TwoPhaseScanTests(unittest.TestCase):
         handler.service.rerank_visual_match.side_effect = ValueError("Cached visual shortlist expired")
         captured: dict[str, object] = {}
 
-        def write_json_timed(status: HTTPStatus, payload: dict[str, object], *, label: str, started_at: float) -> None:  # noqa: ARG001
+        def write_json(status: HTTPStatus, payload: dict[str, object]) -> None:
             captured["status"] = status
             captured["payload"] = payload
 
         handler._read_json_body = lambda: {"scanID": "scan-phase8"}  # type: ignore[method-assign]
         handler._require_request_identity = lambda: object()  # type: ignore[method-assign]
-        handler._write_json_timed = write_json_timed  # type: ignore[method-assign]
+        handler._write_json = write_json  # type: ignore[method-assign]
         handler.do_POST()
 
         self.assertEqual(captured["status"], HTTPStatus.CONFLICT)
