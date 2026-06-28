@@ -371,6 +371,16 @@ export function PortfolioScreen({
       >
         <FlatList
           ref={scrollRef}
+          // Keyboard handling for the in-header search field: inset the scroll
+          // content by the keyboard height so a small (e.g. single-result)
+          // filtered list can still scroll clear of the keyboard instead of
+          // staying trapped half-behind it — this also keeps the focus-scroll
+          // offset valid so the list no longer snaps/jumps as results shrink
+          // while typing. Swipe-to-dismiss + persist-taps let you reach a result
+          // (open the card) without an extra tap to drop the keyboard first.
+          automaticallyAdjustKeyboardInsets
+          keyboardDismissMode="on-drag"
+          keyboardShouldPersistTaps="handled"
           contentContainerStyle={{
             paddingTop: theme.layout.pageTopInset,
             paddingBottom: bottomNavClearance,
