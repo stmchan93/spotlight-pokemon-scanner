@@ -6,10 +6,6 @@ export function setPendingPortfolioImportFile(file: PortfolioImportSelectedFile 
   pendingPortfolioImportFile = file;
 }
 
-export function peekPendingPortfolioImportFile() {
-  return pendingPortfolioImportFile;
-}
-
 export function takePendingPortfolioImportFile() {
   const file = pendingPortfolioImportFile;
   pendingPortfolioImportFile = null;

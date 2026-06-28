@@ -27,7 +27,3 @@ export function makeInventorySmokeKey(entry: InventoryCardEntry) {
 export function makeInventorySmokeTestID(entry: InventoryCardEntry) {
   return `inventory-entry-smoke-${makeInventorySmokeKey(entry)}`;
 }
-
-export function makeBulkSellSmokeTestID(prefix: string, entry: InventoryCardEntry) {
-  return `${prefix}-smoke-${makeInventorySmokeKey(entry)}`;
-}

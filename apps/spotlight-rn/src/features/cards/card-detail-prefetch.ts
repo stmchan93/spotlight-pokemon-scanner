@@ -161,11 +161,6 @@ export function hasFreshCardDetail(cardId: string): boolean {
   return isFresh(detailCache.get(cardId));
 }
 
-/** True when a fresh trend entry is already cached for the given lane. */
-export function hasFreshCardPriceTrends(cardId: string, lane: CardDetailLane): boolean {
-  return isFresh(trendCache.get(laneKey(cardId, lane)));
-}
-
 /**
  * Best-effort navigation prefetch: kicks off the detail + default-lane trend
  * fetch and warms the caches. Fire-and-forget — call it at the tile-tap site so

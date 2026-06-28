@@ -26,8 +26,6 @@ import { chromeBackButtonSize } from '@/components/chrome-back-button';
 import { rawCardReticleAspectRatio } from '@/features/scanner/scanner-normalized-target';
 
 export const rawVisualCaptureQuality = 0.62;
-export const rawVisualPreferredLongSide = 1280;
-export const rawVisualMinimumLongSide = 900;
 export const rawScannerTrayReservedHeight = 168;
 export const rawScannerModeToggleGap = 8;
 export const rawScannerTrayHeaderHeight = 61;

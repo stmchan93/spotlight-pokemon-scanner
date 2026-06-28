@@ -62,12 +62,6 @@ export type LabelingSessionCapture = {
   metadata: LabelingSessionArtifactMetadata;
 };
 
-export function asLabelingSessionRepository(
-  repository: SpotlightRepository,
-): LabelingSessionRepository {
-  return repository as LabelingSessionRepository;
-}
-
 export function getLabelingSessionID(record: LabelingSessionRecord) {
   return record.sessionID ?? null;
 }

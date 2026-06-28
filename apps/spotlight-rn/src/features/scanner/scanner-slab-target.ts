@@ -216,20 +216,3 @@ export async function buildSlabScannerTarget({
   };
 }
 
-export function makeSlabGuidePreviewY({
-  reticleHeight,
-  reticleY,
-}: {
-  reticleHeight: number;
-  reticleY: number;
-}) {
-  return reticleY + (reticleHeight * slabLabelDividerRatio);
-}
-
-export function makeSlabGuideSourceImageCrop({
-  reticleCrop,
-}: {
-  reticleCrop: ScanSourceImageCrop;
-}) {
-  return makeSlabGuideLineSourceImageCrop(reticleCrop);
-}

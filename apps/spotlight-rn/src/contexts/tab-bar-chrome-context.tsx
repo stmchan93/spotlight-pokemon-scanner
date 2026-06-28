@@ -119,11 +119,6 @@ export function TabBarChromeProvider({ children }: PropsWithChildren) {
   );
 }
 
-/** The bottom bar reads this to drive its expand/collapse morph. */
-export function useTabBarCollapseProgress(): Animated.Value {
-  return useContext(TabBarChromeContext).collapseProgress;
-}
-
 /**
  * Spread the returned handler onto a ScrollView/FlatList `onScroll`
  * (with `scrollEventThrottle={16}`) to drive the collapse signal.
