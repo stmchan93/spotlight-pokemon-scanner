@@ -191,6 +191,24 @@ describe('buildTcgPlayerSearchUrl', () => {
     });
     expect(url).toContain('&Condition=Near+Mint&Printing=Holofoil');
   });
+
+  it('expands the δ Delta Species glyph in the name token', () => {
+    const url = buildTcgPlayerSearchUrl({
+      setName: 'EX Delta Species',
+      name: 'Aerodactyl δ',
+      cardNumber: '1/113',
+    })!;
+    expect(url).toContain('aerodactyl+delta+species');
+  });
+
+  it('expands the ◇ Prism Star glyph in the name token', () => {
+    const url = buildTcgPlayerSearchUrl({
+      setName: 'Ultra Prism',
+      name: 'Arceus ◇',
+      cardNumber: '95/156',
+    })!;
+    expect(url).toContain('arceus+prism+star');
+  });
 });
 
 describe('buildTcgPlayerProductUrl', () => {
@@ -362,5 +380,128 @@ describe('buildEbaySearchUrl', () => {
 
   it('returns null when all fields are empty', () => {
     expect(buildEbaySearchUrl({ setName: '', name: '', cardNumber: '' })).toBeNull();
+  });
+
+  it('adds a "1st Edition" keyword when the printing is a First Edition variant', () => {
+    const url = buildEbaySearchUrl({
+      setName: 'Base Set',
+      name: 'Charizard',
+      cardNumber: '4/102',
+      grader: 'PSA',
+      grade: '10',
+      variant: 'First Edition Holofoil',
+    })!;
+    // "1st Edition" survives encoding as "1st+Edition" inside _nkw.
+    expect(url).toContain('1st+Edition');
+    // The negative-exclusion token must NOT be present for a 1st-edition search.
+    expect(url).not.toContain('-%221st');
+  });
+
+  it('also matches an already-"1st edition"-worded printing label', () => {
+    const url = buildEbaySearchUrl({
+      setName: 'Base Set',
+      name: 'Charizard',
+      cardNumber: '4/102',
+      variant: '1st Edition Shadowless Holofoil',
+    })!;
+    expect(url).toContain('1st+Edition');
+  });
+
+  it('adds a -"1st Edition" exclusion when the printing is Unlimited', () => {
+    const url = buildEbaySearchUrl({
+      setName: 'Base Set',
+      name: 'Charizard',
+      cardNumber: '4/102',
+      grader: 'PSA',
+      grade: '10',
+      variant: 'Unlimited Holofoil',
+    })!;
+    // The negative phrase exclusion survives encoding: `-"1st Edition"` →
+    // "-%221st+Edition%22". Decode and assert the exclusion is present verbatim.
+    const nkw = new URL(url).searchParams.get('_nkw');
+    expect(nkw).toContain('-"1st Edition"');
+  });
+
+  it('leaves a modern Holofoil/Normal printing unchanged (no edition qualifier)', () => {
+    const holo = buildEbaySearchUrl({
+      setName: 'Evolving Skies',
+      name: 'Umbreon VMAX',
+      cardNumber: '215/203',
+      grader: 'PSA',
+      grade: '10',
+      variant: 'Holofoil',
+    })!;
+    expect(holo).not.toContain('1st');
+    expect(holo).not.toContain('Edition');
+
+    const normal = buildEbaySearchUrl({
+      setName: 'Base Set',
+      name: 'Machop',
+      cardNumber: '52/102',
+      variant: 'Normal',
+    })!;
+    expect(normal).not.toContain('1st');
+    expect(normal).not.toContain('Edition');
+  });
+
+  it('leaves the query unchanged when no variant is provided', () => {
+    const withVariant = buildEbaySearchUrl({
+      setName: 'Base Set',
+      name: 'Charizard',
+      cardNumber: '4/102',
+    });
+    expect(withVariant).not.toContain('1st');
+    expect(withVariant).not.toContain('Edition');
+  });
+
+  it('expands the δ Delta Species glyph to words instead of dropping it', () => {
+    const url = buildEbaySearchUrl({
+      setName: 'EX Delta Species',
+      name: 'Aerodactyl δ',
+      cardNumber: '1/113',
+    })!;
+    expect(url).toContain('Aerodactyl+Delta+Species');
+    expect(url).not.toContain('%CE%B4');
+  });
+
+  it('expands the ◇ Prism Star glyph to words', () => {
+    const url = buildEbaySearchUrl({
+      setName: 'Ultra Prism',
+      name: 'Arceus ◇',
+      cardNumber: '95/156',
+    })!;
+    expect(url).toContain('Arceus+Prism+Star');
+    expect(url).not.toContain('%E2%97%87');
+  });
+
+  it('expands the ☆ Gold Star glyph to words', () => {
+    const url = buildEbaySearchUrl({
+      setName: 'EX Team Rocket Returns',
+      name: 'Alakazam ☆',
+      cardNumber: '108/109',
+      grader: 'PSA',
+      grade: '10',
+    })!;
+    expect(url).toContain('Alakazam+Gold+Star');
+    expect(url).not.toContain('%E2%98%86');
+  });
+
+  it('expands the ♂ gender glyph to a word', () => {
+    const url = buildEbaySearchUrl({
+      setName: 'Gym Challenge',
+      name: "Giovanni's Nidoran ♂",
+      cardNumber: '83/132',
+    })!;
+    expect(url).toContain('Nidoran+Male');
+  });
+
+  it('strips accents so accented Latin names survive (é→e)', () => {
+    const url = buildEbaySearchUrl({
+      setName: 'Promo',
+      name: 'Café Master',
+      cardNumber: '1',
+    })!;
+    expect(url).toContain('Cafe');
+    expect(url).not.toContain('%C3%A9');
   });
 });

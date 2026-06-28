@@ -1,8 +1,35 @@
+// Pokémon TCG name glyphs → the words real eBay/TCGplayer listings use. Curated
+// from a scan of every catalog card name. Without this the cleaners below strip
+// the glyph and the search loses the signal that identifies the card (e.g. a
+// Gold Star / Delta Species / Prism Star / gender variant), returning zero solds.
+const NAME_GLYPH_REPLACEMENTS: [RegExp, string][] = [
+  [/[★☆]/g, ' Gold Star '],
+  [/δ/g, ' Delta Species '],
+  [/◇/g, ' Prism Star '],
+  [/♀/g, ' Female '],
+  [/♂/g, ' Male '],
+  [/α/g, ' Alpha '],
+  [/β/g, ' Beta '],
+  [/γ/g, ' Gamma '],
+  [/’/g, "'"], // curly → straight apostrophe (TCGplayer keeps it; eBay drops either)
+];
+
+function expandNameGlyphs(value: string): string {
+  return NAME_GLYPH_REPLACEMENTS.reduce((out, [pattern, words]) => out.replace(pattern, words), value);
+}
+
+// Decompose + drop combining marks so accented Latin survives the eBay cleaner
+// (é→e). The TCGplayer cleaner already NFD-normalizes; this matches it for eBay.
+function stripCombiningAccents(value: string): string {
+  return value.normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+
 function cleanedMarketplaceToken(value: string | null | undefined) {
-  // Keep a decimal point ONLY between two digits so half-grades survive ("9.5"
-  // must not become "9 5", which searches eBay for an unrelated "9 5"); every
-  // other period (and all other punctuation) becomes a space.
-  return (value ?? '')
+  // Expand name glyphs + strip accents first (so ☆/δ/◇/♀/♂/é survive), then keep
+  // a decimal point ONLY between two digits so half-grades survive ("9.5" must not
+  // become "9 5", which searches eBay for an unrelated "9 5"); every other period
+  // (and all other punctuation) becomes a space.
+  return stripCombiningAccents(expandNameGlyphs(value ?? ''))
     .replace(/[^A-Za-z0-9. ]+/g, ' ')
     .replace(/\.+/g, (match, offset: number, source: string) => {
       const before = source[offset - 1] ?? '';
@@ -15,7 +42,7 @@ function cleanedMarketplaceToken(value: string | null | undefined) {
 
 function cleanedTcgPlayerToken(value: string | null | undefined) {
   // Decompose accented chars (é→e), lowercase, keep apostrophes and slashes
-  const normalized = (value ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  const normalized = expandNameGlyphs(value ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
   // Strip a redundant "pokemon" prefix so set names like "Pokémon Card 151" don't double up
   return normalized
     .replace(/[^a-z0-9/' ]+/g, ' ')
@@ -236,15 +263,40 @@ export function buildTcgPlayerProductUrl(params: {
   return `https://www.tcgplayer.com/product/${encodeURIComponent(productId)}${conditionSuffix}`;
 }
 
+// Fold the selected printing/edition into the eBay keyword string so the recent
+// sales don't mix 1st Edition and Unlimited comps:
+//   - "first edition"/"1st edition" → add a positive `1st Edition` keyword.
+//   - "unlimited" → add the NEGATIVE token `-"1st Edition"`. Unlimited listings
+//     rarely say "Unlimited" in the title, so the only reliable filter is to
+//     EXCLUDE the 1st-edition phrase. eBay web search honors `-"phrase"`; the
+//     URLSearchParams encoder preserves the `-`, quotes, and spaces inside _nkw.
+//   - anything else (modern Holofoil/Normal/Reverse) → no change.
+function editionKeywordToken(variant: string | null | undefined): string | null {
+  const normalized = (variant ?? '').toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  if (normalized.includes('first edition') || normalized.includes('1st edition')) {
+    return '1st Edition';
+  }
+  if (normalized.includes('unlimited')) {
+    return '-"1st Edition"';
+  }
+  return null;
+}
+
 export function buildEbaySearchUrl(params: {
   cardNumber: string;
   name: string;
   setName: string;
   grader?: string | null;
   grade?: string | null;
+  /** Selected printing/edition label, e.g. "First Edition Holofoil" or "Unlimited Holofoil". */
+  variant?: string | null;
 }) {
   const graderToken = cleanedMarketplaceToken(params.grader);
   const gradeToken = cleanedMarketplaceToken(params.grade);
+  const editionToken = editionKeywordToken(params.variant);
 
   // Quote the grader+grade as an EXACT phrase (e.g. "PSA 3") so eBay matches the grade
   // strictly. As loose keywords, eBay relaxes the low-signal grade number — a bare "3"
@@ -262,6 +314,9 @@ export function buildEbaySearchUrl(params: {
     cleanedMarketplaceToken(params.name),
     cleanedMarketplaceToken(params.cardNumber.replace(/^#/, '')),
     cleanedMarketplaceToken(params.setName),
+    // Edition qualifier LAST, appended raw (not through cleanedMarketplaceToken,
+    // which would strip the leading "-" and the quotes the exclusion relies on).
+    editionToken,
   ]
     .filter(Boolean)
     .join(' ');
