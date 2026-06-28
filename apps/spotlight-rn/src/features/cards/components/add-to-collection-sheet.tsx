@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
   Easing,
   Modal,
+  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -21,7 +22,6 @@ import {
   GradeConditionSheet,
   type GradeConditionOption,
 } from '@/features/cards/components/grade-condition-sheet';
-import { SheetDismissHandle } from '@/components/sheet-dismiss-handle';
 
 type AddToCollectionSheetProps = {
   visible: boolean;
@@ -141,6 +141,37 @@ export function AddToCollectionSheet({
     return () => animation.stop();
   }, [translateY, visible]);
 
+  // Interactive drag-to-dismiss anchored on the header (handle + title): a
+  // downward drag follows the finger; releasing past a distance/velocity
+  // threshold dismisses (the close effect finishes the slide), otherwise it
+  // springs back. PanResponder runs on the JS thread, so these writes are safe
+  // (no gesture-handler worklet/runOnJS hazard) and don't fight the ScrollView
+  // below — only the header claims the gesture.
+  const dragResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_event, gesture) =>
+          gesture.dy > 4 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+        onPanResponderMove: (_event, gesture) => {
+          translateY.setValue(Math.max(0, gesture.dy));
+        },
+        onPanResponderRelease: (_event, gesture) => {
+          if (gesture.dy > 80 || gesture.vy > 0.5) {
+            onClose();
+            return;
+          }
+          Animated.spring(translateY, {
+            toValue: 0,
+            damping: 34,
+            mass: 1,
+            stiffness: 320,
+            useNativeDriver: false,
+          }).start();
+        },
+      }),
+    [onClose, translateY],
+  );
+
   if (!isRendered) {
     return null;
   }
@@ -177,14 +208,24 @@ export function AddToCollectionSheet({
           ]}
           testID={testID}
         >
-          <SheetDismissHandle
-            barColor={theme.colors.gray200}
-            onDismiss={onClose}
-            testID={`${testID}-handle`}
-          />
-          <Text style={[theme.typography.bodyMedium, styles.title, { color: theme.colors.gray600 }]}>
-            {title}
-          </Text>
+          {/* Header is the drag-to-dismiss zone (handle bar + title): a downward
+              swipe anywhere here drags the sheet down and dismisses; a tap on the
+              bar still closes via the Pressable. */}
+          <View style={styles.header} {...dragResponder.panHandlers}>
+            <Pressable
+              accessibilityLabel="Close"
+              accessibilityRole="button"
+              hitSlop={16}
+              onPress={onClose}
+              style={styles.handleHit}
+              testID={`${testID}-handle`}
+            >
+              <View style={[styles.handleBar, { backgroundColor: theme.colors.gray200 }]} />
+            </Pressable>
+            <Text style={[theme.typography.bodyMedium, styles.title, { color: theme.colors.gray600 }]}>
+              {title}
+            </Text>
+          </View>
 
           <ScrollView
             contentContainerStyle={styles.body}
@@ -318,6 +359,19 @@ const styles = StyleSheet.create({
   },
   group: {
     gap: 10,
+  },
+  handleBar: {
+    borderRadius: 2,
+    height: 4,
+    width: 36,
+  },
+  handleHit: {
+    alignItems: 'center',
+    paddingBottom: 6,
+    paddingTop: 4,
+  },
+  header: {
+    width: '100%',
   },
   quantityValue: {
     minWidth: 24,

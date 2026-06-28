@@ -98,13 +98,13 @@ const styles = StyleSheet.create({
     gap: 12,
     width: '100%',
   },
-  // Figma 1640:4229 — the report title is centered, full-width.
   row: {
     alignItems: 'center',
     flexDirection: 'row',
   },
+  // Figma 1640:4229 — the report title is left-aligned (x=16, start of the row).
   title: {
-    textAlign: 'center',
+    textAlign: 'left',
   },
 });
 
