@@ -495,7 +495,9 @@ export async function triggerScannerHaptic() {
   }
 
   try {
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    // Heavy impact for the shutter: the capture should be unmistakably FELT (a
+    // firm "ka-chunk"), like an iOS screenshot. Light read as barely-there.
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
   } catch (error) {
     // Most likely the native ExpoHaptics module isn't in this binary. Surface it
     // instead of silently degrading — that silence is why past JS-only "fixes"
@@ -503,7 +505,7 @@ export async function triggerScannerHaptic() {
     // iOS Vibration with a ms duration is a no-op, so don't pretend otherwise.
     console.warn('[scanner] capture haptic unavailable (native module missing?)', error);
     if (Platform.OS === 'android') {
-      Vibration.vibrate(10);
+      Vibration.vibrate(25);
     }
   }
 }
@@ -514,10 +516,11 @@ export async function triggerScannerHaptic() {
 const PROCESSED_HAPTIC_DEBOUNCE_MS = 300;
 let lastProcessedHapticAt = 0;
 
-// Second buzz, fired when a scan resolves. For a found card we use a Success
-// NOTIFICATION haptic — a distinct double-tap that reads clearly as a separate
-// "got it" from the Light capture tick, instead of blurring into one on a fast
-// match. Other outcomes (no match / unsupported) keep the gentle Light tick.
+// Second buzz, fired when a scan resolves. For a found card we punch it up: a
+// Heavy impact immediately followed by a Success NOTIFICATION pattern, so the
+// "got it!" is strongly felt and reads as a clear, separate beat from the Heavy
+// capture shutter (not blurred into one on a fast match). Other outcomes
+// (no match / unsupported) get a Medium tick — present but not celebratory.
 export async function triggerScannerProcessedHaptic(outcome: 'found' | 'done' = 'done') {
   if (process.env.NODE_ENV === 'test') {
     return;
@@ -531,14 +534,15 @@ export async function triggerScannerProcessedHaptic(outcome: 'found' | 'done' = 
 
   try {
     if (outcome === 'found') {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } else {
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
   } catch (error) {
     console.warn('[scanner] result haptic unavailable (native module missing?)', error);
     if (Platform.OS === 'android') {
-      Vibration.vibrate(outcome === 'found' ? [0, 30, 60, 30] : 10);
+      Vibration.vibrate(outcome === 'found' ? [0, 45, 60, 45] : 15);
     }
   }
 }

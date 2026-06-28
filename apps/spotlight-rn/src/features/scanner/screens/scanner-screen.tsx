@@ -316,6 +316,17 @@ export function ScannerScreen({
   const { hasPermission, requestPermission } = useCameraPermission();
   const [isCameraReady, setIsCameraReady] = useState(isTestEnv);
   const [isCapturing, setIsCapturing] = useState(false);
+  // Quick white "shutter" flash over the preview the instant a photo is taken
+  // (paired with the Heavy capture haptic) so the capture is clearly seen + felt.
+  const captureFlashOpacity = useRef(new Animated.Value(0)).current;
+  const triggerCaptureFlash = useCallback(() => {
+    captureFlashOpacity.setValue(0.9);
+    Animated.timing(captureFlashOpacity, {
+      toValue: 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+  }, [captureFlashOpacity]);
   // Whether the app is in the foreground. vision-camera's session is interrupted
   // by the OS on screen-lock/background; without driving `isActive` off this, the
   // session is never told to stop+restart and the preview returns frozen while the
@@ -1020,6 +1031,7 @@ export function ScannerScreen({
     }
 
     void triggerScannerHaptic();
+    triggerCaptureFlash();
     const scanStartedAt = Date.now();
     setIsCapturing(true);
 
@@ -1386,6 +1398,7 @@ export function ScannerScreen({
     isCapturing,
     requestPermission,
     runMatchForCapture,
+    triggerCaptureFlash,
     updateRecentCapture,
     zoomFactor,
   ]);
@@ -2424,6 +2437,10 @@ export function ScannerScreen({
           </View>
         </View>
         </GestureDetector>
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.captureFlash, { opacity: captureFlashOpacity }]}
+        />
       </RawScannerCaptureSurface>
       {(() => {
         if (!activePriceCaptureId) {
@@ -2523,6 +2540,10 @@ const styles = StyleSheet.create({
     height: 32,
     justifyContent: 'center',
     width: 32,
+  },
+  captureFlash: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#FFFFFF',
   },
   topChromeBackdrop: {
     backgroundColor: 'rgba(0, 0, 0, 0.25)',
