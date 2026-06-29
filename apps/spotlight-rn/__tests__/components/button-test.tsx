@@ -59,6 +59,44 @@ describe('Button', () => {
     });
   });
 
+  describe("variant='dark'", () => {
+    it('renders a gray900 black fill with a white label', () => {
+      renderButton(<Button label="Action" testID="dark-button" variant="dark" />);
+
+      const button = screen.getByTestId('dark-button');
+      const flattened = flattenPressableStyle(button.props.style);
+      // gray900 (#1A1A1A) black fill and matching border.
+      expect(flattened.backgroundColor).toBe('#1A1A1A');
+      expect(flattened.borderColor).toBe('#1A1A1A');
+
+      const label = StyleSheet.flatten(screen.getByText('Action').props.style as never) as Record<
+        string,
+        unknown
+      >;
+      // gray0 (#FFFFFF) white label.
+      expect(label.color).toBe('#FFFFFF');
+    });
+  });
+
+  describe("variant='destructive'", () => {
+    it('renders a dangerStrong red fill with a white label', () => {
+      renderButton(<Button label="Action" testID="destructive-button" variant="destructive" />);
+
+      const button = screen.getByTestId('destructive-button');
+      const flattened = flattenPressableStyle(button.props.style);
+      // dangerStrong (#D93025) red fill and matching border.
+      expect(flattened.backgroundColor).toBe('#D93025');
+      expect(flattened.borderColor).toBe('#D93025');
+
+      const label = StyleSheet.flatten(screen.getByText('Action').props.style as never) as Record<
+        string,
+        unknown
+      >;
+      // gray0 (#FFFFFF) white label.
+      expect(label.color).toBe('#FFFFFF');
+    });
+  });
+
   describe("shape", () => {
     it("applies radius 8 when shape='rounded'", () => {
       renderButton(<Button label="Action" shape="rounded" testID="rounded-button" variant="outline" />);

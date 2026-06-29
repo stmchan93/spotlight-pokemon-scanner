@@ -91,6 +91,8 @@ Current API concepts:
   - `ghost`
   - `outline` — white card on a `gray200` (#E8E8E8) border with a `gray900` label (PDP secondary action)
   - `accent` — `purple500` (#A54BFA) fill with a white label (PDP ADD ITEM accent)
+  - `dark` — `gray900` (#1A1A1A) fill with a white label (black commit CTA, e.g. Add-to-Collection CONFIRM)
+  - `destructive` — `dangerStrong` (#D93025) fill with a white label (destructive CTA, e.g. bulk Remove)
 - sizes:
   - `sm`
   - `md`

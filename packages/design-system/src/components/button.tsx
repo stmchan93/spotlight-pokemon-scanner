@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View, type StyleProp, type TextStyle, type
 
 import { useSpotlightTheme } from '../theme';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'outline' | 'accent';
+export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'outline' | 'accent' | 'dark' | 'destructive';
 export type ButtonSize = 'sm' | 'md' | 'lg';
 export type ButtonShape = 'pill' | 'rounded';
 export type ButtonLabelStyleVariant = 'body' | 'bodyStrong' | 'caption' | 'control' | 'label';
@@ -95,6 +95,20 @@ export function Button({
             // PDP ADD ITEM accent: purple/500 fill, white label.
             backgroundColor: theme.colors.purple500,
             borderColor: theme.colors.purple500,
+            textColor: theme.colors.gray0,
+          }
+      : variant === 'dark'
+        ? {
+            // Black commit CTA (e.g. Add-to-Collection CONFIRM): gray/900 fill, white label.
+            backgroundColor: theme.colors.gray900,
+            borderColor: theme.colors.gray900,
+            textColor: theme.colors.gray0,
+          }
+      : variant === 'destructive'
+        ? {
+            // Destructive CTA (e.g. bulk Remove): danger/strong red fill, white label.
+            backgroundColor: theme.colors.dangerStrong,
+            borderColor: theme.colors.dangerStrong,
             textColor: theme.colors.gray0,
           }
         : {

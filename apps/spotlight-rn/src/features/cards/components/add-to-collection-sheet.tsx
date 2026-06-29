@@ -320,7 +320,7 @@ export function AddToCollectionSheet({
               shape="rounded"
               size="md"
               testID={`${testID}-confirm`}
-              variant="accent"
+              variant="dark"
             />
           </View>
         </Animated.View>
