@@ -78,30 +78,12 @@ export function CardPriceTrendList({ list, onRowPress, onProviderPress, loadingR
       {list.rows.map((row) => {
         const isLoading = row.key === loadingRowKey;
         const rowTestID = testID ? `${testID}-row-${row.key}` : undefined;
-        // Trust line under graded grades: eBay sale count ("37 sales"). Only
-        // renders when the row carries it (PPT graded); raw / Scrydex rows show
-        // just the grade label. The High/Medium/Low confidence word is
-        // intentionally omitted.
-        const trustLine = [
-          row.saleCount != null ? `${row.saleCount} ${row.saleCount === 1 ? 'sale' : 'sales'}` : null,
-        ]
-          .filter(Boolean)
-          .join(' · ');
         const rowContent = (
           <>
             <View style={styles.label}>
               <Text style={[theme.typography.body, styles.gradeLabel]} numberOfLines={1}>
                 {row.label}
               </Text>
-              {trustLine ? (
-                <Text
-                  style={[theme.typography.caption, { color: theme.colors.textSecondary }]}
-                  numberOfLines={1}
-                  testID={testID ? `${testID}-trust-${row.key}` : undefined}
-                >
-                  {trustLine}
-                </Text>
-              ) : null}
             </View>
             {/* Sparkline + price as one right-aligned group (Figma 1664:1090
                 "Price Chart": 62×22 sparkline, gap 32, Body-medium price). */}
