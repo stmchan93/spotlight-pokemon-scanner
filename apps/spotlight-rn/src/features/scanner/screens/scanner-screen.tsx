@@ -95,7 +95,8 @@ import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { resolveRuntimeBoolean, resolveRuntimeValue, resolveStagingSmokeModeEnabled } from '@/lib/runtime-config';
 import { useAppServices } from '@/providers/app-providers';
 
-import { AddAllConfirmModal } from '@/features/scanner/components/add-all-confirm-modal';
+import { AddAllMenu, type AddAllMenuAction } from '@/features/scanner/components/add-all-menu';
+import { ScanBulkConfirmSheet } from '@/features/scanner/components/scan-bulk-confirm-sheet';
 import { ScanTargetPill } from '@/features/scanner/components/scan-target-pill';
 import { ScanningForSheet } from '@/features/scanner/components/scanning-for-sheet';
 import {
@@ -351,7 +352,11 @@ export function ScannerScreen({
   const recentCapturesRef = useRef<RecentCapture[]>([]);
   const [openActionRailKeys, setOpenActionRailKeys] = useState<Record<string, true>>({});
   const [isTrayExpanded, setIsTrayExpanded] = useState(false);
-  const [isAddAllOpen, setIsAddAllOpen] = useState(false);
+  const [addAllMenuOpen, setAddAllMenuOpen] = useState(false);
+  const [addAllAnchor, setAddAllAnchor] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [addAllConfirm, setAddAllConfirm] = useState<AddAllMenuAction | null>(null);
+  const addAllTriggerRef = useRef<View | null>(null);
+  const lastBulkActionRef = useRef<AddAllMenuAction>('collection');
   const { cardType, setCardType } = useScannerTargetConfig();
   const [zoomFactor, setZoomFactor, zoomHydrated] = useScannerZoomFactor();
   const [isScanTargetSheetOpen, setIsScanTargetSheetOpen] = useState(false);
@@ -1739,17 +1744,15 @@ export function ScannerScreen({
     void handleAddToInventoryRef.current(captureId);
   }, []);
 
-  // Bulk "ADD ALL": optimistically close the modal + clear the tray NOW, then
-  // wishlist (favorite) every resolved scan in the BACKGROUND. Two reasons it
-  // isn't done inline:
+  // Bulk "Add to Wishlist": clear the tray NOW, then wishlist (favorite) every
+  // resolved scan in the BACKGROUND. Two reasons it isn't done inline:
   //   - Speed: blocking on N sequential setCardFavorite calls would stall the
-  //     modal on "Adding…"; backgrounding the writes makes the dismiss instant.
+  //     confirm sheet; backgrounding the writes makes the dismiss instant.
   //   - Stability: clearing via the empty→auto-collapse effect (no LayoutAnimation)
   //     instead of an explicit animated collapse avoids the iOS crash from firing a
-  //     tray LayoutAnimation while the modal unmounts and N rows are removed in the
-  //     same frame.
-  // Per the user: wishlist the good ones, drop failures, clear everything regardless.
-  const handleAddAll = useCallback(() => {
+  //     tray LayoutAnimation while N rows are removed in the same frame.
+  // Wishlist the good ones, drop failures, clear everything regardless.
+  const handleBulkAddToWishlist = useCallback(() => {
     // Snapshot the resolved cardIds BEFORE clearing the tray; de-dupe so repeat
     // scans of the same card only favorite it once.
     const cardIds = Array.from(
@@ -1761,7 +1764,6 @@ export function ScannerScreen({
       ),
     );
 
-    setIsAddAllOpen(false);
     performClearAllCaptures();
 
     if (cardIds.length === 0) {
@@ -1792,6 +1794,139 @@ export function ScannerScreen({
     refreshData,
     spotlightRepository,
   ]);
+
+  // Bulk "Add to Collection": one inventory entry PER resolved scan (two scans of
+  // the same card = two owned copies, mirroring the single-row Collection add),
+  // reusing the same args/optimistic helpers. Clear the tray immediately, then
+  // create entries sequentially in the background (concurrent writes contend on
+  // the backend SQLite store) so the sheet dismiss stays instant.
+  const handleBulkAddToCollection = useCallback(() => {
+    const targets = recentCaptures.filter(
+      (capture) => !capture.isLoadingCandidates && !capture.recentlyAdded,
+    );
+
+    performClearAllCaptures();
+
+    if (targets.length === 0) {
+      return;
+    }
+
+    void (async () => {
+      let attempted = 0;
+      let succeeded = 0;
+      for (const capture of targets) {
+        const candidate = activeCandidateForCapture(capture);
+        if (!candidate) {
+          continue;
+        }
+        attempted += 1;
+        try {
+          trackCandidateSelectionIfNeeded(capture);
+          const addedAt = new Date().toISOString();
+          const condition: DeckConditionCode = priceSelection.get(capture.id)?.conditionCode ?? 'near_mint';
+          const createResponse = await spotlightRepository.createInventoryEntry(
+            buildInventoryEntryArgs(capture, candidate, addedAt, condition),
+          );
+          prependOptimisticInventoryEntry(
+            buildOptimisticInventoryEntry(
+              candidate,
+              createResponse.addedAt || addedAt,
+              { mode: capture.mode, slabContext: capture.slabContext },
+              createResponse.deckEntryID,
+            ),
+          );
+          succeeded += 1;
+        } catch (error) {
+          logScannerDiagnostic(`[SCANNER] addAll collection failed: ${scannerErrorMessage(error)}`, error);
+        }
+      }
+      capturePostHogEvent('scan_add_all_collection', {
+        attempted,
+        succeeded,
+        failed: attempted - succeeded,
+      });
+      refreshData();
+    })();
+  }, [
+    performClearAllCaptures,
+    priceSelection,
+    recentCaptures,
+    refreshData,
+    spotlightRepository,
+    prependOptimisticInventoryEntry,
+    trackCandidateSelectionIfNeeded,
+  ]);
+
+  // Bulk "Remove": clear the whole scan session (same path as CLEAR ALL).
+  const handleBulkRemove = useCallback(() => {
+    performClearAllCaptures();
+  }, [performClearAllCaptures]);
+
+  // Open the ADD ALL dropdown anchored under its header trigger. Open
+  // immediately, then update the anchor once the async measure resolves (the
+  // menu falls back to a sensible position until then / if measure never fires).
+  const handleOpenAddAllMenu = useCallback(() => {
+    setAddAllMenuOpen(true);
+    const node = addAllTriggerRef.current;
+    if (node && typeof node.measureInWindow === 'function') {
+      node.measureInWindow((x, y, width, height) => {
+        setAddAllAnchor({ x, y, width, height });
+      });
+    }
+  }, []);
+
+  // Menu pick -> close the menu, open the matching confirm sheet. The ref keeps
+  // the sheet's copy stable through its slide-out after `addAllConfirm` clears.
+  const handleAddAllSelect = useCallback((action: AddAllMenuAction) => {
+    lastBulkActionRef.current = action;
+    setAddAllMenuOpen(false);
+    setAddAllConfirm(action);
+  }, []);
+
+  const handleAddAllConfirm = useCallback(() => {
+    const action = addAllConfirm;
+    setAddAllConfirm(null);
+    if (action === 'collection') {
+      handleBulkAddToCollection();
+    } else if (action === 'wishlist') {
+      handleBulkAddToWishlist();
+    } else if (action === 'remove') {
+      handleBulkRemove();
+    }
+  }, [addAllConfirm, handleBulkAddToCollection, handleBulkAddToWishlist, handleBulkRemove]);
+
+  // Count for the confirm copy: resolved (non-loading, matched) scans for the add
+  // actions; the whole session for remove.
+  const bulkEligibleCount = useMemo(
+    () => recentCaptures.filter(
+      (capture) => !capture.isLoadingCandidates && !capture.recentlyAdded && activeCandidateForCapture(capture) != null,
+    ).length,
+    [recentCaptures],
+  );
+
+  const activeBulkAction: AddAllMenuAction = addAllConfirm ?? lastBulkActionRef.current;
+  const removeCount = recentCaptures.length;
+  const itemWord = (count: number) => (count === 1 ? 'item' : 'items');
+  const bulkConfirmConfig = activeBulkAction === 'remove'
+    ? {
+        title: `Remove ${removeCount} ${itemWord(removeCount)}?`,
+        description: 'These items will be removed from this scan session.',
+        confirmLabel: 'Remove',
+        confirmVariant: 'destructive' as const,
+      }
+    : activeBulkAction === 'wishlist'
+      ? {
+          title: `Add ${bulkEligibleCount} ${itemWord(bulkEligibleCount)} to Wishlist?`,
+          description: 'These items will be added to your Wishlist using their current scan details.',
+          confirmLabel: 'Add All',
+          confirmVariant: 'dark' as const,
+        }
+      : {
+          title: `Add ${bulkEligibleCount} ${itemWord(bulkEligibleCount)} to Collections?`,
+          description: 'These items will be added to your Collections using their current scan details.',
+          confirmLabel: 'Add All',
+          confirmVariant: 'dark' as const,
+        };
 
   const handleOpenCard = useCallback(async (captureId: string) => {
     const capture = recentCaptures.find((entry) => entry.id === captureId);
@@ -2364,12 +2499,13 @@ export function ScannerScreen({
                 {isTrayExpanded && recentCaptures.length > 0 ? (
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel="Add all scans to collection"
+                    accessibilityLabel="Add all scans"
                     hitSlop={8}
-                    onPress={() => setIsAddAllOpen(true)}
+                    onPress={handleOpenAddAllMenu}
+                    ref={addAllTriggerRef}
                     testID="scanner-tray-add-all"
                   >
-                    <Text style={styles.trayAddAllLabel}>ADD ALL</Text>
+                    <Text style={styles.trayAddAllLabel}>ADD ALL ▾</Text>
                   </Pressable>
                 ) : null}
               </View>
@@ -2477,11 +2613,21 @@ export function ScannerScreen({
         );
       })()}
 
-      <AddAllConfirmModal
-        itemCount={recentCaptures.length}
-        onCancel={() => setIsAddAllOpen(false)}
-        onConfirm={handleAddAll}
-        visible={isAddAllOpen}
+      <AddAllMenu
+        anchor={addAllAnchor}
+        onClose={() => setAddAllMenuOpen(false)}
+        onSelect={handleAddAllSelect}
+        visible={addAllMenuOpen}
+      />
+
+      <ScanBulkConfirmSheet
+        confirmLabel={bulkConfirmConfig.confirmLabel}
+        confirmVariant={bulkConfirmConfig.confirmVariant}
+        description={bulkConfirmConfig.description}
+        onCancel={() => setAddAllConfirm(null)}
+        onConfirm={handleAddAllConfirm}
+        title={bulkConfirmConfig.title}
+        visible={addAllConfirm != null}
       />
 
       {(() => {

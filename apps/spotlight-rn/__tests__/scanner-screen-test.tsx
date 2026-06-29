@@ -838,23 +838,25 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-tray-header'));
     fireEvent.press(await screen.findByTestId('scanner-tray-add-all'));
 
-    // Confirmation modal with the count + wishlist copy.
-    expect(await screen.findByTestId('scanner-add-all-modal')).toBeTruthy();
-    expect(screen.getByTestId('scanner-add-all-modal-subtitle').props.children)
-      .toBe('1 item will be added to your wishlist.');
+    // ADD ALL opens the action menu; pick Wishlist.
+    fireEvent.press(await screen.findByTestId('add-all-menu-wishlist'));
 
-    fireEvent.press(screen.getByTestId('scanner-add-all-confirm'));
+    // Confirmation sheet with the count + wishlist copy.
+    expect(await screen.findByTestId('scan-bulk-confirm-sheet')).toBeTruthy();
+    expect(screen.getByTestId('scan-bulk-confirm-sheet-title').props.children)
+      .toBe('Add 1 item to Wishlist?');
+
+    fireEvent.press(screen.getByTestId('scan-bulk-confirm-sheet-confirm'));
 
     await waitFor(() => {
       expect(favoritePayloads).toHaveLength(1);
     });
     expect(favoritePayloads[0]).toEqual({ cardId: 'mcdonalds25-22', isFavorite: true });
 
-    // Tray cleared (SCAN: 0) + collapsed (modal + ADD ALL gone).
+    // Tray cleared (SCAN: 0) + collapsed (ADD ALL gone).
     await waitFor(() => {
       expect(screen.getByTestId('scanner-recent-title').props.children).toBe('SCAN: 0');
     });
-    expect(screen.queryByTestId('scanner-add-all-modal')).toBeNull();
     expect(screen.queryByTestId('scanner-tray-add-all')).toBeNull();
   });
 
@@ -870,10 +872,11 @@ describe('ScannerScreen', () => {
 
     fireEvent.press(screen.getByTestId('scanner-tray-header'));
     fireEvent.press(await screen.findByTestId('scanner-tray-add-all'));
-    fireEvent.press(await screen.findByTestId('scanner-add-all-cancel'));
+    fireEvent.press(await screen.findByTestId('add-all-menu-wishlist'));
+    fireEvent.press(await screen.findByTestId('scan-bulk-confirm-sheet-cancel'));
 
     await waitFor(() => {
-      expect(screen.queryByTestId('scanner-add-all-modal')).toBeNull();
+      expect(screen.queryByTestId('scan-bulk-confirm-sheet')).toBeNull();
     });
     expect(favoritePayloads).toHaveLength(0);
     expect(screen.getByTestId('scanner-recent-title').props.children).toBe('SCAN: 1');
