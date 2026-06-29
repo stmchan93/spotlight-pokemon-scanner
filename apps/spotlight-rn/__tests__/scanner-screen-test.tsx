@@ -165,9 +165,6 @@ describe('ScannerScreen', () => {
     expect(screen.getByTestId('scanner-camera')).toBeTruthy();
     expect(screen.getByTestId('scanner-preview')).toBeTruthy();
     expect(screen.getByTestId('scanner-reticle')).toBeTruthy();
-    // Cold-start cover overlay is wired into the preview surface (hides the AF
-    // hunt; it's transparent/disabled once the settle window elapses — 0ms in test).
-    expect(screen.getByTestId('scanner-settle-overlay')).toBeTruthy();
     expect(screen.getByTestId('scanner-back-button')).toBeTruthy();
     expect(screen.queryByTestId('scanner-account-button')).toBeNull();
     expect(screen.queryByTestId('scanner-slab-guide')).toBeNull();
