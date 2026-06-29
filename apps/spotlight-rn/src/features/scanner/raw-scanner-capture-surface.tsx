@@ -1,6 +1,7 @@
 // SDK 55: readAsStringAsync lives in /legacy; the new entry's stub throws at
 // runtime (silently dropped every scan's source image — see scanner dashboard).
 import * as FileSystem from 'expo-file-system/legacy';
+import { BlurView } from 'expo-blur';
 import type { ReactNode, RefObject } from 'react';
 import { useEffect, useImperativeHandle, useRef, useState } from 'react';
 import {
@@ -394,13 +395,16 @@ export function RawScannerCaptureSurface({
         />
       )}
 
-      {/* Cold-start cover: hides the AF hunt over the live feed, under the reticle.
+      {/* Cold-start cover: a frosted blur over the live feed (under the reticle) so
+          the AF hunt reads as "focusing" and sharpens in, instead of a black flash.
           Fades out once the settle window elapses (continuous AF has converged). */}
       <Animated.View
         pointerEvents="none"
-        style={[StyleSheet.absoluteFillObject, styles.settleOverlay, { opacity: settleOpacity }]}
+        style={[StyleSheet.absoluteFillObject, { opacity: settleOpacity }]}
         testID={`${testIDPrefix}-settle-overlay`}
-      />
+      >
+        <BlurView intensity={40} style={StyleSheet.absoluteFillObject} tint="dark" />
+      </Animated.View>
 
       {shouldMountCamera && !isTrayExpanded ? (
         <Pressable
@@ -481,11 +485,6 @@ export function RawScannerCaptureSurface({
 
 const styles = StyleSheet.create({
   cameraFallback: {
-    backgroundColor: colors.scannerCanvas,
-  },
-  // Cold-start cover: the scanner's own dark surround, fading to reveal the live
-  // (now-focused) preview so the AF hunt is never seen.
-  settleOverlay: {
     backgroundColor: colors.scannerCanvas,
   },
   previewCanvas: {
