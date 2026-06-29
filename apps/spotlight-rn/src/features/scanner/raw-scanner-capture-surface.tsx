@@ -2,8 +2,9 @@
 // runtime (silently dropped every scan's source image — see scanner dashboard).
 import * as FileSystem from 'expo-file-system/legacy';
 import type { ReactNode, RefObject } from 'react';
-import { useEffect, useImperativeHandle } from 'react';
+import { useEffect, useImperativeHandle, useRef, useState } from 'react';
 import {
+  Animated,
   Pressable,
   StyleSheet,
   Text,
@@ -23,6 +24,14 @@ import {
 
 import { chromeBackButtonSize } from '@/components/chrome-back-button';
 import { rawCardReticleAspectRatio } from '@/features/scanner/scanner-normalized-target';
+
+// Cold-start settle window: when the camera session (re)activates, the lens racks
+// focus (continuous AF) for a beat. We cover the preview + hold the shutter for
+// this long so the AF hunt is hidden and the first allowed tap lands on a settled,
+// sharp frame. NOT focusTo — AF is never disabled; this is just a timed cover.
+// Tune on-device. Zero in tests so the suite isn't slowed.
+const SETTLE_MS = process.env.NODE_ENV === 'test' ? 0 : 700;
+const SETTLE_FADE_MS = 220;
 
 export const rawVisualCaptureQuality = 0.62;
 export const rawScannerTrayReservedHeight = 168;
@@ -334,6 +343,30 @@ export function RawScannerCaptureSurface({
   // the expo-camera->vision-camera migration intended ("drop the remount hack").
   const isCameraMounted = hasCameraPermission && device != null;
 
+  // Cover the cold-start autofocus hunt. Driven off `shouldMountCamera` (not the
+  // camera's `onStarted`, whose inline identity churns) so it re-arms on every
+  // (re)activation — app open, swipe-in, foreground return. While settling, the
+  // scrim covers the hunting preview and the shutter is disabled; on reveal the
+  // scrim fades out and the first tap lands on a settled frame.
+  const [isSettling, setIsSettling] = useState(false);
+  const settleOpacity = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!shouldMountCamera) {
+      return;
+    }
+    setIsSettling(true);
+    settleOpacity.setValue(1);
+    const timer = setTimeout(() => {
+      setIsSettling(false);
+      Animated.timing(settleOpacity, {
+        toValue: 0,
+        duration: SETTLE_FADE_MS,
+        useNativeDriver: true,
+      }).start();
+    }, SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [shouldMountCamera, settleOpacity]);
+
   return (
     <View style={styles.previewCanvas}>
       {isCameraMounted ? (
@@ -361,11 +394,19 @@ export function RawScannerCaptureSurface({
         />
       )}
 
+      {/* Cold-start cover: hides the AF hunt over the live feed, under the reticle.
+          Fades out once the settle window elapses (continuous AF has converged). */}
+      <Animated.View
+        pointerEvents="none"
+        style={[StyleSheet.absoluteFillObject, styles.settleOverlay, { opacity: settleOpacity }]}
+        testID={`${testIDPrefix}-settle-overlay`}
+      />
+
       {shouldMountCamera && !isTrayExpanded ? (
         <Pressable
           accessibilityLabel="Capture scan inside frame"
           accessibilityRole="button"
-          disabled={!canCapture}
+          disabled={!canCapture || isSettling}
           onPress={onCapture}
           style={[
             styles.reticleCaptureButton,
@@ -440,6 +481,11 @@ export function RawScannerCaptureSurface({
 
 const styles = StyleSheet.create({
   cameraFallback: {
+    backgroundColor: colors.scannerCanvas,
+  },
+  // Cold-start cover: the scanner's own dark surround, fading to reveal the live
+  // (now-focused) preview so the AF hunt is never seen.
+  settleOverlay: {
     backgroundColor: colors.scannerCanvas,
   },
   previewCanvas: {
