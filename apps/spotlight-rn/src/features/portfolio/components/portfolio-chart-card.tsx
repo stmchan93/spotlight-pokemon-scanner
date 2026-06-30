@@ -508,21 +508,11 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
     ? clamp(activeSelection.x - tooltipWidth / 2, 0, Math.max(chartWidth - tooltipWidth, 0))
     : 0;
 
-  // Float the tooltip just above the active dot so it tracks the point instead
-  // of sitting at a fixed height. When the dot is too close to the top to fit
-  // the tooltip above it, flip below the dot so it never covers the dot or
-  // spills off the top of the chart.
-  const TOOLTIP_DOT_GAP = 14; // dot radius (4) + breathing room
-  const tooltipTop = activeSelection
-    ? (() => {
-        const above = activeSelection.y - TOOLTIP_DOT_GAP - tooltipHeight;
-        if (above >= 0) {
-          return above;
-        }
-        const below = activeSelection.y + TOOLTIP_DOT_GAP;
-        return Math.min(below, Math.max(chartHeight - tooltipHeight, 0));
-      })()
-    : 0;
+  // Pin the scrub tooltip to the TOP of the dashed guide line (Figma 822-2634)
+  // instead of floating next to the dot: the modal sits at the very top of the
+  // grey dotted line and the line drops from it down to the value point. The
+  // line starts at chartPaddingY, so that's the tooltip's top.
+  const tooltipTop = activeSelection ? chartPaddingY : 0;
 
   const isScrubbing = activePointIndex != null;
 
