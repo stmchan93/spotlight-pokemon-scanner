@@ -19,8 +19,12 @@ type AddAllMenuProps = {
 const CARD_WIDTH = 180;
 // Inset the card from the screen edges so the shadow never clips off-screen.
 const SCREEN_MARGIN = 8;
-// Gap between the bottom of the trigger and the top of the popped card.
+// Gap between the trigger and the popped card.
 const ANCHOR_GAP = 4;
+// Rough height of the 3-row card (rows ~40px + 12px vertical padding). Only used
+// to decide whether to flip the menu up; the upward position is bottom-anchored,
+// so it stays exact even if the real height differs.
+const ESTIMATED_CARD_HEIGHT = 140;
 // Fallback origin when we have no measured anchor yet (top-left under a header).
 const FALLBACK_TOP = 96;
 const FALLBACK_LEFT = 16;
@@ -45,11 +49,20 @@ export function AddAllMenu({
     return null;
   }
 
-  // Pop below the trigger and clamp inside the screen. `left` shifts in (never
-  // negative) when the card would overflow the right edge; `top` falls back to
-  // a sensible header position until the anchor has been measured.
+  // Pop next to the trigger and clamp inside the screen. `left` shifts in (never
+  // negative) when the card would overflow the right edge. By default the card
+  // drops BELOW the trigger; when there isn't room below it (the scan tray's
+  // ADD ▾ sits near the bottom edge) it flips ABOVE instead so the rows don't
+  // clip off-screen. The upward case anchors the card's BOTTOM just above the
+  // trigger via `bottom`, so it grows up regardless of its measured height.
   const screen = Dimensions.get('window');
-  const top = anchor ? anchor.y + anchor.height + ANCHOR_GAP : FALLBACK_TOP;
+  const anchorTop = anchor ? anchor.y : FALLBACK_TOP;
+  const anchorBottom = anchor ? anchor.y + anchor.height : FALLBACK_TOP;
+  const openUp = anchor != null
+    && anchorBottom + ANCHOR_GAP + ESTIMATED_CARD_HEIGHT + SCREEN_MARGIN > screen.height;
+  const verticalStyle = openUp
+    ? { bottom: screen.height - anchorTop + ANCHOR_GAP }
+    : { top: anchorBottom + ANCHOR_GAP };
   const maxLeft = screen.width - CARD_WIDTH - SCREEN_MARGIN;
   const rawLeft = anchor ? anchor.x : FALLBACK_LEFT;
   const left = Math.max(SCREEN_MARGIN, Math.min(rawLeft, maxLeft));
@@ -70,7 +83,7 @@ export function AddAllMenu({
             backgroundColor: theme.colors.gray0,
             borderRadius: theme.radii.xl,
             left,
-            top,
+            ...verticalStyle,
           },
         ]}
         testID={testID}
@@ -82,7 +95,7 @@ export function AddAllMenu({
           style={({ pressed }) => [styles.row, { opacity: pressed ? 0.6 : 1 }]}
           testID={`${testID}-collection`}
         >
-          <GridPlus color={theme.colors.gray900} height={18} width={18} />
+          <GridPlus color={theme.colors.gray900} height={20} width={20} />
           <Text style={[theme.typography.body, styles.label, { color: theme.colors.gray900 }]}>
             Collection
           </Text>
@@ -95,7 +108,7 @@ export function AddAllMenu({
           style={({ pressed }) => [styles.row, { opacity: pressed ? 0.6 : 1 }]}
           testID={`${testID}-wishlist`}
         >
-          <Bookmark color={theme.colors.gray900} height={18} width={18} />
+          <Bookmark color={theme.colors.gray900} height={20} width={20} />
           <Text style={[theme.typography.body, styles.label, { color: theme.colors.gray900 }]}>
             Wishlist
           </Text>
@@ -108,8 +121,8 @@ export function AddAllMenu({
           style={({ pressed }) => [styles.row, { opacity: pressed ? 0.6 : 1 }]}
           testID={`${testID}-remove`}
         >
-          <Trash color={theme.colors.dangerStrong} height={18} width={18} />
-          <Text style={[theme.typography.body, styles.label, { color: theme.colors.dangerStrong }]}>
+          <Trash color={theme.colors.deltaDownText} height={20} width={20} />
+          <Text style={[theme.typography.body, styles.label, { color: theme.colors.deltaDownText }]}>
             Delete
           </Text>
         </Pressable>
