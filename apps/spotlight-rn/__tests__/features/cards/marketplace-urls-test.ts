@@ -361,8 +361,8 @@ describe('buildEbaySearchUrl', () => {
     });
     const nkw = decodeURIComponent(new URL(url!).searchParams.get('_nkw')!);
     expect(nkw).toContain('Japanese');
-    expect(nkw).toContain('004'); // number kept for JP (not dropped like vintage EN)
-    expect(nkw).toContain('1st Edition');
+    expect(nkw).toContain('004'); // number kept
+    expect(nkw).toContain('1st'); // edition token broadened to bare "1st"
     expect(nkw).toContain('"PSA 10"');
   });
 
@@ -403,7 +403,7 @@ describe('buildEbaySearchUrl', () => {
     expect(buildEbaySearchUrl({ setName: '', name: '', cardNumber: '' })).toBeNull();
   });
 
-  it('adds a "1st Edition" keyword when the printing is a First Edition variant', () => {
+  it('adds a bare "1st" keyword when the printing is a First Edition variant', () => {
     const url = buildEbaySearchUrl({
       setName: 'Base Set',
       name: 'Charizard',
@@ -412,10 +412,11 @@ describe('buildEbaySearchUrl', () => {
       grade: '10',
       variant: 'First Edition Holofoil',
     })!;
-    // "1st Edition" survives encoding as "1st+Edition" inside _nkw.
-    expect(url).toContain('1st+Edition');
+    // Bare "1st" matches "1st Edition" AND "1st Ed" listings (tokenized to "1st").
+    const nkw = decodeURIComponent(new URL(url).searchParams.get('_nkw')!);
+    expect(nkw).toContain('1st');
     // The negative-exclusion token must NOT be present for a 1st-edition search.
-    expect(url).not.toContain('-%221st');
+    expect(nkw).not.toContain('-1st');
   });
 
   it('also matches an already-"1st edition"-worded printing label', () => {
@@ -425,10 +426,10 @@ describe('buildEbaySearchUrl', () => {
       cardNumber: '4/102',
       variant: '1st Edition Shadowless Holofoil',
     })!;
-    expect(url).toContain('1st+Edition');
+    expect(decodeURIComponent(new URL(url).searchParams.get('_nkw')!)).toContain('1st');
   });
 
-  it('adds a -"1st Edition" exclusion when the printing is Unlimited', () => {
+  it('excludes every 1st-edition wording when the printing is Unlimited', () => {
     const url = buildEbaySearchUrl({
       setName: 'Base Set',
       name: 'Charizard',
@@ -437,10 +438,11 @@ describe('buildEbaySearchUrl', () => {
       grade: '10',
       variant: 'Unlimited Holofoil',
     })!;
-    // The negative phrase exclusion survives encoding: `-"1st Edition"` →
-    // "-%221st+Edition%22". Decode and assert the exclusion is present verbatim.
+    // Broadened exclusion so a "1st Ed"-worded sale can't leak into Unlimited
+    // comps: `-1st -"first edition"`.
     const nkw = new URL(url).searchParams.get('_nkw');
-    expect(nkw).toContain('-"1st Edition"');
+    expect(nkw).toContain('-1st');
+    expect(nkw).toContain('-"first edition"');
   });
 
   it('leaves a modern Holofoil/Normal printing unchanged (no edition qualifier)', () => {
@@ -475,7 +477,7 @@ describe('buildEbaySearchUrl', () => {
     expect(withVariant).not.toContain('Edition');
   });
 
-  it('drops the collector number for a vintage 1st Edition graded card', () => {
+  it('keeps the collector number for a vintage 1st Edition graded card', () => {
     const url = buildEbaySearchUrl({
       name: 'Lugia',
       setName: 'Neo Genesis',
@@ -486,9 +488,12 @@ describe('buildEbaySearchUrl', () => {
     })!;
     expect(url).toContain('%22PSA+10%22+Lugia');
     expect(url).toContain('Neo+Genesis');
-    expect(url).toContain('1st+Edition');
-    // The collector number is dropped so the AND-matched keywords don't zero out.
-    expect(url).not.toContain('111');
+    // Edition is matched by the bare "1st" token (also catches "1st Ed" titles).
+    expect(url).toContain('1st');
+    // Real vintage slab titles include the collector number (e.g. "Lugia 9/111"),
+    // and the quoted grade ("PSA 10") already prevents the bare-number collision
+    // the old drop guarded against — so keep the number for precision.
+    expect(url).toContain('111');
   });
 
   it('keeps the collector number for a modern graded card (no edition qualifier)', () => {
@@ -505,7 +510,7 @@ describe('buildEbaySearchUrl', () => {
     expect(url).toContain('203');
   });
 
-  it('drops the collector number and keeps the exclusion for a vintage Unlimited graded card', () => {
+  it('keeps the collector number and excludes every 1st-edition wording for a vintage Unlimited graded card', () => {
     const url = buildEbaySearchUrl({
       name: 'Charizard',
       setName: 'Base Set',
@@ -514,8 +519,28 @@ describe('buildEbaySearchUrl', () => {
       grade: '10',
       variant: 'Unlimited Holofoil',
     })!;
-    expect(url).toContain('-%221st+Edition%22');
-    expect(url).not.toContain('102');
+    // Broadened exclusion: blocks "1st", "1st Ed", "1st Edition", and "First Edition"
+    // so a differently-worded 1st-edition sale can't leak into the Unlimited comps.
+    expect(url).toContain('-1st');
+    expect(url).toContain('-%22first+edition%22');
+    expect(url).toContain('102');
+  });
+
+  it('excludes a "1st Ed"-worded listing from an Unlimited search (leak regression)', () => {
+    const url = buildEbaySearchUrl({
+      name: 'Charizard',
+      setName: 'Base Set',
+      cardNumber: '4/102',
+      grader: 'PSA',
+      grade: '10',
+      variant: 'Unlimited Holofoil',
+    })!;
+    const nkw = decodeURIComponent(new URL(url).searchParams.get('_nkw') ?? '');
+    // The bare "-1st" negative token AND-excludes any title containing "1st",
+    // including the abbreviated "1st Ed" wording the old exact-phrase exclusion missed.
+    expect(nkw).toContain('-1st');
+    expect(nkw).toContain('-"first edition"');
+    expect(nkw).not.toMatch(/(^|\s)1st(\s|$)/);
   });
 
   it('keeps the collector number for a raw vintage card (no grade ⇒ not graded)', () => {

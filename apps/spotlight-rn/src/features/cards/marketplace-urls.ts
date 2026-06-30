@@ -264,12 +264,17 @@ export function buildTcgPlayerProductUrl(params: {
 }
 
 // Fold the selected printing/edition into the eBay keyword string so the recent
-// sales don't mix 1st Edition and Unlimited comps:
-//   - "first edition"/"1st edition" → add a positive `1st Edition` keyword.
-//   - "unlimited" → add the NEGATIVE token `-"1st Edition"`. Unlimited listings
-//     rarely say "Unlimited" in the title, so the only reliable filter is to
-//     EXCLUDE the 1st-edition phrase. eBay web search honors `-"phrase"`; the
-//     URLSearchParams encoder preserves the `-`, quotes, and spaces inside _nkw.
+// sales don't mix 1st Edition and Unlimited comps (a HUGE price gap, e.g. Neo
+// Genesis Lugia). Reverse-engineered from real sold titles, which word it every
+// way — "1st Edition", "1ST ED", "First Edition":
+//   - 1st edition → positive bare `1st` keyword. eBay tokenizes "1st Edition" and
+//     "1st Ed" both to a "1st" token, so this matches all wordings (a quoted
+//     "1st Edition" would miss "1st Ed" listings).
+//   - "unlimited" → exclude EVERY 1st-edition wording: `-1st -"first edition"`.
+//     Unlimited slab titles essentially never contain "1st"/"first edition", so
+//     this is safe and plugs the leak where a "1st Ed"-worded sale slipped into
+//     Unlimited comps. eBay honors `-token` and `-"phrase"`; URLSearchParams
+//     preserves the `-`, quotes, and spaces inside _nkw.
 //   - anything else (modern Holofoil/Normal/Reverse) → no change.
 function editionKeywordToken(variant: string | null | undefined): string | null {
   const normalized = (variant ?? '').toLowerCase();
@@ -277,10 +282,10 @@ function editionKeywordToken(variant: string | null | undefined): string | null 
     return null;
   }
   if (normalized.includes('first edition') || normalized.includes('1st edition')) {
-    return '1st Edition';
+    return '1st';
   }
   if (normalized.includes('unlimited')) {
-    return '-"1st Edition"';
+    return '-1st -"first edition"';
   }
   return null;
 }
@@ -309,14 +314,14 @@ export function buildEbaySearchUrl(params: {
   // carry the disambiguation instead.
   const languageToken = isJapanese ? 'Japanese' : null;
 
-  // Drop the collector number for VINTAGE ENGLISH GRADED cards (edition + grade
-  // present): slab sellers title those by name+set+grade and omit the number, so
-  // requiring it zeroes the search. But KEEP it for Japanese graded (JP slab
-  // titles include "004/020") and for modern graded (separates alt-art prints).
-  const dropCollectorNumber = !isJapanese && Boolean(editionToken && gradeToken);
-  const numberToken = dropCollectorNumber
-    ? null
-    : cleanedMarketplaceToken(params.cardNumber.replace(/^#/, ''));
+  // KEEP the collector number for all cards. Reverse-engineering real sold titles
+  // shows slab sellers DO include it even on vintage graded ("Haunter 6/62",
+  // "Machamp 8/102", "Gengar #5/62", "Lugia 9/111"), and it's the strongest
+  // same-name/wrong-print/wrong-language disambiguator. (We used to drop it for
+  // vintage graded to avoid a bare grade number colliding — but quoting the grade
+  // below as "PSA 9" already removed that collision, so the drop only lost
+  // precision.)
+  const numberToken = cleanedMarketplaceToken(params.cardNumber.replace(/^#/, ''));
 
   // Quote the grader+grade as an EXACT phrase (e.g. "PSA 3") so eBay matches the grade
   // strictly. As loose keywords, eBay relaxes the low-signal grade number — a bare "3"
