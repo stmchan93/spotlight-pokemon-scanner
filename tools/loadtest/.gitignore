@@ -1,0 +1,8 @@
+# Real card photos are private scan captures — never commit them.
+corpus/*
+!corpus/.gitkeep
+# k6 result dumps
+*.json.gz
+summary*.json
+# minted JWT — never commit
+.token
