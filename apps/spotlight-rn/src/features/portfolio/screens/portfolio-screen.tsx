@@ -807,11 +807,11 @@ const styles = StyleSheet.create({
   },
   chrome: {
     // Mirror the legacy ScrollView `content` gap so the balance/chart/search/
-    // filter chrome keeps its original 16px inter-child spacing. The 32px tail
-    // reproduces the old spacing above the first ruled row (the parent `gap: 16`
-    // between the filters and the list + the list's own `paddingTop: 16`).
+    // filter chrome keeps its original 16px inter-child spacing. The tail sets
+    // the gap from the filter chips to the first card row to 16px (Figma
+    // 1252:2596) — the first row carries only a top hairline, no padding.
     gap: 16,
-    paddingBottom: 32,
+    paddingBottom: 16,
   },
   emptyStateCard: {
     marginTop: 12,

@@ -108,12 +108,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 999,
     borderWidth: 1,
-    height: 40,
+    // 36×36 to match the header's share/back IconButtons (size 36) — same right
+    // inset (16) + same size keeps the heart on the same vertical axis as share.
+    height: 36,
     justifyContent: 'center',
     position: 'absolute',
     right: 16,
     top: 16,
-    width: 40,
+    width: 36,
   },
   image: {
     height: '100%',
