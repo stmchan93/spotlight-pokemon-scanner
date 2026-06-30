@@ -56,6 +56,12 @@ const rangeItems = [
 
 const skeletonBarScales = [0.42, 0.62, 0.5, 0.74, 0.58, 0.82, 0.68, 0.9, 0.76, 0.56, 0.72, 0.64];
 
+// Soften each interior corner of the line by rounding it with an arc of up to
+// this radius, clamped to half the shorter adjacent segment so neighbouring
+// corners never overshoot each other. 72px is large relative to the ~176px
+// plot, so the line reads as a smooth curve rather than a sharp polyline.
+const LINE_CORNER_RADIUS = 72;
+
 function buildLinePath(points: readonly { x: number; y: number }[]) {
   if (points.length === 0) {
     return '';
@@ -66,13 +72,39 @@ function buildLinePath(points: readonly { x: number; y: number }[]) {
     return `M ${point.x} ${point.y}`;
   }
 
-  return points.reduce((path, point, index) => {
-    if (index === 0) {
-      return `M ${point.x} ${point.y}`;
+  if (points.length === 2) {
+    return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
+  }
+
+  let path = `M ${points[0].x} ${points[0].y}`;
+
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const prev = points[index - 1];
+    const curr = points[index];
+    const next = points[index + 1];
+
+    const inLen = Math.hypot(curr.x - prev.x, curr.y - prev.y);
+    const outLen = Math.hypot(next.x - curr.x, next.y - curr.y);
+    const trim = Math.min(LINE_CORNER_RADIUS, inLen / 2, outLen / 2);
+
+    if (trim <= 0) {
+      // Coincident points — keep the hard vertex rather than divide by zero.
+      path += ` L ${curr.x} ${curr.y}`;
+      continue;
     }
 
-    return `${path} L ${point.x} ${point.y}`;
-  }, '');
+    // Stop short of the vertex on the way in, curve through the vertex (the
+    // quadratic control point), and resume short of it on the way out.
+    const entryX = curr.x + ((prev.x - curr.x) / inLen) * trim;
+    const entryY = curr.y + ((prev.y - curr.y) / inLen) * trim;
+    const exitX = curr.x + ((next.x - curr.x) / outLen) * trim;
+    const exitY = curr.y + ((next.y - curr.y) / outLen) * trim;
+
+    path += ` L ${entryX} ${entryY} Q ${curr.x} ${curr.y} ${exitX} ${exitY}`;
+  }
+
+  const last = points[points.length - 1];
+  return `${path} L ${last.x} ${last.y}`;
 }
 
 function clamp(value: number, min: number, max: number) {

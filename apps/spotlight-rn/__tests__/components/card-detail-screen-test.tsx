@@ -312,7 +312,7 @@ describe('CardDetailScreen', () => {
     });
   });
 
-  it('graded ADD flashes SAVED, stays in ADD mode, and reverts to ADD ITEM after 5s', async () => {
+  it('after adding a graded card it becomes owned and the bar switches to SAVE / CANCEL edit mode', async () => {
     const createInventoryEntry = jest.fn(async () => ({
       deckEntryID: 'g1',
       cardID: 'sm7-1',
@@ -329,18 +329,11 @@ describe('CardDetailScreen', () => {
     fireEvent.press(await screen.findByTestId('detail-add-sheet-configurator-grader-PSA'));
     fireEvent.press(await screen.findByTestId('detail-add-sheet-confirm'));
 
-    // The CTA flashes SAVED (disabled) and the page stays in ADD mode — it does
-    // NOT flip into the owned/Edit state (no detail-update-item).
-    await waitFor(() => expect(screen.getByText('SAVED')).toBeTruthy());
-    expect(screen.getByTestId('detail-add-item').props.accessibilityState?.disabled).toBe(true);
-    expect(screen.queryByTestId('detail-update-item')).toBeNull();
-
-    // After 5s the label reverts to ADD ITEM and the button re-enables.
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 5100));
-    });
-    expect(screen.getByText('ADD ITEM')).toBeTruthy();
-    expect(screen.getByTestId('detail-add-item').props.accessibilityState?.disabled).toBe(false);
+    // The optimistic add makes the card owned, so the action bar flips to the
+    // owned-card edit controls (SAVE / CANCEL, Figma 1874:21729) — ADD ITEM gone.
+    await waitFor(() => expect(screen.getByTestId('detail-save-edit')).toBeTruthy());
+    expect(screen.getByTestId('detail-cancel-edit')).toBeTruthy();
+    expect(screen.queryByTestId('detail-add-item')).toBeNull();
   }, 10000);
 
   it('opens the grade/condition picker and selects a new condition for the raw lane', async () => {
@@ -722,7 +715,7 @@ describe('CardDetailScreen', () => {
     });
   });
 
-  it('always opens Add to Collection at the Raw / Near Mint default, even for an owned graded entry', async () => {
+  it('an owned graded entry opens in edit mode with the grade seeded from the slab', async () => {
     const baseRepository = createTestSpotlightRepository();
     const gradedEntry: InventoryCardEntry = {
       addedAt: '2026-04-27T12:00:00.000Z',
@@ -764,15 +757,12 @@ describe('CardDetailScreen', () => {
       },
     );
 
-    // Add Item always starts a fresh Raw / Near Mint add regardless of the owned
-    // slab — the grader seeds to Raw and the condition trigger reads "Near Mint".
-    fireEvent.press(await screen.findByTestId('detail-add-item'));
-    const trigger = await screen.findByTestId('detail-add-sheet-grade-trigger');
-    expect(
-      screen.getByTestId('detail-add-sheet-configurator-grader-Raw').props.accessibilityState
-        ?.selected,
-    ).toBe(true);
-    expect(within(trigger).getByText('Near Mint')).toBeTruthy();
+    // Owned → SAVE / CANCEL edit bar (no ADD ITEM), and the inline Condition
+    // dropdown is seeded from the owned slab — the bare grade "10" (Figma).
+    expect(await screen.findByTestId('detail-save-edit')).toBeTruthy();
+    expect(screen.queryByTestId('detail-add-item')).toBeNull();
+    const trigger = await screen.findByTestId('detail-owned-edit-grade-trigger');
+    expect(within(trigger).getByText('10')).toBeTruthy();
   });
 
   function ownedGradedEntry(quantity: number): InventoryCardEntry {
@@ -820,17 +810,63 @@ describe('CardDetailScreen', () => {
     );
   }
 
-  it('owned cards show the same ADD ITEM + SHARE bar (no in-flow Edit / + Add copy / Remove)', async () => {
-    // Figma 1640:4077: the PDP action bar is always ADD ITEM + SHARE — owned-line
-    // editing/removal moved off the PDP, so none of the old managed controls render.
+  it('owned cards show the SAVE / CANCEL edit bar (Figma 1874:21729), not ADD ITEM', async () => {
+    // Owned cards edit in place: the bottom bar is SAVE + CANCEL, and the old
+    // ADD ITEM / managed-copy controls do not render.
     renderOwnedGraded({}, {});
 
-    expect(await screen.findByTestId('detail-add-item')).toBeTruthy();
-    expect(screen.getByTestId('detail-share-button')).toBeTruthy();
-    expect(screen.queryByTestId('detail-update-item')).toBeNull();
+    expect(await screen.findByTestId('detail-save-edit')).toBeTruthy();
+    expect(screen.getByTestId('detail-cancel-edit')).toBeTruthy();
+    expect(screen.queryByTestId('detail-add-item')).toBeNull();
+    expect(screen.queryByTestId('detail-share-button')).toBeNull();
     expect(screen.queryByTestId('detail-add-copy')).toBeNull();
     expect(screen.queryByTestId('detail-remove-item')).toBeNull();
-    expect(screen.queryByTestId('detail-cancel-add-copy')).toBeNull();
+  });
+
+  it('SAVE persists edits via replace + cost basis and returns to Collection', async () => {
+    const replacePortfolioEntry = jest.fn(async () => ({
+      previousDeckEntryID: 'graded-treecko-psa10',
+      deckEntryID: 'graded-treecko-psa10',
+      cardID: 'sm7-1',
+      quantity: 6,
+      unitPrice: 40,
+      updatedAt: '2026-06-29T00:00:00.000Z',
+    }));
+    const updateDeckEntryCostBasis = jest.fn(async () => ({
+      deckEntryID: 'graded-treecko-psa10',
+      cardID: 'sm7-1',
+      costBasisPerUnit: 40,
+      costBasisPerUnitCents: 4000,
+      currencyCode: 'USD',
+      updatedAt: '2026-06-29T00:00:00.000Z',
+    }));
+    const onBack = jest.fn();
+
+    renderOwnedGraded({ onBack }, { replacePortfolioEntry, updateDeckEntryCostBasis });
+
+    fireEvent.changeText(
+      await screen.findByTestId('detail-owned-edit-cost-basis-input'),
+      '40',
+    );
+    fireEvent.press(screen.getByTestId('detail-save-edit'));
+
+    await waitFor(() => expect(replacePortfolioEntry).toHaveBeenCalledTimes(1));
+    expect(replacePortfolioEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deckEntryID: 'graded-treecko-psa10',
+        cardID: 'sm7-1',
+        quantity: 6,
+        unitPrice: 40,
+        condition: null,
+        slabContext: expect.objectContaining({ grader: 'PSA', grade: '10' }),
+      }),
+    );
+    await waitFor(() =>
+      expect(updateDeckEntryCostBasis).toHaveBeenCalledWith(
+        expect.objectContaining({ deckEntryID: 'graded-treecko-psa10', costBasisPerUnit: 40 }),
+      ),
+    );
+    await waitFor(() => expect(onBack).toHaveBeenCalled());
   });
 
   it('no longer renders the similar-cards button even with scan candidates present', async () => {

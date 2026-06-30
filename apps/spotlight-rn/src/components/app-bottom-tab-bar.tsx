@@ -3,6 +3,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BottomTabBar, useSpotlightTheme } from '@spotlight/design-system';
 
+import { useTabBarCollapseProgress } from '@/contexts/tab-bar-chrome-context';
 import { CollectionTabIcon, EventsTabIcon, ScanTabIcon } from './nav-tab-icons';
 
 export type AppBottomTabKey = 'portfolio' | 'scan' | 'events';
@@ -28,6 +29,9 @@ export function AppBottomTabBar({
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  // iOS 26-style minimize-on-scroll: the bar slides down + fades as the user
+  // scrolls the active list, and returns on scroll-up.
+  const collapseProgress = useTabBarCollapseProgress();
 
   const iconColor = theme.colors.textPrimary;
   // Figma nav glyph size (node 1313:7454 — `size-[22px]`).
@@ -49,6 +53,7 @@ export function AppBottomTabBar({
   return (
     <BottomTabBar
       bottomInset={Math.max(insets.bottom, 0)}
+      collapseProgress={collapseProgress}
       items={[
         {
           key: 'portfolio',

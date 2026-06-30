@@ -11,6 +11,8 @@ import { renderWithProviders } from '../test-utils';
 const portfolioTabsContext = {
   activePage: 'portfolio' as const,
   chartScrubLockRef: { current: false },
+  collectionEditing: false,
+  setCollectionEditing: () => {},
 };
 
 function renderSalesHistoryScreen(props: Parameters<typeof SalesHistoryScreen>[0]) {

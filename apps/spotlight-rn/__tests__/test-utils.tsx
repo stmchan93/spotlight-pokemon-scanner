@@ -148,6 +148,10 @@ export function createTestSpotlightRepository(
       return overrides.deletePortfolioEntry?.(...args)
         ?? baseRepository.deletePortfolioEntry(...args);
     },
+    deletePortfolioEntriesBulk: (...args) => {
+      return overrides.deletePortfolioEntriesBulk?.(...args)
+        ?? baseRepository.deletePortfolioEntriesBulk(...args);
+    },
     deleteAccount: (...args) => {
       return overrides.deleteAccount?.(...args)
         ?? baseRepository.deleteAccount(...args);
@@ -155,6 +159,10 @@ export function createTestSpotlightRepository(
     setPortfolioEntryQuantity: (...args) => {
       return overrides.setPortfolioEntryQuantity?.(...args)
         ?? baseRepository.setPortfolioEntryQuantity(...args);
+    },
+    updateDeckEntryCostBasis: (...args) => {
+      return overrides.updateDeckEntryCostBasis?.(...args)
+        ?? baseRepository.updateDeckEntryCostBasis(...args);
     },
     createPortfolioSale: (...args) => {
       return overrides.createPortfolioSale?.(...args)

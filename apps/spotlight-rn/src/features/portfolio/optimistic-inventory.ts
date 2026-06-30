@@ -76,6 +76,60 @@ export function prependDashboardInventoryEntry(
  * no new ids, so callers can use referential equality to skip redundant state
  * updates and avoid fighting the model's own loads.
  */
+/**
+ * Remove every entry whose id is in `ids` from `entries`. Returns the original
+ * reference unchanged when nothing matches so callers can skip redundant state
+ * updates. Mirrors {@link prependInventoryEntry} as the optimistic-delete
+ * counterpart: a bulk delete drops the rows instantly, before the slow dashboard
+ * refetch reconciles by id.
+ */
+export function removeInventoryEntries(
+  entries: InventoryCardEntry[],
+  ids: string[],
+): InventoryCardEntry[] {
+  if (ids.length === 0) {
+    return entries;
+  }
+
+  const removalSet = new Set(ids);
+  const next = entries.filter((entry) => !removalSet.has(entry.id));
+  return next.length === entries.length ? entries : next;
+}
+
+/**
+ * Remove `ids` from the dashboard's inventory list and decrement the summary
+ * value / count by the removed entries' value so the totals don't read briefly
+ * stale. Counterpart to {@link prependDashboardInventoryEntry}. Returns the
+ * original dashboard reference unchanged when no id matches.
+ */
+export function removeDashboardInventoryEntries(
+  dashboard: PortfolioDashboard,
+  ids: string[],
+): PortfolioDashboard {
+  if (ids.length === 0) {
+    return dashboard;
+  }
+
+  const removalSet = new Set(ids);
+  const removedEntries = dashboard.inventoryItems.filter((entry) => removalSet.has(entry.id));
+  if (removedEntries.length === 0) {
+    return dashboard;
+  }
+
+  const inventoryItems = dashboard.inventoryItems.filter((entry) => !removalSet.has(entry.id));
+  const removedValue = removedEntries.reduce((sum, entry) => sum + inventoryEntryValue(entry), 0);
+
+  return {
+    ...dashboard,
+    inventoryCount: Math.max(0, dashboard.inventoryCount - removedEntries.length),
+    inventoryItems,
+    summary: {
+      ...dashboard.summary,
+      currentValue: Number(Math.max(0, dashboard.summary.currentValue - removedValue).toFixed(2)),
+    },
+  };
+}
+
 export function reflectInventoryCacheIntoDashboard(
   dashboard: PortfolioDashboard,
   cacheEntries: InventoryCardEntry[],

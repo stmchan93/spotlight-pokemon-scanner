@@ -18,24 +18,44 @@ type CollectionListRowProps = {
   entry: InventoryCardEntry;
   firstInSection: boolean;
   onPress: (entry: InventoryCardEntry) => void;
+  /** Long-press opens the card actions menu. */
+  onLongPress?: (entry: InventoryCardEntry) => void;
+  /** Long-press delay in ms (press-and-hold to open the menu). */
+  delayLongPress?: number;
+  /** Renders the leading selection check-circle while edit mode is active. */
+  selectable?: boolean;
+  /** Whether this row is currently selected (edit mode). */
+  selected?: boolean;
 };
 
 /**
  * One full-bleed ruled list row, extracted so the collection screen can render
  * it as a virtualized FlatList item while keeping identical markup/testIDs.
  */
-export function CollectionListRow({ entry, firstInSection, onPress }: CollectionListRowProps) {
+export function CollectionListRow({
+  entry,
+  firstInSection,
+  onPress,
+  onLongPress,
+  delayLongPress,
+  selectable = false,
+  selected = false,
+}: CollectionListRowProps) {
   return (
     <CardListRow
       cardNumber={entry.cardNumber}
       currencyCode={entry.currencyCode ?? 'USD'}
+      delayLongPress={delayLongPress}
       firstInSection={firstInSection}
       gradeLabel={gradeLabelFor(entry)}
       imageUrl={getCardImageUrl(entry, 'small')}
       marketPrice={entry.hasMarketPrice ? entry.marketPrice : null}
       name={entry.name}
+      onLongPress={onLongPress ? () => onLongPress(entry) : undefined}
       onPress={() => onPress(entry)}
       quantity={entry.quantity}
+      selectable={selectable}
+      selected={selected}
       setName={entry.setName}
       testID={`card-list-row-${entry.cardId}`}
       trendChangeAmount={entry.dayChangeAmount ?? null}

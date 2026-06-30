@@ -13,6 +13,8 @@ import { renderWithProviders } from '../test-utils';
 const portfolioTabsContext = {
   activePage: 'portfolio' as const,
   chartScrubLockRef: { current: false },
+  collectionEditing: false,
+  setCollectionEditing: () => {},
 };
 
 describe('backend-backed fallback states', () => {

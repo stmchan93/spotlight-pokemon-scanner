@@ -40,6 +40,8 @@ jest.mock('@spotlight/design-system', () => {
 const portfolioTabsContext = {
   activePage: 'portfolio' as const,
   chartScrubLockRef: { current: false },
+  collectionEditing: false,
+  setCollectionEditing: () => {},
 };
 
 function renderPortfolioScreen({
@@ -375,6 +377,43 @@ describe('PortfolioScreen', () => {
     });
     expect(screen.getByTestId('collection-masonry-grid-tile-fav-1')).toBeTruthy();
     expect(screen.queryByTestId('collection-masonry-grid-tile-fav-3')).toBeNull();
+  });
+
+  it('long-pressing a card opens the actions menu; Wishlist toggles the favorite', async () => {
+    const setCardFavorite = jest.fn(async (cardId: string, isFavorite?: boolean | null) => ({
+      cardId,
+      isFavorite: isFavorite ?? true,
+      favoritedAt: '2026-06-29T00:00:00.000Z',
+    }));
+    const inventory = [
+      buildInventoryEntry({ id: 'lp-1', name: 'Gengar VMAX', cardId: 'card-lp-1', isFavorite: false }),
+      buildInventoryEntry({ id: 'lp-2', name: 'Pikachu', cardId: 'card-lp-2' }),
+    ];
+    const dashboard = buildDashboardWithInventory(inventory);
+    const repository = createTestSpotlightRepository({
+      loadInventoryEntries: async () => ({ state: 'success', data: inventory, errorMessage: null }),
+      loadPortfolioDashboard: async () => ({ state: 'success', data: dashboard, errorMessage: null }),
+      setCardFavorite,
+    });
+
+    renderPortfolioScreen({ repository });
+
+    const tile = await screen.findByTestId('collection-masonry-grid-tile-lp-1');
+    await act(async () => {
+      fireEvent(tile, 'longPress');
+    });
+
+    // Menu opens, titled with the card name, listing all five actions.
+    const sheet = await screen.findByTestId('collection-card-actions');
+    expect(within(sheet).getByText('Gengar VMAX')).toBeTruthy();
+    ['edit', 'duplicate', 'share', 'wishlist', 'delete'].forEach((key) => {
+      expect(screen.getByTestId(`collection-card-actions-${key}`)).toBeTruthy();
+    });
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('collection-card-actions-wishlist'));
+    });
+    expect(setCardFavorite).toHaveBeenCalledWith('card-lp-1', true);
   });
 
   it('filters out graded entries when the Ungraded chip is tapped', async () => {

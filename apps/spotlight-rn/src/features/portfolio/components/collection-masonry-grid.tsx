@@ -10,7 +10,13 @@ type CollectionMasonryGridProps = {
   entries: InventoryCardEntry[];
   onPressEntry: (entry: InventoryCardEntry) => void;
   onLongPressEntry?: (entry: InventoryCardEntry) => void;
+  /** Long-press delay in ms (press-and-hold to open the card actions menu). */
+  delayLongPress?: number;
   selectedEntryId?: string | null;
+  /** True while the Collection is in multi-select edit mode. */
+  editMode?: boolean;
+  /** Ids selected for bulk action while {@link editMode} is active. */
+  selectedIds?: Set<string>;
   testID?: string;
 };
 
@@ -44,7 +50,10 @@ export function CollectionMasonryGrid({
   entries,
   onPressEntry,
   onLongPressEntry,
+  delayLongPress,
   selectedEntryId,
+  editMode = false,
+  selectedIds,
   testID = 'collection-masonry-grid',
 }: CollectionMasonryGridProps) {
   // A lone entry shouldn't render as a full-bleed ruled row — that reads as a
@@ -57,7 +66,10 @@ export function CollectionMasonryGrid({
           entry={entries[0]}
           onPressEntry={onPressEntry}
           onLongPressEntry={onLongPressEntry}
+          delayLongPress={delayLongPress}
           selectedEntryId={selectedEntryId}
+          editMode={editMode}
+          selectedIds={selectedIds}
           testID={testID}
         />
       </View>
@@ -72,11 +84,14 @@ export function CollectionMasonryGrid({
         <CollectionGridRow
           key={rowEntries[0]?.id ?? `row-${rowIndex}`}
           isFirstRow={rowIndex === 0}
+          delayLongPress={delayLongPress}
           onLongPressEntry={onLongPressEntry}
           onPressEntry={onPressEntry}
           rowEntries={rowEntries}
           rowIndex={rowIndex}
           selectedEntryId={selectedEntryId}
+          editMode={editMode}
+          selectedIds={selectedIds}
           testID={testID}
         />
       ))}
@@ -90,7 +105,11 @@ type CollectionGridRowProps = {
   isFirstRow: boolean;
   onPressEntry: (entry: InventoryCardEntry) => void;
   onLongPressEntry?: (entry: InventoryCardEntry) => void;
+  /** Long-press delay in ms (press-and-hold to open the card actions menu). */
+  delayLongPress?: number;
   selectedEntryId?: string | null;
+  editMode?: boolean;
+  selectedIds?: Set<string>;
   testID?: string;
 };
 
@@ -105,7 +124,10 @@ export function CollectionGridRow({
   isFirstRow,
   onPressEntry,
   onLongPressEntry,
+  delayLongPress,
   selectedEntryId,
+  editMode = false,
+  selectedIds,
   testID = 'collection-masonry-grid',
 }: CollectionGridRowProps) {
   const theme = useSpotlightTheme();
@@ -135,9 +157,11 @@ export function CollectionGridRow({
             {entry ? (
               <CollectionTileSlot
                 entry={entry}
+                delayLongPress={delayLongPress}
                 onLongPress={onLongPressEntry}
                 onPress={onPressEntry}
-                selected={selectedEntryId === entry.id}
+                selectable={editMode}
+                selected={editMode ? !!selectedIds?.has(entry.id) : selectedEntryId === entry.id}
                 testIDPrefix={`${testID}-tile`}
               />
             ) : null}
@@ -152,7 +176,11 @@ type CollectionGridSingleRowProps = {
   entry: InventoryCardEntry;
   onPressEntry: (entry: InventoryCardEntry) => void;
   onLongPressEntry?: (entry: InventoryCardEntry) => void;
+  /** Long-press delay in ms (press-and-hold to open the card actions menu). */
+  delayLongPress?: number;
   selectedEntryId?: string | null;
+  editMode?: boolean;
+  selectedIds?: Set<string>;
   testID?: string;
 };
 
@@ -164,7 +192,10 @@ export function CollectionGridSingleRow({
   entry,
   onPressEntry,
   onLongPressEntry,
+  delayLongPress,
   selectedEntryId,
+  editMode = false,
+  selectedIds,
   testID = 'collection-masonry-grid',
 }: CollectionGridSingleRowProps) {
   const theme = useSpotlightTheme();
@@ -174,9 +205,11 @@ export function CollectionGridSingleRow({
       <View style={[styles.singleCell, { borderColor: theme.colors.gray100 }]}>
         <CollectionTileSlot
           entry={entry}
+          delayLongPress={delayLongPress}
           onLongPress={onLongPressEntry}
           onPress={onPressEntry}
-          selected={selectedEntryId === entry.id}
+          selectable={editMode}
+          selected={editMode ? !!selectedIds?.has(entry.id) : selectedEntryId === entry.id}
           testIDPrefix={`${testID}-tile`}
         />
       </View>
@@ -188,6 +221,8 @@ type CollectionTileSlotProps = {
   entry: InventoryCardEntry;
   onPress: (entry: InventoryCardEntry) => void;
   onLongPress?: (entry: InventoryCardEntry) => void;
+  delayLongPress?: number;
+  selectable?: boolean;
   selected?: boolean;
   testIDPrefix: string;
 };
@@ -196,6 +231,8 @@ function CollectionTileSlot({
   entry,
   onPress,
   onLongPress,
+  delayLongPress,
+  selectable,
   selected,
   testIDPrefix,
 }: CollectionTileSlotProps) {
@@ -234,9 +271,11 @@ function CollectionTileSlot({
       dayChangeDirection={dayChangeDirection}
       isFavorite={entry.isFavorite === true}
       showFavorite={false}
+      selectable={selectable}
       selected={selected}
       onPress={() => onPress(entry)}
       onLongPress={onLongPress ? () => onLongPress(entry) : undefined}
+      delayLongPress={delayLongPress}
       liveOnEbay={liveOnEbay}
       onOpenListing={handleOpenListing}
       testID={`${testIDPrefix}-${entry.id}`}

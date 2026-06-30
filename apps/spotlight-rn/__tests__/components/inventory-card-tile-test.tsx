@@ -45,24 +45,23 @@ describe('InventoryCardTile', () => {
     });
 
     expect(screen.getByText('Charizard ex')).toBeTruthy();
-    expect(screen.getByText('#193/162 · Perfect Order')).toBeTruthy();
+    expect(screen.getByText('193/162 · Perfect Order')).toBeTruthy();
     expect(screen.getByText('Lightly Played')).toBeTruthy();
     expect(screen.getByText('Qty: 4')).toBeTruthy();
     expect(screen.getByText('$12.50')).toBeTruthy();
   });
 
-  it('strips a leading # from cardNumber so the metadata line uses a single hash', () => {
+  it('strips a leading # from cardNumber so the metadata line has no hash', () => {
     renderTile({ cardNumber: '#No.003', setName: 'Dark Challenge' });
 
-    expect(screen.getByText('#No.003 · Dark Challenge')).toBeTruthy();
-    expect(screen.queryByText('##No.003')).toBeNull();
-    expect(screen.queryByText(/##/)).toBeNull();
+    expect(screen.getByText('No.003 · Dark Challenge')).toBeTruthy();
+    expect(screen.queryByText(/#/)).toBeNull();
   });
 
   it('renders only the card number when setName is empty', () => {
     renderTile({ cardNumber: '193/162', setName: '' });
 
-    expect(screen.getByText('#193/162')).toBeTruthy();
+    expect(screen.getByText('193/162')).toBeTruthy();
   });
 
   it('renders only the set name when cardNumber is null', () => {

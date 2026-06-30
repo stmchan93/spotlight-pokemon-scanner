@@ -59,6 +59,11 @@ export function TopTabsPager({
 
   const initialTranslateX = initialPage === 'portfolio' ? 0 : -width;
   const [activePage, setActivePage] = useState<TabsPage>(initialPage);
+  const [collectionEditing, setCollectionEditing] = useState(false);
+  // Mirror into a ref so the memoized pan-responder predicate reads the latest
+  // value without being rebuilt on every edit-mode toggle.
+  const collectionEditingRef = useRef(collectionEditing);
+  collectionEditingRef.current = collectionEditing;
   const activePageRef = useRef<TabsPage>(initialPage);
   const isScannerSwipeEnabledRef = useRef(true);
   const isTransitioningRef = useRef(false);
@@ -126,6 +131,11 @@ export function TopTabsPager({
 
   const shouldSetResponder = useCallback((_: unknown, gs: PanResponderGestureState) => {
     if (isTransitioningRef.current || !isHorizontalSwipe(gs)) {
+      return false;
+    }
+    // While a portfolio surface (Collection) is in edit mode, never claim the
+    // horizontal page swipe — the edit UI owns gestures across the full screen.
+    if (collectionEditingRef.current) {
       return false;
     }
     // The chart's long-press scrub owns the gesture once active — don't
@@ -252,8 +262,13 @@ export function TopTabsPager({
 
   const goToPortfolio = useCallback(() => goToPage('portfolio'), [goToPage]);
 
+  const tabsPageValue = useMemo(
+    () => ({ activePage, chartScrubLockRef, collectionEditing, setCollectionEditing }),
+    [activePage, collectionEditing],
+  );
+
   return (
-    <TabsPageContext.Provider value={{ activePage, chartScrubLockRef }}>
+    <TabsPageContext.Provider value={tabsPageValue}>
       <View {...panResponder.panHandlers} style={styles.container} testID="top-tabs-pager">
         {/* Portfolio and scanner are both mounted side-by-side. expo-status-bar
             uses the most-recently-mounted StatusBar, so we need exactly one
@@ -268,7 +283,7 @@ export function TopTabsPager({
             {renderScannerSlot(goToPortfolio, handleScannerSwipeEnabledChange)}
           </View>
         </Animated.View>
-        {activePage === 'portfolio' ? (
+        {activePage === 'portfolio' && !collectionEditing ? (
           <AppBottomTabBar
             activeKey="portfolio"
             onPressPortfolio={() => {}}

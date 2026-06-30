@@ -23,6 +23,8 @@ import { TabBarChromeProvider } from '@/contexts/tab-bar-chrome-context';
 import {
   prependDashboardInventoryEntry,
   prependInventoryEntry,
+  removeDashboardInventoryEntries,
+  removeInventoryEntries,
 } from '@/features/portfolio/optimistic-inventory';
 import { prefetchCardImages } from '@/lib/card-images';
 import { resolveRuntimeValue } from '@/lib/runtime-config';
@@ -164,6 +166,15 @@ type AppServices = {
    * by id (replacing the optimistic row instead of duplicating it).
    */
   prependOptimisticInventoryEntry: (entry: InventoryCardEntry) => void;
+  /**
+   * Optimistically drop just-deleted cards from the Collection without waiting
+   * on the slow portfolio dashboard refetch. Removes the ids (the deck-entry
+   * ids) from both the shared inventory cache and the dashboard cache, and
+   * decrements the dashboard summary/count so totals aren't briefly stale. The
+   * background refetch — which no longer carries the deleted ids — then
+   * reconciles to the server truth.
+   */
+  removeOptimisticInventoryEntries: (ids: string[]) => void;
 };
 
 const AppServicesContext = createContext<AppServices | null>(null);
@@ -233,6 +244,16 @@ export function AppProviders({
     ));
   }, [setInventoryEntriesCache, setPortfolioDashboardCache]);
 
+  const removeOptimisticInventoryEntries = useCallback((ids: string[]) => {
+    if (ids.length === 0) {
+      return;
+    }
+    setInventoryEntriesCache((current) => (current ? removeInventoryEntries(current, ids) : current));
+    setPortfolioDashboardCache((current) => (
+      current ? removeDashboardInventoryEntries(current, ids) : current
+    ));
+  }, [setInventoryEntriesCache, setPortfolioDashboardCache]);
+
   useEffect(() => {
     if (process.env.NODE_ENV === 'test') {
       return undefined;
@@ -266,12 +287,14 @@ export function AppProviders({
       portfolioDashboardCache,
       setPortfolioDashboardCache,
       prependOptimisticInventoryEntry,
+      removeOptimisticInventoryEntries,
     };
   }, [
     dataVersion,
     inventoryEntriesCache,
     portfolioDashboardCache,
     prependOptimisticInventoryEntry,
+    removeOptimisticInventoryEntries,
     refreshData,
     setInventoryEntriesCache,
     setPortfolioDashboardCache,

@@ -12,7 +12,14 @@ export default function BrowseStackLayout() {
   // would block the portfolio dashboard / sales refresh effect.
   const chartScrubLockRef = useRef(false);
   return (
-    <TabsPageContext.Provider value={{ activePage: 'portfolio', chartScrubLockRef }}>
+    <TabsPageContext.Provider
+      value={{
+        activePage: 'portfolio',
+        chartScrubLockRef,
+        collectionEditing: false,
+        setCollectionEditing: () => {},
+      }}
+    >
       <Stack
         screenOptions={{
           animation: 'default',

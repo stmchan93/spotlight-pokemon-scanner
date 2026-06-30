@@ -128,3 +128,12 @@ export function useTabBarScrollHandler(): (
 ) => void {
   return useContext(TabBarChromeContext).handleScroll;
 }
+
+/**
+ * Read the shared collapse signal (0 = expanded, 1 = collapsed) so the bottom
+ * bar can animate itself out on scroll. Falls back to a static 0 with no
+ * provider, so the bar simply stays expanded.
+ */
+export function useTabBarCollapseProgress(): Animated.Value {
+  return useContext(TabBarChromeContext).collapseProgress;
+}

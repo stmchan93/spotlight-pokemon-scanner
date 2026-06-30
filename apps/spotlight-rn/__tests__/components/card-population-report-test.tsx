@@ -27,15 +27,11 @@ function renderReport(props: React.ComponentProps<typeof CardPopulationReport>) 
 }
 
 describe('CardPopulationReport', () => {
-  it('renders the selected grader’s grade distribution as a "<GRADER> Population Report: <total>" cell row', () => {
+  it('renders a "<GRADER> Population Report: <total>" gray band (Figma 1874:11631)', () => {
     renderReport({ population: POPULATION, grader: 'PSA', testID: 'pop' });
 
+    expect(screen.getByTestId('pop')).toBeTruthy();
     expect(screen.getByText('PSA Population Report: 12,000')).toBeTruthy();
-    // Highest grade first, with comma-formatted counts in horizontal cells.
-    expect(screen.getByTestId('pop-grade-10')).toBeTruthy();
-    expect(screen.getByTestId('pop-grade-9')).toBeTruthy();
-    expect(screen.getByText('2,500')).toBeTruthy();
-    expect(screen.getByText('9,500')).toBeTruthy();
   });
 
   it('switches the report when the grader changes (dynamic by grading company)', () => {
@@ -52,7 +48,6 @@ describe('CardPopulationReport', () => {
 
     expect(screen.queryByText('PSA Population Report: 12,000')).toBeNull();
     expect(screen.getByText('BGS Population Report: 1,830')).toBeTruthy();
-    expect(screen.getByTestId('pop-grade-9.5')).toBeTruthy();
   });
 
   it('renders nothing for the raw lane or a grader without population', () => {

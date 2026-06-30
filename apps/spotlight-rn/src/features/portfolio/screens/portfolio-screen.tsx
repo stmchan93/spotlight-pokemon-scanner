@@ -1,14 +1,16 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   type LayoutChangeEvent,
   Pressable,
   RefreshControl,
+  Share,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
-import { Menu as MenuIcon } from 'iconoir-react-native';
+import * as Haptics from 'expo-haptics';
+import { CheckCircle, EditPencil, Menu as MenuIcon, Trash } from 'iconoir-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { InventoryCardEntry } from '@spotlight/api-client';
@@ -32,14 +34,33 @@ import {
 } from '@/features/portfolio/components/collection-masonry-grid';
 import { CollectionListRow } from '@/features/portfolio/components/collection-list-view';
 import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
+import { CardActionsSheet } from '@/features/cards/components/card-actions-sheet';
+import { ConfirmDeleteSheet } from '@/features/cards/components/confirm-delete-sheet';
 import { ScrollToTopFab, useScrollToTop } from '@/components/scroll-to-top-fab';
 import { usePortfolioScreenModel } from '@/features/portfolio/hooks/use-portfolio-screen-model';
 import { usePortfolioViewMode } from '@/features/portfolio/hooks/use-portfolio-view-mode';
 import { usePortfolioSummaryVisibility } from '@/features/portfolio/use-portfolio-summary-visibility';
 import { useTabBarScrollHandler } from '@/contexts/tab-bar-chrome-context';
+import { useTabsPage } from '@/contexts/tabs-page-context';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
+import { useAppServices } from '@/providers/app-providers';
 
 const GRID_TEST_ID = 'collection-masonry-grid';
+
+// Press-and-hold duration before a card's actions menu opens — a standard
+// long-press (iOS context menus sit around here).
+const CARD_LONG_PRESS_MS = 500;
+
+const isTestEnv = process.env.NODE_ENV === 'test';
+
+// A short "click" the moment a card is selected by long-press (iOS-style
+// context-menu feedback). Guarded so tests + missing native modules no-op.
+function triggerSelectionHaptic() {
+  if (isTestEnv) {
+    return;
+  }
+  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+}
 
 // When the collection search gains focus, scroll the search row up to near the
 // top of the viewport so the keyboard can't cover it (and the filtered results
@@ -129,13 +150,33 @@ export function PortfolioScreen({
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const model = usePortfolioScreenModel();
+  const { spotlightRepository, refreshData, removeOptimisticInventoryEntries } = useAppServices();
   const { isHidden: isSummaryHidden, toggle: toggleSummaryHidden } = usePortfolioSummaryVisibility();
   const { viewMode, toggleViewMode } = usePortfolioViewMode();
   const { openDrawer } = useAppDrawer();
+  const { setCollectionEditing } = useTabsPage();
   const handleTabBarScroll = useTabBarScrollHandler();
   const [activeChartPoint, setActiveChartPoint] = useState<PortfolioChartActivePoint | null>(null);
   const [isChartScrubbing, setIsChartScrubbing] = useState(false);
   const [activeFilter, setActiveFilter] = useState<CollectionFilterKey>('all');
+  // Bulk multi-select "edit mode" (Figma). While active the bottom tab bar +
+  // horizontal page swipe are locked (via setCollectionEditing) and tapping a
+  // card toggles selection instead of opening it.
+  const [editMode, setEditMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  // Ids removed in this session optimistically: the screen reads the visible
+  // list from the model's local dashboard (which the shared-cache removal can't
+  // mutate directly), so we filter these out for instant disappearance until
+  // the background refetch lands a fresh dashboard without them.
+  const [removedIds, setRemovedIds] = useState<Set<string>>(() => new Set());
+  // Long-press card actions menu (Figma 1696:8708): the entry whose menu is
+  // open, plus the entry pending single-delete confirmation.
+  const [actionMenuEntry, setActionMenuEntry] = useState<InventoryCardEntry | null>(null);
+  const [singleDeleteEntry, setSingleDeleteEntry] = useState<InventoryCardEntry | null>(null);
+  const [isSingleDeleting, setIsSingleDeleting] = useState(false);
   const scrollRef = useRef<FlatList<CollectionRow>>(null);
   // Y offset of the search row within the list header chrome, captured on
   // layout so focusing the field can scroll it into a keyboard-safe position.
@@ -155,9 +196,86 @@ export function PortfolioScreen({
   const baseInventory = model.dashboard.inventoryItems;
 
   const visibleInventory = useMemo(() => {
-    const filtered = applyCollectionFilter(baseInventory, activeFilter);
+    const present = removedIds.size > 0
+      ? baseInventory.filter((entry) => !removedIds.has(entry.id))
+      : baseInventory;
+    const filtered = applyCollectionFilter(present, activeFilter);
     return applyInventorySearch(filtered, model.searchQuery);
-  }, [activeFilter, baseInventory, model.searchQuery]);
+  }, [activeFilter, baseInventory, model.searchQuery, removedIds]);
+
+  // Mirror edit mode into the tabs pager so it hides the bottom tab bar + locks
+  // the horizontal swipe, and always release the lock on unmount.
+  useEffect(() => {
+    setCollectionEditing(editMode);
+  }, [editMode, setCollectionEditing]);
+
+  useEffect(() => () => {
+    setCollectionEditing(false);
+  }, [setCollectionEditing]);
+
+  const toggleSelected = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleExitEditMode = useCallback(() => {
+    setEditMode(false);
+    setSelectedIds(new Set());
+    setDeleteError(null);
+  }, []);
+
+  const allVisibleSelected = visibleInventory.length > 0
+    && visibleInventory.every((entry) => selectedIds.has(entry.id));
+
+  const handleToggleSelectAll = useCallback(() => {
+    setSelectedIds(allVisibleSelected
+      ? new Set()
+      : new Set(visibleInventory.map((entry) => entry.id)));
+  }, [allVisibleSelected, visibleInventory]);
+
+  const selectedCount = selectedIds.size;
+  const deleteMessage = `You're about to delete ${selectedCount} item${selectedCount === 1 ? '' : 's'} `
+    + "from your Collection. This can't be undone, and your Portfolio value and Insights will be recalculated.";
+
+  const handleConfirmBulkDelete = useCallback(() => {
+    if (selectedIds.size === 0 || isDeleting) {
+      return;
+    }
+    const ids = [...selectedIds];
+    setIsDeleting(true);
+    setDeleteError(null);
+    spotlightRepository
+      .deletePortfolioEntriesBulk({ deckEntryIDs: ids })
+      .then((result) => {
+        const deletedIds = result.deletedDeckEntryIDs.length > 0 ? result.deletedDeckEntryIDs : ids;
+        // Drop the rows everywhere: the shared caches (other consumers + a
+        // future model re-init) and this screen's visible list, then reconcile
+        // against the server with a refetch.
+        removeOptimisticInventoryEntries(deletedIds);
+        setRemovedIds((prev) => {
+          const next = new Set(prev);
+          deletedIds.forEach((id) => next.add(id));
+          return next;
+        });
+        setDeleteConfirmOpen(false);
+        setEditMode(false);
+        setSelectedIds(new Set());
+        refreshData();
+      })
+      .catch(() => {
+        setDeleteError('Could not delete these items right now.');
+      })
+      .finally(() => {
+        setIsDeleting(false);
+      });
+  }, [isDeleting, refreshData, removeOptimisticInventoryEntries, selectedIds, spotlightRepository]);
 
   const {
     isVisible: showScrollTop,
@@ -168,10 +286,117 @@ export function PortfolioScreen({
 
   const handlePressEntry = useCallback(
     (entry: InventoryCardEntry) => {
+      if (editMode) {
+        toggleSelected(entry.id);
+        return;
+      }
       onOpenInventoryEntry(entry);
     },
-    [onOpenInventoryEntry],
+    [editMode, onOpenInventoryEntry, toggleSelected],
   );
+
+  // Press-and-hold a card → a "click" haptic + the actions menu (skipped during
+  // multi-select edit mode, where a tap toggles selection instead).
+  const handleLongPressEntry = useCallback(
+    (entry: InventoryCardEntry) => {
+      if (editMode) {
+        return;
+      }
+      triggerSelectionHaptic();
+      setActionMenuEntry(entry);
+    },
+    [editMode],
+  );
+
+  const closeActionMenu = useCallback(() => setActionMenuEntry(null), []);
+
+  const handleMenuEdit = useCallback(() => {
+    const entry = actionMenuEntry;
+    setActionMenuEntry(null);
+    if (entry) {
+      onOpenInventoryEntry(entry);
+    }
+  }, [actionMenuEntry, onOpenInventoryEntry]);
+
+  const handleMenuShare = useCallback(() => {
+    const entry = actionMenuEntry;
+    setActionMenuEntry(null);
+    if (!entry) {
+      return;
+    }
+    const message = [entry.name, entry.cardNumber, entry.setName]
+      .map((part) => (part ?? '').trim())
+      .filter(Boolean)
+      .join(' · ');
+    const url = entry.listingUrl ?? undefined;
+    void Share.share(url ? { message, url } : { message }).catch(() => undefined);
+  }, [actionMenuEntry]);
+
+  const handleMenuWishlist = useCallback(() => {
+    const entry = actionMenuEntry;
+    setActionMenuEntry(null);
+    if (!entry) {
+      return;
+    }
+    void spotlightRepository
+      .setCardFavorite(entry.cardId, !entry.isFavorite)
+      .then(() => refreshData())
+      .catch(() => undefined);
+  }, [actionMenuEntry, refreshData, spotlightRepository]);
+
+  const handleMenuDuplicate = useCallback(() => {
+    const entry = actionMenuEntry;
+    setActionMenuEntry(null);
+    if (!entry) {
+      return;
+    }
+    void spotlightRepository
+      .createInventoryEntry({
+        cardID: entry.cardId,
+        slabContext: entry.slabContext ?? null,
+        variantName: entry.kind === 'raw' ? entry.variantName ?? null : null,
+        condition: entry.kind === 'raw' ? entry.conditionCode ?? null : null,
+        quantity: 1,
+        sourceScanID: null,
+        addedAt: new Date().toISOString(),
+        costBasisPerUnit: entry.costBasisPerUnit ?? null,
+      })
+      .then(() => refreshData())
+      .catch(() => undefined);
+  }, [actionMenuEntry, refreshData, spotlightRepository]);
+
+  // Delete from the menu: close the menu first, then open the confirm sheet on
+  // the next tick (a fresh RN modal can't present while another is still up).
+  const handleMenuDelete = useCallback(() => {
+    const entry = actionMenuEntry;
+    setActionMenuEntry(null);
+    if (!entry) {
+      return;
+    }
+    setTimeout(() => setSingleDeleteEntry(entry), 280);
+  }, [actionMenuEntry]);
+
+  const handleConfirmSingleDelete = useCallback(() => {
+    const entry = singleDeleteEntry;
+    if (!entry || isSingleDeleting) {
+      return;
+    }
+    setIsSingleDeleting(true);
+    spotlightRepository
+      .deletePortfolioEntry({ deckEntryID: entry.id })
+      .then(() => {
+        removeOptimisticInventoryEntries([entry.id]);
+        setRemovedIds((prev) => {
+          const next = new Set(prev);
+          next.add(entry.id);
+          return next;
+        });
+        setSingleDeleteEntry(null);
+        refreshData();
+      })
+      .catch(() => undefined)
+      .finally(() => setIsSingleDeleting(false));
+  }, [isSingleDeleting, refreshData, removeOptimisticInventoryEntries, singleDeleteEntry, spotlightRepository]);
 
   const handleSearchRowLayout = useCallback((event: LayoutChangeEvent) => {
     searchRowYRef.current = event.nativeEvent.layout.y;
@@ -219,57 +444,104 @@ export function PortfolioScreen({
       if (item.kind === 'list') {
         return (
           <CollectionListRow
+            delayLongPress={CARD_LONG_PRESS_MS}
             entry={item.entry}
             firstInSection={item.firstInSection}
+            onLongPress={handleLongPressEntry}
             onPress={handlePressEntry}
+            selectable={editMode}
+            selected={editMode && selectedIds.has(item.entry.id)}
           />
         );
       }
       if (item.kind === 'grid-single') {
         return (
           <CollectionGridSingleRow
+            delayLongPress={CARD_LONG_PRESS_MS}
             entry={item.entry}
+            onLongPressEntry={handleLongPressEntry}
             onPressEntry={handlePressEntry}
+            editMode={editMode}
+            selectedIds={selectedIds}
             testID={GRID_TEST_ID}
           />
         );
       }
       return (
         <CollectionGridRow
+          delayLongPress={CARD_LONG_PRESS_MS}
           isFirstRow={item.rowIndex === 0}
+          onLongPressEntry={handleLongPressEntry}
           onPressEntry={handlePressEntry}
           rowEntries={item.rowEntries}
           rowIndex={item.rowIndex}
+          editMode={editMode}
+          selectedIds={selectedIds}
           testID={GRID_TEST_ID}
         />
       );
     },
-    [handlePressEntry],
+    [editMode, handleLongPressEntry, handlePressEntry, selectedIds],
+  );
+
+  // Pinned top bar (kept OUT of the FlatList's ListHeaderComponent so it stays
+  // fixed while the balance/chart/search/filter chrome and the list scroll under
+  // it). The subtle bottom hairline delineates it once content scrolls beneath.
+  const stickyHeader = (
+    <View
+      style={[
+        styles.header,
+        {
+          paddingHorizontal: theme.layout.pageGutter,
+          borderBottomColor: theme.colors.outlineSubtle,
+        },
+      ]}
+    >
+      <Pressable
+        accessibilityLabel="Open menu"
+        accessibilityRole="button"
+        hitSlop={12}
+        onPress={openDrawer}
+        style={styles.headerIcon}
+        testID="portfolio-header-menu"
+      >
+        <MenuIcon color={theme.colors.gray900} height={24} width={24} />
+      </Pressable>
+      <Text
+        numberOfLines={1}
+        style={[theme.typography.titleMedium, styles.headerTitle]}
+        testID="portfolio-header-title"
+      >
+        Collection
+      </Text>
+      {editMode ? (
+        <Pressable
+          accessibilityLabel="Done editing"
+          accessibilityRole="button"
+          hitSlop={12}
+          onPress={handleExitEditMode}
+          style={styles.headerRight}
+          testID="portfolio-header-done"
+        >
+          <Text style={[theme.typography.control, { color: theme.colors.gray900 }]}>Done</Text>
+        </Pressable>
+      ) : (
+        <Pressable
+          accessibilityLabel="Edit collection"
+          accessibilityRole="button"
+          hitSlop={12}
+          onPress={() => setEditMode(true)}
+          style={[styles.headerIcon, styles.headerRight]}
+          testID="portfolio-header-edit"
+        >
+          <EditPencil color={theme.colors.gray900} height={22} width={22} />
+        </Pressable>
+      )}
+    </View>
   );
 
   const listHeader = (
     <View style={styles.chrome}>
-      <View style={[styles.header, { paddingHorizontal: theme.layout.pageGutter }]}>
-        <Pressable
-          accessibilityLabel="Open menu"
-          accessibilityRole="button"
-          hitSlop={12}
-          onPress={openDrawer}
-          style={styles.headerIcon}
-          testID="portfolio-header-menu"
-        >
-          <MenuIcon color={theme.colors.gray900} height={24} width={24} />
-        </Pressable>
-        <Text
-          numberOfLines={1}
-          style={[theme.typography.titleMedium, styles.headerTitle]}
-          testID="portfolio-header-title"
-        >
-          Collection
-        </Text>
-        <View style={styles.headerSpacer} />
-      </View>
-
       {shouldShowInitialError ? (
         <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
           <StateCard
@@ -359,6 +631,8 @@ export function PortfolioScreen({
       edges={['top', 'left', 'right']}
       style={[styles.safeArea, { backgroundColor: theme.colors.gray0 }]}
     >
+      {stickyHeader}
+
       <View
         style={styles.listWrap}
         testID={
@@ -413,7 +687,92 @@ export function PortfolioScreen({
         visible={showScrollTop}
       />
 
-      <CollectionAddFab />
+      {editMode ? null : <CollectionAddFab />}
+
+      {editMode ? (
+        <View
+          style={[
+            styles.editBar,
+            {
+              backgroundColor: theme.colors.gray0,
+              paddingBottom: Math.max(insets.bottom, 12),
+            },
+          ]}
+          testID="portfolio-edit-bar"
+        >
+          {deleteError ? (
+            <Text
+              style={[theme.typography.overline, styles.editError, { color: theme.colors.dangerStrong }]}
+              testID="portfolio-edit-error"
+            >
+              {deleteError}
+            </Text>
+          ) : null}
+          <Text
+            style={[theme.typography.overline, styles.editCount, { color: theme.colors.gray500 }]}
+            testID="portfolio-edit-count"
+          >
+            {`${selectedCount} item${selectedCount === 1 ? '' : 's'} selected`}
+          </Text>
+          <View style={styles.editActions}>
+            <Pressable
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={handleToggleSelectAll}
+              style={styles.editAction}
+              testID="portfolio-edit-select-all"
+            >
+              <CheckCircle color={theme.colors.gray900} height={22} width={22} />
+              <Text style={[theme.typography.navLabel, { color: theme.colors.gray900 }]}>
+                {allVisibleSelected ? 'Unselect All' : 'Select All'}
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              disabled={selectedCount === 0}
+              hitSlop={8}
+              onPress={selectedCount === 0 ? undefined : () => setDeleteConfirmOpen(true)}
+              style={[styles.editAction, selectedCount === 0 ? styles.editActionDisabled : null]}
+              testID="portfolio-edit-delete"
+            >
+              <Trash color={theme.colors.dangerStrong} height={22} width={22} />
+              <Text style={[theme.typography.navLabel, { color: theme.colors.dangerStrong }]}>
+                Delete
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+
+      <ConfirmDeleteSheet
+        confirmPending={isDeleting}
+        message={deleteMessage}
+        onClose={() => setDeleteConfirmOpen(false)}
+        onConfirm={handleConfirmBulkDelete}
+        testID="portfolio-bulk-delete-sheet"
+        visible={deleteConfirmOpen}
+      />
+
+      <CardActionsSheet
+        onClose={closeActionMenu}
+        onDelete={handleMenuDelete}
+        onDuplicate={handleMenuDuplicate}
+        onEdit={handleMenuEdit}
+        onShare={handleMenuShare}
+        onWishlist={handleMenuWishlist}
+        testID="collection-card-actions"
+        title={actionMenuEntry?.name ?? ''}
+        visible={actionMenuEntry != null}
+      />
+
+      <ConfirmDeleteSheet
+        confirmPending={isSingleDeleting}
+        message={`You're about to delete 1 item from your Collection. This can't be undone, and your Portfolio value and Insights will be recalculated.`}
+        onClose={() => setSingleDeleteEntry(null)}
+        onConfirm={handleConfirmSingleDelete}
+        testID="portfolio-single-delete-sheet"
+        visible={singleDeleteEntry != null}
+      />
 
       <SalePriceEditSheet
         canConfirm={model.canConfirmSalePriceEdit}
@@ -455,6 +814,7 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: 'center',
+    borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
     height: 40,
   },
@@ -462,13 +822,45 @@ const styles = StyleSheet.create({
     height: 24,
     width: 24,
   },
-  headerSpacer: {
-    height: 24,
-    width: 24,
+  headerRight: {
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    minWidth: 24,
   },
   headerTitle: {
     flex: 1,
     textAlign: 'center',
+  },
+  editBar: {
+    alignItems: 'center',
+    bottom: 0,
+    left: 0,
+    paddingTop: 12,
+    position: 'absolute',
+    right: 0,
+  },
+  editError: {
+    paddingBottom: 4,
+    paddingHorizontal: 16,
+    textAlign: 'center',
+  },
+  editCount: {
+    paddingBottom: 4,
+  },
+  editActions: {
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingTop: 8,
+  },
+  editAction: {
+    alignItems: 'center',
+    gap: 2,
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+  },
+  editActionDisabled: {
+    opacity: 0.4,
   },
   listWrap: {
     flex: 1,

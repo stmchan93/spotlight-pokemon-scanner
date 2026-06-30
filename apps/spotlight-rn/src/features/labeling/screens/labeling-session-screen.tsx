@@ -917,7 +917,6 @@ const styles = StyleSheet.create({
   captureBottomPanel: {
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    borderTopWidth: 1,
     gap: 12,
     paddingHorizontal: 16,
     paddingTop: 14,

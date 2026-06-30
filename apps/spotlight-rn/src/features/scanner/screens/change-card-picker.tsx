@@ -45,6 +45,8 @@ type ChangeCardPickerProps = {
   onLoadMoreCandidates?: () => void;
   onClose: () => void;
   onSelectCandidate: (candidateIndex: number) => void;
+  /** Tap the matched (hero) card image → open that card's detail page. */
+  onOpenMatchedCard?: (candidate: CatalogSearchResult) => void;
   testID?: string;
 };
 
@@ -65,6 +67,7 @@ export function ChangeCardPicker({
   onLoadMoreCandidates,
   onClose,
   onSelectCandidate,
+  onOpenMatchedCard,
   testID = 'change-card-picker',
 }: ChangeCardPickerProps) {
   const insets = useSafeAreaInsets();
@@ -130,6 +133,8 @@ export function ChangeCardPicker({
   const selectedIndex = pendingSelection ?? activeCandidateIndex;
   const heroCandidate = candidates[selectedIndex] ?? candidates[0] ?? null;
   const heroMatchPct = matchPercentFromScore(heroCandidate?.matchScore);
+  // The matched image is tappable only when we can actually open a card detail.
+  const canOpenMatch = Boolean(onOpenMatchedCard && heroCandidate?.cardId);
 
   const visibleCandidates = useMemo(() => {
     return candidates.slice(0, Math.min(visibleCount, candidates.length));
@@ -270,7 +275,19 @@ export function ChangeCardPicker({
                 ) : null}
 
                 <View style={styles.heroColumn}>
-                  <View style={styles.matchImageFrame}>
+                  <Pressable
+                    accessibilityLabel={canOpenMatch ? 'Open card details' : undefined}
+                    accessibilityRole={canOpenMatch ? 'button' : undefined}
+                    disabled={!canOpenMatch}
+                    onPress={canOpenMatch && heroCandidate
+                      ? () => onOpenMatchedCard?.(heroCandidate)
+                      : undefined}
+                    style={({ pressed }) => [
+                      styles.matchImageFrame,
+                      pressed && canOpenMatch ? styles.matchImagePressed : null,
+                    ]}
+                    testID={`${testID}-hero-open`}
+                  >
                     {heroCandidate?.imageUrl ? (
                       <CachedImage
                         cachePolicy={imageCachePolicy.thumbnail}
@@ -282,7 +299,7 @@ export function ChangeCardPicker({
                     ) : (
                       <View style={[styles.matchImage, styles.heroPlaceholder]} />
                     )}
-                  </View>
+                  </Pressable>
                   {heroMatchPct != null ? (
                     <Text
                       style={[styles.heroCaption, { color: matchConfidenceColor(heroMatchPct) }]}
@@ -500,6 +517,9 @@ const styles = StyleSheet.create({
     height: HERO_IMAGE_HEIGHT,
     justifyContent: 'center',
     padding: 12,
+  },
+  matchImagePressed: {
+    opacity: 0.85,
   },
   matchImage: {
     flex: 1,

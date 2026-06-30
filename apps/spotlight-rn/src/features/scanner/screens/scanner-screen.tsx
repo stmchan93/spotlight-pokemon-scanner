@@ -2647,6 +2647,21 @@ export function ScannerScreen({
             isLoadingMore={changeCapture.isLoadingMoreCandidates}
             onLoadMoreCandidates={() => loadMoreCandidates(changeCapture.id)}
             onSelectCandidate={(index) => setActiveCandidate(changeCapture.id, index)}
+            onOpenMatchedCard={(candidate) => {
+              if (!candidate.cardId) {
+                return;
+              }
+              // Warm the PDP caches (like search/portfolio nav) then open the
+              // matched card's detail page over the picker; back returns here.
+              prefetchCardDetail(spotlightRepository, candidate.cardId, undefined, candidate.imageUrl);
+              router.push({
+                pathname: '/cards/[cardId]',
+                params: {
+                  cardId: candidate.cardId,
+                  previewId: saveCardDetailPreviewFromCatalogResult(candidate),
+                },
+              });
+            }}
             onClose={closeChangeCardPicker}
           />
         );

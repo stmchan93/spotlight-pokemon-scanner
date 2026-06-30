@@ -187,7 +187,7 @@ describe('ScannerScreen', () => {
     // unmounting it here tore down/rebuilt the native session on every page swipe,
     // which hard-crashed the app on the portfolio->scanner return.
     renderWithProviders(
-      <TabsPageContext.Provider value={{ activePage: 'portfolio', chartScrubLockRef: { current: false } }}>
+      <TabsPageContext.Provider value={{ activePage: 'portfolio', chartScrubLockRef: { current: false }, collectionEditing: false, setCollectionEditing: () => {} }}>
         <ScannerScreen />
       </TabsPageContext.Provider>,
     );

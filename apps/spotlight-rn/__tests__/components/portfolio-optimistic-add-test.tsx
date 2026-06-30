@@ -33,6 +33,8 @@ jest.mock('@spotlight/design-system', () => {
 const portfolioTabsContext = {
   activePage: 'portfolio' as const,
   chartScrubLockRef: { current: false },
+  collectionEditing: false,
+  setCollectionEditing: () => {},
 };
 
 function buildInventoryEntry(

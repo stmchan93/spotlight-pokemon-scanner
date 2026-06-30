@@ -23,7 +23,7 @@ const FILTER_LABELS: Record<CollectionFilterKey, string> = {
   all: 'All',
   az: 'A-Z',
   price: '$-$$$',
-  favorites: 'Wishlist',
+  favorites: 'Likes',
   ungraded: 'Ungraded',
   graded: 'Graded',
 };

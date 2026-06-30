@@ -20,9 +20,15 @@ import {
   type SlabContext,
 } from '@spotlight/api-client';
 import { Button, IconButton, colors, useSpotlightTheme } from '@spotlight/design-system';
-import { NavArrowLeft, ShareIos } from 'iconoir-react-native';
+import { NavArrowLeft, ShareIos, Trash } from 'iconoir-react-native';
 
 import { AddToCollectionSheet } from '@/features/cards/components/add-to-collection-sheet';
+import { ConfirmDeleteSheet } from '@/features/cards/components/confirm-delete-sheet';
+import {
+  GradeConditionSheet,
+  type GradeConditionOption,
+} from '@/features/cards/components/grade-condition-sheet';
+import { OwnedEntryEditFields } from '@/features/cards/components/owned-entry-edit-fields';
 import { CardConfigurator } from '@/features/cards/components/card-configurator';
 import { CardDetailHero } from '@/features/cards/components/card-detail-hero';
 import { CardPopulationReport } from '@/features/cards/components/card-population-report';
@@ -53,6 +59,7 @@ import {
 import {
   getScanCandidateReviewSession,
 } from '@/features/scanner/scan-candidate-review-session';
+import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useAppServices } from '@/providers/app-providers';
 
@@ -65,6 +72,25 @@ function displayNumber(value?: string | null) {
   // Identity block shows the bare number (Figma 992-7373 / 1080-3404: "095/094",
   // no "#" prefix), so strip a leading "#" if the source includes one.
   return trimmed.startsWith('#') ? trimmed.slice(1) : trimmed;
+}
+
+// Catalog release dates arrive as "YYYY/MM/DD" / "YYYY-MM-DD" (or a bare year).
+// Render like the Figma identity line ("Jun 10, 2000"); fall back to the year,
+// then the raw string. Built from local Y/M/D parts to avoid a UTC off-by-one.
+function formatReleaseDate(value?: string | null): string | null {
+  const raw = (value ?? '').trim();
+  if (!raw) {
+    return null;
+  }
+  const ymd = raw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (ymd) {
+    const date = new Date(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]));
+    if (!Number.isNaN(date.getTime())) {
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+  }
+  const yearMatch = raw.match(/\b(\d{4})\b/);
+  return yearMatch ? yearMatch[1] : raw;
 }
 
 // Numeric grade scale shared by PSA/BGS/CGC slab grading lanes.
@@ -163,6 +189,19 @@ export function CardDetailScreen({
   const [addGrade, setAddGrade] = useState<string | null>(null);
   const [addCondition, setAddCondition] = useState<DeckConditionCode | null>(null);
   const [isAddPending, setIsAddPending] = useState(false);
+  // Confirm-delete bottom sheet for an OWNED entry (Figma 1874:23102 "Delete from
+  // PDP"): the trash affordance in the header opens it; CONFIRM removes the entry.
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [isDeletePending, setIsDeletePending] = useState(false);
+  // Owned-card inline edit mode (Figma 1874:21729): Quantity + Cost Basis edited
+  // on the page; Variant/Grader/Grade/Condition reuse the page configurator state.
+  // SAVE persists via replace + cost-basis; the grade/condition picker is hosted
+  // here. Seeded from the owned entry once per entry id.
+  const [editQuantity, setEditQuantity] = useState(1);
+  const [editCostBasisText, setEditCostBasisText] = useState('');
+  const [editGradePickerOpen, setEditGradePickerOpen] = useState(false);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const seededEditEntryIdRef = useRef<string | null>(null);
   // Graded only (Figma 1640-5770): after a successful add the CTA flashes "SAVED"
   // for 5s and reverts to "ADD ITEM" — the page stays in ADD mode so the user can
   // add another slab, instead of flipping into the owned/Edit state.
@@ -765,6 +804,16 @@ export function CardDetailScreen({
     ?? null;
   const displayCardNumber = detail?.cardNumber ?? detailPreview?.cardNumber ?? '';
   const displaySetName = detail?.setName ?? detailPreview?.setName ?? '';
+  // Release date + illustrator (Figma 1965:25870): "Jun 10, 2000 · Illus. Yuka
+  // Morii". Either part may be missing; the line is omitted when both are.
+  const displayArtist = detail?.artist?.trim() || null;
+  const displayReleaseLabel = formatReleaseDate(detail?.releaseDate);
+  const identityDetailLine = [
+    displayReleaseLabel,
+    displayArtist ? `Illus. ${displayArtist}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   // Carried into the log-transaction flow as the note so a bought/sold/traded
   // entry started from this card keeps its identity.
@@ -958,6 +1007,165 @@ export function CardDetailScreen({
     setAddSheetOpen(true);
   }, [variantOptions]);
 
+  // Delete the owned entry behind this PDP (Figma 1874:23102). On success the
+  // entry is gone, so close the sheet, recalc the portfolio (refreshData), and
+  // pop back to where the user came from (Collection). Guarded so a stray tap
+  // without an owned entry — or a double-tap — can't fire a delete.
+  const handleConfirmDelete = useCallback(() => {
+    const deckEntryID = selectedEntry?.id;
+    if (!deckEntryID || isDeletePending) {
+      return;
+    }
+    setIsDeletePending(true);
+    spotlightRepository
+      .deletePortfolioEntry({ deckEntryID })
+      .then(() => {
+        setConfirmDeleteOpen(false);
+        refreshData();
+        onBack();
+      })
+      .catch(() => {
+        setErrorMessage('Could not delete this item right now.');
+      })
+      .finally(() => {
+        setIsDeletePending(false);
+      });
+  }, [isDeletePending, onBack, refreshData, selectedEntry, spotlightRepository]);
+
+  // --- Owned-card inline edit mode (Figma 1874:21729) ---------------------
+  // Page is in edit mode whenever it shows an owned entry. The Variant / Grader
+  // / Grade / Condition reuse the page configurator state (already seeded from
+  // the owned entry); we only add Quantity + Cost Basis here.
+  const isOwnedEdit = selectedEntry != null;
+
+  useEffect(() => {
+    if (!selectedEntry || seededEditEntryIdRef.current === selectedEntry.id) {
+      return;
+    }
+    seededEditEntryIdRef.current = selectedEntry.id;
+    setEditQuantity(Math.max(1, selectedEntry.quantity || 1));
+    setEditCostBasisText(
+      selectedEntry.costBasisPerUnit != null ? String(selectedEntry.costBasisPerUnit) : '',
+    );
+  }, [selectedEntry]);
+
+  const editIsRaw = selectedGrader == null || selectedGrader === 'Raw';
+  // Figma 1874:21488 titles this "Condition" in both lanes and shows the bare
+  // grade ("10"), not "PSA 10".
+  const editGradeTitle = 'Condition';
+  const editGradeLabel = editIsRaw ? deckConditionLabel(selectedCondition) : selectedGrade;
+  const editGradePickerOptions = useMemo<GradeConditionOption[]>(() => {
+    if (editIsRaw) {
+      return deckConditionOptions.map((option) => ({ id: option.code, label: option.label }));
+    }
+    return numericGradeOptions.map((grade) => ({ id: grade, label: grade }));
+  }, [editIsRaw]);
+  const editGradePickerSelectedId = editIsRaw ? selectedCondition : selectedGrade;
+  // "Updated <date>" stamp on the Cost Basis row, from the owned entry's date.
+  const editUpdatedLabel = useMemo(() => {
+    if (!selectedEntry || selectedEntry.costBasisPerUnit == null || !selectedEntry.addedAt) {
+      return null;
+    }
+    const parsed = new Date(selectedEntry.addedAt);
+    if (Number.isNaN(parsed.getTime())) {
+      return null;
+    }
+    return `Updated ${parsed.getMonth() + 1}/${parsed.getDate()}/${parsed.getFullYear()}`;
+  }, [selectedEntry]);
+  const editSlabContext = useMemo<SlabContext | null>(() => {
+    if (editIsRaw || !selectedGrader) {
+      return null;
+    }
+    return {
+      grader: selectedGrader,
+      grade: selectedGrade,
+      certNumber: ownedSlabContext?.certNumber ?? null,
+      variantName: selectedGrade ? `${selectedGrader} ${selectedGrade}` : null,
+    };
+  }, [editIsRaw, ownedSlabContext, selectedGrade, selectedGrader]);
+
+  const editCostBasisPerUnit = useMemo(() => {
+    const cleaned = editCostBasisText.replace(/[^0-9.]/g, '');
+    if (!cleaned) {
+      return null;
+    }
+    const parsed = Number.parseFloat(cleaned);
+    return Number.isFinite(parsed) ? parsed : null;
+  }, [editCostBasisText]);
+
+  // Per-unit gain = current market − cost basis (only when both are known).
+  const editGainPerUnit = useMemo(() => {
+    if (editCostBasisPerUnit == null || !selectedEntry?.hasMarketPrice) {
+      return null;
+    }
+    return Number((selectedEntry.marketPrice - editCostBasisPerUnit).toFixed(2));
+  }, [editCostBasisPerUnit, selectedEntry]);
+  const editGainLabel = editGainPerUnit == null
+    ? null
+    : formatCurrency(Math.abs(editGainPerUnit), selectedEntry?.currencyCode ?? 'USD');
+
+  const handleEditGradePick = useCallback((id: string) => {
+    if (editIsRaw) {
+      setSelectedCondition(id as DeckConditionCode);
+    } else {
+      setSelectedGrade(id);
+    }
+    setEditGradePickerOpen(false);
+  }, [editIsRaw]);
+
+  // SAVE: persist identity/config + quantity via replace, then write the
+  // authoritative per-unit cost basis (the replace response carries the row id,
+  // which changes when the identity — grader/grade/variant/condition — changes).
+  const handleSaveEdit = useCallback(() => {
+    if (!selectedEntry || !detail || isSavingEdit) {
+      return;
+    }
+    setIsSavingEdit(true);
+    setErrorMessage(null);
+    const costBasis = editCostBasisPerUnit;
+    spotlightRepository
+      .replacePortfolioEntry({
+        deckEntryID: selectedEntry.id,
+        cardID: detail.cardId,
+        slabContext: editSlabContext,
+        variantName: editIsRaw ? selectedVariantLabel : null,
+        condition: editIsRaw ? selectedCondition : null,
+        quantity: editQuantity,
+        unitPrice: costBasis ?? 0,
+        currencyCode: selectedEntry.currencyCode || 'USD',
+        updatedAt: new Date().toISOString(),
+      })
+      .then((result) =>
+        spotlightRepository.updateDeckEntryCostBasis({
+          deckEntryID: result.deckEntryID,
+          costBasisPerUnit: costBasis,
+        }),
+      )
+      .then(() => {
+        refreshData();
+        onBack();
+      })
+      .catch(() => {
+        setErrorMessage('Could not save your changes right now.');
+      })
+      .finally(() => {
+        setIsSavingEdit(false);
+      });
+  }, [
+    detail,
+    editCostBasisPerUnit,
+    editIsRaw,
+    editQuantity,
+    editSlabContext,
+    isSavingEdit,
+    onBack,
+    refreshData,
+    selectedCondition,
+    selectedEntry,
+    selectedVariantLabel,
+    spotlightRepository,
+  ]);
+
   const isFavorite = favoriteState.isFavorite;
 
   if (!hasDisplayContent && !errorMessage) {
@@ -1009,6 +1217,18 @@ export function CardDetailScreen({
           >
             {displayName}
           </Text>
+          {selectedEntry ? (
+            <IconButton
+              accessibilityLabel="Delete from collection"
+              onPress={() => setConfirmDeleteOpen(true)}
+              shape="circle"
+              size={36}
+              testID="detail-delete"
+              variant="subtle"
+            >
+              <Trash color={theme.colors.gray900} height={20} width={20} />
+            </IconButton>
+          ) : null}
           <IconButton
             accessibilityLabel="Share this card"
             onPress={handleShare}
@@ -1040,24 +1260,51 @@ export function CardDetailScreen({
             <Text style={[theme.typography.bodyMedium, styles.identityMeta]}>
               {displaySetName}
             </Text>
+            {identityDetailLine ? (
+              <Text
+                style={[theme.typography.bodyMedium, styles.identityMeta]}
+                testID="detail-identity-meta"
+              >
+                {identityDetailLine}
+              </Text>
+            ) : null}
           </View>
           {/* Wishlist social-proof counter (heart + count, max 9999+). */}
           <CardWishlistCounter count={likeCount} testID="detail-wishlist-counter" />
         </View>
 
-        <CardConfigurator
-          graders={[...graderOptions]}
-          languages={languageToggleOptions}
-          onSelectGrader={handleSelectGrader}
-          onSelectLanguage={handleSwitchLanguage}
-          onSelectVariant={setSelectedVariant}
-          selectedGrader={selectedGrader}
-          selectedLanguage={selectedLanguageChip}
-          selectedVariant={selectedVariant}
-          testID="detail-configurator"
-          variants={variantOptions}
-          variantsLoading={detail == null && errorMessage == null}
-        />
+        <View style={styles.optionsGroup}>
+          <CardConfigurator
+            graders={[...graderOptions]}
+            languages={languageToggleOptions}
+            onSelectGrader={handleSelectGrader}
+            onSelectLanguage={handleSwitchLanguage}
+            onSelectVariant={setSelectedVariant}
+            selectedGrader={selectedGrader}
+            selectedLanguage={selectedLanguageChip}
+            selectedVariant={selectedVariant}
+            testID="detail-configurator"
+            variants={variantOptions}
+            variantsLoading={detail == null && errorMessage == null}
+          />
+
+          {isOwnedEdit ? (
+            <OwnedEntryEditFields
+              costBasisText={editCostBasisText}
+              gainLabel={editGainLabel}
+              gainPerUnit={editGainPerUnit}
+              gradeLabel={editGradeLabel}
+              gradeTitle={editGradeTitle}
+              onChangeCostBasisText={setEditCostBasisText}
+              onDecrement={() => setEditQuantity((current) => Math.max(1, current - 1))}
+              onIncrement={() => setEditQuantity((current) => current + 1)}
+              onOpenGradePicker={() => setEditGradePickerOpen(true)}
+              quantity={editQuantity}
+              testID="detail-owned-edit"
+              updatedLabel={editUpdatedLabel}
+            />
+          ) : null}
+        </View>
 
         <AddToCollectionSheet
           confirmDisabled={isAddPending || !detail}
@@ -1088,6 +1335,24 @@ export function CardDetailScreen({
           visible={addSheetOpen}
         />
 
+        <ConfirmDeleteSheet
+          confirmPending={isDeletePending}
+          onClose={() => setConfirmDeleteOpen(false)}
+          onConfirm={handleConfirmDelete}
+          testID="detail-delete-sheet"
+          visible={confirmDeleteOpen}
+        />
+
+        <GradeConditionSheet
+          onClose={() => setEditGradePickerOpen(false)}
+          onSelect={handleEditGradePick}
+          options={editGradePickerOptions}
+          selectedId={editGradePickerSelectedId}
+          testID="detail-edit-grade-sheet"
+          title={editGradeTitle}
+          visible={editGradePickerOpen}
+        />
+
         <CardPopulationReport
           grader={selectedGrader}
           population={detail?.population}
@@ -1114,38 +1379,65 @@ export function CardDetailScreen({
         ) : null}
       </ScrollView>
 
-      {/* Sticky action bar (Figma 1640:4298): ADD ITEM (accent) + SHARE (outline).
-          ADD ITEM flashes "SAVED" for 5s after a successful add. */}
-      <View style={[styles.actionBar, { borderTopColor: theme.colors.outlineSubtle }]}>
-        <Button
-          disabled={isAddPending || !detail || justSaved}
-          label={justSaved ? 'SAVED' : 'ADD ITEM'}
-          labelStyleVariant="label"
-          onPress={handleOpenAddSheet}
-          shape="rounded"
-          size="md"
-          style={styles.actionButton}
-          testID="detail-add-item"
-          variant="accent"
-        />
-        <Button
-          label="SHARE"
-          labelStyleVariant="label"
-          onPress={handleShare}
-          shape="rounded"
-          size="md"
-          style={styles.actionButton}
-          testID="detail-share-button"
-          variant="outline"
-        />
-      </View>
+      {/* Sticky action bar. Owned cards edit in place — SAVE (accent) + CANCEL
+          (outline), Figma 1874:21729. New cards add — ADD ITEM + SHARE; ADD ITEM
+          flashes "SAVED" for 5s after a successful add. */}
+      {isOwnedEdit ? (
+        <View style={styles.actionBar}>
+          <Button
+            disabled={isSavingEdit || !detail}
+            label="SAVE"
+            labelStyleVariant="label"
+            onPress={handleSaveEdit}
+            shape="rounded"
+            size="md"
+            style={styles.actionButton}
+            testID="detail-save-edit"
+            variant="accent"
+          />
+          <Button
+            disabled={isSavingEdit}
+            label="CANCEL"
+            labelStyleVariant="label"
+            onPress={onBack}
+            shape="rounded"
+            size="md"
+            style={styles.actionButton}
+            testID="detail-cancel-edit"
+            variant="outline"
+          />
+        </View>
+      ) : (
+        <View style={styles.actionBar}>
+          <Button
+            disabled={isAddPending || !detail || justSaved}
+            label={justSaved ? 'SAVED' : 'ADD ITEM'}
+            labelStyleVariant="label"
+            onPress={handleOpenAddSheet}
+            shape="rounded"
+            size="md"
+            style={styles.actionButton}
+            testID="detail-add-item"
+            variant="accent"
+          />
+          <Button
+            label="SHARE"
+            labelStyleVariant="label"
+            onPress={handleShare}
+            shape="rounded"
+            size="md"
+            style={styles.actionButton}
+            testID="detail-share-button"
+            variant="outline"
+          />
+        </View>
+      )}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   actionBar: {
-    borderTopWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
     gap: 12,
     paddingHorizontal: 16,
@@ -1155,9 +1447,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    // 32px between stacked sections (Figma PDP): identity↔configurator,
-    // configurator↔price-trend, price-trend↔product-details, etc.
-    gap: 32,
+    // Tightened section spacing (Figma): identity↔configurator↔price-trend↔
+    // product-details sit closer together than the original 32px.
+    gap: 24,
     paddingBottom: 24,
     paddingHorizontal: 16,
     paddingTop: 12,
@@ -1196,6 +1488,12 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     paddingHorizontal: 32,
+  },
+  optionsGroup: {
+    // Product Options read as one continuous list — chips + the owned-edit
+    // controls sit 16px apart (Figma 1874:21488), tighter than the 24px section gap.
+    gap: 16,
+    width: '100%',
   },
   safeArea: {
     flex: 1,

@@ -944,7 +944,6 @@ export function PortfolioImportScreen({ onClose }: PortfolioImportScreenProps) {
                 styles.commitBar,
                 {
                   backgroundColor: 'rgba(252, 252, 250, 0.98)',
-                  borderTopColor: theme.colors.outlineSubtle,
                   paddingBottom: Math.max(insets.bottom, 14),
                   paddingHorizontal: theme.layout.pageGutter,
                 },
@@ -1152,7 +1151,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   commitBar: {
-    borderTopWidth: 1,
     flexDirection: 'row',
     gap: 14,
     paddingTop: 12,

@@ -1,11 +1,11 @@
 import { usePathname, useRouter } from 'expo-router';
 import {
+  Bookmark,
   GraphUp,
-  Heart,
   LogOut,
   Menu as MenuIcon,
   Scanning,
-  Suitcase,
+  ViewGrid,
 } from 'iconoir-react-native';
 import { useEffect, useRef } from 'react';
 import {
@@ -33,7 +33,7 @@ const ANIM_DURATION_MS = 240;
 type NavItem = {
   key: string;
   label: string;
-  icon: typeof Suitcase;
+  icon: typeof ViewGrid;
   selected?: boolean;
   onPress: () => void;
 };
@@ -179,14 +179,14 @@ export function AppDrawer() {
     {
       key: 'collection',
       label: 'Collection',
-      icon: Suitcase,
+      icon: ViewGrid,
       selected: activeKey === 'collection',
       onPress: navigateToCollection,
     },
     {
       key: 'wishlist',
       label: 'Wishlist',
-      icon: Heart,
+      icon: Bookmark,
       selected: activeKey === 'wishlist',
       onPress: () => goTo('/wishlist'),
     },
