@@ -124,6 +124,10 @@ export function createTestSpotlightRepository(
       return overrides.setCardFavorite?.(...args)
         ?? baseRepository.setCardFavorite(...args);
     },
+    setCardLike: (...args) => {
+      return overrides.setCardLike?.(...args)
+        ?? baseRepository.setCardLike(...args);
+    },
     getCardFavorites: (...args) => {
       return overrides.getCardFavorites?.(...args)
         ?? baseRepository.getCardFavorites(...args);

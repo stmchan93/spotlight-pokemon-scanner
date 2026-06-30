@@ -122,7 +122,14 @@ export function OwnedEntryEditFields({
           <View style={styles.costBasisLeft}>
             <View style={styles.costBasisInputWrap}>
               {hasValue ? (
-                <Text style={[theme.typography.bodyMedium, { color: theme.colors.gray900 }]}>$</Text>
+                <Text
+                  style={[
+                    theme.typography.bodyMedium,
+                    { color: theme.colors.gray900, lineHeight: undefined },
+                  ]}
+                >
+                  $
+                </Text>
               ) : null}
               <TextInput
                 keyboardType="decimal-pad"
@@ -132,7 +139,7 @@ export function OwnedEntryEditFields({
                 style={[
                   theme.typography.bodyMedium,
                   styles.costBasisInput,
-                  { color: theme.colors.gray900 },
+                  { color: theme.colors.gray900, lineHeight: undefined },
                   showGain ? null : styles.costBasisInputGrow,
                 ]}
                 testID={`${testID}-cost-basis-input`}
@@ -169,9 +176,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   costBasisInputWrap: {
-    alignItems: 'flex-end',
+    alignItems: 'center',
     flexDirection: 'row',
     flexShrink: 1,
+    gap: 2,
   },
   costBasisLeft: {
     alignItems: 'flex-end',

@@ -61,19 +61,20 @@ class CardSocialCountsTests(unittest.TestCase):
         assert detail is not None
         return detail
 
-    def test_like_count_reflects_number_of_favoriting_users(self) -> None:
-        # No favorites yet — opening the detail reports zero likes.
+    def test_like_count_reflects_number_of_liking_users(self) -> None:
+        # likeCount is the public PDP "like" (card_likes), distinct from the
+        # wishlist (card_favorites). No likes yet → zero.
         self.assertEqual(self._detail("user-a")["likeCount"], 0)
 
         with self.service.request_identity_context(self._identity("user-a")):
-            self.service.set_card_favorite("base-pikachu-58", is_favorite=True)
+            self.service.set_card_like("base-pikachu-58", is_liked=True)
         with self.service.request_identity_context(self._identity("user-b")):
-            self.service.set_card_favorite("base-pikachu-58", is_favorite=True)
+            self.service.set_card_like("base-pikachu-58", is_liked=True)
         self.assertEqual(self._detail("user-a")["likeCount"], 2)
 
-        # Un-favoriting drops the count back down.
+        # Unliking drops the count back down.
         with self.service.request_identity_context(self._identity("user-b")):
-            self.service.set_card_favorite("base-pikachu-58", is_favorite=False)
+            self.service.set_card_like("base-pikachu-58", is_liked=False)
         self.assertEqual(self._detail("user-a")["likeCount"], 1)
 
     def test_watcher_count_dedupes_per_user_per_day(self) -> None:

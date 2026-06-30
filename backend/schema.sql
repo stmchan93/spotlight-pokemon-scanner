@@ -281,6 +281,15 @@ CREATE TABLE IF NOT EXISTS card_favorites (
     PRIMARY KEY (owner_user_id, card_id)
 );
 
+-- "Like" (PDP heart) — a public social signal, DISTINCT from the wishlist
+-- (card_favorites). One row per (user, card); the heart's count is COUNT(*) here.
+CREATE TABLE IF NOT EXISTS card_likes (
+    owner_user_id TEXT NOT NULL,
+    card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (owner_user_id, card_id)
+);
+
 -- Passive "people watching" signal. One row per (user, card, UTC day) so a
 -- viewer is counted at most once per day no matter how often they reopen the
 -- card. `viewed_at` is the full timestamp, used for the rolling-window count

@@ -22,6 +22,7 @@ import type {
   CardShowModeResult,
   CardFavoriteEntry,
   CardFavoriteRecord,
+  CardLikeRecord,
   CardFavoritesQuery,
   CardDetailLoadOptions,
   CardDetailQuery,
@@ -150,6 +151,7 @@ export interface SpotlightRepository {
   }): Promise<CardEbayListingsRecord | null>;
   getCardRecentSales(query: CardRecentSalesQuery): Promise<CardRecentSalesRecord | null>;
   setCardFavorite(cardId: string, isFavorite?: boolean | null): Promise<CardFavoriteRecord>;
+  setCardLike(cardId: string, isLiked?: boolean | null): Promise<CardLikeRecord>;
   getCardFavorites(query?: CardFavoritesQuery): Promise<CardFavoriteEntry[]>;
   getAddToCollectionOptions(cardId: string): Promise<AddToCollectionOptions>;
   createInventoryEntry(payload: InventoryEntryCreateRequestPayload): Promise<InventoryEntryCreateResponsePayload>;
@@ -473,6 +475,8 @@ type CardDetailDTO = {
   imageLargeURL?: string | null;
   isFavorite?: boolean | null;
   favoritedAt?: string | null;
+  isLiked?: boolean | null;
+  likedAt?: string | null;
   likeCount?: number | null;
   watcherCount?: number | null;
   language?: string | null;
@@ -529,6 +533,13 @@ type CardFavoriteDTO = {
   cardId?: string | null;
   isFavorite?: boolean | null;
   favoritedAt?: string | null;
+};
+
+type CardLikeDTO = {
+  cardID?: string | null;
+  cardId?: string | null;
+  isLiked?: boolean | null;
+  likedAt?: string | null;
 };
 
 type RawPricingMatrixDTO = {
@@ -2539,6 +2550,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
   private catalogResults = seedMockCatalogResults();
   private cardDetails = seedMockCardDetails();
   private favoriteCardTimestamps = new Map<string, string>();
+  private likeCardTimestamps = new Map<string, string>();
   private portfolioImportJobs = new Map<string, PortfolioImportJobRecord>();
   private labelingSessions = new Map<string, LabelingSessionRecord>();
   private labelingSessionArtifacts = new Map<string, LabelingSessionArtifactRecord>();
@@ -2761,7 +2773,9 @@ export class MockSpotlightRepository implements SpotlightRepository {
           : [],
         isFavorite: this.favoriteCardTimestamps.has(query.cardId),
         favoritedAt: this.favoriteTimestampForCard(query.cardId),
-        likeCount: detail.likeCount ?? (this.favoriteCardTimestamps.has(query.cardId) ? 1 : 0),
+        isLiked: this.likeCardTimestamps.has(query.cardId),
+        likedAt: this.likeCardTimestamps.get(query.cardId) ?? null,
+        likeCount: detail.likeCount ?? (this.likeCardTimestamps.has(query.cardId) ? 1 : 0),
         watcherCount: detail.watcherCount ?? 0,
         language: detail.language ?? null,
         counterpartCardId: detail.counterpartCardId ?? null,
@@ -2931,6 +2945,23 @@ export class MockSpotlightRepository implements SpotlightRepository {
       isFavorite: nextIsFavorite,
       favoritedAt: this.favoriteTimestampForCard(cardId),
     } satisfies CardFavoriteRecord;
+  }
+
+  async setCardLike(cardId: string, isLiked?: boolean | null) {
+    const currentlyLiked = this.likeCardTimestamps.has(cardId);
+    const nextIsLiked = isLiked == null ? !currentlyLiked : isLiked;
+    if (nextIsLiked) {
+      if (!currentlyLiked) {
+        this.likeCardTimestamps.set(cardId, new Date().toISOString());
+      }
+    } else {
+      this.likeCardTimestamps.delete(cardId);
+    }
+    return {
+      cardId,
+      isLiked: nextIsLiked,
+      likedAt: this.likeCardTimestamps.get(cardId) ?? null,
+    } satisfies CardLikeRecord;
   }
 
   async getCardFavorites(_query?: CardFavoritesQuery): Promise<CardFavoriteEntry[]> {
@@ -4334,6 +4365,8 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       variantOptions: marketHistory.availableVariants,
       isFavorite: normalizeBoolean(detailResponse.data.isFavorite) ?? card.isFavorite,
       favoritedAt: normalizeString(detailResponse.data.favoritedAt),
+      isLiked: normalizeBoolean(detailResponse.data.isLiked) ?? false,
+      likedAt: normalizeString(detailResponse.data.likedAt),
       likeCount: normalizeInteger(detailResponse.data.likeCount),
       watcherCount: normalizeInteger(detailResponse.data.watcherCount),
       language: normalizeCardLanguage(detailResponse.data.language),
@@ -4526,6 +4559,22 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       isFavorite: normalizeBoolean(response.isFavorite) ?? false,
       favoritedAt: normalizeString(response.favoritedAt),
     };
+  }
+
+  async setCardLike(cardId: string, isLiked?: boolean | null) {
+    const encodedCardID = encodeURIComponent(cardId);
+    const response = await this.requestJsonOrThrow<CardLikeDTO>(`${this.baseUrl}/api/v1/cards/${encodedCardID}/like`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(isLiked == null ? {} : { isLiked }),
+    });
+    return {
+      cardId: normalizeString(response.cardId) ?? normalizeString(response.cardID) ?? cardId,
+      isLiked: normalizeBoolean(response.isLiked) ?? false,
+      likedAt: normalizeString(response.likedAt),
+    } satisfies CardLikeRecord;
   }
 
   async getCardFavorites(query?: CardFavoritesQuery): Promise<CardFavoriteEntry[]> {

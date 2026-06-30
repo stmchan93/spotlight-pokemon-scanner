@@ -767,9 +767,9 @@ export function PortfolioScreen({
 
       <ConfirmDeleteSheet
         confirmPending={isSingleDeleting}
-        message={`You're about to delete 1 item from your Collection. This can't be undone, and your Portfolio value and Insights will be recalculated.`}
         onClose={() => setSingleDeleteEntry(null)}
         onConfirm={handleConfirmSingleDelete}
+        quantity={singleDeleteEntry?.quantity ?? 1}
         testID="portfolio-single-delete-sheet"
         visible={singleDeleteEntry != null}
       />

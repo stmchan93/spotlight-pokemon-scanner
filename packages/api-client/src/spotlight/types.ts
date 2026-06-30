@@ -576,9 +576,14 @@ export type CardDetailRecord = {
   variantOptions: MarketHistoryOption[];
   isFavorite?: boolean;
   favoritedAt?: string | null;
+  /** Whether THIS user has liked the card (the PDP heart). Distinct from the
+   *  wishlist (isFavorite). Absent on list/preview payloads. */
+  isLiked?: boolean;
+  likedAt?: string | null;
   /**
-   * Public "like" count == number of users who wishlisted this card. Surfaced
-   * as social proof next to the favorite heart. Absent on list/preview payloads.
+   * Public like count == number of users who LIKED this card (the PDP heart),
+   * distinct from the wishlist. Surfaced as social proof next to the heart.
+   * Absent on list/preview payloads.
    */
   likeCount?: number;
   /**
@@ -785,6 +790,12 @@ export type CardFavoriteRecord = {
   cardId: string;
   isFavorite: boolean;
   favoritedAt?: string | null;
+};
+
+export type CardLikeRecord = {
+  cardId: string;
+  isLiked: boolean;
+  likedAt?: string | null;
 };
 
 export type CardFavoriteEntry = {

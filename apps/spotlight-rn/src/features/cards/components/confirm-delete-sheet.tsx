@@ -22,8 +22,14 @@ type ConfirmDeleteSheetProps = {
   confirmPending?: boolean;
   /** Centered title — defaults to "Confirm Delete". */
   title?: string;
-  /** Body copy explaining the consequence of the delete. */
+  /** Body copy explaining the consequence of the delete. Overrides `quantity`. */
   message?: string;
+  /**
+   * Copies in the entry being deleted. Deleting removes the WHOLE entry (all
+   * copies), so when >1 the default copy says "all N copies" instead of "1 item".
+   * Ignored when an explicit `message` is passed (e.g. portfolio bulk delete).
+   */
+  quantity?: number;
   /** Destructive CTA label — defaults to "Delete". */
   confirmLabel?: string;
   cancelLabel?: string;
@@ -32,9 +38,17 @@ type ConfirmDeleteSheetProps = {
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 
-const DEFAULT_MESSAGE =
-  "You're about to delete 1 item from your Collection. This can't be undone, " +
-  'and your Portfolio value and Insights will be recalculated.';
+const MESSAGE_TAIL =
+  "This can't be undone, and your Portfolio value and Insights will be recalculated.";
+
+// Deleting removes the whole entry, so the copy must reflect ALL copies in it —
+// not a hardcoded "1 item" (the bug: a qty-2 card said "delete 1").
+function defaultDeleteMessage(quantity: number): string {
+  if (quantity > 1) {
+    return `You're about to delete all ${quantity} copies of this card from your Collection. ${MESSAGE_TAIL}`;
+  }
+  return `You're about to delete 1 item from your Collection. ${MESSAGE_TAIL}`;
+}
 
 /**
  * Destructive confirmation bottom sheet (Figma 1874:23342 "Delete from PDP"):
@@ -48,13 +62,15 @@ export function ConfirmDeleteSheet({
   onConfirm,
   confirmPending = false,
   title = 'Confirm Delete',
-  message = DEFAULT_MESSAGE,
+  message,
+  quantity = 1,
   confirmLabel = 'Delete',
   cancelLabel = 'Cancel',
   testID = 'confirm-delete-sheet',
 }: ConfirmDeleteSheetProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
+  const resolvedMessage = message ?? defaultDeleteMessage(quantity);
 
   // Keep mounted through the closing slide-down, then unmount (matches the add
   // sheet so the transition reads identically).
@@ -167,7 +183,7 @@ export function ConfirmDeleteSheet({
           </View>
 
           <Text style={[theme.typography.body, styles.message, { color: theme.colors.gray900 }]}>
-            {message}
+            {resolvedMessage}
           </Text>
 
           <View style={styles.actions}>

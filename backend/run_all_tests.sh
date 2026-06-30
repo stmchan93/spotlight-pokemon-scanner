@@ -45,6 +45,7 @@ TEST_MODULES=(
   backend.tests.test_card_language_link
   backend.tests.test_card_language_linker
   backend.tests.test_day_change_condition_match
+  backend.tests.test_card_likes
 )
 
 run_targeted_tests() {

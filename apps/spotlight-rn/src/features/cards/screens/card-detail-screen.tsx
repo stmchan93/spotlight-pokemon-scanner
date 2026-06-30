@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Linking,
-  ScrollView,
   Share,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import Animated, {
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
@@ -120,6 +125,14 @@ const numericGradeOptions: readonly string[] = [
 // PDP can switch the lens to Japanese. UI-only for now (not sent to the backend).
 const languageOptions: readonly string[] = ['EN', 'JP'] as const;
 
+// Reddit-style auto-hiding bars (px deltas, tuned by feel on-device). Scrolling
+// down past DOWN_HIDE_DELTA hides the top/bottom bars; they stay hidden on a slow
+// scroll up and only re-appear on an up-flick faster than FAST_UP_REVEAL_DELTA per
+// frame, or once you're within TOP_REVEAL_THRESHOLD of the top.
+const TOP_REVEAL_THRESHOLD = 8;
+const SCROLL_DOWN_HIDE_DELTA = 2;
+const FAST_UP_REVEAL_DELTA = 9;
+
 type DropdownOption = {
   id: string;
   label: string;
@@ -202,6 +215,9 @@ export function CardDetailScreen({
   const [editGradePickerOpen, setEditGradePickerOpen] = useState(false);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const seededEditEntryIdRef = useRef<string | null>(null);
+  // Once the user edits Cost Basis, a background data refresh (which can swap the
+  // selectedEntry reference / id) must not silently reset what they typed.
+  const editCostBasisDirtyRef = useRef(false);
   // Graded only (Figma 1640-5770): after a successful add the CTA flashes "SAVED"
   // for 5s and reverts to "ADD ITEM" — the page stays in ADD mode so the user can
   // add another slab, instead of flipping into the owned/Edit state.
@@ -717,14 +733,12 @@ export function CardDetailScreen({
     }
 
     const previousFavoriteState = favoriteState;
-    const previousLikeCount = likeCount;
     const nextIsFavorite = !favoriteState.isFavorite;
     setFavoriteState((current) => ({ ...current, isFavorite: nextIsFavorite }));
-    // The like count == the public wishlist count, so toggling the heart moves
-    // it by one. The favorite POST doesn't return the count; we keep this
-    // optimistic value until the next detail fetch reconciles it.
-    setLikeCount((current) => Math.max(0, current + (nextIsFavorite ? 1 : -1)));
     setIsFavoritePending(true);
+    // NOTE: likeCount is the public "like" (card_likes), NOT the wishlist, so the
+    // wishlist heart must NOT touch it. (Earlier it optimistically bumped likeCount
+    // back when likes reused favorites; the separate card_likes feature ended that.)
 
     void spotlightRepository.setCardFavorite(activeCardId, nextIsFavorite)
       .then((result) => {
@@ -741,11 +755,10 @@ export function CardDetailScreen({
       })
       .catch(() => {
         setFavoriteState(previousFavoriteState);
-        setLikeCount(previousLikeCount);
         setErrorMessage('Could not update wishlist right now.');
         setIsFavoritePending(false);
       });
-  }, [activeCardId, favoriteState, isFavoritePending, likeCount, spotlightRepository]);
+  }, [activeCardId, favoriteState, isFavoritePending, spotlightRepository]);
 
   // EN/JP toggle: derived from the loaded card's language + its other-language
   // counterpart. Shown only when a confident counterpart link exists. Switching
@@ -1044,10 +1057,17 @@ export function CardDetailScreen({
     }
     seededEditEntryIdRef.current = selectedEntry.id;
     setEditQuantity(Math.max(1, selectedEntry.quantity || 1));
-    setEditCostBasisText(
-      selectedEntry.costBasisPerUnit != null ? String(selectedEntry.costBasisPerUnit) : '',
-    );
+    if (!editCostBasisDirtyRef.current) {
+      setEditCostBasisText(
+        selectedEntry.costBasisPerUnit != null ? String(selectedEntry.costBasisPerUnit) : '',
+      );
+    }
   }, [selectedEntry]);
+
+  const handleChangeEditCostBasisText = useCallback((text: string) => {
+    editCostBasisDirtyRef.current = true;
+    setEditCostBasisText(text);
+  }, []);
 
   const editIsRaw = selectedGrader == null || selectedGrader === 'Raw';
   // Figma 1874:21488 titles this "Condition" in both lanes and shows the bare
@@ -1142,6 +1162,7 @@ export function CardDetailScreen({
         }),
       )
       .then(() => {
+        editCostBasisDirtyRef.current = false;
         refreshData();
         onBack();
       })
@@ -1167,6 +1188,45 @@ export function CardDetailScreen({
   ]);
 
   const isFavorite = favoriteState.isFavorite;
+
+  // Auto-hiding top/bottom bars (Reddit-style). All scroll logic stays on the UI
+  // thread — the worklet only writes shared values / withTiming (never setState),
+  // so there's no gesture/scroll worklet hazard.
+  const barsShown = useSharedValue(1);
+  const lastScrollY = useSharedValue(0);
+  const [headerHeight, setHeaderHeight] = useState(56);
+  const [footerHeight, setFooterHeight] = useState(76);
+
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      'worklet';
+      const y = event.contentOffset.y;
+      const dy = y - lastScrollY.value;
+      if (y <= TOP_REVEAL_THRESHOLD) {
+        barsShown.value = withTiming(1, { duration: 160 });
+      } else if (dy > SCROLL_DOWN_HIDE_DELTA) {
+        barsShown.value = withTiming(0, { duration: 220 });
+      } else if (dy < -FAST_UP_REVEAL_DELTA) {
+        barsShown.value = withTiming(1, { duration: 160 });
+      }
+      lastScrollY.value = y;
+    },
+  });
+
+  const stickyHeaderStyle = useAnimatedStyle(
+    () => ({
+      opacity: barsShown.value,
+      transform: [{ translateY: (barsShown.value - 1) * headerHeight }],
+    }),
+    [headerHeight],
+  );
+  const stickyFooterStyle = useAnimatedStyle(
+    () => ({
+      opacity: barsShown.value,
+      transform: [{ translateY: (1 - barsShown.value) * footerHeight }],
+    }),
+    [footerHeight],
+  );
 
   if (!hasDisplayContent && !errorMessage) {
     return (
@@ -1194,53 +1254,16 @@ export function CardDetailScreen({
       edges={['top', 'left', 'right', 'bottom']}
       style={[styles.safeArea, { backgroundColor: colors.gray0 }]}
     >
-      <ScrollView
-        contentContainerStyle={styles.content}
+      <Animated.ScrollView
+        contentContainerStyle={[
+          styles.content,
+          { paddingTop: headerHeight, paddingBottom: footerHeight },
+        ]}
+        onScroll={scrollHandler}
+        scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
         style={styles.scroll}
       >
-        <View style={styles.headerRow}>
-          <IconButton
-            accessibilityLabel="Go back"
-            onPress={onBack}
-            shape="circle"
-            size={36}
-            testID="detail-back"
-            variant="subtle"
-          >
-            <NavArrowLeft color={theme.colors.gray900} height={24} width={24} />
-          </IconButton>
-          <Text
-            numberOfLines={1}
-            style={[theme.typography.titleMedium, styles.headerTitle]}
-            testID="detail-header-title"
-          >
-            {displayName}
-          </Text>
-          {selectedEntry ? (
-            <IconButton
-              accessibilityLabel="Delete from collection"
-              onPress={() => setConfirmDeleteOpen(true)}
-              shape="circle"
-              size={36}
-              testID="detail-delete"
-              variant="subtle"
-            >
-              <Trash color={theme.colors.gray900} height={20} width={20} />
-            </IconButton>
-          ) : null}
-          <IconButton
-            accessibilityLabel="Share this card"
-            onPress={handleShare}
-            shape="circle"
-            size={36}
-            testID="detail-share"
-            variant="subtle"
-          >
-            <ShareIos color={theme.colors.gray900} height={20} width={20} />
-          </IconButton>
-        </View>
-
         <CardDetailHero
           imageUrl={displayImageUrl}
           isFavorite={isFavorite}
@@ -1295,7 +1318,7 @@ export function CardDetailScreen({
               gainPerUnit={editGainPerUnit}
               gradeLabel={editGradeLabel}
               gradeTitle={editGradeTitle}
-              onChangeCostBasisText={setEditCostBasisText}
+              onChangeCostBasisText={handleChangeEditCostBasisText}
               onDecrement={() => setEditQuantity((current) => Math.max(1, current - 1))}
               onIncrement={() => setEditQuantity((current) => current + 1)}
               onOpenGradePicker={() => setEditGradePickerOpen(true)}
@@ -1339,6 +1362,7 @@ export function CardDetailScreen({
           confirmPending={isDeletePending}
           onClose={() => setConfirmDeleteOpen(false)}
           onConfirm={handleConfirmDelete}
+          quantity={selectedEntry?.quantity ?? 1}
           testID="detail-delete-sheet"
           visible={confirmDeleteOpen}
         />
@@ -1377,61 +1401,115 @@ export function CardDetailScreen({
         {detail?.cardText ? (
           <CardProductDetails cardText={detail.cardText} testID="detail-product-details" />
         ) : null}
-      </ScrollView>
+      </Animated.ScrollView>
 
-      {/* Sticky action bar. Owned cards edit in place — SAVE (accent) + CANCEL
-          (outline), Figma 1874:21729. New cards add — ADD ITEM + SHARE; ADD ITEM
-          flashes "SAVED" for 5s after a successful add. */}
-      {isOwnedEdit ? (
-        <View style={styles.actionBar}>
-          <Button
-            disabled={isSavingEdit || !detail}
-            label="SAVE"
-            labelStyleVariant="label"
-            onPress={handleSaveEdit}
-            shape="rounded"
-            size="md"
-            style={styles.actionButton}
-            testID="detail-save-edit"
-            variant="accent"
-          />
-          <Button
-            disabled={isSavingEdit}
-            label="CANCEL"
-            labelStyleVariant="label"
+      {/* Sticky top bar — lifted out of the ScrollView so it overlays the content
+          and auto-hides on scroll (slides up + fades). */}
+      <Animated.View
+        onLayout={(event) => setHeaderHeight(event.nativeEvent.layout.height)}
+        style={[styles.stickyHeader, { backgroundColor: colors.gray0 }, stickyHeaderStyle]}
+      >
+        <View style={styles.headerRow}>
+          <IconButton
+            accessibilityLabel="Go back"
             onPress={onBack}
-            shape="rounded"
-            size="md"
-            style={styles.actionButton}
-            testID="detail-cancel-edit"
-            variant="outline"
-          />
-        </View>
-      ) : (
-        <View style={styles.actionBar}>
-          <Button
-            disabled={isAddPending || !detail || justSaved}
-            label={justSaved ? 'SAVED' : 'ADD ITEM'}
-            labelStyleVariant="label"
-            onPress={handleOpenAddSheet}
-            shape="rounded"
-            size="md"
-            style={styles.actionButton}
-            testID="detail-add-item"
-            variant="accent"
-          />
-          <Button
-            label="SHARE"
-            labelStyleVariant="label"
+            shape="circle"
+            size={36}
+            testID="detail-back"
+            variant="subtle"
+          >
+            <NavArrowLeft color={theme.colors.gray900} height={24} width={24} />
+          </IconButton>
+          <Text
+            numberOfLines={1}
+            style={[theme.typography.titleMedium, styles.headerTitle]}
+            testID="detail-header-title"
+          >
+            {displayName}
+          </Text>
+          {selectedEntry ? (
+            <IconButton
+              accessibilityLabel="Delete from collection"
+              onPress={() => setConfirmDeleteOpen(true)}
+              shape="circle"
+              size={36}
+              testID="detail-delete"
+              variant="subtle"
+            >
+              <Trash color={theme.colors.gray900} height={20} width={20} />
+            </IconButton>
+          ) : null}
+          <IconButton
+            accessibilityLabel="Share this card"
             onPress={handleShare}
-            shape="rounded"
-            size="md"
-            style={styles.actionButton}
-            testID="detail-share-button"
-            variant="outline"
-          />
+            shape="circle"
+            size={36}
+            testID="detail-share"
+            variant="subtle"
+          >
+            <ShareIos color={theme.colors.gray900} height={20} width={20} />
+          </IconButton>
         </View>
-      )}
+      </Animated.View>
+
+      {/* Sticky action bar — also auto-hides on scroll (slides down + fades).
+          Owned cards edit in place (SAVE + CANCEL); new cards add (ADD ITEM +
+          SHARE; ADD ITEM flashes "SAVED" 5s after a successful add). */}
+      <Animated.View
+        onLayout={(event) => setFooterHeight(event.nativeEvent.layout.height)}
+        style={[styles.stickyFooter, { backgroundColor: colors.gray0 }, stickyFooterStyle]}
+      >
+        {isOwnedEdit ? (
+          <View style={styles.actionBar}>
+            <Button
+              disabled={isSavingEdit || !detail}
+              label="SAVE"
+              labelStyleVariant="label"
+              onPress={handleSaveEdit}
+              shape="rounded"
+              size="md"
+              style={styles.actionButton}
+              testID="detail-save-edit"
+              variant="accent"
+            />
+            <Button
+              disabled={isSavingEdit}
+              label="CANCEL"
+              labelStyleVariant="label"
+              onPress={onBack}
+              shape="rounded"
+              size="md"
+              style={styles.actionButton}
+              testID="detail-cancel-edit"
+              variant="outline"
+            />
+          </View>
+        ) : (
+          <View style={styles.actionBar}>
+            <Button
+              disabled={isAddPending || !detail || justSaved}
+              label={justSaved ? 'SAVED' : 'ADD ITEM'}
+              labelStyleVariant="label"
+              onPress={handleOpenAddSheet}
+              shape="rounded"
+              size="md"
+              style={styles.actionButton}
+              testID="detail-add-item"
+              variant="accent"
+            />
+            <Button
+              label="SHARE"
+              labelStyleVariant="label"
+              onPress={handleShare}
+              shape="rounded"
+              size="md"
+              style={styles.actionButton}
+              testID="detail-share-button"
+              variant="outline"
+            />
+          </View>
+        )}
+      </Animated.View>
     </SafeAreaView>
   );
 }
@@ -1463,6 +1541,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     justifyContent: 'space-between',
+  },
+  stickyHeader: {
+    elevation: 10,
+    left: 0,
+    paddingBottom: 8,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    zIndex: 10,
+  },
+  stickyFooter: {
+    bottom: 0,
+    elevation: 10,
+    left: 0,
+    paddingBottom: 8,
+    position: 'absolute',
+    right: 0,
+    zIndex: 10,
   },
   headerTitle: {
     flex: 1,

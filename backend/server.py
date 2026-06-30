@@ -646,6 +646,31 @@ def _apply_card_favorites_schema_patch(connection: sqlite3.Connection) -> None:
     )
 
 
+def _apply_card_likes_schema_patch(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS card_likes (
+            owner_user_id TEXT NOT NULL,
+            card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (owner_user_id, card_id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_card_likes_owner_user_id
+        ON card_likes(owner_user_id, created_at DESC, card_id)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_card_likes_card_id
+        ON card_likes(card_id, created_at DESC)
+        """
+    )
+
+
 def _apply_price_history_cells_schema_patch(connection: sqlite3.Connection) -> None:
     """Additive, reversible Phase 1 of the price-history normalization
     (docs/price-history-normalization-migration-plan-2026-06-09.md).
@@ -1083,6 +1108,7 @@ class SpotlightScanService:
         try:
             _apply_labeling_pipeline_schema_patch(bootstrap_connection)
             _apply_card_favorites_schema_patch(bootstrap_connection)
+            _apply_card_likes_schema_patch(bootstrap_connection)
             _apply_sale_payment_schema_patch(bootstrap_connection)
             _apply_collections_redesign_schema_patch(bootstrap_connection)
             _apply_card_transactions_schema_patch(bootstrap_connection)
@@ -1356,13 +1382,38 @@ class SpotlightScanService:
             "favoritedAt": favorite_row["created_at"] if favorite_row is not None else None,
         }
 
+    def _like_row(self, card_id: str, *, owner_user_id: str | None) -> sqlite3.Row | None:
+        normalized_owner_user_id = str(owner_user_id or "").strip()
+        normalized_card_id = str(card_id or "").strip()
+        if not normalized_owner_user_id or not normalized_card_id:
+            return None
+        return self.connection.execute(
+            """
+            SELECT owner_user_id, card_id, created_at
+            FROM card_likes
+            WHERE owner_user_id = ?
+              AND card_id = ?
+            LIMIT 1
+            """,
+            (normalized_owner_user_id, normalized_card_id),
+        ).fetchone()
+
+    @staticmethod
+    def _like_state_payload(card_id: str, like_row: sqlite3.Row | None) -> dict[str, Any]:
+        return {
+            "cardID": card_id,
+            "isLiked": like_row is not None,
+            "likedAt": like_row["created_at"] if like_row is not None else None,
+        }
+
     def _card_like_count(self, card_id: str) -> int:
-        """Public "like" count == number of users who wishlisted this card."""
+        """Public like count == number of users who LIKED this card (card_likes —
+        the PDP heart), distinct from the wishlist (card_favorites)."""
         normalized_card_id = str(card_id or "").strip()
         if not normalized_card_id:
             return 0
         row = self.connection.execute(
-            "SELECT COUNT(*) FROM card_favorites WHERE card_id = ?",
+            "SELECT COUNT(*) FROM card_likes WHERE card_id = ?",
             (normalized_card_id,),
         ).fetchone()
         return int(row[0]) if row else 0
@@ -10610,6 +10661,7 @@ class SpotlightScanService:
             snapshot_row=snapshot_row,
         )
         favorite_row = self._favorite_row(card_id, owner_user_id=owner_user_id)
+        like_row = self._like_row(card_id, owner_user_id=owner_user_id)
         resolved_variant = pricing_context.preferred_variant or (str((pricing or {}).get("variant") or "").strip() or None)
         payload: dict[str, Any] = {
             "card": {
@@ -10645,6 +10697,8 @@ class SpotlightScanService:
             "imageLargeURL": resolved_card["imageURL"],
             "isFavorite": favorite_row is not None,
             "favoritedAt": favorite_row["created_at"] if favorite_row is not None else None,
+            "isLiked": like_row is not None,
+            "likedAt": like_row["created_at"] if like_row is not None else None,
             "cardText": card_text_from_card(resolved_card),
             # GemRate population keyed by grader (PSA/BGS/CGC/SGC); {} when unsynced.
             # Drives the PDP's dynamic-by-grader population report.
@@ -10733,6 +10787,47 @@ class SpotlightScanService:
 
         self.connection.commit()
         return self._favorite_state_payload(normalized_card_id, existing_row)
+
+    def set_card_like(self, card_id: str, *, is_liked: bool | None = None) -> dict[str, Any]:
+        """Toggle/set the PDP heart "like" (card_likes) — the public social signal,
+        separate from the wishlist (card_favorites). Mirrors set_card_favorite."""
+        owner_user_id = self._current_owner_user_id()
+        normalized_card_id = str(card_id or "").strip()
+        if not normalized_card_id:
+            raise ValueError("cardID is required")
+        if not self._card_exists(normalized_card_id):
+            raise FileNotFoundError("card not found")
+
+        existing_row = self._like_row(normalized_card_id, owner_user_id=owner_user_id)
+        next_is_liked = (existing_row is None) if is_liked is None else bool(is_liked)
+
+        if next_is_liked:
+            if existing_row is None:
+                self.connection.execute(
+                    """
+                    INSERT INTO card_likes (
+                        owner_user_id,
+                        card_id,
+                        created_at
+                    )
+                    VALUES (?, ?, ?)
+                    """,
+                    (owner_user_id, normalized_card_id, utc_now()),
+                )
+                existing_row = self._like_row(normalized_card_id, owner_user_id=owner_user_id)
+        else:
+            self.connection.execute(
+                """
+                DELETE FROM card_likes
+                WHERE owner_user_id = ?
+                  AND card_id = ?
+                """,
+                (owner_user_id, normalized_card_id),
+            )
+            existing_row = None
+
+        self.connection.commit()
+        return self._like_state_payload(normalized_card_id, existing_row)
 
     def card_ebay_comps(
         self,
@@ -15172,6 +15267,34 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Card favorite update failed: {error}"})
                 return
             self._write_json(HTTPStatus.OK, favorite_payload)
+            return
+
+        if parsed.path.startswith("/api/v1/cards/") and parsed.path.endswith("/like"):
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            card_id = unquote(parsed.path.removeprefix("/api/v1/cards/").removesuffix("/like").rstrip("/"))
+            if not card_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+            raw_is_liked = payload.get("isLiked")
+            if raw_is_liked is not None and not isinstance(raw_is_liked, bool):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "isLiked must be a boolean or null"})
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    like_payload = self.service.set_card_like(card_id, is_liked=raw_is_liked)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Card like update failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, like_payload)
             return
 
         if parsed.path == "/api/v1/review/label":
