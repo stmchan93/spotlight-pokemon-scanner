@@ -619,6 +619,10 @@ export type CardDetailRecord = {
    * card has no synced population data.
    */
   population?: CardPopulation | null;
+  /** Illustrator/artist credit (e.g. "Yuka Morii"). */
+  artist?: string | null;
+  /** Catalog set release date string (e.g. "2000/06/10"); formatted for display. */
+  releaseDate?: string | null;
 };
 
 /**
@@ -906,6 +910,15 @@ export type PortfolioEntryDeleteResponsePayload = {
   cardID: string;
 };
 
+export type PortfolioEntryBulkDeleteRequestPayload = {
+  deckEntryIDs: string[];
+};
+
+export type PortfolioEntryBulkDeleteResponsePayload = {
+  deletedDeckEntryIDs: string[];
+  deletedCount: number;
+};
+
 export type AccountDeleteResponsePayload = {
   deleted: boolean;
   authUserDeleted?: boolean;
@@ -921,6 +934,21 @@ export type SetPortfolioEntryQuantityResponsePayload = {
   cardID: string;
   quantity: number;
   deleted: boolean;
+};
+
+export type UpdateDeckEntryCostBasisRequestPayload = {
+  deckEntryID: string;
+  /** Per-unit cost basis in dollars. Pass null to clear it. */
+  costBasisPerUnit: number | null;
+};
+
+export type UpdateDeckEntryCostBasisResponsePayload = {
+  deckEntryID: string;
+  cardID: string;
+  costBasisPerUnit: number | null;
+  costBasisPerUnitCents: number | null;
+  currencyCode: string;
+  updatedAt: string;
 };
 
 export type PortfolioSaleRequestPayload = {

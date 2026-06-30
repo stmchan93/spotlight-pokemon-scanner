@@ -60,12 +60,16 @@ import type {
   LabelingSessionArtifactUploadPayload,
   LabelingSessionCreatePayload,
   LabelingSessionRecord,
+  PortfolioEntryBulkDeleteRequestPayload,
+  PortfolioEntryBulkDeleteResponsePayload,
   PortfolioEntryDeleteRequestPayload,
   PortfolioEntryDeleteResponsePayload,
   PortfolioEntryReplaceRequestPayload,
   PortfolioEntryReplaceResponsePayload,
   SetPortfolioEntryQuantityRequestPayload,
   SetPortfolioEntryQuantityResponsePayload,
+  UpdateDeckEntryCostBasisRequestPayload,
+  UpdateDeckEntryCostBasisResponsePayload,
   PortfolioImportCommitResponsePayload,
   PortfolioImportJobRecord,
   PortfolioImportJobStatus,
@@ -152,8 +156,10 @@ export interface SpotlightRepository {
   createPortfolioBuy(payload: PortfolioBuyRequestPayload): Promise<PortfolioBuyResponsePayload>;
   replacePortfolioEntry(payload: PortfolioEntryReplaceRequestPayload): Promise<PortfolioEntryReplaceResponsePayload>;
   deletePortfolioEntry(payload: PortfolioEntryDeleteRequestPayload): Promise<PortfolioEntryDeleteResponsePayload>;
+  deletePortfolioEntriesBulk(payload: PortfolioEntryBulkDeleteRequestPayload): Promise<PortfolioEntryBulkDeleteResponsePayload>;
   deleteAccount(): Promise<AccountDeleteResponsePayload>;
   setPortfolioEntryQuantity(payload: SetPortfolioEntryQuantityRequestPayload): Promise<SetPortfolioEntryQuantityResponsePayload>;
+  updateDeckEntryCostBasis(payload: UpdateDeckEntryCostBasisRequestPayload): Promise<UpdateDeckEntryCostBasisResponsePayload>;
   createPortfolioSale(payload: PortfolioSaleRequestPayload): Promise<PortfolioSaleResponsePayload>;
   createPortfolioSalesBatch(payloads: PortfolioSaleRequestPayload[]): Promise<PortfolioSaleResponsePayload[]>;
   createCardTransaction(payload: CreateCardTransactionPayload): Promise<CardTransactionRecord>;
@@ -474,6 +480,8 @@ type CardDetailDTO = {
   counterpartLanguage?: string | null;
   cardText?: CardTextDTO | null;
   population?: unknown;
+  artist?: string | null;
+  setReleaseDate?: string | null;
 };
 
 type CardPriceTrendListDTO = {
@@ -3081,6 +3089,18 @@ export class MockSpotlightRepository implements SpotlightRepository {
     };
   }
 
+  async deletePortfolioEntriesBulk(payload: PortfolioEntryBulkDeleteRequestPayload) {
+    const idsToDelete = new Set(payload.deckEntryIDs);
+    const deletedDeckEntryIDs = this.inventoryEntries
+      .filter((entry) => idsToDelete.has(entry.id))
+      .map((entry) => entry.id);
+    this.inventoryEntries = this.inventoryEntries.filter((entry) => !idsToDelete.has(entry.id));
+    return {
+      deletedDeckEntryIDs,
+      deletedCount: deletedDeckEntryIDs.length,
+    };
+  }
+
   async deleteAccount(): Promise<AccountDeleteResponsePayload> {
     return { deleted: true };
   }
@@ -3091,6 +3111,18 @@ export class MockSpotlightRepository implements SpotlightRepository {
       cardID: 'mock-card',
       quantity: payload.quantity,
       deleted: payload.quantity === 0,
+    };
+  }
+
+  async updateDeckEntryCostBasis(payload: UpdateDeckEntryCostBasisRequestPayload) {
+    return {
+      deckEntryID: payload.deckEntryID,
+      cardID: 'mock-card',
+      costBasisPerUnit: payload.costBasisPerUnit,
+      costBasisPerUnitCents:
+        payload.costBasisPerUnit == null ? null : Math.round(payload.costBasisPerUnit * 100),
+      currencyCode: 'USD',
+      updatedAt: '1970-01-01T00:00:00.000Z',
     };
   }
 
@@ -4311,6 +4343,8 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       cardText: buildCardText(detailResponse.data.cardText),
       tcgPlayerVariants: card.tcgPlayerVariants,
       population: normalizeCardPopulation(detailResponse.data.population),
+      artist: normalizeString(detailResponse.data.artist),
+      releaseDate: normalizeString(detailResponse.data.setReleaseDate),
     };
 
     return buildLoadResult('success', detail);
@@ -4634,6 +4668,16 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     });
   }
 
+  async deletePortfolioEntriesBulk(payload: PortfolioEntryBulkDeleteRequestPayload) {
+    return this.requestJsonOrThrow<PortfolioEntryBulkDeleteResponsePayload>(`${this.baseUrl}/api/v1/deck/entries/delete-bulk`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+  }
+
   async deleteAccount() {
     return this.requestJsonOrThrow<AccountDeleteResponsePayload>(`${this.baseUrl}/api/v1/account/delete`, {
       method: 'POST',
@@ -4645,6 +4689,16 @@ export class HttpSpotlightRepository implements SpotlightRepository {
 
   async setPortfolioEntryQuantity(payload: SetPortfolioEntryQuantityRequestPayload) {
     return this.requestJsonOrThrow<SetPortfolioEntryQuantityResponsePayload>(`${this.baseUrl}/api/v1/deck/entries/quantity`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async updateDeckEntryCostBasis(payload: UpdateDeckEntryCostBasisRequestPayload) {
+    return this.requestJsonOrThrow<UpdateDeckEntryCostBasisResponsePayload>(`${this.baseUrl}/api/v1/deck/entries/cost-basis`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
