@@ -506,14 +506,13 @@ export function PortfolioScreen({
 
   // Pinned top bar (kept OUT of the FlatList's ListHeaderComponent so it stays
   // fixed while the balance/chart/search/filter chrome and the list scroll under
-  // it). The subtle bottom hairline delineates it once content scrolls beneath.
+  // it).
   const stickyHeader = (
     <View
       style={[
         styles.header,
         {
           paddingHorizontal: theme.layout.pageGutter,
-          borderBottomColor: theme.colors.outlineSubtle,
         },
       ]}
     >
@@ -799,10 +798,11 @@ export function PortfolioScreen({
 
 const styles = StyleSheet.create({
   chartWrap: {
-    // Figma puts the Time Filter Container 64px below the Portfolio Balance
-    // Container. The chrome wrapper adds a 16px gap between children, so we add
-    // 48 here to land at exactly 64.
-    marginTop: 48,
+    // Tightened per feedback: the gap from the % change line down to the time
+    // filter (7D/1M/…) was 64px (Figma) and read as too airy. The chrome wrapper
+    // already adds a 16px inter-child gap, so 0 here lands the row 16px below the
+    // balance block.
+    marginTop: 0,
     marginBottom: 16,
   },
   chrome: {
@@ -825,7 +825,6 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: 'center',
-    borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
     height: 40,
   },
