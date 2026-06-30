@@ -394,6 +394,79 @@ class UserIsolationTests(unittest.TestCase):
         self.assertGreater(self._owner_row_count("deck_entries", "user-b"), 0)
         self.assertGreater(self._owner_row_count("card_favorites", "user-b"), 0)
 
+    def test_delete_deck_entries_bulk_deletes_only_owned_rows(self) -> None:
+        self._insert_card(card_id="base-pikachu-58", name="Pikachu", set_name="Base Set", number="58/102", set_code="BS")
+        self._insert_card(card_id="base-charizard-4", name="Charizard", set_name="Base Set", number="4/102", set_code="BS")
+        self._insert_card(card_id="base-blastoise-2", name="Blastoise", set_name="Base Set", number="2/102", set_code="BS")
+
+        # Three owned deck entries for user-a (distinct cards so they don't dedupe).
+        with self.service.request_identity_context(self._identity("user-a")):
+            entry_ids = [
+                self.service.record_buy(
+                    {
+                        "cardID": card_id,
+                        "quantity": 1,
+                        "unitPrice": 5.0,
+                        "currencyCode": "USD",
+                        "boughtAt": "2026-06-01T09:00:00Z",
+                        "condition": "near_mint",
+                    }
+                )["deckEntryID"]
+                for card_id in ("base-pikachu-58", "base-charizard-4", "base-blastoise-2")
+            ]
+
+        # A deck entry owned by a different user must never be touched.
+        with self.service.request_identity_context(self._identity("user-b")):
+            other_owner_entry = self.service.record_buy(
+                {
+                    "cardID": "base-pikachu-58",
+                    "quantity": 1,
+                    "unitPrice": 7.0,
+                    "currencyCode": "USD",
+                    "boughtAt": "2026-06-01T10:00:00Z",
+                    "condition": "near_mint",
+                }
+            )["deckEntryID"]
+
+        # Delete two of user-a's entries plus user-b's id and a duplicate; only the
+        # two owned ids should be removed, and the cross-owner id must be ignored.
+        with self.service.request_identity_context(self._identity("user-a")):
+            result = self.service.delete_deck_entries(
+                {
+                    "deckEntryIDs": [
+                        entry_ids[0],
+                        entry_ids[1],
+                        entry_ids[0],  # duplicate, must be deduped
+                        other_owner_entry,  # different owner, must be skipped
+                    ]
+                }
+            )
+
+        self.assertEqual(result["deletedCount"], 2)
+        self.assertEqual(set(result["deletedDeckEntryIDs"]), {entry_ids[0], entry_ids[1]})
+
+        remaining = {
+            row["id"]
+            for row in self.service.connection.execute(
+                "SELECT id FROM deck_entries"
+            ).fetchall()
+        }
+        # user-a's untouched entry and user-b's entry both survive.
+        self.assertIn(entry_ids[2], remaining)
+        self.assertIn(other_owner_entry, remaining)
+        self.assertNotIn(entry_ids[0], remaining)
+        self.assertNotIn(entry_ids[1], remaining)
+        self.assertEqual(self._owner_row_count("deck_entries", "user-b"), 1)
+
+    def test_delete_deck_entries_requires_non_empty_list(self) -> None:
+        with self.service.request_identity_context(self._identity("user-a")):
+            with self.assertRaises(ValueError):
+                self.service.delete_deck_entries({"deckEntryIDs": []})
+            with self.assertRaises(ValueError):
+                self.service.delete_deck_entries({"deckEntryIDs": ["  ", ""]})
+            with self.assertRaises(ValueError):
+                self.service.delete_deck_entries({})
+
 
 if __name__ == "__main__":
     unittest.main()

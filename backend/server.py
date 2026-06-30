@@ -5283,6 +5283,46 @@ class SpotlightScanService:
             "cardID": resolved_card_id,
         }
 
+    def delete_deck_entries(self, payload: dict[str, Any]) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        raw_ids = payload.get("deckEntryIDs")
+        if not isinstance(raw_ids, list):
+            raise ValueError("deckEntryIDs is required")
+
+        # Coerce, drop empties, and dedupe while preserving request order.
+        deck_entry_ids: list[str] = []
+        seen: set[str] = set()
+        for raw_id in raw_ids:
+            candidate = str(raw_id).strip()
+            if not candidate or candidate in seen:
+                continue
+            seen.add(candidate)
+            deck_entry_ids.append(candidate)
+        if not deck_entry_ids:
+            raise ValueError("deckEntryIDs is required")
+
+        # Bulk delete stays tolerant of already-gone rows: ids that no longer
+        # resolve to an owned row are skipped instead of failing the batch.
+        resolved_ids: list[str] = []
+        for deck_entry_id in deck_entry_ids:
+            existing_row = self._owned_deck_entry_row_by_reference(deck_entry_id)
+            if existing_row is None:
+                continue
+            resolved_ids.append(str(existing_row["id"] or "").strip())
+
+        if resolved_ids:
+            placeholders = ",".join("?" for _ in resolved_ids)
+            self.connection.execute(
+                f"DELETE FROM deck_entries WHERE id IN ({placeholders}) AND owner_user_id = ?",
+                (*resolved_ids, owner_user_id),
+            )
+            self.connection.commit()
+
+        return {
+            "deletedDeckEntryIDs": resolved_ids,
+            "deletedCount": len(resolved_ids),
+        }
+
     # Ordered children-before-parents per the owner-scoped foreign-key graph so
     # the deletes never trip a foreign-key constraint while the account is torn
     # down. Every table below carries an ``owner_user_id`` column (verified via
@@ -15782,6 +15822,26 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             except Exception as error:
                 traceback.print_exc()
                 self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Deck entry delete failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, delete_payload)
+            return
+
+        if parsed.path == "/api/v1/deck/entries/delete-bulk":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    delete_payload = self.service.delete_deck_entries(payload)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Deck entries bulk delete failed: {error}"})
                 return
             self._write_json(HTTPStatus.OK, delete_payload)
             return
