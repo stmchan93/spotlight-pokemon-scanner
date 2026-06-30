@@ -1296,14 +1296,21 @@ export function CardDetailScreen({
     }),
     [headerHeight],
   );
-  // The action bar (SAVE/CANCEL, ADD ITEM) is the primary action — it must NEVER
-  // auto-hide (that left it off-screen and unresponsive). It stays pinned and only
-  // rises above the keyboard while editing.
+  // The action bar auto-hides on scroll exactly like the header (slides down +
+  // fades via barsShown), AND rises above the keyboard while editing
+  // (-keyboardLift). Editing sets barsFrozen so the scroll handler leaves
+  // barsShown at 1 → the auto-hide term is 0 and only the keyboard lift applies.
+  // footerHeight includes the safe-area padding, so at barsShown=0 the bar fully
+  // clears the bottom edge; `box-none` on the wrapper means it can never trap
+  // touches while hidden (the prior "off-screen + unresponsive" bug).
   const stickyFooterStyle = useAnimatedStyle(
     () => ({
-      transform: [{ translateY: -keyboardLift.value }],
+      opacity: barsShown.value,
+      transform: [
+        { translateY: (1 - barsShown.value) * footerHeight - keyboardLift.value },
+      ],
     }),
-    [],
+    [footerHeight],
   );
 
   if (!hasDisplayContent && !errorMessage) {
@@ -1552,6 +1559,7 @@ export function CardDetailScreen({
           SHARE; ADD ITEM flashes "SAVED" 5s after a successful add). */}
       <Animated.View
         onLayout={(event) => setFooterHeight(event.nativeEvent.layout.height)}
+        pointerEvents="box-none"
         style={[
           styles.stickyFooter,
           { backgroundColor: colors.gray0, paddingBottom: insets.bottom + 8 },
