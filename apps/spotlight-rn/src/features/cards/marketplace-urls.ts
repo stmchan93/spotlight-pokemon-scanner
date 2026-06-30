@@ -263,31 +263,22 @@ export function buildTcgPlayerProductUrl(params: {
   return `https://www.tcgplayer.com/product/${encodeURIComponent(productId)}${conditionSuffix}`;
 }
 
-// Fold the selected printing/edition into the eBay keyword string so the recent
-// sales don't mix 1st Edition and Unlimited comps (a HUGE price gap, e.g. Neo
-// Genesis Lugia). Reverse-engineered from real sold titles, which word it every
-// way — "1st Edition", "1ST ED", "First Edition":
-//   - 1st edition → positive bare `1st` keyword. eBay tokenizes "1st Edition" and
-//     "1st Ed" both to a "1st" token, so this matches all wordings (a quoted
-//     "1st Edition" would miss "1st Ed" listings).
-//   - "unlimited" → exclude EVERY 1st-edition wording: `-1st -"first edition"`.
-//     Unlimited slab titles essentially never contain "1st"/"first edition", so
-//     this is safe and plugs the leak where a "1st Ed"-worded sale slipped into
-//     Unlimited comps. eBay honors `-token` and `-"phrase"`; URLSearchParams
-//     preserves the `-`, quotes, and spaces inside _nkw.
-//   - anything else (modern Holofoil/Normal/Reverse) → no change.
-function editionKeywordToken(variant: string | null | undefined): string | null {
+// True when the variant is a vintage-style edition split (1st Edition / Unlimited).
+// We deliberately do NOT add an edition keyword to the eBay query: edition wording
+// is inconsistent in real titles ("1st Edition"/"1ST ED"/"First Edition") and a
+// vintage 1st-Ed card is often a $$$ rarity with ZERO sold comps in eBay's 90-day
+// window — requiring (or excluding) an edition term just makes eBay throw away the
+// query and backfill with junk. So we favor recall: show all same-name/same-set
+// graded comps (mixed editions) rather than nothing. This predicate is used only
+// to detect a vintage card so we can DROP its over-constraining collector number
+// (see buildEbaySearchUrl).
+function isVintageEditionVariant(variant: string | null | undefined): boolean {
   const normalized = (variant ?? '').toLowerCase();
-  if (!normalized) {
-    return null;
-  }
-  if (normalized.includes('first edition') || normalized.includes('1st edition')) {
-    return '1st';
-  }
-  if (normalized.includes('unlimited')) {
-    return '-1st -"first edition"';
-  }
-  return null;
+  return (
+    normalized.includes('first edition') ||
+    normalized.includes('1st edition') ||
+    normalized.includes('unlimited')
+  );
 }
 
 export function buildEbaySearchUrl(params: {
@@ -303,7 +294,7 @@ export function buildEbaySearchUrl(params: {
 }) {
   const graderToken = cleanedMarketplaceToken(params.grader);
   const gradeToken = cleanedMarketplaceToken(params.grade);
-  const editionToken = editionKeywordToken(params.variant);
+  const isVintage = isVintageEditionVariant(params.variant);
   const isJapanese = (params.language ?? '').toLowerCase() === 'japanese';
 
   // For Japanese cards add a "Japanese" keyword — US eBay listings of JP cards
@@ -316,17 +307,17 @@ export function buildEbaySearchUrl(params: {
 
   // Collector number handling. eBay AND-requires EVERY keyword, and "9/111"
   // tokenizes into TWO required tokens ("9" AND "111"). Slab sellers word the
-  // number inconsistently (9/111, #9, or omit the denominator), so on a vintage
-  // graded card — where the set name + edition already pin the card — requiring
+  // number inconsistently (9/111, #9, or omit it; the set total like "111"
+  // appears in virtually no real titles), so on a vintage graded card requiring
   // both number tokens over-constrains and zeroes the search (observed live on
-  // Neo Genesis Lugia 9/111). So DROP the number for VINTAGE ENGLISH GRADED
-  // (edition + grade present); name + set + grade + edition is tight enough for
-  // vintage (same-name/same-set print variants barely exist there) and reliably
-  // has sold comps. KEEP it where it actually disambiguates and is reliably
-  // titled: modern graded (separates alt-art vs regular same-set prints) and
-  // Japanese (the JP set name is non-Latin script that gets stripped, so the
-  // number carries the disambiguation alongside the "Japanese" keyword).
-  const dropCollectorNumber = !isJapanese && Boolean(editionToken && gradeToken);
+  // Neo Genesis Lugia 9/111). So DROP the number for VINTAGE ENGLISH GRADED;
+  // name + set + grade is enough for vintage (same-name/same-set print variants
+  // barely exist there) and reliably has sold comps. KEEP it where it actually
+  // disambiguates and is reliably titled: modern graded (separates alt-art vs
+  // regular same-set prints) and Japanese (the JP set name is non-Latin script
+  // that gets stripped, so the number carries the disambiguation alongside the
+  // "Japanese" keyword).
+  const dropCollectorNumber = !isJapanese && isVintage && Boolean(gradeToken);
   const numberToken = dropCollectorNumber
     ? null
     : cleanedMarketplaceToken(params.cardNumber.replace(/^#/, ''));
@@ -348,9 +339,9 @@ export function buildEbaySearchUrl(params: {
     languageToken,
     numberToken,
     cleanedMarketplaceToken(params.setName),
-    // Edition qualifier LAST, appended raw (not through cleanedMarketplaceToken,
-    // which would strip the leading "-" and the quotes the exclusion relies on).
-    editionToken,
+    // NOTE: no edition keyword — see isVintageEditionVariant. We intentionally show
+    // mixed-edition comps rather than risk zeroing the search (eBay then backfills
+    // with junk) on a sparse, expensive 1st-Edition card.
   ]
     .filter(Boolean)
     .join(' ');
