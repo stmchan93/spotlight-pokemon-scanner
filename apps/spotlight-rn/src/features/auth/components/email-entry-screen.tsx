@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { AuthScreenLayout } from './auth-screen-layout';
@@ -49,6 +50,10 @@ export function EmailEntryScreen({
   password,
 }: EmailEntryScreenProps) {
   const canContinue = isValidLookingEmail(email) && password.length > 0 && !isBusy;
+  // Surface WHY Continue is disabled once they've left the field with a malformed
+  // address (don't nag mid-typing). Blank field shows nothing.
+  const [emailTouched, setEmailTouched] = useState(false);
+  const showEmailError = emailTouched && email.trim().length > 0 && !isValidLookingEmail(email);
 
   return (
     <AuthScreenLayout
@@ -63,12 +68,17 @@ export function EmailEntryScreen({
           autoCapitalize="none"
           autoCorrect={false}
           keyboardType="email-address"
+          onBlur={() => setEmailTouched(true)}
           onChangeText={onChangeEmail}
           placeholder="Email"
           returnKeyType="next"
           testID="auth-email-input"
           value={email}
         />
+
+        {showEmailError ? (
+          <AuthErrorLine message="Enter a valid email address." />
+        ) : null}
 
         <PasswordField
           onChangeText={onChangePassword}
