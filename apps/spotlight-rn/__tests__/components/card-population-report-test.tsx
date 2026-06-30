@@ -34,6 +34,18 @@ describe('CardPopulationReport', () => {
     expect(screen.getByText('PSA Population Report: 12,000')).toBeTruthy();
   });
 
+  it('renders a per-grade cell row under the band, highest grade first (Figma 1874:23015)', () => {
+    renderReport({ population: POPULATION, grader: 'PSA', testID: 'pop' });
+
+    // Each grade with slabs gets a cell: grade label + formatted count.
+    expect(screen.getByTestId('pop-grade-10')).toBeTruthy();
+    expect(screen.getByTestId('pop-grade-9')).toBeTruthy();
+    expect(screen.getByText('10')).toBeTruthy();
+    expect(screen.getByText('2,500')).toBeTruthy();
+    expect(screen.getByText('9')).toBeTruthy();
+    expect(screen.getByText('9,500')).toBeTruthy();
+  });
+
   it('switches the report when the grader changes (dynamic by grading company)', () => {
     const { rerender } = renderReport({ population: POPULATION, grader: 'PSA', testID: 'pop' });
     expect(screen.getByText('PSA Population Report: 12,000')).toBeTruthy();

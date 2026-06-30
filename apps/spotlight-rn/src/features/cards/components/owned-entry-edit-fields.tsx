@@ -14,6 +14,10 @@ type OwnedEntryEditFieldsProps = {
   /** Raw text in the Cost Basis input (per-unit dollars, no "$"). */
   costBasisText: string;
   onChangeCostBasisText: (text: string) => void;
+  /** Fired when the Cost Basis input gains/loses focus (lets the screen scroll
+   *  the row above the keyboard). */
+  onCostBasisFocus?: () => void;
+  onCostBasisBlur?: () => void;
   /** Per-unit gain (current market − cost basis); null hides the pill. */
   gainPerUnit: number | null;
   /** Pre-formatted absolute gain, e.g. "$100.16". */
@@ -39,6 +43,8 @@ export function OwnedEntryEditFields({
   onDecrement,
   costBasisText,
   onChangeCostBasisText,
+  onCostBasisFocus,
+  onCostBasisBlur,
   gainPerUnit,
   gainLabel,
   updatedLabel,
@@ -133,7 +139,9 @@ export function OwnedEntryEditFields({
               ) : null}
               <TextInput
                 keyboardType="decimal-pad"
+                onBlur={onCostBasisBlur}
                 onChangeText={onChangeCostBasisText}
+                onFocus={onCostBasisFocus}
                 placeholder="$0.00 (or value if traded or gifted)"
                 placeholderTextColor={theme.colors.gray400}
                 style={[

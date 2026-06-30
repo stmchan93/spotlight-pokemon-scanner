@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useSpotlightTheme } from '@spotlight/design-system';
 import type { CardPopulation } from '@spotlight/api-client';
@@ -15,11 +15,21 @@ function formatCount(value: number): string {
   return value.toLocaleString();
 }
 
+/** Grades with at least one slab, highest grade first ("10", "9.5", "9", …). */
+function sortedGradeEntries(grades: Record<string, number>): [string, number][] {
+  return Object.entries(grades)
+    .filter(([, count]) => count > 0)
+    .sort((a, b) => Number(b[0]) - Number(a[0]));
+}
+
 /**
- * Population report (Figma 1874:11631): a single full-bleed gray band reading
- * "<GRADER> Population Report: <total>". The grader is dynamic — it re-renders
- * whenever the selected grading company flips. Renders nothing for the raw lane
- * or when the selected grader has no synced population, so the PDP omits it.
+ * Population report (Figma 1874:11631 + 1874:23015): a full-bleed gray band
+ * reading "<GRADER> Population Report: <total>", followed by a horizontally
+ * scrolling row of per-grade cells — each a 56px centered column with the grade
+ * label (Overline / gray-600) above its slab count (Body-medium / gray-900),
+ * topped-and-tailed by gray-200 rules. Both are dynamic by grader and re-render
+ * when the selected grading company flips. Renders nothing for the raw lane or a
+ * grader with no synced population, so the PDP omits it.
  */
 export function CardPopulationReport({ population, grader, testID }: CardPopulationReportProps) {
   const theme = useSpotlightTheme();
@@ -30,14 +40,51 @@ export function CardPopulationReport({ population, grader, testID }: CardPopulat
     return null;
   }
 
+  const grades = sortedGradeEntries(entry.grades ?? {});
+
   return (
-    <View style={[styles.bar, { backgroundColor: theme.colors.gray100 }]} testID={testID}>
-      <Text
-        style={[theme.typography.label, styles.text, { color: theme.colors.gray900 }]}
-        testID={testID ? `${testID}-title` : undefined}
-      >
-        {`${normalizedGrader} Population Report: ${formatCount(entry.totalPopulation)}`}
-      </Text>
+    <View testID={testID}>
+      <View style={[styles.bar, { backgroundColor: theme.colors.gray100 }]}>
+        <Text
+          style={[theme.typography.label, styles.text, { color: theme.colors.gray900 }]}
+          testID={testID ? `${testID}-title` : undefined}
+        >
+          {`${normalizedGrader} Population Report: ${formatCount(entry.totalPopulation)}`}
+        </Text>
+      </View>
+
+      {grades.length > 0 ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.row}
+          testID={testID ? `${testID}-grades` : undefined}
+        >
+          {grades.map(([grade, count]) => (
+            <View
+              key={grade}
+              style={[
+                styles.cell,
+                { backgroundColor: theme.colors.gray0, borderColor: theme.colors.gray200 },
+              ]}
+              testID={testID ? `${testID}-grade-${grade}` : undefined}
+            >
+              <View style={styles.cellInner}>
+                <Text
+                  style={[theme.typography.overline, styles.cellText, { color: theme.colors.gray600 }]}
+                >
+                  {grade}
+                </Text>
+                <Text
+                  style={[theme.typography.bodyMedium, styles.cellText, { color: theme.colors.gray900 }]}
+                >
+                  {formatCount(count)}
+                </Text>
+              </View>
+            </View>
+          ))}
+        </ScrollView>
+      ) : null}
     </View>
   );
 }
@@ -54,6 +101,28 @@ const styles = StyleSheet.create({
   },
   text: {
     textAlign: 'center',
+  },
+  // Full-bleed too, so the per-cell top/bottom rules run edge to edge. Each cell
+  // carries its own 16px padding, so the first grade aligns with the page gutter.
+  row: {
+    marginHorizontal: -16,
+  },
+  cell: {
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderTopWidth: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  cellInner: {
+    alignItems: 'center',
+    gap: 8,
+    width: 56,
+  },
+  cellText: {
+    textAlign: 'center',
+    width: '100%',
   },
 });
 

@@ -34,6 +34,7 @@ import {
 } from '@/features/portfolio/components/collection-masonry-grid';
 import { CollectionListRow } from '@/features/portfolio/components/collection-list-view';
 import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
+import { EditDoneButton } from '@/components/edit-done-button';
 import { CardActionsSheet } from '@/features/cards/components/card-actions-sheet';
 import { ConfirmDeleteSheet } from '@/features/cards/components/confirm-delete-sheet';
 import { ScrollToTopFab, useScrollToTop } from '@/components/scroll-to-top-fab';
@@ -515,16 +516,7 @@ export function PortfolioScreen({
         Collection
       </Text>
       {editMode ? (
-        <Pressable
-          accessibilityLabel="Done editing"
-          accessibilityRole="button"
-          hitSlop={12}
-          onPress={handleExitEditMode}
-          style={styles.headerRight}
-          testID="portfolio-header-done"
-        >
-          <Text style={[theme.typography.control, { color: theme.colors.gray900 }]}>Done</Text>
-        </Pressable>
+        <EditDoneButton onPress={handleExitEditMode} testID="portfolio-header-done" />
       ) : (
         <Pressable
           accessibilityLabel="Edit collection"

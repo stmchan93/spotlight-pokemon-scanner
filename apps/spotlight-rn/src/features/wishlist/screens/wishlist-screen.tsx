@@ -12,6 +12,7 @@ import {
 import {
   ArrowDown,
   ArrowUp,
+  CheckCircle,
   Filter as FilterIcon,
   Trash,
 } from 'iconoir-react-native';
@@ -25,6 +26,7 @@ import {
   CardListRow,
   IconButton,
   SearchField,
+  SelectionCheckCircle,
   colors,
   useSpotlightTheme,
 } from '@spotlight/design-system';
@@ -33,6 +35,7 @@ import { AppBottomTabBar } from '@/components/app-bottom-tab-bar';
 import { ScrollToTopFab, useScrollToTop } from '@/components/scroll-to-top-fab';
 import { GridViewIcon, ListViewIcon } from '@/components/view-toggle-icons';
 import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
+import { ConfirmDeleteSheet } from '@/features/cards/components/confirm-delete-sheet';
 import { saveCardDetailPreviewFromFavorite } from '@/features/cards/card-detail-preview-session';
 import { prefetchCardDetail } from '@/features/cards/card-detail-prefetch';
 import { formatOptionalCurrency } from '@/features/portfolio/components/portfolio-formatting';
@@ -130,6 +133,14 @@ export function WishlistScreen() {
   const [query, setQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<WishlistFilterKey>('all');
   const [viewMode, setViewMode] = useWishlistViewMode();
+  // Bulk multi-select "edit mode" (mirrors the Collection screen). While active
+  // the FAB + bottom tab bar are hidden, tapping a card toggles selection
+  // instead of opening it, and the bottom edit bar drives un-favorite in bulk.
+  const [editMode, setEditMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const scrollRef = useRef<FlatList<WishlistRow>>(null);
 
   const bottomNavClearance =
@@ -215,10 +226,33 @@ export function WishlistScreen() {
     });
   }, [router, spotlightRepository]);
 
-  // Tapping a row/tile opens its detail page.
-  const handleOpenEntry = useCallback((entry: CardFavoriteEntry) => {
+  const toggleSelected = useCallback((cardId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(cardId)) {
+        next.delete(cardId);
+      } else {
+        next.add(cardId);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleExitEditMode = useCallback(() => {
+    setEditMode(false);
+    setSelectedIds(new Set());
+    setDeleteError(null);
+  }, []);
+
+  // Tapping a row/tile toggles its selection in edit mode, else opens its detail
+  // page.
+  const handlePressEntry = useCallback((entry: CardFavoriteEntry) => {
+    if (editMode) {
+      toggleSelected(entry.cardId);
+      return;
+    }
     handleOpenDetail(entry);
-  }, [handleOpenDetail]);
+  }, [editMode, handleOpenDetail, toggleSelected]);
 
   // Swipe-to-delete on a row removes it from the wishlist. Drop it optimistically,
   // then persist; re-sync from the backend if the unfavorite didn't stick.
@@ -228,6 +262,43 @@ export function WishlistScreen() {
       void loadFavorites();
     });
   }, [loadFavorites, spotlightRepository]);
+
+  const allVisibleSelected = visibleEntries.length > 0
+    && visibleEntries.every((entry) => selectedIds.has(entry.cardId));
+
+  const handleToggleSelectAll = useCallback(() => {
+    setSelectedIds(allVisibleSelected
+      ? new Set()
+      : new Set(visibleEntries.map((entry) => entry.cardId)));
+  }, [allVisibleSelected, visibleEntries]);
+
+  const selectedCount = selectedIds.size;
+
+  // Bulk un-favorite: optimistically drop the selected cards, then persist each
+  // toggle; if any fail, re-sync from the backend (restores the stragglers) and
+  // surface an inline error.
+  const handleConfirmBulkRemove = useCallback(() => {
+    if (selectedIds.size === 0 || isDeleting) {
+      return;
+    }
+    const ids = [...selectedIds];
+    setIsDeleting(true);
+    setDeleteError(null);
+    setFavorites((current) => current.filter((favorite) => !selectedIds.has(favorite.cardId)));
+    void Promise.allSettled(ids.map((id) => spotlightRepository.setCardFavorite(id, false)))
+      .then((results) => {
+        setDeleteConfirmOpen(false);
+        setEditMode(false);
+        setSelectedIds(new Set());
+        if (results.some((result) => result.status === 'rejected')) {
+          void loadFavorites();
+          setDeleteError('Some cards could not be removed.');
+        }
+      })
+      .finally(() => {
+        setIsDeleting(false);
+      });
+  }, [isDeleting, loadFavorites, selectedIds, spotlightRepository]);
 
   const handleToggleViewMode = useCallback(() => {
     setViewMode(viewMode === 'list' ? 'grid' : 'list');
@@ -271,35 +342,49 @@ export function WishlistScreen() {
       if (item.kind === 'list') {
         return (
           <WishlistListRow
+            editMode={editMode}
             entry={item.entry}
             firstInSection={item.firstInSection}
             onDelete={handleRemoveEntry}
-            onPress={handleOpenEntry}
+            onPress={handlePressEntry}
+            selected={editMode && selectedIds.has(item.entry.cardId)}
             theme={theme}
           />
         );
       }
       if (item.kind === 'grid-single') {
         return (
-          <WishlistGridSingleRow entry={item.entry} onPress={handleOpenEntry} theme={theme} />
+          <WishlistGridSingleRow
+            editMode={editMode}
+            entry={item.entry}
+            onPress={handlePressEntry}
+            selectedIds={selectedIds}
+            theme={theme}
+          />
         );
       }
       return (
         <WishlistGridRow
+          editMode={editMode}
           isFirstRow={item.rowIndex === 0}
-          onPress={handleOpenEntry}
+          onPress={handlePressEntry}
           rowEntries={item.rowEntries}
           rowIndex={item.rowIndex}
+          selectedIds={selectedIds}
           theme={theme}
         />
       );
     },
-    [handleOpenEntry, handleRemoveEntry, theme],
+    [editMode, handlePressEntry, handleRemoveEntry, selectedIds, theme],
   );
 
   const listHeader = (
     <View>
-      <WishlistHeader onBack={() => router.back()} />
+      <WishlistHeader
+        editMode={editMode}
+        onBack={() => router.back()}
+        onToggleEditMode={() => (editMode ? handleExitEditMode() : setEditMode(true))}
+      />
 
       <View style={[styles.controls, { paddingHorizontal: theme.layout.pageGutter }]}>
         <View style={styles.searchRow}>
@@ -442,22 +527,124 @@ export function WishlistScreen() {
         visible={showScrollTop}
       />
 
-      <CollectionAddFab />
-      <AppBottomTabBar activeKey="portfolio" dismissToTabs />
+      {editMode ? null : <CollectionAddFab />}
+      {editMode ? null : <AppBottomTabBar activeKey="portfolio" dismissToTabs />}
+
+      {editMode ? (
+        <View
+          style={[
+            styles.editBar,
+            {
+              backgroundColor: theme.colors.gray0,
+              paddingBottom: Math.max(insets.bottom, 12),
+            },
+          ]}
+          testID="wishlist-edit-bar"
+        >
+          {deleteError ? (
+            <Text
+              style={[theme.typography.overline, styles.editError, { color: theme.colors.dangerStrong }]}
+              testID="wishlist-edit-error"
+            >
+              {deleteError}
+            </Text>
+          ) : null}
+          <Text
+            style={[theme.typography.overline, styles.editCount, { color: theme.colors.gray500 }]}
+            testID="wishlist-edit-count"
+          >
+            {`${selectedCount} selected`}
+          </Text>
+          <View style={styles.editActions}>
+            <Pressable
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={handleToggleSelectAll}
+              style={styles.editAction}
+              testID="wishlist-edit-select-all"
+            >
+              <CheckCircle color={theme.colors.gray900} height={22} width={22} />
+              <Text style={[theme.typography.navLabel, { color: theme.colors.gray900 }]}>
+                {allVisibleSelected ? 'Unselect All' : 'Select All'}
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              disabled={selectedCount === 0}
+              hitSlop={8}
+              onPress={selectedCount === 0 ? undefined : () => setDeleteConfirmOpen(true)}
+              style={[styles.editAction, selectedCount === 0 ? styles.editActionDisabled : null]}
+              testID="wishlist-edit-delete"
+            >
+              <Trash color={theme.colors.dangerStrong} height={22} width={22} />
+              <Text style={[theme.typography.navLabel, { color: theme.colors.dangerStrong }]}>
+                Delete
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+
+      <ConfirmDeleteSheet
+        confirmLabel="Remove"
+        confirmPending={isDeleting}
+        message={`You're about to remove ${selectedCount} card${selectedCount === 1 ? '' : 's'} from your Wishlist. This just un-favorites them — your Collection isn't affected.`}
+        onClose={() => setDeleteConfirmOpen(false)}
+        onConfirm={handleConfirmBulkRemove}
+        testID="wishlist-bulk-remove-sheet"
+        title="Remove from Wishlist"
+        visible={deleteConfirmOpen}
+      />
     </SafeAreaView>
   );
 }
 
 type WishlistListRowProps = {
+  editMode?: boolean;
   entry: CardFavoriteEntry;
   firstInSection: boolean;
   onDelete: (cardId: string) => void;
   onPress: (entry: CardFavoriteEntry) => void;
+  selected?: boolean;
   theme: ReturnType<typeof useSpotlightTheme>;
 };
 
-function WishlistListRow({ entry, firstInSection, onDelete, onPress, theme }: WishlistListRowProps) {
+function WishlistListRow({
+  editMode = false,
+  entry,
+  firstInSection,
+  onDelete,
+  onPress,
+  selected = false,
+  theme,
+}: WishlistListRowProps) {
   const swipeableRef = useRef<Swipeable>(null);
+
+  const row = (
+    <CardListRow
+      cardNumber={entry.cardNumber}
+      currencyCode={entry.currencyCode ?? 'USD'}
+      firstInSection={firstInSection}
+      gradeLabel={gradeLabelForFavorite(entry)}
+      imageUrl={entry.smallImageUrl ?? entry.imageUrl ?? null}
+      marketPrice={entry.marketPrice ?? null}
+      name={entry.name}
+      onPress={() => onPress(entry)}
+      quantity={1}
+      selectable={editMode}
+      selected={editMode && selected}
+      setName={entry.setName}
+      showQuantity={false}
+      testID={`wishlist-row-${entry.cardId}`}
+      trendChangeAmount={entry.dayChangeAmount ?? null}
+    />
+  );
+
+  // In edit mode the row is a selection target, so drop swipe-to-delete (the
+  // bottom edit bar handles bulk removal instead).
+  if (editMode) {
+    return row;
+  }
 
   // Swipe the row left to reveal a Delete action that removes it from the
   // wishlist. The rail closes before the optimistic removal so the row doesn't
@@ -491,21 +678,7 @@ function WishlistListRow({ entry, firstInSection, onDelete, onPress, theme }: Wi
       renderRightActions={renderRightActions}
       rightThreshold={40}
     >
-      <CardListRow
-        cardNumber={entry.cardNumber}
-        currencyCode={entry.currencyCode ?? 'USD'}
-        firstInSection={firstInSection}
-        gradeLabel={gradeLabelForFavorite(entry)}
-        imageUrl={entry.smallImageUrl ?? entry.imageUrl ?? null}
-        marketPrice={entry.marketPrice ?? null}
-        name={entry.name}
-        onPress={() => onPress(entry)}
-        quantity={1}
-        setName={entry.setName}
-        showQuantity={false}
-        testID={`wishlist-row-${entry.cardId}`}
-        trendChangeAmount={entry.dayChangeAmount ?? null}
-      />
+      {row}
     </Swipeable>
   );
 }
@@ -514,11 +687,21 @@ type WishlistGridRowProps = {
   rowEntries: CardFavoriteEntry[];
   rowIndex: number;
   isFirstRow: boolean;
+  editMode?: boolean;
+  selectedIds?: Set<string>;
   onPress: (entry: CardFavoriteEntry) => void;
   theme: ReturnType<typeof useSpotlightTheme>;
 };
 
-function WishlistGridRow({ rowEntries, rowIndex, isFirstRow, onPress, theme }: WishlistGridRowProps) {
+function WishlistGridRow({
+  rowEntries,
+  rowIndex,
+  isFirstRow,
+  editMode = false,
+  selectedIds,
+  onPress,
+  theme,
+}: WishlistGridRowProps) {
   return (
     <View
       style={[
@@ -542,7 +725,13 @@ function WishlistGridRow({ rowEntries, rowIndex, isFirstRow, onPress, theme }: W
             ]}
           >
             {entry ? (
-              <WishlistGridTile entry={entry} onPress={() => onPress(entry)} theme={theme} />
+              <WishlistGridTile
+                entry={entry}
+                onPress={() => onPress(entry)}
+                selectable={editMode}
+                selected={editMode && !!selectedIds?.has(entry.cardId)}
+                theme={theme}
+              />
             ) : null}
           </View>
         );
@@ -553,6 +742,8 @@ function WishlistGridRow({ rowEntries, rowIndex, isFirstRow, onPress, theme }: W
 
 type WishlistGridSingleRowProps = {
   entry: CardFavoriteEntry;
+  editMode?: boolean;
+  selectedIds?: Set<string>;
   onPress: (entry: CardFavoriteEntry) => void;
   theme: ReturnType<typeof useSpotlightTheme>;
 };
@@ -560,11 +751,17 @@ type WishlistGridSingleRowProps = {
 // A lone card shouldn't render as a full-bleed ruled row (a wide rectangle with
 // one tile in the corner). Box it at one column's width so the border hugs just
 // that card — matching the collection card view's single-item case.
-function WishlistGridSingleRow({ entry, onPress, theme }: WishlistGridSingleRowProps) {
+function WishlistGridSingleRow({ entry, editMode = false, selectedIds, onPress, theme }: WishlistGridSingleRowProps) {
   return (
     <View style={styles.gridSingleRow}>
       <View style={[styles.gridSingleCell, { borderColor: theme.colors.gray100 }]}>
-        <WishlistGridTile entry={entry} onPress={() => onPress(entry)} theme={theme} />
+        <WishlistGridTile
+          entry={entry}
+          onPress={() => onPress(entry)}
+          selectable={editMode}
+          selected={editMode && !!selectedIds?.has(entry.cardId)}
+          theme={theme}
+        />
       </View>
     </View>
   );
@@ -573,10 +770,12 @@ function WishlistGridSingleRow({ entry, onPress, theme }: WishlistGridSingleRowP
 type WishlistGridTileProps = {
   entry: CardFavoriteEntry;
   onPress: () => void;
+  selectable?: boolean;
+  selected?: boolean;
   theme: ReturnType<typeof useSpotlightTheme>;
 };
 
-function WishlistGridTile({ entry, onPress, theme }: WishlistGridTileProps) {
+function WishlistGridTile({ entry, onPress, selectable = false, selected = false, theme }: WishlistGridTileProps) {
   const imageUri = entry.smallImageUrl ?? entry.imageUrl ?? null;
   // Graded cards show the grade ("PSA 10"); raw cards show the condition
   // ("NM") — same derivation as the list row (Figma 860-2640 / 863-2270).
@@ -595,6 +794,11 @@ function WishlistGridTile({ entry, onPress, theme }: WishlistGridTileProps) {
       ]}
       testID={`wishlist-grid-tile-${entry.cardId}`}
     >
+      {selectable ? (
+        <View style={styles.selectBadge} testID={`wishlist-grid-tile-${entry.cardId}-select`}>
+          <SelectionCheckCircle selected={!!selected} />
+        </View>
+      ) : null}
       <View style={styles.gridImageWrap}>
         {imageUri ? (
           <Image
@@ -734,6 +938,43 @@ const styles = StyleSheet.create({
     fontFamily: 'SpotlightBodyMedium',
     fontSize: 12,
     lineHeight: 16,
+  },
+  editBar: {
+    alignItems: 'center',
+    bottom: 0,
+    left: 0,
+    paddingTop: 12,
+    position: 'absolute',
+    right: 0,
+  },
+  editError: {
+    paddingBottom: 4,
+    paddingHorizontal: 16,
+    textAlign: 'center',
+  },
+  editCount: {
+    paddingBottom: 4,
+  },
+  editActions: {
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingTop: 8,
+  },
+  editAction: {
+    alignItems: 'center',
+    gap: 2,
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+  },
+  editActionDisabled: {
+    opacity: 0.4,
+  },
+  selectBadge: {
+    position: 'absolute',
+    right: 8,
+    top: 8,
+    zIndex: 1,
   },
   gridRow: {
     alignItems: 'stretch',

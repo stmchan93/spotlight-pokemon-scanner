@@ -218,6 +218,99 @@ describe('WishlistScreen', () => {
     expect(setCardFavorite).toHaveBeenCalledWith('charizard', false);
   });
 
+  it('enters edit mode from the header, swapping in Done + the edit bar and hiding the tab bar', async () => {
+    const favorites = [
+      buildFavoriteEntry({ cardId: 'charizard', name: 'Charizard' }),
+      buildFavoriteEntry({ cardId: 'gengar', name: 'Gengar ex' }),
+    ];
+    const repository = createTestSpotlightRepository({
+      getCardFavorites: async () => favorites,
+    });
+
+    renderWishlistScreen(repository);
+
+    const editButton = await screen.findByTestId('wishlist-header-edit');
+    // The Collection tab is shown in the bottom nav before edit mode.
+    expect(screen.queryByTestId('bottom-nav-portfolio')).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.press(editButton);
+    });
+
+    expect(screen.getByTestId('wishlist-header-done')).toBeTruthy();
+    expect(screen.getByTestId('wishlist-edit-bar')).toBeTruthy();
+    // The bottom tab bar is hidden while selecting.
+    expect(screen.queryByTestId('bottom-nav-portfolio')).toBeNull();
+  });
+
+  it('toggles a row selection (instead of navigating) when tapped in edit mode', async () => {
+    const favorites = [
+      buildFavoriteEntry({ cardId: 'charizard', name: 'Charizard' }),
+      buildFavoriteEntry({ cardId: 'gengar', name: 'Gengar ex' }),
+    ];
+    const repository = createTestSpotlightRepository({
+      getCardFavorites: async () => favorites,
+    });
+
+    renderWishlistScreen(repository);
+
+    await act(async () => {
+      fireEvent.press(await screen.findByTestId('wishlist-header-edit'));
+    });
+
+    // Each row shows a selection check-circle in edit mode.
+    expect(screen.getByTestId('wishlist-row-charizard-select')).toBeTruthy();
+    expect(screen.getByTestId('wishlist-edit-count').props.children).toBe('0 selected');
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('wishlist-row-charizard'));
+    });
+
+    // Tapping the row selects it instead of opening its detail page.
+    expect(push).not.toHaveBeenCalled();
+    expect(screen.getByTestId('wishlist-edit-count').props.children).toBe('1 selected');
+  });
+
+  it('select-all then bulk-remove un-favorites every selected card', async () => {
+    const setCardFavorite = jest.fn().mockResolvedValue(undefined);
+    const favorites = [
+      buildFavoriteEntry({ cardId: 'charizard', name: 'Charizard' }),
+      buildFavoriteEntry({ cardId: 'gengar', name: 'Gengar ex' }),
+    ];
+    const repository = createTestSpotlightRepository({
+      getCardFavorites: async () => favorites,
+      setCardFavorite,
+    });
+
+    renderWishlistScreen(repository);
+
+    await act(async () => {
+      fireEvent.press(await screen.findByTestId('wishlist-header-edit'));
+    });
+
+    // Select every visible card.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('wishlist-edit-select-all'));
+    });
+    expect(screen.getByTestId('wishlist-edit-count').props.children).toBe('2 selected');
+
+    // Delete opens the confirm sheet; confirming removes them.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('wishlist-edit-delete'));
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('wishlist-bulk-remove-sheet-confirm'));
+    });
+
+    expect(setCardFavorite).toHaveBeenCalledWith('charizard', false);
+    expect(setCardFavorite).toHaveBeenCalledWith('gengar', false);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('wishlist-row-charizard')).toBeNull();
+      expect(screen.queryByTestId('wishlist-row-gengar')).toBeNull();
+    });
+  });
+
   it('does not render the pagination footer when the wishlist is empty', async () => {
     const repository = createTestSpotlightRepository({
       getCardFavorites: async () => [],

@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Keyboard,
   Linking,
   Share,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import Animated, {
@@ -12,7 +14,7 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   deckConditionOptions,
@@ -161,6 +163,7 @@ export function CardDetailScreen({
   scanReviewId,
 }: CardDetailScreenProps) {
   const theme = useSpotlightTheme();
+  const insets = useSafeAreaInsets();
   const {
     spotlightRepository,
     dataVersion,
@@ -1100,9 +1103,14 @@ export function CardDetailScreen({
       grader: selectedGrader,
       grade: selectedGrade,
       certNumber: ownedSlabContext?.certNumber ?? null,
-      variantName: selectedGrade ? `${selectedGrader} ${selectedGrade}` : null,
+      // The slab's variant must be the PRINT variant (e.g. "Holofoil"), NOT the
+      // grade label. Sending "<grader> <grade>" makes the backend sanitize it to
+      // null, which changes the entry's identity_key on every save — spawning a
+      // fresh row and abandoning the original (so the cost basis appears lost).
+      // Anchor to the stored slab variant so a no-op edit can't change identity.
+      variantName: ownedSlabContext?.variantName ?? selectedVariantLabel ?? null,
     };
-  }, [editIsRaw, ownedSlabContext, selectedGrade, selectedGrader]);
+  }, [editIsRaw, ownedSlabContext, selectedGrade, selectedGrader, selectedVariantLabel]);
 
   const editCostBasisPerUnit = useMemo(() => {
     const cleaned = editCostBasisText.replace(/[^0-9.]/g, '');
@@ -1194,14 +1202,83 @@ export function CardDetailScreen({
   // so there's no gesture/scroll worklet hazard.
   const barsShown = useSharedValue(1);
   const lastScrollY = useSharedValue(0);
+  // While the keyboard is up (editing Cost Basis) we FREEZE the auto-hide so the
+  // bars don't jump, and lift the footer above the keyboard so SAVE/CANCEL stay
+  // reachable. `keyboardLift` is the live keyboard height (animated).
+  const barsFrozen = useSharedValue(false);
+  const keyboardLift = useSharedValue(0);
   const [headerHeight, setHeaderHeight] = useState(56);
   const [footerHeight, setFooterHeight] = useState(76);
+
+  // Keyboard-aware scroll for the Cost Basis input: the edit section sits low in
+  // the page (behind the footer), so when its input focuses we scroll its bottom
+  // just above the keyboard. We track the section's rect (content-relative, via
+  // onLayout on the options group) and the live keyboard height.
+  const scrollRef = useRef<Animated.ScrollView>(null);
+  const { height: windowHeight } = useWindowDimensions();
+  const editSectionRectRef = useRef({ y: 0, height: 0 });
+  const costBasisFocusedRef = useRef(false);
+  const keyboardHeightRef = useRef(0);
+
+  const scrollEditSectionAboveKeyboard = useCallback(
+    (keyboardHeight: number) => {
+      if (!costBasisFocusedRef.current || keyboardHeight <= 0) {
+        return;
+      }
+      const { y, height } = editSectionRectRef.current;
+      // The footer rides above the keyboard, so the input must clear BOTH. Scroll
+      // so the section's bottom sits just above the lifted footer.
+      const available = windowHeight - keyboardHeight - footerHeight;
+      const target = y + height + 12 - available;
+      if (target > 0) {
+        scrollRef.current?.scrollTo({ y: target, animated: true });
+      }
+    },
+    [footerHeight, windowHeight],
+  );
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
+      keyboardHeightRef.current = event.endCoordinates.height;
+      keyboardLift.value = withTiming(event.endCoordinates.height, { duration: 220 });
+      scrollEditSectionAboveKeyboard(event.endCoordinates.height);
+    });
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      keyboardHeightRef.current = 0;
+      keyboardLift.value = withTiming(0, { duration: 220 });
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [keyboardLift, scrollEditSectionAboveKeyboard]);
+
+  const handleCostBasisFocus = useCallback(() => {
+    costBasisFocusedRef.current = true;
+    // Freeze the header (shown) so the programmatic keyboard-scroll can't hide it.
+    barsFrozen.value = true;
+    barsShown.value = withTiming(1, { duration: 160 });
+    // If the keyboard is already up (e.g. moving from another field), scroll now;
+    // otherwise keyboardDidShow handles it once the keyboard animates in.
+    scrollEditSectionAboveKeyboard(keyboardHeightRef.current);
+  }, [barsFrozen, barsShown, scrollEditSectionAboveKeyboard]);
+
+  const handleCostBasisBlur = useCallback(() => {
+    costBasisFocusedRef.current = false;
+    barsFrozen.value = false;
+  }, [barsFrozen]);
 
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => {
       'worklet';
       const y = event.contentOffset.y;
       const dy = y - lastScrollY.value;
+      lastScrollY.value = y;
+      // Keep the bars pinned (shown) while editing — don't let the keyboard's
+      // programmatic scroll, or any scroll, hide them.
+      if (barsFrozen.value) {
+        return;
+      }
       if (y <= TOP_REVEAL_THRESHOLD) {
         barsShown.value = withTiming(1, { duration: 160 });
       } else if (dy > SCROLL_DOWN_HIDE_DELTA) {
@@ -1209,7 +1286,6 @@ export function CardDetailScreen({
       } else if (dy < -FAST_UP_REVEAL_DELTA) {
         barsShown.value = withTiming(1, { duration: 160 });
       }
-      lastScrollY.value = y;
     },
   });
 
@@ -1220,12 +1296,14 @@ export function CardDetailScreen({
     }),
     [headerHeight],
   );
+  // The action bar (SAVE/CANCEL, ADD ITEM) is the primary action — it must NEVER
+  // auto-hide (that left it off-screen and unresponsive). It stays pinned and only
+  // rises above the keyboard while editing.
   const stickyFooterStyle = useAnimatedStyle(
     () => ({
-      opacity: barsShown.value,
-      transform: [{ translateY: (1 - barsShown.value) * footerHeight }],
+      transform: [{ translateY: -keyboardLift.value }],
     }),
-    [footerHeight],
+    [],
   );
 
   if (!hasDisplayContent && !errorMessage) {
@@ -1251,14 +1329,19 @@ export function CardDetailScreen({
 
   return (
     <SafeAreaView
-      edges={['top', 'left', 'right', 'bottom']}
+      // Only inset the sides here — the sticky header/footer own the top/bottom
+      // insets (they're absolutely positioned and would otherwise ignore the
+      // SafeAreaView padding, sliding under the status bar / home indicator).
+      edges={['left', 'right']}
       style={[styles.safeArea, { backgroundColor: colors.gray0 }]}
     >
       <Animated.ScrollView
+        ref={scrollRef}
         contentContainerStyle={[
           styles.content,
           { paddingTop: headerHeight, paddingBottom: footerHeight },
         ]}
+        keyboardShouldPersistTaps="handled"
         onScroll={scrollHandler}
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
@@ -1296,7 +1379,13 @@ export function CardDetailScreen({
           <CardWishlistCounter count={likeCount} testID="detail-wishlist-counter" />
         </View>
 
-        <View style={styles.optionsGroup}>
+        <View
+          onLayout={(event) => {
+            const { y, height } = event.nativeEvent.layout;
+            editSectionRectRef.current = { y, height };
+          }}
+          style={styles.optionsGroup}
+        >
           <CardConfigurator
             graders={[...graderOptions]}
             languages={languageToggleOptions}
@@ -1319,6 +1408,8 @@ export function CardDetailScreen({
               gradeLabel={editGradeLabel}
               gradeTitle={editGradeTitle}
               onChangeCostBasisText={handleChangeEditCostBasisText}
+              onCostBasisBlur={handleCostBasisBlur}
+              onCostBasisFocus={handleCostBasisFocus}
               onDecrement={() => setEditQuantity((current) => Math.max(1, current - 1))}
               onIncrement={() => setEditQuantity((current) => current + 1)}
               onOpenGradePicker={() => setEditGradePickerOpen(true)}
@@ -1407,7 +1498,11 @@ export function CardDetailScreen({
           and auto-hides on scroll (slides up + fades). */}
       <Animated.View
         onLayout={(event) => setHeaderHeight(event.nativeEvent.layout.height)}
-        style={[styles.stickyHeader, { backgroundColor: colors.gray0 }, stickyHeaderStyle]}
+        style={[
+          styles.stickyHeader,
+          { backgroundColor: colors.gray0, paddingTop: insets.top + 8 },
+          stickyHeaderStyle,
+        ]}
       >
         <View style={styles.headerRow}>
           <IconButton
@@ -1457,7 +1552,11 @@ export function CardDetailScreen({
           SHARE; ADD ITEM flashes "SAVED" 5s after a successful add). */}
       <Animated.View
         onLayout={(event) => setFooterHeight(event.nativeEvent.layout.height)}
-        style={[styles.stickyFooter, { backgroundColor: colors.gray0 }, stickyFooterStyle]}
+        style={[
+          styles.stickyFooter,
+          { backgroundColor: colors.gray0, paddingBottom: insets.bottom + 8 },
+          stickyFooterStyle,
+        ]}
       >
         {isOwnedEdit ? (
           <View style={styles.actionBar}>
