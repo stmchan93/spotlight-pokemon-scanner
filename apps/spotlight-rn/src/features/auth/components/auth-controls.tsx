@@ -23,7 +23,7 @@ type SecondaryFieldProps = Omit<TextInputProps, 'style'> & {
   value?: string;
 };
 
-/** Underline input: a single bottom border (gray300), 14px text, optional trailing. */
+/** Underline input: a single bottom border (gray300), 16px text, optional trailing. */
 export function SecondaryField({
   placeholder,
   testID,
@@ -276,15 +276,15 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     flexDirection: 'row',
     gap: 8,
-    height: 40,
+    height: 44,
     paddingLeft: 4,
     paddingRight: 8,
   },
   input: {
     flex: 1,
     fontFamily: fontFamilies.bodyMedium,
-    fontSize: 14,
-    lineHeight: 21,
+    fontSize: 16,
+    lineHeight: 24,
     padding: 0,
   },
   readOnlyLabel: {
