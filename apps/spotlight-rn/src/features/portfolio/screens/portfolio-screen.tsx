@@ -330,7 +330,15 @@ export function PortfolioScreen({
       .filter(Boolean)
       .join(' · ');
     const url = entry.listingUrl ?? undefined;
-    void Share.share(url ? { message, url } : { message }).catch(() => undefined);
+    // Present the native share sheet only AFTER the actions modal has finished
+    // dismissing. Firing Share.share() in the same tick races iOS: it tries to
+    // present UIActivityViewController while the RN modal's view controller is
+    // still on screen / mid-dismiss, so the share sheet flashes and gets torn
+    // down with the modal, leaving an orphaned presentation = frozen screen.
+    // 280ms clears the sheet's 200ms close animation (same as handleMenuDelete).
+    setTimeout(() => {
+      void Share.share(url ? { message, url } : { message }).catch(() => undefined);
+    }, 280);
   }, [actionMenuEntry]);
 
   const handleMenuWishlist = useCallback(() => {
