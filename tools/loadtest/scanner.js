@@ -72,6 +72,7 @@ const scannerBusy = new Rate('scanner_busy_503'); // backpressure (capacity hit)
 const scanError = new Rate('scan_error'); // anything else (real failures)
 const artifactLatency = new Trend('artifact_latency_ms', true); // GCS upload call
 const artifactUploaded = new Rate('artifact_uploaded'); // true = actually stored
+const artifactHttp2xx = new Rate('artifact_http_2xx'); // client saw a 2xx (upload accepted)
 
 export const options = {
   scenarios: { scanner: scenarioFor(PROFILE) },
@@ -141,10 +142,13 @@ export default function scanner() {
       tags: { name: 'artifacts' },
     });
     artifactLatency.add(ares.timings.duration);
+    // The artifact upload returns 202 Accepted (not 200) on success — accept any 2xx.
+    const artifact2xx = ares.status >= 200 && ares.status < 300;
+    artifactHttp2xx.add(artifact2xx);
     let uploaded = false;
-    if (ares.status === 200) {
+    if (artifact2xx) {
       try {
-        const st = ares.json('uploadStatus');
+        const st = ares.json().uploadStatus;
         uploaded = st === 'uploaded' || st === 'normalized_only';
       } catch (_e) {
         uploaded = false;

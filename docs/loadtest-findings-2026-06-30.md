@@ -29,14 +29,15 @@ Encoder allows only **3 concurrent inferences** (vCPU−1). **CPU-bound, not dis
 
 ### Artifact storage (ON vs OFF comparison)
 - **No consistent effect on scan latency** — artifact upload is a separate, async, scan-event-gated call that doesn't block the encoder.
-- **Real finding:** under load the uploads **raced and didn't persist** — **0% of ramp uploads landed in GCS** ("scan event not found" because the upload fired before the scan event committed). DB artifact rows were written but GCS blobs weren't. This is the mechanism behind past "card-show scans lost images."
+- **Real finding (race):** the upload is fired in parallel with the match and looks up the match's `scan_events` stub; under load that stub write can lose the race / fail on write contention, and the upload then 404'd ("scan event not found") and was dropped — the mechanism behind past "card-show scans lost images." (The fix below makes the upload self-create the stub so it always lands.)
+- **NOTE — earlier "0% persisted to GCS" was a measurement error, not a bug.** Two mistakes on my side: (1) the k6 harness checked the artifact response for HTTP `200`, but the endpoint returns `202 Accepted` on success; (2) I listed `gs://looty-prod` (a stale env-file value) when the *running* server uploads to `gs://looty-staging`. Verified ground truth: uploads succeed end-to-end — DB rows record `uploaded` **and** the JPEGs are present in `gs://looty-staging/scans/.../`. The harness metric is fixed (accept any 2xx) and now reports 100% uploaded.
 
 ## Fixes applied (this commit)
 
 Both mirror the existing scan-inference-semaphore pattern and ship with tests; full backend suite (474) green.
 
 1. **Read backpressure** (`backend/server.py`). New `_heavy_read_semaphore` (separate pool from scan inference — those are CPU-bound, these are I/O-bound) caps concurrent heavy reads and `_acquire_heavy_read_slot()` returns a fast retryable **503 `ServerBusy`** when the wait exceeds the timeout. Wrapped around `dashboard`, `history`, `ledger`, `deck/entries`. Turns the 60s-hang cliff into a fast, graceful shed.
-   - Tunables: `SPOTLIGHT_MAX_CONCURRENT_HEAVY_READS` (default `max(4, vCPU×2)` = 8 here), `SPOTLIGHT_HEAVY_READ_ACQUIRE_TIMEOUT_S` (default 5s).
+   - Tunables: `SPOTLIGHT_MAX_CONCURRENT_HEAVY_READS` (default `~1 per core` = 4 here; tightened from cores×2 after a re-run showed 8 still thrashed the disk), `SPOTLIGHT_HEAVY_READ_ACQUIRE_TIMEOUT_S` (default 3s). Validated re-run: `portfolio/history` under 30 concurrent went 60s-timeout-on-every-call → median 3s / p95 ~19s, no timeouts; excess sheds fast and the client retries it silently.
 2. **Artifact upload race** (`backend/server.py` `store_scan_artifacts`). When no `scan_events` row exists for the scanID, the handler now **self-creates an `in_progress` stub** instead of 404'ing, so the JPEG still lands when the match's own stub write races/fails under load. The match's later `_log_scan` upserts the real fields via `ON CONFLICT`. **Cross-user isolation preserved**: if the scanID exists for a *different* user, it still rejects (never creates/hijacks another user's row).
 
 ## Verdict & remaining levers
@@ -45,7 +46,7 @@ This 4-vCPU VM is **not ready for meaningful concurrent production load** as-is;
 
 - **Scanner (CPU-bound):** bigger machine / more vCPUs (≈ linear gain in concurrent scanners), or horizontal scaling behind a LB. *(Owner is handling VM sizing.)*
 - **Reads (I/O + serialization):** the threading-server + SQLite is the ceiling — caching/prewarm for `history`, read replicas / Postgres for hot tables. Deferred until sustained concurrent load justifies it.
-- **GCS artifact persistence:** during the test the `scans/` partition was empty even for a probe that returned `uploaded` — worth a separate check that GCS writes actually land (the DB row did).
+- **Note on the active artifact bucket:** the running staging server writes scan artifacts to `gs://looty-staging` (per `/api/v1/health` → `scanArtifactUploads.activeBucketName`), even though `backend/.env.staging.secrets` lists `looty-prod`. Not a blocker, but worth reconciling so the configured and active bucket agree.
 - **Client side:** the read 503s are `retryable: true`; the app could add a short backoff-retry so a brief spike is invisible to users.
 
 ## Re-running the harness
