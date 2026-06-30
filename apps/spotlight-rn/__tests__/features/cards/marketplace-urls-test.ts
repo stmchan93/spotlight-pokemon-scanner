@@ -345,6 +345,27 @@ describe('buildEbaySearchUrl', () => {
     expect(url).toContain('_sop=13');
   });
 
+  it('adds a "Japanese" keyword and keeps the number for a Japanese graded card', () => {
+    // Regression: a JP Shiny Collection Growlithe 1st-Ed previously searched
+    // `"PSA 10" Growlithe 1st Edition` (set name is Japanese script → stripped),
+    // colliding with the ENGLISH Base Set 1st-Ed Growlithe. "Japanese" + the
+    // number scope it to the right card.
+    const url = buildEbaySearchUrl({
+      setName: 'シャイニーコレクション',
+      name: 'Growlithe',
+      cardNumber: '004/020',
+      grader: 'PSA',
+      grade: '10',
+      variant: 'First Edition Holofoil',
+      language: 'japanese',
+    });
+    const nkw = decodeURIComponent(new URL(url!).searchParams.get('_nkw')!);
+    expect(nkw).toContain('Japanese');
+    expect(nkw).toContain('004'); // number kept for JP (not dropped like vintage EN)
+    expect(nkw).toContain('1st Edition');
+    expect(nkw).toContain('"PSA 10"');
+  });
+
   it('quotes a low grade so eBay does not backfill with high-grade solds (PSA 3 ≠ PSA 10)', () => {
     const url = buildEbaySearchUrl({
       setName: 'Evolving Skies',

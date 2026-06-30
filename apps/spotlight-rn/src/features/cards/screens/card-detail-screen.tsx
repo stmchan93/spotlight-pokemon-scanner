@@ -633,6 +633,7 @@ export function CardDetailScreen({
         // Scope sold comps to the selected printing/edition (1st Edition vs
         // Unlimited) so the recent-sales list isn't a mix of both.
         variant: selectedVariantLabel,
+        language: detail.language,
       });
       if (ebayUrl) {
         capturePostHogEvent('pricing_link_opened', { marketplace: 'ebay', lane: 'graded' });
@@ -703,6 +704,7 @@ export function CardDetailScreen({
         // Scope sold comps to the selected printing/edition (1st Edition vs
         // Unlimited) so the recent-sales list isn't a mix of both.
         variant: selectedVariantLabel,
+        language: detail.language,
       });
       if (ebayUrl) {
         capturePostHogEvent('pricing_link_opened', { marketplace: 'ebay', lane: 'graded' });

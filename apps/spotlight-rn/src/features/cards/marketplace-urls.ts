@@ -293,18 +293,27 @@ export function buildEbaySearchUrl(params: {
   grade?: string | null;
   /** Selected printing/edition label, e.g. "First Edition Holofoil" or "Unlimited Holofoil". */
   variant?: string | null;
+  /** Card language ('english' | 'japanese'); scopes the query for JP cards. */
+  language?: string | null;
 }) {
   const graderToken = cleanedMarketplaceToken(params.grader);
   const gradeToken = cleanedMarketplaceToken(params.grade);
   const editionToken = editionKeywordToken(params.variant);
+  const isJapanese = (params.language ?? '').toLowerCase() === 'japanese';
 
-  // Drop the collector number for VINTAGE GRADED cards (an edition qualifier +
-  // a grade are present). Slab sellers title these by name+set+grade and omit
-  // the number (the slab shows it), so requiring it as keywords ("9 111") zeroes
-  // out the sold search. Name+set+edition already uniquely identifies a vintage
-  // card. Modern graded (no edition) KEEPS the number — there it separates
-  // same-name prints (alt art vs regular), which modern slab titles include.
-  const dropCollectorNumber = Boolean(editionToken && gradeToken);
+  // For Japanese cards add a "Japanese" keyword — US eBay listings of JP cards
+  // almost always say so, and it's what separates e.g. a JP Shiny Collection
+  // Growlithe from the famous ENGLISH Base Set 1st-Edition Growlithe (which the
+  // name+edition query would otherwise collide with). The JP set name is in
+  // Japanese script and gets stripped from keywords, so "Japanese" + the number
+  // carry the disambiguation instead.
+  const languageToken = isJapanese ? 'Japanese' : null;
+
+  // Drop the collector number for VINTAGE ENGLISH GRADED cards (edition + grade
+  // present): slab sellers title those by name+set+grade and omit the number, so
+  // requiring it zeroes the search. But KEEP it for Japanese graded (JP slab
+  // titles include "004/020") and for modern graded (separates alt-art prints).
+  const dropCollectorNumber = !isJapanese && Boolean(editionToken && gradeToken);
   const numberToken = dropCollectorNumber
     ? null
     : cleanedMarketplaceToken(params.cardNumber.replace(/^#/, ''));
@@ -323,6 +332,7 @@ export function buildEbaySearchUrl(params: {
     // Grader + grade first so the search lands on graded sales of this exact card.
     gradeTerm,
     cleanedMarketplaceToken(params.name),
+    languageToken,
     numberToken,
     cleanedMarketplaceToken(params.setName),
     // Edition qualifier LAST, appended raw (not through cleanedMarketplaceToken,
