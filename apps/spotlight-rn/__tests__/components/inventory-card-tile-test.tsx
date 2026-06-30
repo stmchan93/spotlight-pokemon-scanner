@@ -123,15 +123,19 @@ describe('InventoryCardTile', () => {
     expect(screen.queryByText('- $3.99')).toBeNull();
   });
 
-  it('renders a selection overlay when selected is true', () => {
-    renderTile({ selected: true });
+  it('shows the selection check-circle badge (not a purple overlay) in selectable mode', () => {
+    renderTile({ selectable: true, selected: true });
 
-    expect(screen.getByTestId('tile-selection-overlay')).toBeTruthy();
+    // Selection now reads via the check-circle badge in the top-right slot…
+    expect(screen.getByTestId('tile-select')).toBeTruthy();
+    // …and the old purple square border + veil overlay are gone.
+    expect(screen.queryByTestId('tile-selection-overlay')).toBeNull();
   });
 
-  it('does not render a selection overlay when selected is false', () => {
-    renderTile({ selected: false });
+  it('renders no selection badge or overlay when not in selectable mode', () => {
+    renderTile({ selectable: false, selected: true });
 
+    expect(screen.queryByTestId('tile-select')).toBeNull();
     expect(screen.queryByTestId('tile-selection-overlay')).toBeNull();
   });
 

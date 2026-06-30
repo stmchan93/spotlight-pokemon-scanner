@@ -165,14 +165,7 @@ export function InventoryCardTile({
     >
       <View style={styles.cardContent}>
         <View
-          style={[
-            styles.imageFrame,
-            {
-              borderRadius: artRadius,
-              borderColor: selected ? theme.colors.brand : 'transparent',
-              borderWidth: selected ? 2 : 0,
-            },
-          ]}
+          style={[styles.imageFrame, { borderRadius: artRadius }]}
           testID={testID ? `${testID}-image-frame` : undefined}
         >
           {imageUrl ? (
@@ -193,20 +186,6 @@ export function InventoryCardTile({
               </AppText>
             </View>
           )}
-
-          {selected ? (
-            <View
-              pointerEvents="none"
-              style={[
-                styles.selectionVeil,
-                {
-                  backgroundColor: 'rgba(217, 174, 255, 0.16)',
-                  borderRadius: artRadius,
-                },
-              ]}
-              testID={testID ? `${testID}-selection-overlay` : undefined}
-            />
-          ) : null}
         </View>
 
         <View style={styles.copyStack}>
@@ -438,9 +417,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     marginTop: 4,
-  },
-  selectionVeil: {
-    ...StyleSheet.absoluteFillObject,
   },
   starBadge: {
     position: 'absolute',
