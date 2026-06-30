@@ -20,6 +20,7 @@ export * from './components/search-field';
 export * from './components/screen-header';
 export * from './components/segmented-control';
 export * from './components/section-header';
+export * from './components/selection-check-circle';
 export * from './components/sheet-header';
 export * from './components/sheet-surface';
 export * from './components/skeleton-block';

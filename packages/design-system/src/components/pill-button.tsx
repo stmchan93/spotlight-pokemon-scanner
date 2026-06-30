@@ -14,8 +14,8 @@ type PillButtonProps = {
   /**
    * Visual tone. 'default' is the brand-yellow pill used in chart range pills,
    * filter modal etc. 'filter' is the chip used in the Collection / Sales chip
-   * rows: white fill in both states, with the active chip marked by a strong
-   * purple (#7000FF) border instead of the inactive gray border.
+   * rows: a white pill when inactive and a solid black (gray900) pill with a
+   * white label when selected (Figma — selected chips read black, not purple).
    */
   tone?: PillButtonTone;
 };
@@ -35,14 +35,16 @@ export function PillButton({
   const labelStyle = tone === 'filter' ? theme.typography.label : theme.typography.control;
 
   const backgroundColor = tone === 'filter'
-    ? theme.colors.gray0
+    ? (selected ? theme.colors.gray900 : theme.colors.gray0)
     : (selected ? theme.colors.brand : theme.colors.field);
 
   const borderColor = tone === 'filter'
-    ? (selected ? theme.colors.brandStrong : theme.colors.gray300)
+    ? (selected ? theme.colors.gray900 : theme.colors.gray300)
     : (selected ? theme.colors.brand : theme.colors.outlineSubtle);
 
-  const labelColor = tone === 'filter' ? theme.colors.gray900 : theme.colors.textPrimary;
+  const labelColor = tone === 'filter'
+    ? (selected ? theme.colors.gray0 : theme.colors.gray900)
+    : theme.colors.textPrimary;
 
   return (
     <Pressable

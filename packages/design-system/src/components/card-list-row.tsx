@@ -3,6 +3,7 @@ import { Image, Pressable, StyleSheet, View } from 'react-native';
 
 import { useSpotlightTheme } from '../theme';
 import { AppText } from './app-text';
+import { SelectionCheckCircle } from './selection-check-circle';
 
 export type CardListRowProps = {
   imageUrl: string | null;
@@ -31,7 +32,22 @@ export type CardListRowProps = {
    * instead of stacking two borders between adjacent rows.
    */
   firstInSection?: boolean;
+  /**
+   * Selection state for the leading check-circle (only rendered when
+   * `selectable` is true).
+   */
+  selected?: boolean;
+  /**
+   * When true, a selection check-circle renders as a leading element on the far
+   * left of the row (before the thumbnail) reflecting `selected`. Used for
+   * multi-select edit mode.
+   */
+  selectable?: boolean;
   onPress?: () => void;
+  /** Long-press handler (e.g. opens the card actions menu). */
+  onLongPress?: () => void;
+  /** Long-press delay in ms; defaults to the Pressable default (~500). */
+  delayLongPress?: number;
   testID?: string;
 };
 
@@ -70,7 +86,11 @@ export function CardListRow({
   showQuantity = true,
   showThumbnail = true,
   firstInSection = false,
+  selected = false,
+  selectable = false,
   onPress,
+  onLongPress,
+  delayLongPress,
   testID,
 }: CardListRowProps) {
   const theme = useSpotlightTheme();
@@ -98,6 +118,8 @@ export function CardListRow({
     ? {
         accessibilityRole: 'button' as const,
         onPress,
+        onLongPress,
+        delayLongPress,
         style: ({ pressed }: { pressed: boolean }) => [
           styles.row,
           {
@@ -121,6 +143,15 @@ export function CardListRow({
 
   return (
     <Container {...containerProps}>
+      {selectable ? (
+        <View
+          style={styles.selectLeading}
+          testID={testID ? `${testID}-select` : undefined}
+        >
+          <SelectionCheckCircle selected={!!selected} />
+        </View>
+      ) : null}
+
       {showThumbnail ? (
         <View
           style={[
@@ -245,6 +276,10 @@ const styles = StyleSheet.create({
     gap: 4,
     justifyContent: 'center',
     marginLeft: 8,
+  },
+  selectLeading: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   row: {
     alignItems: 'center',

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import {
+  Animated,
   Pressable,
   StyleSheet,
   Text,
@@ -28,32 +29,53 @@ export type BottomTabBarItem = {
 type BottomTabBarProps = {
   items: readonly BottomTabBarItem[];
   bottomInset?: number;
+  /**
+   * iOS 26-style "minimize on scroll" signal (0 = expanded, 1 = hidden). When
+   * provided, the bar slides down by its full height and fades out as the value
+   * approaches 1, so it disappears on scroll-down and returns on scroll-up.
+   */
+  collapseProgress?: Animated.Value;
   style?: ViewStyle;
   testID?: string;
 };
 
 /**
  * Anchored bottom navigation bar. Sits flush against the screen's bottom
- * edge with a 1px top border, full screen width, and an icon-over-label
- * layout per tab. Distinct from `FloatingBottomNav`, which renders a pill
- * floating above content.
+ * edge, full screen width, with an icon-over-label layout per tab. Distinct
+ * from `FloatingBottomNav`, which renders a pill floating above content.
  */
 export function BottomTabBar({
   items,
   bottomInset = 0,
+  collapseProgress,
   style,
   testID,
 }: BottomTabBarProps) {
   const theme = useSpotlightTheme();
 
+  // Slide the whole bar (visible height + safe-area inset) below the screen and
+  // fade it as the collapse signal climbs to 1; absent the signal it's static.
+  const collapseDistance = bottomTabBarHeight + bottomInset;
+  const translateY = collapseProgress
+    ? collapseProgress.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0, collapseDistance],
+        extrapolate: 'clamp',
+      })
+    : 0;
+  const opacity = collapseProgress
+    ? collapseProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 0], extrapolate: 'clamp' })
+    : 1;
+
   return (
-    <View
+    <Animated.View
       style={[
         styles.bar,
         {
           backgroundColor: theme.colors.canvasElevated,
-          borderTopColor: theme.colors.gray100,
+          opacity,
           paddingBottom: bottomInset,
+          transform: [{ translateY }],
         },
         style,
       ]}
@@ -84,13 +106,12 @@ export function BottomTabBar({
           );
         })}
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   bar: {
-    borderTopWidth: 1,
     bottom: 0,
     left: 0,
     position: 'absolute',

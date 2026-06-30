@@ -3,6 +3,7 @@ import { Image, Pressable, StyleSheet, View } from 'react-native';
 
 import { useSpotlightTheme } from '../theme';
 import { AppText } from './app-text';
+import { SelectionCheckCircle } from './selection-check-circle';
 
 export type InventoryCardTileKind = 'raw' | 'slab';
 
@@ -29,6 +30,12 @@ export type InventoryCardTileProps = {
   showFavorite?: boolean;
   selected?: boolean;
   /**
+   * When true, a selection check-circle renders in the tile's top-right corner
+   * (the favorite-star slot) reflecting `selected`. Used for multi-select edit
+   * mode; takes the badge slot from the favorite star while active.
+   */
+  selectable?: boolean;
+  /**
    * When true (default) the tile is a self-contained card: gray50 fill, a
    * gray100 hairline border, and rounded shell corners. When false the tile is
    * "plain" — no fill, no shell border, no shell rounding — for ruled-grid
@@ -39,6 +46,8 @@ export type InventoryCardTileProps = {
   bordered?: boolean;
   onPress: () => void;
   onLongPress?: () => void;
+  /** Long-press delay in ms. Defaults to 220 (a quick press-and-hold). */
+  delayLongPress?: number;
   /**
    * When true, renders a "Live on eBay" footer below the price row with a
    * small live-dot, the label, and an arrow-up-right icon. Tile grows by ~38px
@@ -53,7 +62,7 @@ export type InventoryCardTileProps = {
   testID?: string;
 };
 
-function formatCardNumberWithHash(value: string | null): string | null {
+function formatCardNumber(value: string | null): string | null {
   if (value == null) {
     return null;
   }
@@ -61,12 +70,13 @@ function formatCardNumberWithHash(value: string | null): string | null {
   if (!trimmed) {
     return null;
   }
-  return `#${trimmed.replace(/^#/, '')}`;
+  // Bare collector number, no "#" prefix (matches the PDP identity + Figma).
+  return trimmed.replace(/^#/, '');
 }
 
 function buildSetLine(setName: string, cardNumber: string | null) {
   const trimmedSet = setName.trim();
-  const formattedNumber = formatCardNumberWithHash(cardNumber);
+  const formattedNumber = formatCardNumber(cardNumber);
   if (trimmedSet && formattedNumber) {
     return `${formattedNumber} · ${trimmedSet}`;
   }
@@ -109,9 +119,11 @@ export function InventoryCardTile({
   isFavorite,
   showFavorite = true,
   selected = false,
+  selectable = false,
   bordered = true,
   onPress,
   onLongPress,
+  delayLongPress = 220,
   liveOnEbay = false,
   onOpenListing,
   testID,
@@ -136,7 +148,7 @@ export function InventoryCardTile({
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ selected }}
-      delayLongPress={220}
+      delayLongPress={delayLongPress}
       onLongPress={onLongPress}
       onPress={onPress}
       style={({ pressed }) => [
@@ -290,7 +302,6 @@ export function InventoryCardTile({
               style={({ pressed }) => [
                 styles.ebayFooter,
                 {
-                  borderTopColor: theme.colors.gray200,
                   opacity: pressed && onOpenListing ? 0.7 : 1,
                 },
               ]}
@@ -320,10 +331,23 @@ export function InventoryCardTile({
         </View>
       </View>
 
+      {/* In edit/multi-select mode the selection check-circle takes the
+          top-right badge slot (replacing the favorite star) so selection state
+          reads in the same spot the star otherwise occupies. */}
+      {selectable ? (
+        <View
+          pointerEvents="none"
+          style={styles.starBadge}
+          testID={testID ? `${testID}-select` : undefined}
+        >
+          <SelectionCheckCircle selected={selected} />
+        </View>
+      ) : null}
+
       {/* Star sits on the wrapper (not the imageFrame) so it has consistent
           breathing room (8px) from the card art and visually floats in the
           gray padding area at the top-right of the tile. */}
-      {showFavorite ? (
+      {!selectable && showFavorite ? (
         <View
           pointerEvents="none"
           style={styles.starBadge}
