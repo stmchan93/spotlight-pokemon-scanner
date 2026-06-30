@@ -13,7 +13,6 @@ import {
   ArrowDown,
   ArrowUp,
   CheckCircle,
-  Filter as FilterIcon,
   Trash,
 } from 'iconoir-react-native';
 import { Swipeable } from 'react-native-gesture-handler';
@@ -396,9 +395,6 @@ export function WishlistScreen() {
               returnKeyType="search"
               size="collection"
               surface="muted"
-              trailing={(
-                <FilterIcon color={theme.colors.gray500} height={16} width={16} />
-              )}
               value={query}
             />
           </View>
