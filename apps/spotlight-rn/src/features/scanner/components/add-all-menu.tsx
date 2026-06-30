@@ -1,5 +1,5 @@
 import { Dimensions, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { GridPlus, Heart, Trash } from 'iconoir-react-native';
+import { GridPlus, Bookmark, Trash } from 'iconoir-react-native';
 
 import { useSpotlightTheme } from '@spotlight/design-system';
 
@@ -68,7 +68,7 @@ export function AddAllMenu({
           styles.card,
           {
             backgroundColor: theme.colors.gray0,
-            borderRadius: theme.radii.md,
+            borderRadius: theme.radii.xl,
             left,
             top,
           },
@@ -76,7 +76,7 @@ export function AddAllMenu({
         testID={testID}
       >
         <Pressable
-          accessibilityLabel="Add all to collection"
+          accessibilityLabel="Add to collection"
           accessibilityRole="button"
           onPress={() => onSelect('collection')}
           style={({ pressed }) => [styles.row, { opacity: pressed ? 0.6 : 1 }]}
@@ -89,20 +89,20 @@ export function AddAllMenu({
         </Pressable>
 
         <Pressable
-          accessibilityLabel="Add all to wishlist"
+          accessibilityLabel="Add to wishlist"
           accessibilityRole="button"
           onPress={() => onSelect('wishlist')}
           style={({ pressed }) => [styles.row, { opacity: pressed ? 0.6 : 1 }]}
           testID={`${testID}-wishlist`}
         >
-          <Heart color={theme.colors.gray900} height={18} width={18} />
+          <Bookmark color={theme.colors.gray900} height={18} width={18} />
           <Text style={[theme.typography.body, styles.label, { color: theme.colors.gray900 }]}>
             Wishlist
           </Text>
         </Pressable>
 
         <Pressable
-          accessibilityLabel="Remove all"
+          accessibilityLabel="Delete"
           accessibilityRole="button"
           onPress={() => onSelect('remove')}
           style={({ pressed }) => [styles.row, { opacity: pressed ? 0.6 : 1 }]}
@@ -110,7 +110,7 @@ export function AddAllMenu({
         >
           <Trash color={theme.colors.dangerStrong} height={18} width={18} />
           <Text style={[theme.typography.body, styles.label, { color: theme.colors.dangerStrong }]}>
-            Remove
+            Delete
           </Text>
         </Pressable>
       </View>

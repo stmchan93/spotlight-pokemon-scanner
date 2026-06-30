@@ -355,6 +355,8 @@ export function ScannerScreen({
   const [addAllMenuOpen, setAddAllMenuOpen] = useState(false);
   const [addAllAnchor, setAddAllAnchor] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [addAllConfirm, setAddAllConfirm] = useState<AddAllMenuAction | null>(null);
+  const [rowMenuCaptureId, setRowMenuCaptureId] = useState<string | null>(null);
+  const [rowMenuAnchor, setRowMenuAnchor] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const addAllTriggerRef = useRef<View | null>(null);
   const lastBulkActionRef = useRef<AddAllMenuAction>('collection');
   const { cardType, setCardType } = useScannerTargetConfig();
@@ -1883,6 +1885,16 @@ export function ScannerScreen({
     setAddAllConfirm(action);
   }, []);
 
+  // Per-row "ADD ▾" pick -> run the action immediately (no confirm sheet).
+  const handleRowMenuSelect = useCallback((action: AddAllMenuAction) => {
+    const captureId = rowMenuCaptureId;
+    setRowMenuCaptureId(null);
+    if (!captureId) return;
+    if (action === 'collection') handleRowAddToCollection(captureId);
+    else if (action === 'wishlist') void handleRowWishlist(captureId);
+    else if (action === 'remove') deleteRecentCapture(captureId);
+  }, [rowMenuCaptureId, handleRowAddToCollection, handleRowWishlist, deleteRecentCapture]);
+
   const handleAddAllConfirm = useCallback(() => {
     const action = addAllConfirm;
     setAddAllConfirm(null);
@@ -1909,7 +1921,7 @@ export function ScannerScreen({
   const itemWord = (count: number) => (count === 1 ? 'item' : 'items');
   const bulkConfirmConfig = activeBulkAction === 'remove'
     ? {
-        title: `Remove ${removeCount} ${itemWord(removeCount)}?`,
+        title: `Delete ${removeCount} ${itemWord(removeCount)}?`,
         description: 'These items will be removed from this scan session.',
         confirmLabel: 'Remove',
         confirmVariant: 'destructive' as const,
@@ -2289,21 +2301,22 @@ export function ScannerScreen({
                 </View>
               </Pressable>
               <Pressable
-                accessibilityLabel={`Add ${candidate.name} to wishlist`}
+                accessibilityLabel={`Add ${candidate.name}`}
                 accessibilityRole="button"
                 hitSlop={6}
-                onPress={() => {
-                  void handleRowWishlist(capture.id);
+                onPress={(event) => {
+                  event.currentTarget.measureInWindow((x, y, width, height) => {
+                    setRowMenuAnchor({ x, y, width, height });
+                    setRowMenuCaptureId(capture.id);
+                  });
                 }}
                 style={({ pressed }) => [
-                  styles.captureWishlistPill,
-                  pressed ? styles.captureWishlistPillPressed : null,
+                  styles.captureAddPill,
+                  pressed ? styles.captureAddPillPressed : null,
                 ]}
-                testID={`scanner-tray-wishlist-${index}`}
+                testID={`scanner-tray-add-${index}`}
               >
-                <Text style={styles.captureWishlistPillLabel}>
-                  {(candidate.isFavorite ?? false) ? 'WISHLISTED' : 'WISHLIST'}
-                </Text>
+                <Text style={styles.captureAddPillLabel}>ADD ▾</Text>
               </Pressable>
             </View>
           ) : null}
@@ -2620,6 +2633,14 @@ export function ScannerScreen({
         visible={addAllMenuOpen}
       />
 
+      <AddAllMenu
+        anchor={rowMenuAnchor}
+        onClose={() => setRowMenuCaptureId(null)}
+        onSelect={handleRowMenuSelect}
+        testID="scanner-row-add-menu"
+        visible={rowMenuCaptureId != null}
+      />
+
       <ScanBulkConfirmSheet
         confirmLabel={bulkConfirmConfig.confirmLabel}
         confirmVariant={bulkConfirmConfig.confirmVariant}
@@ -2863,9 +2884,9 @@ const styles = StyleSheet.create({
     // fits without overflowing the right column into the title/price area.
     width: 108,
   },
-  captureWishlistPill: {
-    // Figma "Tag Button Container" (node 1511:4096): purple/500 #A54BFA,
-    // px-12/py-4, radius-8, Plus Jakarta Sans SemiBold 13, white label.
+  captureAddPill: {
+    // Figma "ADD ▾" pill: filled purple/500 #A54BFA, px-12/py-4, radius-8,
+    // Plus Jakarta Sans SemiBold 13, white label.
     alignItems: 'center',
     backgroundColor: colors.scannerAddPurple,
     borderRadius: radii.sm,
@@ -2874,12 +2895,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 4,
   },
-  captureWishlistPillPressed: {
+  captureAddPillPressed: {
     // Press-down feedback (scale 1 → 0.94), matching the other tray controls.
     opacity: 0.78,
     transform: [{ scale: 0.94 }],
   },
-  captureWishlistPillLabel: {
+  captureAddPillLabel: {
     color: colors.scannerTextPrimary,
     fontFamily: fontFamilies.bodySemiBold,
     fontSize: 13,

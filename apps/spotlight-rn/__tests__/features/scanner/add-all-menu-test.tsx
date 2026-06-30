@@ -30,7 +30,7 @@ describe('AddAllMenu', () => {
     expect(screen.getByTestId('add-all-menu-remove')).toBeTruthy();
     expect(screen.getByText('Collection')).toBeTruthy();
     expect(screen.getByText('Wishlist')).toBeTruthy();
-    expect(screen.getByText('Remove')).toBeTruthy();
+    expect(screen.getByText('Delete')).toBeTruthy();
   });
 
   it('fires onSelect with the matching action for each row', () => {

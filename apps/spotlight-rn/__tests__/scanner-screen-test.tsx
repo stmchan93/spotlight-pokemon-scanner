@@ -1207,7 +1207,7 @@ describe('ScannerScreen', () => {
     }, { timeout: 2500 });
   });
 
-  it('wishlists a scanned card via the row WISHLIST pill, then slides it out of the tray', async () => {
+  it('wishlists a scanned card via the row ADD menu, then slides it out of the tray', async () => {
     const setCardFavorite = jest.fn(async (cardId: string, isFavorite?: boolean | null) => ({
       cardId,
       favoritedAt: (isFavorite ?? true) ? '2026-05-15T00:00:00.000Z' : null,
@@ -1237,10 +1237,18 @@ describe('ScannerScreen', () => {
 
     expect(await screen.findByText('Froakie')).toBeTruthy();
 
-    // The inline WISHLIST pill (Figma 1511:4096) favorites the active candidate.
-    const wishlistPill = await screen.findByTestId('scanner-tray-wishlist-0');
-    expect(wishlistPill).toHaveTextContent('WISHLIST');
-    fireEvent.press(wishlistPill);
+    // The inline ADD ▾ pill opens the per-row menu; picking Wishlist favorites
+    // the active candidate immediately (no confirm sheet).
+    const addPill = await screen.findByTestId('scanner-tray-add-0');
+    expect(addPill).toHaveTextContent('ADD ▾');
+    fireEvent.press(addPill, {
+      currentTarget: {
+        measureInWindow: (cb: (x: number, y: number, w: number, h: number) => void) =>
+          cb(0, 0, 0, 0),
+      },
+    });
+
+    fireEvent.press(await screen.findByTestId('scanner-row-add-menu-wishlist'));
 
     await waitFor(() => {
       expect(setCardFavorite).toHaveBeenCalledWith('mcdonalds25-22', true);
