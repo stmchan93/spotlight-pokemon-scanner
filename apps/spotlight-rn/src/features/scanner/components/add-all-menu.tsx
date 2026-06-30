@@ -81,7 +81,7 @@ export function AddAllMenu({
           styles.card,
           {
             backgroundColor: theme.colors.gray0,
-            borderRadius: theme.radii.xl,
+            borderRadius: 0,
             left,
             ...verticalStyle,
           },

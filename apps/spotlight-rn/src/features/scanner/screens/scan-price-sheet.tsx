@@ -229,7 +229,7 @@ export function ScanPriceSheet({
             },
           ]}
         >
-          <SurfaceCard padding={18} radius={24} style={styles.sheet}>
+          <SurfaceCard padding={18} radius={0} style={styles.sheet}>
             <SheetHeader
               showHandle
               title={headerTitle}

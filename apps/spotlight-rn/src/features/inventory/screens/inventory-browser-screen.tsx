@@ -466,7 +466,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   filterSheet: {
-    borderRadius: 18,
+    borderRadius: 0,
     borderWidth: 1,
     gap: 4,
     padding: 16,

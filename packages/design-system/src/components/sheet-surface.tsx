@@ -42,8 +42,8 @@ export function SheetSurface({
           padding,
           backgroundColor: surfaceColor,
           borderColor,
-          borderTopLeftRadius: theme.radii.xxl,
-          borderTopRightRadius: theme.radii.xxl,
+          borderTopLeftRadius: 0,
+          borderTopRightRadius: 0,
         },
         style,
       ]}
