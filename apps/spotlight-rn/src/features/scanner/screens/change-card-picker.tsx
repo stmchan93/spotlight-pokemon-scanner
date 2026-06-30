@@ -501,6 +501,7 @@ const styles = StyleSheet.create({
     color: colors.gray0,
     fontFamily: 'SpotlightBodySemiBold',
     fontSize: 13,
+    textAlign: 'center',
   },
   heroImage: {
     borderRadius: 8,
