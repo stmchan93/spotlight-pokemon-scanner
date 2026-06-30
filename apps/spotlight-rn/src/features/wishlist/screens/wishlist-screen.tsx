@@ -588,7 +588,7 @@ export function WishlistScreen() {
       <ConfirmDeleteSheet
         confirmLabel="Remove"
         confirmPending={isDeleting}
-        message={`You're about to remove ${selectedCount} card${selectedCount === 1 ? '' : 's'} from your Wishlist. This just un-favorites them — your Collection isn't affected.`}
+        message={`You're about to remove ${selectedCount} card${selectedCount === 1 ? '' : 's'} from your Wishlist. Are you sure you want to proceed?`}
         onClose={() => setDeleteConfirmOpen(false)}
         onConfirm={handleConfirmBulkRemove}
         testID="wishlist-bulk-remove-sheet"
