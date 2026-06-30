@@ -14,7 +14,7 @@ import { CheckCircle, EditPencil, Menu as MenuIcon, Trash } from 'iconoir-react-
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { InventoryCardEntry } from '@spotlight/api-client';
-import { StateCard, useSpotlightTheme } from '@spotlight/design-system';
+import { IconButton, StateCard, useSpotlightTheme } from '@spotlight/design-system';
 
 import {
   PortfolioChartCard,
@@ -518,16 +518,15 @@ export function PortfolioScreen({
       {editMode ? (
         <EditDoneButton onPress={handleExitEditMode} testID="portfolio-header-done" />
       ) : (
-        <Pressable
+        <IconButton
           accessibilityLabel="Edit collection"
-          accessibilityRole="button"
-          hitSlop={12}
           onPress={() => setEditMode(true)}
-          style={[styles.headerIcon, styles.headerRight]}
+          size={36}
           testID="portfolio-header-edit"
+          variant="subtle"
         >
-          <EditPencil color={theme.colors.gray900} height={22} width={22} />
-        </Pressable>
+          <EditPencil color={theme.colors.gray900} height={20} width={20} />
+        </IconButton>
       )}
     </View>
   );
@@ -813,11 +812,6 @@ const styles = StyleSheet.create({
   headerIcon: {
     height: 24,
     width: 24,
-  },
-  headerRight: {
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-    minWidth: 24,
   },
   headerTitle: {
     flex: 1,
