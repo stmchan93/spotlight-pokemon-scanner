@@ -18,6 +18,12 @@ import { useSpotlightTheme } from '@spotlight/design-system';
 type CardActionsSheetProps = {
   visible: boolean;
   onClose: () => void;
+  /**
+   * Fires after the native modal view controller has fully dismissed (iOS). Use
+   * this to present a follow-up native sheet (e.g. the Share sheet) safely —
+   * presenting while this modal is still dismissing freezes the screen.
+   */
+  onDismiss?: () => void;
   /** Card name shown as the centered title. */
   title: string;
   onEdit: () => void;
@@ -39,6 +45,7 @@ const SCREEN_HEIGHT = Dimensions.get('window').height;
 export function CardActionsSheet({
   visible,
   onClose,
+  onDismiss,
   title,
   onEdit,
   onDuplicate,
@@ -124,6 +131,7 @@ export function CardActionsSheet({
   return (
     <Modal
       animationType="none"
+      onDismiss={onDismiss}
       onRequestClose={onClose}
       presentationStyle="overFullScreen"
       statusBarTranslucent

@@ -176,6 +176,11 @@ export function PortfolioScreen({
   // Long-press card actions menu (Figma 1696:8708): the entry whose menu is
   // open, plus the entry pending single-delete confirmation.
   const [actionMenuEntry, setActionMenuEntry] = useState<InventoryCardEntry | null>(null);
+  // An action to run only AFTER the actions menu's native modal has fully
+  // dismissed — used by Share, since presenting the native share sheet while the
+  // modal is still tearing down freezes the screen. Fired from <CardActionsSheet
+  // onDismiss>.
+  const pendingDismissActionRef = useRef<(() => void) | null>(null);
   const [singleDeleteEntry, setSingleDeleteEntry] = useState<InventoryCardEntry | null>(null);
   const [isSingleDeleting, setIsSingleDeleting] = useState(false);
   const scrollRef = useRef<FlatList<CollectionRow>>(null);
@@ -321,8 +326,8 @@ export function PortfolioScreen({
 
   const handleMenuShare = useCallback(() => {
     const entry = actionMenuEntry;
-    setActionMenuEntry(null);
     if (!entry) {
+      setActionMenuEntry(null);
       return;
     }
     const message = [entry.name, entry.cardNumber, entry.setName]
@@ -330,16 +335,22 @@ export function PortfolioScreen({
       .filter(Boolean)
       .join(' · ');
     const url = entry.listingUrl ?? undefined;
-    // Present the native share sheet only AFTER the actions modal has finished
-    // dismissing. Firing Share.share() in the same tick races iOS: it tries to
-    // present UIActivityViewController while the RN modal's view controller is
-    // still on screen / mid-dismiss, so the share sheet flashes and gets torn
-    // down with the modal, leaving an orphaned presentation = frozen screen.
-    // 280ms clears the sheet's 200ms close animation (same as handleMenuDelete).
-    setTimeout(() => {
+    // Present the native share sheet only AFTER the actions modal's view
+    // controller has fully dismissed — presenting UIActivityViewController while
+    // the RN modal is still tearing down freezes the screen. Queue it and let
+    // <CardActionsSheet onDismiss> fire it (the deterministic dismissal signal);
+    // closing the menu triggers that dismissal.
+    pendingDismissActionRef.current = () => {
       void Share.share(url ? { message, url } : { message }).catch(() => undefined);
-    }, 280);
+    };
+    setActionMenuEntry(null);
   }, [actionMenuEntry]);
+
+  const handleActionMenuDismissed = useCallback(() => {
+    const run = pendingDismissActionRef.current;
+    pendingDismissActionRef.current = null;
+    run?.();
+  }, []);
 
   const handleMenuWishlist = useCallback(() => {
     const entry = actionMenuEntry;
@@ -754,6 +765,7 @@ export function PortfolioScreen({
 
       <CardActionsSheet
         onClose={closeActionMenu}
+        onDismiss={handleActionMenuDismissed}
         onDelete={handleMenuDelete}
         onDuplicate={handleMenuDuplicate}
         onEdit={handleMenuEdit}
