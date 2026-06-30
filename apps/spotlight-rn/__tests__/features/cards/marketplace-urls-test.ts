@@ -477,7 +477,7 @@ describe('buildEbaySearchUrl', () => {
     expect(withVariant).not.toContain('Edition');
   });
 
-  it('keeps the collector number for a vintage 1st Edition graded card', () => {
+  it('drops the collector number for a vintage 1st Edition graded card', () => {
     const url = buildEbaySearchUrl({
       name: 'Lugia',
       setName: 'Neo Genesis',
@@ -490,10 +490,10 @@ describe('buildEbaySearchUrl', () => {
     expect(url).toContain('Neo+Genesis');
     // Edition is matched by the bare "1st" token (also catches "1st Ed" titles).
     expect(url).toContain('1st');
-    // Real vintage slab titles include the collector number (e.g. "Lugia 9/111"),
-    // and the quoted grade ("PSA 10") already prevents the bare-number collision
-    // the old drop guarded against — so keep the number for precision.
-    expect(url).toContain('111');
+    // The number is dropped for vintage graded: eBay AND-requires "9" AND "111",
+    // and requiring both (on top of the set name) over-constrains and zeroes the
+    // search. Name + set + grade + edition is tight enough for vintage.
+    expect(url).not.toContain('111');
   });
 
   it('keeps the collector number for a modern graded card (no edition qualifier)', () => {
@@ -510,7 +510,7 @@ describe('buildEbaySearchUrl', () => {
     expect(url).toContain('203');
   });
 
-  it('keeps the collector number and excludes every 1st-edition wording for a vintage Unlimited graded card', () => {
+  it('drops the collector number and excludes every 1st-edition wording for a vintage Unlimited graded card', () => {
     const url = buildEbaySearchUrl({
       name: 'Charizard',
       setName: 'Base Set',
@@ -523,7 +523,8 @@ describe('buildEbaySearchUrl', () => {
     // so a differently-worded 1st-edition sale can't leak into the Unlimited comps.
     expect(url).toContain('-1st');
     expect(url).toContain('-%22first+edition%22');
-    expect(url).toContain('102');
+    // Number dropped for vintage graded (see the 1st-Edition case above).
+    expect(url).not.toContain('102');
   });
 
   it('excludes a "1st Ed"-worded listing from an Unlimited search (leak regression)', () => {

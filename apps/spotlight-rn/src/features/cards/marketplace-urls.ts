@@ -314,14 +314,22 @@ export function buildEbaySearchUrl(params: {
   // carry the disambiguation instead.
   const languageToken = isJapanese ? 'Japanese' : null;
 
-  // KEEP the collector number for all cards. Reverse-engineering real sold titles
-  // shows slab sellers DO include it even on vintage graded ("Haunter 6/62",
-  // "Machamp 8/102", "Gengar #5/62", "Lugia 9/111"), and it's the strongest
-  // same-name/wrong-print/wrong-language disambiguator. (We used to drop it for
-  // vintage graded to avoid a bare grade number colliding — but quoting the grade
-  // below as "PSA 9" already removed that collision, so the drop only lost
-  // precision.)
-  const numberToken = cleanedMarketplaceToken(params.cardNumber.replace(/^#/, ''));
+  // Collector number handling. eBay AND-requires EVERY keyword, and "9/111"
+  // tokenizes into TWO required tokens ("9" AND "111"). Slab sellers word the
+  // number inconsistently (9/111, #9, or omit the denominator), so on a vintage
+  // graded card — where the set name + edition already pin the card — requiring
+  // both number tokens over-constrains and zeroes the search (observed live on
+  // Neo Genesis Lugia 9/111). So DROP the number for VINTAGE ENGLISH GRADED
+  // (edition + grade present); name + set + grade + edition is tight enough for
+  // vintage (same-name/same-set print variants barely exist there) and reliably
+  // has sold comps. KEEP it where it actually disambiguates and is reliably
+  // titled: modern graded (separates alt-art vs regular same-set prints) and
+  // Japanese (the JP set name is non-Latin script that gets stripped, so the
+  // number carries the disambiguation alongside the "Japanese" keyword).
+  const dropCollectorNumber = !isJapanese && Boolean(editionToken && gradeToken);
+  const numberToken = dropCollectorNumber
+    ? null
+    : cleanedMarketplaceToken(params.cardNumber.replace(/^#/, ''));
 
   // Quote the grader+grade as an EXACT phrase (e.g. "PSA 3") so eBay matches the grade
   // strictly. As loose keywords, eBay relaxes the low-signal grade number — a bare "3"
