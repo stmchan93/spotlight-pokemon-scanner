@@ -259,19 +259,24 @@ _scan_inference_semaphore = threading.BoundedSemaphore(SCAN_INFERENCE_MAX_CONCUR
 # (dashboard, history, ledger, deck entries) run at once so a concurrency spike
 # fails FAST with a retryable 503 instead of every request piling up on disk I/O
 # and cascading into multi-second/60s hangs (load testing showed these endpoints
-# are ~1s solo but collapse under ~30 concurrent readers). Default scales with
-# cores; override with SPOTLIGHT_MAX_CONCURRENT_HEAVY_READS.
+# are ~1s solo but collapse under ~30 concurrent readers). The cap is kept at ~one
+# per core (NOT cores×2): these reads bottleneck on a single disk, and a cold
+# portfolio/history read re-scans a 27M-row table — letting too many run at once
+# thrashes I/O and lets none finish, whereas a tight cap lets the first warm the
+# page cache so the rest return fast. Scales with cores; override with
+# SPOTLIGHT_MAX_CONCURRENT_HEAVY_READS.
 HEAVY_READ_MAX_CONCURRENCY = max(
     2,
     int(
         os.environ.get("SPOTLIGHT_MAX_CONCURRENT_HEAVY_READS")
-        or max(4, (os.cpu_count() or 2) * 2)
+        or (os.cpu_count() or 2)
     ),
 )
 # Short wait: a queued read that can't get a slot in time returns 503 quickly
-# rather than hanging. Override with SPOTLIGHT_HEAVY_READ_ACQUIRE_TIMEOUT_S.
+# (the client retries silently) rather than hanging. Override with
+# SPOTLIGHT_HEAVY_READ_ACQUIRE_TIMEOUT_S.
 HEAVY_READ_ACQUIRE_TIMEOUT_S = float(
-    os.environ.get("SPOTLIGHT_HEAVY_READ_ACQUIRE_TIMEOUT_S") or "5.0"
+    os.environ.get("SPOTLIGHT_HEAVY_READ_ACQUIRE_TIMEOUT_S") or "3.0"
 )
 _heavy_read_semaphore = threading.BoundedSemaphore(HEAVY_READ_MAX_CONCURRENCY)
 
