@@ -604,6 +604,60 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         post_match_scan_ids = {item["scanID"] for item in post_match_summary["items"]}
         self.assertIn(scan_id, post_match_scan_ids)  # selected_card_id is NULL → still "open review"
 
+    def test_store_scan_artifacts_self_creates_stub_when_no_scan_event(self) -> None:
+        # Hardening for the same race: under load the match handler's own
+        # in_progress stub write can lose the race or fail on SQLite write
+        # contention, leaving NO scan_events row when the parallel artifact
+        # upload arrives. Previously that 404'd and the JPEG was lost (observed
+        # as 0% uploads under a concurrent load test). Now the artifact handler
+        # creates the stub itself so the upload still lands; the match's later
+        # _log_scan upserts the real fields via ON CONFLICT.
+        scan_id = "scan-artifact-no-event"
+
+        # Sanity: there is no scan_events row yet.
+        self.assertIsNone(
+            self.service.connection.execute(
+                "SELECT scan_id FROM scan_events WHERE scan_id = ? LIMIT 1",
+                (scan_id,),
+            ).fetchone()
+        )
+
+        payload = self.service.store_scan_artifacts(
+            {
+                "scanID": scan_id,
+                "captureSource": "live_scan",
+                "submittedAt": "2026-06-30T20:00:00+00:00",
+                "normalizedImage": {
+                    "jpegBase64": base64.b64encode(b"orphan-normalized").decode("ascii"),
+                    "width": 630,
+                    "height": 880,
+                },
+            }
+        )
+
+        # The upload landed instead of raising "scan event not found".
+        self.assertTrue(payload["enabled"])
+        # A stub scan_events row was created so the FK + the match's later
+        # _log_scan upsert both hold.
+        event_row = self.service.connection.execute(
+            "SELECT matcher_source FROM scan_events WHERE scan_id = ? LIMIT 1",
+            (scan_id,),
+        ).fetchone()
+        self.assertIsNotNone(event_row)
+        assert event_row is not None
+        self.assertEqual(event_row["matcher_source"], "in_progress")
+        # The artifact row + blob persisted.
+        artifact_row = self.service.connection.execute(
+            "SELECT normalized_object_path FROM scan_artifacts WHERE scan_id = ? LIMIT 1",
+            (scan_id,),
+        ).fetchone()
+        self.assertIsNotNone(artifact_row)
+        assert artifact_row is not None
+        self.assertEqual(
+            (self.artifact_root / artifact_row["normalized_object_path"]).read_bytes(),
+            b"orphan-normalized",
+        )
+
     def test_unmatched_scans_excludes_in_progress_stub_rows(self) -> None:
         # The match handler upserts a stub row with matcher_source='in_progress'
         # at the start of /scan/match so the artifact upload race can land.

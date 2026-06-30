@@ -828,5 +828,60 @@ class ScanInferenceGuardTests(unittest.TestCase):
             server_module._scan_inference_semaphore = original_sem
 
 
+class HeavyReadBackpressureTests(unittest.TestCase):
+    """A separate concurrency guard bounds in-flight heavy (disk-I/O) reads so a
+    spike fails fast with a retryable 503 ('ServerBusy') instead of piling up and
+    hanging. The slot is always released. Mirrors the scan-inference guard."""
+
+    @staticmethod
+    def _deck_entries_handler(captured: dict[str, object]) -> SpotlightRequestHandler:
+        handler = SpotlightRequestHandler.__new__(SpotlightRequestHandler)
+        handler.path = "/api/v1/deck/entries"
+        handler.service = Mock()
+        handler.service.request_identity_context.return_value = contextlib.nullcontext()
+        handler.service.deck_entries.return_value = {"entries": []}
+
+        def write_json(status: HTTPStatus, payload: dict[str, object]) -> None:
+            captured["status"] = status
+            captured["payload"] = payload
+
+        handler._require_request_identity = lambda: object()  # type: ignore[method-assign]
+        handler._require_access = lambda identity: True  # type: ignore[method-assign]
+        handler._write_json = write_json  # type: ignore[method-assign]
+        return handler
+
+    def test_returns_503_without_running_read_when_no_slot_frees(self) -> None:
+        original_sem = server_module._heavy_read_semaphore
+        original_timeout = server_module.HEAVY_READ_ACQUIRE_TIMEOUT_S
+        server_module._heavy_read_semaphore = threading.BoundedSemaphore(1)
+        server_module.HEAVY_READ_ACQUIRE_TIMEOUT_S = 0.05
+        try:
+            self.assertTrue(server_module._heavy_read_semaphore.acquire(blocking=False))
+            captured: dict[str, object] = {}
+            handler = self._deck_entries_handler(captured)
+            handler.do_GET()
+            self.assertEqual(captured["status"], HTTPStatus.SERVICE_UNAVAILABLE)
+            self.assertEqual(captured["payload"]["errorType"], "ServerBusy")  # type: ignore[index]
+            handler.service.deck_entries.assert_not_called()
+        finally:
+            server_module._heavy_read_semaphore = original_sem
+            server_module.HEAVY_READ_ACQUIRE_TIMEOUT_S = original_timeout
+
+    def test_releases_read_slot_after_success(self) -> None:
+        original_sem = server_module._heavy_read_semaphore
+        sem = threading.BoundedSemaphore(1)
+        server_module._heavy_read_semaphore = sem
+        try:
+            captured: dict[str, object] = {}
+            handler = self._deck_entries_handler(captured)
+            handler.do_GET()
+            self.assertEqual(captured["status"], HTTPStatus.OK)
+            handler.service.deck_entries.assert_called_once()
+            self.assertTrue(sem.acquire(blocking=False))
+            sem.release()
+        finally:
+            server_module._heavy_read_semaphore = original_sem
+
+
 if __name__ == "__main__":
     unittest.main()

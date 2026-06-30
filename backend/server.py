@@ -254,6 +254,27 @@ SCAN_INFERENCE_ACQUIRE_TIMEOUT_S = float(
 )
 _scan_inference_semaphore = threading.BoundedSemaphore(SCAN_INFERENCE_MAX_CONCURRENCY)
 
+# Heavy-read backpressure (separate pool from scan inference: those are CPU-bound,
+# these are disk-I/O-bound). Caps how many expensive portfolio/collection reads
+# (dashboard, history, ledger, deck entries) run at once so a concurrency spike
+# fails FAST with a retryable 503 instead of every request piling up on disk I/O
+# and cascading into multi-second/60s hangs (load testing showed these endpoints
+# are ~1s solo but collapse under ~30 concurrent readers). Default scales with
+# cores; override with SPOTLIGHT_MAX_CONCURRENT_HEAVY_READS.
+HEAVY_READ_MAX_CONCURRENCY = max(
+    2,
+    int(
+        os.environ.get("SPOTLIGHT_MAX_CONCURRENT_HEAVY_READS")
+        or max(4, (os.cpu_count() or 2) * 2)
+    ),
+)
+# Short wait: a queued read that can't get a slot in time returns 503 quickly
+# rather than hanging. Override with SPOTLIGHT_HEAVY_READ_ACQUIRE_TIMEOUT_S.
+HEAVY_READ_ACQUIRE_TIMEOUT_S = float(
+    os.environ.get("SPOTLIGHT_HEAVY_READ_ACQUIRE_TIMEOUT_S") or "5.0"
+)
+_heavy_read_semaphore = threading.BoundedSemaphore(HEAVY_READ_MAX_CONCURRENCY)
+
 RECENT_SALES_DEFAULT_LIMIT = 5
 RECENT_SALES_MAX_LIMIT = 25
 RECENT_SALES_FRESHNESS_HOURS = 24
@@ -11812,7 +11833,36 @@ class SpotlightScanService:
             (scan_id, owner_user_id),
         ).fetchone()
         if scan_row is None:
-            raise FileNotFoundError("scan event not found")
+            # The scanID has no event row for THIS user. Two cases:
+            #  (a) it belongs to a DIFFERENT user → cross-user attempt; reject
+            #      exactly as before (never create/hijack another user's row).
+            #  (b) it exists for nobody → the match handler normally pre-creates
+            #      an in_progress stub for this scanID, but the artifact upload is
+            #      fired in parallel and under load that stub write can lose the
+            #      race (or fail on SQLite write contention), which previously
+            #      404'd here and LOST the JPEG. Make the upload self-sufficient:
+            #      create our own stub so the artifact always has a row to attach
+            #      to (FK + the match's later _log_scan upsert both stay
+            #      satisfied; ON CONFLICT fills the real matcher fields when the
+            #      match completes). This is the fix for show-scan images going
+            #      missing under concurrency.
+            foreign_row = self.connection.execute(
+                "SELECT 1 FROM scan_events WHERE scan_id = ? LIMIT 1",
+                (scan_id,),
+            ).fetchone()
+            if foreign_row is not None:
+                raise FileNotFoundError("scan event not found")
+            upsert_scan_event(
+                self.connection,
+                scan_id=scan_id,
+                owner_user_id=owner_user_id,
+                request_payload={"scanID": scan_id, "source": "scan_artifacts_stub"},
+                response_payload={},
+                matcher_source="in_progress",
+                matcher_version="in_progress",
+                created_at=utc_now(),
+            )
+            self.connection.commit()
 
         if not self._scan_artifact_uploads_enabled():
             return {
@@ -14284,6 +14334,27 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         )
         return False
 
+    def _acquire_heavy_read_slot(self) -> bool:
+        """Reserve a slot before an expensive portfolio/collection read.
+
+        Caps how many heavy (disk-I/O-bound) reads run at once so a concurrency
+        spike fails fast with a retryable 503 instead of all of them piling up
+        and cascading the whole box into multi-second/60s hangs. A request
+        without a free slot WAITS up to the acquire timeout; on success the
+        caller MUST release the slot in a ``finally``.
+        """
+        if _heavy_read_semaphore.acquire(timeout=HEAVY_READ_ACQUIRE_TIMEOUT_S):
+            return True
+        self._write_json(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            {
+                "error": "The server is busy right now. Please try again.",
+                "errorType": "ServerBusy",
+                "retryable": True,
+            },
+        )
+        return False
+
     def _write_image(self, status: HTTPStatus, body: bytes) -> None:
         self.send_response(status.value)
         self.send_header("Content-Type", "image/jpeg")
@@ -14558,16 +14629,21 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                     "yes",
                     "on",
                 }
-            with self.service.request_identity_context(identity):
-                self._write_json(
-                    HTTPStatus.OK,
-                    self.service.deck_entries(
-                        limit=limit,
-                        offset=offset,
-                        include_inactive=include_inactive,
-                        favorites_only=favorites_only,
-                    ),
-                )
+            if not self._acquire_heavy_read_slot():
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    self._write_json(
+                        HTTPStatus.OK,
+                        self.service.deck_entries(
+                            limit=limit,
+                            offset=offset,
+                            include_inactive=include_inactive,
+                            favorites_only=favorites_only,
+                        ),
+                    )
+            finally:
+                _heavy_read_semaphore.release()
             return
 
         if parsed.path in {"/api/v1/deck/history", "/api/v1/portfolio/history"}:
@@ -14583,12 +14659,16 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": "days must be an integer"})
                 return
+            if not self._acquire_heavy_read_slot():
+                return
             try:
                 with self.service.request_identity_context(identity):
                     payload = self.service.deck_history(days=days, range_label=range_value, time_zone_name=time_zone_name)
             except Exception as error:
                 self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"Deck history failed: {error}"})
                 return
+            finally:
+                _heavy_read_semaphore.release()
             self._write_json(HTTPStatus.OK, payload)
             return
 
@@ -14691,6 +14771,8 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             # The chart's open range — compute only this one; the client fetches
             # the rest on demand via /portfolio/history. Absent → all six (legacy).
             range_key = query.get("range", [""])[0].strip() or None
+            if not self._acquire_heavy_read_slot():
+                return
             try:
                 with self.service.request_identity_context(identity):
                     payload = self.service.portfolio_dashboard(
@@ -14703,6 +14785,8 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                     {"error": f"Portfolio dashboard failed: {error}"},
                 )
                 return
+            finally:
+                _heavy_read_semaphore.release()
             self._write_json(HTTPStatus.OK, payload)
             return
 
@@ -14765,6 +14849,8 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": "offset must be an integer"})
                 return
+            if not self._acquire_heavy_read_slot():
+                return
             try:
                 with self.service.request_identity_context(identity):
                     payload = self.service.portfolio_ledger(
@@ -14777,6 +14863,8 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             except Exception as error:
                 self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"Portfolio ledger failed: {error}"})
                 return
+            finally:
+                _heavy_read_semaphore.release()
             self._write_json(HTTPStatus.OK, payload)
             return
 
