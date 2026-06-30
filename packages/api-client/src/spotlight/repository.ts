@@ -3997,7 +3997,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
 
   async loadInventoryEntries(query?: InventoryEntriesQuery) {
     const queryParams = buildInventoryEntriesQueryParams(query);
-    const response = await this.requestJson<{ entries?: DeckEntryDTO[] } | DeckEntryDTO[]>(
+    const response = await this.requestJsonRead<{ entries?: DeckEntryDTO[] } | DeckEntryDTO[]>(
       `${this.baseUrl}/api/v1/deck/entries${queryParams.toString() ? `?${queryParams.toString()}` : ''}`,
     );
 
@@ -5148,7 +5148,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       range: mapRangeToBackend(range),
       timeZone: 'America/Los_Angeles',
     });
-    const response = await this.requestJson<PortfolioHistoryDTO>(
+    const response = await this.requestJsonRead<PortfolioHistoryDTO>(
       `${this.baseUrl}/api/v1/portfolio/history?${queryParams.toString()}`,
     );
 
@@ -5167,7 +5167,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       limit: '50',
       offset: '0',
     });
-    const response = await this.requestJson<PortfolioLedgerDTO>(
+    const response = await this.requestJsonRead<PortfolioLedgerDTO>(
       `${this.baseUrl}/api/v1/portfolio/ledger?${queryParams.toString()}`,
     );
 
@@ -5214,6 +5214,31 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     } catch (_error) {
       return null;
     }
+  }
+
+  // A heavy read can get a fast 503 ("ServerBusy") when the backend sheds load
+  // under a concurrency spike (read backpressure). The shed is momentary and the
+  // 503 is marked retryable, so re-attempt silently with backoff — a spike stays
+  // invisible to the user instead of surfacing "couldn't refresh". Reads are
+  // idempotent so retrying is safe; only the heavy GET reads route through this.
+  private async requestJsonRead<T>(
+    url: string,
+    init?: RequestInit,
+    options?: JsonRequestOptions,
+  ): Promise<JsonRequestResult<T>> {
+    const backoffsMs = [400, 900, 1800];
+    let result = await this.requestJson<T>(url, init, options);
+    let attempt = 0;
+    while (
+      result.kind === 'error' &&
+      result.error.status === 503 &&
+      attempt < backoffsMs.length
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, backoffsMs[attempt]));
+      attempt += 1;
+      result = await this.requestJson<T>(url, init, options);
+    }
+    return result;
   }
 
   private async requestJson<T>(
