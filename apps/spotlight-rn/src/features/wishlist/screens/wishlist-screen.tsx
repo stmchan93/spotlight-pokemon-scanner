@@ -378,14 +378,10 @@ export function WishlistScreen() {
     [editMode, handlePressEntry, handleRemoveEntry, selectedIds, theme],
   );
 
+  // The top bar is pinned (sticky) above the list; only the search + filter
+  // chrome rides along as the scrolling list header.
   const listHeader = (
     <View>
-      <WishlistHeader
-        editMode={editMode}
-        onBack={() => router.back()}
-        onToggleEditMode={() => (editMode ? handleExitEditMode() : setEditMode(true))}
-      />
-
       <View style={[styles.controls, { paddingHorizontal: theme.layout.pageGutter }]}>
         <View style={styles.searchRow}>
           <View style={styles.searchFieldWrap}>
@@ -493,6 +489,11 @@ export function WishlistScreen() {
       edges={['left', 'right']}
       style={[styles.safeArea, { backgroundColor: colors.gray0 }]}
     >
+      <WishlistHeader
+        editMode={editMode}
+        onBack={() => router.back()}
+        onToggleEditMode={() => (editMode ? handleExitEditMode() : setEditMode(true))}
+      />
       <View style={styles.listWrap} testID="wishlist-list">
         <FlatList
           ref={scrollRef}
