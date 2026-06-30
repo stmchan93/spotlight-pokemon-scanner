@@ -54,19 +54,19 @@ export function CardPopulationReport({ population, grader, testID }: CardPopulat
       </View>
 
       {grades.length > 0 ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.row}
-          testID={testID ? `${testID}-grades` : undefined}
-        >
-          {grades.map(([grade, count]) => (
+        // Full-bleed frame carries the top/bottom rules so they span edge to edge
+        // even when only a couple of grades exist (Figma 1874:23015) — drawing them
+        // per-cell stopped the line short at the last grade.
+        <View style={[styles.rowFrame, { borderColor: theme.colors.gray200 }]}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            testID={testID ? `${testID}-grades` : undefined}
+          >
+            {grades.map(([grade, count]) => (
             <View
               key={grade}
-              style={[
-                styles.cell,
-                { backgroundColor: theme.colors.gray0, borderColor: theme.colors.gray200 },
-              ]}
+              style={[styles.cell, { backgroundColor: theme.colors.gray0 }]}
               testID={testID ? `${testID}-grade-${grade}` : undefined}
             >
               <View style={styles.cellInner}>
@@ -82,8 +82,9 @@ export function CardPopulationReport({ population, grader, testID }: CardPopulat
                 </Text>
               </View>
             </View>
-          ))}
-        </ScrollView>
+            ))}
+          </ScrollView>
+        </View>
       ) : null}
     </View>
   );
@@ -102,15 +103,16 @@ const styles = StyleSheet.create({
   text: {
     textAlign: 'center',
   },
-  // Full-bleed too, so the per-cell top/bottom rules run edge to edge. Each cell
-  // carries its own 16px padding, so the first grade aligns with the page gutter.
-  row: {
+  // Full-bleed frame: the top/bottom rules live here so they run edge to edge
+  // regardless of how many grade cells exist. Each cell keeps its own 16px
+  // padding, so the first grade still aligns with the page gutter.
+  rowFrame: {
     marginHorizontal: -16,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
   },
   cell: {
     alignItems: 'center',
-    borderBottomWidth: 1,
-    borderTopWidth: 1,
     justifyContent: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
