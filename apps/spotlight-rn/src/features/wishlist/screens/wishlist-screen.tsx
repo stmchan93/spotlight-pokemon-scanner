@@ -668,12 +668,13 @@ function WishlistListRow({
   return (
     <Swipeable
       ref={swipeableRef}
-      // The row only reveals a right-side Delete (a LEFTWARD swipe), so make the
-      // pan activate only leftward and FAIL on a rightward drag. Without this the
-      // Swipeable's default both-direction pan ([-10, 10]) eats the iOS left-edge
-      // back-swipe, which is why swipe-back didn't work on Wishlist specifically.
-      activeOffsetX={-10}
-      failOffsetX={10}
+      // Activate on a clear horizontal drag in EITHER direction (15px) so the
+      // row opens on a left-swipe and closes on a right-swipe; the 15px gate lets
+      // vertical list scrolls pass through. (The old leftward-only +
+      // `failOffsetX` config made it abort on the slightest rightward jitter and
+      // refuse to close.)
+      activeOffsetX={[-15, 15]}
+      friction={1.5}
       overshootRight={false}
       renderRightActions={renderRightActions}
       rightThreshold={40}
