@@ -239,6 +239,14 @@ const scanArtifactUploadTimeoutMs = 25000;
 // surfacing "couldn't refresh." Normal warm loads are sub-second, so this ceiling
 // only ever applies to the rare cold path.
 const dashboardRequestTimeoutMs = 30000;
+// On-demand per-range history/ledger reads (the 7D→1M→3M→1Y/ALL toggle) hit a
+// cold 27M-row cell table: a 3M/1Y window for a ~120-card portfolio reads ~160k
+// scattered rows and measured ~5s cold (and the endpoint resolves+aggregates on
+// top). At the 12s default a cold toggle could abort, return empty, and get the
+// range cached as empty — so re-tapping that month did nothing ("can't toggle").
+// Give these reads the same 30s budget as the consolidated dashboard so a cold
+// toggle finishes (warming the cache) instead of false-failing.
+const portfolioRangeRequestTimeoutMs = 30000;
 // The first dashboard call after the backend's page cache goes cold can be slow
 // enough to time out, but that attempt warms the cache, so a single short-backoff
 // retry usually lands fast. Retry only on transport/timeout failures (never on a
@@ -5150,6 +5158,8 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     });
     const response = await this.requestJsonRead<PortfolioHistoryDTO>(
       `${this.baseUrl}/api/v1/portfolio/history?${queryParams.toString()}`,
+      undefined,
+      { timeoutMs: portfolioRangeRequestTimeoutMs },
     );
 
     if (response.kind !== 'success') {
@@ -5169,6 +5179,8 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     });
     const response = await this.requestJsonRead<PortfolioLedgerDTO>(
       `${this.baseUrl}/api/v1/portfolio/ledger?${queryParams.toString()}`,
+      undefined,
+      { timeoutMs: portfolioRangeRequestTimeoutMs },
     );
 
     if (response.kind !== 'success') {

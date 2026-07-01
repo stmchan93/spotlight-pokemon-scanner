@@ -391,8 +391,15 @@ export function usePortfolioScreenModel() {
     void (async () => {
       try {
         const bucket = await spotlightRepository.getPortfolioRange(range);
-        loadedRangesRef.current.add(range);
-        setDashboard((prev) => ({ ...prev, ranges: { ...prev.ranges, [range]: bucket } }));
+        const hasData = bucket.portfolio.length > 0 || bucket.sales.length > 0;
+        // Only cache a range once it actually returns data. A cold 3M/1Y read can
+        // time out and come back empty; caching that empty bucket made re-tapping
+        // the month a no-op ("can't toggle"). Leaving an empty result uncached lets
+        // the next tap retry (the cold call also warms the backend cache).
+        if (hasData) {
+          loadedRangesRef.current.add(range);
+          setDashboard((prev) => ({ ...prev, ranges: { ...prev.ranges, [range]: bucket } }));
+        }
       } catch {
         // Leave the range empty — the chart shows its empty state, never crashes.
       } finally {
