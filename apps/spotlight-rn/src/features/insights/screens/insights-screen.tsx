@@ -78,9 +78,10 @@ export function InsightsScreen() {
     + theme.layout.bottomNavBottomInset
     + Math.max(insets.bottom - 8, 0);
 
-  const rows = performance?.rows ?? [];
+  // Show just the first 10 cards for now.
+  const rows = (performance?.rows ?? []).slice(0, 10);
   const currencyCode = performance?.currencyCode ?? 'USD';
-  const itemCount = performance?.itemCount ?? rows.length;
+  const itemCount = rows.length;
 
   return (
     <SafeAreaView
