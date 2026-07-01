@@ -798,11 +798,11 @@ export function PortfolioScreen({
 
 const styles = StyleSheet.create({
   chartWrap: {
-    // Tightened per feedback: the gap from the % change line down to the time
-    // filter (7D/1M/…) was 64px (Figma) and read as too airy. The chrome wrapper
-    // already adds a 16px inter-child gap, so 0 here lands the row 16px below the
-    // balance block.
-    marginTop: 0,
+    // Gap from the % change line down to the time filter (7D/1M/…) is tuned to
+    // 32px per feedback. The chrome wrapper already adds a 16px inter-child gap,
+    // so this marginTop adds the remaining 16px (16 + 16 = 32px below the balance
+    // block).
+    marginTop: 16,
     marginBottom: 16,
   },
   chrome: {
