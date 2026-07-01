@@ -85,6 +85,8 @@ import type {
   PortfolioChartPoint,
   PortfolioDashboard,
   PortfolioInsights,
+  PortfolioPerformance,
+  PortfolioPerformanceRow,
   TransactionInsights,
   PortfolioSaleRequestPayload,
   PortfolioSaleResponsePayload,
@@ -111,6 +113,7 @@ export interface SpotlightRepository {
   loadPortfolioDashboard(options?: { range?: keyof PortfolioDashboard['ranges'] }): Promise<SpotlightRepositoryLoadResult<PortfolioDashboard>>;
   getPortfolioDashboard(): Promise<PortfolioDashboard>;
   getPortfolioRange(range: keyof PortfolioDashboard['ranges']): Promise<PortfolioDashboard['ranges'][keyof PortfolioDashboard['ranges']]>;
+  getPortfolioPerformance(): Promise<PortfolioPerformance>;
   loadInventoryEntries(query?: InventoryEntriesQuery): Promise<SpotlightRepositoryLoadResult<InventoryCardEntry[]>>;
   getInventoryEntries(query?: InventoryEntriesQuery): Promise<InventoryCardEntry[]>;
   loadCatalogCards(query: string, limit?: number): Promise<SpotlightRepositoryLoadResult<CatalogSearchResult[]>>;
@@ -2609,6 +2612,39 @@ export class MockSpotlightRepository implements SpotlightRepository {
   async getPortfolioRange(range: keyof PortfolioDashboard['ranges']) {
     const dashboard = await this.getPortfolioDashboard();
     return dashboard.ranges[range];
+  }
+
+  async getPortfolioPerformance(): Promise<PortfolioPerformance> {
+    const entries = this.inventoryEntriesForQuery();
+    const rows: PortfolioPerformanceRow[] = entries.map((entry) => {
+      const currentPrice = entry.hasMarketPrice ? entry.marketPrice : null;
+      const currentValue = currentPrice != null ? currentPrice * entry.quantity : null;
+      return {
+        entryId: entry.id,
+        cardId: entry.cardId,
+        name: entry.name,
+        cardNumber: entry.cardNumber,
+        setName: entry.setName,
+        imageUrl: entry.smallImageUrl ?? entry.imageUrl ?? null,
+        quantity: entry.quantity,
+        kind: entry.kind,
+        grade: entry.slabContext?.grade ?? null,
+        currentPrice,
+        currentValue,
+        costBasisTotal: entry.costBasisTotal ?? null,
+        jan1Price: null,
+        yearStartValue: null,
+        ytdGainDollar: null,
+        ytdGainPercent: null,
+        sparkline: [],
+      };
+    });
+    return {
+      itemCount: rows.length,
+      currencyCode: entries[0]?.currencyCode ?? 'USD',
+      refreshedAt: new Date(0).toISOString(),
+      rows,
+    };
   }
 
   async loadInventoryEntries(query?: InventoryEntriesQuery) {
@@ -5192,6 +5228,57 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       ledger.transactions.length > 0 || (ledger.dailySeries?.length ?? 0) > 0 ? 'success' : 'empty',
       ledger,
     );
+  }
+
+  // Per-card "2026 Performance Tracker" table (Insights page). One batched heavy
+  // read — routed through requestJsonRead so a backpressure 503 retries silently.
+  // Defensive mapping tolerates missing fields (→ null / []).
+  async getPortfolioPerformance(): Promise<PortfolioPerformance> {
+    const empty: PortfolioPerformance = {
+      itemCount: 0,
+      currencyCode: 'USD',
+      refreshedAt: '',
+      rows: [],
+    };
+    const response = await this.requestJsonRead<{
+      itemCount?: number;
+      currencyCode?: string;
+      refreshedAt?: string;
+      rows?: Array<Record<string, unknown>>;
+    }>(`${this.baseUrl}/api/v1/portfolio/performance`);
+    if (response.kind !== 'success' || !response.data) {
+      return empty;
+    }
+    const raw = response.data;
+    const num = (value: unknown): number | null =>
+      typeof value === 'number' && Number.isFinite(value) ? value : null;
+    const rows: PortfolioPerformanceRow[] = (raw.rows ?? []).map((r) => ({
+      entryId: String(r.entryId ?? ''),
+      cardId: String(r.cardId ?? ''),
+      name: String(r.name ?? ''),
+      cardNumber: String(r.number ?? r.cardNumber ?? ''),
+      setName: String(r.setName ?? ''),
+      imageUrl: r.imageUrl != null ? String(r.imageUrl) : null,
+      quantity: num(r.quantity) ?? 0,
+      kind: r.kind === 'graded' ? 'graded' : 'raw',
+      grade: r.grade != null ? String(r.grade) : null,
+      currentPrice: num(r.currentPrice),
+      currentValue: num(r.currentValue),
+      costBasisTotal: num(r.costBasisTotal),
+      jan1Price: num(r.jan1Price),
+      yearStartValue: num(r.yearStartValue),
+      ytdGainDollar: num(r.ytdGainDollar),
+      ytdGainPercent: num(r.ytdGainPercent),
+      sparkline: Array.isArray(r.sparkline)
+        ? r.sparkline.filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
+        : [],
+    }));
+    return {
+      itemCount: num(raw.itemCount) ?? rows.length,
+      currencyCode: raw.currencyCode ?? 'USD',
+      refreshedAt: raw.refreshedAt ?? '',
+      rows,
+    };
   }
 
   /**

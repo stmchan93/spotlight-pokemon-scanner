@@ -295,6 +295,36 @@ export type InventoryCardEntry = {
 
 export type PortfolioInventoryItem = InventoryCardEntry;
 
+// One row of the "2026 Performance Tracker" (Insights page): per-card current
+// value, cost basis, a year-start (Jan 1) baseline, YTD gain/loss, and a
+// downsampled yearly price sparkline. Backed by GET /api/v1/portfolio/performance.
+export type PortfolioPerformanceRow = {
+  entryId: string;
+  cardId: string;
+  name: string;
+  cardNumber: string;
+  setName: string;
+  imageUrl: string | null;
+  quantity: number;
+  kind: 'raw' | 'graded';
+  grade: string | null;
+  currentPrice: number | null;
+  currentValue: number | null;
+  costBasisTotal: number | null; // null when the user hasn't entered cost basis
+  jan1Price: number | null;
+  yearStartValue: number | null;
+  ytdGainDollar: number | null;
+  ytdGainPercent: number | null;
+  sparkline: number[]; // oldest → newest; [] when no history
+};
+
+export type PortfolioPerformance = {
+  itemCount: number;
+  currencyCode: string;
+  refreshedAt: string;
+  rows: PortfolioPerformanceRow[];
+};
+
 
 export type RecentTransactionKind = 'sold' | 'traded';
 
