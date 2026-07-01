@@ -1,30 +1,34 @@
 import { Platform, StyleSheet, View } from 'react-native';
-import { Apple, Google, Mail } from 'iconoir-react-native';
+import { Apple, Google } from 'iconoir-react-native';
 
 import { useSpotlightTheme } from '@spotlight/design-system';
 
 import { AuthScreenLayout } from './auth-screen-layout';
 import { AuthWordmark } from './auth-wordmark';
-import { PrimaryButton, SecondaryActionButton } from './auth-controls';
+import { PrimaryButton, SecondaryActionButton, TertiaryButton } from './auth-controls';
 
 type GetStartedScreenProps = {
   appleSignInAvailable?: boolean;
   isBusy?: boolean;
-  onContinueWithEmail: () => void;
+  onSignUp: () => void;
+  onLogIn: () => void;
   onGoogle: () => void;
   onApple: () => void;
 };
 
 /**
  * Pre-login homepage (Figma 1481:4380): a black entry screen behind the flowing
- * wave hero — the white EKALIGHT wordmark + tagline, then "Continue with Email"
- * (purple), "Continue with Google" and "Continue with Apple" (white) actions.
+ * wave hero — the white EKALIGHT wordmark + tagline. Signup-led: a purple
+ * "Sign Up" primary, then "Continue with Google"/"Continue with Apple", and a
+ * "Already have an account? Log in" link at the bottom. This is the split entry
+ * point — Sign Up and Log In are separate, deliberate choices (no auto-detect).
  * Presentational only; all auth happens via the passed handlers.
  */
 export function GetStartedScreen({
   appleSignInAvailable = false,
   isBusy = false,
-  onContinueWithEmail,
+  onSignUp,
+  onLogIn,
   onGoogle,
   onApple,
 }: GetStartedScreenProps) {
@@ -41,10 +45,9 @@ export function GetStartedScreen({
       <View style={styles.buttons}>
         <PrimaryButton
           disabled={isBusy}
-          label="Continue with Email"
-          leadingIcon={<Mail color={theme.colors.gray0} height={20} width={20} />}
-          onPress={onContinueWithEmail}
-          testID="auth-get-started-button"
+          label="Sign Up"
+          onPress={onSignUp}
+          testID="auth-get-started-signup"
         />
         <SecondaryActionButton
           disabled={isBusy}
@@ -63,6 +66,13 @@ export function GetStartedScreen({
           />
         ) : null}
       </View>
+
+      <TertiaryButton
+        disabled={isBusy}
+        label="Already have an account? Log in"
+        onPress={onLogIn}
+        testID="auth-get-started-login"
+      />
     </AuthScreenLayout>
   );
 }

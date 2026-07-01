@@ -13,43 +13,54 @@ import {
 } from './auth-controls';
 
 type EmailEntryScreenProps = {
-  // Social handlers are accepted for parity with the stepper but rendered on the
-  // get-started screen, not here.
-  appleSignInAvailable?: boolean;
+  /**
+   * `login` shows email + password together and signs in directly ("Log in").
+   * `signup` shows email only ("Continue" → collect name/password next). The two
+   * modes are deliberate, separate paths — this screen never auto-detects which.
+   */
+  mode: 'login' | 'signup';
   configurationIssue?: string | null;
   email: string;
   errorMessage?: string | null;
+  /** Inline notice, e.g. signup's "an account already exists" guard. */
+  notice?: string | null;
   isBusy: boolean;
-  onApple?: () => void;
   onBack: () => void;
   onChangeEmail: (value: string) => void;
-  onChangePassword: (value: string) => void;
+  onChangePassword?: (value: string) => void;
   onContinue: () => void;
-  onForgotPassword: () => void;
-  onGoogle?: () => void;
-  password: string;
+  onForgotPassword?: () => void;
+  /** Cross-link to the other flow (login ↔ signup); rendered when provided. */
+  onCrossLink?: () => void;
+  crossLinkLabel?: string;
+  password?: string;
 };
 
 /**
- * Email + password entry (black wave-hero screen): back header, the EKALIGHT
- * wordmark, and the email and password fields shown TOGETHER on one screen — no
- * separate password step. Continue stays disabled until the address looks valid
- * AND a password is entered; it signs an existing account in directly and routes
- * a new address to sign-up.
+ * Email entry on the black wave-hero screen: back header, the EKALIGHT wordmark,
+ * an email field, and — in `login` mode — a password field with "Forgot
+ * password?". Continue stays disabled until the address looks valid (and, for
+ * login, a password is entered). A cross-link switches to the other flow.
  */
 export function EmailEntryScreen({
+  mode,
   configurationIssue,
   email,
   errorMessage,
+  notice,
   isBusy,
   onBack,
   onChangeEmail,
   onChangePassword,
   onContinue,
   onForgotPassword,
-  password,
+  onCrossLink,
+  crossLinkLabel,
+  password = '',
 }: EmailEntryScreenProps) {
-  const canContinue = isValidLookingEmail(email) && password.length > 0 && !isBusy;
+  const isLogin = mode === 'login';
+  const canContinue =
+    isValidLookingEmail(email) && (!isLogin || password.length > 0) && !isBusy;
   // Surface WHY Continue is disabled once they've left the field with a malformed
   // address (don't nag mid-typing). Blank field shows nothing.
   const [emailTouched, setEmailTouched] = useState(false);
@@ -71,7 +82,7 @@ export function EmailEntryScreen({
           onBlur={() => setEmailTouched(true)}
           onChangeText={onChangeEmail}
           placeholder="Email"
-          returnKeyType="next"
+          returnKeyType={isLogin ? 'next' : 'done'}
           testID="auth-email-input"
           value={email}
         />
@@ -80,29 +91,43 @@ export function EmailEntryScreen({
           <AuthErrorLine message="Enter a valid email address." />
         ) : null}
 
-        <PasswordField
-          onChangeText={onChangePassword}
-          onSubmitEditing={canContinue ? onContinue : undefined}
-          testID="auth-password-input"
-          toggleTestID="auth-password-toggle"
-          value={password}
-        />
+        {isLogin ? (
+          <PasswordField
+            onChangeText={onChangePassword}
+            onSubmitEditing={canContinue ? onContinue : undefined}
+            testID="auth-password-input"
+            toggleTestID="auth-password-toggle"
+            value={password}
+          />
+        ) : null}
 
         {configurationIssue ? <AuthErrorLine message={configurationIssue} /> : null}
+        {notice ? <AuthErrorLine message={notice} /> : null}
         {errorMessage ? <AuthErrorLine message={errorMessage} /> : null}
 
         <PrimaryButton
           disabled={!canContinue}
-          label="Continue"
+          label={isLogin ? 'Log in' : 'Continue'}
           onPress={onContinue}
           testID="auth-email-continue"
         />
 
-        <TertiaryButton
-          label="Forgot password?"
-          onPress={onForgotPassword}
-          testID="auth-forgot-password"
-        />
+        {isLogin && onForgotPassword ? (
+          <TertiaryButton
+            label="Forgot password?"
+            onPress={onForgotPassword}
+            testID="auth-forgot-password"
+          />
+        ) : null}
+
+        {onCrossLink && crossLinkLabel ? (
+          <TertiaryButton
+            disabled={isBusy}
+            label={crossLinkLabel}
+            onPress={onCrossLink}
+            testID="auth-email-cross-link"
+          />
+        ) : null}
       </View>
     </AuthScreenLayout>
   );

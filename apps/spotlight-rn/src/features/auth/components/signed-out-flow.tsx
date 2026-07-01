@@ -13,10 +13,14 @@ import { VerifyCodeScreen } from './verify-code-screen';
 // screens. It owns the email/name/password/code drafts and routes between
 // steps; every Supabase call is delegated to `emailAuth` (the auth provider),
 // which owns busy/error state and the session transition to signedIn.
+//
+// Sign Up and Log In are SEPARATE, deliberate paths (no auto-detect): the
+// landing offers "Sign Up" and a "Log in" link; each has its own entry screen.
 type Step =
   | 'getStarted'
-  | 'email'
-  | 'create'
+  | 'loginEmail'
+  | 'signupEmail'
+  | 'signupDetails'
   | 'verify'
   | 'forgot'
   | 'forgotVerify'
@@ -49,24 +53,52 @@ export function SignedOutFlow({
   const fullName = [firstName, lastName].map((value) => value.trim()).filter(Boolean).join(' ');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
+  // Signup-email guard notice ("an account already exists"). Local, not a provider
+  // error — it points the user to Log In rather than silently signing them in.
+  const [signupNotice, setSignupNotice] = useState<string | null>(null);
 
-  // Each handler advances only on success; failures surface through the
-  // provider's `errorMessage`, so the catch keeps the user on the same step.
-  // The combined email+password screen submits both at once: an existing account
-  // signs in directly (no separate password step); a new address goes to sign-up
-  // with the typed password carried over.
-  const handleEmailContinue = useCallback(async () => {
+  // Enter the two flows from the landing (or via a cross-link). Switching intent
+  // carries the typed email but drops any password so one flow's draft can't leak
+  // into the other.
+  const goToSignup = useCallback(() => {
+    setPassword('');
+    setSignupNotice(null);
+    setStep('signupEmail');
+  }, []);
+  const goToLogin = useCallback(() => {
+    setPassword('');
+    setSignupNotice(null);
+    setStep('loginEmail');
+  }, []);
+
+  // LOG IN: sign the existing account in directly. A wrong password / missing
+  // account surfaces the provider's errorMessage and keeps the user here — it does
+  // NOT auto-route to sign-up (the "Sign up" cross-link is a deliberate choice).
+  const handleLogin = useCallback(async () => {
     try {
-      const exists = await emailAuth.checkEmail(email);
-      if (exists) {
-        await emailAuth.signInEmail({ email, password });
-      } else {
-        setStep('create');
-      }
+      await emailAuth.signInEmail({ email, password });
     } catch {
       /* errorMessage already set by the provider */
     }
   }, [email, emailAuth, password]);
+
+  // SIGN UP (email step): guard against an address that already has an account —
+  // show a notice pointing to Log In instead of proceeding. New addresses advance
+  // to the details step (name + password).
+  const handleSignupEmailContinue = useCallback(async () => {
+    setSignupNotice(null);
+    try {
+      const exists = await emailAuth.checkEmail(email);
+      if (exists) {
+        setSignupNotice('An account with this email already exists.');
+        return;
+      }
+      setPassword('');
+      setStep('signupDetails');
+    } catch {
+      /* errorMessage already set by the provider */
+    }
+  }, [email, emailAuth]);
 
   const handleSignUp = useCallback(async () => {
     try {
@@ -76,7 +108,7 @@ export function SignedOutFlow({
         setStep('verify');
       }
     } catch {
-      /* stay on the create step */
+      /* stay on the details step */
     }
   }, [email, emailAuth, fullName, password]);
 
@@ -121,25 +153,41 @@ export function SignedOutFlow({
   }, [emailAuth, password]);
 
   switch (step) {
-    case 'email':
+    case 'loginEmail':
       return (
         <EmailEntryScreen
-          appleSignInAvailable={appleSignInAvailable}
           configurationIssue={configurationIssue}
+          crossLinkLabel="New to Ekalight? Sign up"
           email={email}
           errorMessage={errorMessage}
           isBusy={isBusy}
-          onApple={onAppleSignIn}
+          mode="login"
           onBack={() => setStep('getStarted')}
           onChangeEmail={setEmail}
           onChangePassword={setPassword}
-          onContinue={() => void handleEmailContinue()}
+          onContinue={() => void handleLogin()}
+          onCrossLink={goToSignup}
           onForgotPassword={() => setStep('forgot')}
-          onGoogle={onGoogleSignIn}
           password={password}
         />
       );
-    case 'create':
+    case 'signupEmail':
+      return (
+        <EmailEntryScreen
+          configurationIssue={configurationIssue}
+          crossLinkLabel="Already have an account? Log in"
+          email={email}
+          errorMessage={errorMessage}
+          isBusy={isBusy}
+          mode="signup"
+          notice={signupNotice}
+          onBack={() => setStep('getStarted')}
+          onChangeEmail={setEmail}
+          onContinue={() => void handleSignupEmailContinue()}
+          onCrossLink={goToLogin}
+        />
+      );
+    case 'signupDetails':
       return (
         <EmailPasswordScreen
           email={email}
@@ -148,7 +196,7 @@ export function SignedOutFlow({
           lastName={lastName}
           isBusy={isBusy}
           mode="signup"
-          onBack={() => setStep('email')}
+          onBack={() => setStep('signupEmail')}
           onChangeFirstName={setFirstName}
           onChangeLastName={setLastName}
           onChangePassword={setPassword}
@@ -164,7 +212,7 @@ export function SignedOutFlow({
           email={email}
           errorMessage={errorMessage}
           isBusy={isBusy}
-          onBack={() => setStep('create')}
+          onBack={() => setStep('signupDetails')}
           onChangeCode={setCode}
           onContinue={() => void handleVerifySignup()}
           onResend={handleResendSignup}
@@ -176,7 +224,7 @@ export function SignedOutFlow({
           email={email}
           errorMessage={errorMessage}
           isBusy={isBusy}
-          onBack={() => setStep('email')}
+          onBack={() => setStep('loginEmail')}
           onChangeEmail={setEmail}
           onContinue={() => void handleSendReset()}
         />
@@ -212,8 +260,9 @@ export function SignedOutFlow({
           appleSignInAvailable={appleSignInAvailable}
           isBusy={isBusy}
           onApple={onAppleSignIn}
-          onContinueWithEmail={() => setStep('email')}
           onGoogle={onGoogleSignIn}
+          onLogIn={goToLogin}
+          onSignUp={goToSignup}
         />
       );
   }

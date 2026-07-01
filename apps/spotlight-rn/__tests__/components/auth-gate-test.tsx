@@ -70,7 +70,7 @@ describe('AuthGate', () => {
     jest.restoreAllMocks();
   });
 
-  it('starts the signed-out flow on the Get started screen, then opens the email step', () => {
+  it('starts on the Get started screen, then opens the Log In email step', () => {
     const { onGoogleSignIn } = renderAuthGate();
 
     // Step 0: the branded "Get started" entry screen carries the social actions.
@@ -80,9 +80,18 @@ describe('AuthGate', () => {
     fireEvent.press(screen.getByTestId('auth-google-button'));
     expect(onGoogleSignIn).toHaveBeenCalledTimes(1);
 
-    // Tapping Continue with Email advances to the email step.
-    fireEvent.press(screen.getByTestId('auth-get-started-button'));
+    // Tapping the "Log in" link opens the login email step (email + password).
+    fireEvent.press(screen.getByTestId('auth-get-started-login'));
     expect(screen.getByTestId('auth-email-input')).toBeTruthy();
+    expect(screen.getByTestId('auth-password-input')).toBeTruthy();
+  });
+
+  it('opens the Sign Up email step (email only) from the primary button', () => {
+    renderAuthGate();
+    fireEvent.press(screen.getByTestId('auth-get-started-signup'));
+    expect(screen.getByTestId('auth-email-input')).toBeTruthy();
+    // Sign Up collects the email first — no password on this step.
+    expect(screen.queryByTestId('auth-password-input')).toBeNull();
   });
 
   it('renders the profile onboarding screen when a display name is required', () => {

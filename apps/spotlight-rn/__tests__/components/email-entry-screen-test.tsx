@@ -12,18 +12,16 @@ const safeAreaMetrics = {
 
 function renderScreen(overrides: Partial<React.ComponentProps<typeof EmailEntryScreen>> = {}) {
   const props: React.ComponentProps<typeof EmailEntryScreen> = {
-    appleSignInAvailable: false,
+    mode: 'login',
     configurationIssue: null,
     email: '',
     errorMessage: null,
     isBusy: false,
-    onApple: jest.fn(),
     onBack: jest.fn(),
     onChangeEmail: jest.fn(),
     onChangePassword: jest.fn(),
     onContinue: jest.fn(),
     onForgotPassword: jest.fn(),
-    onGoogle: jest.fn(),
     password: '',
     ...overrides,
   };
@@ -39,35 +37,32 @@ function renderScreen(overrides: Partial<React.ComponentProps<typeof EmailEntryS
   return props;
 }
 
-describe('EmailEntryScreen', () => {
-  it('renders the key testIDs', () => {
+describe('EmailEntryScreen — login mode', () => {
+  it('renders the key testIDs (email + password + forgot)', () => {
     renderScreen();
 
     expect(screen.getByTestId('auth-email-entry-screen')).toBeTruthy();
     expect(screen.getByTestId('auth-email-input')).toBeTruthy();
-    // Password is shown together with email on this screen (no separate step).
+    // Log in shows email + password together on one screen.
     expect(screen.getByTestId('auth-password-input')).toBeTruthy();
     expect(screen.getByTestId('auth-forgot-password')).toBeTruthy();
     expect(screen.getByTestId('auth-email-continue')).toBeTruthy();
     expect(screen.getByTestId('auth-email-back')).toBeTruthy();
     expect(screen.getByTestId('auth-brand-wordmark')).toBeTruthy();
-    // The tagline must persist past "Continue with Email" (regression: it was
-    // suppressed on this step and vanished when leaving the get-started screen).
+    // The tagline must persist past the landing screen (regression guard).
     expect(screen.getByText('Scan, Price, and Track your collection')).toBeTruthy();
+    // Primary CTA reads "Log in" in this mode.
+    expect(screen.getByText('Log in')).toBeTruthy();
   });
 
-  it('disables Continue until the email looks valid, then calls onContinue', () => {
-    const props = renderScreen({ email: 'not-an-email' });
-    fireEvent.press(screen.getByTestId('auth-email-continue'));
-    expect(props.onContinue).not.toHaveBeenCalled();
-
-    renderScreen({ email: 'collector@example.com' });
+  it('disables Continue until the email looks valid', () => {
+    const props = renderScreen({ email: 'not-an-email', password: 'secret123' });
     fireEvent.press(screen.getByTestId('auth-email-continue'));
     expect(props.onContinue).not.toHaveBeenCalled();
   });
 
-  it('keeps Continue disabled when busy even with a valid email', () => {
-    const props = renderScreen({ email: 'collector@example.com', isBusy: true });
+  it('keeps Continue disabled when busy even with a valid email + password', () => {
+    const props = renderScreen({ email: 'collector@example.com', password: 'secret123', isBusy: true });
     fireEvent.press(screen.getByTestId('auth-email-continue'));
     expect(props.onContinue).not.toHaveBeenCalled();
   });
@@ -104,8 +99,8 @@ describe('EmailEntryScreen', () => {
     expect(props.onBack).toHaveBeenCalledTimes(1);
   });
 
-  it('does not render social buttons (they live on the entry screen)', () => {
-    renderScreen({ appleSignInAvailable: true });
+  it('does not render social buttons (they live on the landing screen)', () => {
+    renderScreen();
     expect(screen.queryByTestId('auth-google-button')).toBeNull();
     expect(screen.queryByTestId('auth-apple-button')).toBeNull();
   });
@@ -114,5 +109,33 @@ describe('EmailEntryScreen', () => {
     renderScreen({ configurationIssue: 'Auth not configured', errorMessage: 'Network down' });
     expect(screen.getByText('Auth not configured')).toBeTruthy();
     expect(screen.getByText('Network down')).toBeTruthy();
+  });
+
+  it('renders the cross-link and fires onCrossLink', () => {
+    const onCrossLink = jest.fn();
+    renderScreen({ onCrossLink, crossLinkLabel: 'New to Ekalight? Sign up' });
+    fireEvent.press(screen.getByTestId('auth-email-cross-link'));
+    expect(onCrossLink).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('EmailEntryScreen — signup mode', () => {
+  it('shows only the email field (no password, no forgot link) with a Continue CTA', () => {
+    renderScreen({ mode: 'signup' });
+    expect(screen.getByTestId('auth-email-input')).toBeTruthy();
+    expect(screen.queryByTestId('auth-password-input')).toBeNull();
+    expect(screen.queryByTestId('auth-forgot-password')).toBeNull();
+    expect(screen.getByText('Continue')).toBeTruthy();
+  });
+
+  it('enables Continue on a valid email alone (no password required)', () => {
+    const props = renderScreen({ mode: 'signup', email: 'new@example.com' });
+    fireEvent.press(screen.getByTestId('auth-email-continue'));
+    expect(props.onContinue).toHaveBeenCalledTimes(1);
+  });
+
+  it('surfaces the "account already exists" notice', () => {
+    renderScreen({ mode: 'signup', notice: 'An account with this email already exists.' });
+    expect(screen.getByText('An account with this email already exists.')).toBeTruthy();
   });
 });

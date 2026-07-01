@@ -15,7 +15,8 @@ function renderScreen(overrides: Partial<React.ComponentProps<typeof GetStartedS
   const props: React.ComponentProps<typeof GetStartedScreen> = {
     appleSignInAvailable: true,
     isBusy: false,
-    onContinueWithEmail: jest.fn(),
+    onSignUp: jest.fn(),
+    onLogIn: jest.fn(),
     onGoogle: jest.fn(),
     onApple: jest.fn(),
     ...overrides,
@@ -33,7 +34,7 @@ function renderScreen(overrides: Partial<React.ComponentProps<typeof GetStartedS
 }
 
 describe('GetStartedScreen (pre-login homepage)', () => {
-  it('renders the EKALIGHT brand and the three entry actions', () => {
+  it('renders the EKALIGHT brand and the signup-led entry actions', () => {
     renderScreen();
 
     expect(screen.getByTestId('auth-get-started-screen')).toBeTruthy();
@@ -41,9 +42,11 @@ describe('GetStartedScreen (pre-login homepage)', () => {
     expect(screen.queryByTestId('auth-wave-background')).toBeNull();
     expect(screen.getByText('EKALIGHT')).toBeTruthy();
     expect(screen.getByText('Scan, Price, and Track your collection')).toBeTruthy();
-    expect(screen.getByText('Continue with Email')).toBeTruthy();
+    expect(screen.getByText('Sign Up')).toBeTruthy();
     expect(screen.getByText('Continue with Google')).toBeTruthy();
     expect(screen.getByText('Continue with Apple')).toBeTruthy();
+    // Log In is a deliberate, separate choice (not an auto-detect combined flow).
+    expect(screen.getByText('Already have an account? Log in')).toBeTruthy();
   });
 
   it('always offers Apple below Google on iOS, even if the availability flag is false', () => {
@@ -53,10 +56,12 @@ describe('GetStartedScreen (pre-login homepage)', () => {
     expect(screen.getByTestId('auth-apple-button')).toBeTruthy();
   });
 
-  it('continues to the email step from the primary button', () => {
+  it('routes Sign Up and Log In to their separate flows', () => {
     const props = renderScreen();
-    fireEvent.press(screen.getByTestId('auth-get-started-button'));
-    expect(props.onContinueWithEmail).toHaveBeenCalledTimes(1);
+    fireEvent.press(screen.getByTestId('auth-get-started-signup'));
+    expect(props.onSignUp).toHaveBeenCalledTimes(1);
+    fireEvent.press(screen.getByTestId('auth-get-started-login'));
+    expect(props.onLogIn).toHaveBeenCalledTimes(1);
   });
 
   it('invokes the Google and Apple handlers', () => {
