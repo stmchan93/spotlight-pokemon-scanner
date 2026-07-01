@@ -78,8 +78,9 @@ describe('design-system primitive contracts', () => {
       expect.objectContaining({
         backgroundColor: colors.canvasElevated,
         borderColor: colors.outlineSubtle,
-        borderTopLeftRadius: radii.xxl,
-        borderTopRightRadius: radii.xxl,
+        // Sheets are square (sharp 90° corners) per design — see SheetSurface.
+        borderTopLeftRadius: 0,
+        borderTopRightRadius: 0,
       }),
     );
     expect(flattenStyle(screen.getByTestId('thumbnail').props.style)).toEqual(
