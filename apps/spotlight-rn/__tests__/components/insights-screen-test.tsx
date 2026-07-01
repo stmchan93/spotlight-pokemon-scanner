@@ -1,156 +1,114 @@
 import { screen, waitFor } from '@testing-library/react-native';
 
-import type { TransactionInsights } from '@spotlight/api-client';
+import type { PortfolioPerformance } from '@spotlight/api-client';
 import { InsightsScreen } from '@/features/insights/screens/insights-screen';
 
 import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
 
-// TransactionThumb (via 03fbbfd) calls useAuth; these screens render it without
-// an AuthProvider in the harness, so stub the hook to the no-token path.
+// CachedImage/thumbnails call useAuth; render without an AuthProvider in the
+// harness, so stub the hook to the no-token path.
 jest.mock('@/providers/auth-provider', () => ({
   ...jest.requireActual('@/providers/auth-provider'),
   useAuth: () => ({ accessToken: null }),
 }));
 
-const sampleInsights: TransactionInsights = {
+const currentYear = new Date().getFullYear();
+
+const samplePerformance: PortfolioPerformance = {
+  itemCount: 2,
   currencyCode: 'USD',
-  thisMonth: {
-    sold: { count: 12, amountCents: 84000 },
-    bought: { count: 8, amountCents: 31000 },
-    traded: { count: 3, amountCents: 0 },
-  },
-  allTime: {
-    sold: { count: 142, amountCents: 931000 },
-    bought: { count: 98, amountCents: 340000 },
-    traded: { count: 21, amountCents: 0 },
-  },
-  biggestSale: {
-    id: 'biggest-1',
-    kind: 'sold',
-    amountCents: 120000,
-    currencyCode: 'USD',
-    occurredAt: '2026-05-02T00:00:00.000Z',
-    occurredAtLabel: 'May 2, 2026',
-    note: 'Moonbreon',
-    itemCount: 1,
-    photoUrl: null,
-    imageUrl: 'https://cdn.spotlight.test/moonbreon.png',
-  },
-  biggestPurchase: {
-    id: 'purchase-1',
-    kind: 'bought',
-    amountCents: 88000,
-    currencyCode: 'USD',
-    occurredAt: '2026-04-18T00:00:00.000Z',
-    occurredAtLabel: 'Apr 18, 2026',
-    note: 'Booth pickup',
-    itemCount: 2,
-    photoUrl: null,
-    imageUrl: 'https://cdn.spotlight.test/booth.png',
-    paymentMethod: 'cash',
-  },
-  topSalesThisMonth: [
+  refreshedAt: '2026-07-01T00:00:00.000Z',
+  rows: [
     {
-      id: 'sale-1',
-      kind: 'sold',
-      amountCents: 45000,
-      currencyCode: 'USD',
-      occurredAt: '2026-06-03T00:00:00.000Z',
-      occurredAtLabel: 'Jun 3, 2026',
-      note: 'Charizard',
-      itemCount: 1,
-      photoUrl: null,
-      imageUrl: 'https://cdn.spotlight.test/charizard.png',
-    },
-  ],
-  totalPortfolioValueCents: 180000,
-  scannedCount: 2876,
-  wishlistedCount: 40,
-  topGrowth: [
-    {
+      entryId: 'e1',
       cardId: 'sm1-1',
       name: 'Ludicolo',
-      setName: 'Sun & Moon',
       cardNumber: '1/149',
+      setName: 'Sun & Moon',
       imageUrl: 'https://images.pokemontcg.io/sm1/1.png',
-      currencyCode: 'USD',
-      changeAmountCents: 399,
-      changePct: 3.2,
+      quantity: 1,
+      kind: 'raw',
+      grade: null,
+      currentPrice: 300,
+      currentValue: 300,
+      costBasisTotal: 100,
+      jan1Price: 250,
+      yearStartValue: 250,
+      ytdGainDollar: 50,
+      ytdGainPercent: 20,
+      sparkline: [250, 260, 300],
+    },
+    {
+      // No cost basis and no history → G/L, cost, and chart all render "—".
+      entryId: 'e2',
+      cardId: 'g1',
+      name: 'Gengar',
+      cardNumber: '100/101',
+      setName: 'Team Rocket',
+      imageUrl: null,
+      quantity: 2,
+      kind: 'graded',
+      grade: 'PSA 10',
+      currentPrice: 400,
+      currentValue: 800,
+      costBasisTotal: null,
+      jan1Price: null,
+      yearStartValue: null,
+      ytdGainDollar: null,
+      ytdGainPercent: null,
+      sparkline: [],
     },
   ],
 };
 
-describe('InsightsScreen', () => {
+describe('InsightsScreen — performance tracker', () => {
   it('highlights the Collection tab in the bottom nav', async () => {
     renderWithProviders(<InsightsScreen />, {
       spotlightRepository: createTestSpotlightRepository({
-        loadTransactionInsights: async () => sampleInsights,
+        getPortfolioPerformance: async () => samplePerformance,
       }),
     });
     const tab = await screen.findByTestId('bottom-nav-portfolio');
     expect(tab.props.accessibilityState?.selected).toBe(true);
   });
 
-  it('renders the redesigned highlights layout', async () => {
+  it('renders the year tracker header, count, and per-card rows', async () => {
     renderWithProviders(<InsightsScreen />, {
       spotlightRepository: createTestSpotlightRepository({
-        loadTransactionInsights: async () => sampleInsights,
+        getPortfolioPerformance: async () => samplePerformance,
       }),
     });
 
-    // Header title + monthly highlights eyebrow.
     expect(screen.getByTestId('insights-header-title').props.children).toBe('Insights');
-    expect(screen.getByTestId('insights-month-eyebrow').props.children).toBe(
-      'Monthly Highlights',
-    );
+    expect(screen.getByText(`${currentYear} Performance Tracker`)).toBeTruthy();
+    expect(screen.getByText('PORTFOLIO')).toBeTruthy();
 
-    // Top-growth card renders with its name + green change line.
+    // Rows + the item count land after the async performance load resolves.
     await waitFor(() => {
-      expect(screen.getByTestId('insights-growth-card-0')).toBeTruthy();
+      expect(screen.getByText('Ludicolo')).toBeTruthy();
     });
-    expect(screen.getByText('Ludicolo')).toBeTruthy();
-    expect(screen.getByText('+$3.99 (+3.20%)')).toBeTruthy();
-
-    // "Here's how you did" stat values.
-    expect(screen.getByTestId('insights-stat-total-portfolio-value-value').props.children).toBe(
-      '$1,800.00',
-    );
-    expect(screen.getByTestId('insights-stat-scanned-value').props.children).toBe('2,876');
-    expect(screen.getByTestId('insights-stat-wishlisted-value').props.children).toBe('40');
+    expect(screen.getByText('2 Items')).toBeTruthy();
+    expect(screen.getByText('Gengar')).toBeTruthy();
+    // Ludicolo cost basis + YTD % render; Gengar's null cells render "—".
+    expect(screen.getByText('$100')).toBeTruthy();
+    expect(screen.getByText('20%')).toBeTruthy();
+    expect(screen.getAllByText('—').length).toBeGreaterThan(0);
   });
 
-  it('shows empty tiles when there is no activity', async () => {
-    const empty: TransactionInsights = {
-      currencyCode: 'USD',
-      thisMonth: {
-        sold: { count: 0, amountCents: 0 },
-        bought: { count: 0, amountCents: 0 },
-        traded: { count: 0, amountCents: 0 },
-      },
-      allTime: {
-        sold: { count: 0, amountCents: 0 },
-        bought: { count: 0, amountCents: 0 },
-        traded: { count: 0, amountCents: 0 },
-      },
-      biggestSale: null,
-      biggestPurchase: null,
-      topSalesThisMonth: [],
-      totalPortfolioValueCents: 0,
-      scannedCount: 0,
-      wishlistedCount: 0,
-      topGrowth: [],
-    };
-
+  it('shows an empty state when the portfolio has no cards', async () => {
     renderWithProviders(<InsightsScreen />, {
       spotlightRepository: createTestSpotlightRepository({
-        loadTransactionInsights: async () => empty,
+        getPortfolioPerformance: async () => ({
+          itemCount: 0,
+          currencyCode: 'USD',
+          refreshedAt: '',
+          rows: [],
+        }),
       }),
     });
 
     await waitFor(() => {
-      expect(
-        screen.getByText('Your biggest monthly gainers will show up here.'),
-      ).toBeTruthy();
+      expect(screen.getByText('No cards in your portfolio yet.')).toBeTruthy();
     });
   });
 });
