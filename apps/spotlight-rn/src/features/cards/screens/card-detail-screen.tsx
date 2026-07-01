@@ -822,6 +822,15 @@ export function CardDetailScreen({
     ?? null;
   const displayCardNumber = detail?.cardNumber ?? detailPreview?.cardNumber ?? '';
   const displaySetName = detail?.setName ?? detailPreview?.setName ?? '';
+  // Card number + set name share one line, dot-separated ("052 · Scarlet &
+  // Violet Black Star Promos"). Either part may be missing.
+  const identityNumberSetLine =
+    [
+      displayCardNumber.trim() ? displayNumber(displayCardNumber) : null,
+      displaySetName.trim() || null,
+    ]
+      .filter(Boolean)
+      .join(' · ') || displayNumber(displayCardNumber);
   // Release date + illustrator (Figma 1965:25870): "Jun 10, 2000 · Illus. Yuka
   // Morii". Either part may be missing; the line is omitted when both are.
   const displayArtist = detail?.artist?.trim() || null;
@@ -1123,13 +1132,17 @@ export function CardDetailScreen({
     return Number.isFinite(parsed) ? parsed : null;
   }, [editCostBasisText]);
 
-  // Per-unit gain = current market − cost basis (only when both are known).
+  // Per-unit gain = current market − the SAVED cost basis (only when both known).
+  // We intentionally read the persisted cost basis (not the live edit text) so the
+  // gain pill doesn't recompute on every keystroke — it only moves once the user
+  // taps SAVE (which refreshes `selectedEntry`).
   const editGainPerUnit = useMemo(() => {
-    if (editCostBasisPerUnit == null || !selectedEntry?.hasMarketPrice) {
+    const savedCostBasis = selectedEntry?.costBasisPerUnit;
+    if (savedCostBasis == null || !selectedEntry?.hasMarketPrice) {
       return null;
     }
-    return Number((selectedEntry.marketPrice - editCostBasisPerUnit).toFixed(2));
-  }, [editCostBasisPerUnit, selectedEntry]);
+    return Number((selectedEntry.marketPrice - savedCostBasis).toFixed(2));
+  }, [selectedEntry]);
   const editGainLabel = editGainPerUnit == null
     ? null
     : formatCurrency(Math.abs(editGainPerUnit), selectedEntry?.currencyCode ?? 'USD');
@@ -1270,6 +1283,25 @@ export function CardDetailScreen({
     barsFrozen.value = false;
   }, [barsFrozen]);
 
+  // CANCEL behaves contextually: while the user is mid-edit in the Cost Basis
+  // field (keyboard up), the first CANCEL only discards the in-progress input and
+  // dismisses the keyboard — keeping them ON the PDP. With the keyboard down it
+  // closes the edit and returns to the prior screen as before. (Cost Basis is the
+  // only text field here, so a visible keyboard means they're typing into it.)
+  const handleCancelEdit = useCallback(() => {
+    if (keyboardHeightRef.current > 0) {
+      editCostBasisDirtyRef.current = false;
+      setEditCostBasisText(
+        selectedEntry?.costBasisPerUnit != null ? String(selectedEntry.costBasisPerUnit) : '',
+      );
+      costBasisFocusedRef.current = false;
+      barsFrozen.value = false;
+      Keyboard.dismiss();
+      return;
+    }
+    onBack();
+  }, [barsFrozen, onBack, selectedEntry]);
+
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => {
       'worklet';
@@ -1369,11 +1401,11 @@ export function CardDetailScreen({
             <Text style={theme.typography.titleLarge} testID="detail-name">
               {displayName}
             </Text>
-            <Text style={[theme.typography.bodyMedium, styles.identityMeta]}>
-              {displayNumber(displayCardNumber)}
-            </Text>
-            <Text style={[theme.typography.bodyMedium, styles.identityMeta]}>
-              {displaySetName}
+            <Text
+              style={[theme.typography.bodyMedium, styles.identityMeta]}
+              testID="detail-identity-number-set"
+            >
+              {identityNumberSetLine}
             </Text>
             {identityDetailLine ? (
               <Text
@@ -1514,16 +1546,21 @@ export function CardDetailScreen({
         ]}
       >
         <View style={styles.headerRow}>
-          <IconButton
-            accessibilityLabel="Go back"
-            onPress={onBack}
-            shape="circle"
-            size={36}
-            testID="detail-back"
-            variant="subtle"
-          >
-            <NavArrowLeft color={theme.colors.gray900} height={24} width={24} />
-          </IconButton>
+          {/* Equal-width side zones flank the title so it's anchored to the true
+              header center (Figma 1874:13992), regardless of how many icons sit
+              on the right (the extra Delete icon used to shove it left). */}
+          <View style={styles.headerSide}>
+            <IconButton
+              accessibilityLabel="Go back"
+              onPress={onBack}
+              shape="circle"
+              size={36}
+              testID="detail-back"
+              variant="subtle"
+            >
+              <NavArrowLeft color={theme.colors.gray900} height={24} width={24} />
+            </IconButton>
+          </View>
           <Text
             numberOfLines={1}
             style={[theme.typography.titleMedium, styles.headerTitle]}
@@ -1531,28 +1568,30 @@ export function CardDetailScreen({
           >
             {displayName}
           </Text>
-          {selectedEntry ? (
+          <View style={[styles.headerSide, styles.headerSideRight]}>
+            {selectedEntry ? (
+              <IconButton
+                accessibilityLabel="Delete from collection"
+                onPress={() => setConfirmDeleteOpen(true)}
+                shape="circle"
+                size={36}
+                testID="detail-delete"
+                variant="subtle"
+              >
+                <Trash color={theme.colors.gray900} height={20} width={20} />
+              </IconButton>
+            ) : null}
             <IconButton
-              accessibilityLabel="Delete from collection"
-              onPress={() => setConfirmDeleteOpen(true)}
+              accessibilityLabel="Share this card"
+              onPress={handleShare}
               shape="circle"
               size={36}
-              testID="detail-delete"
+              testID="detail-share"
               variant="subtle"
             >
-              <Trash color={theme.colors.gray900} height={20} width={20} />
+              <ShareIos color={theme.colors.gray900} height={20} width={20} />
             </IconButton>
-          ) : null}
-          <IconButton
-            accessibilityLabel="Share this card"
-            onPress={handleShare}
-            shape="circle"
-            size={36}
-            testID="detail-share"
-            variant="subtle"
-          >
-            <ShareIos color={theme.colors.gray900} height={20} width={20} />
-          </IconButton>
+          </View>
         </View>
       </Animated.View>
 
@@ -1585,7 +1624,7 @@ export function CardDetailScreen({
               disabled={isSavingEdit}
               label="CANCEL"
               labelStyleVariant="label"
-              onPress={onBack}
+              onPress={handleCancelEdit}
               shape="rounded"
               size="md"
               style={styles.actionButton}
@@ -1648,8 +1687,16 @@ const styles = StyleSheet.create({
   headerRow: {
     alignItems: 'center',
     flexDirection: 'row',
+  },
+  headerSide: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    // Equal-width flanks → the title between them lands on the true center.
+    flex: 1,
     gap: 8,
-    justifyContent: 'space-between',
+  },
+  headerSideRight: {
+    justifyContent: 'flex-end',
   },
   stickyHeader: {
     elevation: 10,
@@ -1672,7 +1719,8 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   headerTitle: {
-    flex: 1,
+    flexShrink: 1,
+    marginHorizontal: 8,
     textAlign: 'center',
   },
   identityBlock: {

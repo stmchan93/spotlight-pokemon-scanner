@@ -36,22 +36,43 @@ export function CardDetailHero({
 }: CardDetailHeroProps) {
   const theme = useSpotlightTheme();
 
-  // Pinch-in-place zoom: scale the card from center while pinching, snap back on
-  // release. Center-zoom keeps the math layout-free and reliable; the elevated
-  // zIndex lets the zoomed art render above following PDP content mid-gesture.
+  // Focal-point pinch: zoom toward the pinch midpoint and let the user drag that
+  // midpoint to move AROUND the magnified card (inspect a corner/edge), not just a
+  // center blow-up. Scale + pan both snap back on release — the zoom is a transient
+  // inspect gesture. The elevated zIndex lets the zoomed art render above the PDP
+  // content mid-gesture. `frameW/H` are the wrapper's measured size so the focal
+  // offset can be taken from its center.
   const scale = useSharedValue(1);
+  const translateX = useSharedValue(0);
+  const translateY = useSharedValue(0);
+  const frameW = useSharedValue(0);
+  const frameH = useSharedValue(0);
+
   const pinch = Gesture.Pinch()
     .onUpdate((event) => {
       'worklet';
-      scale.value = Math.min(Math.max(event.scale, 1), MAX_ZOOM);
+      const nextScale = Math.min(Math.max(event.scale, 1), MAX_ZOOM);
+      scale.value = nextScale;
+      // Keep the focal point pinned under the fingers: scaling about the wrapper
+      // center moves a point by (focal − center) × scale, so translate it back by
+      // (focal − center) × (1 − scale). As the fingers move, the focal follows —
+      // which is what makes the card pan around while zoomed.
+      translateX.value = (event.focalX - frameW.value / 2) * (1 - nextScale);
+      translateY.value = (event.focalY - frameH.value / 2) * (1 - nextScale);
     })
     .onEnd(() => {
       'worklet';
       scale.value = withTiming(1);
+      translateX.value = withTiming(0);
+      translateY.value = withTiming(0);
     });
 
   const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
+    transform: [
+      { translateX: translateX.value },
+      { translateY: translateY.value },
+      { scale: scale.value },
+    ],
     zIndex: scale.value > 1 ? 10 : 0,
   }));
 
@@ -62,6 +83,10 @@ export function CardDetailHero({
           shrunk to ~52% width and a soft drop shadow. Pinch to zoom in place. */}
       <GestureDetector gesture={pinch}>
         <Animated.View
+          onLayout={(event) => {
+            frameW.value = event.nativeEvent.layout.width;
+            frameH.value = event.nativeEvent.layout.height;
+          }}
           style={[styles.imageWrapper, { borderRadius: theme.radii.md }, animatedStyle]}
         >
           <CachedImage
