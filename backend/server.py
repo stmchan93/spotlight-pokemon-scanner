@@ -52,6 +52,7 @@ from catalog_tools import (
     DEFAULT_RAW_CONDITION,
     MATCHER_VERSION,
     RAW_CONDITION_PRIORITY,
+    PSA_GRADE_PRICING_MODE,
     RAW_PRICING_MODE,
     RAW_VARIANT_PRIORITY,
     RawDecisionResult,
@@ -14097,6 +14098,214 @@ class SpotlightScanService:
             "offset": safe_offset,
         }
 
+    @staticmethod
+    def _downsample_sparkline(values: list[float], target: int = 24) -> list[float]:
+        """Pick ~``target`` evenly-spaced values (oldest->newest) from ``values``.
+
+        Fewer points than the target are returned as-is; a longer series is
+        thinned with evenly-spaced indices that always include the first and
+        last point so the sparkline still spans the whole year."""
+        count = len(values)
+        if count <= target:
+            return [round(float(v), 2) for v in values]
+        # Even spacing across [0, count-1] inclusive of both endpoints.
+        indices = sorted(
+            {round(i * (count - 1) / (target - 1)) for i in range(target)}
+        )
+        return [round(float(values[i]), 2) for i in indices]
+
+    def portfolio_performance(self) -> dict[str, Any]:
+        """Per-card YTD performance table for the owner's active inventory.
+
+        One batched SQLite read: current price (same resolution as the
+        Collection/deck-entries view), cost basis, a year-start (Jan 1) baseline
+        price, YTD gain/loss, and a downsampled yearly price sparkline. Pure
+        SQLite read — no provider refresh, no Scrydex fetch. Missing data yields
+        nulls, never a live fetch (live-pricing-off invariant)."""
+        owner_user_id = self._current_owner_user_id()
+        now = datetime.now(timezone.utc)
+        year = now.year
+        jan1_str = f"{year}-01-01"
+        # Days from Jan 1 (inclusive) through today, plus a small buffer so the
+        # DESC-ordered `days` window comfortably reaches back to Jan 1.
+        year_days = (now.date() - date(year, 1, 1)).days + 8
+
+        rows = self.connection.execute(
+            """
+            SELECT
+                id,
+                item_kind,
+                card_id,
+                grader,
+                grade,
+                cert_number,
+                variant_name,
+                condition,
+                quantity,
+                cost_basis_total,
+                cost_basis_cents
+            FROM deck_entries
+            WHERE owner_user_id = ? AND quantity > 0
+            ORDER BY added_at DESC, id DESC
+            """,
+            (owner_user_id,),
+        ).fetchall()
+
+        card_ids = [str(row["card_id"] or "").strip() for row in rows]
+        cards_by_id_map = cards_by_ids(self.connection, card_ids)
+        price_snapshot_rows = self._price_snapshot_rows_by_card_id(card_ids)
+
+        provider = pricing_provider()
+        result_rows: list[dict[str, Any]] = []
+        currency_code = "USD"
+
+        for row in rows:
+            card_id = str(row["card_id"] or "").strip()
+            card = cards_by_id_map.get(card_id)
+            if card is None:
+                continue
+
+            grader = str(row["grader"] or "").strip() or None
+            grade = str(row["grade"] or "").strip() or None
+            cert_number = str(row["cert_number"] or "").strip() or None
+            variant_name = str(row["variant_name"] or "").strip() or None
+            condition = self._normalized_deck_card_condition(row["condition"])
+            quantity = max(0, int(row["quantity"] or 0))
+            if quantity <= 0:
+                continue
+
+            is_graded = str(row["item_kind"] or "").strip().lower() == "slab" or bool(
+                grader or grade
+            )
+            pricing_context = (
+                self._slab_pricing_context(
+                    grader=grader,
+                    grade=grade,
+                    cert_number=cert_number,
+                    preferred_variant=variant_name,
+                )
+                if is_graded
+                else self._raw_pricing_context(
+                    preferred_variant=variant_name,
+                    preferred_condition=condition,
+                )
+            )
+            # Current price: reuse the SAME resolution the Collection view uses so
+            # this table matches what the app already shows.
+            pricing = self._display_pricing_summary_for_context(
+                card_id,
+                pricing_context=pricing_context,
+                snapshot_row=price_snapshot_rows.get(card_id),
+            )
+            current_price = self._primary_price_value(pricing)
+            if isinstance(pricing, dict):
+                currency_code = str(pricing.get("currencyCode") or currency_code)
+            current_value = (
+                round(current_price * quantity, 2) if current_price is not None else None
+            )
+
+            # Cost basis: null when the user never entered one. Prefer the
+            # authoritative per-unit `cost_basis_cents`; fall back to the legacy
+            # total-dollars column when present and non-zero.
+            cost_basis_total: float | None = None
+            cost_basis_cents_raw = (
+                row["cost_basis_cents"] if "cost_basis_cents" in row.keys() else None
+            )
+            if cost_basis_cents_raw is not None:
+                try:
+                    cost_basis_total = round(
+                        float(cost_basis_cents_raw) / 100.0 * quantity, 2
+                    )
+                except (TypeError, ValueError):
+                    cost_basis_total = None
+            if cost_basis_total is None:
+                legacy_total = float(row["cost_basis_total"] or 0.0)
+                if legacy_total > 0.0:
+                    cost_basis_total = round(legacy_total, 2)
+
+            # Year-to-date history: read this entry's daily series in the SAME
+            # pricing mode/columns it resolves to (raw vs graded).
+            history_rows = price_history_rows_for_card(
+                self.connection,
+                card_id,
+                provider=provider,
+                days=year_days,
+                pricing_mode=(
+                    PSA_GRADE_PRICING_MODE if is_graded else RAW_PRICING_MODE
+                ),
+                variant=variant_name,
+                condition=None if is_graded else condition,
+                grader=grader if is_graded else None,
+                grade=grade if is_graded else None,
+            )
+            history_rows = self._display_price_history_rows(history_rows)
+            # `_history_points_payload` reverses to oldest->newest.
+            points = self._history_points_payload(history_rows)
+            # Only this year's points, with a resolvable price.
+            year_series: list[float] = []
+            for point in points:
+                point_date = str(point.get("date") or "")
+                if point_date < jan1_str:
+                    continue
+                value = self._history_primary_price_value(point)
+                if value is None:
+                    continue
+                year_series.append(float(value))
+
+            if year_series:
+                jan1_price = round(year_series[0], 2)
+                sparkline = self._downsample_sparkline(year_series)
+            else:
+                jan1_price = None
+                sparkline = []
+
+            year_start_value = (
+                round(jan1_price * quantity, 2) if jan1_price is not None else None
+            )
+            if jan1_price is not None and current_price is not None:
+                ytd_gain_dollar = round((current_value or 0.0) - (year_start_value or 0.0), 2)
+                ytd_gain_percent = (
+                    round((current_price - jan1_price) / jan1_price * 100.0, 2)
+                    if jan1_price != 0.0
+                    else None
+                )
+            else:
+                ytd_gain_dollar = None
+                ytd_gain_percent = None
+
+            result_rows.append(
+                {
+                    "entryId": str(row["id"]),
+                    "cardId": card_id,
+                    "name": str(card.get("name") or ""),
+                    "number": str(card.get("number") or ""),
+                    "setName": str(card.get("setName") or ""),
+                    "imageUrl": card.get("imageURL") or card.get("imageSmallURL"),
+                    "quantity": quantity,
+                    "kind": "graded" if is_graded else "raw",
+                    "grade": (
+                        (f"{grader or ''} {grade or ''}".strip() or None)
+                        if is_graded
+                        else None
+                    ),
+                    "currentPrice": current_price,
+                    "currentValue": current_value,
+                    "costBasisTotal": cost_basis_total,
+                    "jan1Price": jan1_price,
+                    "yearStartValue": year_start_value,
+                    "ytdGainDollar": ytd_gain_dollar,
+                    "ytdGainPercent": ytd_gain_percent,
+                    "sparkline": sparkline,
+                }
+            )
+
+        return {
+            "itemCount": len(result_rows),
+            "currencyCode": currency_code,
+            "refreshedAt": utc_now(),
+            "rows": result_rows,
+        }
+
     def card_favorites(self, *, limit: int = 200, offset: int = 0) -> dict[str, Any]:
         owner_user_id = self._current_owner_user_id()
         safe_limit = max(0, min(int(limit), 1000))
@@ -14818,6 +15027,29 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                     {"error": f"Portfolio dashboard failed: {error}"},
+                )
+                return
+            finally:
+                _heavy_read_semaphore.release()
+            self._write_json(HTTPStatus.OK, payload)
+            return
+
+        if parsed.path == "/api/v1/portfolio/performance":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            if not self._require_access(identity):
+                return
+            if not self._acquire_heavy_read_slot():
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    payload = self.service.portfolio_performance()
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"Portfolio performance failed: {error}"},
                 )
                 return
             finally:
