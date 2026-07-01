@@ -1992,6 +1992,28 @@ class SpotlightScanService:
         earliest_raw = str(earliest_row["earliest_at"] if earliest_row is not None else "").strip()
         return self._coerce_utc_datetime(earliest_raw)
 
+    def _portfolio_earliest_priced_date(self) -> date | None:
+        """Earliest day for which ANY price history exists (provider-scoped).
+
+        The daily job prices the whole catalog each run, so the global minimum
+        price_date is also the first day a portfolio can have a non-zero value.
+        History-bounded ranges (3M/1Y/ALL) must not plot days before this — there
+        is no price to value the portfolio with, so every such day reads $0 and
+        drags the chart (and its baseline) to zero. Clamping the window start to
+        this date makes those ranges show "since data began" instead.
+        """
+        row = self.connection.execute(
+            "SELECT MIN(price_date) AS earliest_date FROM card_price_history_daily WHERE provider = ?",
+            (pricing_provider(),),
+        ).fetchone()
+        earliest_raw = str(row["earliest_date"] if row is not None else "").strip()
+        if not earliest_raw:
+            return None
+        try:
+            return date.fromisoformat(earliest_raw[:10])
+        except ValueError:
+            return None
+
     def _card_show_mode_record(self) -> dict[str, Any] | None:
         return runtime_setting(self.connection, CARD_SHOW_MODE_SETTING_KEY)
 
@@ -4407,6 +4429,14 @@ class SpotlightScanService:
             time_zone_name=time_zone_name,
             earliest_at=earliest_at,
         )
+        # Don't plot days before price history exists: those days have no price to
+        # value the portfolio, so they read $0 and crash the chart/baseline to zero
+        # (e.g. a 3M window today reaches ~2 weeks before the 2026-04-16 history
+        # floor). Clamp the window start up to the first priced day so over-length
+        # ranges show "since data began" instead of a leading run of $0.
+        earliest_priced_date = self._portfolio_earliest_priced_date()
+        if earliest_priced_date is not None and earliest_priced_date > start_date:
+            start_date = min(earliest_priced_date, end_date)
 
         entry_rows = (
             shared_inputs["entry_rows"]
