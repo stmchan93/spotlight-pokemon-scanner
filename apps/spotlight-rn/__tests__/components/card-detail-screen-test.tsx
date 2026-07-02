@@ -243,6 +243,107 @@ describe('CardDetailScreen', () => {
     expect(mockReplace).not.toHaveBeenCalled();
   });
 
+  it('SAVE after an EN→JP swap retargets the owned entry to the JP printing (no silent no-op)', async () => {
+    // Regression: the user owns the EN card only. After swapping the displayed
+    // card to the JP counterpart, every cardId-filtered owned pool is empty —
+    // selectedEntry used to null out and SAVE silently returned.
+    const ownedEnEntry: InventoryCardEntry = {
+      addedAt: '2026-04-27T12:00:00.000Z',
+      cardId: 'sm7-1',
+      cardNumber: '#001/096',
+      conditionCode: null,
+      conditionLabel: 'Near Mint',
+      conditionShortLabel: 'NM',
+      costBasisPerUnit: null,
+      costBasisTotal: null,
+      currencyCode: 'USD',
+      hasMarketPrice: true,
+      id: 'e-owned-en',
+      imageUrl: 'https://cdn.spotlight.test/sm7/treecko.png',
+      kind: 'raw',
+      marketPrice: 12,
+      name: 'Treecko',
+      quantity: 1,
+      setName: 'Sky Stream',
+      slabContext: null,
+      variantName: 'Normal',
+    };
+
+    const baseRepository = createTestSpotlightRepository();
+    const getCardDetail = jest.fn(async (query: { cardId: string }) => {
+      const base = await baseRepository.getCardDetail({ ...query, cardId: 'sm7-1' });
+      if (!base) {
+        return null;
+      }
+      if (query.cardId === 'sm7-1-jp') {
+        return {
+          ...base,
+          cardId: 'sm7-1-jp',
+          name: 'Treecko (JP)',
+          language: 'japanese',
+          counterpartCardId: 'sm7-1',
+          counterpartLanguage: 'english',
+          ownedEntries: [], // the JP printing is NOT owned — the regression condition
+        } satisfies CardDetailRecord;
+      }
+      return {
+        ...base,
+        language: 'english',
+        counterpartCardId: 'sm7-1-jp',
+        counterpartLanguage: 'japanese',
+        ownedEntries: [ownedEnEntry],
+      } satisfies CardDetailRecord;
+    });
+
+    const replacePortfolioEntry = jest.fn(async () => ({
+      previousDeckEntryID: 'e-owned-en',
+      deckEntryID: 'e-owned-en',
+      cardID: 'sm7-1-jp',
+      quantity: 1,
+      unitPrice: null,
+      updatedAt: '2026-04-27T12:00:00.000Z',
+    }));
+    const updateDeckEntryCostBasis = jest.fn(async () => ({
+      deckEntryID: 'e-owned-en',
+      cardID: 'sm7-1-jp',
+      costBasisPerUnit: null,
+      costBasisPerUnitCents: null,
+      currencyCode: 'USD',
+      updatedAt: '2026-04-27T12:00:00.000Z',
+    }));
+    const onBack = jest.fn();
+
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" entryId="e-owned-en" onBack={onBack} />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardDetail,
+          replacePortfolioEntry,
+          updateDeckEntryCostBasis,
+        }),
+      },
+    );
+
+    // Owned EN card → edit mode with SAVE visible.
+    expect((await screen.findByTestId('detail-name')).props.children).toBe('Treecko');
+    await screen.findByTestId('detail-save-edit');
+
+    // Swap to the JP printing in place.
+    fireEvent.press(screen.getByTestId('detail-configurator-language-JP'));
+    await waitFor(() => {
+      expect(screen.getByTestId('detail-name').props.children).toBe('Treecko (JP)');
+    });
+
+    // SAVE must actually save: replace the pinned entry with the JP cardID.
+    fireEvent.press(screen.getByTestId('detail-save-edit'));
+    await waitFor(() => {
+      expect(replacePortfolioEntry).toHaveBeenCalledWith(
+        expect.objectContaining({ deckEntryID: 'e-owned-en', cardID: 'sm7-1-jp' }),
+      );
+    });
+    await waitFor(() => expect(onBack).toHaveBeenCalled());
+  });
+
   it('ADD ITEM creates a raw inventory entry with the configured selection and refreshes', async () => {
     const createInventoryEntry = jest.fn(async () => ({
       deckEntryID: 'new-entry',

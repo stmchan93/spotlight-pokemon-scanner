@@ -374,6 +374,13 @@ export function ScannerScreen({
     });
   }, []);
   useEffect(() => {
+    // Arm only while the scanner is the ACTIVE pager page. Both pager slots
+    // mount at boot (Collection is the landing tab), so an unconditional arm
+    // used to show the tooltip invisibly on the hidden page and let the 10s
+    // timer burn it — the seen-flag was written before the user ever swiped over.
+    if (!isActiveTab) {
+      return undefined;
+    }
     let cancelled = false;
     void AsyncStorage.getItem(LANGUAGE_TOOLTIP_SEEN_KEY)
       .then((seen) => {
@@ -385,15 +392,16 @@ export function ScannerScreen({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isActiveTab]);
   useEffect(() => {
-    if (!showLanguageTooltip) {
+    if (!showLanguageTooltip || !isActiveTab) {
       return undefined;
     }
-    // Scanner convention for transient chrome: auto-dismiss after 10s.
+    // Scanner convention for transient chrome: auto-dismiss after 10s — counted
+    // only while the tooltip is actually on screen.
     const timer = setTimeout(dismissLanguageTooltip, 10000);
     return () => clearTimeout(timer);
-  }, [dismissLanguageTooltip, showLanguageTooltip]);
+  }, [dismissLanguageTooltip, isActiveTab, showLanguageTooltip]);
   // Whether the app is in the foreground. vision-camera's session is interrupted
   // by the OS on screen-lock/background; without driving `isActive` off this, the
   // session is never told to stop+restart and the preview returns frozen while the

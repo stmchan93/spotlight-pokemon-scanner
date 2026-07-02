@@ -23,6 +23,7 @@ import {
   type CardPriceTrendList as CardPriceTrendListRecord,
   type CardPriceTrendRow,
   type DeckConditionCode,
+  type InventoryCardEntry,
   type MarketHistoryOption,
   type SlabContext,
 } from '@spotlight/api-client';
@@ -363,6 +364,11 @@ export function CardDetailScreen({
     return source.filter((entry) => entry.cardId === activeCardId);
   }, [activeCardId, inventoryEntriesCache, portfolioDashboardCache]);
 
+  // Last entry this mounted screen resolved for `entryId` — survives an EN/JP
+  // swap that empties every live pool (the counterpart detail owns nothing and
+  // the inventory cache may not be loaded yet).
+  const pinnedEntryRef = useRef<InventoryCardEntry | null>(null);
+
   const selectedEntry = useMemo(() => {
     // An explicit entryId pins the EDITED entry by id across every pool — even
     // after an EN/JP swap, when the entry's cardId no longer matches the
@@ -374,7 +380,8 @@ export function CardDetailScreen({
       const pinned =
         detail?.ownedEntries.find((entry) => entry.id === entryId)
         ?? allCached.find((entry) => entry.id === entryId)
-        ?? (detailPreview?.ownedEntry?.id === entryId ? detailPreview.ownedEntry : null);
+        ?? (detailPreview?.ownedEntry?.id === entryId ? detailPreview.ownedEntry : null)
+        ?? (pinnedEntryRef.current?.id === entryId ? pinnedEntryRef.current : null);
       if (pinned) {
         return pinned;
       }
@@ -401,6 +408,14 @@ export function CardDetailScreen({
     inventoryEntriesCache,
     portfolioDashboardCache,
   ]);
+
+  // Record the resolution AFTER the memo so the ref lags one render behind —
+  // exactly what the pin fallback above needs when the pools churn.
+  useEffect(() => {
+    if (entryId && selectedEntry?.id === entryId) {
+      pinnedEntryRef.current = selectedEntry;
+    }
+  }, [entryId, selectedEntry]);
 
   const ownedSlabContext = selectedEntry?.slabContext ?? scanReviewSession?.slabContext ?? null;
 
