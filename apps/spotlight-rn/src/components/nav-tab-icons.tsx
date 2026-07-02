@@ -35,32 +35,6 @@ export function CollectionTabIcon({
   );
 }
 
-// Calendar — Figma nav "Events" (nodes 629:6794 / 645:663).
-// Outline = stroked calendar; selected = filled body with the binding rings on top.
-const EVENTS_STROKES = [
-  'M10 2.66667V1.33333M10 2.66667V4M10 2.66667H7M2 6.66667V12.6667C2 13.4031 2.59695 14 3.33333 14H12.6667C13.4031 14 14 13.4031 14 12.6667V6.66667H2Z',
-  'M2 6.66667V4C2 3.26362 2.59695 2.66667 3.33333 2.66667H4.66667',
-  'M4.66665 1.33333V4',
-  'M14 6.66667V4C14 3.26362 13.4031 2.66667 12.6667 2.66667H12.3333',
-];
-
-export function EventsTabIcon({
-  color = DEFAULT_COLOR,
-  size = DEFAULT_SIZE,
-  filled = false,
-}: NavTabIconProps) {
-  return (
-    <Svg fill="none" height={size} viewBox="0 0 16 16" width={size}>
-      <G>
-        {filled ? <Path d="M2.4 6.4H13.6V13.6H2.4V6.4Z" fill={color} /> : null}
-        {EVENTS_STROKES.map((d) => (
-          <Path d={d} key={d} stroke={color} strokeLinecap="round" strokeLinejoin="round" />
-        ))}
-      </G>
-    </Svg>
-  );
-}
-
 // Bookmark banner — nav "Wishlist" (matches the drawer's iconoir Bookmark).
 // Outline = stroked banner; selected = the same banner filled.
 const WISHLIST_BOOKMARK =
