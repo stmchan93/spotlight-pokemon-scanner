@@ -25,17 +25,19 @@ export function ChangePasswordScreen() {
   const theme = useSpotlightTheme();
   const router = useRouter();
   const auth = useAuth();
+  const [currentPassword, setCurrentPassword] = useState('');
   const [password, setPassword] = useState('');
 
   const rules = buildPasswordRules(password);
-  const canContinue = rules.every((rule) => rule.satisfied) && !auth.isBusy;
+  const canContinue =
+    currentPassword.length > 0 && rules.every((rule) => rule.satisfied) && !auth.isBusy;
 
   const handleSubmit = useCallback(() => {
     if (!canContinue) {
       return;
     }
     void auth
-      .updatePassword(password)
+      .updatePassword(password, currentPassword)
       .then(() => {
         Alert.alert('Password updated', 'Your password has been changed.');
         router.back();
@@ -43,7 +45,7 @@ export function ChangePasswordScreen() {
       .catch(() => {
         // Failure message is surfaced inline via auth.errorMessage.
       });
-  }, [auth, canContinue, password, router]);
+  }, [auth, canContinue, currentPassword, password, router]);
 
   return (
     <AuthScreenLayout
@@ -56,6 +58,14 @@ export function ChangePasswordScreen() {
       </View>
 
       <View style={styles.form}>
+        <PasswordField
+          onChangeText={setCurrentPassword}
+          placeholder="Current password"
+          testID="change-password-current-input"
+          toggleTestID="change-password-current-toggle"
+          value={currentPassword}
+        />
+
         <PasswordField
           onChangeText={setPassword}
           placeholder="New password"
