@@ -3,12 +3,17 @@ import { Pressable, StyleSheet, Text } from 'react-native';
 
 import { colors, textStyles } from '@spotlight/design-system';
 
+import { RoundFlag } from './round-flag';
+
 export function ScanTargetPill({
   label,
+  flag,
   onPress,
   testID,
 }: {
   label: string;
+  /** Round language flag shown after the label (Figma 2302:28968). */
+  flag?: 'en' | 'jp';
   onPress: () => void;
   testID?: string;
 }) {
@@ -22,6 +27,7 @@ export function ScanTargetPill({
       testID={testID}
     >
       <Text style={styles.label}>{label}</Text>
+      {flag ? <RoundFlag language={flag} size={13} /> : null}
       <IconChevronDown color={colors.gray0} size={20} strokeWidth={2} />
     </Pressable>
   );

@@ -11,6 +11,8 @@ import {
 
 import type { ScannerCardType } from '@/features/scanner/use-scanner-target-config';
 
+import { RoundFlag } from './round-flag';
+
 // Trading-card games we intend to support but haven't shipped yet. Rendered as
 // disabled rows with a "Coming Soon" tag per the Figma "Scanning for" sheet
 // (node 1056-1472). Non-interactive — no handler.
@@ -79,12 +81,14 @@ export function ScanningForSheet({
 
           <View style={styles.list}>
             <LanguageRow
+              flag="en"
               label="Pokémon EN"
               selected={cardType === 'pokemon_en'}
               onPress={() => onSelectCardType('pokemon_en')}
               testID={`${testID}-type-pokemon-en`}
             />
             <LanguageRow
+              flag="jp"
               label="Pokémon JP"
               selected={cardType === 'pokemon_jp'}
               onPress={() => onSelectCardType('pokemon_jp')}
@@ -142,11 +146,14 @@ function DismissHandle({
 
 function LanguageRow({
   label,
+  flag,
   selected,
   onPress,
   testID,
 }: {
   label: string;
+  /** Round language flag rendered after the label (mirrors the pill). */
+  flag?: 'en' | 'jp';
   selected: boolean;
   onPress: () => void;
   testID?: string;
@@ -159,9 +166,12 @@ function LanguageRow({
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
       testID={testID}
     >
-      <AppText color="gray0" style={styles.rowLabel} variant="body">
-        {label}
-      </AppText>
+      <View style={styles.rowLabelGroup}>
+        <AppText color="gray0" variant="body">
+          {label}
+        </AppText>
+        {flag ? <RoundFlag language={flag} size={13} /> : null}
+      </View>
       <RadioDot selected={selected} selectedColor={colors.purple500} />
     </Pressable>
   );
@@ -233,6 +243,12 @@ const styles = StyleSheet.create({
   },
   rowLabel: {
     flex: 1,
+  },
+  rowLabelGroup: {
+    alignItems: 'center',
+    flex: 1,
+    flexDirection: 'row',
+    gap: 6,
   },
   rowPressed: {
     opacity: 0.7,

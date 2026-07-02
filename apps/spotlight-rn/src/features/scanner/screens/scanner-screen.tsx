@@ -101,6 +101,7 @@ import { useAppServices } from '@/providers/app-providers';
 import { AddAllMenu, type AddAllMenuAction } from '@/features/scanner/components/add-all-menu';
 import { ScanBulkConfirmSheet } from '@/features/scanner/components/scan-bulk-confirm-sheet';
 import { ScanTargetPill } from '@/features/scanner/components/scan-target-pill';
+import { ScannerLanguageTooltip } from '@/features/scanner/components/scanner-language-tooltip';
 import { ScanningForSheet } from '@/features/scanner/components/scanning-for-sheet';
 import {
   cardLanguageForCardType,
@@ -252,6 +253,9 @@ const SCANNER_ZOOM_FACTORS = [1, 1.5, 2] as const;
 type ScannerZoomFactor = (typeof SCANNER_ZOOM_FACTORS)[number];
 
 const SCANNER_ZOOM_STORAGE_KEY = '@spotlight/scanner/zoom-factor';
+// One-time EN/JP tooltip seen-flag — written on any dismissal so the coach mark
+// only ever shows on the user's very first scanner visit.
+const LANGUAGE_TOOLTIP_SEEN_KEY = '@spotlight/scanner/language-tooltip-seen';
 
 function parseScannerZoomFactor(raw: string | null): ScannerZoomFactor {
   const value = Number(raw);
@@ -356,6 +360,40 @@ export function ScannerScreen({
       }),
     ]).start();
   }, [reticleLockProgress]);
+  // One-time EN/JP coach mark (Figma 2302:29019): shown the very first time the
+  // user lands on the scanner, pointing at the language pill. Any dismissal —
+  // tapping the bubble, tapping the pill (which also opens the picker), or the
+  // 10s auto-timer — writes the seen-flag so it never appears again.
+  const [showLanguageTooltip, setShowLanguageTooltip] = useState(false);
+  const dismissLanguageTooltip = useCallback(() => {
+    setShowLanguageTooltip((current) => {
+      if (current) {
+        void AsyncStorage.setItem(LANGUAGE_TOOLTIP_SEEN_KEY, '1').catch(() => {});
+      }
+      return false;
+    });
+  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    void AsyncStorage.getItem(LANGUAGE_TOOLTIP_SEEN_KEY)
+      .then((seen) => {
+        if (!cancelled && seen == null) {
+          setShowLanguageTooltip(true);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  useEffect(() => {
+    if (!showLanguageTooltip) {
+      return undefined;
+    }
+    // Scanner convention for transient chrome: auto-dismiss after 10s.
+    const timer = setTimeout(dismissLanguageTooltip, 10000);
+    return () => clearTimeout(timer);
+  }, [dismissLanguageTooltip, showLanguageTooltip]);
   // Whether the app is in the foreground. vision-camera's session is interrupted
   // by the OS on screen-lock/background; without driving `isActive` off this, the
   // session is never told to stop+restart and the preview returns frozen while the
@@ -2479,8 +2517,14 @@ export function ScannerScreen({
             ]}
           >
             <ScanTargetPill
+              flag={cardType === 'pokemon_jp' ? 'jp' : 'en'}
               label={scanTargetPillLabel(cardType)}
-              onPress={() => setIsScanTargetSheetOpen(true)}
+              onPress={() => {
+                // Tapping the pill is also a tooltip dismissal — they learn the
+                // control by using it.
+                dismissLanguageTooltip();
+                setIsScanTargetSheetOpen(true);
+              }}
               testID="scanner-target-pill"
             />
             <View style={styles.zoomDock} testID="scanner-zoom-control">
@@ -2507,6 +2551,26 @@ export function ScannerScreen({
           </View>
         )}
 
+        {isTrayExpanded ? null : (
+          <View
+            pointerEvents="box-none"
+            style={[
+              styles.languageTooltipWrap,
+              {
+                // Directly above the language pill: the controls row's tray-anchored
+                // bottom + the 36px pill + an 8px gap.
+                bottom:
+                  (recentCaptures.length > 0 ? collapsedTrayReservedHeight : emptyTrayVisualHeight)
+                  + 16 + 36 + 8,
+              },
+            ]}
+          >
+            <ScannerLanguageTooltip
+              onPress={dismissLanguageTooltip}
+              visible={showLanguageTooltip && !isScanTargetSheetOpen}
+            />
+          </View>
+        )}
 
         <GestureDetector gesture={trayPanGesture}>
         <View style={styles.trayShell} testID="scanner-tray">
@@ -2785,6 +2849,13 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     position: 'absolute',
     zIndex: 4,
+  },
+  languageTooltipWrap: {
+    // Left-aligned with the language pill (controls row inset 16).
+    left: 16,
+    position: 'absolute',
+    // Above the controls row so the tail visually touches the pill.
+    zIndex: 5,
   },
   zoomDock: {
     alignItems: 'center',
