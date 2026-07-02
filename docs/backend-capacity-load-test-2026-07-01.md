@@ -98,6 +98,44 @@ downtime) — the semaphores auto-scale with core count, no config change.
    independently.
 4. GPU inference — not worth it below ~10 scans/s sustained.
 
+## Show-launch mode (measured 2026-07-01, same VM)
+
+A show launch is NOT the general population: attendees are there to scan.
+Re-ran `mixed.js` with `SCANNER_SHARE=0.4` (40% of users mid-scan at any
+moment — a busy floor):
+
+| Show users (40% scanning) | Scan p95 | Scan 503 shed | Deck entries p95 | Verdict on t2d-standard-4 |
+| --- | --- | --- | --- | --- |
+| 50 (20 scanners) | 5.8s | 0.6% | 3.0s | Survives, but every scan feels slow (2× SLO) |
+| 100 (40 scanners) | 9.2s | **43.7%** | 5.5s | **Broken** — half of scans shed |
+
+Scan-capacity math for show sizing (capacity ≈ (vCPUs−1)/1.2 scans/s; keep
+utilization ≤ ~70% for p95 < 3s):
+
+| Expected show users | Concurrent scanners (~40–50%) | Scan demand | VM for the show |
+| --- | --- | --- | --- |
+| ≤ 30 | 12–15 | ~2 scans/s | t2d-standard-4 (current) — at its edge |
+| ~50 | 20–25 | ~3.5 scans/s | **t2d-standard-8** |
+| ~100 | 40–50 | ~7 scans/s | **t2d-standard-16** |
+
+The resize is cheap because it's per-hour: standard-16 ≈ $0.85/hr → a 2-day
+show ≈ **$40**, then resize back down. It's a stop/start (minutes of
+downtime); both semaphores auto-scale with core count — no config change.
+
+Show-day gate (morning of, after the resize — extends
+docs/show-prep-ops-checklist.md):
+
+```bash
+k6 run --env USERS=<expected> --env SCANNER_SHARE=0.5 --env DURATION=120s \
+  --env BASE_URL=$BASE --env TOKEN=$TOK --env IMAGE_LIST=$IMGS tools/loadtest/mixed.js
+# pass: scan p95 < 3s, scan 503 < 1%
+```
+
+Also on show day: signups run through Supabase + Resend email OTP — the 60s
+resend cooldown plus venue-flaky email delivery is the onboarding choke point,
+not the backend. Have people download ahead via the TestFlight link where
+possible.
+
 ## Recommendation for the beta
 
 - **50–100 signups → keep t2d-standard-4.** Expected peak ≈ 10–20 concurrent;
