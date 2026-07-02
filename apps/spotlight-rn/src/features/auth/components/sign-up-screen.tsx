@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
-import { Apple, Google, Mail } from 'iconoir-react-native';
+import { Mail } from 'iconoir-react-native';
 
 import { useSpotlightTheme } from '@spotlight/design-system';
 
 import { AuthScreenLayout } from './auth-screen-layout';
+import { AppleLogo, GoogleLogo } from './social-icons';
 import {
   AuthErrorLine,
   AuthGroupLabel,
@@ -152,7 +153,7 @@ export function SignUpScreen({
         <SecondaryActionButton
           disabled={isBusy}
           label="Continue with Google"
-          leadingIcon={<Google color={theme.colors.gray900} height={16} width={16} />}
+          leadingIcon={<GoogleLogo size={16} />}
           onPress={onGoogle}
           testID="auth-google-button"
         />
@@ -160,7 +161,7 @@ export function SignUpScreen({
           <SecondaryActionButton
             disabled={isBusy}
             label="Continue with Apple"
-            leadingIcon={<Apple color={theme.colors.gray900} height={16} width={16} />}
+            leadingIcon={<AppleLogo size={16} />}
             onPress={onApple}
             testID="auth-apple-button"
           />
