@@ -364,6 +364,22 @@ export function CardDetailScreen({
   }, [activeCardId, inventoryEntriesCache, portfolioDashboardCache]);
 
   const selectedEntry = useMemo(() => {
+    // An explicit entryId pins the EDITED entry by id across every pool — even
+    // after an EN/JP swap, when the entry's cardId no longer matches the
+    // displayed activeCardId (SAVE then retargets the entry to the displayed
+    // printing). The cardId-filtered pools below come back empty in that state,
+    // which used to null out selectedEntry and turn SAVE into a silent no-op.
+    if (entryId) {
+      const allCached = inventoryEntriesCache ?? portfolioDashboardCache?.inventoryItems ?? [];
+      const pinned =
+        detail?.ownedEntries.find((entry) => entry.id === entryId)
+        ?? allCached.find((entry) => entry.id === entryId)
+        ?? (detailPreview?.ownedEntry?.id === entryId ? detailPreview.ownedEntry : null);
+      if (pinned) {
+        return pinned;
+      }
+    }
+
     // Prefer authoritative owned entries if a full detail carried them; else the
     // inventory cache; else the navigation preview's single owned entry.
     const ownedPool = detail?.ownedEntries.length ? detail.ownedEntries : cachedOwnedEntries;
@@ -377,7 +393,14 @@ export function CardDetailScreen({
     }
 
     return !entryId || previewEntry.id === entryId ? previewEntry : null;
-  }, [cachedOwnedEntries, detail, detailPreview?.ownedEntry, entryId]);
+  }, [
+    cachedOwnedEntries,
+    detail,
+    detailPreview?.ownedEntry,
+    entryId,
+    inventoryEntriesCache,
+    portfolioDashboardCache,
+  ]);
 
   const ownedSlabContext = selectedEntry?.slabContext ?? scanReviewSession?.slabContext ?? null;
 
