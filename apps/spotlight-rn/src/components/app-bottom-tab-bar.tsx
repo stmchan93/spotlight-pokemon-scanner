@@ -10,9 +10,11 @@ export type AppBottomTabKey = 'portfolio' | 'scan' | 'events';
 
 type AppBottomTabBarProps = {
   activeKey?: AppBottomTabKey | null;
-  // Pushed (stack) screens (wishlist/transactions/insights) set this so a tab tap
-  // collapses the pushed stack back to the target tab instead of pushing a
-  // duplicate `(tabs)` route on top (which made Back return to the page you left).
+  // Pushed (stack) screens (wishlist/transactions/insights) set this so a
+  // Collection/Events tab tap collapses the pushed stack back to the target tab
+  // instead of pushing a duplicate `(tabs)` route on top (which made Back return
+  // to the page you left). Scan is the exception: it always pushes, so Back
+  // returns to the pushed screen the user scanned from (see goToScan below).
   dismissToTabs?: boolean;
   onPressPortfolio?: () => void;
   onPressScan?: () => void;
@@ -41,10 +43,12 @@ export function AppBottomTabBar({
     ?? (dismissToTabs
       ? (() => router.dismissTo({ pathname: '/', params: { page: 'portfolio' } } as never))
       : (() => router.push({ pathname: '/', params: { page: 'portfolio' } } as never)));
+  // Scan always PUSHES — even from `dismissToTabs` screens. Dismissing here
+  // popped the pushed screen (e.g. Wishlist) off the stack before showing the
+  // scanner, so the back-swipe/back button from Scan had no history and landed
+  // on the tabs root's Collection page instead of the screen the user left.
   const goToScan = onPressScan
-    ?? (dismissToTabs
-      ? (() => router.dismissTo({ pathname: '/', params: { page: 'scanner' } } as never))
-      : (() => router.push({ pathname: '/', params: { page: 'scanner' } } as never)));
+    ?? (() => router.push({ pathname: '/', params: { page: 'scanner' } } as never));
   const goToEvents = onPressEvents
     ?? (dismissToTabs
       ? (() => router.replace('/events' as never))

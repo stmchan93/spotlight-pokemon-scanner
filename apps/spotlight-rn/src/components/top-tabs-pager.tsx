@@ -15,7 +15,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { StatusBar, setStatusBarStyle } from 'expo-status-bar';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 
 import { AppBottomTabBar } from '@/components/app-bottom-tab-bar';
 import { TabsPageContext } from '@/contexts/tabs-page-context';
@@ -51,6 +51,7 @@ export function TopTabsPager({
   renderScannerSlot,
 }: TopTabsPagerProps) {
   const { width } = useWindowDimensions();
+  const router = useRouter();
   const { openDrawer } = useAppDrawer();
   // Held in a ref so the memoized PanResponder always calls the latest opener
   // without being rebuilt.
@@ -65,6 +66,12 @@ export function TopTabsPager({
   const collectionEditingRef = useRef(collectionEditing);
   collectionEditingRef.current = collectionEditing;
   const activePageRef = useRef<TabsPage>(initialPage);
+  // True once this pager instance has shown its own Collection page. The
+  // scanner's back affordances use it to decide between popping navigation
+  // history (this instance was pushed straight into the scanner — e.g. Scan
+  // tapped from the pushed Wishlist screen, so "back" must return there) and
+  // sliding the pager to the Collection page the user actually came from.
+  const hasVisitedPortfolioRef = useRef(initialPage === 'portfolio');
   const isScannerSwipeEnabledRef = useRef(true);
   const isTransitioningRef = useRef(false);
   const directionRef = useRef<'left' | 'right' | null>(null);
@@ -81,6 +88,9 @@ export function TopTabsPager({
   useEffect(() => {
     const targetX = initialPage === 'portfolio' ? 0 : -width;
     activePageRef.current = initialPage;
+    if (initialPage === 'portfolio') {
+      hasVisitedPortfolioRef.current = true;
+    }
     setActivePage(initialPage);
     directionRef.current = null;
     isTransitioningRef.current = false;
@@ -101,6 +111,9 @@ export function TopTabsPager({
   const goToPage = useCallback((page: TabsPage) => {
     const targetX = page === 'portfolio' ? 0 : -width;
     activePageRef.current = page;
+    if (page === 'portfolio') {
+      hasVisitedPortfolioRef.current = true;
+    }
     setActivePage(page);
     isTransitioningRef.current = true;
     directionRef.current = null;
@@ -183,10 +196,18 @@ export function TopTabsPager({
       return false;
     }
     if (activePageRef.current === 'scanner' && gs.dx > 0) {
+      // When this tabs instance was pushed straight into the scanner on top of
+      // navigation history (Scan tapped from a pushed screen like Wishlist),
+      // the left-edge swipe is the stack's back gesture — it should pop back to
+      // that screen, not slide the pager to this instance's Collection page.
+      // Leave it to the native stack.
+      if (!hasVisitedPortfolioRef.current && router.canGoBack()) {
+        return false;
+      }
       return true;
     }
     return false;
-  }, [width]);
+  }, [router, width]);
 
   const panResponder = useMemo(() => PanResponder.create({
     // Record where the touch first landed (CAPTURE phase) so the edge-start check
@@ -260,7 +281,18 @@ export function TopTabsPager({
     },
   }), [shouldSetResponder, width, translateX, goToPage, cancelSwipe]);
 
-  const goToPortfolio = useCallback(() => goToPage('portfolio'), [goToPage]);
+  // Scanner exit/back target. When this tabs instance was pushed straight into
+  // the scanner on top of another screen (e.g. Scan tapped in the Wishlist tab
+  // bar), exiting the scanner returns to that screen. Otherwise (the tabs root,
+  // or the user reached the scanner from this instance's own Collection page)
+  // it slides the pager over to the Collection page.
+  const goToPortfolio = useCallback(() => {
+    if (!hasVisitedPortfolioRef.current && router.canGoBack()) {
+      router.back();
+      return;
+    }
+    goToPage('portfolio');
+  }, [goToPage, router]);
 
   const tabsPageValue = useMemo(
     () => ({ activePage, chartScrubLockRef, collectionEditing, setCollectionEditing }),
