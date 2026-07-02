@@ -31,6 +31,7 @@ jest.mock('expo-router', () => ({
 }));
 
 const mockReplace = jest.fn();
+const mockDismissTo = jest.fn();
 
 const sampleCardText: CardText = {
   number: '001/096',
@@ -47,7 +48,12 @@ const sampleCardText: CardText = {
 
 describe('CardDetailScreen', () => {
   beforeEach(() => {
-    (useRouter as jest.Mock).mockReturnValue({ replace: mockReplace, push: jest.fn(), back: jest.fn() });
+    (useRouter as jest.Mock).mockReturnValue({
+      replace: mockReplace,
+      push: jest.fn(),
+      back: jest.fn(),
+      dismissTo: mockDismissTo,
+    });
   });
 
   afterEach(() => {
@@ -328,14 +334,14 @@ describe('CardDetailScreen', () => {
     expect((await screen.findByTestId('detail-name')).props.children).toBe('Treecko');
     await screen.findByTestId('detail-save-edit');
 
-    // Swap to the JP printing in place.
+    // Swap to the JP printing and SAVE immediately — WITHOUT waiting for the
+    // counterpart detail to load. The toggle sets activeCardId synchronously
+    // while `detail` refetches; a fast SAVE used to persist the OLD printing
+    // from the stale detail (the "toggled and saved but nothing changed" bug).
     fireEvent.press(screen.getByTestId('detail-configurator-language-JP'));
-    await waitFor(() => {
-      expect(screen.getByTestId('detail-name').props.children).toBe('Treecko (JP)');
-    });
+    fireEvent.press(screen.getByTestId('detail-save-edit'));
 
     // SAVE must actually save: replace the pinned entry with the JP cardID.
-    fireEvent.press(screen.getByTestId('detail-save-edit'));
     await waitFor(() => {
       expect(replacePortfolioEntry).toHaveBeenCalledWith(
         expect.objectContaining({ deckEntryID: 'e-owned-en', cardID: 'sm7-1-jp' }),

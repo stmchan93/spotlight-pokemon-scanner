@@ -15,6 +15,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 
 import {
   deckConditionOptions,
@@ -165,6 +166,7 @@ export function CardDetailScreen({
 }: CardDetailScreenProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const {
     spotlightRepository,
     dataVersion,
@@ -222,11 +224,6 @@ export function CardDetailScreen({
   // Once the user edits Cost Basis, a background data refresh (which can swap the
   // selectedEntry reference / id) must not silently reset what they typed.
   const editCostBasisDirtyRef = useRef(false);
-  // Graded only (Figma 1640-5770): after a successful add the CTA flashes "SAVED"
-  // for 5s and reverts to "ADD ITEM" — the page stays in ADD mode so the user can
-  // add another slab, instead of flipping into the owned/Edit state.
-  const [justSaved, setJustSaved] = useState(false);
-  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [priceTrends, setPriceTrends] = useState<CardPriceTrendListRecord | null>(null);
   const [priceTrendsLoading, setPriceTrendsLoading] = useState(false);
@@ -435,13 +432,6 @@ export function CardDetailScreen({
   // default. The variant default is seeded in a separate effect below because
   // variantOptions only resolves with full detail, which can land after the
   // owned-entry preview makes hasSource true.
-  // Clear the pending "SAVED" revert timer if the screen unmounts mid-flash.
-  useEffect(() => () => {
-    if (savedTimerRef.current) {
-      clearTimeout(savedTimerRef.current);
-    }
-  }, []);
-
   const seededCardIdRef = useRef<string | null>(null);
   useEffect(() => {
     const hasSource = detail != null || selectedEntry != null || ownedSlabContext != null;
@@ -1030,16 +1020,11 @@ export function CardDetailScreen({
           quantity: Math.max(1, quantity),
         });
         setAddSheetOpen(false);
-        // The PDP always stays in ADD mode (Figma 1640:4077 — the action bar is
-        // just ADD ITEM + SHARE; owned-line edit/remove lives in Collection). The
-        // CTA flashes "SAVED" for 5s, then reverts to "ADD ITEM" so the user can
-        // add another copy/slab.
-        setJustSaved(true);
-        if (savedTimerRef.current) {
-          clearTimeout(savedTimerRef.current);
-        }
-        savedTimerRef.current = setTimeout(() => setJustSaved(false), 5000);
         refreshData();
+        // Adding is the END of the search/add flow: collapse the pushed stack
+        // (search + PDP) back to the Collection page, where the optimistic
+        // insert has already surfaced the new card at the top.
+        router.dismissTo({ pathname: '/', params: { page: 'portfolio' } } as never);
       })
       .catch(() => {
         setErrorMessage('Could not add this card right now.');
@@ -1057,6 +1042,7 @@ export function CardDetailScreen({
     prependOptimisticInventoryEntry,
     quantity,
     refreshData,
+    router,
     spotlightRepository,
   ]);
 
@@ -1207,7 +1193,10 @@ export function CardDetailScreen({
     spotlightRepository
       .replacePortfolioEntry({
         deckEntryID: selectedEntry.id,
-        cardID: detail.cardId,
+        // activeCardId, NOT detail.cardId: the EN/JP toggle sets activeCardId
+        // synchronously while `detail` refetches. A fast SAVE right after the
+        // toggle used to persist the OLD printing from the stale detail.
+        cardID: activeCardId,
         slabContext: editSlabContext,
         variantName: editIsRaw ? selectedVariantLabel : null,
         condition: editIsRaw ? selectedCondition : null,
@@ -1234,6 +1223,7 @@ export function CardDetailScreen({
         setIsSavingEdit(false);
       });
   }, [
+    activeCardId,
     detail,
     editCostBasisPerUnit,
     editIsRaw,
@@ -1673,8 +1663,8 @@ export function CardDetailScreen({
         ) : (
           <View style={styles.actionBar}>
             <Button
-              disabled={isAddPending || !detail || justSaved}
-              label={justSaved ? 'SAVED' : 'ADD ITEM'}
+              disabled={isAddPending || !detail}
+              label="ADD ITEM"
               labelStyleVariant="label"
               onPress={handleOpenAddSheet}
               shape="rounded"
