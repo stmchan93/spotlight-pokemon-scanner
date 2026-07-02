@@ -121,6 +121,26 @@ class CreateDeckEntrySlabVariantTest(unittest.TestCase):
         ).fetchone()
         self.assertEqual(row["variant_name"], "Blue Back")
 
+    def test_raw_top_level_variant_is_persisted_on_add(self) -> None:
+        # A raw card (no slabContext) sends its print variant as the top-level
+        # `variantName`. It must be written — regression guard for the save that
+        # silently dropped the picked variant because create_deck_entry only read
+        # slabContext.variantName.
+        self.service.create_deck_entry(
+            {
+                "cardID": "topsun_ja-88",
+                "selectionSource": "manual_search",
+                "quantity": 1,
+                "addedAt": "2026-06-17T07:33:00Z",
+                "variantName": "Holofoil",
+            }
+        )
+        row = self.service.connection.execute(
+            "SELECT variant_name FROM deck_entries WHERE card_id = ?",
+            ("topsun_ja-88",),
+        ).fetchone()
+        self.assertEqual(row["variant_name"], "Holofoil")
+
 
 if __name__ == "__main__":
     unittest.main()
