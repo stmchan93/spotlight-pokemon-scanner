@@ -470,13 +470,16 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
       return [{ x: chartPaddingX, y: baselineY }, coordinates[0]];
     }
     if (coordinates.length === 0) {
+      // Resting $0 line sits mid-chart (like a flat market line), not on the
+      // bottom edge.
+      const midY = chartPaddingY + plotHeight / 2;
       return [
-        { x: chartPaddingX, y: baselineY },
-        { x: chartPaddingX + plotWidth, y: baselineY },
+        { x: chartPaddingX, y: midY },
+        { x: chartPaddingX + plotWidth, y: midY },
       ];
     }
     return coordinates;
-  }, [chartHeight, chartPaddingX, chartPaddingY, chartWidth, coordinates, plotWidth]);
+  }, [chartHeight, chartPaddingX, chartPaddingY, chartWidth, coordinates, plotHeight, plotWidth]);
 
   const salesBars = useMemo(() => {
     if (chartWidth === 0 || series.length === 0) {
