@@ -24,6 +24,7 @@ import type { CardFavoriteEntry } from '@spotlight/api-client';
 import {
   CardListRow,
   IconButton,
+  PillButton,
   SearchField,
   SelectionCheckCircle,
   colors,
@@ -420,41 +421,30 @@ export function WishlistScreen() {
           showsHorizontalScrollIndicator={false}
           testID="wishlist-filter-row"
         >
+          {/* Same chips as the Collection tab: PillButton tone="filter" — white
+              pill / gray300 border / gray900 label when idle, solid gray900 pill
+              with a white label when selected. The Price chip carries its sort
+              arrow as a leading icon whose color follows the selected state
+              (mirrors the Insights chip row). */}
           {FILTERS.map((filter) => {
             const isSelected = filter.key === activeFilter;
             return (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ selected: isSelected }}
+              <PillButton
                 key={filter.key}
-                onPress={() => setActiveFilter(filter.key)}
-                style={({ pressed }) => [
-                  styles.filterChip,
-                  {
-                    backgroundColor: theme.colors.gray0,
-                    borderColor: isSelected ? theme.colors.brand : theme.colors.gray300,
-                    opacity: pressed ? 0.88 : 1,
-                  },
-                ]}
-                testID={`wishlist-filter-${filter.key}`}
-              >
-                <Text
-                  style={[
-                    theme.typography.label,
-                    { color: theme.colors.gray900 },
-                  ]}
-                >
-                  {filter.label}
-                </Text>
-                {filter.hasArrow ? (
+                label={filter.label}
+                leading={filter.hasArrow ? (
                   <ArrowUp
-                    color={theme.colors.gray900}
+                    color={isSelected ? theme.colors.gray0 : theme.colors.gray900}
                     height={12}
                     strokeWidth={2}
                     width={12}
                   />
-                ) : null}
-              </Pressable>
+                ) : undefined}
+                onPress={() => setActiveFilter(filter.key)}
+                selected={isSelected}
+                testID={`wishlist-filter-${filter.key}`}
+                tone="filter"
+              />
             );
           })}
         </ScrollView>
@@ -616,6 +606,9 @@ function WishlistListRow({
   theme,
 }: WishlistListRowProps) {
   const swipeableRef = useRef<Swipeable>(null);
+  // Whether the swipe-to-delete rail is currently revealed. Drives the gesture
+  // activation range below so closed rows never claim rightward pans.
+  const [deleteRailOpen, setDeleteRailOpen] = useState(false);
 
   const row = (
     <CardListRow
@@ -665,13 +658,20 @@ function WishlistListRow({
   return (
     <Swipeable
       ref={swipeableRef}
-      // Activate on a clear horizontal drag in EITHER direction (15px) so the
-      // row opens on a left-swipe and closes on a right-swipe; the 15px gate lets
-      // vertical list scrolls pass through. (The old leftward-only +
-      // `failOffsetX` config made it abort on the slightest rightward jitter and
-      // refuse to close.)
-      activeOffsetX={[-15, 15]}
+      // While the delete rail is CLOSED, only claim clear leftward drags (the
+      // open-the-rail direction) — rightward pans fall through to the
+      // screen-level horizontal page swipe, matching the Collection list view
+      // (whose rows claim no horizontal gestures at all). The previous
+      // always-[-15, 15] config swallowed every horizontal swipe over a row,
+      // which is why list view couldn't page-swipe while grid view could.
+      // Once the rail is OPEN the row claims both directions again so a
+      // right-swipe still closes it (no `failOffsetX`, so the old
+      // abort-on-rightward-jitter bug stays fixed). The 15px gate keeps
+      // vertical list scrolls passing through in both states.
+      activeOffsetX={deleteRailOpen ? [-15, 15] : -15}
       friction={1.5}
+      onSwipeableClose={() => setDeleteRailOpen(false)}
+      onSwipeableWillOpen={() => setDeleteRailOpen(true)}
       overshootRight={false}
       renderRightActions={renderRightActions}
       rightThreshold={40}
@@ -883,7 +883,8 @@ const styles = StyleSheet.create({
     paddingTop: 0,
   },
   controls: {
-    gap: 12,
+    // 16px between the search row and the filter chip row (Figma 1874-21756).
+    gap: 16,
     marginTop: 24,
   },
   searchRow: {
@@ -898,20 +899,11 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingRight: 16,
   },
-  filterChip: {
-    alignItems: 'center',
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 4,
-    height: 32,
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-  },
-  // 32px gap below the filter row before the first ruled row, reproducing the
-  // old `listContainer` marginTop (16) + the list/grid's own paddingTop (16).
+  // 16px gap below the filter row before the first ruled row (Figma 1874-21756
+  // rhythm: search → 16 → chips → 16 → grid/list). The old 32px doubled up the
+  // removed listContainer marginTop with the list's own paddingTop.
   listTopSpacer: {
-    height: 32,
+    height: 16,
   },
   footerSpacer: {
     height: 16,
