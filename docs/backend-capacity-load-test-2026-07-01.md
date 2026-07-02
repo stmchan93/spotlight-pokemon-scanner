@@ -122,7 +122,28 @@ The resize is cheap because it's per-hour: standard-16 ≈ $0.85/hr → a 2-day
 show ≈ **$40**, then resize back down. It's a stop/start (minutes of
 downtime); both semaphores auto-scale with core count — no config change.
 
-Show-day gate (morning of, after the resize — extends
+### ⚠️ Capacity stockout risk (learned the hard way, 2026-07-01)
+
+Attempting the standard-16 resize hit a **zonal stockout**: us-central1-b had
+no t2d capacity at that moment — not for 16, not even to restart the existing
+standard-4 (the stop released our slot). Service was restored on
+`e2-standard-4` (different capacity pool, same disk/IP). Consequences for
+show planning:
+
+1. **Never resize the morning of the show.** If the zone is out of capacity
+   you're DOWN, not just slow. Resize 1–2 days ahead.
+2. **Reserve the show capacity ahead of time** (bulletproof):
+   ```bash
+   gcloud compute reservations create show-2026-07-12 \
+     --zone us-central1-b --vm-count=1 \
+     --machine-type=t2d-standard-16 --require-specific-reservation=false
+   ```
+   You pay the VM rate while the reservation exists (~$0.85/hr), so create it
+   ~2 days before the show and delete it after — ~$60 total insurance.
+3. Keep `e2-standard-4` (or e2-standard-8/16) in your back pocket — e2 and
+   t2d draw from different pools, and per-core it's only modestly slower.
+
+Show-day gate (after the resize, 1–2 days ahead — extends
 docs/show-prep-ops-checklist.md):
 
 ```bash
