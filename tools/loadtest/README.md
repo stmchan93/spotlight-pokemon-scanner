@@ -118,6 +118,12 @@ the cold-cache paths first (cheaper).
 ## Files
 - `scanner.js` — POST /api/v1/scan/match ramp (the capacity test)
 - `collections.js` — deck/entries + portfolio dashboard/history + card detail
+- `mixed.js` — a POPULATION: `USERS=300` → 90% browsers + 10% scanners, so a
+  run answers "can we survive N users on the app?" directly. Results + sizing
+  model: `docs/backend-capacity-load-test-2026-07-01.md`
 - `lib.js` — shared base-URL/auth/ramp helpers
 - `watch-cpu.sh` — vmstat over gcloud ssh, run alongside k6
-- `corpus/` — your private card JPEGs (gitignored)
+- `corpus/` — your private card JPEGs (gitignored). NOTE: `IMAGE_LIST` paths
+  resolve relative to this directory (k6 script dir), e.g.
+  `IMAGE_LIST=corpus/card1.jpg,corpus/card2.jpg`
+- `mint-token.sh` — mint a 1h staging JWT into `.token` (gitignored)
