@@ -2,8 +2,9 @@
 // runtime (silently dropped every scan's source image — see scanner dashboard).
 import * as FileSystem from 'expo-file-system/legacy';
 import type { ReactNode, RefObject } from 'react';
-import { useEffect, useImperativeHandle, useState } from 'react';
+import { useEffect, useImperativeHandle, useRef, useState } from 'react';
 import {
+  Animated,
   Pressable,
   StyleSheet,
   Text,
@@ -104,6 +105,12 @@ type RawScannerCaptureSurfaceProps = {
   onCameraStopped?: () => void;
   onCapture: () => void;
   prompt: string;
+  /**
+   * Capture "lock-in" pulse (Figma 2227:22138 → 2227:22140): 0 = resting white
+   * frame, 1 = frame contracted ~4% with purple corners. The screen owns the
+   * value and animates it on capture (same pattern as the shutter flash).
+   */
+  reticleLockProgress?: Animated.Value;
   shouldMountCamera: boolean;
   showSlabGuide?: boolean;
   testIDPrefix: string;
@@ -210,11 +217,28 @@ export function RawScannerCaptureSurface({
   onCameraStopped,
   onCapture,
   prompt,
+  reticleLockProgress,
   shouldMountCamera,
   showSlabGuide = false,
   testIDPrefix,
   zoomFactor = 1,
 }: RawScannerCaptureSurfaceProps) {
+  // Stable zero-progress fallback so the reticle renders resting-white when the
+  // screen doesn't drive a lock pulse (e.g. lightweight tests).
+  const idleLockProgress = useRef(new Animated.Value(0)).current;
+  const lockProgress = reticleLockProgress ?? idleLockProgress;
+  // Contract to ~the Figma locked frame (361→345 wide ≈ 0.956); scale from
+  // center pulls every corner inward evenly, and the white→purple crossfade
+  // rides the same progress so both read as one "lock" gesture.
+  const lockScale = lockProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0.956],
+  });
+  const whiteCornersOpacity = lockProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0],
+  });
+  const purpleCornersOpacity = lockProgress;
   // Keep the ultra-wide in the lens set: on iPhone, only a multi-cam device that
   // includes the ultra-wide enables Auto-Macro — the close-focus that stops cards
   // held close from blurring on 14/15 Pro. The catch is that with the ultra-wide
@@ -411,13 +435,14 @@ export function RawScannerCaptureSurface({
         )}
 
         {isTrayExpanded ? null : (
-        <View
+        <Animated.View
           style={[
             styles.reticleShell,
             {
               height: layout.reticle.height,
               left: layout.reticle.x,
               top: layout.reticle.y,
+              transform: [{ scale: lockScale }],
               width: layout.reticle.width,
             },
           ]}
@@ -435,28 +460,55 @@ export function RawScannerCaptureSurface({
             />
           ) : null}
 
-          <View style={[styles.reticleCorner, styles.reticleTopLeftPosition]}>
-            <View style={[styles.reticleCornerHorizontal, styles.reticleCornerTopEdge]} />
-            <View style={[styles.reticleCornerVertical, styles.reticleCornerLeftEdge]} />
-          </View>
-          <View style={[styles.reticleCorner, styles.reticleTopRightPosition]}>
-            <View style={[styles.reticleCornerHorizontal, styles.reticleCornerTopEdge]} />
-            <View style={[styles.reticleCornerVertical, styles.reticleCornerRightEdge]} />
-          </View>
-          <View style={[styles.reticleCorner, styles.reticleBottomLeftPosition]}>
-            <View style={[styles.reticleCornerHorizontal, styles.reticleCornerBottomEdge]} />
-            <View style={[styles.reticleCornerVertical, styles.reticleCornerLeftEdge]} />
-          </View>
-          <View style={[styles.reticleCorner, styles.reticleBottomRightPosition]}>
-            <View style={[styles.reticleCornerHorizontal, styles.reticleCornerBottomEdge]} />
-            <View style={[styles.reticleCornerVertical, styles.reticleCornerRightEdge]} />
-          </View>
-        </View>
+          {/* Resting white corners and the capture-pulse purple set crossfade on
+              the shared lock progress (opacity+scale only → native driver). */}
+          <Animated.View
+            pointerEvents="none"
+            style={[StyleSheet.absoluteFillObject, { opacity: whiteCornersOpacity }]}
+          >
+            <ReticleCornerBrackets />
+          </Animated.View>
+          <Animated.View
+            pointerEvents="none"
+            style={[StyleSheet.absoluteFillObject, { opacity: purpleCornersOpacity }]}
+            testID={`${testIDPrefix}-reticle-lock`}
+          >
+            <ReticleCornerBrackets locked />
+          </Animated.View>
+        </Animated.View>
         )}
       </View>
 
       {children}
     </View>
+  );
+}
+
+/**
+ * The reticle's four L-shaped corner brackets. `locked` renders the purple
+ * capture-pulse variant (Figma 2227:22140); default is the resting white frame.
+ */
+function ReticleCornerBrackets({ locked = false }: { locked?: boolean }) {
+  const edgeTint = locked ? styles.reticleCornerLockedTint : null;
+  return (
+    <>
+      <View style={[styles.reticleCorner, styles.reticleTopLeftPosition]}>
+        <View style={[styles.reticleCornerHorizontal, styles.reticleCornerTopEdge, edgeTint]} />
+        <View style={[styles.reticleCornerVertical, styles.reticleCornerLeftEdge, edgeTint]} />
+      </View>
+      <View style={[styles.reticleCorner, styles.reticleTopRightPosition]}>
+        <View style={[styles.reticleCornerHorizontal, styles.reticleCornerTopEdge, edgeTint]} />
+        <View style={[styles.reticleCornerVertical, styles.reticleCornerRightEdge, edgeTint]} />
+      </View>
+      <View style={[styles.reticleCorner, styles.reticleBottomLeftPosition]}>
+        <View style={[styles.reticleCornerHorizontal, styles.reticleCornerBottomEdge, edgeTint]} />
+        <View style={[styles.reticleCornerVertical, styles.reticleCornerLeftEdge, edgeTint]} />
+      </View>
+      <View style={[styles.reticleCorner, styles.reticleBottomRightPosition]}>
+        <View style={[styles.reticleCornerHorizontal, styles.reticleCornerBottomEdge, edgeTint]} />
+        <View style={[styles.reticleCornerVertical, styles.reticleCornerRightEdge, edgeTint]} />
+      </View>
+    </>
   );
 }
 
@@ -496,6 +548,10 @@ const styles = StyleSheet.create({
   },
   reticleCornerLeftEdge: {
     left: 0,
+  },
+  // Capture-pulse tint (Figma 2227:22140 — brand purple "locked" frame).
+  reticleCornerLockedTint: {
+    backgroundColor: colors.purple500,
   },
   reticleCornerRightEdge: {
     right: 0,

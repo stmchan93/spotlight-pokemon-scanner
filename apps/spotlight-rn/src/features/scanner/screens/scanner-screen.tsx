@@ -12,6 +12,9 @@ import {
   Alert,
   Animated,
   AppState,
+  // RN Animated needs RN's own Easing; the unaliased `Easing` import below is
+  // reanimated's (worklet-based) and is NOT interchangeable here.
+  Easing as RNEasing,
   Image,
   Linking,
   Platform,
@@ -329,6 +332,30 @@ export function ScannerScreen({
       useNativeDriver: true,
     }).start();
   }, [captureFlashOpacity]);
+  // Reticle "lock-in" pulse (Figma 2227:22138 → 2227:22140), fired with the
+  // shutter flash: the white frame contracts ~4% and crossfades purple — as if
+  // the corners grab the card — then eases back to resting white. The surface
+  // maps 0→1 onto scale + the white→purple crossfade (native driver only).
+  const reticleLockProgress = useRef(new Animated.Value(0)).current;
+  const triggerReticleLock = useCallback(() => {
+    reticleLockProgress.setValue(0);
+    Animated.sequence([
+      Animated.timing(reticleLockProgress, {
+        toValue: 1,
+        duration: 140,
+        easing: RNEasing.out(RNEasing.cubic),
+        useNativeDriver: true,
+      }),
+      // Hold the locked frame a beat so the grab reads, then release.
+      Animated.delay(200),
+      Animated.timing(reticleLockProgress, {
+        toValue: 0,
+        duration: 260,
+        easing: RNEasing.inOut(RNEasing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [reticleLockProgress]);
   // Whether the app is in the foreground. vision-camera's session is interrupted
   // by the OS on screen-lock/background; without driving `isActive` off this, the
   // session is never told to stop+restart and the preview returns frozen while the
@@ -1040,6 +1067,7 @@ export function ScannerScreen({
 
     void triggerScannerHaptic();
     triggerCaptureFlash();
+    triggerReticleLock();
     const scanStartedAt = Date.now();
     setIsCapturing(true);
 
@@ -1407,6 +1435,7 @@ export function ScannerScreen({
     requestPermission,
     runMatchForCapture,
     triggerCaptureFlash,
+    triggerReticleLock,
     updateRecentCapture,
     zoomFactor,
   ]);
@@ -2334,6 +2363,7 @@ export function ScannerScreen({
         hasCameraPermission={hasCameraPermission}
         isTrayExpanded={isTrayExpanded}
         layout={captureSurfaceLayout}
+        reticleLockProgress={reticleLockProgress}
         onCameraError={() => {
           // A session error (e.g. an unrecoverable interruption) — drop the gate
           // so the UI reflects the dead session instead of a stuck-enabled button.
