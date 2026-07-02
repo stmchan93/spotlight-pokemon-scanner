@@ -1621,6 +1621,64 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         self.assertEqual(inactive_entry_by_id[original_payload["deckEntryID"]]["quantity"], 0)
         self.assertEqual(inactive_entry_by_id[replace_payload["deckEntryID"]]["quantity"], 2)
 
+    def test_replace_deck_entry_moves_entry_to_another_card(self) -> None:
+        # The PDP EN/JP toggle saves an owned entry onto the counterpart
+        # printing — a replace with a DIFFERENT cardID. The old entry zeroes
+        # out and the new card's entry takes over.
+        self._insert_card("swsh6a_ja-95", name="Umbreon VMAX (JA)")
+        self._insert_card("swsh7-215", name="Umbreon VMAX")
+
+        original_payload = self.service.record_buy(
+            {
+                "cardID": "swsh6a_ja-95",
+                "quantity": 1,
+                "unitPrice": 400.0,
+                "currencyCode": "USD",
+                "paymentMethod": "cash",
+                "boughtAt": "2026-04-14T09:00:00Z",
+                "condition": "near_mint",
+            }
+        )
+
+        replace_payload = self.service.replace_deck_entry(
+            {
+                "deckEntryID": original_payload["deckEntryID"],
+                "cardID": "swsh7-215",
+                "slabContext": None,
+                "variantName": None,
+                "condition": "near_mint",
+                "quantity": 1,
+                "unitPrice": 400.0,
+                "currencyCode": "USD",
+                "updatedAt": "2026-04-14T11:00:00Z",
+            }
+        )
+
+        active_payload = self.service.deck_entries(limit=10)
+        inactive_payload = self.service.deck_entries(limit=10, include_inactive=True)
+        inactive_entry_by_id = {entry["id"]: entry for entry in inactive_payload["entries"]}
+
+        self.assertEqual(replace_payload["cardID"], "swsh7-215")
+        self.assertEqual(active_payload["summary"]["count"], 1)
+        self.assertEqual(active_payload["entries"][0]["card"]["id"], "swsh7-215")
+        self.assertEqual(inactive_entry_by_id[original_payload["deckEntryID"]]["quantity"], 0)
+
+        # An unknown target card is still rejected.
+        with self.assertRaises(ValueError):
+            self.service.replace_deck_entry(
+                {
+                    "deckEntryID": replace_payload["deckEntryID"],
+                    "cardID": "not-a-real-card",
+                    "slabContext": None,
+                    "variantName": None,
+                    "condition": "near_mint",
+                    "quantity": 1,
+                    "unitPrice": 400.0,
+                    "currencyCode": "USD",
+                    "updatedAt": "2026-04-14T12:00:00Z",
+                }
+            )
+
     def test_record_sale_decrements_quantity_and_hides_inactive_entries(self) -> None:
         self._insert_card("gym1-60", name="Sabrina's Slowbro")
         upsert_card_price_summary(

@@ -5245,9 +5245,14 @@ class SpotlightScanService:
             raise FileNotFoundError("deck entry not found")
         previous_deck_entry_id = str(existing_row["id"] or "").strip()
 
+        # A card-id change is a legitimate replace: the PDP EN/JP toggle saves
+        # the owned entry onto the counterpart printing. The identity-key branch
+        # below already handles it generically (upsert merges into an existing
+        # entry of the new identity, the old entry zeroes out with a
+        # replace_out event). Just require the target card to exist locally.
         existing_card_id = str(existing_row["card_id"] or "").strip()
-        if existing_card_id and existing_card_id != card_id:
-            raise ValueError("cardID does not match the deck entry")
+        if existing_card_id != card_id and not cards_by_ids(self.connection, [card_id]):
+            raise ValueError("cardID does not reference a known card")
 
         existing_identity_key = str(existing_row["identity_key"] or "").strip()
         next_identity_key = deck_entry_storage_key(
