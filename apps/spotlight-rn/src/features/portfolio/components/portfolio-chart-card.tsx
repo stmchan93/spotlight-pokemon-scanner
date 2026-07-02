@@ -62,6 +62,34 @@ const skeletonBarScales = [0.42, 0.62, 0.5, 0.74, 0.58, 0.82, 0.68, 0.9, 0.76, 0
 // plot, so the line reads as a smooth curve rather than a sharp polyline.
 const LINE_CORNER_RADIUS = 72;
 
+// Where the corner arc enters/exits around an interior vertex — shared by the
+// path builder and the scrub-dot math so the dot provably rides the drawn line.
+function cornerTrimPoints(
+  prev: { x: number; y: number },
+  curr: { x: number; y: number },
+  next: { x: number; y: number },
+) {
+  const inLen = Math.hypot(curr.x - prev.x, curr.y - prev.y);
+  const outLen = Math.hypot(next.x - curr.x, next.y - curr.y);
+  const trim = Math.min(LINE_CORNER_RADIUS, inLen / 2, outLen / 2);
+
+  if (trim <= 0) {
+    // Coincident points — keep the hard vertex rather than divide by zero.
+    return null;
+  }
+
+  return {
+    entry: {
+      x: curr.x + ((prev.x - curr.x) / inLen) * trim,
+      y: curr.y + ((prev.y - curr.y) / inLen) * trim,
+    },
+    exit: {
+      x: curr.x + ((next.x - curr.x) / outLen) * trim,
+      y: curr.y + ((next.y - curr.y) / outLen) * trim,
+    },
+  };
+}
+
 function buildLinePath(points: readonly { x: number; y: number }[]) {
   if (points.length === 0) {
     return '';
@@ -79,32 +107,44 @@ function buildLinePath(points: readonly { x: number; y: number }[]) {
   let path = `M ${points[0].x} ${points[0].y}`;
 
   for (let index = 1; index < points.length - 1; index += 1) {
-    const prev = points[index - 1];
     const curr = points[index];
-    const next = points[index + 1];
+    const corner = cornerTrimPoints(points[index - 1], curr, points[index + 1]);
 
-    const inLen = Math.hypot(curr.x - prev.x, curr.y - prev.y);
-    const outLen = Math.hypot(next.x - curr.x, next.y - curr.y);
-    const trim = Math.min(LINE_CORNER_RADIUS, inLen / 2, outLen / 2);
-
-    if (trim <= 0) {
-      // Coincident points — keep the hard vertex rather than divide by zero.
+    if (!corner) {
       path += ` L ${curr.x} ${curr.y}`;
       continue;
     }
 
-    // Stop short of the vertex on the way in, curve through the vertex (the
+    // Stop short of the vertex on the way in, curve toward the vertex (the
     // quadratic control point), and resume short of it on the way out.
-    const entryX = curr.x + ((prev.x - curr.x) / inLen) * trim;
-    const entryY = curr.y + ((prev.y - curr.y) / inLen) * trim;
-    const exitX = curr.x + ((next.x - curr.x) / outLen) * trim;
-    const exitY = curr.y + ((next.y - curr.y) / outLen) * trim;
-
-    path += ` L ${entryX} ${entryY} Q ${curr.x} ${curr.y} ${exitX} ${exitY}`;
+    path += ` L ${corner.entry.x} ${corner.entry.y} Q ${curr.x} ${curr.y} ${corner.exit.x} ${corner.exit.y}`;
   }
 
   const last = points[points.length - 1];
   return `${path} L ${last.x} ${last.y}`;
+}
+
+// The point the DRAWN line actually passes through at a data index. The corner
+// arc is a quadratic that cuts inside the vertex (the vertex is only its
+// control point), so at curvy spots the raw coordinate sits visibly off the
+// rendered line. The curve's closest pass is its t=0.5 point:
+// (entry + 2·vertex + exit) / 4. Endpoints are drawn exactly, so they pass
+// through unchanged.
+function renderedLinePointAt(points: readonly { x: number; y: number }[], index: number) {
+  const curr = points[index];
+  if (!curr || points.length < 3 || index === 0 || index === points.length - 1) {
+    return curr ?? null;
+  }
+
+  const corner = cornerTrimPoints(points[index - 1], curr, points[index + 1]);
+  if (!corner) {
+    return curr;
+  }
+
+  return {
+    x: (corner.entry.x + 2 * curr.x + corner.exit.x) / 4,
+    y: (corner.entry.y + 2 * curr.y + corner.exit.y) / 4,
+  };
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -465,7 +505,10 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
     }
 
     if (chartMode === 'portfolio') {
-      const coordinate = coordinates[activePointIndex];
+      // Snap the dot/guide to where the corner-rounded line is DRAWN, not the
+      // raw vertex — at curvy points they visibly diverge (dot floats off the
+      // line).
+      const coordinate = renderedLinePointAt(coordinates, activePointIndex);
       if (!coordinate) {
         return null;
       }
