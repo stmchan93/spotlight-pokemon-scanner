@@ -465,7 +465,7 @@ export function WishlistScreen() {
   ) : (
     <Text style={[styles.emptyText, { color: theme.colors.gray600 }]} testID="wishlist-empty">
       {favorites.length === 0
-        ? 'Tap the heart on any card to add it here.'
+        ? 'Scan a card to add it to your wishlist.'
         : 'No cards match your filters.'}
     </Text>
   );

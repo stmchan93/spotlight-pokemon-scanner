@@ -448,11 +448,35 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
     return series.map((point, index) => {
       const normalizedY = (point.value - lineYDomain.min) / domainSpan;
       return {
-        x: chartPaddingX + (series.length > 1 ? index * xStep : plotWidth / 2),
+        // A lone point sits on the RIGHT edge so the synthesized rise below
+        // (baseline → value) ends on it, instead of a dot floating mid-chart.
+        x: chartPaddingX + (series.length > 1 ? index * xStep : plotWidth),
         y: chartPaddingY + plotHeight - normalizedY * plotHeight,
       };
     });
   }, [chartPaddingX, chartPaddingY, chartWidth, lineYDomain, plotHeight, plotWidth, series]);
+
+  // What the line/fill actually draw. Real data passes through untouched; the
+  // two sparse states get synthesized shapes so the chart never reads as blank:
+  // - no points → a flat baseline line across the full width (the $0 state)
+  // - one point → a line rising from the left baseline up to that value on the
+  //   right, so the first item reads as growth instead of a lone dot.
+  const pathCoordinates = useMemo(() => {
+    if (chartWidth === 0) {
+      return coordinates;
+    }
+    const baselineY = chartHeight - chartPaddingY;
+    if (coordinates.length === 1) {
+      return [{ x: chartPaddingX, y: baselineY }, coordinates[0]];
+    }
+    if (coordinates.length === 0) {
+      return [
+        { x: chartPaddingX, y: baselineY },
+        { x: chartPaddingX + plotWidth, y: baselineY },
+      ];
+    }
+    return coordinates;
+  }, [chartHeight, chartPaddingX, chartPaddingY, chartWidth, coordinates, plotWidth]);
 
   const salesBars = useMemo(() => {
     if (chartWidth === 0 || series.length === 0) {
@@ -475,20 +499,20 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
   }, [chartHeight, chartPaddingX, chartPaddingY, chartWidth, plotHeight, plotWidth, series, yAxisMaxValue]);
 
   const linePath = useMemo(() => {
-    return buildLinePath(coordinates);
-  }, [coordinates]);
+    return buildLinePath(pathCoordinates);
+  }, [pathCoordinates]);
 
   const fillPath = useMemo(() => {
-    if (coordinates.length === 0) {
+    if (pathCoordinates.length === 0) {
       return '';
     }
 
     const baseline = chartHeight - chartPaddingY;
-    const first = coordinates[0];
-    const last = coordinates[coordinates.length - 1];
+    const first = pathCoordinates[0];
+    const last = pathCoordinates[pathCoordinates.length - 1];
 
-    return `${buildLinePath(coordinates)} L ${last.x} ${baseline} L ${first.x} ${baseline} Z`;
-  }, [chartHeight, chartPaddingY, coordinates]);
+    return `${buildLinePath(pathCoordinates)} L ${last.x} ${baseline} L ${first.x} ${baseline} Z`;
+  }, [chartHeight, chartPaddingY, pathCoordinates]);
 
   const onChartLayout = (event: LayoutChangeEvent) => {
     setChartWidth(event.nativeEvent.layout.width);
