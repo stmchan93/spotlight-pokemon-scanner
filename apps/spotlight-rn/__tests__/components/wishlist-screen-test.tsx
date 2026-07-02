@@ -72,10 +72,13 @@ describe('WishlistScreen', () => {
     });
   });
 
-  it('highlights the Collection tab in the bottom nav', async () => {
+  it('highlights the Wishlist tab in the bottom nav (filled bookmark)', async () => {
     renderWishlistScreen();
-    const tab = await screen.findByTestId('bottom-nav-portfolio');
+    const tab = await screen.findByTestId('bottom-nav-wishlist');
     expect(tab.props.accessibilityState?.selected).toBe(true);
+    // Collection is no longer the highlighted tab while on Wishlist.
+    const portfolioTab = await screen.findByTestId('bottom-nav-portfolio');
+    expect(portfolioTab.props.accessibilityState?.selected).toBe(false);
   });
 
   it('renders the whole list view virtualized, with no View More gate', async () => {

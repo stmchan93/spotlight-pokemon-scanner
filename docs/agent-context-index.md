@@ -52,6 +52,7 @@ Use these docs for:
 
 - RN scanner normalized target plan: [react-native-scanner-normalized-target-mvp-plan-2026-04-28.md](/Users/stephenchan/Code/spotlight/docs/react-native-scanner-normalized-target-mvp-plan-2026-04-28.md)
 - Deferred RN scanner live lock-on UX spec (Phynite/PriceCharting-style): [scanner-live-lock-on-ux-spec-2026-05-21.md](/Users/stephenchan/Code/spotlight/docs/scanner-live-lock-on-ux-spec-2026-05-21.md) — pick up after corpus growth plateaus
+- Deferred guest mode plan (first-launch scanner under a Supabase anonymous session; strict gating to login; product decisions confirmed): [guest-mode-first-launch-plan-2026-07-02.md](/Users/stephenchan/Code/spotlight/docs/guest-mode-first-launch-plan-2026-07-02.md) — build when asked; requires enabling anonymous sign-ins in Supabase first
 - RN migration/context docs:
   - [react-native-universal-migration-spec-2026-04-21.md](/Users/stephenchan/Code/spotlight/docs/react-native-universal-migration-spec-2026-04-21.md)
   - [react-native-parallel-execution-spec-2026-04-21.md](/Users/stephenchan/Code/spotlight/docs/react-native-parallel-execution-spec-2026-04-21.md)

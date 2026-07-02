@@ -61,6 +61,31 @@ export function EventsTabIcon({
   );
 }
 
+// Bookmark banner — nav "Wishlist" (matches the drawer's iconoir Bookmark).
+// Outline = stroked banner; selected = the same banner filled.
+const WISHLIST_BOOKMARK =
+  'M4 13.6V3.2C4 2.53726 4.53726 2 5.2 2H10.8C11.4627 2 12 2.53726 12 3.2V13.6L8 10.9333L4 13.6Z';
+
+export function WishlistTabIcon({
+  color = DEFAULT_COLOR,
+  size = DEFAULT_SIZE,
+  filled = false,
+}: NavTabIconProps) {
+  return (
+    <Svg fill="none" height={size} viewBox="0 0 16 16" width={size}>
+      <G>
+        <Path
+          d={WISHLIST_BOOKMARK}
+          fill={filled ? color : 'none'}
+          stroke={color}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </G>
+    </Svg>
+  );
+}
+
 // Barcode-style scan glyph — Figma nav "Scan" (node 629:6650). The design uses
 // the same glyph whether selected or not, so `filled` is intentionally ignored.
 const SCAN_STROKES = [

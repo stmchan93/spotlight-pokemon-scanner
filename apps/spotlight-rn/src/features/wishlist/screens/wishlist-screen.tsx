@@ -515,7 +515,7 @@ export function WishlistScreen() {
       />
 
       {editMode ? null : <CollectionAddFab />}
-      {editMode ? null : <AppBottomTabBar activeKey="portfolio" dismissToTabs />}
+      {editMode ? null : <AppBottomTabBar activeKey="wishlist" dismissToTabs />}
 
       {editMode ? (
         <View

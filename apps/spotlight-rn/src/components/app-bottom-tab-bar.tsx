@@ -4,20 +4,21 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BottomTabBar, useSpotlightTheme } from '@spotlight/design-system';
 
 import { useTabBarCollapseProgress } from '@/contexts/tab-bar-chrome-context';
-import { CollectionTabIcon, EventsTabIcon, ScanTabIcon } from './nav-tab-icons';
+import { CollectionTabIcon, EventsTabIcon, ScanTabIcon, WishlistTabIcon } from './nav-tab-icons';
 
-export type AppBottomTabKey = 'portfolio' | 'scan' | 'events';
+export type AppBottomTabKey = 'portfolio' | 'scan' | 'wishlist' | 'events';
 
 type AppBottomTabBarProps = {
   activeKey?: AppBottomTabKey | null;
   // Pushed (stack) screens (wishlist/transactions/insights) set this so a
-  // Collection/Events tab tap collapses the pushed stack back to the target tab
-  // instead of pushing a duplicate `(tabs)` route on top (which made Back return
-  // to the page you left). Scan is the exception: it always pushes, so Back
-  // returns to the pushed screen the user scanned from (see goToScan below).
+  // Collection/Wishlist/Events tab tap collapses the pushed stack back to the
+  // target tab instead of pushing a duplicate `(tabs)` route on top (which made
+  // Back return to the page you left). Scan is the exception: it always pushes,
+  // so Back returns to the pushed screen the user scanned from (see goToScan below).
   dismissToTabs?: boolean;
   onPressPortfolio?: () => void;
   onPressScan?: () => void;
+  onPressWishlist?: () => void;
   onPressEvents?: () => void;
 };
 
@@ -26,6 +27,7 @@ export function AppBottomTabBar({
   dismissToTabs = false,
   onPressPortfolio,
   onPressScan,
+  onPressWishlist,
   onPressEvents,
 }: AppBottomTabBarProps) {
   const theme = useSpotlightTheme();
@@ -49,6 +51,12 @@ export function AppBottomTabBar({
   // on the tabs root's Collection page instead of the screen the user left.
   const goToScan = onPressScan
     ?? (() => router.push({ pathname: '/', params: { page: 'scanner' } } as never));
+  // Wishlist is a pushed stack screen (like Events): replace when already on a
+  // stack route so the back-stack doesn't accumulate, push from the tabs root.
+  const goToWishlist = onPressWishlist
+    ?? (dismissToTabs
+      ? (() => router.replace('/wishlist' as never))
+      : (() => router.push('/wishlist' as never)));
   const goToEvents = onPressEvents
     ?? (dismissToTabs
       ? (() => router.replace('/events' as never))
@@ -74,6 +82,15 @@ export function AppBottomTabBar({
           onPress: goToScan,
           testID: 'bottom-nav-scan',
           icon: <ScanTabIcon color={iconColor} size={NAV_ICON_SIZE} />,
+        },
+        {
+          key: 'wishlist',
+          label: 'Wishlist',
+          selected: activeKey === 'wishlist',
+          onPress: goToWishlist,
+          testID: 'bottom-nav-wishlist',
+          // Bookmark fills in when the Wishlist tab is the active one.
+          icon: <WishlistTabIcon color={iconColor} filled={activeKey === 'wishlist'} size={NAV_ICON_SIZE} />,
         },
         {
           key: 'events',
