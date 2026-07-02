@@ -12336,15 +12336,19 @@ class SpotlightScanService:
         grader = str(slab_context.get("grader") or "").strip() or None
         grade = str(slab_context.get("grade") or "").strip() or None
         cert_number = str(slab_context.get("certNumber") or "").strip() or None
-        raw_slab_variant_name = str(slab_context.get("variantName") or "").strip() or None
+        raw_variant_name = str(payload.get("variantName") or "").strip() or None
+        slab_variant_name = str(slab_context.get("variantName") or "").strip() or None
         # A slab variantName equal to the grade label ("PSA 10") is not a print
         # variant; stored as-is it never matches the graded price snapshot and the
         # Collection/Wishlist value collapses to "—". Drop it so the resolver falls
         # back to the grade's real entry. Mirrors record_buy / replace_deck_entry.
+        # For raw cards (no grader/grade/cert) the print variant arrives as the
+        # top-level `variantName`; read it there rather than from the empty
+        # slabContext, otherwise the picked variant is silently dropped on save.
         variant_name = (
-            self._sanitize_slab_variant_name(raw_slab_variant_name, grader, grade)
+            self._sanitize_slab_variant_name(slab_variant_name, grader, grade)
             if any([grader, grade, cert_number])
-            else raw_slab_variant_name
+            else raw_variant_name
         )
         condition = self._normalized_deck_card_condition(payload.get("condition"))
         if payload.get("condition") is not None and condition is None:
