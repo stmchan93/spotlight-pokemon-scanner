@@ -360,19 +360,25 @@ export function ScannerScreen({
       }),
     ]).start();
   }, [reticleLockProgress]);
-  // One-time EN/JP coach mark (Figma 2302:29019): shown the very first time the
-  // user lands on the scanner, pointing at the language pill. Any dismissal —
+  // One-time EN/JP coach mark (Figma 2302:29019): shown the first time an
+  // ACCOUNT lands on the scanner, pointing at the language pill. Any dismissal —
   // tapping the bubble, tapping the pill (which also opens the picker), or the
-  // 10s auto-timer — writes the seen-flag so it never appears again.
+  // 10s auto-timer — writes the seen-flag so it never appears again for that
+  // account. Keyed per account (not per device) so a fresh sign-up on the same
+  // phone still gets the coach mark; the provider tree remounts this screen on
+  // account changes, so the key is stable within a mount.
+  const { currentSession: tooltipSession } = useAuth();
+  const languageTooltipSeenKey =
+    `${LANGUAGE_TOOLTIP_SEEN_KEY}:${tooltipSession?.user.id ?? 'anon'}`;
   const [showLanguageTooltip, setShowLanguageTooltip] = useState(false);
   const dismissLanguageTooltip = useCallback(() => {
     setShowLanguageTooltip((current) => {
       if (current) {
-        void AsyncStorage.setItem(LANGUAGE_TOOLTIP_SEEN_KEY, '1').catch(() => {});
+        void AsyncStorage.setItem(languageTooltipSeenKey, '1').catch(() => {});
       }
       return false;
     });
-  }, []);
+  }, [languageTooltipSeenKey]);
   useEffect(() => {
     // Arm only while the scanner is the ACTIVE pager page. Both pager slots
     // mount at boot (Collection is the landing tab), so an unconditional arm
@@ -382,7 +388,7 @@ export function ScannerScreen({
       return undefined;
     }
     let cancelled = false;
-    void AsyncStorage.getItem(LANGUAGE_TOOLTIP_SEEN_KEY)
+    void AsyncStorage.getItem(languageTooltipSeenKey)
       .then((seen) => {
         if (!cancelled && seen == null) {
           setShowLanguageTooltip(true);
@@ -392,7 +398,7 @@ export function ScannerScreen({
     return () => {
       cancelled = true;
     };
-  }, [isActiveTab]);
+  }, [isActiveTab, languageTooltipSeenKey]);
   useEffect(() => {
     if (!showLanguageTooltip || !isActiveTab) {
       return undefined;
