@@ -1,4 +1,5 @@
-import { Pressable, StyleSheet, Text, type StyleProp, type ViewStyle } from 'react-native';
+import type { ReactNode } from 'react';
+import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { useSpotlightTheme } from '../theme';
 
@@ -6,6 +7,12 @@ export type PillButtonTone = 'default' | 'filter';
 
 type PillButtonProps = {
   label: string;
+  /**
+   * Optional icon rendered before the label (Figma Insights chips: the Likes
+   * heart, the Price sort arrows). The caller owns the icon color so it can
+   * follow the selected state.
+   */
+  leading?: ReactNode;
   minWidth?: number;
   onPress?: () => void;
   selected?: boolean;
@@ -22,6 +29,7 @@ type PillButtonProps = {
 
 export function PillButton({
   label,
+  leading,
   minWidth,
   onPress,
   selected = false,
@@ -63,6 +71,7 @@ export function PillButton({
         style,
       ]}
     >
+      {leading ? <View style={styles.leading}>{leading}</View> : null}
       <Text
         style={[
           labelStyle,
@@ -83,6 +92,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 999,
     borderWidth: 1,
+    flexDirection: 'row',
+    gap: 4,
     justifyContent: 'center',
     paddingHorizontal: 14,
     paddingVertical: 8,
@@ -91,6 +102,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 8,
     borderWidth: 1,
+    flexDirection: 'row',
+    gap: 4,
     justifyContent: 'center',
     minHeight: 32,
     paddingHorizontal: 16,
@@ -98,5 +111,9 @@ const styles = StyleSheet.create({
   },
   label: {
     textAlign: 'center',
+  },
+  leading: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

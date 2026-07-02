@@ -342,13 +342,11 @@ Use for compact single-action chips and option toggles.
 
 Current label role:
 
-- `typography.control`
-- sizes:
-  - `md`
-  - `lg`
+- `typography.control` (`default` tone) / `typography.label` (`filter` tone)
 - tones:
-  - `default`
-  - `inverted`
+  - `default` — brand-yellow pill (chart range pills, filter modal)
+  - `filter` — Collection/Insights chip row: white when inactive, solid gray900 with white label when selected
+- `leading?: ReactNode` — optional icon before the label (e.g. the Insights Likes heart / Price arrows); caller owns the icon color so it can follow `selected`
 
 ### SegmentedControl
 

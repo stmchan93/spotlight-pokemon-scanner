@@ -14126,9 +14126,20 @@ class SpotlightScanService:
         now = datetime.now(timezone.utc)
         year = now.year
         jan1_str = f"{year}-01-01"
+        today_str = now.date().isoformat()
         # Days from Jan 1 (inclusive) through today, plus a small buffer so the
         # DESC-ordered `days` window comfortably reaches back to Jan 1.
         year_days = (now.date() - date(year, 1, 1)).days + 8
+
+        # Wishlist hearts ("Likes" chip): favorites are keyed by card, so every
+        # entry of a liked card is liked.
+        favorite_card_ids = {
+            str(fav_row["card_id"])
+            for fav_row in self.connection.execute(
+                "SELECT card_id FROM card_favorites WHERE owner_user_id = ?",
+                (owner_user_id,),
+            ).fetchall()
+        }
 
         rows = self.connection.execute(
             """
@@ -14241,14 +14252,19 @@ class SpotlightScanService:
             history_rows = self._display_price_history_rows(history_rows)
             # `_history_points_payload` reverses to oldest->newest.
             points = self._history_points_payload(history_rows)
-            # Only this year's points, with a resolvable price.
+            # Only this year's points, with a resolvable price. Also track the
+            # latest priced point strictly before today ("yesterday") for the
+            # today-G/L columns — it may predate Jan 1 (e.g. on New Year's Day).
             year_series: list[float] = []
+            prev_day_price: float | None = None
             for point in points:
                 point_date = str(point.get("date") or "")
-                if point_date < jan1_str:
-                    continue
                 value = self._history_primary_price_value(point)
                 if value is None:
+                    continue
+                if point_date < today_str:
+                    prev_day_price = float(value)
+                if point_date < jan1_str:
                     continue
                 year_series.append(float(value))
 
@@ -14273,6 +14289,21 @@ class SpotlightScanService:
                 ytd_gain_dollar = None
                 ytd_gain_percent = None
 
+            if prev_day_price is not None and current_price is not None:
+                today_gain_dollar = round(
+                    (current_price - prev_day_price) * quantity, 2
+                )
+                today_gain_percent = (
+                    round(
+                        (current_price - prev_day_price) / prev_day_price * 100.0, 2
+                    )
+                    if prev_day_price != 0.0
+                    else None
+                )
+            else:
+                today_gain_dollar = None
+                today_gain_percent = None
+
             result_rows.append(
                 {
                     "entryId": str(row["id"]),
@@ -14295,6 +14326,9 @@ class SpotlightScanService:
                     "yearStartValue": year_start_value,
                     "ytdGainDollar": ytd_gain_dollar,
                     "ytdGainPercent": ytd_gain_percent,
+                    "todayGainDollar": today_gain_dollar,
+                    "todayGainPercent": today_gain_percent,
+                    "isFavorite": card_id in favorite_card_ids,
                     "sparkline": sparkline,
                 }
             )

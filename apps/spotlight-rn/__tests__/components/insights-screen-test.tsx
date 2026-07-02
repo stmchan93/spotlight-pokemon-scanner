@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react-native';
+import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 
 import type { PortfolioPerformance } from '@spotlight/api-client';
 import { InsightsScreen } from '@/features/insights/screens/insights-screen';
@@ -11,8 +11,6 @@ jest.mock('@/providers/auth-provider', () => ({
   ...jest.requireActual('@/providers/auth-provider'),
   useAuth: () => ({ accessToken: null }),
 }));
-
-const currentYear = new Date().getFullYear();
 
 const samplePerformance: PortfolioPerformance = {
   itemCount: 2,
@@ -36,6 +34,9 @@ const samplePerformance: PortfolioPerformance = {
       yearStartValue: 250,
       ytdGainDollar: 50,
       ytdGainPercent: 20,
+      todayGainDollar: 10,
+      todayGainPercent: 3.4,
+      isFavorite: true,
       sparkline: [250, 260, 300],
     },
     {
@@ -56,31 +57,34 @@ const samplePerformance: PortfolioPerformance = {
       yearStartValue: null,
       ytdGainDollar: null,
       ytdGainPercent: null,
+      todayGainDollar: null,
+      todayGainPercent: null,
+      isFavorite: false,
       sparkline: [],
     },
   ],
 };
 
+function renderInsights() {
+  renderWithProviders(<InsightsScreen />, {
+    spotlightRepository: createTestSpotlightRepository({
+      getPortfolioPerformance: async () => samplePerformance,
+    }),
+  });
+}
+
 describe('InsightsScreen — performance tracker', () => {
   it('highlights the Collection tab in the bottom nav', async () => {
-    renderWithProviders(<InsightsScreen />, {
-      spotlightRepository: createTestSpotlightRepository({
-        getPortfolioPerformance: async () => samplePerformance,
-      }),
-    });
+    renderInsights();
     const tab = await screen.findByTestId('bottom-nav-portfolio');
     expect(tab.props.accessibilityState?.selected).toBe(true);
   });
 
-  it('renders the year tracker header, count, and per-card rows', async () => {
-    renderWithProviders(<InsightsScreen />, {
-      spotlightRepository: createTestSpotlightRepository({
-        getPortfolioPerformance: async () => samplePerformance,
-      }),
-    });
+  it('renders the category header, count, and per-card rows', async () => {
+    renderInsights();
 
     expect(screen.getByTestId('insights-header-title').props.children).toBe('Insights');
-    expect(screen.getByText(`${currentYear} Performance Tracker`)).toBeTruthy();
+    expect(screen.getByTestId('insights-category-title').props.children).toBe('Pokemon');
     expect(screen.getByText('PORTFOLIO')).toBeTruthy();
 
     // Rows + the item count land after the async performance load resolves.
@@ -89,10 +93,65 @@ describe('InsightsScreen — performance tracker', () => {
     });
     expect(screen.getByText('2 Items')).toBeTruthy();
     expect(screen.getByText('Gengar')).toBeTruthy();
-    // Ludicolo cost basis + YTD % render; Gengar's null cells render "—".
+    // Ludicolo cost basis + today's $/% G/L render; Gengar's null cells render "—".
     expect(screen.getByText('$100')).toBeTruthy();
-    expect(screen.getByText('20%')).toBeTruthy();
+    expect(screen.getByText('$10')).toBeTruthy();
+    expect(screen.getByText('3%')).toBeTruthy();
+    // % Total (all-time growth vs cost): (300 - 100) / 100 = 200%.
+    expect(screen.getByText('200%')).toBeTruthy();
     expect(screen.getAllByText('—').length).toBeGreaterThan(0);
+  });
+
+  it('filters rows by search query', async () => {
+    renderInsights();
+    await waitFor(() => {
+      expect(screen.getByText('Ludicolo')).toBeTruthy();
+    });
+
+    fireEvent.changeText(screen.getByPlaceholderText('Search your collection'), 'gengar');
+    expect(screen.getByText('Gengar')).toBeTruthy();
+    expect(screen.queryByText('Ludicolo')).toBeNull();
+    expect(screen.getByText('1 Item')).toBeTruthy();
+
+    fireEvent.changeText(screen.getByPlaceholderText('Search your collection'), 'zzz');
+    expect(screen.getByText('No cards match your search.')).toBeTruthy();
+  });
+
+  it('filters rows with the Likes and Graded chips', async () => {
+    renderInsights();
+    await waitFor(() => {
+      expect(screen.getByText('Ludicolo')).toBeTruthy();
+    });
+
+    // Likes → only the favorited Ludicolo remains.
+    fireEvent.press(screen.getByTestId('insights-filter-chip-row-favorites'));
+    expect(screen.getByText('Ludicolo')).toBeTruthy();
+    expect(screen.queryByText('Gengar')).toBeNull();
+
+    // Graded → only the PSA 10 Gengar remains.
+    fireEvent.press(screen.getByTestId('insights-filter-chip-row-graded'));
+    expect(screen.getByText('Gengar')).toBeTruthy();
+    expect(screen.queryByText('Ludicolo')).toBeNull();
+  });
+
+  it('applies a sort from the Filter By sheet', async () => {
+    renderInsights();
+    await waitFor(() => {
+      expect(screen.getByText('Ludicolo')).toBeTruthy();
+    });
+
+    fireEvent.press(screen.getByTestId('insights-sort-button'));
+    expect(screen.getByText('Filter By')).toBeTruthy();
+
+    // Most Valuable puts Gengar ($800 value) above Ludicolo ($300).
+    fireEvent.press(screen.getByTestId('insights-sort-sheet-option-most-valuable'));
+    fireEvent.press(screen.getByTestId('insights-sort-sheet-apply'));
+
+    const cardCells = screen.getAllByTestId(/^performance-table-card-/);
+    expect(cardCells.map((cell) => cell.props.testID)).toEqual([
+      'performance-table-card-e2',
+      'performance-table-card-e1',
+    ]);
   });
 
   it('shows an empty state when the portfolio has no cards', async () => {

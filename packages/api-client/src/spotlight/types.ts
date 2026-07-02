@@ -315,6 +315,9 @@ export type PortfolioPerformanceRow = {
   yearStartValue: number | null;
   ytdGainDollar: number | null;
   ytdGainPercent: number | null;
+  todayGainDollar: number | null; // vs the latest daily point strictly before today
+  todayGainPercent: number | null;
+  isFavorite: boolean; // wishlist heart — drives the Insights "Likes" chip
   sparkline: number[]; // oldest → newest; [] when no history
 };
 

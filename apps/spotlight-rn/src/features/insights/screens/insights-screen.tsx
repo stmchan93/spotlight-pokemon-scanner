@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Pressable,
   RefreshControl,
@@ -10,25 +10,109 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { NavArrowLeft, ShareIos } from 'iconoir-react-native';
+import { Filter, NavArrowLeft, ShareIos } from 'iconoir-react-native';
 
-import type { PortfolioPerformance } from '@spotlight/api-client';
-import { colors, textStyles, useSpotlightTheme } from '@spotlight/design-system';
+import type { PortfolioPerformance, PortfolioPerformanceRow } from '@spotlight/api-client';
+import { IconButton, SearchField, colors, textStyles, useSpotlightTheme } from '@spotlight/design-system';
 
 import { useTabBarScrollHandler } from '@/contexts/tab-bar-chrome-context';
 import { useAppServices } from '@/providers/app-providers';
 import { AppBottomTabBar } from '@/components/app-bottom-tab-bar';
 import { ScrollToTopFab, useScrollToTop } from '@/components/scroll-to-top-fab';
 import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
-import { PerformanceTable } from '@/features/insights/components/performance-table';
+import {
+  InsightsFilterChipRow,
+  type InsightsFilterKey,
+} from '@/features/insights/components/insights-filter-chip-row';
+import {
+  InsightsSortSheet,
+  type InsightsSortKey,
+} from '@/features/insights/components/insights-sort-sheet';
+import {
+  PerformanceTable,
+  allTimeGrowthPercent,
+} from '@/features/insights/components/performance-table';
 
-const currentYear = new Date().getFullYear();
+// Chip semantics mirror the Collection screen's applyCollectionFilter, mapped
+// onto performance rows: Likes/Ungraded/Graded filter, Price/A-Z re-sort, All
+// keeps the backend order (recently added first).
+export function applyInsightsFilter(
+  rows: PortfolioPerformanceRow[],
+  filter: InsightsFilterKey,
+): PortfolioPerformanceRow[] {
+  switch (filter) {
+    case 'favorites':
+      return rows.filter((row) => row.isFavorite);
+    case 'price':
+      return [...rows].sort(
+        (a, b) => (b.currentPrice ?? -Infinity) - (a.currentPrice ?? -Infinity),
+      );
+    case 'az':
+      return [...rows].sort((a, b) =>
+        a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+      );
+    case 'ungraded':
+      return rows.filter((row) => row.kind !== 'graded');
+    case 'graded':
+      return rows.filter((row) => row.kind === 'graded');
+    default:
+      return rows;
+  }
+}
+
+export function applyInsightsSearch(
+  rows: PortfolioPerformanceRow[],
+  query: string,
+): PortfolioPerformanceRow[] {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) {
+    return rows;
+  }
+  return rows.filter(
+    (row) =>
+      row.name.toLowerCase().includes(normalized)
+      || row.cardNumber.toLowerCase().includes(normalized)
+      || row.setName.toLowerCase().includes(normalized),
+  );
+}
+
+// "Filter By" sheet sorts. Nulls (no price / no cost basis / no history) sink
+// to the bottom in every order so sparse rows never crowd the top.
+export function applyInsightsSort(
+  rows: PortfolioPerformanceRow[],
+  sortKey: InsightsSortKey,
+): PortfolioPerformanceRow[] {
+  const desc = (select: (row: PortfolioPerformanceRow) => number | null) =>
+    (a: PortfolioPerformanceRow, b: PortfolioPerformanceRow) =>
+      (select(b) ?? -Infinity) - (select(a) ?? -Infinity);
+  const asc = (select: (row: PortfolioPerformanceRow) => number | null) =>
+    (a: PortfolioPerformanceRow, b: PortfolioPerformanceRow) =>
+      (select(a) ?? Infinity) - (select(b) ?? Infinity);
+
+  switch (sortKey) {
+    case 'most-valuable':
+      return [...rows].sort(desc((row) => row.currentValue));
+    case 'least-valuable':
+      return [...rows].sort(asc((row) => row.currentValue));
+    case 'winners-today':
+      return [...rows].sort(desc((row) => row.todayGainDollar));
+    case 'losers-today':
+      return [...rows].sort(asc((row) => row.todayGainDollar));
+    case 'all-time-growth':
+      return [...rows].sort(desc(allTimeGrowthPercent));
+    case 'most-spent':
+      return [...rows].sort(desc((row) => row.costBasisTotal));
+    default:
+      return rows;
+  }
+}
 
 /**
- * Insights = the "{year} Performance Tracker" (Figma 2100-1755): a per-card
- * table showing how each holding has done this year (YTD price movement),
- * alongside its current value, $Total, and cost basis. The card-identity column
- * stays frozen while Chart/Current/$G/L/%G/L/$Total/Cost scroll horizontally.
+ * Insights (Figma 2206-20251): the per-card performance tracker. A "Pokemon"
+ * category header, collection search, filter chips, and a "Filter By" sort
+ * sheet sit above the frozen-first-column table (Chart/Current/today G/L/
+ * totals/cost scroll horizontally). All filtering/sorting is client-side over
+ * the one batched performance read.
  */
 export function InsightsScreen() {
   const theme = useSpotlightTheme();
@@ -39,6 +123,10 @@ export function InsightsScreen() {
 
   const [performance, setPerformance] = useState<PortfolioPerformance | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeFilter, setActiveFilter] = useState<InsightsFilterKey>('all');
+  const [sortKey, setSortKey] = useState<InsightsSortKey>('default');
+  const [sortSheetVisible, setSortSheetVisible] = useState(false);
 
   const scrollRef = useRef<ScrollView>(null);
   const { isVisible: showScrollTop, handleScroll, handleLayout, scrollToTop } = useScrollToTop(
@@ -73,15 +161,30 @@ export function InsightsScreen() {
     void Share.share({ message: 'My Ekalight insights' });
   }, []);
 
+  const handleApplySort = useCallback((next: InsightsSortKey) => {
+    setSortKey(next);
+    setSortSheetVisible(false);
+  }, []);
+
   const bottomNavClearance =
     theme.layout.bottomNavHeight
     + theme.layout.bottomNavBottomInset
     + Math.max(insets.bottom - 8, 0);
 
-  // Show just the first 10 cards for now.
-  const rows = (performance?.rows ?? []).slice(0, 10);
+  const rows = useMemo(
+    () =>
+      applyInsightsSort(
+        applyInsightsSearch(
+          applyInsightsFilter(performance?.rows ?? [], activeFilter),
+          searchQuery,
+        ),
+        sortKey,
+      ),
+    [performance, activeFilter, searchQuery, sortKey],
+  );
   const currencyCode = performance?.currencyCode ?? 'USD';
   const itemCount = rows.length;
+  const isFiltered = searchQuery.trim().length > 0 || activeFilter !== 'all';
 
   return (
     <SafeAreaView
@@ -125,6 +228,7 @@ export function InsightsScreen() {
       <ScrollView
         ref={scrollRef}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: bottomNavClearance + 16 }]}
+        keyboardShouldPersistTaps="handled"
         onLayout={handleLayout}
         onScroll={handleScroll}
         scrollEventThrottle={16}
@@ -138,35 +242,85 @@ export function InsightsScreen() {
         }
         testID="insights-scroll"
       >
-        <View style={styles.titleRow}>
+        {/* Category header — chevron intentionally omitted per the Figma
+            annotation until more TCG categories exist. */}
+        <View style={[styles.categoryRow, styles.gutter]}>
           <Text
-            style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}
-            testID="insights-tracker-title"
+            style={[theme.typography.titleMedium, { color: theme.colors.gray900 }]}
+            testID="insights-category-title"
           >
-            {currentYear} Performance Tracker
+            Pokemon
           </Text>
-          <Text style={[theme.typography.label, { color: theme.colors.gray600 }]}>
+          <Text style={[theme.typography.label, { color: theme.colors.gray500 }]}>
             {`${itemCount} Item${itemCount === 1 ? '' : 's'}`}
           </Text>
         </View>
 
-        <View style={[styles.tab, { backgroundColor: theme.colors.gray900 }]}>
-          <Text style={[theme.typography.captionMedium, { color: theme.colors.gray0 }]}>
-            PORTFOLIO
-          </Text>
+        <View style={styles.searchGroup}>
+          <View style={[styles.searchRow, styles.gutter]}>
+            <View style={styles.searchSlot}>
+              <SearchField
+                accessibilityLabel="Search your collection"
+                autoCapitalize="none"
+                autoCorrect={false}
+                clearButtonMode="while-editing"
+                containerTestID="insights-search-input"
+                onChangeText={setSearchQuery}
+                placeholder="Search your collection"
+                returnKeyType="search"
+                size="collection"
+                surface="muted"
+                value={searchQuery}
+              />
+            </View>
+            <IconButton
+              accessibilityLabel="Sort options"
+              onPress={() => setSortSheetVisible(true)}
+              shape="rounded"
+              size={40}
+              testID="insights-sort-button"
+              variant="outlined"
+            >
+              <Filter color={colors.gray900} height={18} width={18} />
+            </IconButton>
+          </View>
+          <InsightsFilterChipRow
+            activeFilter={activeFilter}
+            onFilterChange={setActiveFilter}
+            testID="insights-filter-chip-row"
+          />
         </View>
 
-        {rows.length > 0 ? (
-          <PerformanceTable rows={rows} currencyCode={currencyCode} />
-        ) : (
-          <Text
-            style={[theme.typography.body, styles.emptyText, { color: theme.colors.gray500 }]}
-            testID="insights-empty"
-          >
-            {performance ? 'No cards in your portfolio yet.' : 'Loading your performance…'}
-          </Text>
-        )}
+        <View style={styles.tableSection}>
+          <View style={[styles.tab, { backgroundColor: theme.colors.gray900 }]}>
+            <Text style={[theme.typography.captionMedium, { color: theme.colors.gray0 }]}>
+              PORTFOLIO
+            </Text>
+          </View>
+
+          {rows.length > 0 ? (
+            <PerformanceTable rows={rows} currencyCode={currencyCode} />
+          ) : (
+            <Text
+              style={[theme.typography.body, styles.emptyText, { color: theme.colors.gray500 }]}
+              testID="insights-empty"
+            >
+              {performance
+                ? isFiltered
+                  ? 'No cards match your search.'
+                  : 'No cards in your portfolio yet.'
+                : 'Loading your performance…'}
+            </Text>
+          )}
+        </View>
       </ScrollView>
+
+      <InsightsSortSheet
+        onApply={handleApplySort}
+        onClose={() => setSortSheetVisible(false)}
+        sortKey={sortKey}
+        visible={sortSheetVisible}
+      />
 
       <ScrollToTopFab onPress={scrollToTop} testID="insights-scroll-to-top" visible={showScrollTop} />
       <CollectionAddFab />
@@ -201,13 +355,30 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     gap: 16,
-    paddingHorizontal: 16,
     paddingTop: 16,
   },
-  titleRow: {
-    alignItems: 'center',
+  gutter: {
+    paddingHorizontal: 16,
+  },
+  categoryRow: {
+    alignItems: 'flex-end',
     flexDirection: 'row',
     justifyContent: 'space-between',
+  },
+  searchGroup: {
+    gap: 12,
+  },
+  searchRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  searchSlot: {
+    flex: 1,
+  },
+  tableSection: {
+    gap: 16,
+    paddingLeft: 16,
   },
   tab: {
     alignSelf: 'flex-start',
@@ -216,6 +387,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   emptyText: {
+    paddingRight: 16,
     paddingVertical: 48,
     textAlign: 'center',
   },

@@ -182,6 +182,12 @@ export function DesignSystemCatalogScreen({
                 <Text style={theme.typography.titleCompact}>‹</Text>
               </IconButton>
               <PillButton label="Pill Button" selected testID="catalog-pill-button" />
+              <PillButton
+                label="Likes"
+                leading={<Text style={theme.typography.label}>♥</Text>}
+                testID="catalog-pill-button-leading"
+                tone="filter"
+              />
             </View>
 
             <SearchField

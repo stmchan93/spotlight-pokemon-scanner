@@ -2636,6 +2636,9 @@ export class MockSpotlightRepository implements SpotlightRepository {
         yearStartValue: null,
         ytdGainDollar: null,
         ytdGainPercent: null,
+        todayGainDollar: null,
+        todayGainPercent: null,
+        isFavorite: entry.isFavorite === true,
         sparkline: [],
       };
     });
@@ -5269,6 +5272,9 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       yearStartValue: num(r.yearStartValue),
       ytdGainDollar: num(r.ytdGainDollar),
       ytdGainPercent: num(r.ytdGainPercent),
+      todayGainDollar: num(r.todayGainDollar),
+      todayGainPercent: num(r.todayGainPercent),
+      isFavorite: r.isFavorite === true,
       sparkline: Array.isArray(r.sparkline)
         ? r.sparkline.filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
         : [],

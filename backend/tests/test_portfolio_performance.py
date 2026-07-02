@@ -286,7 +286,35 @@ class PortfolioPerformanceTests(unittest.TestCase):
         self.assertIsNone(row["yearStartValue"])
         self.assertIsNone(row["ytdGainDollar"])
         self.assertIsNone(row["ytdGainPercent"])
+        self.assertIsNone(row["todayGainDollar"])
+        self.assertIsNone(row["todayGainPercent"])
         self.assertIsNone(row["costBasisTotal"])
+
+    def test_raw_entry_today_gain(self) -> None:
+        row = self._row(self._performance(), "e-raw")
+        if date.today() == self.jan1:
+            # No point strictly before today exists on Jan 1.
+            self.assertIsNone(row["todayGainDollar"])
+            self.assertIsNone(row["todayGainPercent"])
+            return
+        # "Yesterday" = the latest priced point strictly before today: the mid
+        # point when it has passed, else the Jan 1 baseline.
+        prev = 110.0 if self.mid < date.today() else 100.0
+        self.assertEqual(row["todayGainDollar"], round((130.0 - prev) * 2, 2))
+        self.assertEqual(
+            row["todayGainPercent"], round((130.0 - prev) / prev * 100.0, 2)
+        )
+
+    def test_is_favorite_flag(self) -> None:
+        self.service.connection.execute(
+            "INSERT INTO card_favorites (owner_user_id, card_id, created_at) VALUES (?, ?, ?)",
+            (self.owner, "base1-4", utc_now()),
+        )
+        self.service.connection.commit()
+        payload = self._performance()
+        self.assertTrue(self._row(payload, "e-raw")["isFavorite"])
+        self.assertFalse(self._row(payload, "e-graded")["isFavorite"])
+        self.assertFalse(self._row(payload, "e-nohist")["isFavorite"])
 
 
 if __name__ == "__main__":
