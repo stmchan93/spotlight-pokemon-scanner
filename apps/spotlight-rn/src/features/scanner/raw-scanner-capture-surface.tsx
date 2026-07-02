@@ -488,7 +488,7 @@ const styles = StyleSheet.create({
     bottom: 0,
   },
   reticleCornerHorizontal: {
-    backgroundColor: colors.brand,
+    backgroundColor: colors.scannerTextPrimary,
     height: scannerReticleCornerStrokeWidth,
     left: 0,
     position: 'absolute',
@@ -504,16 +504,14 @@ const styles = StyleSheet.create({
     top: 0,
   },
   reticleCornerVertical: {
-    backgroundColor: colors.brand,
+    backgroundColor: colors.scannerTextPrimary,
     bottom: 0,
     position: 'absolute',
     top: 0,
     width: scannerReticleCornerStrokeWidth,
   },
+  // Corners only per Figma 2227-22390 — no outline between the brackets.
   reticleShell: {
-    borderColor: colors.scannerOutline,
-    borderRadius: 14,
-    borderWidth: 1,
     position: 'absolute',
   },
   reticleTopLeftPosition: {
