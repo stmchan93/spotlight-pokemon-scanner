@@ -625,13 +625,23 @@ export function PortfolioScreen({
     </View>
   );
 
+  // Truly-empty collection (no cards at all) reads differently from an active
+  // filter/search that just matched nothing.
   const listEmpty = shouldShowInitialError ? null : (
     <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
-      <StateCard
-        message="Add cards from the scanner or tap the + button to start your collection."
-        style={styles.emptyStateCard}
-        title="No cards match this filter"
-      />
+      {model.hasInventoryEntries ? (
+        <StateCard
+          message="Add cards from the scanner or tap the + button to start your collection."
+          style={styles.emptyStateCard}
+          title="No cards match this filter"
+        />
+      ) : (
+        <StateCard
+          message="Tap the scan button in the tab bar below to add to your collection!"
+          style={styles.emptyStateCard}
+          title="No cards in your collection"
+        />
+      )}
     </View>
   );
 

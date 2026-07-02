@@ -20,7 +20,9 @@ export default function TabsRoot() {
     page?: 'portfolio' | 'scanner' | string | string[];
   }>();
   const requestedPage = Array.isArray(params.page) ? params.page[0] : params.page;
-  const initialPage = requestedPage === 'portfolio' ? 'portfolio' : 'scanner';
+  // Collection is the landing tab (first thing after login); the scanner only
+  // opens when explicitly requested (`/scan` redirects here with page=scanner).
+  const initialPage = requestedPage === 'scanner' ? 'scanner' : 'portfolio';
 
   return (
     <TopTabsPager

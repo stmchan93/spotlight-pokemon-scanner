@@ -5,6 +5,7 @@ import {
   LogOut,
   Menu as MenuIcon,
   Scanning,
+  Settings,
   ViewGrid,
 } from 'iconoir-react-native';
 import { useEffect, useRef } from 'react';
@@ -318,7 +319,18 @@ export function AppDrawer() {
 
           <View style={styles.spacer} />
 
-          <View>
+          <View style={styles.navSection}>
+            <DrawerNavItem
+              icon={Settings}
+              label="Account Settings"
+              onPress={() => {
+                closeDrawer();
+                // Same destination as tapping the profile row up top — the
+                // Account page carries sign-out + delete-account.
+                setTimeout(() => router.push('/account' as never), ANIM_DURATION_MS / 2);
+              }}
+              testID="app-drawer-nav-account-settings"
+            />
             <DrawerNavItem
               icon={LogOut}
               label="Log Out"

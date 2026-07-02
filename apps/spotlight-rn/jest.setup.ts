@@ -87,6 +87,7 @@ jest.mock('iconoir-react-native', () => {
     RefreshDouble: make('refresh-double'),
     Scanning: make('scanning'),
     Search: make('search'),
+    Settings: make('settings'),
     ShareIos: make('share-ios'),
     Suitcase: make('suitcase'),
     Trash: make('trash'),

@@ -110,6 +110,8 @@ describe('AppDrawer', () => {
     expect(screen.getByTestId('app-drawer-nav-insights')).toBeTruthy();
     expect(screen.getByTestId('app-drawer-nav-wishlist')).toBeTruthy();
     expect(screen.getByTestId('app-drawer-nav-scan')).toBeTruthy();
+    // Account Settings sits directly above Log Out and routes to /account.
+    expect(screen.getByTestId('app-drawer-nav-account-settings')).toBeTruthy();
     expect(screen.getByTestId('app-drawer-nav-logout')).toBeTruthy();
   });
 
