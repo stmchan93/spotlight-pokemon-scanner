@@ -28,17 +28,17 @@ export function ProfileOnboardingScreen({
   const canContinue = profileDraftName.trim().length > 0 && !isBusy;
 
   return (
-    <AuthScreenLayout onShare={null} testID="auth-profile-onboarding-screen">
+    <AuthScreenLayout testID="auth-profile-onboarding-screen">
       <View style={styles.heading}>
-        <Text style={[styles.title, { color: theme.colors.gray0 }]}>Finish your profile</Text>
-        <Text style={[styles.subtitle, { color: theme.colors.gray400 }]}>
+        <Text style={[styles.title, { color: theme.colors.gray900 }]}>Finish your profile</Text>
+        <Text style={[styles.subtitle, { color: theme.colors.gray600 }]}>
           Pick the display name other collectors and future marketplace buyers will see.
         </Text>
       </View>
 
       <View style={styles.form}>
         {user?.email ? (
-          <Text style={[styles.signedInAs, { color: theme.colors.gray400 }]}>
+          <Text style={[styles.signedInAs, { color: theme.colors.gray600 }]}>
             {`Signed in as ${user.email}`}
           </Text>
         ) : null}

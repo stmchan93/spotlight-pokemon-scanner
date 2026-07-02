@@ -6,8 +6,10 @@ import { fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
 import { AuthScreenLayout } from './auth-screen-layout';
 import {
   AuthErrorLine,
+  AuthSectionTitle,
   PrimaryButton,
   SecondaryField,
+  TermsFooter,
   TertiaryButton,
 } from './auth-controls';
 
@@ -27,6 +29,11 @@ type VerifyCodeScreenProps = {
   onResend: () => void;
 };
 
+/**
+ * Verification-code entry (light theme, matches Figma 2170:7283's system):
+ * "CHECK YOUR INBOX" title, helper copy with the destination address, the code
+ * underline field, a black Continue, and a cooldown-guarded resend link.
+ */
 export function VerifyCodeScreen({
   code,
   email,
@@ -68,30 +75,32 @@ export function VerifyCodeScreen({
   return (
     <AuthScreenLayout
       backTestID="auth-verify-back"
+      footer={<TermsFooter />}
       onBack={onBack}
       testID="auth-verify-code-screen"
     >
       <View style={styles.heading}>
-        <Text style={[styles.title, { color: theme.colors.gray0 }]}>Check your inbox</Text>
-        <Text style={[styles.subtitle, { color: theme.colors.gray400 }]}>
+        <AuthSectionTitle>CHECK YOUR INBOX</AuthSectionTitle>
+        <Text style={[styles.subtitle, { color: theme.colors.gray600 }]}>
           {`Enter the verification code sent to ${email}`}
         </Text>
       </View>
 
-      <View style={styles.form}>
-        <SecondaryField
-          autoCapitalize="none"
-          autoCorrect={false}
-          keyboardType="number-pad"
-          onChangeText={onChangeCode}
-          onSubmitEditing={canContinue ? onContinue : undefined}
-          placeholder="Verification code"
-          testID="auth-code-input"
-          value={code}
-        />
+      <SecondaryField
+        autoCapitalize="none"
+        autoCorrect={false}
+        keyboardType="number-pad"
+        label="Verification code"
+        onChangeText={onChangeCode}
+        onSubmitEditing={canContinue ? onContinue : undefined}
+        placeholder="Verification code"
+        testID="auth-code-input"
+        value={code}
+      />
 
-        {errorMessage ? <AuthErrorLine message={errorMessage} /> : null}
+      {errorMessage ? <AuthErrorLine message={errorMessage} /> : null}
 
+      <View style={styles.actions}>
         <PrimaryButton
           disabled={!canContinue}
           label="Continue"
@@ -111,22 +120,15 @@ export function VerifyCodeScreen({
 }
 
 const styles = StyleSheet.create({
-  form: {
-    gap: 16,
-    marginTop: 24,
+  actions: {
+    gap: 12,
   },
   heading: {
     gap: 8,
-    marginTop: 8,
   },
   subtitle: {
     fontFamily: fontFamilies.bodyRegular,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  title: {
-    fontFamily: fontFamilies.bodyBold,
-    fontSize: 22,
-    lineHeight: 28,
+    fontSize: 14,
+    lineHeight: 21,
   },
 });

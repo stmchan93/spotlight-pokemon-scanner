@@ -70,28 +70,25 @@ describe('AuthGate', () => {
     jest.restoreAllMocks();
   });
 
-  it('starts on the Get started screen, then opens the Log In email step', () => {
+  it('starts the signed-out flow on the Log In screen with social + email auth', () => {
     const { onGoogleSignIn } = renderAuthGate();
 
-    // Step 0: the branded "Get started" entry screen carries the social actions.
-    expect(screen.getByTestId('auth-get-started-screen')).toBeTruthy();
+    // The root is the light-theme Log In screen (Figma 2161:6847) — email +
+    // password fields plus the social actions, no separate landing step.
+    expect(screen.getByTestId('auth-login-screen')).toBeTruthy();
+    expect(screen.getByTestId('auth-email-input')).toBeTruthy();
+    expect(screen.getByTestId('auth-password-input')).toBeTruthy();
 
     // Google is wired straight through to the provider action.
     fireEvent.press(screen.getByTestId('auth-google-button'));
     expect(onGoogleSignIn).toHaveBeenCalledTimes(1);
-
-    // Tapping the "Log in" link opens the login email step (email + password).
-    fireEvent.press(screen.getByTestId('auth-get-started-login'));
-    expect(screen.getByTestId('auth-email-input')).toBeTruthy();
-    expect(screen.getByTestId('auth-password-input')).toBeTruthy();
   });
 
-  it('opens the Sign Up email step (email only) from the primary button', () => {
+  it('opens the dedicated Sign Up screen from the NEW ACCOUNT button', () => {
     renderAuthGate();
-    fireEvent.press(screen.getByTestId('auth-get-started-signup'));
-    expect(screen.getByTestId('auth-email-input')).toBeTruthy();
-    // Sign Up collects the email first — no password on this step.
-    expect(screen.queryByTestId('auth-password-input')).toBeNull();
+    fireEvent.press(screen.getByTestId('auth-login-signup'));
+    expect(screen.getByTestId('auth-signup-screen')).toBeTruthy();
+    expect(screen.getByTestId('auth-firstname-input')).toBeTruthy();
   });
 
   it('renders the profile onboarding screen when a display name is required', () => {
@@ -111,10 +108,11 @@ describe('AuthGate', () => {
 
     expect(screen.getByText('Finish your profile')).toBeTruthy();
     expect(screen.getByText('Signed in as collector@example.com')).toBeTruthy();
+    // Light-theme CTA label spec (Figma 2161:6847 — 13px Medium).
     expect(StyleSheet.flatten(screen.getByText('Continue').props.style)).toMatchObject({
       fontFamily: 'SpotlightBodyMedium',
-      fontSize: 14,
-      lineHeight: 21,
+      fontSize: 13,
+      lineHeight: 18,
     });
 
     fireEvent.changeText(screen.getByTestId('auth-profile-input'), 'Stephen');

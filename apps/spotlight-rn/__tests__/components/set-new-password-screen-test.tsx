@@ -36,7 +36,7 @@ describe('SetNewPasswordScreen', () => {
   it('renders the title, password field and update button', () => {
     renderScreen();
 
-    expect(screen.getByText('Set a new password')).toBeTruthy();
+    expect(screen.getByText('NEW PASSWORD')).toBeTruthy();
     expect(screen.getByTestId('auth-newpassword-input')).toBeTruthy();
     expect(screen.getByText('Update password')).toBeTruthy();
   });

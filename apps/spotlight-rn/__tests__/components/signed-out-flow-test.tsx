@@ -43,17 +43,23 @@ function renderFlow(emailAuth: EmailAuthActions) {
   );
 }
 
-describe('SignedOutFlow — split Sign Up vs Log In', () => {
-  it('Log In signs in DIRECTLY and never runs the checkEmail auto-detect', async () => {
+function fillSignUp() {
+  fireEvent.changeText(screen.getByTestId('auth-firstname-input'), 'Ash');
+  fireEvent.changeText(screen.getByTestId('auth-lastname-input'), 'Ketchum');
+  fireEvent.changeText(screen.getByTestId('auth-signup-password-input'), 'pikachu25!');
+}
+
+describe('SignedOutFlow — split Log In vs Sign Up (Figma 2161:6847)', () => {
+  it('roots on the Log In screen and signs in DIRECTLY (no checkEmail auto-detect)', async () => {
     const emailAuth = buildEmailAuth();
     renderFlow(emailAuth);
 
-    // Landing → Log in.
-    fireEvent.press(screen.getByTestId('auth-get-started-login'));
+    // Root IS the Log In screen — no landing step in between.
+    expect(screen.getByTestId('auth-login-screen')).toBeTruthy();
 
     fireEvent.changeText(screen.getByTestId('auth-email-input'), 'me@example.com');
     fireEvent.changeText(screen.getByTestId('auth-password-input'), 'secret123');
-    fireEvent.press(screen.getByTestId('auth-email-continue'));
+    fireEvent.press(screen.getByTestId('auth-login-continue'));
 
     await waitFor(() => {
       expect(emailAuth.signInEmail).toHaveBeenCalledWith({
@@ -65,35 +71,59 @@ describe('SignedOutFlow — split Sign Up vs Log In', () => {
     expect(emailAuth.checkEmail).not.toHaveBeenCalled();
   });
 
-  it('Sign Up with an existing email shows a notice instead of signing in', async () => {
+  it('Sign Up with an existing email shows a notice instead of creating/signing in', async () => {
     const emailAuth = buildEmailAuth({ checkEmail: jest.fn(async () => true) });
     renderFlow(emailAuth);
 
-    // Landing → Sign Up.
-    fireEvent.press(screen.getByTestId('auth-get-started-signup'));
-
-    fireEvent.changeText(screen.getByTestId('auth-email-input'), 'taken@example.com');
-    fireEvent.press(screen.getByTestId('auth-email-continue'));
+    fireEvent.press(screen.getByTestId('auth-login-signup'));
+    fireEvent.changeText(screen.getByTestId('auth-signup-email-input'), 'taken@example.com');
+    fillSignUp();
+    fireEvent.press(screen.getByTestId('auth-signup-continue'));
 
     await waitFor(() => {
       expect(screen.getByText('An account with this email already exists.')).toBeTruthy();
     });
-    // Guarded: it must NOT silently sign in or advance to the details step.
+    // Guarded: it must NOT silently sign in or create the account.
     expect(emailAuth.signInEmail).not.toHaveBeenCalled();
-    expect(screen.queryByTestId('auth-firstname-input')).toBeNull();
+    expect(emailAuth.signUpEmail).not.toHaveBeenCalled();
   });
 
-  it('Sign Up with a new email advances to the name + password step', async () => {
+  it('Sign Up with a new email creates the account and advances to code verification', async () => {
     const emailAuth = buildEmailAuth({ checkEmail: jest.fn(async () => false) });
     renderFlow(emailAuth);
 
-    fireEvent.press(screen.getByTestId('auth-get-started-signup'));
-    fireEvent.changeText(screen.getByTestId('auth-email-input'), 'new@example.com');
-    fireEvent.press(screen.getByTestId('auth-email-continue'));
+    fireEvent.press(screen.getByTestId('auth-login-signup'));
+    fireEvent.changeText(screen.getByTestId('auth-signup-email-input'), 'new@example.com');
+    fillSignUp();
+    fireEvent.press(screen.getByTestId('auth-signup-continue'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('auth-firstname-input')).toBeTruthy();
+      expect(emailAuth.signUpEmail).toHaveBeenCalledWith({
+        email: 'new@example.com',
+        password: 'pikachu25!',
+        fullName: 'Ash Ketchum',
+      });
     });
-    expect(screen.getByTestId('auth-lastname-input')).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByTestId('auth-verify-code-screen')).toBeTruthy();
+    });
+  });
+
+  it('Forgot password? opens the PASSWORD RESET screen and sends the code', async () => {
+    const emailAuth = buildEmailAuth();
+    renderFlow(emailAuth);
+
+    fireEvent.changeText(screen.getByTestId('auth-email-input'), 'me@example.com');
+    fireEvent.press(screen.getByTestId('auth-forgot-password'));
+    expect(screen.getByTestId('auth-forgot-password-screen')).toBeTruthy();
+
+    // Email carries over from the login screen.
+    fireEvent.press(screen.getByTestId('auth-forgot-continue'));
+    await waitFor(() => {
+      expect(emailAuth.sendReset).toHaveBeenCalledWith('me@example.com');
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('auth-verify-code-screen')).toBeTruthy();
+    });
   });
 });

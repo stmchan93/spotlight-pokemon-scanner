@@ -38,7 +38,7 @@ describe('VerifyCodeScreen', () => {
   it('renders the title, the email in the subtitle, and the code input', () => {
     renderScreen();
 
-    expect(screen.getByText('Check your inbox')).toBeTruthy();
+    expect(screen.getByText('CHECK YOUR INBOX')).toBeTruthy();
     expect(
       screen.getByText('Enter the verification code sent to collector@example.com'),
     ).toBeTruthy();

@@ -10,16 +10,16 @@ import {
   PasswordField,
   PasswordRules,
   PrimaryButton,
+  buildPasswordRules,
 } from '@/features/auth/components/auth-controls';
-import { buildPasswordRules } from '@/features/auth/components/email-password-screen';
 import { useAuth } from '@/providers/auth-provider';
 
 /**
- * In-app "Change password" for an already-signed-in user. Reuses the onboarding
- * reset flow's UI/UX (the black wave-hero layout + shared password controls and
- * rules from `set-new-password-screen`) and the same `auth.updatePassword`
- * action — Supabase's `updateUser` accepts a new password on a live session, so
- * no email round-trip is needed here.
+ * In-app "Change password" for an already-signed-in user. Reuses the reset
+ * flow's UI/UX (the light auth layout + shared password controls and rules from
+ * `set-new-password-screen`) and the same `auth.updatePassword` action —
+ * Supabase's `updateUser` accepts a new password on a live session, so no email
+ * round-trip is needed here.
  */
 export function ChangePasswordScreen() {
   const theme = useSpotlightTheme();
@@ -52,7 +52,7 @@ export function ChangePasswordScreen() {
       testID="change-password-screen"
     >
       <View style={styles.heading}>
-        <Text style={[styles.title, { color: theme.colors.gray0 }]}>Change password</Text>
+        <Text style={[styles.title, { color: theme.colors.gray900 }]}>Change password</Text>
       </View>
 
       <View style={styles.form}>
