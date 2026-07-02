@@ -40,7 +40,7 @@ type EmailAuthActions = {
   resendCode: (email: string) => Promise<void>;
   sendReset: (email: string) => Promise<void>;
   verifyResetCode: (input: { email: string; code: string }) => Promise<void>;
-  updatePassword: (newPassword: string) => Promise<void>;
+  updatePassword: (newPassword: string, currentPassword?: string) => Promise<void>;
 };
 
 type AuthContextValue = EmailAuthActions & {
@@ -345,8 +345,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
       recoveryInProgressRef.current = true;
       await verifyRecoveryCode({ email, code });
     }),
-    updatePassword: (newPassword: string) => runWithBusy(async () => {
-      await updatePasswordService(newPassword);
+    updatePassword: (newPassword: string, currentPassword?: string) => runWithBusy(async () => {
+      await updatePasswordService(newPassword, { currentPassword });
       recoveryInProgressRef.current = false;
       const session = await getCurrentSession();
       if (session) {

@@ -602,9 +602,35 @@ export async function verifyRecoveryCode({
   return data.session;
 }
 
-export async function updatePassword(newPassword: string): Promise<void> {
+export async function updatePassword(
+  newPassword: string,
+  options?: { currentPassword?: string },
+): Promise<void> {
   if (!supabase) {
     throw new Error(supabaseAuthConfig.configurationIssue ?? 'Supabase Auth is not configured.');
+  }
+
+  // When a `currentPassword` is supplied (the in-app "Change password" flow for a
+  // signed-in user), re-verify it before mutating the password. Supabase's
+  // `updateUser({ password })` changes the password on the live session without
+  // re-authenticating, so this is the only place the old password can be checked.
+  // The recovery flow (signed-out reset) intentionally omits `currentPassword`
+  // because the user has forgotten it and proved identity via the email code.
+  const currentPassword = options?.currentPassword?.trim();
+  if (currentPassword) {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const email = sessionData.session?.user?.email?.trim();
+    if (!email) {
+      throw new Error('You must be signed in to change your password.');
+    }
+
+    const { error: verifyError } = await supabase.auth.signInWithPassword({
+      email,
+      password: currentPassword,
+    });
+    if (verifyError) {
+      throw new Error('Your current password is incorrect.');
+    }
   }
 
   const { error } = await supabase.auth.updateUser({
