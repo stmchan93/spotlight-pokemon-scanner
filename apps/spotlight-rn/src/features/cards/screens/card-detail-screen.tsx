@@ -1212,14 +1212,16 @@ export function CardDetailScreen({
       grader: selectedGrader,
       grade: selectedGrade,
       certNumber: ownedSlabContext?.certNumber ?? null,
-      // The slab's variant must be the PRINT variant (e.g. "Holofoil"), NOT the
-      // grade label. Sending "<grader> <grade>" makes the backend sanitize it to
-      // null, which changes the entry's identity_key on every save — spawning a
-      // fresh row and abandoning the original (so the cost basis appears lost).
-      // Anchor to the stored slab variant so a no-op edit can't change identity.
-      variantName: ownedSlabContext?.variantName ?? selectedVariantLabel ?? null,
+      // Slab variant must be the PRINT variant the graded price is keyed by.
+      // For an ALREADY-graded entry keep its stored slab variant so a no-op edit
+      // can't change identity_key (that orphaned the cost basis). For a RAW→graded
+      // conversion `ownedSlabContext` is null — do NOT fall back to the raw
+      // variant (e.g. "League Stamp"), which has no graded price and blanks the
+      // slab. Send null so the backend graded resolver falls back to an available
+      // graded variant.
+      variantName: ownedSlabContext?.variantName ?? null,
     };
-  }, [editIsRaw, ownedSlabContext, selectedGrade, selectedGrader, selectedVariantLabel]);
+  }, [editIsRaw, ownedSlabContext, selectedGrade, selectedGrader]);
 
   const editCostBasisPerUnit = useMemo(() => {
     const cleaned = editCostBasisText.replace(/[^0-9.]/g, '');

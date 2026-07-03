@@ -219,26 +219,6 @@ export function InventoryCardTile({
               </View>
             )}
           </View>
-
-          {/* Quantity chip (Figma 2368:43026): gray100 corner tag pinned to the
-              tile's top-left corner — OUTSIDE the centered card art (it sits in
-              the gutter), so it never covers the card's printing. */}
-          <View
-            style={[
-              styles.quantityChip,
-              {
-                backgroundColor: theme.colors.gray100,
-                // Hug the tile's rounded top-left corner; the inner corner rounds 4.
-                borderTopLeftRadius: artRadius,
-              },
-            ]}
-            testID={testID ? `${testID}-quantity` : undefined}
-          >
-            <BoxIso color={theme.colors.gray700} height={12} width={12} />
-            <AppText color="gray700" variant="overline">
-              {String(quantity)}
-            </AppText>
-          </View>
         </View>
 
         <View style={styles.copyStack}>
@@ -364,19 +344,7 @@ export function InventoryCardTile({
                 height={12}
                 width={12}
               />
-                  {/* Quantity chip (Figma 2368:43030 — absolute left:0/top:0 of the CELL):
-          pinned at the tile cell's literal top-left corner, floating above the
-          content; only the inner (bottom-right) corner rounds. */}
-      <View
-        style={[styles.quantityChip, { backgroundColor: theme.colors.gray100 }]}
-        testID={testID ? `${testID}-quantity` : undefined}
-      >
-        <BoxIso color={theme.colors.gray700} height={12} width={12} />
-        <AppText color="gray700" variant="overline">
-          {String(quantity)}
-        </AppText>
-      </View>
-    </Pressable>
+            </Pressable>
           ) : null}
         </View>
       </View>
@@ -420,6 +388,21 @@ export function InventoryCardTile({
           )}
         </View>
       ) : null}
+
+      {/* Quantity chip (Figma 2368:43030): pinned at the tile's TRUE top-left
+          corner. Padding lives on `cardContent`, so this direct child at
+          top:0/left:0 reaches the actual corner (not the padding box). Outer
+          corner square, inner (bottom-right) corner rounded 4 — floats over the
+          content and never shifts with the card art. */}
+      <View
+        style={[styles.quantityChip, { backgroundColor: theme.colors.gray100 }]}
+        testID={testID ? `${testID}-quantity` : undefined}
+      >
+        <BoxIso color={theme.colors.gray700} height={12} width={12} />
+        <AppText color="gray700" variant="overline">
+          {String(quantity)}
+        </AppText>
+      </View>
     </Pressable>
   );
 }
@@ -431,6 +414,9 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'column',
     gap: 16,
+    // Padding lives here (not on the Pressable) so the Pressable's absolute
+    // children — the quantity chip / badges — pin to the tile's TRUE corners.
+    padding: 16,
   },
   copyStack: {
     alignItems: 'flex-start',
@@ -496,7 +482,6 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     flexDirection: 'column',
     overflow: 'hidden',
-    padding: 16,
     position: 'relative',
     width: '100%',
   },
@@ -514,9 +499,11 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   starBadge: {
+    // Padding moved off the Pressable, so bake it into the offset (16 + 8) to
+    // keep the star/selection badge exactly where it was.
     position: 'absolute',
-    right: 8,
-    top: 8,
+    right: 24,
+    top: 24,
   },
   ebayFooter: {
     alignItems: 'center',

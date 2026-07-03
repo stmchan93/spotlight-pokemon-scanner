@@ -264,7 +264,13 @@ export function AppProviders({
 
   const refreshData = useCallback(() => {
     setDataVersion((value) => value + 1);
-  }, []);
+    // A mutation (PDP edit/add/delete/sale/import/scan-confirm) also makes the
+    // Insights performance numbers stale — drop that cache so the Insights page
+    // refetches fresh instead of painting the pre-edit snapshot. Every
+    // refreshData() caller is a real mutation (never plain navigation), so this
+    // won't thrash the cache on ordinary browsing.
+    setPortfolioPerformanceCache(null);
+  }, [setPortfolioPerformanceCache]);
 
   const prependOptimisticInventoryEntry = useCallback((entry: InventoryCardEntry) => {
     setInventoryEntriesCache((current) => prependInventoryEntry(current ?? [], entry));

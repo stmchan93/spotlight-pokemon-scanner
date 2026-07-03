@@ -976,6 +976,89 @@ describe('CardDetailScreen', () => {
     await waitFor(() => expect(onBack).toHaveBeenCalled());
   });
 
+  it('Raw→Graded conversion sends slabContext.variantName null (does not carry the raw variant)', async () => {
+    // A raw owned entry carries a raw print variant (here "Normal"; in the wild a
+    // raw-only stamp like "League Stamp"). When the user switches the grader to
+    // PSA, the raw variant must NOT be stamped onto the graded slab: graded
+    // pricing is keyed by (grade, variant) and a raw-only variant has no graded
+    // price, so the slab would show a blank price. Sending variantName=null lets
+    // the backend graded resolver fall back to an available graded variant.
+    const rawEntry: InventoryCardEntry = {
+      addedAt: '2026-04-27T12:00:00.000Z',
+      cardId: 'sm7-1',
+      cardNumber: '#001/096',
+      conditionCode: 'near_mint',
+      conditionLabel: 'Near Mint',
+      conditionShortLabel: 'NM',
+      costBasisPerUnit: null,
+      costBasisTotal: null,
+      currencyCode: 'USD',
+      hasMarketPrice: true,
+      id: 'raw-treecko-normal',
+      imageUrl: 'https://cdn.spotlight.test/sm7/treecko.png',
+      kind: 'raw',
+      marketPrice: 0.31,
+      name: 'Treecko',
+      quantity: 1,
+      setName: 'Sky Stream',
+      slabContext: null,
+      variantName: 'Normal',
+    };
+
+    const replacePortfolioEntry = jest.fn(async () => ({
+      previousDeckEntryID: 'raw-treecko-normal',
+      deckEntryID: 'graded-treecko-psa10',
+      cardID: 'sm7-1',
+      quantity: 1,
+      unitPrice: 0,
+      updatedAt: '2026-06-29T00:00:00.000Z',
+    }));
+    const updateDeckEntryCostBasis = jest.fn(async () => ({
+      deckEntryID: 'graded-treecko-psa10',
+      cardID: 'sm7-1',
+      costBasisPerUnit: 0,
+      costBasisPerUnitCents: 0,
+      currencyCode: 'USD',
+      updatedAt: '2026-06-29T00:00:00.000Z',
+    }));
+
+    const baseRepository = createTestSpotlightRepository();
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" entryId="raw-treecko-normal" onBack={jest.fn()} />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardDetail: async (query) => {
+            const detail = await baseRepository.getCardDetail(query);
+            return detail
+              ? ({ ...detail, ownedEntries: [rawEntry] } satisfies CardDetailRecord)
+              : null;
+          },
+          replacePortfolioEntry,
+          updateDeckEntryCostBasis,
+        }),
+      },
+    );
+
+    // The entry opens in Raw edit mode. Switch the grader to PSA via the
+    // configurator grader chips (Raw → PSA conversion).
+    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
+    fireEvent.press(await screen.findByTestId('detail-save-edit'));
+
+    await waitFor(() => expect(replacePortfolioEntry).toHaveBeenCalledTimes(1));
+    // The slab is graded (PSA 10) and — the core assertion — the raw variant
+    // ("Normal") is NOT carried onto it: variantName is null so the backend
+    // graded resolver can fall back to an available graded variant.
+    expect(replacePortfolioEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slabContext: expect.objectContaining({
+          grader: 'PSA',
+          grade: '10',
+          variantName: null,
+        }),
+      }),
+    );
+  });
+
   it('no longer renders the similar-cards button even with scan candidates present', async () => {
     const scanReviewId = saveScanCandidateReviewSession({
       id: 'scan-review-oshawott',
