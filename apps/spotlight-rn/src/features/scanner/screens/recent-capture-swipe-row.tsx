@@ -1,5 +1,5 @@
 import { memo, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
-import { IconLayoutGridAdd, IconTrash } from '@tabler/icons-react-native';
+import { GridPlus, Trash } from 'iconoir-react-native';
 import { AccessibilityInfo, Animated, Dimensions, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import Reanimated, {
@@ -187,17 +187,20 @@ function RecentCaptureSwipeRowInner({
           onPress={isOpen ? handleAddToCollection : undefined}
           style={({ pressed }) => [
             styles.captureActionGroup,
-            { backgroundColor: theme.colors.gray200, borderRadius: theme.radii.md },
             pressed ? styles.captureActionGroupPressed : null,
           ]}
           testID={`${testID}-collection-button`}
         >
-          <IconLayoutGridAdd
-            color={theme.colors.gray800}
-            size={recentCaptureActionIconSize}
-            strokeWidth={2}
-          />
-          <Text style={[styles.captureActionLabel, { color: theme.colors.gray800 }]}>Collection</Text>
+          <View style={[styles.captureActionCircle, { backgroundColor: theme.colors.yellow400 }]}>
+            <GridPlus
+              color={theme.colors.gray900}
+              height={recentCaptureActionIconSize}
+              width={recentCaptureActionIconSize}
+            />
+          </View>
+          <Text style={[styles.captureActionLabel, { color: theme.colors.scannerTextPrimary }]}>
+            Collection
+          </Text>
         </Pressable>
         <Pressable
           accessibilityElementsHidden={!isOpen}
@@ -208,13 +211,20 @@ function RecentCaptureSwipeRowInner({
           onPress={isOpen ? handleDelete : undefined}
           style={({ pressed }) => [
             styles.captureActionGroup,
-            { backgroundColor: theme.colors.dangerStrong, borderRadius: theme.radii.md },
             pressed ? styles.captureActionGroupPressed : null,
           ]}
           testID={`${testID}-delete-button`}
         >
-          <IconTrash color={theme.colors.gray0} size={recentCaptureActionIconSize} strokeWidth={2} />
-          <Text style={[styles.captureActionLabel, { color: theme.colors.gray0 }]}>Delete</Text>
+          <View style={[styles.captureActionCircle, { backgroundColor: theme.colors.dangerStrong }]}>
+            <Trash
+              color={theme.colors.gray0}
+              height={recentCaptureActionIconSize}
+              width={recentCaptureActionIconSize}
+            />
+          </View>
+          <Text style={[styles.captureActionLabel, { color: theme.colors.scannerTextPrimary }]}>
+            Delete
+          </Text>
         </Pressable>
       </Animated.View>
     );
@@ -239,6 +249,18 @@ function RecentCaptureSwipeRowInner({
     >
     <Swipeable
       ref={swipeableRef}
+      // Scope the horizontal claim by rail state (same negotiation as the
+      // Wishlist rows, ed01a2a). While the rail is CLOSED the row only claims
+      // clear LEFTWARD drags — the reveal direction — so rightward pans fall
+      // through to whoever owns them now: the pager's edge page-swipe back to
+      // Collection, or the native stack back gesture that the pushed-scanner
+      // route armed (Scan tab pushes /?page=scanner since 6d7879b). The legacy
+      // Swipeable default ([-10, 10]) silently claimed BOTH directions, which
+      // both ate those gestures over the tray and let rightward jitter at the
+      // start of a reveal grab (and rubber-band) the row instead of opening the
+      // rail. Once OPEN the row claims both directions again so a right-swipe
+      // still closes it.
+      activeOffsetX={isOpen ? [-10, 10] : -10}
       containerStyle={styles.captureSwipeShell}
       friction={1.6}
       onSwipeableWillClose={handleWillClose}
@@ -280,7 +302,7 @@ export const RecentCaptureSwipeRow = memo(RecentCaptureSwipeRowInner);
 
 const styles = StyleSheet.create({
   // Right-aligned rail of circular actions, vertically centered against the row,
-  // 16px between each group (Figma 1511:4098).
+  // 16px between each group (Figma 1768:4056/4060).
   captureActionRail: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -290,20 +312,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: recentCaptureActionRailPadding,
     width: recentCaptureActionRailRevealWidth,
   },
-  // One action: iOS-style rounded-rectangle tile with a centered icon and a
-  // label underneath (gap 4). Fill/radius are applied inline from theme tokens
-  // (grey for Collection, red for the destructive Delete).
+  // One action: a circular chip with the icon centered, label 4px underneath
+  // (Figma 1768:4056/4060). Chip fills come inline from theme tokens —
+  // yellow/400 for Collection, red/500 (dangerStrong) for the destructive
+  // Delete.
   captureActionGroup: {
     alignItems: 'center',
     gap: 4,
-    height: recentCaptureActionCircleSize + 26,
-    justifyContent: 'center',
-    paddingHorizontal: 8,
-    width: recentCaptureActionCircleSize + 8,
   },
   captureActionGroupPressed: {
     opacity: 0.8,
   },
+  // 42px circle (Figma radius 26.5 clamps to the half-size) with padding 4
+  // around the 20px icon (Figma 1768:4057/4061).
+  captureActionCircle: {
+    alignItems: 'center',
+    borderRadius: recentCaptureActionCircleSize / 2,
+    height: recentCaptureActionCircleSize,
+    justifyContent: 'center',
+    padding: 4,
+    width: recentCaptureActionCircleSize,
+  },
+  // "Overline" label per Figma — 11px Plus Jakarta Sans Medium, 1.3 line-height
+  // (textStyles.overline); white via the scanner text token, applied inline.
   captureActionLabel: {
     ...textStyles.overline,
     textAlign: 'center',

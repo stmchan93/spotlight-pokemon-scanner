@@ -53,6 +53,9 @@ export const colors = {
   gray800: '#2E2E2E',
   gray900: '#1A1A1A',
   yellow50: '#FFFBF0',
+  // Color/yellow/400 from Figma — the scan-tray swipe rail's "Collection"
+  // action chip fill (Figma 1768:4057).
+  yellow400: '#FFC233',
   green100: '#E2F4E8',
   green400: '#4CAF6E',
   red100: '#FDECEC',

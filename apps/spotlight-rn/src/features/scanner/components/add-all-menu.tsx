@@ -1,4 +1,5 @@
 import { Dimensions, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { BlurView } from 'expo-blur';
 import { GridPlus, Bookmark, Trash } from 'iconoir-react-native';
 
 import { useSpotlightTheme } from '@spotlight/design-system';
@@ -76,27 +77,20 @@ export function AddAllMenu({
         style={styles.backdrop}
         testID={`${testID}-backdrop`}
       />
-      <View
-        style={[
-          styles.card,
-          {
-            backgroundColor: theme.colors.gray100,
-            borderRadius: theme.radii.lg,
-            left,
-            ...verticalStyle,
-          },
-        ]}
-        testID={testID}
-      >
+      <View style={[styles.card, { left, ...verticalStyle }]} testID={testID}>
+        {/* iOS context-menu glass (Figma 1821:9651): blur of the dark tray
+            under a translucent light-gray fill, so the card reads GRAY over
+            the scanner instead of a flat white chip. */}
+        <BlurView intensity={40} style={StyleSheet.absoluteFill} tint="light" />
+        <View style={[StyleSheet.absoluteFill, styles.glassFill]} />
+
         <Pressable
           accessibilityLabel="Add to collection"
           accessibilityRole="button"
           onPress={() => onSelect('collection')}
           style={({ pressed }) => [
             styles.row,
-            styles.rowSeparated,
-            { borderBottomColor: theme.colors.gray200 },
-            { backgroundColor: pressed ? theme.colors.gray200 : 'transparent' },
+            { backgroundColor: pressed ? 'rgba(0, 0, 0, 0.06)' : 'transparent' },
           ]}
           testID={`${testID}-collection`}
         >
@@ -112,9 +106,7 @@ export function AddAllMenu({
           onPress={() => onSelect('wishlist')}
           style={({ pressed }) => [
             styles.row,
-            styles.rowSeparated,
-            { borderBottomColor: theme.colors.gray200 },
-            { backgroundColor: pressed ? theme.colors.gray200 : 'transparent' },
+            { backgroundColor: pressed ? 'rgba(0, 0, 0, 0.06)' : 'transparent' },
           ]}
           testID={`${testID}-wishlist`}
         >
@@ -130,7 +122,7 @@ export function AddAllMenu({
           onPress={() => onSelect('remove')}
           style={({ pressed }) => [
             styles.row,
-            { backgroundColor: pressed ? theme.colors.gray200 : 'transparent' },
+            { backgroundColor: pressed ? 'rgba(0, 0, 0, 0.06)' : 'transparent' },
           ]}
           testID={`${testID}-remove`}
         >
@@ -144,32 +136,40 @@ export function AddAllMenu({
   );
 }
 
+// Figma 1821:9651 "Toolbar": iPhone sheet radius token (34), 40px rows,
+// translucent light-gray glass fill + 0 8 40 rgba(0,0,0,0.12) shadow.
+const CARD_RADIUS = 34;
+
 const styles = StyleSheet.create({
   backdrop: {
     ...StyleSheet.absoluteFillObject,
   },
   card: {
+    borderRadius: CARD_RADIUS,
     minWidth: CARD_WIDTH,
-    // Clip the row press-highlights to the rounded corners so it reads as one
-    // iOS-style context-menu surface.
+    // Clip the blur layers + row press-highlights to the rounded corners so it
+    // reads as one iOS-style context-menu surface.
     overflow: 'hidden',
+    paddingHorizontal: 8,
+    paddingVertical: 14,
     position: 'absolute',
-    // Subtle floating-menu shadow over the dark tray.
+    // Floating-menu shadow over the dark tray (Figma 0 8 40 @ 12%).
     elevation: 8,
     shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 40,
+  },
+  // The translucent gray that makes the menu read as iOS glass over the tray.
+  glassFill: {
+    backgroundColor: 'rgba(245, 245, 245, 0.6)',
   },
   row: {
     alignItems: 'center',
+    borderRadius: 12,
     flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  // Hairline separator between stacked rows (iOS context-menu style).
-  rowSeparated: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    height: 40,
+    paddingHorizontal: 14,
   },
   label: {
     marginLeft: 12,

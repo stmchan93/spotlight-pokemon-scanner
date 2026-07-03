@@ -2,7 +2,7 @@ import { BlurView } from 'expo-blur';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useKeepAwake } from 'expo-keep-awake';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   IconChevronDown,
   IconChevronLeft,
@@ -20,7 +20,6 @@ import {
   Linking,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   UIManager,
@@ -32,7 +31,9 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Reanimated, {
   Easing,
   runOnJS,
+  useAnimatedScrollHandler,
   useAnimatedStyle,
+  useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
 import { useCameraPermission } from 'react-native-vision-camera';
@@ -305,6 +306,207 @@ function useScannerZoomFactor(): [ScannerZoomFactor, (next: ScannerZoomFactor) =
   return [zoomFactor, setZoomFactor, hydrated];
 }
 
+type CaptureRowMenuAnchor = { height: number; width: number; x: number; y: number };
+
+type CaptureTrayRowProps = {
+  capture: RecentCapture;
+  enableEnterAnimation: boolean;
+  index: number;
+  onActionRailVisibilityChange: (key: string, visible: boolean) => void;
+  onAddToCollection: (captureId: string) => void;
+  onDelete: (captureId: string) => void;
+  onOpenCard: (captureId: string) => void | Promise<void>;
+  onOpenChangeCardPicker: (captureId: string) => void;
+  onOpenRowMenu: (captureId: string, anchor: CaptureRowMenuAnchor) => void;
+  onShowPrice: (captureId: string) => void;
+  selection: ScanPriceSheetSelection | null;
+};
+
+// One scan-tray row, extracted from the screen render and memoized: each row
+// carries a CachedImage thumb, a gesture-handler Swipeable and a Reanimated
+// wrapper, so re-rendering all of them on every unrelated scanner-screen state
+// change (camera readiness, capture flashes, zoom, eBay lookups, sheet
+// open/close, …) made the tray's JS commits expensive with a full tray. All
+// callback props are stable useCallbacks from the screen, so a row now only
+// re-renders when ITS capture / price selection / enter-animation gate changes.
+const CaptureTrayRow = memo(function CaptureTrayRow({
+  capture,
+  enableEnterAnimation,
+  index,
+  onActionRailVisibilityChange,
+  onAddToCollection,
+  onDelete,
+  onOpenCard,
+  onOpenChangeCardPicker,
+  onOpenRowMenu,
+  onShowPrice,
+  selection,
+}: CaptureTrayRowProps) {
+  const theme = useSpotlightTheme();
+  const candidate = activeCandidateForCapture(capture);
+  const baseMarketPrice = candidate?.marketPrice;
+  const currencyCode = candidate?.currencyCode ?? 'USD';
+  const canCycleCandidate = !!candidate && capture.candidates.length > 1;
+  const displayMarketPrice = isFinitePrice(selection?.marketPrice ?? null)
+    ? (selection!.marketPrice as number)
+    : (isFinitePrice(baseMarketPrice) ? baseMarketPrice : null);
+  const setAndNumberLine = candidate
+    ? [candidate.setName, candidate.cardNumber ? `#${candidate.cardNumber.replace(/^#/, '')}` : null]
+      .filter(Boolean)
+      .join(' · ')
+    : '';
+  const modeTagLine = capture.mode === 'slabs'
+    ? scannerSlabInlineLabel(capture) || 'GRADED'
+    : 'RAW';
+  return (
+    <RecentCaptureSwipeRow
+      actionRailKey={capture.id}
+      // Collapsed tray shows a single row; after ADD the next card advances
+      // in with the slide-from-right enter. Expanded list opens without
+      // fanning every row, so enter is gated to the collapsed viewport.
+      enableEnterAnimation={enableEnterAnimation}
+      onActionRailVisibilityChange={onActionRailVisibilityChange}
+      onAddToCollection={onAddToCollection}
+      onDelete={onDelete}
+      testID={`scanner-tray-swipe-${index}`}
+    >
+      <View style={styles.captureRow} testID={`scanner-tray-row-${index}`}>
+        <View style={styles.captureLeftGroup}>
+          <View style={styles.captureThumbColumn}>
+            <Pressable
+              accessibilityLabel={canCycleCandidate ? 'Change match' : undefined}
+              accessibilityRole={canCycleCandidate ? 'button' : undefined}
+              disabled={!canCycleCandidate}
+              onPress={canCycleCandidate ? () => onOpenChangeCardPicker(capture.id) : undefined}
+            >
+              {scannerCaptureThumbUri(capture, candidate) ? (
+                <CachedImage
+                  cachePolicy={imageCachePolicy.thumbnail}
+                  style={styles.captureThumb}
+                  testID={`scanner-tray-image-${index}`}
+                  uri={scannerCaptureThumbUri(capture, candidate)}
+                />
+              ) : (
+                <View style={styles.captureThumb} testID={`scanner-tray-image-${index}`} />
+              )}
+            </Pressable>
+            {canCycleCandidate ? (
+              <Pressable
+                accessibilityLabel="Change match"
+                accessibilityRole="button"
+                hitSlop={6}
+                onPress={() => {
+                  onOpenChangeCardPicker(capture.id);
+                }}
+                style={({ pressed }) => [
+                  styles.captureChangeChip,
+                  pressed ? styles.captureChangeChipPressed : null,
+                ]}
+                testID={`scanner-tray-change-${index}`}
+              >
+                <Text style={styles.captureChangeLabel}>Switch</Text>
+              </Pressable>
+            ) : null}
+          </View>
+
+          <Pressable
+            accessibilityLabel={candidate
+              ? `Open ${capture.mode === 'slabs'
+                ? [candidate.name, scannerSlabInlineLabel(capture)].filter(Boolean).join(' • ')
+                : candidate.name}`
+              : `Open recent scan ${index + 1}`}
+            accessibilityRole="button"
+            onPress={() => {
+              void onOpenCard(capture.id);
+            }}
+            style={({ pressed }) => [
+              styles.captureMainButton,
+              pressed ? styles.captureMainButtonPressed : null,
+            ]}
+            testID={`scanner-tray-open-card-${index}`}
+          >
+            <View style={styles.captureCopy}>
+              {capture.isLoadingCandidates ? (
+                <>
+                  <View style={styles.captureLoadingRow}>
+                    <ActivityIndicator color={theme.colors.brand} size="small" />
+                    <Text style={styles.captureTitle}>Finding match</Text>
+                  </View>
+                  <Text style={styles.captureSubtitle}>Photo captured and queued for scan review</Text>
+                </>
+              ) : candidate ? (
+                <>
+                  <Text numberOfLines={1} style={styles.captureTitle}>
+                    {candidate.name}
+                  </Text>
+                  {setAndNumberLine ? (
+                    <Text numberOfLines={1} style={styles.captureSubtitle}>
+                      {setAndNumberLine}
+                    </Text>
+                  ) : null}
+                  <Text numberOfLines={1} style={styles.captureSubtitle}>
+                    {modeTagLine}
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Text numberOfLines={1} style={styles.captureTitle}>{captureFailureTitle(capture)}</Text>
+                  <Text numberOfLines={2} style={styles.captureSubtitle}>{captureFailureSubtitle(capture)}</Text>
+                </>
+              )}
+            </View>
+          </Pressable>
+        </View>
+
+        {candidate ? (
+          <View style={styles.capturePriceColumn}>
+            <Pressable
+              accessibilityLabel={`Show market price for ${candidate.name}`}
+              accessibilityRole="button"
+              hitSlop={6}
+              onPress={() => onShowPrice(capture.id)}
+              style={({ pressed }) => [
+                styles.capturePriceWrap,
+                pressed ? styles.capturePriceWrapPressed : null,
+              ]}
+              testID={`scanner-tray-price-${index}`}
+            >
+              <View style={styles.capturePriceValueRow}>
+                <Image
+                  source={require('../../../../assets/images/tcgplayer-icon.png')}
+                  style={styles.capturePriceLogo}
+                />
+                <Text style={styles.capturePriceValue}>
+                  {isFinitePrice(displayMarketPrice)
+                    ? formatCurrency(displayMarketPrice, currencyCode)
+                    : '—'}
+                </Text>
+              </View>
+            </Pressable>
+            <Pressable
+              accessibilityLabel={`Add ${candidate.name}`}
+              accessibilityRole="button"
+              hitSlop={6}
+              onPress={(event) => {
+                event.currentTarget.measureInWindow((x, y, width, height) => {
+                  onOpenRowMenu(capture.id, { height, width, x, y });
+                });
+              }}
+              style={({ pressed }) => [
+                styles.captureAddPill,
+                pressed ? styles.captureAddPillPressed : null,
+              ]}
+              testID={`scanner-tray-add-${index}`}
+            >
+              <Text style={styles.captureAddPillLabel}>ADD ▾</Text>
+            </Pressable>
+          </View>
+        ) : null}
+      </View>
+    </RecentCaptureSwipeRow>
+  );
+});
+
 export function ScannerScreen({
   onExitToPortfolio,
   onTopLevelSwipeEnabledChange,
@@ -312,7 +514,6 @@ export function ScannerScreen({
   const isTestEnv = process.env.NODE_ENV === 'test';
   const { activePage } = useTabsPage();
   const isActiveTab = activePage === 'scanner';
-  const theme = useSpotlightTheme();
   const router = useRouter();
   const {
     dataVersion,
@@ -449,8 +650,7 @@ export function ScannerScreen({
   const hasFocusedScannerRef = useRef(false);
   const hasPromptedForPermissionRef = useRef(false);
   const cameraRef = useRef<RawScannerCameraHandle | null>(null);
-  const trayScrollOffsetYRef = useRef(0);
-  const trayScrollRef = useRef<ScrollView>(null);
+  const trayScrollRef = useRef<Reanimated.ScrollView>(null);
   const reticleSnapshotRef = useRef({ height: 0, previewHeight: 0, previewWidth: 0, width: 0, x: 0, y: 0 });
   const recentlyAddedTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
@@ -591,21 +791,48 @@ export function ScannerScreen({
   const collapsedViewportHeight = captureRowHeight;
   const shouldLoadInventory = recentCaptures.length > 0 || dataVersion > 0;
 
+  // --- Tray expand/collapse animation state (all UI-thread) ---
+  // While a tray pan is in flight, `trayDragHeight` overrides the viewport
+  // height so the tray tracks the finger frame-by-frame; the pan's onEnd then
+  // starts the settle `withTiming` directly on the UI thread. Null means "no
+  // gesture override": the animated style below owns the height and springs it
+  // toward the JS-state target (header taps, row-count changes).
+  const trayDragHeight = useSharedValue<number | null>(null);
+  const trayDragStartHeight = useSharedValue(collapsedViewportHeight);
+  // Live scroll offset of the inner list, mirrored into a shared value ON THE
+  // UI THREAD (useAnimatedScrollHandler below) so the pan worklets can gate
+  // "collapse only from top-of-content" without reading a stale JS ref.
+  const trayScrollOffset = useSharedValue(0);
+  const trayDragStartScrollOffset = useSharedValue(0);
+
   // Tray viewport height, animated on the UI thread via Reanimated so the
   // expand/collapse slide shares one animation system with the rows (replacing
-  // the classic LayoutAnimation that crashed when run over them). Deriving the
-  // target from `isTrayExpanded` (re-run only when the deps change) keeps it a
-  // single source of truth and lets `withTiming` animate from the live height
-  // to the new target on each toggle.
+  // the classic LayoutAnimation that crashed when run over them). The gesture
+  // override branch comes first; otherwise `withTiming` animates from the live
+  // height to the `isTrayExpanded`-derived target on each toggle.
   const trayViewportAnimatedStyle = useAnimatedStyle(
-    () => ({
-      height: withTiming(
-        isTrayExpanded ? trayScrollViewportHeight : collapsedViewportHeight,
-        trayHeightTimingConfig,
-      ),
-    }),
+    () => {
+      if (trayDragHeight.value !== null) {
+        return { height: trayDragHeight.value };
+      }
+      return {
+        height: withTiming(
+          isTrayExpanded ? trayScrollViewportHeight : collapsedViewportHeight,
+          trayHeightTimingConfig,
+        ),
+      };
+    },
     [collapsedViewportHeight, isTrayExpanded, trayScrollViewportHeight],
   );
+
+  // Release the gesture's height override once the state it committed has
+  // re-rendered: the `withTiming` branch above then owns the height again —
+  // it continues from the current animated value (no jump) — and later
+  // non-gesture target changes (row add/remove while expanded) animate
+  // normally instead of being pinned to a stale drag height.
+  useEffect(() => {
+    trayDragHeight.value = null;
+  }, [isTrayExpanded, trayDragHeight]);
 
   useEffect(() => {
     if (!shouldLoadInventory) {
@@ -738,7 +965,7 @@ export function ScannerScreen({
 
       if (!nextExpanded) {
         // Anchor row 0 so the collapse reveals the top card.
-        trayScrollOffsetYRef.current = 0;
+        trayScrollOffset.value = 0;
         trayScrollRef.current?.scrollTo({ y: 0, animated: false });
       }
 
@@ -747,7 +974,7 @@ export function ScannerScreen({
       // which would crash when run over the Reanimated tray rows.
       return nextExpanded;
     });
-  }, []);
+  }, [trayScrollOffset]);
 
   const inventoryByCardId = useMemo(() => {
     const lookup = new Map<string, { entryIds: string[]; quantity: number }>();
@@ -2197,43 +2424,30 @@ export function ScannerScreen({
   // the list scroll resolve together (swipe down at the top collapses; once
   // scrolled, the same drag scrolls the list instead of collapsing).
   const trayScrollNativeGesture = useMemo(() => Gesture.Native(), []);
-  // Scroll offset captured when a tray drag begins — collapse only fires when
-  // the list was already at the top at the start (so a scroll-to-top drag
-  // doesn't also collapse the tray).
-  const trayGestureStartScrollOffsetRef = useRef(0);
 
-  // JS-thread handlers for the tray swipe. CRITICAL: gesture-handler callbacks
-  // are auto-workletized (react-native-worklets/plugin) and run on the UI
-  // thread, so they CANNOT touch refs or call setState directly — doing so
-  // crashed the app on every swipe-to-expand/collapse (tapping the handle was
-  // fine because that path is a normal JS-thread onPress). Both handlers below
-  // are hopped back to the JS thread via `runOnJS`.
-  const handleTrayPanBegin = useCallback(() => {
-    trayGestureStartScrollOffsetRef.current = trayScrollOffsetYRef.current;
-  }, []);
-  const handleTrayPanEnd = useCallback((translationY: number, velocityY: number) => {
-    const shouldExpand =
-      !isTrayExpanded
-      && (translationY <= -traySwipeThreshold || velocityY <= -trayFlingVelocity);
-    const shouldCollapse =
-      isTrayExpanded
-      && trayGestureStartScrollOffsetRef.current <= 0
-      && (translationY >= traySwipeThreshold || velocityY >= trayFlingVelocity);
-
-    if (shouldExpand) {
-      commitTrayExpandedState(true);
-    } else if (shouldCollapse) {
-      commitTrayExpandedState(false);
-    }
-  }, [commitTrayExpandedState, isTrayExpanded]);
+  // Mirrors the list's scroll offset into `trayScrollOffset` on the UI thread
+  // so the pan worklets below read a live value (a JS-ref mirror goes stale
+  // exactly when the JS thread is busy — the moment the tray used to jank).
+  const handleTrayScroll = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      trayScrollOffset.value = event.contentOffset.y;
+    },
+  });
 
   // Vertical swipe to expand/collapse the tray. Lives in gesture-handler (not a
   // JS PanResponder) so it shares one arena with the row swipe-to-action
   // Swipeables; otherwise the native row recognizers swallow the vertical drag.
   // `activeOffsetY` keeps it off horizontal row swipes; `failOffsetX` yields to
   // them outright. Disabled while a row action rail is open (`isTopLevelSwipe`).
-  // The callbacks only forward raw event values across `runOnJS` — all ref/state
-  // work happens in the JS-thread handlers above.
+  //
+  // CRITICAL: these callbacks are auto-workletized (react-native-worklets/
+  // plugin) and run on the UI thread, so they CANNOT touch refs or call
+  // setState directly — doing so crashed the app on every swipe. They work
+  // exclusively on shared values + captured render constants; the ONLY JS hop
+  // is the final `runOnJS(commitTrayExpandedState)`, and the settle animation
+  // is started UI-side BEFORE that hop. (Previously the whole animation waited
+  // on onEnd → runOnJS → setState → full-screen re-render → useAnimatedStyle,
+  // which on a busy JS thread started the slide ~1s after the swipe.)
   const trayPanGesture = useMemo(
     () =>
       Gesture.Pan()
@@ -2242,12 +2456,69 @@ export function ScannerScreen({
         .failOffsetX([-16, 16])
         .simultaneousWithExternalGesture(trayScrollNativeGesture)
         .onBegin(() => {
-          runOnJS(handleTrayPanBegin)();
+          // Captured at touch-down: collapse is only offered when the list was
+          // already at the top when the drag began (so a scroll-to-top drag
+          // doesn't also collapse the tray).
+          trayDragStartScrollOffset.value = trayScrollOffset.value;
+        })
+        .onStart(() => {
+          trayDragStartHeight.value =
+            trayDragHeight.value
+            ?? (isTrayExpanded ? trayScrollViewportHeight : collapsedViewportHeight);
+        })
+        .onUpdate((event) => {
+          // Track the finger: expanding is always allowed from collapsed;
+          // while expanded, the drag only collapses from top-of-content
+          // (mid-list drags belong to the ScrollView).
+          const mayFollow = isTrayExpanded
+            ? trayDragStartScrollOffset.value <= 0
+            : true;
+          if (!mayFollow) {
+            return;
+          }
+          trayDragHeight.value = Math.min(
+            trayScrollViewportHeight,
+            Math.max(collapsedViewportHeight, trayDragStartHeight.value - event.translationY),
+          );
         })
         .onEnd((event) => {
-          runOnJS(handleTrayPanEnd)(event.translationY, event.velocityY);
+          const shouldExpand =
+            !isTrayExpanded
+            && (event.translationY <= -traySwipeThreshold || event.velocityY <= -trayFlingVelocity);
+          const shouldCollapse =
+            isTrayExpanded
+            && trayDragStartScrollOffset.value <= 0
+            && (event.translationY >= traySwipeThreshold || event.velocityY >= trayFlingVelocity);
+          const nextExpanded = shouldExpand ? true : shouldCollapse ? false : isTrayExpanded;
+
+          if (nextExpanded !== isTrayExpanded) {
+            // Settle toward the new target NOW, on the UI thread. The JS state
+            // flip re-renders in parallel; the release effect then hands the
+            // height back to the state-driven timing with no visual jump.
+            trayDragHeight.value = withTiming(
+              nextExpanded ? trayScrollViewportHeight : collapsedViewportHeight,
+              trayHeightTimingConfig,
+            );
+            runOnJS(commitTrayExpandedState)(nextExpanded);
+          } else {
+            // Aborted drag: release the override so the animated style glides
+            // the height back to the current state's target.
+            trayDragHeight.value = null;
+          }
         }),
-    [canToggleTray, handleTrayPanBegin, handleTrayPanEnd, isTopLevelSwipeEnabled, trayScrollNativeGesture],
+    [
+      canToggleTray,
+      collapsedViewportHeight,
+      commitTrayExpandedState,
+      isTopLevelSwipeEnabled,
+      isTrayExpanded,
+      trayDragHeight,
+      trayDragStartHeight,
+      trayDragStartScrollOffset,
+      trayScrollNativeGesture,
+      trayScrollOffset,
+      trayScrollViewportHeight,
+    ],
   );
 
   const promptCopy = !hasPermission
@@ -2256,173 +2527,34 @@ export function ScannerScreen({
       ? 'Capturing scan...'
       : 'Tap to scan';
 
-  const renderCaptureRow = (capture: RecentCapture, index: number) => {
-    const candidate = activeCandidateForCapture(capture);
-    const baseMarketPrice = candidate?.marketPrice;
-    const currencyCode = candidate?.currencyCode ?? 'USD';
-    const canCycleCandidate = !!candidate && capture.candidates.length > 1;
-    const selection = priceSelection.get(capture.id) ?? null;
-    const displayMarketPrice = isFinitePrice(selection?.marketPrice ?? null)
-      ? (selection!.marketPrice as number)
-      : (isFinitePrice(baseMarketPrice) ? baseMarketPrice : null);
-    const setAndNumberLine = candidate
-      ? [candidate.setName, candidate.cardNumber ? `#${candidate.cardNumber.replace(/^#/, '')}` : null]
-        .filter(Boolean)
-        .join(' · ')
-      : '';
-    const modeTagLine = capture.mode === 'slabs'
-      ? scannerSlabInlineLabel(capture) || 'GRADED'
-      : 'RAW';
-    return (
-      <RecentCaptureSwipeRow
-        key={capture.id}
-        actionRailKey={capture.id}
-        // Collapsed tray shows a single row; after ADD the next card advances
-        // in with the slide-from-right enter. Expanded list opens without
-        // fanning every row, so enter is gated to the collapsed viewport.
-        enableEnterAnimation={!isTrayExpanded}
-        onActionRailVisibilityChange={handleCaptureActionRailVisibilityChange}
-        onAddToCollection={handleRowAddToCollection}
-        onDelete={deleteRecentCapture}
-        testID={`scanner-tray-swipe-${index}`}
-      >
-        <View style={styles.captureRow} testID={`scanner-tray-row-${index}`}>
-          <View style={styles.captureLeftGroup}>
-            <View style={styles.captureThumbColumn}>
-              <Pressable
-                accessibilityLabel={canCycleCandidate ? 'Change match' : undefined}
-                accessibilityRole={canCycleCandidate ? 'button' : undefined}
-                disabled={!canCycleCandidate}
-                onPress={canCycleCandidate ? () => openChangeCardPicker(capture.id) : undefined}
-              >
-                {scannerCaptureThumbUri(capture, candidate) ? (
-                  <CachedImage
-                    cachePolicy={imageCachePolicy.thumbnail}
-                    style={styles.captureThumb}
-                    testID={`scanner-tray-image-${index}`}
-                    uri={scannerCaptureThumbUri(capture, candidate)}
-                  />
-                ) : (
-                  <View style={styles.captureThumb} testID={`scanner-tray-image-${index}`} />
-                )}
-              </Pressable>
-              {canCycleCandidate ? (
-                <Pressable
-                  accessibilityLabel="Change match"
-                  accessibilityRole="button"
-                  hitSlop={6}
-                  onPress={() => {
-                    openChangeCardPicker(capture.id);
-                  }}
-                  style={({ pressed }) => [
-                    styles.captureChangeChip,
-                    pressed ? styles.captureChangeChipPressed : null,
-                  ]}
-                  testID={`scanner-tray-change-${index}`}
-                >
-                  <Text style={styles.captureChangeLabel}>Switch</Text>
-                </Pressable>
-              ) : null}
-            </View>
+  // Stable per-row callbacks so `CaptureTrayRow`'s memo can actually bail out.
+  const handleShowRowPrice = useCallback((captureId: string) => {
+    setActivePriceCaptureId(captureId);
+  }, []);
+  const handleOpenRowMenu = useCallback((captureId: string, anchor: CaptureRowMenuAnchor) => {
+    setRowMenuAnchor(anchor);
+    setRowMenuCaptureId(captureId);
+  }, []);
 
-            <Pressable
-              accessibilityLabel={candidate
-                ? `Open ${capture.mode === 'slabs'
-                  ? [candidate.name, scannerSlabInlineLabel(capture)].filter(Boolean).join(' • ')
-                  : candidate.name}`
-                : `Open recent scan ${index + 1}`}
-              accessibilityRole="button"
-              onPress={() => {
-                void handleOpenCard(capture.id);
-              }}
-              style={({ pressed }) => [
-                styles.captureMainButton,
-                pressed ? styles.captureMainButtonPressed : null,
-              ]}
-              testID={`scanner-tray-open-card-${index}`}
-            >
-              <View style={styles.captureCopy}>
-                {capture.isLoadingCandidates ? (
-                  <>
-                    <View style={styles.captureLoadingRow}>
-                      <ActivityIndicator color={theme.colors.brand} size="small" />
-                      <Text style={styles.captureTitle}>Finding match</Text>
-                    </View>
-                    <Text style={styles.captureSubtitle}>Photo captured and queued for scan review</Text>
-                  </>
-                ) : candidate ? (
-                  <>
-                    <Text numberOfLines={1} style={styles.captureTitle}>
-                      {candidate.name}
-                    </Text>
-                    {setAndNumberLine ? (
-                      <Text numberOfLines={1} style={styles.captureSubtitle}>
-                        {setAndNumberLine}
-                      </Text>
-                    ) : null}
-                    <Text numberOfLines={1} style={styles.captureSubtitle}>
-                      {modeTagLine}
-                    </Text>
-                  </>
-                ) : (
-                  <>
-                    <Text numberOfLines={1} style={styles.captureTitle}>{captureFailureTitle(capture)}</Text>
-                    <Text numberOfLines={2} style={styles.captureSubtitle}>{captureFailureSubtitle(capture)}</Text>
-                  </>
-                )}
-              </View>
-            </Pressable>
-          </View>
-
-          {candidate ? (
-            <View style={styles.capturePriceColumn}>
-              <Pressable
-                accessibilityLabel={`Show market price for ${candidate.name}`}
-                accessibilityRole="button"
-                hitSlop={6}
-                onPress={() => setActivePriceCaptureId(capture.id)}
-                style={({ pressed }) => [
-                  styles.capturePriceWrap,
-                  pressed ? styles.capturePriceWrapPressed : null,
-                ]}
-                testID={`scanner-tray-price-${index}`}
-              >
-                <View style={styles.capturePriceValueRow}>
-                  <Image
-                    source={require('../../../../assets/images/tcgplayer-icon.png')}
-                    style={styles.capturePriceLogo}
-                  />
-                  <Text style={styles.capturePriceValue}>
-                    {isFinitePrice(displayMarketPrice)
-                      ? formatCurrency(displayMarketPrice, currencyCode)
-                      : '—'}
-                  </Text>
-                </View>
-              </Pressable>
-              <Pressable
-                accessibilityLabel={`Add ${candidate.name}`}
-                accessibilityRole="button"
-                hitSlop={6}
-                onPress={(event) => {
-                  event.currentTarget.measureInWindow((x, y, width, height) => {
-                    setRowMenuAnchor({ x, y, width, height });
-                    setRowMenuCaptureId(capture.id);
-                  });
-                }}
-                style={({ pressed }) => [
-                  styles.captureAddPill,
-                  pressed ? styles.captureAddPillPressed : null,
-                ]}
-                testID={`scanner-tray-add-${index}`}
-              >
-                <Text style={styles.captureAddPillLabel}>ADD ▾</Text>
-              </Pressable>
-            </View>
-          ) : null}
-        </View>
-      </RecentCaptureSwipeRow>
-    );
-  };
+  const renderCaptureRow = (capture: RecentCapture, index: number) => (
+    <CaptureTrayRow
+      key={capture.id}
+      capture={capture}
+      // Collapsed tray shows a single row; after ADD the next card advances
+      // in with the slide-from-right enter. Expanded list opens without
+      // fanning every row, so enter is gated to the collapsed viewport.
+      enableEnterAnimation={!isTrayExpanded}
+      index={index}
+      onActionRailVisibilityChange={handleCaptureActionRailVisibilityChange}
+      onAddToCollection={handleRowAddToCollection}
+      onDelete={deleteRecentCapture}
+      onOpenCard={handleOpenCard}
+      onOpenChangeCardPicker={openChangeCardPicker}
+      onOpenRowMenu={handleOpenRowMenu}
+      onShowPrice={handleShowRowPrice}
+      selection={priceSelection.get(capture.id) ?? null}
+    />
+  );
 
   return (
     <SafeAreaView edges={['left', 'right']} style={styles.safeArea}>
@@ -2682,12 +2814,19 @@ export function ScannerScreen({
                 testID="scanner-tray-viewport"
               >
                 <GestureDetector gesture={trayScrollNativeGesture}>
-                <ScrollView
+                <Reanimated.ScrollView
                   ref={trayScrollRef}
                   nestedScrollEnabled
-                  onScroll={(event) => {
-                    trayScrollOffsetYRef.current = Math.max(0, event.nativeEvent.contentOffset.y);
-                  }}
+                  // No top rubber-band: at top-of-content a downward drag
+                  // belongs to the tray pan (finger-following collapse). With
+                  // bounce on, the ScrollView rubber-bands that same drag
+                  // simultaneously and the two motions fight — the half-second
+                  // stutter when collapsing a full tray from max height. (A
+                  // 2-row tray never enables scrolling, which is why it was
+                  // always smooth.)
+                  bounces={false}
+                  overScrollMode="never"
+                  onScroll={handleTrayScroll}
                   scrollEnabled={isTrayExpanded && trayScrollEnabled}
                   scrollEventThrottle={16}
                   showsVerticalScrollIndicator={isTrayExpanded && trayScrollEnabled}
@@ -2726,7 +2865,7 @@ export function ScannerScreen({
                       </Pressable>
                     </View>
                   ) : null}
-                </ScrollView>
+                </Reanimated.ScrollView>
                 </GestureDetector>
               </Reanimated.View>
             )}
