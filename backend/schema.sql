@@ -596,6 +596,22 @@ CREATE INDEX IF NOT EXISTS idx_card_price_history_daily_card_provider_lookup
 CREATE INDEX IF NOT EXISTS idx_card_price_history_daily_date
     ON card_price_history_daily(price_date DESC, card_id, updated_at DESC);
 
+-- COVERING index for the batched Insights (portfolio performance) daily read:
+-- `WHERE provider = ? AND card_id IN (...) ORDER BY card_id, price_date DESC`
+-- projected to (price_date, display_currency_code, source_url, updated_at). The
+-- leading (card_id, provider, price_date DESC) satisfies the WHERE + ORDER, and
+-- the trailing columns supply every projected field so the read is served
+-- index-only — avoiding the scattered cold table-row fetches (and, in cells
+-- mode, skipping the fat context-JSON overflow pages entirely) that dominate the
+-- portfolio's first Insights load. Mirrors the PDP `idx_cell_trend_market` fix.
+-- NOTE: build offline on existing DBs (see the one-off SQL in the PR notes); do
+-- NOT create at server startup (large-index-at-boot has crash-looped before).
+CREATE INDEX IF NOT EXISTS idx_card_price_history_daily_portfolio_cover
+    ON card_price_history_daily(
+        card_id, provider, price_date DESC,
+        display_currency_code, source_url, updated_at
+    );
+
 CREATE INDEX IF NOT EXISTS idx_fx_rate_snapshots_lookup
     ON fx_rate_snapshots(base_currency, quote_currency, updated_at DESC);
 

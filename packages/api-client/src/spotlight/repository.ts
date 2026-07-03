@@ -2629,6 +2629,8 @@ export class MockSpotlightRepository implements SpotlightRepository {
         quantity: entry.quantity,
         kind: entry.kind,
         grade: entry.slabContext?.grade ?? null,
+        variantName: entry.variantName ?? null,
+        condition: entry.conditionLabel ?? null,
         currentPrice,
         currentValue,
         costBasisTotal: entry.costBasisTotal ?? null,
@@ -2638,6 +2640,8 @@ export class MockSpotlightRepository implements SpotlightRepository {
         ytdGainPercent: null,
         todayGainDollar: null,
         todayGainPercent: null,
+        monthGainDollar: null,
+        monthGainPercent: null,
         isFavorite: entry.isFavorite === true,
         sparkline: [],
       };
@@ -5265,6 +5269,8 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       quantity: num(r.quantity) ?? 0,
       kind: r.kind === 'graded' ? 'graded' : 'raw',
       grade: r.grade != null ? String(r.grade) : null,
+      variantName: r.variantName != null ? String(r.variantName) : null,
+      condition: r.condition != null ? String(r.condition) : null,
       currentPrice: num(r.currentPrice),
       currentValue: num(r.currentValue),
       costBasisTotal: num(r.costBasisTotal),
@@ -5274,6 +5280,8 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       ytdGainPercent: num(r.ytdGainPercent),
       todayGainDollar: num(r.todayGainDollar),
       todayGainPercent: num(r.todayGainPercent),
+      monthGainDollar: num(r.monthGainDollar),
+      monthGainPercent: num(r.monthGainPercent),
       isFavorite: r.isFavorite === true,
       sparkline: Array.isArray(r.sparkline)
         ? r.sparkline.filter((v): v is number => typeof v === 'number' && Number.isFinite(v))

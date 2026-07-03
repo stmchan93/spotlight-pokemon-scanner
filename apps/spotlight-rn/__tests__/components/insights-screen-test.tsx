@@ -27,6 +27,8 @@ const samplePerformance: PortfolioPerformance = {
       quantity: 1,
       kind: 'raw',
       grade: null,
+      variantName: 'Reverse Holofoil',
+      condition: 'Near Mint',
       currentPrice: 300,
       currentValue: 300,
       costBasisTotal: 100,
@@ -36,6 +38,8 @@ const samplePerformance: PortfolioPerformance = {
       ytdGainPercent: 20,
       todayGainDollar: 10,
       todayGainPercent: 3.4,
+      monthGainDollar: 25,
+      monthGainPercent: 9,
       isFavorite: true,
       sparkline: [250, 260, 300],
     },
@@ -50,6 +54,8 @@ const samplePerformance: PortfolioPerformance = {
       quantity: 2,
       kind: 'graded',
       grade: 'PSA 10',
+      variantName: null,
+      condition: null,
       currentPrice: 400,
       currentValue: 800,
       costBasisTotal: null,
@@ -59,6 +65,8 @@ const samplePerformance: PortfolioPerformance = {
       ytdGainPercent: null,
       todayGainDollar: null,
       todayGainPercent: null,
+      monthGainDollar: null,
+      monthGainPercent: null,
       isFavorite: false,
       sparkline: [],
     },
@@ -93,13 +101,17 @@ describe('InsightsScreen — performance tracker', () => {
     });
     expect(screen.getByText('2 Items')).toBeTruthy();
     expect(screen.getByText('Gengar')).toBeTruthy();
-    // Ludicolo cost basis + today's $/% G/L render; Gengar's null cells render "—".
+    // Ludicolo cost basis + month $/% G/L render; Gengar's null cells render "—".
     expect(screen.getByText('$100')).toBeTruthy();
-    expect(screen.getByText('$10')).toBeTruthy();
-    expect(screen.getByText('3%')).toBeTruthy();
+    expect(screen.getByText('$25')).toBeTruthy();
+    expect(screen.getByText('9%')).toBeTruthy();
     // % Total (all-time growth vs cost): (300 - 100) / 100 = 200%.
     expect(screen.getByText('200%')).toBeTruthy();
     expect(screen.getAllByText('—').length).toBeGreaterThan(0);
+    // Row subtitle surfaces variant/condition (raw) and grade (graded).
+    expect(screen.getByText('Reverse Holofoil · Near Mint')).toBeTruthy();
+    // Graded Gengar (qty 2) shows its grade + quantity.
+    expect(screen.getByText('PSA 10 · ×2')).toBeTruthy();
   });
 
   it('filters rows by search query', async () => {

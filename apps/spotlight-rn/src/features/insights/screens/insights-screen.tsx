@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  FlatList,
   Pressable,
   RefreshControl,
-  ScrollView,
   Share,
   StyleSheet,
   Text,
@@ -20,6 +20,8 @@ import { useAppServices } from '@/providers/app-providers';
 import { AppBottomTabBar } from '@/components/app-bottom-tab-bar';
 import { ScrollToTopFab, useScrollToTop } from '@/components/scroll-to-top-fab';
 import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
+import { prefetchCardDetail } from '@/features/cards/card-detail-prefetch';
+import { saveCardDetailPreviewFromCatalogResult } from '@/features/cards/card-detail-preview-session';
 import {
   InsightsFilterChipRow,
   type InsightsFilterKey,
@@ -110,27 +112,39 @@ export function applyInsightsSort(
 /**
  * Insights (Figma 2206-20251): the per-card performance tracker. A "Pokemon"
  * category header, collection search, filter chips, and a "Filter By" sort
- * sheet sit above the frozen-first-column table (Chart/Current/today G/L/
- * totals/cost scroll horizontally). All filtering/sorting is client-side over
- * the one batched performance read.
+ * sheet sit above the virtualized performance table (Chart/Current/month G/L/
+ * totals/cost pan horizontally; rows scroll vertically under a pinned column
+ * header). All filtering/sorting is client-side over the one batched
+ * performance read. The last successful read is cached in AppServices so a
+ * revisit paints instantly instead of flashing an empty state.
  */
 export function InsightsScreen() {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const handleTabBarScroll = useTabBarScrollHandler();
-  const { spotlightRepository, dataVersion } = useAppServices();
+  const {
+    spotlightRepository,
+    dataVersion,
+    portfolioPerformanceCache,
+    setPortfolioPerformanceCache,
+  } = useAppServices();
 
-  const [performance, setPerformance] = useState<PortfolioPerformance | null>(null);
+  const [performance, setPerformance] = useState<PortfolioPerformance | null>(
+    portfolioPerformanceCache,
+  );
+  // Distinguishes "still loading (show spinner)" from "loaded, genuinely empty
+  // (show empty copy)". Seeded true when a cached read is already available.
+  const [hasLoaded, setHasLoaded] = useState(portfolioPerformanceCache != null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<InsightsFilterKey>('all');
   const [sortKey, setSortKey] = useState<InsightsSortKey>('default');
   const [sortSheetVisible, setSortSheetVisible] = useState(false);
 
-  const scrollRef = useRef<ScrollView>(null);
+  const listRef = useRef<FlatList<PortfolioPerformanceRow>>(null);
   const { isVisible: showScrollTop, handleScroll, handleLayout, scrollToTop } = useScrollToTop(
-    scrollRef,
+    listRef,
     handleTabBarScroll,
   );
 
@@ -138,10 +152,14 @@ export function InsightsScreen() {
     try {
       const result = await spotlightRepository.getPortfolioPerformance();
       setPerformance(result);
+      setPortfolioPerformanceCache(result);
+      setHasLoaded(true);
     } catch {
-      // Keep the last value; the refresh control + next focus will retry.
+      // Keep the last value (cached rows stay visible); the refresh control +
+      // next focus will retry. Don't flip hasLoaded — a failed fetch must not be
+      // read as "genuinely empty".
     }
-  }, [spotlightRepository]);
+  }, [setPortfolioPerformanceCache, spotlightRepository]);
 
   useEffect(() => {
     void load();
@@ -165,6 +183,27 @@ export function InsightsScreen() {
     setSortKey(next);
     setSortSheetVisible(false);
   }, []);
+
+  const handleSelectRow = useCallback(
+    (row: PortfolioPerformanceRow) => {
+      prefetchCardDetail(spotlightRepository, row.cardId, undefined, row.imageUrl);
+      const previewId = saveCardDetailPreviewFromCatalogResult({
+        id: row.entryId,
+        cardId: row.cardId,
+        name: row.name,
+        cardNumber: row.cardNumber,
+        setName: row.setName,
+        imageUrl: row.imageUrl ?? '',
+        marketPrice: row.currentPrice,
+        currencyCode: performance?.currencyCode ?? 'USD',
+      });
+      router.push({
+        pathname: '/cards/[cardId]',
+        params: { cardId: row.cardId, previewId },
+      });
+    },
+    [performance?.currencyCode, router, spotlightRepository],
+  );
 
   const bottomNavClearance =
     theme.layout.bottomNavHeight
@@ -225,23 +264,7 @@ export function InsightsScreen() {
         </Pressable>
       </View>
 
-      <ScrollView
-        ref={scrollRef}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: bottomNavClearance + 16 }]}
-        keyboardShouldPersistTaps="handled"
-        onLayout={handleLayout}
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            onRefresh={handleRefresh}
-            refreshing={isRefreshing}
-            tintColor={colors.gray400}
-          />
-        }
-        testID="insights-scroll"
-      >
+      <View style={styles.pageBody}>
         {/* Category header — chevron intentionally omitted per the Figma
             annotation until more TCG categories exist. */}
         <View style={[styles.categoryRow, styles.gutter]}>
@@ -299,13 +322,28 @@ export function InsightsScreen() {
           </View>
 
           {rows.length > 0 ? (
-            <PerformanceTable rows={rows} currencyCode={currencyCode} />
+            <PerformanceTable
+              ref={listRef}
+              rows={rows}
+              currencyCode={currencyCode}
+              onSelectRow={handleSelectRow}
+              onScroll={handleScroll}
+              onLayout={handleLayout}
+              contentInsetBottom={bottomNavClearance + 16}
+              refreshControl={
+                <RefreshControl
+                  onRefresh={handleRefresh}
+                  refreshing={isRefreshing}
+                  tintColor={colors.gray400}
+                />
+              }
+            />
           ) : (
             <Text
               style={[theme.typography.body, styles.emptyText, { color: theme.colors.gray500 }]}
               testID="insights-empty"
             >
-              {performance
+              {hasLoaded
                 ? isFiltered
                   ? 'No cards match your search.'
                   : 'No cards in your portfolio yet.'
@@ -313,7 +351,7 @@ export function InsightsScreen() {
             </Text>
           )}
         </View>
-      </ScrollView>
+      </View>
 
       <InsightsSortSheet
         onApply={handleApplySort}
@@ -353,7 +391,8 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'center',
   },
-  scrollContent: {
+  pageBody: {
+    flex: 1,
     gap: 16,
     paddingTop: 16,
   },
@@ -377,6 +416,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   tableSection: {
+    flex: 1,
     gap: 16,
     paddingLeft: 16,
   },

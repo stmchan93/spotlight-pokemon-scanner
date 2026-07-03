@@ -41,6 +41,9 @@ type EmailAuthActions = {
   sendReset: (email: string) => Promise<void>;
   verifyResetCode: (input: { email: string; code: string }) => Promise<void>;
   updatePassword: (newPassword: string, currentPassword?: string) => Promise<void>;
+  /** Clear the shared auth error (e.g. when moving between auth steps) so one
+   * screen's failure doesn't follow the user onto the next. */
+  clearError: () => void;
 };
 
 type AuthContextValue = EmailAuthActions & {
@@ -328,6 +331,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
     };
   }, [handleIncomingURL, updateFromSession]);
 
+  const clearError = useCallback(() => setErrorMessage(null), []);
+
   const value = useMemo<AuthContextValue>(() => ({
     accessToken: getAccessToken(currentSession),
     appleSignInAvailable,
@@ -339,6 +344,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     isConfigured: getIsConfigured(),
     profileDraftName,
     setProfileDraftName,
+    clearError,
     checkEmail: (email: string) => runWithBusy(() => checkEmailExists(email)),
     signUpEmail: ({ email, password, fullName }) => runWithBusy(async () => {
       const result = await signUpWithEmail({ email, password, fullName });
@@ -440,6 +446,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     },
   }), [
     appleSignInAvailable,
+    clearError,
     currentSession,
     currentUser,
     errorMessage,

@@ -4820,6 +4820,195 @@ def price_history_rows_for_card(
     return resolved_rows
 
 
+# The non-blob columns of `card_price_history_daily` that the history-row
+# resolver actually reads: `price_date` (the series key + row id), the display
+# currency (fallback when a summary omits currency), `source_url`, and
+# `updated_at`. Projecting to these — instead of `SELECT *` — lets the batched
+# read skip the fat `raw_contexts_json`/`graded_contexts_json`/
+# `source_payload_json` overflow pages in cells mode (the same win the portfolio
+# dashboard's `_portfolio_history_rows_by_card_id` gets). In JSON mode the two
+# context blobs are re-added by the caller-supplied `include_*_json` flags.
+_HISTORY_DAILY_BASE_COLUMNS = (
+    "card_id",
+    "provider",
+    "price_date",
+    "display_currency_code",
+    "source_url",
+    "updated_at",
+)
+
+
+def _history_daily_select_columns(*, include_raw_json: bool, include_graded_json: bool) -> str:
+    columns = list(_HISTORY_DAILY_BASE_COLUMNS)
+    columns.append("raw_contexts_json" if include_raw_json else "NULL AS raw_contexts_json")
+    columns.append("graded_contexts_json" if include_graded_json else "NULL AS graded_contexts_json")
+    return ", ".join(columns)
+
+
+def price_history_rows_for_cards_batched(
+    connection: sqlite3.Connection,
+    requests: list[dict[str, Any]],
+    *,
+    provider: str,
+    days: int,
+) -> dict[Any, list[dict[str, Any]]]:
+    """Batched, projected twin of ``price_history_rows_for_card`` for the Insights
+    (portfolio performance) table.
+
+    Replaces the per-card N+1 — one ``SELECT *`` daily read per owned card, then
+    one ``SELECT *`` cell read *per day per card* against the 27M-row
+    ``card_price_history_cell`` table — with:
+
+    1. ONE projected daily read over all owned ``card_id``s (``card_id IN (...)``,
+       ordered ``card_id, price_date DESC`` so each card's most-recent ``days``
+       rows lead), skipping the fat context-JSON overflow pages in cells mode.
+    2. ONE batched, projected cell read (``price_history_cell_portfolio_rows_by_card_date``)
+       over the union of ``(card_id, price_date)`` pairs the daily read produced.
+
+    Each request is ``{"key": <opaque>, "card_id": str, "pricing_mode": str,
+    "variant": str|None, "condition": str|None, "grader": str|None,
+    "grade": str|None, "is_perfect"/"is_signed"/"is_error": bool|None}``. Returns
+    ``{key: [resolved_rows]}`` where each list is byte-for-byte identical to what
+    ``price_history_rows_for_card`` would return for that request (same row shape,
+    same DESC ``price_date`` order, same resolver semantics)."""
+    if not requests:
+        return {}
+    day_limit = max(1, int(days))
+    use_cells = price_history_cells_enabled() and _table_exists(connection, "card_price_history_cell")
+
+    # 1. Batched, projected daily read over the union of requested card_ids. In
+    #    cells mode the context blobs are never read (every price comes from the
+    #    cell table), so skip them; in JSON mode keep only the side(s) some
+    #    request actually needs.
+    unique_card_ids = sorted({str(req["card_id"] or "").strip() for req in requests if str(req.get("card_id") or "").strip()})
+    include_raw_json = (not use_cells) and any(
+        (req.get("pricing_mode") or (PSA_GRADE_PRICING_MODE if req.get("grader") or req.get("grade") else RAW_PRICING_MODE)) == RAW_PRICING_MODE
+        for req in requests
+    )
+    include_graded_json = (not use_cells) and any(
+        (req.get("pricing_mode") or (PSA_GRADE_PRICING_MODE if req.get("grader") or req.get("grade") else RAW_PRICING_MODE)) == PSA_GRADE_PRICING_MODE
+        for req in requests
+    )
+    select_columns = _history_daily_select_columns(
+        include_raw_json=include_raw_json, include_graded_json=include_graded_json
+    )
+    daily_by_card: dict[str, list[sqlite3.Row]] = {}
+    for start in range(0, len(unique_card_ids), 400):
+        chunk = unique_card_ids[start : start + 400]
+        if not chunk:
+            continue
+        placeholders = ",".join("?" for _ in chunk)
+        rows = connection.execute(
+            f"""
+            SELECT {select_columns}
+            FROM card_price_history_daily
+            WHERE provider = ? AND card_id IN ({placeholders})
+            ORDER BY card_id ASC, price_date DESC
+            """,
+            (provider, *chunk),
+        ).fetchall()
+        for row in rows:
+            cid = str(row["card_id"] or "").strip()
+            if not cid:
+                continue
+            bucket = daily_by_card.setdefault(cid, [])
+            # Mirror the per-card ``ORDER BY price_date DESC LIMIT days`` window.
+            if len(bucket) < day_limit:
+                bucket.append(row)
+
+    # 2. Batched, projected cell read over the union of (card_id, price_date)
+    #    pairs the daily window produced (cells mode only).
+    cells_by_card_date: dict[str, dict[str, list[Any]]] = {}
+    if use_cells:
+        needed_dates = sorted(
+            {str(row["price_date"]) for card_rows in daily_by_card.values() for row in card_rows}
+        )
+        cells_by_card_date = price_history_cell_portfolio_rows_by_card_date(
+            connection,
+            provider=provider,
+            card_ids=daily_by_card.keys(),
+            price_dates=needed_dates,
+        )
+
+    results: dict[Any, list[dict[str, Any]]] = {}
+    for req in requests:
+        card_id = str(req["card_id"] or "").strip()
+        variant = req.get("variant")
+        condition = req.get("condition")
+        grader = req.get("grader")
+        grade = req.get("grade")
+        is_perfect = req.get("is_perfect")
+        is_signed = req.get("is_signed")
+        is_error = req.get("is_error")
+        resolved_mode = req.get("pricing_mode") or (
+            PSA_GRADE_PRICING_MODE if grader or grade else RAW_PRICING_MODE
+        )
+        card_cells = cells_by_card_date.get(card_id, {}) if use_cells else {}
+
+        resolved_rows: list[dict[str, Any]] = []
+        for row in daily_by_card.get(card_id, []):
+            summary: dict[str, Any] | None = None
+            resolved_variant: str | None = None
+            resolved_condition: str | None = None
+            if use_cells:
+                cells = card_cells.get(str(row["price_date"]), [])
+                if resolved_mode == PSA_GRADE_PRICING_MODE:
+                    entry = resolve_graded_entry_from_cells(
+                        cells, grader=grader, grade=grade, variant=variant
+                    )
+                    summary = _cell_summary_from_row(entry) if entry is not None else None
+                    resolved_variant = (
+                        _normalized_variant_label(_cell_field(entry, "variant_key"))
+                        if entry is not None
+                        else variant
+                    )
+                else:
+                    resolved_variant, resolved_condition, summary = resolve_raw_summary_from_cells(
+                        cells, variant=variant, condition=condition
+                    )
+            else:
+                raw_contexts = _raw_contexts_payload(row["raw_contexts_json"])
+                graded_contexts = _graded_contexts_payload(row["graded_contexts_json"])
+                if resolved_mode == PSA_GRADE_PRICING_MODE:
+                    entry = _resolve_graded_context_entry(
+                        graded_contexts, grader=grader, grade=grade, variant=variant
+                    )
+                    summary = _coerce_price_summary_from_entry(entry)
+                    resolved_variant = _normalized_variant_label(entry.get("variant")) if isinstance(entry, dict) else variant
+                else:
+                    resolved_variant, resolved_condition, summary = _resolve_raw_context_summary(
+                        raw_contexts, variant=variant, condition=condition
+                    )
+            if summary is None:
+                continue
+            resolved_rows.append(
+                {
+                    "id": f"{row['card_id']}:{row['price_date']}",
+                    "cardID": row["card_id"],
+                    "pricingMode": resolved_mode,
+                    "provider": row["provider"],
+                    "date": row["price_date"],
+                    "currencyCode": summary.get("currencyCode") or row["display_currency_code"],
+                    "variant": resolved_variant,
+                    "condition": resolved_condition,
+                    "grader": str(grader or "").strip().upper() or None,
+                    "grade": str(grade or "").strip().upper() or None,
+                    "isPerfect": bool(is_perfect),
+                    "isSigned": bool(is_signed),
+                    "isError": bool(is_error),
+                    "low": summary.get("low"),
+                    "market": summary.get("market"),
+                    "mid": summary.get("mid"),
+                    "high": summary.get("high"),
+                    "sourceURL": row["source_url"],
+                    "payload": summary.get("payload") or {},
+                    "updatedAt": row["updated_at"],
+                }
+            )
+        results[req["key"]] = resolved_rows
+    return results
+
+
 def latest_price_history_update_for_context(
     connection: sqlite3.Connection,
     *,

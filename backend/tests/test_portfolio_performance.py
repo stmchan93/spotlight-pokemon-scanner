@@ -290,6 +290,47 @@ class PortfolioPerformanceTests(unittest.TestCase):
         self.assertIsNone(row["todayGainPercent"])
         self.assertIsNone(row["costBasisTotal"])
 
+    def test_variant_and_condition_fields(self) -> None:
+        # A raw entry with a recognized condition surfaces its normalized label.
+        self._add_deck_entry(
+            entry_id="e-raw-nm",
+            item_kind="raw",
+            card_id="base1-4",
+            variant_name="Holofoil",
+            condition="near_mint",
+            quantity=1,
+        )
+        self.service.connection.commit()
+
+        payload = self._performance()
+        raw = self._row(payload, "e-raw-nm")
+        self.assertEqual(raw["variantName"], "Holofoil")
+        self.assertEqual(raw["condition"], "near_mint")
+        graded = self._row(payload, "e-graded")
+        self.assertEqual(graded["variantName"], "Holofoil")
+        # Graded slabs carry no raw condition.
+        self.assertIsNone(graded["condition"])
+
+    def test_month_gain_computed_from_30_day_baseline(self) -> None:
+        # Seed a priced point strictly before (today - 30 days) so the "month"
+        # baseline resolves. Use today-45d to stay clear of the boundary.
+        baseline_day = date.today() - timedelta(days=45)
+        self._seed_raw_history("base1-4", baseline_day, 90.0)
+        self.service.connection.commit()
+
+        row = self._row(self._performance(), "e-raw")
+        # current 130.0, qty 2, month baseline 90.0
+        self.assertEqual(row["monthGainDollar"], round((130.0 - 90.0) * 2, 2))
+        self.assertEqual(
+            row["monthGainPercent"], round((130.0 - 90.0) / 90.0 * 100.0, 2)
+        )
+
+    def test_month_gain_null_without_baseline(self) -> None:
+        # e-nohist has no price history at all, so no 30-day baseline exists.
+        row = self._row(self._performance(), "e-nohist")
+        self.assertIsNone(row["monthGainDollar"])
+        self.assertIsNone(row["monthGainPercent"])
+
     def test_raw_entry_today_gain(self) -> None:
         row = self._row(self._performance(), "e-raw")
         if date.today() == self.jan1:

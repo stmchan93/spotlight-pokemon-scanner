@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import type { EmailAuthActions } from '@/providers/auth-provider';
 
@@ -44,6 +44,15 @@ export function SignedOutFlow({
   onGoogleSignIn,
 }: SignedOutFlowProps) {
   const [step, setStep] = useState<Step>('login');
+  // The auth error is shared across every step. Clear it whenever the step
+  // changes so one screen's failure (e.g. a failed password reset) can't follow
+  // the user onto the next screen (Log In / Sign Up). `clearError` is stable, so
+  // this fires only on a real step change — an error stays visible on the screen
+  // where it happened (that step doesn't change).
+  const { clearError } = emailAuth;
+  useEffect(() => {
+    clearError();
+  }, [step, clearError]);
   const [email, setEmail] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');

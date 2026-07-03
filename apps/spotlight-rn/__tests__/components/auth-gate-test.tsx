@@ -22,6 +22,7 @@ function buildEmailAuth() {
     sendReset: jest.fn().mockResolvedValue(undefined),
     verifyResetCode: jest.fn().mockResolvedValue(undefined),
     updatePassword: jest.fn().mockResolvedValue(undefined),
+    clearError: jest.fn(),
   };
 }
 
@@ -108,11 +109,11 @@ describe('AuthGate', () => {
 
     expect(screen.getByText('Finish your profile')).toBeTruthy();
     expect(screen.getByText('Signed in as collector@example.com')).toBeTruthy();
-    // Light-theme CTA label spec (Figma 2161:6847 — 13px Medium).
+    // Filled CTA label per the updated Figma (2368:44111 — 14px Body-medium).
     expect(StyleSheet.flatten(screen.getByText('Continue').props.style)).toMatchObject({
       fontFamily: 'SpotlightBodyMedium',
-      fontSize: 13,
-      lineHeight: 18,
+      fontSize: 14,
+      lineHeight: 21,
     });
 
     fireEvent.changeText(screen.getByTestId('auth-profile-input'), 'Stephen');

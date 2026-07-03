@@ -308,6 +308,8 @@ export type PortfolioPerformanceRow = {
   quantity: number;
   kind: 'raw' | 'graded';
   grade: string | null;
+  variantName: string | null; // printing/variant (e.g. "Reverse Holofoil"); null when raw/Normal
+  condition: string | null; // condition label (e.g. "Near Mint") for raw; null for graded
   currentPrice: number | null;
   currentValue: number | null;
   costBasisTotal: number | null; // null when the user hasn't entered cost basis
@@ -317,6 +319,8 @@ export type PortfolioPerformanceRow = {
   ytdGainPercent: number | null;
   todayGainDollar: number | null; // vs the latest daily point strictly before today
   todayGainPercent: number | null;
+  monthGainDollar: number | null; // vs the latest daily point ~30 days before today (× quantity)
+  monthGainPercent: number | null; // per-unit % change over ~30 days
   isFavorite: boolean; // wishlist heart — drives the Insights "Likes" chip
   sparkline: number[]; // oldest → newest; [] when no history
 };

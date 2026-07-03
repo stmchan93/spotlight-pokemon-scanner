@@ -112,7 +112,7 @@ type PrimaryButtonProps = {
   testID?: string;
 };
 
-/** Filled CTA: 32px tall, radius 8; enabled = gray900/black, disabled = gray200. */
+/** Filled CTA: 40px tall, radius 8; enabled = gray900/black, disabled = gray200. */
 export function PrimaryButton({
   disabled = false,
   label,
@@ -176,7 +176,9 @@ export function SecondaryActionButton({
       testID={testID}
     >
       {leadingIcon ? <View style={styles.buttonIcon}>{leadingIcon}</View> : null}
-      <Text style={[styles.buttonLabel, { color: theme.colors.gray900 }]}>{label}</Text>
+      {/* Outline buttons use the 13px Label role (Figma 2368:44116); the filled
+          Continue uses 14px Body-medium. */}
+      <Text style={[styles.buttonLabelOutline, { color: theme.colors.gray900 }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -264,7 +266,7 @@ export function buildPasswordRules(password: string): PasswordRule[] {
   ];
 }
 
-/** Checklist of password requirements: check-circle + 11px text. */
+/** Checklist of password requirements (Figma 2368:44040 — 16px check, 13px text). */
 export function PasswordRules({ rules, testID }: { rules: PasswordRule[]; testID?: string }) {
   const theme = useSpotlightTheme();
 
@@ -277,14 +279,7 @@ export function PasswordRules({ rules, testID }: { rules: PasswordRule[]; testID
           ) : (
             <CheckCircle color={theme.colors.gray300} height={16} width={16} />
           )}
-          <Text
-            style={[
-              styles.ruleLabel,
-              { color: rule.satisfied ? theme.colors.gray900 : theme.colors.gray500 },
-            ]}
-          >
-            {rule.label}
-          </Text>
+          <Text style={[styles.ruleLabel, { color: theme.colors.gray600 }]}>{rule.label}</Text>
         </View>
       ))}
     </View>
@@ -299,21 +294,28 @@ export function AuthErrorLine({ message }: { message: string }) {
   );
 }
 
+// Sizes track the UPDATED Figma (2368:44110-44133): 40px buttons, 14px filled/
+// tertiary labels, 13px outline labels; fields stay at their original 48px.
 const styles = StyleSheet.create({
   button: {
     alignItems: 'center',
     borderRadius: 8,
     flexDirection: 'row',
     gap: 8,
-    height: 32,
+    height: 40,
     justifyContent: 'center',
-    paddingHorizontal: 12,
+    paddingHorizontal: 16,
   },
   buttonIcon: {
     alignItems: 'center',
     justifyContent: 'center',
   },
   buttonLabel: {
+    fontFamily: fontFamilies.bodyMedium,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  buttonLabelOutline: {
     fontFamily: fontFamilies.bodyMedium,
     fontSize: 13,
     lineHeight: 18,
@@ -369,9 +371,9 @@ const styles = StyleSheet.create({
     padding: 0,
   },
   ruleLabel: {
-    fontFamily: fontFamilies.bodyMedium,
-    fontSize: 11,
-    lineHeight: 14,
+    fontFamily: fontFamilies.bodyRegular,
+    fontSize: 13,
+    lineHeight: 18,
   },
   ruleRow: {
     alignItems: 'center',
@@ -397,13 +399,13 @@ const styles = StyleSheet.create({
   },
   tertiaryButton: {
     alignItems: 'center',
-    height: 32,
+    height: 40,
     justifyContent: 'center',
   },
   tertiaryLabel: {
     fontFamily: fontFamilies.bodyMedium,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 14,
+    lineHeight: 21,
   },
   trailing: {
     alignItems: 'center',

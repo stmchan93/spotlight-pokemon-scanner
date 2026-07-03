@@ -21,6 +21,7 @@ function buildEmailAuth(overrides: Partial<EmailAuthActions> = {}): EmailAuthAct
     sendReset: jest.fn(async () => {}),
     verifyResetCode: jest.fn(async () => {}),
     updatePassword: jest.fn(async () => {}),
+    clearError: jest.fn(),
     ...overrides,
   };
 }

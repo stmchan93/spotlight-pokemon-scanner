@@ -16,6 +16,7 @@ import {
   MockSpotlightRepository,
   type InventoryCardEntry,
   type PortfolioDashboard,
+  type PortfolioPerformance,
   type SpotlightRepository,
 } from '@spotlight/api-client';
 
@@ -164,6 +165,13 @@ type AppServices = {
   portfolioDashboardCache: PortfolioDashboard | null;
   setPortfolioDashboardCache: Dispatch<SetStateAction<PortfolioDashboard | null>>;
   /**
+   * Last successful Insights performance read, scoped to the active account.
+   * Lets the Insights screen paint cached rows on revisit instead of flashing
+   * the empty/loading state while the fresh read is in flight.
+   */
+  portfolioPerformanceCache: PortfolioPerformance | null;
+  setPortfolioPerformanceCache: Dispatch<SetStateAction<PortfolioPerformance | null>>;
+  /**
    * Optimistically surface a just-added card at the top of the Collection
    * without waiting on the slow portfolio dashboard refetch. Prepends (deduping
    * by id) into both the shared inventory cache and the dashboard cache, and
@@ -206,6 +214,7 @@ export function AppProviders({
   const [dataVersion, setDataVersion] = useState(0);
   const [inventoryEntriesCacheState, setInventoryEntriesCacheState] = useState<ScopedCache<InventoryCardEntry[]> | null>(null);
   const [portfolioDashboardCacheState, setPortfolioDashboardCacheState] = useState<ScopedCache<PortfolioDashboard> | null>(null);
+  const [portfolioPerformanceCacheState, setPortfolioPerformanceCacheState] = useState<ScopedCache<PortfolioPerformance> | null>(null);
 
   const spotlightRepository = useMemo<SpotlightRepository>(() => {
     return repositoryOverride ?? createDefaultSpotlightRepository(accessToken);
@@ -233,6 +242,20 @@ export function AppProviders({
 
   const setPortfolioDashboardCache = useCallback<Dispatch<SetStateAction<PortfolioDashboard | null>>>((value) => {
     setPortfolioDashboardCacheState((current) => {
+      const currentValue = current?.ownerKey === activeSessionOwnerKey ? current.value : null;
+      const nextValue = typeof value === 'function' ? value(currentValue) : value;
+      return nextValue ? { ownerKey: activeSessionOwnerKey, value: nextValue } : null;
+    });
+  }, [activeSessionOwnerKey]);
+
+  const portfolioPerformanceCache = useMemo(() => {
+    return portfolioPerformanceCacheState?.ownerKey === activeSessionOwnerKey
+      ? portfolioPerformanceCacheState.value
+      : null;
+  }, [activeSessionOwnerKey, portfolioPerformanceCacheState]);
+
+  const setPortfolioPerformanceCache = useCallback<Dispatch<SetStateAction<PortfolioPerformance | null>>>((value) => {
+    setPortfolioPerformanceCacheState((current) => {
       const currentValue = current?.ownerKey === activeSessionOwnerKey ? current.value : null;
       const nextValue = typeof value === 'function' ? value(currentValue) : value;
       return nextValue ? { ownerKey: activeSessionOwnerKey, value: nextValue } : null;
@@ -293,6 +316,8 @@ export function AppProviders({
       setInventoryEntriesCache,
       portfolioDashboardCache,
       setPortfolioDashboardCache,
+      portfolioPerformanceCache,
+      setPortfolioPerformanceCache,
       prependOptimisticInventoryEntry,
       removeOptimisticInventoryEntries,
     };
@@ -301,6 +326,8 @@ export function AppProviders({
     dataVersion,
     inventoryEntriesCache,
     portfolioDashboardCache,
+    portfolioPerformanceCache,
+    setPortfolioPerformanceCache,
     prependOptimisticInventoryEntry,
     removeOptimisticInventoryEntries,
     refreshData,

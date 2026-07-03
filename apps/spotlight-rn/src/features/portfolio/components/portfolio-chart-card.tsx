@@ -690,9 +690,20 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isScrubLockedRef = useRef(false);
   const touchStartXRef = useRef(0);
+  // Raw page coordinates of the touch-down, used to decide horizontal vs.
+  // vertical intent in onMoveShouldSetResponder. `locationX` (relative to the
+  // touch target) drives the scrub position; page coordinates drive the
+  // axis-lock decision because that is what a move delta needs.
+  const touchPageStartXRef = useRef(0);
+  const touchPageStartYRef = useRef(0);
   const isTestEnv = process.env.NODE_ENV === 'test';
   const longPressDelayMs = 250;
   const longPressCancelDistancePx = 8;
+  // Horizontal-dominant intent threshold: the finger must travel at least this
+  // far and move more sideways than up/down before the chart claims the
+  // gesture. Below this, a vertical/diagonal drag is left to the parent
+  // FlatList so the page scrolls instead of the chart scrubbing.
+  const horizontalIntentThresholdPx = 6;
 
   // NOTE: not memoizing these helpers — they close over `updateActivePoint`
   // which depends on `chartWidth` (set on layout). useCallback-memoizing
@@ -733,14 +744,18 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
     releaseActivePoint();
   };
 
-  const onTouchGrant = (event: GestureResponderEvent) => {
-    const locationX = event.nativeEvent.locationX;
+  // Record the touch-down position and arm the long-press timer. This runs on
+  // the *raw* touch-start (onTouchStart), which fires regardless of whether the
+  // chart owns the responder — so a stationary press can still enter scrub even
+  // though the chart no longer claims the responder on touch-start (that is
+  // what lets a vertical drag fall through to the parent FlatList scroll).
+  const armScrubGesture = (event: GestureResponderEvent) => {
+    const { locationX, pageX, pageY } = event.nativeEvent;
     touchStartXRef.current = locationX;
+    touchPageStartXRef.current = pageX;
+    touchPageStartYRef.current = pageY;
     clearLongPressTimer();
     if (isTestEnv) {
-      // Skip the timer in tests so fireEvent('responderGrant') still
-      // produces an immediately-active scrub point for existing assertions.
-      beginScrubLock(locationX);
       return;
     }
     longPressTimerRef.current = setTimeout(() => {
@@ -749,10 +764,63 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
     }, longPressDelayMs);
   };
 
+  const onTouchStart = (event: GestureResponderEvent) => {
+    armScrubGesture(event);
+  };
+
+  const onTouchGrant = (event: GestureResponderEvent) => {
+    // In tests we do not fire a raw touchStart, so the long-press position is
+    // captured here and scrub is entered immediately (fireEvent('responderGrant')
+    // must still produce an active point for existing assertions). In production
+    // the chart only receives a grant once it has claimed the responder — after
+    // the long-press fired or a horizontal-dominant move — so re-arming here is
+    // redundant and the scrub is already (or about to be) locked.
+    if (isTestEnv) {
+      const locationX = event.nativeEvent.locationX;
+      touchStartXRef.current = locationX;
+      clearLongPressTimer();
+      beginScrubLock(locationX);
+    }
+  };
+
+  // Only claim the gesture (and thus block the parent FlatList from scrolling)
+  // when the drag is horizontally dominant, or once scrub-lock has already
+  // engaged via long-press. A vertical/diagonal-dominant drag returns false so
+  // the parent scroll takes over.
+  //
+  // A horizontal-dominant drag also *enters* scrub immediately: the long-press
+  // is only the entry point for a stationary press; an intentional left/right
+  // drag should scrub without waiting out the hold timer. Engaging the lock
+  // here also means the subsequent onResponderMove events actually update the
+  // active point instead of being swallowed pre-lock.
+  const onMoveShouldSetResponder = (event: GestureResponderEvent) => {
+    if (isScrubLockedRef.current) {
+      return true;
+    }
+    // react-native-testing-library probes this predicate without a real event
+    // when checking whether an event handler is enabled; guard against it.
+    if (!event?.nativeEvent) {
+      return false;
+    }
+    const dx = Math.abs(event.nativeEvent.pageX - touchPageStartXRef.current);
+    const dy = Math.abs(event.nativeEvent.pageY - touchPageStartYRef.current);
+    const isHorizontalDominant = dx > horizontalIntentThresholdPx && dx > dy;
+    if (isHorizontalDominant) {
+      // Cancel the pending long-press (it would otherwise re-fire beginScrubLock)
+      // and enter scrub at the current touch position.
+      clearLongPressTimer();
+      if (!isScrubLockedRef.current) {
+        beginScrubLock(event.nativeEvent.locationX);
+      }
+      return true;
+    }
+    return false;
+  };
+
   const onTouchMove = (event: GestureResponderEvent) => {
     if (!isScrubLockedRef.current) {
       // Pre-lock window: if the user moves significantly, abandon the
-      // long-press intent so the pager (or other ancestor) can claim.
+      // long-press intent so the parent (FlatList scroll) can claim.
       const dx = Math.abs(event.nativeEvent.locationX - touchStartXRef.current);
       if (dx > longPressCancelDistancePx) {
         clearLongPressTimer();
@@ -760,6 +828,13 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
       return;
     }
     updateActivePoint(event);
+  };
+
+  const onTouchEnd = () => {
+    // Raw touch-end mirror of the responder release/terminate handlers. Because
+    // a stationary long-press can enter scrub without the chart ever owning the
+    // responder, onResponderRelease may not fire on lift-off; clean up here too.
+    endScrubLock();
   };
 
   // Keep the latest parent callbacks in refs so the unmount cleanup can notify
@@ -955,12 +1030,20 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
             ) : null}
 
             <View
-              onMoveShouldSetResponder={() => true}
+              onMoveShouldSetResponder={onMoveShouldSetResponder}
               onResponderGrant={onTouchGrant}
               onResponderMove={onTouchMove}
               onResponderRelease={endScrubLock}
               onResponderTerminate={endScrubLock}
-              onStartShouldSetResponder={() => true}
+              // Claim on touch-start only in tests (so fireEvent('responderGrant')
+              // still drives an immediate scrub). In production the chart yields
+              // touch-start to the parent FlatList and only claims via a
+              // horizontal-dominant move (onMoveShouldSetResponder) or the
+              // long-press scrub-lock, so vertical drags scroll the page.
+              onStartShouldSetResponder={() => isTestEnv}
+              onTouchStart={onTouchStart}
+              onTouchEnd={onTouchEnd}
+              onTouchCancel={onTouchEnd}
               style={styles.chartTouchTarget}
               testID="portfolio-chart-touch-target"
             />

@@ -84,6 +84,7 @@ from catalog_tools import (
     load_index,
     merge_raw_candidate_pools,
     price_history_rows_for_card,
+    price_history_rows_for_cards_batched,
     price_snapshot_row,
     provider_sync_run_is_fresh,
     rank_raw_candidates,
@@ -14145,6 +14146,9 @@ class SpotlightScanService:
         year = now.year
         jan1_str = f"{year}-01-01"
         today_str = now.date().isoformat()
+        # 30-day baseline anchor for the "month" gain/loss columns, formatted the
+        # same way as today_str/jan1_str.
+        month_ago_str = (now.date() - timedelta(days=30)).isoformat()
         # Days from Jan 1 (inclusive) through today, plus a small buffer so the
         # DESC-ordered `days` window comfortably reaches back to Jan 1.
         year_days = (now.date() - date(year, 1, 1)).days + 8
@@ -14187,6 +14191,48 @@ class SpotlightScanService:
         provider = pricing_provider()
         result_rows: list[dict[str, Any]] = []
         currency_code = "USD"
+
+        # Batch all per-card price-history reads into ONE projected daily read +
+        # ONE batched cell read, keyed by the deck-entry id. This replaces the
+        # per-card N+1 (one `SELECT *` daily read per card, then one cell read per
+        # day per card against the 27M-row cell table) that dominated the cold
+        # first-load — the same access-path fix already applied to the portfolio
+        # dashboard and PDP price trend. The resolved rows are byte-for-byte
+        # identical to the per-card `price_history_rows_for_card` output.
+        history_requests: list[dict[str, Any]] = []
+        for row in rows:
+            card_id = str(row["card_id"] or "").strip()
+            if cards_by_id_map.get(card_id) is None:
+                continue
+            grader = str(row["grader"] or "").strip() or None
+            grade = str(row["grade"] or "").strip() or None
+            variant_name = str(row["variant_name"] or "").strip() or None
+            condition = self._normalized_deck_card_condition(row["condition"])
+            quantity = max(0, int(row["quantity"] or 0))
+            if quantity <= 0:
+                continue
+            is_graded = str(row["item_kind"] or "").strip().lower() == "slab" or bool(
+                grader or grade
+            )
+            history_requests.append(
+                {
+                    "key": str(row["id"]),
+                    "card_id": card_id,
+                    "pricing_mode": (
+                        PSA_GRADE_PRICING_MODE if is_graded else RAW_PRICING_MODE
+                    ),
+                    "variant": variant_name,
+                    "condition": None if is_graded else condition,
+                    "grader": grader if is_graded else None,
+                    "grade": grade if is_graded else None,
+                }
+            )
+        history_rows_by_entry = price_history_rows_for_cards_batched(
+            self.connection,
+            history_requests,
+            provider=provider,
+            days=year_days,
+        )
 
         for row in rows:
             card_id = str(row["card_id"] or "").strip()
@@ -14253,20 +14299,9 @@ class SpotlightScanService:
                     cost_basis_total = round(legacy_total, 2)
 
             # Year-to-date history: read this entry's daily series in the SAME
-            # pricing mode/columns it resolves to (raw vs graded).
-            history_rows = price_history_rows_for_card(
-                self.connection,
-                card_id,
-                provider=provider,
-                days=year_days,
-                pricing_mode=(
-                    PSA_GRADE_PRICING_MODE if is_graded else RAW_PRICING_MODE
-                ),
-                variant=variant_name,
-                condition=None if is_graded else condition,
-                grader=grader if is_graded else None,
-                grade=grade if is_graded else None,
-            )
+            # pricing mode/columns it resolves to (raw vs graded). Resolved by the
+            # single batched read above, keyed by deck-entry id.
+            history_rows = history_rows_by_entry.get(str(row["id"]), [])
             history_rows = self._display_price_history_rows(history_rows)
             # `_history_points_payload` reverses to oldest->newest.
             points = self._history_points_payload(history_rows)
@@ -14275,6 +14310,7 @@ class SpotlightScanService:
             # today-G/L columns — it may predate Jan 1 (e.g. on New Year's Day).
             year_series: list[float] = []
             prev_day_price: float | None = None
+            prev_month_price: float | None = None
             for point in points:
                 point_date = str(point.get("date") or "")
                 value = self._history_primary_price_value(point)
@@ -14282,6 +14318,8 @@ class SpotlightScanService:
                     continue
                 if point_date < today_str:
                     prev_day_price = float(value)
+                if point_date < month_ago_str:
+                    prev_month_price = float(value)
                 if point_date < jan1_str:
                     continue
                 year_series.append(float(value))
@@ -14322,6 +14360,22 @@ class SpotlightScanService:
                 today_gain_dollar = None
                 today_gain_percent = None
 
+            if prev_month_price is not None and current_price is not None:
+                month_gain_dollar = round(
+                    (current_price - prev_month_price) * quantity, 2
+                )
+                month_gain_percent = (
+                    round(
+                        (current_price - prev_month_price) / prev_month_price * 100.0,
+                        2,
+                    )
+                    if prev_month_price != 0.0
+                    else None
+                )
+            else:
+                month_gain_dollar = None
+                month_gain_percent = None
+
             result_rows.append(
                 {
                     "entryId": str(row["id"]),
@@ -14332,6 +14386,8 @@ class SpotlightScanService:
                     "imageUrl": card.get("imageURL") or card.get("imageSmallURL"),
                     "quantity": quantity,
                     "kind": "graded" if is_graded else "raw",
+                    "variantName": variant_name,
+                    "condition": condition,
                     "grade": (
                         (f"{grader or ''} {grade or ''}".strip() or None)
                         if is_graded
@@ -14346,6 +14402,8 @@ class SpotlightScanService:
                     "ytdGainPercent": ytd_gain_percent,
                     "todayGainDollar": today_gain_dollar,
                     "todayGainPercent": today_gain_percent,
+                    "monthGainDollar": month_gain_dollar,
+                    "monthGainPercent": month_gain_percent,
                     "isFavorite": card_id in favorite_card_ids,
                     "sparkline": sparkline,
                 }
