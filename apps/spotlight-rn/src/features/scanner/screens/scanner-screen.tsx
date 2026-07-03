@@ -474,6 +474,12 @@ export function ScannerScreen({
   // this resolves, then state updates and the rows pop in). Also kicks off a
   // background orphan-file sweep so cap-evicted/force-quit-lost files don't
   // accumulate forever.
+  // Persistence is gated on this ref: a SECOND mounted scanner instance (the
+  // Scan tab pushes a new tabs stack over Wishlist/Insights) starts with an
+  // empty tray, and letting it persist before its rehydrate resolved wiped the
+  // stored scans — mount raced schedulePersist([]) against the disk read, and
+  // backing out flushed the never-hydrated [] over a full tray.
+  const hasHydratedTrayRef = useRef(false);
   useEffect(() => {
     let cancelled = false;
     // Stamp the active account synchronously before any load/write so loadPersistedTray
@@ -483,14 +489,19 @@ export function ScannerScreen({
       try {
         await ensureScansDir();
         const loaded = await loadPersistedTray();
-        if (cancelled || loaded.length === 0) {
+        if (cancelled) {
+          return;
+        }
+        hasHydratedTrayRef.current = true;
+        if (loaded.length === 0) {
           return;
         }
         setRecentCaptures((current) => (current.length > 0 ? current : loaded));
         void sweepOrphanScans(new Set(loaded.map((item) => item.id)));
       } catch {
         // Persistence errors are reported inside the module via PostHog.
-        // A failed rehydrate just leaves the tray empty for this session.
+        // A failed rehydrate just leaves the tray empty for this session —
+        // and keeps persistence gated OFF so it can't wipe stored scans.
       }
     })();
     return () => {
@@ -502,18 +513,24 @@ export function ScannerScreen({
   // coalesce into one AsyncStorage write. Loading items are skipped by the
   // module itself, so the very first persist of any given scan naturally
   // happens after the match resolves. The ref mirrors the latest tray so the
-  // unmount flush below can persist it without a stale closure.
+  // unmount flush below can persist it without a stale closure. Gated on
+  // hydration so a fresh instance's empty initial state never clobbers disk.
   useEffect(() => {
     recentCapturesRef.current = recentCaptures;
-    schedulePersist(recentCaptures);
+    if (hasHydratedTrayRef.current) {
+      schedulePersist(recentCaptures);
+    }
   }, [recentCaptures]);
 
   // Flush the live tray on unmount so navigating away (which tears this screen
   // down) persists the most recent state. We pass the current tray explicitly:
   // an argument-less flush would write [] whenever the debounce had already
-  // settled, wiping every scan on each page bounce.
+  // settled, wiping every scan on each page bounce. A never-hydrated instance
+  // skips the flush entirely — its [] is initial state, not user intent.
   useEffect(() => () => {
-    void flushPersist(recentCapturesRef.current);
+    if (hasHydratedTrayRef.current) {
+      void flushPersist(recentCapturesRef.current);
+    }
   }, []);
 
   const trayBottomInset = insets.bottom + 14;

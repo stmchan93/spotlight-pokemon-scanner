@@ -56,6 +56,11 @@ export function AppBottomTabBar({
       ? (() => router.replace('/wishlist' as never))
       : (() => router.push('/wishlist' as never)));
 
+  // Tapping the tab you are already on is a no-op — re-navigating pushed a
+  // duplicate screen instance (e.g. Wishlist re-opening itself, or a second
+  // scanner with its own tray).
+  const noop = () => {};
+
   return (
     <BottomTabBar
       bottomInset={Math.max(insets.bottom, 0)}
@@ -65,7 +70,7 @@ export function AppBottomTabBar({
           key: 'portfolio',
           label: 'Collection',
           selected: activeKey === 'portfolio',
-          onPress: goToPortfolio,
+          onPress: activeKey === 'portfolio' ? noop : goToPortfolio,
           testID: 'bottom-nav-portfolio',
           icon: <CollectionTabIcon color={iconColor} filled={activeKey === 'portfolio'} size={NAV_ICON_SIZE} />,
         },
@@ -73,7 +78,7 @@ export function AppBottomTabBar({
           key: 'scan',
           label: 'Scan',
           selected: activeKey === 'scan',
-          onPress: goToScan,
+          onPress: activeKey === 'scan' ? noop : goToScan,
           testID: 'bottom-nav-scan',
           icon: <ScanTabIcon color={iconColor} size={NAV_ICON_SIZE} />,
         },
@@ -81,7 +86,7 @@ export function AppBottomTabBar({
           key: 'wishlist',
           label: 'Wishlist',
           selected: activeKey === 'wishlist',
-          onPress: goToWishlist,
+          onPress: activeKey === 'wishlist' ? noop : goToWishlist,
           testID: 'bottom-nav-wishlist',
           // Bookmark fills in when the Wishlist tab is the active one.
           icon: <WishlistTabIcon color={iconColor} filled={activeKey === 'wishlist'} size={NAV_ICON_SIZE} />,
