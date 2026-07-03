@@ -95,6 +95,22 @@ function isExpectedSessionEndError(error: unknown): boolean {
   );
 }
 
+// gotrue-js throws `AuthRetryableFetchError` when the HTTP request itself dies
+// (offline, DNS blip, VPN hiccup) — and that error often carries an EMPTY
+// message. Before this check it fell through to the opaque "Authentication
+// failed." fallback, which reads like wrong credentials and made a signup on a
+// flaky connection look like an account problem.
+function isTransportError(error: Error): boolean {
+  const name = error.name.toLowerCase();
+  const message = error.message.toLowerCase();
+  return (
+    name.includes('retryable')
+    || message === 'failed to fetch'
+    || message.includes('network request failed')
+    || message.includes('network error')
+  );
+}
+
 function errorMessageFromUnknown(error: unknown) {
   if (error instanceof AuthCanceledError || isAuthCanceledError(error)) {
     return null;
@@ -104,11 +120,16 @@ function errorMessageFromUnknown(error: unknown) {
     return null;
   }
 
-  if (error instanceof Error && error.message) {
-    return error.message;
+  if (error instanceof Error) {
+    if (isTransportError(error)) {
+      return "Couldn't reach the server. Check your connection and try again.";
+    }
+    if (error.message) {
+      return error.message;
+    }
   }
 
-  return 'Authentication failed.';
+  return 'Something went wrong. Please try again.';
 }
 
 function authReasonClassFromUnknown(error: unknown) {
