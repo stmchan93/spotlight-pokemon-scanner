@@ -330,7 +330,7 @@ describe('buildEbaySearchUrl', () => {
     expect(url).toContain('LH_Complete=1');
   });
 
-  it('leads the query with UNQUOTED grader + grade keywords and sorts by most-recently-sold', () => {
+  it('leads the query with a QUOTED grader + grade phrase and sorts by most-recently-sold', () => {
     const url = buildEbaySearchUrl({
       setName: 'XY Promos',
       name: 'Ditto',
@@ -338,10 +338,9 @@ describe('buildEbaySearchUrl', () => {
       grader: 'PSA',
       grade: '10',
     });
-    // grader + grade first, as loose keywords — the exact-phrase form ("PSA 10")
-    // missed common title phrasings like "PSA GEM MINT 10" and starved results.
-    expect(url).toContain('_nkw=PSA+10+Ditto');
-    expect(url).not.toContain('%22');
+    // grader + grade first, as an exact phrase, so eBay can't relax the grade number
+    // and backfill with the high-volume grade ("%22" is the encoded double-quote).
+    expect(url).toContain('_nkw=%22PSA+10%22+Ditto');
     expect(url).toContain('LH_Sold=1');
     expect(url).toContain('_sop=13');
   });
@@ -364,11 +363,10 @@ describe('buildEbaySearchUrl', () => {
     expect(nkw).toContain('Japanese');
     expect(nkw).toContain('004'); // number kept (JP set name is stripped script)
     expect(nkw).not.toContain('1st'); // no edition keyword (mixed-edition comps)
-    expect(nkw).toContain('PSA 10');
-    expect(nkw).not.toContain('"');
+    expect(nkw).toContain('"PSA 10"');
   });
 
-  it('keeps a low grade as loose keywords (no exact-phrase quoting)', () => {
+  it('quotes a low grade so eBay does not backfill with high-grade solds (PSA 3 ≠ PSA 10)', () => {
     const url = buildEbaySearchUrl({
       setName: 'Evolving Skies',
       name: 'Umbreon VMAX',
@@ -376,10 +374,10 @@ describe('buildEbaySearchUrl', () => {
       grader: 'PSA',
       grade: '3',
     });
-    expect(url).toContain('_nkw=PSA+3+Umbreon');
+    expect(url).toContain('_nkw=%22PSA+3%22+Umbreon');
   });
 
-  it('preserves a half-grade as one token ("9.5" not "9 5")', () => {
+  it('preserves a half-grade inside the quoted phrase ("9.5" not "9 5")', () => {
     const url = buildEbaySearchUrl({
       setName: 'XY Promos',
       name: 'Ditto',
@@ -387,7 +385,7 @@ describe('buildEbaySearchUrl', () => {
       grader: 'CGC',
       grade: '9.5',
     });
-    expect(url).toContain('_nkw=CGC+9.5+Ditto');
+    expect(url).toContain('_nkw=%22CGC+9.5%22+Ditto');
     expect(url).not.toContain('9+5');
   });
 
@@ -481,7 +479,7 @@ describe('buildEbaySearchUrl', () => {
       grade: '10',
       variant: '1st Edition Holofoil',
     })!;
-    expect(url).toContain('PSA+10+Lugia');
+    expect(url).toContain('%22PSA+10%22+Lugia');
     expect(url).toContain('Neo+Genesis');
     // No edition keyword (mixed-edition comps by design).
     expect(decodeURIComponent(new URL(url).searchParams.get('_nkw')!)).not.toContain('1st');
