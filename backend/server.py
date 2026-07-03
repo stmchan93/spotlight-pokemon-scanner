@@ -4637,7 +4637,11 @@ class SpotlightScanService:
                     },
                 )
                 kind = str(event["eventKind"] or "").strip().lower()
-                if kind in {"add", "buy", "sale", "seed"}:
+                # replace_in/replace_out move quantity between entries when a
+                # replace changes identity (e.g. the PDP EN/JP swap). Ignoring
+                # them froze the OLD entry's holding in the history forever and
+                # never counted the new one.
+                if kind in {"add", "buy", "sale", "seed", "replace_in", "replace_out"}:
                     state["quantity"] = int(state.get("quantity") or 0) + int(event.get("quantityDelta") or 0)
                 if kind in {"add", "buy", "seed"}:
                     event_total_price = event.get("totalPrice")

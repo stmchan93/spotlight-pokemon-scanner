@@ -1695,6 +1695,80 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
                 }
             )
 
+    def test_portfolio_history_follows_cross_card_replace(self) -> None:
+        # After a JP→EN replace the history must value the EN card from the
+        # swap day onward — replace_in/replace_out used to be ignored, so the
+        # chart kept pricing the JP printing forever.
+        self._insert_card("swsh6a_ja-95", name="Umbreon VMAX (JA)")
+        self._insert_card("swsh7-215", name="Umbreon VMAX")
+        for day in ("2026-04-24", "2026-04-25", "2026-04-26", "2026-04-27", "2026-04-28"):
+            upsert_price_history_daily(
+                self.service.connection,
+                card_id="swsh6a_ja-95",
+                pricing_mode="raw",
+                provider="scrydex",
+                price_date=day,
+                currency_code="USD",
+                variant="Normal",
+                condition="NM",
+                low_price=3000.0,
+                market_price=3380.30,
+                mid_price=3380.30,
+                high_price=3500.0,
+                source_url=f"https://prices.example/ja/{day}",
+                payload={"source": "scrydex"},
+            )
+            upsert_price_history_daily(
+                self.service.connection,
+                card_id="swsh7-215",
+                pricing_mode="raw",
+                provider="scrydex",
+                price_date=day,
+                currency_code="USD",
+                variant="Normal",
+                condition="NM",
+                low_price=2000.0,
+                market_price=2276.45,
+                mid_price=2276.45,
+                high_price=2400.0,
+                source_url=f"https://prices.example/en/{day}",
+                payload={"source": "scrydex"},
+            )
+        self.service.connection.commit()
+
+        buy_payload = self.service.record_buy(
+            {
+                "cardID": "swsh6a_ja-95",
+                "quantity": 1,
+                "unitPrice": 400.0,
+                "currencyCode": "USD",
+                "paymentMethod": "cash",
+                "boughtAt": "2026-04-25T09:00:00Z",
+                "condition": "near_mint",
+            }
+        )
+        self.service.replace_deck_entry(
+            {
+                "deckEntryID": buy_payload["deckEntryID"],
+                "cardID": "swsh7-215",
+                "slabContext": None,
+                "variantName": None,
+                "condition": "near_mint",
+                "quantity": 1,
+                "unitPrice": 400.0,
+                "currencyCode": "USD",
+                "updatedAt": "2026-04-26T10:00:00Z",
+            }
+        )
+
+        with self._freeze_runtime_now("2026-04-28T12:00:00Z"):
+            history = self.service.deck_history(days=7, time_zone_name="UTC")
+
+        values_by_date = {point["date"]: point["totalValue"] for point in history["points"]}
+        self.assertEqual(values_by_date.get("2026-04-25"), 3380.30)  # held JP
+        self.assertEqual(values_by_date.get("2026-04-27"), 2276.45)  # holds EN
+        self.assertEqual(values_by_date.get("2026-04-28"), 2276.45)  # today = EN, not JP
+
     def test_record_sale_decrements_quantity_and_hides_inactive_entries(self) -> None:
         self._insert_card("gym1-60", name="Sabrina's Slowbro")
         upsert_card_price_summary(
