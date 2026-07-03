@@ -148,9 +148,10 @@ export function ScanningForSheet({
 }
 
 // The grab handle dismisses the sheet on TAP or a downward SWIPE — not just a
-// backdrop tap. PanResponder only claims the gesture on a deliberate downward
-// drag (so a stationary tap still fires the Pressable's onPress), mirroring the
-// recent-capture tray header pattern.
+// backdrop tap. The PanResponder lives on a WRAPPER View around the tap
+// Pressable (the ConfirmDeleteSheet/InsightsSortSheet pattern): spreading
+// panHandlers onto the Pressable itself merges two responder wirings on one
+// node, and the Pressable's claim wins — the swipe never fired on device.
 function DismissHandle({
   onDismiss,
   testID,
@@ -173,17 +174,18 @@ function DismissHandle({
   );
 
   return (
-    <Pressable
-      accessibilityLabel="Close scan target picker"
-      accessibilityRole="button"
-      hitSlop={16}
-      onPress={onDismiss}
-      style={styles.handleHitArea}
-      testID={testID}
-      {...panResponder.panHandlers}
-    >
-      <View style={styles.handleBar} />
-    </Pressable>
+    <View {...panResponder.panHandlers}>
+      <Pressable
+        accessibilityLabel="Close scan target picker"
+        accessibilityRole="button"
+        hitSlop={16}
+        onPress={onDismiss}
+        style={styles.handleHitArea}
+        testID={testID}
+      >
+        <View style={styles.handleBar} />
+      </Pressable>
+    </View>
   );
 }
 
