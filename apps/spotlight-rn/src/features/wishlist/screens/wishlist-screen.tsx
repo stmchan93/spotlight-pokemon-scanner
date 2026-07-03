@@ -56,9 +56,30 @@ function gradeLabelForFavorite(entry: CardFavoriteEntry): string | null {
     }
   }
   const variant = (entry.variantName ?? '').trim();
-  const short = (entry.conditionShortLabel ?? '').trim();
-  const combined = [variant, short].filter(Boolean).join(' · ');
+  // Full condition ("Near Mint"), not the NM abbreviation (user ask).
+  const condition = (entry.conditionLabel ?? entry.conditionShortLabel ?? '').trim();
+  const combined = [variant, condition].filter(Boolean).join(' · ');
   return combined.length > 0 ? combined : null;
+}
+
+// Card view splits the same facts across TWO lines: variant above, quality
+// below (mirrors the Collection card tiles).
+function variantLabelForFavorite(entry: CardFavoriteEntry): string | null {
+  const variant = (entry.slabContext?.variantName ?? entry.variantName ?? '').trim();
+  return variant.length > 0 ? variant : null;
+}
+
+function qualityLabelForFavorite(entry: CardFavoriteEntry): string | null {
+  if (entry.slabContext) {
+    const grader = (entry.slabContext.grader ?? '').trim();
+    const grade = (entry.slabContext.grade ?? '').trim();
+    const combined = [grader, grade].filter(Boolean).join(' ');
+    if (combined.length > 0) {
+      return combined;
+    }
+  }
+  const condition = (entry.conditionLabel ?? entry.conditionShortLabel ?? '').trim();
+  return condition.length > 0 ? condition : null;
 }
 
 type WishlistFilterKey = 'all' | 'az' | 'price' | 'owned' | 'unowned';
@@ -781,9 +802,10 @@ type WishlistGridTileProps = {
 
 function WishlistGridTile({ entry, onPress, selectable = false, selected = false, theme }: WishlistGridTileProps) {
   const imageUri = entry.smallImageUrl ?? entry.imageUrl ?? null;
-  // Graded cards show the grade ("PSA 10"); raw cards show the condition
-  // ("NM") — same derivation as the list row (Figma 860-2640 / 863-2270).
-  const gradeText = gradeLabelForFavorite(entry);
+  // Card view: variant on its own line ABOVE the quality line (graded "PSA 10"
+  // / raw full condition "Near Mint") — mirrors the Collection card tiles.
+  const variantText = variantLabelForFavorite(entry);
+  const gradeText = qualityLabelForFavorite(entry);
   const delta = entry.dayChangeAmount ?? 0;
   const showDelta = Number.isFinite(delta) && delta !== 0;
   const isDown = delta < 0;
@@ -831,6 +853,15 @@ function WishlistGridTile({ entry, onPress, selectable = false, selected = false
             {entry.cardNumber}
             {entry.cardNumber && entry.setName ? '  ·  ' : ''}
             {entry.setName}
+          </Text>
+        ) : null}
+        {variantText ? (
+          <Text
+            numberOfLines={1}
+            style={[styles.gridMeta, { color: theme.colors.gray600 }]}
+            testID={`wishlist-grid-tile-${entry.cardId}-variant`}
+          >
+            {variantText}
           </Text>
         ) : null}
         {gradeText ? (

@@ -1651,7 +1651,13 @@ function mapDeckEntry(entry: DeckEntryDTO, baseUrl?: string): InventoryCardEntry
   }
 
   const slabContext = normalizeSlabContext(entry.slabContext);
-  const variantName = normalizeString(entry.variantName) ?? normalizeString(entry.slabContext?.variantName);
+  // Most raw entries have NO stored variant (variant persistence is recent and
+  // scanner adds don't set one), but the backend RESOLVES a variant to price the
+  // entry (card.pricing.variant, e.g. "Holofoil") — use it as the display
+  // fallback so the variant line matches the price actually shown.
+  const variantName = normalizeString(entry.variantName)
+    ?? normalizeString(entry.slabContext?.variantName)
+    ?? normalizeString(card.pricing.variant);
   const conditionCopy = mapDeckCondition(entry.condition);
   const requestedConditionCode = normalizeConditionCode(entry.condition);
   const quantity = Math.max(normalizeNumber(entry.quantity) ?? 0, 0);
@@ -3042,6 +3048,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
         isOwned: ownedEntry != null,
         kind: ownedEntry?.kind ?? null,
         variantName: ownedEntry?.variantName ?? null,
+        conditionLabel: ownedEntry?.conditionLabel ?? null,
         conditionShortLabel: ownedEntry?.conditionShortLabel ?? null,
         slabContext: ownedEntry?.slabContext ?? null,
         dayChangeAmount: ownedEntry?.dayChangeAmount ?? null,
@@ -4685,7 +4692,9 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           favoritedAt: normalizeString(entry.favoritedAt),
           isOwned: normalizeBoolean(entry.isOwned) ?? false,
           kind: slabContext ? 'graded' : 'raw',
-          variantName: normalizeString(entry.variantName),
+          variantName: normalizeString(entry.variantName)
+            ?? (pricing ? normalizeString(pricing.variant) : null),
+          conditionLabel: conditionCopy.label ?? null,
           conditionShortLabel: conditionCopy.shortLabel ?? null,
           slabContext,
           dayChangeAmount: normalizeNumber(entry.dayChangeAmount) ?? null,

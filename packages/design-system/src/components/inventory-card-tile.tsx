@@ -190,8 +190,8 @@ export function InventoryCardTile({
             </View>
           )}
 
-          {/* Quantity chip (Figma 2368:43362): gray100 corner tag docked at the
-              art's top-right — box icon + owned count, replacing "Qty: N". */}
+          {/* Quantity chip (Figma 2368:43026): gray100 corner tag docked at the
+              art's top-left — box icon + owned count, replacing "Qty: N". */}
           <View
             style={[styles.quantityChip, { backgroundColor: theme.colors.gray100 }]}
             testID={testID ? `${testID}-quantity` : undefined}
@@ -410,13 +410,14 @@ const styles = StyleSheet.create({
   },
   quantityChip: {
     alignItems: 'center',
-    borderBottomLeftRadius: 4,
+    // Docked at the art's TOP-LEFT (Figma 2368:43026); the inner corner rounds.
+    borderBottomRightRadius: 4,
     flexDirection: 'row',
     gap: 2,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    left: 0,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     position: 'absolute',
-    right: 0,
     top: 0,
   },
   imagePlaceholder: {

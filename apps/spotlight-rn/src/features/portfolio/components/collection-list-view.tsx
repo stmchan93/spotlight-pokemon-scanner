@@ -16,8 +16,9 @@ function gradeLabelFor(entry: InventoryCardEntry): string | null {
     return combined.length > 0 ? combined : null;
   }
   const variant = (entry.variantName ?? '').trim();
-  const short = (entry.conditionShortLabel ?? '').trim();
-  const combined = [variant, short].filter(Boolean).join(' · ');
+  // Full condition ("Near Mint"), not the NM abbreviation (user ask).
+  const condition = (entry.conditionLabel ?? entry.conditionShortLabel ?? '').trim();
+  const combined = [variant, condition].filter(Boolean).join(' · ');
   return combined.length > 0 ? combined : null;
 }
 

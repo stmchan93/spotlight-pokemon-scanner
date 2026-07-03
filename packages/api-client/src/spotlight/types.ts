@@ -851,6 +851,8 @@ export type CardFavoriteEntry = {
   kind?: 'raw' | 'graded' | null;
   /** Owned copy's print variant (e.g. 'Holofoil'); null for unowned favorites. */
   variantName?: string | null;
+  /** Full condition label for owned raw copies (e.g. 'Near Mint'). */
+  conditionLabel?: string | null;
   /** Short condition label for owned raw copies (e.g. 'NM'). */
   conditionShortLabel?: string | null;
   /** Grader/grade for owned graded copies; null for raw or unowned favorites. */
