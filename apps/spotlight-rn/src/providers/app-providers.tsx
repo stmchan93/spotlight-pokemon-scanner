@@ -152,6 +152,12 @@ export function createDefaultSpotlightRepository(accessToken?: string | null): S
 type AppServices = {
   spotlightRepository: SpotlightRepository;
   dataVersion: number;
+  /**
+   * Stable per-account owner key (Supabase user id, or 'signed-out'/'anonymous').
+   * Consumers MUST use this to scope any PERSISTED (AsyncStorage) account data so
+   * one account's data can never hydrate another account's session on login.
+   */
+  sessionOwnerKey: string;
   refreshData: () => void;
   inventoryEntriesCache: InventoryCardEntry[] | null;
   setInventoryEntriesCache: Dispatch<SetStateAction<InventoryCardEntry[] | null>>;
@@ -281,6 +287,7 @@ export function AppProviders({
     return {
       spotlightRepository,
       dataVersion,
+      sessionOwnerKey: activeSessionOwnerKey,
       refreshData,
       inventoryEntriesCache,
       setInventoryEntriesCache,
@@ -290,6 +297,7 @@ export function AppProviders({
       removeOptimisticInventoryEntries,
     };
   }, [
+    activeSessionOwnerKey,
     dataVersion,
     inventoryEntriesCache,
     portfolioDashboardCache,

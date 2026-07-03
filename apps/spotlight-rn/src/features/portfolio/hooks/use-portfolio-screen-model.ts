@@ -5,7 +5,6 @@ import {
   useRef,
   useState,
 } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type {
   ChartMode,
@@ -18,6 +17,7 @@ import type {
 
 import { useTabsPage } from '@/contexts/tabs-page-context';
 import { reflectInventoryCacheIntoDashboard } from '@/features/portfolio/optimistic-inventory';
+import { persistDashboard, readPersistedDashboard } from '@/features/portfolio/persisted-dashboard';
 import { prefetchCardImages } from '@/lib/card-images';
 import {
   formatEditableSellPrice,
@@ -205,41 +205,11 @@ function applySalePriceEdit(
   };
 }
 
-// Persist the last good dashboard so a cold launch (or a backend blip) shows the
-// last chart instantly instead of a blank/error, then revalidates in the
-// background. The server stays the source of truth — this only bridges the
-// loading gap, never serves knowingly-wrong data.
-const PORTFOLIO_DASHBOARD_STORAGE_KEY = '@spotlight/portfolio/dashboard-cache';
-
-async function readPersistedDashboard(): Promise<{ dashboard: PortfolioDashboard; savedAt: string } | null> {
-  try {
-    const raw = await AsyncStorage.getItem(PORTFOLIO_DASHBOARD_STORAGE_KEY);
-    if (!raw) {
-      return null;
-    }
-    const parsed = JSON.parse(raw) as { dashboard?: PortfolioDashboard; savedAt?: string };
-    if (parsed && parsed.dashboard) {
-      return { dashboard: parsed.dashboard, savedAt: parsed.savedAt ?? '' };
-    }
-  } catch {
-    // ignore corrupt / oversized cache — we just fall back to a live load
-  }
-  return null;
-}
-
-function persistDashboard(dashboard: PortfolioDashboard, savedAt: string): void {
-  void AsyncStorage.setItem(
-    PORTFOLIO_DASHBOARD_STORAGE_KEY,
-    JSON.stringify({ dashboard, savedAt }),
-  ).catch(() => {
-    // best-effort; in-memory stale-while-revalidate still works this session
-  });
-}
-
 export function usePortfolioScreenModel() {
   const {
     spotlightRepository,
     dataVersion,
+    sessionOwnerKey,
     inventoryEntriesCache,
     setInventoryEntriesCache,
     portfolioDashboardCache,
@@ -314,7 +284,7 @@ export function usePortfolioScreenModel() {
     }
     let cancelled = false;
     void (async () => {
-      const persisted = await readPersistedDashboard();
+      const persisted = await readPersistedDashboard(sessionOwnerKey);
       if (cancelled || hasUsableDashboardRef.current || !persisted) {
         return;
       }
@@ -365,7 +335,7 @@ export function usePortfolioScreenModel() {
       setIsDashboardStale(false);
       setLastUpdatedAt(savedAt);
       hasUsableDashboardRef.current = true;
-      persistDashboard(loadResult.data, savedAt);
+      persistDashboard(loadResult.data, savedAt, sessionOwnerKey);
       setLoadError(null);
     } else if (loadResult.state === 'error' || isSuspiciousEmpty) {
       // Stale-while-revalidate: if we already have a chart to show, keep it and
@@ -377,7 +347,7 @@ export function usePortfolioScreenModel() {
       setLoadError(null);
     }
     setIsLoadingDashboard(false);
-  }, [setInventoryEntriesCache, setPortfolioDashboardCache, spotlightRepository]);
+  }, [sessionOwnerKey, setInventoryEntriesCache, setPortfolioDashboardCache, spotlightRepository]);
 
   // Switch the chart range. If the range hasn't been loaded yet (the dashboard
   // only computed the open range), fetch just that range on demand and merge it
