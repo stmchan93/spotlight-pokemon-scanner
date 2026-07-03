@@ -271,19 +271,6 @@ export function InsightsScreen() {
       </View>
 
       <View style={styles.pageBody}>
-        {/* Refresh indicator: an ABSOLUTE overlay pinned to the very top of the
-            page (in the empty center of the Pokemon row, between the Insights
-            header and the "Pokemon" title) rather than an inline row. Inline it
-            reflowed the whole page — pushing the table and its column headers
-            down ~48px on every pull — so the spinner read as mid-page and the
-            chart headers weren't static. Overlaying it keeps the headers fixed
-            and puts the spinner up top. */}
-        {isRefreshing ? (
-          <View pointerEvents="none" style={styles.refreshingOverlay} testID="insights-refreshing">
-            <ActivityIndicator color={colors.gray400} />
-          </View>
-        ) : null}
-
         {/* Category header — chevron intentionally omitted per the Figma
             annotation until more TCG categories exist. */}
         <View style={[styles.categoryRow, styles.gutter]}>
@@ -337,6 +324,17 @@ export function InsightsScreen() {
             left-aligns with the card column and shares the row with the metric
             labels (Figma 2179-8996/2179-9032). */}
         <View style={styles.tableSection}>
+          {/* Refresh spinner — mirrors the Collection page's pull-to-refresh
+              (a gray spinner centered at the TOP OF THE LIST). The table's list
+              is wider than the screen, so the NATIVE RefreshControl spinner
+              lands off-center (top-right); we hide it (tintColor transparent)
+              and center our own at the top of the table instead. Absolute so it
+              never reflows the pinned chart headers below it. */}
+          {isRefreshing ? (
+            <View pointerEvents="none" style={styles.refreshingOverlay} testID="insights-refreshing">
+              <ActivityIndicator color={colors.gray400} />
+            </View>
+          ) : null}
           {rows.length > 0 ? (
             <PerformanceTable
               ref={listRef}
@@ -395,13 +393,14 @@ export function InsightsScreen() {
 const styles = StyleSheet.create({
   refreshingOverlay: {
     alignItems: 'center',
-    // Pinned to the top of the page body — sits in the empty center of the
-    // Pokemon row (title left, item-count right) so it never reflows the table
-    // below. zIndex keeps it above the category row.
-    left: 0,
+    // Centered at the top of the table (where the Collection page's native pull
+    // spinner sits). Absolute so it overlays the pinned header without reflowing
+    // it. `left: -16` cancels tableSection's paddingLeft so the spinner centers
+    // on the full screen width, not the padded content box.
+    left: -16,
     position: 'absolute',
     right: 0,
-    top: 8,
+    top: 0,
     zIndex: 5,
   },
   safeArea: {
