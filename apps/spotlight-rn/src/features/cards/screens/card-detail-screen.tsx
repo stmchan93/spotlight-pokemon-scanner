@@ -174,6 +174,7 @@ export function CardDetailScreen({
     inventoryEntriesCache,
     portfolioDashboardCache,
     prependOptimisticInventoryEntry,
+    removeOptimisticInventoryEntries,
   } = useAppServices();
   // The card currently DISPLAYED. Starts as the routed `cardId`, but the EN/JP
   // language toggle repoints it to the other-language counterpart IN PLACE (no
@@ -1278,14 +1279,51 @@ export function CardDetailScreen({
         currencyCode: selectedEntry.currencyCode || 'USD',
         updatedAt: new Date().toISOString(),
       })
-      .then((result) =>
-        spotlightRepository.updateDeckEntryCostBasis({
+      .then(async (result) => {
+        await spotlightRepository.updateDeckEntryCostBasis({
           deckEntryID: result.deckEntryID,
           costBasisPerUnit: costBasis,
-        }),
-      )
-      .then(() => {
+        });
+        return result;
+      })
+      .then((result) => {
         editCostBasisDirtyRef.current = false;
+        // Optimistic edit: reflect the save into the shared inventory cache so
+        // the Collection shows the change INSTANTLY instead of waiting on the
+        // multi-second dashboard refetch (which then reconciles by id). An
+        // identity change (variant/condition/grade/language) returns a NEW row
+        // id, so drop the old row first. Display fields come from `detail` when
+        // it matches the saved card; after a fast EN/JP toggle `detail` can
+        // still be the other language's card mid-refetch, so fall back to the
+        // existing entry's fields and let the refetch correct the visuals.
+        const detailFresh = detail.cardId === activeCardId;
+        const conditionOption = editIsRaw
+          ? deckConditionOptions.find((option) => option.code === selectedCondition) ?? null
+          : null;
+        if (result.deckEntryID !== selectedEntry.id) {
+          removeOptimisticInventoryEntries([selectedEntry.id]);
+        }
+        prependOptimisticInventoryEntry({
+          id: result.deckEntryID,
+          cardId: activeCardId,
+          name: detailFresh ? detail.name : selectedEntry.name,
+          cardNumber: detailFresh ? detail.cardNumber : selectedEntry.cardNumber,
+          setName: detailFresh ? detail.setName : selectedEntry.setName,
+          imageUrl: detailFresh ? detail.imageUrl : selectedEntry.imageUrl,
+          largeImageUrl: detailFresh ? detail.largeImageUrl ?? null : selectedEntry.largeImageUrl,
+          marketPrice: detailFresh ? detail.marketPrice ?? 0 : selectedEntry.marketPrice,
+          hasMarketPrice: detailFresh ? detail.marketPrice != null : selectedEntry.hasMarketPrice,
+          currencyCode: selectedEntry.currencyCode || 'USD',
+          quantity: editQuantity,
+          addedAt: selectedEntry.addedAt,
+          kind: editIsRaw ? 'raw' : 'graded',
+          variantName: editIsRaw ? selectedVariantLabel ?? null : editSlabContext?.variantName ?? null,
+          conditionCode: editIsRaw ? selectedCondition : null,
+          conditionLabel: conditionOption?.label ?? null,
+          conditionShortLabel: conditionOption?.shortLabel ?? null,
+          slabContext: editSlabContext,
+          isFavorite: selectedEntry.isFavorite,
+        });
         refreshData();
         onBack();
       })
@@ -1304,7 +1342,9 @@ export function CardDetailScreen({
     editSlabContext,
     isSavingEdit,
     onBack,
+    prependOptimisticInventoryEntry,
     refreshData,
+    removeOptimisticInventoryEntries,
     selectedCondition,
     selectedEntry,
     selectedVariantLabel,

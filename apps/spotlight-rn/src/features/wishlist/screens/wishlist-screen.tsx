@@ -42,17 +42,23 @@ import { formatOptionalCurrency } from '@/features/portfolio/components/portfoli
 import { WishlistHeader } from '@/features/wishlist/components/wishlist-header';
 import { useAppServices } from '@/providers/app-providers';
 
+// "Variant · Condition" for raw owned copies ("Holofoil · NM") and
+// "Variant · Grader Grade" for slabs — mirrors the Collection rows.
 function gradeLabelForFavorite(entry: CardFavoriteEntry): string | null {
   if (entry.slabContext) {
     const grader = (entry.slabContext.grader ?? '').trim();
     const grade = (entry.slabContext.grade ?? '').trim();
-    const combined = [grader, grade].filter(Boolean).join(' ');
+    const gradeText = [grader, grade].filter(Boolean).join(' ');
+    const slabVariant = (entry.slabContext.variantName ?? '').trim();
+    const combined = [slabVariant, gradeText].filter(Boolean).join(' · ');
     if (combined.length > 0) {
       return combined;
     }
   }
+  const variant = (entry.variantName ?? '').trim();
   const short = (entry.conditionShortLabel ?? '').trim();
-  return short.length > 0 ? short : null;
+  const combined = [variant, short].filter(Boolean).join(' · ');
+  return combined.length > 0 ? combined : null;
 }
 
 type WishlistFilterKey = 'all' | 'az' | 'price' | 'owned' | 'unowned';

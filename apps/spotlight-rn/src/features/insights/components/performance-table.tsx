@@ -7,7 +7,7 @@ import { deckConditionOptions, type PortfolioPerformanceRow } from '@spotlight/a
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { PriceSparkline } from '@/features/cards/components/price-sparkline';
-import { formatCompactCurrency } from '@/features/portfolio/components/portfolio-formatting';
+import { formatCompactCurrency, formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
 
 // Virtualized performance table (Figma 2206-20251, header row 2179-9032). A
 // vertical FlatList of full-width rows ([card cell | metric cells]) sits inside
@@ -55,6 +55,16 @@ export function allTimeGrowthPercent(row: PortfolioPerformanceRow): number | nul
   return ((row.currentValue - row.costBasisTotal) / row.costBasisTotal) * 100;
 }
 
+// "$ Total" = all-time DOLLAR gain vs cost (current value − cost). Pairs with
+// "% Total"; null on the same missing-inputs conditions. (The cell used to show
+// currentValue, which read as a confusing duplicate of the "Current" column.)
+export function allTimeGainDollar(row: PortfolioPerformanceRow): number | null {
+  if (row.currentValue == null || row.costBasisTotal == null || row.costBasisTotal <= 0) {
+    return null;
+  }
+  return row.currentValue - row.costBasisTotal;
+}
+
 // The backend emits `condition` as a deck-condition token (e.g. "near_mint"),
 // not a human label — map it to the shared label ("Near Mint"), falling back to
 // a Title-Cased version of the token if it's unrecognized.
@@ -70,26 +80,27 @@ function humanizeCondition(condition: string): string {
     .join(' ');
 }
 
-// Compact subtitle under the card name: variant/condition (raw) or grade
-// (graded), plus quantity when the user owns more than one copy.
-function rowSubtitle(row: PortfolioPerformanceRow): string | null {
-  const parts: string[] = [];
-  if (row.kind === 'graded') {
-    if (row.grade) {
-      parts.push(row.grade);
-    }
-  } else {
-    if (row.variantName) {
-      parts.push(row.variantName);
-    }
-    if (row.condition) {
-      parts.push(humanizeCondition(row.condition));
-    }
+// Subtitle under the card name, on TWO lines: the printing/variant on its own
+// line, then the "type" (grade for graded / condition for raw) with the quantity.
+// (They used to be crammed onto one ` · `-joined line.) When there's no variant
+// the type falls up to the first line so we never render a blank line.
+function rowSubtitleLines(row: PortfolioPerformanceRow): {
+  primary: string | null;
+  secondary: string | null;
+} {
+  const quantity = row.quantity > 1 ? `×${row.quantity}` : null;
+  const typeLabel =
+    row.kind === 'graded'
+      ? row.grade || null
+      : row.condition
+        ? humanizeCondition(row.condition)
+        : null;
+  const variant = row.variantName || null;
+  const typeWithQuantity = [typeLabel, quantity].filter(Boolean).join(' · ') || null;
+  if (!variant) {
+    return { primary: typeWithQuantity, secondary: null };
   }
-  if (row.quantity > 1) {
-    parts.push(`×${row.quantity}`);
-  }
-  return parts.length > 0 ? parts.join(' · ') : null;
+  return { primary: variant, secondary: typeWithQuantity };
 }
 
 // Dark "PORTFOLIO" tag (Figma 2179-8997). Lives in the pinned header row's
@@ -139,6 +150,23 @@ export const PerformanceTable = forwardRef<
     (value: number | null) => (value == null ? '—' : formatCompactCurrency(value, currencyCode)),
     [currencyCode],
   );
+  // Signed money for GAIN/LOSS cells: formatCompactCurrency clamps anything ≤ 0
+  // to "$0.00", so a real month/all-time LOSS (e.g. −$213) rendered as "$0.00"
+  // while the % showed −5%. Show the true magnitude with a leading "−" for
+  // losses; an exact zero stays "$0.00" (neutral/black via deltaColor).
+  const gainMoney = useCallback(
+    (value: number | null) => {
+      if (value == null) {
+        return '—';
+      }
+      if (Math.abs(value) < 0.005) {
+        return formatCurrency(0, currencyCode);
+      }
+      const magnitude = formatCompactCurrency(Math.abs(value), currencyCode);
+      return value < 0 ? `-${magnitude}` : magnitude;
+    },
+    [currencyCode],
+  );
   const percent = useCallback(
     (value: number | null) => (value == null ? '—' : `${Math.round(value)}%`),
     [],
@@ -158,8 +186,9 @@ export const PerformanceTable = forwardRef<
 
   const renderItem = useCallback(
     ({ item: row }: ListRenderItemInfo<PortfolioPerformanceRow>) => {
-      const subtitle = rowSubtitle(row);
+      const subtitleLines = rowSubtitleLines(row);
       const totalPercent = allTimeGrowthPercent(row);
+      const totalDollar = allTimeGainDollar(row);
       return (
         <View style={styles.dataRow}>
           <Pressable
@@ -192,13 +221,22 @@ export const PerformanceTable = forwardRef<
               >
                 {row.cardNumber}
               </Text>
-              {subtitle ? (
+              {subtitleLines.primary ? (
                 <Text
                   numberOfLines={1}
                   style={[theme.typography.label, { color: theme.colors.gray500 }]}
                   testID={`${testID}-subtitle-${row.entryId}`}
                 >
-                  {subtitle}
+                  {subtitleLines.primary}
+                </Text>
+              ) : null}
+              {subtitleLines.secondary ? (
+                <Text
+                  numberOfLines={1}
+                  style={[theme.typography.label, { color: theme.colors.gray500 }]}
+                  testID={`${testID}-subtitle2-${row.entryId}`}
+                >
+                  {subtitleLines.secondary}
                 </Text>
               ) : null}
             </View>
@@ -218,13 +256,13 @@ export const PerformanceTable = forwardRef<
             {money(row.currentValue)}
           </Text>
           <Text style={[theme.typography.body, styles.cell, { color: deltaColor(row.monthGainDollar) }]}>
-            {money(row.monthGainDollar)}
+            {gainMoney(row.monthGainDollar)}
           </Text>
           <Text style={[theme.typography.body, styles.cell, { color: deltaColor(row.monthGainPercent) }]}>
             {percent(row.monthGainPercent)}
           </Text>
-          <Text style={[theme.typography.body, styles.cell, { color: theme.colors.gray900 }]}>
-            {money(row.currentValue)}
+          <Text style={[theme.typography.body, styles.cell, { color: deltaColor(totalDollar) }]}>
+            {gainMoney(totalDollar)}
           </Text>
           <Text style={[theme.typography.body, styles.cell, { color: deltaColor(totalPercent) }]}>
             {percent(totalPercent)}
@@ -237,6 +275,7 @@ export const PerformanceTable = forwardRef<
     },
     [
       deltaColor,
+      gainMoney,
       money,
       onSelectRow,
       percent,
@@ -316,6 +355,37 @@ export const PerformanceTable = forwardRef<
   );
 });
 
+// Loading placeholder shown while the performance query is in flight — mirrors
+// the header + row layout so the table "materializes" rather than flashing an
+// empty "no cards" state. Static gray blocks (matches SalesHistorySkeleton).
+export function PerformanceTableSkeleton({ testID = 'performance-table-skeleton' }: { testID?: string }) {
+  const theme = useSpotlightTheme();
+  const fill = { backgroundColor: theme.colors.outlineSubtle };
+  return (
+    <View style={styles.grid} testID={testID}>
+      <View style={styles.headerRow}>
+        <View style={[styles.cardHeaderSlot, { width: CARD_COL_WIDTH }]}>
+          <PortfolioTag />
+        </View>
+      </View>
+      {Array.from({ length: 6 }).map((_, index) => (
+        <View key={index} style={styles.dataRow}>
+          <View style={[styles.cardCell, { width: CARD_COL_WIDTH }]}>
+            <View style={[styles.thumb, fill]} />
+            <View style={styles.cardText}>
+              <View style={[styles.skeletonLine, { width: '92%' }, fill]} />
+              <View style={[styles.skeletonLine, { width: '55%' }, fill]} />
+              <View style={[styles.skeletonLine, { width: '72%' }, fill]} />
+            </View>
+          </View>
+          <View style={[styles.skeletonCell, fill]} />
+          <View style={[styles.skeletonCell, fill]} />
+        </View>
+      ))}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   hScroll: {
     flex: 1,
@@ -375,6 +445,15 @@ const styles = StyleSheet.create({
     width: CHART_W,
   },
   cell: {
+    width: CELL_W,
+  },
+  skeletonLine: {
+    borderRadius: 4,
+    height: 12,
+  },
+  skeletonCell: {
+    borderRadius: 4,
+    height: 14,
     width: CELL_W,
   },
 });

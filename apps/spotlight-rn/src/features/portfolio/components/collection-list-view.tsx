@@ -3,15 +3,22 @@ import type { InventoryCardEntry } from '@spotlight/api-client';
 
 import { getCardImageUrl } from '@/lib/card-images';
 
+// "Variant · Condition" for raw ("Holofoil · NM") and "Variant · Grader Grade"
+// for slabs — the variant leads, then the dot, then the quality (user ask; the
+// bare abbreviated condition read as cryptic).
 function gradeLabelFor(entry: InventoryCardEntry): string | null {
   if (entry.kind === 'graded' && entry.slabContext) {
     const grader = (entry.slabContext.grader ?? '').trim();
     const grade = (entry.slabContext.grade ?? '').trim();
-    const combined = [grader, grade].filter(Boolean).join(' ');
+    const gradeText = [grader, grade].filter(Boolean).join(' ');
+    const variant = (entry.slabContext.variantName ?? '').trim();
+    const combined = [variant, gradeText].filter(Boolean).join(' · ');
     return combined.length > 0 ? combined : null;
   }
+  const variant = (entry.variantName ?? '').trim();
   const short = (entry.conditionShortLabel ?? '').trim();
-  return short.length > 0 ? short : null;
+  const combined = [variant, short].filter(Boolean).join(' · ');
+  return combined.length > 0 ? combined : null;
 }
 
 type CollectionListRowProps = {

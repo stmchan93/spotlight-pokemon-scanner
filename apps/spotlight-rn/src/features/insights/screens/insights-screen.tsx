@@ -32,6 +32,7 @@ import {
 } from '@/features/insights/components/insights-sort-sheet';
 import {
   PerformanceTable,
+  PerformanceTableSkeleton,
   PortfolioTag,
   allTimeGrowthPercent,
 } from '@/features/insights/components/performance-table';
@@ -200,7 +201,10 @@ export function InsightsScreen() {
       });
       router.push({
         pathname: '/cards/[cardId]',
-        params: { cardId: row.cardId, previewId },
+        // Pass the specific deck-entry id so the PDP opens THIS holding (right
+        // condition/quantity) — without it the PDP falls back to the first owned
+        // entry for the card, so two Gastly holdings (LP vs NM) both opened the LP.
+        params: { cardId: row.cardId, entryId: row.entryId, previewId },
       });
     },
     [performance?.currencyCode, router, spotlightRepository],
@@ -336,20 +340,21 @@ export function InsightsScreen() {
                 />
               }
             />
-          ) : (
+          ) : hasLoaded ? (
             <>
               <PortfolioTag />
               <Text
                 style={[theme.typography.body, styles.emptyText, { color: theme.colors.gray500 }]}
                 testID="insights-empty"
               >
-                {hasLoaded
-                  ? isFiltered
-                    ? 'No cards match your search.'
-                    : 'No cards in your portfolio yet.'
-                  : 'Loading your performance…'}
+                {isFiltered
+                  ? 'No cards match your search.'
+                  : 'No cards in your portfolio yet.'}
               </Text>
             </>
+          ) : (
+            // Query still in flight — show skeleton rows, never the empty state.
+            <PerformanceTableSkeleton testID="insights-loading-skeleton" />
           )}
         </View>
       </View>

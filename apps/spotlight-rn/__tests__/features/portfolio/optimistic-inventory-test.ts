@@ -93,16 +93,49 @@ describe('reflectInventoryCacheIntoDashboard', () => {
     expect(result).toBe(base);
   });
 
-  it('prepends only cache-only entries, keeping existing dashboard data', () => {
-    const base = dashboard([entry({ id: 'a', name: 'Rich A' })], 10);
+  it('prepends cache-only entries and bumps the totals', () => {
+    const base = dashboard([entry({ id: 'a' })], 10);
     const result = reflectInventoryCacheIntoDashboard(base, [
       entry({ id: 'new', marketPrice: 30, quantity: 1 }),
       entry({ id: 'a' }),
     ]);
     expect(result).not.toBe(base);
     expect(result.inventoryItems.map((e) => e.id)).toEqual(['new', 'a']);
-    expect(result.inventoryItems.find((e) => e.id === 'a')?.name).toBe('Rich A');
     expect(result.inventoryCount).toBe(2);
     expect(result.summary.currentValue).toBe(40);
+  });
+
+  it('drops dashboard entries missing from the cache (optimistic delete)', () => {
+    const base = dashboard([
+      entry({ id: 'a', marketPrice: 10, quantity: 1 }),
+      entry({ id: 'gone', marketPrice: 25, quantity: 1 }),
+    ], 35);
+    const result = reflectInventoryCacheIntoDashboard(base, [entry({ id: 'a' })]);
+    expect(result.inventoryItems.map((e) => e.id)).toEqual(['a']);
+    expect(result.inventoryCount).toBe(1);
+    expect(result.summary.currentValue).toBe(10);
+  });
+
+  it('replaces same-id entries whose display data changed (optimistic edit)', () => {
+    const base = dashboard([entry({ id: 'a', quantity: 1, marketPrice: 10, variantName: 'Normal' })], 10);
+    const result = reflectInventoryCacheIntoDashboard(base, [
+      entry({ id: 'a', quantity: 2, marketPrice: 10, variantName: 'Holofoil' }),
+    ]);
+    expect(result).not.toBe(base);
+    expect(result.inventoryItems[0]?.variantName).toBe('Holofoil');
+    expect(result.inventoryItems[0]?.quantity).toBe(2);
+    // Value delta: 1×10 → 2×10.
+    expect(result.summary.currentValue).toBe(20);
+    expect(result.inventoryCount).toBe(1);
+  });
+
+  it('handles an identity-changing edit (old id dropped, new id prepended)', () => {
+    const base = dashboard([entry({ id: 'old', marketPrice: 10, quantity: 1 })], 10);
+    const result = reflectInventoryCacheIntoDashboard(base, [
+      entry({ id: 'new-id', marketPrice: 12, quantity: 1 }),
+    ]);
+    expect(result.inventoryItems.map((e) => e.id)).toEqual(['new-id']);
+    expect(result.inventoryCount).toBe(1);
+    expect(result.summary.currentValue).toBe(12);
   });
 });

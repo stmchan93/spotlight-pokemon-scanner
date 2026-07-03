@@ -130,27 +130,86 @@ export function removeDashboardInventoryEntries(
   };
 }
 
+/**
+ * True when two same-id entries are display-equivalent — i.e. an optimistic
+ * EDIT does not need to swap the dashboard's copy for the cache's. Compares the
+ * fields the Collection actually renders/sorts on, not deep equality (the two
+ * objects come from different loads and are never reference-equal).
+ */
+function entriesEquivalent(a: InventoryCardEntry, b: InventoryCardEntry): boolean {
+  return (
+    a.cardId === b.cardId
+    && a.name === b.name
+    && a.imageUrl === b.imageUrl
+    && a.quantity === b.quantity
+    && a.marketPrice === b.marketPrice
+    && a.hasMarketPrice === b.hasMarketPrice
+    && a.kind === b.kind
+    && a.variantName === b.variantName
+    && a.conditionCode === b.conditionCode
+    && a.isFavorite === b.isFavorite
+    && (a.slabContext?.grader ?? null) === (b.slabContext?.grader ?? null)
+    && (a.slabContext?.grade ?? null) === (b.slabContext?.grade ?? null)
+  );
+}
+
+/**
+ * Reconcile the shared inventory cache into a dashboard's inventory list. The
+ * cache is authoritative for MEMBERSHIP and per-entry display data (every
+ * successful load sets it wholesale, and the optimistic add/edit/remove helpers
+ * adjust it in between), so this handles all three optimistic shapes:
+ *  - cache-only ids are PREPENDED (optimistic add / identity-changing edit),
+ *  - dashboard-only ids are DROPPED (optimistic delete / the old row of an
+ *    identity-changing edit),
+ *  - same-id entries whose display fields changed are REPLACED in place
+ *    (optimistic same-identity edit — e.g. quantity or variant tweaks).
+ * The summary value/count adjust incrementally so backend-computed totals don't
+ * drift. Returns the original dashboard reference unchanged when nothing
+ * differs, so callers can use referential equality to skip redundant updates.
+ */
 export function reflectInventoryCacheIntoDashboard(
   dashboard: PortfolioDashboard,
   cacheEntries: InventoryCardEntry[],
 ): PortfolioDashboard {
+  const cacheById = new Map(cacheEntries.map((entry) => [entry.id, entry]));
   const dashboardIds = new Set(dashboard.inventoryItems.map((entry) => entry.id));
   const newEntries = cacheEntries.filter((entry) => !dashboardIds.has(entry.id));
 
-  if (newEntries.length === 0) {
+  let valueDelta = newEntries.reduce((sum, entry) => sum + inventoryEntryValue(entry), 0);
+  let changed = newEntries.length > 0;
+
+  const retained: InventoryCardEntry[] = [];
+  for (const entry of dashboard.inventoryItems) {
+    const cacheEntry = cacheById.get(entry.id);
+    if (!cacheEntry) {
+      // Dropped from the cache (optimistic delete / replaced identity).
+      changed = true;
+      valueDelta -= inventoryEntryValue(entry);
+      continue;
+    }
+    if (entriesEquivalent(entry, cacheEntry)) {
+      retained.push(entry);
+      continue;
+    }
+    // Same id, different display data — the cache carries the optimistic edit.
+    changed = true;
+    valueDelta += inventoryEntryValue(cacheEntry) - inventoryEntryValue(entry);
+    retained.push(cacheEntry);
+  }
+
+  if (!changed) {
     return dashboard;
   }
 
-  const inventoryItems = [...newEntries, ...dashboard.inventoryItems];
-  const addedValue = newEntries.reduce((sum, entry) => sum + inventoryEntryValue(entry), 0);
+  const inventoryItems = [...newEntries, ...retained];
 
   return {
     ...dashboard,
-    inventoryCount: dashboard.inventoryCount + newEntries.length,
+    inventoryCount: inventoryItems.length,
     inventoryItems,
     summary: {
       ...dashboard.summary,
-      currentValue: Number((dashboard.summary.currentValue + addedValue).toFixed(2)),
+      currentValue: Number(Math.max(0, dashboard.summary.currentValue + valueDelta).toFixed(2)),
     },
   };
 }

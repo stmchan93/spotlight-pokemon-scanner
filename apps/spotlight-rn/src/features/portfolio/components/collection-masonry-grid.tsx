@@ -262,6 +262,7 @@ function CollectionTileSlot({
       setName={entry.setName ?? ''}
       cardNumber={entry.cardNumber ?? null}
       kind={tileKind}
+      variantName={tileKind === 'raw' ? entry.variantName ?? null : entry.slabContext?.variantName ?? null}
       conditionLabel={tileKind === 'raw' ? entry.conditionLabel ?? null : null}
       graderLabel={tileKind === 'slab' ? entry.slabContext?.grader ?? null : null}
       gradeLabel={tileKind === 'slab' ? entry.slabContext?.grade ?? null : null}

@@ -36,9 +36,10 @@ function renderTile(overrides: RenderOptions = {}) {
 }
 
 describe('InventoryCardTile', () => {
-  it('renders the name, number · set, condition, quantity, and price for a raw entry', () => {
+  it('renders the name, number · set, variant, condition, quantity chip, and price', () => {
     renderTile({
       kind: 'raw',
+      variantName: 'Holofoil',
       conditionLabel: 'Lightly Played',
       quantity: 4,
       priceLabel: '$12.50',
@@ -46,8 +47,14 @@ describe('InventoryCardTile', () => {
 
     expect(screen.getByText('Charizard ex')).toBeTruthy();
     expect(screen.getByText('193/162 · Perfect Order')).toBeTruthy();
+    // Variant renders ABOVE the condition line.
+    expect(screen.getByText('Holofoil')).toBeTruthy();
     expect(screen.getByText('Lightly Played')).toBeTruthy();
-    expect(screen.getByText('Qty: 4')).toBeTruthy();
+    // Quantity is the corner chip (box icon + count, Figma 2368:43362) — the
+    // old "Qty: N" text line is gone.
+    expect(screen.getByTestId('tile-quantity')).toBeTruthy();
+    expect(screen.getByText('4')).toBeTruthy();
+    expect(screen.queryByText('Qty: 4')).toBeNull();
     expect(screen.getByText('$12.50')).toBeTruthy();
   });
 

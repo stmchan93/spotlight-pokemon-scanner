@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, ArrowUpRightSquare, Star, StarSolid } from 'iconoir-react-native';
+import { ArrowDown, ArrowUp, ArrowUpRightSquare, BoxIso, Star, StarSolid } from 'iconoir-react-native';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 
 import { useSpotlightTheme } from '../theme';
@@ -15,6 +15,8 @@ export type InventoryCardTileProps = {
   setName: string;
   cardNumber: string | null;
   kind: InventoryCardTileKind;
+  /** Print variant (e.g. "Holofoil"); renders above the condition/grade line. */
+  variantName?: string | null;
   conditionLabel?: string | null;
   graderLabel?: string | null;
   gradeLabel?: string | null;
@@ -109,6 +111,7 @@ export function InventoryCardTile({
   setName,
   cardNumber,
   kind,
+  variantName,
   conditionLabel,
   graderLabel,
   gradeLabel,
@@ -186,6 +189,18 @@ export function InventoryCardTile({
               </AppText>
             </View>
           )}
+
+          {/* Quantity chip (Figma 2368:43362): gray100 corner tag docked at the
+              art's top-right — box icon + owned count, replacing "Qty: N". */}
+          <View
+            style={[styles.quantityChip, { backgroundColor: theme.colors.gray100 }]}
+            testID={testID ? `${testID}-quantity` : undefined}
+          >
+            <BoxIso color={theme.colors.gray700} height={12} width={12} />
+            <AppText color="gray700" variant="overline">
+              {String(quantity)}
+            </AppText>
+          </View>
         </View>
 
         <View style={styles.copyStack}>
@@ -208,6 +223,16 @@ export function InventoryCardTile({
               </AppText>
             ) : null}
 
+            {(variantName ?? '').trim() ? (
+              <AppText
+                color="gray600"
+                numberOfLines={1}
+                variant="label"
+              >
+                {(variantName ?? '').trim()}
+              </AppText>
+            ) : null}
+
             {qualityLine ? (
               <AppText
                 color="gray600"
@@ -217,10 +242,6 @@ export function InventoryCardTile({
                 {qualityLine}
               </AppText>
             ) : null}
-
-            <AppText color="gray600" numberOfLines={1} variant="label">
-              {`Qty: ${quantity}`}
-            </AppText>
           </View>
 
           <View style={styles.priceRow}>
@@ -386,6 +407,17 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     position: 'relative',
     width: '100%',
+  },
+  quantityChip: {
+    alignItems: 'center',
+    borderBottomLeftRadius: 4,
+    flexDirection: 'row',
+    gap: 2,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    position: 'absolute',
+    right: 0,
+    top: 0,
   },
   imagePlaceholder: {
     alignItems: 'center',

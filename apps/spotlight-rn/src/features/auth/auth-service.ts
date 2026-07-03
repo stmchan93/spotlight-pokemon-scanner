@@ -488,6 +488,22 @@ export async function signUpWithEmail({
   };
 }
 
+// Supabase returns ONE generic "invalid credentials" error for a non-existent
+// email, a deleted account (we hard-delete the auth user on account deletion —
+// see backend `_delete_supabase_auth_user`), AND a wrong password; it doesn't
+// distinguish them (anti-enumeration).
+function isInvalidCredentialsError(error: unknown): boolean {
+  const candidate = error as { message?: unknown; code?: unknown } | null;
+  const message = String(candidate?.message ?? '').toLowerCase();
+  const code = String(candidate?.code ?? '').toLowerCase();
+  return (
+    code === 'invalid_credentials'
+    || code === 'user_not_found'
+    || message.includes('invalid login credentials')
+    || message.includes('user not found')
+  );
+}
+
 export async function signInWithEmailPassword({
   email,
   password,
@@ -505,6 +521,18 @@ export async function signInWithEmailPassword({
   });
 
   if (error) {
+    // Supabase can't tell "no such account" from "wrong password". When it
+    // rejects the credentials, ask the `email_exists` RPC whether the account is
+    // actually there — only claim it's missing when it truly is, so a mistyped
+    // password on a real account still shows the generic credentials error. If
+    // the existence check itself fails, assume the account exists (never falsely
+    // tell a real user their account is gone).
+    if (isInvalidCredentialsError(error)) {
+      const accountExists = await checkEmailExists(email).catch(() => true);
+      if (!accountExists) {
+        throw new Error('This account does not exist.');
+      }
+    }
     throw error;
   }
 

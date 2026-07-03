@@ -204,6 +204,57 @@ describe('auth-service signInWithEmailPassword', () => {
       password: 'hunter2hunter2',
     })).rejects.toThrow('Sign-in did not create a session.');
   });
+
+  it('maps invalid credentials to "This account does not exist" when the email has no account', async () => {
+    const supabase = makeSupabaseMock();
+    supabase.auth.signInWithPassword.mockResolvedValue({
+      data: { session: null },
+      error: Object.assign(new Error('Invalid login credentials'), { code: 'invalid_credentials' }),
+    });
+    // email_exists RPC → false (deleted / never existed).
+    supabase.rpc.mockResolvedValue({ data: false, error: null });
+
+    const { service } = await loadAuthService({ supabase });
+
+    await expect(service.signInWithEmailPassword({
+      email: 'ghost@example.com',
+      password: 'whatever12',
+    })).rejects.toThrow('This account does not exist.');
+    expect(supabase.rpc).toHaveBeenCalledWith('email_exists', { p_email: 'ghost@example.com' });
+  });
+
+  it('keeps the generic credentials error when the account exists (wrong password)', async () => {
+    const supabase = makeSupabaseMock();
+    supabase.auth.signInWithPassword.mockResolvedValue({
+      data: { session: null },
+      error: Object.assign(new Error('Invalid login credentials'), { code: 'invalid_credentials' }),
+    });
+    // email_exists RPC → true, so it's a real account with a bad password.
+    supabase.rpc.mockResolvedValue({ data: true, error: null });
+
+    const { service } = await loadAuthService({ supabase });
+
+    await expect(service.signInWithEmailPassword({
+      email: 'collector@example.com',
+      password: 'wrong',
+    })).rejects.toThrow('Invalid login credentials');
+  });
+
+  it('falls back to the generic error if the existence check itself fails', async () => {
+    const supabase = makeSupabaseMock();
+    supabase.auth.signInWithPassword.mockResolvedValue({
+      data: { session: null },
+      error: Object.assign(new Error('Invalid login credentials'), { code: 'invalid_credentials' }),
+    });
+    supabase.rpc.mockResolvedValue({ data: null, error: new Error('rpc down') });
+
+    const { service } = await loadAuthService({ supabase });
+
+    await expect(service.signInWithEmailPassword({
+      email: 'collector@example.com',
+      password: 'wrong',
+    })).rejects.toThrow('Invalid login credentials');
+  });
 });
 
 describe('auth-service verifySignupCode', () => {

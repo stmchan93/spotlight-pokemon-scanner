@@ -14521,6 +14521,9 @@ class SpotlightScanService:
                     "isOwned": owned is not None,
                     "slabContext": slab_context,
                     "condition": condition,
+                    # Owned copy's print variant (e.g. "Holofoil") so the wishlist
+                    # rows can render "Variant · Condition" like the Collection.
+                    "variantName": variant_name,
                     "dayChangeAmount": day_change_amount,
                     "dayChangePercent": day_change_percent,
                 }
