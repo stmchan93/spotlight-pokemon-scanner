@@ -72,7 +72,12 @@ export function SearchField({
       ? styles.inputCompact
       : null;
 
-  const inputTextStyle = isCollection ? theme.typography.label : theme.typography.body;
+  // Typography tokens carry a lineHeight, but on iOS a lineHeight near the
+  // fontSize CLIPS the custom font's descenders inside TextInput (the "Lugia's
+  // g is cut off" bug — same fix as the auth fields). Strip it and let the
+  // font's own metrics size the line; the container height centers the text.
+  const inputTypography = isCollection ? theme.typography.label : theme.typography.body;
+  const inputTextStyle = { ...inputTypography, lineHeight: undefined };
 
   const iconColor = isMuted ? theme.colors.gray500 : theme.colors.gray400;
   const placeholderColor = placeholderTextColor ?? (isMuted ? theme.colors.gray500 : theme.colors.gray400);

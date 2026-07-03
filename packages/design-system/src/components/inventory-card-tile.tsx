@@ -1,5 +1,14 @@
 import { ArrowDown, ArrowUp, ArrowUpRightSquare, BoxIso, Star, StarSolid } from 'iconoir-react-native';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import {
+  Image,
+  Pressable,
+  StyleSheet,
+  View,
+  type ImageLoadEventData,
+  type LayoutChangeEvent,
+  type NativeSyntheticEvent,
+} from 'react-native';
 
 import { useSpotlightTheme } from '../theme';
 import { AppText } from './app-text';
@@ -137,6 +146,41 @@ export function InventoryCardTile({
   // outer shell (fill/border/corner radius) toggles with `bordered`.
   const artRadius = theme.layout.inventoryArtRadius;
 
+  // The art renders with resizeMode="contain" inside a SQUARE frame, so the
+  // image's drawn rect is inset from the frame (side gutters for portrait
+  // cards). The quantity chip must hug the IMAGE's top-left corner (Figma
+  // 2368:43026), not the frame's — measure the frame + the image's natural
+  // aspect and compute the contain-fit offset.
+  const [frameSize, setFrameSize] = useState<{ width: number; height: number } | null>(null);
+  const [imageAspect, setImageAspect] = useState<number | null>(null);
+  const handleFrameLayout = (event: LayoutChangeEvent) => {
+    const { width, height } = event.nativeEvent.layout;
+    setFrameSize((current) => (
+      current && current.width === width && current.height === height
+        ? current
+        : { width, height }
+    ));
+  };
+  const handleImageLoad = (event: NativeSyntheticEvent<ImageLoadEventData>) => {
+    const source = event.nativeEvent?.source;
+    if (source?.width && source?.height) {
+      setImageAspect(source.width / source.height);
+    }
+  };
+  const chipOffset = useMemo(() => {
+    if (!frameSize || !imageAspect || frameSize.width <= 0 || frameSize.height <= 0) {
+      return { left: 0, top: 0 };
+    }
+    const frameAspect = frameSize.width / frameSize.height;
+    if (imageAspect <= frameAspect) {
+      // Portrait-ish: height fills, horizontal gutters split evenly.
+      const drawnWidth = frameSize.height * imageAspect;
+      return { left: Math.max(0, (frameSize.width - drawnWidth) / 2), top: 0 };
+    }
+    const drawnHeight = frameSize.width / imageAspect;
+    return { left: 0, top: Math.max(0, (frameSize.height - drawnHeight) / 2) };
+  }, [frameSize, imageAspect]);
+
   const setLine = buildSetLine(setName, cardNumber);
   const qualityLine = buildQualityLine(kind, conditionLabel, graderLabel, gradeLabel);
   const showDelta =
@@ -168,12 +212,14 @@ export function InventoryCardTile({
     >
       <View style={styles.cardContent}>
         <View
+          onLayout={handleFrameLayout}
           style={[styles.imageFrame, { borderRadius: artRadius }]}
           testID={testID ? `${testID}-image-frame` : undefined}
         >
           {imageUrl ? (
             <Image
               accessibilityIgnoresInvertColors
+              onLoad={handleImageLoad}
               resizeMode="contain"
               source={{ uri: imageUrl }}
               style={[
@@ -193,7 +239,16 @@ export function InventoryCardTile({
           {/* Quantity chip (Figma 2368:43026): gray100 corner tag docked at the
               art's top-left — box icon + owned count, replacing "Qty: N". */}
           <View
-            style={[styles.quantityChip, { backgroundColor: theme.colors.gray100 }]}
+            style={[
+              styles.quantityChip,
+              {
+                backgroundColor: theme.colors.gray100,
+                // Hug the card's rounded top-left corner; the inner corner rounds 4.
+                borderTopLeftRadius: artRadius,
+                left: chipOffset.left,
+                top: chipOffset.top,
+              },
+            ]}
             testID={testID ? `${testID}-quantity` : undefined}
           >
             <BoxIso color={theme.colors.gray700} height={12} width={12} />
@@ -410,15 +465,14 @@ const styles = StyleSheet.create({
   },
   quantityChip: {
     alignItems: 'center',
-    // Docked at the art's TOP-LEFT (Figma 2368:43026); the inner corner rounds.
+    // Docked at the art's TOP-LEFT (Figma 2368:43026), flush with the image's
+    // drawn corner (left/top set dynamically); the inner corner rounds 4.
     borderBottomRightRadius: 4,
     flexDirection: 'row',
     gap: 2,
-    left: 0,
     paddingHorizontal: 8,
     paddingVertical: 3,
     position: 'absolute',
-    top: 0,
   },
   imagePlaceholder: {
     alignItems: 'center',
