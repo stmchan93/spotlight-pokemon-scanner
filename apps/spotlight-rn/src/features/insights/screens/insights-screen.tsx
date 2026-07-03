@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Pressable,
   RefreshControl,
@@ -319,6 +320,14 @@ export function InsightsScreen() {
           />
         </View>
 
+        {/* Refresh indicator sits top-center under the header (mirrors the
+            Collection page) instead of the native spinner's off-center spot. */}
+        {isRefreshing ? (
+          <View style={styles.refreshingRow} testID="insights-refreshing">
+            <ActivityIndicator color={colors.gray400} />
+          </View>
+        ) : null}
+
         {/* The PORTFOLIO tag renders inside the table's pinned header row so it
             left-aligns with the card column and shares the row with the metric
             labels (Figma 2179-8996/2179-9032). */}
@@ -333,10 +342,14 @@ export function InsightsScreen() {
               onLayout={handleLayout}
               contentInsetBottom={bottomNavClearance + 16}
               refreshControl={
+                // The table's list is WIDER than the screen (it pans
+                // horizontally), so the native spinner centered on it lands at
+                // the top-right. Keep the pull gesture but hide the native
+                // spinner; the page shows its own indicator under the header.
                 <RefreshControl
                   onRefresh={handleRefresh}
                   refreshing={isRefreshing}
-                  tintColor={colors.gray400}
+                  tintColor="transparent"
                 />
               }
             />
@@ -375,6 +388,11 @@ export function InsightsScreen() {
 }
 
 const styles = StyleSheet.create({
+  refreshingRow: {
+    alignItems: 'center',
+    paddingBottom: 4,
+    paddingTop: 8,
+  },
   safeArea: {
     flex: 1,
   },

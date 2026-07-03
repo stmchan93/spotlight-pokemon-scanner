@@ -218,25 +218,26 @@ export function InventoryCardTile({
                 </AppText>
               </View>
             )}
+          </View>
 
-            {/* Quantity chip (Figma 2368:43026): gray100 corner tag docked flush
-                at the CARD's top-left — box icon + owned count. */}
-            <View
-              style={[
-                styles.quantityChip,
-                {
-                  backgroundColor: theme.colors.gray100,
-                  // Hug the card's rounded top-left corner; the inner corner rounds 4.
-                  borderTopLeftRadius: artRadius,
-                },
-              ]}
-              testID={testID ? `${testID}-quantity` : undefined}
-            >
-              <BoxIso color={theme.colors.gray700} height={12} width={12} />
-              <AppText color="gray700" variant="overline">
-                {String(quantity)}
-              </AppText>
-            </View>
+          {/* Quantity chip (Figma 2368:43026): gray100 corner tag pinned to the
+              tile's top-left corner — OUTSIDE the centered card art (it sits in
+              the gutter), so it never covers the card's printing. */}
+          <View
+            style={[
+              styles.quantityChip,
+              {
+                backgroundColor: theme.colors.gray100,
+                // Hug the tile's rounded top-left corner; the inner corner rounds 4.
+                borderTopLeftRadius: artRadius,
+              },
+            ]}
+            testID={testID ? `${testID}-quantity` : undefined}
+          >
+            <BoxIso color={theme.colors.gray700} height={12} width={12} />
+            <AppText color="gray700" variant="overline">
+              {String(quantity)}
+            </AppText>
           </View>
         </View>
 
