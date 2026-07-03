@@ -4226,6 +4226,22 @@ class SpotlightScanService:
             )
         if yesterday_row is None:
             return None, None
+        # Price the day-ago snapshot for the SAME printing today's price used.
+        # When the entry has no explicit variant (e.g. a raw vintage card owned
+        # without a chosen printing), today's live price falls back to the
+        # snapshot's default printing (e.g. "Unlimited Holofoil"), but the day-ago
+        # resolver would independently re-pick a default — and its priority list is
+        # modern-only, so it fell back alphabetically to "1st Edition". That diffed
+        # Unlimited ($543.07) against 1st Edition ($165.50) and reported a phantom
+        # +$377.57 "day change". Carry today's resolved variant forward so both
+        # sides compare like-for-like (variant + condition for raw, grade + variant
+        # for graded).
+        today_variant = (
+            str(today_pricing.get("variant") or "").strip() or None
+            if isinstance(today_pricing, dict)
+            else None
+        )
+        effective_variant = variant_name or today_variant
         # Deck-entry conditions are stored as long-form codes (e.g. ``near_mint``).
         # ``_portfolio_history_price_row_from_history_row`` expects the
         # short-form raw context key (``NM``/``LP``/...) used inside the
@@ -4235,7 +4251,7 @@ class SpotlightScanService:
             "itemKind": "slab" if str(item_kind or "").strip().lower() == "slab" else "raw",
             "grader": grader,
             "grade": grade,
-            "variantName": variant_name,
+            "variantName": effective_variant,
         }
         yesterday_pricing = self._portfolio_history_price_row_from_history_row(
             history_entry,
