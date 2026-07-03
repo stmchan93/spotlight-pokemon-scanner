@@ -1,14 +1,17 @@
 import { ArrowDown, ArrowUp, ArrowUpRightSquare, BoxIso, Star, StarSolid } from 'iconoir-react-native';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import {
   Image,
   Pressable,
   StyleSheet,
   View,
   type ImageLoadEventData,
-  type LayoutChangeEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
+
+// Standard portrait trading-card ratio (Scrydex renders ~245×342) — the art
+// wrapper's default shape until the real image reports its dimensions.
+const DEFAULT_CARD_ASPECT = 245 / 342;
 
 import { useSpotlightTheme } from '../theme';
 import { AppText } from './app-text';
@@ -146,40 +149,18 @@ export function InventoryCardTile({
   // outer shell (fill/border/corner radius) toggles with `bordered`.
   const artRadius = theme.layout.inventoryArtRadius;
 
-  // The art renders with resizeMode="contain" inside a SQUARE frame, so the
-  // image's drawn rect is inset from the frame (side gutters for portrait
-  // cards). The quantity chip must hug the IMAGE's top-left corner (Figma
-  // 2368:43026), not the frame's — measure the frame + the image's natural
-  // aspect and compute the contain-fit offset.
-  const [frameSize, setFrameSize] = useState<{ width: number; height: number } | null>(null);
+  // The art is letterboxed inside a SQUARE frame, so the frame's top-left is
+  // whitespace, not the card's corner. Instead of measuring offsets, the image
+  // + quantity chip live inside a CARD-SHAPED wrapper (the image's real aspect,
+  // defaulting to the standard portrait card ratio) centered in the frame — the
+  // chip docks to the wrapper's corner, which IS the card's corner.
   const [imageAspect, setImageAspect] = useState<number | null>(null);
-  const handleFrameLayout = (event: LayoutChangeEvent) => {
-    const { width, height } = event.nativeEvent.layout;
-    setFrameSize((current) => (
-      current && current.width === width && current.height === height
-        ? current
-        : { width, height }
-    ));
-  };
   const handleImageLoad = (event: NativeSyntheticEvent<ImageLoadEventData>) => {
     const source = event.nativeEvent?.source;
     if (source?.width && source?.height) {
       setImageAspect(source.width / source.height);
     }
   };
-  const chipOffset = useMemo(() => {
-    if (!frameSize || !imageAspect || frameSize.width <= 0 || frameSize.height <= 0) {
-      return { left: 0, top: 0 };
-    }
-    const frameAspect = frameSize.width / frameSize.height;
-    if (imageAspect <= frameAspect) {
-      // Portrait-ish: height fills, horizontal gutters split evenly.
-      const drawnWidth = frameSize.height * imageAspect;
-      return { left: Math.max(0, (frameSize.width - drawnWidth) / 2), top: 0 };
-    }
-    const drawnHeight = frameSize.width / imageAspect;
-    return { left: 0, top: Math.max(0, (frameSize.height - drawnHeight) / 2) };
-  }, [frameSize, imageAspect]);
 
   const setLine = buildSetLine(setName, cardNumber);
   const qualityLine = buildQualityLine(kind, conditionLabel, graderLabel, gradeLabel);
@@ -212,49 +193,50 @@ export function InventoryCardTile({
     >
       <View style={styles.cardContent}>
         <View
-          onLayout={handleFrameLayout}
           style={[styles.imageFrame, { borderRadius: artRadius }]}
           testID={testID ? `${testID}-image-frame` : undefined}
         >
-          {imageUrl ? (
-            <Image
-              accessibilityIgnoresInvertColors
-              onLoad={handleImageLoad}
-              resizeMode="contain"
-              source={{ uri: imageUrl }}
+          <View
+            style={[styles.artWrap, { aspectRatio: imageAspect ?? DEFAULT_CARD_ASPECT }]}
+          >
+            {imageUrl ? (
+              <Image
+                accessibilityIgnoresInvertColors
+                onLoad={handleImageLoad}
+                resizeMode="contain"
+                source={{ uri: imageUrl }}
+                style={[
+                  styles.image,
+                  { borderRadius: artRadius },
+                ]}
+                testID={testID ? `${testID}-image` : undefined}
+              />
+            ) : (
+              <View style={styles.imagePlaceholder}>
+                <AppText color="textSecondary" variant="micro">
+                  CARD
+                </AppText>
+              </View>
+            )}
+
+            {/* Quantity chip (Figma 2368:43026): gray100 corner tag docked flush
+                at the CARD's top-left — box icon + owned count. */}
+            <View
               style={[
-                styles.image,
-                { borderRadius: artRadius },
+                styles.quantityChip,
+                {
+                  backgroundColor: theme.colors.gray100,
+                  // Hug the card's rounded top-left corner; the inner corner rounds 4.
+                  borderTopLeftRadius: artRadius,
+                },
               ]}
-              testID={testID ? `${testID}-image` : undefined}
-            />
-          ) : (
-            <View style={styles.imagePlaceholder}>
-              <AppText color="textSecondary" variant="micro">
-                CARD
+              testID={testID ? `${testID}-quantity` : undefined}
+            >
+              <BoxIso color={theme.colors.gray700} height={12} width={12} />
+              <AppText color="gray700" variant="overline">
+                {String(quantity)}
               </AppText>
             </View>
-          )}
-
-          {/* Quantity chip (Figma 2368:43026): gray100 corner tag docked at the
-              art's top-left — box icon + owned count, replacing "Qty: N". */}
-          <View
-            style={[
-              styles.quantityChip,
-              {
-                backgroundColor: theme.colors.gray100,
-                // Hug the card's rounded top-left corner; the inner corner rounds 4.
-                borderTopLeftRadius: artRadius,
-                left: chipOffset.left,
-                top: chipOffset.top,
-              },
-            ]}
-            testID={testID ? `${testID}-quantity` : undefined}
-          >
-            <BoxIso color={theme.colors.gray700} height={12} width={12} />
-            <AppText color="gray700" variant="overline">
-              {String(quantity)}
-            </AppText>
           </View>
         </View>
 
@@ -457,8 +439,18 @@ const styles = StyleSheet.create({
     height: '100%',
     width: '100%',
   },
+  // Card-shaped inner wrapper: the image fills it exactly, so children pinned
+  // to its corners sit on the CARD, not the letterboxed frame.
+  artWrap: {
+    alignSelf: 'center',
+    height: '100%',
+    maxWidth: '100%',
+    position: 'relative',
+  },
   imageFrame: {
+    alignItems: 'center',
     aspectRatio: 1,
+    justifyContent: 'center',
     overflow: 'hidden',
     position: 'relative',
     width: '100%',
@@ -470,9 +462,12 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 4,
     flexDirection: 'row',
     gap: 2,
+    left: 0,
     paddingHorizontal: 8,
     paddingVertical: 3,
     position: 'absolute',
+    top: 0,
+    zIndex: 1,
   },
   imagePlaceholder: {
     alignItems: 'center',
