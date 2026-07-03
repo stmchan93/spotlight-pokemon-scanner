@@ -271,6 +271,19 @@ export function InsightsScreen() {
       </View>
 
       <View style={styles.pageBody}>
+        {/* Refresh indicator: an ABSOLUTE overlay pinned to the very top of the
+            page (in the empty center of the Pokemon row, between the Insights
+            header and the "Pokemon" title) rather than an inline row. Inline it
+            reflowed the whole page — pushing the table and its column headers
+            down ~48px on every pull — so the spinner read as mid-page and the
+            chart headers weren't static. Overlaying it keeps the headers fixed
+            and puts the spinner up top. */}
+        {isRefreshing ? (
+          <View pointerEvents="none" style={styles.refreshingOverlay} testID="insights-refreshing">
+            <ActivityIndicator color={colors.gray400} />
+          </View>
+        ) : null}
+
         {/* Category header — chevron intentionally omitted per the Figma
             annotation until more TCG categories exist. */}
         <View style={[styles.categoryRow, styles.gutter]}>
@@ -319,14 +332,6 @@ export function InsightsScreen() {
             testID="insights-filter-chip-row"
           />
         </View>
-
-        {/* Refresh indicator sits top-center under the header (mirrors the
-            Collection page) instead of the native spinner's off-center spot. */}
-        {isRefreshing ? (
-          <View style={styles.refreshingRow} testID="insights-refreshing">
-            <ActivityIndicator color={colors.gray400} />
-          </View>
-        ) : null}
 
         {/* The PORTFOLIO tag renders inside the table's pinned header row so it
             left-aligns with the card column and shares the row with the metric
@@ -388,10 +393,16 @@ export function InsightsScreen() {
 }
 
 const styles = StyleSheet.create({
-  refreshingRow: {
+  refreshingOverlay: {
     alignItems: 'center',
-    paddingBottom: 4,
-    paddingTop: 8,
+    // Pinned to the top of the page body — sits in the empty center of the
+    // Pokemon row (title left, item-count right) so it never reflows the table
+    // below. zIndex keeps it above the category row.
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 8,
+    zIndex: 5,
   },
   safeArea: {
     flex: 1,
