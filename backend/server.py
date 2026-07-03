@@ -5346,7 +5346,12 @@ class SpotlightScanService:
                     self.connection,
                     owner_user_id=owner_user_id,
                     deck_entry_id=previous_deck_entry_id,
-                    card_id=card_id,
+                    # The OLD entry's card, not the request's: on a cross-card
+                    # replace (EN/JP swap) the portfolio-history ledger must
+                    # subtract the card that actually left. Writing the new
+                    # card here made history net the new card to zero and keep
+                    # valuing the old one forever.
+                    card_id=existing_card_id or card_id,
                     event_kind="replace_out",
                     quantity_delta=-existing_quantity,
                     currency_code=currency_code,

@@ -1663,6 +1663,22 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         self.assertEqual(active_payload["entries"][0]["card"]["id"], "swsh7-215")
         self.assertEqual(inactive_entry_by_id[original_payload["deckEntryID"]]["quantity"], 0)
 
+        # Ledger semantics: replace_out subtracts the card that LEFT (the JP
+        # printing), replace_in adds the one that arrived — otherwise the
+        # portfolio history nets the new card to zero and values the old one
+        # forever.
+        events = self.service.connection.execute(
+            """
+            SELECT card_id, event_kind, quantity_delta FROM deck_entry_events
+            WHERE event_kind IN ('replace_in', 'replace_out')
+            ORDER BY created_at ASC, id ASC
+            """
+        ).fetchall()
+        kinds = {(row["event_kind"], row["card_id"]) for row in events}
+        self.assertIn(("replace_out", "swsh6a_ja-95"), kinds)
+        self.assertIn(("replace_in", "swsh7-215"), kinds)
+        self.assertNotIn(("replace_out", "swsh7-215"), kinds)
+
         # An unknown target card is still rejected.
         with self.assertRaises(ValueError):
             self.service.replace_deck_entry(
