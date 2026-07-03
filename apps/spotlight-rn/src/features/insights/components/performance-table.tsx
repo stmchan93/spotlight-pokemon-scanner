@@ -21,7 +21,9 @@ import { formatCompactCurrency, formatCurrency } from '@/features/portfolio/comp
 // horizontally with the metrics. This keeps virtualization robust (one list, one
 // getItemLayout, no two-list scroll-sync) and the card column is wide enough that
 // little horizontal panning is needed to read it.
-const CARD_COL_WIDTH = 168;
+// Wide enough that the text block (192 − thumb − gap = 132pt) fits the longest
+// common lines ("Reverse Holofoil", "Near Mint · ×3") without truncating.
+const CARD_COL_WIDTH = 192;
 const ROW_HEIGHT = 100; // taller rows: subtitle line + ~5 rows per iPhone screen
 const CELL_GAP = 16;
 // The card column sits 24px from the first metric column (Figma 2179-8996 vs
@@ -31,8 +33,8 @@ const CARD_METRIC_EXTRA_GAP = 24 - CELL_GAP;
 const HEADER_BOTTOM_GAP = 24;
 const CHART_W = 62;
 const CELL_W = 60;
-const THUMB_W = 44;
-const THUMB_H = 62;
+const THUMB_W = 52;
+const THUMB_H = 73; // keeps the 44x62 card aspect (~1.4)
 
 // Figma 2179-9144 labels the G/L pair "Tdy", but the backend tracks month-over-
 // month G/L — keep the Mth wording, adopt the design's title casing.
@@ -414,10 +416,14 @@ const styles = StyleSheet.create({
     marginRight: CARD_METRIC_EXTRA_GAP,
   },
   portfolioTag: {
-    alignSelf: 'flex-start',
+    // Spans the full card column (Figma 2179-8997 fills its column) so the
+    // Chart header sits exactly 24px to the tag's right, not 24px past the
+    // (much wider) column edge.
+    alignItems: 'center',
     borderRadius: 4,
     paddingHorizontal: 8,
     paddingVertical: 4,
+    width: CARD_COL_WIDTH,
   },
   dataRow: {
     alignItems: 'center',

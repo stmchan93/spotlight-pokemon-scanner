@@ -5252,12 +5252,6 @@ export class HttpSpotlightRepository implements SpotlightRepository {
   // read — routed through requestJsonRead so a backpressure 503 retries silently.
   // Defensive mapping tolerates missing fields (→ null / []).
   async getPortfolioPerformance(): Promise<PortfolioPerformance> {
-    const empty: PortfolioPerformance = {
-      itemCount: 0,
-      currencyCode: 'USD',
-      refreshedAt: '',
-      rows: [],
-    };
     const response = await this.requestJsonRead<{
       itemCount?: number;
       currencyCode?: string;
@@ -5265,7 +5259,12 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       rows?: Array<Record<string, unknown>>;
     }>(`${this.baseUrl}/api/v1/portfolio/performance`);
     if (response.kind !== 'success' || !response.data) {
-      return empty;
+      // THROW on transport failure — never return an empty payload. The Insights
+      // screen keeps its last-good rows on a rejected read; a fabricated
+      // zero-row "success" here made a failed pull-to-refresh wipe the table
+      // into the empty state. A truly empty portfolio still resolves normally
+      // (success response with rows: []).
+      throw new Error('portfolio performance read failed');
     }
     const raw = response.data;
     const num = (value: unknown): number | null =>
