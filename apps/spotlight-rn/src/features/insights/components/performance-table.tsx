@@ -174,11 +174,24 @@ export const PerformanceTable = forwardRef<
     [],
   );
 
-  // Color by the DISPLAYED value: a gain that rounds to $0 / 0% reads neutral
-  // (gray900) instead of green/red so a "$0" cell is never misleadingly tinted.
+  // Color by the DISPLAYED value: a cell that renders "0%" reads neutral
+  // (gray900) instead of green/red so it's never misleadingly tinted. Percent
+  // cells display whole percents (percent()), so zero = rounds to 0.
   const deltaColor = useCallback(
     (value: number | null) => {
       if (value == null || Math.round(value) === 0) {
+        return theme.colors.gray900;
+      }
+      return value > 0 ? theme.colors.deltaUpText : theme.colors.deltaDownText;
+    },
+    [theme.colors.deltaDownText, theme.colors.deltaUpText, theme.colors.gray900],
+  );
+  // Dollar G/L cells display CENTS (gainMoney's 0.005 threshold), so they color
+  // on the same threshold — a "−$0.30" month loss must read red even though it
+  // rounds to $0. (Rounding-based neutral left small losses black.)
+  const dollarDeltaColor = useCallback(
+    (value: number | null) => {
+      if (value == null || Math.abs(value) < 0.005) {
         return theme.colors.gray900;
       }
       return value > 0 ? theme.colors.deltaUpText : theme.colors.deltaDownText;
@@ -257,13 +270,13 @@ export const PerformanceTable = forwardRef<
           <Text style={[theme.typography.body, styles.cell, { color: theme.colors.gray900 }]}>
             {money(row.currentValue)}
           </Text>
-          <Text style={[theme.typography.body, styles.cell, { color: deltaColor(row.monthGainDollar) }]}>
+          <Text style={[theme.typography.body, styles.cell, { color: dollarDeltaColor(row.monthGainDollar) }]}>
             {gainMoney(row.monthGainDollar)}
           </Text>
           <Text style={[theme.typography.body, styles.cell, { color: deltaColor(row.monthGainPercent) }]}>
             {percent(row.monthGainPercent)}
           </Text>
-          <Text style={[theme.typography.body, styles.cell, { color: deltaColor(totalDollar) }]}>
+          <Text style={[theme.typography.body, styles.cell, { color: dollarDeltaColor(totalDollar) }]}>
             {gainMoney(totalDollar)}
           </Text>
           <Text style={[theme.typography.body, styles.cell, { color: deltaColor(totalPercent) }]}>
@@ -277,6 +290,7 @@ export const PerformanceTable = forwardRef<
     },
     [
       deltaColor,
+      dollarDeltaColor,
       gainMoney,
       money,
       onSelectRow,
