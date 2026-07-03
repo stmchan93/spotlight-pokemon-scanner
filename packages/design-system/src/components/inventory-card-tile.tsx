@@ -453,6 +453,9 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     justifyContent: 'center',
     overflow: 'hidden',
+    // Clear the quantity chip pinned at the tile's top-left (chip ≈ 24px tall)
+    // so the art never sits under it.
+    paddingTop: 28,
     position: 'relative',
     width: '100%',
   },
