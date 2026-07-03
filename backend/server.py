@@ -5410,6 +5410,61 @@ class SpotlightScanService:
             self.connection.rollback()
             raise
 
+        # Compute the NEW identity's market price with the SAME logic deck_entries
+        # uses, so the client can update its optimistic Collection row with the
+        # correct price immediately. Without this the PDP reuses the card's base
+        # (raw) price for a just-graded entry, so the Collection showed a stale
+        # price until the slow (5-10s) dashboard refetch recomputed it. Additive
+        # to the response payload — older clients ignore the extra fields.
+        market_price: float | None = None
+        has_market_price = False
+        market_currency_code: str | None = None
+        try:
+            pricing_context = (
+                self._slab_pricing_context(
+                    grader=grader,
+                    grade=grade,
+                    cert_number=cert_number,
+                    preferred_variant=variant_name,
+                )
+                if grader or grade
+                else self._raw_pricing_context(
+                    preferred_variant=variant_name,
+                    preferred_condition=condition,
+                )
+            )
+            snapshot_rows = self._price_snapshot_rows_by_card_id([card_id])
+            pricing = self._display_pricing_summary_for_context(
+                card_id,
+                pricing_context=pricing_context,
+                snapshot_row=snapshot_rows.get(card_id),
+            )
+            if pricing is not None:
+                raw_market = pricing.get("market")
+                if isinstance(raw_market, (int, float)):
+                    market_price = round(float(raw_market), 2)
+                pricing_currency = str(pricing.get("currencyCode") or "").strip()
+                if pricing_currency:
+                    market_currency_code = pricing_currency
+                if market_price is not None:
+                    # Mirror mapDeckEntry.hasMarketPrice: graded prices always
+                    # display; a raw price only counts when it matches the
+                    # requested condition (else the entry shows "—").
+                    if grader or grade:
+                        has_market_price = True
+                    else:
+                        has_market_price = self._raw_pricing_matches_context(
+                            pricing,
+                            preferred_variant=variant_name,
+                            preferred_condition=condition,
+                        )
+        except Exception:
+            # Pricing is a best-effort optimistic hint; never fail the save on it.
+            # The client reconciles against deck_entries on its next refresh.
+            market_price = None
+            has_market_price = False
+            market_currency_code = None
+
         return {
             "previousDeckEntryID": previous_deck_entry_id,
             "deckEntryID": next_deck_entry_id,
@@ -5419,6 +5474,9 @@ class SpotlightScanService:
             "quantity": quantity,
             "unitPrice": round(unit_price, 2) if unit_price is not None else None,
             "updatedAt": updated_at,
+            "marketPrice": market_price,
+            "hasMarketPrice": has_market_price,
+            "currencyCode": market_currency_code,
         }
 
     def delete_deck_entry(self, payload: dict[str, Any]) -> dict[str, Any]:

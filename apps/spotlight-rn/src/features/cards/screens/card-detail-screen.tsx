@@ -1313,9 +1313,24 @@ export function CardDetailScreen({
           setName: detailFresh ? detail.setName : selectedEntry.setName,
           imageUrl: detailFresh ? detail.imageUrl : selectedEntry.imageUrl,
           largeImageUrl: detailFresh ? detail.largeImageUrl ?? null : selectedEntry.largeImageUrl,
-          marketPrice: detailFresh ? detail.marketPrice ?? 0 : selectedEntry.marketPrice,
-          hasMarketPrice: detailFresh ? detail.marketPrice != null : selectedEntry.hasMarketPrice,
-          currencyCode: selectedEntry.currencyCode || 'USD',
+          // Prefer the server-computed price for the NEW identity (grade/variant/
+          // condition) so a just-graded entry shows the correct grade price
+          // instantly. `detail.marketPrice` is the card's BASE (raw) price and is
+          // wrong for a grade change; only fall back to it (or the old entry's
+          // price) when the backend didn't return a market price.
+          marketPrice:
+            result.marketPrice != null
+              ? result.marketPrice
+              : detailFresh
+                ? detail.marketPrice ?? 0
+                : selectedEntry.marketPrice,
+          hasMarketPrice:
+            result.marketPrice != null
+              ? result.hasMarketPrice ?? true
+              : detailFresh
+                ? detail.marketPrice != null
+                : selectedEntry.hasMarketPrice,
+          currencyCode: result.currencyCode || selectedEntry.currencyCode || 'USD',
           quantity: editQuantity,
           addedAt: selectedEntry.addedAt,
           kind: editIsRaw ? 'raw' : 'graded',

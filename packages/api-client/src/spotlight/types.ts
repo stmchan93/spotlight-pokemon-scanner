@@ -951,6 +951,13 @@ export type PortfolioEntryReplaceResponsePayload = {
   quantity: number;
   unitPrice: number | null;
   updatedAt: string;
+  // Market price of the NEW identity, computed server-side with the same logic
+  // as the inventory list, so the client's optimistic Collection row shows the
+  // correct price immediately after a grade/variant/condition change instead of
+  // reusing the card's base price. Optional: older backends omit these.
+  marketPrice?: number | null;
+  hasMarketPrice?: boolean;
+  currencyCode?: string | null;
 };
 
 export type PortfolioEntryDeleteRequestPayload = {

@@ -142,5 +142,70 @@ class CreateDeckEntrySlabVariantTest(unittest.TestCase):
         self.assertEqual(row["variant_name"], "Holofoil")
 
 
+class ReplaceDeckEntryReturnsPriceTest(unittest.TestCase):
+    """`replace_deck_entry` must return the NEW identity's market price so the
+    client can optimistically show the correct grade price immediately instead of
+    reusing the card's base (raw) price until the slow dashboard refetch.
+    """
+
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory()
+        database_path = Path(self.tempdir.name) / "replace-price.sqlite"
+        connection = connect(database_path)
+        apply_schema(connection, BACKEND_ROOT / "schema.sql")
+        upsert_catalog_card(
+            connection,
+            {
+                "id": "topsun_ja-88",
+                "name": "Grimer",
+                "setName": "Topsun",
+                "number": "088",
+                "setId": "topsun_ja",
+            },
+            REPO_ROOT,
+            "2026-06-17T00:00:00Z",
+            refresh_embeddings=False,
+        )
+        connection.commit()
+        connection.close()
+        self.service = SpotlightScanService(database_path, REPO_ROOT)
+
+    def tearDown(self) -> None:
+        self.service.connection.close()
+        self.tempdir.cleanup()
+
+    def test_replace_response_includes_market_price_fields(self) -> None:
+        self.service.create_deck_entry(
+            {
+                "cardID": "topsun_ja-88",
+                "selectionSource": "manual_search",
+                "quantity": 1,
+                "addedAt": "2026-06-17T07:27:30Z",
+                "variantName": "Holofoil",
+            }
+        )
+        entry = self.service.connection.execute(
+            "SELECT id FROM deck_entries WHERE card_id = ?",
+            ("topsun_ja-88",),
+        ).fetchone()
+        self.assertIsNotNone(entry)
+
+        result = self.service.replace_deck_entry(
+            {
+                "deckEntryID": entry["id"],
+                "cardID": "topsun_ja-88",
+                "quantity": 1,
+                "unitPrice": 0,
+                "slabContext": {"grader": "PSA", "grade": "10"},
+            }
+        )
+        # Additive, best-effort pricing hint — keys always present, never raises,
+        # and hasMarketPrice is a real bool even when there's no price snapshot.
+        self.assertIn("marketPrice", result)
+        self.assertIn("hasMarketPrice", result)
+        self.assertIn("currencyCode", result)
+        self.assertIsInstance(result["hasMarketPrice"], bool)
+
+
 if __name__ == "__main__":
     unittest.main()
