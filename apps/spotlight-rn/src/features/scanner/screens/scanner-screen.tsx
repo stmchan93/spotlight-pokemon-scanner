@@ -498,7 +498,10 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
               ]}
               testID={`scanner-tray-add-${index}`}
             >
-              <Text style={styles.captureAddPillLabel}>ADD ▾</Text>
+              <Text style={styles.captureAddPillLabel}>ADD</Text>
+              {/* Real chevron glyph (Figma 1874:13192) — the old "▾" text
+                  triangle read as a down ARROW. */}
+              <IconChevronDown color={colors.gray0} size={14} strokeWidth={2} />
             </Pressable>
           </View>
         ) : null}
@@ -3177,11 +3180,13 @@ const styles = StyleSheet.create({
     width: 108,
   },
   captureAddPill: {
-    // Figma "ADD ▾" pill: filled purple/500 #A54BFA, px-12/py-4, radius-8,
-    // Plus Jakarta Sans SemiBold 13, white label.
+    // Figma "ADD ⌄" pill (1874:13192): filled purple/500 #A54BFA, px-12/py-4,
+    // radius-8, Plus Jakarta Sans SemiBold 13 white label + 14px chevron.
     alignItems: 'center',
     backgroundColor: colors.scannerAddPurple,
     borderRadius: radii.sm,
+    flexDirection: 'row',
+    gap: 2,
     justifyContent: 'center',
     minHeight: 26,
     paddingHorizontal: 12,

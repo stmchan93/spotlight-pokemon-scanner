@@ -304,7 +304,11 @@ const styles = StyleSheet.create({
   // Right-aligned rail of circular actions, vertically centered against the row,
   // 16px between each group (Figma 1768:4056/4060).
   captureActionRail: {
-    alignItems: 'center',
+    // Top-aligned, not centered: the chip+label group then ends level with the
+    // row's ADD pill (its bottom ≈ the Collection label's bottom) and the chips
+    // sit up by the tray header's TOTAL chip — the alignment ask on Figma
+    // 1768-4056..4063.
+    alignItems: 'flex-start',
     flexDirection: 'row',
     gap: recentCaptureActionGap,
     justifyContent: 'flex-end',

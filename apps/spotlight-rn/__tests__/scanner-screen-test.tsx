@@ -1240,7 +1240,7 @@ describe('ScannerScreen', () => {
     // The inline ADD ▾ pill opens the per-row menu; picking Wishlist favorites
     // the active candidate immediately (no confirm sheet).
     const addPill = await screen.findByTestId('scanner-tray-add-0');
-    expect(addPill).toHaveTextContent('ADD ▾');
+    expect(addPill).toHaveTextContent('ADD');
     fireEvent.press(addPill, {
       currentTarget: {
         measureInWindow: (cb: (x: number, y: number, w: number, h: number) => void) =>
