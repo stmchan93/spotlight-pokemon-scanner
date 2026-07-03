@@ -4,6 +4,7 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  IconChevronDown,
   IconChevronLeft,
   IconSearch,
 } from '@tabler/icons-react-native';
@@ -2626,7 +2627,14 @@ export function ScannerScreen({
                     ref={addAllTriggerRef}
                     testID="scanner-tray-add-all"
                   >
-                    <Text style={styles.trayAddAllLabel}>ADD ALL ▾</Text>
+                    <View style={styles.trayAddAllRow}>
+                      <Text style={styles.trayAddAllLabel}>ADD ALL</Text>
+                      <IconChevronDown
+                        color={colors.purple500}
+                        size={15}
+                        strokeWidth={2}
+                      />
+                    </View>
                   </Pressable>
                 ) : null}
               </View>
@@ -2667,7 +2675,20 @@ export function ScannerScreen({
                   scrollEventThrottle={16}
                   showsVerticalScrollIndicator={isTrayExpanded && trayScrollEnabled}
                   style={styles.trayScroll}
-                  contentContainerStyle={styles.trayScrollContent}
+                  contentContainerStyle={[
+                    styles.trayScrollContent,
+                    // Pin the scroll content to its full intrinsic height so the
+                    // row list geometry is FIXED and independent of the parent
+                    // viewport height, which springs from tall→short on collapse.
+                    // Without this, every frame of the collapse shrinks the
+                    // viewport and RN re-lays-out the ScrollView content; with a
+                    // tall list that per-frame reflow drives each row's
+                    // `layout={LinearTransition}` and janks for ~0.5s. Pinning the
+                    // height means the viewport just clips (native height anim) and
+                    // the rows never re-measure. (Empty case is handled above, so
+                    // trayContentHeight is always > 0 here.)
+                    { height: trayContentHeight },
+                  ]}
                   testID="scanner-tray-scroll"
                 >
                   {visibleCaptures.map(renderCaptureRow)}
@@ -3042,6 +3063,11 @@ const styles = StyleSheet.create({
   trayInfoPillLabel: {
     ...textStyles.labelStrong,
     color: colors.gray400,
+  },
+  trayAddAllRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 2,
   },
   trayAddAllLabel: {
     ...textStyles.labelStrong,

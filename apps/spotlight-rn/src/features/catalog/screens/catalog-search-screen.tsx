@@ -426,7 +426,6 @@ export function CatalogSearchScreen({
         <SearchField
           autoCapitalize="none"
           autoCorrect={false}
-          autoFocus
           containerStyle={[
             styles.searchField,
             {

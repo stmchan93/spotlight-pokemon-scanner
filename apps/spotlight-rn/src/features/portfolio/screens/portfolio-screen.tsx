@@ -585,15 +585,10 @@ export function PortfolioScreen({
             />
           </View>
 
-          {model.loadError ? (
-            <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
-              <StateCard
-                message={model.loadError}
-                title="Could not refresh your backend data"
-                variant="field"
-              />
-            </View>
-          ) : model.isDashboardStale ? (
+          {model.loadError || model.isDashboardStale ? (
+            // Slow/failed background refresh: never alarm with a "couldn't refresh"
+            // error — the last data stays on screen and the app keeps revalidating,
+            // so show a gentle, low-key "still loading" hint instead.
             <Text
               style={[
                 theme.typography.captionMedium,
@@ -602,7 +597,7 @@ export function PortfolioScreen({
               ]}
               testID="portfolio-stale-hint"
             >
-              Couldn’t refresh just now — showing your last update.
+              Your backend data is loading…
             </Text>
           ) : null}
 

@@ -80,8 +80,8 @@ export function AddAllMenu({
         style={[
           styles.card,
           {
-            backgroundColor: theme.colors.gray0,
-            borderRadius: 0,
+            backgroundColor: theme.colors.gray100,
+            borderRadius: theme.radii.lg,
             left,
             ...verticalStyle,
           },
@@ -92,7 +92,12 @@ export function AddAllMenu({
           accessibilityLabel="Add to collection"
           accessibilityRole="button"
           onPress={() => onSelect('collection')}
-          style={({ pressed }) => [styles.row, { opacity: pressed ? 0.6 : 1 }]}
+          style={({ pressed }) => [
+            styles.row,
+            styles.rowSeparated,
+            { borderBottomColor: theme.colors.gray200 },
+            { backgroundColor: pressed ? theme.colors.gray200 : 'transparent' },
+          ]}
           testID={`${testID}-collection`}
         >
           <GridPlus color={theme.colors.gray900} height={20} width={20} />
@@ -105,7 +110,12 @@ export function AddAllMenu({
           accessibilityLabel="Add to wishlist"
           accessibilityRole="button"
           onPress={() => onSelect('wishlist')}
-          style={({ pressed }) => [styles.row, { opacity: pressed ? 0.6 : 1 }]}
+          style={({ pressed }) => [
+            styles.row,
+            styles.rowSeparated,
+            { borderBottomColor: theme.colors.gray200 },
+            { backgroundColor: pressed ? theme.colors.gray200 : 'transparent' },
+          ]}
           testID={`${testID}-wishlist`}
         >
           <Bookmark color={theme.colors.gray900} height={20} width={20} />
@@ -118,7 +128,10 @@ export function AddAllMenu({
           accessibilityLabel="Delete"
           accessibilityRole="button"
           onPress={() => onSelect('remove')}
-          style={({ pressed }) => [styles.row, { opacity: pressed ? 0.6 : 1 }]}
+          style={({ pressed }) => [
+            styles.row,
+            { backgroundColor: pressed ? theme.colors.gray200 : 'transparent' },
+          ]}
           testID={`${testID}-remove`}
         >
           <Trash color={theme.colors.deltaDownText} height={20} width={20} />
@@ -137,7 +150,9 @@ const styles = StyleSheet.create({
   },
   card: {
     minWidth: CARD_WIDTH,
-    paddingVertical: 6,
+    // Clip the row press-highlights to the rounded corners so it reads as one
+    // iOS-style context-menu surface.
+    overflow: 'hidden',
     position: 'absolute',
     // Subtle floating-menu shadow over the dark tray.
     elevation: 8,
@@ -150,7 +165,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 12,
+  },
+  // Hairline separator between stacked rows (iOS context-menu style).
+  rowSeparated: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   label: {
     marginLeft: 12,

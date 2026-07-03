@@ -1,4 +1,5 @@
 import { Stack } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import { useRef } from 'react';
 
 import { TabsPageContext } from '@/contexts/tabs-page-context';
@@ -20,6 +21,10 @@ export default function BrowseStackLayout() {
         setCollectionEditing: () => {},
       }}
     >
+      {/* Re-assert dark (visible) status-bar icons: pushed stack screens (PDP,
+          sales history, etc.) present as their own iOS view controllers, so the
+          root layout's StatusBar doesn't stick and light-on-white icons vanish. */}
+      <StatusBar style="dark" />
       <Stack
         screenOptions={{
           animation: 'default',

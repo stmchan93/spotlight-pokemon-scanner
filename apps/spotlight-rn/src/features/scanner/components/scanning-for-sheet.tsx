@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
-import { Modal, PanResponder, Pressable, StyleSheet, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Dimensions, Easing, Modal, PanResponder, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
@@ -12,6 +12,8 @@ import {
 import type { ScannerCardType } from '@/features/scanner/use-scanner-target-config';
 
 import { RoundFlag } from './round-flag';
+
+const SCREEN_HEIGHT = Dimensions.get('window').height;
 
 // Trading-card games we intend to support but haven't shipped yet. Rendered as
 // disabled rows with a "Coming Soon" tag per the Figma "Scanning for" sheet
@@ -45,16 +47,55 @@ export function ScanningForSheet({
 }: ScanningForSheetProps) {
   const insets = useSafeAreaInsets();
 
+  // Slide the sheet UP from the bottom (spring in / timing out), mirroring the
+  // app's other bottom sheets (add-to-collection-sheet / scan-bulk-confirm-sheet)
+  // so it scrolls into view instead of fading in already docked. Kept mounted
+  // through the closing slide, then unmounts.
+  const [isRendered, setIsRendered] = useState(visible);
+  const translateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+
+  useEffect(() => {
+    if (visible) {
+      setIsRendered(true);
+      const animation = Animated.spring(translateY, {
+        toValue: 0,
+        damping: 34,
+        mass: 1,
+        stiffness: 320,
+        useNativeDriver: true,
+      });
+      animation.start();
+      return () => animation.stop();
+    }
+
+    const animation = Animated.timing(translateY, {
+      toValue: SCREEN_HEIGHT,
+      duration: 200,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    });
+    animation.start(({ finished }) => {
+      if (finished) {
+        setIsRendered(false);
+      }
+    });
+    return () => animation.stop();
+  }, [translateY, visible]);
+
+  if (!isRendered) {
+    return null;
+  }
+
   return (
     <Modal
-      animationType="fade"
+      animationType="none"
       onRequestClose={onClose}
       presentationStyle="overFullScreen"
       statusBarTranslucent
       transparent
-      visible={visible}
+      visible
     >
-      <View pointerEvents="box-none" style={styles.overlay}>
+      <View pointerEvents={visible ? 'box-none' : 'none'} style={styles.overlay}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Close scan target picker"
@@ -62,14 +103,15 @@ export function ScanningForSheet({
           style={styles.backdrop}
           testID={`${testID}-backdrop`}
         />
-        <SheetSurface
-          padding={16}
-          showHandle={false}
-          testID={testID}
-          tone="dark"
-          style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}
-        >
-          <DismissHandle onDismiss={onClose} testID={`${testID}-handle`} />
+        <Animated.View style={{ transform: [{ translateY }] }}>
+          <SheetSurface
+            padding={16}
+            showHandle={false}
+            testID={testID}
+            tone="dark"
+            style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}
+          >
+            <DismissHandle onDismiss={onClose} testID={`${testID}-handle`} />
 
           <View style={styles.header}>
             <View style={styles.headerPill}>
@@ -98,7 +140,8 @@ export function ScanningForSheet({
               <ComingSoonRow key={name} label={name} />
             ))}
           </View>
-        </SheetSurface>
+          </SheetSurface>
+        </Animated.View>
       </View>
     </Modal>
   );

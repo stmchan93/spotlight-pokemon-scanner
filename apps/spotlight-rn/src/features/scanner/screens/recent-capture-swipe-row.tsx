@@ -10,7 +10,7 @@ import Reanimated, {
   type ExitAnimationsValues,
 } from 'react-native-reanimated';
 
-import { textStyles } from '@spotlight/design-system';
+import { textStyles, useSpotlightTheme } from '@spotlight/design-system';
 
 import {
   recentCaptureActionCircleSize,
@@ -20,10 +20,6 @@ import {
   recentCaptureActionRailRevealWidth,
 } from '@/features/scanner/recent-capture-swipe';
 
-// Action-circle fills (Figma 1511:4098): Collection = yellow/400, Delete = red/500.
-const collectionCircleColor = '#FFC233';
-const deleteCircleColor = '#D93025';
-const actionIconColor = '#FFFFFF';
 const captureRowHeight = 102;
 // Release distance (from rest) at which the rail snaps open instead of closing.
 // Kept small so a short, easy drag reliably reveals Favorite/Delete.
@@ -135,6 +131,7 @@ function RecentCaptureSwipeRowInner({
   onDelete,
   testID,
 }: RecentCaptureSwipeRowProps) {
+  const theme = useSpotlightTheme();
   const swipeableRef = useRef<Swipeable>(null);
   const reduceMotion = useReduceMotion();
   // Mirrors the Swipeable's open/closed state. The native gesture owns the
@@ -190,14 +187,17 @@ function RecentCaptureSwipeRowInner({
           onPress={isOpen ? handleAddToCollection : undefined}
           style={({ pressed }) => [
             styles.captureActionGroup,
+            { backgroundColor: theme.colors.gray200, borderRadius: theme.radii.md },
             pressed ? styles.captureActionGroupPressed : null,
           ]}
           testID={`${testID}-collection-button`}
         >
-          <View style={[styles.captureActionCircle, styles.captureCollectionCircle]}>
-            <IconLayoutGridAdd color={actionIconColor} size={recentCaptureActionIconSize} strokeWidth={2} />
-          </View>
-          <Text style={styles.captureActionLabel}>Collection</Text>
+          <IconLayoutGridAdd
+            color={theme.colors.gray800}
+            size={recentCaptureActionIconSize}
+            strokeWidth={2}
+          />
+          <Text style={[styles.captureActionLabel, { color: theme.colors.gray800 }]}>Collection</Text>
         </Pressable>
         <Pressable
           accessibilityElementsHidden={!isOpen}
@@ -208,18 +208,17 @@ function RecentCaptureSwipeRowInner({
           onPress={isOpen ? handleDelete : undefined}
           style={({ pressed }) => [
             styles.captureActionGroup,
+            { backgroundColor: theme.colors.dangerStrong, borderRadius: theme.radii.md },
             pressed ? styles.captureActionGroupPressed : null,
           ]}
           testID={`${testID}-delete-button`}
         >
-          <View style={[styles.captureActionCircle, styles.captureDeleteCircle]}>
-            <IconTrash color={actionIconColor} size={recentCaptureActionIconSize} strokeWidth={2} />
-          </View>
-          <Text style={styles.captureActionLabel}>Delete</Text>
+          <IconTrash color={theme.colors.gray0} size={recentCaptureActionIconSize} strokeWidth={2} />
+          <Text style={[styles.captureActionLabel, { color: theme.colors.gray0 }]}>Delete</Text>
         </Pressable>
       </Animated.View>
     );
-  }, [handleAddToCollection, handleDelete, isOpen, testID]);
+  }, [handleAddToCollection, handleDelete, isOpen, testID, theme]);
 
   useEffect(() => {
     return () => {
@@ -291,30 +290,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: recentCaptureActionRailPadding,
     width: recentCaptureActionRailRevealWidth,
   },
-  // One action: colored circle with a label centered underneath (gap 4).
+  // One action: iOS-style rounded-rectangle tile with a centered icon and a
+  // label underneath (gap 4). Fill/radius are applied inline from theme tokens
+  // (grey for Collection, red for the destructive Delete).
   captureActionGroup: {
     alignItems: 'center',
     gap: 4,
+    height: recentCaptureActionCircleSize + 26,
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    width: recentCaptureActionCircleSize + 8,
   },
   captureActionGroupPressed: {
     opacity: 0.8,
   },
-  captureActionCircle: {
-    alignItems: 'center',
-    borderRadius: recentCaptureActionCircleSize / 2,
-    height: recentCaptureActionCircleSize,
-    justifyContent: 'center',
-    width: recentCaptureActionCircleSize,
-  },
-  captureCollectionCircle: {
-    backgroundColor: collectionCircleColor,
-  },
-  captureDeleteCircle: {
-    backgroundColor: deleteCircleColor,
-  },
   captureActionLabel: {
     ...textStyles.overline,
-    color: '#FFFFFF',
     textAlign: 'center',
   },
   captureSwipeContent: {
