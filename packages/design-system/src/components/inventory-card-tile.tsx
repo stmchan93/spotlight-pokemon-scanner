@@ -364,7 +364,19 @@ export function InventoryCardTile({
                 height={12}
                 width={12}
               />
-            </Pressable>
+                  {/* Quantity chip (Figma 2368:43030 — absolute left:0/top:0 of the CELL):
+          pinned at the tile cell's literal top-left corner, floating above the
+          content; only the inner (bottom-right) corner rounds. */}
+      <View
+        style={[styles.quantityChip, { backgroundColor: theme.colors.gray100 }]}
+        testID={testID ? `${testID}-quantity` : undefined}
+      >
+        <BoxIso color={theme.colors.gray700} height={12} width={12} />
+        <AppText color="gray700" variant="overline">
+          {String(quantity)}
+        </AppText>
+      </View>
+    </Pressable>
           ) : null}
         </View>
       </View>
@@ -453,22 +465,19 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     justifyContent: 'center',
     overflow: 'hidden',
-    // Clear the quantity chip pinned at the tile's top-left (chip ≈ 24px tall)
-    // so the art never sits under it.
-    paddingTop: 28,
     position: 'relative',
     width: '100%',
   },
   quantityChip: {
     alignItems: 'center',
-    // Docked at the art's TOP-LEFT (Figma 2368:43026), flush with the image's
-    // drawn corner (left/top set dynamically); the inner corner rounds 4.
+    // Pinned at the CELL's top-left (Figma 2368:43030: left 0 / top 0, 20px
+    // tall); outer corner flush square, inner bottom-right corner rounded.
     borderBottomRightRadius: 4,
     flexDirection: 'row',
     gap: 2,
+    height: 20,
     left: 0,
     paddingHorizontal: 8,
-    paddingVertical: 3,
     position: 'absolute',
     top: 0,
     zIndex: 1,
