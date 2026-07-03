@@ -116,6 +116,34 @@ describe('mobile app routing', () => {
     });
   });
 
+  it('a rapid double-tap on the Wishlist tab pushes it only once (no duplicate Back returns to)', async () => {
+    const app = renderAppRouter('/', { '(stack)/wishlist/index': WishlistRouteStub });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('top-tabs-pager')).toBeTruthy();
+    });
+
+    // Hammer the Wishlist tab from the tabs root before the push transition
+    // settles. Only the first tap should navigate — the rest are coalesced.
+    const wishlistTab = screen.getByTestId('bottom-nav-wishlist');
+    fireEvent.press(wishlistTab);
+    fireEvent.press(wishlistTab);
+    fireEvent.press(wishlistTab);
+
+    expect(await screen.findByTestId('wishlist-stub-screen')).toBeTruthy();
+    expect(app.getPathname()).toBe('/wishlist');
+
+    // A single Back must leave Wishlist entirely. A duplicate push would leave a
+    // second /wishlist underneath, so Back would land on Wishlist again.
+    act(() => {
+      router.back();
+    });
+
+    await waitFor(() => {
+      expect(app.getPathname()).toBe('/');
+    });
+  });
+
   it('renders the sales-history route directly', async () => {
     renderAppRouter('/sales-history');
 

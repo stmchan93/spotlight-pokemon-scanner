@@ -24,6 +24,7 @@ import {
 import {
   SafeAreaProvider,
 } from 'react-native-safe-area-context';
+import { enableFreeze } from 'react-native-screens';
 
 import {
   SpotlightThemeProvider,
@@ -42,6 +43,15 @@ import { AppDrawerProvider } from '@/providers/app-drawer-provider';
 import { AuthProvider, useAuth } from '@/providers/auth-provider';
 
 void SplashScreen.preventAutoHideAsync();
+
+// Freeze blurred stack screens (react-native-screens). The Scan tab deliberately
+// PUSHES a fresh tabs instance so Back returns to the screen you scanned from —
+// which stacks whole extra copies of the pager (Collection chart + dashboard
+// model + scanner). Without freeze those buried copies keep re-rendering and
+// re-fetching on every data change, and the JS thread backlog surfaces as an
+// app-wide ~200-300ms input lag on swipes/drawer taps. Frozen screens thaw
+// automatically when navigated back to.
+enableFreeze(true);
 
 const navigationTheme: Theme = {
   dark: false,

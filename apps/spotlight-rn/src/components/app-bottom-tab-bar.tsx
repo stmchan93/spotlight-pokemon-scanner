@@ -1,3 +1,4 @@
+import { useCallback, useRef } from 'react';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -7,6 +8,13 @@ import { useTabBarCollapseProgress } from '@/contexts/tab-bar-chrome-context';
 import { CollectionTabIcon, ScanTabIcon, WishlistTabIcon } from './nav-tab-icons';
 
 export type AppBottomTabKey = 'portfolio' | 'scan' | 'wishlist';
+
+// A tab nav pushes/replaces a route; the transition takes a few hundred ms during
+// which the OUTGOING screen's tab bar is still tappable. A fast second tap to the
+// same destination would fire the navigation again — pushing a DUPLICATE screen
+// (two Wishlist entries), so Back/swipe-back lands on a stale copy. Coalesce
+// repeat navigations to the same destination inside one transition window.
+const NAV_DEBOUNCE_MS = 600;
 
 type AppBottomTabBarProps = {
   activeKey?: AppBottomTabKey | null;
@@ -39,22 +47,36 @@ export function AppBottomTabBar({
   // Figma nav glyph size (node 1313:7454 — `size-[22px]`).
   const NAV_ICON_SIZE = 22;
 
+  // Drop a repeat tap to the SAME destination inside the transition window (the
+  // duplicate-push guard described above). Different destinations pass straight
+  // through, so genuine tab switching stays instant.
+  const lastNavRef = useRef<{ key: AppBottomTabKey; at: number } | null>(null);
+  const runGuardedNav = useCallback((key: AppBottomTabKey, navigate: () => void) => {
+    const now = Date.now();
+    const last = lastNavRef.current;
+    if (last && last.key === key && now - last.at < NAV_DEBOUNCE_MS) {
+      return;
+    }
+    lastNavRef.current = { key, at: now };
+    navigate();
+  }, []);
+
   const goToPortfolio = onPressPortfolio
-    ?? (dismissToTabs
-      ? (() => router.dismissTo({ pathname: '/', params: { page: 'portfolio' } } as never))
-      : (() => router.push({ pathname: '/', params: { page: 'portfolio' } } as never)));
+    ?? (() => runGuardedNav('portfolio', dismissToTabs
+      ? () => router.dismissTo({ pathname: '/', params: { page: 'portfolio' } } as never)
+      : () => router.push({ pathname: '/', params: { page: 'portfolio' } } as never)));
   // Scan always PUSHES — even from `dismissToTabs` screens. Dismissing here
   // popped the pushed screen (e.g. Wishlist) off the stack before showing the
   // scanner, so the back-swipe/back button from Scan had no history and landed
   // on the tabs root's Collection page instead of the screen the user left.
   const goToScan = onPressScan
-    ?? (() => router.push({ pathname: '/', params: { page: 'scanner' } } as never));
+    ?? (() => runGuardedNav('scan', () => router.push({ pathname: '/', params: { page: 'scanner' } } as never)));
   // Wishlist is a pushed stack screen: replace when already on a stack route
   // so the back-stack doesn't accumulate, push from the tabs root.
   const goToWishlist = onPressWishlist
-    ?? (dismissToTabs
-      ? (() => router.replace('/wishlist' as never))
-      : (() => router.push('/wishlist' as never)));
+    ?? (() => runGuardedNav('wishlist', dismissToTabs
+      ? () => router.replace('/wishlist' as never)
+      : () => router.push('/wishlist' as never)));
 
   // Tapping the tab you are already on is a no-op — re-navigating pushed a
   // duplicate screen instance (e.g. Wishlist re-opening itself, or a second

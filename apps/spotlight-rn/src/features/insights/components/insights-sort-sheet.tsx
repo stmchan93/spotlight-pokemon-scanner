@@ -19,17 +19,20 @@ export type InsightsSortKey =
   | 'default'
   | 'most-valuable'
   | 'least-valuable'
-  | 'winners-today'
-  | 'losers-today'
+  | 'winners-month'
+  | 'losers-month'
   | 'all-time-growth'
   | 'most-spent';
 
+// Figma 2179:16585/16588 say "Today", but the table's G/L columns track
+// month-over-month — the winner/loser sorts follow the same window so the
+// sheet copy and the sorted column agree.
 export const INSIGHTS_SORT_OPTIONS: { key: InsightsSortKey; label: string }[] = [
   { key: 'default', label: 'Default Order' },
   { key: 'most-valuable', label: 'Most Valuable' },
   { key: 'least-valuable', label: 'Least Valuable' },
-  { key: 'winners-today', label: 'Biggest Winners Today' },
-  { key: 'losers-today', label: 'Biggest Losers Today' },
+  { key: 'winners-month', label: 'Biggest Winners Monthly' },
+  { key: 'losers-month', label: 'Biggest Losers Monthly' },
   { key: 'all-time-growth', label: 'Best All-Time Growth' },
   { key: 'most-spent', label: 'Most Spent' },
 ];

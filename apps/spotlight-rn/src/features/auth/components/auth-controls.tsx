@@ -361,13 +361,14 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
-  // No explicit lineHeight: on iOS a lineHeight near the fontSize clips the
-  // custom font's descenders inside TextInput (the "cut off text" bug); let
-  // the font's own metrics size the line.
+  // 14px per the Figma input spec (2161:1636). No explicit lineHeight: on iOS a
+  // lineHeight near the fontSize clips the custom font's descenders inside
+  // TextInput (the "cut off text" bug); let the font's own metrics size the
+  // line, with minHeight guarding the row.
   input: {
     fontFamily: fontFamilies.bodyRegular,
-    fontSize: 16,
-    minHeight: 24,
+    fontSize: 14,
+    minHeight: 21,
     padding: 0,
   },
   ruleLabel: {

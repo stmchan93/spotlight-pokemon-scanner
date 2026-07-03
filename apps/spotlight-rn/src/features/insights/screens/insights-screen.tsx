@@ -32,6 +32,7 @@ import {
 } from '@/features/insights/components/insights-sort-sheet';
 import {
   PerformanceTable,
+  PortfolioTag,
   allTimeGrowthPercent,
 } from '@/features/insights/components/performance-table';
 
@@ -96,10 +97,10 @@ export function applyInsightsSort(
       return [...rows].sort(desc((row) => row.currentValue));
     case 'least-valuable':
       return [...rows].sort(asc((row) => row.currentValue));
-    case 'winners-today':
-      return [...rows].sort(desc((row) => row.todayGainDollar));
-    case 'losers-today':
-      return [...rows].sort(asc((row) => row.todayGainDollar));
+    case 'winners-month':
+      return [...rows].sort(desc((row) => row.monthGainDollar));
+    case 'losers-month':
+      return [...rows].sort(asc((row) => row.monthGainDollar));
     case 'all-time-growth':
       return [...rows].sort(desc(allTimeGrowthPercent));
     case 'most-spent':
@@ -314,13 +315,10 @@ export function InsightsScreen() {
           />
         </View>
 
+        {/* The PORTFOLIO tag renders inside the table's pinned header row so it
+            left-aligns with the card column and shares the row with the metric
+            labels (Figma 2179-8996/2179-9032). */}
         <View style={styles.tableSection}>
-          <View style={[styles.tab, { backgroundColor: theme.colors.gray900 }]}>
-            <Text style={[theme.typography.captionMedium, { color: theme.colors.gray0 }]}>
-              PORTFOLIO
-            </Text>
-          </View>
-
           {rows.length > 0 ? (
             <PerformanceTable
               ref={listRef}
@@ -339,16 +337,19 @@ export function InsightsScreen() {
               }
             />
           ) : (
-            <Text
-              style={[theme.typography.body, styles.emptyText, { color: theme.colors.gray500 }]}
-              testID="insights-empty"
-            >
-              {hasLoaded
-                ? isFiltered
-                  ? 'No cards match your search.'
-                  : 'No cards in your portfolio yet.'
-                : 'Loading your performance…'}
-            </Text>
+            <>
+              <PortfolioTag />
+              <Text
+                style={[theme.typography.body, styles.emptyText, { color: theme.colors.gray500 }]}
+                testID="insights-empty"
+              >
+                {hasLoaded
+                  ? isFiltered
+                    ? 'No cards match your search.'
+                    : 'No cards in your portfolio yet.'
+                  : 'Loading your performance…'}
+              </Text>
+            </>
           )}
         </View>
       </View>
@@ -419,12 +420,9 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 16,
     paddingLeft: 16,
-  },
-  tab: {
-    alignSelf: 'flex-start',
-    borderRadius: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    // pageBody's gap (16) + this = the 32px between the filter chips and the
+    // PORTFOLIO/column-header row (Figma 2179-8996).
+    paddingTop: 16,
   },
   emptyText: {
     paddingRight: 16,

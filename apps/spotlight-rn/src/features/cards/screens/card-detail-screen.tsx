@@ -207,6 +207,13 @@ export function CardDetailScreen({
   const [addGrader, setAddGrader] = useState<string | null>(null);
   const [addGrade, setAddGrade] = useState<string | null>(null);
   const [addCondition, setAddCondition] = useState<DeckConditionCode | null>(null);
+  // The add sheet also owns its OWN language (EN/JP). Toggling it re-targets
+  // which card the ADD writes to (this card vs its other-language counterpart)
+  // but must NEVER swap the PDP behind the sheet. null = follow the page.
+  const [addLanguageChip, setAddLanguageChip] = useState<string | null>(null);
+  // The counterpart's detail, loaded sheet-locally when the sheet's language
+  // targets it — the page's `detail` stays untouched.
+  const [addCounterpartDetail, setAddCounterpartDetail] = useState<CardDetailRecord | null>(null);
   const [isAddPending, setIsAddPending] = useState(false);
   // Confirm-delete bottom sheet for an OWNED entry (Figma 1874:23102 "Delete from
   // PDP"): the trash affordance in the header opens it; CONFIRM removes the entry.
@@ -239,9 +246,10 @@ export function CardDetailScreen({
   // On an EN/JP swap, the variant LABEL the user had selected — re-resolved
   // against the counterpart card's (differently-id'd) variant list by name.
   const pendingVariantLabelRef = useRef<string | null>(null);
-  // Same idea for the Add sheet's OWN variant: an EN/JP swap from inside the sheet
-  // must re-resolve `addVariant` against the counterpart's options by name (the
-  // sheet's variant is independent of the page's, so it needs its own carry-over).
+  // Same idea for the Add sheet's OWN variant: the sheet's EN/JP toggle (which
+  // re-targets the ADD, never the page) re-resolves `addVariant` against the
+  // target card's options by name (the sheet's variant is independent of the
+  // page's, so it needs its own carry-over).
   const pendingAddVariantLabelRef = useRef<string | null>(null);
 
   // Defensive: keep activeCardId in sync if the route prop ever changes without a
@@ -333,8 +341,11 @@ export function CardDetailScreen({
     setPriceTrends(null);
     setPriceTrendsLoading(false);
     setLanguageOverride(null);
+    setAddLanguageChip(null);
+    setAddCounterpartDetail(null);
     lastFetchedLaneKeyRef.current = null;
     pendingVariantLabelRef.current = null;
+    pendingAddVariantLabelRef.current = null;
     seededCardIdRef.current = null;
     seededVariantCardIdRef.current = null;
   }, [cardId]);
@@ -492,27 +503,6 @@ export function CardDetailScreen({
       carriedMatch?.id ?? variantMatch?.id ?? normalVariant?.id ?? variantOptions[0]?.id ?? null,
     );
   }, [activeCardId, detail?.cardId, selectedEntry, variantOptions]);
-
-  // Carry the Add sheet's OWN variant across an in-sheet EN/JP swap: re-resolve
-  // `addVariant` by NAME against the counterpart's (differently-id'd) options,
-  // falling back to the first option. Only fires when a swap actually queued a
-  // pending label, and waits for the counterpart's detail (hence its variant
-  // list) to land — otherwise the sheet's Variant chip would latch to a stale id.
-  useEffect(() => {
-    if (
-      pendingAddVariantLabelRef.current == null
-      || variantOptions.length === 0
-      || detail?.cardId !== activeCardId
-    ) {
-      return;
-    }
-    const carriedLabel = pendingAddVariantLabelRef.current;
-    pendingAddVariantLabelRef.current = null;
-    const carriedMatch = variantOptions.find(
-      (option) => option.label.toLowerCase() === carriedLabel.toLowerCase(),
-    );
-    setAddVariant(carriedMatch?.id ?? variantOptions[0]?.id ?? null);
-  }, [activeCardId, detail?.cardId, variantOptions]);
 
   // Reset the per-lane selection whenever the grader switches so the grade
   // label always reflects the active lane.
@@ -911,23 +901,103 @@ export function CardDetailScreen({
   // The raw lane titles the dropdown "Condition" (Figma 1664:2201 — Near Mint…
   // Damaged); the graded lane titles it "Grade" (numeric).
   const addIsRaw = addGrader == null || addGrader === 'Raw';
+  // The sheet's language decides which card the ADD writes to: the page's card,
+  // or its other-language counterpart. The PDP behind the sheet NEVER changes —
+  // only the page-level toggle swaps the displayed card.
+  const activeCardLanguageChip = currentCardLanguage === 'japanese' ? 'JP' : 'EN';
+  const addSelectedLanguageChip = addLanguageChip ?? activeCardLanguageChip;
+  const addTargetsCounterpart =
+    hasLanguageCounterpart && addSelectedLanguageChip !== activeCardLanguageChip;
+  // Null while the counterpart detail is still resolving — CONFIRM stays
+  // disabled and the variant list shows its loading state until it lands.
+  const addDetail = addTargetsCounterpart
+    ? (addCounterpartDetail?.cardId === counterpartCardId ? addCounterpartDetail : null)
+    : detail;
+  // Variant options for the ADD target (same preference order as the page's).
+  const addVariantOptions = useMemo<MarketHistoryOption[]>(() => {
+    if (!addTargetsCounterpart) {
+      return variantOptions;
+    }
+    const fromDetail = addDetail?.variantOptions ?? [];
+    if (fromDetail.length > 0) {
+      return fromDetail;
+    }
+    return addDetail?.marketHistory?.availableVariants ?? [];
+  }, [addDetail?.marketHistory?.availableVariants, addDetail?.variantOptions, addTargetsCounterpart, variantOptions]);
   const addVariantLabel = useMemo(() => {
     if (!addVariant) {
       return null;
     }
-    return variantOptions.find((option) => option.id === addVariant)?.label ?? null;
-  }, [addVariant, variantOptions]);
-  // EN/JP toggle inside the Add sheet: swap the active card in place (same as the
-  // page's toggle) but first queue the sheet's current variant LABEL so it carries
-  // over to the counterpart's options. Grader/grade/condition are language-agnostic
-  // and stay as-is.
+    return addVariantOptions.find((option) => option.id === addVariant)?.label ?? null;
+  }, [addVariant, addVariantOptions]);
+  // EN/JP toggle inside the Add sheet: sheet-local only. Queue the sheet's
+  // current variant LABEL so it carries over (by name) to the target card's
+  // options. Grader/grade/condition are language-agnostic and stay as-is.
   const handleSheetSwitchLanguage = useCallback(
     (chip: string) => {
+      if (chip === addSelectedLanguageChip) {
+        return;
+      }
       pendingAddVariantLabelRef.current = addVariantLabel;
-      handleSwitchLanguage(chip);
+      setAddLanguageChip(chip);
+      capturePostHogEvent('card_detail_add_language_switched', {
+        from: addSelectedLanguageChip,
+        to: chip,
+      });
     },
-    [addVariantLabel, handleSwitchLanguage],
+    [addSelectedLanguageChip, addVariantLabel],
   );
+  // Load the counterpart's detail for the sheet (through the short-TTL cache —
+  // it's prefetched on mount, so this usually resolves instantly). On failure,
+  // snap the sheet back to the page's language instead of wedging CONFIRM.
+  useEffect(() => {
+    if (!addSheetOpen || !addTargetsCounterpart || !counterpartCardId) {
+      return;
+    }
+    if (addCounterpartDetail?.cardId === counterpartCardId) {
+      return;
+    }
+    let cancelled = false;
+    void getCardDetailCached(spotlightRepository, counterpartCardId)
+      .then((next) => {
+        if (cancelled) {
+          return;
+        }
+        if (!next) {
+          setAddLanguageChip(null);
+          setErrorMessage('Could not load the other-language card right now.');
+          return;
+        }
+        setAddCounterpartDetail(next);
+      })
+      .catch(() => {
+        if (cancelled) {
+          return;
+        }
+        setAddLanguageChip(null);
+        setErrorMessage('Could not load the other-language card right now.');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [addCounterpartDetail, addSheetOpen, addTargetsCounterpart, counterpartCardId, spotlightRepository]);
+  // Re-resolve the sheet's variant by NAME once the target card's options are
+  // in (counterpart options after a toggle, or the page's when toggling back).
+  useEffect(() => {
+    if (
+      pendingAddVariantLabelRef.current == null
+      || addDetail == null
+      || addVariantOptions.length === 0
+    ) {
+      return;
+    }
+    const carriedLabel = pendingAddVariantLabelRef.current;
+    pendingAddVariantLabelRef.current = null;
+    const carriedMatch = addVariantOptions.find(
+      (option) => option.label.toLowerCase() === carriedLabel.toLowerCase(),
+    );
+    setAddVariant(carriedMatch?.id ?? addVariantOptions[0]?.id ?? null);
+  }, [addDetail, addVariantOptions]);
   const handleAddSelectGrader = useCallback((grader: string) => {
     setAddGrader(grader);
     if (grader === 'Raw') {
@@ -967,9 +1037,10 @@ export function CardDetailScreen({
   }, [addIsRaw, addGrade, addGrader]);
 
   const handleAddItem = useCallback(() => {
-    // ADD ITEM is disabled until `detail` resolves, so this always runs with a
-    // loaded card — add it directly with the variant/condition shown on the page.
-    if (isAddPending || !detail) {
+    // CONFIRM is disabled until the ADD target's detail resolves (the page's
+    // card, or the counterpart when the sheet's EN/JP toggle picked it), so
+    // this always runs with a loaded target card.
+    if (isAddPending || !addDetail) {
       return;
     }
     setIsAddPending(true);
@@ -978,7 +1049,7 @@ export function CardDetailScreen({
     const addedCondition = addIsRaw ? addCondition : null;
     const addedVariantName = addIsRaw ? (addVariantLabel ?? null) : addConfiguredSlabContext?.variantName ?? null;
     void spotlightRepository.createInventoryEntry({
-      cardID: detail.cardId,
+      cardID: addDetail.cardId,
       slabContext: addConfiguredSlabContext,
       variantName: addIsRaw ? (addVariantLabel ?? null) : null,
       condition: addedCondition,
@@ -996,15 +1067,15 @@ export function CardDetailScreen({
           : null;
         prependOptimisticInventoryEntry({
           id: response.deckEntryID,
-          cardId: detail.cardId,
-          name: detail.name,
-          cardNumber: detail.cardNumber,
-          setName: detail.setName,
-          imageUrl: detail.imageUrl,
-          largeImageUrl: detail.largeImageUrl ?? null,
-          marketPrice: detail.marketPrice ?? 0,
-          hasMarketPrice: detail.marketPrice != null,
-          currencyCode: detail.currencyCode,
+          cardId: addDetail.cardId,
+          name: addDetail.name,
+          cardNumber: addDetail.cardNumber,
+          setName: addDetail.setName,
+          imageUrl: addDetail.imageUrl,
+          largeImageUrl: addDetail.largeImageUrl ?? null,
+          marketPrice: addDetail.marketPrice ?? 0,
+          hasMarketPrice: addDetail.marketPrice != null,
+          currencyCode: addDetail.currencyCode,
           quantity: addedQuantity,
           addedAt: response.addedAt || addedAt,
           kind: addIsRaw ? 'raw' : 'graded',
@@ -1013,7 +1084,7 @@ export function CardDetailScreen({
           conditionLabel: conditionOption?.label ?? null,
           conditionShortLabel: conditionOption?.shortLabel ?? null,
           slabContext: addConfiguredSlabContext,
-          isFavorite: detail.isFavorite ?? false,
+          isFavorite: addDetail.isFavorite ?? false,
         });
         capturePostHogEvent('card_detail_add_item_succeeded', {
           kind: addIsRaw ? 'raw' : 'graded',
@@ -1035,9 +1106,9 @@ export function CardDetailScreen({
   }, [
     addConfiguredSlabContext,
     addCondition,
+    addDetail,
     addIsRaw,
     addVariantLabel,
-    detail,
     isAddPending,
     prependOptimisticInventoryEntry,
     quantity,
@@ -1054,6 +1125,8 @@ export function CardDetailScreen({
     setAddGrader('Raw');
     setAddGrade(null);
     setAddCondition('near_mint');
+    setAddLanguageChip(null);
+    pendingAddVariantLabelRef.current = null;
     setQuantity(1);
     setAddSheetOpen(true);
   }, [variantOptions]);
@@ -1490,7 +1563,7 @@ export function CardDetailScreen({
         </View>
 
         <AddToCollectionSheet
-          confirmDisabled={isAddPending || !detail}
+          confirmDisabled={isAddPending || !addDetail}
           confirmLabel="CONFIRM"
           gradeLabel={addGradeLabel}
           gradeTitle={addGradeTitle}
@@ -1509,12 +1582,12 @@ export function CardDetailScreen({
           onSelectVariant={setAddVariant}
           quantity={quantity}
           selectedGrader={addGrader}
-          selectedLanguage={selectedLanguageChip}
+          selectedLanguage={addSelectedLanguageChip}
           selectedVariant={addVariant}
           testID="detail-add-sheet"
           title="Add to Collection"
-          variants={variantOptions}
-          variantsLoading={detail == null && errorMessage == null}
+          variants={addVariantOptions}
+          variantsLoading={addDetail == null && errorMessage == null}
           visible={addSheetOpen}
         />
 

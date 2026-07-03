@@ -9,11 +9,13 @@ import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { PriceSparkline } from '@/features/cards/components/price-sparkline';
 import { formatCompactCurrency } from '@/features/portfolio/components/portfolio-formatting';
 
-// Virtualized performance table (Figma 2206-20251). A vertical FlatList of
-// full-width rows ([card cell | metric cells]) sits inside ONE horizontal
-// ScrollView so the metric columns pan sideways together and the whole grid
-// stays aligned. The column-header row is pinned above the list (inside the same
-// horizontal ScrollView) so it stays visible while rows scroll vertically.
+// Virtualized performance table (Figma 2206-20251, header row 2179-9032). A
+// vertical FlatList of full-width rows ([card cell | metric cells]) sits inside
+// ONE horizontal ScrollView so the metric columns pan sideways together and the
+// whole grid stays aligned. The column-header row — the dark PORTFOLIO tag in
+// the card-column slot plus the metric labels — is pinned above the list
+// (inside the same horizontal ScrollView) so it stays visible while rows scroll
+// vertically.
 //
 // Tradeoff vs. the old layout: the card-identity column is NOT frozen — it pans
 // horizontally with the metrics. This keeps virtualization robust (one list, one
@@ -22,20 +24,26 @@ import { formatCompactCurrency } from '@/features/portfolio/components/portfolio
 const CARD_COL_WIDTH = 168;
 const ROW_HEIGHT = 100; // taller rows: subtitle line + ~5 rows per iPhone screen
 const CELL_GAP = 16;
+// The card column sits 24px from the first metric column (Figma 2179-8996 vs
+// 2179-9032); metric↔metric gaps stay CELL_GAP. Rows already flow with
+// `gap: CELL_GAP`, so the card cell carries the extra 8px as margin.
+const CARD_METRIC_EXTRA_GAP = 24 - CELL_GAP;
+const HEADER_BOTTOM_GAP = 24;
 const CHART_W = 62;
 const CELL_W = 60;
-const HEADER_H = 36;
 const THUMB_W = 44;
 const THUMB_H = 62;
 
+// Figma 2179-9144 labels the G/L pair "Tdy", but the backend tracks month-over-
+// month G/L — keep the Mth wording, adopt the design's title casing.
 const METRIC_COLUMNS = [
-  'CHART',
-  'CURRENT',
-  '$ MTH G/L',
-  '% MTH G/L',
-  '$ TOTAL',
-  '% TOTAL',
-  'COST',
+  'Chart',
+  'Current',
+  '$ Mth G/L',
+  '% Mth G/L',
+  '$ Total',
+  '% Total',
+  'Cost',
 ] as const;
 
 // "% Total" = all-time growth vs what the user paid. Null when either side is
@@ -82,6 +90,20 @@ function rowSubtitle(row: PortfolioPerformanceRow): string | null {
     parts.push(`×${row.quantity}`);
   }
   return parts.length > 0 ? parts.join(' · ') : null;
+}
+
+// Dark "PORTFOLIO" tag (Figma 2179-8997). Lives in the pinned header row's
+// card-column slot so it left-aligns with the card column and shares a baseline
+// with the metric labels; also reused by the screen's empty state.
+export function PortfolioTag() {
+  const theme = useSpotlightTheme();
+  return (
+    <View style={[styles.portfolioTag, { backgroundColor: theme.colors.gray900 }]}>
+      <Text style={[theme.typography.captionMedium, { color: theme.colors.gray0 }]}>
+        PORTFOLIO
+      </Text>
+    </View>
+  );
 }
 
 type PerformanceTableProps = {
@@ -189,8 +211,11 @@ export const PerformanceTable = forwardRef<
               <Text style={[theme.typography.body, { color: theme.colors.gray400 }]}>—</Text>
             )}
           </View>
+          {/* Current = unit price × quantity (backend `currentValue`), not the
+              per-unit price — a 3× Near Mint entry shows the position's worth.
+              The $ G/L column is likewise quantity-scaled backend-side. */}
           <Text style={[theme.typography.body, styles.cell, { color: theme.colors.gray900 }]}>
-            {money(row.currentPrice)}
+            {money(row.currentValue)}
           </Text>
           <Text style={[theme.typography.body, styles.cell, { color: deltaColor(row.monthGainDollar) }]}>
             {money(row.monthGainDollar)}
@@ -250,14 +275,16 @@ export const PerformanceTable = forwardRef<
       <View style={styles.grid}>
         {/* Pinned column header: stays visible above the rows as they scroll. */}
         <View style={[styles.headerRow, { backgroundColor: theme.colors.gray0 }]}>
-          <View style={[styles.cardHeaderSlot, { width: CARD_COL_WIDTH }]} />
+          <View style={[styles.cardHeaderSlot, { width: CARD_COL_WIDTH }]}>
+            <PortfolioTag />
+          </View>
           {METRIC_COLUMNS.map((label) => (
             <Text
               key={label}
               numberOfLines={1}
               style={[
                 theme.typography.captionMedium,
-                { color: theme.colors.gray900, width: label === 'CHART' ? CHART_W : CELL_W },
+                { color: theme.colors.gray900, width: label === 'Chart' ? CHART_W : CELL_W },
               ]}
             >
               {label}
@@ -309,10 +336,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: CELL_GAP,
-    height: HEADER_H,
+    // 24px between the header row and the first data row (Figma 2179-9032).
+    marginBottom: HEADER_BOTTOM_GAP,
   },
   cardHeaderSlot: {
-    height: HEADER_H,
+    justifyContent: 'center',
+    marginRight: CARD_METRIC_EXTRA_GAP,
+  },
+  portfolioTag: {
+    alignSelf: 'flex-start',
+    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   dataRow: {
     alignItems: 'center',
@@ -324,6 +359,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: 8,
+    marginRight: CARD_METRIC_EXTRA_GAP,
   },
   thumb: {
     borderRadius: 2,
