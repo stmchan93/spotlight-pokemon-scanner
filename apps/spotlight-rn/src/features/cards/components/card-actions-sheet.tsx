@@ -136,7 +136,12 @@ export function CardActionsSheet({
       presentationStyle="overFullScreen"
       statusBarTranslucent
       transparent
-      visible
+      // CONTROLLED, not hardcoded true: a bare `visible` kept the native modal
+      // presented and unmounted it without a dismiss transition, so `onDismiss`
+      // never fired (dead Share) and presenting a follow-up modal (Confirm
+      // Delete) collided with the still-live view controller and FROZE the app.
+      // Driving it off the prop makes the dismiss + onDismiss fire reliably.
+      visible={visible}
     >
       <View pointerEvents={visible ? 'auto' : 'none'} style={styles.root}>
         <Pressable

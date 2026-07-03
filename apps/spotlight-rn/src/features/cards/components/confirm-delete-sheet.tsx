@@ -143,7 +143,12 @@ export function ConfirmDeleteSheet({
       presentationStyle="overFullScreen"
       statusBarTranslucent
       transparent
-      visible
+      // CONTROLLED, not hardcoded true: a bare `visible` kept the native modal
+      // presented and unmounted it without a dismiss transition, so presenting
+      // this sheet while the actions sheet was still tearing down collided at
+      // the view-controller layer and FROZE the app. Driving it off the prop
+      // lets the dismiss transition run cleanly.
+      visible={visible}
     >
       <View pointerEvents={visible ? 'auto' : 'none'} style={styles.root}>
         <Pressable

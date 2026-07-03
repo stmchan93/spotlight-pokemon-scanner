@@ -324,12 +324,32 @@ export function usePortfolioScreenModel() {
 
     if (loadResult.data && loadResult.state !== 'error' && !isSuspiciousEmpty) {
       const savedAt = new Date().toISOString();
-      setDashboard(loadResult.data);
+      const nextDashboard = loadResult.data;
+      // Inventory display is owned by the FAST path: loadInventory reads the
+      // local DB (~1s) and the reflect effect applies optimistic add/edit/delete.
+      // This consolidated dashboard load is SLOW (5-10s of network/compute), and
+      // a full replace here clobbers that fast inventory back to whatever this
+      // call happened to read — the "edit the grade on the PDP, Collection takes
+      // 5-10s to update" bug. Keep the summary/chart/sales this call computes,
+      // but keep the already-fresh inventory rows the fast path put on screen.
+      // (loadDashboard always runs paired with loadInventory, so `current`
+      // carries the fresh local-DB inventory by the time this lands.)
+      setDashboard((current) => {
+        const keepInventory =
+          current.inventoryItems.length > 0 || dashboardHasHydratedSeries(current);
+        return keepInventory
+          ? {
+              ...nextDashboard,
+              inventoryCount: current.inventoryItems.length,
+              inventoryItems: current.inventoryItems,
+            }
+          : nextDashboard;
+      });
       // A fresh dashboard only carries the open range; drop any previously
       // on-demand-loaded ranges so a data change can't leave them stale.
       loadedRangesRef.current = new Set<PortfolioHistoryRange>([openRange]);
-      setPortfolioDashboardCache(loadResult.data);
-      setInventoryEntriesCache(loadResult.data.inventoryItems);
+      setPortfolioDashboardCache(nextDashboard);
+      setInventoryEntriesCache(nextDashboard.inventoryItems);
       setHasLoadedDashboard(true);
       setHasLoadedInventory(true);
       setIsDashboardStale(false);

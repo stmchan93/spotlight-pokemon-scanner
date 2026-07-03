@@ -385,15 +385,19 @@ export function PortfolioScreen({
       .catch(() => undefined);
   }, [actionMenuEntry, refreshData, spotlightRepository]);
 
-  // Delete from the menu: close the menu first, then open the confirm sheet on
-  // the next tick (a fresh RN modal can't present while another is still up).
+  // Delete from the menu: queue the confirm sheet on the actions sheet's
+  // deterministic dismissal (same pattern as Share) instead of a timed guess.
+  // A fresh RN modal can't present while another is still up; onDismiss is the
+  // reliable "the actions modal is fully gone" signal, so opening the confirm
+  // sheet there avoids the two-overFullScreen-modal collision that froze the app.
   const handleMenuDelete = useCallback(() => {
     const entry = actionMenuEntry;
-    setActionMenuEntry(null);
     if (!entry) {
+      setActionMenuEntry(null);
       return;
     }
-    setTimeout(() => setSingleDeleteEntry(entry), 280);
+    pendingDismissActionRef.current = () => setSingleDeleteEntry(entry);
+    setActionMenuEntry(null);
   }, [actionMenuEntry]);
 
   const handleConfirmSingleDelete = useCallback(() => {
