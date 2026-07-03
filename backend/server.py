@@ -2668,10 +2668,32 @@ class SpotlightScanService:
                 variant=None,
             )
         pricing = decorate_pricing_summary_with_fx(self.connection, pricing)
+        # A graded entry whose exact (grade + preferred variant) price doesn't
+        # exist falls back to an available graded variant — e.g. an owned
+        # "League Stamp" PSA 10 whose only PSA-10 price is for variant "Normal"
+        # ($49). The resolver honors that fallback internally (step 1's
+        # variant=<preferred> lookup already best-matches to "Normal") or via the
+        # variant=None retry above. When a non-null preferred variant had no exact
+        # price and we fell back, SHOW the fallback price (product-desired; matches
+        # the PDP) instead of blanking the tile: skip the graded variant-match
+        # guard for that intentional fallback. When the exact variant WAS found the
+        # resolved variant matches the request (guard is a no-op), and when
+        # preferred_variant is null the guard still applies variant_hints.
+        used_graded_variant_fallback = (
+            pricing_context.is_graded
+            and pricing is not None
+            and bool(pricing_context.preferred_variant)
+            and bool(pricing.get("variant"))
+            and not self._slab_variant_matches(
+                pricing.get("variant"),
+                preferred_variant=pricing_context.preferred_variant,
+            )
+        )
         if (
             pricing_context.is_graded
             and pricing is not None
             and pricing.get("variant")
+            and not used_graded_variant_fallback
             and not self._slab_variant_matches(
                 pricing.get("variant"),
                 preferred_variant=pricing_context.preferred_variant,
