@@ -357,6 +357,37 @@ class PortfolioPerformanceTests(unittest.TestCase):
         self.assertFalse(self._row(payload, "e-graded")["isFavorite"])
         self.assertFalse(self._row(payload, "e-nohist")["isFavorite"])
 
+    # Cache guards (added with the version-token cache after Insights measured
+    # ~4s per open, EVERY open, for a 140-card owner): repeat calls serve the
+    # cached payload; any deck mutation or wishlist change invalidates it.
+    def test_repeat_call_is_a_cache_hit(self) -> None:
+        first = self._performance()
+        second = self._performance()
+        self.assertIs(first, second)
+
+    def test_deck_mutation_invalidates_cache(self) -> None:
+        first = self._performance()
+        self.service.connection.execute(
+            "UPDATE deck_entries SET quantity = quantity + 1, updated_at = ? WHERE id = ?",
+            (utc_now(), "e-raw"),
+        )
+        self.service.connection.commit()
+        second = self._performance()
+        self.assertIsNot(first, second)
+        self.assertEqual(self._row(second, "e-raw")["quantity"], 3)
+
+    def test_favorite_add_invalidates_cache(self) -> None:
+        first = self._performance()
+        self.assertFalse(self._row(first, "e-raw")["isFavorite"])
+        self.service.connection.execute(
+            "INSERT INTO card_favorites (owner_user_id, card_id, created_at) VALUES (?, ?, ?)",
+            (self.owner, "base1-4", utc_now()),
+        )
+        self.service.connection.commit()
+        second = self._performance()
+        self.assertIsNot(first, second)
+        self.assertTrue(self._row(second, "e-raw")["isFavorite"])
+
 
 if __name__ == "__main__":
     unittest.main()

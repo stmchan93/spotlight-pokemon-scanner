@@ -14464,6 +14464,54 @@ class SpotlightScanService:
         return [round(float(values[i]), 2) for i in indices]
 
     def portfolio_performance(self) -> dict[str, Any]:
+        """Cache-and-dogpile wrapper over the heavy performance-table compute,
+        the same pattern as portfolio_dashboard / transaction_insights /
+        deck_entries. Uncached, every Insights open recomputed current price +
+        Jan-1/30-day baselines + a year-long sparkline for EVERY owned card —
+        measured ~4s per call for a 140-card owner, on every view. The payload
+        is a pure function of the owner's deck rows, favorites (likes chip),
+        and the latest daily prices — `_deck_entries_version_token` fingerprints
+        exactly those inputs, so a hit serves in ~1ms and auto-invalidates on
+        any mutation, wishlist change, or daily sync."""
+        owner_user_id = self._current_owner_user_id()
+        started_at = perf_counter()
+        try:
+            version = self._deck_entries_version_token(owner_user_id)
+        except Exception:  # noqa: BLE001 - cache bookkeeping must never break insights
+            traceback.print_exc()
+            version = None
+        cache_key = (owner_user_id, "performance")
+        if version is not None:
+            cached = self._dashboard_cache.get(cache_key)
+            if cached is not None and cached[0] == version:
+                self._log_portfolio_performance_timing(started_at, outcome="hit")
+                return cached[1]
+        lock = self._dashboard_cache_lock_for(cache_key)
+        with lock:
+            if version is not None:
+                cached = self._dashboard_cache.get(cache_key)
+                if cached is not None and cached[0] == version:
+                    self._log_portfolio_performance_timing(started_at, outcome="hit_after_wait")
+                    return cached[1]
+            payload = self._compute_portfolio_performance()
+            if version is not None:
+                self._store_dashboard_cache(cache_key, version, payload)
+            self._log_portfolio_performance_timing(started_at, outcome="miss")
+            return payload
+
+    def _log_portfolio_performance_timing(self, started_at: float, *, outcome: str) -> None:
+        elapsed_ms = round((perf_counter() - started_at) * 1000.0, 1)
+        self._emit_structured_log(
+            {
+                "severity": "INFO",
+                "event": "portfolio_performance_request",
+                "outcome": outcome,
+                "elapsedMs": elapsed_ms,
+                "slow": elapsed_ms >= 5000.0,
+            }
+        )
+
+    def _compute_portfolio_performance(self) -> dict[str, Any]:
         """Per-card YTD performance table for the owner's active inventory.
 
         One batched SQLite read: current price (same resolution as the
