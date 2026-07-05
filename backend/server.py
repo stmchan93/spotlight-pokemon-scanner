@@ -4074,6 +4074,64 @@ class SpotlightScanService:
             (normalized_card_id, pricing_provider(), today_iso),
         ).fetchone()
 
+    def _latest_price_history_rows_by_card_id(
+        self,
+        normalized_ids: list[str],
+        *,
+        provider: str,
+        cutoff_iso: str,
+        strict: bool,
+    ) -> dict[str, sqlite3.Row | None]:
+        """For each card, the single latest ``card_price_history_daily`` row whose
+        ``price_date`` is ``< cutoff_iso`` (``strict``) or ``<= cutoff_iso``.
+
+        Fetches ONLY that one row per card via a ``MAX(price_date) GROUP BY card_id``
+        index-aggregate joined back to the table, instead of reading the card's
+        ENTIRE history and discarding all but the latest. The old "read all history,
+        keep the first row per card" shape over-read ~79x (≈12k index rows for a
+        151-card owner) and, cold, was an ~18s scan that dominated the Collection
+        dashboard load. The ``MAX``/join reads ≈one index entry per card.
+
+        Row shape is ``SELECT *`` — byte-identical to the per-card
+        ``_yesterday_price_history_row_for_card`` this batches, in both price-history
+        modes: the day-change resolver ignores the JSON blobs in cells mode, and at
+        one row per card their overflow pages are negligible. Ordering the joined
+        rows by (card_id, updated_at DESC) and keeping the first per card reproduces
+        the per-card ``ORDER BY price_date DESC, updated_at DESC LIMIT 1`` exactly."""
+        op = "<" if strict else "<="
+        result: dict[str, sqlite3.Row | None] = {}
+        for start in range(0, len(normalized_ids), 400):
+            chunk = normalized_ids[start:start + 400]
+            if not chunk:
+                continue
+            placeholders = ",".join("?" for _ in chunk)
+            rows = self.connection.execute(
+                f"""
+                SELECT h.*
+                FROM card_price_history_daily AS h
+                JOIN (
+                    SELECT card_id, MAX(price_date) AS latest_price_date
+                    FROM card_price_history_daily
+                    WHERE provider = ?
+                      AND price_date {op} ?
+                      AND card_id IN ({placeholders})
+                    GROUP BY card_id
+                ) AS latest
+                  ON latest.card_id = h.card_id
+                 AND latest.latest_price_date = h.price_date
+                WHERE h.provider = ?
+                  AND h.price_date {op} ?
+                  AND h.card_id IN ({placeholders})
+                ORDER BY h.card_id ASC, h.updated_at DESC
+                """,
+                (provider, cutoff_iso, *chunk, provider, cutoff_iso, *chunk),
+            ).fetchall()
+            for row in rows:
+                cid = str(row["card_id"] or "").strip()
+                if cid and cid not in result:
+                    result[cid] = row
+        return result
+
     def _yesterday_price_history_rows_by_card_id(
         self,
         card_ids: list[str],
@@ -4081,46 +4139,19 @@ class SpotlightScanService:
         time_zone_name: str | None = None,
     ) -> dict[str, sqlite3.Row | None]:
         """Batched form of ``_yesterday_price_history_row_for_card``: the latest
-        price-history row dated strictly before today for each card, in ONE query
-        (chunked) instead of one query per card. Ordering by
-        (card_id, price_date DESC, updated_at DESC) and keeping the first row per
-        card_id reproduces the per-card ``LIMIT 1`` result exactly."""
+        price-history row dated strictly before today for each card, fetching only
+        that one row per card (see ``_latest_price_history_rows_by_card_id``)."""
         normalized_ids = self._normalized_unique_card_ids(list(card_ids))
         if not normalized_ids:
             return {}
         time_zone = self._portfolio_time_zone(time_zone_name)
         today_iso = datetime.now(time_zone).date().isoformat()
-        # Same JSON-blob avoidance as _portfolio_history_rows_by_card_id: in cells
-        # mode the resolver reads prices from cells, so project the JSON columns to
-        # NULL instead of paying for their overflow pages. JSON mode keeps SELECT *
-        # so its row shape is byte-identical to before.
-        select_columns = (
-            self._portfolio_history_select_columns(
-                include_raw_json=False, include_graded_json=False
-            )
-            if price_history_cells_enabled()
-            else "*"
+        return self._latest_price_history_rows_by_card_id(
+            normalized_ids,
+            provider=pricing_provider(),
+            cutoff_iso=today_iso,
+            strict=True,
         )
-        result: dict[str, sqlite3.Row | None] = {}
-        for start in range(0, len(normalized_ids), 400):
-            chunk = normalized_ids[start:start + 400]
-            placeholders = ",".join("?" for _ in chunk)
-            rows = self.connection.execute(
-                f"""
-                SELECT {select_columns}
-                FROM card_price_history_daily
-                WHERE provider = ?
-                  AND price_date < ?
-                  AND card_id IN ({placeholders})
-                ORDER BY card_id ASC, price_date DESC, updated_at DESC
-                """,
-                (pricing_provider(), today_iso, *chunk),
-            ).fetchall()
-            for row in rows:
-                cid = str(row["card_id"] or "").strip()
-                if cid and cid not in result:
-                    result[cid] = row
-        return result
 
     def _price_history_rows_on_or_before_by_card_id(
         self,
@@ -4129,41 +4160,17 @@ class SpotlightScanService:
         cutoff_date_iso: str,
     ) -> dict[str, sqlite3.Row | None]:
         """Latest price-history row dated on or before ``cutoff_date_iso`` for each
-        card, in ONE query (chunked). Modeled on
-        ``_yesterday_price_history_rows_by_card_id`` but with ``price_date <= ?``
-        (a fixed cutoff, e.g. ~30 days ago) instead of strictly-before-today.
-        Ordering by (card_id, price_date DESC, updated_at DESC) and keeping the
-        first row per card_id reproduces a per-card ``LIMIT 1`` result."""
+        card (e.g. ~30 days ago for Insights), fetching only that one row per card
+        (see ``_latest_price_history_rows_by_card_id``)."""
         normalized_ids = self._normalized_unique_card_ids(list(card_ids))
         if not normalized_ids:
             return {}
-        select_columns = (
-            self._portfolio_history_select_columns(
-                include_raw_json=False, include_graded_json=False
-            )
-            if price_history_cells_enabled()
-            else "*"
+        return self._latest_price_history_rows_by_card_id(
+            normalized_ids,
+            provider=pricing_provider(),
+            cutoff_iso=cutoff_date_iso,
+            strict=False,
         )
-        result: dict[str, sqlite3.Row | None] = {}
-        for start in range(0, len(normalized_ids), 400):
-            chunk = normalized_ids[start:start + 400]
-            placeholders = ",".join("?" for _ in chunk)
-            rows = self.connection.execute(
-                f"""
-                SELECT {select_columns}
-                FROM card_price_history_daily
-                WHERE provider = ?
-                  AND price_date <= ?
-                  AND card_id IN ({placeholders})
-                ORDER BY card_id ASC, price_date DESC, updated_at DESC
-                """,
-                (pricing_provider(), cutoff_date_iso, *chunk),
-            ).fetchall()
-            for row in rows:
-                cid = str(row["card_id"] or "").strip()
-                if cid and cid not in result:
-                    result[cid] = row
-        return result
 
     def _price_history_cells_by_card_and_date(
         self,
