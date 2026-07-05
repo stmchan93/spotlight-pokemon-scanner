@@ -1158,6 +1158,13 @@ class SpotlightScanService:
         self._dashboard_cache_locks: dict[tuple[str, str], threading.Lock] = {}
         self._dashboard_cache_locks_guard = threading.Lock()
         self._dashboard_cache_max_entries = 256
+        # Per-owner deck-entries cache, same version-token + dogpile pattern as
+        # the dashboard cache above. deck_entries recomputes ~1s of per-card
+        # pricing on EVERY Collection view; uncached, ~30 concurrent browsers
+        # saturate the heavy-read slots and shed 503s (load-tested 2026-07-05).
+        self._deck_entries_cache: dict[tuple[Any, ...], tuple[str, dict[str, Any]]] = {}
+        self._deck_entries_cache_locks: dict[tuple[Any, ...], threading.Lock] = {}
+        self._deck_entries_cache_max_entries = 512
         self.artifact_store = build_scan_artifact_store(
             repo_root=repo_root,
             storage_override=os.environ.get(SCAN_ARTIFACTS_STORAGE_ENV),
@@ -14116,6 +14123,112 @@ class SpotlightScanService:
         }
 
     def deck_entries(
+        self,
+        *,
+        limit: int = 200,
+        offset: int = 0,
+        include_inactive: bool = False,
+        favorites_only: bool = False,
+        compute_day_change: bool = True,
+    ) -> dict[str, Any]:
+        """Cache-and-dogpile wrapper over the heavy inventory computation, the
+        same pattern as ``portfolio_dashboard``. The payload is a pure function
+        of the owner's deck rows, favorites, and the latest daily prices —
+        `_deck_entries_version_token` fingerprints exactly those inputs, so the
+        cache auto-invalidates on any collection mutation, wishlist change, or
+        daily sync. Uncached, every Collection view re-ran ~1s of GIL-bound
+        per-card pricing; ~30 concurrent browsers saturated the heavy-read slots
+        and shed 503s (load-tested 2026-07-05). A hit serves in ~1ms."""
+        owner_user_id = self._current_owner_user_id()
+        started_at = perf_counter()
+        try:
+            version = self._deck_entries_version_token(owner_user_id)
+        except Exception:  # noqa: BLE001 - cache bookkeeping must never break inventory
+            traceback.print_exc()
+            version = None
+
+        cache_key = (
+            owner_user_id,
+            int(limit),
+            int(offset),
+            bool(include_inactive),
+            bool(favorites_only),
+            bool(compute_day_change),
+        )
+        if version is not None:
+            cached = self._deck_entries_cache.get(cache_key)
+            if cached is not None and cached[0] == version:
+                self._log_deck_entries_timing(started_at, outcome="hit")
+                return cached[1]
+
+        lock = self._deck_entries_cache_lock_for(cache_key)
+        with lock:
+            if version is not None:
+                cached = self._deck_entries_cache.get(cache_key)
+                if cached is not None and cached[0] == version:
+                    self._log_deck_entries_timing(started_at, outcome="hit_after_wait")
+                    return cached[1]
+            payload = self._compute_deck_entries(
+                limit=limit,
+                offset=offset,
+                include_inactive=include_inactive,
+                favorites_only=favorites_only,
+                compute_day_change=compute_day_change,
+            )
+            if version is not None:
+                self._store_deck_entries_cache(cache_key, version, payload)
+            self._log_deck_entries_timing(started_at, outcome="miss")
+            return payload
+
+    def _deck_entries_version_token(self, owner_user_id: str) -> str:
+        """The dashboard version token (deck mutations + events + sales + latest
+        price date) plus the owner's wishlist state — deck_entries payloads carry
+        favorite flags/filters, so a favorite add/remove must invalidate too.
+        MAX(created_at) catches adds; COUNT(*) catches removals."""
+        base = self._portfolio_dashboard_version_token(owner_user_id, "America/Los_Angeles")
+        row = self.connection.execute(
+            """
+            SELECT MAX(created_at) AS fav_created, COUNT(*) AS fav_count
+            FROM card_favorites
+            WHERE owner_user_id = ?
+            """,
+            (owner_user_id,),
+        ).fetchone()
+        fav_parts = [str(row[key]) for key in row.keys()] if row is not None else []
+        return "|".join([base, *fav_parts])
+
+    def _deck_entries_cache_lock_for(self, cache_key: tuple[Any, ...]) -> "threading.Lock":
+        with self._dashboard_cache_locks_guard:
+            lock = self._deck_entries_cache_locks.get(cache_key)
+            if lock is None:
+                lock = threading.Lock()
+                self._deck_entries_cache_locks[cache_key] = lock
+            return lock
+
+    def _store_deck_entries_cache(
+        self, cache_key: tuple[Any, ...], version: str, payload: dict[str, Any]
+    ) -> None:
+        with self._dashboard_cache_locks_guard:
+            if (
+                cache_key not in self._deck_entries_cache
+                and len(self._deck_entries_cache) >= self._deck_entries_cache_max_entries
+            ):
+                self._deck_entries_cache.pop(next(iter(self._deck_entries_cache)), None)
+            self._deck_entries_cache[cache_key] = (version, payload)
+
+    def _log_deck_entries_timing(self, started_at: float, *, outcome: str) -> None:
+        elapsed_ms = round((perf_counter() - started_at) * 1000.0, 1)
+        self._emit_structured_log(
+            {
+                "severity": "INFO",
+                "event": "deck_entries_request",
+                "outcome": outcome,
+                "elapsedMs": elapsed_ms,
+                "slow": elapsed_ms >= 5000.0,
+            }
+        )
+
+    def _compute_deck_entries(
         self,
         *,
         limit: int = 200,
