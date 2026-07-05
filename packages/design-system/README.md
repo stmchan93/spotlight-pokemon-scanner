@@ -287,6 +287,33 @@ Current API concepts:
 - `quantity` (rendered as `"Qty: {n}"`)
 - optional `onPress` (whole row becomes a `Pressable` with button role)
 
+### InventoryCardTile
+
+File: `src/components/inventory-card-tile.tsx`
+
+Use for card-grid ("card view") tiles wherever a card is shown with its art,
+identity, quality, and price — the Collection card view and the Wishlist card
+view both render this same tile so the two stay pixel-identical. Do not
+hand-roll grid tiles in screens.
+
+Current API concepts:
+
+- `imageUrl` (art fills the column width inside a square frame at the card's
+  real aspect ratio; "CARD" placeholder when null)
+- `name`, `setName` + `cardNumber` (joined as `"{cardNumber} · {setName}"`)
+- `kind` (`'raw' | 'slab'`) with `variantName`, and `conditionLabel` (raw) or
+  `graderLabel` + `gradeLabel` (slab) building the quality lines
+- `priceLabel` + optional `dayChangeLabel`/`dayChangeDirection` (delta pill)
+- `quantity` chip pinned top-left; `showQuantity={false}` hides it for
+  surfaces with no owned-quantity concept (Wishlist card view)
+- `isFavorite` star badge top-right; `showFavorite={false}` hides it (both
+  card views); `selectable`/`selected` swaps the badge slot for a selection
+  check-circle in multi-select edit mode
+- `bordered={false}` renders the "plain" tile for full-bleed ruled grids where
+  the container draws the dividers (both card views)
+- optional `liveOnEbay` footer with `onOpenListing`
+- `onPress`, optional `onLongPress` + `delayLongPress`
+
 ### ListPaginationFooter
 
 File: `src/components/list-pagination-footer.tsx`

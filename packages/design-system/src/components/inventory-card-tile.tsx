@@ -32,7 +32,7 @@ export type InventoryCardTileProps = {
   conditionLabel?: string | null;
   graderLabel?: string | null;
   gradeLabel?: string | null;
-  quantity: number;
+  quantity?: number;
   priceLabel: string | null;
   dayChangeLabel: string | null;
   dayChangeDirection?: InventoryCardTileDirection | null;
@@ -42,6 +42,12 @@ export type InventoryCardTileProps = {
    * top-right corner. Set false to hide it entirely (Collection card view).
    */
   showFavorite?: boolean;
+  /**
+   * When true (default) the quantity chip renders pinned at the tile's
+   * top-left corner. Set false for surfaces with no owned-quantity concept
+   * (Wishlist card view), where `quantity` may then be omitted.
+   */
+  showQuantity?: boolean;
   selected?: boolean;
   /**
    * When true, a selection check-circle renders in the tile's top-right corner
@@ -127,12 +133,13 @@ export function InventoryCardTile({
   conditionLabel,
   graderLabel,
   gradeLabel,
-  quantity,
+  quantity = 1,
   priceLabel,
   dayChangeLabel,
   dayChangeDirection = null,
   isFavorite,
   showFavorite = true,
+  showQuantity = true,
   selected = false,
   selectable = false,
   bordered = true,
@@ -394,15 +401,17 @@ export function InventoryCardTile({
           top:0/left:0 reaches the actual corner (not the padding box). Outer
           corner square, inner (bottom-right) corner rounded 4 — floats over the
           content and never shifts with the card art. */}
-      <View
-        style={[styles.quantityChip, { backgroundColor: theme.colors.gray100 }]}
-        testID={testID ? `${testID}-quantity` : undefined}
-      >
-        <BoxIso color={theme.colors.gray700} height={12} width={12} />
-        <AppText color="gray700" variant="overline">
-          {String(quantity)}
-        </AppText>
-      </View>
+      {showQuantity ? (
+        <View
+          style={[styles.quantityChip, { backgroundColor: theme.colors.gray100 }]}
+          testID={testID ? `${testID}-quantity` : undefined}
+        >
+          <BoxIso color={theme.colors.gray700} height={12} width={12} />
+          <AppText color="gray700" variant="overline">
+            {String(quantity)}
+          </AppText>
+        </View>
+      ) : null}
     </Pressable>
   );
 }

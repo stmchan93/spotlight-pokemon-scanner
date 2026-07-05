@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
-  Image,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -9,12 +8,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import {
-  ArrowDown,
-  ArrowUp,
-  CheckCircle,
-  Trash,
-} from 'iconoir-react-native';
+import { ArrowUp, CheckCircle, Trash } from 'iconoir-react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -24,9 +18,9 @@ import type { CardFavoriteEntry } from '@spotlight/api-client';
 import {
   CardListRow,
   IconButton,
+  InventoryCardTile,
   PillButton,
   SearchField,
-  SelectionCheckCircle,
   colors,
   useSpotlightTheme,
 } from '@spotlight/design-system';
@@ -69,18 +63,6 @@ function variantLabelForFavorite(entry: CardFavoriteEntry): string | null {
   return variant.length > 0 ? variant : null;
 }
 
-function qualityLabelForFavorite(entry: CardFavoriteEntry): string | null {
-  if (entry.slabContext) {
-    const grader = (entry.slabContext.grader ?? '').trim();
-    const grade = (entry.slabContext.grade ?? '').trim();
-    const combined = [grader, grade].filter(Boolean).join(' ');
-    if (combined.length > 0) {
-      return combined;
-    }
-  }
-  const condition = (entry.conditionLabel ?? entry.conditionShortLabel ?? '').trim();
-  return condition.length > 0 ? condition : null;
-}
 
 type WishlistFilterKey = 'all' | 'az' | 'price' | 'owned' | 'unowned';
 type WishlistViewMode = 'grid' | 'list';
@@ -755,7 +737,6 @@ function WishlistGridRow({
                 onPress={() => onPress(entry)}
                 selectable={editMode}
                 selected={editMode && !!selectedIds?.has(entry.cardId)}
-                theme={theme}
               />
             ) : null}
           </View>
@@ -785,7 +766,6 @@ function WishlistGridSingleRow({ entry, editMode = false, selectedIds, onPress, 
           onPress={() => onPress(entry)}
           selectable={editMode}
           selected={editMode && !!selectedIds?.has(entry.cardId)}
-          theme={theme}
         />
       </View>
     </View>
@@ -797,115 +777,43 @@ type WishlistGridTileProps = {
   onPress: () => void;
   selectable?: boolean;
   selected?: boolean;
-  theme: ReturnType<typeof useSpotlightTheme>;
 };
 
-function WishlistGridTile({ entry, onPress, selectable = false, selected = false, theme }: WishlistGridTileProps) {
-  const imageUri = entry.smallImageUrl ?? entry.imageUrl ?? null;
-  // Card view: variant on its own line ABOVE the quality line (graded "PSA 10"
-  // / raw full condition "Near Mint") — mirrors the Collection card tiles.
-  const variantText = variantLabelForFavorite(entry);
-  const gradeText = qualityLabelForFavorite(entry);
-  const delta = entry.dayChangeAmount ?? 0;
-  const showDelta = Number.isFinite(delta) && delta !== 0;
-  const isDown = delta < 0;
-  const deltaLabel = showDelta ? formatOptionalCurrency(Math.abs(delta), entry.currencyCode) : null;
+function WishlistGridTile({ entry, onPress, selectable = false, selected = false }: WishlistGridTileProps) {
+  // Same shared tile + prop mapping as the Collection card view
+  // (CollectionTileSlot in collection-masonry-grid.tsx) so the two card views
+  // stay pixel-identical. Wishlist has no owned-quantity concept → hide the
+  // quantity chip; the star is hidden to match Collection's card view.
+  const tileKind = entry.slabContext ? 'slab' : 'raw';
+  const dayDelta = entry.dayChangeAmount ?? null;
+  const hasDelta = dayDelta != null && Number.isFinite(dayDelta) && dayDelta !== 0;
+  const dayChangeLabel = hasDelta
+    ? formatOptionalCurrency(Math.abs(dayDelta), entry.currencyCode)
+    : null;
+  const dayChangeDirection = hasDelta ? (dayDelta > 0 ? 'up' : 'down') : null;
   return (
-    <Pressable
-      accessibilityRole="button"
+    <InventoryCardTile
+      bordered={false}
+      imageUrl={entry.smallImageUrl ?? entry.imageUrl ?? null}
+      name={entry.name}
+      setName={entry.setName ?? ''}
+      cardNumber={entry.cardNumber ?? null}
+      kind={tileKind}
+      variantName={variantLabelForFavorite(entry)}
+      conditionLabel={tileKind === 'raw' ? entry.conditionLabel ?? entry.conditionShortLabel ?? null : null}
+      graderLabel={tileKind === 'slab' ? entry.slabContext?.grader ?? null : null}
+      gradeLabel={tileKind === 'slab' ? entry.slabContext?.grade ?? null : null}
+      showQuantity={false}
+      priceLabel={formatOptionalCurrency(entry.marketPrice, entry.currencyCode)}
+      dayChangeLabel={dayChangeLabel}
+      dayChangeDirection={dayChangeDirection}
+      isFavorite
+      showFavorite={false}
+      selectable={selectable}
+      selected={selected}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.gridTile,
-        { opacity: pressed ? 0.84 : 1 },
-      ]}
       testID={`wishlist-grid-tile-${entry.cardId}`}
-    >
-      {selectable ? (
-        <View style={styles.selectBadge} testID={`wishlist-grid-tile-${entry.cardId}-select`}>
-          <SelectionCheckCircle selected={!!selected} />
-        </View>
-      ) : null}
-      <View style={styles.gridImageWrap}>
-        {imageUri ? (
-          <Image
-            accessibilityIgnoresInvertColors
-            resizeMode="contain"
-            source={{ uri: imageUri }}
-            style={styles.gridImage}
-            testID={`wishlist-grid-tile-${entry.cardId}-image`}
-          />
-        ) : (
-          <View style={styles.gridImage} />
-        )}
-      </View>
-      <View style={styles.gridTextWrap}>
-        <Text
-          numberOfLines={2}
-          style={[theme.typography.headline, { color: theme.colors.gray900 }]}
-        >
-          {entry.name}
-        </Text>
-        {entry.cardNumber || entry.setName ? (
-          <Text
-            numberOfLines={1}
-            style={[styles.gridMeta, { color: theme.colors.gray600 }]}
-          >
-            {entry.cardNumber}
-            {entry.cardNumber && entry.setName ? '  ·  ' : ''}
-            {entry.setName}
-          </Text>
-        ) : null}
-        {variantText ? (
-          <Text
-            numberOfLines={1}
-            style={[styles.gridMeta, { color: theme.colors.gray600 }]}
-            testID={`wishlist-grid-tile-${entry.cardId}-variant`}
-          >
-            {variantText}
-          </Text>
-        ) : null}
-        {gradeText ? (
-          <Text
-            numberOfLines={1}
-            style={[styles.gridMeta, { color: theme.colors.gray600 }]}
-            testID={`wishlist-grid-tile-${entry.cardId}-grade`}
-          >
-            {gradeText}
-          </Text>
-        ) : null}
-      </View>
-      <View style={styles.gridPriceRow}>
-        <Text
-          numberOfLines={1}
-          style={[styles.gridPrice, { color: theme.colors.gray900 }]}
-        >
-          {formatOptionalCurrency(entry.marketPrice, entry.currencyCode)}
-        </Text>
-        {showDelta && deltaLabel ? (
-          <View
-            style={[
-              styles.gridDeltaPill,
-              { backgroundColor: isDown ? theme.colors.deltaDownSurface : theme.colors.deltaUpSurface },
-            ]}
-            testID={`wishlist-grid-tile-${entry.cardId}-delta`}
-          >
-            {isDown ? (
-              <ArrowDown color={theme.colors.deltaDownText} height={12} width={12} />
-            ) : (
-              <ArrowUp color={theme.colors.deltaUpText} height={12} width={12} />
-            )}
-            <Text
-              style={[
-                styles.gridDeltaLabel,
-                { color: isDown ? theme.colors.deltaDownText : theme.colors.deltaUpText },
-              ]}
-            >
-              {deltaLabel}
-            </Text>
-          </View>
-        ) : null}
-      </View>
-    </Pressable>
+    />
   );
 }
 
@@ -1019,62 +927,5 @@ const styles = StyleSheet.create({
     // reads as a contained card, not a stretched full-width row.
     borderWidth: 1,
     width: '50%',
-  },
-  gridTile: {
-    // Plain tile — no shell border/fill; the row draws the dividers. Relative so
-    // the heart badge anchors to the cell's top-right corner.
-    padding: 16,
-    position: 'relative',
-  },
-  gridImageWrap: {
-    alignItems: 'center',
-    width: '100%',
-  },
-  gridImage: {
-    // Small centered card (Figma 992:9884 — 71x104) so the 20px heart floats
-    // clear in the empty top-right corner instead of crowding the art.
-    borderRadius: 6,
-    height: 104,
-    width: 71,
-  },
-  gridTextWrap: {
-    // Card Details: 2px between the title/subtitle/condition/qty lines, 16px
-    // below the card image (Figma 992:9883 / 9885).
-    gap: 2,
-    paddingTop: 16,
-  },
-  gridMeta: {
-    // Label: 13/500/140% gray-600 (Figma 1263:3386/3387/3388).
-    fontFamily: 'SpotlightBodyMedium',
-    fontSize: 13,
-    lineHeight: 18.2,
-  },
-  gridPriceRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 4,
-    // 16px below the details block (Figma Card Content gap, 992:9883).
-    marginTop: 16,
-  },
-  gridPrice: {
-    // Price: 13/700/140% gray-900 (Figma 992:9891).
-    flexShrink: 1,
-    fontFamily: 'SpotlightBodyBold',
-    fontSize: 13,
-    lineHeight: 18.2,
-  },
-  gridDeltaPill: {
-    alignItems: 'center',
-    borderRadius: 4,
-    flexDirection: 'row',
-    gap: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  gridDeltaLabel: {
-    // Label: 13/500/140% (Figma 1263:3396).
-    fontFamily: 'SpotlightBodyMedium',
-    fontSize: 13,
-    lineHeight: 18.2,
   },
 });
