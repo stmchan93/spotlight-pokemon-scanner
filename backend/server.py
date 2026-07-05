@@ -3948,7 +3948,11 @@ class SpotlightScanService:
     )
 
     def _portfolio_history_select_columns(
-        self, *, include_raw_json: bool, include_graded_json: bool
+        self,
+        *,
+        include_raw_json: bool,
+        include_graded_json: bool,
+        alias: str | None = None,
     ) -> str:
         """Column list for portfolio history reads. The raw/graded context JSON
         blobs are the bulk of each row (and of the whole table on disk, via
@@ -3957,10 +3961,22 @@ class SpotlightScanService:
         actually needed lets SQLite skip the unused blob's overflow pages — for a
         typical all-raw portfolio that is ~60MB less I/O per dashboard refresh,
         which is what makes the cold-cache read time out. The skipped column is
-        aliased to NULL so the row shape (and the resolver) is unchanged."""
-        columns = list(self._PORTFOLIO_HISTORY_BASE_COLUMNS)
-        columns.append("raw_contexts_json" if include_raw_json else "NULL AS raw_contexts_json")
-        columns.append("graded_contexts_json" if include_graded_json else "NULL AS graded_contexts_json")
+        aliased to NULL so the row shape (and the resolver) is unchanged.
+
+        ``alias`` prefixes the real columns with a table alias (e.g. ``h.``) for
+        use in a join where a bare column name would be ambiguous; the NULL-aliased
+        skipped column keeps its output name so a UNION with the unaliased form
+        stays column-compatible."""
+        prefix = f"{alias}." if alias else ""
+        columns = [f"{prefix}{col}" for col in self._PORTFOLIO_HISTORY_BASE_COLUMNS]
+        columns.append(
+            f"{prefix}raw_contexts_json" if include_raw_json else "NULL AS raw_contexts_json"
+        )
+        columns.append(
+            f"{prefix}graded_contexts_json"
+            if include_graded_json
+            else "NULL AS graded_contexts_json"
+        )
         return ", ".join(columns)
 
     def _portfolio_history_rows_by_card_id(
@@ -3971,6 +3987,7 @@ class SpotlightScanService:
         provider: str,
         include_raw_json: bool = True,
         include_graded_json: bool = True,
+        start_date: date | None = None,
     ) -> dict[str, list[sqlite3.Row]]:
         # When the cell table is the price-history source, the per-day resolver
         # (_portfolio_history_price_row_from_history_row) reads every price from
@@ -3993,18 +4010,70 @@ class SpotlightScanService:
             if not chunk:
                 continue
             placeholders = ",".join("?" for _ in chunk)
-            params: list[Any] = [provider, *chunk, end_date.isoformat()]
-            rows = self.connection.execute(
-                f"""
-                SELECT {select_columns}
-                FROM card_price_history_daily
-                WHERE provider = ?
-                  AND card_id IN ({placeholders})
-                  AND price_date <= ?
-                ORDER BY card_id ASC, price_date ASC, updated_at ASC
-                """,
-                params,
-            ).fetchall()
+            if start_date is None:
+                # Full history — every range can be plotted from one shared read
+                # (all-six / prewarm). Unchanged behaviour.
+                rows = self.connection.execute(
+                    f"""
+                    SELECT {select_columns}
+                    FROM card_price_history_daily
+                    WHERE provider = ?
+                      AND card_id IN ({placeholders})
+                      AND price_date <= ?
+                    ORDER BY card_id ASC, price_date ASC, updated_at ASC
+                    """,
+                    [provider, *chunk, end_date.isoformat()],
+                ).fetchall()
+            else:
+                # Open range: read only the plotted window [start_date, end_date]
+                # plus each card's single carry-in row (its latest snapshot strictly
+                # before start_date) needed to value the first day when no snapshot
+                # lands exactly on start_date. For a 1W open range this is ~8x fewer
+                # rows than the full history, and the full read is the dominant
+                # cold-disk cost of the first Collection load. The carry-in is
+                # fetched via a MAX(price_date) index-aggregate (≈one row per card);
+                # the outer ORDER BY (card_id, price_date, updated_at) reproduces the
+                # full read's row order so the per-day resolver walk is identical.
+                start_iso = start_date.isoformat()
+                carry_columns = self._portfolio_history_select_columns(
+                    include_raw_json=include_raw_json,
+                    include_graded_json=include_graded_json,
+                    alias="h",
+                )
+                rows = self.connection.execute(
+                    f"""
+                    SELECT * FROM (
+                        SELECT {select_columns}
+                        FROM card_price_history_daily
+                        WHERE provider = ?
+                          AND card_id IN ({placeholders})
+                          AND price_date >= ?
+                          AND price_date <= ?
+                        UNION ALL
+                        SELECT {carry_columns}
+                        FROM card_price_history_daily AS h
+                        JOIN (
+                            SELECT card_id, MAX(price_date) AS carry_date
+                            FROM card_price_history_daily
+                            WHERE provider = ?
+                              AND card_id IN ({placeholders})
+                              AND price_date < ?
+                            GROUP BY card_id
+                        ) AS carry
+                          ON carry.card_id = h.card_id
+                         AND carry.carry_date = h.price_date
+                        WHERE h.provider = ?
+                          AND h.card_id IN ({placeholders})
+                          AND h.price_date < ?
+                    )
+                    ORDER BY card_id ASC, price_date ASC, updated_at ASC
+                    """,
+                    [
+                        provider, *chunk, start_iso, end_date.isoformat(),
+                        provider, *chunk, start_iso,
+                        provider, *chunk, start_iso,
+                    ],
+                ).fetchall()
             for row in rows:
                 card_id = str(row["card_id"] or "").strip()
                 if not card_id:
@@ -4419,17 +4488,57 @@ class SpotlightScanService:
             result[card_id] = {date: by_date[date] for date in needed if date in by_date}
         return result
 
+    def _portfolio_history_window_start(
+        self, range_labels: list[str] | None, *, time_zone_name: str | None
+    ) -> date | None:
+        """Earliest ``start_date`` across ``range_labels`` — the widest window the
+        shared daily-history read must cover so every requested range can still be
+        plotted from it. Computed identically to ``deck_history`` (same
+        ``_portfolio_date_bounds`` + earliest-priced clamp) so the scoped read never
+        drops a day a range would chart. ``None`` (read full history) when no labels
+        are given — the all-six / prewarm path, where the widest range is ALL anyway."""
+        if not range_labels:
+            return None
+        earliest_at = self._portfolio_earliest_activity_at()
+        earliest_priced_date = self._portfolio_earliest_priced_date()
+        window_start: date | None = None
+        for label in range_labels:
+            normalized = self._normalize_portfolio_range_label(label)
+            earliest_for_label = (
+                earliest_at
+                if normalized in {"1W", "30D", "90D", "YTD", "1Y", "ALL"}
+                else None
+            )
+            _tz, start_date, end_date = self._portfolio_date_bounds(
+                days=365,
+                range_label=normalized,
+                time_zone_name=time_zone_name,
+                earliest_at=earliest_for_label,
+            )
+            if earliest_priced_date is not None and earliest_priced_date > start_date:
+                start_date = min(earliest_priced_date, end_date)
+            window_start = start_date if window_start is None else min(window_start, start_date)
+        return window_start
+
     def _load_portfolio_history_shared_inputs(
-        self, *, time_zone_name: str | None = None
+        self, *, time_zone_name: str | None = None, range_labels: list[str] | None = None
     ) -> dict[str, Any]:
         """Fetch the range-independent inputs deck_history needs (entries, events,
-        and the daily price-history rows up to today) ONCE so the dashboard can
-        compute all 6 ranges without re-reading them per range. ``end_date`` here
-        mirrors _portfolio_date_bounds (always today in the resolved tz), so the
-        history rows are valid for every range (each only differs by start_date)."""
+        and the daily price-history rows) ONCE so the dashboard can compute the
+        requested range(s) without re-reading them per range. ``end_date`` mirrors
+        _portfolio_date_bounds (always today in the resolved tz).
+
+        When ``range_labels`` is given, the daily read is scoped to the widest of
+        those ranges' windows (+ per-card carry-in) instead of full history — the
+        open Collection range (1W) then reads ~8x fewer rows, which was the dominant
+        cold-disk cost of the first load. ``None`` reads full history for the
+        all-six / prewarm path."""
         owner_user_id = self._current_owner_user_id()
         time_zone = self._portfolio_time_zone(time_zone_name)
         end_date = datetime.now(time_zone).date()
+        window_start = self._portfolio_history_window_start(
+            range_labels, time_zone_name=time_zone_name
+        )
         entry_rows = self._portfolio_history_entry_rows(owner_user_id)
         event_rows = self._portfolio_history_event_rows(owner_user_id)
         # Pricing mode mirrors _portfolio_history_price_row_from_history_row: slab
@@ -4445,6 +4554,7 @@ class SpotlightScanService:
             provider=pricing_provider(),
             include_raw_json=include_raw_json,
             include_graded_json=include_graded_json,
+            start_date=window_start,
         )
         # NOTE: the price-history CELLS are no longer prefetched here. Each
         # deck_history call now bulk-prefetches only ITS range's cells via
@@ -4643,6 +4753,7 @@ class SpotlightScanService:
                 card_ids={str(snapshot.get("cardID") or "").strip() for snapshot in snapshot_by_id.values()},
                 end_date=end_date,
                 provider=pricing_provider(),
+                start_date=start_date,
             )
         )
         # Bulk-prefetch ONLY this range's cells (window + carry-in) so a single
@@ -13637,25 +13748,28 @@ class SpotlightScanService:
             "1Y": "1Y",
             "ALL": "ALL",
         }
-        # Load the range-independent history inputs (entries, events, daily prices
-        # up to today) ONCE and share them across all six range computations
-        # instead of re-reading them per range. If this load fails, each
-        # deck_history call falls back to fetching its own (shared_inputs=None),
-        # so correctness is preserved either way.
-        try:
-            history_shared_inputs = self._load_portfolio_history_shared_inputs(
-                time_zone_name=resolved_tz
-            )
-        except Exception:  # noqa: BLE001 - fall back to per-call fetching
-            traceback.print_exc()
-            history_shared_inputs = None
-
         # Only compute the requested range(s) — the client fetches the rest on
         # demand. Unknown keys are ignored; None means all six (legacy/prewarm).
         if range_keys is None:
             keys_to_compute = list(range_labels.keys())
+            computed_labels: list[str] | None = None  # full history (all-six/prewarm)
         else:
             keys_to_compute = [key for key in range_keys if key in range_labels]
+            computed_labels = [range_labels[key] for key in keys_to_compute]
+
+        # Load the range-independent history inputs (entries, events, daily prices)
+        # ONCE and share them across the computed range(s) instead of re-reading
+        # per range. Scoped to the widest requested range's window so the open
+        # Collection range reads a small window, not all of history. If this load
+        # fails, each deck_history call falls back to fetching its own
+        # (shared_inputs=None), so correctness is preserved either way.
+        try:
+            history_shared_inputs = self._load_portfolio_history_shared_inputs(
+                time_zone_name=resolved_tz, range_labels=computed_labels
+            )
+        except Exception:  # noqa: BLE001 - fall back to per-call fetching
+            traceback.print_exc()
+            history_shared_inputs = None
 
         ranges: dict[str, Any] = {}
         for key in keys_to_compute:
