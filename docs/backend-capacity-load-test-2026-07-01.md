@@ -1,5 +1,24 @@
 # Backend capacity — load test + VM sizing (2026-07-01)
 
+> **2026-07-05 update — re-ran `mixed.js` pre-launch; found + fixed a browse collapse.**
+> Box was back on **e2-standard-4** (not the t2d used on 7/01) and the same 30-user mixed
+> run that was "comfortable" on 7/01 **collapsed**: entries 25% / dashboard 30% success,
+> 43.7% of requests failed, scan p95 20.6s. Cause: `/deck/entries` was **uncached** (~1s of
+> GIL-bound per-card pricing per Collection view for a heavy account) — ~27 browsers
+> saturated the 4 heavy-read semaphore slots and both gated endpoints shed 503s, while the
+> dashboard handler itself was serving 1–11 ms cache hits behind the starved pool. On 7/01's
+> t2d cores the per-call cost sat just under the tipping point; e2's slower cores tipped it.
+> **Fix (commit 0d681ef, deployed):** `deck_entries` now has the dashboard's version-token
+> cache + dogpile lock (token additionally covers `card_favorites`). Re-run on the SAME
+> e2-standard-4:
+> - **30 users:** entries/dashboard 99% ✓, failed 0.9%, entries p95 859 ms, scan p95 5.1 s.
+> - **100 users:** browse 100% ✓ (dashboard p95 948 ms, entries p95 791 ms), 0.09% failed,
+>   scans 0% shed / p95 7.5 s (10 scanners on 3 encoder slots — scan latency is now the ONLY
+>   pressure point and it's pure CPU → show-day resize fixes it; slots scale as vCPUs−1).
+> Note the all-VUs-share-one-heavy-account caveat below is now *less* pessimistic for browse
+> (any per-account cost is paid once per data-version), and show-day new users have empty
+> decks anyway. The 7/01 sizing table's browse-degradation rows are obsolete; scan rows stand.
+
 **Question:** what VM do we need for a beta of 50–100 users (up to ~1000
 signups), and can we survive 300 concurrent users?
 
