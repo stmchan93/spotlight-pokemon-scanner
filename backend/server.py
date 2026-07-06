@@ -14762,6 +14762,11 @@ class SpotlightScanService:
                     "number": str(card.get("number") or ""),
                     "setName": str(card.get("setName") or ""),
                     "imageUrl": card.get("imageURL") or card.get("imageSmallURL"),
+                    # Small variant for list thumbnails — the client's table rows
+                    # load this (small-first, like the Collection tiles) instead of
+                    # the full-size scan; imageUrl stays full-size for the PDP
+                    # preview handoff.
+                    "smallImageUrl": card.get("imageSmallURL"),
                     "quantity": quantity,
                     "kind": "graded" if is_graded else "raw",
                     "variantName": variant_name,

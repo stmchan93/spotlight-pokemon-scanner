@@ -244,6 +244,11 @@ class PortfolioPerformanceTests(unittest.TestCase):
         self.assertEqual(payload["itemCount"], 3)
         self.assertEqual(payload["currencyCode"], "USD")
         self.assertEqual(len(payload["rows"]), 3)
+        # Rows carry both image variants: imageUrl (full-size, PDP preview
+        # handoff) and smallImageUrl (list thumbnails, small-first like the
+        # Collection tiles).
+        self.assertIn("imageUrl", payload["rows"][0])
+        self.assertIn("smallImageUrl", payload["rows"][0])
         # refreshedAt is a parseable ISO8601 timestamp.
         datetime.fromisoformat(payload["refreshedAt"].replace("Z", "+00:00"))
 

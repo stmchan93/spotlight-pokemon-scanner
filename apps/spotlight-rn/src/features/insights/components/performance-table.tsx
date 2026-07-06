@@ -6,6 +6,7 @@ import { useSpotlightTheme } from '@spotlight/design-system';
 import { deckConditionOptions, type PortfolioPerformanceRow } from '@spotlight/api-client';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
+import { getCardImageUrl } from '@/lib/card-images';
 import { PriceSparkline } from '@/features/cards/components/price-sparkline';
 import { formatCompactCurrency, formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
 
@@ -213,12 +214,16 @@ export const PerformanceTable = forwardRef<
             style={[styles.cardCell, { width: CARD_COL_WIDTH }]}
             testID={`${testID}-card-${row.entryId}`}
           >
-            {row.imageUrl ? (
+            {/* Small-variant first (getCardImageUrl 'small'), same as the
+                Collection tiles/rows — the full-size scan in row.imageUrl is
+                heavy enough that thumbs sat blank while it downloaded; the
+                small URL paints fast and shares the app-wide image cache. */}
+            {getCardImageUrl(row, 'small') ? (
               <CachedImage
                 cachePolicy={imageCachePolicy.thumbnail}
                 contentFit="cover"
                 style={styles.thumb}
-                uri={row.imageUrl}
+                uri={getCardImageUrl(row, 'small')}
               />
             ) : (
               <View style={[styles.thumb, { backgroundColor: theme.colors.gray100 }]} />

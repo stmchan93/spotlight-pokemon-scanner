@@ -305,6 +305,8 @@ export type PortfolioPerformanceRow = {
   cardNumber: string;
   setName: string;
   imageUrl: string | null;
+  /** Small image variant for list thumbnails (imageUrl is the full-size scan). */
+  smallImageUrl: string | null;
   quantity: number;
   kind: 'raw' | 'graded';
   grade: string | null;
