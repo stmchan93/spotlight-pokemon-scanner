@@ -258,6 +258,46 @@ const SCANNER_ZOOM_STORAGE_KEY = '@spotlight/scanner/zoom-factor';
 // One-time EN/JP tooltip seen-flag — written on any dismissal so the coach mark
 // only ever shows on the user's very first scanner visit.
 const LANGUAGE_TOOLTIP_SEEN_KEY = '@spotlight/scanner/language-tooltip-seen';
+// SecureStore twin of the seen-flag. AsyncStorage is wiped on uninstall, so the
+// coach mark used to reappear for existing users after a reinstall — while their
+// Supabase session (also in SecureStore / the iOS Keychain) survived. SecureStore
+// keys only allow [A-Za-z0-9._-], hence the dotted spelling (no '@' / '/' / ':').
+const LANGUAGE_TOOLTIP_SEEN_SECURE_KEY = 'spotlight.scanner.language-tooltip-seen';
+
+// expo-secure-store can be unavailable (web) or throw at runtime on some devices
+// (keychain entitlement issues — see src/lib/supabase.ts). Load it defensively and
+// treat every failure as "no flag": coach-mark bookkeeping must never crash or
+// block the scanner, and the AsyncStorage flag still covers the current install.
+type SecureStoreModule = typeof import('expo-secure-store');
+let languageTooltipSecureStore: SecureStoreModule | null = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  languageTooltipSecureStore = require('expo-secure-store') as SecureStoreModule;
+} catch {
+  languageTooltipSecureStore = null;
+}
+
+async function readLanguageTooltipSeenFlag(secureKey: string): Promise<string | null> {
+  if (!languageTooltipSecureStore) {
+    return null;
+  }
+  try {
+    return await languageTooltipSecureStore.getItemAsync(secureKey);
+  } catch {
+    return null;
+  }
+}
+
+function writeLanguageTooltipSeenFlag(secureKey: string) {
+  if (!languageTooltipSecureStore) {
+    return;
+  }
+  try {
+    void languageTooltipSecureStore.setItemAsync(secureKey, '1').catch(() => {});
+  } catch {
+    // Best-effort — the AsyncStorage flag still covers this install.
+  }
+}
 
 function parseScannerZoomFactor(raw: string | null): ScannerZoomFactor {
   const value = Number(raw);
@@ -573,17 +613,24 @@ export function ScannerScreen({
   // phone still gets the coach mark; the provider tree remounts this screen on
   // account changes, so the key is stable within a mount.
   const { currentSession: tooltipSession } = useAuth();
-  const languageTooltipSeenKey =
-    `${LANGUAGE_TOOLTIP_SEEN_KEY}:${tooltipSession?.user.id ?? 'anon'}`;
+  const tooltipAccountId = tooltipSession?.user.id ?? 'anon';
+  const languageTooltipSeenKey = `${LANGUAGE_TOOLTIP_SEEN_KEY}:${tooltipAccountId}`;
+  // Supabase user ids are UUIDs, so the account suffix stays within SecureStore's
+  // [A-Za-z0-9._-] key alphabet.
+  const languageTooltipSecureSeenKey =
+    `${LANGUAGE_TOOLTIP_SEEN_SECURE_KEY}.${tooltipAccountId}`;
   const [showLanguageTooltip, setShowLanguageTooltip] = useState(false);
   const dismissLanguageTooltip = useCallback(() => {
     setShowLanguageTooltip((current) => {
       if (current) {
+        // Written to both stores: AsyncStorage keeps the legacy path consistent;
+        // SecureStore survives uninstall/reinstall like the auth session does.
         void AsyncStorage.setItem(languageTooltipSeenKey, '1').catch(() => {});
+        writeLanguageTooltipSeenFlag(languageTooltipSecureSeenKey);
       }
       return false;
     });
-  }, [languageTooltipSeenKey]);
+  }, [languageTooltipSecureSeenKey, languageTooltipSeenKey]);
   useEffect(() => {
     // Arm only while the scanner is the ACTIVE pager page. Both pager slots
     // mount at boot (Collection is the landing tab), so an unconditional arm
@@ -593,17 +640,38 @@ export function ScannerScreen({
       return undefined;
     }
     let cancelled = false;
-    void AsyncStorage.getItem(languageTooltipSeenKey)
-      .then((seen) => {
-        if (!cancelled && seen == null) {
-          setShowLanguageTooltip(true);
-        }
-      })
-      .catch(() => {});
+    void (async () => {
+      // SecureStore first — it survives reinstall. Fall back to the legacy
+      // AsyncStorage flag and migrate it forward so users who dismissed the
+      // coach mark before this change never see it again.
+      const secureSeen = await readLanguageTooltipSeenFlag(languageTooltipSecureSeenKey);
+      if (cancelled || secureSeen != null) {
+        return;
+      }
+      let legacySeen: string | null;
+      try {
+        legacySeen = await AsyncStorage.getItem(languageTooltipSeenKey);
+      } catch {
+        // Match the pre-SecureStore behavior: an unreadable flag means "don't show".
+        return;
+      }
+      if (cancelled) {
+        return;
+      }
+      if (legacySeen === '1') {
+        // Seen on this install before the SecureStore flag existed — copy it
+        // over (best-effort) and stay hidden.
+        writeLanguageTooltipSeenFlag(languageTooltipSecureSeenKey);
+        return;
+      }
+      if (legacySeen == null) {
+        setShowLanguageTooltip(true);
+      }
+    })();
     return () => {
       cancelled = true;
     };
-  }, [isActiveTab, languageTooltipSeenKey]);
+  }, [isActiveTab, languageTooltipSecureSeenKey, languageTooltipSeenKey]);
   useEffect(() => {
     if (!showLanguageTooltip || !isActiveTab) {
       return undefined;
