@@ -50,3 +50,20 @@ if curl -sS -m 900 -X POST "$REFRESH_URL"; then
 else
   echo "[sync] visual-index refresh request failed (non-fatal)" >&2
 fi
+
+# Post-sync: the new price snapshot moves MAX(price_date), which invalidates
+# every owner's dashboard/inventory/performance caches — without a prewarm the
+# first user per owner pays a ~25s cold recompute. The endpoint kicks off the
+# warm in a background thread and acks immediately, so a short timeout is
+# enough. Best-effort: a prewarm failure must never fail the sync job.
+PREWARM_URL="http://127.0.0.1:8788/api/v1/ops/prewarm-portfolio"
+if [ -n "${SPOTLIGHT_OPS_REFRESH_TOKEN:-}" ]; then
+  PREWARM_URL="${PREWARM_URL}?token=${SPOTLIGHT_OPS_REFRESH_TOKEN}"
+fi
+echo "[sync] triggering portfolio cache prewarm"
+if curl -sS -m 30 -X POST "$PREWARM_URL"; then
+  echo
+  echo "[sync] portfolio prewarm started"
+else
+  echo "[sync] portfolio prewarm request failed (non-fatal)" >&2
+fi

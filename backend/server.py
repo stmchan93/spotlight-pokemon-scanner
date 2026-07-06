@@ -13525,17 +13525,24 @@ class SpotlightScanService:
             "refreshedAt": utc_now(),
         }
 
-    def prewarm_portfolio_dashboards(self, *, delay_seconds: float = 0.0) -> dict[str, Any]:
-        """Warm the per-owner dashboard cache at startup.
+    def prewarm_portfolio_dashboards(
+        self, *, delay_seconds: float = 0.0, source: str = "startup"
+    ) -> dict[str, Any]:
+        """Warm the per-owner dashboard/inventory/performance caches.
 
         After a reboot the OS page cache is empty and the multi-GB DB lives on a
         slow disk, so the first dashboard refresh cold-reads owner rows and can
-        exceed the client timeout (the exact failure seen after a VM resize). We
-        proactively compute each active owner's dashboard once — populating both
-        the in-process cache AND the OS page cache for their rows — so the first
-        real refresh is a ~1ms cache hit. Runs in a background daemon thread on
-        its own connection; every owner is best-effort and never blocks request
-        serving or startup. Tunable via PORTFOLIO_DASHBOARD_PREWARM* env vars."""
+        exceed the client timeout (the exact failure seen after a VM resize).
+        The daily price sync has the same effect: it moves the global
+        MAX(price_date), which invalidates every owner's version-token caches,
+        so the first user per owner afterwards pays a ~24.5s cold recompute.
+        We proactively compute the payloads clients actually request —
+        portfolio_dashboard(range=1W), deck_entries(limit=200), and
+        portfolio_performance() — populating both the in-process caches AND the
+        OS page cache for their rows, so the first real refresh is a ~1ms cache
+        hit. Runs in a background daemon thread on its own connection; every
+        owner/section is best-effort and never blocks request serving or
+        startup. Tunable via PORTFOLIO_DASHBOARD_PREWARM* env vars."""
         if delay_seconds > 0:
             # Let the server finish coming up (and the visual prewarm grab the
             # disk first) before we start cold-reading owner rows.
@@ -13569,28 +13576,51 @@ class SpotlightScanService:
         except Exception:  # noqa: BLE001 - prewarm is best-effort, never fatal
             traceback.print_exc()
 
-        warmed = 0
+        warmed_dashboards = 0
+        warmed_entries = 0
+        warmed_performance = 0
         for owner_user_id in owners:
             try:
                 identity = RequestIdentity(
                     user_id=owner_user_id, auth_source="startup_prewarm"
                 )
                 with self.request_identity_context(identity):
-                    self.portfolio_dashboard()
-                warmed += 1
+                    # Warm the exact cache keys clients request. Each section is
+                    # independently best-effort: one failing must not stop the
+                    # others (or the remaining owners).
+                    try:
+                        # Collection screen opens on range=1W → key (owner, tz, "1W").
+                        self.portfolio_dashboard(range_key="1W")
+                        warmed_dashboards += 1
+                    except Exception:  # noqa: BLE001 - best-effort per section
+                        traceback.print_exc()
+                    try:
+                        # Inventory grid call → key (owner, 200, 0, False, False, True).
+                        self.deck_entries(limit=200, offset=0)
+                        warmed_entries += 1
+                    except Exception:  # noqa: BLE001 - best-effort per section
+                        traceback.print_exc()
+                    try:
+                        # Insights table → key (owner, "performance").
+                        self.portfolio_performance()
+                        warmed_performance += 1
+                    except Exception:  # noqa: BLE001 - best-effort per section
+                        traceback.print_exc()
             except Exception:  # noqa: BLE001 - one owner failing must not stop the rest
                 traceback.print_exc()
 
         result = {
             "ownerCount": len(owners),
-            "warmedCount": warmed,
+            "warmedDashboards": warmed_dashboards,
+            "warmedEntries": warmed_entries,
+            "warmedPerformance": warmed_performance,
             "elapsedMs": round((perf_counter() - started_at) * 1000.0, 1),
         }
         self._emit_structured_log(
             {
                 "severity": "INFO",
                 "event": "portfolio_dashboard_prewarm",
-                "source": "startup",
+                "source": source,
                 **result,
             }
         )
@@ -16000,6 +16030,25 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 )
                 return
             self._write_json(HTTPStatus.OK, result)
+            return
+
+        if parsed.path == "/api/v1/ops/prewarm-portfolio":
+            query = parse_qs(parsed.query)
+            expected_token = str(os.environ.get("SPOTLIGHT_OPS_REFRESH_TOKEN") or "").strip()
+            provided_token = query.get("token", [""])[0].strip()
+            if expected_token and provided_token != expected_token:
+                self._write_json(HTTPStatus.UNAUTHORIZED, {"error": "invalid ops token"})
+                return
+            # Fire-and-forget: the prewarm can take minutes (one heavy compute
+            # per owner), so the caller (the daily sync script) gets an
+            # immediate ack instead of blocking on the full warm.
+            threading.Thread(
+                target=self.service.prewarm_portfolio_dashboards,
+                kwargs={"source": "ops"},
+                name="portfolio-dashboard-prewarm-ops",
+                daemon=True,
+            ).start()
+            self._write_json(HTTPStatus.OK, {"status": "started"})
             return
 
         payload = self._read_json_body()

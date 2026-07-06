@@ -691,7 +691,9 @@ class PortfolioDashboardPrewarmTests(unittest.TestCase):
         result = self.service.prewarm_portfolio_dashboards()
 
         self.assertEqual(result["ownerCount"], 2)
-        self.assertEqual(result["warmedCount"], 2)
+        self.assertEqual(result["warmedDashboards"], 2)
+        self.assertEqual(result["warmedEntries"], 2)
+        self.assertEqual(result["warmedPerformance"], 2)
         # Both owners now have a populated dashboard cache entry.
         cached_owners = {key[0] for key in self.service._dashboard_cache}
         self.assertEqual(cached_owners, {"vendor-a", "vendor-b"})
@@ -710,7 +712,8 @@ class PortfolioDashboardPrewarmTests(unittest.TestCase):
         )
         try:
             with self.service.request_identity_context(self._identity("vendor-a")):
-                self.service.portfolio_dashboard()
+                # The prewarm warms the key clients actually request (range=1W).
+                self.service.portfolio_dashboard(range_key="1W")
         finally:
             self.service._log_dashboard_timing = original  # type: ignore[method-assign]
 
@@ -719,7 +722,9 @@ class PortfolioDashboardPrewarmTests(unittest.TestCase):
     def test_prewarm_with_no_owners_is_a_noop(self) -> None:
         result = self.service.prewarm_portfolio_dashboards()
         self.assertEqual(result["ownerCount"], 0)
-        self.assertEqual(result["warmedCount"], 0)
+        self.assertEqual(result["warmedDashboards"], 0)
+        self.assertEqual(result["warmedEntries"], 0)
+        self.assertEqual(result["warmedPerformance"], 0)
 
 
 if __name__ == "__main__":
