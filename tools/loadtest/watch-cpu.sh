@@ -12,12 +12,12 @@
 #
 # Usage:
 #   tools/loadtest/watch-cpu.sh                     # defaults below
-#   VM=spotlight-backend-vm-small ZONE=us-central1-b INTERVAL=3 tools/loadtest/watch-cpu.sh
+#   VM=spotlight-backend-vm-small ZONE=us-central1-c INTERVAL=3 tools/loadtest/watch-cpu.sh
 #   HOST=user@1.2.3.4 tools/loadtest/watch-cpu.sh   # plain ssh instead of gcloud
 set -euo pipefail
 
 VM="${VM:-spotlight-backend-vm-small}"
-ZONE="${ZONE:-us-central1-b}"
+ZONE="${ZONE:-us-central1-c}"
 INTERVAL="${INTERVAL:-3}"
 HOST="${HOST:-}"
 

@@ -123,7 +123,7 @@ def main() -> int:
     }, indent=2))
     print(f"\nDeploy the new queue (no restart needed):\n  gcloud compute scp {qf} "
           f"spotlight-backend-vm-small:~/spotlight/review_queues/{args.queue}.json "
-          f"--zone us-central1-b --tunnel-through-iap")
+          f"--zone us-central1-c --tunnel-through-iap")
     return 0
 
 

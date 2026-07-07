@@ -75,7 +75,9 @@ default_zone() {
   local environment="$1"
   case "$environment" in
     staging)
-      printf '%s\n' "us-central1-b"
+      # Moved 2026-07-07: zone -b kept stocking out of t2d machines; the VM now
+      # lives in -c (same region/IP, deeper t2d pool). Old -b disk kept as rollback.
+      printf '%s\n' "us-central1-c"
       ;;
     production)
       printf '%s\n' ""

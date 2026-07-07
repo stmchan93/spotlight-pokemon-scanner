@@ -65,7 +65,7 @@ def main() -> int:
     parser.add_argument("--queue", default="show-2026-05-31")
     parser.add_argument("--batch-id", default="show-2026-05-31")
     parser.add_argument("--instance", default="spotlight-backend-vm-small")
-    parser.add_argument("--zone", default="us-central1-b")
+    parser.add_argument("--zone", default="us-central1-c")
     parser.add_argument("--db", type=Path, default=default_database_path())
     parser.add_argument(
         "--require-complete",

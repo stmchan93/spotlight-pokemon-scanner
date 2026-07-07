@@ -82,7 +82,7 @@ k6 run --env PROFILE=ramp --env MAX_VUS=60 --env BASE_URL=$BASE --env TOKEN=$TOK
 In a **second terminal**, watch the VM the whole time:
 
 ```bash
-VM=spotlight-backend-vm-small ZONE=us-central1-b tools/loadtest/watch-cpu.sh
+VM=spotlight-backend-vm-small ZONE=us-central1-c tools/loadtest/watch-cpu.sh
 ```
 
 ### Useful knobs (`--env`)

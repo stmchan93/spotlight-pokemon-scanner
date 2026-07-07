@@ -5,7 +5,7 @@ Created 2026-05-27.
 
 ## Context — why this exists
 
-- Backend VM: `spotlight-backend-vm-small`, zone `us-central1-b`, project `spotlight-492502`, systemd unit `spotlight-backend.service`.
+- Backend VM: `spotlight-backend-vm-small`, zone `us-central1-c`, project `spotlight-492502`, systemd unit `spotlight-backend.service`.
 - Root cause of "5–10s scans at the show": `e2-medium` is a **shared-core, burst-credit** machine. Under a burst of scans the credits drain and GCP throttles the VM to its ~1-vCPU baseline (the scheduler *pauses* the process in slices). A healthy CLIP embed is ~**254 ms**; throttled + concurrent (people tapping through stacks) it stretches to **5–10 s**. It was the machine — not the model, not the training data.
 - **Daily baseline machine:** `t2d-standard-2` (2 dedicated AMD cores, 8 GB) — no throttle, no OOM.
 - **Show machine:** `t2d-standard-4` (4 dedicated cores, 16 GB) — absorbs concurrent bursts.
@@ -42,7 +42,7 @@ Created 2026-05-27.
 Resize up (show) / down (after) — only the `--machine-type` differs:
 
 ```bash
-ZONE=us-central1-b
+ZONE=us-central1-c
 PROJ=spotlight-492502
 VM=spotlight-backend-vm-small
 

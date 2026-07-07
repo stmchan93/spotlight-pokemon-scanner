@@ -180,7 +180,7 @@ def main() -> int:
     p.add_argument("--out", type=Path, required=True, help="Output final CSV.")
     p.add_argument("--db", type=Path, default=default_database_path(), help="Local catalog DB (validation).")
     p.add_argument("--instance", default="spotlight-backend-vm-small")
-    p.add_argument("--zone", default="us-central1-b")
+    p.add_argument("--zone", default="us-central1-c")
     p.add_argument("--queue", default="show-2026-05-31", help="Queue id (filters reviews).")
     p.add_argument("--watch", action="store_true", help="Poll until every queue scan is reviewed, then finalize.")
     p.add_argument("--poll-seconds", type=int, default=600)

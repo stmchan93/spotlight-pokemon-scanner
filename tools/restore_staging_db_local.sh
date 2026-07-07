@@ -37,7 +37,7 @@ DEFAULT_DEST="$REPO_ROOT/backend/data/spotlight_scanner.local.sqlite"
 DEST="${1:-$DEFAULT_DEST}"
 
 VM_INSTANCE="${SPOTLIGHT_VM_STAGING_INSTANCE:-spotlight-backend-vm-small}"
-VM_ZONE="${SPOTLIGHT_VM_STAGING_ZONE:-us-central1-b}"
+VM_ZONE="${SPOTLIGHT_VM_STAGING_ZONE:-us-central1-c}"
 VM_PROJECT="${SPOTLIGHT_GCP_PROJECT:-spotlight-492502}"
 VM_DB_PATH="${SPOTLIGHT_VM_DB_PATH:-/home/stephenchan/spotlight/data/spotlight_scanner.sqlite}"
 VM_SNAPSHOT_PATH="/home/stephenchan/restore-snapshot-$$.sqlite"

@@ -259,7 +259,7 @@ def main() -> int:
         "\nOr, for a queue-only refresh (no server/html change), scp it:\n"
         f"  gcloud compute scp {queue_file} "
         f"spotlight-backend-vm-small:~/spotlight/review_queues/{args.queue}.json "
-        "--zone us-central1-b --tunnel-through-iap"
+        "--zone us-central1-c --tunnel-through-iap"
     )
     return 0
 
