@@ -133,6 +133,11 @@ gcloud compute instances start spotlight-backend-vm-small --zone us-central1-c
 4. Rollback: restore `pre-json-drop-*` snapshot (~30 min) + litestream for the gap.
 5. Epilogue (optional, any time after): prod t2d-standard-4 → t2d-standard-2 (~$61/mo) — the RAM
    floor is gone; scan ceiling ~3–4 concurrent until INT8. Decide from `scanner_busy_503` logs.
+6. Epilogue 2 — **rebuild staging on a small disk** (~25–30GB, $8→$3/mo): the 80GB staging disk was
+   only needed to rehearse the drop (38GB DB + VACUUM scratch ≈ 55–60GB peak). Post-drop: fresh
+   small disk, provision via the deploy scripts, DB via **litestream restore** (~3GB, minutes).
+   NOTE staging data refreshes must use litestream/file-level restore from now on, NOT disk
+   snapshots — prod's disk stays 80GB, and snapshots always demand ≥ source-size target disks.
 
 ## Cost picture through July
 
