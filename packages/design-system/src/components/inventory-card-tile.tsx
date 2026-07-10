@@ -31,6 +31,12 @@ export type InventoryCardTileProps = {
   conditionLabel?: string | null;
   graderLabel?: string | null;
   gradeLabel?: string | null;
+  /**
+   * When true (default) the condition/grade text line renders under the card.
+   * Set false to hide just that text while keeping the slab-case thumbnail
+   * frame intact (Wishlist, where copy-specific condition isn't shown).
+   */
+  showQualityLine?: boolean;
   quantity?: number;
   priceLabel: string | null;
   isFavorite: boolean;
@@ -131,6 +137,7 @@ export function InventoryCardTile({
   conditionLabel,
   graderLabel,
   gradeLabel,
+  showQualityLine = true,
   quantity = 1,
   priceLabel,
   isFavorite,
@@ -286,7 +293,7 @@ export function InventoryCardTile({
               </AppText>
             ) : null}
 
-            {qualityLine ? (
+            {showQualityLine && qualityLine ? (
               <AppText
                 color="gray600"
                 numberOfLines={1}

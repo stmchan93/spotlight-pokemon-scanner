@@ -36,23 +36,11 @@ import { formatOptionalCurrency } from '@/features/portfolio/components/portfoli
 import { WishlistHeader } from '@/features/wishlist/components/wishlist-header';
 import { useAppServices } from '@/providers/app-providers';
 
-// Condition for raw copies ("Near Mint") and "Grader Grade" for slabs
-// ("PSA 10"). The print variant (Holofoil / Reverse Holofoil / …) is
-// intentionally omitted from the wishlist rows — a wishlist tracks the card,
-// not a specific printing.
-function gradeLabelForFavorite(entry: CardFavoriteEntry): string | null {
-  if (entry.slabContext) {
-    const grader = (entry.slabContext.grader ?? '').trim();
-    const grade = (entry.slabContext.grade ?? '').trim();
-    const gradeText = [grader, grade].filter(Boolean).join(' ');
-    if (gradeText.length > 0) {
-      return gradeText;
-    }
-  }
-  // Full condition ("Near Mint"), not the NM abbreviation (user ask).
-  const condition = (entry.conditionLabel ?? entry.conditionShortLabel ?? '').trim();
-  return condition.length > 0 ? condition : null;
-}
+// A wishlist tracks the CARD, not a specific copy. Condition/grade only ever
+// populate for cards the user also owns, so showing them made owned favorites
+// read "Near Mint" while unowned ones (the whole point of a wishlist) were
+// blank. Omit the condition/grade + print variant from every wishlist row so
+// they're consistent; the slab-case thumbnail frame still marks graded copies.
 
 type WishlistFilterKey = 'all' | 'az' | 'price' | 'owned' | 'unowned';
 type WishlistViewMode = 'grid' | 'list';
@@ -614,9 +602,10 @@ function WishlistListRow({
       cardNumber={entry.cardNumber}
       currencyCode={entry.currencyCode ?? 'USD'}
       firstInSection={firstInSection}
-      gradeLabel={gradeLabelForFavorite(entry)}
-      // Slab-case frame on the thumbnail — keyed by THIS entry's grader; the
-      // text line stays the plain fused label.
+      // No condition/grade text on the wishlist (owned-only, inconsistent).
+      gradeLabel={null}
+      // Slab-case frame on the thumbnail — keyed by THIS entry's grader; kept
+      // so graded copies still read as slabs even without the text line.
       grader={entry.slabContext?.grader ?? null}
       grade={entry.slabContext?.grade ?? null}
       imageUrl={entry.smallImageUrl ?? entry.imageUrl ?? null}
@@ -789,7 +778,10 @@ function WishlistGridTile({ entry, onPress, selectable = false, selected = false
       cardNumber={entry.cardNumber ?? null}
       kind={tileKind}
       variantName={null}
-      conditionLabel={tileKind === 'raw' ? entry.conditionLabel ?? entry.conditionShortLabel ?? null : null}
+      // No condition/grade TEXT (owned-only, inconsistent on a wishlist), but
+      // keep grader/grade so the slab-case thumbnail frame still renders.
+      showQualityLine={false}
+      conditionLabel={null}
       graderLabel={tileKind === 'slab' ? entry.slabContext?.grader ?? null : null}
       gradeLabel={tileKind === 'slab' ? entry.slabContext?.grade ?? null : null}
       showQuantity={false}
