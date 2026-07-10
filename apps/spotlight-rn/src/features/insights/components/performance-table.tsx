@@ -120,6 +120,59 @@ export function PortfolioTag() {
   );
 }
 
+// The column-header band: the PORTFOLIO tag in the card-column slot, the metric
+// labels, and a 0.5px bottom rule separating the header from the first row
+// (Figma 2652-24668). Shared by the live table, the loading skeleton, and the
+// empty state so the headers are identical in every state.
+function TableHeaderBand() {
+  const theme = useSpotlightTheme();
+  return (
+    <View
+      style={[
+        styles.headerRow,
+        { backgroundColor: theme.colors.gray0, borderBottomColor: theme.colors.gray300 },
+      ]}
+    >
+      <View style={[styles.cardHeaderSlot, { width: CARD_COL_WIDTH }]}>
+        <PortfolioTag />
+      </View>
+      {METRIC_COLUMNS.map((label) => (
+        <Text
+          key={label}
+          numberOfLines={1}
+          style={[
+            theme.typography.captionMedium,
+            styles.headerLabel,
+            { color: theme.colors.gray900, width: label === 'Graph' ? CHART_W : CELL_W },
+          ]}
+        >
+          {label}
+        </Text>
+      ))}
+    </View>
+  );
+}
+
+// Standalone header (the band inside the same horizontal scroller the table
+// uses) for the loading skeleton and empty state, so the column headers show
+// the moment the page opens — not only once rows load. Static (no pan): it just
+// mirrors the table's initial, unscrolled view.
+export function PerformanceTableHeader({ testID }: { testID?: string }) {
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.hScrollContent}
+      scrollEnabled={false}
+      testID={testID}
+    >
+      <View style={styles.grid}>
+        <TableHeaderBand />
+      </View>
+    </ScrollView>
+  );
+}
+
 type PerformanceTableProps = {
   rows: PortfolioPerformanceRow[];
   currencyCode: string;
@@ -335,24 +388,7 @@ export const PerformanceTable = forwardRef<
     >
       <View style={styles.grid}>
         {/* Pinned column header: stays visible above the rows as they scroll. */}
-        <View style={[styles.headerRow, { backgroundColor: theme.colors.gray0 }]}>
-          <View style={[styles.cardHeaderSlot, { width: CARD_COL_WIDTH }]}>
-            <PortfolioTag />
-          </View>
-          {METRIC_COLUMNS.map((label) => (
-            <Text
-              key={label}
-              numberOfLines={1}
-              style={[
-                theme.typography.captionMedium,
-                styles.headerLabel,
-                { color: theme.colors.gray900, width: label === 'Graph' ? CHART_W : CELL_W },
-              ]}
-            >
-              {label}
-            </Text>
-          ))}
-        </View>
+        <TableHeaderBand />
         <FlatList
           ref={ref}
           data={rows}
@@ -385,13 +421,13 @@ export function PerformanceTableSkeleton({ testID = 'performance-table-skeleton'
   const theme = useSpotlightTheme();
   const fill = { backgroundColor: theme.colors.outlineSubtle };
   return (
-    <View style={styles.grid} testID={testID}>
-      <View style={styles.headerRow}>
-        <View style={[styles.cardHeaderSlot, { width: CARD_COL_WIDTH }]}>
-          <PortfolioTag />
-        </View>
-      </View>
-      {Array.from({ length: 6 }).map((_, index) => (
+    <View testID={testID}>
+      {/* Full column header (PORTFOLIO + metric labels) — previously the
+          skeleton showed only the PORTFOLIO tag, so the column headers were
+          missing on the very first page load until rows resolved. */}
+      <PerformanceTableHeader />
+      <View style={styles.grid}>
+        {Array.from({ length: 6 }).map((_, index) => (
         <View key={index} style={[styles.dataRow, { borderBottomColor: theme.colors.gray300 }]}>
           <View style={[styles.cardCell, { width: CARD_COL_WIDTH }]}>
             <View style={[styles.thumb, fill]} />
@@ -404,7 +440,8 @@ export function PerformanceTableSkeleton({ testID = 'performance-table-skeleton'
           <View style={[styles.skeletonCell, fill]} />
           <View style={[styles.skeletonCell, fill]} />
         </View>
-      ))}
+        ))}
+      </View>
     </View>
   );
 }
@@ -427,10 +464,15 @@ const styles = StyleSheet.create({
   },
   headerRow: {
     alignItems: 'center',
+    // 0.5px gray-300 rule under the header, separating it from the first row
+    // (Figma 2652-24668). Matches the between-row rules on the data rows.
+    borderBottomWidth: borderWidths.rule,
     flexDirection: 'row',
     gap: CELL_GAP,
-    // 24px between the header row and the first data row (Figma 2179-9032).
-    marginBottom: HEADER_BOTTOM_GAP,
+    // Keep the original 24px header→first-row gap (Figma 2179-9032) but split it
+    // around the rule so the line reads as "in between" the two.
+    marginBottom: HEADER_BOTTOM_GAP / 2,
+    paddingBottom: HEADER_BOTTOM_GAP / 2,
   },
   cardHeaderSlot: {
     justifyContent: 'center',

@@ -40,6 +40,17 @@ case "$ENVIRONMENT" in
     ;;
 esac
 
+# Production gate: deploys default to staging; production requires an explicit,
+# per-invocation confirmation so nobody (human or agent) hits prod by accident.
+if [ "$ENVIRONMENT" = "production" ] && [ "${SPOTLIGHT_PROD_CONFIRM:-}" != "yes" ]; then
+  echo "" >&2
+  echo "🛑 PRODUCTION deploy blocked." >&2
+  echo "   This targets the box real App Store users are on." >&2
+  echo "   If intentional, re-run with:" >&2
+  echo "     SPOTLIGHT_PROD_CONFIRM=yes bash tools/deploy_backend.sh production" >&2
+  exit 1
+fi
+
 default_secrets_file() {
   local environment="$1"
   local environment_upper
@@ -63,10 +74,12 @@ default_instance() {
   local environment="$1"
   case "$environment" in
     staging)
-      printf '%s\n' "spotlight-backend-vm-small"
+      # Split 2026-07-10: staging is its own isolated box (no syncs, no
+      # litestream, keyless Scrydex/PPT). Production = spotlight-backend-vm-small.
+      printf '%s\n' "spotlight-backend-staging"
       ;;
     production)
-      printf '%s\n' ""
+      printf '%s\n' "spotlight-backend-vm-small"
       ;;
   esac
 }
@@ -75,12 +88,13 @@ default_zone() {
   local environment="$1"
   case "$environment" in
     staging)
-      # Moved 2026-07-07: zone -b kept stocking out of t2d machines; the VM now
-      # lives in -c (same region/IP, deeper t2d pool). Old -b disk kept as rollback.
-      printf '%s\n' "us-central1-c"
+      # Staging box lives in -a (only zone with e2 capacity at 2026-07-10
+      # provisioning; staging has no zone affinity — it talks to nothing).
+      printf '%s\n' "us-central1-a"
       ;;
     production)
-      printf '%s\n' ""
+      # Production moved -b → -c 2026-07-07 (t2d stockouts in -b).
+      printf '%s\n' "us-central1-c"
       ;;
   esac
 }

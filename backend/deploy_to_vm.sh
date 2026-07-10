@@ -206,18 +206,30 @@ stage_runtime_data_file() {
   fi
 }
 
-REQUIRED_ENV_KEYS=(
-  SCRYDEX_API_KEY
-  SCRYDEX_TEAM_ID
-)
-
-for key in "${REQUIRED_ENV_KEYS[@]}"; do
-  value="$(read_dotenv_value "$SECRETS_FILE" "$key")"
-  if [ -z "$value" ]; then
-    echo "Missing required value in $SECRETS_FILE: $key" >&2
-    exit 1
-  fi
-done
+# Split 2026-07-10: only PRODUCTION talks to Scrydex. Staging is keyless by
+# design (data arrives via litestream restore from prod), so Scrydex keys are
+# required on production and FORBIDDEN on staging.
+if [ "$ENVIRONMENT" = "production" ]; then
+  REQUIRED_ENV_KEYS=(
+    SCRYDEX_API_KEY
+    SCRYDEX_TEAM_ID
+  )
+  for key in "${REQUIRED_ENV_KEYS[@]}"; do
+    value="$(read_dotenv_value "$SECRETS_FILE" "$key")"
+    if [ -z "$value" ]; then
+      echo "Missing required value in $SECRETS_FILE: $key" >&2
+      exit 1
+    fi
+  done
+else
+  for key in SCRYDEX_API_KEY PPT_API_KEY; do
+    value="$(read_dotenv_value "$SECRETS_FILE" "$key")"
+    if [ -n "$value" ]; then
+      echo "$key must NOT be set in $SECRETS_FILE for staging (keyless by design)." >&2
+      exit 1
+    fi
+  done
+fi
 
 EBAY_BROWSE_ENABLED_VALUE="$(read_first_dotenv_value "SPOTLIGHT_EBAY_BROWSE_ENABLED" "$ENV_FILE" "$SECRETS_FILE")"
 if env_flag_enabled "$EBAY_BROWSE_ENABLED_VALUE"; then
@@ -456,10 +468,15 @@ PY
 {
   cat "$CURRENT_CRONTAB"
   echo "$CRON_BEGIN"
-  echo "$SYNC_LINE"
+  # Staging boxes never run the credit-burning jobs (Scrydex sync, PPT
+  # population) — staging data arrives via litestream restore from prod's
+  # bucket. Only production gets the sync crons; both keep the monitors.
+  if [ "$ENVIRONMENT" = "production" ]; then
+    echo "$SYNC_LINE"
+    echo "$PPT_POPULATION_LINE"
+  fi
   echo "$HEALTH_LINE"
   echo "$RESOURCE_LINE"
-  echo "$PPT_POPULATION_LINE"
   echo "$CRON_END"
 } | crontab -
 

@@ -71,3 +71,7 @@ Repo-specific workflow notes for future coding agents.
   - `pnpm frontend:build:staging` — new native iOS build (no TestFlight submit)
   - `pnpm frontend:release:staging` — new native iOS build + submit to TestFlight
   - `pnpm frontend:update:staging` — OTA JS push to staging channel (no new binary)
+- **PRODUCTION is gated (split 2026-07-10).** Staging (`spotlight-backend-staging`, us-central1-a) and production (`spotlight-backend-vm-small`, us-central1-c) are separate boxes. ALL deploys/OTAs default to staging. A production deploy or production OTA requires BOTH:
+  1. explicit user approval in the current conversation (never assume; never batch it into "deploy everything"), and
+  2. the per-invocation env confirmation the scripts enforce: `SPOTLIGHT_PROD_CONFIRM=yes`.
+  Never set `SPOTLIGHT_PROD_CONFIRM` in a profile, CI config, or wrapper — it must be typed per invocation.

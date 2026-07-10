@@ -143,8 +143,23 @@ def audit_backend(
         ),
         failures,
     )
-    require_non_placeholder(secret_values, "SCRYDEX_API_KEY", failures)
-    require_non_placeholder(secret_values, "SCRYDEX_TEAM_ID", failures)
+    # Split 2026-07-10: only PRODUCTION talks to Scrydex. Staging is keyless by
+    # design (its data arrives via litestream restore from prod), so a key
+    # PRESENT on staging is the failure — it would let staging burn paid credits.
+    if environment == "production":
+        require_non_placeholder(secret_values, "SCRYDEX_API_KEY", failures)
+        require_non_placeholder(secret_values, "SCRYDEX_TEAM_ID", failures)
+    else:
+        require(
+            not secret_values.get("SCRYDEX_API_KEY", "").strip(),
+            f"{backend_secrets_path.name} must NOT set SCRYDEX_API_KEY for staging (keyless by design)",
+            failures,
+        )
+        require(
+            not secret_values.get("PPT_API_KEY", "").strip(),
+            f"{backend_secrets_path.name} must NOT set PPT_API_KEY for staging (keyless by design)",
+            failures,
+        )
 
     # Account deletion (App Store guideline 5.1.1(v)) deletes the Supabase auth user
     # via the Admin API. Without the service-role key the delete silently skips the
@@ -185,17 +200,34 @@ def audit_backend(
         f"{backend_env_path.name} must not set SPOTLIGHT_LEGACY_OWNER_USER_ID for {environment}; it is migration-only",
         failures,
     )
-    require(
-        flag_enabled(env_values.get("SPOTLIGHT_SCAN_ARTIFACT_UPLOADS_ENABLED")),
-        f"{backend_env_path.name} should keep SPOTLIGHT_SCAN_ARTIFACT_UPLOADS_ENABLED=1 for {environment}",
-        failures,
-    )
-    require(
-        env_values.get("SPOTLIGHT_SCAN_ARTIFACTS_STORAGE", "").strip() == "gcs",
-        f"{backend_env_path.name} must use SPOTLIGHT_SCAN_ARTIFACTS_STORAGE=gcs",
-        failures,
-    )
-    require_non_placeholder(env_values, "SPOTLIGHT_SCAN_ARTIFACTS_GCS_BUCKET", failures)
+    # Split 2026-07-10: scan artifacts are TRAINING DATA and only production
+    # collects them. Staging must keep uploads OFF and must not point at a GCS
+    # bucket at all (defense-in-depth: even an accidentally re-enabled flag
+    # could then only write to the local disk, never the labeled corpus).
+    if environment == "production":
+        require(
+            flag_enabled(env_values.get("SPOTLIGHT_SCAN_ARTIFACT_UPLOADS_ENABLED")),
+            f"{backend_env_path.name} should keep SPOTLIGHT_SCAN_ARTIFACT_UPLOADS_ENABLED=1 for production",
+            failures,
+        )
+        require(
+            env_values.get("SPOTLIGHT_SCAN_ARTIFACTS_STORAGE", "").strip() == "gcs",
+            f"{backend_env_path.name} must use SPOTLIGHT_SCAN_ARTIFACTS_STORAGE=gcs",
+            failures,
+        )
+        require_non_placeholder(env_values, "SPOTLIGHT_SCAN_ARTIFACTS_GCS_BUCKET", failures)
+    else:
+        require(
+            not flag_enabled(env_values.get("SPOTLIGHT_SCAN_ARTIFACT_UPLOADS_ENABLED")),
+            f"{backend_env_path.name} must keep SPOTLIGHT_SCAN_ARTIFACT_UPLOADS_ENABLED=false for staging (corpus purity)",
+            failures,
+        )
+        require(
+            env_values.get("SPOTLIGHT_SCAN_ARTIFACTS_STORAGE", "").strip() != "gcs"
+            and not env_values.get("SPOTLIGHT_SCAN_ARTIFACTS_GCS_BUCKET", "").strip(),
+            f"{backend_env_path.name} must not point staging artifacts at GCS (use filesystem, no bucket)",
+            failures,
+        )
 
     ebay_enabled = flag_enabled(
         env_values.get("SPOTLIGHT_EBAY_BROWSE_ENABLED")

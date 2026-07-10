@@ -184,5 +184,28 @@ describe('InsightsScreen — performance tracker', () => {
     await waitFor(() => {
       expect(screen.getByText('No cards in your portfolio yet.')).toBeTruthy();
     });
+
+    // The column headers (PORTFOLIO + metric labels) must render even with no
+    // rows — regression for headers being absent until data loaded.
+    expect(screen.getByText('PORTFOLIO')).toBeTruthy();
+    expect(screen.getByText('Current')).toBeTruthy();
+    expect(screen.getByText('Cost')).toBeTruthy();
+  });
+
+  it('shows a filter-applied dot only once a non-default sort is applied', async () => {
+    renderInsights();
+    await waitFor(() => {
+      expect(screen.getByText('Ludicolo')).toBeTruthy();
+    });
+
+    // Default sort → no dot.
+    expect(screen.queryByTestId('insights-sort-active-dot')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('insights-sort-button'));
+    fireEvent.press(screen.getByTestId('insights-sort-sheet-option-most-valuable'));
+    fireEvent.press(screen.getByTestId('insights-sort-sheet-apply'));
+
+    // Non-default sort applied → dot appears.
+    expect(screen.getByTestId('insights-sort-active-dot')).toBeTruthy();
   });
 });

@@ -17,6 +17,26 @@ rollback paths are listed per phase.
   t2d-4 and t2d-16 on 7/06. Probe trick: `gcloud compute reservations create` per zone/shape,
   delete immediately (~pennies).
 
+## Status update (Thu Jul 10)
+
+- ✅ **Staging box LIVE**: `spotlight-backend-staging`, e2-standard-2, **us-central1-a** (NOT -c —
+  a full capacity crunch hit -c on 7/10: even e2-standard-2 was stocked out; staging has no zone
+  affinity so it landed in -a). Static IP `34.134.72.20` → `looty.34.134.72.20.sslip.io`.
+  Provisioned race-free: created with NO external IP so the cloned litestream couldn't reach GCS,
+  defused over IAP SSH (litestream disabled, sync+PPT crons removed, SCRYDEX/PPT keys stripped,
+  prewarm capped 5, Caddy re-hostnamed, artifact uploads OFF via runtime setting), THEN IP attached.
+- ✅ **Split shipped**: deploy_backend.sh staging→staging box/-a, production→prod box/-c;
+  deploy_to_vm.sh cron install is now environment-aware (sync/PPT crons = production only);
+  env files split (.env.production = real config incl cells+prewarm; .env.staging defused;
+  secrets split, staging keyless); eas.json staging profile → staging URL.
+- ✅ **Prod guardrails**: deploy_backend.sh + run_mobile_eas.sh hard-block production without
+  `SPOTLIGHT_PROD_CONFIRM=yes` (verified blocking); `.claude/settings.json` ask-rules on all prod
+  deploy prefixes; AGENTS.md rule (explicit user approval + per-invocation confirm, never in CI).
+- ⏳ **t2d-16 for the show**: ALL ≥8-vCPU shapes stocked out across us-central1 on 7/10 except
+  e2-16 in -a/-b. Detached poller (`/tmp/show-t2d16-poll.log`) probes -c every 20 min and will
+  create + HOLD reservation `show-t2d16` on first success. Friday-evening fallback: run the show
+  on t2d-4 (10–12 scanners comfortable) or zone-hop for e2-16.
+
 ## Schedule
 
 | Date | Track | Work |

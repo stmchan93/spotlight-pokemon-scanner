@@ -29,6 +29,17 @@ case "$ENVIRONMENT" in
     ;;
 esac
 
+# Production gate: OTA updates / builds / submits to the production channel
+# require an explicit, per-invocation confirmation (mirrors deploy_backend.sh).
+if [ "$ENVIRONMENT" = "production" ] && [ "${SPOTLIGHT_PROD_CONFIRM:-}" != "yes" ]; then
+  echo "" >&2
+  echo "🛑 PRODUCTION mobile action blocked ($ACTION)." >&2
+  echo "   This ships to real App Store users." >&2
+  echo "   If intentional, re-run with:" >&2
+  echo "     SPOTLIGHT_PROD_CONFIRM=yes pnpm frontend:${ACTION}:production" >&2
+  exit 1
+fi
+
 case "$ACTION" in
   build|submit|release|update)
     ;;

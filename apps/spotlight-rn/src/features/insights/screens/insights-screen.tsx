@@ -33,8 +33,8 @@ import {
 } from '@/features/insights/components/insights-sort-sheet';
 import {
   PerformanceTable,
+  PerformanceTableHeader,
   PerformanceTableSkeleton,
-  PortfolioTag,
   allTimeGrowthPercent,
 } from '@/features/insights/components/performance-table';
 
@@ -302,16 +302,29 @@ export function InsightsScreen() {
                 value={searchQuery}
               />
             </View>
-            <IconButton
-              accessibilityLabel="Sort options"
-              onPress={() => setSortSheetVisible(true)}
-              shape="rounded"
-              size={40}
-              testID="insights-sort-button"
-              variant="outlined"
-            >
-              <Filter color={colors.gray900} height={18} width={18} />
-            </IconButton>
+            <View style={styles.sortButtonWrap}>
+              <IconButton
+                accessibilityLabel="Sort options"
+                onPress={() => setSortSheetVisible(true)}
+                shape="rounded"
+                size={40}
+                testID="insights-sort-button"
+                variant="outlined"
+              >
+                <Filter color={colors.gray900} height={18} width={18} />
+              </IconButton>
+              {/* Notification dot: a non-default sort/filter is applied. */}
+              {sortKey !== 'default' ? (
+                <View
+                  pointerEvents="none"
+                  style={[
+                    styles.sortAppliedDot,
+                    { backgroundColor: theme.colors.purple500, borderColor: colors.gray0 },
+                  ]}
+                  testID="insights-sort-active-dot"
+                />
+              ) : null}
+            </View>
           </View>
           <InsightsFilterChipRow
             activeFilter={activeFilter}
@@ -358,7 +371,9 @@ export function InsightsScreen() {
             />
           ) : hasLoaded ? (
             <>
-              <PortfolioTag />
+              {/* Keep the full column header (PORTFOLIO + metric labels) in the
+                  empty state too, so the header is stable across load → empty. */}
+              <PerformanceTableHeader />
               <Text
                 style={[theme.typography.body, styles.emptyText, { color: theme.colors.gray500 }]}
                 testID="insights-empty"
@@ -448,6 +463,18 @@ const styles = StyleSheet.create({
   },
   searchSlot: {
     flex: 1,
+  },
+  sortButtonWrap: {
+    position: 'relative',
+  },
+  sortAppliedDot: {
+    borderRadius: 5,
+    borderWidth: 2,
+    height: 10,
+    position: 'absolute',
+    right: -2,
+    top: -2,
+    width: 10,
   },
   tableSection: {
     flex: 1,
