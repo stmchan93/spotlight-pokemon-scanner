@@ -170,3 +170,16 @@ gcloud compute instances start spotlight-backend-vm-small --zone us-central1-c
 | Snapshots (both schedules) | ~$3–5/mo |
 | Old -b VM disk until deleted | $8/mo → $0 after cleanup |
 | **Post-drop option** | prod → t2d-2 saves $62/mo |
+
+## Queued post-show follow-ups (added 2026-07-10)
+
+1. **`tools/refresh_staging_db.sh`** — stop staging service → `litestream restore` prod's DB from
+   `gs://looty-staging-backups` onto the staging box → restart → health check. Run before any
+   serious testing session. Staging's DB is FROZEN at its last refresh, not live — staleness is
+   the #1 predicted "works on staging / breaks on prod" confusion source.
+2. **Fingerprint runtime policy** — switch the app to `"runtimeVersion": {"policy": "fingerprint"}`
+   (Expo hashes native code; OTA/native mismatches become impossible — removes the "forgot to bump
+   0.1.2 after adding a pod" failure class). Adopt alongside the next scheduled native build.
+   Axes: app version = marketing · build number = EAS auto-increment · runtime = fingerprint.
+3. (Existing epilogues: small-disk staging rebuild post-drop; prod t2d-2 downsize option;
+   looty-prod bucket migration; old -b VM deletion; CUD decisions ~August.)
