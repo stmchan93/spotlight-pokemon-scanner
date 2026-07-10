@@ -56,6 +56,11 @@ export function CollectionListRow({
       delayLongPress={delayLongPress}
       firstInSection={firstInSection}
       gradeLabel={gradeLabelFor(entry)}
+      // Branded slab line ([PSA] 10 (GEM-MT) · Variant) — keyed by THIS
+      // entry's grader; raw cards keep the gradeLabel text above.
+      grader={entry.kind === 'graded' ? entry.slabContext?.grader ?? null : null}
+      grade={entry.kind === 'graded' ? entry.slabContext?.grade ?? null : null}
+      gradeSuffix={entry.kind === 'graded' ? entry.slabContext?.variantName ?? null : null}
       imageUrl={getCardImageUrl(entry, 'small')}
       marketPrice={entry.hasMarketPrice ? entry.marketPrice : null}
       name={entry.name}

@@ -271,6 +271,23 @@ Current API concepts:
 - optional action button
 - optional centered layout
 
+### GraderWordmark
+
+File: `src/components/grader-wordmark.tsx`
+
+Use for the branded grader mark on slab rows/tiles (the Collectr-style meta
+line, e.g. `[PSA] 10 (GEM-MT)`).
+
+Current API concepts:
+
+- `grader` — the entry's grader string, normalized case-insensitively. Known
+  marks: `PSA`, `CGC`, `Beckett`/`BGS`, `TAG` (official logo assets bundled in
+  `assets/graders/`, nominative use). The mark is ALWAYS the entry's own grader.
+- `size`: `sm` (12px-tall mark, tile meta) or `md` (16px, list rows)
+- unknown graders fall back to the grader name as bold text — never breaks
+- also exports `psaGradeDescriptor(grade)` (PSA-ONLY descriptor map, 10 →
+  `GEM-MT`) and `hasGraderWordmark(grader)`
+
 ### CardListRow
 
 File: `src/components/card-list-row.tsx`
@@ -285,6 +302,9 @@ Current API concepts:
 - `name` (bold, single line)
 - `cardNumber` + `setName` (joined as `"{cardNumber} · {setName}"`)
 - optional `gradeLabel` (e.g. `"PSA 10"` or `"Near Mint"`)
+- optional `grader` + `grade` (+ `gradeSuffix`, e.g. the variant) — renders the
+  branded slab line `[GraderWordmark] {grade} ({PSA descriptor}) · {suffix}`
+  instead of `gradeLabel`; always the entry's own grader
 - `marketPrice` + `currencyCode` (formatted via `Intl.NumberFormat`, defaults
   to USD; hidden when null)
 - optional `trendChangeAmount` (positive → green up arrow, negative → red down

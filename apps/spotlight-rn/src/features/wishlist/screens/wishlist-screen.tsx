@@ -36,33 +36,23 @@ import { formatOptionalCurrency } from '@/features/portfolio/components/portfoli
 import { WishlistHeader } from '@/features/wishlist/components/wishlist-header';
 import { useAppServices } from '@/providers/app-providers';
 
-// "Variant · Condition" for raw owned copies ("Holofoil · NM") and
-// "Variant · Grader Grade" for slabs — mirrors the Collection rows.
+// Condition for raw copies ("Near Mint") and "Grader Grade" for slabs
+// ("PSA 10"). The print variant (Holofoil / Reverse Holofoil / …) is
+// intentionally omitted from the wishlist rows — a wishlist tracks the card,
+// not a specific printing.
 function gradeLabelForFavorite(entry: CardFavoriteEntry): string | null {
   if (entry.slabContext) {
     const grader = (entry.slabContext.grader ?? '').trim();
     const grade = (entry.slabContext.grade ?? '').trim();
     const gradeText = [grader, grade].filter(Boolean).join(' ');
-    const slabVariant = (entry.slabContext.variantName ?? '').trim();
-    const combined = [slabVariant, gradeText].filter(Boolean).join(' · ');
-    if (combined.length > 0) {
-      return combined;
+    if (gradeText.length > 0) {
+      return gradeText;
     }
   }
-  const variant = (entry.variantName ?? '').trim();
   // Full condition ("Near Mint"), not the NM abbreviation (user ask).
   const condition = (entry.conditionLabel ?? entry.conditionShortLabel ?? '').trim();
-  const combined = [variant, condition].filter(Boolean).join(' · ');
-  return combined.length > 0 ? combined : null;
+  return condition.length > 0 ? condition : null;
 }
-
-// Card view splits the same facts across TWO lines: variant above, quality
-// below (mirrors the Collection card tiles).
-function variantLabelForFavorite(entry: CardFavoriteEntry): string | null {
-  const variant = (entry.slabContext?.variantName ?? entry.variantName ?? '').trim();
-  return variant.length > 0 ? variant : null;
-}
-
 
 type WishlistFilterKey = 'all' | 'az' | 'price' | 'owned' | 'unowned';
 type WishlistViewMode = 'grid' | 'list';
@@ -625,6 +615,11 @@ function WishlistListRow({
       currencyCode={entry.currencyCode ?? 'USD'}
       firstInSection={firstInSection}
       gradeLabel={gradeLabelForFavorite(entry)}
+      // Branded slab line — keyed by THIS entry's grader; raw favorites keep
+      // the condition text from gradeLabel.
+      grader={entry.slabContext?.grader ?? null}
+      grade={entry.slabContext?.grade ?? null}
+      gradeSuffix={entry.slabContext?.variantName ?? null}
       imageUrl={entry.smallImageUrl ?? entry.imageUrl ?? null}
       marketPrice={entry.marketPrice ?? null}
       name={entry.name}
@@ -781,9 +776,10 @@ type WishlistGridTileProps = {
 
 function WishlistGridTile({ entry, onPress, selectable = false, selected = false }: WishlistGridTileProps) {
   // Same shared tile + prop mapping as the Collection card view
-  // (CollectionTileSlot in collection-masonry-grid.tsx) so the two card views
-  // stay pixel-identical. Wishlist has no owned-quantity concept → hide the
-  // quantity readout; the star is hidden to match Collection's card view.
+  // (CollectionTileSlot in collection-masonry-grid.tsx). Wishlist has no
+  // owned-quantity concept → hide the quantity readout; the star is hidden to
+  // match Collection's card view; and the print variant is omitted (wishlist
+  // tracks the card, not a specific printing).
   const tileKind = entry.slabContext ? 'slab' : 'raw';
   return (
     <InventoryCardTile
@@ -793,7 +789,7 @@ function WishlistGridTile({ entry, onPress, selectable = false, selected = false
       setName={entry.setName ?? ''}
       cardNumber={entry.cardNumber ?? null}
       kind={tileKind}
-      variantName={variantLabelForFavorite(entry)}
+      variantName={null}
       conditionLabel={tileKind === 'raw' ? entry.conditionLabel ?? entry.conditionShortLabel ?? null : null}
       graderLabel={tileKind === 'slab' ? entry.slabContext?.grader ?? null : null}
       gradeLabel={tileKind === 'slab' ? entry.slabContext?.grade ?? null : null}

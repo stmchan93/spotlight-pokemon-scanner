@@ -15,6 +15,7 @@ const DEFAULT_CARD_ASPECT = 245 / 342;
 
 import { useSpotlightTheme } from '../theme';
 import { AppText } from './app-text';
+import { GraderWordmark, hasGraderWordmark } from './grader-wordmark';
 import { SelectionCheckCircle } from './selection-check-circle';
 
 export type InventoryCardTileKind = 'raw' | 'slab';
@@ -166,6 +167,12 @@ export function InventoryCardTile({
 
   const setLine = buildSetLine(setName, cardNumber);
   const qualityLine = buildQualityLine(kind, conditionLabel, graderLabel, gradeLabel);
+  // Slabs with a recognized grader get the branded mark instead of the fused
+  // "PSA 10" text — always the entry's OWN grader.
+  const brandedGrader = kind === 'slab' && hasGraderWordmark(graderLabel)
+    ? (graderLabel ?? '').trim()
+    : null;
+  const brandedGrade = brandedGrader ? (gradeLabel ?? '').trim() : '';
 
   return (
     <Pressable
@@ -246,7 +253,20 @@ export function InventoryCardTile({
               </AppText>
             ) : null}
 
-            {qualityLine ? (
+            {brandedGrader ? (
+              <View style={styles.gradeLine} testID={testID ? `${testID}-grader-line` : undefined}>
+                <GraderWordmark
+                  grader={brandedGrader}
+                  size="sm"
+                  testID={testID ? `${testID}-grader-mark` : undefined}
+                />
+                {brandedGrade ? (
+                  <AppText color="gray600" numberOfLines={1} variant="label">
+                    {brandedGrade}
+                  </AppText>
+                ) : null}
+              </View>
+            ) : qualityLine ? (
               <AppText
                 color="gray600"
                 numberOfLines={1}
@@ -364,6 +384,12 @@ export function InventoryCardTile({
 }
 
 const styles = StyleSheet.create({
+  // Branded slab quality line: [grader mark] grade.
+  gradeLine: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 4,
+  },
   cardContent: {
     alignItems: 'center',
     alignSelf: 'stretch',

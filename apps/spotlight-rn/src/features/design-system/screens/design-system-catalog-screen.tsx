@@ -11,6 +11,7 @@ import {
   Button,
   colors,
   fontFamilies,
+  GraderWordmark,
   IconButton,
   InventoryCardTile,
   ListPaginationFooter,
@@ -189,6 +190,16 @@ export function DesignSystemCatalogScreen({
                 testID="catalog-pill-button-leading"
                 tone="filter"
               />
+            </View>
+
+            {/* Grader wordmarks: each mark is keyed by its own grader; unknown
+                graders fall back to bold text. */}
+            <View style={styles.iconRow}>
+              <GraderWordmark grader="PSA" testID="catalog-grader-psa" />
+              <GraderWordmark grader="CGC" testID="catalog-grader-cgc" />
+              <GraderWordmark grader="BGS" testID="catalog-grader-beckett" />
+              <GraderWordmark grader="TAG" testID="catalog-grader-tag" />
+              <GraderWordmark grader="ACE" testID="catalog-grader-fallback" />
             </View>
 
             <SearchField
