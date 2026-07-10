@@ -21,11 +21,8 @@ type SlabLabelStyle = {
   accent: string; // the #number accent (red on real PSA labels)
 };
 
-// The PSA red used for the slab seal + label frame.
-const PSA_RED = '#E31B23';
-
 const SLAB_LABEL_STYLES: Record<string, SlabLabelStyle> = {
-  psa: { border: PSA_RED, accent: PSA_RED },
+  psa: { border: '#E31B23', accent: '#E31B23' },
   cgc: { border: '#1E5AA8', accent: '#1E5AA8' },
   beckett: { border: '#9AA2AB', accent: '#1A1A1A' },
   bgs: { border: '#9AA2AB', accent: '#1A1A1A' },
@@ -35,49 +32,6 @@ const SLAB_LABEL_STYLES: Record<string, SlabLabelStyle> = {
 const NEUTRAL_LABEL: SlabLabelStyle = { border: '#BEBEBE', accent: '#1A1A1A' };
 
 export type SlabFrameSize = 'sm' | 'md';
-
-/**
- * The iconic red PSA seal from a real slab label: a red rounded square with a
- * faint ornate ring (the guilloché pattern) and the white "PSA" wordmark tucked
- * at the bottom-middle. Drawn synthetically so it stays crisp at any thumbnail
- * size — no bitmap. Sits center-label between the card info and the grade.
- */
-function PsaSeal({ size, testID }: { size: number; testID?: string }) {
-  return (
-    <View
-      style={[
-        psaSealStyles.seal,
-        { borderRadius: Math.max(1.5, size * 0.16), height: size, width: size },
-      ]}
-      testID={testID}
-    >
-      <View
-        style={[
-          psaSealStyles.ring,
-          {
-            borderRadius: (size * 0.58) / 2,
-            height: size * 0.58,
-            top: size * 0.12,
-            width: size * 0.58,
-          },
-        ]}
-      />
-      <Text
-        allowFontScaling={false}
-        style={[
-          psaSealStyles.text,
-          {
-            fontSize: size * 0.3,
-            lineHeight: size * 0.34,
-            marginBottom: size * 0.13,
-          },
-        ]}
-      >
-        PSA
-      </Text>
-    </View>
-  );
-}
 
 type SlabFrameProps = {
   /** The entry's own grader — drives the label branding. */
@@ -123,9 +77,6 @@ export function SlabFrame({
   const asset = getGraderAsset(grader);
   const gradeText = (grade ?? '').trim();
   const isSmall = size === 'sm';
-  const isPsa = graderKey === 'psa';
-  // The red PSA seal sits center-label; size it to the label's inner height.
-  const sealSize = isSmall ? 14 : 20;
   const descriptor = graderKey === 'psa' && gradeText
     ? psaGradeDescriptor(gradeText)?.replace('-', ' ')
     : null;
@@ -167,9 +118,8 @@ export function SlabFrame({
               {grader.trim().toUpperCase()}
             </Text>
           )}
-          {/* Non-PSA graders keep their wordmark tucked under the info text.
-              PSA gets the real red seal in the center column instead. */}
-          {!isPsa && asset ? (
+          {/* Grader logo tucked under the info text, center-ish like the real flag. */}
+          {asset ? (
             <Image
               accessibilityLabel={grader}
               resizeMode="contain"
@@ -182,11 +132,6 @@ export function SlabFrame({
             />
           ) : null}
         </View>
-
-        {/* Center: the iconic red PSA seal (real slab labels put it mid-label). */}
-        {isPsa ? (
-          <PsaSeal size={sealSize} testID={testID ? `${testID}-seal` : undefined} />
-        ) : null}
 
         {/* Right: red #number over the grade descriptor over the bold grade. */}
         <View style={styles.gradeColumn}>
@@ -339,27 +284,5 @@ const styles = StyleSheet.create({
   numberTextSmall: {
     fontSize: 4.5,
     lineHeight: 5.5,
-  },
-});
-
-// The synthetic red PSA seal (real slab label mark): red square, faint ornate
-// ring, white "PSA" tucked at the bottom-middle.
-const psaSealStyles = StyleSheet.create({
-  ring: {
-    borderColor: 'rgba(255, 255, 255, 0.4)',
-    borderWidth: StyleSheet.hairlineWidth,
-    position: 'absolute',
-  },
-  seal: {
-    alignItems: 'center',
-    backgroundColor: PSA_RED,
-    justifyContent: 'flex-end',
-    overflow: 'hidden',
-  },
-  text: {
-    color: colors.gray0,
-    fontFamily: fontFamilies.bodyBold,
-    letterSpacing: 0.2,
-    textAlign: 'center',
   },
 });
