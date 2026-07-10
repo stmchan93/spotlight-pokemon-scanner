@@ -1,38 +1,34 @@
 import type { ReactNode } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Image, StyleSheet, Text, View } from 'react-native';
 
 import { colors, fontFamilies } from '../tokens';
-import { psaGradeDescriptor } from './grader-wordmark';
+import { getGraderAsset, psaGradeDescriptor } from './grader-wordmark';
 
 /**
- * Slab "case" chrome around a graded card's image (Figma 2609:6812 — the
- * Collectr-style tile where the card sits inside its grading slab): a light
- * plastic-looking case border with the grader's label band on top — grader
- * name left, big grade right — then the card art below.
+ * Slab "case" chrome around a graded card's image (Figma 2609:6812/6977 — the
+ * Collectr-style treatment where the card sits inside its grading slab). The
+ * top label mirrors the REAL label: PSA = white flag with the red border, the
+ * PSA logo at left, and the grade descriptor stacked over the bold grade at
+ * right — so a PSA slab is recognizable at a glance.
  *
- * The label's accent color is keyed by THIS entry's grader (PSA red label,
- * CGC blue, Beckett silver-gray, TAG black); unknown graders get a neutral
- * gray label so nothing ever breaks.
+ * Label branding is keyed by THIS entry's grader; graders we don't carry art
+ * or colors for get a neutral label with their name — never breaks.
  */
 
 type SlabLabelStyle = {
-  accent: string; // label border/accent — the grader's label color
-  text: string; // label text color
+  border: string; // the label's frame color (PSA red, CGC blue, …)
+  text: string;
 };
 
 const SLAB_LABEL_STYLES: Record<string, SlabLabelStyle> = {
-  psa: { accent: '#DA2128', text: '#1A1A1A' }, // PSA red label
-  cgc: { accent: '#1E5AA8', text: '#1A1A1A' }, // CGC blue label
-  beckett: { accent: '#9AA2AB', text: '#1A1A1A' }, // BGS silver label
-  bgs: { accent: '#9AA2AB', text: '#1A1A1A' },
-  tag: { accent: '#1A1A1A', text: '#1A1A1A' }, // TAG black slab
+  psa: { border: '#E31B23', text: '#1A1A1A' }, // PSA red label frame
+  cgc: { border: '#1E5AA8', text: '#1A1A1A' }, // CGC blue
+  beckett: { border: '#9AA2AB', text: '#1A1A1A' }, // BGS silver
+  bgs: { border: '#9AA2AB', text: '#1A1A1A' },
+  tag: { border: '#1A1A1A', text: '#1A1A1A' }, // TAG black
 };
 
-const NEUTRAL_LABEL: SlabLabelStyle = { accent: '#BEBEBE', text: '#1A1A1A' };
-
-function labelStyleFor(grader: string): SlabLabelStyle {
-  return SLAB_LABEL_STYLES[grader.trim().toLowerCase()] ?? NEUTRAL_LABEL;
-}
+const NEUTRAL_LABEL: SlabLabelStyle = { border: '#BEBEBE', text: '#1A1A1A' };
 
 export type SlabFrameSize = 'sm' | 'md';
 
@@ -41,8 +37,8 @@ type SlabFrameProps = {
   grader: string;
   grade?: string | null;
   /**
-   * sm = list-row thumbnail (58×80): grade number only on the label.
-   * md = grid tile: grader name + PSA descriptor when it fits.
+   * sm = list-row thumbnail (the 84×136 slab slot, Figma 2609:6977).
+   * md = grid tile (roomier label: logo + descriptor + grade).
    */
   size?: SlabFrameSize;
   /** The card image (fills the case below the label). */
@@ -51,17 +47,16 @@ type SlabFrameProps = {
 };
 
 export function SlabFrame({ grader, grade, size = 'md', children, testID }: SlabFrameProps) {
-  const label = labelStyleFor(grader);
+  const graderKey = grader.trim().toLowerCase();
+  const label = SLAB_LABEL_STYLES[graderKey] ?? NEUTRAL_LABEL;
+  const asset = getGraderAsset(grader);
   const gradeText = (grade ?? '').trim();
   const isSmall = size === 'sm';
-  // PSA labels lead with the grade's descriptor ("GEM MT   10"); only room on
-  // the md (tile) label. Other graders show their name.
-  const descriptor = grader.trim().toLowerCase() === 'psa' && gradeText
-    ? psaGradeDescriptor(gradeText)
+  // Real PSA labels stack the descriptor ("GEM MT") over the grade.
+  const descriptor = graderKey === 'psa' && gradeText
+    ? psaGradeDescriptor(gradeText)?.replace('-', ' ')
     : null;
-  const leftText = isSmall
-    ? grader.trim().toUpperCase()
-    : (descriptor ?? grader.trim().toUpperCase());
+  const logoHeight = isSmall ? 9 : 14;
 
   return (
     <View style={[styles.case, isSmall ? styles.caseSmall : null]} testID={testID}>
@@ -69,32 +64,49 @@ export function SlabFrame({ grader, grade, size = 'md', children, testID }: Slab
         style={[
           styles.label,
           isSmall ? styles.labelSmall : null,
-          { borderColor: label.accent },
+          { borderColor: label.border },
         ]}
         testID={testID ? `${testID}-label` : undefined}
       >
-        <Text
-          numberOfLines={1}
-          style={[
-            styles.labelText,
-            isSmall ? styles.labelTextSmall : null,
-            { color: label.text },
-          ]}
-        >
-          {leftText}
-        </Text>
-        {gradeText ? (
+        {asset ? (
+          <Image
+            accessibilityLabel={grader}
+            resizeMode="contain"
+            source={asset.source}
+            style={{ height: logoHeight, width: Math.round(logoHeight * asset.aspectRatio) }}
+            testID={testID ? `${testID}-logo` : undefined}
+          />
+        ) : (
           <Text
             numberOfLines={1}
             style={[
-              styles.gradeText,
-              isSmall ? styles.gradeTextSmall : null,
+              styles.graderName,
+              isSmall ? styles.graderNameSmall : null,
               { color: label.text },
             ]}
-            testID={testID ? `${testID}-grade` : undefined}
           >
-            {gradeText}
+            {grader.trim().toUpperCase()}
           </Text>
+        )}
+        {gradeText ? (
+          <View style={styles.gradeColumn}>
+            {descriptor && !isSmall ? (
+              <Text numberOfLines={1} style={[styles.descriptor, { color: label.text }]}>
+                {descriptor}
+              </Text>
+            ) : null}
+            <Text
+              numberOfLines={1}
+              style={[
+                styles.gradeText,
+                isSmall ? styles.gradeTextSmall : null,
+                { color: label.text },
+              ]}
+              testID={testID ? `${testID}-grade` : undefined}
+            >
+              {gradeText}
+            </Text>
+          </View>
         ) : null}
       </View>
       <View style={styles.body}>{children}</View>
@@ -107,8 +119,8 @@ const styles = StyleSheet.create({
     flex: 1,
     overflow: 'hidden',
   },
-  // The clear plastic case: a light border + faint inner edge so the card
-  // reads as sitting inside a slab rather than a plain image crop.
+  // The clear plastic case: a light border + faint edge so the card reads as
+  // sitting inside a slab rather than a plain image crop.
   case: {
     backgroundColor: colors.gray100,
     borderColor: 'rgba(0, 0, 0, 0.14)',
@@ -116,21 +128,44 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     flex: 1,
     overflow: 'hidden',
-    padding: 2.5,
+    padding: 3,
   },
   caseSmall: {
     borderRadius: 4,
     padding: 2,
   },
+  descriptor: {
+    fontFamily: fontFamilies.bodyMedium,
+    fontSize: 6,
+    letterSpacing: 0.4,
+    lineHeight: 7,
+    textAlign: 'right',
+  },
+  gradeColumn: {
+    alignItems: 'flex-end',
+  },
   gradeText: {
     fontFamily: fontFamilies.bodyBold,
-    fontSize: 12,
-    lineHeight: 14,
+    fontSize: 13,
+    lineHeight: 15,
   },
   gradeTextSmall: {
-    fontSize: 9,
-    lineHeight: 11,
+    fontSize: 10,
+    lineHeight: 12,
   },
+  graderName: {
+    flexShrink: 1,
+    fontFamily: fontFamilies.bodyMedium,
+    fontSize: 8,
+    letterSpacing: 0.3,
+    lineHeight: 10,
+  },
+  graderNameSmall: {
+    fontSize: 7,
+    lineHeight: 9,
+  },
+  // The label flag: white, framed in the grader's color (the real PSA label's
+  // red frame), logo left / grade right.
   label: {
     alignItems: 'center',
     backgroundColor: colors.gray0,
@@ -139,28 +174,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 4,
     justifyContent: 'space-between',
-    marginBottom: 2,
-    minHeight: 18,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
+    marginBottom: 2.5,
+    minHeight: 24,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
   },
   labelSmall: {
-    borderWidth: 1,
-    marginBottom: 1.5,
-    minHeight: 13,
-    paddingHorizontal: 3,
-    paddingVertical: 0.5,
-  },
-  labelText: {
-    flexShrink: 1,
-    fontFamily: fontFamilies.bodyMedium,
-    fontSize: 9,
-    letterSpacing: 0.3,
-    lineHeight: 12,
-  },
-  labelTextSmall: {
-    fontSize: 7,
-    letterSpacing: 0.2,
-    lineHeight: 9,
+    borderWidth: 1.25,
+    marginBottom: 2,
+    minHeight: 16,
+    paddingHorizontal: 3.5,
+    paddingVertical: 1,
   },
 });

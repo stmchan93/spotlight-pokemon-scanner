@@ -82,6 +82,18 @@ export function hasGraderWordmark(grader: string | null | undefined): boolean {
   return grader != null && normalizeGrader(grader) in GRADER_ASSETS;
 }
 
+/** The bundled logo asset for a grader (source + native aspect ratio), or
+ * null when we don't carry its mark. Lets composites like SlabFrame render
+ * the logo at custom heights. */
+export function getGraderAsset(
+  grader: string | null | undefined,
+): GraderAsset | null {
+  if (grader == null) {
+    return null;
+  }
+  return GRADER_ASSETS[normalizeGrader(grader)] ?? null;
+}
+
 export type GraderWordmarkSize = 'sm' | 'md';
 
 const MARK_HEIGHTS: Record<GraderWordmarkSize, number> = {

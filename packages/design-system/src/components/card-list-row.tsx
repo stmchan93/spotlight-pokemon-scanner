@@ -63,6 +63,10 @@ export type CardListRowProps = {
 const THUMBNAIL_WIDTH = 58;
 const THUMBNAIL_HEIGHT = 80;
 const THUMBNAIL_RADIUS = 2;
+// Slab rows show the whole slab (case + label), so the image slot is taller —
+// Figma 2609:6977's 84×136 card-image slot.
+const SLAB_THUMBNAIL_WIDTH = 84;
+const SLAB_THUMBNAIL_HEIGHT = 136;
 
 function formatCurrency(amount: number, currencyCode: string) {
   return new Intl.NumberFormat('en-US', {
@@ -167,7 +171,7 @@ export function CardListRow({
       ) : null}
 
       {showSlabFrame ? (
-        <View style={styles.thumbnail} testID={testID ? `${testID}-thumbnail` : undefined}>
+        <View style={styles.slabThumbnail} testID={testID ? `${testID}-thumbnail` : undefined}>
           <SlabFrame
             grade={grade}
             grader={graderText}
@@ -331,6 +335,11 @@ const styles = StyleSheet.create({
     minHeight: 72,
     paddingHorizontal: 16,
     paddingVertical: 12,
+  },
+  slabThumbnail: {
+    height: SLAB_THUMBNAIL_HEIGHT,
+    position: 'relative',
+    width: SLAB_THUMBNAIL_WIDTH,
   },
   thumbnail: {
     height: THUMBNAIL_HEIGHT,
