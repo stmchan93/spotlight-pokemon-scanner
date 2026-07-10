@@ -2,7 +2,7 @@ import { Fragment } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { IconChevronRight } from '@tabler/icons-react-native';
 
-import { colors, useSpotlightTheme } from '@spotlight/design-system';
+import { borderWidths, colors, useSpotlightTheme } from '@spotlight/design-system';
 import type {
   CardPriceTrendList as CardPriceTrendListType,
   CardPriceTrendRow,
@@ -73,7 +73,7 @@ export function CardPriceTrendList({ list, onRowPress, onProviderPress, loadingR
       {/* Full-bleed hairline under the title, then one under every row (Figma
           992-7381): each rule spans edge-to-edge and never doubles up where two
           rows meet. */}
-      <View style={[styles.divider, { backgroundColor: theme.colors.outlineSubtle }]} />
+      <View style={[styles.divider, { backgroundColor: theme.colors.gray300 }]} />
 
       {list.rows.map((row) => {
         const isLoading = row.key === loadingRowKey;
@@ -136,7 +136,7 @@ export function CardPriceTrendList({ list, onRowPress, onProviderPress, loadingR
                 {rowContent}
               </View>
             )}
-            <View style={[styles.divider, { backgroundColor: theme.colors.outlineSubtle }]} />
+            <View style={[styles.divider, { backgroundColor: theme.colors.gray300 }]} />
           </Fragment>
         );
       })}
@@ -147,8 +147,9 @@ export function CardPriceTrendList({ list, onRowPress, onProviderPress, loadingR
 const styles = StyleSheet.create({
   divider: {
     // Break out of the screen's 16px content padding so the rule spans the full
-    // device width (Figma 992-7381 row frame is 393px / edge-to-edge).
-    height: StyleSheet.hairlineWidth,
+    // device width (Figma 992-7381 row frame is 393px / edge-to-edge). 0.5pt
+    // gray-300 rule per Figma 2489:7581 (borderWidths.rule, NOT hairlineWidth).
+    height: borderWidths.rule,
     marginHorizontal: -16,
   },
   header: {

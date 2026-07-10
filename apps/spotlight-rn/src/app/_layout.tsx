@@ -1,4 +1,7 @@
 import 'expo-dev-client';
+// Side-effect import: installs the global Dynamic Type font-scaling cap. Must
+// run before any Text renders, so keep it at the top of the app entry.
+import '@/lib/text-scaling';
 
 import {
   ThemeProvider as NavigationThemeProvider,

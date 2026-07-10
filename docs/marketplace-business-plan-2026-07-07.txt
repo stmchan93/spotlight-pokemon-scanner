@@ -1,0 +1,398 @@
+FROM CARD SCANNER TO CARD MARKETPLACE
+The business plan — honest version, risks and kill-criteria included
+July 7, 2026 · Internal, for the card show crew
+
+-----------------------------------------------------------------------
+
+THE THESIS, STATED CAREFULLY
+
+"If people can make money on our app, they'll use it" is half right.
+Transactions alone don't keep people around — liquidity (eBay) or
+entertainment (Whatnot) does, and we have neither. What we DO have is
+information nobody else has: what every user owns, what it's worth,
+and — once shops are on board — who nearby will pay for it.
+
+So the working thesis is:
+
+    Money INFORMATION keeps people in the app.
+    Money TRANSACTIONS are how we get paid.
+
+Think Zillow: nobody sells their house this month, but everyone opens
+the home-value email. We're that, for card collections — and the
+marketplace harvests the intent the watching detects.
+
+-----------------------------------------------------------------------
+
+1. WHAT WE ALREADY HAVE
+
+- A scanner people actually use. Point the phone at a card, get its
+  identity and market price in seconds. Also our secret onboarding
+  weapon for shops (more below).
+- Collections with live value. Users watch their collection's worth
+  like a stock portfolio. That habit is the retention engine that
+  everything else rides on.
+- Wishlists. We know what people WANT, not just what they own.
+- The show relationship. A real card show on AUGUST 27, organizers we
+  know, vendors we can talk to. Supply, demand, and our users,
+  physically in one room, on a date. Funded startups would kill for
+  this.
+
+-----------------------------------------------------------------------
+
+2. THE MODEL — THREE LAYERS, ONE FLYWHEEL
+
+LAYER 1 · WATCH (the daily habit)
+Collection value tracking + wishlist & price alerts ("a card on your
+watchlist dropped 15%", "your collection gained $120 this week").
+Costs us almost nothing — we already sync prices daily. This layer is
+what keeps the app on people's phones between purchases.
+
+LAYER 2 · MONEY OUT (collectors get paid)
+Partner shops post BUY LISTS (Japanese-shop style: "we're buying these
+cards at these prices"). The app matches them against your collection:
+"Shops at this show are buying 23 cards you own — about $612."
+Later: CONSIGNMENT — sell your card through a shop's storefront; the
+shop verifies and handles it, you get ~85% instead of a buylist's
+~70%. We never touch the card or the money.
+
+LAYER 3 · MONEY IN (collectors buy)
+Browse partner shop and vendor inventory — before the show ("plan your
+pickups"), at the show ("which booth has it"), and after (reserve from
+a local shop, pick up in person). Payments stay between buyer and shop
+until the loop is proven; in-app checkout with a platform fee is a
+later phase, built only if reserves convert.
+
+THE FREQUENCY PYRAMID IS THE POINT: people watch daily, buy monthly,
+sell a few times a year. The watch layer carries the daily habit; the
+marketplace layers monetize the intent it surfaces. We do NOT expect
+buying/selling to carry retention — that bet killed most "sell your
+cards" apps.
+
+TRUST IS SHOP-ANCHORED, ALWAYS. Every card for sale and every buy
+offer stands behind a real business with a reputation — no
+stranger-to-stranger deals, no fakes under our banner. That's how we
+borrow the trust of shows and shops without burning it.
+
+THE TRADE MATRIX — one product, one rule: a vendor is always on one
+side of every trade.
+
+                     VENDOR BUYS              COLLECTOR BUYS
+  COLLECTOR SELLS    buy lists + matching     never (P2P deferred —
+                     (the lead wedge)         the trust cliff)
+  VENDOR SELLS       free byproduct (dealer-  listings + browse +
+                     to-dealer just happens)  reserve
+
+Collectors make money AND spend money — always with a real business
+across the table. Vendors source inventory AND move inventory, which
+is literally what a dealer is (buy at 70%, sell at market; we put
+rails under their spread). Vendor-to-vendor rides along free — a
+vendor browsing another vendor's listings is just a user. The
+collector-to-collector cell stays deliberately empty until we've
+earned verification muscle.
+
+THE FLOW — ONE COLLECTOR'S SHOW WEEK:
+
+  TUESDAY (home)    Scans their binder on the couch — no kiosk. A
+                    vendor scans new inventory + posts a buylist rule.
+  THURSDAY          Notification: "Vendors at Saturday's show are
+                    buying 14 cards you own — about $612. Two wishlist
+                    cards are for sale at the show." Now they know
+                    what to bring and what to budget.
+  SATURDAY (show)   The app is the map of the room: which booth is
+                    buying their cards, which booth has the card they
+                    want. Walk over, cash out, buy the card. No money
+                    touches us.
+  MONDAY (after)    Nothing dies: collection, wishlist, and shop pages
+                    persist — see a card Tuesday, reserve, pick up
+                    Saturday. The watch layer keeps the daily pulse.
+
+WHAT KEEPS PEOPLE OPENING IT BETWEEN SHOWS (STICKINESS, HONESTLY)
+
+The marketplace itself will never be sticky — transactions are
+episodic. Shows are acquisition SPIKES, not the retention engine.
+The retention stack, in order of how often it fires:
+
+1. THE EVERYDAY QUESTION (constant): "what's this card worth?" is the
+   most-asked question in the hobby — pack openings, trade nights,
+   LGS visits. Our scanner is the fastest answer that exists, and
+   scanning a card is how it enters your collection.
+2. THE WATCH LAYER (daily/weekly): collection value movement,
+   wishlist price alerts, owned-card spikes. Zillow psychology —
+   nobody transacts monthly, everybody checks. Prices already sync
+   daily; this is a query plus a notification.
+3. SET RELEASES (quarterly rhythm): every new set is a usage spike —
+   people scan their pulls. The app should be where pulls go.
+4. MATCHING JOLTS (episodic, high-voltage): "a shop near you raised
+   its buy price on 3 cards you own." Rare, screenshot-worthy.
+5. THE LOCAL LAYER (monthly): shop pages persisting between shows.
+
+The design consequence: THE SHOW EXPERIENCE MUST END WITH THE
+ATTENDEE'S SCANNED CARDS SAVED AS THEIR COLLECTION. An attendee who
+installs, browses, and never scans their own cards retains at layer
+zero — nothing ever fires for them again. Layers 1-4 all feed off
+collection data. Week-4 retention after the show (Test #1 below) is
+the number that says whether we're sticky or just show-popular.
+
+-----------------------------------------------------------------------
+
+3. THE CARD SHOW PLAYBOOK — AUG 27 IS OPENING NIGHT
+
+NOW → EARLY AUGUST
+Talk to vendors and shops: who's in, buylist interest, freshness rules
+agreed as partnership terms. Schedule scanning sessions — a shop's
+inventory gets listed BY SCANNING IT, binder to storefront in an
+afternoon. This human work is the real bottleneck; no code compresses
+it.
+
+EARLY → MID AUGUST
+App goes PUBLIC (App Store, production backend, frictionless
+first-run) — a show full of people who can't install the app is
+pointless. Founding partners populate inventory + buy lists while the
+marketplace is still hidden from buyers.
+
+SHOW WEEK
+The hook we advertise: "See every card for sale at the show — and find
+out which vendors will buy yours — before you walk in." At the show,
+the app is the map of the room: which booth has your card, which booth
+is buying your cards.
+
+AFTER THE SHOW
+Shop pages persist and it becomes the LOCAL marketplace: browse
+Tuesday night, reserve, pick up Saturday. Reserve/contact flows ship
+here — at the show itself, people just walk to the booth.
+
+SHOW TWO AND BEYOND
+The playbook repeats — ideally sold THROUGH THE ORGANIZER: every booth
+registration includes a "digital booth" in the official show app,
+organizer takes a cut. The organizer becomes our sales force.
+
+-----------------------------------------------------------------------
+
+4. WHO SELLS — SHOPS, VENDORS, AND THE HYBRIDS WE WANT MOST
+
+CARD SHOPS      Permanent store, fixed address, local reputation.
+                Trust: highest. Offer: full storefront — inventory +
+                buy list + consignment anchor; persists after every
+                show.
+
+SHOW VENDORS    Cases and a table; gone on Sunday. Trust: lowest.
+                Offer: lightweight "digital booth" for the show
+                weekend; buy list posting (low commitment).
+
+HYBRIDS         Shop owners who also work show booths. Best of both —
+                these are the ideal founding partners.
+
+HOW MANY AT LAUNCH: 3–5, HAND-PICKED. Each founding partner needs
+hours of personal onboarding and a scanning session. Five shops at
+1,000–3,000 cards each is 5–15k listings — plenty for a show. Ten
+half-onboarded partners is worse than four done right.
+
+First job for everyone reading this: help figure out which August 27
+vendors run permanent shops.
+
+-----------------------------------------------------------------------
+
+5. CONSIGNMENT — HOW CASUAL COLLECTORS SELL WITHOUT US TOUCHING MONEY
+
+The collector picks a card from their collection in the app → chooses
+a partner shop → sees the shop's terms up front (say a 15% cut) →
+hands the card over at the store or the show → THE SHOP INSPECTS AND
+VERIFIES IT → it's listed under the shop's storefront tagged
+"consigned" → it sells like any shop card → the shop pays the
+collector. The hobby already works this way (consignment cases, COMC);
+we're putting rails under existing behavior.
+
+The collector's ladder:
+  SELL NOW   → to a buy list, ~70% of market, cash today
+  CONSIGN    → ~85% of market, wait for the sale
+  P2P        → maybe someday, only when we've earned verification
+               muscle
+
+Known frictions we handle in shop terms, not code: liability while the
+shop holds the card, automatic price-decay so cards actually move, a
+90-day unsold policy. Consignment is v2 — founding shops get
+comfortable with plain listings first.
+
+-----------------------------------------------------------------------
+
+6. HOW WE MAKE MONEY — THE REVENUE MENU, WITH HONEST VERDICTS
+
+The strongest fact in this plan: WE'RE REDIRECTING MONEY THAT ALREADY
+MOVES. Vendors pay $200–500 per booth. Shops pay for ads and foot
+traffic. Nobody has to invent a budget — just route existing spend
+through something that measurably works better.
+
+DIGITAL BOOTH FEE                                    [ SHOW 2+ ]
+~$50 per vendor per show to be browsable in the app; ideally bundled
+into booth registration via the organizer. Congruent with money
+vendors already spend — and MARKET-VALIDATED: Heystack charges
+vendors $49.99 for show access (see COMPETITIVE LANDSCAPE below).
+First show is free for founding partners — we're collecting the proof
+we'll charge against.
+
+SHOP STOREFRONT SUBSCRIPTION                         [ FALL 2026 ]
+Flat monthly (start $50–100, grow to ~$200) for unlimited listings +
+buy list + the match traffic we send. Only sellable with receipts:
+"we sent 60 people to your store last month." Founding partners are
+free during the pilot — honest metrics beat $200 checks.
+
+TRANSACTION FEES                                     [ PHASE 2 ]
+In-app checkout (Stripe), ~5–8% platform fee taken automatically. The
+real marketplace business — but it brings disputes, refunds,
+chargebacks, and sales-tax obligations. Built only after
+reserve-and-pickup demonstrably converts.
+
+CONSIGNMENT CUT                                      [ PHASE 2+ ]
+A small slice of the shop's consignment fee. Rides on transaction
+rails; not chased before them.
+
+PER-CARD LISTING FEES                                [ NEVER ]
+The most-hated pricing model in the hobby, and it taxes the exact
+thing our cold start needs: supply.
+
+REALISTIC MATH, NO BULLSHIT: one metro's show scene at decent
+penetration — ~30 digital booths a show plus ~10 shop subscriptions —
+is roughly $2–3K/MONTH PER METRO. That's a genuinely good bootstrap
+business if the playbook repeats across shows and cities; it's a big
+business only when transaction fees arrive and the app is the
+collection layer shops depend on (exactly the position TCGplayer paid
+to acquire into — see BinderPOS). Near-term we're optimizing for proof
+and users, with revenue starting at show two.
+
+And the burn is nearly zero: no payments means no fraud or dispute
+staff, no subsidies, infra is a couple hundred a month. The downside
+case is a summer of nights, not anyone's savings.
+
+-----------------------------------------------------------------------
+
+7. COMPETITIVE LANDSCAPE — HEYSTACK "SHOW CONNECT" (July 2026)
+
+Heystack (an existing dealer-tools company, "Heystack One" scanning
+stations) launched Show Connect at the West Coast Card Show: attendees
+scan cards at PHYSICAL KIOSKS on the show floor; vendors pay $49.99
+(capped at 50 vendors) to browse those scans, set filter alerts, make
+offers, and ask sellers to bring cards to their booth. Sold through
+the show organizer's own vendor mailing list.
+
+WHAT IT VALIDATES FOR US (a competitor just market-tested our plan):
+- Vendors pay ~$50 for show-scoped access to attendee inventory —
+  our digital-booth price point, confirmed with real money.
+- Sell-side first is the right wedge — their entire product is the
+  sell-side; no buyer marketplace at all.
+- The organizer channel works — they used the organizer as their
+  sales force, exactly the play we designed.
+- Even the revenue math: 50 vendors × $50 = $2,500/show, matching our
+  per-metro estimate.
+
+WHERE WE'RE STRUCTURALLY DIFFERENT (mostly stronger):
+- They need kiosks; we live in the attendee's pocket. Their matching
+  can't start until someone walks to a station at the show. Ours
+  starts on the couch on Tuesday — "know what to bring before doors
+  open" is a funnel they can't run.
+- Their experience dies Sunday night. Stations leave; attendees walk
+  away with nothing installed. We keep the collection, wishlist,
+  watch layer, and shop pages on Monday — retention is our moat and
+  nobody else is building it.
+- They're one-directional (vendor buys from attendee only). We're
+  two-directional with the same trust rule.
+
+WHAT IT CHANGES:
+- URGENT: lock our show organizer NOW ("official show app",
+  exclusivity if possible) — before Heystack or someone like them
+  emails OUR show's vendor list. This moved from Phase-0 item to
+  this-week item.
+- Pricing confidence: non-founding vendors at show two can be priced
+  at $50, not $25 — the anchor is set.
+- Feature to adopt later (Phase 2): vendor OFFERS on scanned cards.
+  Buylist rules for scale, offers for heat — "a vendor made you an
+  offer" is a hotter notification than a passive buylist match.
+- Watch them: if Heystack ships a consumer app that keeps attendee
+  collections alive after the show, they converge on us from the
+  vendor side. Their DNA is dealer hardware; consumer retention is a
+  different muscle. Our race is to own the attendee's pocket first.
+
+-----------------------------------------------------------------------
+
+8. RISKS WE'RE NOT HIDING FROM
+
+COLD START. With 3–5 shops, browse selection is thin — a buyer who
+searches and finds nothing doesn't come back. Answer: lead with
+MATCHING, not browse. Rules-based buy lists ("we pay 70% of market on
+these sets") cover thousands of cards, so "shops are buying N cards
+you own" delivers big, real numbers from day one, while sell-side
+inventory grows.
+
+STALE LISTINGS. A reserved card that already sold in-store kills trust
+fast. Answer: confirmation windows, listings that expire unless the
+shop one-tap renews them, and per-shop reliability tracking — agreed
+up front as partnership terms, not discovered as penalties.
+
+THE GRAVEYARD. Dozens of "sell your cards" apps died; even TCGplayer
+shut its own buylist down. They died betting transactions would retain
+users. Our retention bet is the watch layer, which works with zero
+marketplace activity.
+
+INCUMBENTS. TCGplayer or Collectr could go local, and Heystack is
+already at shows (see COMPETITIVE LANDSCAPE). Our defense isn't
+features — it's shop relationships, show-floor presence, and owning
+the attendee's pocket, which are slow, physical, and unglamorous to
+copy.
+
+PRICE-DATA QUALITY. Our market prices drive real money decisions now.
+Known-bad segments (some Japanese raw-card prices) get fenced off from
+any percent-of-market math before matching goes live. Hard gate, no
+exceptions.
+
+ONE-PERSON EXECUTION. Seven weeks to public launch, vendor onboarding,
+and the show. Survivable only with ruthless scope: buy lists and
+browse before reserve; consignment in v2; payments later.
+
+-----------------------------------------------------------------------
+
+9. FIVE TESTS THAT DECIDE WHETHER THIS IS A BUSINESS
+
+1. Do attendees KEEP the app after the show?
+   Pass: healthy week-4 retention, carried by collection value +
+   wishlist alerts.
+
+2. Do matches convert to VISITS?
+   Pass: founding shops literally count walk-ins who say "the app
+   sent me."
+
+3. Do vendors/shops PAY at show two?
+   Pass: digital booths and subscriptions bought with their own money.
+
+4. Does the playbook REPEAT without personal favors?
+   Pass: a show where we don't know the organizer runs the same play.
+
+5. Do reserves CONVERT to completed sales?
+   Pass: the green light (or not) for building in-app payments.
+
+If matches fire and nobody visits, or nobody pays at show two — we
+learned it for the cost of a summer, and the scanner/collection app is
+still a great product. That's the whole risk posture: every step is
+cheap, dated, and measurable before the next one gets built.
+
+-----------------------------------------------------------------------
+
+10. WHAT WE NEED FROM YOU, RIGHT NOW
+
+- MAP THE VENDORS. Which August 27 vendors run permanent shops (the
+  hybrid profile)? Those are our founding-partner shortlist.
+- WARM INTROS. 3–5 shops/vendors willing to do a free founding-partner
+  pilot: inventory scanning session, a posted buy list, agreement on
+  freshness rules.
+- THE ORGANIZER CONVERSATION — THIS WEEK. Pitch the "official show
+  app" bundle (digital booths included in registration, revenue
+  share) and ask about exclusivity. Heystack is already selling
+  through organizers at other shows; ours should hear it from us
+  first.
+- BE THE PILOT USERS. Scan your collections, build wishlists, and beat
+  on the matching once it's live — the demo at the show is only as
+  good as the data in it.
+
+-----------------------------------------------------------------------
+
+Prepared July 7, 2026. Working draft for internal discussion — numbers
+are estimates, dates are targets, and the five tests outrank
+everyone's optimism, including ours.

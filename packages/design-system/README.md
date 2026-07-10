@@ -46,6 +46,11 @@ Defined in `src/tokens.ts`:
 - `layout`
 - `shadows`
 - `textStyles`
+- `MAX_FONT_SIZE_MULTIPLIER`
+
+## Font Scaling Policy
+
+iOS/Android Dynamic Type ("Larger Text") is **capped at `MAX_FONT_SIZE_MULTIPLIER` (1.2)**, not disabled — text still grows up to ~20% for accessibility but never blows up our fixed `fontSize` + baked-`lineHeight` layouts. The cap is applied globally at the app root (`apps/spotlight-rn/src/lib/text-scaling.ts` sets `Text`/`TextInput` `defaultProps.maxFontSizeMultiplier`) and is also set explicitly on the shared text primitives (`AppText`, `TextField`, `SearchField`). Precisely-measured elements that can't follow scaling (`RollingNumberText`, auth OTP cells) opt out with `allowFontScaling={false}`. To adjust the ceiling, change the single constant in `src/tokens.ts`.
 
 Current typography roles:
 
@@ -303,9 +308,10 @@ Current API concepts:
 - `name`, `setName` + `cardNumber` (joined as `"{cardNumber} · {setName}"`)
 - `kind` (`'raw' | 'slab'`) with `variantName`, and `conditionLabel` (raw) or
   `graderLabel` + `gradeLabel` (slab) building the quality lines
-- `priceLabel` + optional `dayChangeLabel`/`dayChangeDirection` (delta pill)
-- `quantity` chip pinned top-left; `showQuantity={false}` hides it for
-  surfaces with no owned-quantity concept (Wishlist card view)
+- `priceLabel` (14 Bold; no day-change delta — removed per Figma 2489:6459)
+- `quantity` readout at the right edge of the price row (count + box icon);
+  `showQuantity={false}` hides it for surfaces with no owned-quantity concept
+  (Wishlist card view)
 - `isFavorite` star badge top-right; `showFavorite={false}` hides it (both
   card views); `selectable`/`selected` swaps the badge slot for a selection
   check-circle in multi-select edit mode

@@ -1,6 +1,6 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { useSpotlightTheme } from '@spotlight/design-system';
+import { borderWidths, radii, useSpotlightTheme } from '@spotlight/design-system';
 import type { CardPopulation } from '@spotlight/api-client';
 
 type CardPopulationReportProps = {
@@ -23,13 +23,13 @@ function sortedGradeEntries(grades: Record<string, number>): [string, number][] 
 }
 
 /**
- * Population report (Figma 1874:11631 + 1874:23015): a full-bleed gray band
- * reading "<GRADER> Population Report: <total>", followed by a horizontally
- * scrolling row of per-grade cells — each a 56px centered column with the grade
- * label (Overline / gray-600) above its slab count (Body-medium / gray-900),
- * topped-and-tailed by gray-200 rules. Both are dynamic by grader and re-render
- * when the selected grading company flips. Renders nothing for the raw lane or a
- * grader with no synced population, so the PDP omits it.
+ * Population report (Figma 2489:7486): an inset gray-100 rounded card titled
+ * "POP REPORT", holding a horizontally scrolling strip of white cells that
+ * share their 1px gray-200 edges — first the "<GRADER> TOTAL" cell, then one
+ * cell per grade (grade label over slab count), with the strip's outer corners
+ * rounded to 8. Dynamic by grader; re-renders when the selected grading company
+ * flips. Renders nothing for the raw lane or a grader with no synced
+ * population, so the PDP omits it.
  */
 export function CardPopulationReport({ population, grader, testID }: CardPopulationReportProps) {
   const theme = useSpotlightTheme();
@@ -41,90 +41,108 @@ export function CardPopulationReport({ population, grader, testID }: CardPopulat
   }
 
   const grades = sortedGradeEntries(entry.grades ?? {});
+  const cellColors = {
+    backgroundColor: theme.colors.gray0,
+    borderColor: theme.colors.gray200,
+  };
 
   return (
-    <View testID={testID}>
-      <View style={[styles.bar, { backgroundColor: theme.colors.gray100 }]}>
-        <Text
-          style={[theme.typography.label, styles.text, { color: theme.colors.gray900 }]}
-          testID={testID ? `${testID}-title` : undefined}
-        >
-          {`${normalizedGrader} Population Report: ${formatCount(entry.totalPopulation)}`}
-        </Text>
-      </View>
+    <View style={[styles.container, { backgroundColor: theme.colors.gray100 }]} testID={testID}>
+      <Text
+        style={[theme.typography.captionMedium, { color: theme.colors.gray900 }]}
+        testID={testID ? `${testID}-title` : undefined}
+      >
+        POP REPORT
+      </Text>
 
-      {grades.length > 0 ? (
-        // Full-bleed frame carries the top/bottom rules so they span edge to edge
-        // even when only a couple of grades exist (Figma 1874:23015) — drawing them
-        // per-cell stopped the line short at the last grade.
-        <View style={[styles.rowFrame, { borderColor: theme.colors.gray200 }]}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            testID={testID ? `${testID}-grades` : undefined}
-          >
-            {grades.map(([grade, count]) => (
-            <View
-              key={grade}
-              style={[styles.cell, { backgroundColor: theme.colors.gray0 }]}
-              testID={testID ? `${testID}-grade-${grade}` : undefined}
-            >
-              <View style={styles.cellInner}>
-                <Text
-                  style={[theme.typography.overline, styles.cellText, { color: theme.colors.gray600 }]}
-                >
-                  {grade}
-                </Text>
-                <Text
-                  style={[theme.typography.bodyMedium, styles.cellText, { color: theme.colors.gray900 }]}
-                >
-                  {formatCount(count)}
-                </Text>
-              </View>
-            </View>
-            ))}
-          </ScrollView>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        testID={testID ? `${testID}-grades` : undefined}
+      >
+        {/* Cells share edges: every cell draws top/bottom/right, only the first
+            draws left, and only the outer corners round — so adjacent borders
+            never double up (Figma 2489:7486). */}
+        <View
+          style={[
+            styles.cell,
+            styles.cellFirst,
+            grades.length === 0 ? styles.cellLast : null,
+            cellColors,
+          ]}
+        >
+          <View style={styles.cellInner}>
+            <Text style={[theme.typography.overline, styles.cellText, { color: theme.colors.gray600 }]}>
+              {`${normalizedGrader} TOTAL`}
+            </Text>
+            <Text style={[theme.typography.bodyMedium, styles.cellText, { color: theme.colors.gray900 }]}>
+              {formatCount(entry.totalPopulation)}
+            </Text>
+          </View>
         </View>
-      ) : null}
+        {grades.map(([grade, count], index) => (
+          <View
+            key={grade}
+            style={[
+              styles.cell,
+              index === grades.length - 1 ? styles.cellLast : null,
+              cellColors,
+            ]}
+            testID={testID ? `${testID}-grade-${grade}` : undefined}
+          >
+            <View style={styles.cellInner}>
+              <Text
+                style={[theme.typography.overline, styles.cellText, { color: theme.colors.gray600 }]}
+              >
+                {grade}
+              </Text>
+              <Text
+                style={[theme.typography.bodyMedium, styles.cellText, { color: theme.colors.gray900 }]}
+              >
+                {formatCount(count)}
+              </Text>
+            </View>
+          </View>
+        ))}
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  bar: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    // Full-bleed: cancel the PDP content's 16px gutter so the band spans edge to
-    // edge (Figma 1874:11631 is full screen width), then re-inset its own text.
-    marginHorizontal: -16,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  text: {
-    textAlign: 'center',
-  },
-  // Full-bleed frame: the top/bottom rules live here so they run edge to edge
-  // regardless of how many grade cells exist. Each cell keeps its own 16px
-  // padding, so the first grade still aligns with the page gutter.
-  rowFrame: {
-    marginHorizontal: -16,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-  },
   cell: {
     alignItems: 'center',
+    borderBottomWidth: borderWidths.containerRule,
+    borderRightWidth: borderWidths.containerRule,
+    borderTopWidth: borderWidths.containerRule,
     justifyContent: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
+  },
+  cellFirst: {
+    borderBottomLeftRadius: radii.sm,
+    borderLeftWidth: borderWidths.containerRule,
+    borderTopLeftRadius: radii.sm,
   },
   cellInner: {
     alignItems: 'center',
     gap: 8,
     width: 56,
   },
+  cellLast: {
+    borderBottomRightRadius: radii.sm,
+    borderTopRightRadius: radii.sm,
+  },
   cellText: {
     textAlign: 'center',
     width: '100%',
+  },
+  // Inset rounded card (Figma 2489:7486) — no more full-bleed negative margins;
+  // radius 10 comes from the Figma frame (between radii.sm 8 and radii.md 12).
+  container: {
+    borderRadius: 10,
+    gap: 10,
+    padding: 16,
   },
 });
 

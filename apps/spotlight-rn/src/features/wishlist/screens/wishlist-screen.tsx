@@ -783,14 +783,8 @@ function WishlistGridTile({ entry, onPress, selectable = false, selected = false
   // Same shared tile + prop mapping as the Collection card view
   // (CollectionTileSlot in collection-masonry-grid.tsx) so the two card views
   // stay pixel-identical. Wishlist has no owned-quantity concept → hide the
-  // quantity chip; the star is hidden to match Collection's card view.
+  // quantity readout; the star is hidden to match Collection's card view.
   const tileKind = entry.slabContext ? 'slab' : 'raw';
-  const dayDelta = entry.dayChangeAmount ?? null;
-  const hasDelta = dayDelta != null && Number.isFinite(dayDelta) && dayDelta !== 0;
-  const dayChangeLabel = hasDelta
-    ? formatOptionalCurrency(Math.abs(dayDelta), entry.currencyCode)
-    : null;
-  const dayChangeDirection = hasDelta ? (dayDelta > 0 ? 'up' : 'down') : null;
   return (
     <InventoryCardTile
       bordered={false}
@@ -805,8 +799,6 @@ function WishlistGridTile({ entry, onPress, selectable = false, selected = false
       gradeLabel={tileKind === 'slab' ? entry.slabContext?.grade ?? null : null}
       showQuantity={false}
       priceLabel={formatOptionalCurrency(entry.marketPrice, entry.currencyCode)}
-      dayChangeLabel={dayChangeLabel}
-      dayChangeDirection={dayChangeDirection}
       isFavorite
       showFavorite={false}
       selectable={selectable}

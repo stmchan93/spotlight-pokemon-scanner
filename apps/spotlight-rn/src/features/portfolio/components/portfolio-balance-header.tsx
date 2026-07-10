@@ -1,8 +1,9 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Eye, EyeClosed, Minus, Plus } from 'iconoir-react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { Eye, EyeClosed, Triangle } from 'iconoir-react-native';
 
 import type { PortfolioSummary } from '@spotlight/api-client';
 import {
+  IconButton,
   RollingNumberText,
   colors,
   fontFamilies,
@@ -79,20 +80,20 @@ export function PortfolioBalanceHeader({
             testID={`${testIDPrefix}-summary-value`}
             value={valueLabel}
           />
-          <Pressable
+          <IconButton
             accessibilityLabel={isSummaryHidden ? 'Show portfolio value' : 'Hide portfolio value'}
-            accessibilityRole="button"
-            hitSlop={8}
             onPress={onToggleHidden}
-            style={styles.visibilityButton}
+            shape="circle"
+            size={32}
             testID={`${testIDPrefix}-summary-visibility-toggle`}
+            variant="subtle"
           >
             {isSummaryHidden ? (
-              <EyeClosed color={theme.colors.gray600} height={20} width={20} />
+              <EyeClosed color={theme.colors.gray600} height={18} width={18} />
             ) : (
-              <Eye color={theme.colors.gray600} height={20} width={20} />
+              <Eye color={theme.colors.gray600} height={18} width={18} />
             )}
-          </Pressable>
+          </IconButton>
         </View>
       </View>
 
@@ -104,13 +105,10 @@ export function PortfolioBalanceHeader({
           </Text>
         </View>
         <View style={styles.percentGroup}>
-          <Text style={[styles.changeText, { color: changeColor }]}>(</Text>
-          <ChangeDirectionIcon direction={direction} color={changeColor} />
-          <Text style={[styles.changeText, { color: changeColor }]}>{percentLabel}</Text>
-          <Text style={[styles.changeText, { color: changeColor }]}>)</Text>
+          <Text style={[styles.changeText, { color: changeColor }]}>({percentLabel})</Text>
         </View>
         <Text
-          style={[styles.changeText, { color: theme.colors.gray600 }]}
+          style={[styles.dateText, { color: theme.colors.gray600 }]}
           testID={`${testIDPrefix}-summary-delta-date`}
         >
           {dateLabel}
@@ -127,11 +125,16 @@ function ChangeDirectionIcon({
   direction: ChangeDirection;
   color: string;
 }) {
-  if (direction === 'down') {
-    return <Minus color={color} height={12} width={12} />;
-  }
-  // 'up' and 'flat' both render Plus per Figma (no zero-state icon spec).
-  return <Plus color={color} height={12} width={12} />;
+  // Outlined triangle glyph per Figma 2489:7582 — points up for 'up'/'flat'
+  // (no zero-state icon spec) and is flipped 180° for 'down'.
+  return (
+    <Triangle
+      color={color}
+      height={8}
+      width={8}
+      style={direction === 'down' ? styles.changeIconDown : undefined}
+    />
+  );
 }
 
 const styles = StyleSheet.create({
@@ -158,11 +161,6 @@ const styles = StyleSheet.create({
     fontSize: 28,
     lineHeight: 33.6,
   },
-  visibilityButton: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 2,
-  },
   changeRow: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -171,12 +169,23 @@ const styles = StyleSheet.create({
   changeIndicator: {
     alignItems: 'center',
     flexDirection: 'row',
+    gap: 2,
+  },
+  changeIconDown: {
+    transform: [{ rotate: '180deg' }],
   },
   percentGroup: {
     alignItems: 'center',
     flexDirection: 'row',
   },
   changeText: {
+    fontFamily: fontFamilies.bodySemiBold,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  // The scrub date stays visually secondary (the Figma frame doesn't include
+  // it — kept for scrub UX at the pre-redesign weight).
+  dateText: {
     fontFamily: fontFamilies.bodyMedium,
     fontSize: 12,
     lineHeight: 16.8,

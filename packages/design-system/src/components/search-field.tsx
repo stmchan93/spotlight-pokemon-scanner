@@ -11,6 +11,7 @@ import {
 import { Search as SearchIcon } from 'iconoir-react-native';
 
 import { useSpotlightTheme } from '../theme';
+import { MAX_FONT_SIZE_MULTIPLIER } from '../tokens';
 
 export type SearchFieldSize = 'default' | 'compact' | 'collection';
 export type SearchFieldSurface = 'default' | 'muted';
@@ -97,6 +98,7 @@ export function SearchField({
         <SearchIcon color={iconColor} height={16} width={16} />
       )}
       <TextInput
+        maxFontSizeMultiplier={MAX_FONT_SIZE_MULTIPLIER}
         placeholderTextColor={placeholderColor}
         style={[
           inputTextStyle,

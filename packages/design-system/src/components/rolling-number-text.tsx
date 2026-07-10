@@ -64,7 +64,9 @@ export function RollingNumberText({
           );
         }
         return (
-          <Text key={`static-${index}`} style={style}>
+          // Digit columns are measured in JS from the unscaled fontSize, so the
+          // glyphs must NOT scale with Dynamic Type or they'd clip/misalign.
+          <Text allowFontScaling={false} key={`static-${index}`} style={style}>
             {char}
           </Text>
         );
@@ -102,6 +104,7 @@ function DigitRoll({ digit, digitWidth, duration, lineHeight, style }: DigitRoll
       <Animated.View style={{ transform: [{ translateY }] }}>
         {Array.from({ length: 10 }, (_, n) => (
           <Text
+            allowFontScaling={false}
             key={n}
             style={[style, styles.digit, { height: lineHeight, width: digitWidth }]}
           >

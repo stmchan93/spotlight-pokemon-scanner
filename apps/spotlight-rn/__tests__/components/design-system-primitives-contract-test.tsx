@@ -7,6 +7,7 @@ import {
   CardThumbnail,
   colors,
   ListRow,
+  MAX_FONT_SIZE_MULTIPLIER,
   PriceText,
   QuantityStepper,
   radii,
@@ -47,6 +48,18 @@ describe('design-system primitive contracts', () => {
       }),
     );
     expect(screen.getByText('$42.00')).toBeTruthy();
+  });
+
+  it('caps Dynamic Type scaling on AppText and PriceText so large system fonts cannot blow up layouts', () => {
+    renderPrimitive(
+      <>
+        <AppText testID="app-text" variant="body">Capped text</AppText>
+        <PriceText amount={42} testID="price-text" variant="display" />
+      </>,
+    );
+
+    expect(screen.getByTestId('app-text').props.maxFontSizeMultiplier).toBe(MAX_FONT_SIZE_MULTIPLIER);
+    expect(screen.getByTestId('price-text').props.maxFontSizeMultiplier).toBe(MAX_FONT_SIZE_MULTIPLIER);
   });
 
   it('keeps Badge, SkeletonBlock, SheetSurface, and CardThumbnail on shared color/radius tokens', () => {

@@ -12,6 +12,7 @@ import {
   colors,
   fontFamilies,
   IconButton,
+  InventoryCardTile,
   ListPaginationFooter,
   PillButton,
   ScreenHeader,
@@ -270,6 +271,27 @@ export function DesignSystemCatalogScreen({
                 title="Import Review"
               />
             </SurfaceCard>
+
+            {/* Card-grid tile (Figma 2489:6459): price row = 14 Bold price
+                left, quantity (count + box icon) right; no day-change pill. */}
+            <View style={styles.tileRow}>
+              <View style={styles.tileSlot}>
+                <InventoryCardTile
+                  cardNumber="193/162"
+                  conditionLabel="Near Mint"
+                  imageUrl={null}
+                  isFavorite={false}
+                  kind="raw"
+                  name="Charizard ex"
+                  onPress={() => {}}
+                  priceLabel="$450.12"
+                  quantity={4}
+                  setName="Perfect Order"
+                  testID="catalog-inventory-card-tile"
+                  variantName="Holofoil"
+                />
+              </View>
+            </View>
           </View>
         </SurfaceCard>
       </ScrollView>
@@ -313,6 +335,12 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
+  },
+  tileRow: {
+    flexDirection: 'row',
+  },
+  tileSlot: {
+    width: '55%',
   },
   sampleStack: {
     gap: 16,

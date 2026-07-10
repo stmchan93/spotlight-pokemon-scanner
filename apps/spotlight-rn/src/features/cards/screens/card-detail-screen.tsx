@@ -39,6 +39,7 @@ import {
 } from '@/features/cards/components/grade-condition-sheet';
 import { OwnedEntryEditFields } from '@/features/cards/components/owned-entry-edit-fields';
 import { CardConfigurator } from '@/features/cards/components/card-configurator';
+import { InventoryDropdown } from '@/features/cards/components/inventory-dropdown';
 import { CardDetailHero } from '@/features/cards/components/card-detail-hero';
 import { CardPopulationReport } from '@/features/cards/components/card-population-report';
 import { CardWishlistCounter } from '@/features/cards/components/card-wishlist-counter';
@@ -55,6 +56,7 @@ import {
   cardDetailPreviewFromCatalogResult,
   cardDetailPreviewFromInventoryEntry,
   getCardDetailPreview,
+  saveCardDetailPreviewFromInventoryEntry,
 } from '@/features/cards/card-detail-preview-session';
 import {
   defaultLaneFromPreview,
@@ -427,6 +429,19 @@ export function CardDetailScreen({
   }, [entryId, selectedEntry]);
 
   const ownedSlabContext = selectedEntry?.slabContext ?? scanReviewSession?.slabContext ?? null;
+
+  // Every owned entry of the DISPLAYED card, for the Inventory dropdown (Figma
+  // 2481:2067) — same pool preference as selectedEntry: authoritative detail
+  // entries, else the inventory cache, else the navigation preview's single one.
+  const inventoryEntries = useMemo<InventoryCardEntry[]>(() => {
+    if (detail?.ownedEntries.length) {
+      return detail.ownedEntries;
+    }
+    if (cachedOwnedEntries.length) {
+      return cachedOwnedEntries;
+    }
+    return detailPreview?.ownedEntry ? [detailPreview.ownedEntry] : [];
+  }, [cachedOwnedEntries, detail?.ownedEntries, detailPreview?.ownedEntry]);
 
   // Variant options for the configurator: prefer catalog variantOptions, fall
   // back to the market-history available variants.
@@ -1157,6 +1172,49 @@ export function CardDetailScreen({
       });
   }, [isDeletePending, onBack, refreshData, selectedEntry, spotlightRepository]);
 
+  // Inventory dropdown row tap: re-open the PDP pinned to THAT entry (the same
+  // prefetch + entryId push the Collection's Edit action uses), so its inline
+  // edit fields and delete affordance target the tapped entry. The entry this
+  // screen already has in context is a no-op — the page is its edit surface.
+  const handlePressInventoryEntry = useCallback(
+    (entry: InventoryCardEntry) => {
+      if (entry.id === selectedEntry?.id) {
+        return;
+      }
+      const preview = cardDetailPreviewFromInventoryEntry(entry);
+      prefetchCardDetail(
+        spotlightRepository,
+        entry.cardId,
+        defaultLaneFromPreview(preview),
+        preview.largeImageUrl ?? preview.imageUrl,
+      );
+      router.push({
+        pathname: '/cards/[cardId]',
+        params: {
+          cardId: entry.cardId,
+          entryId: entry.id,
+          previewId: saveCardDetailPreviewFromInventoryEntry(entry),
+        },
+      });
+    },
+    [router, selectedEntry?.id, spotlightRepository],
+  );
+
+  // Inventory dropdown MoreHoriz: per-entry actions reuse what this screen
+  // already has — the selected entry's actions live here (inline edit + the
+  // confirm-delete sheet the header trash opens), so its menu opens that sheet;
+  // any OTHER entry first re-pins the PDP to it via the row-tap navigation.
+  const handlePressInventoryEntryMenu = useCallback(
+    (entry: InventoryCardEntry) => {
+      if (entry.id === selectedEntry?.id) {
+        setConfirmDeleteOpen(true);
+        return;
+      }
+      handlePressInventoryEntry(entry);
+    },
+    [handlePressInventoryEntry, selectedEntry?.id],
+  );
+
   // --- Owned-card inline edit mode (Figma 1874:21729) ---------------------
   // Page is in edit mode whenever it shows an owned entry. The Variant / Grader
   // / Grade / Condition reuse the page configurator state (already seeded from
@@ -1578,6 +1636,18 @@ export function CardDetailScreen({
           <CardWishlistCounter count={likeCount} testID="detail-wishlist-counter" />
         </View>
 
+        {/* Owned entries of this card, between identity and options (Figma
+            2489:7581 vertical order). Catalog-only cards omit it. */}
+        {inventoryEntries.length > 0 ? (
+          <InventoryDropdown
+            entries={inventoryEntries}
+            language={selectedLanguageChip}
+            onPressEntry={handlePressInventoryEntry}
+            onPressEntryMenu={handlePressInventoryEntryMenu}
+            testID="detail-inventory"
+          />
+        ) : null}
+
         <View
           onLayout={(event) => {
             const { y, height } = event.nativeEvent.layout;
@@ -1667,12 +1737,6 @@ export function CardDetailScreen({
           visible={editGradePickerOpen}
         />
 
-        <CardPopulationReport
-          grader={selectedGrader}
-          population={detail?.population}
-          testID="detail-population-report"
-        />
-
         {priceTrends && priceTrends.rows.length > 0 ? (
           <View style={styles.trendBlock}>
             <CardPriceTrendList
@@ -1687,6 +1751,14 @@ export function CardDetailScreen({
             <CardPriceTrendSkeleton testID="detail-price-trends-skeleton" />
           </View>
         ) : null}
+
+        {/* Pop report sits BELOW Price Trend (designer annotation, Figma
+            2489:7581); it renders nothing on the raw lane / without population. */}
+        <CardPopulationReport
+          grader={selectedGrader}
+          population={detail?.population}
+          testID="detail-population-report"
+        />
 
         {detail?.cardText ? (
           <CardProductDetails cardText={detail.cardText} testID="detail-product-details" />

@@ -18,8 +18,6 @@ function renderTile(overrides: RenderOptions = {}) {
     conditionLabel: 'Near Mint',
     quantity: 2,
     priceLabel: '$450.12',
-    dayChangeLabel: '$3.99',
-    dayChangeDirection: 'up',
     isFavorite: false,
     onPress: jest.fn(),
     testID: 'tile',
@@ -36,7 +34,7 @@ function renderTile(overrides: RenderOptions = {}) {
 }
 
 describe('InventoryCardTile', () => {
-  it('renders the name, number · set, variant, condition, quantity chip, and price', () => {
+  it('renders the name, number · set, variant, condition, quantity, and price', () => {
     renderTile({
       kind: 'raw',
       variantName: 'Holofoil',
@@ -50,12 +48,18 @@ describe('InventoryCardTile', () => {
     // Variant renders ABOVE the condition line.
     expect(screen.getByText('Holofoil')).toBeTruthy();
     expect(screen.getByText('Lightly Played')).toBeTruthy();
-    // Quantity is the corner chip (box icon + count, Figma 2368:43362) — the
-    // old "Qty: N" text line is gone.
+    // Quantity renders at the right edge of the price row (count + box icon,
+    // Figma 2489:6459) — the old top-left corner chip is gone.
     expect(screen.getByTestId('tile-quantity')).toBeTruthy();
     expect(screen.getByText('4')).toBeTruthy();
     expect(screen.queryByText('Qty: 4')).toBeNull();
     expect(screen.getByText('$12.50')).toBeTruthy();
+  });
+
+  it('hides the quantity readout when showQuantity is false', () => {
+    renderTile({ showQuantity: false });
+
+    expect(screen.queryByTestId('tile-quantity')).toBeNull();
   });
 
   it('strips a leading # from cardNumber so the metadata line has no hash', () => {
@@ -104,30 +108,12 @@ describe('InventoryCardTile', () => {
     expect(screen.queryByTestId('tile-star-outlined')).toBeNull();
   });
 
-  it('hides the day-change pill when dayChangeLabel is null', () => {
-    renderTile({ dayChangeLabel: null, dayChangeDirection: null });
+  it('renders no day-change delta pill (removed in Figma 2489:6459)', () => {
+    renderTile();
 
     expect(screen.queryByTestId('tile-delta')).toBeNull();
-    expect(screen.queryByText('$3.99')).toBeNull();
-  });
-
-  it('renders an up arrow in the day-change pill when direction is up', () => {
-    renderTile({ dayChangeLabel: '$3.99', dayChangeDirection: 'up' });
-
-    expect(screen.getByTestId('tile-delta')).toBeTruthy();
-    expect(screen.getByTestId('tile-delta-arrow-up')).toBeTruthy();
-    expect(screen.queryByTestId('tile-delta-arrow-down')).toBeNull();
-    expect(screen.getByText('$3.99')).toBeTruthy();
-    expect(screen.queryByText('+ $3.99')).toBeNull();
-  });
-
-  it('renders a down arrow in the day-change pill when direction is down', () => {
-    renderTile({ dayChangeLabel: '$3.99', dayChangeDirection: 'down' });
-
-    expect(screen.getByTestId('tile-delta')).toBeTruthy();
-    expect(screen.getByTestId('tile-delta-arrow-down')).toBeTruthy();
     expect(screen.queryByTestId('tile-delta-arrow-up')).toBeNull();
-    expect(screen.queryByText('- $3.99')).toBeNull();
+    expect(screen.queryByTestId('tile-delta-arrow-down')).toBeNull();
   });
 
   it('shows the selection check-circle badge (not a purple overlay) in selectable mode', () => {

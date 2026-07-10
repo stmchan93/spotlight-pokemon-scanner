@@ -18,8 +18,6 @@ function renderTile(overrides: RenderOptions = {}) {
     conditionLabel: 'Near Mint',
     quantity: 1,
     priceLabel: '$450.12',
-    dayChangeLabel: null,
-    dayChangeDirection: null,
     isFavorite: false,
     onPress: jest.fn(),
     testID: 'tile',

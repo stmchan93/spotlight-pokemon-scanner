@@ -1,10 +1,10 @@
 import { Linking, StyleSheet, View } from 'react-native';
 
-import { InventoryCardTile, useSpotlightTheme } from '@spotlight/design-system';
+import { InventoryCardTile, borderWidths, useSpotlightTheme } from '@spotlight/design-system';
 import type { InventoryCardEntry } from '@spotlight/api-client';
 
 import { getCardImageUrl } from '@/lib/card-images';
-import { formatCurrency, formatOptionalCurrency } from '@/features/portfolio/components/portfolio-formatting';
+import { formatOptionalCurrency } from '@/features/portfolio/components/portfolio-formatting';
 
 type CollectionMasonryGridProps = {
   entries: InventoryCardEntry[];
@@ -40,11 +40,11 @@ export function chunkCollectionGridRows(entries: InventoryCardEntry[]): Inventor
 }
 
 /**
- * Collection "card view" grid (Figma node 800-7368): two fixed columns of
+ * Collection "card view" grid (Figma node 2489:6459): two fixed columns of
  * plain tiles. The grid is full-bleed — no horizontal page gutter and no
- * inter-cell gaps — so each row's gray100 top/bottom hairlines run edge to
- * edge across the whole app width. Tiles render "plain" (no per-card shell
- * border/fill); the row draws the dividers.
+ * inter-cell gaps — so each row's gray400 0.5pt rules run edge to edge across
+ * the whole app width. Tiles render "plain" (no per-card shell border/fill);
+ * the row draws the dividers.
  */
 export function CollectionMasonryGrid({
   entries,
@@ -136,8 +136,10 @@ export function CollectionGridRow({
     <View
       style={[
         styles.row,
-        { borderBottomColor: theme.colors.gray100 },
-        isFirstRow ? { borderTopColor: theme.colors.gray100, borderTopWidth: 1 } : null,
+        { borderBottomColor: theme.colors.gray400 },
+        isFirstRow
+          ? { borderTopColor: theme.colors.gray400, borderTopWidth: borderWidths.rule }
+          : null,
       ]}
       testID={`${testID}-row-${rowIndex}`}
     >
@@ -150,7 +152,7 @@ export function CollectionGridRow({
               styles.cell,
               // Middle vertical divider between the two columns.
               colIndex === 1 && entry
-                ? { borderLeftColor: theme.colors.gray100, borderLeftWidth: 1 }
+                ? { borderLeftColor: theme.colors.gray400, borderLeftWidth: borderWidths.rule }
                 : null,
             ]}
           >
@@ -202,7 +204,7 @@ export function CollectionGridSingleRow({
 
   return (
     <View style={styles.singleRow}>
-      <View style={[styles.singleCell, { borderColor: theme.colors.gray100 }]}>
+      <View style={[styles.singleCell, { borderColor: theme.colors.gray400 }]}>
         <CollectionTileSlot
           entry={entry}
           delayLongPress={delayLongPress}
@@ -237,12 +239,6 @@ function CollectionTileSlot({
   testIDPrefix,
 }: CollectionTileSlotProps) {
   const tileKind = entry.kind === 'graded' ? 'slab' : 'raw';
-  const dayDelta = entry.dayChangeAmount ?? null;
-  const hasDelta = dayDelta != null && dayDelta !== 0;
-  const dayChangeLabel = hasDelta
-    ? formatCurrency(Math.abs(dayDelta), entry.currencyCode)
-    : null;
-  const dayChangeDirection = hasDelta ? (dayDelta > 0 ? 'up' : 'down') : null;
 
   const liveOnEbay = isLiveOnEbay(entry);
   const handleOpenListing = liveOnEbay
@@ -262,14 +258,15 @@ function CollectionTileSlot({
       setName={entry.setName ?? ''}
       cardNumber={entry.cardNumber ?? null}
       kind={tileKind}
-      variantName={tileKind === 'raw' ? entry.variantName ?? null : entry.slabContext?.variantName ?? null}
+      // Collection tiles intentionally omit the print variant (e.g. "Holofoil" /
+      // "Reverse Holofoil") — it clutters the label and the condition/grade line
+      // already carries the meaningful distinction.
+      variantName={null}
       conditionLabel={tileKind === 'raw' ? entry.conditionLabel ?? null : null}
       graderLabel={tileKind === 'slab' ? entry.slabContext?.grader ?? null : null}
       gradeLabel={tileKind === 'slab' ? entry.slabContext?.grade ?? null : null}
       quantity={entry.quantity}
       priceLabel={entry.hasMarketPrice ? formatOptionalCurrency(entry.marketPrice, entry.currencyCode) : null}
-      dayChangeLabel={dayChangeLabel}
-      dayChangeDirection={dayChangeDirection}
       isFavorite={entry.isFavorite === true}
       showFavorite={false}
       selectable={selectable}
@@ -286,13 +283,13 @@ function CollectionTileSlot({
 
 const styles = StyleSheet.create({
   grid: {
-    // Full-bleed: no horizontal gutter and no row gap, so each row's hairlines
+    // Full-bleed: no horizontal gutter and no row gap, so each row's rules
     // run all the way to the app edges and stack into a continuous ruled grid.
     paddingVertical: 16,
   },
   row: {
     alignItems: 'stretch',
-    borderBottomWidth: 1,
+    borderBottomWidth: borderWidths.rule,
     flexDirection: 'row',
   },
   cell: {
@@ -302,9 +299,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   singleCell: {
-    // Box the lone tile at one column's width with a full hairline border so
-    // it reads as a contained square, not a stretched full-width row.
-    borderWidth: 1,
+    // Box the lone tile at one column's width with a full rule border so it
+    // reads as a contained square, not a stretched full-width row.
+    borderWidth: borderWidths.rule,
     width: '50%',
   },
 });

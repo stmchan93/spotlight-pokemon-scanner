@@ -28,10 +28,7 @@ import {
 } from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
-import {
-  formatOptionalCurrency,
-  formatSignedCurrency,
-} from '@/features/portfolio/components/portfolio-formatting';
+import { formatOptionalCurrency } from '@/features/portfolio/components/portfolio-formatting';
 import { makeInventorySmokeTestID } from '@/features/inventory/inventory-smoke-selectors';
 import { resolveConditionDisplayLabel } from '@/lib/condition-display';
 import { getCardImageUrl } from '@/lib/card-images';
@@ -90,28 +87,6 @@ function priceLabelFor(entry: InventoryCardEntry) {
     return null;
   }
   return formatOptionalCurrency(entry.marketPrice, entry.currencyCode);
-}
-
-function dayChangeLabelFor(entry: InventoryCardEntry) {
-  const amount = entry.dayChangeAmount;
-  if (amount == null || amount === 0) {
-    return null;
-  }
-  // The tile renders its own ↑ / ↓ arrow based on `dayChangeDirection`, so
-  // we strip the leading sign and pass an unsigned currency string here.
-  const formatted = formatSignedCurrency(amount, entry.currencyCode);
-  if (formatted.startsWith('+') || formatted.startsWith('-')) {
-    return formatted.slice(1);
-  }
-  return formatted;
-}
-
-function dayChangeDirectionFor(entry: InventoryCardEntry) {
-  const amount = entry.dayChangeAmount;
-  if (amount == null || amount === 0) {
-    return null;
-  }
-  return amount > 0 ? 'up' : 'down';
 }
 
 function SortRow({
@@ -336,8 +311,6 @@ export function InventoryBrowserScreen({
                       <InventoryCardTile
                         cardNumber={entry.cardNumber ?? null}
                         conditionLabel={tileKind === 'raw' ? rawConditionLabelFor(entry) : null}
-                        dayChangeDirection={dayChangeDirectionFor(entry)}
-                        dayChangeLabel={dayChangeLabelFor(entry)}
                         gradeLabel={tileKind === 'slab' ? entry.slabContext?.grade ?? null : null}
                         graderLabel={tileKind === 'slab' ? entry.slabContext?.grader ?? null : null}
                         imageUrl={getCardImageUrl(entry, 'small')}

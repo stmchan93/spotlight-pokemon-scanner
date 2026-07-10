@@ -37,12 +37,12 @@ export function CollectionAddFab({
       onPress={handlePress}
       style={({ pressed }) => [
         styles.fab,
-        { backgroundColor: colors.brand, bottom },
+        { backgroundColor: colors.purple500, bottom },
         pressed ? styles.fabPressed : null,
       ]}
       testID={testID}
     >
-      <Plus color={colors.gray900} height={24} width={24} strokeWidth={2.4} />
+      <Plus color={colors.gray0} height={24} width={24} strokeWidth={1.5} />
     </Pressable>
   );
 }

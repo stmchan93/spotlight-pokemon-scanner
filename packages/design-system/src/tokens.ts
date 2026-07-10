@@ -146,6 +146,15 @@ export const radii = {
   pill: 999,
 } as const;
 
+export const borderWidths = {
+  // Figma specs hairline rules at 0.5pt (e.g. Collection grid, PDP price-trend
+  // dividers). Literal 0.5 — NOT StyleSheet.hairlineWidth, which is 1 physical
+  // pixel (≈0.33pt on 3x devices) and renders lighter than the spec.
+  rule: 0.5,
+  // Standard 1pt container stroke (inventory dropdown shell, pop-report cells).
+  containerRule: 1,
+} as const;
+
 export const layout = {
   pageGutter: 16,
   pageTopInset: 16,
@@ -180,6 +189,14 @@ export const shadows = {
 const numericFontVariant = {
   fontVariant: ['tabular-nums', 'lining-nums'] as TextStyle['fontVariant'],
 } as const;
+
+/**
+ * Ceiling on iOS/Android Dynamic Type scaling. Allows modest accessibility
+ * growth without letting large system fonts blow up our fixed-size layouts
+ * (absolute fontSize + baked lineHeight tokens). Applied globally at the app
+ * root and on the shared text primitives; nudge here to loosen/tighten.
+ */
+export const MAX_FONT_SIZE_MULTIPLIER = 1.2;
 
 export const textStyles = {
   display: {
@@ -363,6 +380,7 @@ export const spotlightTheme = {
   colors,
   spacing,
   radii,
+  borderWidths,
   layout,
   shadows,
   typography: textStyles,

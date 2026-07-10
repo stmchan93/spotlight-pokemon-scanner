@@ -401,8 +401,8 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
   const salesPointCounts = useMemo(() => {
     return buildSalesPointCounts(activeRange.sales, dashboard.recentSales);
   }, [activeRange.sales, dashboard.recentSales]);
-  const chartAccentColor = theme.colors.brand;
-  const chartFillColor = theme.colors.brand;
+  const chartAccentColor = theme.colors.purple500;
+  const chartFillColor = theme.colors.purple500;
 
   const yAxisMaxValue = useMemo(() => {
     return buildRoundedCurrencyTicks(series.map((point) => point.value));
@@ -879,7 +879,7 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
               onPress={() => onRangeChange(item.value as PortfolioHistoryRange)}
               style={({ pressed }) => [
                 isSelected ? styles.rangePillSelected : styles.rangePill,
-                isSelected ? { backgroundColor: theme.colors.brand } : null,
+                isSelected ? { backgroundColor: theme.colors.gray200 } : null,
                 pressed ? { opacity: 0.88 } : null,
               ]}
               testID={`range-${item.value}`}
@@ -887,7 +887,8 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
               <Text
                 style={[
                   styles.rangePillLabel,
-                  { color: isSelected ? theme.colors.gray0 : theme.colors.gray700 },
+                  isSelected ? styles.rangePillLabelSelected : null,
+                  { color: isSelected ? theme.colors.gray900 : theme.colors.gray700 },
                 ]}
               >
                 {item.label}
@@ -907,9 +908,12 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
           <>
             <Svg height={chartHeight} width="100%">
               <Defs>
+                {/* Figma 2489:6582 — more pronounced purple500 fill: stronger at
+                    the top (opacity 0.35) fading the PURPLE to transparent across
+                    the full fill height, so the tint carries down the whole area. */}
                 <LinearGradient id="portfolioFill" x1="0" x2="0" y1="0" y2="1">
-                  <Stop offset="0" stopColor={chartFillColor} stopOpacity="0.28" />
-                  <Stop offset="1" stopColor={chartFillColor} stopOpacity="0.02" />
+                  <Stop offset="0" stopColor={chartFillColor} stopOpacity="0.35" />
+                  <Stop offset="1" stopColor={chartFillColor} stopOpacity="0" />
                 </LinearGradient>
                 <Pattern
                   height={CHART_GRID_CELL}
@@ -1106,7 +1110,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 8,
     justifyContent: 'center',
-    paddingHorizontal: 8,
+    paddingHorizontal: 12,
     paddingVertical: 4,
   },
   rangePillLabel: {
@@ -1114,6 +1118,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16.8,
     textAlign: 'center',
+  },
+  rangePillLabelSelected: {
+    fontFamily: fontFamilies.bodySemiBold,
   },
   skeletonBar: {
     borderRadius: 6,

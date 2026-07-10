@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, ArrowUpRightSquare, BoxIso, Star, StarSolid } from 'iconoir-react-native';
+import { ArrowUpRightSquare, BoxIso, Star, StarSolid } from 'iconoir-react-native';
 import { useState } from 'react';
 import {
   Image,
@@ -19,8 +19,6 @@ import { SelectionCheckCircle } from './selection-check-circle';
 
 export type InventoryCardTileKind = 'raw' | 'slab';
 
-export type InventoryCardTileDirection = 'up' | 'down';
-
 export type InventoryCardTileProps = {
   imageUrl: string | null;
   name: string;
@@ -34,8 +32,6 @@ export type InventoryCardTileProps = {
   gradeLabel?: string | null;
   quantity?: number;
   priceLabel: string | null;
-  dayChangeLabel: string | null;
-  dayChangeDirection?: InventoryCardTileDirection | null;
   isFavorite: boolean;
   /**
    * When true (default) the favorite star badge renders in the tile's
@@ -43,9 +39,10 @@ export type InventoryCardTileProps = {
    */
   showFavorite?: boolean;
   /**
-   * When true (default) the quantity chip renders pinned at the tile's
-   * top-left corner. Set false for surfaces with no owned-quantity concept
-   * (Wishlist card view), where `quantity` may then be omitted.
+   * When true (default) the quantity renders at the right edge of the price
+   * row (count + box icon, Figma 2489:6459). Set false for surfaces with no
+   * owned-quantity concept (Wishlist card view), where `quantity` may then be
+   * omitted.
    */
   showQuantity?: boolean;
   selected?: boolean;
@@ -59,9 +56,9 @@ export type InventoryCardTileProps = {
    * When true (default) the tile is a self-contained card: gray50 fill, a
    * gray100 hairline border, and rounded shell corners. When false the tile is
    * "plain" — no fill, no shell border, no shell rounding — for ruled-grid
-   * layouts where the surrounding container draws full-bleed top/bottom
-   * dividers (Collection card view, Figma node 800-7368). The card art keeps
-   * its rounded corners in either mode.
+   * layouts where the surrounding container draws the gray400 0.5pt rules
+   * (Collection card view, Figma node 2489:6459). The card art keeps its
+   * rounded corners in either mode.
    */
   bordered?: boolean;
   onPress: () => void;
@@ -135,8 +132,6 @@ export function InventoryCardTile({
   gradeLabel,
   quantity = 1,
   priceLabel,
-  dayChangeLabel,
-  dayChangeDirection = null,
   isFavorite,
   showFavorite = true,
   showQuantity = true,
@@ -171,13 +166,6 @@ export function InventoryCardTile({
 
   const setLine = buildSetLine(setName, cardNumber);
   const qualityLine = buildQualityLine(kind, conditionLabel, graderLabel, gradeLabel);
-  const showDelta =
-    dayChangeDirection != null &&
-    dayChangeLabel !== null &&
-    dayChangeLabel.trim().length > 0;
-  const isDown = dayChangeDirection === 'down';
-  const deltaBackground = isDown ? theme.colors.deltaDownSurface : theme.colors.deltaUpSurface;
-  const deltaForeground = isDown ? theme.colors.deltaDownText : theme.colors.deltaUpText;
 
   return (
     <Pressable
@@ -278,42 +266,17 @@ export function InventoryCardTile({
             >
               {priceLabel ?? '—'}
             </AppText>
-            {showDelta ? (
+            {/* Quantity sits at the price row's right edge (Figma 2489:6459):
+                count + box icon, replacing the old top-left overlay chip. */}
+            {showQuantity ? (
               <View
-                style={[
-                  styles.deltaPill,
-                  {
-                    backgroundColor: deltaBackground,
-                    borderRadius: 4,
-                  },
-                ]}
-                testID={testID ? `${testID}-delta` : undefined}
+                style={styles.quantityGroup}
+                testID={testID ? `${testID}-quantity` : undefined}
               >
-                {isDown ? (
-                  <ArrowDown
-                    color={deltaForeground}
-                    height={12}
-                    testID={
-                      testID ? `${testID}-delta-arrow-down` : undefined
-                    }
-                    width={12}
-                  />
-                ) : (
-                  <ArrowUp
-                    color={deltaForeground}
-                    height={12}
-                    testID={
-                      testID ? `${testID}-delta-arrow-up` : undefined
-                    }
-                    width={12}
-                  />
-                )}
-                <AppText
-                  style={[styles.deltaLabel, { color: deltaForeground }]}
-                  variant="label"
-                >
-                  {dayChangeLabel}
+                <AppText color="gray700" variant="label">
+                  {String(quantity)}
                 </AppText>
+                <BoxIso color={theme.colors.gray700} height={16} width={16} />
               </View>
             ) : null}
           </View>
@@ -396,22 +359,6 @@ export function InventoryCardTile({
         </View>
       ) : null}
 
-      {/* Quantity chip (Figma 2368:43030): pinned at the tile's TRUE top-left
-          corner. Padding lives on `cardContent`, so this direct child at
-          top:0/left:0 reaches the actual corner (not the padding box). Outer
-          corner square, inner (bottom-right) corner rounded 4 — floats over the
-          content and never shifts with the card art. */}
-      {showQuantity ? (
-        <View
-          style={[styles.quantityChip, { backgroundColor: theme.colors.gray100 }]}
-          testID={testID ? `${testID}-quantity` : undefined}
-        >
-          <BoxIso color={theme.colors.gray700} height={12} width={12} />
-          <AppText color="gray700" variant="overline">
-            {String(quantity)}
-          </AppText>
-        </View>
-      ) : null}
     </Pressable>
   );
 }
@@ -422,26 +369,16 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     flex: 1,
     flexDirection: 'column',
-    gap: 16,
+    gap: 12,
     // Padding lives here (not on the Pressable) so the Pressable's absolute
-    // children — the quantity chip / badges — pin to the tile's TRUE corners.
+    // children — the star/selection badges — pin to the tile's TRUE corners.
     padding: 16,
   },
   copyStack: {
     alignItems: 'flex-start',
     alignSelf: 'stretch',
-    gap: 4,
+    gap: 2,
     width: '100%',
-  },
-  deltaLabel: {
-    // color overridden inline; spacing handled via pill padding
-  },
-  deltaPill: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
   },
   image: {
     height: '100%',
@@ -463,19 +400,10 @@ const styles = StyleSheet.create({
     position: 'relative',
     width: '100%',
   },
-  quantityChip: {
+  quantityGroup: {
     alignItems: 'center',
-    // Pinned at the CELL's top-left (Figma 2368:43030: left 0 / top 0, 20px
-    // tall); outer corner flush square, inner bottom-right corner rounded.
-    borderBottomRightRadius: 4,
     flexDirection: 'row',
     gap: 2,
-    height: 20,
-    left: 0,
-    paddingHorizontal: 8,
-    position: 'absolute',
-    top: 0,
-    zIndex: 1,
   },
   imagePlaceholder: {
     alignItems: 'center',
@@ -484,7 +412,7 @@ const styles = StyleSheet.create({
   },
   metaStack: {
     alignItems: 'flex-start',
-    gap: 4,
+    gap: 2,
     width: '100%',
   },
   pressable: {
@@ -496,16 +424,19 @@ const styles = StyleSheet.create({
   },
   price: {
     flexShrink: 1,
-    // Figma 1263:3390 — Bold 13/140% (priceCaption variant supplies the Bold
-    // family; this bumps the size from the 12px catalog default to 13).
-    fontSize: 13,
-    lineHeight: 18.2,
+    // Figma 2489:6459 — Bold 14/150% (priceCaption variant supplies the Bold
+    // family; this bumps the size from the 12px catalog default to 14).
+    fontSize: 14,
+    lineHeight: 21,
   },
   priceRow: {
     alignItems: 'center',
+    alignSelf: 'stretch',
     flexDirection: 'row',
     gap: 8,
+    justifyContent: 'space-between',
     marginTop: 4,
+    width: '100%',
   },
   starBadge: {
     // Padding moved off the Pressable, so bake it into the offset (16 + 8) to

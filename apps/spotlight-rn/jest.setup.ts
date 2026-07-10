@@ -92,6 +92,7 @@ jest.mock('iconoir-react-native', () => {
     ShareIos: make('share-ios'),
     Suitcase: make('suitcase'),
     Trash: make('trash'),
+    Triangle: make('triangle'),
     Upload: make('upload'),
   };
 });

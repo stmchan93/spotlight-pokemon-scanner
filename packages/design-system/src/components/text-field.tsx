@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 
 import { useSpotlightTheme } from '../theme';
+import { MAX_FONT_SIZE_MULTIPLIER } from '../tokens';
 
 type TextFieldProps = Omit<TextInputProps, 'style'> & {
   containerStyle?: StyleProp<ViewStyle>;
@@ -36,7 +37,9 @@ export function TextField({
   return (
     <View style={styles.fieldWrap}>
       {label ? (
-        <Text style={[theme.typography.micro, styles.label]}>{label}</Text>
+        <Text maxFontSizeMultiplier={MAX_FONT_SIZE_MULTIPLIER} style={[theme.typography.micro, styles.label]}>
+          {label}
+        </Text>
       ) : null}
       <View
         style={[
@@ -50,6 +53,7 @@ export function TextField({
       >
         {leading}
         <TextInput
+          maxFontSizeMultiplier={MAX_FONT_SIZE_MULTIPLIER}
           placeholderTextColor={placeholderTextColor ?? theme.colors.textSecondary}
           style={[theme.typography.body, styles.input, inputStyle]}
           {...inputProps}
@@ -57,7 +61,9 @@ export function TextField({
         {trailing}
       </View>
       {helperText ? (
-        <Text style={[theme.typography.caption, styles.helperText]}>{helperText}</Text>
+        <Text maxFontSizeMultiplier={MAX_FONT_SIZE_MULTIPLIER} style={[theme.typography.caption, styles.helperText]}>
+          {helperText}
+        </Text>
       ) : null}
     </View>
   );
