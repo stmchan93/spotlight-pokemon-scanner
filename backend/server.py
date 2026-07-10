@@ -49,6 +49,7 @@ from catalog_tools import (
     price_history_cell_portfolio_rows_by_card_date,
     resolve_graded_entry_from_cells,
     resolve_raw_summary_from_cells,
+    _graded_cell_is_corrupt,
     DEFAULT_RAW_CONDITION,
     MATCHER_VERSION,
     RAW_CONDITION_PRIORITY,
@@ -6971,6 +6972,91 @@ class SpotlightScanService:
 
         ranked_entries.sort(key=lambda item: item[0], reverse=True)
         return ranked_entries[0][1]
+
+    @staticmethod
+    def _resolve_best_graded_cell(
+        cells: list[Any],
+        *,
+        grader: str | None,
+        grade: str | None,
+        preferred_variant: str | None = None,
+        variant_hints: dict[str, Any] | None = None,
+    ) -> Any | None:
+        """Cells twin of ``_resolve_best_graded_context_entry`` — the RANKED
+        graded resolver the current-price display path uses. Mirrors its three
+        tiers exactly so a cells-backed pricing summary picks the same variant
+        the JSON path picks (the June cutover attempts failed precisely because
+        the cells side lacked this and fell back to the simple picker):
+
+        1. ``preferred_variant`` short-circuit via the simple resolver (which,
+           via the shared ``_pick_graded_item``, returns the exact-variant group
+           when present and the base-printing default otherwise — the same
+           quirk the JSON tier has; parity means replicating it).
+        2. No ``variant_hints`` → the simple resolver's default pick.
+        3. With hints → the same 5-factor ranked sort as the JSON tier:
+           (hint match, hint score, has market, plain grade, has currency),
+           evaluated on cell fields. ``_slab_variant_matches`` /
+           ``_slab_variant_hint_score`` normalize internally, so the camelCase
+           ``variant_key`` spelling scores identically to the JSON label.
+
+        The cells-only corrupt-pull guard stays on tiers 1–2 (inherited from
+        ``resolve_graded_entry_from_cells``); tier 3's ranked winner keeps it
+        too, applied after ranking — a deliberate improvement over JSON (which
+        will happily surface a garbage pull). The parity harness reports
+        guard-trips separately from variant mismatches."""
+        if preferred_variant:
+            exact_cell = resolve_graded_entry_from_cells(
+                cells,
+                grader=grader,
+                grade=grade,
+                variant=preferred_variant,
+            )
+            if exact_cell is not None:
+                return exact_cell
+
+        if not variant_hints:
+            return resolve_graded_entry_from_cells(
+                cells,
+                grader=grader,
+                grade=grade,
+                variant=None,
+            )
+
+        grader_key = str(grader or "").strip().upper()
+        grade_key = str(grade or "").strip().upper()
+        if not grader_key or not grade_key:
+            return None
+        matches = [
+            c
+            for c in cells
+            if str(_cell_field(c, "lane") or "") == "graded"
+            and str(_cell_field(c, "grader") or "").strip().upper() == grader_key
+            and str(_cell_field(c, "grade") or "").strip().upper() == grade_key
+        ]
+
+        ranked_cells: list[tuple[tuple[int, int, int, int, int], Any]] = []
+        for cell in matches:
+            cell_variant = str(_cell_field(cell, "variant_key") or "").strip() or None
+            hint_match = 1 if SpotlightScanService._slab_variant_matches(cell_variant, variant_hints=variant_hints) else 0
+            hint_score = SpotlightScanService._slab_variant_hint_score(cell_variant, variant_hints=variant_hints)
+            has_market = 1 if isinstance(_cell_field(cell, "market"), (int, float)) else 0
+            plain_grade = 1 if not any(bool(_cell_field(cell, flag)) for flag in ("is_perfect", "is_signed", "is_error")) else 0
+            has_currency = 1 if str(_cell_field(cell, "currency_code") or "").strip() else 0
+            ranked_cells.append(((hint_match, hint_score, has_market, plain_grade, has_currency), cell))
+
+        if not ranked_cells:
+            return resolve_graded_entry_from_cells(
+                cells,
+                grader=grader,
+                grade=grade,
+                variant=None,
+            )
+
+        ranked_cells.sort(key=lambda item: item[0], reverse=True)
+        chosen = ranked_cells[0][1]
+        if _graded_cell_is_corrupt(chosen, cells, grade_key=grade_key, grader_key=grader_key):
+            return None
+        return chosen
 
     @staticmethod
     def _inferred_slab_variant_hints(
