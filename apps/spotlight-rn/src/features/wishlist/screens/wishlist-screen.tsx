@@ -615,11 +615,10 @@ function WishlistListRow({
       currencyCode={entry.currencyCode ?? 'USD'}
       firstInSection={firstInSection}
       gradeLabel={gradeLabelForFavorite(entry)}
-      // Branded slab line — keyed by THIS entry's grader; raw favorites keep
-      // the condition text from gradeLabel.
+      // Slab-case frame on the thumbnail — keyed by THIS entry's grader; the
+      // text line stays the plain fused label.
       grader={entry.slabContext?.grader ?? null}
       grade={entry.slabContext?.grade ?? null}
-      gradeSuffix={entry.slabContext?.variantName ?? null}
       imageUrl={entry.smallImageUrl ?? entry.imageUrl ?? null}
       marketPrice={entry.marketPrice ?? null}
       name={entry.name}

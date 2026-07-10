@@ -3,8 +3,8 @@ import { Image, Pressable, StyleSheet, View } from 'react-native';
 
 import { useSpotlightTheme } from '../theme';
 import { AppText } from './app-text';
-import { GraderWordmark, hasGraderWordmark, psaGradeDescriptor } from './grader-wordmark';
 import { SelectionCheckCircle } from './selection-check-circle';
+import { SlabFrame } from './slab-frame';
 
 export type CardListRowProps = {
   imageUrl: string | null;
@@ -13,16 +13,13 @@ export type CardListRowProps = {
   setName?: string | null;
   gradeLabel?: string | null;
   /**
-   * Slab identity for the branded grade line (Collectr-style: the grader's
-   * OWN mark + grade, e.g. `[PSA] 10 (GEM-MT)`). When `grader` + `grade` are
-   * set they take precedence over `gradeLabel`; the descriptor is PSA-only.
-   * Raw cards keep passing their condition text via `gradeLabel`.
+   * Slab identity for the THUMBNAIL's slab-case frame (Figma 2609:6812 — the
+   * card art sits inside its grading slab with the grader's label band on
+   * top). Keyed by THIS entry's grader. The grade TEXT line stays `gradeLabel`
+   * ("PSA 10", plain gray) — the frame only affects the image.
    */
   grader?: string | null;
   grade?: string | null;
-  /** Trailing text after the branded grade, e.g. the print variant
-   * (`[PSA] 10 (GEM-MT) · Holofoil`). Ignored unless the branded line shows. */
-  gradeSuffix?: string | null;
   marketPrice: number | null;
   currencyCode?: string;
   trendChangeAmount?: number | null;
@@ -93,7 +90,6 @@ export function CardListRow({
   gradeLabel,
   grader,
   grade,
-  gradeSuffix,
   marketPrice,
   currencyCode = 'USD',
   trendChangeAmount,
@@ -118,23 +114,10 @@ export function CardListRow({
   };
 
   const metaLine = buildMetaLine(cardNumber, setName);
-  // Branded slab line: keyed strictly by THIS entry's grader (a CGC card never
-  // shows the PSA mark); the "(GEM-MT)" descriptor applies to PSA grades only.
+  const gradeText = (gradeLabel ?? '').trim();
+  // Slab-case frame on the thumbnail — keyed by THIS entry's grader.
   const graderText = (grader ?? '').trim();
-  const slabGradeText = (grade ?? '').trim();
-  const showBrandedGrade = graderText.length > 0 && slabGradeText.length > 0;
-  const descriptor =
-    showBrandedGrade && graderText.toLowerCase() === 'psa'
-      ? psaGradeDescriptor(slabGradeText)
-      : null;
-  const suffixText = (gradeSuffix ?? '').trim();
-  const brandedGradeLine = [
-    descriptor ? `${slabGradeText} (${descriptor})` : slabGradeText,
-    suffixText,
-  ]
-    .filter(Boolean)
-    .join(' · ');
-  const gradeText = showBrandedGrade ? '' : (gradeLabel ?? '').trim();
+  const showSlabFrame = showThumbnail && graderText.length > 0;
   const hasPrice = marketPrice !== null && Number.isFinite(marketPrice);
   const trend = typeof trendChangeAmount === 'number' && Number.isFinite(trendChangeAmount)
     ? trendChangeAmount
@@ -183,7 +166,35 @@ export function CardListRow({
         </View>
       ) : null}
 
-      {showThumbnail ? (
+      {showSlabFrame ? (
+        <View style={styles.thumbnail} testID={testID ? `${testID}-thumbnail` : undefined}>
+          <SlabFrame
+            grade={grade}
+            grader={graderText}
+            size="sm"
+            testID={testID ? `${testID}-slab-frame` : undefined}
+          >
+            {imageUrl ? (
+              <Image
+                accessibilityIgnoresInvertColors
+                resizeMode="cover"
+                source={{ uri: imageUrl }}
+                style={StyleSheet.absoluteFill}
+                testID={testID ? `${testID}-image` : undefined}
+              />
+            ) : (
+              <View
+                style={[styles.thumbnailPlaceholder, { backgroundColor: theme.colors.field }]}
+                testID={testID ? `${testID}-thumbnail-placeholder` : undefined}
+              >
+                <AppText color="textSecondary" variant="micro">
+                  CARD
+                </AppText>
+              </View>
+            )}
+          </SlabFrame>
+        </View>
+      ) : showThumbnail ? (
         <View
           style={[
             styles.thumbnail,
@@ -224,18 +235,7 @@ export function CardListRow({
             {metaLine}
           </AppText>
         ) : null}
-        {showBrandedGrade ? (
-          <View style={styles.gradeLine} testID={testID ? `${testID}-grader-line` : undefined}>
-            <GraderWordmark
-              grader={graderText}
-              size="md"
-              testID={testID ? `${testID}-grader-mark` : undefined}
-            />
-            <AppText color="gray600" numberOfLines={1} variant="label">
-              {brandedGradeLine}
-            </AppText>
-          </View>
-        ) : gradeText ? (
+        {gradeText ? (
           <AppText color="gray600" numberOfLines={1} variant="label">
             {gradeText}
           </AppText>
@@ -301,12 +301,6 @@ export function CardListRow({
 }
 
 const styles = StyleSheet.create({
-  // Branded slab line: [grader mark] grade text, baseline-ish centered.
-  gradeLine: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 6,
-  },
   middle: {
     flex: 1,
     gap: 4,

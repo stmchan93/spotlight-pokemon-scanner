@@ -271,12 +271,28 @@ Current API concepts:
 - optional action button
 - optional centered layout
 
+### SlabFrame
+
+File: `src/components/slab-frame.tsx`
+
+Use to render a graded card's image inside its slab case (Figma 2609:6812):
+a light plastic-look case border with the grader's label band on top (grader
+name / PSA descriptor left, grade right), the card art below.
+
+Current API concepts:
+
+- `grader` — the entry's own grader; drives the label accent (PSA red, CGC
+  blue, Beckett/BGS silver, TAG black; unknown → neutral gray, never breaks)
+- `grade` — shown bold on the label's right
+- `size`: `sm` (list-row 58×80 thumbnail) or `md` (grid tile)
+- children = the card image
+
 ### GraderWordmark
 
 File: `src/components/grader-wordmark.tsx`
 
-Use for the branded grader mark on slab rows/tiles (the Collectr-style meta
-line, e.g. `[PSA] 10 (GEM-MT)`).
+The branded grader logo mark (official PSA/CGC/Beckett/TAG assets). Currently
+used in the design-system catalog; available for meta lines/PDP if wanted.
 
 Current API concepts:
 
@@ -301,10 +317,9 @@ Current API concepts:
 - `imageUrl` (renders a "CARD" placeholder when null)
 - `name` (bold, single line)
 - `cardNumber` + `setName` (joined as `"{cardNumber} · {setName}"`)
-- optional `gradeLabel` (e.g. `"PSA 10"` or `"Near Mint"`)
-- optional `grader` + `grade` (+ `gradeSuffix`, e.g. the variant) — renders the
-  branded slab line `[GraderWordmark] {grade} ({PSA descriptor}) · {suffix}`
-  instead of `gradeLabel`; always the entry's own grader
+- optional `gradeLabel` (e.g. `"PSA 10"` or `"Near Mint"`) — always plain text
+- optional `grader` + `grade` — wraps the THUMBNAIL in the `SlabFrame` case
+  (the grade text line stays `gradeLabel`); always the entry's own grader
 - `marketPrice` + `currencyCode` (formatted via `Intl.NumberFormat`, defaults
   to USD; hidden when null)
 - optional `trendChangeAmount` (positive → green up arrow, negative → red down

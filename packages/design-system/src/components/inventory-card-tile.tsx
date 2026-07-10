@@ -15,8 +15,8 @@ const DEFAULT_CARD_ASPECT = 245 / 342;
 
 import { useSpotlightTheme } from '../theme';
 import { AppText } from './app-text';
-import { GraderWordmark, hasGraderWordmark } from './grader-wordmark';
 import { SelectionCheckCircle } from './selection-check-circle';
+import { SlabFrame } from './slab-frame';
 
 export type InventoryCardTileKind = 'raw' | 'slab';
 
@@ -167,12 +167,9 @@ export function InventoryCardTile({
 
   const setLine = buildSetLine(setName, cardNumber);
   const qualityLine = buildQualityLine(kind, conditionLabel, graderLabel, gradeLabel);
-  // Slabs with a recognized grader get the branded mark instead of the fused
-  // "PSA 10" text — always the entry's OWN grader.
-  const brandedGrader = kind === 'slab' && hasGraderWordmark(graderLabel)
-    ? (graderLabel ?? '').trim()
-    : null;
-  const brandedGrade = brandedGrader ? (gradeLabel ?? '').trim() : '';
+  // Slabs render their art inside the slab-case frame — keyed by THIS entry's
+  // own grader (unknown graders get the neutral label).
+  const brandedGrader = kind === 'slab' ? (graderLabel ?? '').trim() || null : null;
 
   return (
     <Pressable
@@ -198,29 +195,61 @@ export function InventoryCardTile({
           style={[styles.imageFrame, { borderRadius: artRadius }]}
           testID={testID ? `${testID}-image-frame` : undefined}
         >
-          <View
-            style={[styles.artWrap, { aspectRatio: imageAspect ?? DEFAULT_CARD_ASPECT }]}
-          >
-            {imageUrl ? (
-              <Image
-                accessibilityIgnoresInvertColors
-                onLoad={handleImageLoad}
-                resizeMode="contain"
-                source={{ uri: imageUrl }}
-                style={[
-                  styles.image,
-                  { borderRadius: artRadius },
-                ]}
-                testID={testID ? `${testID}-image` : undefined}
-              />
-            ) : (
-              <View style={styles.imagePlaceholder}>
-                <AppText color="textSecondary" variant="micro">
-                  CARD
-                </AppText>
-              </View>
-            )}
-          </View>
+          {brandedGrader ? (
+            // Slab-case frame (Figma 2609:6812): the card art sits inside its
+            // grading slab with the grader's own label band on top.
+            <View
+              style={[styles.artWrap, { aspectRatio: imageAspect ?? DEFAULT_CARD_ASPECT }]}
+            >
+              <SlabFrame
+                grade={(gradeLabel ?? '').trim() || null}
+                grader={brandedGrader}
+                size="md"
+                testID={testID ? `${testID}-slab-frame` : undefined}
+              >
+                {imageUrl ? (
+                  <Image
+                    accessibilityIgnoresInvertColors
+                    onLoad={handleImageLoad}
+                    resizeMode="contain"
+                    source={{ uri: imageUrl }}
+                    style={styles.image}
+                    testID={testID ? `${testID}-image` : undefined}
+                  />
+                ) : (
+                  <View style={styles.imagePlaceholder}>
+                    <AppText color="textSecondary" variant="micro">
+                      CARD
+                    </AppText>
+                  </View>
+                )}
+              </SlabFrame>
+            </View>
+          ) : (
+            <View
+              style={[styles.artWrap, { aspectRatio: imageAspect ?? DEFAULT_CARD_ASPECT }]}
+            >
+              {imageUrl ? (
+                <Image
+                  accessibilityIgnoresInvertColors
+                  onLoad={handleImageLoad}
+                  resizeMode="contain"
+                  source={{ uri: imageUrl }}
+                  style={[
+                    styles.image,
+                    { borderRadius: artRadius },
+                  ]}
+                  testID={testID ? `${testID}-image` : undefined}
+                />
+              ) : (
+                <View style={styles.imagePlaceholder}>
+                  <AppText color="textSecondary" variant="micro">
+                    CARD
+                  </AppText>
+                </View>
+              )}
+            </View>
+          )}
         </View>
 
         <View style={styles.copyStack}>
@@ -253,20 +282,7 @@ export function InventoryCardTile({
               </AppText>
             ) : null}
 
-            {brandedGrader ? (
-              <View style={styles.gradeLine} testID={testID ? `${testID}-grader-line` : undefined}>
-                <GraderWordmark
-                  grader={brandedGrader}
-                  size="sm"
-                  testID={testID ? `${testID}-grader-mark` : undefined}
-                />
-                {brandedGrade ? (
-                  <AppText color="gray600" numberOfLines={1} variant="label">
-                    {brandedGrade}
-                  </AppText>
-                ) : null}
-              </View>
-            ) : qualityLine ? (
+            {qualityLine ? (
               <AppText
                 color="gray600"
                 numberOfLines={1}
@@ -384,12 +400,6 @@ export function InventoryCardTile({
 }
 
 const styles = StyleSheet.create({
-  // Branded slab quality line: [grader mark] grade.
-  gradeLine: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 4,
-  },
   cardContent: {
     alignItems: 'center',
     alignSelf: 'stretch',

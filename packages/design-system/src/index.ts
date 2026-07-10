@@ -25,6 +25,7 @@ export * from './components/selection-check-circle';
 export * from './components/sheet-header';
 export * from './components/sheet-surface';
 export * from './components/skeleton-block';
+export * from './components/slab-frame';
 export * from './components/state-card';
 export * from './components/surface-card';
 export * from './components/text-field';

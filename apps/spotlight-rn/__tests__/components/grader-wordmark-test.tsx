@@ -2,8 +2,6 @@ import { render, screen } from '@testing-library/react-native';
 
 import { CardListRow, GraderWordmark, InventoryCardTile } from '@spotlight/design-system';
 
-// Grader-correctness guarantee: the mark + descriptor derive from the SAME
-// entry's grader — a CGC card never shows the PSA mark or PSA's descriptors.
 describe('GraderWordmark', () => {
   it('renders an image mark for known graders and text fallback for unknown', () => {
     render(
@@ -16,16 +14,16 @@ describe('GraderWordmark', () => {
       </>,
     );
 
-    // Known graders render Image marks (type has no children text).
     for (const id of ['mark-psa', 'mark-cgc', 'mark-bgs', 'mark-tag']) {
       expect(screen.getByTestId(id).type).toBe('Image');
     }
-    // Unknown grader falls back to its OWN name as text.
     expect(screen.getByTestId('mark-ace').props.children).toBe('ACE');
   });
 });
 
-describe('CardListRow branded grade line', () => {
+// Slab treatment: the THUMBNAIL gets the slab-case frame keyed by the entry's
+// own grader; the grade TEXT line stays the plain fused label ("PSA 10").
+describe('CardListRow slab frame', () => {
   const base = {
     imageUrl: null,
     name: 'Umbreon VMAX',
@@ -35,36 +33,39 @@ describe('CardListRow branded grade line', () => {
     quantity: 1,
   };
 
-  it('PSA slab: PSA mark + grade with PSA descriptor + variant suffix', () => {
+  it('PSA slab: frame with PSA-descriptor label + plain "PSA 10" text line', () => {
     render(
-      <CardListRow {...base} grader="PSA" grade="10" gradeSuffix="Holofoil" testID="row" />,
+      <CardListRow
+        {...base}
+        grader="PSA"
+        grade="10"
+        gradeLabel="Holofoil · PSA 10"
+        testID="row"
+      />,
     );
-    expect(screen.getByTestId('row-grader-mark').type).toBe('Image');
-    expect(screen.getByText('10 (GEM-MT) · Holofoil')).toBeTruthy();
-  });
-
-  it('CGC slab: CGC mark, bare grade — never the PSA descriptor', () => {
-    render(<CardListRow {...base} grader="CGC" grade="10" testID="row" />);
-    expect(screen.getByTestId('row-grader-mark').type).toBe('Image');
-    expect(screen.getByText('10')).toBeTruthy();
-    expect(screen.queryByText(/GEM-MT/)).toBeNull();
-  });
-
-  it('unknown grader: text fallback with its own name + bare grade', () => {
-    render(<CardListRow {...base} grader="SGC" grade="9.5" testID="row" />);
-    expect(screen.getByText('SGC')).toBeTruthy();
-    expect(screen.getByText('9.5')).toBeTruthy();
-    expect(screen.queryByText(/GEM-MT/)).toBeNull();
-  });
-
-  it('raw card keeps the plain gradeLabel text (no mark)', () => {
-    render(<CardListRow {...base} gradeLabel="Holofoil · Near Mint" testID="row" />);
-    expect(screen.getByText('Holofoil · Near Mint')).toBeTruthy();
+    // Frame present, label carries the grade.
+    expect(screen.getByTestId('row-slab-frame')).toBeTruthy();
+    expect(screen.getByTestId('row-slab-frame-grade').props.children).toBe('10');
+    // The meta line is the untouched plain text — no wordmark image.
+    expect(screen.getByText('Holofoil · PSA 10')).toBeTruthy();
     expect(screen.queryByTestId('row-grader-mark')).toBeNull();
+  });
+
+  it('grader-correct: CGC slab frame never shows the PSA descriptor', () => {
+    render(<CardListRow {...base} grader="CGC" grade="10" gradeLabel="CGC 10" testID="row" />);
+    expect(screen.getByTestId('row-slab-frame')).toBeTruthy();
+    expect(screen.queryByText(/GEM/)).toBeNull();
+    expect(screen.getByText('CGC 10')).toBeTruthy();
+  });
+
+  it('raw card: no frame, plain condition text', () => {
+    render(<CardListRow {...base} gradeLabel="Holofoil · Near Mint" testID="row" />);
+    expect(screen.queryByTestId('row-slab-frame')).toBeNull();
+    expect(screen.getByText('Holofoil · Near Mint')).toBeTruthy();
   });
 });
 
-describe('InventoryCardTile branded quality line', () => {
+describe('InventoryCardTile slab frame', () => {
   const base = {
     imageUrl: null,
     name: 'Umbreon VMAX',
@@ -76,7 +77,7 @@ describe('InventoryCardTile branded quality line', () => {
     onToggleFavorite: () => {},
   };
 
-  it('PSA slab tile renders the PSA mark + bare grade', () => {
+  it('slab tile frames the art and keeps the fused quality text', () => {
     render(
       <InventoryCardTile
         {...base}
@@ -86,21 +87,21 @@ describe('InventoryCardTile branded quality line', () => {
         testID="tile"
       />,
     );
-    expect(screen.getByTestId('tile-grader-mark').type).toBe('Image');
-    expect(screen.getByText('10')).toBeTruthy();
+    expect(screen.getByTestId('tile-slab-frame')).toBeTruthy();
+    expect(screen.getByText('PSA 10')).toBeTruthy();
+    expect(screen.queryByTestId('tile-grader-mark')).toBeNull();
   });
 
-  it('unknown grader tile keeps the fused text line', () => {
+  it('raw tile renders without the frame', () => {
     render(
       <InventoryCardTile
         {...base}
-        kind="slab"
-        graderLabel="SGC"
-        gradeLabel="9"
+        kind="raw"
+        conditionLabel="Near Mint"
         testID="tile"
       />,
     );
-    expect(screen.queryByTestId('tile-grader-mark')).toBeNull();
-    expect(screen.getByText('SGC 9')).toBeTruthy();
+    expect(screen.queryByTestId('tile-slab-frame')).toBeNull();
+    expect(screen.getByText('Near Mint')).toBeTruthy();
   });
 });
