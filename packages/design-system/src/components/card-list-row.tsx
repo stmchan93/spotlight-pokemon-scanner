@@ -173,10 +173,13 @@ export function CardListRow({
       {showSlabFrame ? (
         <View style={styles.slabThumbnail} testID={testID ? `${testID}-thumbnail` : undefined}>
           <SlabFrame
+            cardNumber={cardNumber}
             grade={grade}
             grader={graderText}
+            setLine={setName}
             size="sm"
             testID={testID ? `${testID}-slab-frame` : undefined}
+            title={name}
           >
             {imageUrl ? (
               <Image

@@ -202,10 +202,14 @@ export function InventoryCardTile({
               style={[styles.artWrap, { aspectRatio: imageAspect ?? DEFAULT_CARD_ASPECT }]}
             >
               <SlabFrame
+                cardNumber={cardNumber}
+                detailLine={variantName}
                 grade={(gradeLabel ?? '').trim() || null}
                 grader={brandedGrader}
+                setLine={setName}
                 size="md"
                 testID={testID ? `${testID}-slab-frame` : undefined}
+                title={name}
               >
                 {imageUrl ? (
                   <Image
