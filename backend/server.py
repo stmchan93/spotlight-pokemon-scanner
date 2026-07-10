@@ -4392,6 +4392,7 @@ class SpotlightScanService:
                         WHERE provider = ?
                           AND card_id IN ({cph})
                           AND price_date IN ({dph})
+                        ORDER BY rowid
                         """,
                         (pricing_provider(), *cchunk, *dchunk),
                     ).fetchall()

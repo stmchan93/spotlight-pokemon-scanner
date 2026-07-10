@@ -3963,13 +3963,20 @@ def price_history_cell_rows_for_day(
     Served by the ``(card_id, price_date, cell_key)`` UNIQUE index prefix."""
     if not _table_exists(connection, "card_price_history_cell"):
         return []
+    # ORDER BY rowid restores WRITER order (the daily sync inserts cells while
+    # iterating the JSON contexts, so rowid order == the JSON blob's entry
+    # order). Without it SQLite serves rows in (card_id, price_date, cell_key)
+    # INDEX order — alphabetical by cell_key — and the graded resolvers' ranked
+    # sort then breaks ties differently than the JSON path (which inherits blob
+    # order via stable sort). That single divergence produced 1,919 of 1,930
+    # parity mismatches on the 2026-07-10 full-DB harness run.
     if lane:
         return connection.execute(
-            "SELECT * FROM card_price_history_cell WHERE card_id = ? AND price_date = ? AND lane = ?",
+            "SELECT * FROM card_price_history_cell WHERE card_id = ? AND price_date = ? AND lane = ? ORDER BY rowid",
             (card_id, price_date, lane),
         ).fetchall()
     return connection.execute(
-        "SELECT * FROM card_price_history_cell WHERE card_id = ? AND price_date = ?",
+        "SELECT * FROM card_price_history_cell WHERE card_id = ? AND price_date = ? ORDER BY rowid",
         (card_id, price_date),
     ).fetchall()
 
@@ -4230,6 +4237,7 @@ def price_history_cell_trend_rows_by_date(
             f"""
             SELECT {_TREND_CELL_COLUMNS} FROM card_price_history_cell
             WHERE card_id = ? AND provider = ? AND price_date IN ({placeholders})
+            ORDER BY rowid
             """,
             (card_id, provider, *chunk),
         ).fetchall()
@@ -4286,6 +4294,7 @@ def price_history_cell_portfolio_rows_by_card_date(
                 WHERE provider = ?
                   AND card_id IN ({id_placeholders})
                   AND price_date IN ({date_placeholders})
+                ORDER BY rowid
                 """,
                 (provider, *id_chunk, *date_chunk),
             ).fetchall()
