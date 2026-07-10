@@ -166,7 +166,12 @@ export function SlabFrame({
           ) : null}
         </View>
       </View>
-      <View style={styles.body}>{children}</View>
+      <View style={styles.body}>
+        {/* The real slab crop (Figma 2609:14258 "Card Image"): the card art is
+            scaled up and nudged so the case shows the card's printed border
+            edge-to-edge, not letterboxed. body clips the overflow. */}
+        <View style={styles.imageCrop}>{children}</View>
+      </View>
     </View>
   );
 }
@@ -175,6 +180,15 @@ const styles = StyleSheet.create({
   body: {
     flex: 1,
     overflow: 'hidden',
+  },
+  // Figma 2609:14258 "Card Image": scale + offset so the slab case frames the
+  // card to its printed border. body's overflow:hidden crops the overshoot.
+  imageCrop: {
+    height: '115.83%',
+    left: '-19.63%',
+    position: 'absolute',
+    top: '-3.86%',
+    width: '140.19%',
   },
   // The clear plastic case around label + card.
   case: {

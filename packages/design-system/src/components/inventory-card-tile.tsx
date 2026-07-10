@@ -222,7 +222,9 @@ export function InventoryCardTile({
                   <Image
                     accessibilityIgnoresInvertColors
                     onLoad={handleImageLoad}
-                    resizeMode="contain"
+                    // cover (not contain): the SlabFrame crop scales the art past
+                    // the case edges, so it must fill the crop box (Figma 2609:14258).
+                    resizeMode="cover"
                     source={{ uri: imageUrl }}
                     style={styles.image}
                     testID={testID ? `${testID}-image` : undefined}
