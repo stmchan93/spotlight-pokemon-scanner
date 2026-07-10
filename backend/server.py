@@ -31,6 +31,7 @@ from catalog_tools import (
     _graded_contexts_payload,
     _graded_variants_for_context,
     _is_raw_phantom_price,
+    _is_raw_phantom_price_from_cells,
     _ppt_graded_signal_row,
     _normalized_condition_code,
     _normalized_variant_label,
@@ -2636,6 +2637,7 @@ class SpotlightScanService:
         *,
         pricing_context: PricingContext,
         snapshot_row: sqlite3.Row | None = None,
+        day_cells: list[Any] | None = None,
     ) -> dict[str, Any] | None:
         if snapshot_row is None and pricing_context.is_graded:
             snapshot_row = price_snapshot_row(self.connection, card_id)
@@ -2643,6 +2645,7 @@ class SpotlightScanService:
             pricing = self._pricing_summary_from_snapshot_row(
                 snapshot_row,
                 pricing_context=pricing_context,
+                day_cells=day_cells,
             )
             if (
                 pricing is not None
@@ -2763,11 +2766,79 @@ class SpotlightScanService:
 
         return True
 
+    def _cells_summary_from_snapshot_row(
+        self,
+        snapshot_row: sqlite3.Row,
+        *,
+        pricing_context: PricingContext,
+        day_cells: list[Any],
+    ) -> tuple[str | None, dict[str, Any] | None] | None:
+        """Cells-first twin of the variant/condition resolution inside
+        ``_pricing_summary_from_snapshot_row``. Resolves the snapshot row's
+        CURRENT price for ``pricing_context`` from the pre-fetched normalized
+        cells for that card's latest ``price_date`` instead of the fat
+        ``raw_contexts_json`` / ``graded_contexts_json`` blobs.
+
+        Returns ``(resolved_variant, summary)`` mirroring the JSON path's
+        ``summary`` shape, or ``None`` when the cells yield nothing (so the
+        caller falls back to the JSON-context resolution). The cell summary
+        carries ``payload={}`` / ``trendsPct=None`` (cells do not persist those);
+        the pricing dict's payload-derived fields then resolve from the
+        snapshot's lightweight ``source_payload_json`` exactly as the JSON path
+        does when an entry's own payload is empty — see the parity harness for
+        the bounded divergence this introduces (payload/trendsPct only)."""
+        if not day_cells:
+            return None
+        if pricing_context.is_graded:
+            # RANKED resolution, including variant_hints — the cells twin of
+            # _resolve_best_graded_context_entry. This is what the June 2026
+            # cutover lacked (it deferred hinted contexts to the JSON blobs);
+            # the hint-scoring tiers now run natively on cell fields.
+            #
+            # No explicit retry-without-variant here (the June code had one):
+            # _resolve_best_graded_cell's tier 1 already falls through
+            # internally when the preferred variant has no exact cell — tier 2
+            # (variant=None simple pick) or tier 3 (hint-ranked) then resolve
+            # it, which IS the retry. A None therefore means the grade
+            # genuinely has no usable cell for ANY variant (or the cells-only
+            # corrupt-pull guard tripped) → defer to the JSON fallback.
+            cell = self._resolve_best_graded_cell(
+                day_cells,
+                grader=pricing_context.grader,
+                grade=pricing_context.grade,
+                preferred_variant=pricing_context.preferred_variant,
+                variant_hints=pricing_context.variant_hints,
+            )
+            if cell is None:
+                return None
+            summary = _cell_summary_from_row(cell)
+            cell_variant = _normalized_variant_label(_cell_field(cell, "variant_key"))
+            resolved_variant = cell_variant or pricing_context.preferred_variant
+            return resolved_variant, summary
+
+        resolved_variant, _, summary = resolve_raw_summary_from_cells(
+            day_cells,
+            variant=pricing_context.preferred_variant or snapshot_row["default_raw_variant"],
+            condition=pricing_context.preferred_condition or DEFAULT_RAW_CONDITION,
+        )
+        if summary is None:
+            return None
+        # Phantom raw suppression, cells twin: the JSON branch nulls a raw price
+        # that exceeds the card's own PSA 10 (_is_raw_phantom_price). The cells
+        # path must not silently bypass that guard, and it must not parse the
+        # blobs to apply it — evaluate the same rule on the day's cells.
+        if _is_raw_phantom_price_from_cells(self.connection, day_cells):
+            for key in ("market", "low", "mid", "high", "trend", "directLow"):
+                summary[key] = None
+            summary["suppressionReason"] = "phantom"
+        return resolved_variant, summary
+
     def _pricing_summary_from_snapshot_row(
         self,
         snapshot_row: sqlite3.Row,
         *,
         pricing_context: PricingContext,
+        day_cells: list[Any] | None = None,
     ) -> dict[str, Any] | None:
         updated_at = snapshot_row["updated_at"]
         is_fresh = False
@@ -2778,8 +2849,32 @@ class SpotlightScanService:
             except ValueError:
                 is_fresh = False
 
-        raw_contexts = _raw_contexts_payload(snapshot_row["raw_contexts_json"])
-        graded_contexts = _graded_contexts_payload(snapshot_row["graded_contexts_json"])
+        # Cells-first: when the cell read source is active AND the caller has
+        # pre-fetched this card's latest-day cells (``day_cells``), resolve the
+        # price fields from the normalized cell table and skip parsing the fat
+        # raw/graded context blobs entirely. ``day_cells is None`` means "not
+        # pre-fetched" — keep the JSON path so no per-call cell query is issued
+        # (avoids an N+1 in deck_entries); an empty list means "this card has no
+        # cells" and also falls through to JSON.
+        use_cells = price_history_cells_enabled() and day_cells is not None
+        cells_resolution: tuple[str | None, dict[str, Any] | None] | None = None
+        if use_cells:
+            cells_resolution = self._cells_summary_from_snapshot_row(
+                snapshot_row,
+                pricing_context=pricing_context,
+                day_cells=day_cells or [],
+            )
+
+        # The JSON-context blobs are only parsed when cells did not resolve the
+        # price (fallback), so the cells-first path never pays for the cold blob
+        # read.
+        need_json = cells_resolution is None
+        raw_contexts = (
+            _raw_contexts_payload(snapshot_row["raw_contexts_json"]) if need_json else {}
+        )
+        graded_contexts = (
+            _graded_contexts_payload(snapshot_row["graded_contexts_json"]) if need_json else {}
+        )
 
         payload: dict[str, Any] = {}
         source_payload_raw = snapshot_row["source_payload_json"]
@@ -2795,7 +2890,15 @@ class SpotlightScanService:
         resolved_payload: dict[str, Any] = {}
         resolved_variant: str | None = None
 
-        if pricing_context.is_graded:
+        if cells_resolution is not None:
+            # Cells-first path: the price fields come from the normalized cell
+            # row; payload/trendsPct are absent on cells, so resolved_payload
+            # stays empty and the payload-derived fields below fall through to
+            # the snapshot's source_payload_json payload (same fallback the JSON
+            # path uses for an entry with an empty payload).
+            resolved_variant, summary = cells_resolution
+            resolved_payload = {}
+        elif pricing_context.is_graded:
             entry = self._resolve_best_graded_context_entry(
                 graded_contexts,
                 grader=pricing_context.grader,
@@ -2812,24 +2915,6 @@ class SpotlightScanService:
                 else pricing_context.preferred_variant
             )
             resolved_payload = summary.get("payload") or {}
-            # Merge DURABLE PPT trust signals (ppt_graded_signals) into the headline
-            # graded summary so the trust line survives a Scrydex sync that
-            # overwrites graded_contexts_json. Defensive: no row -> leave as-is.
-            signal_row = _ppt_graded_signal_row(
-                self.connection,
-                snapshot_row["card_id"],
-                pricing_context.grader,
-                pricing_context.grade,
-            )
-            if signal_row is not None:
-                resolved_payload = dict(resolved_payload)
-                if signal_row["confidence"] is not None:
-                    confidence_raw = str(signal_row["confidence"]).strip().lower()
-                    if confidence_raw:
-                        resolved_payload["confidenceLabel"] = confidence_raw.capitalize()
-                        resolved_payload["confidenceLevel"] = confidence_raw
-                if signal_row["count"] is not None:
-                    resolved_payload["compCount"] = signal_row["count"]
         else:
             resolved_variant, _, summary = _resolve_raw_context_summary(
                 raw_contexts,
@@ -2859,6 +2944,30 @@ class SpotlightScanService:
                 for key in ("market", "low", "mid", "high", "trend", "directLow"):
                     summary[key] = None
                 summary["suppressionReason"] = "phantom"
+
+        if pricing_context.is_graded:
+            # Merge DURABLE PPT trust signals (ppt_graded_signals) into the headline
+            # graded summary so the trust line survives a Scrydex sync that
+            # overwrites graded_contexts_json. Defensive: no row -> leave as-is.
+            # Applies to BOTH graded resolutions: the JSON branch above and the
+            # cells-first branch (the signal table is a side table, not a blob, so
+            # reading it costs the cells path nothing and keeps the trust line
+            # identical across read sources).
+            signal_row = _ppt_graded_signal_row(
+                self.connection,
+                snapshot_row["card_id"],
+                pricing_context.grader,
+                pricing_context.grade,
+            )
+            if signal_row is not None:
+                resolved_payload = dict(resolved_payload)
+                if signal_row["confidence"] is not None:
+                    confidence_raw = str(signal_row["confidence"]).strip().lower()
+                    if confidence_raw:
+                        resolved_payload["confidenceLabel"] = confidence_raw.capitalize()
+                        resolved_payload["confidenceLevel"] = confidence_raw
+                if signal_row["count"] is not None:
+                    resolved_payload["compCount"] = signal_row["count"]
 
         pricing = {
             "id": snapshot_row["card_id"],
@@ -4296,6 +4405,51 @@ class SpotlightScanService:
             # Table absent (cells flag on but not yet migrated) → let callers fall
             # back to their per-day path rather than crashing the insights payload.
             return {}
+        return result
+
+    def _latest_day_cells_by_card_id(
+        self, card_ids: list[str]
+    ) -> dict[str, list[Any]]:
+        """``card_id -> the normalized cells for that card's LATEST price_date``,
+        pre-fetched in TWO bulk queries total (one for the latest date per card,
+        one for the cells across those (card, date) pairs) so the current-price
+        resolver in a loop (``deck_entries``) reads no JSON blobs and issues no
+        per-card cell query — i.e. no N+1. The snapshot row carries no price_date,
+        so its CURRENT price corresponds to the newest ``card_price_history_daily``
+        date for the card (the daily sync writes the snapshot and that day's row
+        together); cells are keyed by that date. The latest-date lookup rides the
+        MAX+join aggregate with a far-future cutoff (``<= 9999-12-31`` == "the
+        newest row, period"). Empty in JSON mode so callers keep
+        ``day_cells=None`` (their JSON-blob path)."""
+        if not price_history_cells_enabled():
+            return {}
+        normalized_ids = self._normalized_unique_card_ids(list(card_ids))
+        if not normalized_ids:
+            return {}
+        latest_rows = self._latest_price_history_rows_by_card_id(
+            normalized_ids,
+            provider=pricing_provider(),
+            cutoff_iso="9999-12-31",
+            strict=False,
+        )
+        # Map each card to its latest date, and gather the distinct dates so the
+        # cell fan-out is a single bounded indexed scan (cards share daily dates).
+        latest_date_by_card: dict[str, str] = {}
+        for card_id, row in latest_rows.items():
+            if row is None:
+                continue
+            price_date = str(row["price_date"] or "").strip()
+            if price_date:
+                latest_date_by_card[card_id] = price_date
+        if not latest_date_by_card:
+            return {}
+        cells_by_card_date = self._price_history_cells_by_card_and_date(
+            card_ids=list(latest_date_by_card.keys()),
+            price_dates=list({d for d in latest_date_by_card.values()}),
+        )
+        result: dict[str, list[Any]] = {}
+        for card_id, price_date in latest_date_by_card.items():
+            result[card_id] = cells_by_card_date.get((card_id, price_date), [])
         return result
 
     def _day_change_for_entry(
@@ -10978,6 +11132,10 @@ class SpotlightScanService:
         )
         ordered_card_ids = self._normalized_unique_card_ids(card_ids)
         preloaded_cards, price_snapshot_rows = self._batched_card_hydration_context(ordered_card_ids)
+        # Cells-first current price: one bulk latest-day cell prefetch for the whole
+        # batch so each card detail resolves price from cells (no cold blob read,
+        # no per-card cell query). Empty in JSON mode → JSON-blob path unchanged.
+        latest_day_cells_by_card_id = self._latest_day_cells_by_card_id(ordered_card_ids)
 
         refresh_budget = max(0, min(int(max_refresh_count), len(ordered_card_ids)))
         refreshed_count = 0
@@ -10990,6 +11148,7 @@ class SpotlightScanService:
                 pricing_context=pricing_context,
                 card=preloaded_cards.get(card_id),
                 snapshot_row=price_snapshot_rows.get(card_id),
+                day_cells=latest_day_cells_by_card_id.get(card_id),
             )
             pricing = ((detail or {}).get("card") or {}).get("pricing") if isinstance(detail, dict) else None
             # Show mode gates app ACCESS only — never forces live pricing refresh.
@@ -11030,6 +11189,7 @@ class SpotlightScanService:
         snapshot_row: sqlite3.Row | None = None,
         owner_user_id: str | None = None,
         include_social_counts: bool = False,
+        day_cells: list[Any] | None = None,
     ) -> dict[str, Any] | None:
         resolved_card = card or card_by_id(self.connection, card_id)
         if resolved_card is None:
@@ -11038,6 +11198,7 @@ class SpotlightScanService:
             card_id,
             pricing_context=pricing_context,
             snapshot_row=snapshot_row,
+            day_cells=day_cells,
         )
         favorite_row = self._favorite_row(card_id, owner_user_id=owner_user_id)
         like_row = self._like_row(card_id, owner_user_id=owner_user_id)
@@ -11126,6 +11287,9 @@ class SpotlightScanService:
             pricing_context=pricing_context,
             owner_user_id=owner_user_id,
             include_social_counts=True,
+            # Single-card PDP read: the two-query prefetch collapses to two
+            # tiny indexed lookups; {} in JSON mode → day_cells=None (JSON path).
+            day_cells=self._latest_day_cells_by_card_id([card_id]).get(card_id),
         )
 
     def set_card_favorite(self, card_id: str, *, is_favorite: bool | None = None) -> dict[str, Any]:
@@ -14400,24 +14564,23 @@ class SpotlightScanService:
             """.format(where_clause=where_clause),
             (owner_user_id, safe_limit, safe_offset),
         ).fetchall()
-        cards_by_id_map = cards_by_ids(
-            self.connection,
-            [str(row["card_id"] or "").strip() for row in rows],
-        )
-        price_snapshot_rows = self._price_snapshot_rows_by_card_id(
-            [str(row["card_id"] or "").strip() for row in rows]
-        )
+        deck_card_ids = [str(row["card_id"] or "").strip() for row in rows]
+        cards_by_id_map = cards_by_ids(self.connection, deck_card_ids)
+        price_snapshot_rows = self._price_snapshot_rows_by_card_id(deck_card_ids)
+        # Cells-first current price: pre-fetch each card's latest-day cells in two
+        # bulk queries so the per-row pricing resolver never reads the fat
+        # raw/graded context blobs off cold disk and never issues a per-card cell
+        # query (no N+1). Empty in JSON mode → resolver keeps its JSON-blob path.
+        latest_day_cells_by_card_id = self._latest_day_cells_by_card_id(deck_card_ids)
         favorite_rows_by_card_id = self._favorite_rows_by_card_id(
-            [str(row["card_id"] or "").strip() for row in rows],
+            deck_card_ids,
             owner_user_id=owner_user_id,
         )
         # Batch the per-card "yesterday price" lookup into one query (was N+1, one
         # query per row). Skipped entirely when the caller only needs the summary
         # (e.g. the ledger inventory total) and not per-row day-change.
         yesterday_rows_by_card_id = (
-            self._yesterday_price_history_rows_by_card_id(
-                [str(row["card_id"] or "").strip() for row in rows]
-            )
+            self._yesterday_price_history_rows_by_card_id(deck_card_ids)
             if compute_day_change
             else {}
         )
@@ -14460,6 +14623,7 @@ class SpotlightScanService:
                 card_id,
                 pricing_context=pricing_context,
                 snapshot_row=price_snapshot_rows.get(card_id),
+                day_cells=latest_day_cells_by_card_id.get(card_id),
             )
 
             card_payload = self._candidate_base_payload(card, card)
@@ -14681,6 +14845,10 @@ class SpotlightScanService:
         card_ids = [str(row["card_id"] or "").strip() for row in rows]
         cards_by_id_map = cards_by_ids(self.connection, card_ids)
         price_snapshot_rows = self._price_snapshot_rows_by_card_id(card_ids)
+        # Cells-first current price (same bulk prefetch as deck_entries) so the
+        # "Current" column resolves without cold JSON-blob reads. Empty in JSON
+        # mode → resolver keeps its JSON-blob path.
+        latest_day_cells_by_card_id = self._latest_day_cells_by_card_id(card_ids)
 
         provider = pricing_provider()
         result_rows: list[dict[str, Any]] = []
@@ -14765,6 +14933,7 @@ class SpotlightScanService:
                 card_id,
                 pricing_context=pricing_context,
                 snapshot_row=price_snapshot_rows.get(card_id),
+                day_cells=latest_day_cells_by_card_id.get(card_id),
             )
             current_price = self._primary_price_value(pricing)
             if isinstance(pricing, dict):
@@ -14936,6 +15105,9 @@ class SpotlightScanService:
 
         cards_by_id_map = cards_by_ids(self.connection, card_ids_in_order)
         price_snapshot_rows = self._price_snapshot_rows_by_card_id(card_ids_in_order)
+        # Cells-first current price (same bulk prefetch as deck_entries): no cold
+        # blob read, no per-card cell query. Empty in JSON mode.
+        latest_day_cells_by_card_id = self._latest_day_cells_by_card_id(card_ids_in_order)
         # Pull the owned deck entry (grade/condition/kind) per favorited card so the
         # wishlist rows + hero can mirror the Collection list: graded copies surface a
         # slab context, raw copies a condition, and the price/day-change is computed in
@@ -14972,6 +15144,7 @@ class SpotlightScanService:
                 card_id,
                 pricing_context=pricing_context,
                 snapshot_row=price_snapshot_rows.get(card_id),
+                day_cells=latest_day_cells_by_card_id.get(card_id),
             )
             card_payload = self._candidate_base_payload(card, card)
             if pricing is not None:

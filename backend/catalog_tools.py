@@ -5265,6 +5265,62 @@ def _is_raw_phantom_price(
     return raw_nm_usd > psa10_usd * _RAW_PHANTOM_MARGIN
 
 
+def _is_raw_phantom_price_from_cells(
+    connection: sqlite3.Connection,
+    day_cells: list[Any] | None,
+) -> bool:
+    """Cells twin of ``_is_raw_phantom_price`` for the cells-first CURRENT-price
+    path: evaluates the same raw-NM-vs-own-PSA-10 rule on a card's latest-day
+    normalized cells instead of the snapshot JSON blobs, so the cells path keeps
+    the phantom suppression WITHOUT parsing the very blobs it exists to avoid.
+
+    Mirrors the JSON rule exactly:
+    - Single raw printing only (one normalized raw variant bucket across the
+      day's cells; the Normal/raw/standard/"" spellings collapse to one bucket
+      like the JSON variants map does).
+    - The NM cell's market, FX-converted to USD, must be >= _RAW_PHANTOM_MIN_USD.
+    - The card's own PSA 10 must exist with a positive USD market; suppress only
+      when raw NM USD > PSA-10 USD * _RAW_PHANTOM_MARGIN.
+
+    One deliberate asymmetry: the PSA-10 side resolves through
+    ``resolve_graded_entry_from_cells``, which carries the cells-only
+    corrupt-pull guard — a guard-tripped PSA 10 yields False here (no
+    suppression), the conservative direction (never blanks a price the JSON
+    path would show because of a *guarded* comparison target)."""
+    if not day_cells:
+        return False
+    raw_variant_keys: set[str] = set()
+    nm_cell: Any | None = None
+    for cell in day_cells:
+        if str(_cell_field(cell, "lane") or "") != "raw":
+            continue
+        match_key = _variant_match_key(_cell_field(cell, "variant_key"))
+        match_key = "normal" if match_key in _NORMAL_VARIANT_MATCH_KEYS else match_key
+        raw_variant_keys.add(match_key)
+        if len(raw_variant_keys) > 1:
+            return False
+        if _normalized_condition_code(_cell_field(cell, "condition")) == "NM":
+            nm_cell = cell
+    if len(raw_variant_keys) != 1 or nm_cell is None:
+        return False
+    raw_nm_usd = _amount_to_usd(
+        connection, _cell_field(nm_cell, "market"), _cell_field(nm_cell, "currency_code")
+    )
+    if raw_nm_usd is None or raw_nm_usd < _RAW_PHANTOM_MIN_USD:
+        return False
+
+    psa10_cell = resolve_graded_entry_from_cells(day_cells, grader="PSA", grade="10")
+    if psa10_cell is None:
+        return False
+    psa10_usd = _amount_to_usd(
+        connection, _cell_field(psa10_cell, "market"), _cell_field(psa10_cell, "currency_code")
+    )
+    if psa10_usd is None or psa10_usd <= 0:
+        return False
+
+    return raw_nm_usd > psa10_usd * _RAW_PHANTOM_MARGIN
+
+
 def card_price_trend_list(
     connection: sqlite3.Connection,
     card_id: str,
