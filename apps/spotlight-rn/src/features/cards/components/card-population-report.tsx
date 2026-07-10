@@ -71,11 +71,17 @@ export function CardPopulationReport({ population, grader, testID }: CardPopulat
             cellColors,
           ]}
         >
-          <View style={styles.cellInner}>
-            <Text style={[theme.typography.overline, styles.cellText, { color: theme.colors.gray600 }]}>
+          <View style={styles.totalCellInner}>
+            <Text
+              numberOfLines={1}
+              style={[theme.typography.overline, { color: theme.colors.gray600 }]}
+            >
               {`${normalizedGrader} TOTAL`}
             </Text>
-            <Text style={[theme.typography.bodyMedium, styles.cellText, { color: theme.colors.gray900 }]}>
+            <Text
+              numberOfLines={1}
+              style={[theme.typography.bodyMedium, { color: theme.colors.gray900 }]}
+            >
               {formatCount(entry.totalPopulation)}
             </Text>
           </View>
@@ -128,6 +134,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     width: 56,
+  },
+  // The "<GRADER> TOTAL" cell hugs its content so the label stays on ONE line
+  // (Figma 2489-7489) — the fixed 56px grade-cell width wrapped it to two.
+  totalCellInner: {
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 4,
   },
   cellLast: {
     borderBottomRightRadius: radii.sm,

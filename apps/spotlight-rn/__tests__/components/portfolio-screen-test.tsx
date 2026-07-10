@@ -131,7 +131,9 @@ describe('PortfolioScreen', () => {
     // Summary block.
     expect(screen.getByTestId('portfolio-summary-value')).toBeTruthy();
     expect(screen.getByTestId('portfolio-summary-delta')).toBeTruthy();
-    expect(screen.getByTestId('portfolio-summary-delta-date')).toBeTruthy();
+    // The "Today" date label is removed from the resting delta row per Figma;
+    // it only renders while scrubbing the chart.
+    expect(screen.queryByTestId('portfolio-summary-delta-date')).toBeNull();
     expect(screen.getByTestId('portfolio-summary-visibility-toggle')).toBeTruthy();
 
     // The whole screen is one virtualized FlatList now, so there is no

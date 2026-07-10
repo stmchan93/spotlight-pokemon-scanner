@@ -11,7 +11,7 @@ import {
 import { Search as SearchIcon } from 'iconoir-react-native';
 
 import { useSpotlightTheme } from '../theme';
-import { MAX_FONT_SIZE_MULTIPLIER } from '../tokens';
+import { MAX_FONT_SIZE_MULTIPLIER, radii } from '../tokens';
 
 export type SearchFieldSize = 'default' | 'compact' | 'collection';
 export type SearchFieldSurface = 'default' | 'muted';
@@ -137,7 +137,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   containerCollection: {
-    borderRadius: 10,
+    borderRadius: radii.sm,
     gap: 8,
     height: 40,
     paddingHorizontal: 12,

@@ -114,7 +114,10 @@ export function CardPriceTrendList({ list, onRowPress, onProviderPress, loadingR
               )}
             </View>
             {onRowPress ? (
-              <IconChevronRight color={theme.colors.gray400} size={16} strokeWidth={2} />
+              // Larger (20px) + darker (gray-600 / #717171) chevron per Figma
+              // 2566:5298 so the tappable marketplace rows clearly read as
+              // clickable.
+              <IconChevronRight color={theme.colors.gray600} size={20} strokeWidth={2} />
             ) : null}
           </>
         );

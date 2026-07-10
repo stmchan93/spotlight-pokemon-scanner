@@ -1,5 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
-import { Eye, EyeClosed, Triangle } from 'iconoir-react-native';
+import { Eye, EyeClosed } from 'iconoir-react-native';
+import Svg, { Path } from 'react-native-svg';
 
 import type { PortfolioSummary } from '@spotlight/api-client';
 import {
@@ -47,7 +48,9 @@ export function PortfolioBalanceHeader({
   const rawValueLabel = activeChartPoint?.valueLabel ?? formatCurrency(summary.currentValue);
   const valueLabel = isSummaryHidden ? hiddenValueMask : rawValueLabel;
 
-  const dateLabel = activeChartPoint?.dateLabel ?? 'Today';
+  // Per Figma the resting delta row omits the date; the label only appears
+  // while scrubbing the chart to show which point you're inspecting.
+  const scrubDateLabel = activeChartPoint?.dateLabel ?? null;
 
   const changeAmount = activeChartPoint?.changeAmount ?? summary.changeAmount;
   const changePercent = activeChartPoint?.changePercent ?? summary.changePercent;
@@ -107,12 +110,14 @@ export function PortfolioBalanceHeader({
         <View style={styles.percentGroup}>
           <Text style={[styles.changeText, { color: changeColor }]}>({percentLabel})</Text>
         </View>
-        <Text
-          style={[styles.dateText, { color: theme.colors.gray600 }]}
-          testID={`${testIDPrefix}-summary-delta-date`}
-        >
-          {dateLabel}
-        </Text>
+        {scrubDateLabel ? (
+          <Text
+            style={[styles.dateText, { color: theme.colors.gray600 }]}
+            testID={`${testIDPrefix}-summary-delta-date`}
+          >
+            {scrubDateLabel}
+          </Text>
+        ) : null}
       </View>
     </View>
   );
@@ -125,15 +130,24 @@ function ChangeDirectionIcon({
   direction: ChangeDirection;
   color: string;
 }) {
-  // Outlined triangle glyph per Figma 2489:7582 — points up for 'up'/'flat'
-  // (no zero-state icon spec) and is flipped 180° for 'down'.
+  // Filled triangle per Figma 2489:6757 (7px) — points up for 'up'/'flat'
+  // (no zero-state icon spec) and is flipped 180° for 'down'. Path taken
+  // verbatim from the Figma export so the shape matches exactly.
   return (
-    <Triangle
-      color={color}
-      height={8}
-      width={8}
+    <Svg
+      height={7}
       style={direction === 'down' ? styles.changeIconDown : undefined}
-    />
+      viewBox="0 0 7 7"
+      width={7}
+    >
+      <Path
+        d="M0.729395 5.83333L3.50023 0.875L6.27106 5.83333H0.729395Z"
+        fill={color}
+        stroke={color}
+        strokeLinejoin="round"
+        strokeWidth={0.291667}
+      />
+    </Svg>
   );
 }
 

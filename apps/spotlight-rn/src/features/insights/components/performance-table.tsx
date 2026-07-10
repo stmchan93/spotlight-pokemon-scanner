@@ -2,7 +2,7 @@ import { forwardRef, useCallback } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { ListRenderItemInfo, NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 
-import { useSpotlightTheme } from '@spotlight/design-system';
+import { borderWidths, radii, useSpotlightTheme } from '@spotlight/design-system';
 import { deckConditionOptions, type PortfolioPerformanceRow } from '@spotlight/api-client';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
@@ -34,13 +34,13 @@ const CARD_METRIC_EXTRA_GAP = 24 - CELL_GAP;
 const HEADER_BOTTOM_GAP = 24;
 const CHART_W = 62;
 const CELL_W = 60;
-const THUMB_W = 52;
-const THUMB_H = 73; // keeps the 44x62 card aspect (~1.4)
+const THUMB_W = 58;
+const THUMB_H = 80; // 58x80 card thumbnail (Figma 2652-24367)
 
 // Figma 2179-9144 labels the G/L pair "Tdy", but the backend tracks month-over-
 // month G/L — keep the Mth wording, adopt the design's title casing.
 const METRIC_COLUMNS = [
-  'Chart',
+  'Graph',
   'Current',
   '$ Mth G/L',
   '% Mth G/L',
@@ -206,7 +206,7 @@ export const PerformanceTable = forwardRef<
       const totalPercent = allTimeGrowthPercent(row);
       const totalDollar = allTimeGainDollar(row);
       return (
-        <View style={styles.dataRow}>
+        <View style={[styles.dataRow, { borderBottomColor: theme.colors.gray300 }]}>
           <Pressable
             accessibilityLabel={`View ${row.name}`}
             accessibilityRole="button"
@@ -302,6 +302,7 @@ export const PerformanceTable = forwardRef<
       percent,
       testID,
       theme.colors.gray100,
+      theme.colors.gray300,
       theme.colors.gray400,
       theme.colors.gray500,
       theme.colors.gray900,
@@ -344,7 +345,8 @@ export const PerformanceTable = forwardRef<
               numberOfLines={1}
               style={[
                 theme.typography.captionMedium,
-                { color: theme.colors.gray900, width: label === 'Chart' ? CHART_W : CELL_W },
+                styles.headerLabel,
+                { color: theme.colors.gray900, width: label === 'Graph' ? CHART_W : CELL_W },
               ]}
             >
               {label}
@@ -390,7 +392,7 @@ export function PerformanceTableSkeleton({ testID = 'performance-table-skeleton'
         </View>
       </View>
       {Array.from({ length: 6 }).map((_, index) => (
-        <View key={index} style={styles.dataRow}>
+        <View key={index} style={[styles.dataRow, { borderBottomColor: theme.colors.gray300 }]}>
           <View style={[styles.cardCell, { width: CARD_COL_WIDTH }]}>
             <View style={[styles.thumb, fill]} />
             <View style={styles.cardText}>
@@ -439,13 +441,19 @@ const styles = StyleSheet.create({
     // Chart header sits exactly 24px to the tag's right, not 24px past the
     // (much wider) column edge.
     alignItems: 'center',
-    borderRadius: 4,
+    borderRadius: radii.pill,
     paddingHorizontal: 8,
     paddingVertical: 4,
     width: CARD_COL_WIDTH,
   },
+  headerLabel: {
+    textTransform: 'uppercase',
+  },
   dataRow: {
     alignItems: 'center',
+    // 0.5px gray-300 rule between rows (Figma 2652-24367). Drawn inside the box
+    // so ROW_HEIGHT — and getItemLayout's offset math — stays exact.
+    borderBottomWidth: borderWidths.rule,
     flexDirection: 'row',
     gap: CELL_GAP,
     height: ROW_HEIGHT,
