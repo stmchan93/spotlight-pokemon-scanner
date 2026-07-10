@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
+import Svg, { Circle, Ellipse } from 'react-native-svg';
 
 import { colors, fontFamilies } from '../tokens';
 import { getGraderAsset, psaGradeDescriptor } from './grader-wordmark';
@@ -8,9 +9,9 @@ import { getGraderAsset, psaGradeDescriptor } from './grader-wordmark';
  * Slab "case" chrome around a graded card's image (Figma 2609:14258 + the
  * real-label reference photo): the card sits inside its grading slab with an
  * authentic-looking label flag on top. For PSA that means the real anatomy —
- * red-framed white label, tiny card-info lines at left ("2024 POKEMON SV5K JP
- * / GENGAR ex / SUPER RARE"), the PSA logo center, and the red #number over
- * "GEM MT" over the bold grade at right.
+ * red-framed white label with the iconic red rosette PSA seal at the left, the
+ * card-info lines ("2024 POKEMON SV5K JP / GENGAR ex / SUPER RARE") in the
+ * middle, and the red #number over "GEM MT" over the bold grade at right.
  *
  * Branding is keyed by THIS entry's grader; graders without bundled art get a
  * neutral label with their name — never breaks.
@@ -21,8 +22,11 @@ type SlabLabelStyle = {
   accent: string; // the #number accent (red on real PSA labels)
 };
 
+// The PSA red used for the slab seal + label frame.
+const PSA_RED = '#E01B22';
+
 const SLAB_LABEL_STYLES: Record<string, SlabLabelStyle> = {
-  psa: { border: '#E31B23', accent: '#E31B23' },
+  psa: { border: PSA_RED, accent: PSA_RED },
   cgc: { border: '#1E5AA8', accent: '#1E5AA8' },
   beckett: { border: '#9AA2AB', accent: '#1A1A1A' },
   bgs: { border: '#9AA2AB', accent: '#1A1A1A' },
@@ -32,6 +36,57 @@ const SLAB_LABEL_STYLES: Record<string, SlabLabelStyle> = {
 const NEUTRAL_LABEL: SlabLabelStyle = { border: '#BEBEBE', accent: '#1A1A1A' };
 
 export type SlabFrameSize = 'sm' | 'md';
+
+// The guilloché rosette angles (rotated ellipses) that make the PSA seal read
+// as the real spirograph mark rather than a flat red box. viewBox is 0..100.
+const SEAL_ROSETTE_ANGLES = Array.from({ length: 15 }, (_, i) => (180 / 15) * i);
+
+/**
+ * The iconic red PSA seal from a real slab label: a red rounded square with the
+ * guilloché rosette + white center dot, and the white "PSA" wordmark tucked at
+ * the bottom-middle. The rosette is drawn as vectors (react-native-svg) so it
+ * stays crisp at any thumbnail size; "PSA" is real text for a clean baseline.
+ */
+function PsaSeal({ size, testID }: { size: number; testID?: string }) {
+  return (
+    <View
+      style={[
+        psaSealStyles.seal,
+        { borderRadius: Math.max(2, size * 0.15), height: size, width: size },
+      ]}
+      testID={testID}
+    >
+      <Svg height="100%" style={StyleSheet.absoluteFill} viewBox="0 0 100 100" width="100%">
+        {SEAL_ROSETTE_ANGLES.map((angle) => (
+          <Ellipse
+            key={angle}
+            cx={50}
+            cy={42}
+            fill="none"
+            origin="50, 42"
+            rotation={angle}
+            rx={40}
+            ry={15}
+            stroke="#ffffff"
+            strokeOpacity={0.3}
+            strokeWidth={0.7}
+          />
+        ))}
+        <Circle cx={50} cy={42} fill="none" r={29} stroke="#ffffff" strokeOpacity={0.32} strokeWidth={0.7} />
+        <Circle cx={50} cy={42} fill="#ffffff" fillOpacity={0.92} r={11.5} />
+      </Svg>
+      <Text
+        allowFontScaling={false}
+        style={[
+          psaSealStyles.text,
+          { bottom: size * 0.1, fontSize: size * 0.26, lineHeight: size * 0.3 },
+        ]}
+      >
+        PSA
+      </Text>
+    </View>
+  );
+}
 
 type SlabFrameProps = {
   /** The entry's own grader — drives the label branding. */
@@ -77,6 +132,9 @@ export function SlabFrame({
   const asset = getGraderAsset(grader);
   const gradeText = (grade ?? '').trim();
   const isSmall = size === 'sm';
+  const isPsa = graderKey === 'psa';
+  // The red PSA seal sits at the label's left edge, like a real slab.
+  const sealSize = isSmall ? 17 : 24;
   const descriptor = graderKey === 'psa' && gradeText
     ? psaGradeDescriptor(gradeText)?.replace('-', ' ')
     : null;
@@ -98,7 +156,12 @@ export function SlabFrame({
         ]}
         testID={testID ? `${testID}-label` : undefined}
       >
-        {/* Left: the card-info lines (set / name / rarity), like the real label. */}
+        {/* Left: the iconic red PSA seal, at the label's edge like a real slab. */}
+        {isPsa ? (
+          <PsaSeal size={sealSize} testID={testID ? `${testID}-seal` : undefined} />
+        ) : null}
+
+        {/* Card-info lines (set / name / rarity), like the real label. */}
         <View style={styles.infoColumn}>
           {infoLines.length > 0 ? (
             infoLines.map((line, index) => (
@@ -118,8 +181,9 @@ export function SlabFrame({
               {grader.trim().toUpperCase()}
             </Text>
           )}
-          {/* Grader logo tucked under the info text, center-ish like the real flag. */}
-          {asset ? (
+          {/* Non-PSA graders keep their wordmark tucked under the info text; PSA
+              uses the red seal on the left instead. */}
+          {!isPsa && asset ? (
             <Image
               accessibilityLabel={grader}
               resizeMode="contain"
@@ -284,5 +348,22 @@ const styles = StyleSheet.create({
   numberTextSmall: {
     fontSize: 4.5,
     lineHeight: 5.5,
+  },
+});
+
+// The red PSA seal (rosette drawn as SVG, "PSA" overlaid as text at the bottom).
+const psaSealStyles = StyleSheet.create({
+  seal: {
+    alignItems: 'center',
+    backgroundColor: PSA_RED,
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  text: {
+    color: colors.gray0,
+    fontFamily: fontFamilies.bodyBold,
+    letterSpacing: 0.3,
+    position: 'absolute',
+    textAlign: 'center',
   },
 });
