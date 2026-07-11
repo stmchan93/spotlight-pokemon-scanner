@@ -63,10 +63,11 @@ export type CardListRowProps = {
 const THUMBNAIL_WIDTH = 58;
 const THUMBNAIL_HEIGHT = 80;
 const THUMBNAIL_RADIUS = 2;
-// Slab rows show the whole slab (case + label), so the image slot is taller —
-// Figma 2609:6977's 84×136 card-image slot.
-const SLAB_THUMBNAIL_WIDTH = 84;
-const SLAB_THUMBNAIL_HEIGHT = 136;
+// Slab rows show the whole slab (case + label) in a 50×80 slot (Figma
+// 2566:6390) — same 80pt row height as raw thumbs, narrower for the slab's
+// taller aspect. (84×136 is the card-detail-size slot, Figma 2609:6977.)
+const SLAB_THUMBNAIL_WIDTH = 50;
+const SLAB_THUMBNAIL_HEIGHT = 80;
 
 function formatCurrency(amount: number, currencyCode: string) {
   return new Intl.NumberFormat('en-US', {

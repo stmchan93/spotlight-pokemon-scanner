@@ -12,6 +12,8 @@ import {
 // Standard portrait trading-card ratio (Scrydex renders ~245×342) — the art
 // wrapper's default shape until the real image reports its dimensions.
 const DEFAULT_CARD_ASPECT = 245 / 342;
+// Slab display slot ratio (Figma 2609:6977's 84×136 card-image slot).
+const SLAB_ASPECT = 84 / 136;
 
 import { useSpotlightTheme } from '../theme';
 import { AppText } from './app-text';
@@ -204,10 +206,10 @@ export function InventoryCardTile({
         >
           {brandedGrader ? (
             // Slab-case frame (Figma 2609:6812): the card art sits inside its
-            // grading slab with the grader's own label band on top.
-            <View
-              style={[styles.artWrap, { aspectRatio: imageAspect ?? DEFAULT_CARD_ASPECT }]}
-            >
+            // grading slab with the grader's own label band on top. The slot is
+            // the SLAB's 84:136 ratio (Figma 2609:6977) — NOT the card image's
+            // aspect, which is wider and would fatten the case.
+            <View style={[styles.artWrap, { aspectRatio: SLAB_ASPECT }]}>
               <SlabFrame
                 cardNumber={cardNumber}
                 detailLine={variantName}
