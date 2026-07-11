@@ -29,12 +29,6 @@ import { getGraderAsset, psaGradeDescriptor } from './grader-wordmark';
 
 const PSA_TEMPLATE = require('../../assets/slabs/psa-slab-template.png');
 
-// Kill-switch while the composite's on-device layout bug is being reproduced
-// on a simulator (2026-07-11: template rendered unconstrained in Collection
-// tiles). Vector fallback ships meanwhile; flip back after the fix is proven
-// on-device.
-const PSA_TEMPLATE_ENABLED = false;
-
 // Normalized geometry of the template photo (fractions of its 714×1236 size).
 // cardWindow is the transparent cut the card image shows through; the text
 // boxes are the blank label areas the dynamic lines are laid out in.
@@ -183,7 +177,7 @@ function PsaTemplateSlab({
       <Image
         resizeMode="stretch"
         source={PSA_TEMPLATE}
-        style={StyleSheet.absoluteFill}
+        style={psaTemplateStyles.template}
         testID={testID ? `${testID}-template` : undefined}
       />
 
@@ -195,7 +189,12 @@ function PsaTemplateSlab({
                 allowFontScaling={false}
                 key={`${index}-${line}`}
                 numberOfLines={1}
-                style={[psaTemplateStyles.infoLine, { fontSize: infoFont, lineHeight: infoFont * 1.22 }]}
+                style={[
+                  psaTemplateStyles.infoLine,
+                  // Line pitch = the label's 3-line grid, so 2-line labels
+                  // stack like the real print instead of spreading.
+                  { fontSize: infoFont, lineHeight: fontBasis * 0.0264 },
+                ]}
               >
                 {line}
               </Text>
@@ -276,7 +275,7 @@ export function SlabFrame({
 
   // PSA: the photographic composite. Other graders: the vector frame until
   // they get their own template photos.
-  if (graderKey === 'psa' && PSA_TEMPLATE_ENABLED) {
+  if (graderKey === 'psa') {
     return (
       <PsaTemplateSlab
         cardNumber={cardNumber}
@@ -388,7 +387,7 @@ const psaTemplateStyles = StyleSheet.create({
     fontFamily: fontFamilies.bodyBold,
   },
   infoColumn: {
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
   },
   infoLine: {
     color: LABEL_INK,
@@ -402,6 +401,17 @@ const psaTemplateStyles = StyleSheet.create({
   },
   root: {
     flex: 1,
+  },
+  // NOT StyleSheet.absoluteFill: right/bottom insets resolve to the image's
+  // intrinsic size under the grid tile's aspectRatio-derived parents (the
+  // template rendered 714pt wide, top-left corner only). Explicit percentage
+  // width/height sizes correctly in every hosting context.
+  template: {
+    height: '100%',
+    left: 0,
+    position: 'absolute',
+    top: 0,
+    width: '100%',
   },
 });
 

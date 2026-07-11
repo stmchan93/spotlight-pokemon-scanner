@@ -302,6 +302,26 @@ export function DesignSystemCatalogScreen({
                   variantName="Holofoil"
                 />
               </View>
+              {/* PSA slab tile — exercises the SlabFrame photo composite in
+                  the same hosting context as the Collection grid. */}
+              <View style={styles.tileSlot}>
+                <InventoryCardTile
+                  cardNumber="4/102"
+                  conditionLabel={null}
+                  gradeLabel="10"
+                  graderLabel="PSA"
+                  imageUrl="https://images.pokemontcg.io/base1/4_hires.png"
+                  isFavorite={false}
+                  kind="slab"
+                  name="Charizard"
+                  onPress={() => {}}
+                  priceLabel="$500.67"
+                  quantity={1}
+                  setName="Base"
+                  testID="catalog-inventory-slab-tile"
+                  variantName={null}
+                />
+              </View>
             </View>
           </View>
         </SurfaceCard>
