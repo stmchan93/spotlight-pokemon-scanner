@@ -136,10 +136,10 @@ def _day_cells(connection: sqlite3.Connection, card_id: str, price_date: str) ->
     # Provider-scoped like the production prefetch (_price_history_cells_by_card_and_date)
     # so a DB carrying a second provider's cells cannot skew the comparison.
     return connection.execute(
-        # ORDER BY rowid = writer order = the JSON blob's entry order — the same
+        # ORDER BY +rowid = writer order = the JSON blob's entry order — the same
         # ordering the product's day-cell readers use (catalog_tools). Without it
         # this harness feeds the resolver index-ordered cells the app never sees.
-        "SELECT * FROM card_price_history_cell WHERE card_id = ? AND price_date = ? AND provider = ? ORDER BY rowid",
+        "SELECT * FROM card_price_history_cell WHERE card_id = ? AND price_date = ? AND provider = ? ORDER BY +rowid",
         (card_id, price_date, pricing_provider()),
     ).fetchall()
 
