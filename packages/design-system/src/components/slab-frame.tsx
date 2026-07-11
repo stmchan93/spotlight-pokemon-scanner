@@ -29,6 +29,12 @@ import { getGraderAsset, psaGradeDescriptor } from './grader-wordmark';
 
 const PSA_TEMPLATE = require('../../assets/slabs/psa-slab-template.png');
 
+// Kill-switch while the composite's on-device layout bug is being reproduced
+// on a simulator (2026-07-11: template rendered unconstrained in Collection
+// tiles). Vector fallback ships meanwhile; flip back after the fix is proven
+// on-device.
+const PSA_TEMPLATE_ENABLED = false;
+
 // Normalized geometry of the template photo (fractions of its 714×1236 size).
 // cardWindow is the transparent cut the card image shows through; the text
 // boxes are the blank label areas the dynamic lines are laid out in.
@@ -270,7 +276,7 @@ export function SlabFrame({
 
   // PSA: the photographic composite. Other graders: the vector frame until
   // they get their own template photos.
-  if (graderKey === 'psa') {
+  if (graderKey === 'psa' && PSA_TEMPLATE_ENABLED) {
     return (
       <PsaTemplateSlab
         cardNumber={cardNumber}
