@@ -37,6 +37,18 @@ rollback paths are listed per phase.
   create + HOLD reservation `show-t2d16` on first success. Friday-evening fallback: run the show
   on t2d-4 (10–12 scanners comfortable) or zone-hop for e2-16.
 
+## Status update (Thu Jul 10, evening) — SHOW-READY 🎪
+
+- ✅ **Prod on t2d-standard-16** (poller grabbed capacity 16:56 after 20 attempts; resize downtime
+  2m54s; reservation released after). **CODE FREEZE in effect until after the show.**
+- ✅ **Soak PASSED**: 18 scanners × 10 min → 1,917 scans, 100% ok, 0 shed, p95 2.12s.
+  Show-mode 100 users @ 40% scanning → 1,037 scans, 100% ok, 0 shed, median 1.74s.
+  Artifact uploads restored ON after the runs.
+- ✅ Staging CUD purchased (active Jul 11); staging box live + isolated; split + prod guardrails
+  shipped; migration cutover deployed to STAGING with ranked resolver + rowid-ordered cell reads;
+  parity harness v3 (with product-identical fetch ordering) running — residual analysis pending.
+- Sunday night: resize prod t2d-16 → t2d-standard-4.
+
 ## Schedule
 
 | Date | Track | Work |
