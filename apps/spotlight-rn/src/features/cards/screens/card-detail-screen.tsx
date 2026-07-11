@@ -508,7 +508,11 @@ export function CardDetailScreen({
     const carriedMatch = carriedLabel
       ? variantOptions.find((option) => option.label.toLowerCase() === carriedLabel.toLowerCase())
       : null;
-    const ownedVariant = selectedEntry?.kind === 'raw' ? selectedEntry.variantName?.trim() : null;
+    // Slabs seed from slabContext.variantName (the print variant the graded
+    // price is keyed by) so a no-op edit save can't drift the identity.
+    const ownedVariant = selectedEntry?.kind === 'raw'
+      ? selectedEntry.variantName?.trim()
+      : ownedSlabContext?.variantName?.trim();
     const variantMatch = ownedVariant
       ? variantOptions.find((option) => option.label.toLowerCase() === ownedVariant.toLowerCase())
       : null;
@@ -518,7 +522,7 @@ export function CardDetailScreen({
     setSelectedVariant(
       carriedMatch?.id ?? variantMatch?.id ?? normalVariant?.id ?? variantOptions[0]?.id ?? null,
     );
-  }, [activeCardId, detail?.cardId, selectedEntry, variantOptions]);
+  }, [activeCardId, detail?.cardId, ownedSlabContext, selectedEntry, variantOptions]);
 
   // Reset the per-lane selection whenever the grader switches so the grade
   // label always reflects the active lane.
@@ -1271,15 +1275,15 @@ export function CardDetailScreen({
       grade: selectedGrade,
       certNumber: ownedSlabContext?.certNumber ?? null,
       // Slab variant must be the PRINT variant the graded price is keyed by.
-      // For an ALREADY-graded entry keep its stored slab variant so a no-op edit
-      // can't change identity_key (that orphaned the cost basis). For a RAW→graded
-      // conversion `ownedSlabContext` is null — do NOT fall back to the raw
-      // variant (e.g. "League Stamp"), which has no graded price and blanks the
-      // slab. Send null so the backend graded resolver falls back to an available
-      // graded variant.
-      variantName: ownedSlabContext?.variantName ?? null,
+      // The configurator IS the edit UI, so save what it shows — its seed is the
+      // stored slab variant, which keeps a no-op edit identity-stable (an
+      // identity change would orphan the cost basis, mitigated by the follow-up
+      // cost-basis write on the new row id). A variant with no graded price is
+      // safe to store: the backend resolver falls back to an available graded
+      // variant instead of blanking.
+      variantName: selectedVariantLabel ?? ownedSlabContext?.variantName ?? null,
     };
-  }, [editIsRaw, ownedSlabContext, selectedGrade, selectedGrader]);
+  }, [editIsRaw, ownedSlabContext, selectedGrade, selectedGrader, selectedVariantLabel]);
 
   const editCostBasisPerUnit = useMemo(() => {
     const cleaned = editCostBasisText.replace(/[^0-9.]/g, '');
