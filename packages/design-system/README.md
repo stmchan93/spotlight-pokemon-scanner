@@ -277,29 +277,32 @@ File: `src/components/slab-frame.tsx`
 
 Use to render a graded card's image inside its slab case (Figma 2609:6812).
 
-PSA renders as a PHOTOGRAPHIC composite (the Figma slab mocks are photos of a
-real slab, not vectors): the card image sits under a bundled photo of an empty
-PSA slab (`assets/slabs/psa-slab-template.png`, transparent card window and
-blanked label), and the label text (set/name/detail lines, `#number`, PSA grade
-descriptor, grade, optional cert) is drawn over the photo's blank label areas.
-Fonts scale with the measured slot height, so it works from the 84×136 list
-thumbnail up to grid tiles.
+PSA, CGC, Beckett/BGS, and TAG render as PHOTOGRAPHIC composites (the Figma
+slab mocks are photos of real slabs, not vectors): the card image sits under a
+bundled photo of that grader's empty slab (`assets/slabs/*-slab-template.png`,
+transparent card window and blanked label), and the label text (set/name/detail
+lines, grade, per-grader grade descriptor like "GEM MT"/"GEM MINT"/"MINT",
+PSA's `#number`, optional cert) is drawn over the photo's blank label areas.
+Fonts scale with the measured slot height, so it works from the 50×80 list
+thumbnail up to grid tiles; wide values auto-shrink instead of truncating.
+Per-grader geometry lives in `SLAB_TEMPLATES` in `slab-frame.tsx`; templates
+are built from straight-on slab photos (BGS subgrades stay blank — we don't
+hold that data).
 
-Other graders keep the vector frame: a light plastic-look case border with the
-grader's label band on top (grader name/wordmark left, grade right).
+Unknown graders keep the vector frame: a light plastic-look case border with
+the grader's label band on top (grader name/wordmark left, grade right).
 
 Current API concepts:
 
-- `grader` — the entry's own grader; `PSA` → the photographic template; others
-  drive the vector label accent (CGC blue, Beckett/BGS silver, TAG black;
-  unknown → neutral gray, never breaks)
-- `grade` — bold on the label's right (PSA also gets the grade descriptor line,
-  e.g. "GEM MT")
-- `certNumber` — optional; PSA label's bottom-right cert line
-- `size`: `sm` (list-row 58×80 thumbnail) or `md` (grid tile) — vector path
-  only; the PSA template path measures itself
-- children = the card image (absolute-fill; it is positioned into the template's
-  card window on the PSA path)
+- `grader` — the entry's own grader; PSA/CGC/BGS ("Beckett")/TAG → their
+  photographic template; unknown → neutral vector frame, never breaks
+- `grade` — the label's grade numeral (+ descriptor line when the grade maps
+  to one)
+- `certNumber` — optional; the label's cert line (graders that print one)
+- `size`: `sm` (list-row thumbnail) or `md` (grid tile) — vector path only;
+  the template path measures itself
+- children = the card image (absolute-fill; it is positioned into the
+  template's card window)
 
 ### GraderWordmark
 

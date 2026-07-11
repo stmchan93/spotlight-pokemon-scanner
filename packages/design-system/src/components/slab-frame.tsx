@@ -9,46 +9,138 @@ import { getGraderAsset, psaGradeDescriptor } from './grader-wordmark';
 /**
  * Slab "case" chrome around a graded card's image.
  *
- * PSA renders as a PHOTOGRAPHIC composite (the Figma slab mocks, e.g.
- * 2609:6977, are photos of real slabs — no vector treatment reads as "real
- * plastic"): the card image sits under a real empty-slab photo whose card
- * window is transparent, so the case's molded corners, well shadow, and label
- * print come from the photograph; only the label TEXT is drawn dynamically.
- * Template built from a straight-on photo of a PSA-slabbed card
- * (tools note: scratchpad build_template.py, geometry below is normalized to
- * that 714×1236 source).
+ * PSA/CGC/BGS/TAG render as PHOTOGRAPHIC composites (the Figma slab mocks,
+ * e.g. 2609:6977, are photos of real slabs — no vector treatment reads as
+ * "real plastic"): the card image sits under a real empty-slab photo whose
+ * card window is transparent, so each case's molded corners, well shadow, and
+ * label print come from the photograph; only the label TEXT is drawn
+ * dynamically over the blanked areas. Templates were built from straight-on
+ * photos of real slabs (scratchpad build_template*.py; the geometry constants
+ * below are normalized to each source photo's size).
  *
- * Other graders keep the vector frame: a label flag in the grader's color
- * with wordmark + info lines. Graders without bundled art get a neutral
- * label with their name — never breaks.
+ * Unknown graders keep the vector frame: a label flag in the grader's color
+ * with wordmark + info lines — never breaks.
  */
 
 // ---------------------------------------------------------------------------
-// PSA photographic template
+// Photographic templates
 // ---------------------------------------------------------------------------
 
-const PSA_TEMPLATE = require('../../assets/slabs/psa-slab-template.png');
+type NormBox = { x: number; y: number; w: number; h: number };
 
-// Normalized geometry of the template photo (fractions of its 714×1236 size).
-// cardWindow is the transparent cut the card image shows through; the text
-// boxes are the blank label areas the dynamic lines are laid out in.
-const T = {
-  cardWindow: { x: 0.098, y: 0.2718, w: 0.8179, h: 0.6594 },
-  cardCornerRadiusFrac: 0.0411, // of window width
-  infoLines: { x: 0.1022, y: 0.0696, w: 0.6611, h: 0.0793 },
-  numberBox: { x: 0.8193, y: 0.0696, w: 0.0966, h: 0.0283 },
-  descriptorBox: { x: 0.7143, y: 0.0979, w: 0.2017, h: 0.0251 },
-  gradeBox: { x: 0.8193, y: 0.123, w: 0.0966, h: 0.0259 },
-  certBox: { x: 0.6653, y: 0.1472, w: 0.2535, h: 0.0275 },
-} as const;
+// A text slot on a template label: where it sits, how it aligns, and its font
+// size as a fraction of the box height.
+type TemplateTextBox = NormBox & {
+  align: 'left' | 'center' | 'right';
+  sizeFactor: number;
+  bold?: boolean;
+};
+
+type SlabTemplateConfig = {
+  source: number;
+  /** Transparent cut the card image shows through. */
+  cardWindow: NormBox;
+  /** Card corner radius as a fraction of the window width. */
+  cardCornerRadiusFrac: number;
+  /** Label text color (near-black on light labels, near-white on TAG). */
+  ink: string;
+  /** Up to three info lines (set / name / detail), stacked on a 3-line pitch. */
+  infoLines: NormBox;
+  /** PSA-style red "#088" collector number (only PSA shows one). */
+  numberBox?: TemplateTextBox;
+  /** Grade descriptor line ("GEM MT", "GEM MINT", "MINT"...). */
+  descriptorBox?: TemplateTextBox;
+  /** The grade numeral. */
+  gradeBox: TemplateTextBox;
+  /** Certification number line. */
+  certBox?: TemplateTextBox;
+  /** Grade → descriptor text; null/undefined hides the descriptor line. */
+  descriptorForGrade: (grade: string) => string | null | undefined;
+};
+
+// Grade descriptor scales (exact-match only; unknown grades show no line).
+const BGS_DESCRIPTORS: Record<string, string> = {
+  '10': 'PRISTINE',
+  '9.5': 'GEM MINT',
+  '9': 'MINT',
+  '8.5': 'NM-MT+',
+  '8': 'NM-MT',
+  '7.5': 'NM+',
+  '7': 'NEAR MINT',
+};
+const CGC_DESCRIPTORS: Record<string, string> = {
+  '10': 'GEM MINT',
+  '9.5': 'MINT+',
+  '9': 'MINT',
+  '8.5': 'NM/MINT+',
+  '8': 'NM/MINT',
+};
+const TAG_DESCRIPTORS: Record<string, string> = {
+  '10': 'GEM MINT',
+  '9.5': 'MINT+',
+  '9': 'MINT',
+  '8': 'NM-MINT',
+  '7': 'NEAR MINT',
+};
+
+const SLAB_TEMPLATES: Record<string, SlabTemplateConfig> = {
+  // 714×1236 source photo.
+  psa: {
+    source: require('../../assets/slabs/psa-slab-template.png'),
+    cardWindow: { x: 0.098, y: 0.2718, w: 0.8179, h: 0.6594 },
+    cardCornerRadiusFrac: 0.0411,
+    ink: '#1A1A1E',
+    infoLines: { x: 0.1022, y: 0.0696, w: 0.6611, h: 0.0793 },
+    numberBox: { x: 0.8193, y: 0.0696, w: 0.0966, h: 0.0283, align: 'right', sizeFactor: 0.85 },
+    descriptorBox: { x: 0.7143, y: 0.0979, w: 0.2017, h: 0.0251, align: 'right', sizeFactor: 0.9 },
+    gradeBox: { x: 0.8193, y: 0.123, w: 0.0966, h: 0.0259, align: 'right', sizeFactor: 1.05, bold: true },
+    certBox: { x: 0.6653, y: 0.1472, w: 0.2535, h: 0.0275, align: 'right', sizeFactor: 0.85 },
+    descriptorForGrade: (grade) => psaGradeDescriptor(grade)?.replace('-', ' '),
+  },
+  // 722×1244 source photo.
+  cgc: {
+    source: require('../../assets/slabs/cgc-slab-template.png'),
+    cardWindow: { x: 0.1136, y: 0.299, w: 0.8006, h: 0.6334 },
+    cardCornerRadiusFrac: 0.0415,
+    ink: '#141416',
+    infoLines: { x: 0.1427, y: 0.1093, w: 0.5014, h: 0.0916 },
+    descriptorBox: { x: 0.6856, y: 0.1125, w: 0.1981, h: 0.0241, align: 'center', sizeFactor: 0.8, bold: true },
+    gradeBox: { x: 0.6856, y: 0.1383, w: 0.1981, h: 0.0563, align: 'center', sizeFactor: 0.95, bold: true },
+    certBox: { x: 0.464, y: 0.2074, w: 0.1801, h: 0.0225, align: 'center', sizeFactor: 0.8 },
+    descriptorForGrade: (grade) => CGC_DESCRIPTORS[grade],
+  },
+  // 754×1202 source photo. Real BGS labels also print per-category subgrades;
+  // we don't have that data, so the subgrade row stays blank gold.
+  bgs: {
+    source: require('../../assets/slabs/bgs-slab-template.png'),
+    cardWindow: { x: 0.1021, y: 0.2313, w: 0.7599, h: 0.6656 },
+    cardCornerRadiusFrac: 0.0401,
+    ink: '#17150E',
+    infoLines: { x: 0.2653, y: 0.0549, w: 0.431, h: 0.0532 },
+    descriptorBox: { x: 0.7507, y: 0.1231, w: 0.1645, h: 0.0166, align: 'center', sizeFactor: 0.85, bold: true },
+    gradeBox: { x: 0.7507, y: 0.0483, w: 0.1645, h: 0.0732, align: 'center', sizeFactor: 0.95, bold: true },
+    certBox: { x: 0.7507, y: 0.1414, w: 0.1645, h: 0.0166, align: 'center', sizeFactor: 0.8 },
+    descriptorForGrade: (grade) => BGS_DESCRIPTORS[grade],
+  },
+  // 462×804 source photo.
+  tag: {
+    source: require('../../assets/slabs/tag-slab-template.png'),
+    cardWindow: { x: 0.0714, y: 0.2711, w: 0.8593, h: 0.6517 },
+    cardCornerRadiusFrac: 0.0403,
+    ink: '#F4F4F6',
+    infoLines: { x: 0.1082, y: 0.107, w: 0.4805, h: 0.0846 },
+    descriptorBox: { x: 0.7576, y: 0.1692, w: 0.1299, h: 0.0249, align: 'center', sizeFactor: 0.8, bold: true },
+    gradeBox: { x: 0.7576, y: 0.0945, w: 0.1299, h: 0.0771, align: 'center', sizeFactor: 0.95, bold: true },
+    descriptorForGrade: (grade) => TAG_DESCRIPTORS[grade],
+  },
+};
+
+// Beckett entries arrive as either "Beckett" or "BGS".
+const TEMPLATE_GRADER_ALIASES: Record<string, string> = { beckett: 'bgs' };
 
 // The card layer is drawn slightly larger than the window so no seam shows;
 // the template's opaque well ring hides the overshoot.
 const WINDOW_BLEED = 0.008;
-
-const LABEL_INK = '#1A1A1E';
-
-type NormBox = { x: number; y: number; w: number; h: number };
 
 function boxStyle(box: NormBox, bleed = 0) {
   return {
@@ -114,12 +206,52 @@ function shortCardNumber(cardNumber: string | null | undefined): string | null {
   return lead ? `#${lead}` : null;
 }
 
+/** One absolutely-positioned label text slot, sized against the slab height. */
+function TemplateText({
+  box,
+  text,
+  ink,
+  fontBasis,
+  testID,
+}: {
+  box: TemplateTextBox;
+  text: string;
+  ink: string;
+  fontBasis: number;
+  testID?: string;
+}) {
+  const fontSize = fontBasis * box.h * box.sizeFactor;
+  const alignItems =
+    box.align === 'left' ? 'flex-start' : box.align === 'right' ? 'flex-end' : 'center';
+  return (
+    <View style={[boxStyle(box), templateStyles.slot, { alignItems }]}>
+      <Text
+        // Wide values ("9.5", long cert numbers) shrink to the box instead of
+        // ellipsizing — the real label never truncates.
+        adjustsFontSizeToFit
+        allowFontScaling={false}
+        minimumFontScale={0.4}
+        numberOfLines={1}
+        style={[
+          templateStyles.slotText,
+          box.bold ? templateStyles.slotTextBold : null,
+          { color: ink, fontSize },
+        ]}
+        testID={testID}
+      >
+        {text}
+      </Text>
+    </View>
+  );
+}
+
 /**
- * The PSA composite: card layer under the transparent-window slab photo,
- * label text drawn over the photo's blanked label areas. Fonts scale with the
- * measured height so the label reads correctly at every slot size.
+ * The photographic composite: card layer under the transparent-window slab
+ * photo, label text drawn over the photo's blanked label areas. Fonts scale
+ * with the measured height so the label reads correctly at every slot size.
  */
-function PsaTemplateSlab({
+function TemplateSlab({
+  template,
   grade,
   title,
   setLine,
@@ -128,7 +260,7 @@ function PsaTemplateSlab({
   certNumber,
   children,
   testID,
-}: Omit<SlabFrameProps, 'grader' | 'size'>) {
+}: Omit<SlabFrameProps, 'grader' | 'size'> & { template: SlabTemplateConfig }) {
   const [height, setHeight] = useState(0);
   const [width, setWidth] = useState(0);
   const onLayout = useCallback((event: LayoutChangeEvent) => {
@@ -137,7 +269,7 @@ function PsaTemplateSlab({
   }, []);
 
   const gradeText = (grade ?? '').trim();
-  const descriptor = gradeText ? psaGradeDescriptor(gradeText)?.replace('-', ' ') : null;
+  const descriptor = gradeText ? template.descriptorForGrade(gradeText) : null;
   const numberText = shortCardNumber(cardNumber);
   const certText = (certNumber ?? '').trim();
   const infoLines = [
@@ -146,26 +278,26 @@ function PsaTemplateSlab({
     (detailLine ?? '').trim().toUpperCase(),
   ].filter(Boolean);
 
-  // Font sizing from the measured height (fractions match the template photo's
-  // own label typography). Before the first layout pass a nominal md-tile
-  // height sizes the text so nothing pops in.
+  // Font sizing from the measured height (fractions match each template
+  // photo's own label typography). Before the first layout pass a nominal
+  // md-tile height sizes the text so nothing pops in.
   const fontBasis = height > 0 ? height : 240;
-  const infoFont = fontBasis * 0.0217;
-  const rightColFonts = {
-    number: fontBasis * 0.024,
-    descriptor: fontBasis * 0.0226,
-    grade: fontBasis * 0.0272,
-    cert: fontBasis * 0.0234,
-  };
+  // Line pitch = the label's 3-line grid, so 2-line labels stack like the
+  // real print instead of spreading.
+  const infoPitch = (fontBasis * template.infoLines.h) / 3;
+  const infoFont = infoPitch * 0.82;
 
   return (
-    <View onLayout={onLayout} style={psaTemplateStyles.root} testID={testID}>
+    <View onLayout={onLayout} style={templateStyles.root} testID={testID}>
       {/* Card layer, under the template; bleed hides under the well ring. */}
       <View
         style={[
-          boxStyle(T.cardWindow, WINDOW_BLEED),
+          boxStyle(template.cardWindow, WINDOW_BLEED),
           {
-            borderRadius: Math.max(2, width * T.cardWindow.w * T.cardCornerRadiusFrac),
+            borderRadius: Math.max(
+              2,
+              width * template.cardWindow.w * template.cardCornerRadiusFrac,
+            ),
             overflow: 'hidden',
           },
         ]}
@@ -176,85 +308,45 @@ function PsaTemplateSlab({
       {/* The slab photo: molded case, well shadow, label print. */}
       <Image
         resizeMode="stretch"
-        source={PSA_TEMPLATE}
-        style={psaTemplateStyles.template}
+        source={template.source}
+        style={templateStyles.template}
         testID={testID ? `${testID}-template` : undefined}
       />
 
       {/* Label text over the photo's blanked areas. */}
-      <>
-        <View style={[boxStyle(T.infoLines), psaTemplateStyles.infoColumn]}>
-            {infoLines.map((line, index) => (
-              <Text
-                allowFontScaling={false}
-                key={`${index}-${line}`}
-                numberOfLines={1}
-                style={[
-                  psaTemplateStyles.infoLine,
-                  // Line pitch = the label's 3-line grid, so 2-line labels
-                  // stack like the real print instead of spreading.
-                  { fontSize: infoFont, lineHeight: fontBasis * 0.0264 },
-                ]}
-              >
-                {line}
-              </Text>
-            ))}
-          </View>
-          {numberText ? (
-            <Text
-              allowFontScaling={false}
-              numberOfLines={1}
-              style={[
-                boxStyle(T.numberBox),
-                psaTemplateStyles.rightText,
-                { fontSize: rightColFonts.number, lineHeight: rightColFonts.number * 1.15 },
-              ]}
-            >
-              {numberText}
-            </Text>
-          ) : null}
-          {descriptor ? (
-            <Text
-              allowFontScaling={false}
-              numberOfLines={1}
-              style={[
-                boxStyle(T.descriptorBox),
-                psaTemplateStyles.rightText,
-                { fontSize: rightColFonts.descriptor, lineHeight: rightColFonts.descriptor * 1.1 },
-              ]}
-            >
-              {descriptor}
-            </Text>
-          ) : null}
-          {gradeText ? (
-            <Text
-              allowFontScaling={false}
-              numberOfLines={1}
-              style={[
-                boxStyle(T.gradeBox),
-                psaTemplateStyles.rightText,
-                psaTemplateStyles.gradeBold,
-                { fontSize: rightColFonts.grade, lineHeight: rightColFonts.grade * 1.1 },
-              ]}
-              testID={testID ? `${testID}-grade` : undefined}
-            >
-              {gradeText}
-            </Text>
-          ) : null}
-          {certText ? (
-            <Text
-              allowFontScaling={false}
-              numberOfLines={1}
-              style={[
-                boxStyle(T.certBox),
-                psaTemplateStyles.rightText,
-                { fontSize: rightColFonts.cert, lineHeight: rightColFonts.cert * 1.15 },
-              ]}
-            >
-              {certText}
-            </Text>
-          ) : null}
-      </>
+      <View style={[boxStyle(template.infoLines), templateStyles.infoColumn]}>
+        {infoLines.map((line, index) => (
+          <Text
+            allowFontScaling={false}
+            key={`${index}-${line}`}
+            numberOfLines={1}
+            style={[
+              templateStyles.infoLine,
+              { color: template.ink, fontSize: infoFont, lineHeight: infoPitch },
+            ]}
+          >
+            {line}
+          </Text>
+        ))}
+      </View>
+      {template.numberBox && numberText ? (
+        <TemplateText box={template.numberBox} fontBasis={fontBasis} ink={template.ink} text={numberText} />
+      ) : null}
+      {template.descriptorBox && descriptor ? (
+        <TemplateText box={template.descriptorBox} fontBasis={fontBasis} ink={template.ink} text={descriptor} />
+      ) : null}
+      {gradeText ? (
+        <TemplateText
+          box={template.gradeBox}
+          fontBasis={fontBasis}
+          ink={template.ink}
+          testID={testID ? `${testID}-grade` : undefined}
+          text={gradeText}
+        />
+      ) : null}
+      {template.certBox && certText ? (
+        <TemplateText box={template.certBox} fontBasis={fontBasis} ink={template.ink} text={certText} />
+      ) : null}
     </View>
   );
 }
@@ -273,21 +365,22 @@ export function SlabFrame({
 }: SlabFrameProps) {
   const graderKey = grader.trim().toLowerCase();
 
-  // PSA: the photographic composite. Other graders: the vector frame until
-  // they get their own template photos.
-  if (graderKey === 'psa') {
+  // Known graders: the photographic composite. Unknown ones: the vector frame.
+  const template = SLAB_TEMPLATES[TEMPLATE_GRADER_ALIASES[graderKey] ?? graderKey];
+  if (template) {
     return (
-      <PsaTemplateSlab
+      <TemplateSlab
         cardNumber={cardNumber}
         certNumber={certNumber}
         detailLine={detailLine}
         grade={grade}
         setLine={setLine}
+        template={template}
         testID={testID}
         title={title}
       >
         {children}
-      </PsaTemplateSlab>
+      </TemplateSlab>
     );
   }
 
@@ -382,25 +475,25 @@ export function SlabFrame({
   );
 }
 
-const psaTemplateStyles = StyleSheet.create({
-  gradeBold: {
-    fontFamily: fontFamilies.bodyBold,
-  },
+const templateStyles = StyleSheet.create({
   infoColumn: {
     justifyContent: 'flex-start',
   },
   infoLine: {
-    color: LABEL_INK,
     fontFamily: fontFamilies.bodyMedium,
     letterSpacing: 0.1,
   },
-  rightText: {
-    color: LABEL_INK,
-    fontFamily: fontFamilies.bodyMedium,
-    textAlign: 'right',
-  },
   root: {
     flex: 1,
+  },
+  slot: {
+    justifyContent: 'center',
+  },
+  slotText: {
+    fontFamily: fontFamilies.bodyMedium,
+  },
+  slotTextBold: {
+    fontFamily: fontFamilies.bodyBold,
   },
   // NOT StyleSheet.absoluteFill: right/bottom insets resolve to the image's
   // intrinsic size under the grid tile's aspectRatio-derived parents (the
