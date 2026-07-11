@@ -1,21 +1,68 @@
 import type { ReactNode } from 'react';
+import { useCallback, useState } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
-import Svg, { Circle, Ellipse } from 'react-native-svg';
+import type { LayoutChangeEvent } from 'react-native';
 
 import { colors, fontFamilies } from '../tokens';
 import { getGraderAsset, psaGradeDescriptor } from './grader-wordmark';
 
 /**
- * Slab "case" chrome around a graded card's image (Figma 2609:14258 + the
- * real-label reference photo): the card sits inside its grading slab with an
- * authentic-looking label flag on top. For PSA that means the real anatomy —
- * red-framed white label with the iconic red rosette PSA seal at the left, the
- * card-info lines ("2024 POKEMON SV5K JP / GENGAR ex / SUPER RARE") in the
- * middle, and the red #number over "GEM MT" over the bold grade at right.
+ * Slab "case" chrome around a graded card's image.
  *
- * Branding is keyed by THIS entry's grader; graders without bundled art get a
- * neutral label with their name — never breaks.
+ * PSA renders as a PHOTOGRAPHIC composite (the Figma slab mocks, e.g.
+ * 2609:6977, are photos of real slabs — no vector treatment reads as "real
+ * plastic"): the card image sits under a real empty-slab photo whose card
+ * window is transparent, so the case's molded corners, well shadow, and label
+ * print come from the photograph; only the label TEXT is drawn dynamically.
+ * Template built from a straight-on photo of a PSA-slabbed card
+ * (tools note: scratchpad build_template.py, geometry below is normalized to
+ * that 714×1236 source).
+ *
+ * Other graders keep the vector frame: a label flag in the grader's color
+ * with wordmark + info lines. Graders without bundled art get a neutral
+ * label with their name — never breaks.
  */
+
+// ---------------------------------------------------------------------------
+// PSA photographic template
+// ---------------------------------------------------------------------------
+
+const PSA_TEMPLATE = require('../../assets/slabs/psa-slab-template.png');
+
+// Normalized geometry of the template photo (fractions of its 714×1236 size).
+// cardWindow is the transparent cut the card image shows through; the text
+// boxes are the blank label areas the dynamic lines are laid out in.
+const T = {
+  cardWindow: { x: 0.098, y: 0.2718, w: 0.8179, h: 0.6594 },
+  cardCornerRadiusFrac: 0.0411, // of window width
+  infoLines: { x: 0.1022, y: 0.0696, w: 0.6611, h: 0.0793 },
+  numberBox: { x: 0.8193, y: 0.0696, w: 0.0966, h: 0.0283 },
+  descriptorBox: { x: 0.7143, y: 0.0979, w: 0.2017, h: 0.0251 },
+  gradeBox: { x: 0.8193, y: 0.123, w: 0.0966, h: 0.0259 },
+  certBox: { x: 0.6653, y: 0.1472, w: 0.2535, h: 0.0275 },
+} as const;
+
+// The card layer is drawn slightly larger than the window so no seam shows;
+// the template's opaque well ring hides the overshoot.
+const WINDOW_BLEED = 0.008;
+
+const LABEL_INK = '#1A1A1E';
+
+type NormBox = { x: number; y: number; w: number; h: number };
+
+function boxStyle(box: NormBox, bleed = 0) {
+  return {
+    height: `${(box.h + bleed * 2) * 100}%` as const,
+    left: `${(box.x - bleed) * 100}%` as const,
+    position: 'absolute' as const,
+    top: `${(box.y - bleed) * 100}%` as const,
+    width: `${(box.w + bleed * 2) * 100}%` as const,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Vector fallback (non-PSA graders)
+// ---------------------------------------------------------------------------
 
 type SlabLabelStyle = {
   border: string; // the label's frame color (PSA red, CGC blue, …)
@@ -37,57 +84,6 @@ const NEUTRAL_LABEL: SlabLabelStyle = { border: '#BEBEBE', accent: '#1A1A1A' };
 
 export type SlabFrameSize = 'sm' | 'md';
 
-// The guilloché rosette angles (rotated ellipses) that make the PSA seal read
-// as the real spirograph mark rather than a flat red box. viewBox is 0..100.
-const SEAL_ROSETTE_ANGLES = Array.from({ length: 15 }, (_, i) => (180 / 15) * i);
-
-/**
- * The iconic red PSA seal from a real slab label: a red rounded square with the
- * guilloché rosette + white center dot, and the white "PSA" wordmark tucked at
- * the bottom-middle. The rosette is drawn as vectors (react-native-svg) so it
- * stays crisp at any thumbnail size; "PSA" is real text for a clean baseline.
- */
-function PsaSeal({ size, testID }: { size: number; testID?: string }) {
-  return (
-    <View
-      style={[
-        psaSealStyles.seal,
-        { borderRadius: Math.max(2, size * 0.15), height: size, width: size },
-      ]}
-      testID={testID}
-    >
-      <Svg height="100%" style={StyleSheet.absoluteFill} viewBox="0 0 100 100" width="100%">
-        {SEAL_ROSETTE_ANGLES.map((angle) => (
-          <Ellipse
-            key={angle}
-            cx={50}
-            cy={42}
-            fill="none"
-            origin="50, 42"
-            rotation={angle}
-            rx={40}
-            ry={15}
-            stroke="#ffffff"
-            strokeOpacity={0.3}
-            strokeWidth={0.7}
-          />
-        ))}
-        <Circle cx={50} cy={42} fill="none" r={29} stroke="#ffffff" strokeOpacity={0.32} strokeWidth={0.7} />
-        <Circle cx={50} cy={42} fill="#ffffff" fillOpacity={0.92} r={11.5} />
-      </Svg>
-      <Text
-        allowFontScaling={false}
-        style={[
-          psaSealStyles.text,
-          { bottom: size * 0.1, fontSize: size * 0.26, lineHeight: size * 0.3 },
-        ]}
-      >
-        PSA
-      </Text>
-    </View>
-  );
-}
-
 type SlabFrameProps = {
   /** The entry's own grader — drives the label branding. */
   grader: string;
@@ -100,6 +96,8 @@ type SlabFrameProps = {
   detailLine?: string | null;
   /** Collector number; rendered as the red "#088"-style number. */
   cardNumber?: string | null;
+  /** Certification number — the label's bottom-right line when known. */
+  certNumber?: string | null;
   /**
    * sm = list-row thumbnail (the 84×136 slab slot). md = grid tile.
    */
@@ -116,6 +114,146 @@ function shortCardNumber(cardNumber: string | null | undefined): string | null {
   return lead ? `#${lead}` : null;
 }
 
+/**
+ * The PSA composite: card layer under the transparent-window slab photo,
+ * label text drawn over the photo's blanked label areas. Fonts scale with the
+ * measured height so the label reads correctly at every slot size.
+ */
+function PsaTemplateSlab({
+  grade,
+  title,
+  setLine,
+  detailLine,
+  cardNumber,
+  certNumber,
+  children,
+  testID,
+}: Omit<SlabFrameProps, 'grader' | 'size'>) {
+  const [height, setHeight] = useState(0);
+  const [width, setWidth] = useState(0);
+  const onLayout = useCallback((event: LayoutChangeEvent) => {
+    setHeight(event.nativeEvent.layout.height);
+    setWidth(event.nativeEvent.layout.width);
+  }, []);
+
+  const gradeText = (grade ?? '').trim();
+  const descriptor = gradeText ? psaGradeDescriptor(gradeText)?.replace('-', ' ') : null;
+  const numberText = shortCardNumber(cardNumber);
+  const certText = (certNumber ?? '').trim();
+  const infoLines = [
+    (setLine ?? '').trim().toUpperCase(),
+    (title ?? '').trim().toUpperCase(),
+    (detailLine ?? '').trim().toUpperCase(),
+  ].filter(Boolean);
+
+  // Font sizing from the measured height (fractions match the template photo's
+  // own label typography). Before the first layout pass a nominal md-tile
+  // height sizes the text so nothing pops in.
+  const fontBasis = height > 0 ? height : 240;
+  const infoFont = fontBasis * 0.0217;
+  const rightColFonts = {
+    number: fontBasis * 0.024,
+    descriptor: fontBasis * 0.0226,
+    grade: fontBasis * 0.0272,
+    cert: fontBasis * 0.0234,
+  };
+
+  return (
+    <View onLayout={onLayout} style={psaTemplateStyles.root} testID={testID}>
+      {/* Card layer, under the template; bleed hides under the well ring. */}
+      <View
+        style={[
+          boxStyle(T.cardWindow, WINDOW_BLEED),
+          {
+            borderRadius: Math.max(2, width * T.cardWindow.w * T.cardCornerRadiusFrac),
+            overflow: 'hidden',
+          },
+        ]}
+      >
+        {children}
+      </View>
+
+      {/* The slab photo: molded case, well shadow, label print. */}
+      <Image
+        resizeMode="stretch"
+        source={PSA_TEMPLATE}
+        style={StyleSheet.absoluteFill}
+        testID={testID ? `${testID}-template` : undefined}
+      />
+
+      {/* Label text over the photo's blanked areas. */}
+      <>
+        <View style={[boxStyle(T.infoLines), psaTemplateStyles.infoColumn]}>
+            {infoLines.map((line, index) => (
+              <Text
+                allowFontScaling={false}
+                key={`${index}-${line}`}
+                numberOfLines={1}
+                style={[psaTemplateStyles.infoLine, { fontSize: infoFont, lineHeight: infoFont * 1.22 }]}
+              >
+                {line}
+              </Text>
+            ))}
+          </View>
+          {numberText ? (
+            <Text
+              allowFontScaling={false}
+              numberOfLines={1}
+              style={[
+                boxStyle(T.numberBox),
+                psaTemplateStyles.rightText,
+                { fontSize: rightColFonts.number, lineHeight: rightColFonts.number * 1.15 },
+              ]}
+            >
+              {numberText}
+            </Text>
+          ) : null}
+          {descriptor ? (
+            <Text
+              allowFontScaling={false}
+              numberOfLines={1}
+              style={[
+                boxStyle(T.descriptorBox),
+                psaTemplateStyles.rightText,
+                { fontSize: rightColFonts.descriptor, lineHeight: rightColFonts.descriptor * 1.1 },
+              ]}
+            >
+              {descriptor}
+            </Text>
+          ) : null}
+          {gradeText ? (
+            <Text
+              allowFontScaling={false}
+              numberOfLines={1}
+              style={[
+                boxStyle(T.gradeBox),
+                psaTemplateStyles.rightText,
+                psaTemplateStyles.gradeBold,
+                { fontSize: rightColFonts.grade, lineHeight: rightColFonts.grade * 1.1 },
+              ]}
+              testID={testID ? `${testID}-grade` : undefined}
+            >
+              {gradeText}
+            </Text>
+          ) : null}
+          {certText ? (
+            <Text
+              allowFontScaling={false}
+              numberOfLines={1}
+              style={[
+                boxStyle(T.certBox),
+                psaTemplateStyles.rightText,
+                { fontSize: rightColFonts.cert, lineHeight: rightColFonts.cert * 1.15 },
+              ]}
+            >
+              {certText}
+            </Text>
+          ) : null}
+      </>
+    </View>
+  );
+}
+
 export function SlabFrame({
   grader,
   grade,
@@ -123,21 +261,35 @@ export function SlabFrame({
   setLine,
   detailLine,
   cardNumber,
+  certNumber,
   size = 'md',
   children,
   testID,
 }: SlabFrameProps) {
   const graderKey = grader.trim().toLowerCase();
+
+  // PSA: the photographic composite. Other graders: the vector frame until
+  // they get their own template photos.
+  if (graderKey === 'psa') {
+    return (
+      <PsaTemplateSlab
+        cardNumber={cardNumber}
+        certNumber={certNumber}
+        detailLine={detailLine}
+        grade={grade}
+        setLine={setLine}
+        testID={testID}
+        title={title}
+      >
+        {children}
+      </PsaTemplateSlab>
+    );
+  }
+
   const label = SLAB_LABEL_STYLES[graderKey] ?? NEUTRAL_LABEL;
   const asset = getGraderAsset(grader);
   const gradeText = (grade ?? '').trim();
   const isSmall = size === 'sm';
-  const isPsa = graderKey === 'psa';
-  // The red PSA seal sits at the label's left edge, like a real slab.
-  const sealSize = isSmall ? 17 : 24;
-  const descriptor = graderKey === 'psa' && gradeText
-    ? psaGradeDescriptor(gradeText)?.replace('-', ' ')
-    : null;
   const numberText = shortCardNumber(cardNumber);
   const infoLines = [
     (setLine ?? '').trim().toUpperCase(),
@@ -156,11 +308,6 @@ export function SlabFrame({
         ]}
         testID={testID ? `${testID}-label` : undefined}
       >
-        {/* Left: the iconic red PSA seal, at the label's edge like a real slab. */}
-        {isPsa ? (
-          <PsaSeal size={sealSize} testID={testID ? `${testID}-seal` : undefined} />
-        ) : null}
-
         {/* Card-info lines (set / name / rarity), like the real label. */}
         <View style={styles.infoColumn}>
           {infoLines.length > 0 ? (
@@ -181,9 +328,7 @@ export function SlabFrame({
               {grader.trim().toUpperCase()}
             </Text>
           )}
-          {/* Non-PSA graders keep their wordmark tucked under the info text; PSA
-              uses the red seal on the left instead. */}
-          {!isPsa && asset ? (
+          {asset ? (
             <Image
               accessibilityLabel={grader}
               resizeMode="contain"
@@ -197,7 +342,7 @@ export function SlabFrame({
           ) : null}
         </View>
 
-        {/* Right: red #number over the grade descriptor over the bold grade. */}
+        {/* Right: #number over the grade. */}
         <View style={styles.gradeColumn}>
           {numberText ? (
             <Text
@@ -209,14 +354,6 @@ export function SlabFrame({
               ]}
             >
               {numberText}
-            </Text>
-          ) : null}
-          {descriptor ? (
-            <Text
-              numberOfLines={1}
-              style={[styles.descriptor, isSmall ? styles.descriptorSmall : null]}
-            >
-              {descriptor}
             </Text>
           ) : null}
           {gradeText ? (
@@ -239,6 +376,28 @@ export function SlabFrame({
     </View>
   );
 }
+
+const psaTemplateStyles = StyleSheet.create({
+  gradeBold: {
+    fontFamily: fontFamilies.bodyBold,
+  },
+  infoColumn: {
+    justifyContent: 'space-between',
+  },
+  infoLine: {
+    color: LABEL_INK,
+    fontFamily: fontFamilies.bodyMedium,
+    letterSpacing: 0.1,
+  },
+  rightText: {
+    color: LABEL_INK,
+    fontFamily: fontFamilies.bodyMedium,
+    textAlign: 'right',
+  },
+  root: {
+    flex: 1,
+  },
+});
 
 const styles = StyleSheet.create({
   body: {
@@ -267,19 +426,6 @@ const styles = StyleSheet.create({
   caseSmall: {
     borderRadius: 4,
     padding: 2,
-  },
-  descriptor: {
-    color: colors.gray900,
-    fontFamily: fontFamilies.bodyMedium,
-    fontSize: 6.5,
-    letterSpacing: 0.2,
-    lineHeight: 8,
-    textAlign: 'right',
-  },
-  descriptorSmall: {
-    fontSize: 4.5,
-    letterSpacing: 0.1,
-    lineHeight: 5.5,
   },
   gradeColumn: {
     alignItems: 'flex-end',
@@ -348,22 +494,5 @@ const styles = StyleSheet.create({
   numberTextSmall: {
     fontSize: 4.5,
     lineHeight: 5.5,
-  },
-});
-
-// The red PSA seal (rosette drawn as SVG, "PSA" overlaid as text at the bottom).
-const psaSealStyles = StyleSheet.create({
-  seal: {
-    alignItems: 'center',
-    backgroundColor: PSA_RED,
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  text: {
-    color: colors.gray0,
-    fontFamily: fontFamilies.bodyBold,
-    letterSpacing: 0.3,
-    position: 'absolute',
-    textAlign: 'center',
   },
 });

@@ -275,17 +275,31 @@ Current API concepts:
 
 File: `src/components/slab-frame.tsx`
 
-Use to render a graded card's image inside its slab case (Figma 2609:6812):
-a light plastic-look case border with the grader's label band on top (grader
-name / PSA descriptor left, grade right), the card art below.
+Use to render a graded card's image inside its slab case (Figma 2609:6812).
+
+PSA renders as a PHOTOGRAPHIC composite (the Figma slab mocks are photos of a
+real slab, not vectors): the card image sits under a bundled photo of an empty
+PSA slab (`assets/slabs/psa-slab-template.png`, transparent card window and
+blanked label), and the label text (set/name/detail lines, `#number`, PSA grade
+descriptor, grade, optional cert) is drawn over the photo's blank label areas.
+Fonts scale with the measured slot height, so it works from the 84×136 list
+thumbnail up to grid tiles.
+
+Other graders keep the vector frame: a light plastic-look case border with the
+grader's label band on top (grader name/wordmark left, grade right).
 
 Current API concepts:
 
-- `grader` — the entry's own grader; drives the label accent (PSA red, CGC
-  blue, Beckett/BGS silver, TAG black; unknown → neutral gray, never breaks)
-- `grade` — shown bold on the label's right
-- `size`: `sm` (list-row 58×80 thumbnail) or `md` (grid tile)
-- children = the card image
+- `grader` — the entry's own grader; `PSA` → the photographic template; others
+  drive the vector label accent (CGC blue, Beckett/BGS silver, TAG black;
+  unknown → neutral gray, never breaks)
+- `grade` — bold on the label's right (PSA also gets the grade descriptor line,
+  e.g. "GEM MT")
+- `certNumber` — optional; PSA label's bottom-right cert line
+- `size`: `sm` (list-row 58×80 thumbnail) or `md` (grid tile) — vector path
+  only; the PSA template path measures itself
+- children = the card image (absolute-fill; it is positioned into the template's
+  card window on the PSA path)
 
 ### GraderWordmark
 
@@ -342,7 +356,10 @@ Current API concepts:
   real aspect ratio; "CARD" placeholder when null)
 - `name`, `setName` + `cardNumber` (joined as `"{cardNumber} · {setName}"`)
 - `kind` (`'raw' | 'slab'`) with `variantName`, and `conditionLabel` (raw) or
-  `graderLabel` + `gradeLabel` (slab) building the quality lines
+  `graderLabel` + `gradeLabel` (slab) building the quality lines;
+  `showQualityLine={false}` hides just the condition/grade TEXT while keeping
+  the slab-case thumbnail frame (Wishlist, where copy-specific condition isn't
+  shown)
 - `priceLabel` (14 Bold; no day-change delta — removed per Figma 2489:6459)
 - `quantity` readout at the right edge of the price row (count + box icon);
   `showQuantity={false}` hides it for surfaces with no owned-quantity concept
