@@ -976,7 +976,7 @@ describe('CardDetailScreen', () => {
     await waitFor(() => expect(onBack).toHaveBeenCalled());
   });
 
-  it('Raw→Graded conversion sends slabContext.variantName null (does not carry the raw variant)', async () => {
+  it('Raw→Graded conversion carries the raw print variant onto the slab (per-printing pricing)', async () => {
     // A raw owned entry carries a raw print variant (here "Normal"; in the wild a
     // raw-only stamp like "League Stamp"). When the user switches the grader to
     // PSA, the raw variant must NOT be stamped onto the graded slab: graded
@@ -1045,15 +1045,16 @@ describe('CardDetailScreen', () => {
     fireEvent.press(await screen.findByTestId('detail-save-edit'));
 
     await waitFor(() => expect(replacePortfolioEntry).toHaveBeenCalledTimes(1));
-    // The slab is graded (PSA 10) and — the core assertion — the raw variant
-    // ("Normal") is NOT carried onto it: variantName is null so the backend
-    // graded resolver can fall back to an available graded variant.
+    // The slab is graded (PSA 10) and — the core assertion — CARRIES the raw
+    // print variant ("Normal") onto the slab so graded pricing stays
+    // per-printing (a Normal PSA 10 ≠ Reverse Holo PSA 10). The backend graded
+    // resolver falls back only if the label has no matching graded printing.
     expect(replacePortfolioEntry).toHaveBeenCalledWith(
       expect.objectContaining({
         slabContext: expect.objectContaining({
           grader: 'PSA',
           grade: '10',
-          variantName: null,
+          variantName: 'Normal',
         }),
       }),
     );

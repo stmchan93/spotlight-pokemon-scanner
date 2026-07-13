@@ -51,10 +51,13 @@ describe('CardListRow slab frame', () => {
     expect(screen.queryByTestId('row-grader-mark')).toBeNull();
   });
 
-  it('grader-correct: CGC slab frame never shows the PSA descriptor', () => {
+  it('grader-correct: CGC slab frame shows CGC\'s descriptor, not PSA\'s', () => {
     render(<CardListRow {...base} grader="CGC" grade="10" gradeLabel="CGC 10" testID="row" />);
     expect(screen.getByTestId('row-slab-frame')).toBeTruthy();
-    expect(screen.queryByText(/GEM/)).toBeNull();
+    // CGC 10's own descriptor is "GEM MINT"; PSA 10's is "GEM MT". The frame
+    // reads from the grader-specific map, so it shows CGC's, never PSA's.
+    expect(screen.getByText('GEM MINT')).toBeTruthy();
+    expect(screen.queryByText('GEM MT')).toBeNull();
     expect(screen.getByText('CGC 10')).toBeTruthy();
   });
 
