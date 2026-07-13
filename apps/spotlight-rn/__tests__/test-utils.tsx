@@ -76,6 +76,10 @@ export function createTestSpotlightRepository(
       return overrides.searchCatalogCards?.(...args)
         ?? baseRepository.searchCatalogCards(...args);
     },
+    searchCatalogCardsPage: (...args) => {
+      return overrides.searchCatalogCardsPage?.(...args)
+        ?? baseRepository.searchCatalogCardsPage(...args);
+    },
     matchScannerCapture: (...args) => {
       return overrides.matchScannerCapture?.(...args)
         ?? baseRepository.matchScannerCapture(...args);

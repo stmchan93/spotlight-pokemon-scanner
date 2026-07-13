@@ -157,6 +157,40 @@ class ManualCardSearchTests(unittest.TestCase):
         self.assertGreater(len(payload["results"]), 0)
         self.assertEqual(payload["results"][0]["id"], "base-charizard-4")
 
+    def test_artist_search_paginates_through_all_matches_without_overlap(self) -> None:
+        # All 128 seeded cards share artist "Test Artist"; searching that artist
+        # must page through ALL of them — including late-alphabet cards the old
+        # ~100 result cap silently truncated (the Kagemaru → Sudowoodo bug).
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        page_size = 30
+        seen_ids: list[str] = []
+        offset = 0
+        pages = 0
+        while True:
+            payload = service.search("test", limit=page_size, offset=offset)
+            self.assertIn("hasMore", payload)
+            results = payload["results"]
+            self.assertLessEqual(len(results), page_size)
+            seen_ids.extend(str(card["id"]) for card in results)
+            pages += 1
+            if not payload["hasMore"]:
+                break
+            offset += page_size
+            self.assertLess(pages, 20)  # safety: must terminate
+
+        # No card appears on two pages, and every "Test Artist" card is reachable.
+        self.assertEqual(len(seen_ids), len(set(seen_ids)), "pages overlapped")
+        self.assertGreaterEqual(len(seen_ids), 128)
+        # A late-alphabet card past the old 100 cap now surfaces via pagination.
+        self.assertIn("pikachu-120", seen_ids)
+
+    def test_search_hasMore_false_on_last_page_of_small_result_set(self) -> None:
+        # "charizard" matches only a handful of cards → single page, hasMore False.
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        payload = service.search("charizard", limit=30, offset=0)
+        self.assertFalse(payload["hasMore"])
+        self.assertGreater(len(payload["results"]), 0)
+
     def test_search_prefers_set_match_for_multitoken_queries(self) -> None:
         results = search_cards(self.connection, "base set charizard", limit=10)
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -17,6 +17,11 @@ import { ChromeBackButton } from '@/components/chrome-back-button';
 import { ExpansionCell } from '@/features/catalog/components/expansion-cell';
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
 import { useAppServices } from '@/providers/app-providers';
+
+// Results load a page at a time as the user scrolls (infinite scroll), so an
+// artist search surfaces ALL of a prolific illustrator's cards, not just the
+// first page.
+const CATALOG_PAGE_SIZE = 30;
 
 type CatalogSearchScreenProps = {
   initialQuery?: string;
@@ -182,6 +187,11 @@ export function CatalogSearchScreen({
   const [errorMessage, setErrorMessage] = useState('');
   const [searchRevision, setSearchRevision] = useState(0);
   const [openingResultId, setOpeningResultId] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  // The query the current results belong to — guards against a late "load more"
+  // response from a previous query being appended after the query changed.
+  const activeQueryRef = useRef('');
   const openingResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Browse grid: every expansion, shown when the search box is empty so users
@@ -237,6 +247,9 @@ export function CatalogSearchScreen({
       setIsLoading(false);
       setErrorMessage('');
       setOpeningResultId(null);
+      setHasMore(false);
+      setIsLoadingMore(false);
+      activeQueryRef.current = '';
       return;
     }
 
@@ -247,13 +260,17 @@ export function CatalogSearchScreen({
     const timeout = setTimeout(() => {
       setIsLoading(true);
 
-      void spotlightRepository.searchCatalogCards(trimmed, 50)
-        .then((nextResults) => {
+      // First page: replace results. Later pages append via loadMore below.
+      void spotlightRepository.searchCatalogCardsPage(trimmed, CATALOG_PAGE_SIZE, 0)
+        .then((page) => {
           if (isCancelled) {
             return;
           }
 
-          setResults(nextResults);
+          activeQueryRef.current = trimmed;
+          setResults(page.cards);
+          setHasMore(page.hasMore);
+          setIsLoadingMore(false);
           setHasSearched(true);
           setIsLoading(false);
           setOpeningResultId(null);
@@ -264,6 +281,8 @@ export function CatalogSearchScreen({
           }
 
           setResults([]);
+          setHasMore(false);
+          setIsLoadingMore(false);
           setHasSearched(true);
           setIsLoading(false);
           setErrorMessage('Search unavailable right now. Try again in a moment.');
@@ -292,6 +311,36 @@ export function CatalogSearchScreen({
       openingResetTimerRef.current = null;
     }, 350);
   };
+
+  const loadMore = useCallback(() => {
+    const trimmed = query.trim();
+    if (trimmed.length < 2 || isLoading || isLoadingMore || !hasMore) {
+      return;
+    }
+    setIsLoadingMore(true);
+    const offset = results.length;
+    void spotlightRepository.searchCatalogCardsPage(trimmed, CATALOG_PAGE_SIZE, offset)
+      .then((page) => {
+        // Drop the page if the query changed while it was in flight.
+        if (activeQueryRef.current !== trimmed) {
+          return;
+        }
+        setResults((previous) => {
+          const seen = new Set(previous.map((item) => item.id));
+          return [...previous, ...page.cards.filter((card) => !seen.has(card.id))];
+        });
+        setHasMore(page.hasMore);
+        setIsLoadingMore(false);
+      })
+      .catch(() => {
+        if (activeQueryRef.current !== trimmed) {
+          return;
+        }
+        // Stop paginating on error; the loaded results stay visible.
+        setHasMore(false);
+        setIsLoadingMore(false);
+      });
+  }, [query, isLoading, isLoadingMore, hasMore, results.length, spotlightRepository]);
 
   const renderBody = () => {
     // Search mode: the box has a real query, so show card matches / states.
@@ -344,6 +393,14 @@ export function CatalogSearchScreen({
             key="results"
             keyExtractor={(item) => item.id}
             keyboardShouldPersistTaps="handled"
+            ListFooterComponent={isLoadingMore ? (
+              <View style={styles.loadMoreFooter} testID="catalog-load-more-spinner">
+                <ActivityIndicator color={colors.gray400} />
+              </View>
+            ) : null}
+            onEndReached={loadMore}
+            onEndReachedThreshold={0.5}
+            testID="catalog-results-list"
             renderItem={({ item }) => (
               <SearchResultRow
                 isOpening={openingResultId === item.id}
@@ -525,6 +582,10 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
     paddingHorizontal: 16,
     paddingTop: 4,
+  },
+  loadMoreFooter: {
+    alignItems: 'center',
+    paddingVertical: 16,
   },
   resultSubtitle: {
     fontSize: 15,

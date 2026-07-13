@@ -109,6 +109,17 @@ import type {
   SpotlightRepositoryLoadResult,
 } from './types';
 
+/** Catalog search load result augmented with the pagination `hasMore` flag. */
+export type CatalogSearchLoadResult = SpotlightRepositoryLoadResult<CatalogSearchResult[]> & {
+  hasMore: boolean;
+};
+
+/** One page of catalog search results (for infinite scroll). */
+export type CatalogSearchPage = {
+  cards: CatalogSearchResult[];
+  hasMore: boolean;
+};
+
 export interface SpotlightRepository {
   loadPortfolioDashboard(options?: { range?: keyof PortfolioDashboard['ranges'] }): Promise<SpotlightRepositoryLoadResult<PortfolioDashboard>>;
   getPortfolioDashboard(): Promise<PortfolioDashboard>;
@@ -116,8 +127,10 @@ export interface SpotlightRepository {
   getPortfolioPerformance(): Promise<PortfolioPerformance>;
   loadInventoryEntries(query?: InventoryEntriesQuery): Promise<SpotlightRepositoryLoadResult<InventoryCardEntry[]>>;
   getInventoryEntries(query?: InventoryEntriesQuery): Promise<InventoryCardEntry[]>;
-  loadCatalogCards(query: string, limit?: number): Promise<SpotlightRepositoryLoadResult<CatalogSearchResult[]>>;
+  loadCatalogCards(query: string, limit?: number, offset?: number): Promise<CatalogSearchLoadResult>;
   searchCatalogCards(query: string, limit?: number): Promise<CatalogSearchResult[]>;
+  /** Paginated catalog search for infinite scroll — returns a page + hasMore. */
+  searchCatalogCardsPage(query: string, limit?: number, offset?: number): Promise<CatalogSearchPage>;
   matchScannerCapture(
     payload: ScannerCapturePayload,
     options?: ScannerMatchOptions,
@@ -415,6 +428,7 @@ type PortfolioDashboardDTO = {
 
 type SearchResultsDTO = {
   results: CardCandidateDTO[];
+  hasMore?: boolean;
 };
 
 type ScanMatchCandidateDTO = {
@@ -2671,26 +2685,22 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return result.data ?? [];
   }
 
-  async loadCatalogCards(query: string, limit = 20) {
+  async loadCatalogCards(query: string, limit = 20, offset = 0): Promise<CatalogSearchLoadResult> {
     const normalized = query.trim().toLowerCase();
     if (normalized.length < 2) {
-      return buildLoadResult('empty', []);
+      return { ...buildLoadResult('empty', []), hasMore: false };
     }
 
-    const results = this.catalogResults
-      .filter((result) => {
-        return [
-          result.name,
-          result.setName,
-          result.cardNumber,
-          result.subtitle,
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase()
-          .includes(normalized);
-      })
-      .slice(0, Math.min(limit, 50))
+    const start = Math.max(0, offset);
+    const matched = this.catalogResults.filter((result) => {
+      return [result.name, result.setName, result.cardNumber, result.subtitle]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .includes(normalized);
+    });
+    const results = matched
+      .slice(start, start + limit)
       .map((result) => ({
         ...result,
         ownedQuantity: this.inventoryEntries
@@ -2699,12 +2709,20 @@ export class MockSpotlightRepository implements SpotlightRepository {
       }))
       .map((result) => this.annotateCatalogResult(result));
 
-    return buildLoadResult(results.length > 0 ? 'success' : 'empty', results);
+    return {
+      ...buildLoadResult(results.length > 0 ? 'success' : 'empty', results),
+      hasMore: matched.length > start + limit,
+    };
   }
 
   async searchCatalogCards(query: string, limit = 20) {
     const result = await this.loadCatalogCards(query, limit);
     return result.data ?? [];
+  }
+
+  async searchCatalogCardsPage(query: string, limit = 20, offset = 0): Promise<CatalogSearchPage> {
+    const result = await this.loadCatalogCards(query, limit, offset);
+    return { cards: result.data ?? [], hasMore: result.hasMore };
   }
 
   async matchScannerCapture(payload: ScannerCapturePayload, _options?: ScannerMatchOptions) {
@@ -4084,15 +4102,16 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     return result.data ?? [];
   }
 
-  async loadCatalogCards(query: string, limit = 20) {
+  async loadCatalogCards(query: string, limit = 20, offset = 0): Promise<CatalogSearchLoadResult> {
     const normalized = query.trim();
     if (normalized.length < 2) {
-      return buildLoadResult('empty', []);
+      return { ...buildLoadResult('empty', []), hasMore: false };
     }
 
     const queryParams = new URLSearchParams({
       q: normalized,
       limit: String(Math.max(1, Math.min(limit, 100))),
+      offset: String(Math.max(0, offset)),
     });
     const [searchResponse, inventoryResult] = await Promise.all([
       this.requestJson<SearchResultsDTO>(`${this.baseUrl}/api/v1/cards/search?${queryParams.toString()}`),
@@ -4100,8 +4119,10 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     ]);
 
     if (searchResponse.kind !== 'success') {
-      return buildLoadResult('error', [], searchResponse.error.message);
+      return { ...buildLoadResult('error', [], searchResponse.error.message), hasMore: false };
     }
+
+    const hasMore = Boolean(searchResponse.data?.hasMore);
 
     const inventoryEntries = inventoryResult.data ?? [];
     const rawResults = Array.isArray(searchResponse.data?.results) ? searchResponse.data.results : [];
@@ -4131,7 +4152,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         }];
       });
 
-    return buildLoadResult(results.length > 0 ? 'success' : 'empty', results);
+    return { ...buildLoadResult(results.length > 0 ? 'success' : 'empty', results), hasMore };
   }
 
   async searchCatalogCards(query: string, limit = 20) {
@@ -4144,6 +4165,18 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     }
 
     return result.data ?? [];
+  }
+
+  async searchCatalogCardsPage(query: string, limit = 20, offset = 0): Promise<CatalogSearchPage> {
+    const result = await this.loadCatalogCards(query, limit, offset);
+    if (result.state === 'error') {
+      throw new SpotlightRepositoryRequestError(
+        result.errorMessage ?? 'Search unavailable right now.',
+        'request_failed',
+      );
+    }
+
+    return { cards: result.data ?? [], hasMore: result.hasMore };
   }
 
   async matchScannerCapture(payload: ScannerCapturePayload, options?: ScannerMatchOptions) {

@@ -35,9 +35,9 @@ describe('CatalogSearchScreen', () => {
   it('renders the modal chrome, lists card matches directly, then opens a card', async () => {
     const onOpenCard = jest.fn();
     const onClose = jest.fn();
-    let resolveSearch: ((results: Awaited<ReturnType<MockSpotlightRepository['searchCatalogCards']>>) => void) | null = null;
+    let resolveSearch: ((page: Awaited<ReturnType<MockSpotlightRepository['searchCatalogCardsPage']>>) => void) | null = null;
 
-    jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCards').mockImplementation(() => {
+    jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage').mockImplementation(() => {
       return new Promise((resolve) => {
         resolveSearch = resolve;
       });
@@ -61,7 +61,7 @@ describe('CatalogSearchScreen', () => {
     expect(await screen.findByText('Searching catalog')).toBeTruthy();
 
     await act(async () => {
-      resolveSearch?.(ownedCatalogResults);
+      resolveSearch?.({ cards: ownedCatalogResults, hasMore: false });
       await Promise.resolve();
     });
 
@@ -110,7 +110,8 @@ describe('CatalogSearchScreen', () => {
   });
 
   it('hydrates and searches from an initial query', async () => {
-    jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCards').mockResolvedValue(ownedCatalogResults);
+    jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage')
+      .mockResolvedValue({ cards: ownedCatalogResults, hasMore: false });
 
     renderWithProviders(
       <CatalogSearchScreen initialQuery="tree" onClose={jest.fn()} onOpenCard={jest.fn()} />,
@@ -124,7 +125,8 @@ describe('CatalogSearchScreen', () => {
 
   it('clears the opening spinner after navigation starts so a returned result can be tapped again', async () => {
     const onOpenCard = jest.fn();
-    jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCards').mockResolvedValue(ownedCatalogResults);
+    jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage')
+      .mockResolvedValue({ cards: ownedCatalogResults, hasMore: false });
 
     renderWithProviders(
       <CatalogSearchScreen onClose={jest.fn()} onOpenCard={onOpenCard} />,
@@ -150,7 +152,8 @@ describe('CatalogSearchScreen', () => {
   });
 
   it('renders the empty state when a query returns no matches', async () => {
-    jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCards').mockResolvedValue([]);
+    jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage')
+      .mockResolvedValue({ cards: [], hasMore: false });
 
     renderWithProviders(
       <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />,
@@ -163,20 +166,51 @@ describe('CatalogSearchScreen', () => {
     expect(screen.getByText('Try a shorter query, a different set name, or just the collector number.')).toBeTruthy();
   });
 
+  it('appends the next page of results on scroll-to-end (infinite scroll)', async () => {
+    const page1 = ownedCatalogResults.slice(0, 2);
+    const page2 = ownedCatalogResults.slice(2, 4);
+    jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage')
+      .mockResolvedValueOnce({ cards: page1, hasMore: true })
+      .mockResolvedValueOnce({ cards: page2, hasMore: false });
+
+    renderWithProviders(
+      <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />,
+    );
+
+    fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'tree');
+    await advanceDebounce();
+
+    // Page 1 rendered; page 2 not yet.
+    expect(await screen.findByTestId(`catalog-result-${page1[0].id}`)).toBeTruthy();
+    expect(screen.queryByTestId(`catalog-result-${page2[0].id}`)).toBeNull();
+
+    // Scroll to the end → page 2 fetched and appended (no duplicates).
+    await act(async () => {
+      fireEvent(screen.getByTestId('catalog-results-list'), 'endReached');
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByTestId(`catalog-result-${page2[0].id}`)).toBeTruthy();
+    expect(screen.getByTestId(`catalog-result-${page1[0].id}`)).toBeTruthy();
+  });
+
   it('shows the artwork fallback when a result is missing an image', async () => {
-    jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCards').mockResolvedValue([
-      {
-        id: 'fallback-1',
-        cardId: 'fallback-1',
-        name: 'Fallback Card',
-        cardNumber: '#999',
-        setName: 'Parity Set',
-        imageUrl: '',
-        marketPrice: null,
-        currencyCode: 'USD',
-        ownedQuantity: 0,
-      },
-    ]);
+    jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage').mockResolvedValue({
+      cards: [
+        {
+          id: 'fallback-1',
+          cardId: 'fallback-1',
+          name: 'Fallback Card',
+          cardNumber: '#999',
+          setName: 'Parity Set',
+          imageUrl: '',
+          marketPrice: null,
+          currencyCode: 'USD',
+          ownedQuantity: 0,
+        },
+      ],
+      hasMore: false,
+    });
 
     renderWithProviders(
       <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />,
@@ -190,9 +224,9 @@ describe('CatalogSearchScreen', () => {
   });
 
   it('surfaces the retry action after a failed search', async () => {
-    jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCards')
+    jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage')
       .mockRejectedValueOnce(new Error('offline'))
-      .mockResolvedValueOnce(ownedCatalogResults.slice(0, 1));
+      .mockResolvedValueOnce({ cards: ownedCatalogResults.slice(0, 1), hasMore: false });
 
     renderWithProviders(
       <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />,
