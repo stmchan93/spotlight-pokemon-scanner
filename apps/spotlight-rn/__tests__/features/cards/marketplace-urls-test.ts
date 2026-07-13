@@ -278,9 +278,26 @@ describe('resolveTcgPlayerProductId', () => {
     expect(resolveTcgPlayerProductId(numericVariants, 'Holofoil')).toBe('999');
   });
 
-  it('falls back to the first variant with a tcgplayer id when no label matches', () => {
-    expect(resolveTcgPlayerProductId(variants, 'Cosmos Holo')).toBe('111');
-    expect(resolveTcgPlayerProductId(variants, null)).toBe('111');
+  it('returns null (no guess) when no label matches and there are multiple distinct ids', () => {
+    // Guessing the first printing here can deep-link to the WRONG printing — or,
+    // on a Scrydex mis-map, an entirely different card. Caller falls back to search.
+    expect(resolveTcgPlayerProductId(variants, 'Cosmos Holo')).toBeNull();
+    expect(resolveTcgPlayerProductId(variants, null)).toBeNull();
+  });
+
+  it('falls back only when the card resolves to a single distinct product_id', () => {
+    // One printing (or several printings sharing ONE id) → unambiguous → use it.
+    const single = [
+      { name: 'holofoil', marketplaces: [{ name: 'tcgplayer', product_id: '699875' }] },
+    ];
+    expect(resolveTcgPlayerProductId(single, 'Cosmos Holo')).toBe('699875');
+    expect(resolveTcgPlayerProductId(single, null)).toBe('699875');
+
+    const sameIdTwice = [
+      { name: 'holofoil', marketplaces: [{ name: 'tcgplayer', product_id: '642163' }] },
+      { name: 'reverseHolofoil', marketplaces: [{ name: 'tcgplayer', product_id: '642163' }] },
+    ];
+    expect(resolveTcgPlayerProductId(sameIdTwice, 'Nonexistent')).toBe('642163');
   });
 
   it('bridges camelCase payload keys to the humanized PDP label (live Base Charizard)', () => {

@@ -202,8 +202,15 @@ function tcgPlayerProductIdFromVariant(variant: TcgPlayerSourceVariant | null | 
  * Multi-printing vintage cards (e.g. Base Charizard) carry a different
  * product_id per printing, and the FIRST variant is often the wrong printing,
  * so we match the variant whose name equals the label currently shown on the
- * PDP. Falls back to the first variant that has a tcgplayer product_id, then
- * to null. Defensive against undefined/oddly-shaped data.
+ * PDP.
+ *
+ * On NO match we deliberately do NOT guess the first printing: with multiple
+ * distinct product_ids, guessing can deep-link to the wrong printing — or, when
+ * Scrydex mis-maps a product_id, to an ENTIRELY DIFFERENT card (observed live:
+ * an ME-promo Oshawott whose phantom "Normal" printing pointed at an Archeops
+ * product). We only fall back when the card carries exactly ONE distinct
+ * product_id (no ambiguity); otherwise return null so the caller falls back to a
+ * name/set/number SEARCH — always the right card, never a random one.
  */
 export function resolveTcgPlayerProductId(
   variants: TcgPlayerSourceVariant[] | null | undefined,
@@ -229,15 +236,16 @@ export function resolveTcgPlayerProductId(
     }
   }
 
-  // Fall back to the first variant that carries a tcgplayer product_id.
+  // No label match: only fall back when the whole card resolves to a single
+  // distinct product_id (unambiguous). Multiple distinct ids → null → search.
+  const distinctIds = new Set<string>();
   for (const variant of variants) {
     const productId = tcgPlayerProductIdFromVariant(variant);
     if (productId) {
-      return productId;
+      distinctIds.add(productId);
     }
   }
-
-  return null;
+  return distinctIds.size === 1 ? [...distinctIds][0] : null;
 }
 
 /**
