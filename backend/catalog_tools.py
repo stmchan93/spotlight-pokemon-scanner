@@ -2519,14 +2519,21 @@ def extract_tcgplayer_product_id(source_payload: dict[str, Any] | None) -> str |
     return None
 
 
-def tcgplayer_variants_subset(source_payload: dict[str, Any] | None) -> dict[str, Any] | None:
+def tcgplayer_variants_subset(
+    source_payload: dict[str, Any] | None,
+    colliding_product_ids: frozenset[str] | set[str] | None = None,
+) -> dict[str, Any] | None:
     """Compact per-printing TCGplayer product-id map for the client deep-link
     resolver: ``{"variants": [{"name", "marketplaces": [{"name": "tcgplayer",
     "product_id"}]}]}``. Only variants that actually carry a TCGplayer product id
     are included, and only the tcgplayer marketplace is kept — so the card-detail
     response stays lean and never ships the full Scrydex ``sourcePayload`` blob.
     Returns ``None`` when the card has no TCGplayer product (PDP then falls back to
-    a keyword search). Mirrors ``extract_tcgplayer_product_id``'s traversal."""
+    a keyword search). Mirrors ``extract_tcgplayer_product_id``'s traversal.
+
+    ``colliding_product_ids`` (from :func:`collision_guard`) are dropped: a product
+    id shared across cards is a Scrydex mis-map, so deep-linking it would open the
+    wrong card — omit it and let the PDP fall back to a name/set search."""
     if not isinstance(source_payload, dict):
         return None
     variants = source_payload.get("variants")
@@ -2547,14 +2554,127 @@ def tcgplayer_variants_subset(source_payload: dict[str, Any] | None) -> dict[str
             product_id = marketplace.get("product_id")
             if product_id is None or not str(product_id).strip():
                 continue
+            product_id = str(product_id).strip()
+            if colliding_product_ids and product_id in colliding_product_ids:
+                continue  # mis-mapped id shared with another card — skip
             out_variants.append({
                 "name": variant.get("name"),
-                "marketplaces": [{"name": "tcgplayer", "product_id": str(product_id).strip()}],
+                "marketplaces": [{"name": "tcgplayer", "product_id": product_id}],
             })
             break  # one tcgplayer id per printing is enough for the deep link
     if not out_variants:
         return None
     return {"variants": out_variants}
+
+
+# --- TCGplayer product_id collision guard ----------------------------------
+# A TCGplayer product_id that Scrydex maps to MORE THAN ONE distinct card is
+# almost always a catalog mis-map (observed live: an ME-promo Oshawott whose
+# phantom "Normal" printing shared an Archeops product id — surfacing Archeops'
+# price AND deep-linking to Archeops). We suppress the offending printing on
+# every card sharing the id so no card ever shows another card's price or link.
+# Computed once per process from the cards table and cached; call
+# ``reset_collision_guard_cache()`` after a catalog sync to force a rebuild.
+_COLLISION_GUARD_CACHE: dict[str, Any] | None = None
+
+
+def _iter_card_tcgplayer_variants(source_payload: Any):
+    """Yield ``(variant_name, product_id)`` for each tcgplayer marketplace entry
+    in a Scrydex card ``sourcePayload``."""
+    if not isinstance(source_payload, dict):
+        return
+    variants = source_payload.get("variants")
+    if not isinstance(variants, list):
+        return
+    for variant in variants:
+        if not isinstance(variant, dict):
+            continue
+        marketplaces = variant.get("marketplaces")
+        if not isinstance(marketplaces, list):
+            continue
+        for marketplace in marketplaces:
+            if not isinstance(marketplace, dict):
+                continue
+            if str(marketplace.get("name") or "").strip().lower() != "tcgplayer":
+                continue
+            product_id = marketplace.get("product_id")
+            if product_id is None or not str(product_id).strip():
+                continue
+            yield variant.get("name"), str(product_id).strip()
+
+
+def _build_collision_guard(connection: sqlite3.Connection) -> dict[str, Any]:
+    from collections import defaultdict
+
+    pid_to_cards: dict[str, set[str]] = defaultdict(set)
+    card_pid_labels: dict[str, dict[str, str]] = defaultdict(dict)
+    cursor = connection.execute(
+        "SELECT id, source_payload_json FROM cards "
+        "WHERE source_payload_json LIKE '%tcgplayer%'"
+    )
+    for card_id, payload_json in cursor:
+        try:
+            payload = json.loads(payload_json) if payload_json else None
+        except (TypeError, ValueError):
+            continue
+        for name, product_id in _iter_card_tcgplayer_variants(payload):
+            pid_to_cards[product_id].add(card_id)
+            card_pid_labels[card_id][product_id] = _normalized_variant_label(name)
+    colliding = frozenset(pid for pid, cards in pid_to_cards.items() if len(cards) > 1)
+    suppressed_labels_by_card: dict[str, set[str]] = {}
+    for card_id, pid_labels in card_pid_labels.items():
+        labels = {label for pid, label in pid_labels.items() if pid in colliding}
+        if labels:
+            suppressed_labels_by_card[card_id] = labels
+    return {
+        "colliding_product_ids": colliding,
+        "suppressed_labels_by_card": suppressed_labels_by_card,
+    }
+
+
+def collision_guard(connection: sqlite3.Connection) -> dict[str, Any]:
+    """Cached ``{colliding_product_ids, suppressed_labels_by_card}`` for the
+    catalog. Built lazily on first use; O(1) thereafter."""
+    global _COLLISION_GUARD_CACHE
+    if _COLLISION_GUARD_CACHE is None:
+        _COLLISION_GUARD_CACHE = _build_collision_guard(connection)
+    return _COLLISION_GUARD_CACHE
+
+
+def reset_collision_guard_cache() -> None:
+    global _COLLISION_GUARD_CACHE
+    _COLLISION_GUARD_CACHE = None
+
+
+def suppressed_raw_variant_labels(connection: sqlite3.Connection, card_id: str) -> set[str]:
+    """Normalized raw-variant labels to hide for a card (mis-mapped product ids)."""
+    return set(collision_guard(connection)["suppressed_labels_by_card"].get(card_id, ()))
+
+
+def filter_suppressed_raw_variants(
+    raw_contexts: dict[str, Any], suppressed_labels: set[str]
+) -> dict[str, Any]:
+    """Drop raw_contexts variants whose normalized label is suppressed. Returns
+    the input unchanged when nothing is suppressed (the fast path for ~all cards).
+    Never empties a card that still has a legit printing left."""
+    if not suppressed_labels or not isinstance(raw_contexts, dict):
+        return raw_contexts
+    variants = raw_contexts.get("variants")
+    if not isinstance(variants, dict) or not variants:
+        return raw_contexts
+    suppressed_norm = {_normalized_variant_label(label).casefold() for label in suppressed_labels}
+    kept = {
+        label: entry
+        for label, entry in variants.items()
+        if _normalized_variant_label(label).casefold() not in suppressed_norm
+    }
+    if len(kept) == len(variants) or not kept:
+        # No-op, or suppression would blank the card entirely — keep as-is rather
+        # than leave the PDP with no raw price at all.
+        return raw_contexts
+    updated = dict(raw_contexts)
+    updated["variants"] = kept
+    return updated
 
 
 def upsert_card(
@@ -2735,12 +2855,21 @@ def cards_by_ids(connection: sqlite3.Connection, card_ids: Iterable[str]) -> dic
     }
 
 
+# Ceiling on the candidate pool a single search gathers, so offset pagination
+# has a STABLE, complete set to slice (a top illustrator like Kagemaru Himeno
+# has many hundreds of cards). Kept under SQLite's 999-variable limit because
+# cards_by_ids builds one `IN (...)` per candidate id with no chunking.
+_MANUAL_SEARCH_POOL_CEILING = 900
+
+
 def _normalized_manual_search_limit(limit: int) -> int:
     try:
         requested_limit = int(limit)
     except (TypeError, ValueError):
         requested_limit = 20
-    return max(1, min(requested_limit, 100))
+    # Per-PAGE cap. Raised above 100 only for headroom on the "fetch one extra to
+    # detect hasMore" pagination trick; real page sizes are ~30.
+    return max(1, min(requested_limit, 200))
 
 
 def _manual_search_query_phrases(tokens: list[str]) -> tuple[str, ...]:
@@ -3088,13 +3217,13 @@ def _manual_search_candidate_rows_for_phrase(
     if not query_specs:
         return []
 
-    clause_limit = max(1, min(int(limit), 100))
+    clause_limit = max(1, min(int(limit), _MANUAL_SEARCH_POOL_CEILING))
     # A card can have several alias rows (name variants, casing), so the alias
     # queries return more rows than distinct cards (~2x). Fetch clause_limit * 2
-    # and cap at 200 so we can still collect up to clause_limit *distinct* cards
-    # after dedup — a 100 cap here silently halved a 100-result request.
+    # so we can still collect up to clause_limit *distinct* cards after dedup —
+    # a low cap here silently halved a large request.
     fetch_limit = max(clause_limit * 2, min(clause_limit, 25))
-    fetch_limit = min(fetch_limit, 200)
+    fetch_limit = min(fetch_limit, 2 * _MANUAL_SEARCH_POOL_CEILING)
     best_scores: dict[str, float] = {}
     ordered_ids: list[str] = []
     seen_ids: set[str] = set()
@@ -3141,8 +3270,8 @@ def _manual_search_candidate_rows_for_artist(
         ),
     ]
 
-    clause_limit = max(1, min(int(limit), 100))
-    fetch_limit = min(max(clause_limit * 2, min(clause_limit, 25)), 200)
+    clause_limit = max(1, min(int(limit), _MANUAL_SEARCH_POOL_CEILING))
+    fetch_limit = min(max(clause_limit * 2, min(clause_limit, 25)), 2 * _MANUAL_SEARCH_POOL_CEILING)
     best_scores: dict[str, float] = {}
     ordered_ids: list[str] = []
     seen_ids: set[str] = set()
@@ -3207,7 +3336,7 @@ def _manual_search_candidate_rows_for_name_qualifiers(
     if not name_tokens:
         return []
 
-    clause_limit = max(8, min(int(limit), 60))
+    clause_limit = max(8, min(int(limit), _MANUAL_SEARCH_POOL_CEILING))
     set_sql = (
         "SELECT a.card_id AS id, 490.0 AS score "
         "FROM card_name_aliases a JOIN cards c ON c.id = a.card_id "
@@ -3404,7 +3533,22 @@ def _manual_search_score(
     return score
 
 
-def search_cards(connection: sqlite3.Connection, query: str, limit: int = 20) -> list[dict[str, Any]]:
+def search_cards(
+    connection: sqlite3.Connection,
+    query: str,
+    limit: int = 20,
+    *,
+    offset: int = 0,
+    pool_ceiling: int | None = None,
+) -> list[dict[str, Any]]:
+    """Manual catalog search.
+
+    `offset`/`pool_ceiling` power the paginated catalog-search endpoint: pass a
+    `pool_ceiling` and the query gathers a large, STABLE candidate pool (the same
+    for every page) so `[offset:offset+limit]` slices are consistent as the user
+    scrolls. Callers that only want the top-N (matcher shortlist, portfolio
+    import, `search_cards_local`) omit both and keep the cheap small pool.
+    """
     structured_filters, search_text = _manual_search_parse_query(query)
     normalized_query = _normalized_alias_text(search_text)
     if not normalized_query:
@@ -3415,6 +3559,7 @@ def search_cards(connection: sqlite3.Connection, query: str, limit: int = 20) ->
     # match only on collector number when a name/set word was clearly typed.
     name_query_tokens = {token for token in tokens if not any(ch.isdigit() for ch in token)}
     requested_limit = _normalized_manual_search_limit(limit)
+    offset = max(0, int(offset or 0))
     query_phrases = _manual_search_query_phrases(tokens)
     explicit_number_forms = _manual_search_exact_number_forms_from_query(search_text, structured_filters)
     candidate_scores: dict[str, float] = {}
@@ -3430,7 +3575,14 @@ def search_cards(connection: sqlite3.Connection, query: str, limit: int = 20) ->
             candidate_order.append(normalized_card_id)
         candidate_scores[normalized_card_id] = max(candidate_scores.get(normalized_card_id, 0.0), float(score))
 
-    per_phrase_limit = max(8, min(100, requested_limit * 3))
+    # Non-paginating callers (pool_ceiling=None) keep the original small pool.
+    # The paginated endpoint passes a ceiling so the whole candidate set (up to
+    # the ceiling) is gathered — the same set on every page, which is what makes
+    # offset slicing stable.
+    if pool_ceiling is None:
+        per_phrase_limit = max(8, min(100, requested_limit * 3))
+    else:
+        per_phrase_limit = max(requested_limit, min(int(pool_ceiling), _MANUAL_SEARCH_POOL_CEILING))
     for card_id, score in _manual_search_candidate_rows_for_exact_numbers(
         connection,
         explicit_number_forms,
@@ -3467,6 +3619,17 @@ def search_cards(connection: sqlite3.Connection, query: str, limit: int = 20) ->
 
     if not candidate_order:
         return []
+
+    # Bound the total distinct candidates before cards_by_ids so its single
+    # `IN (...)` stays under SQLite's 999-variable limit (with a large pool,
+    # several phrases × several helpers can accumulate past that). Keep the
+    # highest retrieval-scored ids; deterministic id tie-break keeps pagination
+    # stable across page requests. A no-op for the small (non-paginated) pool.
+    if len(candidate_order) > _MANUAL_SEARCH_POOL_CEILING:
+        candidate_order = sorted(
+            candidate_order,
+            key=lambda card_id: (-candidate_scores.get(card_id, 0.0), card_id),
+        )[:_MANUAL_SEARCH_POOL_CEILING]
 
     candidate_map = cards_by_ids(connection, candidate_order)
     scored_cards: list[tuple[float, dict[str, Any]]] = []
@@ -3520,7 +3683,7 @@ def search_cards(connection: sqlite3.Connection, query: str, limit: int = 20) ->
             str(item[1]["number"]),
         )
     )
-    return [card for _, card in scored_cards[:requested_limit]]
+    return [card for _, card in scored_cards[offset : offset + requested_limit]]
 
 
 def search_cards_local(connection: sqlite3.Connection, query: str, limit: int = 20) -> list[dict[str, Any]]:

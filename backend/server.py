@@ -69,6 +69,9 @@ from catalog_tools import (
     card_price_trend_list,
     card_text_from_card,
     tcgplayer_variants_subset,
+    collision_guard,
+    suppressed_raw_variant_labels,
+    filter_suppressed_raw_variants,
     cards_by_ids,
     append_deck_entry_event,
     connect,
@@ -96,6 +99,7 @@ from catalog_tools import (
     score_raw_candidate_resolution,
     score_raw_candidate_retrieval,
     score_raw_signals,
+    _MANUAL_SEARCH_POOL_CEILING,
     search_cards,
     search_cards_local,
     search_cards_local_collector_only,
@@ -3120,15 +3124,24 @@ class SpotlightScanService:
     def _snapshot_raw_contexts(self, card_id: str) -> dict[str, Any]:
         row = price_snapshot_row(self.connection, card_id)
         if row is not None:
-            return _raw_contexts_payload(row["raw_contexts_json"])
-        history_row = latest_price_history_row_for_card(
-            self.connection,
-            card_id,
-            provider=pricing_provider(),
-        )
-        if history_row is None:
-            return {}
-        return _raw_contexts_payload(history_row["raw_contexts_json"])
+            raw_contexts = _raw_contexts_payload(row["raw_contexts_json"])
+        else:
+            history_row = latest_price_history_row_for_card(
+                self.connection,
+                card_id,
+                provider=pricing_provider(),
+            )
+            if history_row is None:
+                return {}
+            raw_contexts = _raw_contexts_payload(history_row["raw_contexts_json"])
+        # Drop printings whose TCGplayer product id is mis-mapped to another card
+        # (Scrydex collision) — otherwise the PDP shows a phantom variant carrying
+        # the WRONG card's price/default. One chokepoint fixes chips + default +
+        # headline, since all recompute from raw_contexts.
+        suppressed = suppressed_raw_variant_labels(self.connection, card_id)
+        if suppressed:
+            raw_contexts = filter_suppressed_raw_variants(raw_contexts, suppressed)
+        return raw_contexts
 
     def _snapshot_graded_contexts(self, card_id: str) -> dict[str, Any]:
         row = price_snapshot_row(self.connection, card_id)
@@ -8322,8 +8335,21 @@ class SpotlightScanService:
             "items": items,
         }
 
-    def search(self, query: str, *, limit: int = 20) -> dict[str, Any]:
-        results = search_cards(self.connection, query, limit=limit)
+    def search(self, query: str, *, limit: int = 20, offset: int = 0) -> dict[str, Any]:
+        offset = max(0, int(offset or 0))
+        # Fetch one extra past the page to detect whether more results exist
+        # (hasMore) without a second query. pool_ceiling switches search_cards
+        # into paginated mode: a stable, complete candidate pool so offset pages
+        # don't overlap or skip as the client scrolls.
+        raw = search_cards(
+            self.connection,
+            query,
+            limit=limit + 1,
+            offset=offset,
+            pool_ceiling=_MANUAL_SEARCH_POOL_CEILING,
+        )
+        has_more = len(raw) > limit
+        results = raw[:limit]
         # Attach holo-finish options (Normal / Reverse / Poké Ball / Master Ball …)
         # so the review tool can offer a finish picker on a searched card. Additive
         # field — existing consumers ignore it.
@@ -8332,7 +8358,7 @@ class SpotlightScanService:
                 finishes = self._review_finishes_from_card(card)
                 if finishes:
                     card["finishes"] = finishes
-        return {"results": results}
+        return {"results": results, "hasMore": has_more}
 
     # ------------------------------------------------------------------
     # Reviewer-gated "label unlabeled scans" web surface (additive).
@@ -11220,7 +11246,10 @@ class SpotlightScanService:
                 # Compact per-printing TCGplayer product ids (NOT the full Scrydex
                 # blob) so the PDP can deep-link "View on TCGplayer" to the exact
                 # printing; None when the card has no TCGplayer product.
-                "sourcePayload": tcgplayer_variants_subset(resolved_card.get("sourcePayload")),
+                "sourcePayload": tcgplayer_variants_subset(
+                    resolved_card.get("sourcePayload"),
+                    collision_guard(self.connection)["colliding_product_ids"],
+                ),
             },
             "slabContext": self._slab_context_payload_for_pricing_context(
                 pricing_context,
@@ -15970,7 +15999,12 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": "limit must be an integer"})
                 return
-            self._write_json(HTTPStatus.OK, self.service.search(query, limit=limit))
+            try:
+                offset = int(query_params.get("offset", ["0"])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "offset must be an integer"})
+                return
+            self._write_json(HTTPStatus.OK, self.service.search(query, limit=limit, offset=offset))
             return
 
         if parsed.path == "/api/v1/expansions":
