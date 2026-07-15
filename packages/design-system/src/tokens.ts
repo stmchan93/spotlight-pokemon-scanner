@@ -167,7 +167,11 @@ export const layout = {
   bottomNavIconSize: 52,
   chartCardRadius: 24,
   inventoryTileRadius: 18,
-  inventoryArtRadius: 14,
+  // Card-art corner radius on grid tiles (Figma 2609:7016 / 2609:6977): raw
+  // card scans get a subtle 2, slab photos stay square — the PSA case in the
+  // photo has its own shape and rounding would clip it.
+  inventoryArtRadiusRaw: 2,
+  inventoryArtRadiusSlab: 0,
   recentSaleHeight: 96,
   recentSaleImageWidth: 72,
   recentSaleImageHeight: 96,

@@ -157,9 +157,14 @@ export function InventoryCardTile({
 }: InventoryCardTileProps) {
   const theme = useSpotlightTheme();
 
-  // The card art stays rounded regardless of the tile shell mode — only the
-  // outer shell (fill/border/corner radius) toggles with `bordered`.
-  const artRadius = theme.layout.inventoryArtRadius;
+  // Art radius is per-kind (Figma 2609:7016 / 2609:6977): raw scans get a
+  // subtle rounding, slab photos stay square (the PSA case in the photo has
+  // its own shape — rounding would clip it). Independent of the `bordered`
+  // shell mode.
+  const artRadius =
+    kind === 'slab'
+      ? theme.layout.inventoryArtRadiusSlab
+      : theme.layout.inventoryArtRadiusRaw;
 
   // The art is letterboxed inside a SQUARE frame, so the frame's top-left is
   // whitespace, not the card's corner. Instead of measuring offsets, the image
