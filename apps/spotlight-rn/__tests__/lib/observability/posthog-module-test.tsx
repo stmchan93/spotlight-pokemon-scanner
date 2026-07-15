@@ -83,8 +83,8 @@ describe('posthog module', () => {
         platform: 'ios',
       })),
       getObservabilityUserTraits: jest.fn((user) => ({
-        email: user.email,
         labeler_enabled: user.labelerEnabled,
+        name: user.displayName,
       })),
       getPostHogCustomAppProperties: jest.fn(() => ({
         expo_runtime: 'dev-client',
@@ -196,6 +196,12 @@ describe('posthog module', () => {
     };
     const beforeSend = client.config?.before_send;
 
+    // Cold start: the auth-sync effect fires with null before the session
+    // restores — must NOT reset (that would mint a new anonymous distinct_id
+    // on every app launch).
+    moduleExports.identifyPostHogUser(null);
+    expect(reset).not.toHaveBeenCalled();
+
     moduleExports.identifyPostHogUser({
       adminEnabled: false,
       avatarURL: null,
@@ -206,22 +212,26 @@ describe('posthog module', () => {
       providers: ['google'],
     });
     expect(identify).toHaveBeenCalledWith('user-123', {
-      email: 'collector@example.com',
       labeler_enabled: true,
+      name: 'Collector',
     });
 
+    // Real sign-out after an identify DOES reset.
     moduleExports.identifyPostHogUser(null);
     expect(reset).toHaveBeenCalledTimes(1);
     expect(register).toHaveBeenCalledTimes(2);
 
+    // Event properties are scrubbed; $set/$set_once (curated person traits —
+    // display name for a readable Persons UI; deliberately no email) pass
+    // through untouched.
     expect(beforeSend?.({
       event: 'scan',
       properties: { secret: 'value' },
-      $set: { email: 'private@example.com' },
+      $set: { name: 'Collector' },
       $set_once: { first_seen: 'today' },
     })).toEqual({
-      $set: { email: 'private@example.com', scrubbed: true },
-      $set_once: { first_seen: 'today', scrubbed: true },
+      $set: { name: 'Collector' },
+      $set_once: { first_seen: 'today' },
       event: 'scan',
       properties: { scrubbed: true, secret: 'value' },
     });

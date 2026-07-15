@@ -56,10 +56,13 @@ function scrubPostHogEvent(event: CaptureEvent | null) {
     return null;
   }
 
+  // Event properties are scrubbed (they can carry scan payloads, URLs, card
+  // ids…). `$set`/`$set_once` are NOT: they only ever carry the curated person
+  // traits from getObservabilityUserTraits (email/name/flags), which exist
+  // precisely to make the PostHog Persons UI human-readable — scrubbing them
+  // stored literal "[redacted]" as every user's email.
   return {
     ...event,
-    $set: scrubPostHogProperties(event.$set),
-    $set_once: scrubPostHogProperties(event.$set_once),
     properties: scrubPostHogProperties(event.properties),
   };
 }
@@ -95,7 +98,10 @@ function createPostHogClient() {
     preloadFeatureFlags: false,
     disableRemoteConfig: true,
     disableSurveys: true,
-    captureAppLifecycleEvents: false,
+    // Application Opened/Installed/Updated/Backgrounded/Became Active — pure
+    // JS (AppState-based), OTA-safe. Required for real session/open counts and
+    // retention metrics; without it only $screen approximates activity.
+    captureAppLifecycleEvents: true,
     // Crash visibility without a separate crash reporter (no Sentry): PostHog's
     // built-in error tracking chains the global JS error handler and the
     // unhandled-rejection tracker, sending `$exception` events to Error Tracking.
@@ -161,6 +167,12 @@ export function capturePostHogScreen(name: string, properties?: PostHogEventProp
   void client.screen(name, buildTrackedPostHogProperties(properties));
 }
 
+// Tracks whether this process ever identified a user, so the auth-sync effect
+// firing with `null` during cold start (before the Supabase session restores)
+// doesn't call reset(). Resetting on every launch minted a fresh anonymous
+// distinct_id per app open — real users accumulated dozens of merged anon ids.
+let hasIdentifiedUser = false;
+
 export function identifyPostHogUser(user: AppUser | null) {
   const client = getPostHogClient();
   if (!client) {
@@ -168,11 +180,16 @@ export function identifyPostHogUser(user: AppUser | null) {
   }
 
   if (!user) {
+    if (!hasIdentifiedUser) {
+      return;
+    }
+    hasIdentifiedUser = false;
     client.reset();
     registerBaseProperties(client);
     return;
   }
 
+  hasIdentifiedUser = true;
   client.identify(user.id, {
     ...getObservabilityUserTraits(user),
   });

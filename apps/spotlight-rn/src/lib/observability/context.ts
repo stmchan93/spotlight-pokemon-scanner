@@ -14,11 +14,12 @@ type ObservabilityAppContext = {
 
 type ObservabilityUserTraits = {
   admin_enabled: boolean;
-  // `email`/`name` are PostHog's canonical person properties — they make the
-  // Persons UI and per-user queries human-readable instead of bare UUIDs.
-  email: string | null;
   has_display_name: boolean;
   labeler_enabled: boolean;
+  // `name` is a canonical PostHog person property — it makes the Persons UI
+  // human-readable instead of bare UUIDs. Deliberately NO `email`: user emails
+  // stay out of third-party analytics (decided 2026-07-14); to pin down a
+  // specific person, match their distinct_id to the Supabase user id.
   name: string | null;
   providers_count: number;
 };
@@ -123,7 +124,6 @@ export function getObservabilityUserTraits(user: AppUser | null): ObservabilityU
 
   return {
     admin_enabled: user.adminEnabled,
-    email: user.email,
     has_display_name: normalizeDisplayName(user.displayName) != null,
     labeler_enabled: user.labelerEnabled,
     name: normalizeDisplayName(user.displayName),
