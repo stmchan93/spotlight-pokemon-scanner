@@ -52,7 +52,9 @@ describe('AuthProvider', () => {
       getCurrentSession: jest.fn(async () => null),
       getIsConfigured: jest.fn(() => true),
       getNeedsProfile: jest.fn((user) => !user.displayName),
+      isAnonymousSession: jest.fn((session) => session?.user?.is_anonymous === true),
       isAuthCanceledError: jest.fn((error) => error instanceof MockAuthCanceledError),
+      signInAnonymously: jest.fn(async () => null),
       resolveAppUserFromSession: jest.fn(async (session) => ({
         adminEnabled: false,
         avatarURL: null,
@@ -535,6 +537,42 @@ describe('AuthProvider', () => {
       expect(getByText('error:sign out failed')).toBeTruthy();
     });
     expect(capturePostHogEvent).not.toHaveBeenCalledWith('auth_sign_out');
+  });
+
+  it('lands an anonymous (guest) session on signedIn as a synthetic Guest, skipping the profile fetch', async () => {
+    jest.useFakeTimers();
+    const guestSession = {
+      access_token: 'anon-token',
+      user: { id: 'guest-1', is_anonymous: true },
+    } as any;
+    const resolveAppUserFromSession = jest.fn();
+
+    const { act, authStateChangeHandler, getByText, waitFor } = renderAuthProvider({
+      nodeEnv: 'development',
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => null),
+        resolveAppUserFromSession,
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('state:signedOut')).toBeTruthy();
+    });
+
+    await act(async () => {
+      const handler = authStateChangeHandler as ((event: string, session: any) => void) | null;
+      handler?.('SIGNED_IN', guestSession);
+      jest.runAllTimers();
+    });
+
+    await waitFor(() => {
+      expect(getByText('state:signedIn')).toBeTruthy();
+    });
+    // Synthetic Guest user; the profile fetch is skipped for anonymous sessions
+    // (a guest has no display-name source and must not be trapped on the
+    // profile-completion screen).
+    expect(getByText('user:guest-1')).toBeTruthy();
+    expect(resolveAppUserFromSession).not.toHaveBeenCalled();
   });
 
   it('throws when useAuth is read outside the provider', () => {

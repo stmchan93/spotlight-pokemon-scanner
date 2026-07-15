@@ -93,6 +93,7 @@ import {
 } from '@/features/scanner/recent-captures-persistence';
 import { prefetchCardDetail } from '@/features/cards/card-detail-prefetch';
 import { saveCardDetailPreviewFromCatalogResult } from '@/features/cards/card-detail-preview-session';
+import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { prefetchImageUrls } from '@/lib/card-images';
 import { useAuth } from '@/providers/auth-provider';
@@ -558,6 +559,9 @@ export function ScannerScreen({
   const { activePage } = useTabsPage();
   const isActiveTab = activePage === 'scanner';
   const router = useRouter();
+  // Guest gating: capture stays open, but tray/collection/wishlist/eBay/etc.
+  // actions route guests to the login modal instead of running.
+  const { gate, isGuest } = useGuestGate();
   const {
     dataVersion,
     refreshData,
@@ -2522,7 +2526,7 @@ export function ScannerScreen({
   const trayPanGesture = useMemo(
     () =>
       Gesture.Pan()
-        .enabled(canToggleTray && isTopLevelSwipeEnabled)
+        .enabled(canToggleTray && isTopLevelSwipeEnabled && !isGuest)
         .activeOffsetY([-10, 10])
         .failOffsetX([-16, 16])
         .simultaneousWithExternalGesture(trayScrollNativeGesture)
@@ -2581,6 +2585,7 @@ export function ScannerScreen({
       canToggleTray,
       collapsedViewportHeight,
       commitTrayExpandedState,
+      isGuest,
       isTopLevelSwipeEnabled,
       isTrayExpanded,
       trayDragHeight,
@@ -2617,12 +2622,12 @@ export function ScannerScreen({
       enableEnterAnimation={!isTrayExpanded}
       index={index}
       onActionRailVisibilityChange={handleCaptureActionRailVisibilityChange}
-      onAddToCollection={handleRowAddToCollection}
-      onDelete={deleteRecentCapture}
+      onAddToCollection={gate(handleRowAddToCollection)}
+      onDelete={gate(deleteRecentCapture)}
       onOpenCard={handleOpenCard}
-      onOpenChangeCardPicker={openChangeCardPicker}
+      onOpenChangeCardPicker={gate(openChangeCardPicker)}
       onOpenRowMenu={handleOpenRowMenu}
-      onShowPrice={handleShowRowPrice}
+      onShowPrice={gate(handleShowRowPrice)}
       selection={priceSelection.get(capture.id) ?? null}
     />
   );
@@ -2695,7 +2700,7 @@ export function ScannerScreen({
             accessibilityLabel="Exit scanner"
             accessibilityRole="button"
             hitSlop={8}
-            onPress={handleExitScanner}
+            onPress={gate(handleExitScanner)}
             style={styles.scannerBackButton}
             testID="scanner-back-button"
           >
@@ -2705,7 +2710,7 @@ export function ScannerScreen({
             accessibilityLabel="Search cards"
             accessibilityRole="button"
             hitSlop={8}
-            onPress={handleOpenCatalogSearch}
+            onPress={gate(handleOpenCatalogSearch)}
             style={styles.scannerSearchButton}
             testID="scanner-search-button"
           >
@@ -2754,12 +2759,12 @@ export function ScannerScreen({
             <ScanTargetPill
               flag={cardType === 'pokemon_jp' ? 'jp' : 'en'}
               label={scanTargetPillLabel(cardType)}
-              onPress={() => {
+              onPress={gate(() => {
                 // Tapping the pill is also a tooltip dismissal — they learn the
                 // control by using it.
                 dismissLanguageTooltip();
                 setIsScanTargetSheetOpen(true);
-              }}
+              })}
               testID="scanner-target-pill"
             />
             <View style={styles.zoomDock} testID="scanner-zoom-control">
@@ -2772,7 +2777,7 @@ export function ScannerScreen({
                     accessibilityState={{ selected }}
                     hitSlop={6}
                     key={factor}
-                    onPress={() => setZoomFactor(factor)}
+                    onPress={gate(() => setZoomFactor(factor))}
                     style={[styles.zoomPill, selected ? styles.zoomPillSelected : null]}
                     testID={`scanner-zoom-${factor}x`}
                   >
@@ -2821,7 +2826,7 @@ export function ScannerScreen({
             accessibilityRole="button"
             disabled={!canToggleTray}
             hitSlop={trayHeaderHitSlop}
-            onPress={toggleTrayExpanded}
+            onPress={gate(toggleTrayExpanded)}
             style={({ pressed }) => [
               styles.trayHeader,
               pressed && canToggleTray ? styles.trayHeaderPressed : null,
@@ -2843,7 +2848,7 @@ export function ScannerScreen({
                     accessibilityRole="button"
                     accessibilityLabel="Add all scans"
                     hitSlop={8}
-                    onPress={handleOpenAddAllMenu}
+                    onPress={gate(handleOpenAddAllMenu)}
                     ref={addAllTriggerRef}
                     testID="scanner-tray-add-all"
                   >
@@ -2925,7 +2930,7 @@ export function ScannerScreen({
                         accessibilityRole="button"
                         accessibilityLabel="Clear all scans"
                         hitSlop={8}
-                        onPress={handleClearAllCaptures}
+                        onPress={gate(handleClearAllCaptures)}
                         style={({ pressed }) => [
                           styles.trayClearAllPill,
                           pressed ? styles.trayClearAllPillPressed : null,
@@ -2975,7 +2980,7 @@ export function ScannerScreen({
             fallbackCurrencyCode={activeCandidate.currencyCode ?? null}
             onSelect={(selection) => handlePriceSelection(activeCapture.id, selection)}
             onClose={handleClosePriceSheet}
-            onOpenEbayLink={activeCapture.mode === 'slabs' ? handleOpenEbayFromSheet : undefined}
+            onOpenEbayLink={activeCapture.mode === 'slabs' ? gate(handleOpenEbayFromSheet) : undefined}
             ebayLinkLoading={ebayState?.loading ?? false}
             ebayLinkAvailable={ebayState?.url != null}
           />
@@ -2992,7 +2997,7 @@ export function ScannerScreen({
       <AddAllMenu
         anchor={rowMenuAnchor}
         onClose={() => setRowMenuCaptureId(null)}
-        onSelect={handleRowMenuSelect}
+        onSelect={gate(handleRowMenuSelect)}
         testID="scanner-row-add-menu"
         visible={rowMenuCaptureId != null}
       />

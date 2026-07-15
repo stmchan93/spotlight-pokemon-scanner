@@ -11,6 +11,7 @@ import { SpotlightThemeProvider } from '@spotlight/design-system';
 
 import { AppDrawerProvider } from '@/providers/app-drawer-provider';
 import { AppProviders } from '@/providers/app-providers';
+import { AuthProvider } from '@/providers/auth-provider';
 
 jest.mock('@spotlight/api-client', () => mockApiClient);
 
@@ -23,6 +24,17 @@ type TestProviderOptions = {
   spotlightRepository?: SpotlightRepository | null;
 };
 
+function PassThrough({ children }: PropsWithChildren) {
+  return <>{children}</>;
+}
+
+// Tests that `jest.mock('@/providers/auth-provider', () => ({ useAuth }))` make
+// the real `AuthProvider` undefined — they supply `useAuth` via the mock, so no
+// provider is needed. Fall back to a pass-through in that case; tests that don't
+// mock the module get the real (test-bypass) AuthProvider so `useGuestGate` /
+// `useAuth` resolve.
+const AuthWrapper = AuthProvider ?? PassThrough;
+
 function Providers({
   children,
   spotlightRepository,
@@ -30,9 +42,11 @@ function Providers({
   return (
     <SafeAreaProvider initialMetrics={safeAreaMetrics}>
       <SpotlightThemeProvider>
-        <AppDrawerProvider>
-          <AppProviders spotlightRepository={spotlightRepository}>{children}</AppProviders>
-        </AppDrawerProvider>
+        <AuthWrapper>
+          <AppDrawerProvider>
+            <AppProviders spotlightRepository={spotlightRepository}>{children}</AppProviders>
+          </AppDrawerProvider>
+        </AuthWrapper>
       </SpotlightThemeProvider>
     </SafeAreaProvider>
   );

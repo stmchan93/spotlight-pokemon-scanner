@@ -31,6 +31,7 @@ import {
 import { Button, IconButton, colors, useSpotlightTheme } from '@spotlight/design-system';
 import { NavArrowLeft, ShareIos, Trash } from 'iconoir-react-native';
 
+import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { AddToCollectionSheet } from '@/features/cards/components/add-to-collection-sheet';
 import { ConfirmDeleteSheet } from '@/features/cards/components/confirm-delete-sheet';
 import {
@@ -169,6 +170,7 @@ export function CardDetailScreen({
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { gate } = useGuestGate();
   const {
     spotlightRepository,
     dataVersion,
@@ -1612,7 +1614,7 @@ export function CardDetailScreen({
           imageUrl={displayImageUrl}
           isFavorite={isFavorite}
           name={displayName}
-          onToggleFavorite={handleToggleFavorite}
+          onToggleFavorite={gate(handleToggleFavorite)}
           testID="detail-hero-card"
         />
 
@@ -1806,7 +1808,7 @@ export function CardDetailScreen({
             {selectedEntry ? (
               <IconButton
                 accessibilityLabel="Delete from collection"
-                onPress={() => setConfirmDeleteOpen(true)}
+                onPress={gate(() => setConfirmDeleteOpen(true))}
                 shape="circle"
                 size={36}
                 testID="detail-delete"
@@ -1817,7 +1819,7 @@ export function CardDetailScreen({
             ) : null}
             <IconButton
               accessibilityLabel="Share this card"
-              onPress={handleShare}
+              onPress={gate(handleShare)}
               shape="circle"
               size={36}
               testID="detail-share"
@@ -1847,7 +1849,7 @@ export function CardDetailScreen({
               disabled={isSavingEdit || !detail}
               label="SAVE"
               labelStyleVariant="label"
-              onPress={handleSaveEdit}
+              onPress={gate(handleSaveEdit)}
               shape="rounded"
               size="md"
               style={styles.actionButton}
@@ -1872,7 +1874,7 @@ export function CardDetailScreen({
               disabled={isAddPending || !detail}
               label="ADD ITEM"
               labelStyleVariant="label"
-              onPress={handleOpenAddSheet}
+              onPress={gate(handleOpenAddSheet)}
               shape="rounded"
               size="md"
               style={styles.actionButton}
@@ -1882,7 +1884,7 @@ export function CardDetailScreen({
             <Button
               label="SHARE"
               labelStyleVariant="label"
-              onPress={handleShare}
+              onPress={gate(handleShare)}
               shape="rounded"
               size="md"
               style={styles.actionButton}

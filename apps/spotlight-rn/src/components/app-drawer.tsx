@@ -25,6 +25,7 @@ import { colors, fontFamilies, textStyles } from '@spotlight/design-system';
 
 import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAuth } from '@/providers/auth-provider';
+import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { useAppServices } from '@/providers/app-providers';
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
 
@@ -58,6 +59,7 @@ export function AppDrawer() {
   const router = useRouter();
   const pathname = usePathname();
   const auth = useAuth();
+  const { gate } = useGuestGate();
   const { width: screenWidth } = useWindowDimensions();
   const { inventoryEntriesCache, portfolioDashboardCache } = useAppServices();
 
@@ -182,21 +184,21 @@ export function AppDrawer() {
       label: 'Collection',
       icon: ViewGrid,
       selected: activeKey === 'collection',
-      onPress: navigateToCollection,
+      onPress: gate(navigateToCollection),
     },
     {
       key: 'wishlist',
       label: 'Wishlist',
       icon: Bookmark,
       selected: activeKey === 'wishlist',
-      onPress: () => goTo('/wishlist'),
+      onPress: gate(() => goTo('/wishlist')),
     },
     {
       key: 'insights',
       label: 'Insights',
       icon: GraphUp,
       selected: activeKey === 'insights',
-      onPress: () => goTo('/insights'),
+      onPress: gate(() => goTo('/insights')),
     },
   ];
 
@@ -247,10 +249,10 @@ export function AppDrawer() {
           <Pressable
             accessibilityLabel="Account settings"
             accessibilityRole="button"
-            onPress={() => {
+            onPress={gate(() => {
               closeDrawer();
               setTimeout(() => router.push('/account' as never), ANIM_DURATION_MS / 2);
-            }}
+            })}
             style={styles.profileRow}
             testID="app-drawer-profile"
           >
@@ -323,18 +325,18 @@ export function AppDrawer() {
             <DrawerNavItem
               icon={Settings}
               label="Account Settings"
-              onPress={() => {
+              onPress={gate(() => {
                 closeDrawer();
                 // Same destination as tapping the profile row up top — the
                 // Account page carries sign-out + delete-account.
                 setTimeout(() => router.push('/account' as never), ANIM_DURATION_MS / 2);
-              }}
+              })}
               testID="app-drawer-nav-account-settings"
             />
             <DrawerNavItem
               icon={LogOut}
               label="Log Out"
-              onPress={() => {
+              onPress={gate(() => {
                 Alert.alert(
                   'Log out?',
                   "You'll need to sign in again to view your collection.",
@@ -354,7 +356,7 @@ export function AppDrawer() {
                     },
                   ],
                 );
-              }}
+              })}
               testID="app-drawer-nav-logout"
             />
           </View>

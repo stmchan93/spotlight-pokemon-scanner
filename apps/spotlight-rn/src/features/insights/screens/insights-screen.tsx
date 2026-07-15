@@ -17,6 +17,7 @@ import type { PortfolioPerformance, PortfolioPerformanceRow } from '@spotlight/a
 import { IconButton, SearchField, colors, textStyles, useSpotlightTheme } from '@spotlight/design-system';
 
 import { useTabBarScrollHandler } from '@/contexts/tab-bar-chrome-context';
+import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { useAppServices } from '@/providers/app-providers';
 import { AppBottomTabBar } from '@/components/app-bottom-tab-bar';
 import { ScrollToTopFab, useScrollToTop } from '@/components/scroll-to-top-fab';
@@ -125,6 +126,12 @@ export function InsightsScreen() {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { isGuest, openLogin } = useGuestGate();
+  // Belt-and-suspenders: every entry point here is already guest-gated, but if a
+  // guest somehow lands on this screen, bounce them to the login modal.
+  useEffect(() => {
+    if (isGuest) openLogin();
+  }, [isGuest, openLogin]);
   const handleTabBarScroll = useTabBarScrollHandler();
   const {
     spotlightRepository,

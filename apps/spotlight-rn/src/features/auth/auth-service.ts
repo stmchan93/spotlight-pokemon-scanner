@@ -678,6 +678,36 @@ export async function signOut() {
   await supabase.auth.signOut();
 }
 
+/**
+ * Anonymous ("guest") sign-in for the first-launch scanner. Returns a real
+ * Supabase session whose `user.is_anonymous === true`; its JWT authenticates
+ * the backend scan/match + card-detail endpoints exactly like a real account,
+ * so no backend changes are needed. Requires "Allow anonymous sign-ins" to be
+ * enabled in the Supabase dashboard — throws if the project has it off, so
+ * callers must fall back to the normal login screen on error.
+ */
+export async function signInAnonymously(): Promise<Session> {
+  if (!supabase) {
+    throw new Error(supabaseAuthConfig.configurationIssue ?? 'Supabase Auth is not configured.');
+  }
+
+  const { data, error } = await supabase.auth.signInAnonymously();
+  if (error) {
+    throw error;
+  }
+
+  if (!data.session) {
+    throw new Error('Anonymous sign-in did not create a session.');
+  }
+
+  return data.session;
+}
+
+/** True when the session is a guest (Supabase anonymous user). */
+export function isAnonymousSession(session: Session | null): boolean {
+  return session?.user.is_anonymous === true;
+}
+
 export async function getCurrentSession() {
   if (!supabase) {
     return null;

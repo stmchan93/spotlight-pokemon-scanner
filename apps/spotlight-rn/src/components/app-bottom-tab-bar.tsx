@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BottomTabBar, useSpotlightTheme } from '@spotlight/design-system';
 
 import { useTabBarCollapseProgress } from '@/contexts/tab-bar-chrome-context';
+import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { CollectionTabIcon, ScanTabIcon, WishlistTabIcon } from './nav-tab-icons';
 
 export type AppBottomTabKey = 'portfolio' | 'scan' | 'wishlist';
@@ -39,6 +40,8 @@ export function AppBottomTabBar({
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  // Guests can scan freely but Collection/Wishlist are gated behind login.
+  const { gate } = useGuestGate();
   // iOS 26-style minimize-on-scroll: the bar slides down + fades as the user
   // scrolls the active list, and returns on scroll-up.
   const collapseProgress = useTabBarCollapseProgress();
@@ -92,7 +95,7 @@ export function AppBottomTabBar({
           key: 'portfolio',
           label: 'Collection',
           selected: activeKey === 'portfolio',
-          onPress: activeKey === 'portfolio' ? noop : goToPortfolio,
+          onPress: activeKey === 'portfolio' ? noop : gate(goToPortfolio),
           testID: 'bottom-nav-portfolio',
           icon: <CollectionTabIcon color={iconColor} filled={activeKey === 'portfolio'} size={NAV_ICON_SIZE} />,
         },
@@ -108,7 +111,7 @@ export function AppBottomTabBar({
           key: 'wishlist',
           label: 'Wishlist',
           selected: activeKey === 'wishlist',
-          onPress: activeKey === 'wishlist' ? noop : goToWishlist,
+          onPress: activeKey === 'wishlist' ? noop : gate(goToWishlist),
           testID: 'bottom-nav-wishlist',
           // Bookmark fills in when the Wishlist tab is the active one.
           icon: <WishlistTabIcon color={iconColor} filled={activeKey === 'wishlist'} size={NAV_ICON_SIZE} />,

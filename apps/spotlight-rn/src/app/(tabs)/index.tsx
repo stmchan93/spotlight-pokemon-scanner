@@ -12,20 +12,24 @@ import {
 import { PortfolioScreen } from '@/features/portfolio/screens/portfolio-screen';
 import { ScannerScreen } from '@/features/scanner/screens/scanner-screen';
 import { useAppServices } from '@/providers/app-providers';
+import { useAuth } from '@/providers/auth-provider';
 
 export default function TabsRoot() {
   const router = useRouter();
   const { spotlightRepository } = useAppServices();
+  const { isGuest } = useAuth();
   const params = useLocalSearchParams<{
     page?: 'portfolio' | 'scanner' | string | string[];
   }>();
   const requestedPage = Array.isArray(params.page) ? params.page[0] : params.page;
   // Collection is the landing tab (first thing after login); the scanner only
   // opens when explicitly requested (`/scan` redirects here with page=scanner).
-  const initialPage = requestedPage === 'scanner' ? 'scanner' : 'portfolio';
+  // Guests land on the SCANNER (first-launch experience).
+  const initialPage = isGuest || requestedPage === 'scanner' ? 'scanner' : 'portfolio';
 
   return (
     <TopTabsPager
+      guestLocked={isGuest}
       initialPage={initialPage}
       portfolioSlot={(
         <PortfolioScreen

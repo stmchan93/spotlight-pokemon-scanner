@@ -34,6 +34,7 @@ import { saveCardDetailPreviewFromFavorite } from '@/features/cards/card-detail-
 import { prefetchCardDetail } from '@/features/cards/card-detail-prefetch';
 import { formatOptionalCurrency } from '@/features/portfolio/components/portfolio-formatting';
 import { WishlistHeader } from '@/features/wishlist/components/wishlist-header';
+import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { useAppServices } from '@/providers/app-providers';
 
 // A wishlist tracks the CARD, not a specific copy. Condition/grade only ever
@@ -112,6 +113,12 @@ export function WishlistScreen() {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { isGuest, openLogin } = useGuestGate();
+  // Belt-and-suspenders: every entry point here is already guest-gated, but if a
+  // guest somehow lands on this screen, bounce them to the login modal.
+  useEffect(() => {
+    if (isGuest) openLogin();
+  }, [isGuest, openLogin]);
   const { spotlightRepository, dataVersion } = useAppServices();
   const [favorites, setFavorites] = useState<CardFavoriteEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);

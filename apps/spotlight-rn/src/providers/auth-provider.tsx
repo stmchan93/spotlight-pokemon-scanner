@@ -13,11 +13,13 @@ import {
   getConfigurationIssue,
   getIsConfigured,
   getNeedsProfile,
+  isAnonymousSession,
   isAuthCanceledError,
   resendSignupCode,
   resolveAppUserFromSession,
   restoreSessionFromUrl,
   sendPasswordReset,
+  signInAnonymously,
   signInWithApple,
   signInWithEmailPassword,
   signInWithGoogle,
@@ -29,6 +31,7 @@ import {
   verifySignupCode,
 } from '@/features/auth/auth-service';
 import { getResolvedDisplayName } from '@/features/auth/auth-models';
+import { hasEverSignedIn, markHasSignedIn } from '@/features/auth/guest-first-launch';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { supabase } from '@/lib/supabase';
 
@@ -53,6 +56,8 @@ type AuthContextValue = EmailAuthActions & {
   currentSession: Session | null;
   currentUser: AppUser | null;
   errorMessage: string | null;
+  /** True while the active session is a guest (Supabase anonymous user). */
+  isGuest: boolean;
   isBusy: boolean;
   isConfigured: boolean;
   profileDraftName: string;
@@ -176,6 +181,21 @@ function captureProfileCompleted() {
   capturePostHogEvent('profile_completed');
 }
 
+// Synthetic AppUser for a guest (anonymous) session — no profile fetch, no
+// display-name requirement (a guest has no name source and would otherwise be
+// trapped on the profile-completion screen).
+function guestAppUser(session: Session): AppUser {
+  return {
+    id: session.user.id,
+    email: null,
+    displayName: 'Guest',
+    avatarURL: null,
+    providers: [],
+    labelerEnabled: false,
+    adminEnabled: false,
+  };
+}
+
 export function AuthProvider({ children }: PropsWithChildren) {
   const [state, setState] = useState<AuthState>(shouldBypassAuthForTests ? 'signedIn' : 'loading');
   const [currentUser, setCurrentUser] = useState<AppUser | null>(shouldBypassAuthForTests ? testUser : null);
@@ -203,6 +223,20 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setState('signedOut');
       return;
     }
+
+    // Guest (anonymous) session: land straight in the app as a synthetic
+    // "Guest" — state 'signedIn' so AuthGate renders the app, but skip the
+    // profile-completion gate.
+    if (isAnonymousSession(session)) {
+      setCurrentUser(guestAppUser(session));
+      setProfileDraftName('');
+      setState('signedIn');
+      return;
+    }
+
+    // A real (non-anonymous) account signed in — remember it so this device
+    // never silently returns to first-launch guest mode.
+    void markHasSignedIn();
 
     const resolvedUser = await resolveAppUserFromSession(session);
     setCurrentUser(resolvedUser);
@@ -292,9 +326,30 @@ export function AuthProvider({ children }: PropsWithChildren) {
         }
 
         const session = await getCurrentSession();
-        if (isMounted) {
-          await updateFromSession(session);
+        if (!isMounted) {
+          return;
         }
+
+        // First-launch guest: no session AND this device has never had a real
+        // login → sign in anonymously so the user lands on the scanner. If the
+        // device HAS signed in before, keep today's signed-out login flow. Any
+        // failure (anon sign-ins disabled in the dashboard, network) falls back
+        // to the login screen — guest mode degrades gracefully.
+        if (!session && !(await hasEverSignedIn())) {
+          try {
+            const guestSession = await signInAnonymously();
+            if (isMounted) {
+              await updateFromSession(guestSession);
+            }
+          } catch {
+            if (isMounted) {
+              await updateFromSession(null);
+            }
+          }
+          return;
+        }
+
+        await updateFromSession(session);
       } catch (error) {
         const nextMessage = errorMessageFromUnknown(error);
         if (isMounted) {
@@ -340,6 +395,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     currentSession,
     currentUser,
     errorMessage,
+    isGuest: isAnonymousSession(currentSession),
     isBusy,
     isConfigured: getIsConfigured(),
     profileDraftName,

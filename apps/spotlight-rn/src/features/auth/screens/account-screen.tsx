@@ -13,6 +13,7 @@ import {
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
+import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { useAuth } from '@/providers/auth-provider';
 import { useAppServices } from '@/providers/app-providers';
 
@@ -23,7 +24,14 @@ export function AccountScreen() {
   const theme = useSpotlightTheme();
   const auth = useAuth();
   const user = auth.currentUser;
+  const { isGuest, openLogin } = useGuestGate();
   const { spotlightRepository } = useAppServices();
+
+  // Belt-and-suspenders: every entry point here is already guest-gated, but if a
+  // guest somehow lands on this screen, bounce them to the login modal.
+  useEffect(() => {
+    if (isGuest) openLogin();
+  }, [isGuest, openLogin]);
 
   const [isDeleting, setIsDeleting] = useState(false);
 

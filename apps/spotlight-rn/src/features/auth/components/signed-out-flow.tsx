@@ -32,6 +32,12 @@ type SignedOutFlowProps = {
   isBusy: boolean;
   onAppleSignIn: () => void;
   onGoogleSignIn: () => void;
+  /**
+   * When present, the Log In root shows a back/close affordance that calls this
+   * (e.g. the guest login MODAL dismisses back to the scanner). Omitted for the
+   * full-screen signed-out flow, which has no back on the login root.
+   */
+  onClose?: () => void;
 };
 
 export function SignedOutFlow({
@@ -42,6 +48,7 @@ export function SignedOutFlow({
   isBusy,
   onAppleSignIn,
   onGoogleSignIn,
+  onClose,
 }: SignedOutFlowProps) {
   const [step, setStep] = useState<Step>('login');
   // The auth error is shared across every step. Clear it whenever the step
@@ -231,6 +238,7 @@ export function SignedOutFlow({
           errorMessage={errorMessage}
           isBusy={isBusy}
           onApple={onAppleSignIn}
+          onBack={onClose}
           onChangeEmail={setEmail}
           onChangePassword={setPassword}
           onContinue={() => void handleLogin()}

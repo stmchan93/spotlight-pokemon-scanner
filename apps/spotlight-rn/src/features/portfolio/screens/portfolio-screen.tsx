@@ -43,6 +43,7 @@ import { usePortfolioViewMode } from '@/features/portfolio/hooks/use-portfolio-v
 import { usePortfolioSummaryVisibility } from '@/features/portfolio/use-portfolio-summary-visibility';
 import { useTabBarScrollHandler } from '@/contexts/tab-bar-chrome-context';
 import { useTabsPage } from '@/contexts/tabs-page-context';
+import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAppServices } from '@/providers/app-providers';
 
@@ -150,6 +151,12 @@ export function PortfolioScreen({
 }: PortfolioScreenProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
+  const { isGuest, openLogin } = useGuestGate();
+  // Belt-and-suspenders: every entry point here is already guest-gated, but if a
+  // guest somehow lands on this screen, bounce them to the login modal.
+  useEffect(() => {
+    if (isGuest) openLogin();
+  }, [isGuest, openLogin]);
   const model = usePortfolioScreenModel();
   const { spotlightRepository, refreshData, removeOptimisticInventoryEntries } = useAppServices();
   const { isHidden: isSummaryHidden, toggle: toggleSummaryHidden } = usePortfolioSummaryVisibility();

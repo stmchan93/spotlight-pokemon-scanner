@@ -12,6 +12,7 @@ import { AppState, type AppStateStatus } from 'react-native';
 import type { AccessStatus } from '@spotlight/api-client';
 
 import { useAppServices } from '@/providers/app-providers';
+import { useAuth } from '@/providers/auth-provider';
 
 type AccessGateState = 'loading' | 'allowed' | 'blocked';
 
@@ -38,11 +39,21 @@ const AccessGateContext = createContext<AccessGateContextValue | null>(null);
  */
 export function AccessGateProvider({ children }: PropsWithChildren) {
   const { spotlightRepository } = useAppServices();
+  const { isGuest } = useAuth();
   const [state, setState] = useState<AccessGateState>('loading');
   const [status, setStatus] = useState<AccessStatus | null>(null);
   const isMountedRef = useRef(true);
 
   const refresh = useCallback(async (): Promise<AccessStatus | null> => {
+    // Guests bypass the invite/access gate entirely — always allowed (the gate
+    // still applies to real accounts). Skip the backend call too.
+    if (isGuest) {
+      if (isMountedRef.current) {
+        setStatus(null);
+        setState('allowed');
+      }
+      return null;
+    }
     try {
       const nextStatus = await spotlightRepository.getAccessStatus();
       if (!isMountedRef.current) {
@@ -59,7 +70,7 @@ export function AccessGateProvider({ children }: PropsWithChildren) {
       }
       return null;
     }
-  }, [spotlightRepository]);
+  }, [spotlightRepository, isGuest]);
 
   useEffect(() => {
     isMountedRef.current = true;

@@ -30,6 +30,12 @@ type TopTabsPagerProps = {
     onExitToPortfolio: () => void,
     onTopLevelSwipeEnabledChange: (enabled: boolean) => void,
   ) => ReactNode;
+  /**
+   * Guest (first-launch) mode: lock the pager on the scanner — never claim the
+   * horizontal page swipe (can't reach Collection) and never open the drawer via
+   * the left-edge swipe. Other guest gating lives on the individual controls.
+   */
+  guestLocked?: boolean;
 };
 
 const swipeDistanceThreshold = 44;
@@ -49,10 +55,15 @@ export function TopTabsPager({
   initialPage = 'scanner',
   portfolioSlot,
   renderScannerSlot,
+  guestLocked = false,
 }: TopTabsPagerProps) {
   const { width } = useWindowDimensions();
   const router = useRouter();
   const { openDrawer } = useAppDrawer();
+  // Mirror into a ref so the memoized pan-responder predicate reads the latest
+  // value without being rebuilt.
+  const guestLockedRef = useRef(guestLocked);
+  guestLockedRef.current = guestLocked;
   // Held in a ref so the memoized PanResponder always calls the latest opener
   // without being rebuilt.
   const openDrawerRef = useRef(openDrawer);
@@ -143,6 +154,11 @@ export function TopTabsPager({
   }, []);
 
   const shouldSetResponder = useCallback((_: unknown, gs: PanResponderGestureState) => {
+    // Guest mode: locked to the scanner — never claim a page swipe (can't slide
+    // to Collection) and never open the drawer via the left-edge swipe.
+    if (guestLockedRef.current) {
+      return false;
+    }
     if (isTransitioningRef.current || !isHorizontalSwipe(gs)) {
       return false;
     }
