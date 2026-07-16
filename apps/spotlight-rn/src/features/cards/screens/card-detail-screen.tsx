@@ -882,6 +882,35 @@ export function CardDetailScreen({
     .filter(Boolean)
     .join(' · ');
 
+  // "Since you added it (Mar 12, 2026): ▲ $142.00 (31.00%)" — the owned
+  // entry's position line (Robinhood-style total return since the add-date
+  // market baseline). Owned entries only for v1; renders nothing when the
+  // backend resolved no baseline. When the baseline date is LATER than the
+  // entry's add date the entry predates price tracking (earliest-tracked
+  // fallback), so the label switches to "Since we started tracking it".
+  const sinceAddedLine = (() => {
+    const amount = selectedEntry?.sinceAddedChangeAmount;
+    const baselineDate = selectedEntry?.sinceAddedBaselineDate;
+    if (selectedEntry == null || amount == null || baselineDate == null) {
+      return null;
+    }
+    const dateLabel = formatReleaseDate(baselineDate);
+    if (!dateLabel) {
+      return null;
+    }
+    const addedDate = (selectedEntry.addedAt ?? '').slice(0, 10);
+    const baselineIsLater = addedDate.length === 10 && baselineDate.slice(0, 10) > addedDate;
+    const label = baselineIsLater ? 'Since we started tracking it' : 'Since you added it';
+    const percent = selectedEntry.sinceAddedChangePercent;
+    const percentSuffix = percent != null ? ` (${Math.abs(percent).toFixed(2)}%)` : '';
+    const isDown = amount < 0;
+    const amountLabel = formatCurrency(Math.abs(amount), selectedEntry.currencyCode ?? 'USD');
+    return {
+      text: `${label} (${dateLabel}): ${isDown ? '▼' : '▲'} ${amountLabel}${percentSuffix}`,
+      color: isDown ? colors.red400 : colors.green400,
+    };
+  })();
+
   // Carried into the log-transaction flow as the note so a bought/sold/traded
   // entry started from this card keeps its identity.
   const transactionLabel = [displayName, displayCardNumber, displaySetName]
@@ -1635,6 +1664,14 @@ export function CardDetailScreen({
                 testID="detail-identity-meta"
               >
                 {identityDetailLine}
+              </Text>
+            ) : null}
+            {sinceAddedLine ? (
+              <Text
+                style={[theme.typography.bodyMedium, { color: sinceAddedLine.color }]}
+                testID="detail-since-added"
+              >
+                {sinceAddedLine.text}
               </Text>
             ) : null}
           </View>

@@ -663,6 +663,90 @@ describe('PortfolioScreen', () => {
     expect(screen.queryByTestId('portfolio-list-pagination-view-more')).toBeNull();
   });
 
+  it('list rows show the SINCE-ADDED change pill (not day change) with caption + sparkline', async () => {
+    const inventory = [
+      buildInventoryEntry({
+        id: 'since-1',
+        cardId: 'since-1',
+        name: 'Charizard',
+        marketPrice: 600,
+        // Day change present but must NOT drive the row pill anymore.
+        dayChangeAmount: 2.5,
+        dayChangePercent: 0.4,
+        sinceAddedChangeAmount: 142,
+        sinceAddedChangePercent: 31,
+        sinceAddedBaselineDate: '2026-03-12',
+        sparkPoints: [500, 520, 480, 600],
+        sparkTrendPct: 20,
+      }),
+    ];
+    const dashboard = buildDashboardWithInventory(inventory);
+    const repository = createTestSpotlightRepository({
+      loadInventoryEntries: async () => ({ state: 'success', data: inventory, errorMessage: null }),
+      loadPortfolioDashboard: async () => ({ state: 'success', data: dashboard, errorMessage: null }),
+    });
+
+    renderPortfolioScreen({ repository });
+
+    await screen.findByTestId('portfolio-header-title');
+    await waitFor(() => {
+      expect(screen.getByTestId('collection-masonry-grid')).toBeTruthy();
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('collection-search-row-view-toggle'));
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('card-list-row-since-1')).toBeTruthy();
+    });
+
+    // Since-added amount + percent in ONE pill, with the truth-labeling caption.
+    expect(screen.getByTestId('card-list-row-since-1-trend')).toBeTruthy();
+    expect(screen.getByText('$142.00 (31.00%)')).toBeTruthy();
+    expect(screen.getByText('since added')).toBeTruthy();
+    // The day-change amount is no longer rendered on the row.
+    expect(screen.queryByText('$2.50')).toBeNull();
+    // The 30d sparkline renders between the copy block and the price column.
+    expect(screen.getByTestId('card-list-row-since-1-sparkline')).toBeTruthy();
+  });
+
+  it('list rows hide the pill and sparkline when the since-added fields are null', async () => {
+    const inventory = [
+      buildInventoryEntry({
+        id: 'since-none',
+        cardId: 'since-none',
+        name: 'Bulbasaur',
+        dayChangeAmount: 2.5,
+        sinceAddedChangeAmount: null,
+        sinceAddedChangePercent: null,
+        sinceAddedBaselineDate: null,
+        sparkPoints: null,
+        sparkTrendPct: null,
+      }),
+    ];
+    const dashboard = buildDashboardWithInventory(inventory);
+    const repository = createTestSpotlightRepository({
+      loadInventoryEntries: async () => ({ state: 'success', data: inventory, errorMessage: null }),
+      loadPortfolioDashboard: async () => ({ state: 'success', data: dashboard, errorMessage: null }),
+    });
+
+    renderPortfolioScreen({ repository });
+
+    await screen.findByTestId('portfolio-header-title');
+    await waitFor(() => {
+      expect(screen.getByTestId('collection-masonry-grid')).toBeTruthy();
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('collection-search-row-view-toggle'));
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('card-list-row-since-none')).toBeTruthy();
+    });
+
+    expect(screen.queryByTestId('card-list-row-since-none-trend')).toBeNull();
+    expect(screen.queryByText('since added')).toBeNull();
+    expect(screen.queryByTestId('card-list-row-since-none-sparkline')).toBeNull();
+  });
+
   it('renders the whole grid view virtualized, with no View More gate', async () => {
     const inventory = Array.from({ length: 12 }, (_, index) =>
       buildInventoryEntry({

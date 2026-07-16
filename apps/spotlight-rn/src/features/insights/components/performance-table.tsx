@@ -2,12 +2,11 @@ import { forwardRef, useCallback } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { ListRenderItemInfo, NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 
-import { borderWidths, radii, useSpotlightTheme } from '@spotlight/design-system';
+import { borderWidths, PriceSparkline, radii, useSpotlightTheme } from '@spotlight/design-system';
 import { deckConditionOptions, type PortfolioPerformanceRow } from '@spotlight/api-client';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { getCardImageUrl } from '@/lib/card-images';
-import { PriceSparkline } from '@/features/cards/components/price-sparkline';
 import { formatCompactCurrency, formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
 
 // Virtualized performance table (Figma 2206-20251, header row 2179-9032). A

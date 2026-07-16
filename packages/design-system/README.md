@@ -341,6 +341,17 @@ Current API concepts:
   to USD; hidden when null)
 - optional `trendChangeAmount` (positive → green up arrow, negative → red down
   arrow, null/0 → hidden)
+- optional `trendChangePercent` — percent companion inside the pill:
+  `$142.00 (31.00%)` (unsigned two-decimal, matching the balance header; the
+  arrow carries the direction); absent → amount-only pill, unchanged
+- optional `trendCaption` — small gray600 caption under the pill (e.g.
+  `"since added"`) so the pill's time span reads truthfully; only rendered
+  while the pill is
+- optional `sparkPoints` + `sparkTrendPct` — renders a 62×22 `PriceSparkline`
+  between the name/set copy and the price column
+  (`[thumb][name/set][sparkline][price + pill]`); the sparkline tints by its
+  OWN `sparkTrendPct` direction, independent of the pill. Absent/empty →
+  no sparkline, layout identical to before
 - `quantity` (rendered as `"Qty: {n}"`)
 - optional `onPress` (whole row becomes a `Pressable` with button role)
 
@@ -390,6 +401,25 @@ Current API concepts:
 - optional `onBackToTop` (renders the up-chevron "Back to top" affordance)
 - optional `viewMoreLabel` (defaults to `"View More"`)
 - renders nothing when `!canViewMore && !onBackToTop`
+
+### PriceSparkline
+
+File: `src/components/price-sparkline.tsx`
+
+Tiny inline price-trend chart (line + soft gradient fill) used wherever a row
+needs a Robinhood-style mini graph — `CardListRow` (collection/wishlist rows),
+the PDP price-trend list, and the Insights performance table. Promoted from
+`apps/spotlight-rn/src/features/cards/components` once it hit 3+ consumers.
+
+Current API concepts:
+
+- `points` — market-price series, oldest → newest (a single point or flat
+  series draws a centered horizontal line; empty → an empty box of the same
+  size so rows stay aligned)
+- optional `trendPct` — percent change across the series; `>= 0` tints
+  `green400`, `< 0` tints `red400` (defaults to green when omitted)
+- optional `width`/`height` — defaults 62×22 (the list-row size)
+- requires `react-native-svg` (already a package peer dependency)
 
 ### ScrollToTopButton
 

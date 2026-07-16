@@ -69,8 +69,16 @@ export function CollectionListRow({
       selectable={selectable}
       selected={selected}
       setName={entry.setName}
+      // Last-30d sparkline; tinted by its own direction while the pill carries
+      // the since-added truth (Robinhood's 1D-chart vs total-return split).
+      sparkPoints={entry.sparkPoints ?? undefined}
+      sparkTrendPct={entry.sparkTrendPct ?? null}
       testID={`card-list-row-${entry.cardId}`}
-      trendChangeAmount={entry.dayChangeAmount ?? null}
+      // Rows show the SINCE-ADDED change, not day change (day change stays on
+      // the balance header + PDP).
+      trendCaption="since added"
+      trendChangeAmount={entry.sinceAddedChangeAmount ?? null}
+      trendChangePercent={entry.sinceAddedChangePercent ?? null}
     />
   );
 }

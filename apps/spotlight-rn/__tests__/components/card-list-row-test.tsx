@@ -172,4 +172,60 @@ describe('CardListRow', () => {
     expect(screen.getByText(/€\s?10\.00/)).toBeTruthy();
     expect(screen.getByText(/€\s?2\.50/)).toBeTruthy();
   });
+
+  it('appends the unsigned percent to the pill when trendChangePercent is provided', () => {
+    renderRow({ trendChangeAmount: 142, trendChangePercent: 31 });
+
+    // Two-decimal unsigned percent (balance-header formatting); the arrow
+    // carries the direction.
+    expect(screen.getByText('$142.00 (31.00%)')).toBeTruthy();
+    expect(screen.getByTestId('row-trend-arrow-up')).toBeTruthy();
+  });
+
+  it('shows the unsigned percent with the down arrow for a negative trend', () => {
+    renderRow({ trendChangeAmount: -5.25, trendChangePercent: -12.5 });
+
+    expect(screen.getByText('$5.25 (12.50%)')).toBeTruthy();
+    expect(screen.getByTestId('row-trend-arrow-down')).toBeTruthy();
+  });
+
+  it('keeps the amount-only pill when trendChangePercent is null', () => {
+    renderRow({ trendChangeAmount: 3.99, trendChangePercent: null });
+
+    expect(screen.getByText('$3.99')).toBeTruthy();
+  });
+
+  it('renders the trend caption under the pill', () => {
+    renderRow({ trendChangeAmount: 3.99, trendCaption: 'since added' });
+
+    expect(screen.getByTestId('row-trend-caption')).toBeTruthy();
+    expect(screen.getByText('since added')).toBeTruthy();
+  });
+
+  it('hides the trend caption when the pill itself is hidden (0/null trend)', () => {
+    const zero = renderRow({ trendChangeAmount: 0, trendCaption: 'since added' });
+    expect(screen.queryByTestId('row-trend-caption')).toBeNull();
+    zero.unmount();
+
+    renderRow({ trendChangeAmount: null, trendCaption: 'since added' });
+    expect(screen.queryByTestId('row-trend-caption')).toBeNull();
+  });
+
+  it('renders the sparkline between the copy block and the price column when sparkPoints are provided', () => {
+    renderRow({ sparkPoints: [1, 2, 1.5, 3], sparkTrendPct: 12 });
+
+    expect(screen.getByTestId('row-sparkline')).toBeTruthy();
+    // The rest of the row is unchanged.
+    expect(screen.getByText('Charizard ex')).toBeTruthy();
+    expect(screen.getByTestId('row-price')).toBeTruthy();
+  });
+
+  it('renders no sparkline when sparkPoints are absent or empty', () => {
+    const bare = renderRow();
+    expect(screen.queryByTestId('row-sparkline')).toBeNull();
+    bare.unmount();
+
+    renderRow({ sparkPoints: [] });
+    expect(screen.queryByTestId('row-sparkline')).toBeNull();
+  });
 });

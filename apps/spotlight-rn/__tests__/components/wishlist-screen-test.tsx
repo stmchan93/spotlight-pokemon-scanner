@@ -107,6 +107,72 @@ describe('WishlistScreen', () => {
     expect(screen.queryByTestId('wishlist-list-pagination-view-more')).toBeNull();
   });
 
+  it('list rows show the SINCE-ADDED change pill (not day change) with caption + sparkline', async () => {
+    const favorites = [
+      buildFavoriteEntry({
+        cardId: 'since-1',
+        name: 'Charizard',
+        marketPrice: 600,
+        // Day change present but must NOT drive the row pill anymore.
+        dayChangeAmount: 2.5,
+        dayChangePercent: 0.4,
+        sinceAddedChangeAmount: 142,
+        sinceAddedChangePercent: 31,
+        sinceAddedBaselineDate: '2026-03-12',
+        sparkPoints: [500, 520, 480, 600],
+        sparkTrendPct: 20,
+      }),
+    ];
+    const repository = createTestSpotlightRepository({
+      getCardFavorites: async () => favorites,
+    });
+
+    renderWishlistScreen(repository);
+
+    await screen.findByTestId('wishlist-header-title');
+    await waitFor(() => {
+      expect(screen.getByTestId('wishlist-row-since-1')).toBeTruthy();
+    });
+
+    // Since-favorited amount + percent in ONE pill, with the caption.
+    expect(screen.getByTestId('wishlist-row-since-1-trend')).toBeTruthy();
+    expect(screen.getByText('$142.00 (31.00%)')).toBeTruthy();
+    expect(screen.getByText('since added')).toBeTruthy();
+    // The day-change amount is no longer rendered on the row.
+    expect(screen.queryByText('$2.50')).toBeNull();
+    // The 30d sparkline renders between the copy block and the price column.
+    expect(screen.getByTestId('wishlist-row-since-1-sparkline')).toBeTruthy();
+  });
+
+  it('list rows hide the pill and sparkline when the since-added fields are null', async () => {
+    const favorites = [
+      buildFavoriteEntry({
+        cardId: 'since-none',
+        name: 'Bulbasaur',
+        dayChangeAmount: 2.5,
+        sinceAddedChangeAmount: null,
+        sinceAddedChangePercent: null,
+        sinceAddedBaselineDate: null,
+        sparkPoints: null,
+        sparkTrendPct: null,
+      }),
+    ];
+    const repository = createTestSpotlightRepository({
+      getCardFavorites: async () => favorites,
+    });
+
+    renderWishlistScreen(repository);
+
+    await screen.findByTestId('wishlist-header-title');
+    await waitFor(() => {
+      expect(screen.getByTestId('wishlist-row-since-none')).toBeTruthy();
+    });
+
+    expect(screen.queryByTestId('wishlist-row-since-none-trend')).toBeNull();
+    expect(screen.queryByText('since added')).toBeNull();
+    expect(screen.queryByTestId('wishlist-row-since-none-sparkline')).toBeNull();
+  });
+
   it('renders the whole grid view virtualized, with no View More gate', async () => {
     const favorites = Array.from({ length: 12 }, (_, index) =>
       buildFavoriteEntry({

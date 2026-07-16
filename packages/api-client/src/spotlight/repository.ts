@@ -353,6 +353,11 @@ type DeckEntryDTO = {
   favoritedAt?: string | null;
   dayChangeAmount?: number | null;
   dayChangePercent?: number | null;
+  sinceAddedChangeAmount?: number | null;
+  sinceAddedChangePercent?: number | null;
+  sinceAddedBaselineDate?: string | null;
+  sparkPoints?: Array<number | null> | null;
+  sparkTrendPct?: number | null;
 };
 
 type PortfolioHistoryDTO = {
@@ -1279,6 +1284,17 @@ function normalizeBoolean(value: unknown) {
   return typeof value === 'boolean' ? value : null;
 }
 
+// Row-sparkline series: an array of finite numbers, or null when the backend
+// omitted/truncated the sparkline (or sent something malformed). Non-finite
+// members are dropped rather than failing the whole series.
+function normalizeSparkPoints(value: unknown): number[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const points = value.filter((point): point is number => typeof point === 'number' && Number.isFinite(point));
+  return points.length > 0 ? points : null;
+}
+
 function normalizeInteger(value: unknown, fallback = 0) {
   return typeof value === 'number' && Number.isFinite(value)
     ? Math.max(0, Math.round(value))
@@ -1719,6 +1735,11 @@ function mapDeckEntry(entry: DeckEntryDTO, baseUrl?: string): InventoryCardEntry
     favoritedAt: normalizeString(entry.favoritedAt) ?? null,
     dayChangeAmount: normalizeNumber(entry.dayChangeAmount) ?? null,
     dayChangePercent: normalizeNumber(entry.dayChangePercent) ?? null,
+    sinceAddedChangeAmount: normalizeNumber(entry.sinceAddedChangeAmount) ?? null,
+    sinceAddedChangePercent: normalizeNumber(entry.sinceAddedChangePercent) ?? null,
+    sinceAddedBaselineDate: normalizeString(entry.sinceAddedBaselineDate) ?? null,
+    sparkPoints: normalizeSparkPoints(entry.sparkPoints),
+    sparkTrendPct: normalizeNumber(entry.sparkTrendPct) ?? null,
     listingUrl: normalizeString(entry.listingUrl) ?? null,
     listingPriceCents: normalizeNumber(entry.listingPriceCents) ?? null,
     listedAt: normalizeString(entry.listedAt) ?? null,
@@ -4733,6 +4754,11 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           slabContext,
           dayChangeAmount: normalizeNumber(entry.dayChangeAmount) ?? null,
           dayChangePercent: normalizeNumber(entry.dayChangePercent) ?? null,
+          sinceAddedChangeAmount: normalizeNumber(entry.sinceAddedChangeAmount) ?? null,
+          sinceAddedChangePercent: normalizeNumber(entry.sinceAddedChangePercent) ?? null,
+          sinceAddedBaselineDate: normalizeString(entry.sinceAddedBaselineDate) ?? null,
+          sparkPoints: normalizeSparkPoints(entry.sparkPoints),
+          sparkTrendPct: normalizeNumber(entry.sparkTrendPct) ?? null,
         };
       })
       .filter((entry): entry is CardFavoriteEntry => entry !== null);

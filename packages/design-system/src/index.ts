@@ -12,6 +12,7 @@ export * from './components/list-pagination-footer';
 export * from './components/list-row';
 export * from './components/page-tabs';
 export * from './components/pill-button';
+export * from './components/price-sparkline';
 export * from './components/price-text';
 export * from './components/quantity-stepper';
 export * from './components/radio-dot';

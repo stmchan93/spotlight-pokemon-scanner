@@ -624,8 +624,15 @@ function WishlistListRow({
       selected={editMode && selected}
       setName={entry.setName}
       showQuantity={false}
+      // Last-30d sparkline; tinted by its own direction while the pill carries
+      // the since-added truth.
+      sparkPoints={entry.sparkPoints ?? undefined}
+      sparkTrendPct={entry.sparkTrendPct ?? null}
       testID={`wishlist-row-${entry.cardId}`}
-      trendChangeAmount={entry.dayChangeAmount ?? null}
+      // Rows show the SINCE-ADDED (favorited) change, not day change.
+      trendCaption="since added"
+      trendChangeAmount={entry.sinceAddedChangeAmount ?? null}
+      trendChangePercent={entry.sinceAddedChangePercent ?? null}
     />
   );
 

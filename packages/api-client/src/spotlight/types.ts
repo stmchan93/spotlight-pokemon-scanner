@@ -286,6 +286,20 @@ export type InventoryCardEntry = {
   // and dayChangePercent is also null when yesterday's price was 0.
   dayChangeAmount?: number | null;
   dayChangePercent?: number | null;
+  // "Since you added it" — change in marketPrice versus the market price
+  // snapshotted when the entry was added (`added_market_price`). All null when
+  // no baseline could be resolved. `sinceAddedBaselineDate` is the date the
+  // baseline price actually comes from; it can be LATER than `addedAt` for
+  // entries added before price tracking began (earliest-tracked fallback), so
+  // the UI can label the span truthfully.
+  sinceAddedChangeAmount?: number | null;
+  sinceAddedChangePercent?: number | null;
+  sinceAddedBaselineDate?: string | null;
+  // Row sparkline — last-30-days market series (oldest → newest, downsampled
+  // server-side) + its own 30d percent direction for tinting. Null when the
+  // backend omits or truncates sparklines for the page.
+  sparkPoints?: number[] | null;
+  sparkTrendPct?: number | null;
   // Listing fields — populated when the user has marked the entry as listed
   // on an external marketplace (eBay). Drives the "Live on eBay" tile footer.
   listingUrl?: string | null;
@@ -862,6 +876,17 @@ export type CardFavoriteEntry = {
   /** Day-over-day market price change for the owned/raw lane, in `currencyCode`. */
   dayChangeAmount?: number | null;
   dayChangePercent?: number | null;
+  // "Since you added it" (favorited) — change in marketPrice versus the market
+  // price snapshotted when the card was favorited. All null when no baseline
+  // could be resolved; `sinceAddedBaselineDate` reflects the earliest-tracked
+  // fallback when the favorite predates price tracking.
+  sinceAddedChangeAmount?: number | null;
+  sinceAddedChangePercent?: number | null;
+  sinceAddedBaselineDate?: string | null;
+  /** Last-30-days market series (oldest → newest) for the row sparkline. */
+  sparkPoints?: number[] | null;
+  /** Percent change across `sparkPoints`; drives the sparkline tint. */
+  sparkTrendPct?: number | null;
 };
 
 export type CardFavoritesQuery = {

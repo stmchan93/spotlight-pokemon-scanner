@@ -750,6 +750,157 @@ describe('HttpSpotlightRepository', () => {
     });
   });
 
+  it('maps the since-added baseline fields and the sparkline series on inventory entries', async () => {
+    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/api/v1/deck/entries')) {
+        return jsonResponse(200, {
+          entries: [
+            {
+              id: 'entry-since',
+              itemKind: 'raw',
+              quantity: 1,
+              card: {
+                id: 'c-since',
+                name: 'Charizard',
+                setName: 'Base',
+                number: '4/102',
+                pricing: { currencyCode: 'usd', market: 600 },
+              },
+              condition: 'near_mint',
+              addedAt: '2026-03-12T18:00:00Z',
+              sinceAddedChangeAmount: 142.5,
+              sinceAddedChangePercent: 31.2,
+              sinceAddedBaselineDate: '2026-03-12',
+              // Non-finite members are dropped, finite ones kept in order.
+              sparkPoints: [500, null, 'junk', 520, 600],
+              sparkTrendPct: -4.2,
+            },
+          ],
+        });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    }) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    const entries = await repository.getInventoryEntries();
+
+    expect(entries[0]).toMatchObject({
+      sinceAddedChangeAmount: 142.5,
+      sinceAddedChangePercent: 31.2,
+      sinceAddedBaselineDate: '2026-03-12',
+      sparkPoints: [500, 520, 600],
+      sparkTrendPct: -4.2,
+    });
+  });
+
+  it('nulls malformed since-added and sparkline fields instead of dropping the entry', async () => {
+    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/api/v1/deck/entries')) {
+        return jsonResponse(200, {
+          entries: [
+            {
+              id: 'entry-junk',
+              itemKind: 'raw',
+              quantity: 1,
+              card: {
+                id: 'c-junk',
+                name: 'Bulbasaur',
+                setName: 'Base',
+                number: '44/102',
+                pricing: { currencyCode: 'usd', market: 2 },
+              },
+              addedAt: '2026-03-12T18:00:00Z',
+              sinceAddedChangeAmount: 'oops',
+              sinceAddedChangePercent: {},
+              sinceAddedBaselineDate: 42,
+              sparkPoints: 'not-an-array',
+              sparkTrendPct: '12',
+            },
+          ],
+        });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    }) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    const entries = await repository.getInventoryEntries();
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      sinceAddedChangeAmount: null,
+      sinceAddedChangePercent: null,
+      sinceAddedBaselineDate: null,
+      sparkPoints: null,
+      sparkTrendPct: null,
+    });
+  });
+
+  it('maps the since-added and sparkline fields on wishlist favorites entries', async () => {
+    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/api/v1/card-favorites')) {
+        return jsonResponse(200, {
+          entries: [
+            {
+              card: {
+                id: 'fav-1',
+                name: 'Umbreon VMAX',
+                setName: 'Evolving Skies',
+                number: '215/203',
+                pricing: { currencyCode: 'USD', market: 1300 },
+              },
+              favoritedAt: '2026-05-01T00:00:00Z',
+              isOwned: false,
+              sinceAddedChangeAmount: -50,
+              sinceAddedChangePercent: -3.7,
+              sinceAddedBaselineDate: '2026-05-01',
+              sparkPoints: [1350, 1340, 1300],
+              sparkTrendPct: -3.7,
+            },
+            {
+              card: {
+                id: 'fav-2',
+                name: 'Sylveon VMAX',
+                setName: 'Evolving Skies',
+                number: '212/203',
+                pricing: { currencyCode: 'USD', market: 300 },
+              },
+              favoritedAt: '2026-05-02T00:00:00Z',
+              isOwned: false,
+              // Backend resolved no baseline → nulls pass straight through.
+              sinceAddedChangeAmount: null,
+              sinceAddedChangePercent: null,
+              sinceAddedBaselineDate: null,
+              sparkPoints: null,
+              sparkTrendPct: null,
+            },
+          ],
+        });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    }) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    const favorites = await repository.getCardFavorites();
+
+    expect(favorites).toHaveLength(2);
+    expect(favorites[0]).toMatchObject({
+      cardId: 'fav-1',
+      sinceAddedChangeAmount: -50,
+      sinceAddedChangePercent: -3.7,
+      sinceAddedBaselineDate: '2026-05-01',
+      sparkPoints: [1350, 1340, 1300],
+      sparkTrendPct: -3.7,
+    });
+    expect(favorites[1]).toMatchObject({
+      cardId: 'fav-2',
+      sinceAddedChangeAmount: null,
+      sinceAddedChangePercent: null,
+      sinceAddedBaselineDate: null,
+      sparkPoints: null,
+      sparkTrendPct: null,
+    });
+  });
+
   it('matches raw scanner captures through the backend visual-only endpoint and exposes real candidate ids', async () => {
     const previousNodeEnv = process.env.NODE_ENV;
     (process.env as Record<string, string | undefined>).NODE_ENV = 'development';

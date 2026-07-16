@@ -2,7 +2,7 @@ import { Fragment } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { IconChevronRight } from '@tabler/icons-react-native';
 
-import { borderWidths, colors, useSpotlightTheme } from '@spotlight/design-system';
+import { borderWidths, colors, PriceSparkline, useSpotlightTheme } from '@spotlight/design-system';
 import type {
   CardPriceTrendList as CardPriceTrendListType,
   CardPriceTrendRow,
@@ -10,7 +10,6 @@ import type {
 
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
 
-import { PriceSparkline } from './price-sparkline';
 
 type CardPriceTrendListProps = {
   list: CardPriceTrendListType;

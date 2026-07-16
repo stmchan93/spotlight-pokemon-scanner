@@ -1,10 +1,12 @@
 import { useId } from 'react';
 import { View, StyleSheet } from 'react-native';
 
-import { colors, useSpotlightTheme } from '@spotlight/design-system';
 import Svg, { Defs, LinearGradient, Path, Stop } from 'react-native-svg';
 
-type PriceSparklineProps = {
+import { useSpotlightTheme } from '../theme';
+import { colors } from '../tokens';
+
+export type PriceSparklineProps = {
   /** Market-price series, oldest → newest. */
   points: number[];
   /** Percent change across the series; >= 0 tints green, < 0 tints red. */
@@ -116,5 +118,3 @@ const styles = StyleSheet.create({
     backgroundColor: colors.gray0,
   },
 });
-
-export default PriceSparkline;

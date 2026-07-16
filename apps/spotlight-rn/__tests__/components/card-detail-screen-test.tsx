@@ -872,6 +872,86 @@ describe('CardDetailScreen', () => {
     expect(within(trigger).getByText('10')).toBeTruthy();
   });
 
+  function renderOwnedEntryWithSinceAdded(overrides: Partial<InventoryCardEntry>) {
+    const baseRepository = createTestSpotlightRepository();
+    const ownedEntry: InventoryCardEntry = {
+      addedAt: '2026-04-27T12:00:00.000Z',
+      cardId: 'sm7-1',
+      cardNumber: '#001/096',
+      conditionCode: 'near_mint',
+      conditionLabel: 'Near Mint',
+      conditionShortLabel: 'NM',
+      costBasisPerUnit: null,
+      costBasisTotal: null,
+      currencyCode: 'USD',
+      hasMarketPrice: true,
+      id: 'raw-treecko',
+      imageUrl: 'https://cdn.spotlight.test/sm7/treecko.png',
+      kind: 'raw',
+      marketPrice: 600,
+      name: 'Treecko',
+      quantity: 1,
+      setName: 'Sky Stream',
+      slabContext: null,
+      variantName: null,
+      ...overrides,
+    };
+
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" entryId="raw-treecko" onBack={jest.fn()} />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardDetail: async (query) => {
+            const detail = await baseRepository.getCardDetail(query);
+            return detail
+              ? ({ ...detail, ownedEntries: [ownedEntry] } satisfies CardDetailRecord)
+              : null;
+          },
+        }),
+      },
+    );
+  }
+
+  it('shows the "Since you added it" position line for an owned entry with a baseline', async () => {
+    renderOwnedEntryWithSinceAdded({
+      sinceAddedChangeAmount: 142,
+      sinceAddedChangePercent: 31,
+      sinceAddedBaselineDate: '2026-03-12',
+    });
+
+    const line = await screen.findByTestId('detail-since-added');
+    expect(line.props.children).toBe('Since you added it (Mar 12, 2026): ▲ $142.00 (31.00%)');
+  });
+
+  it('labels the line "Since we started tracking it" when the baseline postdates the add date (pre-history fallback)', async () => {
+    renderOwnedEntryWithSinceAdded({
+      // Entry added before price tracking began: baseline resolves to the
+      // earliest tracked price, which is LATER than addedAt.
+      addedAt: '2026-01-05T12:00:00.000Z',
+      sinceAddedChangeAmount: -20.5,
+      sinceAddedChangePercent: -3.3,
+      sinceAddedBaselineDate: '2026-02-01',
+    });
+
+    const line = await screen.findByTestId('detail-since-added');
+    expect(line.props.children).toBe('Since we started tracking it (Feb 1, 2026): ▼ $20.50 (3.30%)');
+  });
+
+  it('renders no position line when the owned entry has no since-added baseline', async () => {
+    renderOwnedEntryWithSinceAdded({
+      sinceAddedChangeAmount: null,
+      sinceAddedChangePercent: null,
+      sinceAddedBaselineDate: null,
+    });
+
+    // Wait for the screen to settle, then confirm the line never appeared.
+    expect(await screen.findByTestId('detail-name')).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByTestId('detail-save-edit')).toBeTruthy();
+    });
+    expect(screen.queryByTestId('detail-since-added')).toBeNull();
+  });
+
   function ownedGradedEntry(quantity: number): InventoryCardEntry {
     return {
       addedAt: '2026-04-27T12:00:00.000Z',
