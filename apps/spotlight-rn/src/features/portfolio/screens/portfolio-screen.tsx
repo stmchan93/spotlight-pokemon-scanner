@@ -617,6 +617,9 @@ export function PortfolioScreen({
               onFocus={handleSearchFocus}
               onToggleViewMode={toggleViewMode}
               query={model.searchQuery}
+              // Scope tag for every row/tile percent below (SINCE ADDED ⇄ 30D),
+              // right-aligned on the "My Collection" title line; both view modes.
+              titleAccessory={<TrendWindowTag />}
               viewMode={viewMode}
             />
           </View>
@@ -625,12 +628,6 @@ export function PortfolioScreen({
             activeFilter={activeFilter}
             onFilterChange={setActiveFilter}
           />
-
-          {/* Scope tag for every row/tile percent below: SINCE ADDED ⇄ 30D.
-              Rendered in BOTH view modes (grid tiles carry the trend too). */}
-          <View style={[styles.trendWindowRow, { paddingHorizontal: theme.layout.pageGutter }]}>
-            <TrendWindowTag />
-          </View>
         </>
       )}
     </View>
@@ -843,12 +840,6 @@ const styles = StyleSheet.create({
   },
   staleHint: {
     paddingHorizontal: 16,
-  },
-  // Row hosting the SINCE ADDED ⇄ 30D scope tag under the filter chips. The
-  // chrome wrapper's gap supplies the vertical rhythm; the row just aligns the
-  // pill to the leading edge.
-  trendWindowRow: {
-    alignItems: 'flex-start',
   },
   header: {
     alignItems: 'center',

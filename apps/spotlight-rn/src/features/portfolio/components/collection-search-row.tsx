@@ -1,4 +1,5 @@
 import { StyleSheet, Text, View } from 'react-native';
+import type { ReactNode } from 'react';
 import type { TextInputProps } from 'react-native';
 
 import { IconButton, SearchField, colors, textStyles } from '@spotlight/design-system';
@@ -13,6 +14,11 @@ type CollectionSearchRowProps = {
   viewMode?: CollectionViewMode;
   onToggleViewMode?: () => void;
   onFocus?: TextInputProps['onFocus'];
+  /**
+   * Optional element rendered at the right edge of the "My Collection" title
+   * line (e.g. the SINCE ADDED / 30D trend-window tag).
+   */
+  titleAccessory?: ReactNode;
   testID?: string;
 };
 
@@ -22,6 +28,7 @@ export function CollectionSearchRow({
   viewMode,
   onToggleViewMode,
   onFocus,
+  titleAccessory,
   testID = 'collection-search-row',
 }: CollectionSearchRowProps) {
   const showToggle = viewMode != null && onToggleViewMode != null;
@@ -31,7 +38,10 @@ export function CollectionSearchRow({
 
   return (
     <View style={styles.container} testID={testID}>
-      <Text style={styles.title}>My Collection</Text>
+      <View style={styles.titleRow}>
+        <Text style={styles.title}>My Collection</Text>
+        {titleAccessory ?? null}
+      </View>
       <View style={styles.row}>
         <View style={styles.searchSlot}>
           <SearchField
@@ -82,5 +92,10 @@ const styles = StyleSheet.create({
   title: {
     ...textStyles.titleMedium,
     color: colors.gray900,
+  },
+  titleRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
   },
 });
