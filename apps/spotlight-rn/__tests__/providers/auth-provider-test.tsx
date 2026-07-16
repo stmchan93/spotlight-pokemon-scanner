@@ -8,6 +8,7 @@ describe('AuthProvider', () => {
     jest.resetModules();
     jest.unmock('expo-linking');
     jest.unmock('@/features/auth/auth-service');
+    jest.unmock('@/features/auth/guest-first-launch');
     jest.unmock('@/lib/observability/posthog');
     jest.unmock('@/lib/supabase');
   });
@@ -16,10 +17,12 @@ describe('AuthProvider', () => {
     nodeEnv = 'development',
     authServiceOverrides,
     initialURL = null,
+    hasSignedInBefore = false,
   }: {
     nodeEnv?: string;
     authServiceOverrides?: Record<string, unknown>;
     initialURL?: string | null;
+    hasSignedInBefore?: boolean;
   } = {}) {
     process.env = {
       ...originalEnv,
@@ -27,6 +30,7 @@ describe('AuthProvider', () => {
     } as NodeJS.ProcessEnv;
 
     const capturePostHogEvent = jest.fn();
+    const markHasSignedIn = jest.fn(async () => {});
     const linkRemove = jest.fn();
     const authUnsubscribe = jest.fn();
     let authStateChangeHandler:
@@ -82,6 +86,10 @@ describe('AuthProvider', () => {
     jest.doMock('@/features/auth/auth-service', () => authService);
     jest.doMock('@/lib/observability/posthog', () => ({
       capturePostHogEvent,
+    }));
+    jest.doMock('@/features/auth/guest-first-launch', () => ({
+      hasEverSignedIn: jest.fn(async () => hasSignedInBefore),
+      markHasSignedIn,
     }));
     jest.doMock('@/lib/supabase', () => ({
       supabase: {
@@ -156,6 +164,7 @@ describe('AuthProvider', () => {
       defaultSession,
       fireEvent: testingLibrary!.fireEvent,
       linkRemove,
+      markHasSignedIn,
       waitFor: testingLibrary!.waitFor,
     };
   }
@@ -573,6 +582,112 @@ describe('AuthProvider', () => {
     // profile-completion screen).
     expect(getByText('user:guest-1')).toBeTruthy();
     expect(resolveAppUserFromSession).not.toHaveBeenCalled();
+  });
+
+  it('FIRST LAUNCH (never signed in): signs in anonymously and lands on the guest scanner', async () => {
+    const guestSession = {
+      access_token: 'anon-token',
+      user: { id: 'guest-1', is_anonymous: true },
+    } as any;
+    const signInAnonymously = jest.fn(async () => guestSession);
+    const resolveAppUserFromSession = jest.fn();
+
+    const { getByText, markHasSignedIn, waitFor } = renderAuthProvider({
+      hasSignedInBefore: false,
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => null),
+        signInAnonymously,
+        resolveAppUserFromSession,
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('state:signedIn')).toBeTruthy();
+    });
+    expect(signInAnonymously).toHaveBeenCalledTimes(1);
+    expect(getByText('user:guest-1')).toBeTruthy();
+    // A guest does NOT get a profile fetch, and does NOT set the has-signed-in
+    // flag (so it only ever flips on a real login).
+    expect(resolveAppUserFromSession).not.toHaveBeenCalled();
+    expect(markHasSignedIn).not.toHaveBeenCalled();
+  });
+
+  it('RETURNING USER (has signed in before): shows the login screen and does NOT create a guest', async () => {
+    const signInAnonymously = jest.fn(async () => {
+      throw new Error('signInAnonymously must not be called for a returning device');
+    });
+
+    const { getByText, waitFor } = renderAuthProvider({
+      hasSignedInBefore: true,
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => null),
+        signInAnonymously,
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('state:signedOut')).toBeTruthy();
+    });
+    expect(signInAnonymously).not.toHaveBeenCalled();
+  });
+
+  it('FALLBACK: anonymous sign-in failure (dashboard toggle off) drops to the login screen', async () => {
+    const signInAnonymously = jest.fn(async () => {
+      throw new Error('Anonymous sign-ins are disabled');
+    });
+
+    const { getByText, waitFor } = renderAuthProvider({
+      hasSignedInBefore: false,
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => null),
+        signInAnonymously,
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('state:signedOut')).toBeTruthy();
+    });
+    expect(signInAnonymously).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks the has-signed-in flag when a real (non-anonymous) session is observed', async () => {
+    jest.useFakeTimers();
+    const realSession = {
+      access_token: 'real-token',
+      user: { id: 'trainer-1', email: 'trainer@example.com', is_anonymous: false },
+    } as any;
+
+    const { act, authStateChangeHandler, getByText, markHasSignedIn, waitFor } = renderAuthProvider({
+      hasSignedInBefore: false,
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => null),
+        getNeedsProfile: jest.fn(() => false),
+        resolveAppUserFromSession: jest.fn(async () => ({
+          adminEnabled: false,
+          avatarURL: null,
+          displayName: 'Trainer',
+          email: 'trainer@example.com',
+          id: 'trainer-1',
+          labelerEnabled: false,
+          providers: ['email'],
+        })),
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('state:signedOut')).toBeTruthy();
+    });
+
+    await act(async () => {
+      const handler = authStateChangeHandler as ((event: string, session: any) => void) | null;
+      handler?.('SIGNED_IN', realSession);
+      jest.runAllTimers();
+    });
+
+    await waitFor(() => {
+      expect(getByText('state:signedIn')).toBeTruthy();
+    });
+    expect(markHasSignedIn).toHaveBeenCalled();
   });
 
   it('throws when useAuth is read outside the provider', () => {
