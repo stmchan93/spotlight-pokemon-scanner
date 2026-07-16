@@ -14132,6 +14132,7 @@ class SpotlightScanService:
         warmed_dashboards = 0
         warmed_entries = 0
         warmed_performance = 0
+        warmed_favorites = 0
         for owner_user_id in owners:
             try:
                 identity = RequestIdentity(
@@ -14159,6 +14160,14 @@ class SpotlightScanService:
                         warmed_performance += 1
                     except Exception:  # noqa: BLE001 - best-effort per section
                         traceback.print_exc()
+                    try:
+                        # Wishlist list call → key (owner, "card_favorites", 200, 0).
+                        # Uncached+unwarmed this cold-read the sparkline batch and
+                        # timed clients out post-deploy (2026-07-16).
+                        self.card_favorites(limit=200, offset=0)
+                        warmed_favorites += 1
+                    except Exception:  # noqa: BLE001 - best-effort per section
+                        traceback.print_exc()
             except Exception:  # noqa: BLE001 - one owner failing must not stop the rest
                 traceback.print_exc()
 
@@ -14167,6 +14176,7 @@ class SpotlightScanService:
             "warmedDashboards": warmed_dashboards,
             "warmedEntries": warmed_entries,
             "warmedPerformance": warmed_performance,
+            "warmedFavorites": warmed_favorites,
             "elapsedMs": round((perf_counter() - started_at) * 1000.0, 1),
         }
         self._emit_structured_log(
@@ -14180,7 +14190,11 @@ class SpotlightScanService:
         return result
 
     def backfill_added_baselines(
-        self, *, dry_run: bool = False, source: str = "ops"
+        self,
+        *,
+        dry_run: bool = False,
+        source: str = "ops",
+        repair_graded_variantless: bool = False,
     ) -> dict[str, Any]:
         """One-time backfill of the "since you added it" baseline columns
         (deck_entries / card_favorites ``added_market_price`` +
@@ -14198,10 +14212,20 @@ class SpotlightScanService:
         Guarded by the ``added_baseline_backfilled`` runtime flag so it runs
         exactly once; ``dry_run`` computes and logs counts, writes nothing, and
         does NOT set the flag. Runs on a background daemon thread (its own
-        thread-local connection); best-effort, never raises out."""
+        thread-local connection); best-effort, never raises out.
+
+        ``repair_graded_variantless`` re-runs ONLY the variantless slab rows,
+        overwriting their existing baselines (and bypassing the one-shot flag):
+        the graded resolver's variantless default used to fall through to
+        alphabetical variant order, so baselines captured before the
+        base-printing-first fix (Suicune me2-26 "Gamestop Stamp" $589 vs
+        "Holofoil" $106.97, 2026-07-16) were computed against the wrong
+        printing. The repair recomputes them at the original baseline date with
+        the fixed resolver."""
         started_at = perf_counter()
         summary: dict[str, Any] = {
             "dryRun": bool(dry_run),
+            "repairGradedVariantless": bool(repair_graded_variantless),
             "skipped": False,
             "deckEntriesResolved": 0,
             "deckEntriesFallbackEarliest": 0,
@@ -14212,7 +14236,7 @@ class SpotlightScanService:
         }
         try:
             already = runtime_setting(self.connection, ADDED_BASELINE_BACKFILL_FLAG)
-            if already is not None and not dry_run:
+            if already is not None and not dry_run and not repair_graded_variantless:
                 summary["skipped"] = True
                 self._emit_structured_log(
                     {
@@ -14228,13 +14252,29 @@ class SpotlightScanService:
 
             # (kind, update_key, card_id, entry_ctx, condition, add_date_iso)
             jobs: list[dict[str, Any]] = []
-            deck_rows = self.connection.execute(
-                """
-                SELECT id, card_id, item_kind, grader, grade, variant_name, condition, added_at
-                FROM deck_entries
-                WHERE added_market_price IS NULL
-                """
-            ).fetchall()
+            if repair_graded_variantless:
+                # Repair scope: variantless slabs whose baseline exists but was
+                # resolved before the base-printing-first fix. Recompute at the
+                # ORIGINAL baseline date (added_market_date) so the honest date
+                # semantics are preserved; the UPDATE below overwrites.
+                deck_rows = self.connection.execute(
+                    """
+                    SELECT id, card_id, item_kind, grader, grade, variant_name, condition,
+                           COALESCE(added_market_date, added_at) AS added_at
+                    FROM deck_entries
+                    WHERE added_market_price IS NOT NULL
+                      AND item_kind = 'slab'
+                      AND (variant_name IS NULL OR TRIM(variant_name) = '')
+                    """
+                ).fetchall()
+            else:
+                deck_rows = self.connection.execute(
+                    """
+                    SELECT id, card_id, item_kind, grader, grade, variant_name, condition, added_at
+                    FROM deck_entries
+                    WHERE added_market_price IS NULL
+                    """
+                ).fetchall()
             for row in deck_rows:
                 jobs.append(
                     {
@@ -14255,7 +14295,7 @@ class SpotlightScanService:
                 FROM card_favorites
                 WHERE added_market_price IS NULL
                 """
-            ).fetchall()
+            ).fetchall() if not repair_graded_variantless else []
             for row in favorite_rows:
                 # Favorites carry no grade/condition of their own; backfill on the
                 # default raw lane (the lane the wishlist prices unowned rows in).
@@ -14354,15 +14394,26 @@ class SpotlightScanService:
                     continue
                 price, price_date = hit
                 if job["kind"] == "deck":
-                    self.connection.execute(
-                        """
-                        UPDATE deck_entries
-                        SET added_market_price = ?, added_market_date = ?
-                        WHERE id = ?
-                          AND added_market_price IS NULL
-                        """,
-                        (price, price_date, job["update_key"]),
-                    )
+                    if repair_graded_variantless:
+                        # Repair overwrites the wrong-variant baseline in place.
+                        self.connection.execute(
+                            """
+                            UPDATE deck_entries
+                            SET added_market_price = ?, added_market_date = ?
+                            WHERE id = ?
+                            """,
+                            (price, price_date, job["update_key"]),
+                        )
+                    else:
+                        self.connection.execute(
+                            """
+                            UPDATE deck_entries
+                            SET added_market_price = ?, added_market_date = ?
+                            WHERE id = ?
+                              AND added_market_price IS NULL
+                            """,
+                            (price, price_date, job["update_key"]),
+                        )
                 else:
                     owner_user_id, card_id = job["update_key"]
                     self.connection.execute(
@@ -14377,11 +14428,14 @@ class SpotlightScanService:
                     )
 
             if not dry_run:
-                upsert_runtime_setting(
-                    self.connection,
-                    key=ADDED_BASELINE_BACKFILL_FLAG,
-                    value={"at": utc_now(), "source": source, **summary},
-                )
+                if not repair_graded_variantless:
+                    # Repair runs are re-runnable; only the original one-time
+                    # backfill sets the one-shot flag.
+                    upsert_runtime_setting(
+                        self.connection,
+                        key=ADDED_BASELINE_BACKFILL_FLAG,
+                        value={"at": utc_now(), "source": source, **summary},
+                    )
                 self.connection.commit()
                 # The baseline UPDATEs intentionally don't touch updated_at, so
                 # the version-token deck_entries cache would keep serving null
@@ -15707,6 +15761,39 @@ class SpotlightScanService:
         }
 
     def card_favorites(self, *, limit: int = 200, offset: int = 0) -> dict[str, Any]:
+        """Cache-and-dogpile wrapper over the wishlist computation — the same
+        pattern (and the same cache dict + version token) as ``deck_entries``.
+        The token already fingerprints the owner's favorites, deck rows, and the
+        latest price date, so a favorite toggle or daily sync invalidates.
+        Uncached, every wishlist open re-ran the inline 30d sparkline batch read
+        against card_price_history_cell; on a cold page cache (post-deploy) that
+        exceeded the client timeout — 'Client disconnected before response write
+        completed' — and the wishlist rendered empty (observed 2026-07-16)."""
+        owner_user_id = self._current_owner_user_id()
+        try:
+            version = self._deck_entries_version_token(owner_user_id)
+        except Exception:  # noqa: BLE001 - cache bookkeeping must never break the wishlist
+            traceback.print_exc()
+            version = None
+
+        cache_key = (owner_user_id, "card_favorites", int(limit), int(offset))
+        if version is not None:
+            cached = self._deck_entries_cache.get(cache_key)
+            if cached is not None and cached[0] == version:
+                return cached[1]
+
+        lock = self._deck_entries_cache_lock_for(cache_key)
+        with lock:
+            if version is not None:
+                cached = self._deck_entries_cache.get(cache_key)
+                if cached is not None and cached[0] == version:
+                    return cached[1]
+            payload = self._compute_card_favorites(limit=limit, offset=offset)
+            if version is not None:
+                self._store_deck_entries_cache(cache_key, version, payload)
+            return payload
+
+    def _compute_card_favorites(self, *, limit: int = 200, offset: int = 0) -> dict[str, Any]:
         owner_user_id = self._current_owner_user_id()
         safe_limit = max(0, min(int(limit), 1000))
         safe_offset = max(0, int(offset))
@@ -16993,13 +17080,22 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.UNAUTHORIZED, {"error": "invalid ops token"})
                 return
             dry_run = query.get("dryRun", ["0"])[0].lower() in {"1", "true", "yes"}
+            # ?repair=gradedVariantless re-runs ONLY variantless slab rows,
+            # overwriting baselines computed before the base-printing-first
+            # graded-resolver fix (re-runnable; bypasses the one-shot flag).
+            repair_mode = query.get("repair", [""])[0].strip()
+            repair_graded_variantless = repair_mode in {"gradedVariantless", "graded_variantless"}
             # Fire-and-forget (same shape as prewarm-portfolio): the backfill
             # walks every NULL-baseline row, so the caller gets an immediate ack
             # instead of blocking on the full pass. One-shot guarded by the
             # added_baseline_backfilled runtime flag; dryRun writes nothing.
             threading.Thread(
                 target=self.service.backfill_added_baselines,
-                kwargs={"dry_run": dry_run, "source": "ops"},
+                kwargs={
+                    "dry_run": dry_run,
+                    "source": "ops",
+                    "repair_graded_variantless": repair_graded_variantless,
+                },
                 name="added-baseline-backfill-ops",
                 daemon=True,
             ).start()
