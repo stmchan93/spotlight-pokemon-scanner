@@ -5084,7 +5084,14 @@ class SpotlightScanService:
                 )
 
         for day_index, current_day in enumerate(day_dates):
+            day_start_utc = self._portfolio_day_start(current_day, time_zone).astimezone(timezone.utc)
             next_day_start_utc = self._portfolio_day_start(current_day + timedelta(days=1), time_zone).astimezone(timezone.utc)
+            # Per-day rollup of the owner's ADDS (the chart's buy markers).
+            # Counts real ledger 'add'/'buy' events only — the synthetic 'seed'
+            # kind (a pre-ledger entry's opening quantity) is not a user action
+            # that day, so it never marks the chart.
+            day_added_count = 0
+            day_added_value = 0.0
             while event_index < len(timeline) and timeline[event_index]["createdAt"] < next_day_start_utc:
                 event = timeline[event_index]
                 state = states.setdefault(
@@ -5103,6 +5110,21 @@ class SpotlightScanService:
                 # never counted the new one.
                 if kind in {"add", "buy", "sale", "seed", "replace_in", "replace_out"}:
                     state["quantity"] = int(state.get("quantity") or 0) + int(event.get("quantityDelta") or 0)
+                if kind in {"add", "buy"}:
+                    added_quantity = int(event.get("quantityDelta") or 0)
+                    # The >= day_start guard only bites on the FIRST day: the
+                    # window's opening pass replays every carry-in event before
+                    # the range (to rebuild quantities) and those must not read
+                    # as adds "on" the first plotted day.
+                    if added_quantity > 0 and event["createdAt"] >= day_start_utc:
+                        day_added_count += added_quantity
+                        added_total_price = event.get("totalPrice")
+                        if isinstance(added_total_price, (int, float)):
+                            day_added_value += float(added_total_price)
+                        else:
+                            added_unit_price = event.get("unitPrice")
+                            if isinstance(added_unit_price, (int, float)):
+                                day_added_value += float(added_unit_price) * added_quantity
                 if kind in {"add", "buy", "seed"}:
                     event_total_price = event.get("totalPrice")
                     if isinstance(event_total_price, (int, float)):
@@ -5180,6 +5202,8 @@ class SpotlightScanService:
                     "costBasisValue": last_day_cost_basis,
                     "pricedCardCount": priced_count,
                     "excludedCardCount": unpriced_count,
+                    "addedCount": day_added_count,
+                    "addedValue": round(day_added_value, 2),
                 }
             )
 
