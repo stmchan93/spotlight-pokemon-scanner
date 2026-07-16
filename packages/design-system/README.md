@@ -342,8 +342,10 @@ Current API concepts:
 - optional `trendChangePercent` — signed percent stacked directly under the
   price, Robinhood-style: `+2.26%` in green400 / `-2.26%` in red400 (14
   SemiBold; the sign carries the direction, no arrow). Callers pass the
-  since-added change percent. Hidden when null/non-finite/exactly 0 (a card
-  added today is 0% by construction)
+  window-scoped change percent. Exactly 0 renders a gray600 `0.00%` ("tracked
+  but flat" ≠ "no data"); null/non-finite hides the line. Penny guard: when
+  `marketPrice < 1` the line is suppressed entirely (a −50% on $0.04 misleads;
+  pennies aren't investment content)
 - optional `sparkPoints` + `sparkTrendPct` — renders a 62×22 `PriceSparkline`
   between the name/set copy and the price column
   (`[thumb][name/set][sparkline][price + %]`); the sparkline tints by its
@@ -373,6 +375,15 @@ Current API concepts:
   the slab-case thumbnail frame (Wishlist, where copy-specific condition isn't
   shown)
 - `priceLabel` (14 Bold; no day-change delta — removed per Figma 2489:6459)
+- optional `trendChangePercent` — window-scoped percent stacked directly under
+  the price in the price row's left stack: a 12px `ArrowUp`/`ArrowDown` icon +
+  `+10.46%` (12 SemiBold) in green400/red400. Exactly 0 renders a gray600
+  `0.00%` with NO arrow ("tracked but flat" ≠ "no data"); null/non-finite
+  hides the line. Callers pass the shared trend-window expression (since-added
+  or 30d)
+- optional `marketPrice` — numeric price backing `priceLabel`, used only for
+  the penny guard: `< 1` suppresses the trend line entirely (a −50% on $0.04
+  misleads; pennies aren't investment content)
 - `quantity` readout at the right edge of the price row (count + box icon);
   `showQuantity={false}` hides it for surfaces with no owned-quantity concept
   (Wishlist card view)

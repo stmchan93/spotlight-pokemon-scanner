@@ -284,7 +284,9 @@ export function DesignSystemCatalogScreen({
             </SurfaceCard>
 
             {/* Card-grid tile (Figma 2489:6459): price row = 14 Bold price
-                left, quantity (count + box icon) right; no day-change pill. */}
+                left (with the window-scoped trend — 12px arrow + signed
+                percent — stacked under it), quantity (count + box icon)
+                right; no day-change pill. */}
             <View style={styles.tileRow}>
               <View style={styles.tileSlot}>
                 <InventoryCardTile
@@ -293,12 +295,14 @@ export function DesignSystemCatalogScreen({
                   imageUrl={null}
                   isFavorite={false}
                   kind="raw"
+                  marketPrice={450.12}
                   name="Charizard ex"
                   onPress={() => {}}
                   priceLabel="$450.12"
                   quantity={4}
                   setName="Perfect Order"
                   testID="catalog-inventory-card-tile"
+                  trendChangePercent={10.46}
                   variantName="Holofoil"
                 />
               </View>
@@ -313,12 +317,14 @@ export function DesignSystemCatalogScreen({
                   imageUrl="https://images.pokemontcg.io/base1/4_hires.png"
                   isFavorite={false}
                   kind="slab"
+                  marketPrice={500.67}
                   name="Charizard"
                   onPress={() => {}}
                   priceLabel="$500.67"
                   quantity={1}
                   setName="Base"
                   testID="catalog-inventory-slab-tile"
+                  trendChangePercent={-3.21}
                   variantName={null}
                 />
               </View>

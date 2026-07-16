@@ -1,4 +1,4 @@
-import { ArrowUpRightSquare, BoxIso, Star, StarSolid } from 'iconoir-react-native';
+import { ArrowDown, ArrowUp, ArrowUpRightSquare, BoxIso, Star, StarSolid } from 'iconoir-react-native';
 import { useState } from 'react';
 import {
   Image,
@@ -16,6 +16,7 @@ const DEFAULT_CARD_ASPECT = 245 / 342;
 const SLAB_ASPECT = 84 / 136;
 
 import { useSpotlightTheme } from '../theme';
+import { fontFamilies } from '../tokens';
 import { AppText } from './app-text';
 import { SelectionCheckCircle } from './selection-check-circle';
 import { SlabFrame } from './slab-frame';
@@ -41,6 +42,22 @@ export type InventoryCardTileProps = {
   showQualityLine?: boolean;
   quantity?: number;
   priceLabel: string | null;
+  /**
+   * Numeric market price backing `priceLabel`. Used ONLY for the penny guard:
+   * when present and < $1 the trend line is suppressed entirely (a −50% on a
+   * $0.04 card is technically true but misleads — pennies aren't investment
+   * content). The tile still renders `priceLabel` as given.
+   */
+  marketPrice?: number | null;
+  /**
+   * Signed percent rendered directly under the price in the price row's left
+   * stack: a small 12px arrow (ArrowUp/ArrowDown) + `+10.46%` in green400 /
+   * red400 (12 SemiBold). Exactly 0 renders as gray600 `0.00%` with NO arrow
+   * ("tracked but flat" reads differently from "no data"); null/non-finite
+   * hides the line; a sub-$1 `marketPrice` suppresses it (penny guard).
+   * Callers pass the window-scoped percent (since-added or 30d).
+   */
+  trendChangePercent?: number | null;
   isFavorite: boolean;
   /**
    * When true (default) the favorite star badge renders in the tile's
@@ -142,6 +159,8 @@ export function InventoryCardTile({
   showQualityLine = true,
   quantity = 1,
   priceLabel,
+  marketPrice,
+  trendChangePercent,
   isFavorite,
   showFavorite = true,
   showQuantity = true,
@@ -181,6 +200,24 @@ export function InventoryCardTile({
 
   const setLine = buildSetLine(setName, cardNumber);
   const qualityLine = buildQualityLine(kind, conditionLabel, graderLabel, gradeLabel);
+  // Trend under the price: arrow + signed percent (green/red), gray 0.00% with
+  // no arrow at exactly 0, hidden when null/non-finite. Penny guard: sub-$1
+  // cards render no percent at all — a −50% on $0.04 misleads.
+  const trendPercent =
+    typeof trendChangePercent === 'number' && Number.isFinite(trendChangePercent)
+      ? trendChangePercent
+      : null;
+  const isPennyPrice = marketPrice != null && marketPrice < 1;
+  const showTrend = trendPercent !== null && !isPennyPrice;
+  const trendColor =
+    trendPercent !== null && trendPercent !== 0
+      ? trendPercent < 0
+        ? theme.colors.red400
+        : theme.colors.green400
+      : theme.colors.gray600;
+  const trendLabel = trendPercent !== null
+    ? `${trendPercent > 0 ? '+' : ''}${trendPercent.toFixed(2)}%`
+    : '';
   // Slabs render their art inside the slab-case frame — keyed by THIS entry's
   // own grader (unknown graders get the neutral label).
   const brandedGrader = kind === 'slab' ? (graderLabel ?? '').trim() || null : null;
@@ -314,14 +351,46 @@ export function InventoryCardTile({
           </View>
 
           <View style={styles.priceRow}>
-            <AppText
-              color="textPrimary"
-              numberOfLines={1}
-              style={styles.price}
-              variant="priceCaption"
-            >
-              {priceLabel ?? '—'}
-            </AppText>
+            <View style={styles.priceStack}>
+              <AppText
+                color="textPrimary"
+                numberOfLines={1}
+                style={styles.price}
+                variant="priceCaption"
+              >
+                {priceLabel ?? '—'}
+              </AppText>
+              {showTrend ? (
+                <View
+                  style={styles.trendGroup}
+                  testID={testID ? `${testID}-trend` : undefined}
+                >
+                  {trendPercent !== null && trendPercent > 0 ? (
+                    <ArrowUp
+                      color={trendColor}
+                      height={12}
+                      strokeWidth={2}
+                      testID={testID ? `${testID}-trend-arrow-up` : undefined}
+                      width={12}
+                    />
+                  ) : trendPercent !== null && trendPercent < 0 ? (
+                    <ArrowDown
+                      color={trendColor}
+                      height={12}
+                      strokeWidth={2}
+                      testID={testID ? `${testID}-trend-arrow-down` : undefined}
+                      width={12}
+                    />
+                  ) : null}
+                  <AppText
+                    numberOfLines={1}
+                    style={[styles.trendText, { color: trendColor }]}
+                  >
+                    {trendLabel}
+                  </AppText>
+                </View>
+              ) : null}
+            </View>
             {/* Quantity sits at the price row's right edge (Figma 2489:6459):
                 count + box icon, replacing the old top-left overlay chip. */}
             {showQuantity ? (
@@ -493,6 +562,24 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: 4,
     width: '100%',
+  },
+  // Left column of the price row: price on top, trend (arrow + percent)
+  // directly under it.
+  priceStack: {
+    alignItems: 'flex-start',
+    flexShrink: 1,
+  },
+  trendGroup: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 2,
+  },
+  // Signed window-scoped percent under the price: 12 SemiBold, green400/
+  // red400 (gray600 when exactly flat).
+  trendText: {
+    fontFamily: fontFamilies.bodySemiBold,
+    fontSize: 12,
+    lineHeight: 16,
   },
   starBadge: {
     // Padding moved off the Pressable, so bake it into the offset (16 + 8) to

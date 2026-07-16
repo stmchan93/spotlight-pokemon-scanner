@@ -151,6 +151,70 @@ describe('InventoryCardTile', () => {
     expect(screen.getByText('—')).toBeTruthy();
   });
 
+  function trendLabelColors(text: string): unknown[] {
+    const label = screen.getByText(text);
+    const flat = (Array.isArray(label.props.style)
+      ? label.props.style.flat(Infinity)
+      : [label.props.style]
+    ).filter(Boolean);
+    return flat
+      .map((s: { color?: string } | null | undefined) => s && s.color)
+      .filter(Boolean);
+  }
+
+  it('renders an up arrow + signed green percent under the price when positive', () => {
+    renderTile({ trendChangePercent: 10.46, marketPrice: 450.12 });
+
+    expect(screen.getByTestId('tile-trend')).toBeTruthy();
+    expect(screen.getByTestId('tile-trend-arrow-up')).toBeTruthy();
+    expect(screen.queryByTestId('tile-trend-arrow-down')).toBeNull();
+    // green400 — matches the list rows' up color
+    expect(trendLabelColors('+10.46%')).toContain('#4CAF6E');
+  });
+
+  it('renders a down arrow + signed red percent when negative', () => {
+    renderTile({ trendChangePercent: -12.5, marketPrice: 450.12 });
+
+    expect(screen.getByTestId('tile-trend')).toBeTruthy();
+    expect(screen.getByTestId('tile-trend-arrow-down')).toBeTruthy();
+    expect(screen.queryByTestId('tile-trend-arrow-up')).toBeNull();
+    // red400 — matches the list rows' down color
+    expect(trendLabelColors('-12.50%')).toContain('#E0524C');
+  });
+
+  it('renders a quiet gray 0.00% with NO arrow when exactly 0 (tracked but flat)', () => {
+    renderTile({ trendChangePercent: 0, marketPrice: 450.12 });
+
+    expect(screen.getByTestId('tile-trend')).toBeTruthy();
+    expect(screen.queryByTestId('tile-trend-arrow-up')).toBeNull();
+    expect(screen.queryByTestId('tile-trend-arrow-down')).toBeNull();
+    // gray600 — flat is information, not direction
+    expect(trendLabelColors('0.00%')).toContain('#717171');
+  });
+
+  it('hides the trend line when trendChangePercent is null', () => {
+    renderTile({ trendChangePercent: null, marketPrice: 450.12 });
+
+    expect(screen.queryByTestId('tile-trend')).toBeNull();
+  });
+
+  it('suppresses the trend line entirely for penny cards (marketPrice < $1)', () => {
+    renderTile({ trendChangePercent: -50, marketPrice: 0.04, priceLabel: '$0.04' });
+
+    // A −50% on $0.04 is technically true but misleads — render nothing.
+    expect(screen.queryByTestId('tile-trend')).toBeNull();
+    expect(screen.queryByText('-50.00%')).toBeNull();
+    // The price itself still renders.
+    expect(screen.getByText('$0.04')).toBeTruthy();
+  });
+
+  it('still renders the trend when marketPrice is absent (guard needs the number)', () => {
+    renderTile({ trendChangePercent: 2.26 });
+
+    expect(screen.getByTestId('tile-trend')).toBeTruthy();
+    expect(screen.getByText('+2.26%')).toBeTruthy();
+  });
+
   it('renders a 1px #F2F2F2 hairline border around the tile', () => {
     renderTile();
 
