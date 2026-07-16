@@ -33,6 +33,7 @@ import {
   chunkCollectionGridRows,
 } from '@/features/portfolio/components/collection-masonry-grid';
 import { CollectionListRow } from '@/features/portfolio/components/collection-list-view';
+import { TrendWindowTag } from '@/features/portfolio/components/trend-window-tag';
 import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
 import { EditDoneButton } from '@/components/edit-done-button';
 import { CardActionsSheet } from '@/features/cards/components/card-actions-sheet';
@@ -624,6 +625,12 @@ export function PortfolioScreen({
             activeFilter={activeFilter}
             onFilterChange={setActiveFilter}
           />
+
+          {/* Scope tag for every row/tile percent below: SINCE ADDED ⇄ 30D.
+              Rendered in BOTH view modes (grid tiles carry the trend too). */}
+          <View style={[styles.trendWindowRow, { paddingHorizontal: theme.layout.pageGutter }]}>
+            <TrendWindowTag />
+          </View>
         </>
       )}
     </View>
@@ -836,6 +843,12 @@ const styles = StyleSheet.create({
   },
   staleHint: {
     paddingHorizontal: 16,
+  },
+  // Row hosting the SINCE ADDED ⇄ 30D scope tag under the filter chips. The
+  // chrome wrapper's gap supplies the vertical rhythm; the row just aligns the
+  // pill to the leading edge.
+  trendWindowRow: {
+    alignItems: 'flex-start',
   },
   header: {
     alignItems: 'center',

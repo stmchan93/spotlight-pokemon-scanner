@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 
 import type { CardFavoriteEntry } from '@spotlight/api-client';
 
+import { __resetTrendWindowForTests } from '@/features/portfolio/hooks/use-trend-window';
 import { WishlistScreen } from '@/features/wishlist/screens/wishlist-screen';
 
 import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
@@ -65,6 +66,7 @@ describe('WishlistScreen', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    __resetTrendWindowForTests();
     (useRouter as jest.Mock).mockReturnValue({
       push,
       back: jest.fn(),
@@ -141,6 +143,88 @@ describe('WishlistScreen', () => {
     expect(screen.queryByText('$2.50')).toBeNull();
     // The 30d sparkline renders between the copy block and the price column.
     expect(screen.getByTestId('wishlist-row-since-1-sparkline')).toBeTruthy();
+  });
+
+  it('trend window tag renders and toggles the row percent source (since-wishlisted ⇄ 30d)', async () => {
+    const favorites = [
+      buildFavoriteEntry({
+        cardId: 'window-1',
+        name: 'Charizard',
+        marketPrice: 600,
+        sinceAddedChangeAmount: 142,
+        sinceAddedChangePercent: 31,
+        sinceAddedBaselineDate: '2026-03-12',
+        sparkPoints: [500, 520, 480, 600],
+        sparkTrendPct: 12,
+      }),
+    ];
+    const repository = createTestSpotlightRepository({
+      getCardFavorites: async () => favorites,
+    });
+
+    renderWishlistScreen(repository);
+
+    await screen.findByTestId('wishlist-header-title');
+    await waitFor(() => {
+      expect(screen.getByTestId('wishlist-row-window-1')).toBeTruthy();
+    });
+
+    // The tag renders in the controls chrome; since-added is the default.
+    expect(screen.getByTestId('wishlist-trend-window-tag')).toBeTruthy();
+    expect(screen.getByText('SINCE ADDED ▾')).toBeTruthy();
+    expect(screen.getByText('+31.00%')).toBeTruthy();
+
+    // One tap cycles to the 30d window: rows now show the sparkline trend.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('wishlist-trend-window-tag'));
+    });
+    expect(screen.getByText('30D ▾')).toBeTruthy();
+    expect(screen.getByText('+12.00%')).toBeTruthy();
+    expect(screen.queryByText('+31.00%')).toBeNull();
+  });
+
+  it('trend window tag stays mounted in grid view and toggles the tile percent source', async () => {
+    const favorites = [
+      buildFavoriteEntry({
+        cardId: 'window-2',
+        name: 'Gengar ex',
+        marketPrice: 600,
+        sinceAddedChangeAmount: 142,
+        sinceAddedChangePercent: 31,
+        sinceAddedBaselineDate: '2026-03-12',
+        sparkPoints: [500, 520, 480, 600],
+        sparkTrendPct: 12,
+      }),
+    ];
+    const repository = createTestSpotlightRepository({
+      getCardFavorites: async () => favorites,
+    });
+
+    renderWishlistScreen(repository);
+
+    await screen.findByTestId('wishlist-header-title');
+    await waitFor(() => {
+      expect(screen.getByTestId('wishlist-row-window-2')).toBeTruthy();
+    });
+
+    // Default view is list — switch to grid (card) view via the toggle.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('wishlist-view-toggle'));
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('wishlist-grid-tile-window-2')).toBeTruthy();
+    });
+
+    // The tag is view-mode agnostic (grid tiles carry the trend too).
+    expect(screen.getByTestId('wishlist-trend-window-tag')).toBeTruthy();
+    expect(screen.getByTestId('wishlist-grid-tile-window-2-trend')).toBeTruthy();
+    expect(screen.getByText('+31.00%')).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('wishlist-trend-window-tag'));
+    });
+    expect(screen.getByText('+12.00%')).toBeTruthy();
+    expect(screen.queryByText('+31.00%')).toBeNull();
   });
 
   it('list rows hide the pill and sparkline when the since-added fields are null', async () => {

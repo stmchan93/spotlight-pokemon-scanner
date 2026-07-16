@@ -5,6 +5,7 @@ import type { InventoryCardEntry } from '@spotlight/api-client';
 
 import { getCardImageUrl } from '@/lib/card-images';
 import { formatOptionalCurrency } from '@/features/portfolio/components/portfolio-formatting';
+import { trendPercentForWindow, useTrendWindow } from '@/features/portfolio/hooks/use-trend-window';
 
 type CollectionMasonryGridProps = {
   entries: InventoryCardEntry[];
@@ -239,6 +240,9 @@ function CollectionTileSlot({
   testIDPrefix,
 }: CollectionTileSlotProps) {
   const tileKind = entry.kind === 'graded' ? 'slab' : 'raw';
+  // Shared persisted trend window (SINCE ADDED ⇄ 30D) — same source as the
+  // list rows, so grid tiles and rows always show the same percent.
+  const { trendWindow } = useTrendWindow();
 
   const liveOnEbay = isLiveOnEbay(entry);
   const handleOpenListing = liveOnEbay
@@ -267,6 +271,11 @@ function CollectionTileSlot({
       gradeLabel={tileKind === 'slab' ? entry.slabContext?.grade ?? null : null}
       quantity={entry.quantity}
       priceLabel={entry.hasMarketPrice ? formatOptionalCurrency(entry.marketPrice, entry.currencyCode) : null}
+      // Numeric price feeds the tile's penny guard (sub-$1 → no trend line).
+      marketPrice={entry.hasMarketPrice ? entry.marketPrice : null}
+      // Window-scoped trend under the price (arrow + signed percent) — the
+      // same expression as the list rows.
+      trendChangePercent={trendPercentForWindow(trendWindow, entry)}
       isFavorite={entry.isFavorite === true}
       showFavorite={false}
       selectable={selectable}

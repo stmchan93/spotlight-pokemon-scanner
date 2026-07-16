@@ -8,6 +8,7 @@ import { TabsPageContext } from '@/contexts/tabs-page-context';
 import { PortfolioScreen } from '@/features/portfolio/screens/portfolio-screen';
 import { __resetPortfolioSummaryVisibilityForTests } from '@/features/portfolio/use-portfolio-summary-visibility';
 import { __resetPortfolioViewModeForTests } from '@/features/portfolio/hooks/use-portfolio-view-mode';
+import { __resetTrendWindowForTests } from '@/features/portfolio/hooks/use-trend-window';
 
 import * as mockApiClient from '../mock-api-client';
 import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
@@ -111,6 +112,7 @@ describe('PortfolioScreen', () => {
     jest.clearAllMocks();
     __resetPortfolioSummaryVisibilityForTests();
     __resetPortfolioViewModeForTests();
+    __resetTrendWindowForTests();
     (useRouter as jest.Mock).mockReturnValue({
       push,
       back: jest.fn(),
@@ -379,6 +381,95 @@ describe('PortfolioScreen', () => {
     });
     expect(screen.getByTestId('collection-masonry-grid-tile-fav-1')).toBeTruthy();
     expect(screen.queryByTestId('collection-masonry-grid-tile-fav-3')).toBeNull();
+  });
+
+  it('trend window tag renders in card view and toggles the tile percent source (since-added ⇄ 30d)', async () => {
+    const inventory = [
+      buildInventoryEntry({
+        id: 'trend-1',
+        name: 'Trendy Card',
+        marketPrice: 600,
+        sinceAddedChangePercent: 31,
+        sparkTrendPct: 12,
+        sparkPoints: [500, 520, 600],
+      }),
+    ];
+    const dashboard = buildDashboardWithInventory(inventory);
+    const repository = createTestSpotlightRepository({
+      loadInventoryEntries: async () => ({ state: 'success', data: inventory, errorMessage: null }),
+      loadPortfolioDashboard: async () => ({ state: 'success', data: dashboard, errorMessage: null }),
+    });
+
+    renderPortfolioScreen({ repository });
+
+    // Default card (grid) view — the tag renders here too, since tiles carry
+    // the trend now.
+    await screen.findByTestId('portfolio-header-title');
+    await waitFor(() => {
+      expect(screen.getByTestId('collection-masonry-grid-tile-trend-1')).toBeTruthy();
+    });
+    expect(screen.getByTestId('trend-window-tag')).toBeTruthy();
+    expect(screen.getByText('SINCE ADDED ▾')).toBeTruthy();
+    // Since-added is the default window.
+    expect(screen.getByTestId('collection-masonry-grid-tile-trend-1-trend')).toBeTruthy();
+    expect(screen.getByText('+31.00%')).toBeTruthy();
+
+    // One tap cycles to the 30d window: tiles now show the sparkline trend.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('trend-window-tag'));
+    });
+    expect(screen.getByText('30D ▾')).toBeTruthy();
+    expect(screen.getByText('+12.00%')).toBeTruthy();
+    expect(screen.queryByText('+31.00%')).toBeNull();
+  });
+
+  it('trend window tag toggles the row percent source in list view', async () => {
+    const inventory = [
+      buildInventoryEntry({
+        id: 'trend-2',
+        name: 'Trendy Row',
+        cardId: 'card-trend-2',
+        marketPrice: 600,
+        sinceAddedChangePercent: 31,
+        sparkTrendPct: 12,
+        sparkPoints: [500, 520, 600],
+      }),
+    ];
+    const dashboard = buildDashboardWithInventory(inventory);
+    const repository = createTestSpotlightRepository({
+      loadInventoryEntries: async () => ({ state: 'success', data: inventory, errorMessage: null }),
+      loadPortfolioDashboard: async () => ({ state: 'success', data: dashboard, errorMessage: null }),
+    });
+
+    renderPortfolioScreen({ repository });
+
+    await screen.findByTestId('portfolio-header-title');
+    await waitFor(() => {
+      expect(screen.getByTestId('collection-masonry-grid')).toBeTruthy();
+    });
+
+    // Switch to list view — the tag stays mounted (it is view-mode agnostic).
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('collection-search-row-view-toggle'));
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('card-list-row-card-trend-2')).toBeTruthy();
+    });
+    expect(screen.getByTestId('trend-window-tag')).toBeTruthy();
+    expect(screen.getByTestId('card-list-row-card-trend-2-trend')).toBeTruthy();
+    expect(screen.getByText('+31.00%')).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('trend-window-tag'));
+    });
+    expect(screen.getByText('+12.00%')).toBeTruthy();
+    expect(screen.queryByText('+31.00%')).toBeNull();
+
+    // A second tap cycles back to since-added.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('trend-window-tag'));
+    });
+    expect(screen.getByText('+31.00%')).toBeTruthy();
   });
 
   it('long-pressing a card opens the actions menu; Wishlist toggles the favorite', async () => {
