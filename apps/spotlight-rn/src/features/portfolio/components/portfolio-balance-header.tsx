@@ -68,6 +68,19 @@ export function PortfolioBalanceHeader({
       ? theme.colors.red400
       : theme.colors.green400;
 
+  // Buy-marker detail line — only while scrubbing a chart point whose day had
+  // cards added: "Added 3 cards (+$210.00)". The dollar amount is omitted when
+  // the summary is hidden so the eye toggle keeps masking money.
+  const scrubAddedCount = activeChartPoint?.addedCount ?? 0;
+  const scrubAddedLabel = scrubAddedCount > 0
+    ? [
+        `Added ${scrubAddedCount} card${scrubAddedCount === 1 ? '' : 's'}`,
+        !isSummaryHidden && activeChartPoint?.addedValueLabel
+          ? `(${activeChartPoint.addedValueLabel})`
+          : null,
+      ].filter(Boolean).join(' ')
+    : null;
+
   return (
     <View
       style={[styles.block, { paddingHorizontal: theme.layout.pageGutter }]}
@@ -119,6 +132,14 @@ export function PortfolioBalanceHeader({
           </Text>
         ) : null}
       </View>
+      {scrubAddedLabel ? (
+        <Text
+          style={[styles.addedText, { color: theme.colors.gray600 }]}
+          testID={`${testIDPrefix}-summary-added`}
+        >
+          {scrubAddedLabel}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -200,6 +221,13 @@ const styles = StyleSheet.create({
   // The scrub date stays visually secondary (the Figma frame doesn't include
   // it — kept for scrub UX at the pre-redesign weight).
   dateText: {
+    fontFamily: fontFamilies.bodyMedium,
+    fontSize: 12,
+    lineHeight: 16.8,
+  },
+  // Buy-marker scrub detail ("Added 3 cards (+$210.00)") — same secondary
+  // treatment as the scrub date.
+  addedText: {
     fontFamily: fontFamilies.bodyMedium,
     fontSize: 12,
     lineHeight: 16.8,

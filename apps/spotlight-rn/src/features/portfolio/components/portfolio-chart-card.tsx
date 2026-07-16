@@ -21,6 +21,7 @@ import { useTabsPage } from '@/contexts/tabs-page-context';
 import Svg, {
   Circle,
   Defs,
+  G,
   Line,
   LinearGradient,
   Path,
@@ -55,6 +56,10 @@ const rangeItems = [
 ] as const;
 
 const skeletonBarScales = [0.42, 0.62, 0.5, 0.74, 0.58, 0.82, 0.68, 0.9, 0.76, 0.56, 0.72, 0.64];
+
+// Buy markers (purple dots on days cards were added) only render on the short
+// ranges — on 1Y/YTD/ALL the per-day dots would smear into noise.
+const buyMarkerRanges: readonly PortfolioHistoryRange[] = ['1W', '1M', '3M'];
 
 // Soften each interior corner of the line by rounding it with an arc of up to
 // this radius, clamped to half the shorter adjacent segment so neighbouring
@@ -300,6 +305,10 @@ export type PortfolioChartActivePoint = {
   changeAmountLabel: string;
   changePercentLabel: string;
   isHovering: boolean;
+  /** Cards added on the scrubbed point's day (buy markers). 0/undefined → no adds. */
+  addedCount?: number;
+  /** Formatted total value of that day's adds ("+$210.00"); null when no adds. */
+  addedValueLabel?: string | null;
 };
 
 type PortfolioChartCardProps = {
@@ -456,6 +465,35 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
     });
   }, [chartPaddingX, chartPaddingY, chartWidth, lineYDomain, plotHeight, plotWidth, series]);
 
+  // Buy markers: one dot per point whose day had cards added (addedCount > 0),
+  // snapped to where the corner-rounded line is actually DRAWN (same math as
+  // the scrub dot) so the marker provably rides the line.
+  const buyMarkers = useMemo(() => {
+    if (chartMode !== 'portfolio' || !buyMarkerRanges.includes(selectedRange)) {
+      return [];
+    }
+
+    return series.flatMap((point, index) => {
+      if (!((point.addedCount ?? 0) > 0)) {
+        return [];
+      }
+
+      const coordinate = renderedLinePointAt(coordinates, index);
+      if (!coordinate) {
+        return [];
+      }
+
+      return [{
+        key: point.isoDate,
+        // Edge points sit flush with the full-bleed chart edges — nudge the
+        // dot in by its radius + ring so it stays fully visible, matching the
+        // resting end-dot treatment.
+        x: clamp(coordinate.x, 6.5, Math.max(chartWidth - 6.5, 6.5)),
+        y: coordinate.y,
+      }];
+    });
+  }, [chartMode, chartWidth, coordinates, selectedRange, series]);
+
   // What the line/fill actually draw. Real data passes through untouched; the
   // two sparse states get synthesized shapes so the chart never reads as blank:
   // - no points → a flat baseline line across the full width (the $0 state)
@@ -606,6 +644,9 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
 
     if (chartMode === 'portfolio') {
       const change = portfolioChangeForPoint(activeRange.portfolio, activePointIndex, dashboard.summary);
+      const addedCount = Number.isFinite(point.addedCount)
+        ? Math.max(0, Math.round(point.addedCount ?? 0))
+        : 0;
       onActivePointChange({
         valueLabel: formatCurrency(point.value),
         dateLabel: formatHoverDateLabel(point.isoDate),
@@ -614,6 +655,8 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
         changeAmountLabel: formatSignedCurrency(change.amount),
         changePercentLabel: formatPercent(change.percent),
         isHovering: true,
+        addedCount,
+        addedValueLabel: addedCount > 0 ? formatSignedCurrency(point.addedValue ?? 0) : null,
       });
     } else {
       const salesCount = salesPointCounts[activePointIndex] ?? 0;
@@ -943,6 +986,22 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
                     strokeLinejoin="round"
                     strokeWidth={2.5}
                   />
+                  {buyMarkers.length > 0 ? (
+                    <G testID="portfolio-chart-add-markers">
+                      {buyMarkers.map((marker) => (
+                        <Circle
+                          cx={marker.x}
+                          cy={marker.y}
+                          fill={theme.colors.purple500}
+                          key={marker.key}
+                          r={5}
+                          stroke={theme.colors.gray0}
+                          strokeWidth={1.5}
+                          testID={`portfolio-chart-add-marker-${marker.key}`}
+                        />
+                      ))}
+                    </G>
+                  ) : null}
                   {activeSelection ? (
                     <>
                       <Line

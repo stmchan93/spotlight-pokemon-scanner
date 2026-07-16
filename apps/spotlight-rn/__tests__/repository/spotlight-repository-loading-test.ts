@@ -702,6 +702,51 @@ describe('HttpSpotlightRepository', () => {
     expect(fetchedUrls.some((url) => url.includes('/api/v1/deck/entries'))).toBe(true);
   });
 
+  it('passes per-day add rollups (addedCount/addedValue) through to the portfolio chart points', async () => {
+    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/api/v1/portfolio/dashboard')) {
+        // Force the per-section fan-out so the history normalizer is exercised.
+        return jsonResponse(404, { error: 'not found' });
+      }
+      if (url.includes('/api/v1/deck/entries')) {
+        return jsonResponse(200, { entries: [] });
+      }
+      if (url.includes('/api/v1/portfolio/history')) {
+        return jsonResponse(200, {
+          currencyCode: 'USD',
+          summary: { currentValue: 55, deltaValue: 13, deltaPercent: 31 },
+          points: [
+            // Backend rollup of add/buy events on this day.
+            { date: '2026-06-01', totalValue: 42, addedCount: 3, addedValue: 210.4 },
+            // Malformed fields collapse to safe defaults instead of poisoning markers.
+            { date: '2026-06-02', totalValue: 50, addedCount: 'junk', addedValue: null },
+            // A negative count can never render a phantom marker.
+            { date: '2026-06-03', totalValue: 52, addedCount: -2, addedValue: 0 },
+            // Older backends omit the fields entirely.
+            { date: '2026-06-04', totalValue: 55 },
+          ],
+        });
+      }
+      if (url.includes('/api/v1/portfolio/ledger')) {
+        return jsonResponse(200, { currencyCode: 'USD', transactions: [], dailySeries: [] });
+      }
+      if (url.includes('/api/v1/portfolio/insights')) {
+        return jsonResponse(200, {});
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    }) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    const dashboard = await repository.getPortfolioDashboard();
+
+    expect(dashboard.ranges['1W'].portfolio).toEqual([
+      expect.objectContaining({ isoDate: '2026-06-01', value: 42, addedCount: 3, addedValue: 210.4 }),
+      expect.objectContaining({ isoDate: '2026-06-02', value: 50, addedCount: 0, addedValue: 0 }),
+      expect.objectContaining({ isoDate: '2026-06-03', value: 52, addedCount: 0, addedValue: 0 }),
+      expect.objectContaining({ isoDate: '2026-06-04', value: 55, addedCount: 0, addedValue: 0 }),
+    ]);
+  });
+
   it('prefers small image URLs for portfolio thumbnails while preserving large image URLs for detail previews', async () => {
     global.fetch = jest.fn().mockImplementation(async (url: string) => {
       if (url.includes('/api/v1/deck/entries')) {

@@ -371,6 +371,10 @@ type PortfolioHistoryDTO = {
   points: Array<{
     date: string;
     totalValue: number;
+    /** Cards added (add/buy events) rolled up on this day. */
+    addedCount?: number | null;
+    /** Total market value (dollars) of the cards added on this day. */
+    addedValue?: number | null;
   }>;
 };
 
@@ -2136,6 +2140,10 @@ function normalizePortfolioHistory(value: PortfolioHistoryDTO | null | undefined
       return [{
         date,
         totalValue: normalizeNumber(point?.totalValue) ?? 0,
+        // Per-day add rollup (optional — older backends omit it). Defensive:
+        // a malformed count collapses to 0 so no phantom buy marker renders.
+        addedCount: Math.max(0, Math.round(normalizeNumber(point?.addedCount) ?? 0)),
+        addedValue: normalizeNumber(point?.addedValue) ?? 0,
       }];
     }),
   } satisfies PortfolioHistoryDTO;
@@ -2200,11 +2208,15 @@ function normalizePortfolioLedger(value: PortfolioLedgerDTO | null | undefined) 
   } satisfies PortfolioLedgerDTO;
 }
 
-function mapPortfolioSeries(history: PortfolioHistoryDTO) {
+function mapPortfolioSeries(history: PortfolioHistoryDTO): PortfolioChartPoint[] {
   return history.points.map((point) => ({
     isoDate: point.date,
     shortLabel: formatShortDate(point.date),
     value: point.totalValue,
+    // Buy-marker fields — re-normalized defensively so a chart point can never
+    // carry a negative/NaN count even if a caller bypasses normalizePortfolioHistory.
+    addedCount: Math.max(0, Math.round(normalizeNumber(point.addedCount) ?? 0)),
+    addedValue: normalizeNumber(point.addedValue) ?? 0,
   }));
 }
 

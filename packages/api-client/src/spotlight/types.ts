@@ -247,6 +247,10 @@ export type PortfolioChartPoint = {
   shortLabel: string;
   value: number;
   salesCount?: number;
+  /** Cards added (add/buy events) on this point's day — drives the chart's buy markers. */
+  addedCount?: number;
+  /** Total market value (dollars) of the cards added on this point's day. */
+  addedValue?: number;
   axisLabel?: string;
   rangeEndISO?: string;
 };

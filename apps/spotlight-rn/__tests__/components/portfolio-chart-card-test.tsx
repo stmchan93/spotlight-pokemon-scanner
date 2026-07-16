@@ -124,6 +124,92 @@ describe('PortfolioChartCard', () => {
     expect(screen.queryByTestId('portfolio-chart-tooltip')).toBeNull();
   });
 
+  describe('buy markers (add-day dots)', () => {
+    // Points whose days had cards added carry addedCount/addedValue from the
+    // backend rollup; the chart marks them with purple dots on short ranges.
+    const pointsWithAdds = [
+      { isoDate: '2026-03-21', shortLabel: 'Mar 21', value: 4, addedCount: 3, addedValue: 210 },
+      { isoDate: '2026-03-28', shortLabel: 'Mar 28', value: 44, addedCount: 0, addedValue: 0 },
+      { isoDate: '2026-04-04', shortLabel: 'Apr 4', value: 88, addedCount: 1, addedValue: 5 },
+      { isoDate: '2026-04-11', shortLabel: 'Apr 11', value: 128, addedCount: 0, addedValue: 0 },
+      { isoDate: '2026-04-21', shortLabel: 'Apr 21', value: 194.61, addedCount: 0, addedValue: 0 },
+    ];
+
+    const dashboardWithAdds = {
+      ...mockPortfolioDashboard,
+      ranges: {
+        ...mockPortfolioDashboard.ranges,
+        '1M': { ...mockPortfolioDashboard.ranges['1M'], portfolio: pointsWithAdds },
+        ALL: { ...mockPortfolioDashboard.ranges.ALL, portfolio: pointsWithAdds },
+      },
+    };
+
+    function layoutChart() {
+      const chartContainer = screen.getByTestId('portfolio-chart-portfolio');
+      fireEvent(chartContainer, 'layout', { nativeEvent: { layout: { width: 320, height: 200 } } });
+    }
+
+    it('renders a dot per add-day point on the 1M range', () => {
+      renderChart({ dashboard: dashboardWithAdds, selectedRange: '1M' });
+      layoutChart();
+
+      expect(screen.getByTestId('portfolio-chart-add-markers')).toBeTruthy();
+      expect(screen.getByTestId('portfolio-chart-add-marker-2026-03-21')).toBeTruthy();
+      expect(screen.getByTestId('portfolio-chart-add-marker-2026-04-04')).toBeTruthy();
+      // No-add days get no dot.
+      expect(screen.queryByTestId('portfolio-chart-add-marker-2026-03-28')).toBeNull();
+    });
+
+    it('hides the dots on long ranges (ALL) even when points carry adds', () => {
+      renderChart({ dashboard: dashboardWithAdds, selectedRange: 'ALL' });
+      layoutChart();
+
+      expect(screen.queryByTestId('portfolio-chart-add-markers')).toBeNull();
+    });
+
+    it('renders no dots when no point has adds', () => {
+      // mockPortfolioDashboard's points carry no addedCount at all.
+      renderChart({ selectedRange: '1M' });
+      layoutChart();
+
+      expect(screen.queryByTestId('portfolio-chart-add-markers')).toBeNull();
+    });
+
+    it('includes addedCount and a formatted addedValueLabel in the scrub payload on add days', () => {
+      const { onActivePointChange } = renderChart({ dashboard: dashboardWithAdds, selectedRange: '1M' });
+      layoutChart();
+
+      // locationX 0 snaps to the first point (2026-03-21: 3 adds worth $210).
+      const touchTarget = screen.getByTestId('portfolio-chart-touch-target');
+      fireEvent(touchTarget, 'responderGrant', { nativeEvent: { locationX: 0 } });
+
+      const lastNonNullCall = [...onActivePointChange.mock.calls].reverse().find(([arg]) => arg !== null);
+      expect(lastNonNullCall?.[0]).toEqual(
+        expect.objectContaining({
+          addedCount: 3,
+          addedValueLabel: '+$210.00',
+        }),
+      );
+    });
+
+    it('emits addedCount 0 and a null addedValueLabel when scrubbing a no-add point', () => {
+      const { onActivePointChange } = renderChart({ dashboard: dashboardWithAdds, selectedRange: '1M' });
+      layoutChart();
+
+      // locationX at the right edge snaps to the last point (no adds).
+      const touchTarget = screen.getByTestId('portfolio-chart-touch-target');
+      fireEvent(touchTarget, 'responderGrant', { nativeEvent: { locationX: 320 } });
+
+      const lastNonNullCall = [...onActivePointChange.mock.calls].reverse().find(([arg]) => arg !== null);
+      expect(lastNonNullCall?.[0]).toEqual(
+        expect.objectContaining({
+          addedCount: 0,
+          addedValueLabel: null,
+        }),
+      );
+    });
+  });
+
   it('shows the skeleton when loading and no series points are available', () => {
     const emptyDashboard = {
       ...mockPortfolioDashboard,
