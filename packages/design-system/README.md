@@ -339,20 +339,18 @@ Current API concepts:
   (the grade text line stays `gradeLabel`); always the entry's own grader
 - `marketPrice` + `currencyCode` (formatted via `Intl.NumberFormat`, defaults
   to USD; hidden when null)
-- optional `trendChangeAmount` (positive → green up arrow, negative → red down
-  arrow, null/0 → hidden)
-- optional `trendChangePercent` — percent companion inside the pill:
-  `$142.00 (31.00%)` (unsigned two-decimal, matching the balance header; the
-  arrow carries the direction); absent → amount-only pill, unchanged
-- optional `trendCaption` — small gray600 caption under the pill (e.g.
-  `"since added"`) so the pill's time span reads truthfully; only rendered
-  while the pill is
+- optional `trendChangePercent` — signed percent stacked directly under the
+  price, Robinhood-style: `+2.26%` in green400 / `-2.26%` in red400 (14
+  SemiBold; the sign carries the direction, no arrow). Callers pass the
+  since-added change percent. Hidden when null/non-finite/exactly 0 (a card
+  added today is 0% by construction)
 - optional `sparkPoints` + `sparkTrendPct` — renders a 62×22 `PriceSparkline`
   between the name/set copy and the price column
-  (`[thumb][name/set][sparkline][price + pill]`); the sparkline tints by its
-  OWN `sparkTrendPct` direction, independent of the pill. Absent/empty →
-  no sparkline, layout identical to before
-- `quantity` (rendered as `"Qty: {n}"`)
+  (`[thumb][name/set][sparkline][price + %]`); the sparkline tints by its
+  OWN `sparkTrendPct` direction, independent of the percent line. Absent/empty
+  → no sparkline, layout identical to before
+- `quantity` (rendered as `"Qty: {n}"` at the bottom of the LEFT copy stack,
+  under the grade/condition line; `showQuantity={false}` hides it)
 - optional `onPress` (whole row becomes a `Pressable` with button role)
 
 ### InventoryCardTile

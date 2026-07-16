@@ -134,10 +134,9 @@ describe('WishlistScreen', () => {
       expect(screen.getByTestId('wishlist-row-since-1')).toBeTruthy();
     });
 
-    // Since-favorited amount + percent in ONE pill, with the caption.
+    // Signed since-favorited percent stacked under the price (Robinhood-style).
     expect(screen.getByTestId('wishlist-row-since-1-trend')).toBeTruthy();
-    expect(screen.getByText('$142.00 (31.00%)')).toBeTruthy();
-    expect(screen.getByText('since added')).toBeTruthy();
+    expect(screen.getByText('+31.00%')).toBeTruthy();
     // The day-change amount is no longer rendered on the row.
     expect(screen.queryByText('$2.50')).toBeNull();
     // The 30d sparkline renders between the copy block and the price column.

@@ -76,8 +76,6 @@ export function CollectionListRow({
       testID={`card-list-row-${entry.cardId}`}
       // Rows show the SINCE-ADDED change, not day change (day change stays on
       // the balance header + PDP).
-      trendCaption="since added"
-      trendChangeAmount={entry.sinceAddedChangeAmount ?? null}
       trendChangePercent={entry.sinceAddedChangePercent ?? null}
     />
   );

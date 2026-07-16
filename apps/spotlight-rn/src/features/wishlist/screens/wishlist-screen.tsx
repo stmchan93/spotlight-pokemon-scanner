@@ -630,8 +630,6 @@ function WishlistListRow({
       sparkTrendPct={entry.sparkTrendPct ?? null}
       testID={`wishlist-row-${entry.cardId}`}
       // Rows show the SINCE-ADDED (favorited) change, not day change.
-      trendCaption="since added"
-      trendChangeAmount={entry.sinceAddedChangeAmount ?? null}
       trendChangePercent={entry.sinceAddedChangePercent ?? null}
     />
   );

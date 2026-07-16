@@ -16,7 +16,7 @@ function renderRow(overrides: RenderOptions = {}) {
     setName: 'Dragon Frontiers',
     gradeLabel: 'PSA 10',
     marketPrice: 129198.3,
-    trendChangeAmount: 3.99,
+    trendChangePercent: 2.26,
     quantity: 2,
     onPress: jest.fn(),
     testID: 'row',
@@ -51,35 +51,23 @@ describe('CardListRow', () => {
     expect(onPress).toHaveBeenCalledTimes(1);
   });
 
-  it('hides the trend block when trendChangeAmount is null', () => {
-    renderRow({ trendChangeAmount: null });
+  it('hides the trend line when trendChangePercent is null', () => {
+    renderRow({ trendChangePercent: null });
 
     expect(screen.queryByTestId('row-trend')).toBeNull();
   });
 
-  it('hides the trend block when trendChangeAmount is 0', () => {
-    renderRow({ trendChangeAmount: 0 });
+  it('hides the trend line when trendChangePercent is 0 (card added today)', () => {
+    renderRow({ trendChangePercent: 0 });
 
     expect(screen.queryByTestId('row-trend')).toBeNull();
   });
 
-  it('renders an up arrow with the absolute trend amount when positive', () => {
-    renderRow({ trendChangeAmount: 3.99 });
+  it('renders a signed green percent under the price when positive', () => {
+    renderRow({ trendChangePercent: 2.26 });
 
     expect(screen.getByTestId('row-trend')).toBeTruthy();
-    expect(screen.getByTestId('row-trend-arrow-up')).toBeTruthy();
-    expect(screen.queryByTestId('row-trend-arrow-down')).toBeNull();
-    expect(screen.getByText('$3.99')).toBeTruthy();
-  });
-
-  it('renders a down arrow with red color and the absolute amount when negative', () => {
-    renderRow({ trendChangeAmount: -5.25 });
-
-    expect(screen.getByTestId('row-trend')).toBeTruthy();
-    expect(screen.getByTestId('row-trend-arrow-down')).toBeTruthy();
-    expect(screen.queryByTestId('row-trend-arrow-up')).toBeNull();
-
-    const label = screen.getByText('$5.25');
+    const label = screen.getByText('+2.26%');
     const flat = (Array.isArray(label.props.style)
       ? label.props.style.flat(Infinity)
       : [label.props.style]
@@ -87,8 +75,23 @@ describe('CardListRow', () => {
     const colors = flat
       .map((s: { color?: string } | null | undefined) => s && s.color)
       .filter(Boolean);
-    // deltaDownText token value (Figma delta pill red/600, 1263:3148)
-    expect(colors).toContain('#B22416');
+    // green400 — matches the balance header's up color
+    expect(colors).toContain('#4CAF6E');
+  });
+
+  it('renders a signed red percent when negative', () => {
+    renderRow({ trendChangePercent: -12.5 });
+
+    const label = screen.getByText('-12.50%');
+    const flat = (Array.isArray(label.props.style)
+      ? label.props.style.flat(Infinity)
+      : [label.props.style]
+    ).filter(Boolean);
+    const colors = flat
+      .map((s: { color?: string } | null | undefined) => s && s.color)
+      .filter(Boolean);
+    // red400 — matches the balance header's down color
+    expect(colors).toContain('#E0524C');
   });
 
   it('renders the thumbnail at the Figma dimensions (58x80, radius 2)', () => {
@@ -164,51 +167,25 @@ describe('CardListRow', () => {
     expect(screen.queryByText('PSA 10')).toBeNull();
   });
 
-  it('honors a non-USD currencyCode when formatting price and trend', () => {
-    renderRow({ marketPrice: 10, trendChangeAmount: 2.5, currencyCode: 'EUR' });
+  it('honors a non-USD currencyCode when formatting the price', () => {
+    renderRow({ marketPrice: 10, currencyCode: 'EUR' });
 
     expect(screen.getByTestId('row-price')).toBeTruthy();
-    // Intl output for EUR in en-US is typically "€10.00" / "€2.50"
+    // Intl output for EUR in en-US is typically "€10.00"
     expect(screen.getByText(/€\s?10\.00/)).toBeTruthy();
-    expect(screen.getByText(/€\s?2\.50/)).toBeTruthy();
   });
 
-  it('appends the unsigned percent to the pill when trendChangePercent is provided', () => {
-    renderRow({ trendChangeAmount: 142, trendChangePercent: 31 });
+  it('renders quantity in the left copy stack under the grade line', () => {
+    renderRow({ quantity: 3 });
 
-    // Two-decimal unsigned percent (balance-header formatting); the arrow
-    // carries the direction.
-    expect(screen.getByText('$142.00 (31.00%)')).toBeTruthy();
-    expect(screen.getByTestId('row-trend-arrow-up')).toBeTruthy();
+    expect(screen.getByTestId('row-quantity')).toBeTruthy();
+    expect(screen.getByText('Qty: 3')).toBeTruthy();
   });
 
-  it('shows the unsigned percent with the down arrow for a negative trend', () => {
-    renderRow({ trendChangeAmount: -5.25, trendChangePercent: -12.5 });
+  it('hides quantity when showQuantity is false (wishlist rows)', () => {
+    renderRow({ showQuantity: false });
 
-    expect(screen.getByText('$5.25 (12.50%)')).toBeTruthy();
-    expect(screen.getByTestId('row-trend-arrow-down')).toBeTruthy();
-  });
-
-  it('keeps the amount-only pill when trendChangePercent is null', () => {
-    renderRow({ trendChangeAmount: 3.99, trendChangePercent: null });
-
-    expect(screen.getByText('$3.99')).toBeTruthy();
-  });
-
-  it('renders the trend caption under the pill', () => {
-    renderRow({ trendChangeAmount: 3.99, trendCaption: 'since added' });
-
-    expect(screen.getByTestId('row-trend-caption')).toBeTruthy();
-    expect(screen.getByText('since added')).toBeTruthy();
-  });
-
-  it('hides the trend caption when the pill itself is hidden (0/null trend)', () => {
-    const zero = renderRow({ trendChangeAmount: 0, trendCaption: 'since added' });
-    expect(screen.queryByTestId('row-trend-caption')).toBeNull();
-    zero.unmount();
-
-    renderRow({ trendChangeAmount: null, trendCaption: 'since added' });
-    expect(screen.queryByTestId('row-trend-caption')).toBeNull();
+    expect(screen.queryByTestId('row-quantity')).toBeNull();
   });
 
   it('renders the sparkline between the copy block and the price column when sparkPoints are provided', () => {

@@ -1,4 +1,3 @@
-import { ArrowDown, ArrowUp } from 'iconoir-react-native';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 
 import { useSpotlightTheme } from '../theme';
@@ -23,20 +22,13 @@ export type CardListRowProps = {
   grade?: string | null;
   marketPrice: number | null;
   currencyCode?: string;
-  trendChangeAmount?: number | null;
   /**
-   * Optional percent companion to `trendChangeAmount` — when present (and
-   * finite) the pill reads `$142.00 (31.00%)` instead of just the amount.
-   * Percent formatting matches the portfolio balance header (two decimals,
-   * unsigned; the arrow carries the direction).
+   * Signed percent rendered directly under the price, Robinhood-style
+   * (`+2.26%` green / `-2.26%` red). Callers pass the since-added change
+   * percent. Hidden when null/non-finite/exactly 0 (a card added today is 0%
+   * by construction — noise, not signal).
    */
   trendChangePercent?: number | null;
-  /**
-   * Small gray caption rendered directly under the trend pill (e.g.
-   * "since added") so the pill's time span reads truthfully. Only shown when
-   * the pill itself is shown.
-   */
-  trendCaption?: string;
   /**
    * Market-price series (oldest → newest) for a 62×22 sparkline between the
    * name/set copy and the price column: [thumb][name/set][sparkline][price].
@@ -45,13 +37,15 @@ export type CardListRowProps = {
   sparkPoints?: number[];
   /**
    * Percent change across `sparkPoints`; tints the sparkline green (>= 0) or
-   * red (< 0). The sparkline tint is independent of the trend pill — the pill
-   * carries the since-added truth, the sparkline its own 30d direction.
+   * red (< 0). The sparkline tint is independent of the percent line under the
+   * price — that carries the since-added truth, the sparkline its own 30d
+   * direction.
    */
   sparkTrendPct?: number | null;
   quantity: number;
   /**
-   * When false, the "Qty: N" line is hidden — e.g. wishlist rows, which have no
+   * When false, the "Qty: N" line (bottom of the left copy stack, under the
+   * variant/condition line) is hidden — e.g. wishlist rows, which have no
    * quantity concept. Defaults to true (collection rows show it).
    */
   showQuantity?: boolean;
@@ -123,9 +117,7 @@ export function CardListRow({
   grade,
   marketPrice,
   currencyCode = 'USD',
-  trendChangeAmount,
   trendChangePercent,
-  trendCaption,
   sparkPoints,
   sparkTrendPct,
   quantity,
@@ -154,21 +146,18 @@ export function CardListRow({
   const graderText = (grader ?? '').trim();
   const showSlabFrame = showThumbnail && graderText.length > 0;
   const hasPrice = marketPrice !== null && Number.isFinite(marketPrice);
-  const trend = typeof trendChangeAmount === 'number' && Number.isFinite(trendChangeAmount)
-    ? trendChangeAmount
-    : 0;
-  const showTrend = trend !== 0;
-  const trendIsDown = trend < 0;
-  const trendColor = trendIsDown ? theme.colors.deltaDownText : theme.colors.deltaUpText;
-  const trendBackground = trendIsDown ? theme.colors.deltaDownSurface : theme.colors.deltaUpSurface;
-  // Unsigned percent companion (the arrow carries the direction), matching the
-  // balance header's two-decimal formatting. Hidden when absent/non-finite.
+  // Signed percent under the price (Robinhood-style): "+2.26%" green /
+  // "-2.26%" red, two decimals; the sign carries the direction (no arrow).
+  // Hidden when absent/non-finite/exactly 0.
   const trendPercent = typeof trendChangePercent === 'number' && Number.isFinite(trendChangePercent)
     ? trendChangePercent
     : null;
+  const showTrend = trendPercent !== null && trendPercent !== 0;
+  const trendIsDown = (trendPercent ?? 0) < 0;
+  const trendColor = trendIsDown ? theme.colors.red400 : theme.colors.green400;
   const trendLabel = trendPercent !== null
-    ? `${formatCurrency(Math.abs(trend), currencyCode)} (${Math.abs(trendPercent).toFixed(2)}%)`
-    : formatCurrency(Math.abs(trend), currencyCode);
+    ? `${trendPercent > 0 ? '+' : ''}${trendPercent.toFixed(2)}%`
+    : '';
   const showSparkline = Array.isArray(sparkPoints) && sparkPoints.length > 0;
 
   const Container = onPress ? Pressable : View;
@@ -287,6 +276,16 @@ export function CardListRow({
             {gradeText}
           </AppText>
         ) : null}
+        {showQuantity ? (
+          <AppText
+            color="gray600"
+            numberOfLines={1}
+            testID={testID ? `${testID}-quantity` : undefined}
+            variant="label"
+          >
+            {`Qty: ${quantity}`}
+          </AppText>
+        ) : null}
       </View>
 
       {showSparkline ? (
@@ -311,54 +310,13 @@ export function CardListRow({
         ) : null}
 
         {showTrend ? (
-          <View
-            style={[styles.trendPill, { backgroundColor: trendBackground }]}
+          <AppText
+            numberOfLines={1}
+            style={[styles.trendLabel, { color: trendColor }]}
             testID={testID ? `${testID}-trend` : undefined}
-          >
-            {trendIsDown ? (
-              <ArrowDown
-                color={trendColor}
-                height={13}
-                testID={testID ? `${testID}-trend-arrow-down` : undefined}
-                width={13}
-              />
-            ) : (
-              <ArrowUp
-                color={trendColor}
-                height={13}
-                testID={testID ? `${testID}-trend-arrow-up` : undefined}
-                width={13}
-              />
-            )}
-            <AppText
-              numberOfLines={1}
-              style={[styles.trendLabel, { color: trendColor }]}
-              variant="label"
-            >
-              {trendLabel}
-            </AppText>
-          </View>
-        ) : null}
-
-        {showTrend && trendCaption ? (
-          <AppText
-            color="gray600"
-            numberOfLines={1}
-            testID={testID ? `${testID}-trend-caption` : undefined}
-            variant="caption"
-          >
-            {trendCaption}
-          </AppText>
-        ) : null}
-
-        {showQuantity ? (
-          <AppText
-            color="gray600"
-            numberOfLines={1}
-            testID={testID ? `${testID}-quantity` : undefined}
             variant="label"
           >
-            {`Qty: ${quantity}`}
+            {trendLabel}
           </AppText>
         ) : null}
       </View>
@@ -414,20 +372,12 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
   },
-  // Delta label: 13px Medium, color set inline (Figma 1263:3148).
+  // Signed since-added percent under the price: 14 SemiBold, green400/red400
+  // inline (Robinhood-style stacked value + return).
   trendLabel: {
-    fontFamily: 'SpotlightBodyMedium',
-    fontSize: 13,
-    lineHeight: 18.2,
-  },
-  // green/50 | red/50 pill with a 4px radius (Figma 992:10060).
-  trendPill: {
-    alignItems: 'center',
-    borderRadius: 4,
-    flexDirection: 'row',
-    gap: 3.5,
-    paddingLeft: 2,
-    paddingRight: 4,
-    paddingVertical: 2,
+    fontFamily: 'SpotlightBodySemiBold',
+    fontSize: 14,
+    lineHeight: 21,
+    textAlign: 'right',
   },
 });
