@@ -105,6 +105,22 @@ function formatReleaseDate(value?: string | null): string | null {
   return yearMatch ? yearMatch[1] : raw;
 }
 
+// Short baseline-date label for the position caption ("since added Mar 12") —
+// month + day only, per the approved copy. Built from local Y/M/D parts to
+// avoid a UTC off-by-one; null when the value isn't a parseable Y-M-D date.
+function formatShortMonthDay(value?: string | null): string | null {
+  const raw = (value ?? '').trim();
+  const ymd = raw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (!ymd) {
+    return null;
+  }
+  const date = new Date(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]));
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 // Numeric grade scale shared by PSA/BGS/CGC slab grading lanes.
 const numericGradeOptions: readonly string[] = [
   '10',
@@ -893,27 +909,36 @@ export function CardDetailScreen({
   // "since we started tracking it". A flat position still renders on the PDP
   // (unlike list rows) — gray, no triangle, no sign.
   const sinceAddedDisplay = (() => {
-    // Owned entry always wins; wishlisted-only cards fall back to the
-    // requester's favorite baseline. Display is arrow + $ + % only (no
-    // caption) per 2026-07-16 design call.
     const source = selectedEntry != null
       ? {
           amount: selectedEntry.sinceAddedChangeAmount,
           percent: selectedEntry.sinceAddedChangePercent,
           baselineDate: selectedEntry.sinceAddedBaselineDate,
+          openedDate: selectedEntry.addedAt,
           currencyCode: selectedEntry.currencyCode ?? 'USD',
+          label: 'since added',
         }
       : detail?.favoriteContext != null
         ? {
             amount: detail.favoriteContext.sinceAddedChangeAmount,
             percent: detail.favoriteContext.sinceAddedChangePercent,
             baselineDate: detail.favoriteContext.sinceAddedBaselineDate,
+            openedDate: detail.favoriteContext.favoritedAt,
             currencyCode: detail.currencyCode ?? 'USD',
+            label: 'since wishlisted',
           }
         : null;
     if (source == null || source.amount == null || source.baselineDate == null) {
       return null;
     }
+    const dateLabel = formatShortMonthDay(source.baselineDate);
+    if (!dateLabel) {
+      return null;
+    }
+    const openedDate = (source.openedDate ?? '').slice(0, 10);
+    const baselineIsLater =
+      openedDate.length === 10 && source.baselineDate.slice(0, 10) > openedDate;
+    const label = baselineIsLater ? 'since we started tracking it' : source.label;
     const percentSuffix =
       source.percent != null ? ` (${Math.abs(source.percent).toFixed(2)}%)` : '';
     const direction: 'up' | 'down' | 'flat' =
@@ -921,6 +946,7 @@ export function CardDetailScreen({
     return {
       direction,
       amountLabel: `${formatCurrency(Math.abs(source.amount), source.currencyCode)}${percentSuffix}`,
+      caption: `${label} ${dateLabel}`,
       color:
         direction === 'flat'
           ? colors.gray600
@@ -1705,6 +1731,12 @@ export function CardDetailScreen({
                   testID="detail-since-added-amount"
                 >
                   {sinceAddedDisplay.amountLabel}
+                </Text>
+                <Text
+                  style={theme.typography.captionMedium}
+                  testID="detail-since-added-caption"
+                >
+                  {sinceAddedDisplay.caption}
                 </Text>
               </View>
             ) : null}
