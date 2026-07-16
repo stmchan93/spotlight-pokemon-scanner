@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, ArrowUpRightSquare, BoxIso, Star, StarSolid } from 'iconoir-react-native';
+import { ArrowUpRightSquare, BoxIso, Star, StarSolid, Triangle } from 'iconoir-react-native';
 import { useState } from 'react';
 import {
   Image,
@@ -51,7 +51,8 @@ export type InventoryCardTileProps = {
   marketPrice?: number | null;
   /**
    * Signed percent rendered directly under the price in the price row's left
-   * stack: a small 12px arrow (ArrowUp/ArrowDown) + `+10.46%` in green400 /
+   * stack: a small outlined triangle (the same glyph as the balance header and
+   * PDP; 180°-flipped for down) + `+10.46%` in green400 /
    * red400 (12 SemiBold). Exactly 0 renders as gray600 `0.00%` with NO arrow
    * ("tracked but flat" reads differently from "no data"); null/non-finite
    * hides the line; a sub-$1 `marketPrice` suppresses it (penny guard).
@@ -365,21 +366,22 @@ export function InventoryCardTile({
                   style={styles.trendGroup}
                   testID={testID ? `${testID}-trend` : undefined}
                 >
+                  {/* Same outlined-triangle glyph as the balance header and
+                      PDP position line — one arrow language app-wide. */}
                   {trendPercent !== null && trendPercent > 0 ? (
-                    <ArrowUp
+                    <Triangle
                       color={trendColor}
-                      height={12}
-                      strokeWidth={2}
+                      height={10}
                       testID={testID ? `${testID}-trend-arrow-up` : undefined}
-                      width={12}
+                      width={10}
                     />
                   ) : trendPercent !== null && trendPercent < 0 ? (
-                    <ArrowDown
+                    <Triangle
                       color={trendColor}
-                      height={12}
-                      strokeWidth={2}
+                      height={10}
+                      style={styles.trendIconDown}
                       testID={testID ? `${testID}-trend-arrow-down` : undefined}
-                      width={12}
+                      width={10}
                     />
                   ) : null}
                   <AppText
@@ -568,6 +570,10 @@ const styles = StyleSheet.create({
   priceStack: {
     alignItems: 'flex-start',
     flexShrink: 1,
+  },
+  // Same 180° flip the balance header / PDP use for the down state.
+  trendIconDown: {
+    transform: [{ rotate: '180deg' }],
   },
   trendGroup: {
     alignItems: 'center',
