@@ -302,6 +302,51 @@ class SinceAddedBaselineTests(unittest.TestCase):
         self.assertIsNone(unpriced["sparkPoints"])
         self.assertIsNone(unpriced["sparkTrendPct"])
 
+    def test_owned_favorite_row_uses_owned_entry_baseline(self) -> None:
+        # Lane/precedence rule (2026-07-16 +116% bug): when a favorited card is
+        # OWNED, the wishlist row's since-added must come from the owned deck
+        # entry's baseline (same numbers as the Collection row), never the
+        # favorite-day baseline.
+        self._insert_card("own-fav-1")
+        self._seed_snapshot("own-fav-1", market=10.0)
+        with self.service.request_identity_context(self._identity("user-a")):
+            self.service.record_buy(
+                {"cardID": "own-fav-1", "quantity": 1, "unitPrice": 9.0, "currencyCode": "USD"}
+            )  # deck baseline captured at 10.0
+        self._seed_snapshot("own-fav-1", market=15.0)
+        with self.service.request_identity_context(self._identity("user-a")):
+            self.service.set_card_favorite("own-fav-1", is_favorite=True)  # favorite baseline 15.0
+        self._seed_snapshot("own-fav-1", market=18.0)
+
+        with self.service.request_identity_context(self._identity("user-a")):
+            payload = self.service.card_favorites(limit=10)
+        entry = payload["entries"][0]
+        # vs the OWNED baseline (10.0): +8.0 / +80% — NOT vs the favorite's 15.0.
+        self.assertEqual(entry["sinceAddedChangeAmount"], 8.0)
+        self.assertEqual(entry["sinceAddedChangePercent"], 80.0)
+
+    def test_backfill_repair_favorites_raw_lane_overwrites(self) -> None:
+        self._insert_card("fav-repair-1")
+        self._seed_snapshot("fav-repair-1", market=12.5)
+        self._seed_history("fav-repair-1", _today_iso(), market=12.5)
+        with self.service.request_identity_context(self._identity("user-a")):
+            self.service.set_card_favorite("fav-repair-1", is_favorite=True)
+        # Corrupt the stored baseline (simulates an owned-lane capture).
+        self.service.connection.execute(
+            "UPDATE card_favorites SET added_market_price = 999.0 WHERE card_id = ?",
+            ("fav-repair-1",),
+        )
+        self.service.connection.commit()
+
+        summary = self.service.backfill_added_baselines(repair_favorites_raw_lane=True)
+        self.assertEqual(summary["favoritesResolved"], 1)
+        row = self._favorite_baseline_row("user-a", "fav-repair-1")
+        self.assertEqual(row["added_market_price"], 12.5)
+        # Repair runs must NOT set the one-shot flag.
+        from server import ADDED_BASELINE_BACKFILL_FLAG
+        from catalog_tools import runtime_setting
+        self.assertIsNone(runtime_setting(self.service.connection, ADDED_BASELINE_BACKFILL_FLAG))
+
     # --- PDP favoriteContext ---------------------------------------------------
 
     def test_card_detail_emits_favorite_context_with_arithmetic(self) -> None:

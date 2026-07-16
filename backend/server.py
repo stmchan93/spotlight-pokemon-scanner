@@ -11574,20 +11574,19 @@ class SpotlightScanService:
 
         if next_is_favorite:
             if existing_row is None:
-                # "Since you added it" baseline: price the card the same way the
-                # wishlist list serializer will (owned copies in their owned
-                # grade/condition lane, unowned favorites on the default raw
-                # lane) so baseline == the marketPrice shown on the favorite day.
-                owned = self._owned_deck_summary_by_card_id(
-                    owner_user_id, [normalized_card_id]
-                ).get(normalized_card_id)
+                # "Since wishlisted" baseline: ALWAYS the default raw lane. The
+                # favorite's own baseline is only ever displayed for UNOWNED
+                # rows (which price raw); owned rows use the owned deck entry's
+                # baseline instead (see card_favorites serializer). Capturing on
+                # the owned lane here would mismatch if the copy is later sold
+                # and the row reverts to raw pricing.
                 added_market_price, added_market_date = self._added_baseline_now(
                     normalized_card_id,
-                    grader=owned["grader"] if owned else None,
-                    grade=owned["grade"] if owned else None,
-                    cert_number=owned["cert_number"] if owned else None,
-                    variant_name=owned["variant_name"] if owned else None,
-                    condition=owned["condition"] if owned else None,
+                    grader=None,
+                    grade=None,
+                    cert_number=None,
+                    variant_name=None,
+                    condition=None,
                 )
                 self.connection.execute(
                     """
@@ -14195,6 +14194,7 @@ class SpotlightScanService:
         dry_run: bool = False,
         source: str = "ops",
         repair_graded_variantless: bool = False,
+        repair_favorites_raw_lane: bool = False,
     ) -> dict[str, Any]:
         """One-time backfill of the "since you added it" baseline columns
         (deck_entries / card_favorites ``added_market_price`` +
@@ -14226,6 +14226,7 @@ class SpotlightScanService:
         summary: dict[str, Any] = {
             "dryRun": bool(dry_run),
             "repairGradedVariantless": bool(repair_graded_variantless),
+            "repairFavoritesRawLane": bool(repair_favorites_raw_lane),
             "skipped": False,
             "deckEntriesResolved": 0,
             "deckEntriesFallbackEarliest": 0,
@@ -14236,7 +14237,7 @@ class SpotlightScanService:
         }
         try:
             already = runtime_setting(self.connection, ADDED_BASELINE_BACKFILL_FLAG)
-            if already is not None and not dry_run and not repair_graded_variantless:
+            if already is not None and not dry_run and not (repair_graded_variantless or repair_favorites_raw_lane):
                 summary["skipped"] = True
                 self._emit_structured_log(
                     {
@@ -14267,6 +14268,8 @@ class SpotlightScanService:
                       AND (variant_name IS NULL OR TRIM(variant_name) = '')
                     """
                 ).fetchall()
+            elif repair_favorites_raw_lane:
+                deck_rows = []
             else:
                 deck_rows = self.connection.execute(
                     """
@@ -14293,8 +14296,8 @@ class SpotlightScanService:
                 """
                 SELECT owner_user_id, card_id, created_at
                 FROM card_favorites
-                WHERE added_market_price IS NULL
                 """
+                + ("" if repair_favorites_raw_lane else "WHERE added_market_price IS NULL")
             ).fetchall() if not repair_graded_variantless else []
             for row in favorite_rows:
                 # Favorites carry no grade/condition of their own; backfill on the
@@ -14416,19 +14419,32 @@ class SpotlightScanService:
                         )
                 else:
                     owner_user_id, card_id = job["update_key"]
-                    self.connection.execute(
-                        """
-                        UPDATE card_favorites
-                        SET added_market_price = ?, added_market_date = ?
-                        WHERE owner_user_id = ?
-                          AND card_id = ?
-                          AND added_market_price IS NULL
-                        """,
-                        (price, price_date, owner_user_id, card_id),
-                    )
+                    if repair_favorites_raw_lane:
+                        # Repair normalizes every favorite baseline to the raw
+                        # lane (overwrite in place).
+                        self.connection.execute(
+                            """
+                            UPDATE card_favorites
+                            SET added_market_price = ?, added_market_date = ?
+                            WHERE owner_user_id = ?
+                              AND card_id = ?
+                            """,
+                            (price, price_date, owner_user_id, card_id),
+                        )
+                    else:
+                        self.connection.execute(
+                            """
+                            UPDATE card_favorites
+                            SET added_market_price = ?, added_market_date = ?
+                            WHERE owner_user_id = ?
+                              AND card_id = ?
+                              AND added_market_price IS NULL
+                            """,
+                            (price, price_date, owner_user_id, card_id),
+                        )
 
             if not dry_run:
-                if not repair_graded_variantless:
+                if not (repair_graded_variantless or repair_favorites_raw_lane):
                     # Repair runs are re-runnable; only the original one-time
                     # backfill sets the one-shot flag.
                     upsert_runtime_setting(
@@ -15884,12 +15900,22 @@ class SpotlightScanService:
                 today_pricing=pricing,
             )
 
-            # "Since you added it" (vs favoritedAt): serve-time arithmetic on the
-            # stored favorite-day baseline vs the price this row just resolved.
+            # Since-added baseline must live on the SAME lane the row's current
+            # price resolved on. OWNED favorites price on the owned lane, so
+            # they use the owned entry's baseline (identical numbers to the
+            # Collection row and PDP). Only UNOWNED favorites use the
+            # favorite-day baseline — both sides raw-lane there. Mixing lanes
+            # showed a PSA-10 current vs a raw baseline as +116% (2026-07-16).
+            if owned is not None:
+                baseline_price = owned.get("added_market_price")
+                baseline_date = owned.get("added_market_date")
+            else:
+                baseline_price = row["added_market_price"]
+                baseline_date = row["added_market_date"]
             since_added_amount, since_added_percent, since_added_baseline_date = (
                 self._since_added_change(
-                    baseline_price=row["added_market_price"],
-                    baseline_date=row["added_market_date"],
+                    baseline_price=baseline_price,
+                    baseline_date=baseline_date,
                     current_price=self._history_primary_price_value(pricing),
                 )
             )
@@ -15975,7 +16001,8 @@ class SpotlightScanService:
         placeholders = ",".join("?" for _ in normalized)
         rows = self.connection.execute(
             f"""
-            SELECT card_id, item_kind, grader, grade, cert_number, variant_name, condition
+            SELECT card_id, item_kind, grader, grade, cert_number, variant_name, condition,
+                   added_market_price, added_market_date
             FROM deck_entries
             WHERE owner_user_id = ?
               AND quantity > 0
@@ -15996,6 +16023,13 @@ class SpotlightScanService:
                 "cert_number": str(row["cert_number"] or "").strip() or None,
                 "variant_name": str(row["variant_name"] or "").strip() or None,
                 "condition": self._normalized_deck_card_condition(row["condition"]),
+                # The owned entry's since-added baseline: when a favorite is
+                # OWNED, the wishlist row prices on the owned lane, so its
+                # since-added change must use this baseline (same lane) — not
+                # the favorite's raw-lane baseline (a PSA-10 current vs a raw
+                # baseline read +116% on a card that was up 10%, 2026-07-16).
+                "added_market_price": row["added_market_price"],
+                "added_market_date": str(row["added_market_date"] or "").strip() or None,
             }
         return summary
 
@@ -17085,6 +17119,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             # graded-resolver fix (re-runnable; bypasses the one-shot flag).
             repair_mode = query.get("repair", [""])[0].strip()
             repair_graded_variantless = repair_mode in {"gradedVariantless", "graded_variantless"}
+            repair_favorites_raw_lane = repair_mode in {"favoritesRawLane", "favorites_raw_lane"}
             # Fire-and-forget (same shape as prewarm-portfolio): the backfill
             # walks every NULL-baseline row, so the caller gets an immediate ack
             # instead of blocking on the full pass. One-shot guarded by the
@@ -17095,6 +17130,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                     "dry_run": dry_run,
                     "source": "ops",
                     "repair_graded_variantless": repair_graded_variantless,
+                    "repair_favorites_raw_lane": repair_favorites_raw_lane,
                 },
                 name="added-baseline-backfill-ops",
                 daemon=True,
