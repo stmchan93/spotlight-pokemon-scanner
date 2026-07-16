@@ -10,6 +10,7 @@ from catalog_tools import (
     canonicalize_collector_number,
     card_by_id,
     cards_by_ids,
+    contextual_pricing_summary_for_card,
     search_cards,
     tokenize,
     upsert_deck_entry,
@@ -783,17 +784,39 @@ def _commit_ready_row(
     currency_code = str(normalized_row.get("currencyCode") or row["currency_code"] or "").strip() or None
     if event_kind == "import_seed":
         currency_code = None
+    condition = _normalized_condition(normalized_row.get("condition"))
+    # "Since you added it" baseline. Imports run outside the service's
+    # context-resolved pricing helpers, so this site uses the default-lane
+    # snapshot price (raw lane, condition-aware) — an acceptable baseline for
+    # bulk-imported rows. Best-effort: unpriced cards import without one.
+    added_market_price: float | None = None
+    added_market_date: str | None = None
+    try:
+        baseline_summary = contextual_pricing_summary_for_card(
+            connection, matched_card_id, condition=condition
+        )
+        for price_key in ("market", "mid", "low", "high"):
+            baseline_value = (baseline_summary or {}).get(price_key)
+            if isinstance(baseline_value, (int, float)):
+                added_market_price = round(float(baseline_value), 2)
+                added_market_date = utc_now()[:10]
+                break
+    except Exception:  # noqa: BLE001 - baseline is decorative; never block an import
+        added_market_price = None
+        added_market_date = None
     deck_entry_id = upsert_deck_entry(
         connection,
         owner_user_id=owner_user_id,
         card_id=matched_card_id,
-        condition=_normalized_condition(normalized_row.get("condition")),
+        condition=condition,
         quantity=quantity,
         unit_price=float(acquisition_unit_price) if acquisition_unit_price is not None else None,
         currency_code=currency_code,
         added_at=utc_now(),
         updated_at=utc_now(),
         event_kind=event_kind,
+        added_market_price=added_market_price,
+        added_market_date=added_market_date,
     )
     commit_payload = {
         "deckEntryID": deck_entry_id,

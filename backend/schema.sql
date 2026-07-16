@@ -346,7 +346,14 @@ CREATE TABLE IF NOT EXISTS deck_entries (
     -- on sale with a snapshot copied into `sale_events.last_listing_snapshot`.
     listing_url TEXT,
     listing_price_cents BIGINT,
-    listed_at TIMESTAMPTZ
+    listed_at TIMESTAMPTZ,
+    -- "Since you added it" baseline: the market price the app displayed for
+    -- this entry's context on the day it was added (uniform baseline; NOT cost
+    -- basis) plus that price's date. Written on insert; historical rows are
+    -- filled once by /api/v1/ops/backfill-added-baselines. NULL = no baseline
+    -- (unpriced card at add time) and the UI renders nothing.
+    added_market_price REAL,
+    added_market_date TEXT
 );
 
 CREATE TABLE IF NOT EXISTS sale_events (

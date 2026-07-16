@@ -561,6 +561,16 @@ def _apply_collections_redesign_schema_patch(connection: sqlite3.Connection) -> 
     _sqlite_add_column_if_missing(connection, "sale_events", "last_listing_snapshot", "JSONB")
 
 
+def _apply_since_added_baseline_schema_patch(connection: sqlite3.Connection) -> None:
+    """Additive columns for the "Since you added it" display: the market price
+    (and its date) the app showed for the entry's context on the day it was
+    added. Written at insert time; historical rows are filled once by
+    /api/v1/ops/backfill-added-baselines. The card_favorites twin columns live
+    in `_apply_card_favorites_schema_patch`."""
+    _sqlite_add_column_if_missing(connection, "deck_entries", "added_market_price", "REAL")
+    _sqlite_add_column_if_missing(connection, "deck_entries", "added_market_date", "TEXT")
+
+
 def _card_transactions_amount_cents_is_not_null(connection: sqlite3.Connection) -> bool:
     """True when the existing card_transactions.amount_cents column is NOT NULL.
 
@@ -678,6 +688,12 @@ def _apply_card_favorites_schema_patch(connection: sqlite3.Connection) -> None:
         ON card_favorites(card_id, created_at DESC)
         """
     )
+    # "Since you added it" baseline for wishlist rows: the market price the app
+    # displayed for the card on the day it was favorited (uniform baseline; NOT
+    # cost basis). Written on the favorite INSERT; historical rows are filled
+    # once by /api/v1/ops/backfill-added-baselines.
+    _sqlite_add_column_if_missing(connection, "card_favorites", "added_market_price", "REAL")
+    _sqlite_add_column_if_missing(connection, "card_favorites", "added_market_date", "TEXT")
 
 
 def _apply_card_likes_schema_patch(connection: sqlite3.Connection) -> None:
@@ -968,6 +984,17 @@ def scan_keep_crosslang_candidates_enabled() -> bool:
 # and the multi-GB DB sits on a slow disk, so the first dashboard refresh cold-
 # reads owner rows and can exceed the client timeout. We proactively warm each
 # active owner's dashboard at boot (see prewarm_portfolio_dashboards).
+# "Since you added it" row sparklines: 30-day window, downsampled to <=20
+# points per row, and a per-page context budget — pages needing more than this
+# many history contexts skip sparklines for the overflow rows (the sinceAdded
+# pill fields are never truncated).
+SINCE_ADDED_SPARK_DAYS = 30
+SINCE_ADDED_SPARK_POINTS = 20
+SINCE_ADDED_SPARK_MAX_CONTEXTS = 800
+# One-shot guard flag for /api/v1/ops/backfill-added-baselines (mirrors
+# access_existing_users_backfilled).
+ADDED_BASELINE_BACKFILL_FLAG = "added_baseline_backfilled"
+
 PORTFOLIO_DASHBOARD_PREWARM_ENV = "PORTFOLIO_DASHBOARD_PREWARM"
 PORTFOLIO_DASHBOARD_PREWARM_MAX_OWNERS_ENV = "PORTFOLIO_DASHBOARD_PREWARM_MAX_OWNERS"
 PORTFOLIO_DASHBOARD_PREWARM_DELAY_ENV = "PORTFOLIO_DASHBOARD_PREWARM_DELAY_SECONDS"
@@ -1145,6 +1172,7 @@ class SpotlightScanService:
             _apply_card_likes_schema_patch(bootstrap_connection)
             _apply_sale_payment_schema_patch(bootstrap_connection)
             _apply_collections_redesign_schema_patch(bootstrap_connection)
+            _apply_since_added_baseline_schema_patch(bootstrap_connection)
             _apply_card_transactions_schema_patch(bootstrap_connection)
             _apply_scan_labeling_reviews_schema_patch(bootstrap_connection)
             _apply_price_history_cells_schema_patch(bootstrap_connection)
@@ -3085,6 +3113,33 @@ class SpotlightScanService:
         return None
 
     @staticmethod
+    def _since_added_change(
+        *,
+        baseline_price: Any,
+        baseline_date: Any,
+        current_price: float | None,
+    ) -> tuple[float | None, float | None, str | None]:
+        """(sinceAddedChangeAmount, sinceAddedChangePercent, sinceAddedBaselineDate)
+        from the stored add-day baseline vs the price the list currently displays.
+
+        A missing/zero baseline yields all-None (the row renders no pill); a
+        priced baseline whose CURRENT price is unavailable keeps the baseline
+        date but no arithmetic. Display is pure serve-time arithmetic — no
+        history reads."""
+        try:
+            baseline = float(baseline_price) if baseline_price is not None else None
+        except (TypeError, ValueError):
+            baseline = None
+        if baseline is None or baseline <= 0:
+            return None, None, None
+        normalized_date = str(baseline_date or "").strip() or None
+        if current_price is None:
+            return None, None, normalized_date
+        amount = round(float(current_price) - baseline, 2)
+        percent = round((float(current_price) - baseline) / baseline * 100.0, 2)
+        return amount, percent, normalized_date
+
+    @staticmethod
     def _history_display_condition_label(condition: str) -> str:
         normalized = str(condition or "").strip().upper()
         mapping = {
@@ -4371,6 +4426,51 @@ class SpotlightScanService:
             strict=False,
         )
 
+    def _earliest_price_history_rows_by_card_id(
+        self,
+        card_ids: list[str],
+    ) -> dict[str, sqlite3.Row | None]:
+        """Each card's EARLIEST price-history row (``MIN(price_date)``), one row
+        per card via the same index-aggregate shape as
+        ``_latest_price_history_rows_by_card_id``. Used by the since-added
+        baseline backfill: entries added before tracking began fall back to the
+        first tracked price, with ``added_market_date`` carrying that honest
+        date so the UI can label "since we started tracking it"."""
+        normalized_ids = self._normalized_unique_card_ids(list(card_ids))
+        if not normalized_ids:
+            return {}
+        provider = pricing_provider()
+        result: dict[str, sqlite3.Row | None] = {}
+        for start in range(0, len(normalized_ids), 400):
+            chunk = normalized_ids[start:start + 400]
+            if not chunk:
+                continue
+            placeholders = ",".join("?" for _ in chunk)
+            rows = self.connection.execute(
+                f"""
+                SELECT h.*
+                FROM card_price_history_daily AS h
+                JOIN (
+                    SELECT card_id, MIN(price_date) AS earliest_price_date
+                    FROM card_price_history_daily
+                    WHERE provider = ?
+                      AND card_id IN ({placeholders})
+                    GROUP BY card_id
+                ) AS earliest
+                  ON earliest.card_id = h.card_id
+                 AND earliest.earliest_price_date = h.price_date
+                WHERE h.provider = ?
+                  AND h.card_id IN ({placeholders})
+                ORDER BY h.card_id ASC, h.updated_at DESC
+                """,
+                (provider, *chunk, provider, *chunk),
+            ).fetchall()
+            for row in rows:
+                cid = str(row["card_id"] or "").strip()
+                if cid and cid not in result:
+                    result[cid] = row
+        return result
+
     def _price_history_cells_by_card_and_date(
         self,
         *,
@@ -5420,6 +5520,59 @@ class SpotlightScanService:
             "topCards": top_cards,
         }
 
+    def _added_baseline_now(
+        self,
+        card_id: str,
+        *,
+        grader: str | None = None,
+        grade: str | None = None,
+        cert_number: str | None = None,
+        variant_name: str | None = None,
+        condition: str | None = None,
+    ) -> tuple[float | None, str | None]:
+        """Resolve the "since you added it" baseline for a NEW deck entry or
+        favorite: the market price the app would display for this exact context
+        right now, plus today's date (the add date).
+
+        Uses the same context resolution as the Collection/Wishlist list
+        serializers (`_display_pricing_summary_for_context`) so the stored
+        baseline equals the marketPrice the UI showed on the add day. When the
+        exact context has no price, falls back to the default raw lane so a
+        priced card never loses its baseline over a missing variant/condition
+        cell. Best-effort: an unpriced card (or any resolver error) yields
+        (None, None) and the add proceeds without a baseline."""
+        try:
+            pricing_context = (
+                self._slab_pricing_context(
+                    grader=grader,
+                    grade=grade,
+                    cert_number=cert_number,
+                    preferred_variant=variant_name,
+                )
+                if grader or grade
+                else self._raw_pricing_context(
+                    preferred_variant=variant_name,
+                    preferred_condition=condition,
+                )
+            )
+            pricing = self._display_pricing_summary_for_context(
+                card_id,
+                pricing_context=pricing_context,
+            )
+            price = self._history_primary_price_value(pricing)
+            if price is None and (grader or grade or variant_name or condition):
+                pricing = self._display_pricing_summary_for_context(
+                    card_id,
+                    pricing_context=self._raw_pricing_context(),
+                )
+                price = self._history_primary_price_value(pricing)
+            if price is None:
+                return None, None
+            return round(float(price), 2), datetime.now(timezone.utc).date().isoformat()
+        except Exception:  # noqa: BLE001 - the baseline is decorative; never block an add
+            traceback.print_exc()
+            return None, None
+
     def record_buy(self, payload: dict[str, Any]) -> dict[str, Any]:
         owner_user_id = self._current_owner_user_id()
         card_id = str(payload.get("cardID") or "").strip()
@@ -5489,6 +5642,15 @@ class SpotlightScanService:
             condition=condition,
         )
 
+        added_market_price, added_market_date = self._added_baseline_now(
+            card_id,
+            grader=grader,
+            grade=grade,
+            cert_number=cert_number,
+            variant_name=variant_name,
+            condition=condition,
+        )
+
         try:
             inserted = self.connection.execute(
                 "SELECT 1 FROM deck_entries WHERE owner_user_id = ? AND identity_key = ? LIMIT 1",
@@ -5512,6 +5674,8 @@ class SpotlightScanService:
                 source_scan_id=source_scan_id,
                 source_confirmation_id=source_confirmation_id,
                 event_kind="buy",
+                added_market_price=added_market_price,
+                added_market_date=added_market_date,
             )
             if cost_basis_per_unit_cents is not None:
                 self._set_deck_entry_cost_basis_cents(
@@ -5650,6 +5814,14 @@ class SpotlightScanService:
                     created_at=updated_at,
                 )
             else:
+                added_market_price, added_market_date = self._added_baseline_now(
+                    card_id,
+                    grader=grader,
+                    grade=grade,
+                    cert_number=cert_number,
+                    variant_name=variant_name,
+                    condition=condition,
+                )
                 next_deck_entry_id = upsert_deck_entry(
                     self.connection,
                     owner_user_id=owner_user_id,
@@ -5667,6 +5839,8 @@ class SpotlightScanService:
                     source_scan_id=str(existing_row["source_scan_id"] or "").strip() or None,
                     source_confirmation_id=str(existing_row["source_confirmation_id"] or "").strip() or None,
                     event_kind="replace_in",
+                    added_market_price=added_market_price,
+                    added_market_date=added_market_date,
                 )
                 self.connection.execute(
                     """
@@ -6058,6 +6232,14 @@ class SpotlightScanService:
                     stub_quantity = max(1, int(payload.get("quantity", 1)))
                 except (TypeError, ValueError):
                     stub_quantity = 1
+                added_market_price, added_market_date = self._added_baseline_now(
+                    card_id,
+                    grader=slab_grader,
+                    grade=slab_grade,
+                    cert_number=slab_cert_number,
+                    variant_name=slab_variant_name,
+                    condition=condition,
+                )
                 deck_entry_id = upsert_deck_entry(
                     self.connection,
                     owner_user_id=owner_user_id,
@@ -6073,6 +6255,8 @@ class SpotlightScanService:
                     added_at=sold_at,
                     updated_at=sold_at,
                     event_kind="add",
+                    added_market_price=added_market_price,
+                    added_market_date=added_market_date,
                 )
 
         row = self._owned_deck_entry_row_by_reference(deck_entry_id)
@@ -11335,16 +11519,39 @@ class SpotlightScanService:
 
         if next_is_favorite:
             if existing_row is None:
+                # "Since you added it" baseline: price the card the same way the
+                # wishlist list serializer will (owned copies in their owned
+                # grade/condition lane, unowned favorites on the default raw
+                # lane) so baseline == the marketPrice shown on the favorite day.
+                owned = self._owned_deck_summary_by_card_id(
+                    owner_user_id, [normalized_card_id]
+                ).get(normalized_card_id)
+                added_market_price, added_market_date = self._added_baseline_now(
+                    normalized_card_id,
+                    grader=owned["grader"] if owned else None,
+                    grade=owned["grade"] if owned else None,
+                    cert_number=owned["cert_number"] if owned else None,
+                    variant_name=owned["variant_name"] if owned else None,
+                    condition=owned["condition"] if owned else None,
+                )
                 self.connection.execute(
                     """
                     INSERT INTO card_favorites (
                         owner_user_id,
                         card_id,
-                        created_at
+                        created_at,
+                        added_market_price,
+                        added_market_date
                     )
-                    VALUES (?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?)
                     """,
-                    (owner_user_id, normalized_card_id, utc_now()),
+                    (
+                        owner_user_id,
+                        normalized_card_id,
+                        utc_now(),
+                        added_market_price,
+                        added_market_date,
+                    ),
                 )
                 existing_row = self._favorite_row(normalized_card_id, owner_user_id=owner_user_id)
         else:
@@ -12891,6 +13098,15 @@ class SpotlightScanService:
 
         cost_basis_per_unit_cents = self._parse_cost_basis_per_unit_cents(payload)
 
+        added_market_price, added_market_date = self._added_baseline_now(
+            card_id,
+            grader=grader,
+            grade=grade,
+            cert_number=cert_number,
+            variant_name=variant_name,
+            condition=condition,
+        )
+
         try:
             deck_entry_id = upsert_deck_entry(
                 self.connection,
@@ -12906,6 +13122,8 @@ class SpotlightScanService:
                 updated_at=added_at,
                 source_scan_id=scan_id,
                 source_confirmation_id=None,
+                added_market_price=added_market_price,
+                added_market_date=added_market_date,
             )
             if cost_basis_per_unit_cents is not None:
                 self._set_deck_entry_cost_basis_cents(
@@ -13906,6 +14124,233 @@ class SpotlightScanService:
         )
         return result
 
+    def backfill_added_baselines(
+        self, *, dry_run: bool = False, source: str = "ops"
+    ) -> dict[str, Any]:
+        """One-time backfill of the "since you added it" baseline columns
+        (deck_entries / card_favorites ``added_market_price`` +
+        ``added_market_date``) for rows that predate write-time capture.
+
+        For every NULL-baseline row, resolves the market price nearest ON OR
+        BEFORE the add/favorite date (grouped by add-date so each date is ONE
+        batched history read), with the same per-entry context resolution the
+        display uses (`_portfolio_history_price_row_from_history_row`). Rows
+        added before tracking began — or whose card's history starts later —
+        fall back to the card's EARLIEST tracked price, with
+        ``added_market_date`` carrying that honest date. Nothing resolvable →
+        the baseline stays NULL (the UI renders nothing).
+
+        Guarded by the ``added_baseline_backfilled`` runtime flag so it runs
+        exactly once; ``dry_run`` computes and logs counts, writes nothing, and
+        does NOT set the flag. Runs on a background daemon thread (its own
+        thread-local connection); best-effort, never raises out."""
+        started_at = perf_counter()
+        summary: dict[str, Any] = {
+            "dryRun": bool(dry_run),
+            "skipped": False,
+            "deckEntriesResolved": 0,
+            "deckEntriesFallbackEarliest": 0,
+            "deckEntriesUnresolved": 0,
+            "favoritesResolved": 0,
+            "favoritesFallbackEarliest": 0,
+            "favoritesUnresolved": 0,
+        }
+        try:
+            already = runtime_setting(self.connection, ADDED_BASELINE_BACKFILL_FLAG)
+            if already is not None and not dry_run:
+                summary["skipped"] = True
+                self._emit_structured_log(
+                    {
+                        "severity": "INFO",
+                        "event": "added_baseline_backfill",
+                        "source": source,
+                        **summary,
+                    }
+                )
+                return summary
+
+            earliest_priced_date = self._portfolio_earliest_priced_date()
+
+            # (kind, update_key, card_id, entry_ctx, condition, add_date_iso)
+            jobs: list[dict[str, Any]] = []
+            deck_rows = self.connection.execute(
+                """
+                SELECT id, card_id, item_kind, grader, grade, variant_name, condition, added_at
+                FROM deck_entries
+                WHERE added_market_price IS NULL
+                """
+            ).fetchall()
+            for row in deck_rows:
+                jobs.append(
+                    {
+                        "kind": "deck",
+                        "update_key": str(row["id"]),
+                        "card_id": str(row["card_id"] or "").strip(),
+                        "item_kind": str(row["item_kind"] or "").strip().lower(),
+                        "grader": str(row["grader"] or "").strip() or None,
+                        "grade": str(row["grade"] or "").strip() or None,
+                        "variant_name": str(row["variant_name"] or "").strip() or None,
+                        "condition": self._normalized_deck_card_condition(row["condition"]),
+                        "added_at": str(row["added_at"] or "").strip(),
+                    }
+                )
+            favorite_rows = self.connection.execute(
+                """
+                SELECT owner_user_id, card_id, created_at
+                FROM card_favorites
+                WHERE added_market_price IS NULL
+                """
+            ).fetchall()
+            for row in favorite_rows:
+                # Favorites carry no grade/condition of their own; backfill on the
+                # default raw lane (the lane the wishlist prices unowned rows in).
+                jobs.append(
+                    {
+                        "kind": "favorite",
+                        "update_key": (str(row["owner_user_id"] or ""), str(row["card_id"] or "")),
+                        "card_id": str(row["card_id"] or "").strip(),
+                        "item_kind": "raw",
+                        "grader": None,
+                        "grade": None,
+                        "variant_name": None,
+                        "condition": None,
+                        "added_at": str(row["created_at"] or "").strip(),
+                    }
+                )
+
+            def _resolve_from_row(job: dict[str, Any], history_row: Any) -> tuple[float | None, str | None]:
+                if history_row is None:
+                    return None, None
+                pricing = self._portfolio_history_price_row_from_history_row(
+                    {
+                        "cardID": job["card_id"],
+                        "itemKind": "slab" if job["item_kind"] == "slab" else "raw",
+                        "grader": job["grader"],
+                        "grade": job["grade"],
+                        "variantName": job["variant_name"],
+                    },
+                    row=history_row,
+                    condition_code=self._portfolio_condition_code(job["condition"]),
+                )
+                price = self._history_primary_price_value(pricing)
+                if price is None:
+                    return None, None
+                return round(float(price), 2), str(history_row["price_date"] or "").strip() or None
+
+            # Pass 1: nearest-on-or-before the add date, ONE batched read per
+            # distinct add-date (add dates before tracking began clamp to the
+            # earliest tracked date so the <= query can land on it).
+            jobs_by_cutoff: dict[str, list[dict[str, Any]]] = {}
+            for job in jobs:
+                if not job["card_id"]:
+                    continue
+                add_date_raw = job["added_at"][:10]
+                try:
+                    add_date = date.fromisoformat(add_date_raw)
+                except ValueError:
+                    add_date = None
+                if add_date is None:
+                    cutoff_iso = None
+                elif earliest_priced_date is not None and add_date < earliest_priced_date:
+                    cutoff_iso = earliest_priced_date.isoformat()
+                else:
+                    cutoff_iso = add_date.isoformat()
+                if cutoff_iso is None:
+                    continue
+                jobs_by_cutoff.setdefault(cutoff_iso, []).append(job)
+
+            resolved: dict[int, tuple[float, str | None]] = {}
+            for cutoff_iso, cutoff_jobs in sorted(jobs_by_cutoff.items()):
+                rows_by_card = self._price_history_rows_on_or_before_by_card_id(
+                    [job["card_id"] for job in cutoff_jobs],
+                    cutoff_date_iso=cutoff_iso,
+                )
+                for job in cutoff_jobs:
+                    price, price_date = _resolve_from_row(job, rows_by_card.get(job["card_id"]))
+                    if price is not None:
+                        resolved[id(job)] = (price, price_date)
+
+            # Pass 2: still-unresolved rows (card history starts after the add
+            # date) fall back to the card's earliest tracked price.
+            fallback_jobs = [job for job in jobs if job["card_id"] and id(job) not in resolved]
+            fallback_ids: set[int] = set()
+            if fallback_jobs:
+                earliest_rows_by_card = self._earliest_price_history_rows_by_card_id(
+                    [job["card_id"] for job in fallback_jobs]
+                )
+                for job in fallback_jobs:
+                    price, price_date = _resolve_from_row(
+                        job, earliest_rows_by_card.get(job["card_id"])
+                    )
+                    if price is not None:
+                        resolved[id(job)] = (price, price_date)
+                        fallback_ids.add(id(job))
+
+            for job in jobs:
+                hit = resolved.get(id(job))
+                prefix = "deckEntries" if job["kind"] == "deck" else "favorites"
+                if hit is None:
+                    summary[f"{prefix}Unresolved"] += 1
+                    continue
+                summary[f"{prefix}Resolved"] += 1
+                if id(job) in fallback_ids:
+                    summary[f"{prefix}FallbackEarliest"] += 1
+                if dry_run:
+                    continue
+                price, price_date = hit
+                if job["kind"] == "deck":
+                    self.connection.execute(
+                        """
+                        UPDATE deck_entries
+                        SET added_market_price = ?, added_market_date = ?
+                        WHERE id = ?
+                          AND added_market_price IS NULL
+                        """,
+                        (price, price_date, job["update_key"]),
+                    )
+                else:
+                    owner_user_id, card_id = job["update_key"]
+                    self.connection.execute(
+                        """
+                        UPDATE card_favorites
+                        SET added_market_price = ?, added_market_date = ?
+                        WHERE owner_user_id = ?
+                          AND card_id = ?
+                          AND added_market_price IS NULL
+                        """,
+                        (price, price_date, owner_user_id, card_id),
+                    )
+
+            if not dry_run:
+                upsert_runtime_setting(
+                    self.connection,
+                    key=ADDED_BASELINE_BACKFILL_FLAG,
+                    value={"at": utc_now(), "source": source, **summary},
+                )
+                self.connection.commit()
+                # The baseline UPDATEs intentionally don't touch updated_at, so
+                # the version-token deck_entries cache would keep serving null
+                # sinceAdded fields until the next mutation/daily sync. Drop it
+                # so the next list request recomputes with the new baselines.
+                with self._dashboard_cache_locks_guard:
+                    self._deck_entries_cache.clear()
+        except Exception:  # noqa: BLE001 - the backfill is best-effort ops tooling
+            traceback.print_exc()
+            try:
+                self.connection.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+        summary["elapsedMs"] = round((perf_counter() - started_at) * 1000.0, 1)
+        self._emit_structured_log(
+            {
+                "severity": "INFO",
+                "event": "added_baseline_backfill",
+                "source": source,
+                **summary,
+            }
+        )
+        return summary
+
     def portfolio_dashboard(
         self, *, time_zone_name: str | None = None, range_key: str | None = None
     ) -> dict[str, Any]:
@@ -14586,7 +15031,9 @@ class SpotlightScanService:
                 added_at,
                 updated_at,
                 source_scan_id,
-                source_confirmation_id
+                source_confirmation_id,
+                added_market_price,
+                added_market_date
             FROM deck_entries
             {where_clause}
             ORDER BY added_at DESC, id DESC
@@ -14620,6 +15067,10 @@ class SpotlightScanService:
         total_cost_basis = 0.0
         raw_count = 0
         slab_count = 0
+        # 30-day row sparklines: collect one batched history request per entry
+        # (budget-capped), resolved in ONE call after the loop. Lives inside the
+        # cached deck_entries compute, so repeat loads never re-read history.
+        spark_requests: list[dict[str, Any]] = []
 
         for row in rows:
             card_id = str(row["card_id"] or "").strip()
@@ -14696,6 +15147,39 @@ class SpotlightScanService:
             else:
                 day_change_amount, day_change_percent = None, None
 
+            # "Since you added it": serve-time arithmetic on the stored add-day
+            # baseline vs the price this row already resolved — no history read.
+            since_added_amount, since_added_percent, since_added_baseline_date = (
+                self._since_added_change(
+                    baseline_price=row["added_market_price"],
+                    baseline_date=row["added_market_date"],
+                    current_price=self._history_primary_price_value(pricing),
+                )
+            )
+
+            if len(spark_requests) < SINCE_ADDED_SPARK_MAX_CONTEXTS:
+                is_graded_entry = bool(grader or grade)
+                # Same variant carry-forward as day-change: price the history
+                # window for the printing today's price resolved to.
+                today_variant = (
+                    str(pricing.get("variant") or "").strip() or None
+                    if isinstance(pricing, dict)
+                    else None
+                )
+                spark_requests.append(
+                    {
+                        "key": str(row["id"]),
+                        "card_id": card_id,
+                        "pricing_mode": (
+                            PSA_GRADE_PRICING_MODE if is_graded_entry else RAW_PRICING_MODE
+                        ),
+                        "variant": variant_name or today_variant,
+                        "condition": None if is_graded_entry else condition,
+                        "grader": grader if is_graded_entry else None,
+                        "grade": grade if is_graded_entry else None,
+                    }
+                )
+
             cost_basis_cents_raw = row["cost_basis_cents"] if "cost_basis_cents" in row.keys() else None
             cost_basis_per_unit_dollars: float | None = None
             if cost_basis_cents_raw is not None:
@@ -14741,8 +15225,19 @@ class SpotlightScanService:
                     ),
                     "dayChangeAmount": day_change_amount,
                     "dayChangePercent": day_change_percent,
+                    "sinceAddedChangeAmount": since_added_amount,
+                    "sinceAddedChangePercent": since_added_percent,
+                    "sinceAddedBaselineDate": since_added_baseline_date,
                 }
             )
+
+        # Rows past the spark budget (or with no resolvable history) keep null
+        # spark fields — the sinceAdded fields above are never truncated.
+        spark_by_key = self._sparklines_for_requests(spark_requests)
+        for entry in entries:
+            spark = spark_by_key.get(str(entry["id"]))
+            entry["sparkPoints"] = spark[0] if spark else None
+            entry["sparkTrendPct"] = spark[1] if spark else None
 
         return {
             "entries": entries,
@@ -14756,6 +15251,48 @@ class SpotlightScanService:
             "limit": safe_limit,
             "offset": safe_offset,
         }
+
+    def _sparklines_for_requests(
+        self, spark_requests: list[dict[str, Any]]
+    ) -> dict[str, tuple[list[float], float | None]]:
+        """Resolve per-row 30-day mini sparklines for a list page in ONE batched
+        history read (`price_history_rows_for_cards_batched` — two indexed
+        queries per 400 cards), context-resolved with the same request shape the
+        Insights table uses. Returns ``{key: (points oldest->newest, trendPct)}``;
+        rows with fewer than two priced days are omitted (the caller emits null
+        spark fields). Best-effort: any failure yields no sparklines, never a
+        failed list response."""
+        if not spark_requests:
+            return {}
+        try:
+            history_rows_by_key = price_history_rows_for_cards_batched(
+                self.connection,
+                spark_requests,
+                provider=pricing_provider(),
+                days=SINCE_ADDED_SPARK_DAYS,
+            )
+        except Exception:  # noqa: BLE001 - sparklines are decorative
+            traceback.print_exc()
+            return {}
+        result: dict[str, tuple[list[float], float | None]] = {}
+        for key, resolved_rows in history_rows_by_key.items():
+            values: list[float] = []
+            # Resolved rows arrive newest-first; sparklines read oldest->newest.
+            for resolved_row in reversed(resolved_rows):
+                value = self._history_primary_price_value(resolved_row)
+                if value is not None:
+                    values.append(float(value))
+            if len(values) < 2:
+                continue
+            points = self._downsample_sparkline(values, target=SINCE_ADDED_SPARK_POINTS)
+            first_value, last_value = points[0], points[-1]
+            trend_pct = (
+                round((last_value - first_value) / first_value * 100.0, 2)
+                if first_value > 0
+                else None
+            )
+            result[str(key)] = (points, trend_pct)
+        return result
 
     @staticmethod
     def _downsample_sparkline(values: list[float], target: int = 24) -> list[float]:
@@ -15120,7 +15657,7 @@ class SpotlightScanService:
         safe_offset = max(0, int(offset))
         rows = self.connection.execute(
             """
-            SELECT card_id, created_at
+            SELECT card_id, created_at, added_market_price, added_market_date
             FROM card_favorites
             WHERE owner_user_id = ?
             ORDER BY created_at DESC, card_id ASC
@@ -15145,6 +15682,11 @@ class SpotlightScanService:
         owned_summary = self._owned_deck_summary_by_card_id(owner_user_id, card_ids_in_order)
 
         entries: list[dict[str, Any]] = []
+        # 30-day row sparklines: one batched history request per favorite
+        # (budget-capped), resolved in ONE call after the loop. Favorites lists
+        # are small and uncached, so inline compute is fine; the single batched
+        # read keeps it two indexed queries per 400 cards.
+        spark_requests: list[dict[str, Any]] = []
         for row in rows:
             card_id = str(row["card_id"] or "").strip()
             card = cards_by_id_map.get(card_id)
@@ -15200,6 +15742,38 @@ class SpotlightScanService:
                 today_pricing=pricing,
             )
 
+            # "Since you added it" (vs favoritedAt): serve-time arithmetic on the
+            # stored favorite-day baseline vs the price this row just resolved.
+            since_added_amount, since_added_percent, since_added_baseline_date = (
+                self._since_added_change(
+                    baseline_price=row["added_market_price"],
+                    baseline_date=row["added_market_date"],
+                    current_price=self._history_primary_price_value(pricing),
+                )
+            )
+
+            if len(spark_requests) < SINCE_ADDED_SPARK_MAX_CONTEXTS:
+                is_graded_entry = bool(grader or grade)
+                today_variant = (
+                    str(pricing.get("variant") or "").strip() or None
+                    if isinstance(pricing, dict)
+                    else None
+                )
+                spark_requests.append(
+                    {
+                        # Favorites are unique per card for an owner.
+                        "key": card_id,
+                        "card_id": card_id,
+                        "pricing_mode": (
+                            PSA_GRADE_PRICING_MODE if is_graded_entry else RAW_PRICING_MODE
+                        ),
+                        "variant": variant_name or today_variant,
+                        "condition": None if is_graded_entry else condition,
+                        "grader": grader if is_graded_entry else None,
+                        "grade": grade if is_graded_entry else None,
+                    }
+                )
+
             entries.append(
                 {
                     "card": card_payload,
@@ -15212,8 +15786,19 @@ class SpotlightScanService:
                     "variantName": variant_name,
                     "dayChangeAmount": day_change_amount,
                     "dayChangePercent": day_change_percent,
+                    "sinceAddedChangeAmount": since_added_amount,
+                    "sinceAddedChangePercent": since_added_percent,
+                    "sinceAddedBaselineDate": since_added_baseline_date,
                 }
             )
+
+        # Rows past the spark budget (or with no resolvable history) keep null
+        # spark fields — the sinceAdded fields above are never truncated.
+        spark_by_key = self._sparklines_for_requests(spark_requests)
+        for entry in entries:
+            spark = spark_by_key.get(str(entry["card"].get("id") or ""))
+            entry["sparkPoints"] = spark[0] if spark else None
+            entry["sparkTrendPct"] = spark[1] if spark else None
 
         return {"entries": entries, "limit": safe_limit, "offset": safe_offset}
 
@@ -16340,6 +16925,27 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 target=self.service.prewarm_portfolio_dashboards,
                 kwargs={"source": "ops"},
                 name="portfolio-dashboard-prewarm-ops",
+                daemon=True,
+            ).start()
+            self._write_json(HTTPStatus.OK, {"status": "started"})
+            return
+
+        if parsed.path == "/api/v1/ops/backfill-added-baselines":
+            query = parse_qs(parsed.query)
+            expected_token = str(os.environ.get("SPOTLIGHT_OPS_REFRESH_TOKEN") or "").strip()
+            provided_token = query.get("token", [""])[0].strip()
+            if expected_token and provided_token != expected_token:
+                self._write_json(HTTPStatus.UNAUTHORIZED, {"error": "invalid ops token"})
+                return
+            dry_run = query.get("dryRun", ["0"])[0].lower() in {"1", "true", "yes"}
+            # Fire-and-forget (same shape as prewarm-portfolio): the backfill
+            # walks every NULL-baseline row, so the caller gets an immediate ack
+            # instead of blocking on the full pass. One-shot guarded by the
+            # added_baseline_backfilled runtime flag; dryRun writes nothing.
+            threading.Thread(
+                target=self.service.backfill_added_baselines,
+                kwargs={"dry_run": dry_run, "source": "ops"},
+                name="added-baseline-backfill-ops",
                 daemon=True,
             ).start()
             self._write_json(HTTPStatus.OK, {"status": "started"})

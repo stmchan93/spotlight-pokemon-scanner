@@ -416,6 +416,12 @@ def _apply_additive_runtime_migrations(connection: sqlite3.Connection) -> None:
     _add_column_if_missing(connection, "deck_entries", "cost_basis_total", "REAL NOT NULL DEFAULT 0")
     _add_column_if_missing(connection, "deck_entries", "cost_basis_currency_code", "TEXT")
     _add_column_if_missing(connection, "deck_entries", "condition", "TEXT")
+    # "Since you added it" baseline: the market price the app displayed for this
+    # entry's context on the day it was added (uniform baseline; NOT cost basis).
+    # Written only on the INSERT branch of upsert_deck_entry; historical rows are
+    # filled once by /api/v1/ops/backfill-added-baselines.
+    _add_column_if_missing(connection, "deck_entries", "added_market_price", "REAL")
+    _add_column_if_missing(connection, "deck_entries", "added_market_date", "TEXT")
     _add_column_if_missing(connection, "sale_events", "owner_user_id", "TEXT")
     _add_column_if_missing(connection, "sale_events", "cost_basis_total", "REAL")
     _add_column_if_missing(connection, "sale_events", "cost_basis_unit_price", "REAL")
@@ -6982,6 +6988,8 @@ def upsert_deck_entry(
     source_scan_id: str | None = None,
     source_confirmation_id: str | None = None,
     event_kind: str = "add",
+    added_market_price: float | None = None,
+    added_market_date: str | None = None,
 ) -> str:
     normalized_owner_user_id = (
         str(owner_user_id or "").strip()
@@ -7018,9 +7026,10 @@ def upsert_deck_entry(
             INSERT INTO deck_entries (
                 id, owner_user_id, identity_key, item_kind, card_id, grader, grade, cert_number, variant_name,
                 condition, quantity, cost_basis_total, cost_basis_currency_code,
-                added_at, updated_at, source_scan_id, source_confirmation_id
+                added_at, updated_at, source_scan_id, source_confirmation_id,
+                added_market_price, added_market_date
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 deck_entry_id,
@@ -7040,9 +7049,15 @@ def upsert_deck_entry(
                 updated_at or utc_now(),
                 source_scan_id,
                 source_confirmation_id,
+                added_market_price,
+                str(added_market_date or "").strip() or None,
             ),
         )
     else:
+        # NOTE: the UPDATE branch intentionally does NOT touch added_market_price /
+        # added_market_date (nor added_at): re-adding copies of an existing entry
+        # keeps the ORIGINAL "since you added it" baseline — the position was
+        # opened at the first add.
         connection.execute(
             """
             UPDATE deck_entries
