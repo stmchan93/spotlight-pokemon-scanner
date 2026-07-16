@@ -912,18 +912,22 @@ describe('CardDetailScreen', () => {
     );
   }
 
-  it('shows the "Since you added it" position line for an owned entry with a baseline', async () => {
+  it('shows the "since added" position row for an owned entry with a baseline', async () => {
     renderOwnedEntryWithSinceAdded({
       sinceAddedChangeAmount: 142,
       sinceAddedChangePercent: 31,
       sinceAddedBaselineDate: '2026-03-12',
     });
 
-    const line = await screen.findByTestId('detail-since-added');
-    expect(line.props.children).toBe('Since you added it (Mar 12, 2026): ▲ $142.00 (31.00%)');
+    const row = await screen.findByTestId('detail-since-added');
+    expect(screen.getByTestId('detail-since-added-icon')).toBeTruthy();
+    expect(within(row).getByTestId('detail-since-added-amount').props.children)
+      .toBe('$142.00 (31.00%)');
+    expect(within(row).getByTestId('detail-since-added-caption').props.children)
+      .toBe('since added Mar 12');
   });
 
-  it('labels the line "Since we started tracking it" when the baseline postdates the add date (pre-history fallback)', async () => {
+  it('captions the row "since we started tracking it" when the baseline postdates the add date (pre-history fallback)', async () => {
     renderOwnedEntryWithSinceAdded({
       // Entry added before price tracking began: baseline resolves to the
       // earliest tracked price, which is LATER than addedAt.
@@ -933,23 +937,135 @@ describe('CardDetailScreen', () => {
       sinceAddedBaselineDate: '2026-02-01',
     });
 
-    const line = await screen.findByTestId('detail-since-added');
-    expect(line.props.children).toBe('Since we started tracking it (Feb 1, 2026): ▼ $20.50 (3.30%)');
+    const row = await screen.findByTestId('detail-since-added');
+    expect(screen.getByTestId('detail-since-added-icon')).toBeTruthy();
+    expect(within(row).getByTestId('detail-since-added-amount').props.children)
+      .toBe('$20.50 (3.30%)');
+    expect(within(row).getByTestId('detail-since-added-caption').props.children)
+      .toBe('since we started tracking it Feb 1');
   });
 
-  it('renders no position line when the owned entry has no since-added baseline', async () => {
+  it('renders a flat position without a triangle and without sign confusion', async () => {
+    renderOwnedEntryWithSinceAdded({
+      sinceAddedChangeAmount: 0,
+      sinceAddedChangePercent: 0,
+      sinceAddedBaselineDate: '2026-03-12',
+    });
+
+    const row = await screen.findByTestId('detail-since-added');
+    expect(screen.queryByTestId('detail-since-added-icon')).toBeNull();
+    expect(within(row).getByTestId('detail-since-added-amount').props.children)
+      .toBe('$0.00 (0.00%)');
+    expect(within(row).getByTestId('detail-since-added-caption').props.children)
+      .toBe('since added Mar 12');
+  });
+
+  it('renders no position row when the owned entry has no since-added baseline', async () => {
     renderOwnedEntryWithSinceAdded({
       sinceAddedChangeAmount: null,
       sinceAddedChangePercent: null,
       sinceAddedBaselineDate: null,
     });
 
-    // Wait for the screen to settle, then confirm the line never appeared.
+    // Wait for the screen to settle, then confirm the row never appeared.
     expect(await screen.findByTestId('detail-name')).toBeTruthy();
     await waitFor(() => {
       expect(screen.getByTestId('detail-save-edit')).toBeTruthy();
     });
     expect(screen.queryByTestId('detail-since-added')).toBeNull();
+  });
+
+  it('shows the "since wishlisted" position row from favoriteContext for a wishlisted-but-unowned card', async () => {
+    const baseRepository = createTestSpotlightRepository();
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardDetail: async (query) => {
+            const detail = await baseRepository.getCardDetail(query);
+            return detail
+              ? ({
+                  ...detail,
+                  ownedEntries: [],
+                  favoriteContext: {
+                    favoritedAt: '2026-07-02T12:00:00.000Z',
+                    sinceAddedChangeAmount: 12.5,
+                    sinceAddedChangePercent: 4.1,
+                    sinceAddedBaselineDate: '2026-07-02',
+                  },
+                } satisfies CardDetailRecord)
+              : null;
+          },
+        }),
+      },
+    );
+
+    const row = await screen.findByTestId('detail-since-added');
+    expect(screen.getByTestId('detail-since-added-icon')).toBeTruthy();
+    expect(within(row).getByTestId('detail-since-added-amount').props.children)
+      .toBe('$12.50 (4.10%)');
+    expect(within(row).getByTestId('detail-since-added-caption').props.children)
+      .toBe('since wishlisted Jul 2');
+  });
+
+  it('an owned entry beats favoriteContext: only the owned "since added" variant renders', async () => {
+    const baseRepository = createTestSpotlightRepository();
+    const ownedEntry: InventoryCardEntry = {
+      addedAt: '2026-03-12T12:00:00.000Z',
+      cardId: 'sm7-1',
+      cardNumber: '#001/096',
+      conditionCode: 'near_mint',
+      conditionLabel: 'Near Mint',
+      conditionShortLabel: 'NM',
+      costBasisPerUnit: null,
+      costBasisTotal: null,
+      currencyCode: 'USD',
+      hasMarketPrice: true,
+      id: 'raw-treecko',
+      imageUrl: 'https://cdn.spotlight.test/sm7/treecko.png',
+      kind: 'raw',
+      marketPrice: 600,
+      name: 'Treecko',
+      quantity: 1,
+      setName: 'Sky Stream',
+      sinceAddedBaselineDate: '2026-03-12',
+      sinceAddedChangeAmount: 142,
+      sinceAddedChangePercent: 31,
+      slabContext: null,
+      variantName: null,
+    };
+
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" entryId="raw-treecko" onBack={jest.fn()} />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardDetail: async (query) => {
+            const detail = await baseRepository.getCardDetail(query);
+            return detail
+              ? ({
+                  ...detail,
+                  ownedEntries: [ownedEntry],
+                  favoriteContext: {
+                    favoritedAt: '2026-07-02T12:00:00.000Z',
+                    sinceAddedChangeAmount: -5,
+                    sinceAddedChangePercent: -1,
+                    sinceAddedBaselineDate: '2026-07-02',
+                  },
+                } satisfies CardDetailRecord)
+              : null;
+          },
+        }),
+      },
+    );
+
+    // Exactly ONE row, and it is the owned variant — the wishlist context must
+    // not leak in even though the card is also favorited.
+    const row = await screen.findByTestId('detail-since-added');
+    expect(screen.getAllByTestId('detail-since-added')).toHaveLength(1);
+    expect(within(row).getByTestId('detail-since-added-amount').props.children)
+      .toBe('$142.00 (31.00%)');
+    expect(within(row).getByTestId('detail-since-added-caption').props.children)
+      .toBe('since added Mar 12');
   });
 
   function ownedGradedEntry(quantity: number): InventoryCardEntry {

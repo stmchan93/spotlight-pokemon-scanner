@@ -1408,7 +1408,7 @@ class SpotlightScanService:
             return None
         return self.connection.execute(
             """
-            SELECT owner_user_id, card_id, created_at
+            SELECT owner_user_id, card_id, created_at, added_market_price, added_market_date
             FROM card_favorites
             WHERE owner_user_id = ?
               AND card_id = ?
@@ -1449,6 +1449,33 @@ class SpotlightScanService:
             "cardID": card_id,
             "isFavorite": favorite_row is not None,
             "favoritedAt": favorite_row["created_at"] if favorite_row is not None else None,
+        }
+
+    @classmethod
+    def _favorite_context_payload(
+        cls,
+        favorite_row: sqlite3.Row | None,
+        pricing: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        """PDP "since wishlisted" context: the requester's favorite-day baseline
+        vs the detail's already-resolved display pricing. None when the
+        requester has not favorited the card; a NULL stored baseline keeps
+        favoritedAt but yields all-None arithmetic (mirrors the favorites list
+        serializer)."""
+        if favorite_row is None:
+            return None
+        since_added_amount, since_added_percent, since_added_baseline_date = (
+            cls._since_added_change(
+                baseline_price=favorite_row["added_market_price"],
+                baseline_date=favorite_row["added_market_date"],
+                current_price=cls._history_primary_price_value(pricing),
+            )
+        )
+        return {
+            "favoritedAt": favorite_row["created_at"],
+            "sinceAddedChangeAmount": since_added_amount,
+            "sinceAddedChangePercent": since_added_percent,
+            "sinceAddedBaselineDate": since_added_baseline_date,
         }
 
     def _like_row(self, card_id: str, *, owner_user_id: str | None) -> sqlite3.Row | None:
@@ -11451,6 +11478,10 @@ class SpotlightScanService:
             "imageLargeURL": resolved_card["imageURL"],
             "isFavorite": favorite_row is not None,
             "favoritedAt": favorite_row["created_at"] if favorite_row is not None else None,
+            # The requester's wishlist baseline (null when unfavorited) so the
+            # PDP can render "since wishlisted" for cards the viewer does not
+            # own. Same serve-time arithmetic as the favorites list serializer.
+            "favoriteContext": self._favorite_context_payload(favorite_row, pricing),
             "isLiked": like_row is not None,
             "likedAt": like_row["created_at"] if like_row is not None else None,
             "cardText": card_text_from_card(resolved_card),

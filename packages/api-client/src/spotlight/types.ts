@@ -612,6 +612,21 @@ export type CardPricingTrendsPct = {
   days90: number | null;
 };
 
+/**
+ * The requesting user's wishlist baseline for a card on the PDP. Mirrors the
+ * inventory-entry `sinceAdded*` fields but keyed off the favorite ("wishlist")
+ * row instead of an owned entry: `sinceAdded*` arithmetic is null when the
+ * backend captured no baseline price on the favorite day, and
+ * `sinceAddedBaselineDate` may postdate `favoritedAt` when the card predates
+ * price tracking (earliest-tracked fallback).
+ */
+export type CardFavoriteContext = {
+  favoritedAt: string | null;
+  sinceAddedChangeAmount: number | null;
+  sinceAddedChangePercent: number | null;
+  sinceAddedBaselineDate: string | null;
+};
+
 export type CardDetailRecord = {
   cardId: string;
   name: string;
@@ -629,6 +644,13 @@ export type CardDetailRecord = {
   variantOptions: MarketHistoryOption[];
   isFavorite?: boolean;
   favoritedAt?: string | null;
+  /**
+   * The requester's wishlist baseline for this card, or null when they have
+   * not wishlisted it. Drives the PDP "since wishlisted" position line for
+   * cards the user does not own (an OWNED entry's since-added fields always
+   * take precedence).
+   */
+  favoriteContext?: CardFavoriteContext | null;
   /** Whether THIS user has liked the card (the PDP heart). Distinct from the
    *  wishlist (isFavorite). Absent on list/preview payloads. */
   isLiked?: boolean;

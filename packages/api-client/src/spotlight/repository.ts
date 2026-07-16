@@ -27,6 +27,7 @@ import type {
   CardDetailLoadOptions,
   CardDetailQuery,
   CardDetailRecord,
+  CardFavoriteContext,
   CardPopulation,
   TcgPlayerVariantMarketplace,
   CardEbayListingRecord,
@@ -499,12 +500,20 @@ type CardTextDTO = {
   retreatCost?: Array<string | null> | null;
 };
 
+type CardDetailFavoriteContextDTO = {
+  favoritedAt?: string | null;
+  sinceAddedChangeAmount?: number | null;
+  sinceAddedChangePercent?: number | null;
+  sinceAddedBaselineDate?: string | null;
+};
+
 type CardDetailDTO = {
   card: CardCandidateDTO;
   imageSmallURL?: string | null;
   imageLargeURL?: string | null;
   isFavorite?: boolean | null;
   favoritedAt?: string | null;
+  favoriteContext?: CardDetailFavoriteContextDTO | null;
   isLiked?: boolean | null;
   likedAt?: string | null;
   likeCount?: number | null;
@@ -2277,6 +2286,23 @@ function normalizeCardTextTypeValues(value: unknown): CardTextTypeValue[] {
     }
     return [{ type, value: normalizeString((item as { value?: unknown })?.value) ?? '' }];
   });
+}
+
+// Defensive map of the detail's `favoriteContext` (the requester's wishlist
+// baseline). Null when absent/malformed or when the user hasn't wishlisted the
+// card; malformed members inside the object null out individually.
+function buildFavoriteContext(
+  payload: CardDetailFavoriteContextDTO | null | undefined,
+): CardFavoriteContext | null {
+  if (payload == null || typeof payload !== 'object') {
+    return null;
+  }
+  return {
+    favoritedAt: normalizeString(payload.favoritedAt),
+    sinceAddedChangeAmount: normalizeNumber(payload.sinceAddedChangeAmount),
+    sinceAddedChangePercent: normalizeNumber(payload.sinceAddedChangePercent),
+    sinceAddedBaselineDate: normalizeString(payload.sinceAddedBaselineDate),
+  };
 }
 
 function buildCardText(payload: CardTextDTO | null | undefined): CardText | null {
@@ -4479,6 +4505,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       variantOptions: marketHistory.availableVariants,
       isFavorite: normalizeBoolean(detailResponse.data.isFavorite) ?? card.isFavorite,
       favoritedAt: normalizeString(detailResponse.data.favoritedAt),
+      favoriteContext: buildFavoriteContext(detailResponse.data.favoriteContext),
       isLiked: normalizeBoolean(detailResponse.data.isLiked) ?? false,
       likedAt: normalizeString(detailResponse.data.likedAt),
       likeCount: normalizeInteger(detailResponse.data.likeCount),

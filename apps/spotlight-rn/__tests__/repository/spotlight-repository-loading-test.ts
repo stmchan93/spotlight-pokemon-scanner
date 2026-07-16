@@ -140,6 +140,89 @@ describe('HttpSpotlightRepository', () => {
     expect(detail?.largeImageUrl).toBeNull();
   });
 
+  function cardDetailFetchMock(detailExtras: Record<string, unknown>) {
+    return jest.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/api/v1/cards/sm7-1/market-history')) {
+        return jsonResponse(200, {
+          currencyCode: 'USD',
+          currentPrice: 0.31,
+          points: [],
+          availableVariants: [],
+          availableConditions: [],
+        });
+      }
+
+      if (url.includes('/api/v1/cards/sm7-1')) {
+        return jsonResponse(200, {
+          card: {
+            id: 'sm7-1',
+            name: 'Treecko',
+            setName: 'Celestial Storm',
+            number: '1',
+            pricing: { currencyCode: 'usd', market: 0.31 },
+          },
+          ...detailExtras,
+        });
+      }
+
+      if (url.includes('/api/v1/deck/entries')) {
+        return jsonResponse(200, { entries: [] });
+      }
+
+      throw new Error(`Unexpected URL: ${url}`);
+    }) as typeof fetch;
+  }
+
+  it('maps the card-detail favoriteContext (the requester wishlist baseline)', async () => {
+    global.fetch = cardDetailFetchMock({
+      isFavorite: true,
+      favoritedAt: '2026-07-02T12:00:00Z',
+      favoriteContext: {
+        favoritedAt: '2026-07-02T12:00:00Z',
+        sinceAddedChangeAmount: 12.5,
+        sinceAddedChangePercent: 4.1,
+        sinceAddedBaselineDate: '2026-07-02',
+      },
+    });
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    const detail = await repository.getCardDetail({ cardId: 'sm7-1' });
+
+    expect(detail?.favoriteContext).toEqual({
+      favoritedAt: '2026-07-02T12:00:00Z',
+      sinceAddedChangeAmount: 12.5,
+      sinceAddedChangePercent: 4.1,
+      sinceAddedBaselineDate: '2026-07-02',
+    });
+  });
+
+  it('nulls favoriteContext when absent and nulls malformed members inside it', async () => {
+    // Absent (unfavorited card / older backend): the whole context is null.
+    global.fetch = cardDetailFetchMock({});
+    let repository = new HttpSpotlightRepository('http://example.test');
+    let detail = await repository.getCardDetail({ cardId: 'sm7-1' });
+    expect(detail?.favoriteContext).toBeNull();
+
+    // Favorited while unpriced: favoritedAt survives, arithmetic nulls pass
+    // through, and malformed members null out individually.
+    global.fetch = cardDetailFetchMock({
+      favoriteContext: {
+        favoritedAt: '2026-07-02T12:00:00Z',
+        sinceAddedChangeAmount: 'oops',
+        sinceAddedChangePercent: null,
+        sinceAddedBaselineDate: 42,
+      },
+    });
+    repository = new HttpSpotlightRepository('http://example.test');
+    detail = await repository.getCardDetail({ cardId: 'sm7-1' });
+    expect(detail?.favoriteContext).toEqual({
+      favoritedAt: '2026-07-02T12:00:00Z',
+      sinceAddedChangeAmount: null,
+      sinceAddedChangePercent: null,
+      sinceAddedBaselineDate: null,
+    });
+  });
+
   it('skips the full-collection fetch on the detail critical path when owned entries are opted out', async () => {
     const fetchedUrls: string[] = [];
     global.fetch = jest.fn().mockImplementation(async (url: string) => {

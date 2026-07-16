@@ -302,6 +302,67 @@ class SinceAddedBaselineTests(unittest.TestCase):
         self.assertIsNone(unpriced["sparkPoints"])
         self.assertIsNone(unpriced["sparkTrendPct"])
 
+    # --- PDP favoriteContext ---------------------------------------------------
+
+    def test_card_detail_emits_favorite_context_with_arithmetic(self) -> None:
+        self._insert_card("pdpfav-1")
+        self._seed_snapshot("pdpfav-1", market=10.0)
+        with self.service.request_identity_context(self._identity("user-a")):
+            self.service.set_card_favorite("pdpfav-1", is_favorite=True)
+        # Price rises after the favorite; the PDP must report +5.0 / +50%.
+        self._seed_snapshot("pdpfav-1", market=15.0)
+
+        with self.service.request_identity_context(self._identity("user-a")):
+            detail = self.service.card_detail("pdpfav-1")
+
+        context = detail["favoriteContext"]
+        self.assertIsNotNone(context)
+        self.assertIsNotNone(context["favoritedAt"])
+        self.assertEqual(context["favoritedAt"], detail["favoritedAt"])
+        self.assertEqual(context["sinceAddedChangeAmount"], 5.0)
+        self.assertEqual(context["sinceAddedChangePercent"], 50.0)
+        self.assertEqual(context["sinceAddedBaselineDate"], _today_iso())
+
+    def test_card_detail_favorite_context_null_when_unfavorited(self) -> None:
+        self._insert_card("pdpfav-2")
+        self._seed_snapshot("pdpfav-2", market=10.0)
+
+        with self.service.request_identity_context(self._identity("user-a")):
+            detail = self.service.card_detail("pdpfav-2")
+
+        self.assertIsNone(detail["favoriteContext"])
+
+    def test_card_detail_favorite_context_null_baseline_keeps_favorited_at(self) -> None:
+        self._insert_card("pdpfav-3")
+        # Favorited while UNPRICED: baseline columns stay NULL, so the context
+        # carries favoritedAt but no arithmetic.
+        with self.service.request_identity_context(self._identity("user-a")):
+            self.service.set_card_favorite("pdpfav-3", is_favorite=True)
+        self._seed_snapshot("pdpfav-3", market=15.0)
+
+        with self.service.request_identity_context(self._identity("user-a")):
+            detail = self.service.card_detail("pdpfav-3")
+
+        context = detail["favoriteContext"]
+        self.assertIsNotNone(context)
+        self.assertIsNotNone(context["favoritedAt"])
+        self.assertIsNone(context["sinceAddedChangeAmount"])
+        self.assertIsNone(context["sinceAddedChangePercent"])
+        self.assertIsNone(context["sinceAddedBaselineDate"])
+
+    def test_card_detail_favorite_context_isolated_per_owner(self) -> None:
+        self._insert_card("pdpfav-4")
+        self._seed_snapshot("pdpfav-4", market=10.0)
+        with self.service.request_identity_context(self._identity("user-b")):
+            self.service.set_card_favorite("pdpfav-4", is_favorite=True)
+
+        # User B's favorite must NOT leak into user A's detail.
+        with self.service.request_identity_context(self._identity("user-a")):
+            detail = self.service.card_detail("pdpfav-4")
+
+        self.assertIsNone(detail["favoriteContext"])
+        self.assertFalse(detail["isFavorite"])
+
     # --- One-time ops backfill ----------------------------------------------
 
     def test_backfill_resolves_nearest_on_or_before_add_date(self) -> None:

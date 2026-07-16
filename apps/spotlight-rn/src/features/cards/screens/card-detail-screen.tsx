@@ -28,8 +28,8 @@ import {
   type MarketHistoryOption,
   type SlabContext,
 } from '@spotlight/api-client';
-import { Button, IconButton, colors, useSpotlightTheme } from '@spotlight/design-system';
-import { NavArrowLeft, ShareIos, Trash } from 'iconoir-react-native';
+import { Button, IconButton, colors, fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
+import { NavArrowLeft, ShareIos, Trash, Triangle } from 'iconoir-react-native';
 
 import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { AddToCollectionSheet } from '@/features/cards/components/add-to-collection-sheet';
@@ -103,6 +103,22 @@ function formatReleaseDate(value?: string | null): string | null {
   }
   const yearMatch = raw.match(/\b(\d{4})\b/);
   return yearMatch ? yearMatch[1] : raw;
+}
+
+// Short baseline-date label for the position caption ("since added Mar 12") —
+// month + day only, per the approved copy. Built from local Y/M/D parts to
+// avoid a UTC off-by-one; null when the value isn't a parseable Y-M-D date.
+function formatShortMonthDay(value?: string | null): string | null {
+  const raw = (value ?? '').trim();
+  const ymd = raw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (!ymd) {
+    return null;
+  }
+  const date = new Date(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]));
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 // Numeric grade scale shared by PSA/BGS/CGC slab grading lanes.
@@ -882,32 +898,61 @@ export function CardDetailScreen({
     .filter(Boolean)
     .join(' · ');
 
-  // "Since you added it (Mar 12, 2026): ▲ $142.00 (31.00%)" — the owned
-  // entry's position line (Robinhood-style total return since the add-date
-  // market baseline). Owned entries only for v1; renders nothing when the
-  // backend resolved no baseline. When the baseline date is LATER than the
-  // entry's add date the entry predates price tracking (earliest-tracked
-  // fallback), so the label switches to "Since we started tracking it".
-  const sinceAddedLine = (() => {
-    const amount = selectedEntry?.sinceAddedChangeAmount;
-    const baselineDate = selectedEntry?.sinceAddedBaselineDate;
-    if (selectedEntry == null || amount == null || baselineDate == null) {
+  // "▲ $142.00 (31.00%) since added Mar 12" — the position line under the
+  // identity meta (Robinhood-style total return since the baseline captured
+  // the day the position opened). Exactly ONE line ever renders, with a strict
+  // precedence: an OWNED entry's since-added baseline always wins; a
+  // wishlisted-but-unowned card falls back to the detail's favoriteContext
+  // ("since wishlisted"); neither → nothing. When the baseline date is LATER
+  // than the add/wishlist date the position predates price tracking
+  // (earliest-tracked fallback), so the caption switches to the honest
+  // "since we started tracking it". A flat position still renders on the PDP
+  // (unlike list rows) — gray, no triangle, no sign.
+  const sinceAddedDisplay = (() => {
+    const source = selectedEntry != null
+      ? {
+          amount: selectedEntry.sinceAddedChangeAmount,
+          percent: selectedEntry.sinceAddedChangePercent,
+          baselineDate: selectedEntry.sinceAddedBaselineDate,
+          openedDate: selectedEntry.addedAt,
+          currencyCode: selectedEntry.currencyCode ?? 'USD',
+          label: 'since added',
+        }
+      : detail?.favoriteContext != null
+        ? {
+            amount: detail.favoriteContext.sinceAddedChangeAmount,
+            percent: detail.favoriteContext.sinceAddedChangePercent,
+            baselineDate: detail.favoriteContext.sinceAddedBaselineDate,
+            openedDate: detail.favoriteContext.favoritedAt,
+            currencyCode: detail.currencyCode ?? 'USD',
+            label: 'since wishlisted',
+          }
+        : null;
+    if (source == null || source.amount == null || source.baselineDate == null) {
       return null;
     }
-    const dateLabel = formatReleaseDate(baselineDate);
+    const dateLabel = formatShortMonthDay(source.baselineDate);
     if (!dateLabel) {
       return null;
     }
-    const addedDate = (selectedEntry.addedAt ?? '').slice(0, 10);
-    const baselineIsLater = addedDate.length === 10 && baselineDate.slice(0, 10) > addedDate;
-    const label = baselineIsLater ? 'Since we started tracking it' : 'Since you added it';
-    const percent = selectedEntry.sinceAddedChangePercent;
-    const percentSuffix = percent != null ? ` (${Math.abs(percent).toFixed(2)}%)` : '';
-    const isDown = amount < 0;
-    const amountLabel = formatCurrency(Math.abs(amount), selectedEntry.currencyCode ?? 'USD');
+    const openedDate = (source.openedDate ?? '').slice(0, 10);
+    const baselineIsLater =
+      openedDate.length === 10 && source.baselineDate.slice(0, 10) > openedDate;
+    const label = baselineIsLater ? 'since we started tracking it' : source.label;
+    const percentSuffix =
+      source.percent != null ? ` (${Math.abs(source.percent).toFixed(2)}%)` : '';
+    const direction: 'up' | 'down' | 'flat' =
+      source.amount > 0 ? 'up' : source.amount < 0 ? 'down' : 'flat';
     return {
-      text: `${label} (${dateLabel}): ${isDown ? '▼' : '▲'} ${amountLabel}${percentSuffix}`,
-      color: isDown ? colors.red400 : colors.green400,
+      direction,
+      amountLabel: `${formatCurrency(Math.abs(source.amount), source.currencyCode)}${percentSuffix}`,
+      caption: `${label} ${dateLabel}`,
+      color:
+        direction === 'flat'
+          ? colors.gray600
+          : direction === 'down'
+            ? colors.red400
+            : colors.green400,
     };
   })();
 
@@ -1666,13 +1711,34 @@ export function CardDetailScreen({
                 {identityDetailLine}
               </Text>
             ) : null}
-            {sinceAddedLine ? (
-              <Text
-                style={[theme.typography.bodyMedium, { color: sinceAddedLine.color }]}
-                testID="detail-since-added"
-              >
-                {sinceAddedLine.text}
-              </Text>
+            {sinceAddedDisplay ? (
+              <View style={styles.sinceAddedRow} testID="detail-since-added">
+                {sinceAddedDisplay.direction !== 'flat' ? (
+                  <Triangle
+                    color={sinceAddedDisplay.color}
+                    height={10}
+                    style={
+                      sinceAddedDisplay.direction === 'down'
+                        ? styles.sinceAddedIconDown
+                        : undefined
+                    }
+                    testID="detail-since-added-icon"
+                    width={10}
+                  />
+                ) : null}
+                <Text
+                  style={[styles.sinceAddedAmount, { color: sinceAddedDisplay.color }]}
+                  testID="detail-since-added-amount"
+                >
+                  {sinceAddedDisplay.amountLabel}
+                </Text>
+                <Text
+                  style={theme.typography.captionMedium}
+                  testID="detail-since-added-caption"
+                >
+                  {sinceAddedDisplay.caption}
+                </Text>
+              </View>
             ) : null}
           </View>
           {/* Wishlist social-proof counter (heart + count, max 9999+). */}
@@ -2028,6 +2094,22 @@ const styles = StyleSheet.create({
   },
   scroll: {
     flex: 1,
+  },
+  // Position line: 14 SemiBold change amount matching the portfolio header's
+  // delta row treatment.
+  sinceAddedAmount: {
+    fontFamily: fontFamilies.bodySemiBold,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  sinceAddedIconDown: {
+    transform: [{ rotate: '180deg' }],
+  },
+  sinceAddedRow: {
+    alignItems: 'center',
+    columnGap: 5,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
   },
   trendBlock: {
     gap: 10,
