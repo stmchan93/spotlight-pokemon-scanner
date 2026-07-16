@@ -561,7 +561,7 @@ export function ScannerScreen({
   const router = useRouter();
   // Guest gating: capture stays open, but tray/collection/wishlist/eBay/etc.
   // actions route guests to the login modal instead of running.
-  const { gate, isGuest } = useGuestGate();
+  const { gate, isGuest, openLogin } = useGuestGate();
   const {
     dataVersion,
     refreshData,
@@ -2997,7 +2997,17 @@ export function ScannerScreen({
       <AddAllMenu
         anchor={rowMenuAnchor}
         onClose={() => setRowMenuCaptureId(null)}
-        onSelect={gate(handleRowMenuSelect)}
+        onSelect={(action) => {
+          // Guests: dismiss the dropdown first, THEN open login. (Can't use the
+          // plain gate() wrapper here — the menu-close lives inside
+          // handleRowMenuSelect, which gate would skip, leaving the dropdown up.)
+          if (isGuest) {
+            setRowMenuCaptureId(null);
+            openLogin();
+            return;
+          }
+          handleRowMenuSelect(action);
+        }}
         testID="scanner-row-add-menu"
         visible={rowMenuCaptureId != null}
       />
