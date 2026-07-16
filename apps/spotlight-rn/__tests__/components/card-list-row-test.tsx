@@ -57,10 +57,19 @@ describe('CardListRow', () => {
     expect(screen.queryByTestId('row-trend')).toBeNull();
   });
 
-  it('hides the trend line when trendChangePercent is 0 (card added today)', () => {
+  it('renders a quiet gray 0.00% when trendChangePercent is exactly 0 (tracked but flat)', () => {
     renderRow({ trendChangePercent: 0 });
 
-    expect(screen.queryByTestId('row-trend')).toBeNull();
+    const label = screen.getByText('0.00%');
+    const flat = (Array.isArray(label.props.style)
+      ? label.props.style.flat(Infinity)
+      : [label.props.style]
+    ).filter(Boolean);
+    const colors = flat
+      .map((s: { color?: string } | null | undefined) => s && s.color)
+      .filter(Boolean);
+    // gray600 — flat is information, not direction
+    expect(colors).toContain('#717171');
   });
 
   it('renders a signed green percent under the price when positive', () => {

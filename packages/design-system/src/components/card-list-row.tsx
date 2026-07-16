@@ -25,8 +25,8 @@ export type CardListRowProps = {
   /**
    * Signed percent rendered directly under the price, Robinhood-style
    * (`+2.26%` green / `-2.26%` red). Callers pass the since-added change
-   * percent. Hidden when null/non-finite/exactly 0 (a card added today is 0%
-   * by construction — noise, not signal).
+   * percent. Exactly 0 renders as gray `0.00%` ("tracked but flat" — e.g. a
+   * card added since the last price sync); null/non-finite hides the line.
    */
   trendChangePercent?: number | null;
   /**
@@ -148,13 +148,19 @@ export function CardListRow({
   const hasPrice = marketPrice !== null && Number.isFinite(marketPrice);
   // Signed percent under the price (Robinhood-style): "+2.26%" green /
   // "-2.26%" red, two decimals; the sign carries the direction (no arrow).
-  // Hidden when absent/non-finite/exactly 0.
+  // Exactly 0 renders as a quiet gray "0.00%" — "tracked but flat" (e.g. a
+  // card added since the last price sync) must read differently from "no
+  // data" (null → hidden entirely).
   const trendPercent = typeof trendChangePercent === 'number' && Number.isFinite(trendChangePercent)
     ? trendChangePercent
     : null;
-  const showTrend = trendPercent !== null && trendPercent !== 0;
-  const trendIsDown = (trendPercent ?? 0) < 0;
-  const trendColor = trendIsDown ? theme.colors.red400 : theme.colors.green400;
+  const showTrend = trendPercent !== null;
+  const trendColor =
+    trendPercent !== null && trendPercent !== 0
+      ? trendPercent < 0
+        ? theme.colors.red400
+        : theme.colors.green400
+      : theme.colors.gray600;
   const trendLabel = trendPercent !== null
     ? `${trendPercent > 0 ? '+' : ''}${trendPercent.toFixed(2)}%`
     : '';

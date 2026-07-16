@@ -923,8 +923,7 @@ describe('CardDetailScreen', () => {
     expect(screen.getByTestId('detail-since-added-icon')).toBeTruthy();
     expect(within(row).getByTestId('detail-since-added-amount').props.children)
       .toBe('$142.00 (31.00%)');
-    expect(within(row).getByTestId('detail-since-added-caption').props.children)
-      .toBe('since added Mar 12');
+    expect(within(row).queryByTestId('detail-since-added-caption')).toBeNull();
   });
 
   it('captions the row "since we started tracking it" when the baseline postdates the add date (pre-history fallback)', async () => {
@@ -941,8 +940,7 @@ describe('CardDetailScreen', () => {
     expect(screen.getByTestId('detail-since-added-icon')).toBeTruthy();
     expect(within(row).getByTestId('detail-since-added-amount').props.children)
       .toBe('$20.50 (3.30%)');
-    expect(within(row).getByTestId('detail-since-added-caption').props.children)
-      .toBe('since we started tracking it Feb 1');
+    expect(within(row).queryByTestId('detail-since-added-caption')).toBeNull();
   });
 
   it('renders a flat position without a triangle and without sign confusion', async () => {
@@ -956,8 +954,7 @@ describe('CardDetailScreen', () => {
     expect(screen.queryByTestId('detail-since-added-icon')).toBeNull();
     expect(within(row).getByTestId('detail-since-added-amount').props.children)
       .toBe('$0.00 (0.00%)');
-    expect(within(row).getByTestId('detail-since-added-caption').props.children)
-      .toBe('since added Mar 12');
+    expect(within(row).queryByTestId('detail-since-added-caption')).toBeNull();
   });
 
   it('renders no position row when the owned entry has no since-added baseline', async () => {
@@ -1004,8 +1001,7 @@ describe('CardDetailScreen', () => {
     expect(screen.getByTestId('detail-since-added-icon')).toBeTruthy();
     expect(within(row).getByTestId('detail-since-added-amount').props.children)
       .toBe('$12.50 (4.10%)');
-    expect(within(row).getByTestId('detail-since-added-caption').props.children)
-      .toBe('since wishlisted Jul 2');
+    expect(within(row).queryByTestId('detail-since-added-caption')).toBeNull();
   });
 
   it('an owned entry beats favoriteContext: only the owned "since added" variant renders', async () => {
@@ -1064,8 +1060,7 @@ describe('CardDetailScreen', () => {
     expect(screen.getAllByTestId('detail-since-added')).toHaveLength(1);
     expect(within(row).getByTestId('detail-since-added-amount').props.children)
       .toBe('$142.00 (31.00%)');
-    expect(within(row).getByTestId('detail-since-added-caption').props.children)
-      .toBe('since added Mar 12');
+    expect(within(row).queryByTestId('detail-since-added-caption')).toBeNull();
   });
 
   function ownedGradedEntry(quantity: number): InventoryCardEntry {
