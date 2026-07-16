@@ -164,3 +164,35 @@ def test_cells_guard_inert_without_enough_peers():
     day = [_cell("PSA", "10", 198.38), _cell("BGS", "10", 4401.53)]
     chosen = resolve_graded_entry_from_cells(day, grader="PSA", grade="10", variant=None)
     assert chosen is not None and chosen["market"] == 198.38
+
+
+def test_variantless_default_prefers_base_printing_over_exotic():
+    # Suicune me2-26 regression (2026-07-16): a variantless PSA-10 slab resolved
+    # to "Gamestop Stamp" $589 over "Holofoil" $106.97 because the old ranking
+    # fell through to alphabetical label order. Base printings must win.
+    day = [
+        _cell("PSA", "10", 589.0, variant="gamestopStamp"),
+        _cell("PSA", "10", 106.97, variant="holofoil"),
+        _cell("PSA", "10", 125.0, variant="reverseHolofoil"),
+    ]
+    chosen = resolve_graded_entry_from_cells(day, grader="PSA", grade="10", variant=None)
+    assert chosen is not None and chosen["market"] == 106.97
+
+
+def test_variantless_default_prefers_normal_over_holofoil():
+    day = [
+        _cell("PSA", "10", 50.0, variant="holofoil"),
+        _cell("PSA", "10", 20.0, variant="normal"),
+    ]
+    chosen = resolve_graded_entry_from_cells(day, grader="PSA", grade="10", variant=None)
+    assert chosen is not None and chosen["market"] == 20.0
+
+
+def test_requested_exotic_variant_still_resolves_exactly():
+    # An entry that genuinely IS the Gamestop Stamp printing keeps its price.
+    day = [
+        _cell("PSA", "10", 589.0, variant="gamestopStamp"),
+        _cell("PSA", "10", 106.97, variant="holofoil"),
+    ]
+    chosen = resolve_graded_entry_from_cells(day, grader="PSA", grade="10", variant="Gamestop Stamp")
+    assert chosen is not None and chosen["market"] == 589.0

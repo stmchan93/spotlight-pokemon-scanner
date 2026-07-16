@@ -2001,7 +2001,25 @@ def _default_raw_field_values(raw_contexts: dict[str, Any]) -> dict[str, Any]:
 _NOVELTY_VARIANT_TOKENS = (
     "first edition", "1st edition", "1st ed", "shadowless",
     "metal", "jumbo", "promo", "staff", "prerelease", "pre-release",
+    "stamp",
 )
+
+# Base printings a variantless graded entry should default to, in preference
+# order. Anything else (store stamps, novelty prints…) ranks after ALL of
+# these — a denylist alone can't keep up with exotic variant names, and the
+# alphabetical tiebreak then picks them (a variantless PSA-10 Suicune me2-26
+# resolved to "Gamestop Stamp" $589 instead of "Holofoil" $106.97,
+# 2026-07-16).
+_BASE_VARIANT_RANK = {
+    "normal": 0,
+    "holofoil": 1,
+    "reverse holofoil": 2,
+    "unlimited": 3,
+}
+
+
+def _graded_variant_base_rank(label: str) -> int:
+    return _BASE_VARIANT_RANK.get(str(label or "").strip().lower(), len(_BASE_VARIANT_RANK))
 
 
 def _graded_variant_demerit(label: str) -> int:
@@ -2038,9 +2056,18 @@ def _pick_graded_item(items, *, variant, get_variant, get_market, is_special):
     if requested and requested in by_variant:
         group = by_variant[requested]
     else:
+        # Base printings first (Normal > Holofoil > Reverse Holofoil >
+        # Unlimited), then non-novelty exotics, then novelty; record count and
+        # label only break remaining ties. Alphabetical must never outrank a
+        # base printing.
         best_label = min(
             by_variant,
-            key=lambda label: (_graded_variant_demerit(label), -len(by_variant[label]), label),
+            key=lambda label: (
+                _graded_variant_base_rank(label),
+                _graded_variant_demerit(label),
+                -len(by_variant[label]),
+                label,
+            ),
         )
         group = by_variant[best_label]
     return _median_market_item(group, get_market)
