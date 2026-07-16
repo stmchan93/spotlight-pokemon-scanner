@@ -27,6 +27,9 @@ export type CardListRowProps = {
    * (`+2.26%` green / `-2.26%` red). Callers pass the since-added change
    * percent. Exactly 0 renders as gray `0.00%` ("tracked but flat" — e.g. a
    * card added since the last price sync); null/non-finite hides the line.
+   * Penny guard: when `marketPrice` is < $1 the line is suppressed entirely —
+   * a −50% on a $0.04 card is technically true but misleads (pennies aren't
+   * investment content).
    */
   trendChangePercent?: number | null;
   /**
@@ -154,7 +157,10 @@ export function CardListRow({
   const trendPercent = typeof trendChangePercent === 'number' && Number.isFinite(trendChangePercent)
     ? trendChangePercent
     : null;
-  const showTrend = trendPercent !== null;
+  // Penny guard: sub-$1 cards render no percent at all — a −50% on $0.04 is
+  // technically true but misleads (pennies aren't investment content).
+  const isPennyPrice = marketPrice !== null && marketPrice < 1;
+  const showTrend = trendPercent !== null && !isPennyPrice;
   const trendColor =
     trendPercent !== null && trendPercent !== 0
       ? trendPercent < 0

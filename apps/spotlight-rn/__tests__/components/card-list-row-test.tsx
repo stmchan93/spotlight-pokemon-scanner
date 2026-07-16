@@ -72,6 +72,23 @@ describe('CardListRow', () => {
     expect(colors).toContain('#717171');
   });
 
+  it('suppresses the trend line entirely for penny cards (marketPrice < $1)', () => {
+    renderRow({ marketPrice: 0.04, trendChangePercent: -50 });
+
+    // A −50% on $0.04 is technically true but misleads — render nothing.
+    expect(screen.queryByTestId('row-trend')).toBeNull();
+    expect(screen.queryByText('-50.00%')).toBeNull();
+    // The price itself still renders.
+    expect(screen.getByText('$0.04')).toBeTruthy();
+  });
+
+  it('keeps the trend when marketPrice is exactly $1 (guard is strictly < 1)', () => {
+    renderRow({ marketPrice: 1, trendChangePercent: 2.26 });
+
+    expect(screen.getByTestId('row-trend')).toBeTruthy();
+    expect(screen.getByText('+2.26%')).toBeTruthy();
+  });
+
   it('renders a signed green percent under the price when positive', () => {
     renderRow({ trendChangePercent: 2.26 });
 
