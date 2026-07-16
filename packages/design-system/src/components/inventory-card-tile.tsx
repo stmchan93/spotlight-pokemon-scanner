@@ -1,4 +1,4 @@
-import { ArrowUpRightSquare, BoxIso, Star, StarSolid, Triangle } from 'iconoir-react-native';
+import { ArrowUpRightSquare, BoxIso, Star, StarSolid } from 'iconoir-react-native';
 import { useState } from 'react';
 import {
   Image,
@@ -19,6 +19,7 @@ import { useSpotlightTheme } from '../theme';
 import { fontFamilies } from '../tokens';
 import { AppText } from './app-text';
 import { SelectionCheckCircle } from './selection-check-circle';
+import { TrendTriangle } from './trend-triangle';
 import { SlabFrame } from './slab-frame';
 
 export type InventoryCardTileKind = 'raw' | 'slab';
@@ -369,19 +370,16 @@ export function InventoryCardTile({
                   {/* Same outlined-triangle glyph as the balance header and
                       PDP position line — one arrow language app-wide. */}
                   {trendPercent !== null && trendPercent > 0 ? (
-                    <Triangle
+                    <TrendTriangle
                       color={trendColor}
-                      height={10}
+                      direction="up"
                       testID={testID ? `${testID}-trend-arrow-up` : undefined}
-                      width={10}
                     />
                   ) : trendPercent !== null && trendPercent < 0 ? (
-                    <Triangle
+                    <TrendTriangle
                       color={trendColor}
-                      height={10}
-                      style={styles.trendIconDown}
+                      direction="down"
                       testID={testID ? `${testID}-trend-arrow-down` : undefined}
-                      width={10}
                     />
                   ) : null}
                   <AppText
@@ -570,10 +568,6 @@ const styles = StyleSheet.create({
   priceStack: {
     alignItems: 'flex-start',
     flexShrink: 1,
-  },
-  // Same 180° flip the balance header / PDP use for the down state.
-  trendIconDown: {
-    transform: [{ rotate: '180deg' }],
   },
   trendGroup: {
     alignItems: 'center',

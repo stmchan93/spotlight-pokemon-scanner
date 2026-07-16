@@ -28,8 +28,8 @@ import {
   type MarketHistoryOption,
   type SlabContext,
 } from '@spotlight/api-client';
-import { Button, IconButton, colors, fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
-import { NavArrowLeft, ShareIos, Trash, Triangle } from 'iconoir-react-native';
+import { Button, IconButton, TrendTriangle, colors, fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
+import { NavArrowLeft, ShareIos, Trash } from 'iconoir-react-native';
 
 import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { AddToCollectionSheet } from '@/features/cards/components/add-to-collection-sheet';
@@ -1714,16 +1714,10 @@ export function CardDetailScreen({
             {sinceAddedDisplay ? (
               <View style={styles.sinceAddedRow} testID="detail-since-added">
                 {sinceAddedDisplay.direction !== 'flat' ? (
-                  <Triangle
+                  <TrendTriangle
                     color={sinceAddedDisplay.color}
-                    height={10}
-                    style={
-                      sinceAddedDisplay.direction === 'down'
-                        ? styles.sinceAddedIconDown
-                        : undefined
-                    }
+                    direction={sinceAddedDisplay.direction}
                     testID="detail-since-added-icon"
-                    width={10}
                   />
                 ) : null}
                 <Text
@@ -2101,9 +2095,6 @@ const styles = StyleSheet.create({
     fontFamily: fontFamilies.bodySemiBold,
     fontSize: 14,
     lineHeight: 21,
-  },
-  sinceAddedIconDown: {
-    transform: [{ rotate: '180deg' }],
   },
   sinceAddedRow: {
     alignItems: 'center',
