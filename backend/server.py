@@ -100,6 +100,8 @@ from catalog_tools import (
     score_raw_candidate_retrieval,
     score_raw_signals,
     _MANUAL_SEARCH_POOL_CEILING,
+    RARITY_BUCKET_KEYS,
+    rarity_bucket,
     search_cards,
     search_cards_local,
     search_cards_local_collector_only,
@@ -8570,7 +8572,14 @@ class SpotlightScanService:
             "items": items,
         }
 
-    def search(self, query: str, *, limit: int = 20, offset: int = 0) -> dict[str, Any]:
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int = 20,
+        offset: int = 0,
+        rarity_bucket_filter: str | None = None,
+    ) -> dict[str, Any]:
         offset = max(0, int(offset or 0))
         # Fetch one extra past the page to detect whether more results exist
         # (hasMore) without a second query. pool_ceiling switches search_cards
@@ -8582,6 +8591,7 @@ class SpotlightScanService:
             limit=limit + 1,
             offset=offset,
             pool_ceiling=_MANUAL_SEARCH_POOL_CEILING,
+            rarity_bucket_filter=rarity_bucket_filter,
         )
         has_more = len(raw) > limit
         results = raw[:limit]
@@ -9908,6 +9918,7 @@ class SpotlightScanService:
             "setName": str(resolved_card.get("setName") or original_card.get("setName") or ""),
             "number": str(resolved_card.get("number") or original_card.get("number") or ""),
             "rarity": str(resolved_card.get("rarity") or original_card.get("rarity") or "Unknown"),
+            "rarityBucket": rarity_bucket(resolved_card.get("rarity") or original_card.get("rarity")),
             "variant": str(resolved_card.get("variant") or original_card.get("variant") or "Raw"),
             "language": str(resolved_card.get("language") or original_card.get("language") or "English"),
             "imageSmallURL": resolved_card.get("imageSmallURL") or original_card.get("imageSmallURL"),
@@ -16765,7 +16776,22 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": "offset must be an integer"})
                 return
-            self._write_json(HTTPStatus.OK, self.service.search(query, limit=limit, offset=offset))
+            # Optional rarity-bucket filter; invalid values are ignored
+            # (additive param — old clients never send it).
+            rarity_bucket_param: str | None = (
+                query_params.get("rarityBucket", [""])[0].strip().lower() or None
+            )
+            if rarity_bucket_param not in RARITY_BUCKET_KEYS:
+                rarity_bucket_param = None
+            self._write_json(
+                HTTPStatus.OK,
+                self.service.search(
+                    query,
+                    limit=limit,
+                    offset=offset,
+                    rarity_bucket_filter=rarity_bucket_param,
+                ),
+            )
             return
 
         if parsed.path == "/api/v1/expansions":

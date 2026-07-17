@@ -1611,6 +1611,121 @@ _RAW_CONDITION_CODE_ALIASES = {
 }
 
 
+# Rarity buckets: coarse server-side grouping of the raw catalog rarity label
+# ("Special Illustration Rare", "Rare Holo GX", …) into a small stable key set
+# the app can filter by. Exact-match first (keys are the lowercased raw rarity
+# labels observed in the live catalog DB), then an ordered substring fallback,
+# else "other". This is the ONLY place buckets are computed.
+RARITY_BUCKET_KEYS = ("sir", "illustration", "ultra", "secret", "shiny", "promo", "standard", "other")
+
+_RARITY_BUCKETS: dict[str, str] = {
+    # sir — special illustration rares (EN) / special art rares (JP) / PSA 2-star style
+    "special illustration rare": "sir",
+    "special art rare": "sir",
+    "2 star": "sir",
+    # illustration — illustration rares (EN) / art rares (JP) / trainer gallery / CHR-CSR
+    "illustration rare": "illustration",
+    "art rare": "illustration",
+    "trainer gallery rare holo": "illustration",
+    "character rare": "illustration",
+    "character super rare": "illustration",
+    # ultra — full-art tier mechanics (EX/GX/V/VMAX/VSTAR/LV.X…)
+    "rare ultra": "ultra",
+    "ultra rare": "ultra",
+    "super rare": "ultra",
+    # Lowercasing collapses Scrydex "Rare Holo EX" and "Rare Holo ex".
+    "rare holo ex": "ultra",
+    "rare holo gx": "ultra",
+    "rare holo v": "ultra",
+    "rare holo vmax": "ultra",
+    "rare holo vstar": "ultra",
+    "rare holo lv.x": "ultra",
+    "mega ultra rare": "ultra",
+    "mega attack rare": "ultra",
+    "amazing rare": "ultra",
+    "legend": "ultra",
+    "1 star": "ultra",
+    # secret — secret/hyper/rainbow tier
+    "rare secret": "secret",
+    "secret rare": "secret",
+    "hyper rare": "secret",
+    "rare rainbow": "secret",
+    "mega hyper rare": "secret",
+    "black white rare": "secret",
+    "crown": "secret",
+    "3 star": "secret",
+    # shiny — shiny/shining/radiant/gold star
+    "rare shiny": "shiny",
+    "shiny rare": "shiny",
+    "shiny ultra rare": "shiny",
+    "rare shiny gx": "shiny",
+    "shiny super rare": "shiny",
+    "rare shining": "shiny",
+    "radiant rare": "shiny",
+    "rare holo star": "shiny",
+    "rare holo ☆": "shiny",
+    # promo
+    "promo": "promo",
+    "pocket promo": "promo",
+    # standard — everything in the regular pull curve
+    "common": "standard",
+    "uncommon": "standard",
+    "rare": "standard",
+    "rare holo": "standard",
+    "double rare": "standard",
+    "triple rare": "standard",
+    "1 diamond": "standard",
+    "2 diamond": "standard",
+    "3 diamond": "standard",
+    "4 diamond": "standard",
+    "ace spec rare": "standard",
+    "ace spec": "standard",
+    "rare ace": "standard",
+    "rare prism star": "standard",
+    "prism rare": "standard",
+    "rare break": "standard",
+    "rare prime": "standard",
+    "classic collection": "standard",
+    # other
+    "unknown": "other",
+    "none": "other",
+}
+
+# Ordered substring fallback for rarity labels with no exact-match entry.
+# First hit wins; applied to the normalized (lowercased/collapsed) label only.
+_RARITY_BUCKET_SUBSTRING_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("special illustration", "special art"), "sir"),
+    (("illustration rare", "art rare", "trainer gallery", "character"), "illustration"),
+    (("shiny", "shining", "radiant"), "shiny"),
+    (("secret", "hyper rare", "rainbow"), "secret"),
+    (("promo",), "promo"),
+    (("ultra", "super rare", "full art"), "ultra"),
+    (("diamond",), "standard"),
+)
+
+
+def rarity_bucket(rarity) -> str:
+    """Coarse bucket key for a raw rarity label.
+
+    Never raises: None/empty/garbage → "other". Case- and whitespace-
+    insensitive; exact catalog labels first, then the ordered substring
+    fallback above.
+    """
+    try:
+        text = re.sub(r"\s+", " ", str(rarity or "").strip().lower())
+    except Exception:
+        return "other"
+    if not text:
+        return "other"
+    exact = _RARITY_BUCKETS.get(text)
+    if exact is not None:
+        return exact
+    for needles, bucket in _RARITY_BUCKET_SUBSTRING_RULES:
+        if any(needle in text for needle in needles):
+            return bucket
+    return "other"
+
+
 def _normalized_variant_label(value: str | None) -> str:
     text = str(value or "").strip()
     if not text:
@@ -2396,6 +2511,7 @@ def _card_row_to_dict(
         "setName": row["set_name"],
         "number": row["number"],
         "rarity": row["rarity"],
+        "rarityBucket": rarity_bucket(row["rarity"]),
         "variant": row["variant"],
         "language": row["language"],
         "sourceProvider": row["source_provider"],
@@ -3042,7 +3158,66 @@ def _manual_search_prefix_bounds(prefix: str) -> tuple[str, str]:
     return normalized_prefix, f"{normalized_prefix}\U0010ffff"
 
 
-_MANUAL_SEARCH_FIELD_NAMES = ("name", "set", "number")
+_MANUAL_SEARCH_FIELD_NAMES = ("name", "set", "number", "rarity")
+
+
+# Free-text rarity aliases: whole-token phrases in the typed query that imply a
+# rarity-bucket filter ("sir umbreon" → name "umbreon" filtered to bucket sir).
+# Matched longest-phrase-first so "special illustration rare" wins over
+# "illustration rare". Values are RARITY_BUCKET_KEYS entries.
+_RARITY_QUERY_ALIASES: dict[str, str] = {
+    "sir": "sir",
+    "special illustration": "sir",
+    "special illustration rare": "sir",
+    "special art rare": "sir",
+    "illustration rare": "illustration",
+    "alt art": "illustration",
+    "full art": "ultra",
+    "ultra rare": "ultra",
+    "secret rare": "secret",
+    "hyper rare": "secret",
+    "rainbow rare": "secret",
+    "shiny": "shiny",
+    "gold star": "shiny",
+}
+
+_RARITY_QUERY_ALIAS_PHRASES: tuple[tuple[tuple[str, ...], str], ...] = tuple(
+    sorted(
+        ((tuple(alias.split()), bucket) for alias, bucket in _RARITY_QUERY_ALIASES.items()),
+        key=lambda item: (-len(item[0]), item[0]),
+    )
+)
+
+
+def _manual_search_extract_rarity_aliases(free_parts: list[str]) -> tuple[list[str], list[str]]:
+    """Split free-text terms into (remaining name terms, rarity bucket filters).
+
+    Alias phrases match on whole-token boundaries only — "shinx" never triggers
+    the "shiny" alias — with the longest phrase winning at each position. A
+    bare alias as the entire query is still extracted (rarity-only browse).
+    """
+    tokens: list[str] = []
+    for part in free_parts:
+        tokens.extend(part.split())
+
+    remaining: list[str] = []
+    buckets: list[str] = []
+    index = 0
+    while index < len(tokens):
+        matched = False
+        for phrase_tokens, bucket in _RARITY_QUERY_ALIAS_PHRASES:
+            window = tokens[index : index + len(phrase_tokens)]
+            if len(window) == len(phrase_tokens) and tuple(token.lower() for token in window) == phrase_tokens:
+                buckets.append(bucket)
+                index += len(phrase_tokens)
+                matched = True
+                break
+        if not matched:
+            remaining.append(tokens[index])
+            index += 1
+    return remaining, buckets
+
+
 def _manual_search_unquote(value: str) -> str:
     cleaned = str(value or "").strip()
     if len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in {'"', "'"}:
@@ -3078,8 +3253,17 @@ def _manual_search_parse_query(query: str) -> tuple[dict[str, tuple[str, ...]], 
         if cleaned_part:
             free_parts.append(cleaned_part)
 
-    search_terms = free_parts[:]
+    # Free-text rarity aliases ("sir umbreon", "gold star zapdos") become
+    # structured rarity filters and are stripped from the name-term text.
+    free_terms, alias_buckets = _manual_search_extract_rarity_aliases(free_parts)
+    structured["rarity"].extend(alias_buckets)
+
+    search_terms = free_terms[:]
     for field in _MANUAL_SEARCH_FIELD_NAMES:
+        if field == "rarity":
+            # Rarity values are bucket filters, not retrieval text — appending
+            # "sir" to the search terms would look for cards named "sir".
+            continue
         search_terms.extend(structured[field])
 
     return {field: tuple(values) for field, values in structured.items()}, " ".join(search_terms)
@@ -3161,6 +3345,16 @@ def _manual_search_clause_matches_number(card: dict[str, Any], clause: str) -> b
     return card_number.startswith(clause_number)
 
 
+def _manual_search_clause_matches_rarity(card: dict[str, Any], clause: str) -> bool:
+    value = str(clause or "").strip().lower()
+    if not value:
+        return True
+    raw_rarity = str(card.get("rarity") or "")
+    if value == rarity_bucket(raw_rarity):
+        return True
+    return value in raw_rarity.lower()
+
+
 def _manual_search_card_matches_structured_filters(
     card: dict[str, Any],
     structured_filters: dict[str, tuple[str, ...]],
@@ -3175,6 +3369,11 @@ def _manual_search_card_matches_structured_filters(
 
     for clause in structured_filters["number"]:
         if not _manual_search_clause_matches_number(card, clause):
+            return False
+
+    # .get: older callers/tests may build filter dicts without the rarity key.
+    for clause in structured_filters.get("rarity", ()):
+        if not _manual_search_clause_matches_rarity(card, clause):
             return False
 
     return True
@@ -3566,6 +3765,50 @@ def _manual_search_score(
     return score
 
 
+def _manual_search_rarity_browse(
+    connection: sqlite3.Connection,
+    rarity_clauses: tuple[str, ...],
+    *,
+    limit: int,
+    offset: int,
+) -> list[dict[str, Any]]:
+    """Rarity-only browse: a bare rarity query ("shiny", "rarity:sir") with no
+    name terms lists all cards in the bucket. Buckets are computed in Python,
+    so resolve the (small) DISTINCT rarity-label set first, then page a
+    deterministic name/number/id ordering in SQL.
+    """
+    rarity_rows = connection.execute("SELECT DISTINCT rarity FROM cards").fetchall()
+    matching_labels: list[str] = []
+    include_null = False
+    for row in rarity_rows:
+        raw_label = row["rarity"]
+        probe = {"rarity": raw_label}
+        if all(_manual_search_clause_matches_rarity(probe, clause) for clause in rarity_clauses):
+            if raw_label is None:
+                include_null = True
+            else:
+                matching_labels.append(str(raw_label))
+    if not matching_labels and not include_null:
+        return []
+
+    where_clauses: list[str] = []
+    params: list[object] = []
+    if matching_labels:
+        placeholders = ",".join("?" for _ in matching_labels)
+        where_clauses.append(f"rarity IN ({placeholders})")
+        params.extend(matching_labels)
+    if include_null:
+        where_clauses.append("rarity IS NULL")
+    id_rows = connection.execute(
+        f"SELECT id FROM cards WHERE {' OR '.join(where_clauses)} "
+        "ORDER BY name, number, id LIMIT ? OFFSET ?",
+        (*params, limit, offset),
+    ).fetchall()
+    ordered_ids = [str(row["id"]) for row in id_rows]
+    card_map = cards_by_ids(connection, ordered_ids)
+    return [card_map[card_id] for card_id in ordered_ids if card_id in card_map]
+
+
 def search_cards(
     connection: sqlite3.Connection,
     query: str,
@@ -3573,6 +3816,7 @@ def search_cards(
     *,
     offset: int = 0,
     pool_ceiling: int | None = None,
+    rarity_bucket_filter: str | None = None,
 ) -> list[dict[str, Any]]:
     """Manual catalog search.
 
@@ -3581,10 +3825,26 @@ def search_cards(
     for every page) so `[offset:offset+limit]` slices are consistent as the user
     scrolls. Callers that only want the top-N (matcher shortlist, portfolio
     import, `search_cards_local`) omit both and keep the cheap small pool.
+
+    `rarity_bucket_filter` applies a structured rarity filter regardless of the
+    query text (the `rarityBucket` query param on the search endpoint).
     """
     structured_filters, search_text = _manual_search_parse_query(query)
+    if rarity_bucket_filter:
+        normalized_bucket = str(rarity_bucket_filter).strip().lower()
+        if normalized_bucket:
+            structured_filters = dict(structured_filters)
+            structured_filters["rarity"] = tuple(structured_filters.get("rarity", ())) + (normalized_bucket,)
     normalized_query = _normalized_alias_text(search_text)
     if not normalized_query:
+        # No name terms left: a rarity filter alone becomes a bucket browse.
+        if structured_filters.get("rarity"):
+            return _manual_search_rarity_browse(
+                connection,
+                tuple(structured_filters["rarity"]),
+                limit=_normalized_manual_search_limit(limit),
+                offset=max(0, int(offset or 0)),
+            )
         return []
 
     tokens = tokenize(search_text)
