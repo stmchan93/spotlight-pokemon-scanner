@@ -11,9 +11,13 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
+import type { PortfolioImportSourceType } from '@spotlight/api-client';
+
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
 import { useGuestGate } from '@/features/auth/use-guest-gate';
+import { pickAndStageImportFile } from '@/features/portfolio-import/pick-import-file';
+import { exportCollectionCsv } from '@/features/portfolio/export-collection';
 import { useAuth } from '@/providers/auth-provider';
 import { useAppServices } from '@/providers/app-providers';
 
@@ -34,6 +38,7 @@ export function AccountScreen() {
   }, [isGuest, openLogin]);
 
   const [isDeleting, setIsDeleting] = useState(false);
+  const [collectionDataBusy, setCollectionDataBusy] = useState(false);
 
   const isAdmin = auth.currentUser?.email === ADMIN_EMAIL;
   const [showModeActive, setShowModeActive] = useState(false);
@@ -164,6 +169,38 @@ export function AccountScreen() {
     );
   }, [confirmDeleteAccount]);
 
+  // Pick a TCGplayer/Collectr CSV and, if one was staged, open the existing
+  // row-by-row import review screen.
+  const handleImportCollection = useCallback(
+    async (sourceType: PortfolioImportSourceType) => {
+      if (collectionDataBusy) {
+        return;
+      }
+      setCollectionDataBusy(true);
+      try {
+        const staged = await pickAndStageImportFile(sourceType);
+        if (staged) {
+          router.push('/account/import' as never);
+        }
+      } finally {
+        setCollectionDataBusy(false);
+      }
+    },
+    [collectionDataBusy, router],
+  );
+
+  const handleExportCollection = useCallback(async () => {
+    if (collectionDataBusy) {
+      return;
+    }
+    setCollectionDataBusy(true);
+    try {
+      await exportCollectionCsv(spotlightRepository);
+    } finally {
+      setCollectionDataBusy(false);
+    }
+  }, [collectionDataBusy, spotlightRepository]);
+
   return (
     <SafeAreaView
       edges={['top', 'left', 'right']}
@@ -223,6 +260,52 @@ export function AccountScreen() {
                   {user.email}
                 </Text>
               ) : null}
+            </View>
+          </View>
+        </SurfaceCard>
+
+        <SurfaceCard padding={20} radius={28}>
+          <View style={styles.collectionDataCard}>
+            <View style={styles.showModeCopy}>
+              <Text style={[theme.typography.titleCompact, { color: theme.colors.textPrimary }]}>
+                Collection data
+              </Text>
+              <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>
+                Import a CSV export from TCGplayer or Collectr, or export your collection as a
+                spreadsheet.
+              </Text>
+            </View>
+            <View style={styles.collectionDataButtons}>
+              <Button
+                disabled={collectionDataBusy}
+                label="Import from TCGplayer"
+                onPress={() => {
+                  void handleImportCollection('tcgplayer_csv_v1');
+                }}
+                size="lg"
+                testID="account-import-tcgplayer"
+                variant="outline"
+              />
+              <Button
+                disabled={collectionDataBusy}
+                label="Import from Collectr"
+                onPress={() => {
+                  void handleImportCollection('collectr_csv_v1');
+                }}
+                size="lg"
+                testID="account-import-collectr"
+                variant="outline"
+              />
+              <Button
+                disabled={collectionDataBusy}
+                label="Export collection (CSV)"
+                onPress={() => {
+                  void handleExportCollection();
+                }}
+                size="lg"
+                testID="account-export-csv"
+                variant="outline"
+              />
             </View>
           </View>
         </SurfaceCard>
@@ -380,6 +463,12 @@ const styles = StyleSheet.create({
   },
   closeButton: {
     flexShrink: 0,
+  },
+  collectionDataCard: {
+    gap: 16,
+  },
+  collectionDataButtons: {
+    gap: 12,
   },
   header: {
     alignItems: 'flex-start',

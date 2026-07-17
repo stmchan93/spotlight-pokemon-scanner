@@ -52,15 +52,19 @@ describe('AccountScreen', () => {
     });
   });
 
-  it('does not render unsupported inventory import actions', () => {
+  it('renders the collection data import/export actions', () => {
     renderWithProviders(<AccountScreen />);
 
     expect(screen.queryByText('Done')).toBeNull();
     expect(screen.queryByText('Signed in with apple')).toBeNull();
-    expect(screen.queryByText('Import from Collectr')).toBeNull();
-    expect(screen.queryByText('Import from TCGplayer')).toBeNull();
-    expect(screen.queryByTestId('account-import-collectr_csv_v1')).toBeNull();
-    expect(screen.queryByTestId('account-import-tcgplayer_csv_v1')).toBeNull();
+    // Import/export now live in the account screen (TCGplayer + Collectr import,
+    // holdings CSV export).
+    expect(screen.getByTestId('account-import-tcgplayer')).toBeTruthy();
+    expect(screen.getByTestId('account-import-collectr')).toBeTruthy();
+    expect(screen.getByTestId('account-export-csv')).toBeTruthy();
+    expect(screen.getByText('Import from TCGplayer')).toBeTruthy();
+    expect(screen.getByText('Import from Collectr')).toBeTruthy();
+    expect(screen.getByText('Export collection (CSV)')).toBeTruthy();
     expect(StyleSheet.flatten(screen.getByText('Sign out').props.style)).toMatchObject({
       fontFamily: 'SpotlightBodySemiBold',
       fontSize: 15,
