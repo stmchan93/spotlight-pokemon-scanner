@@ -566,6 +566,14 @@ export type CatalogSearchResult = {
   matchScore?: number | null;
   /** Server-computed rarity bucket; undefined on older cached payloads. */
   rarityBucket?: RarityBucket;
+  /**
+   * True when `marketPrice` is a GRADED reference (a slab comp) rather than the
+   * raw/ungraded price — set for cards that have no raw price of their own. The
+   * UI must tag the price so it isn't read as the ungraded value.
+   */
+  priceIsGradedReference?: boolean;
+  /** Grade tag to show next to a graded-reference price, e.g. "PSA 10"; null otherwise. */
+  gradedReferenceLabel?: string | null;
 };
 
 export type ExpansionRecord = {
@@ -686,6 +694,19 @@ export type CardFavoriteContext = {
   sinceAddedBaselineDate: string | null;
 };
 
+/**
+ * The headline graded lane for a graded-only card (no raw price). Names the
+ * grader/grade the PDP should open on plus its market price, so the page shows a
+ * chart instead of a blank raw lane.
+ */
+export type CardDetailGradedReference = {
+  grader: string;
+  grade: string | null;
+  market: number | null;
+  currencyCode: string | null;
+  label: string;
+};
+
 export type CardDetailRecord = {
   cardId: string;
   name: string;
@@ -758,6 +779,12 @@ export type CardDetailRecord = {
    * card has no synced population data.
    */
   population?: CardPopulation | null;
+  /**
+   * Set ONLY for graded-only cards (no raw/ungraded price but graded pricing):
+   * the headline graded lane the PDP should default to so a chart shows instead
+   * of a blank raw lane. Null for normal (raw-priced) cards.
+   */
+  gradedReference?: CardDetailGradedReference | null;
   /** Illustrator/artist credit (e.g. "Yuka Morii"). */
   artist?: string | null;
   /** Catalog set release date string (e.g. "2000/06/10"); formatted for display. */

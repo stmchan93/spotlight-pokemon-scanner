@@ -399,6 +399,11 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
   const modeTagLine = capture.mode === 'slabs'
     ? scannerSlabInlineLabel(capture) || 'GRADED'
     : 'RAW';
+  // When the shown price is a graded slab comp (card has no raw price), tag it
+  // so "$24,824" reads as "$24,824  PSA 10", not the ungraded value.
+  const gradedReferenceLabel = candidate?.priceIsGradedReference
+    ? candidate.gradedReferenceLabel
+    : null;
   return (
     <RecentCaptureSwipeRow
       actionRailKey={capture.id}
@@ -522,6 +527,15 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                     ? formatCurrency(displayMarketPrice, currencyCode)
                     : '—'}
                 </Text>
+                {gradedReferenceLabel ? (
+                  <Text
+                    numberOfLines={1}
+                    style={styles.captureGradedRefChip}
+                    testID={`scanner-tray-graded-ref-${index}`}
+                  >
+                    {gradedReferenceLabel}
+                  </Text>
+                ) : null}
               </View>
             </Pressable>
             <Pressable
@@ -3250,6 +3264,17 @@ const styles = StyleSheet.create({
     fontFamily: fontFamilies.bodyMedium,
     fontSize: 11,
     lineHeight: 14.3,
+  },
+  captureGradedRefChip: {
+    backgroundColor: colors.scannerConditionPill,
+    borderRadius: 4,
+    color: colors.scannerTextPrimary,
+    fontFamily: fontFamilies.bodyMedium,
+    fontSize: 11,
+    lineHeight: 14.3,
+    overflow: 'hidden',
+    paddingHorizontal: 5,
+    paddingVertical: 2,
   },
   captureTitle: {
     ...textStyles.headline,

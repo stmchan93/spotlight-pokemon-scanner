@@ -715,6 +715,96 @@ describe('CardDetailScreen', () => {
     expect(openURL.mock.calls[0][0] as string).toContain('_nkw=%22PSA+10%22');
   });
 
+  it('a graded-only card (no raw pricing) defaults to the graded lane so a chart shows', async () => {
+    // ~971 grail cards (e.g. Poncho-wearing Pikachu) have NO raw pricing but DO
+    // have graded pricing. The default seeds Raw, which would show a blank page;
+    // the post-load correction must flip the default to a graded lane (PSA 10).
+    const baseRepository = createTestSpotlightRepository();
+    const getCardDetail = jest.fn(async (query: { cardId: string }) => {
+      const base = await baseRepository.getCardDetail(query);
+      if (!base) {
+        return null;
+      }
+      return {
+        ...base,
+        // No raw pricing: null top-level price, empty variant lists, empty
+        // history points; currentPrice coerced to 0 by the backend.
+        marketPrice: null,
+        variantOptions: [],
+        marketHistory: {
+          ...base.marketHistory,
+          currentPrice: 0,
+          points: [],
+          availableVariants: [],
+          availableConditions: [],
+        },
+        // The backend flags graded-only cards with the headline graded lane to
+        // open on (non-null ONLY when there's no raw price but graded exists).
+        gradedReference: {
+          grader: 'PSA',
+          grade: '10',
+          market: 24824.52,
+          currencyCode: 'USD',
+          label: 'PSA 10',
+        },
+      } satisfies CardDetailRecord;
+    });
+    const getCardPriceTrends = jest.fn(async (query: { mode: string }) => ({
+      mode: query.mode as 'raw' | 'graded',
+      provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
+      rows: query.mode === 'graded'
+        ? [{ label: 'PSA 10', key: 'PSA 10', currentPrice: 1500, currencyCode: 'USD', points: [1, 2, 3], trendPct: 5 }]
+        : [],
+    }));
+
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
+      { spotlightRepository: createTestSpotlightRepository({ getCardDetail, getCardPriceTrends }) },
+    );
+
+    // The correction flips the seeded Raw default to the PSA graded lane…
+    await waitFor(() => {
+      expect(screen.getByTestId('detail-configurator-grader-PSA').props.accessibilityState?.selected).toBe(true);
+    });
+    expect(screen.getByTestId('detail-configurator-grader-Raw').props.accessibilityState?.selected).toBe(false);
+
+    // …and the graded price trends are fetched + rendered (not a blank page).
+    await waitFor(() => {
+      expect(getCardPriceTrends).toHaveBeenCalledWith(
+        expect.objectContaining({ cardId: 'sm7-1', mode: 'graded', grader: 'PSA' }),
+      );
+    });
+    expect(await screen.findByTestId('detail-price-trends-row-PSA 10')).toBeTruthy();
+  });
+
+  it('a card WITH raw pricing keeps the Raw lane default (no graded auto-switch)', async () => {
+    // Guardrail: the correction must not fire for normal cards that have raw
+    // pricing, even when population data is present.
+    const baseRepository = createTestSpotlightRepository();
+    const getCardDetail = jest.fn(async (query: { cardId: string }) => {
+      const base = await baseRepository.getCardDetail(query);
+      return base
+        ? ({
+            ...base,
+            population: { PSA: { totalPopulation: 4, gemRate: 0.25, grades: { '10': 1 } } },
+          } satisfies CardDetailRecord)
+        : null;
+    });
+
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
+      { spotlightRepository: createTestSpotlightRepository({ getCardDetail }) },
+    );
+
+    // Raw stays selected; the graded auto-switch never fires for a priced card.
+    await screen.findByTestId('detail-configurator');
+    await waitFor(() => {
+      expect(screen.getByTestId('detail-configurator-variant-normal').props.accessibilityState?.selected).toBe(true);
+    });
+    expect(screen.getByTestId('detail-configurator-grader-Raw').props.accessibilityState?.selected).toBe(true);
+    expect(screen.getByTestId('detail-configurator-grader-PSA').props.accessibilityState?.selected).toBe(false);
+  });
+
   it('renders Product Details when the card detail includes cardText', async () => {
     const baseRepository = createTestSpotlightRepository();
 

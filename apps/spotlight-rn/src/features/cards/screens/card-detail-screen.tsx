@@ -369,6 +369,7 @@ export function CardDetailScreen({
     pendingAddVariantLabelRef.current = null;
     seededCardIdRef.current = null;
     seededVariantCardIdRef.current = null;
+    seededGradedFallbackCardIdRef.current = null;
   }, [cardId]);
 
   useEffect(() => {
@@ -541,6 +542,51 @@ export function CardDetailScreen({
       carriedMatch?.id ?? variantMatch?.id ?? normalVariant?.id ?? variantOptions[0]?.id ?? null,
     );
   }, [activeCardId, detail?.cardId, ownedSlabContext, selectedEntry, variantOptions]);
+
+  // Graded-only fallback: ~971 grail cards (e.g. Poncho-wearing Pikachu
+  // xyp_ja-207/208) have NO raw pricing but DO have graded pricing. The seeds
+  // above default a non-owned card to the Raw lane, so those cards open on an
+  // empty Raw price panel (a blank page). Once the ACTIVE card's full detail is
+  // in, detect an empty raw lane and — if graded data exists — flip the default
+  // to a graded lane (PSA 10, or the first offered grader) so a chart shows.
+  //
+  // "No raw pricing" signal (all must hold): no top-level raw marketPrice, no
+  // raw market-history current price / history points, and no raw variant list
+  // (variantOptions AND marketHistory.availableVariants both empty). "Graded
+  // available" = the card carries GemRate population for at least one grader.
+  const seededGradedFallbackCardIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    // Gate on the ACTIVE card's own loaded detail so an EN/JP swap re-evaluates
+    // against the counterpart (whose raw/graded availability can differ).
+    if (!detail || detail.cardId !== activeCardId) {
+      return;
+    }
+    // Once per card, mirroring the seed guards above (prevents a re-render loop
+    // and never fights a later manual grader change).
+    if (seededGradedFallbackCardIdRef.current === activeCardId) {
+      return;
+    }
+    // Only correct the still-seeded Raw default. If the user already switched
+    // the grader, or an owned slab seeded a graded grader, leave it alone.
+    if (selectedGrader !== 'Raw') {
+      return;
+    }
+    seededGradedFallbackCardIdRef.current = activeCardId;
+
+    // The backend sets gradedReference ONLY for a graded-only card (no raw price)
+    // and names the exact headline graded lane — far more reliable than inferring
+    // from population (empty for ~957/971 of these grails). Absent → leave Raw.
+    const reference = detail.gradedReference;
+    if (!reference?.grader) {
+      return;
+    }
+    const matchedGrader =
+      graderOptions.find(
+        (option) => option !== 'Raw' && option.toLowerCase() === reference.grader.toLowerCase(),
+      ) ?? reference.grader;
+    setSelectedGrader(matchedGrader);
+    setSelectedGrade(reference.grade ?? '10');
+  }, [activeCardId, detail, selectedGrader]);
 
   // Reset the per-lane selection whenever the grader switches so the grade
   // label always reflects the active lane.

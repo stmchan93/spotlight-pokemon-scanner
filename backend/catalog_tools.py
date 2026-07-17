@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import io
 import json
 import os
 import re
@@ -1783,6 +1785,78 @@ def _graded_contexts_payload(value: Any) -> dict[str, Any]:
     if not isinstance(graders, dict):
         payload["graders"] = {}
     return payload
+
+
+def build_headline_graded_reference(
+    card_id: str,
+    raw_contexts: dict[str, Any] | None,
+    graded_contexts: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """A "graded reference" price for a graded-ONLY card — one with NO raw/
+    ungraded price but populated graded pricing (e.g. an XY-P promo grail that
+    never trades ungraded). Scan candidates for such cards otherwise carry no
+    price at all; this surfaces the headline graded value instead, clearly
+    flagged so the client can tag it (e.g. "PSA 10").
+
+    Picks PSA 10 when present, else the highest-market graded entry. Skips
+    signed/perfect/error sub-records (their prices are autograph/one-off
+    outliers, not the card's value). Returns None when the card has ANY raw
+    price (not a reference case) or no usable graded entry.
+    """
+    raw_variants = raw_contexts.get("variants") if isinstance(raw_contexts, dict) else None
+    if isinstance(raw_variants, dict) and raw_variants:
+        return None  # has raw pricing — never a graded reference
+    graders = graded_contexts.get("graders") if isinstance(graded_contexts, dict) else None
+    if not isinstance(graders, dict) or not graders:
+        return None
+
+    def usable(entry: Any) -> bool:
+        return (
+            isinstance(entry, dict)
+            and isinstance(entry.get("market"), (int, float))
+            and not entry.get("isSigned")
+            and not entry.get("isPerfect")
+            and not entry.get("isError")
+        )
+
+    best: tuple[float, str, str, dict[str, Any]] | None = None
+    psa10: tuple[float, str, str, dict[str, Any]] | None = None
+    for grader_name, grades in graders.items():
+        if not isinstance(grades, dict):
+            continue
+        for grade, entries in grades.items():
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if not usable(entry):
+                    continue
+                market = float(entry["market"])
+                if str(grader_name).upper() == "PSA" and str(grade) == "10":
+                    if psa10 is None or market > psa10[0]:
+                        psa10 = (market, str(grader_name), str(grade), entry)
+                if best is None or market > best[0]:
+                    best = (market, str(grader_name), str(grade), entry)
+
+    chosen = psa10 or best
+    if chosen is None:
+        return None
+    market, grader_name, grade, entry = chosen
+    return {
+        "cardID": card_id,
+        "pricingMode": "graded_reference",
+        "provider": entry.get("provider") or "scrydex",
+        "source": entry.get("provider") or "scrydex",
+        "grader": grader_name.upper(),
+        "grade": grade,
+        "variant": entry.get("variant"),
+        "currencyCode": entry.get("currencyCode") or "USD",
+        "market": market,
+        "low": entry.get("low"),
+        "mid": entry.get("mid"),
+        "high": entry.get("high"),
+        "trend": entry.get("trend"),
+        "isGradedReference": True,
+    }
 
 
 def _price_summary_payload(
@@ -5602,6 +5676,142 @@ _RAW_CONDITION_LABELS: dict[str, str] = {
     "DM": "Damaged",
     "DMG": "Damaged",
 }
+
+
+DECK_ENTRIES_EXPORT_COLUMNS: tuple[str, ...] = (
+    "name",
+    "set",
+    "number",
+    "language",
+    "kind",
+    "printing",
+    "condition",
+    "grader",
+    "grade",
+    "cert_number",
+    "quantity",
+    "market_price",
+    "currency",
+    "cost_basis_per_unit",
+    "cost_basis_total",
+    "gain_loss",
+    "added_at",
+)
+
+
+def _csv_cell(value: Any) -> str:
+    """Render a single CSV cell: None/empty -> "", everything else stringified.
+
+    Escaping (commas/quotes/newlines) is handled by ``csv.writer`` downstream;
+    this only normalizes the value to a plain string.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, float):
+        # Whole-number floats read cleanly ("2" not "2.0"); keep cents otherwise.
+        if value.is_integer():
+            return str(int(value))
+        return repr(value)
+    return str(value)
+
+
+def _deck_entry_market_price(entry: dict[str, Any]) -> float | None:
+    """Owner-scoped current market price for an entry, mirroring how
+    ``_compute_deck_entries`` picks the primary price: card.pricing.market with
+    mid/low/trend fallbacks. Returns None when nothing is priced."""
+    card = entry.get("card")
+    pricing = card.get("pricing") if isinstance(card, dict) else None
+    if not isinstance(pricing, dict):
+        return None
+    for key in ("market", "mid", "low", "trend"):
+        value = pricing.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value)
+    return None
+
+
+def deck_entries_export_csv(entries: list[dict[str, Any]]) -> str:
+    """Pure formatter: turn a list of owner-scoped deck-entry dicts (the
+    ``entries`` shape produced by ``_compute_deck_entries``) into holdings-snapshot
+    CSV text. Header row first, then one row per entry. Uses ``csv.writer`` for
+    correct quoting/escaping of fields containing commas, quotes, or newlines.
+
+    Raw entries: ``printing`` = variantName, ``condition`` = condition
+    label/short code; grader/grade/cert blank.
+    Graded entries: ``printing`` = slabContext.variantName; ``condition`` blank;
+    grader/grade/cert from slabContext.
+
+    ``gain_loss`` = market_price * quantity - cost_basis_total when both the
+    market price and cost basis are known, else blank.
+    """
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(DECK_ENTRIES_EXPORT_COLUMNS)
+
+    for entry in entries or []:
+        card = entry.get("card") if isinstance(entry.get("card"), dict) else {}
+        slab_context = entry.get("slabContext")
+        is_graded = isinstance(slab_context, dict)
+
+        quantity = entry.get("quantity")
+        try:
+            quantity_int = int(quantity) if quantity is not None else 0
+        except (TypeError, ValueError):
+            quantity_int = 0
+
+        market_price = _deck_entry_market_price(entry)
+
+        cost_basis_total_raw = entry.get("costBasisTotal")
+        try:
+            cost_basis_total = (
+                float(cost_basis_total_raw) if cost_basis_total_raw is not None else None
+            )
+        except (TypeError, ValueError):
+            cost_basis_total = None
+
+        gain_loss: float | None = None
+        if market_price is not None and cost_basis_total is not None:
+            gain_loss = round(market_price * quantity_int - cost_basis_total, 2)
+
+        if is_graded:
+            printing = slab_context.get("variantName")
+            condition_cell = ""
+            grader = slab_context.get("grader")
+            grade = slab_context.get("grade")
+            cert_number = slab_context.get("certNumber")
+        else:
+            printing = entry.get("variantName")
+            condition_code = entry.get("condition")
+            condition_cell = _RAW_CONDITION_LABELS.get(
+                str(condition_code or "").strip().upper(), condition_code
+            )
+            grader = grade = cert_number = None
+
+        writer.writerow(
+            [
+                _csv_cell(card.get("name")),
+                _csv_cell(card.get("setName")),
+                _csv_cell(card.get("number")),
+                _csv_cell(card.get("language")),
+                _csv_cell("graded" if is_graded else "raw"),
+                _csv_cell(printing),
+                _csv_cell(condition_cell),
+                _csv_cell(grader),
+                _csv_cell(grade),
+                _csv_cell(cert_number),
+                _csv_cell(quantity_int),
+                _csv_cell(market_price),
+                _csv_cell(entry.get("costBasisCurrencyCode")),
+                _csv_cell(entry.get("costBasisPerUnit")),
+                _csv_cell(cost_basis_total),
+                _csv_cell(gain_loss),
+                _csv_cell(entry.get("addedAt")),
+            ]
+        )
+
+    return buffer.getvalue()
 
 
 def _price_trend_float(value: Any) -> float | None:

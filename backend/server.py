@@ -69,10 +69,12 @@ from catalog_tools import (
     card_price_trend_list,
     card_text_from_card,
     tcgplayer_variants_subset,
+    build_headline_graded_reference,
     collision_guard,
     suppressed_raw_variant_labels,
     filter_suppressed_raw_variants,
     cards_by_ids,
+    deck_entries_export_csv,
     append_deck_entry_event,
     connect,
     contextual_pricing_summary_for_card,
@@ -2803,6 +2805,24 @@ class SpotlightScanService:
                         pricing[_k] = None
                 pricing["suppressionReason"] = "phantom"
         return pricing
+
+    def _headline_graded_reference(
+        self,
+        card_id: str,
+        *,
+        snapshot_row: sqlite3.Row | None = None,
+    ) -> dict[str, Any] | None:
+        """Headline graded price for a graded-only card (no raw price), FX-decorated.
+        None when the card has raw pricing or no usable graded entry."""
+        row = snapshot_row if snapshot_row is not None else price_snapshot_row(self.connection, card_id)
+        if row is None:
+            return None
+        reference = build_headline_graded_reference(
+            card_id,
+            _raw_contexts_payload(row["raw_contexts_json"]),
+            _graded_contexts_payload(row["graded_contexts_json"]),
+        )
+        return decorate_pricing_summary_with_fx(self.connection, reference)
 
     def _raw_pricing_matches_context(
         self,
@@ -9991,6 +10011,12 @@ class SpotlightScanService:
                 pricing = self._display_pricing_summary_for_context(card_id, pricing_context=pricing_context)
                 pricing_lookup_ms += (perf_counter() - fallback_started_at) * 1000.0
 
+        # Graded-only grails (no raw/ungraded price) otherwise carry NO price on a
+        # scan candidate. Surface the headline graded value instead, flagged so the
+        # client tags it (e.g. "PSA 10") rather than reading it as the raw worth.
+        if pricing is None and card_id and not pricing_context.is_graded:
+            pricing = self._headline_graded_reference(card_id, snapshot_row=snapshot_row)
+
         candidate = self._candidate_base_payload(resolved_card, card)
         if pricing is not None:
             candidate["pricing"] = pricing
@@ -11476,6 +11502,14 @@ class SpotlightScanService:
         favorite_row = self._favorite_row(card_id, owner_user_id=owner_user_id)
         like_row = self._like_row(card_id, owner_user_id=owner_user_id)
         resolved_variant = pricing_context.preferred_variant or (str((pricing or {}).get("variant") or "").strip() or None)
+        # Graded-only grails have no raw price, so the raw-lane PDP would be blank.
+        # Surface the headline graded lane so the client can open ON it (non-null
+        # ONLY when the card has no raw price but does have graded pricing).
+        graded_reference = (
+            self._headline_graded_reference(card_id, snapshot_row=snapshot_row)
+            if pricing is None and not pricing_context.is_graded
+            else None
+        )
         payload: dict[str, Any] = {
             "card": {
                 "id": resolved_card["id"],
@@ -11523,6 +11557,20 @@ class SpotlightScanService:
             # GemRate population keyed by grader (PSA/BGS/CGC/SGC); {} when unsynced.
             # Drives the PDP's dynamic-by-grader population report.
             "population": self._card_population(card_id),
+            # Non-null ONLY for graded-only cards (no raw price): the headline
+            # graded lane the PDP should default to so a chart shows instead of a
+            # blank raw lane.
+            "gradedReference": (
+                {
+                    "grader": graded_reference["grader"],
+                    "grade": graded_reference["grade"],
+                    "market": graded_reference.get("market"),
+                    "currencyCode": graded_reference.get("currencyCode"),
+                    "label": f"{graded_reference['grader']} {graded_reference['grade']}".strip(),
+                }
+                if graded_reference is not None
+                else None
+            ),
         }
         if include_social_counts:
             payload["likeCount"] = self._card_like_count(card_id)
@@ -15071,6 +15119,22 @@ class SpotlightScanService:
             self._log_deck_entries_timing(started_at, outcome="miss")
             return payload
 
+    def deck_entries_export_csv(self) -> str:
+        """Owner-scoped holdings-snapshot CSV export. Reuses the same
+        ``deck_entries`` assembly the Collection view uses (so the owner scope,
+        pricing, and cost-basis all match exactly), then renders it via the pure
+        ``deck_entries_export_csv`` formatter. Pages up to the deck_entries cap so
+        every currently-owned entry is included in one CSV."""
+        payload = self.deck_entries(
+            limit=1000,
+            offset=0,
+            include_inactive=False,
+            favorites_only=False,
+            compute_day_change=False,
+        )
+        entries = payload.get("entries", []) if isinstance(payload, dict) else []
+        return deck_entries_export_csv(entries)
+
     def _deck_entries_version_token(self, owner_user_id: str) -> str:
         """The dashboard version token (deck mutations + events + sales + latest
         price date) plus the owner's wishlist state — deck_entries payloads carry
@@ -16433,6 +16497,28 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                     HTTPStatus.OK,
                     self.service.card_favorites(limit=limit, offset=offset),
                 )
+            return
+
+        if parsed.path == "/api/v1/deck/entries/export":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            if not self._require_access(identity):
+                return
+            if not self._acquire_heavy_read_slot():
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    csv_text = self.service.deck_entries_export_csv()
+            except Exception as error:  # noqa: BLE001
+                self._write_json(
+                    HTTPStatus.BAD_GATEWAY,
+                    {"error": f"Deck export failed: {error}"},
+                )
+                return
+            finally:
+                _heavy_read_semaphore.release()
+            self._write_csv(HTTPStatus.OK, csv_text, filename="holdings.csv")
             return
 
         if parsed.path == "/api/v1/deck/entries":
@@ -18165,6 +18251,21 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
         self.send_response(status.value)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            print(
+                "[HTTP] Client disconnected before response write completed: "
+                f"path={getattr(self, 'path', '<unknown>')} status={status.value}"
+            )
+
+    def _write_csv(self, status: HTTPStatus, text: str, *, filename: str) -> None:
+        body = text.encode("utf-8")
+        self.send_response(status.value)
+        self.send_header("Content-Type", "text/csv; charset=utf-8")
+        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         try:

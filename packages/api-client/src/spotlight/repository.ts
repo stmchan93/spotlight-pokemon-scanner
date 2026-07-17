@@ -26,6 +26,7 @@ import type {
   CardFavoritesQuery,
   CardDetailLoadOptions,
   CardDetailQuery,
+  CardDetailGradedReference,
   CardDetailRecord,
   CardFavoriteContext,
   CardPopulation,
@@ -184,6 +185,11 @@ export interface SpotlightRepository {
   deletePortfolioEntry(payload: PortfolioEntryDeleteRequestPayload): Promise<PortfolioEntryDeleteResponsePayload>;
   deletePortfolioEntriesBulk(payload: PortfolioEntryBulkDeleteRequestPayload): Promise<PortfolioEntryBulkDeleteResponsePayload>;
   deleteAccount(): Promise<AccountDeleteResponsePayload>;
+  /**
+   * Export the requesting user's holdings (deck entries) as CSV text. Owner-scoped
+   * server-side. Returns the raw CSV body (the response is text/csv, not JSON).
+   */
+  exportDeckEntriesCsv(): Promise<string>;
   setPortfolioEntryQuantity(payload: SetPortfolioEntryQuantityRequestPayload): Promise<SetPortfolioEntryQuantityResponsePayload>;
   updateDeckEntryCostBasis(payload: UpdateDeckEntryCostBasisRequestPayload): Promise<UpdateDeckEntryCostBasisResponsePayload>;
   createPortfolioSale(payload: PortfolioSaleRequestPayload): Promise<PortfolioSaleResponsePayload>;
@@ -312,6 +318,12 @@ type CardPricingSummaryDTO = {
   payload?: {
     condition?: string | null;
   } | null;
+  // When a card has no raw price, the server may return a graded slab comp as a
+  // reference: pricingMode === 'graded_reference' and market is that graded
+  // price. grader/grade describe the slab (e.g. "PSA"/"10").
+  pricingMode?: string | null;
+  grader?: string | null;
+  grade?: string | null;
 };
 
 type CardCandidateDTO = {
@@ -537,6 +549,7 @@ type CardDetailDTO = {
   counterpartLanguage?: string | null;
   cardText?: CardTextDTO | null;
   population?: unknown;
+  gradedReference?: unknown;
   artist?: string | null;
   setReleaseDate?: string | null;
 };
@@ -778,6 +791,11 @@ type NormalizedCardCandidate = {
     variant?: string | null;
     condition?: string | null;
     trendsPct?: NormalizedCardPricingTrendsPct | null;
+    // 'graded_reference' when `market` is a graded slab comp shown in place of a
+    // missing raw price; grader/grade describe that slab.
+    pricingMode?: string | null;
+    grader?: string | null;
+    grade?: string | null;
   };
   tcgPlayerVariants: TcgPlayerVariantMarketplace[];
 };
@@ -1377,6 +1395,28 @@ function normalizeCardPopulation(value: unknown): CardPopulation | null {
   return Object.keys(out).length > 0 ? out : null;
 }
 
+// The backend sends `gradedReference` ONLY for graded-only cards (no raw price):
+// the headline graded lane the PDP should open on. Null/malformed → null so the
+// PDP keeps the raw default.
+function normalizeGradedReference(value: unknown): CardDetailGradedReference | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const grader = normalizeString(record.grader);
+  if (!grader) {
+    return null;
+  }
+  const grade = normalizeString(record.grade);
+  return {
+    grader,
+    grade,
+    market: normalizeNumber(record.market),
+    currencyCode: normalizeCurrencyCode(record.currencyCode),
+    label: normalizeString(record.label) ?? [grader, grade].filter(Boolean).join(' '),
+  };
+}
+
 function normalizeConditionCode(condition?: string | null): InventoryCardEntry['conditionCode'] {
   switch (condition) {
     case 'near_mint':
@@ -1508,6 +1548,9 @@ function normalizeCardCandidate(candidate: CardCandidateDTO | null | undefined, 
       variant: normalizeString(candidate?.pricing?.variant),
       condition: normalizeString(candidate?.pricing?.payload?.condition),
       trendsPct: normalizePricingTrendsPct(candidate?.pricing?.trendsPct ?? null),
+      pricingMode: normalizeString(candidate?.pricing?.pricingMode),
+      grader: normalizeString(candidate?.pricing?.grader),
+      grade: normalizeString(candidate?.pricing?.grade),
     },
     tcgPlayerVariants: normalizeTcgPlayerVariants(candidate?.sourcePayload?.variants),
   } satisfies NormalizedCardCandidate;
@@ -1654,6 +1697,13 @@ function mapScannerMatchCandidates(
       return [];
     }
 
+    // When the card has no raw price, `market` is a graded slab comp shown as a
+    // reference; tag it so the UI reads it as "PSA 10", not the ungraded value.
+    const priceIsGradedReference = card.pricing.pricingMode === 'graded_reference';
+    const gradedReferenceLabel = priceIsGradedReference
+      ? (`${card.pricing.grader ?? ''} ${card.pricing.grade ?? ''}`.trim() || null)
+      : null;
+
     return [{
       id: card.id,
       cardId: card.id,
@@ -1672,6 +1722,8 @@ function mapScannerMatchCandidates(
       // Persisted tray rows keep their full candidates[] — carry the bucket so
       // rehydrated rows can still render/filter without a fresh search.
       rarityBucket: card.rarityBucket,
+      priceIsGradedReference,
+      gradedReferenceLabel,
     }];
   });
 }
@@ -3306,6 +3358,10 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return { deleted: true };
   }
 
+  async exportDeckEntriesCsv(): Promise<string> {
+    return 'name,set,number,quantity\n';
+  }
+
   async setPortfolioEntryQuantity(payload: SetPortfolioEntryQuantityRequestPayload) {
     return {
       deckEntryID: payload.deckEntryID,
@@ -4572,6 +4628,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       cardText: buildCardText(detailResponse.data.cardText),
       tcgPlayerVariants: card.tcgPlayerVariants,
       population: normalizeCardPopulation(detailResponse.data.population),
+      gradedReference: normalizeGradedReference(detailResponse.data.gradedReference),
       artist: normalizeString(detailResponse.data.artist),
       releaseDate: normalizeString(detailResponse.data.setReleaseDate),
     };
@@ -4937,6 +4994,17 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+      },
+    });
+  }
+
+  async exportDeckEntriesCsv(): Promise<string> {
+    // The response is text/csv, not JSON, so it's fetched via requestText and
+    // returned verbatim as the raw CSV body. Owner-scoped server-side.
+    return this.requestTextOrThrow(`${this.baseUrl}/api/v1/deck/entries/export`, {
+      method: 'GET',
+      headers: {
+        Accept: 'text/csv',
       },
     });
   }
@@ -5688,6 +5756,68 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     }
 
     return result.data;
+  }
+
+  // Text variant of requestJson: authenticates and fetches the same way (auth
+  // header, per-attempt timeout/abort, base-url candidate failover) but returns
+  // the raw response body as text instead of parsing JSON. Used for endpoints
+  // that serve text/csv. Throws SpotlightRepositoryRequestError on transport or
+  // HTTP failure, matching requestJsonOrThrow's error surface.
+  private async requestTextOrThrow(
+    url: string,
+    init?: RequestInit,
+    options?: Pick<JsonRequestOptions, 'candidateStrategy' | 'timeoutMs'>,
+  ): Promise<string> {
+    const candidateUrls = this.expandRequestCandidateUrls(url, options?.candidateStrategy);
+    const requestInit = await this.requestInitWithAuth(init);
+    let lastNetworkError: SpotlightRepositoryRequestError | null = null;
+
+    for (const candidateUrl of candidateUrls) {
+      let response: Response;
+      const controller = typeof AbortController === 'function' ? new AbortController() : null;
+      const timeoutId = controller
+        ? setTimeout(() => {
+          controller.abort();
+        }, options?.timeoutMs ?? defaultHttpRequestTimeoutMs)
+        : null;
+
+      try {
+        response = await fetch(
+          candidateUrl,
+          controller ? { ...requestInit, signal: controller.signal } : requestInit,
+        );
+      } catch (error) {
+        lastNetworkError = new SpotlightRepositoryRequestError(
+          isAbortError(error)
+            ? 'Request timed out while contacting the Spotlight backend.'
+            : errorMessageFromUnknown(error, 'Could not reach the Spotlight backend.'),
+          'request_failed',
+        );
+        continue;
+      } finally {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+      }
+
+      this.promoteSuccessfulBaseUrl(candidateUrl);
+
+      if (!response.ok) {
+        const message = await safeResponseText(response);
+        throw new SpotlightRepositoryRequestError(
+          message || `Request failed with status ${response.status}`,
+          'request_failed',
+          response.status,
+        );
+      }
+
+      return await response.text();
+    }
+
+    throw lastNetworkError ?? new SpotlightRepositoryRequestError(
+      'Could not reach the Spotlight backend.',
+      'request_failed',
+    );
   }
 
   private async uploadScanArtifactsForMatch(
