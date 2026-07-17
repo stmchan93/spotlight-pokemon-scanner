@@ -580,7 +580,7 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   expansionListContent: {
-    paddingBottom: 24,
+    paddingBottom: 48,
     paddingHorizontal: 8,
     paddingTop: 4,
   },
@@ -645,7 +645,7 @@ const styles = StyleSheet.create({
   },
   resultsListContent: {
     gap: 12,
-    paddingBottom: 24,
+    paddingBottom: 48,
     paddingHorizontal: 16,
     paddingTop: 4,
   },
