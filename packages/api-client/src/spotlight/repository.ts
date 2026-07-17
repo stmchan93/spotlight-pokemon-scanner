@@ -11,7 +11,7 @@ import {
   seedMockScannerCandidates,
   updateInventoryForSale,
 } from './mock-data';
-import { labelingSessionAngleLabels } from './types';
+import { labelingSessionAngleLabels, RARITY_BUCKET_VALUES } from './types';
 import type {
   AccessRedeemResult,
   AccessStatus,
@@ -93,6 +93,7 @@ import type {
   PortfolioSaleResponsePayload,
   RawPricingMatrix,
   RawPricingMatrixConditionRow,
+  RarityBucket,
   RecentSaleRecord,
   SaleLifecycleResponsePayload,
   SaleStatus,
@@ -121,6 +122,12 @@ export type CatalogSearchPage = {
   hasMore: boolean;
 };
 
+/** Optional server-side filters for catalog search. */
+export type CatalogSearchOptions = {
+  /** Rarity bucket filter — sent as the `rarityBucket` query-string param. */
+  rarityBucket?: RarityBucket;
+};
+
 export interface SpotlightRepository {
   loadPortfolioDashboard(options?: { range?: keyof PortfolioDashboard['ranges'] }): Promise<SpotlightRepositoryLoadResult<PortfolioDashboard>>;
   getPortfolioDashboard(): Promise<PortfolioDashboard>;
@@ -128,10 +135,10 @@ export interface SpotlightRepository {
   getPortfolioPerformance(): Promise<PortfolioPerformance>;
   loadInventoryEntries(query?: InventoryEntriesQuery): Promise<SpotlightRepositoryLoadResult<InventoryCardEntry[]>>;
   getInventoryEntries(query?: InventoryEntriesQuery): Promise<InventoryCardEntry[]>;
-  loadCatalogCards(query: string, limit?: number, offset?: number): Promise<CatalogSearchLoadResult>;
+  loadCatalogCards(query: string, limit?: number, offset?: number, options?: CatalogSearchOptions): Promise<CatalogSearchLoadResult>;
   searchCatalogCards(query: string, limit?: number): Promise<CatalogSearchResult[]>;
   /** Paginated catalog search for infinite scroll — returns a page + hasMore. */
-  searchCatalogCardsPage(query: string, limit?: number, offset?: number): Promise<CatalogSearchPage>;
+  searchCatalogCardsPage(query: string, limit?: number, offset?: number, options?: CatalogSearchOptions): Promise<CatalogSearchPage>;
   matchScannerCapture(
     payload: ScannerCapturePayload,
     options?: ScannerMatchOptions,
@@ -316,6 +323,9 @@ type CardCandidateDTO = {
   imageLargeURL?: string | null;
   pricing?: CardPricingSummaryDTO | null;
   isFavorite?: boolean | null;
+  // Server-computed rarity bucket; validated client-side against the known
+  // bucket keys (the client never re-implements the rarity→bucket mapping).
+  rarityBucket?: string | null;
   // Raw Scrydex catalog payload; we only read `variants[].marketplaces` to
   // surface per-printing TCGplayer product ids for deep links.
   sourcePayload?: {
@@ -761,6 +771,7 @@ type NormalizedCardCandidate = {
   imageSmallURL: string;
   imageLargeURL: string;
   isFavorite: boolean;
+  rarityBucket?: RarityBucket;
   pricing: {
     currencyCode: string;
     market: number | null;
@@ -1459,6 +1470,15 @@ function withCardNumberPrefix(value: string) {
   return value.startsWith('#') ? value : `#${value}`;
 }
 
+// The server owns the rarity→bucket mapping; the client only checks that a
+// served value is one of the known bucket keys. Unknown/missing values map to
+// undefined so the card simply matches no rarity filter chip (never crashes).
+function normalizeRarityBucket(value: unknown): RarityBucket | undefined {
+  return typeof value === 'string' && (RARITY_BUCKET_VALUES as readonly string[]).includes(value)
+    ? (value as RarityBucket)
+    : undefined;
+}
+
 function normalizeCardCandidate(candidate: CardCandidateDTO | null | undefined, baseUrl?: string) {
   const id = normalizeString(candidate?.id);
   const name = normalizeString(candidate?.name);
@@ -1481,6 +1501,7 @@ function normalizeCardCandidate(candidate: CardCandidateDTO | null | undefined, 
     imageSmallURL: normalizeImageUrl(candidate?.imageSmallURL, baseUrl),
     imageLargeURL: normalizeImageUrl(candidate?.imageLargeURL, baseUrl),
     isFavorite: normalizeBoolean(candidate?.isFavorite) ?? false,
+    rarityBucket: normalizeRarityBucket(candidate?.rarityBucket),
     pricing: {
       currencyCode: normalizeCurrencyCode(candidate?.pricing?.currencyCode),
       market: normalizeNumber(candidate?.pricing?.market),
@@ -1648,6 +1669,9 @@ function mapScannerMatchCandidates(
       ownedQuantity: 0,
       isFavorite: card.isFavorite,
       matchScore: normalizeNumber(entry?.finalScore) ?? normalizeNumber(entry?.imageScore),
+      // Persisted tray rows keep their full candidates[] — carry the bucket so
+      // rehydrated rows can still render/filter without a fresh search.
+      rarityBucket: card.rarityBucket,
     }];
   });
 }
@@ -1742,6 +1766,7 @@ function mapDeckEntry(entry: DeckEntryDTO, baseUrl?: string): InventoryCardEntry
     conditionLabel: conditionCopy.label ?? null,
     conditionShortLabel: conditionCopy.shortLabel ?? null,
     slabContext,
+    rarityBucket: card.rarityBucket,
     costBasisPerUnit: explicitCostBasisPerUnit ?? derivedCostBasisPerUnit,
     costBasisTotal: costBasisTotal ?? null,
     isFavorite: normalizeBoolean(entry.isFavorite) ?? card.isFavorite,
@@ -2744,14 +2769,22 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return result.data ?? [];
   }
 
-  async loadCatalogCards(query: string, limit = 20, offset = 0): Promise<CatalogSearchLoadResult> {
+  async loadCatalogCards(query: string, limit = 20, offset = 0, options?: CatalogSearchOptions): Promise<CatalogSearchLoadResult> {
     const normalized = query.trim().toLowerCase();
-    if (normalized.length < 2) {
+    const rarityBucket = options?.rarityBucket;
+    // Mirrors the HTTP repository: a rarity chip alone is a valid search.
+    if (normalized.length < 2 && !rarityBucket) {
       return { ...buildLoadResult('empty', []), hasMore: false };
     }
 
     const start = Math.max(0, offset);
     const matched = this.catalogResults.filter((result) => {
+      if (rarityBucket && result.rarityBucket !== rarityBucket) {
+        return false;
+      }
+      if (normalized.length === 0) {
+        return true;
+      }
       return [result.name, result.setName, result.cardNumber, result.subtitle]
         .filter(Boolean)
         .join(' ')
@@ -2779,8 +2812,8 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return result.data ?? [];
   }
 
-  async searchCatalogCardsPage(query: string, limit = 20, offset = 0): Promise<CatalogSearchPage> {
-    const result = await this.loadCatalogCards(query, limit, offset);
+  async searchCatalogCardsPage(query: string, limit = 20, offset = 0, options?: CatalogSearchOptions): Promise<CatalogSearchPage> {
+    const result = await this.loadCatalogCards(query, limit, offset, options);
     return { cards: result.data ?? [], hasMore: result.hasMore };
   }
 
@@ -3800,6 +3833,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           currencyCode: card.pricing.currencyCode,
           ownedQuantity: 0,
           isFavorite: card.isFavorite,
+          rarityBucket: card.rarityBucket,
         }];
       });
   }
@@ -4161,17 +4195,25 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     return result.data ?? [];
   }
 
-  async loadCatalogCards(query: string, limit = 20, offset = 0): Promise<CatalogSearchLoadResult> {
+  async loadCatalogCards(query: string, limit = 20, offset = 0, options?: CatalogSearchOptions): Promise<CatalogSearchLoadResult> {
     const normalized = query.trim();
-    if (normalized.length < 2) {
+    const rarityBucket = options?.rarityBucket;
+    // A rarity chip alone is a valid search (browse-by-rarity with no text);
+    // text-only searches keep the existing 2-character minimum.
+    if (normalized.length < 2 && !rarityBucket) {
       return { ...buildLoadResult('empty', []), hasMore: false };
     }
 
     const queryParams = new URLSearchParams({
-      q: normalized,
       limit: String(Math.max(1, Math.min(limit, 100))),
       offset: String(Math.max(0, offset)),
     });
+    if (normalized.length > 0) {
+      queryParams.set('q', normalized);
+    }
+    if (rarityBucket) {
+      queryParams.set('rarityBucket', rarityBucket);
+    }
     const [searchResponse, inventoryResult] = await Promise.all([
       this.requestJson<SearchResultsDTO>(`${this.baseUrl}/api/v1/cards/search?${queryParams.toString()}`),
       this.loadInventoryEntries(),
@@ -4208,6 +4250,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
             .filter((entry: InventoryCardEntry) => entry.cardId === card.id)
             .reduce((sum: number, entry: InventoryCardEntry) => sum + entry.quantity, 0),
           isFavorite: card.isFavorite,
+          rarityBucket: card.rarityBucket,
         }];
       });
 
@@ -4226,8 +4269,8 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     return result.data ?? [];
   }
 
-  async searchCatalogCardsPage(query: string, limit = 20, offset = 0): Promise<CatalogSearchPage> {
-    const result = await this.loadCatalogCards(query, limit, offset);
+  async searchCatalogCardsPage(query: string, limit = 20, offset = 0, options?: CatalogSearchOptions): Promise<CatalogSearchPage> {
+    const result = await this.loadCatalogCards(query, limit, offset, options);
     if (result.state === 'error') {
       throw new SpotlightRepositoryRequestError(
         result.errorMessage ?? 'Search unavailable right now.',
@@ -4791,6 +4834,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           conditionLabel: conditionCopy.label ?? null,
           conditionShortLabel: conditionCopy.shortLabel ?? null,
           slabContext,
+          rarityBucket: normalizeRarityBucket(card.rarityBucket),
           dayChangeAmount: normalizeNumber(entry.dayChangeAmount) ?? null,
           dayChangePercent: normalizeNumber(entry.dayChangePercent) ?? null,
           sinceAddedChangeAmount: normalizeNumber(entry.sinceAddedChangeAmount) ?? null,
@@ -5178,6 +5222,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           .filter((entry: InventoryCardEntry) => entry.cardId === card.id)
           .reduce((sum: number, entry: InventoryCardEntry) => sum + entry.quantity, 0),
         isFavorite: card.isFavorite,
+        rarityBucket: card.rarityBucket,
       }];
     });
   }

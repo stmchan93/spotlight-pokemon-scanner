@@ -280,6 +280,8 @@ export type InventoryCardEntry = {
   conditionLabel?: string | null;
   conditionShortLabel?: string | null;
   slabContext?: SlabContext | null;
+  /** Server-computed rarity bucket; undefined on older cached payloads. */
+  rarityBucket?: RarityBucket;
   costBasisPerUnit?: number | null;
   costBasisTotal?: number | null;
   isFavorite?: boolean;
@@ -493,6 +495,57 @@ export type PortfolioDashboard = {
   insights?: PortfolioInsights | null;
 };
 
+/**
+ * Server-computed rarity bucket served on every card payload. The backend owns
+ * the rarity→bucket mapping; clients only read the field. Older cached
+ * payloads may omit it — such cards simply match no rarity filter chip.
+ */
+export type RarityBucket =
+  | 'sir'
+  | 'illustration'
+  | 'ultra'
+  | 'secret'
+  | 'shiny'
+  | 'promo'
+  | 'standard'
+  | 'other';
+
+/** Every valid `rarityBucket` value — used to validate served payloads. */
+export const RARITY_BUCKET_VALUES: readonly RarityBucket[] = [
+  'sir',
+  'illustration',
+  'ultra',
+  'secret',
+  'shiny',
+  'promo',
+  'standard',
+  'other',
+];
+
+/** The buckets that surface as filter chips (promo/standard/other get none). */
+export type RarityFilterBucket = 'sir' | 'illustration' | 'ultra' | 'secret' | 'shiny';
+
+/** Chip order shared by the Collection/Wishlist/Catalog rarity chip rows. */
+export const RARITY_FILTER_BUCKETS: readonly RarityFilterBucket[] = [
+  'sir',
+  'illustration',
+  'ultra',
+  'secret',
+  'shiny',
+];
+
+/**
+ * User-facing chip labels for the filterable buckets. This map is the ONLY
+ * client home for these labels — never restate them in screens.
+ */
+export const RARITY_BUCKET_LABELS: Record<RarityFilterBucket, string> = {
+  sir: 'SIR',
+  illustration: 'Illus. Rare',
+  ultra: 'Full Art',
+  secret: 'Secret',
+  shiny: 'Shiny',
+};
+
 export type CatalogSearchResult = {
   id: string;
   cardId: string;
@@ -511,6 +564,8 @@ export type CatalogSearchResult = {
   isFavorite?: boolean;
   /** Normalized match confidence in [0, 1] for scanner candidates; null/undefined for catalog search. */
   matchScore?: number | null;
+  /** Server-computed rarity bucket; undefined on older cached payloads. */
+  rarityBucket?: RarityBucket;
 };
 
 export type ExpansionRecord = {
@@ -899,6 +954,8 @@ export type CardFavoriteEntry = {
   conditionShortLabel?: string | null;
   /** Grader/grade for owned graded copies; null for raw or unowned favorites. */
   slabContext?: SlabContext | null;
+  /** Server-computed rarity bucket; undefined on older cached payloads. */
+  rarityBucket?: RarityBucket;
   /** Day-over-day market price change for the owned/raw lane, in `currencyCode`. */
   dayChangeAmount?: number | null;
   dayChangePercent?: number | null;

@@ -462,6 +462,7 @@ export const mockCatalogResults: CatalogSearchResult[] = [
     imageUrl: `${cdn}/sm7/2.png`,
     marketPrice: 0.28,
     currencyCode: 'USD',
+    rarityBucket: 'illustration',
   },
   {
     id: 'np-3',
@@ -472,6 +473,8 @@ export const mockCatalogResults: CatalogSearchResult[] = [
     imageUrl: `${cdn}/np/3.png`,
     marketPrice: 1.42,
     currencyCode: 'USD',
+    // promo is deliberately NOT chip-able — exercises the "no tag" row path.
+    rarityBucket: 'promo',
   },
   {
     id: 'dp1-3',
