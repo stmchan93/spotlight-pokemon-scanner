@@ -1,5 +1,10 @@
 import { ScrollView, StyleSheet, View } from 'react-native';
 
+import {
+  RARITY_BUCKET_LABELS,
+  RARITY_FILTER_BUCKETS,
+  type RarityFilterBucket,
+} from '@spotlight/api-client';
 import { PillButton } from '@spotlight/design-system';
 
 export type CollectionFilterKey =
@@ -8,7 +13,8 @@ export type CollectionFilterKey =
   | 'price'
   | 'favorites'
   | 'ungraded'
-  | 'graded';
+  | 'graded'
+  | RarityFilterBucket;
 
 export const COLLECTION_FILTER_ORDER: CollectionFilterKey[] = [
   'all',
@@ -17,6 +23,7 @@ export const COLLECTION_FILTER_ORDER: CollectionFilterKey[] = [
   'favorites',
   'ungraded',
   'graded',
+  ...RARITY_FILTER_BUCKETS,
 ];
 
 const FILTER_LABELS: Record<CollectionFilterKey, string> = {
@@ -26,6 +33,8 @@ const FILTER_LABELS: Record<CollectionFilterKey, string> = {
   favorites: 'Likes',
   ungraded: 'Ungraded',
   graded: 'Graded',
+  // Rarity chip labels live in the api-client (single client home).
+  ...RARITY_BUCKET_LABELS,
 };
 
 type CollectionFilterChipRowProps = {

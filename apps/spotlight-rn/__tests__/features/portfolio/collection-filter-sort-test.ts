@@ -59,4 +59,23 @@ describe('applyCollectionFilter', () => {
     ];
     expect(applyCollectionFilter(items, 'favorites').map((e) => e.id)).toEqual(['b', 'a']);
   });
+
+  it('a rarity chip keeps only entries whose served bucket matches', () => {
+    const items = [
+      entry({ id: 'sirCard', rarityBucket: 'sir' }),
+      entry({ id: 'illusCard', rarityBucket: 'illustration' }),
+      entry({ id: 'plainCard', rarityBucket: 'standard' }),
+    ];
+    expect(applyCollectionFilter(items, 'sir').map((e) => e.id)).toEqual(['sirCard']);
+    expect(applyCollectionFilter(items, 'illustration').map((e) => e.id)).toEqual(['illusCard']);
+  });
+
+  it('entries missing rarityBucket (old cached payloads) never match a rarity chip', () => {
+    const items = [
+      entry({ id: 'noBucket' }),
+      entry({ id: 'shinyCard', rarityBucket: 'shiny' }),
+    ];
+    expect(applyCollectionFilter(items, 'shiny').map((e) => e.id)).toEqual(['shinyCard']);
+    expect(applyCollectionFilter(items, 'ultra')).toEqual([]);
+  });
 });

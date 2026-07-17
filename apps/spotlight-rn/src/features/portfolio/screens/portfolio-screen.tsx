@@ -141,6 +141,14 @@ export function applyCollectionFilter(
       return items.filter((entry) => entry.kind !== 'graded');
     case 'graded':
       return items.filter((entry) => entry.kind === 'graded');
+    case 'sir':
+    case 'illustration':
+    case 'ultra':
+    case 'secret':
+    case 'shiny':
+      // Server-computed bucket; entries from older cached payloads carry no
+      // rarityBucket and simply never match a rarity chip.
+      return items.filter((entry) => entry.rarityBucket === filter);
     default:
       return items;
   }

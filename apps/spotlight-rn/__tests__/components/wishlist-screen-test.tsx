@@ -109,6 +109,37 @@ describe('WishlistScreen', () => {
     expect(screen.queryByTestId('wishlist-list-pagination-view-more')).toBeNull();
   });
 
+  it('rarity chips keep only entries whose served bucket matches (missing bucket never matches)', async () => {
+    const favorites = [
+      buildFavoriteEntry({ cardId: 'sir-card', name: 'Charizard ex', rarityBucket: 'sir' }),
+      buildFavoriteEntry({ cardId: 'shiny-card', name: 'Shiny Gengar', rarityBucket: 'shiny' }),
+      // Older cached payloads carry no rarityBucket → excluded by every chip.
+      buildFavoriteEntry({ cardId: 'plain-card', name: 'Pidgey' }),
+    ];
+    const repository = createTestSpotlightRepository({
+      getCardFavorites: async () => favorites,
+    });
+
+    renderWishlistScreen(repository);
+    await screen.findByTestId('wishlist-row-sir-card');
+
+    // Chip labels come from the api-client RARITY_BUCKET_LABELS map.
+    expect(screen.getByText('SIR')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('wishlist-filter-sir'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('wishlist-row-shiny-card')).toBeNull();
+    });
+    expect(screen.getByTestId('wishlist-row-sir-card')).toBeTruthy();
+    expect(screen.queryByTestId('wishlist-row-plain-card')).toBeNull();
+
+    // Back to All restores every entry.
+    fireEvent.press(screen.getByTestId('wishlist-filter-all'));
+    await waitFor(() => {
+      expect(screen.getByTestId('wishlist-row-plain-card')).toBeTruthy();
+    });
+  });
+
   it('list rows show the SINCE-ADDED change pill (not day change) with caption + sparkline', async () => {
     const favorites = [
       buildFavoriteEntry({

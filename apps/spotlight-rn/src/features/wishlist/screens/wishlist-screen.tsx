@@ -14,7 +14,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 
-import type { CardFavoriteEntry } from '@spotlight/api-client';
+import {
+  RARITY_BUCKET_LABELS,
+  RARITY_FILTER_BUCKETS,
+  type CardFavoriteEntry,
+  type RarityFilterBucket,
+} from '@spotlight/api-client';
 import {
   CardListRow,
   IconButton,
@@ -45,8 +50,12 @@ import { useAppServices } from '@/providers/app-providers';
 // blank. Omit the condition/grade + print variant from every wishlist row so
 // they're consistent; the slab-case thumbnail frame still marks graded copies.
 
-type WishlistFilterKey = 'all' | 'az' | 'price' | 'owned' | 'unowned';
+type WishlistFilterKey = 'all' | 'az' | 'price' | 'owned' | 'unowned' | RarityFilterBucket;
 type WishlistViewMode = 'grid' | 'list';
+
+function isRarityFilterKey(key: WishlistFilterKey): key is RarityFilterBucket {
+  return (RARITY_FILTER_BUCKETS as readonly string[]).includes(key);
+}
 
 // One virtualized row of the wishlist. List view renders one card per row; card
 // view renders up to two tiles per ruled row (or a single boxed tile when the
@@ -62,6 +71,8 @@ const FILTERS: readonly { key: WishlistFilterKey; label: string; hasArrow?: bool
   { key: 'price', label: 'Price', hasArrow: true },
   { key: 'unowned', label: 'Unowned' },
   { key: 'owned', label: 'Owned' },
+  // Rarity chips (labels live in the api-client — the single client home).
+  ...RARITY_FILTER_BUCKETS.map((key) => ({ key, label: RARITY_BUCKET_LABELS[key] })),
 ];
 
 const GRID_COLUMNS = 2;
@@ -187,6 +198,10 @@ export function WishlistScreen() {
       entries = entries.filter((entry) => entry.isOwned);
     } else if (activeFilter === 'unowned') {
       entries = entries.filter((entry) => !entry.isOwned);
+    } else if (isRarityFilterKey(activeFilter)) {
+      // Server-computed bucket; entries from older cached payloads carry no
+      // rarityBucket and simply never match a rarity chip.
+      entries = entries.filter((entry) => entry.rarityBucket === activeFilter);
     }
     if (normalized.length > 0) {
       entries = entries.filter((entry) =>
