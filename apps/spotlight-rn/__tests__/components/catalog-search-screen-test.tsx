@@ -223,6 +223,59 @@ describe('CatalogSearchScreen', () => {
     expect(screen.getByTestId('catalog-artwork-fallback-fallback-1')).toBeTruthy();
   });
 
+  it('sends the rarityBucket option on a chip-only search (no text required)', async () => {
+    const searchSpy = jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage')
+      .mockResolvedValue({ cards: ownedCatalogResults.slice(0, 1), hasMore: false });
+
+    renderWithProviders(
+      <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />,
+    );
+
+    // Tap a rarity chip with the search box empty → browse-by-rarity search.
+    fireEvent.press(screen.getByTestId('catalog-rarity-chip-sir'));
+    await advanceDebounce();
+
+    expect(searchSpy).toHaveBeenCalledWith('', expect.any(Number), 0, { rarityBucket: 'sir' });
+    expect(await screen.findByTestId('catalog-result-sm7-1')).toBeTruthy();
+
+    // Text + chip combine into one search request.
+    fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'tree');
+    await advanceDebounce();
+    expect(searchSpy).toHaveBeenCalledWith('tree', expect.any(Number), 0, { rarityBucket: 'sir' });
+
+    // Tapping the active chip again clears it; with text present the next
+    // search goes out without the rarity option.
+    fireEvent.press(screen.getByTestId('catalog-rarity-chip-sir'));
+    await advanceDebounce();
+    expect(searchSpy).toHaveBeenCalledWith('tree', expect.any(Number), 0, undefined);
+  });
+
+  it('shows the rarity tag on result rows only for chip-able buckets', async () => {
+    jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage').mockResolvedValue({
+      cards: [
+        { ...ownedCatalogResults[0], rarityBucket: 'illustration' },
+        // promo is served but chip-less → no tag on the row.
+        { ...ownedCatalogResults[2], rarityBucket: 'promo' },
+        // No bucket at all (old cached payload) → no tag, no crash.
+        { ...ownedCatalogResults[3], rarityBucket: undefined },
+      ],
+      hasMore: false,
+    });
+
+    renderWithProviders(
+      <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />,
+    );
+
+    fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'tree');
+    await advanceDebounce();
+
+    const tag = await screen.findByTestId('catalog-result-rarity-sm7-1');
+    // The chip row shows the same label, so assert on the row tag itself.
+    expect(tag.props.children).toBe('Illus. Rare');
+    expect(screen.queryByTestId('catalog-result-rarity-np-3')).toBeNull();
+    expect(screen.queryByTestId('catalog-result-rarity-dp1-3')).toBeNull();
+  });
+
   it('surfaces the retry action after a failed search', async () => {
     jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage')
       .mockRejectedValueOnce(new Error('offline'))

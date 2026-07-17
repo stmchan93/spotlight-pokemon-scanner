@@ -3,14 +3,21 @@ import {
   ActivityIndicator,
   FlatList,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import type { CatalogSearchResult, ExpansionRecord } from '@spotlight/api-client';
-import { SearchField, StateCard, colors, useSpotlightTheme } from '@spotlight/design-system';
+import {
+  RARITY_BUCKET_LABELS,
+  RARITY_FILTER_BUCKETS,
+  type CatalogSearchResult,
+  type ExpansionRecord,
+  type RarityFilterBucket,
+} from '@spotlight/api-client';
+import { PillButton, SearchField, StateCard, colors, useSpotlightTheme } from '@spotlight/design-system';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { ChromeBackButton } from '@/components/chrome-back-button';
@@ -39,6 +46,14 @@ type CatalogSearchScreenProps = {
 
 function resultNumberLabel(result: CatalogSearchResult) {
   return result.cardNumber.startsWith('#') ? result.cardNumber : `#${result.cardNumber}`;
+}
+
+// Chip label for the served bucket, or null for the chip-less buckets
+// (promo/standard/other) and for older cached payloads with no bucket.
+function rarityTagLabel(bucket: CatalogSearchResult['rarityBucket']): string | null {
+  return bucket && (RARITY_FILTER_BUCKETS as readonly string[]).includes(bucket)
+    ? RARITY_BUCKET_LABELS[bucket as RarityFilterBucket]
+    : null;
 }
 
 function ResultArtwork({
@@ -101,6 +116,7 @@ function SearchResultRow({
 }) {
   const theme = useSpotlightTheme();
   const subtitle = result.subtitle?.trim() ? result.subtitle : result.setName;
+  const rarityLabel = rarityTagLabel(result.rarityBucket);
 
   return (
     <View testID={`catalog-result-${result.id}`}>
@@ -142,9 +158,19 @@ function SearchResultRow({
               ) : null}
             </View>
 
-            <Text numberOfLines={2} style={[styles.resultSubtitle, { color: theme.colors.textSecondary }]}>
-              {subtitle}
-            </Text>
+            <View style={styles.resultSubtitleRow}>
+              <Text numberOfLines={2} style={[styles.resultSubtitle, { color: theme.colors.textSecondary }]}>
+                {subtitle}
+              </Text>
+              {rarityLabel ? (
+                <Text
+                  style={[theme.typography.caption, { color: theme.colors.textSecondary }]}
+                  testID={`catalog-result-rarity-${result.id}`}
+                >
+                  {rarityLabel}
+                </Text>
+              ) : null}
+            </View>
 
             <View style={styles.resultMetaRow}>
               <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
@@ -181,6 +207,9 @@ export function CatalogSearchScreen({
   const { spotlightRepository } = useAppServices();
 
   const [query, setQuery] = useState(initialQuery);
+  // Single-select rarity chip; tap again to clear. Sent to the backend as the
+  // `rarityBucket` search param (a chip alone is a valid browse-by-rarity).
+  const [activeRarity, setActiveRarity] = useState<RarityFilterBucket | null>(null);
   const [results, setResults] = useState<CatalogSearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
@@ -241,7 +270,8 @@ export function CatalogSearchScreen({
 
   useEffect(() => {
     const trimmed = query.trim();
-    if (trimmed.length < 2) {
+    // A rarity chip alone is a valid search (browse-by-rarity, no text).
+    if (trimmed.length < 2 && !activeRarity) {
       setResults([]);
       setHasSearched(false);
       setIsLoading(false);
@@ -253,6 +283,10 @@ export function CatalogSearchScreen({
       return;
     }
 
+    // Text + chip form one logical search; the key guards late "load more"
+    // pages when either input changes while a page is in flight.
+    const searchKey = `${trimmed}::${activeRarity ?? ''}`;
+
     setHasSearched(false);
     setErrorMessage('');
 
@@ -261,13 +295,18 @@ export function CatalogSearchScreen({
       setIsLoading(true);
 
       // First page: replace results. Later pages append via loadMore below.
-      void spotlightRepository.searchCatalogCardsPage(trimmed, CATALOG_PAGE_SIZE, 0)
+      void spotlightRepository.searchCatalogCardsPage(
+        trimmed,
+        CATALOG_PAGE_SIZE,
+        0,
+        activeRarity ? { rarityBucket: activeRarity } : undefined,
+      )
         .then((page) => {
           if (isCancelled) {
             return;
           }
 
-          activeQueryRef.current = trimmed;
+          activeQueryRef.current = searchKey;
           setResults(page.cards);
           setHasMore(page.hasMore);
           setIsLoadingMore(false);
@@ -294,10 +333,10 @@ export function CatalogSearchScreen({
       isCancelled = true;
       clearTimeout(timeout);
     };
-  }, [query, searchRevision, spotlightRepository]);
+  }, [activeRarity, query, searchRevision, spotlightRepository]);
 
   const trimmedQuery = query.trim();
-  const hasActiveQuery = trimmedQuery.length >= 2;
+  const hasActiveQuery = trimmedQuery.length >= 2 || activeRarity != null;
   const hasVisibleResults = hasActiveQuery && !errorMessage && results.length > 0;
 
   const openResult = (result: CatalogSearchResult) => {
@@ -314,15 +353,21 @@ export function CatalogSearchScreen({
 
   const loadMore = useCallback(() => {
     const trimmed = query.trim();
-    if (trimmed.length < 2 || isLoading || isLoadingMore || !hasMore) {
+    if ((trimmed.length < 2 && !activeRarity) || isLoading || isLoadingMore || !hasMore) {
       return;
     }
+    const searchKey = `${trimmed}::${activeRarity ?? ''}`;
     setIsLoadingMore(true);
     const offset = results.length;
-    void spotlightRepository.searchCatalogCardsPage(trimmed, CATALOG_PAGE_SIZE, offset)
+    void spotlightRepository.searchCatalogCardsPage(
+      trimmed,
+      CATALOG_PAGE_SIZE,
+      offset,
+      activeRarity ? { rarityBucket: activeRarity } : undefined,
+    )
       .then((page) => {
-        // Drop the page if the query changed while it was in flight.
-        if (activeQueryRef.current !== trimmed) {
+        // Drop the page if the query/chip changed while it was in flight.
+        if (activeQueryRef.current !== searchKey) {
           return;
         }
         setResults((previous) => {
@@ -333,14 +378,14 @@ export function CatalogSearchScreen({
         setIsLoadingMore(false);
       })
       .catch(() => {
-        if (activeQueryRef.current !== trimmed) {
+        if (activeQueryRef.current !== searchKey) {
           return;
         }
         // Stop paginating on error; the loaded results stay visible.
         setHasMore(false);
         setIsLoadingMore(false);
       });
-  }, [query, isLoading, isLoadingMore, hasMore, results.length, spotlightRepository]);
+  }, [query, activeRarity, isLoading, isLoadingMore, hasMore, results.length, spotlightRepository]);
 
   const renderBody = () => {
     // Search mode: the box has a real query, so show card matches / states.
@@ -494,6 +539,27 @@ export function CatalogSearchScreen({
           returnKeyType="search"
           value={query}
         />
+
+        {/* Rarity chips (same PillButton tone="filter" pattern as the
+            Collection filter row). Single-select; tapping the active chip
+            clears it. A chip alone searches with no text (browse-by-rarity). */}
+        <ScrollView
+          contentContainerStyle={styles.rarityChipRow}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          testID="catalog-rarity-chip-row"
+        >
+          {RARITY_FILTER_BUCKETS.map((key) => (
+            <PillButton
+              key={key}
+              label={RARITY_BUCKET_LABELS[key]}
+              onPress={() => setActiveRarity((current) => (current === key ? null : key))}
+              selected={activeRarity === key}
+              testID={`catalog-rarity-chip-${key}`}
+              tone="filter"
+            />
+          ))}
+        </ScrollView>
       </View>
 
       {renderBody()}
@@ -587,9 +653,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 16,
   },
+  rarityChipRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingRight: 16,
+  },
   resultSubtitle: {
+    flexShrink: 1,
     fontSize: 15,
     lineHeight: 20,
+  },
+  resultSubtitleRow: {
+    alignItems: 'baseline',
+    flexDirection: 'row',
+    gap: 8,
   },
   resultTitle: {
     flex: 1,
