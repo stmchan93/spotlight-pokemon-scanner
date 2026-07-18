@@ -51,6 +51,13 @@ from sync_scrydex_catalog import sync_scrydex_catalog  # noqa: E402
 
 class PricingPhase6Tests(unittest.TestCase):
     def setUp(self) -> None:
+        # The catalog sync refreshes the expansions table over the network;
+        # keep these tests offline.
+        expansions_patcher = patch(
+            "sync_scrydex_catalog.sync_scrydex_expansions", return_value=0
+        )
+        expansions_patcher.start()
+        self.addCleanup(expansions_patcher.stop)
         self.tempdir = tempfile.TemporaryDirectory()
         self.database_path = Path(self.tempdir.name) / "phase6.sqlite"
         self.connection = connect(self.database_path)

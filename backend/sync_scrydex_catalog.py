@@ -31,6 +31,7 @@ from scrydex_adapter import (
     persist_scrydex_daily_history_from_card_payload,
     persist_scrydex_raw_snapshot,
     scrydex_credentials,
+    sync_scrydex_expansions,
 )
 
 load_backend_env_file(Path(__file__).resolve().parent / ".env")
@@ -329,6 +330,17 @@ def _sync_scrydex_catalog_once(
             estimated_credits_used=totals["pagesFetched"],
         )
         connection.commit()
+        # Refresh the expansions table so newly released sets appear in the
+        # app's set browser the same day (the card pages above never touch
+        # it). Best-effort: a failure here must not fail the card sync.
+        expansions_refreshed = 0
+        expansions_refresh_error: str | None = None
+        try:
+            expansions_refreshed = sync_scrydex_expansions(connection, game="pokemon")
+            connection.commit()
+        except Exception as exc:
+            connection.rollback()
+            expansions_refresh_error = str(exc)
         # Keep FX snapshots current for the read paths (which never fetch).
         fx_summary = _refresh_fx_rates_for_catalog(connection)
         connection.commit()
@@ -341,6 +353,8 @@ def _sync_scrydex_catalog_once(
             "pageSize": page_size,
             **totals,
             "estimatedCreditsUsed": totals["pagesFetched"],
+            "expansionsRefreshed": expansions_refreshed,
+            "expansionsRefreshError": expansions_refresh_error,
             "fxRefresh": fx_summary,
             "completedAt": completed_at,
             "databasePath": str(database_path),

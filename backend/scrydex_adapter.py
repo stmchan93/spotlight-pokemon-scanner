@@ -1431,25 +1431,50 @@ def fetch_scrydex_expansions(game: str = "pokemon") -> list[dict[str, Any]]:
     return mapped
 
 
-def fetch_scrydex_expansions_raw(game: str = "pokemon") -> list[dict[str, Any]]:
+def fetch_scrydex_expansions_raw(
+    game: str = "pokemon",
+    *,
+    page_size: int = 100,
+) -> list[dict[str, Any]]:
     normalized_game = str(game or "pokemon").strip().lower()
-    try:
-        payload = scrydex_api_request(
-            f"/{normalized_game}/v1/expansions",
-            request_type="expansions_list",
-        )
-    except Exception:
-        return []
+    # Scrydex caps unpaginated responses at one page (100 items), which
+    # silently truncated the expansion catalog — page until a short page.
+    collected: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    page = 1
+    while True:
+        try:
+            payload = scrydex_api_request(
+                f"/{normalized_game}/v1/expansions",
+                request_type="expansions_list",
+                page=str(page),
+                page_size=str(page_size),
+            )
+        except Exception:
+            # Best-effort: keep whatever pages already arrived.
+            break
 
-    items = payload if isinstance(payload, list) else (
-        payload.get("expansions")
-        or payload.get("results")
-        or payload.get("data")
-        or []
-    )
-    if not isinstance(items, list):
-        return []
-    return [item for item in items if isinstance(item, dict) and item.get("id")]
+        items = payload if isinstance(payload, list) else (
+            payload.get("expansions")
+            or payload.get("results")
+            or payload.get("data")
+            or []
+        )
+        if not isinstance(items, list):
+            break
+        valid = [item for item in items if isinstance(item, dict) and item.get("id")]
+        fresh = [item for item in valid if str(item["id"]) not in seen_ids]
+        # A page of only repeats means the API ignored pagination; stop
+        # rather than loop forever on the same page.
+        if not fresh:
+            break
+        for item in fresh:
+            seen_ids.add(str(item["id"]))
+        collected.extend(fresh)
+        if len(valid) < page_size:
+            break
+        page += 1
+    return collected
 
 
 def sync_scrydex_expansions(connection: Any, *, game: str = "pokemon") -> int:
