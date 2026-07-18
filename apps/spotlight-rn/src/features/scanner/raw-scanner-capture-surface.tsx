@@ -2,9 +2,10 @@
 // runtime (silently dropped every scan's source image — see scanner dashboard).
 import * as FileSystem from 'expo-file-system/legacy';
 import type { ReactNode, RefObject } from 'react';
-import { useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import {
   Animated,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -380,6 +381,23 @@ export function RawScannerCaptureSurface({
     return () => clearTimeout(timer);
   }, [shouldMountCamera]);
 
+  // Android throws `CameraControl$OperationCanceledException: Camera is not
+  // active` if a non-neutral zoom is applied before the capture session is live
+  // — which is exactly what our 1.5x default does on mount. iOS activates
+  // synchronously enough to never hit this. So on Android ONLY, hold the zoom at
+  // the device default until `onStarted` fires (session active), then apply it.
+  // iOS is byte-for-byte unchanged (the guard is false there).
+  const [cameraStarted, setCameraStarted] = useState(false);
+  const appliedZoom = Platform.OS === 'android' && !cameraStarted ? undefined : zoom;
+  const handleCameraStarted = useCallback(() => {
+    setCameraStarted(true);
+    onCameraReady();
+  }, [onCameraReady]);
+  const handleCameraStopped = useCallback(() => {
+    setCameraStarted(false);
+    onCameraStopped?.();
+  }, [onCameraStopped]);
+
   return (
     <View style={styles.previewCanvas}>
       {isCameraMounted ? (
@@ -387,8 +405,8 @@ export function RawScannerCaptureSurface({
           device={device}
           isActive={shouldMountCamera}
           onError={onCameraError}
-          onStarted={onCameraReady}
-          onStopped={onCameraStopped}
+          onStarted={handleCameraStarted}
+          onStopped={handleCameraStopped}
           // Orient captures to the UI (locked to portrait) rather than the physical
           // device sensor. The default 'device' source rotates output with phone tilt
           // even under screen lock, which let a transitional orientation slip a sideways
@@ -398,7 +416,7 @@ export function RawScannerCaptureSurface({
           outputs={[photoOutput]}
           style={StyleSheet.absoluteFillObject}
           testID={`${testIDPrefix}-camera`}
-          zoom={zoom}
+          zoom={appliedZoom}
         />
       ) : (
         <View
