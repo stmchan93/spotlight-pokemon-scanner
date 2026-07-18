@@ -1,0 +1,65 @@
+# Spotlight backend — portable stack for Hetzner CCX / DO droplet / GCP.
+# Requires Docker Compose v2 (`docker compose ...`).
+#
+# ONE-TIME SETUP on the box:
+#   1) cp stack.env.example stack.env      # fill in the ~8 secrets (Scrydex/Supabase/eBay)
+#   2) put the 1.7 GB runtime slice in ./data  (use tools/stage_runtime_data.sh on your Mac,
+#      then rsync it up) — DB + active SigLIP2 index/adapter/onnx only, NOT the 54 GB tree.
+#   3) docker compose up -d --build && curl localhost:8788/api/v1/health
+#
+# Default artifact mode here is FILESYSTEM (writes to the volume) so the box has NO
+# GCP dependency. Set SPOTLIGHT_SCAN_ARTIFACTS_STORAGE=gcs + mount creds to keep GCS.
+
+services:
+  backend:
+    build:
+      context: .
+      args:
+        PYTHON_VERSION: "3.13"          # matches your dev venv (3.13.9); has wheels for all pins
+        TORCH_PACKAGE_SPEC: "torch==2.11.0+cpu"
+    image: spotlight-backend:latest
+    platform: linux/amd64              # AMD EPYC (CCX / t2d). Do NOT run on ARM without rebuilding wheels.
+    restart: unless-stopped
+    ports:
+      - "8788:8788"
+    env_file:
+      - stack.env                      # model config + secrets (git-ignored)
+    environment:
+      # These override stack.env / .env.production for the container world:
+      SPOTLIGHT_HOST: "0.0.0.0"
+      SPOTLIGHT_PORT: "8788"
+      SPOTLIGHT_DATABASE_PATH: "/app/backend/data/spotlight_scanner.sqlite"   # prod uses /tmp; volume here
+      SPOTLIGHT_SCAN_ARTIFACTS_STORAGE: "${SPOTLIGHT_SCAN_ARTIFACTS_STORAGE:-filesystem}"  # filesystem = no GCP
+      SPOTLIGHT_SCAN_ARTIFACTS_ROOT: "/app/backend/data/scan-artifacts"
+      # CPU throughput levers (your show knobs) — raise for shows, lower to protect the box.
+      SPOTLIGHT_MAX_CONCURRENT_SCAN_INFERENCES: "${SPOTLIGHT_MAX_CONCURRENT_SCAN_INFERENCES:-2}"
+      SPOTLIGHT_MAX_CONCURRENT_HEAVY_READS: "${SPOTLIGHT_MAX_CONCURRENT_HEAVY_READS:-4}"
+      # Only read when STORAGE=gcs (harmless otherwise):
+      GOOGLE_APPLICATION_CREDENTIALS: "/run/secrets/gcs-sa.json"
+    volumes:
+      - ./data:/app/backend/data                              # 1.7 GB runtime slice (DB + index + models)
+      # Uncomment ONLY if you set SPOTLIGHT_SCAN_ARTIFACTS_STORAGE=gcs:
+      # - ./secrets/gcs-sa.json:/run/secrets/gcs-sa.json:ro
+    # Pin CPU to compare apples-to-apples with GCP: "4" == t2d-standard-4, "16" == t2d-standard-16
+    # for a show. Requires Compose v2 (honors deploy.resources.limits).
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+    ulimits:
+      nofile: 65536
+
+  # OPTIONAL — Litestream sidecar (continuous SQLite replication). Pin 0.3.14 to match
+  # prod's WAL/restore format. Configure ./litestream.yml (see litestream.example.yml).
+  # litestream:
+  #   image: litestream/litestream:0.3.14
+  #   platform: linux/amd64
+  #   restart: unless-stopped
+  #   command: replicate
+  #   depends_on: [backend]
+  #   volumes:
+  #     - ./data:/app/backend/data
+  #     - ./litestream.yml:/etc/litestream.yml:ro
+  #     # - ./secrets/gcs-sa.json:/run/secrets/gcs-sa.json:ro   # if replicating to GCS
+  #   # environment:
+  #   #   GOOGLE_APPLICATION_CREDENTIALS: "/run/secrets/gcs-sa.json"

@@ -33,6 +33,9 @@ backend/*.pyc
 backend/venv/
 backend/.env
 backend/.env.*.secrets
+# Docker stack secrets (real filled env + mounted service-account creds)
+backend/stack.env
+backend/secrets/
 .venv-raw-visual-poc/
 .env.*.smoke.local
 

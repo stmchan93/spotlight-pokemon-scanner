@@ -1,8 +1,29 @@
-__pycache__/
+# Keep the build context tiny and the image code-only. The 54 GB data/ tree
+# (SQLite DBs + visual-index backups + models) is mounted as a volume at runtime,
+# never baked into the image. See docker-compose.yml.
+#
+# NOTE: the previous version only ignored data/*.sqlite, which left the 38 GB
+# visual-index backups + models in the build context. Ignore all of data/.
+data/
+.venv/
+venv/
+**/__pycache__/
 *.pyc
 *.pyo
+logs/
+*.log
+tests/
+review_web/node_modules/
+review_web/dist/
+review_queues/
+# secrets + env — provided at runtime via env_file / mounted secret, never baked
 .env
 .env.*
-data/*.sqlite
-data/*.db
-tests/
+stack.env
+secrets/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.git/
+.gitignore
+.DS_Store
