@@ -300,6 +300,25 @@ function buildExpoConfigForEnv(env = process.env, overridesPath = LOCAL_OVERRIDE
       ios: {
         deploymentTarget: '15.5',
       },
+      android: {
+        // async-storage 3.x ships its `storage-android` artifact in a bundled
+        // local maven repo that Expo prebuild does not auto-register on Android
+        // (iOS uses CocoaPods, so it's unaffected). Point Gradle at it via an
+        // absolute path computed from the workspace root so it resolves both
+        // locally and on EAS.
+        extraMavenRepos: [
+          `file://${path.resolve(
+            __dirname,
+            '..',
+            '..',
+            'node_modules',
+            '@react-native-async-storage',
+            'async-storage',
+            'android',
+            'local_repo',
+          )}`,
+        ],
+      },
     },
   ]);
 
