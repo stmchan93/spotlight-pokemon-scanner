@@ -75,16 +75,32 @@ export async function exportCollectionCsv(repository: SpotlightRepository): Prom
       await Share.share({ url: fileUri });
     }
   } catch (error) {
-    // Never surface the raw server body (JSON) to the user. After the repository's
-    // silent 503 retries, a still-busy backend gets a plain retry prompt; anything
-    // else gets a generic message.
-    const raw = error instanceof Error ? error.message : '';
-    const isServerBusy = /serverbusy|server is busy|busy right now/i.test(raw);
-    Alert.alert(
-      'Export failed',
-      isServerBusy
-        ? 'The server is busy right now. Please try again.'
-        : 'Could not export your collection. Please try again.',
-    );
+    Alert.alert('Export failed', readableErrorMessage(error));
   }
+}
+
+/**
+ * Backend errors arrive as a JSON body (e.g. `{"error":"The server is busy right
+ * now. Please try again.","errorType":"ServerBusy"}`). Show the human-readable
+ * `error`/`message` field, NOT the raw JSON blob. Falls back to the plain string
+ * (for non-JSON errors) and finally a generic line.
+ */
+function readableErrorMessage(error: unknown): string {
+  const raw = error instanceof Error && error.message.trim() ? error.message.trim() : '';
+  if (!raw) {
+    return 'Could not export your collection. Please try again.';
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      const record = parsed as Record<string, unknown>;
+      const field = record.error ?? record.message ?? record.detail;
+      if (typeof field === 'string' && field.trim()) {
+        return field.trim();
+      }
+    }
+  } catch {
+    // Not JSON — `raw` is already a plain human-readable string.
+  }
+  return raw;
 }
