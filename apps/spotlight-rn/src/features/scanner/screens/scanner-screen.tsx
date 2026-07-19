@@ -1660,6 +1660,18 @@ export function ScannerScreen({
         throw new Error('normalized_target_unavailable');
       }
 
+      // TEMP burst-dup diagnostic: per capture, print the id + source photo file
+      // + normalized crop file (basenames). If two captures share a basename the
+      // dup is a file collision; if distinct the dup is pixel-level. Remove once
+      // the burst duplicate-photo bug is root-caused.
+      if (process.env.NODE_ENV !== 'test') {
+        console.info(
+          `[DUPDIAG] id=${captureId} `
+          + `source=${photo.uri?.split('/').pop() ?? 'n/a'} `
+          + `normalized=${normalizedTarget.normalizedImageUri?.split('/').pop() ?? 'n/a'}`,
+        );
+      }
+
       // Phase 2: kick off raw collector-number OCR HERE so it runs concurrently
       // with the remaining capture work (source-base64 read, state updates) and
       // the network match request — never sequentially before/after. The promise
