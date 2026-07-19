@@ -431,6 +431,12 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                   // thumb during the swap), with a soft crossfade when it lands.
                   placeholder={capture.normalizedImageUri ? { uri: capture.normalizedImageUri } : undefined}
                   placeholderContentFit="cover"
+                  // Pin this image view to its capture id so expo-image never
+                  // reuses a decoded bitmap across rows during rapid burst
+                  // updates (a stale-decode display path that can show one row's
+                  // photo on another). Belt-and-suspenders alongside the
+                  // synchronous capture lock.
+                  recyclingKey={capture.id}
                   style={styles.captureThumb}
                   testID={`scanner-tray-image-${index}`}
                   transition={120}
@@ -591,6 +597,20 @@ export function ScannerScreen({
   const { hasPermission, requestPermission } = useCameraPermission();
   const [isCameraReady, setIsCameraReady] = useState(isTestEnv);
   const [isCapturing, setIsCapturing] = useState(false);
+  // SYNCHRONOUS capture lock. `isCapturing` is React state, so two burst taps
+  // fired within the same tick BOTH read the stale `false` before the setState
+  // re-renders → both enter `handleCapture` and call `capturePhoto` concurrently
+  // on the one photo output, which can hand back the SAME frame to both (two
+  // rows, distinct files, identical pixels — the "every other" burst duplicate).
+  // This ref is set true synchronously at capture entry so the second same-tick
+  // tap is rejected immediately, and mirrors `isCapturing` back to false via the
+  // effect below (covers every setIsCapturing(false) site without hand-syncing).
+  const capturingRef = useRef(false);
+  useEffect(() => {
+    if (!isCapturing) {
+      capturingRef.current = false;
+    }
+  }, [isCapturing]);
   // Quick white "shutter" flash over the preview the instant a photo is taken
   // (paired with the Heavy capture haptic) so the capture is clearly seen + felt.
   // REANIMATED (UI thread), not RN Animated: under burst-scan load the JS
@@ -1456,9 +1476,12 @@ export function ScannerScreen({
       return;
     }
 
-    if (!cameraRef.current || !isCameraReady || isCapturing) {
+    if (!cameraRef.current || !isCameraReady || isCapturing || capturingRef.current) {
       return;
     }
+    // Claim the lock synchronously BEFORE any await/setState so a second burst
+    // tap in the same tick can't slip past the (still-false) isCapturing state.
+    capturingRef.current = true;
 
     void triggerScannerHaptic();
     triggerCaptureFlash();
