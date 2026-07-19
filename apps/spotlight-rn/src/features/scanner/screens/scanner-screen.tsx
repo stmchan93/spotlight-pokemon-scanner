@@ -1660,16 +1660,27 @@ export function ScannerScreen({
         throw new Error('normalized_target_unavailable');
       }
 
-      // TEMP burst-dup diagnostic: per capture, print the id + source photo file
-      // + normalized crop file (basenames). If two captures share a basename the
-      // dup is a file collision; if distinct the dup is pixel-level. Remove once
-      // the burst duplicate-photo bug is root-caused.
+      // TEMP burst-dup diagnostic: per capture, print id + source/normalized
+      // basenames AND their md5 content hashes. Paths are already known unique, so
+      // if two captures share a SOURCE md5 the capture pipeline wrote the same
+      // frame twice (capture corruption); if source md5s differ but NORMALIZED
+      // md5s match, the crop step is the culprit. Remove after root-cause.
       if (process.env.NODE_ENV !== 'test') {
-        console.info(
-          `[DUPDIAG] id=${captureId} `
-          + `source=${photo.uri?.split('/').pop() ?? 'n/a'} `
-          + `normalized=${normalizedTarget.normalizedImageUri?.split('/').pop() ?? 'n/a'}`,
-        );
+        void (async () => {
+          let sourceMd5 = 'n/a';
+          let normMd5 = 'n/a';
+          try {
+            sourceMd5 = (await FileSystem.getInfoAsync(photo.uri, { md5: true }) as { md5?: string }).md5 ?? 'n/a';
+            normMd5 = (await FileSystem.getInfoAsync(normalizedTarget.normalizedImageUri, { md5: true }) as { md5?: string }).md5 ?? 'n/a';
+          } catch {
+            // best-effort diagnostic
+          }
+          console.info(
+            `[DUPDIAG] id=${captureId} `
+            + `source=${photo.uri?.split('/').pop() ?? 'n/a'} srcMd5=${sourceMd5} `
+            + `normalized=${normalizedTarget.normalizedImageUri?.split('/').pop() ?? 'n/a'} normMd5=${normMd5}`,
+          );
+        })();
       }
 
       // Phase 2: kick off raw collector-number OCR HERE so it runs concurrently
