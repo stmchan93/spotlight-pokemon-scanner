@@ -277,8 +277,16 @@ export function RawScannerCaptureSurface({
   // reverted. The remaining Android capture latency is largely 3A convergence on
   // the budget ISP; cutting it further needs a native frame-processor capture
   // pipeline (deep-copy the frame before the pool recycles), not a config toggle.
+  // Capture resolution feeds MATCH ACCURACY, not just the preview. The reticle
+  // crop is ~65% of the frame width, then resized to the 630px-wide matcher input.
+  // At HD (720×1280) the crop is only ~468px → UPSCALED to 630 → soft → the matcher
+  // loses the fine detail (set symbols, collector numbers) that separates similar
+  // cards. FHD (1080×1920) keeps the crop ~700px → DOWNSCALED to 630 → sharp. iOS
+  // negotiated a high-res still under HD already, so pin the higher target on
+  // Android only (its CameraX negotiation landed on the low 720 tier this session).
   const photoOutput = usePhotoOutput({
-    targetResolution: CommonResolutions.HD_16_9,
+    targetResolution:
+      Platform.OS === 'android' ? CommonResolutions.FHD_16_9 : CommonResolutions.HD_16_9,
     quality: rawVisualCaptureQuality,
     qualityPrioritization: 'balanced',
   });
