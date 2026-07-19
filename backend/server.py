@@ -343,6 +343,56 @@ def _recent_sales_age_hours(fetched_at: str | None) -> int | None:
     return int(delta.total_seconds() // 3600)
 
 
+def _recent_sales_variant_match_key(value: str | None) -> str:
+    """Collapse a printing label for comparison: "Reverse Holofoil",
+    "reverseHolofoil" and "reverse_holofoil" all become "reverseholofoil"."""
+    return re.sub(r"[^a-z0-9]", "", str(value or "").lower())
+
+
+def _filter_recent_sales_rows(
+    cached: dict[str, Any] | None,
+    *,
+    variant_key: str | None,
+    limit: int,
+) -> dict[str, Any] | None:
+    """Serve-time cleanup of cached Scrydex listings rows.
+
+    Scrydex's /listings honors company+grade but returns EVERY print variant of
+    the card and every flag flavor. Unfiltered, a GameStop-stamp promo comp
+    ($589) ranks above the holofoil sales ($60-$100) the row's market price
+    describes, and CGC *Pristine* 10 comps (is_perfect) interleave with plain
+    CGC 10 — the same class of leak as the graded_contexts signed-filter
+    (9b4a3cf), which this lane never got. Rules:
+      - drop rows flagged is_signed / is_error / is_perfect in the payload
+      - when a variant is requested, keep rows whose variant matches it
+        (rows with NO variant tag pass — dropping unknowns would empty lists)
+      - re-cap to `limit` after filtering
+    """
+    if cached is None:
+        return None
+    requested = _recent_sales_variant_match_key(variant_key)
+    kept: list[dict[str, Any]] = []
+    for sale in list(cached.get("sales") or []):
+        payload = sale.get("sourcePayload") or {}
+        if isinstance(payload, dict) and (
+            payload.get("is_signed") is True
+            or payload.get("is_error") is True
+            or payload.get("is_perfect") is True
+        ):
+            continue
+        if requested:
+            row_variant = _recent_sales_variant_match_key(sale.get("variant"))
+            if row_variant and row_variant != requested:
+                continue
+        kept.append(sale)
+        if len(kept) >= limit:
+            break
+    filtered = dict(cached)
+    filtered["sales"] = kept
+    filtered["resultCount"] = len(kept)
+    return filtered
+
+
 def _recent_sales_payload(
     cached: dict[str, Any] | None,
     *,
@@ -11875,10 +11925,11 @@ class SpotlightScanService:
         normalized_source = str(source or "").strip().lower() or "ebay"
         normalized_grader = str(grader or "").strip().upper() or None
         normalized_grade = str(grade or "").strip().upper() or None
-        # Prefer the request-selected printing, fall back to the card's stored
-        # variant, so 1st-Edition and Unlimited comps cache under distinct keys
-        # once the eBay query is edition-specific. None preserves prior behavior.
-        variant_key = str(variant or "").strip() or str(card.get("variant") or "").strip() or None
+        # The requested printing scopes serve-time FILTERING only. The cache is
+        # deliberately SHARED across variants (bare source key): the Scrydex
+        # listings request is variant-blind, so per-variant cache keys would
+        # re-buy the identical 25-row page once per printing.
+        requested_variant = str(variant or "").strip() or None
         try:
             normalized_limit = int(limit)
         except (TypeError, ValueError):
@@ -11898,17 +11949,18 @@ class SpotlightScanService:
                 unavailable_reason="Recent eBay sales need both a grader and a grade.",
             )
 
+        # Read the FULL cached page (not just `limit`) so serve-time filtering
+        # of off-variant / signed / Pristine rows can still fill `limit` slots.
         cached = slab_recent_sales_cache(
             self.connection,
             card_id=card_id,
             grader=normalized_grader,
             grade=normalized_grade,
             source=normalized_source,
-            variant_key=variant_key,
-            limit=normalized_limit,
+            limit=RECENT_SALES_MAX_LIMIT,
         )
         cached_payload = _recent_sales_payload(
-            cached,
+            _filter_recent_sales_rows(cached, variant_key=requested_variant, limit=normalized_limit),
             source=normalized_source,
             grader=normalized_grader,
             grade=normalized_grade,
@@ -11926,12 +11978,15 @@ class SpotlightScanService:
         if cached is not None and age_hours is not None and age_hours < refresh_after_hours:
             return cached_payload
 
+        # Fetch the max page from Scrydex (same one-request credit cost): the
+        # serve-time variant/flag filter needs headroom to still return `limit`
+        # clean rows.
         remote_payload = fetch_scrydex_recent_sales(
             card_id,
             source=normalized_source,
             grader=normalized_grader,
             grade=normalized_grade,
-            limit=normalized_limit,
+            limit=RECENT_SALES_MAX_LIMIT,
         )
         cached = replace_slab_recent_sales_cache(
             self.connection,
@@ -11939,7 +11994,6 @@ class SpotlightScanService:
             grader=normalized_grader,
             grade=normalized_grade,
             source=normalized_source,
-            variant_key=variant_key,
             sales=list(remote_payload.get("sales") or []),
             fetched_at=utc_now(),
             source_url=str(remote_payload.get("sourceURL") or "").strip() or None,
@@ -11947,7 +12001,7 @@ class SpotlightScanService:
         )
         self.connection.commit()
         return _recent_sales_payload(
-            cached,
+            _filter_recent_sales_rows(cached, variant_key=requested_variant, limit=normalized_limit),
             source=normalized_source,
             grader=normalized_grader,
             grade=normalized_grade,

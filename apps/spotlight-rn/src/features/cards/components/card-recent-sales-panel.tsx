@@ -29,6 +29,13 @@ type CardRecentSalesPanelProps = {
   testID?: string;
 };
 
+// Sellers often lead titles with the raw cert number ("140550170 Suicune…"),
+// which is pure noise on a one-line row — strip a leading 7+ digit run (with
+// optional "#"/separator). Never strips card numbers ("088/091" has a slash).
+function cleanSaleTitle(title: string): string {
+  return title.replace(/^[#\s]*\d{7,}(?![\d/])\s*[-–—:·]?\s*/, '').trim() || title;
+}
+
 // "Jun 30" — compact sold-date for the row.
 function formatSoldDate(soldAt: string | null | undefined): string | null {
   if (!soldAt) {
@@ -71,6 +78,7 @@ function SaleRow({
 }) {
   const theme = useSpotlightTheme();
   const dateText = formatSoldDate(sale.soldAt);
+  const displayTitle = cleanSaleTitle(sale.title ?? '');
 
   const content = (
     <>
@@ -84,7 +92,7 @@ function SaleRow({
           numberOfLines={1}
           style={[theme.typography.label, styles.saleTitle, { color: theme.colors.gray700 }]}
         >
-          {sale.title}
+          {displayTitle}
         </Text>
       </View>
       <Text style={[theme.typography.bodyMedium, { color: theme.colors.gray900 }]}>
@@ -96,7 +104,7 @@ function SaleRow({
   if (tappable && sale.saleUrl) {
     return (
       <Pressable
-        accessibilityLabel={`Open sold listing: ${sale.title}`}
+        accessibilityLabel={`Open sold listing: ${displayTitle}`}
         accessibilityRole="link"
         onPress={() => {
           void Linking.openURL(sale.saleUrl as string);

@@ -52,7 +52,6 @@ import { CardProductDetails } from '@/features/cards/components/card-product-det
 import { CardRecentSalesPanel } from '@/features/cards/components/card-recent-sales-panel';
 import {
   buildEbaySearchUrl,
-  buildEbaySoldsUrlFromSales,
   buildTcgPlayerProductUrl,
   buildTcgPlayerSearchUrl,
   resolveTcgPlayerProductId,
@@ -749,6 +748,12 @@ export function CardDetailScreen({
       if (!grader || !grade) {
         return;
       }
+      // Printing scope for the backend's serve-time comp filter (drops
+      // off-variant rows like a GameStop-stamp promo comp under a Holofoil
+      // row). Pipe keys carry it as the 3rd segment; space keys (staging)
+      // fall back to the configurator's selected print variant.
+      const keyVariant = row.key.split('|')[2]?.trim();
+      const variantName = keyVariant || selectedVariantLabel || null;
       // Accordion: toggle the inline last-solds panel for this row (instead of
       // kicking straight out to the eBay browser search).
       if (expandedTrendRowKey === row.key) {
@@ -772,7 +777,7 @@ export function CardDetailScreen({
       void spotlightRepository
         .getCardRecentSales({
           cardId: activeCardId,
-          slabContext: { grader, grade },
+          slabContext: { grader, grade, variantName },
           source: 'ebay',
           limit: 5,
           refresh: true,
@@ -841,10 +846,10 @@ export function CardDetailScreen({
       variant: selectedVariantLabel,
       language: detail.language,
     };
-    const seeAllUrl = buildEbaySoldsUrlFromSales(
-      (record?.sales ?? []).map((sale) => sale.title),
-      fallbackParams,
-    );
+    // The proven metadata query (name + number + set + quoted grade). A
+    // title-mined query was tried and reverted: seller typos/cert numbers get
+    // AND-required by eBay and zero the search.
+    const seeAllUrl = buildEbaySearchUrl(fallbackParams);
     return (
       <CardRecentSalesPanel
         isLoading={recentSalesLoadingKey === expandedTrendRowKey}

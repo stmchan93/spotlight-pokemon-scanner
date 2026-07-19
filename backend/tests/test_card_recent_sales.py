@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from http import HTTPStatus
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -224,6 +225,146 @@ class CardRecentSalesTests(unittest.TestCase):
         mocked.assert_not_called()
         self.assertEqual(payload["status"], "unavailable")
         self.assertEqual(payload["saleCount"], 0)
+
+    def _seed_mixed_variant_cache(self) -> None:
+        # A realistic Scrydex /listings page: company+grade honored, but every
+        # print variant and flag flavor interleaved (the Suicune $589 bug).
+        connection = connect(self.database_path)
+        replace_slab_recent_sales_cache(
+            connection,
+            card_id="gym1-60",
+            grader="PSA",
+            grade="10",
+            source="ebay",
+            sales=[
+                {
+                    "sourceSaleID": "sale-signed",
+                    "rank": 1,
+                    "title": "PSA 10 Slowbro AUTO",
+                    "soldAt": "2026-07-16T12:00:00Z",
+                    "price": 3050.0,
+                    "currencyCode": "USD",
+                    "listingURL": "https://www.ebay.com/itm/signed",
+                    "variant": None,
+                    "sourcePayload": {"is_signed": True},
+                },
+                {
+                    "sourceSaleID": "sale-promo",
+                    "rank": 2,
+                    "title": "140550170 PSA 10 Slowbro GameStop",
+                    "soldAt": "2026-07-15T12:00:00Z",
+                    "price": 589.0,
+                    "currencyCode": "USD",
+                    "listingURL": "https://www.ebay.com/itm/promo",
+                    "variant": "gamestopStamp",
+                    "sourcePayload": {"is_signed": False},
+                },
+                {
+                    "sourceSaleID": "sale-untagged",
+                    "rank": 3,
+                    "title": "PSA 10 Slowbro",
+                    "soldAt": "2026-07-14T12:00:00Z",
+                    "price": 105.0,
+                    "currencyCode": "USD",
+                    "listingURL": "https://www.ebay.com/itm/untagged",
+                    "variant": None,
+                    "sourcePayload": {},
+                },
+                {
+                    "sourceSaleID": "sale-holo",
+                    "rank": 4,
+                    "title": "PSA 10 Slowbro Holo",
+                    "soldAt": "2026-07-13T12:00:00Z",
+                    "price": 110.0,
+                    "currencyCode": "USD",
+                    "listingURL": "https://www.ebay.com/itm/holo",
+                    "variant": "Holofoil",
+                    "sourcePayload": {"is_perfect": False},
+                },
+                {
+                    "sourceSaleID": "sale-pristine",
+                    "rank": 5,
+                    "title": "CGC PRISTINE style PSA 10 Slowbro",
+                    "soldAt": "2026-07-12T12:00:00Z",
+                    "price": 451.0,
+                    "currencyCode": "USD",
+                    "listingURL": "https://www.ebay.com/itm/pristine",
+                    "variant": None,
+                    "sourcePayload": {"is_perfect": True},
+                },
+            ],
+            # "Just fetched" so the shared-cache freshness test below can assert
+            # refresh=True is a no-op inside the 24h TTL.
+            fetched_at=datetime.now(timezone.utc).isoformat(),
+            source_url="https://api.scrydex.com/pokemon/v1/cards/gym1-60/listings?source=ebay",
+            source_payload={"data": []},
+        )
+        connection.commit()
+        connection.close()
+
+    def test_service_card_recent_sales_drops_flagged_rows(self) -> None:
+        # Signed (autograph comp) and is_perfect (CGC Pristine-style) rows must
+        # never surface — same leak class as the graded_contexts signed-filter.
+        self._seed_mixed_variant_cache()
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        try:
+            payload = service.card_recent_sales("gym1-60", grader="PSA", grade="10", source="ebay", limit=5)
+        finally:
+            service.connection.close()
+
+        sale_urls = [sale["listingURL"] for sale in payload["sales"]]
+        self.assertEqual(
+            sale_urls,
+            [
+                "https://www.ebay.com/itm/promo",
+                "https://www.ebay.com/itm/untagged",
+                "https://www.ebay.com/itm/holo",
+            ],
+        )
+        self.assertEqual(payload["saleCount"], 3)
+
+    def test_service_card_recent_sales_filters_off_variant_rows_when_variant_requested(self) -> None:
+        # Explicit printing → off-variant comps drop (GameStop-stamp promo at
+        # $589 under a Holofoil row); rows with NO variant tag still pass.
+        self._seed_mixed_variant_cache()
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        try:
+            payload = service.card_recent_sales(
+                "gym1-60", grader="PSA", grade="10", source="ebay", variant="Holofoil", limit=5
+            )
+        finally:
+            service.connection.close()
+
+        sale_urls = [sale["listingURL"] for sale in payload["sales"]]
+        self.assertEqual(
+            sale_urls,
+            ["https://www.ebay.com/itm/untagged", "https://www.ebay.com/itm/holo"],
+        )
+        self.assertEqual(payload["saleCount"], 2)
+
+    def test_service_card_recent_sales_variant_shares_one_cache_entry(self) -> None:
+        # The Scrydex listings request is variant-blind, so requesting a
+        # printing must NOT split the cache (one credit per card+grader+grade).
+        self._seed_mixed_variant_cache()
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        try:
+            with patch("server.fetch_scrydex_recent_sales") as mocked:
+                payload = service.card_recent_sales(
+                    "gym1-60",
+                    grader="PSA",
+                    grade="10",
+                    source="ebay",
+                    variant="Holofoil",
+                    limit=5,
+                    refresh=True,
+                )
+        finally:
+            service.connection.close()
+
+        # Fresh shared cache (fetched <24h ago) → no Scrydex call even with
+        # refresh=True + a variant the cache was not keyed under.
+        mocked.assert_not_called()
+        self.assertEqual(payload["saleCount"], 2)
 
     def test_recent_sales_route_dispatches_to_service(self) -> None:
         handler = SpotlightRequestHandler.__new__(SpotlightRequestHandler)

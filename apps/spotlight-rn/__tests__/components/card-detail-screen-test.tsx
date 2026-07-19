@@ -539,7 +539,7 @@ describe('CardDetailScreen', () => {
     {
       label: mode === 'graded' ? 'PSA 10' : 'Near Mint',
       key: mode === 'graded'
-        ? (pipeKeys ? 'PSA|10|' : 'PSA 10')
+        ? (pipeKeys ? 'PSA|10|holofoil' : 'PSA 10')
         : (pipeKeys ? 'normal|near_mint' : 'NM'),
       currentPrice: 100,
       currencyCode: 'USD',
@@ -588,7 +588,8 @@ describe('CardDetailScreen', () => {
     saleCount: 5,
     sales: [0, 1, 2, 3, 4].map((index) => ({
       id: `sale-${index}`,
-      title: `Gengar ex 088/091 SV5K Japanese PSA 10 lot-${index}`,
+      // Sale 0 carries a leading PSA cert number, like real seller titles.
+      title: `${index === 0 ? '140550170 ' : ''}Gengar ex 088/091 SV5K Japanese PSA 10 lot-${index}`,
       soldAt: '2026-07-10T00:00:00.000Z',
       priceAmount: 100 + index,
       currencyCode: 'USD',
@@ -627,7 +628,9 @@ describe('CardDetailScreen', () => {
     expect(getCardRecentSales).toHaveBeenCalledWith(
       expect.objectContaining({
         cardId: 'sm7-1',
-        slabContext: { grader: 'PSA', grade: '10' },
+        // Space-form key ("PSA 10") carries no printing → falls back to the
+        // configurator's selected variant, scoping the backend comp filter.
+        slabContext: { grader: 'PSA', grade: '10', variantName: 'Normal' },
         source: 'ebay',
         limit: 5,
         refresh: true,
@@ -648,17 +651,24 @@ describe('CardDetailScreen', () => {
     expect(
       within(screen.getByTestId('detail-recent-sales-sale-0')).getByText('$100.00'),
     ).toBeTruthy();
+    // The leading cert number ("140550170 …") is stripped from the shown title.
+    expect(
+      within(screen.getByTestId('detail-recent-sales-sale-0')).getByText(
+        'Gengar ex 088/091 SV5K Japanese PSA 10 lot-0',
+      ),
+    ).toBeTruthy();
 
     // Tapping the clear sale opens the EXACT sold listing.
     fireEvent.press(screen.getByTestId('detail-recent-sales-sale-0'));
     expect(openURL).toHaveBeenCalledWith('https://www.ebay.com/itm/100');
 
-    // "See all on eBay" opens a title-derived SOLD search (aggregate list).
+    // "See all on eBay" opens the metadata-built SOLD search (aggregate list),
+    // grade-quoted so it can't backfill with other grades.
     fireEvent.press(screen.getByTestId('detail-recent-sales-see-all'));
     const seeAllUrl = openURL.mock.calls[1][0] as string;
     expect(seeAllUrl).toContain('https://www.ebay.com/sch/i.html');
     expect(seeAllUrl).toContain('LH_Sold=1');
-    expect(seeAllUrl).toContain('Gengar'); // token mined from the real sold titles
+    expect(seeAllUrl).toContain('_nkw=%22PSA+10%22'); // quoted grade leads the query
 
     // Second tap on the row collapses the accordion.
     fireEvent.press(screen.getByTestId('detail-price-trends-row-PSA 10'));
@@ -720,13 +730,16 @@ describe('CardDetailScreen', () => {
     );
 
     fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
-    fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA|10|'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA|10|holofoil'));
 
-    // The pipe key "PSA|10|<variant>" still yields grader=PSA, grade=10 for the
-    // recent-sales fetch behind the accordion.
+    // The pipe key "PSA|10|<variant>" yields grader=PSA, grade=10 AND carries
+    // the printing through to the recent-sales fetch (scopes the backend's
+    // off-variant comp filter).
     await waitFor(() => {
       expect(getCardRecentSales).toHaveBeenCalledWith(
-        expect.objectContaining({ slabContext: { grader: 'PSA', grade: '10' } }),
+        expect.objectContaining({
+          slabContext: { grader: 'PSA', grade: '10', variantName: 'holofoil' },
+        }),
       );
     });
     expect(await screen.findByTestId('detail-recent-sales')).toBeTruthy();
