@@ -75,10 +75,16 @@ export async function exportCollectionCsv(repository: SpotlightRepository): Prom
       await Share.share({ url: fileUri });
     }
   } catch (error) {
-    const message =
-      error instanceof Error && error.message.trim()
-        ? error.message
-        : 'Could not export your collection. Please try again.';
-    Alert.alert('Export failed', message);
+    // Never surface the raw server body (JSON) to the user. After the repository's
+    // silent 503 retries, a still-busy backend gets a plain retry prompt; anything
+    // else gets a generic message.
+    const raw = error instanceof Error ? error.message : '';
+    const isServerBusy = /serverbusy|server is busy|busy right now/i.test(raw);
+    Alert.alert(
+      'Export failed',
+      isServerBusy
+        ? 'The server is busy right now. Please try again.'
+        : 'Could not export your collection. Please try again.',
+    );
   }
 }

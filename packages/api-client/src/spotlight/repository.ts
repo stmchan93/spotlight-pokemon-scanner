@@ -1618,7 +1618,11 @@ function markScanMultipartUnsupported() {
 }
 
 function isMultipartUnsupportedStatus(status: number | null | undefined) {
-  return status === 400 || status === 404 || status === 405 || status === 415;
+  // 400: deployed pre-multipart backends answer "Invalid JSON body".
+  // 502: observed live — the pre-multipart handler drops the connection on a
+  //      multipart body and the proxy answers 502.
+  // 404/405/415: standard "endpoint/method/media-type unsupported".
+  return status === 400 || status === 404 || status === 405 || status === 415 || status === 502;
 }
 
 function scannerImageFileUri(
@@ -4501,14 +4505,19 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           },
           matchRequestOptions,
         );
-        if (!(multipartResponse.kind === 'error'
-          && isMultipartUnsupportedStatus(multipartResponse.error.status))) {
+        if (multipartResponse.kind !== 'error') {
           return multipartResponse;
         }
         // Older backend without multipart: remember for the rest of the app
-        // session and retry THIS call over JSON+base64 so the scan never
-        // hard-fails on transport negotiation.
-        markScanMultipartUnsupported();
+        // session so later scans go straight to JSON.
+        if (isMultipartUnsupportedStatus(multipartResponse.error.status)) {
+          markScanMultipartUnsupported();
+        }
+        // Belt and braces: ANY multipart failure retries THIS call over
+        // JSON+base64 before surfacing an error — a scan must never fail
+        // without having tried the legacy transport once. Non-negotiation
+        // failures (transient 500/network) do NOT latch, so the next scan
+        // attempts multipart again.
         useMultipart = false;
       }
 
@@ -5935,6 +5944,33 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     init?: RequestInit,
     options?: Pick<JsonRequestOptions, 'candidateStrategy' | 'timeoutMs'>,
   ): Promise<string> {
+    // A heavy read (e.g. CSV export) can get a fast 503 "ServerBusy" when the
+    // backend sheds load under concurrency. That's retryable, so re-attempt
+    // silently with backoff — matching requestJsonRead and the backend's
+    // "client retries silently" design — instead of surfacing the raw 503.
+    const serverBusyBackoffsMs = [600, 1200, 2400];
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await this.requestTextOnce(url, init, options);
+      } catch (error) {
+        const isServerBusy =
+          error instanceof SpotlightRepositoryRequestError && error.status === 503;
+        if (!isServerBusy || attempt >= serverBusyBackoffsMs.length) {
+          throw error;
+        }
+        const jitterMs = Math.floor(Math.random() * 200);
+        await new Promise((resolve) =>
+          setTimeout(resolve, serverBusyBackoffsMs[attempt] + jitterMs),
+        );
+      }
+    }
+  }
+
+  private async requestTextOnce(
+    url: string,
+    init?: RequestInit,
+    options?: Pick<JsonRequestOptions, 'candidateStrategy' | 'timeoutMs'>,
+  ): Promise<string> {
     const candidateUrls = this.expandRequestCandidateUrls(url, options?.candidateStrategy);
     const requestInit = await this.requestInitWithAuth(init);
     let lastNetworkError: SpotlightRepositoryRequestError | null = null;
@@ -6064,13 +6100,17 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           },
           requestOptions,
         );
-        if (!(multipartResponse.kind === 'error'
-          && isMultipartUnsupportedStatus(multipartResponse.error.status))) {
+        if (multipartResponse.kind !== 'error') {
           return multipartResponse;
         }
-        // Older backend without multipart: remember for the app session, then
-        // fall through to the JSON+base64 body for this same upload.
-        markScanMultipartUnsupported();
+        // Older backend without multipart: remember for the app session so
+        // later uploads go straight to JSON.
+        if (isMultipartUnsupportedStatus(multipartResponse.error.status)) {
+          markScanMultipartUnsupported();
+        }
+        // Belt and braces: ANY multipart failure falls through to the
+        // JSON+base64 body for this same upload (non-negotiation failures do
+        // not latch the session flag).
       }
 
       // JSON+base64 path: materialize inline bytes lazily. The normalized image

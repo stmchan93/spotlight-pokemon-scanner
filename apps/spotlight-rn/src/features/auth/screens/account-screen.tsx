@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   Button,
@@ -24,6 +24,7 @@ const ADMIN_EMAIL = 'stmchan8953@gmail.com';
 export function AccountScreen() {
   const router = useRouter();
   const theme = useSpotlightTheme();
+  const insets = useSafeAreaInsets();
   const auth = useAuth();
   const user = auth.currentUser;
   const { isGuest, openLogin } = useGuestGate();
@@ -193,7 +194,10 @@ export function AccountScreen() {
         contentContainerStyle={[
           styles.content,
           {
-            paddingBottom: 36,
+            // Clear the Android system nav bar (3-button ~48dp) / iOS home
+            // indicator so Sign out / Delete aren't covered. SafeAreaView omits
+            // the bottom edge here, so add the real inset to the scroll content.
+            paddingBottom: 36 + insets.bottom,
             paddingHorizontal: theme.layout.pageGutter,
             paddingTop: theme.layout.pageTopInset,
           },
@@ -255,7 +259,7 @@ export function AccountScreen() {
             <View style={styles.collectionDataButtons}>
               <Button
                 disabled={collectionDataBusy}
-                label="Export collection (CSV)"
+                label={collectionDataBusy ? 'Exporting…' : 'Export collection (CSV)'}
                 onPress={() => {
                   void handleExportCollection();
                 }}
