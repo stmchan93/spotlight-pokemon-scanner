@@ -271,11 +271,12 @@ export function RawScannerCaptureSurface({
   const photoOutput = usePhotoOutput({
     targetResolution: CommonResolutions.HD_16_9,
     quality: rawVisualCaptureQuality,
-    // Android: 'speed' skips CameraX's post-capture processing wait — the
-    // ~500ms preview stall on mid-range devices drops sharply, which is what
-    // makes the shutter feel iOS-quick. Our matcher normalizes to 630x880
-    // anyway, so the quality delta is irrelevant. iOS keeps 'balanced'.
-    qualityPrioritization: Platform.OS === 'android' ? 'speed' : 'balanced',
+    // 'balanced' on BOTH platforms. Android briefly ran 'speed' (ZSL) to kill
+    // the capture stall, but zero-shutter-lag serves a ring-buffer frame that
+    // can predate the tap — in burst scanning that meant motion-blurred/stale
+    // frames and WRONG MATCHES. Match accuracy outranks shutter latency;
+    // the UI-thread flash masks the balanced-mode stall.
+    qualityPrioritization: 'balanced',
   });
 
   // Detect whether the chosen device bundles the ultra-wide (so zoom=1 is the
