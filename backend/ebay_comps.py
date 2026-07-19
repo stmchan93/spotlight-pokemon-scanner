@@ -17,6 +17,10 @@ EBAY_BROWSE_API_BASE_URL = "https://api.ebay.com"
 EBAY_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 5
 DEFAULT_RESULT_LIMIT = 5
+# The PDP "Lowest listed" panel reveals up to 20 on "Show more" (5 shown first);
+# the Browse search is one call regardless of page size, so a larger cap costs
+# nothing extra. DEFAULT stays 5 for callers that don't ask for more.
+MAX_RESULT_LIMIT = 20
 EBAY_WEB_LOWEST_PRICE_SORT = "15"
 EBAY_BROWSE_LOWEST_PRICE_SORT = "price"
 PSA_GRADE_OPTIONS = ("10", "9", "8.5", "8")
@@ -304,7 +308,7 @@ def _normalize_result_limit(limit: object) -> int:
         parsed_limit = int(limit)
     except (TypeError, ValueError):
         parsed_limit = DEFAULT_RESULT_LIMIT
-    return max(1, min(parsed_limit, DEFAULT_RESULT_LIMIT))
+    return max(1, min(parsed_limit, MAX_RESULT_LIMIT))
 
 
 def _browse_item_sale_type(item: dict[str, Any]) -> str | None:

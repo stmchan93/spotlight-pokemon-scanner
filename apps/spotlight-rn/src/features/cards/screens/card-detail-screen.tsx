@@ -24,6 +24,7 @@ import {
   type CardDetailRecord,
   type CardPriceTrendList as CardPriceTrendListRecord,
   type CardPriceTrendRow,
+  type CardEbayListingsRecord,
   type CardRecentSalesRecord,
   type DeckConditionCode,
   type InventoryCardEntry,
@@ -50,6 +51,7 @@ import { CardPriceTrendList } from '@/features/cards/components/card-price-trend
 import { CardPriceTrendSkeleton } from '@/features/cards/components/card-price-trend-skeleton';
 import { CardProductDetails } from '@/features/cards/components/card-product-details';
 import { CardRecentSalesPanel } from '@/features/cards/components/card-recent-sales-panel';
+import { CardLowestListedPanel } from '@/features/cards/components/card-lowest-listed-panel';
 import {
   buildEbaySearchUrl,
   buildTcgPlayerProductUrl,
@@ -267,6 +269,13 @@ export function CardDetailScreen({
     Record<string, CardRecentSalesRecord | null>
   >({});
   const [recentSalesLoadingKey, setRecentSalesLoadingKey] = useState<string | null>(null);
+  // Lowest-listed (eBay Browse active listings) mirrors the recent-sales cache.
+  // eBay Browse is a free app-token call (no Scrydex credits), fetched in
+  // parallel with recent sales when a graded row expands.
+  const [lowestListedByRowKey, setLowestListedByRowKey] = useState<
+    Record<string, CardEbayListingsRecord | null>
+  >({});
+  const [lowestListedLoadingKey, setLowestListedLoadingKey] = useState<string | null>(null);
   const isPremium = useIsPremium();
   const [showSubscribeStubToast, setShowSubscribeStubToast] = useState(false);
 
@@ -761,38 +770,59 @@ export function CardDetailScreen({
         return;
       }
       setExpandedTrendRowKey(row.key);
-      const cached = recentSalesByRowKey[row.key];
+      const recentCached = recentSalesByRowKey[row.key];
+      const listedCached = lowestListedByRowKey[row.key];
       capturePostHogEvent('pdp_recent_sales_expanded', {
         grader,
         grade,
-        cache: cached !== undefined ? 'warm' : 'cold',
+        cache: recentCached !== undefined ? 'warm' : 'cold',
       });
-      if (cached !== undefined) {
-        return;
+      // Recent sales (Scrydex sold comps). refresh:true is credit-safe: the
+      // backend's shared 24h TTL only hits Scrydex when the cache is stale —
+      // ~one credit per card+grader+grade per day across ALL users; every other
+      // expand is a SQLite read. Guarded by its own per-row cache.
+      if (recentCached === undefined) {
+        setRecentSalesLoadingKey(row.key);
+        void spotlightRepository
+          .getCardRecentSales({
+            cardId: activeCardId,
+            slabContext: { grader, grade, variantName },
+            source: 'ebay',
+            // 20 rows for the panel's "Show more" — same single cached Scrydex
+            // page (fetched at 25) either way, so no extra credit cost.
+            limit: 20,
+            refresh: true,
+          })
+          .then((record) => {
+            setRecentSalesByRowKey((current) => ({ ...current, [row.key]: record }));
+          })
+          .catch(() => {
+            setRecentSalesByRowKey((current) => ({ ...current, [row.key]: null }));
+          })
+          .finally(() => {
+            setRecentSalesLoadingKey((current) => (current === row.key ? null : current));
+          });
       }
-      // refresh:true is credit-safe: the backend's shared 24h TTL only hits
-      // Scrydex when the cache is stale — ~one credit per card+grader+grade per
-      // day across ALL users; every other expand is a SQLite read.
-      setRecentSalesLoadingKey(row.key);
-      void spotlightRepository
-        .getCardRecentSales({
-          cardId: activeCardId,
-          slabContext: { grader, grade, variantName },
-          source: 'ebay',
-          // 20 rows for the panel's "Show more" — same single cached Scrydex
-          // page (fetched at 25) either way, so no extra credit cost.
-          limit: 20,
-          refresh: true,
-        })
-        .then((record) => {
-          setRecentSalesByRowKey((current) => ({ ...current, [row.key]: record }));
-        })
-        .catch(() => {
-          setRecentSalesByRowKey((current) => ({ ...current, [row.key]: null }));
-        })
-        .finally(() => {
-          setRecentSalesLoadingKey((current) => (current === row.key ? null : current));
-        });
+      // Lowest listed (eBay Browse active listings). Free app-token call — NO
+      // Scrydex credits — fetched in parallel and cached per row for the session.
+      if (listedCached === undefined) {
+        setLowestListedLoadingKey(row.key);
+        void spotlightRepository
+          .getCardEbayListings({
+            cardId: activeCardId,
+            slabContext: { grader, grade, variantName },
+            limit: 20,
+          })
+          .then((record) => {
+            setLowestListedByRowKey((current) => ({ ...current, [row.key]: record }));
+          })
+          .catch(() => {
+            setLowestListedByRowKey((current) => ({ ...current, [row.key]: null }));
+          })
+          .finally(() => {
+            setLowestListedLoadingKey((current) => (current === row.key ? null : current));
+          });
+      }
       return;
     }
 
@@ -825,6 +855,7 @@ export function CardDetailScreen({
     detail,
     expandedTrendRowKey,
     priceTrends,
+    lowestListedByRowKey,
     recentSalesByRowKey,
     selectedVariantLabel,
     spotlightRepository,
@@ -852,31 +883,64 @@ export function CardDetailScreen({
     // title-mined query was tried and reverted: seller typos/cert numbers get
     // AND-required by eBay and zero the search.
     const seeAllUrl = buildEbaySearchUrl(fallbackParams);
+    const listedRecord = lowestListedByRowKey[expandedTrendRowKey] ?? null;
     return (
-      <CardRecentSalesPanel
-        key={expandedTrendRowKey}
-        isLoading={recentSalesLoadingKey === expandedTrendRowKey}
-        isPremium={isPremium}
-        onShowMorePress={() => {
-          capturePostHogEvent('pdp_recent_sales_show_more', { grader, grade });
-        }}
-        onSubscribePress={() => {
-          capturePostHogEvent('paywall_subscribe_tapped', { surface: 'pdp_recent_sales' });
-          setShowSubscribeStubToast(true);
-        }}
-        record={record}
-        seeAllUrl={seeAllUrl}
-        testID="detail-recent-sales"
-      />
+      <View key={expandedTrendRowKey}>
+        {/* Two stacked sections in the dropdown: sold comps (Scrydex) first,
+            then the cheapest live listings (eBay Browse) right under it. */}
+        <Text style={[theme.typography.labelStrong, styles.compsSectionHeader, { color: theme.colors.gray900 }]}>
+          Recent Sales
+        </Text>
+        <CardRecentSalesPanel
+          isLoading={recentSalesLoadingKey === expandedTrendRowKey}
+          isPremium={isPremium}
+          onShowMorePress={() => {
+            capturePostHogEvent('pdp_recent_sales_show_more', { grader, grade });
+          }}
+          onSubscribePress={() => {
+            capturePostHogEvent('paywall_subscribe_tapped', { surface: 'pdp_recent_sales' });
+            setShowSubscribeStubToast(true);
+          }}
+          record={record}
+          seeAllUrl={seeAllUrl}
+          testID="detail-recent-sales"
+        />
+        <Text
+          style={[
+            theme.typography.labelStrong,
+            styles.compsSectionHeader,
+            styles.compsSectionHeaderSecond,
+            { color: theme.colors.gray900 },
+          ]}
+        >
+          Lowest Listed
+        </Text>
+        <CardLowestListedPanel
+          isLoading={lowestListedLoadingKey === expandedTrendRowKey}
+          isPremium={isPremium}
+          onShowMorePress={() => {
+            capturePostHogEvent('pdp_lowest_listed_show_more', { grader, grade });
+          }}
+          onSubscribePress={() => {
+            capturePostHogEvent('paywall_subscribe_tapped', { surface: 'pdp_lowest_listed' });
+            setShowSubscribeStubToast(true);
+          }}
+          record={listedRecord}
+          testID="detail-lowest-listed"
+        />
+      </View>
     );
   }, [
     detail,
     expandedTrendRowKey,
     isPremium,
+    lowestListedByRowKey,
+    lowestListedLoadingKey,
     priceTrends?.mode,
     recentSalesByRowKey,
     recentSalesLoadingKey,
     selectedVariantLabel,
+    theme,
   ]);
 
   // Tap the provider logo (eBay / TCGplayer) in the Price-Trend header → open the
@@ -2180,6 +2244,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     paddingHorizontal: 16,
+    paddingTop: 10,
+  },
+  compsSectionHeader: {
+    paddingBottom: 2,
+    paddingTop: 4,
+  },
+  // Extra top gap so "Lowest Listed" reads as a distinct section under the
+  // Recent Sales panel rather than crowding its footer.
+  compsSectionHeaderSecond: {
     paddingTop: 10,
   },
   subscribeToast: {

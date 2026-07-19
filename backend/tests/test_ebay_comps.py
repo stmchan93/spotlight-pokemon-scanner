@@ -16,7 +16,12 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from catalog_tools import apply_schema, connect, upsert_card  # noqa: E402
-from ebay_comps import DEFAULT_RESULT_LIMIT, build_psa_grade_options, fetch_graded_card_ebay_comps  # noqa: E402
+from ebay_comps import (  # noqa: E402
+    DEFAULT_RESULT_LIMIT,
+    MAX_RESULT_LIMIT,
+    build_psa_grade_options,
+    fetch_graded_card_ebay_comps,
+)
 from server import SpotlightRequestHandler, SpotlightScanService  # noqa: E402
 
 
@@ -232,7 +237,7 @@ class EbayCompsTests(unittest.TestCase):
                     "buyingOptions": ["FIXED_PRICE"],
                     "itemCreationDate": f"2026-04-1{index}T07:14:44.000Z",
                 }
-                for index in range(1, 7)
+                for index in range(1, 26)
             ]
         }
         captured_urls: list[str] = []
@@ -268,13 +273,13 @@ class EbayCompsTests(unittest.TestCase):
                 fetch_json=fake_request_json,
             )
 
-        self.assertEqual(payload["transactionCount"], DEFAULT_RESULT_LIMIT)
-        self.assertEqual(len(payload["transactions"]), DEFAULT_RESULT_LIMIT)
-        self.assertIn("_ipg=5", payload["searchURL"])
+        self.assertEqual(payload["transactionCount"], MAX_RESULT_LIMIT)
+        self.assertEqual(len(payload["transactions"]), MAX_RESULT_LIMIT)
+        self.assertIn("_ipg=20", payload["searchURL"])
         browse_urls = [url for url in captured_urls if "buy/browse/v1/item_summary/search" in url]
         self.assertEqual(len(browse_urls), 1)
-        self.assertIn("limit=5", browse_urls[0])
-        self.assertEqual(payload["transactions"][-1]["title"], "PSA 9 Sabrina's Slowbro listing 5")
+        self.assertIn("limit=20", browse_urls[0])
+        self.assertEqual(payload["transactions"][-1]["title"], "PSA 9 Sabrina's Slowbro listing 20")
 
     def test_fetch_graded_card_ebay_comps_returns_unavailable_when_disabled(self) -> None:
         self._reset_token_cache()
@@ -309,7 +314,8 @@ class EbayCompsTests(unittest.TestCase):
             _, kwargs = mocked.call_args
             self.assertEqual(kwargs["grader"], "PSA")
             self.assertEqual(kwargs["selected_grade"], "9")
-            self.assertEqual(kwargs["limit"], DEFAULT_RESULT_LIMIT)
+            # 12 is under the new MAX (20), so it passes through uncapped.
+            self.assertEqual(kwargs["limit"], 12)
         finally:
             service.connection.close()
 

@@ -133,7 +133,11 @@ from fx_rates import (
     convert_price_trend_list_with_fx,
     decorate_pricing_summary_with_fx,
 )
-from ebay_comps import DEFAULT_RESULT_LIMIT as DEFAULT_EBAY_LISTING_LIMIT, fetch_graded_card_ebay_comps
+from ebay_comps import (
+    DEFAULT_RESULT_LIMIT as DEFAULT_EBAY_LISTING_LIMIT,
+    MAX_RESULT_LIMIT as MAX_EBAY_LISTING_LIMIT,
+    fetch_graded_card_ebay_comps,
+)
 from pricecharting_adapter import PriceChartingProvider
 from pricing_provider import PricingProviderRegistry
 from portfolio_imports import (
@@ -11896,7 +11900,7 @@ class SpotlightScanService:
             normalized_limit = int(limit)
         except (TypeError, ValueError):
             normalized_limit = DEFAULT_EBAY_LISTING_LIMIT
-        normalized_limit = max(1, min(normalized_limit, DEFAULT_EBAY_LISTING_LIMIT))
+        normalized_limit = max(1, min(normalized_limit, MAX_EBAY_LISTING_LIMIT))
         if normalized_grader is None and normalized_grade is not None:
             normalized_grader = "PSA"
         return fetch_graded_card_ebay_comps(

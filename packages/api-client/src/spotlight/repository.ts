@@ -4940,7 +4940,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     limit?: number;
   }) {
     const ebayQuery = buildDetailQueryParams(query);
-    ebayQuery.set('limit', String(Math.max(1, Math.min(query.limit ?? 5, 5))));
+    ebayQuery.set('limit', String(Math.max(1, Math.min(query.limit ?? 5, 20))));
     const response = await this.requestJson<EbayCompsDTO>(
       `${this.baseUrl}/api/v1/cards/${query.cardId}/ebay-comps?${ebayQuery.toString()}`,
       undefined,
@@ -4957,7 +4957,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
   async getCardRecentSales(query: CardRecentSalesQuery) {
     const recentSalesQuery = buildDetailQueryParams(query);
     recentSalesQuery.set('source', query.source ?? 'ebay');
-    recentSalesQuery.set('limit', String(Math.max(1, Math.min(query.limit ?? 5, 5))));
+    recentSalesQuery.set('limit', String(Math.max(1, Math.min(query.limit ?? 5, 20))));
     if (query.refresh) {
       recentSalesQuery.set('refresh', '1');
     }
