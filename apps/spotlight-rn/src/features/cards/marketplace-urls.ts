@@ -289,6 +289,57 @@ function isVintageEditionVariant(variant: string | null | undefined): boolean {
   );
 }
 
+// PSA's label descriptor frequently sits BETWEEN grader and grade in real
+// titles ("PSA GEM MINT 10"); one strict "PSA 10" phrase misses all of them.
+const PSA_GRADE_DESCRIPTORS: Record<string, string[]> = {
+  '10': ['GEM MINT', 'GEM MT'],
+  '9': ['MINT'],
+  '8': ['NM-MT'],
+};
+
+// "<grader> <grade>" strict phrase, widened into an eBay OR-group with the
+// known descriptor wordings for that exact grade (see buildEbaySearchUrl).
+function buildEbayGradeTerm(graderToken: string | null, gradeToken: string | null): string | null {
+  if (!graderToken || !gradeToken) {
+    return [graderToken, gradeToken].filter(Boolean).join(' ') || null;
+  }
+  const phrases = [`"${graderToken} ${gradeToken}"`];
+  if (graderToken.toUpperCase() === 'PSA') {
+    for (const descriptor of PSA_GRADE_DESCRIPTORS[gradeToken] ?? []) {
+      phrases.push(`"${graderToken} ${descriptor} ${gradeToken}"`);
+    }
+  }
+  return phrases.length > 1 ? `(${phrases.join(',')})` : phrases[0];
+}
+
+// Collector numbers over-constrain as a bare keyword: "026/086" AND-requires
+// BOTH tokens, and sellers word it many ways (026/086, 26/86, just the 026, or
+// de-zeroed 26). OR-group the common spellings so ANY one satisfies the term —
+// recall strictly widens vs the single form while the name + set + grade terms
+// keep the search on the right card.
+function buildEbayCollectorNumberTerm(cardNumber: string): string | null {
+  // Parse the fraction from the RAW number — cleanedMarketplaceToken strips
+  // the slash ("4/102" → "4 102"), which is exactly the two-AND-required-token
+  // form this helper exists to avoid.
+  const raw = cardNumber.replace(/^#/, '').trim();
+  const fraction = raw.match(/^(\d+)\s*\/\s*(\d+)$/);
+  if (!fraction) {
+    return cleanedMarketplaceToken(raw);
+  }
+  const [, numerator, denominator] = fraction;
+  const bareNumerator = String(Number.parseInt(numerator, 10));
+  const bareDenominator = String(Number.parseInt(denominator, 10));
+  const forms = [
+    ...new Set([
+      `${numerator}/${denominator}`,
+      `${bareNumerator}/${bareDenominator}`,
+      numerator,
+      bareNumerator,
+    ]),
+  ].map((form) => (form.includes('/') ? `"${form}"` : form));
+  return forms.length > 1 ? `(${forms.join(',')})` : forms[0];
+}
+
 export function buildEbaySearchUrl(params: {
   cardNumber: string;
   name: string;
@@ -328,17 +379,19 @@ export function buildEbaySearchUrl(params: {
   const dropCollectorNumber = !isJapanese && isVintage && Boolean(gradeToken);
   const numberToken = dropCollectorNumber
     ? null
-    : cleanedMarketplaceToken(params.cardNumber.replace(/^#/, ''));
+    : buildEbayCollectorNumberTerm(params.cardNumber);
 
   // Quote the grader+grade as an EXACT phrase (e.g. "PSA 3") so eBay matches the grade
   // strictly. As loose keywords, eBay relaxes the low-signal grade number — a bare "3"
   // collides with card numbers ("215/203") and gets dropped, backfilling the page with
-  // high-volume PSA 10 solds. A quoted "PSA 3" can't match a "PSA 10" title. Only quote
-  // when both are present; a lone bare number quoted would over-filter.
-  const gradeTerm =
-    graderToken && gradeToken
-      ? `"${graderToken} ${gradeToken}"`
-      : [graderToken, gradeToken].filter(Boolean).join(' ');
+  // high-volume PSA 10 solds. A quoted "PSA 3" can't match a "PSA 10" title.
+  //
+  // A single phrase misses titles that break the adjacency with PSA's label
+  // descriptor ("PSA GEM MINT 10", "PSA GEM MT 10" — very common wordings).
+  // eBay's OR-group syntax — ("a","b") matches ANY member — keeps the strict
+  // phrases while covering those word orders too: recall strictly widens and
+  // every alternative still pins the exact grade number.
+  const gradeTerm = buildEbayGradeTerm(graderToken, gradeToken);
 
   const query = [
     // Grader + grade first so the search lands on graded sales of this exact card.

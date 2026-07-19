@@ -355,9 +355,11 @@ describe('buildEbaySearchUrl', () => {
       grader: 'PSA',
       grade: '10',
     });
-    // grader + grade first, as an exact phrase, so eBay can't relax the grade number
-    // and backfill with the high-volume grade ("%22" is the encoded double-quote).
-    expect(url).toContain('_nkw=%22PSA+10%22+Ditto');
+    // grader + grade first, as exact phrases inside an eBay OR-group so eBay
+    // can't relax the grade number, while the PSA descriptor wordings
+    // ("PSA GEM MINT 10") still match.
+    const nkw = decodeURIComponent(new URL(url!).searchParams.get('_nkw')!);
+    expect(nkw).toMatch(/^\("PSA 10","PSA GEM MINT 10","PSA GEM MT 10"\) Ditto/);
     expect(url).toContain('LH_Sold=1');
     expect(url).toContain('_sop=13');
   });
@@ -406,14 +408,17 @@ describe('buildEbaySearchUrl', () => {
     expect(url).not.toContain('9+5');
   });
 
-  it('does not quote when there is no grade (raw card sold search stays loose)', () => {
+  it('adds no grade phrase when there is no grade (raw card sold search stays loose)', () => {
     const url = buildEbaySearchUrl({
       setName: 'Base Set',
       name: 'Charizard',
       cardNumber: '4/102',
     });
-    expect(url).not.toContain('%22');
+    const nkw = decodeURIComponent(new URL(url!).searchParams.get('_nkw')!);
+    expect(nkw).not.toContain('PSA');
     expect(url).toContain('_nkw=Charizard');
+    // The collector number is an OR-group of its common wordings.
+    expect(nkw).toContain('("4/102",4)');
   });
 
   it('returns null when all fields are empty', () => {
@@ -496,7 +501,8 @@ describe('buildEbaySearchUrl', () => {
       grade: '10',
       variant: '1st Edition Holofoil',
     })!;
-    expect(url).toContain('%22PSA+10%22+Lugia');
+    expect(decodeURIComponent(new URL(url).searchParams.get('_nkw')!)).toContain('"PSA 10"');
+    expect(url).toContain('Lugia');
     expect(url).toContain('Neo+Genesis');
     // No edition keyword (mixed-edition comps by design).
     expect(decodeURIComponent(new URL(url).searchParams.get('_nkw')!)).not.toContain('1st');

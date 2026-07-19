@@ -190,8 +190,17 @@ export function CardRecentSalesPanel({
               />
             ))}
             {/* Unreadable blur over the locked rows (real data underneath —
-                the paywall is presentational; the fetch is shared either way). */}
-            <BlurView intensity={22} style={StyleSheet.absoluteFill} tint="light" />
+                the paywall is presentational; the fetch is shared either way).
+                experimentalBlurMethod: without it BlurView is a NO-OP view on
+                Android (rows rendered fully readable). The scrim underlay is
+                the belt-and-braces fallback anywhere native blur is missing. */}
+            <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.lockedScrim]} />
+            <BlurView
+              experimentalBlurMethod="dimezisBlurView"
+              intensity={40}
+              style={StyleSheet.absoluteFill}
+              tint="light"
+            />
             <View style={styles.lockOverlay} pointerEvents="none">
               <IconLock color={theme.colors.gray600} size={16} strokeWidth={2} />
               <Text style={[theme.typography.label, { color: theme.colors.gray600 }]}>
@@ -253,6 +262,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 6,
     justifyContent: 'center',
+  },
+  lockedScrim: {
+    backgroundColor: 'rgba(255, 255, 255, 0.72)',
   },
   lockedStack: {
     marginBottom: 10,

@@ -668,7 +668,7 @@ describe('CardDetailScreen', () => {
     const seeAllUrl = openURL.mock.calls[1][0] as string;
     expect(seeAllUrl).toContain('https://www.ebay.com/sch/i.html');
     expect(seeAllUrl).toContain('LH_Sold=1');
-    expect(seeAllUrl).toContain('_nkw=%22PSA+10%22'); // quoted grade leads the query
+    expect(seeAllUrl).toContain('%22PSA+10%22'); // quoted grade phrase (inside the OR-group)
 
     // Second tap on the row collapses the accordion.
     fireEvent.press(screen.getByTestId('detail-price-trends-row-PSA 10'));
@@ -790,7 +790,7 @@ describe('CardDetailScreen', () => {
     });
     const url = openURL.mock.calls[0][0] as string;
     expect(url).toContain('https://www.ebay.com/sch/i.html');
-    expect(url).toContain('_nkw=%22PSA+10%22'); // defaults to the seeded PSA 10
+    expect(url).toContain('%22PSA+10%22'); // defaults to the seeded PSA 10
     expect(url).toContain('LH_Sold=1');
   });
 
@@ -823,7 +823,7 @@ describe('CardDetailScreen', () => {
       expect(openURL).toHaveBeenCalledTimes(1);
     });
     // The add-sheet selection did NOT leak to the page: still PSA 10, not 9.5.
-    expect(openURL.mock.calls[0][0] as string).toContain('_nkw=%22PSA+10%22');
+    expect(openURL.mock.calls[0][0] as string).toContain('%22PSA+10%22');
   });
 
   it('a graded-only card (no raw pricing) defaults to the graded lane so a chart shows', async () => {
