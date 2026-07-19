@@ -824,9 +824,10 @@ describe('ScannerScreen', () => {
     }),
   });
 
-  it('shows ADD ALL only when the tray is expanded', async () => {
+  it('shows ADD ALL whenever scans exist — collapsed tray included', async () => {
     renderScannerScreen();
 
+    // No scans: no ADD ALL.
     expect(screen.queryByTestId('scanner-tray-add-all')).toBeNull();
 
     await waitForScannerReady();
@@ -836,8 +837,8 @@ describe('ScannerScreen', () => {
       expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
     });
 
-    // Collapsed with a scan: no ADD ALL yet.
-    expect(screen.queryByTestId('scanner-tray-add-all')).toBeNull();
+    // Collapsed with a scan: ADD ALL is available without swiping the tray up.
+    expect(screen.getByTestId('scanner-tray-add-all')).toBeTruthy();
 
     fireEvent.press(screen.getByTestId('scanner-tray-header'));
 

@@ -2882,7 +2882,11 @@ export function ScannerScreen({
                     {`SCAN: ${recentCaptures.length}`}
                   </Text>
                 </View>
-                {isTrayExpanded && recentCaptures.length > 0 ? (
+                {/* ADD ALL shows in BOTH tray states — collapsed too, so a
+                    burst scanner can bulk-add without first swiping the tray
+                    up. The dropdown flips above its anchor near the screen
+                    bottom, which covers the collapsed position. */}
+                {recentCaptures.length > 0 ? (
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="Add all scans"
