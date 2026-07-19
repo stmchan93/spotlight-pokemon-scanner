@@ -35,17 +35,25 @@ the bottleneck), and `roundTripMs` climbed 2s→16s across the burst (2-vCPU sta
 box saturating — separate capacity issue). Fusion-off is KEPT (it fixed
 correctness); it just doesn't touch the focus-convergence wait.
 
-## Current state (in test) — Lever: `qualityPrioritization: 'speed'` on Android
-- User approved A/B-ing the reverted speed family now that fusion-off gives good
-  correctness independently. `'speed'` → CameraX `CAPTURE_MODE_MINIMIZE_LATENCY`,
-  which captures without waiting for full 3A convergence — the only lever that
-  attacks the 1-3.4s focus-hunt spikes. Android ONLY, gated on
-  `device.supportsSpeedQualityPrioritization` (capturePhoto throws otherwise), iOS
-  stays `'balanced'` (ZSL is the known trap there). Dev log `[SCANNER ZOOM]` now
-  prints `captureMode=`/`supportsSpeed=` to confirm it engaged.
-  **Decision rule:** ship only if EVERY burst row is still the correct card AND
-  `captureMs` drops materially. If any card is wrong → revert to fusion-off
-  `'balanced'` (the current known-good correctness baseline).
+## Lever `qualityPrioritization: 'speed'` on Android — TRIED, REVERTED (2026-07-19)
+A/B'd on-device. **Speed: clear win** — captureMs dropped from ~3.3s median to
+~1.3s (measured burst: 680–1417ms). **Correctness: FAIL** — burst captures got
+corrupted: an earlier tray row's image was overwritten by a LATER capture's frame
+(~every other shot). Thumbnail was correct at capture, then replaced. Cause:
+minimize-latency uses a recycled buffer pool; a later capture recycles the frame
+an earlier not-yet-saved `Photo` still references → the earlier row's saved file
+ends up with the newer pixels. This is the ZSL-family trap again (surfaced as
+image-content overwrite, not a stale preview). Per the decision rule (any wrong
+row → revert), reverted to fusion-off `'balanced'` (the known-good baseline).
+
+**Ceiling reached for config-level levers.** Remaining Android capture latency
+(~2-3s, 3A convergence on the budget ISP) can't be cut safely by a photo-output
+toggle. Real further speedup needs a **native frame-processor capture pipeline**
+that deep-copies each frame the instant it arrives (before the pool recycles),
+decoupling capture from 3A wait without the buffer-aliasing corruption. That's a
+project (lever 8), not a toggle. Alternatively accept the A17's ~3s as budget-
+device reality (iPhone's ISP is genuinely much faster) and prioritize the server
+round-trip (2s→16s under burst on the 2-vCPU box) for total scan-to-result time.
 
 ## (superseded) Lever 4b: disable virtual-device image fusion
 - On **Android only**, `capturePhoto()` now passes `enableVirtualDeviceFusion:
