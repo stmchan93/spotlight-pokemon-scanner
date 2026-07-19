@@ -888,9 +888,16 @@ export function CardDetailScreen({
       <View key={expandedTrendRowKey}>
         {/* Two stacked sections in the dropdown: sold comps (Scrydex) first,
             then the cheapest live listings (eBay Browse) right under it. */}
-        <Text style={[theme.typography.labelStrong, styles.compsSectionHeader, { color: theme.colors.gray900 }]}>
-          Recent Sales
-        </Text>
+        <View style={[styles.compsSectionHeader, styles.compsSectionHeaderRow]}>
+          <Text style={[theme.typography.labelStrong, { color: theme.colors.gray900 }]}>
+            Recent Sales
+          </Text>
+          {/* Transparency: eBay sold comps only go back ~90 days (eBay drops
+              older solds), so we say so rather than implying it's all-time. */}
+          <Text style={[theme.typography.overline, { color: theme.colors.gray400 }]}>
+            Last 90 days
+          </Text>
+        </View>
         <CardRecentSalesPanel
           isLoading={recentSalesLoadingKey === expandedTrendRowKey}
           isPremium={isPremium}
@@ -905,16 +912,22 @@ export function CardDetailScreen({
           seeAllUrl={seeAllUrl}
           testID="detail-recent-sales"
         />
-        <Text
+        <View
           style={[
-            theme.typography.labelStrong,
             styles.compsSectionHeader,
             styles.compsSectionHeaderSecond,
-            { color: theme.colors.gray900 },
+            styles.compsSectionHeaderRow,
           ]}
         >
-          Lowest Listed
-        </Text>
+          <Text style={[theme.typography.labelStrong, { color: theme.colors.gray900 }]}>
+            Lowest Listed
+          </Text>
+          {/* NOT a time window — these are CURRENT active listings, so we label
+              it "Current listings" (labeling it 90 days would be wrong). */}
+          <Text style={[theme.typography.overline, { color: theme.colors.gray400 }]}>
+            Current listings
+          </Text>
+        </View>
         <CardLowestListedPanel
           isLoading={lowestListedLoadingKey === expandedTrendRowKey}
           isPremium={isPremium}
@@ -2249,6 +2262,13 @@ const styles = StyleSheet.create({
   compsSectionHeader: {
     paddingBottom: 2,
     paddingTop: 4,
+  },
+  // Title on the left, small-font window/scope caption on the right baseline.
+  compsSectionHeaderRow: {
+    alignItems: 'flex-end',
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'space-between',
   },
   // Extra top gap so "Lowest Listed" reads as a distinct section under the
   // Recent Sales panel rather than crowding its footer.
