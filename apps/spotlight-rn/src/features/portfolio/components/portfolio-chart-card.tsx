@@ -906,7 +906,10 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
           <ChartSkeleton />
         ) : chartWidth > 0 ? (
           <>
-            <Svg height={chartHeight} width="100%">
+            {/* Numeric width, NOT "100%": percentage width on the Svg root
+                renders zero-width (invisible chart) on Android. chartWidth is
+                the measured layout width and this branch requires it > 0. */}
+            <Svg height={chartHeight} width={chartWidth}>
               <Defs>
                 {/* Figma 2489:6582 — more pronounced purple500 fill: stronger at
                     the top (opacity 0.35) fading the PURPLE to transparent across

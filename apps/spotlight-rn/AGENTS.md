@@ -38,7 +38,7 @@ Scoped workflow notes for agents working under `apps/spotlight-rn`.
 ## Scanner Rules
 
 - Current RN scanner surface: `src/features/scanner/screens/scanner-screen.tsx`, `src/features/scanner/raw-scanner-capture-surface.tsx`, and `src/features/scanner/scanner-normalized-target.ts`.
-- RN scanner currently uses `expo-camera`, app reticle geometry, and `buildNormalizedScannerTarget` for a `630x880` normalized target. Reuse this path for guided labeling sessions.
+- RN scanner currently uses `react-native-vision-camera` (v5), app reticle geometry, and `buildNormalizedScannerTarget` for a `630x880` normalized target. Reuse this path for guided labeling sessions.
 - Do not build a separate labeling capture geometry. Labeling sessions should use the same scanner surface, reticle geometry, capture path, and review tray patterns as normal scans.
 - Labeling sessions are admin-gated by `labeler_enabled`, capture the required angles (`front`, `tilt_left`, `tilt_right`, `tilt_forward`), and apply one card label to the whole session.
 - Keep scan capture, matcher prediction, scan selection, and deck confirmation separate:
@@ -50,6 +50,23 @@ Scoped workflow notes for agents working under `apps/spotlight-rn`.
 - Runtime top-K stays `10`; do not widen it as a frontend shortcut.
 - Raw mode is the supported RN scanner lane right now. Slab parity is incomplete; do not silently degrade slab scans into raw matches or raw pricing.
 - Future high-frame-rate vision work belongs behind native modules, not a pure JS scanner rewrite. The planned boundary is a native scanner module with iOS/Android platform implementations behind one TypeScript contract.
+
+## Cross-Platform Parity (iOS + Android)
+
+Both platforms ship. iOS is the primary development device, which creates a standing risk of iOS-only fixes. Rules:
+
+- Any fix or feature in a PLATFORM-SENSITIVE area must state how it behaves on the other platform — either "shared code path, no divergence" or an explicit platform branch with a comment explaining the asymmetry. Platform-sensitive areas:
+  - **Camera/scanner lifecycle** (`raw-scanner-capture-surface.tsx`, vision-camera): Android CameraX and iOS AVFoundation differ in activation timing, zoom application, session teardown, and failure modes. Android sessions can wedge on rapid `isActive` flaps (a remount watchdog guards this); iOS activates synchronously.
+  - **Capture orientation**: Android camera2 writes photo files landscape with a 90° rotation to apply; iOS files render upright. Never display a raw capture file without checking `sourceImageRotationDegrees`.
+  - **Capture resolution**: differs per device/platform; do not assume iPhone-class resolution in matcher or UI assumptions.
+  - **Lens features**: ultra-wide/auto-macro exists on recent iPhones, usually absent on low/mid Android. Zoom baselines differ.
+  - **Gestures & pager**: gesture-handler/reanimated behavior and jank thresholds differ; UI-thread callbacks that work on iOS can crash or lag on Android (use `runOnJS`).
+  - **Animations**: Android stutters where iOS doesn't (e.g. the shutter flash holds longer on Android to mask CameraX preview stall). Test animation-adjacent changes on both.
+  - **Storage/permissions**: SecureStore/Keychain semantics, camera permission flows, and OEM security layers (e.g. Samsung Auto Blocker blocks USB debugging) differ.
+- Existing `Platform.OS` branches are deliberate; do not remove one side while fixing the other. New branches need a comment saying WHY the platforms diverge.
+- Performance judgments about Android must use a RELEASE build (`npx expo run:android --variant release`). Debug builds run dev-mode React + unoptimized Hermes and are 2–5× slower — debug-build lag reports are not actionable evidence.
+- When a bug report comes from one platform, check whether the same code path can misbehave on the other before shipping a one-sided fix.
+- Android dev-client testing over USB: `adb reverse tcp:8081 tcp:8081` makes Metro reachable regardless of Wi-Fi.
 
 ## Environment And Native Notes
 

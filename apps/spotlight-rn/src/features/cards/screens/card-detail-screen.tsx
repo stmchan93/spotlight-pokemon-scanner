@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Keyboard,
   Linking,
+  Platform,
   Share,
   StyleSheet,
   Text,
@@ -1233,11 +1234,24 @@ export function CardDetailScreen({
           quantity: Math.max(1, quantity),
         });
         setAddSheetOpen(false);
-        refreshData();
         // Adding is the END of the search/add flow: collapse the pushed stack
         // (search + PDP) back to the Collection page, where the optimistic
         // insert has already surfaced the new card at the top.
-        router.dismissTo({ pathname: '/', params: { page: 'portfolio' } } as never);
+        //
+        // Android: let the native Modal finish detaching BEFORE popping the
+        // stack. Dismissing screens while the Modal tears down races Fabric's
+        // mounting ("addViewAt: view already has a parent") and reloads the
+        // whole React host — reads as an app crash. iOS composites the two
+        // transitions fine, so it keeps the immediate pop.
+        const finishAddFlow = () => {
+          refreshData();
+          router.dismissTo({ pathname: '/', params: { page: 'portfolio' } } as never);
+        };
+        if (Platform.OS === 'android') {
+          setTimeout(finishAddFlow, 150);
+        } else {
+          finishAddFlow();
+        }
       })
       .catch(() => {
         setErrorMessage('Could not add this card right now.');

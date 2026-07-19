@@ -70,6 +70,14 @@ export function Button({
         ? theme.typography.label
         : theme.typography.bodyStrong;
 
+  // Disabled fades via colors with the alpha BAKED IN, not layer opacity:
+  // Android composites border and fill per draw-op, so a semi-transparent
+  // layer's overlapping border+fill alphas stack into a dark outline (and
+  // needsOffscreenAlphaCompositing is unreliable on Fabric). Premixed alpha
+  // can't stack. '73' hex ≈ 45%.
+  const withDisabledAlpha = (color: string) =>
+    disabled && color.startsWith('#') && color.length === 7 ? `${color}73` : color;
+
   const colors =
     variant === 'secondary'
       ? {
@@ -129,9 +137,9 @@ export function Button({
           paddingHorizontal: metrics.paddingHorizontal,
           paddingVertical: metrics.paddingVertical,
           borderRadius: shape === 'rounded' ? theme.radii.sm : 999,
-          backgroundColor: colors.backgroundColor,
-          borderColor: colors.borderColor,
-          opacity: disabled ? 0.45 : pressed ? 0.88 : 1,
+          backgroundColor: withDisabledAlpha(colors.backgroundColor),
+          borderColor: withDisabledAlpha(colors.borderColor),
+          opacity: pressed ? 0.88 : 1,
         },
         style,
       ]}
@@ -144,7 +152,7 @@ export function Button({
             textStyle,
             styles.label,
             {
-              color: colors.textColor,
+              color: withDisabledAlpha(colors.textColor),
             },
             labelStyle,
           ]}

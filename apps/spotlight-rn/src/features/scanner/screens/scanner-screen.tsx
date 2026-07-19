@@ -11,11 +11,7 @@ import {
 import {
   ActivityIndicator,
   Alert,
-  Animated,
   AppState,
-  // RN Animated needs RN's own Easing; the unaliased `Easing` import below is
-  // reanimated's (worklet-based) and is NOT interchangeable here.
-  Easing as RNEasing,
   Image,
   Linking,
   Platform,
