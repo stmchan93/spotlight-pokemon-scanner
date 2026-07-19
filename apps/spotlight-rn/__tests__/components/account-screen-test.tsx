@@ -52,19 +52,19 @@ describe('AccountScreen', () => {
     });
   });
 
-  it('renders the collection data import/export actions', () => {
+  it('renders the CSV export action (import buttons removed — low ROI, hard to test)', () => {
     renderWithProviders(<AccountScreen />);
 
     expect(screen.queryByText('Done')).toBeNull();
     expect(screen.queryByText('Signed in with apple')).toBeNull();
-    // Import/export now live in the account screen (TCGplayer + Collectr import,
-    // holdings CSV export).
-    expect(screen.getByTestId('account-import-tcgplayer')).toBeTruthy();
-    expect(screen.getByTestId('account-import-collectr')).toBeTruthy();
+    // Export stays (the differentiator); the Collectr/TCGplayer import entry points
+    // were removed from the account screen — the importer code/backend remain.
     expect(screen.getByTestId('account-export-csv')).toBeTruthy();
-    expect(screen.getByText('Import from TCGplayer')).toBeTruthy();
-    expect(screen.getByText('Import from Collectr')).toBeTruthy();
     expect(screen.getByText('Export collection (CSV)')).toBeTruthy();
+    expect(screen.queryByTestId('account-import-tcgplayer')).toBeNull();
+    expect(screen.queryByTestId('account-import-collectr')).toBeNull();
+    expect(screen.queryByText('Import from TCGplayer')).toBeNull();
+    expect(screen.queryByText('Import from Collectr')).toBeNull();
     expect(StyleSheet.flatten(screen.getByText('Sign out').props.style)).toMatchObject({
       fontFamily: 'SpotlightBodySemiBold',
       fontSize: 15,

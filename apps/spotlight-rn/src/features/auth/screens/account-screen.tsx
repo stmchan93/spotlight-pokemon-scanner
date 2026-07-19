@@ -11,12 +11,10 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
-import type { PortfolioImportSourceType } from '@spotlight/api-client';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
 import { useGuestGate } from '@/features/auth/use-guest-gate';
-import { pickAndStageImportFile } from '@/features/portfolio-import/pick-import-file';
 import { exportCollectionCsv } from '@/features/portfolio/export-collection';
 import { useAuth } from '@/providers/auth-provider';
 import { useAppServices } from '@/providers/app-providers';
@@ -169,26 +167,6 @@ export function AccountScreen() {
     );
   }, [confirmDeleteAccount]);
 
-  // Pick a TCGplayer/Collectr CSV and, if one was staged, open the existing
-  // row-by-row import review screen.
-  const handleImportCollection = useCallback(
-    async (sourceType: PortfolioImportSourceType) => {
-      if (collectionDataBusy) {
-        return;
-      }
-      setCollectionDataBusy(true);
-      try {
-        const staged = await pickAndStageImportFile(sourceType);
-        if (staged) {
-          router.push('/account/import' as never);
-        }
-      } finally {
-        setCollectionDataBusy(false);
-      }
-    },
-    [collectionDataBusy, router],
-  );
-
   const handleExportCollection = useCallback(async () => {
     if (collectionDataBusy) {
       return;
@@ -271,31 +249,10 @@ export function AccountScreen() {
                 Collection data
               </Text>
               <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>
-                Import a CSV export from TCGplayer or Collectr, or export your collection as a
-                spreadsheet.
+                Export your whole collection as a spreadsheet (CSV) — it's yours to keep.
               </Text>
             </View>
             <View style={styles.collectionDataButtons}>
-              <Button
-                disabled={collectionDataBusy}
-                label="Import from TCGplayer"
-                onPress={() => {
-                  void handleImportCollection('tcgplayer_csv_v1');
-                }}
-                size="lg"
-                testID="account-import-tcgplayer"
-                variant="outline"
-              />
-              <Button
-                disabled={collectionDataBusy}
-                label="Import from Collectr"
-                onPress={() => {
-                  void handleImportCollection('collectr_csv_v1');
-                }}
-                size="lg"
-                testID="account-import-collectr"
-                variant="outline"
-              />
               <Button
                 disabled={collectionDataBusy}
                 label="Export collection (CSV)"

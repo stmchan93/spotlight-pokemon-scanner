@@ -49,15 +49,29 @@ export async function exportCollectionCsv(repository: SpotlightRepository): Prom
     const fileUri = `${cacheDirectory}spotlight-collection.csv`;
     await writeAsStringAsync(fileUri, csv, { encoding: 'utf8' });
 
+    // Prefer expo-sharing (the only path that shares a real FILE on Android).
+    // On an OLDER binary the JS module resolves but its NATIVE side is missing,
+    // so isAvailableAsync() itself throws "native module not found" — catch that
+    // and fall back rather than surfacing it as an export error. (Android needs a
+    // build that includes expo-sharing for real file sharing; iOS's RN Share
+    // `url` fallback works.)
+    let sharedViaModule = false;
     const sharing = loadSharingModule();
-    if (sharing && (await sharing.isAvailableAsync())) {
-      await sharing.shareAsync(fileUri, {
-        mimeType: 'text/csv',
-        UTI: 'public.comma-separated-values-text',
-        dialogTitle: 'Export collection',
-      });
-    } else {
-      // Old binary without expo-sharing: keep the iOS-only RN share path.
+    if (sharing) {
+      try {
+        if (await sharing.isAvailableAsync()) {
+          await sharing.shareAsync(fileUri, {
+            mimeType: 'text/csv',
+            UTI: 'public.comma-separated-values-text',
+            dialogTitle: 'Export collection',
+          });
+          sharedViaModule = true;
+        }
+      } catch {
+        sharedViaModule = false;
+      }
+    }
+    if (!sharedViaModule) {
       await Share.share({ url: fileUri });
     }
   } catch (error) {
