@@ -34,6 +34,8 @@ import Reanimated, {
   useAnimatedScrollHandler,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
+  withSequence,
   withTiming,
 } from 'react-native-reanimated';
 import { useCameraPermission } from 'react-native-vision-camera';
@@ -428,8 +430,14 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
               {scannerCaptureThumbUri(capture, candidate) ? (
                 <CachedImage
                   cachePolicy={imageCachePolicy.thumbnail}
+                  // Keep the scan's own normalized crop on screen while the
+                  // matched card's art downloads (slow networks showed a blank
+                  // thumb during the swap), with a soft crossfade when it lands.
+                  placeholder={capture.normalizedImageUri ? { uri: capture.normalizedImageUri } : undefined}
+                  placeholderContentFit="cover"
                   style={styles.captureThumb}
                   testID={`scanner-tray-image-${index}`}
+                  transition={120}
                   uri={scannerCaptureThumbUri(capture, candidate)}
                 />
               ) : (
@@ -589,39 +597,37 @@ export function ScannerScreen({
   const [isCapturing, setIsCapturing] = useState(false);
   // Quick white "shutter" flash over the preview the instant a photo is taken
   // (paired with the Heavy capture haptic) so the capture is clearly seen + felt.
-  const captureFlashOpacity = useRef(new Animated.Value(0)).current;
+  // REANIMATED (UI thread), not RN Animated: under burst-scan load the JS
+  // thread saturates for seconds (normalize + match pipelines), and RN
+  // Animated's timing start stalled behind it — the flash froze at full white
+  // for seconds, then snapped off (the "long flash"/"second flash" on
+  // Android). withTiming runs on the UI thread regardless of JS load. Single
+  // ~half-second fade, IDENTICAL on both platforms (Android photo output runs
+  // 'speed'/zero-shutter-lag, so there's no preview stall to choreograph
+  // around).
+  const captureFlashOpacity = useSharedValue(0);
+  const captureFlashStyle = useAnimatedStyle(() => ({
+    opacity: captureFlashOpacity.value,
+  }));
   const triggerCaptureFlash = useCallback(() => {
-    captureFlashOpacity.setValue(0.9);
-    // ~Half-second fade so it reads as a deliberate shutter flash, not a blink.
-    Animated.timing(captureFlashOpacity, {
-      toValue: 0,
-      duration: 450,
-      useNativeDriver: true,
-    }).start();
+    captureFlashOpacity.value = 0.9;
+    captureFlashOpacity.value = withTiming(0, { duration: 450 });
   }, [captureFlashOpacity]);
   // Reticle "lock-in" pulse (Figma 2227:22138 → 2227:22140), fired with the
   // shutter flash: the white frame contracts ~4% and crossfades purple — as if
   // the corners grab the card — then eases back to resting white. The surface
-  // maps 0→1 onto scale + the white→purple crossfade (native driver only).
-  const reticleLockProgress = useRef(new Animated.Value(0)).current;
+  // maps 0→1 onto scale + the white→purple crossfade. REANIMATED (UI thread)
+  // for the same reason as the capture flash above: under burst-scan JS load
+  // the RN Animated sequence stalled and replayed LATE — the purple pulse
+  // fired a second time right as the match landed.
+  const reticleLockProgress = useSharedValue(0);
   const triggerReticleLock = useCallback(() => {
-    reticleLockProgress.setValue(0);
-    Animated.sequence([
-      Animated.timing(reticleLockProgress, {
-        toValue: 1,
-        duration: 140,
-        easing: RNEasing.out(RNEasing.cubic),
-        useNativeDriver: true,
-      }),
+    reticleLockProgress.value = 0;
+    reticleLockProgress.value = withSequence(
+      withTiming(1, { duration: 140, easing: Easing.out(Easing.cubic) }),
       // Hold the locked frame a beat so the grab reads, then release.
-      Animated.delay(200),
-      Animated.timing(reticleLockProgress, {
-        toValue: 0,
-        duration: 260,
-        easing: RNEasing.inOut(RNEasing.cubic),
-        useNativeDriver: true,
-      }),
-    ]).start();
+      withDelay(200, withTiming(0, { duration: 260, easing: Easing.inOut(Easing.cubic) })),
+    );
   }, [reticleLockProgress]);
   // One-time EN/JP coach mark (Figma 2302:29019): shown the first time an
   // ACCOUNT lands on the scanner, pointing at the language pill. Any dismissal —
@@ -1585,7 +1591,12 @@ export function ScannerScreen({
           slabContext: null,
           sourceImageCrop,
           sourceImageDimensions,
-          sourceImageRotationDegrees: 0,
+          // Android camera2 writes the photo file landscape (rotated 90° from
+          // display orientation) — record it NOW, before normalization computes
+          // the same value, so the tray thumb can skip rendering the sideways
+          // source file. Matches normalizationRotationDegrees set later.
+          sourceImageRotationDegrees:
+            rawSourceImageDimensions.width > rawSourceImageDimensions.height ? 90 : 0,
           uri: photo.uri,
         };
       }));
@@ -2962,9 +2973,9 @@ export function ScannerScreen({
           </View>
         </View>
         </GestureDetector>
-        <Animated.View
+        <Reanimated.View
           pointerEvents="none"
-          style={[styles.captureFlash, { opacity: captureFlashOpacity }]}
+          style={[styles.captureFlash, captureFlashStyle]}
         />
       </RawScannerCaptureSurface>
       {(() => {

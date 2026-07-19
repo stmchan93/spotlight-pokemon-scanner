@@ -1,4 +1,4 @@
-import { Vibration } from 'react-native';
+import { Platform, Vibration } from 'react-native';
 
 // Static import (matches the working portfolio-chart scrub haptic). The previous
 // lazy `await import('expo-haptics')` added first-call latency and obscured
@@ -453,11 +453,15 @@ export function scannerCaptureThumbUri(capture: RecentCapture, candidate: Catalo
   // tray thumbnail shows the framed card, not a zoomed-out frame. Matches what the
   // "change card" modal renders (`normalizedImageUri ?? uri`). Prefer the small
   // candidate image so bad-wifi tray thumbnails don't pull full-res art.
+  // When the source photo needs rotation (Android camera2 writes the file
+  // landscape), never show it raw — a beat of placeholder beats a sideways
+  // card that snaps upright when normalization lands.
+  const sourceUri = capture.sourceImageRotationDegrees ? null : capture.uri;
   return (
     candidate?.smallImageUrl
     || candidate?.imageUrl
     || capture.normalizedImageUri
-    || capture.uri
+    || sourceUri
     || null
   );
 }
@@ -491,6 +495,15 @@ export function scannerPreparationReviewReason(mode: ScannerMode, error: unknown
 
 export async function triggerScannerHaptic() {
   if (process.env.NODE_ENV === 'test') {
+    return;
+  }
+
+  // Android: expo-haptics "Heavy" maps to a weak OEM effect (Samsung fires it
+  // at ~27% amplitude — barely felt). The raw Vibration API runs the motor at
+  // full amplitude; budget motors also need LONGER pulses to register, so the
+  // shutter is a firm double "ka-chunk": 60ms, 70ms gap, 60ms.
+  if (Platform.OS === 'android') {
+    Vibration.vibrate([0, 60, 70, 60]);
     return;
   }
 
@@ -529,6 +542,13 @@ export async function triggerScannerProcessedHaptic(outcome: 'found' | 'done' = 
     return;
   }
   lastProcessedHapticAt = now;
+
+  // Android: same weak-OEM-effect story as the shutter — use full-amplitude
+  // raw vibration. "found" = quick double tap, "done" = single short tap.
+  if (Platform.OS === 'android') {
+    Vibration.vibrate(outcome === 'found' ? [0, 45, 60, 45] : 30);
+    return;
+  }
 
   try {
     if (outcome === 'found') {

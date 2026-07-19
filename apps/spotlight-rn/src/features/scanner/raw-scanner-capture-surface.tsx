@@ -4,13 +4,18 @@ import * as FileSystem from 'expo-file-system/legacy';
 import type { ReactNode, RefObject } from 'react';
 import { useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import {
-  Animated,
   Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import Reanimated, {
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  type SharedValue,
+} from 'react-native-reanimated';
 import {
   Camera,
   CommonResolutions,
@@ -111,7 +116,7 @@ type RawScannerCaptureSurfaceProps = {
    * frame, 1 = frame contracted ~4% with purple corners. The screen owns the
    * value and animates it on capture (same pattern as the shutter flash).
    */
-  reticleLockProgress?: Animated.Value;
+  reticleLockProgress?: SharedValue<number>;
   shouldMountCamera: boolean;
   showSlabGuide?: boolean;
   testIDPrefix: string;
@@ -226,20 +231,21 @@ export function RawScannerCaptureSurface({
 }: RawScannerCaptureSurfaceProps) {
   // Stable zero-progress fallback so the reticle renders resting-white when the
   // screen doesn't drive a lock pulse (e.g. lightweight tests).
-  const idleLockProgress = useRef(new Animated.Value(0)).current;
+  const idleLockProgress = useSharedValue(0);
   const lockProgress = reticleLockProgress ?? idleLockProgress;
   // Contract to ~the Figma locked frame (361→345 wide ≈ 0.956); scale from
   // center pulls every corner inward evenly, and the white→purple crossfade
-  // rides the same progress so both read as one "lock" gesture.
-  const lockScale = lockProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 0.956],
-  });
-  const whiteCornersOpacity = lockProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 0],
-  });
-  const purpleCornersOpacity = lockProgress;
+  // rides the same progress so both read as one "lock" gesture. Worklet styles
+  // (UI thread) so the pulse can't stall/replay under burst-scan JS load.
+  const lockShellStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: interpolate(lockProgress.value, [0, 1], [1, 0.956]) }],
+  }));
+  const whiteCornersStyle = useAnimatedStyle(() => ({
+    opacity: 1 - lockProgress.value,
+  }));
+  const purpleCornersStyle = useAnimatedStyle(() => ({
+    opacity: lockProgress.value,
+  }));
   // Keep the ultra-wide in the lens set: on iPhone, only a multi-cam device that
   // includes the ultra-wide enables Auto-Macro — the close-focus that stops cards
   // held close from blurring on 14/15 Pro. The catch is that with the ultra-wide
@@ -256,7 +262,11 @@ export function RawScannerCaptureSurface({
   const photoOutput = usePhotoOutput({
     targetResolution: CommonResolutions.HD_16_9,
     quality: rawVisualCaptureQuality,
-    qualityPrioritization: 'balanced',
+    // Android: 'speed' skips CameraX's post-capture processing wait — the
+    // ~500ms preview stall on mid-range devices drops sharply, which is what
+    // makes the shutter feel iOS-quick. Our matcher normalizes to 630x880
+    // anyway, so the quality delta is irrelevant. iOS keeps 'balanced'.
+    qualityPrioritization: Platform.OS === 'android' ? 'speed' : 'balanced',
   });
 
   // Detect whether the chosen device bundles the ultra-wide (so zoom=1 is the
@@ -398,12 +408,30 @@ export function RawScannerCaptureSurface({
     onCameraStopped?.();
   }, [onCameraStopped]);
 
+  // Android watchdog: rapid isActive flaps (fast tab swipes) can race CameraX
+  // into a dead CLOSED state while isActive is still true — no error, no
+  // onStarted, shutter gated forever. If the session should be live but hasn't
+  // started within the window, force ONE full native remount via key bump
+  // (retries every window while still wedged). iOS never hits this and keeps
+  // the mount-once pattern untouched.
+  const [cameraSessionEpoch, setCameraSessionEpoch] = useState(0);
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !shouldMountCamera || cameraStarted) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      setCameraSessionEpoch((epoch) => epoch + 1);
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [shouldMountCamera, cameraStarted, cameraSessionEpoch]);
+
   return (
     <View style={styles.previewCanvas}>
       {isCameraMounted ? (
         <Camera
           device={device}
           isActive={shouldMountCamera}
+          key={`camera-${cameraSessionEpoch}`}
           onError={onCameraError}
           onStarted={handleCameraStarted}
           onStopped={handleCameraStopped}
@@ -453,16 +481,16 @@ export function RawScannerCaptureSurface({
         )}
 
         {isTrayExpanded ? null : (
-        <Animated.View
+        <Reanimated.View
           style={[
             styles.reticleShell,
             {
               height: layout.reticle.height,
               left: layout.reticle.x,
               top: layout.reticle.y,
-              transform: [{ scale: lockScale }],
               width: layout.reticle.width,
             },
+            lockShellStyle,
           ]}
           testID={`${testIDPrefix}-reticle`}
         >
@@ -480,20 +508,20 @@ export function RawScannerCaptureSurface({
 
           {/* Resting white corners and the capture-pulse purple set crossfade on
               the shared lock progress (opacity+scale only → native driver). */}
-          <Animated.View
+          <Reanimated.View
             pointerEvents="none"
-            style={[StyleSheet.absoluteFillObject, { opacity: whiteCornersOpacity }]}
+            style={[StyleSheet.absoluteFillObject, whiteCornersStyle]}
           >
             <ReticleCornerBrackets />
-          </Animated.View>
-          <Animated.View
+          </Reanimated.View>
+          <Reanimated.View
             pointerEvents="none"
-            style={[StyleSheet.absoluteFillObject, { opacity: purpleCornersOpacity }]}
+            style={[StyleSheet.absoluteFillObject, purpleCornersStyle]}
             testID={`${testIDPrefix}-reticle-lock`}
           >
             <ReticleCornerBrackets locked />
-          </Animated.View>
-        </Animated.View>
+          </Reanimated.View>
+        </Reanimated.View>
         )}
       </View>
 
