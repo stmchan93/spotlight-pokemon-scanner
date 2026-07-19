@@ -437,6 +437,108 @@ def _is_large_image_upload_path(path: str) -> bool:
     return _labeling_session_id_from_path(path, "/artifacts") is not None
 
 
+# Scan endpoints that additionally accept multipart/form-data uploads so mobile
+# clients can send JPEG bytes as binary file parts instead of base64-in-JSON
+# (base64 strings saturate the RN JS thread on budget Android phones). The
+# multipart request carries a `payload` part (the JSON body minus its base64
+# image fields) plus `normalized_image` / `source_image` JPEG parts; the server
+# re-encodes the bytes to base64 into the exact same payload fields the JSON
+# path produces, so everything downstream of body parsing is byte-identical.
+MULTIPART_SCAN_PATHS = {
+    "/api/v1/scan/visual-match",
+    "/api/v1/scan-artifacts",
+}
+
+
+def _multipart_boundary(content_type: str) -> str | None:
+    """Extract the boundary parameter from a multipart Content-Type header."""
+    for segment in content_type.split(";")[1:]:
+        key, _, value = segment.strip().partition("=")
+        if key.strip().lower() != "boundary":
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value.startswith('"') and value.endswith('"'):
+            value = value[1:-1]
+        return value or None
+    return None
+
+
+def _parse_multipart_form_data(body: bytes, boundary: str) -> dict[str, bytes] | None:
+    """Minimal multipart/form-data parser: returns part-name -> raw bytes, or
+    None when the body is malformed. Intentionally avoids the removed `cgi`
+    module; bodies are small (~100-300KB) so buffering is fine."""
+    delimiter = b"\r\n--" + boundary.encode("utf-8")
+    # Prepend CRLF so the leading delimiter splits like every later one.
+    segments = (b"\r\n" + body).split(delimiter)
+    if len(segments) < 2:
+        return None
+    parts: dict[str, bytes] = {}
+    saw_close_delimiter = False
+    for segment in segments[1:]:
+        if segment.startswith(b"--"):
+            saw_close_delimiter = True
+            break
+        # RFC 2046 allows transport padding between the delimiter and CRLF.
+        stripped = segment.lstrip(b" \t")
+        if not stripped.startswith(b"\r\n"):
+            return None
+        segment = stripped[2:]
+        header_blob, separator, content = segment.partition(b"\r\n\r\n")
+        if not separator:
+            return None
+        part_name: str | None = None
+        for header_line in header_blob.split(b"\r\n"):
+            try:
+                header_text = header_line.decode("utf-8")
+            except UnicodeDecodeError:
+                continue
+            header_key, _, header_value = header_text.partition(":")
+            if header_key.strip().lower() != "content-disposition":
+                continue
+            name_match = re.search(r'name="([^"]*)"', header_value) or re.search(
+                r"name=([^;\s]+)", header_value
+            )
+            if name_match:
+                part_name = name_match.group(1)
+        if part_name is None:
+            return None
+        parts[part_name] = content
+    if not saw_close_delimiter:
+        return None
+    return parts
+
+
+def _inject_multipart_scan_images(
+    request_path: str, payload: dict[str, Any], parts: dict[str, bytes]
+) -> None:
+    """Re-encode binary JPEG parts into the exact base64 payload fields the
+    JSON body carries, so the service methods see an identical payload."""
+
+    def inject(field_name: str, image_bytes: bytes) -> None:
+        image_payload = payload.get(field_name)
+        if not isinstance(image_payload, dict):
+            image_payload = {}
+            payload[field_name] = image_payload
+        image_payload["jpegBase64"] = base64.b64encode(image_bytes).decode("ascii")
+
+    normalized_bytes = parts.get("normalized_image")
+    if request_path == "/api/v1/scan/visual-match":
+        # JSON clients send the normalized image as image.jpegBase64
+        # (raw_visual_matcher._load_query_image also accepts top-level
+        # normalizedImageBase64, but image.jpegBase64 is the client field).
+        if normalized_bytes:
+            inject("image", normalized_bytes)
+        return
+    if request_path == "/api/v1/scan-artifacts":
+        # JSON clients send normalizedImage.jpegBase64 (required) and
+        # sourceImage.jpegBase64 (optional) — see _decode_scan_image_payload.
+        if normalized_bytes:
+            inject("normalizedImage", normalized_bytes)
+        source_bytes = parts.get("source_image")
+        if source_bytes:
+            inject("sourceImage", source_bytes)
+
+
 def _default_dataset_root() -> Path:
     configured = str(os.environ.get("SPOTLIGHT_DATASET_ROOT") or "").strip()
     if configured:
@@ -17250,7 +17352,14 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, {"status": "started"})
             return
 
-        payload = self._read_json_body()
+        if parsed.path in MULTIPART_SCAN_PATHS and self._is_multipart_request():
+            # Multipart lane for scan uploads only: reconstructs the exact JSON
+            # payload shape, then falls through to the same endpoint dispatch.
+            # Every other request (including these paths with a JSON body)
+            # takes the unchanged JSON reader below.
+            payload = self._read_multipart_scan_body(parsed.path)
+        else:
+            payload = self._read_json_body()
         if payload is None:
             self._write_json(
                 getattr(self, "_json_body_error_status", HTTPStatus.BAD_REQUEST),
@@ -18209,6 +18318,73 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args: Any) -> None:
         return
+
+    def _is_multipart_request(self) -> bool:
+        # getattr: handler unit tests construct bare handlers (no headers) and
+        # stub _read_json_body; a real request always has headers.
+        headers = getattr(self, "headers", None)
+        if headers is None:
+            return False
+        content_type = str(headers.get("Content-Type") or "")
+        return content_type.split(";", 1)[0].strip().lower() == "multipart/form-data"
+
+    def _read_multipart_scan_body(self, request_path: str) -> dict[str, Any] | None:
+        """Read a multipart/form-data scan upload and reconstruct the exact
+        payload dict the JSON path produces: the `payload` part is the JSON
+        body minus its base64 image field(s); binary JPEG parts are re-encoded
+        to base64 into the same fields. Errors surface through the same
+        _json_body_error_* attributes the JSON reader uses so the dispatch
+        writes the same error envelope."""
+        self._json_body_error_status = None
+        self._json_body_error_message = None
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self._json_body_error_status = HTTPStatus.BAD_REQUEST
+            self._json_body_error_message = "Content-Length must be an integer"
+            return None
+        if content_length <= 0:
+            self._json_body_error_status = HTTPStatus.BAD_REQUEST
+            self._json_body_error_message = "multipart body is required"
+            return None
+        max_body_bytes = (
+            SCAN_ARTIFACT_JSON_BODY_LIMIT_BYTES
+            if _is_large_image_upload_path(request_path)
+            else DEFAULT_JSON_BODY_LIMIT_BYTES
+        )
+        if content_length > max_body_bytes:
+            self._json_body_error_status = HTTPStatus.REQUEST_ENTITY_TOO_LARGE
+            self._json_body_error_message = f"multipart body exceeds {max_body_bytes} bytes"
+            return None
+        boundary = _multipart_boundary(str(self.headers.get("Content-Type") or ""))
+        if not boundary:
+            self._json_body_error_status = HTTPStatus.BAD_REQUEST
+            self._json_body_error_message = "multipart boundary is missing"
+            return None
+
+        body = self.rfile.read(content_length)
+        parts = _parse_multipart_form_data(body, boundary)
+        if parts is None:
+            self._json_body_error_status = HTTPStatus.BAD_REQUEST
+            self._json_body_error_message = "multipart body is malformed"
+            return None
+        payload_part = parts.get("payload")
+        if payload_part is None:
+            self._json_body_error_status = HTTPStatus.BAD_REQUEST
+            self._json_body_error_message = "multipart payload part is required"
+            return None
+        try:
+            payload = json.loads(payload_part.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            self._json_body_error_status = HTTPStatus.BAD_REQUEST
+            self._json_body_error_message = "multipart payload part must be valid JSON"
+            return None
+        if not isinstance(payload, dict):
+            self._json_body_error_status = HTTPStatus.BAD_REQUEST
+            self._json_body_error_message = "multipart payload part must be a JSON object"
+            return None
+        _inject_multipart_scan_images(request_path, payload, parts)
+        return payload
 
     def _read_json_body(self) -> dict[str, Any] | None:
         self._json_body_error_status = None
