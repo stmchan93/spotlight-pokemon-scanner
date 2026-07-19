@@ -32,10 +32,14 @@ type CardRecentSalesPanelProps = {
   testID?: string;
 };
 
-// First slice shown on expand; "Show more" reveals the rest of the fetched
-// page (up to the 20 the screen requests) in place — all served from the same
-// cached Scrydex page, zero extra credits.
+// Premium ladder: 5 sales on expand → "Show more" reveals the rest of the
+// fetched page (up to the 20 the screen requests) → "See all on eBay" deep
+// link past that. All served from the same cached Scrydex page, zero extra
+// credits.
 const INITIAL_VISIBLE_SALES = 5;
+// Free tier: exactly 1 clear sale; a short blurred stack underneath is the
+// upsell (the overlay counts EVERYTHING locked, not just the preview rows).
+const LOCKED_PREVIEW_SALES = 4;
 
 // Sellers often lead titles with the raw cert number ("140550170 Suicune…"),
 // which is pure noise on a one-line row — strip a leading 7+ digit run (with
@@ -174,10 +178,14 @@ export function CardRecentSalesPanel({
     );
   }
 
+  // Free: 1 clear + a blurred preview + Unlock (no Show more — the next step
+  // for a locked user is subscribing, not more blur). Premium: 5 clear, then
+  // Show more expands to the full fetched page.
   const visibleSales = showAllSales ? sales : sales.slice(0, INITIAL_VISIBLE_SALES);
-  const hiddenCount = sales.length - visibleSales.length;
-  const clearSales = isPremium ? visibleSales : visibleSales.slice(0, 1);
-  const lockedSales = isPremium ? [] : visibleSales.slice(1);
+  const clearSales = isPremium ? visibleSales : sales.slice(0, 1);
+  const lockedSales = isPremium ? [] : sales.slice(1, 1 + LOCKED_PREVIEW_SALES);
+  const totalLockedCount = isPremium ? 0 : Math.max(sales.length - 1, 0);
+  const hiddenCount = isPremium ? sales.length - visibleSales.length : 0;
 
   return (
     <View style={styles.panel} testID={testID}>
@@ -216,7 +224,7 @@ export function CardRecentSalesPanel({
             <View style={styles.lockOverlay} pointerEvents="none">
               <IconLock color={theme.colors.gray600} size={16} strokeWidth={2} />
               <Text style={[theme.typography.label, { color: theme.colors.gray600 }]}>
-                {`${lockedSales.length} more recent sales`}
+                {`${totalLockedCount} more recent sales`}
               </Text>
             </View>
           </View>

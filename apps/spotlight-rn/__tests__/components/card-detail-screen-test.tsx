@@ -680,7 +680,11 @@ describe('CardDetailScreen', () => {
     expect(getCardRecentSales).toHaveBeenCalledTimes(1);
   });
 
-  it('"Show more" reveals the rest of the fetched sales in place (no extra fetch)', async () => {
+  it('premium: 5 clear sales, then "Show more" reveals the rest in place (no extra fetch)', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const premiumSpy = jest
+      .spyOn(require('@/features/monetization/entitlements'), 'useIsPremium')
+      .mockReturnValue(true);
     const manySalesRecord = {
       ...recentSalesRecord,
       saleCount: 8,
@@ -716,20 +720,71 @@ describe('CardDetailScreen', () => {
       expect(screen.getByTestId('detail-recent-sales')).toBeTruthy();
     });
 
-    // First slice: 1 clear + 4 locked (5 visible of 8), with a Show-more button.
-    expect(screen.getByTestId('detail-recent-sales-locked-3')).toBeTruthy();
-    expect(screen.queryByTestId('detail-recent-sales-locked-4')).toBeNull();
+    // Premium first slice: 5 clear rows, no blur/subscribe, Show-more present.
+    expect(screen.getByTestId('detail-recent-sales-sale-4')).toBeTruthy();
+    expect(screen.queryByTestId('detail-recent-sales-sale-5')).toBeNull();
+    expect(screen.queryByTestId('detail-recent-sales-locked')).toBeNull();
+    expect(screen.queryByTestId('detail-recent-sales-subscribe')).toBeNull();
     fireEvent.press(screen.getByTestId('detail-recent-sales-show-more'));
 
-    // All 8 now visible (1 clear + 7 locked on the free tier), button gone,
-    // and NO second fetch — the extra rows come from the same cached page.
-    expect(screen.getByTestId('detail-recent-sales-locked-6')).toBeTruthy();
+    // All 8 now clear, button gone, and NO second fetch — the extra rows come
+    // from the same cached page.
+    expect(screen.getByTestId('detail-recent-sales-sale-7')).toBeTruthy();
     expect(screen.queryByTestId('detail-recent-sales-show-more')).toBeNull();
     expect(getCardRecentSales).toHaveBeenCalledTimes(1);
     expect(capturePostHogEvent).toHaveBeenCalledWith('pdp_recent_sales_show_more', {
       grader: 'PSA',
       grade: '10',
     });
+    premiumSpy.mockRestore();
+  });
+
+  it('free tier: exactly 1 clear sale, no Show more, and the lock counts ALL hidden sales', async () => {
+    const manySalesRecord = {
+      ...recentSalesRecord,
+      saleCount: 8,
+      sales: [0, 1, 2, 3, 4, 5, 6, 7].map((index) => ({
+        id: `sale-${index}`,
+        title: `Gengar ex 088/091 SV5K Japanese PSA 10 lot-${index}`,
+        soldAt: '2026-07-10T00:00:00.000Z',
+        priceAmount: 100 + index,
+        currencyCode: 'USD',
+        saleUrl: `https://www.ebay.com/itm/10${index}`,
+      })),
+    };
+    const getCardPriceTrends = jest.fn(async (query: { mode: string }) => ({
+      mode: query.mode as 'raw' | 'graded',
+      provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
+      rows: trendRows(query.mode),
+    }));
+    const getCardRecentSales = jest.fn(async () => manySalesRecord);
+
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardPriceTrends,
+          getCardRecentSales,
+        }),
+      },
+    );
+
+    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA 10'));
+    await waitFor(() => {
+      expect(screen.getByTestId('detail-recent-sales')).toBeTruthy();
+    });
+
+    // 1 clear sale, a 4-row blurred preview, and NO Show-more (the locked
+    // user's next step is Unlock, not more blur).
+    expect(screen.getByTestId('detail-recent-sales-sale-0')).toBeTruthy();
+    expect(screen.queryByTestId('detail-recent-sales-sale-1')).toBeNull();
+    expect(screen.getByTestId('detail-recent-sales-locked-3')).toBeTruthy();
+    expect(screen.queryByTestId('detail-recent-sales-locked-4')).toBeNull();
+    expect(screen.queryByTestId('detail-recent-sales-show-more')).toBeNull();
+    // The lock overlay advertises everything hidden (7), not just the preview.
+    expect(screen.getByText('7 more recent sales')).toBeTruthy();
+    expect(screen.getByTestId('detail-recent-sales-subscribe')).toBeTruthy();
   });
 
   it('subscribe CTA fires the paywall event and the stub toast', async () => {
