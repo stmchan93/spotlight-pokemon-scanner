@@ -24,12 +24,13 @@ import {
   type CardDetailRecord,
   type CardPriceTrendList as CardPriceTrendListRecord,
   type CardPriceTrendRow,
+  type CardRecentSalesRecord,
   type DeckConditionCode,
   type InventoryCardEntry,
   type MarketHistoryOption,
   type SlabContext,
 } from '@spotlight/api-client';
-import { Button, IconButton, TrendTriangle, colors, fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
+import { Button, IconButton, Toast, TrendTriangle, colors, fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
 import { NavArrowLeft, ShareIos, Trash } from 'iconoir-react-native';
 
 import { useGuestGate } from '@/features/auth/use-guest-gate';
@@ -48,12 +49,15 @@ import { CardWishlistCounter } from '@/features/cards/components/card-wishlist-c
 import { CardPriceTrendList } from '@/features/cards/components/card-price-trend-list';
 import { CardPriceTrendSkeleton } from '@/features/cards/components/card-price-trend-skeleton';
 import { CardProductDetails } from '@/features/cards/components/card-product-details';
+import { CardRecentSalesPanel } from '@/features/cards/components/card-recent-sales-panel';
 import {
   buildEbaySearchUrl,
+  buildEbaySoldsUrlFromSales,
   buildTcgPlayerProductUrl,
   buildTcgPlayerSearchUrl,
   resolveTcgPlayerProductId,
 } from '@/features/cards/marketplace-urls';
+import { useIsPremium } from '@/features/monetization/entitlements';
 import {
   cardDetailPreviewFromCatalogResult,
   cardDetailPreviewFromInventoryEntry,
@@ -256,6 +260,27 @@ export function CardDetailScreen({
 
   const [priceTrends, setPriceTrends] = useState<CardPriceTrendListRecord | null>(null);
   const [priceTrendsLoading, setPriceTrendsLoading] = useState(false);
+  // Inline "last solds" accordion under graded trend rows. Sales are cached
+  // per row key for this screen's lifetime (the backend's shared 24h cache is
+  // the credit gate; this map just avoids re-fetch flicker on re-expand).
+  const [expandedTrendRowKey, setExpandedTrendRowKey] = useState<string | null>(null);
+  const [recentSalesByRowKey, setRecentSalesByRowKey] = useState<
+    Record<string, CardRecentSalesRecord | null>
+  >({});
+  const [recentSalesLoadingKey, setRecentSalesLoadingKey] = useState<string | null>(null);
+  const isPremium = useIsPremium();
+  const [showSubscribeStubToast, setShowSubscribeStubToast] = useState(false);
+
+  // A language swap / different card invalidates the sales; a lane change
+  // (raw↔graded) just collapses the accordion.
+  useEffect(() => {
+    setExpandedTrendRowKey(null);
+    setRecentSalesByRowKey({});
+    setRecentSalesLoadingKey(null);
+  }, [activeCardId]);
+  useEffect(() => {
+    setExpandedTrendRowKey(null);
+  }, [priceTrends?.mode]);
   // The lane key (mode|variant|grader) of the most recent trend fetch, so the
   // lens-change effect refetches only when the resolved lane actually differs
   // from what the early parallel fetch already loaded (no double fetch for the
@@ -724,24 +749,43 @@ export function CardDetailScreen({
       if (!grader || !grade) {
         return;
       }
-      // Open eBay's sold + completed listings for this exact graded card so the user
-      // sees the recent SALES (most-recent first) on eBay itself, instead of jumping
-      // to a single most-recent listing.
-      const ebayUrl = buildEbaySearchUrl({
-        name: detail.name,
-        cardNumber: detail.cardNumber,
-        setName: detail.setName,
+      // Accordion: toggle the inline last-solds panel for this row (instead of
+      // kicking straight out to the eBay browser search).
+      if (expandedTrendRowKey === row.key) {
+        setExpandedTrendRowKey(null);
+        return;
+      }
+      setExpandedTrendRowKey(row.key);
+      const cached = recentSalesByRowKey[row.key];
+      capturePostHogEvent('pdp_recent_sales_expanded', {
         grader,
         grade,
-        // Scope sold comps to the selected printing/edition (1st Edition vs
-        // Unlimited) so the recent-sales list isn't a mix of both.
-        variant: selectedVariantLabel,
-        language: detail.language,
+        cache: cached !== undefined ? 'warm' : 'cold',
       });
-      if (ebayUrl) {
-        capturePostHogEvent('pricing_link_opened', { marketplace: 'ebay', lane: 'graded' });
-        void Linking.openURL(ebayUrl);
+      if (cached !== undefined) {
+        return;
       }
+      // refresh:true is credit-safe: the backend's shared 24h TTL only hits
+      // Scrydex when the cache is stale — ~one credit per card+grader+grade per
+      // day across ALL users; every other expand is a SQLite read.
+      setRecentSalesLoadingKey(row.key);
+      void spotlightRepository
+        .getCardRecentSales({
+          cardId: activeCardId,
+          slabContext: { grader, grade },
+          source: 'ebay',
+          limit: 5,
+          refresh: true,
+        })
+        .then((record) => {
+          setRecentSalesByRowKey((current) => ({ ...current, [row.key]: record }));
+        })
+        .catch(() => {
+          setRecentSalesByRowKey((current) => ({ ...current, [row.key]: null }));
+        })
+        .finally(() => {
+          setRecentSalesLoadingKey((current) => (current === row.key ? null : current));
+        });
       return;
     }
 
@@ -769,7 +813,60 @@ export function CardDetailScreen({
       capturePostHogEvent('pricing_link_opened', { marketplace: 'tcgplayer', lane: 'raw' });
       void Linking.openURL(url);
     }
-  }, [detail, priceTrends, selectedVariantLabel]);
+  }, [
+    activeCardId,
+    detail,
+    expandedTrendRowKey,
+    priceTrends,
+    recentSalesByRowKey,
+    selectedVariantLabel,
+    spotlightRepository,
+  ]);
+
+  // Content for the expanded graded row: the last-solds panel, fed from the
+  // per-row fetch cache. The "See all on eBay" link is derived from the REAL
+  // sold titles (far better recall than our guessed keyword query).
+  const expandedTrendContent = useMemo(() => {
+    if (!expandedTrendRowKey || !detail || priceTrends?.mode !== 'graded') {
+      return null;
+    }
+    const [grader, grade] = expandedTrendRowKey.replace(/\|/g, ' ').trim().split(/\s+/);
+    const record = recentSalesByRowKey[expandedTrendRowKey] ?? null;
+    const fallbackParams = {
+      name: detail.name,
+      cardNumber: detail.cardNumber,
+      setName: detail.setName,
+      grader: grader ?? null,
+      grade: grade ?? null,
+      variant: selectedVariantLabel,
+      language: detail.language,
+    };
+    const seeAllUrl = buildEbaySoldsUrlFromSales(
+      (record?.sales ?? []).map((sale) => sale.title),
+      fallbackParams,
+    );
+    return (
+      <CardRecentSalesPanel
+        isLoading={recentSalesLoadingKey === expandedTrendRowKey}
+        isPremium={isPremium}
+        onSubscribePress={() => {
+          capturePostHogEvent('paywall_subscribe_tapped', { surface: 'pdp_recent_sales' });
+          setShowSubscribeStubToast(true);
+        }}
+        record={record}
+        seeAllUrl={seeAllUrl}
+        testID="detail-recent-sales"
+      />
+    );
+  }, [
+    detail,
+    expandedTrendRowKey,
+    isPremium,
+    priceTrends?.mode,
+    recentSalesByRowKey,
+    recentSalesLoadingKey,
+    selectedVariantLabel,
+  ]);
 
   // Tap the provider logo (eBay / TCGplayer) in the Price-Trend header → open the
   // marketplace for the grade/grader currently selected on the PDP (the dropdown),
@@ -1903,6 +2000,8 @@ export function CardDetailScreen({
         {priceTrends && priceTrends.rows.length > 0 ? (
           <View style={styles.trendBlock}>
             <CardPriceTrendList
+              expandedContent={expandedTrendContent}
+              expandedRowKey={priceTrends.mode === 'graded' ? expandedTrendRowKey : null}
               list={priceTrends}
               onProviderPress={handleProviderPress}
               onRowPress={handleTrendRowPress}
@@ -2051,6 +2150,16 @@ export function CardDetailScreen({
           </View>
         )}
       </Animated.View>
+
+      {/* Subscribe CTA stub feedback until real subscriptions land. */}
+      <Toast
+        message="Subscriptions coming soon"
+        onDismiss={() => setShowSubscribeStubToast(false)}
+        style={styles.subscribeToast}
+        testID="detail-subscribe-stub-toast"
+        tone="light"
+        visible={showSubscribeStubToast}
+      />
     </SafeAreaView>
   );
 }
@@ -2061,6 +2170,12 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 16,
     paddingTop: 10,
+  },
+  subscribeToast: {
+    bottom: 120,
+    left: 16,
+    position: 'absolute',
+    right: 16,
   },
   actionButton: {
     flex: 1,

@@ -1,6 +1,6 @@
-import { Fragment } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { IconChevronRight } from '@tabler/icons-react-native';
+import { IconChevronDown, IconChevronRight } from '@tabler/icons-react-native';
 
 import { borderWidths, colors, PriceSparkline, useSpotlightTheme } from '@spotlight/design-system';
 import type {
@@ -27,13 +27,28 @@ type CardPriceTrendListProps = {
   onProviderPress?: () => void;
   /** Row key currently resolving its marketplace link (shows a spinner). */
   loadingRowKey?: string | null;
+  /**
+   * Accordion: the row whose chevron is expanded (points down) and whose
+   * `expandedContent` renders beneath it, above the divider. The list stays
+   * dumb — the parent owns the state and the content.
+   */
+  expandedRowKey?: string | null;
+  expandedContent?: ReactNode;
   testID?: string;
 };
 
 const SPARKLINE_WIDTH = 62;
 const SPARKLINE_HEIGHT = 22;
 
-export function CardPriceTrendList({ list, onRowPress, onProviderPress, loadingRowKey, testID }: CardPriceTrendListProps) {
+export function CardPriceTrendList({
+  list,
+  onRowPress,
+  onProviderPress,
+  loadingRowKey,
+  expandedRowKey,
+  expandedContent,
+  testID,
+}: CardPriceTrendListProps) {
   const theme = useSpotlightTheme();
   const logoSource =
     list.provider === 'ebay'
@@ -76,6 +91,7 @@ export function CardPriceTrendList({ list, onRowPress, onProviderPress, loadingR
 
       {list.rows.map((row) => {
         const isLoading = row.key === loadingRowKey;
+        const isExpanded = expandedRowKey != null && row.key === expandedRowKey;
         const rowTestID = testID ? `${testID}-row-${row.key}` : undefined;
         const rowContent = (
           <>
@@ -115,8 +131,17 @@ export function CardPriceTrendList({ list, onRowPress, onProviderPress, loadingR
             {onRowPress ? (
               // Larger (20px) + darker (gray-600 / #717171) chevron per Figma
               // 2566:5298 so the tappable marketplace rows clearly read as
-              // clickable.
-              <IconChevronRight color={theme.colors.gray600} size={20} strokeWidth={2} />
+              // clickable. Expanded accordion rows point DOWN.
+              isExpanded ? (
+                <IconChevronDown
+                  color={theme.colors.gray600}
+                  size={20}
+                  strokeWidth={2}
+                  testID={rowTestID ? `${rowTestID}-chevron-open` : undefined}
+                />
+              ) : (
+                <IconChevronRight color={theme.colors.gray600} size={20} strokeWidth={2} />
+              )
             ) : null}
           </>
         );
@@ -126,6 +151,7 @@ export function CardPriceTrendList({ list, onRowPress, onProviderPress, loadingR
             {onRowPress ? (
               <Pressable
                 accessibilityRole="button"
+                accessibilityState={{ expanded: isExpanded }}
                 disabled={isLoading}
                 onPress={() => onRowPress(row)}
                 style={({ pressed }) => [styles.row, { opacity: pressed ? 0.6 : 1 }]}
@@ -138,6 +164,11 @@ export function CardPriceTrendList({ list, onRowPress, onProviderPress, loadingR
                 {rowContent}
               </View>
             )}
+            {isExpanded && expandedContent != null ? (
+              <View testID={rowTestID ? `${rowTestID}-expanded` : undefined}>
+                {expandedContent}
+              </View>
+            ) : null}
             <View style={[styles.divider, { backgroundColor: theme.colors.gray300 }]} />
           </Fragment>
         );

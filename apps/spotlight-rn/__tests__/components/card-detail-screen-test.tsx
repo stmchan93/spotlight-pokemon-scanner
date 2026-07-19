@@ -580,35 +580,125 @@ describe('CardDetailScreen', () => {
     });
   });
 
-  it('graded price-trend row opens eBay sold-listings search scoped to the grade', async () => {
+  const recentSalesRecord = {
+    source: 'ebay' as const,
+    status: 'available' as const,
+    fetchedAt: new Date().toISOString(),
+    canRefresh: false,
+    saleCount: 5,
+    sales: [0, 1, 2, 3, 4].map((index) => ({
+      id: `sale-${index}`,
+      title: `Gengar ex 088/091 SV5K Japanese PSA 10 lot-${index}`,
+      soldAt: '2026-07-10T00:00:00.000Z',
+      priceAmount: 100 + index,
+      currencyCode: 'USD',
+      saleUrl: `https://www.ebay.com/itm/10${index}`,
+    })),
+  };
+
+  it('graded price-trend row expands the inline last-solds accordion (no browser exit)', async () => {
     const getCardPriceTrends = jest.fn(async (query: { mode: string }) => ({
       mode: query.mode as 'raw' | 'graded',
       provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
       rows: trendRows(query.mode),
     }));
+    const getCardRecentSales = jest.fn(async () => recentSalesRecord);
     const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as never);
 
     renderWithProviders(
       <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
-      { spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends }) },
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardPriceTrends,
+          getCardRecentSales,
+        }),
+      },
     );
 
     fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
     fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA 10'));
 
+    // The row expands INLINE — no browser exit on the row tap itself.
     await waitFor(() => {
-      expect(openURL).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId('detail-recent-sales')).toBeTruthy();
     });
-    const url = openURL.mock.calls[0][0] as string;
-    expect(url).toContain('https://www.ebay.com/sch/i.html');
-    expect(url).toContain('_nkw=%22PSA+10%22'); // grader + grade lead the sold-search query
-    expect(url).toContain('LH_Sold=1');
-    expect(url).toContain('LH_Complete=1');
-    // Tracked for the "checks pricing" funnel.
-    expect(capturePostHogEvent).toHaveBeenCalledWith('pricing_link_opened', {
-      marketplace: 'ebay',
-      lane: 'graded',
+    expect(openURL).not.toHaveBeenCalled();
+    // refresh:true rides the backend's 24h TTL guard (the credit gate).
+    expect(getCardRecentSales).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cardId: 'sm7-1',
+        slabContext: { grader: 'PSA', grade: '10' },
+        source: 'ebay',
+        limit: 5,
+        refresh: true,
+      }),
+    );
+    expect(capturePostHogEvent).toHaveBeenCalledWith('pdp_recent_sales_expanded', {
+      grader: 'PSA',
+      grade: '10',
+      cache: 'cold',
     });
+
+    // Free tier: 1 clear sale, the rest behind the blur paywall + subscribe CTA.
+    expect(screen.getByTestId('detail-recent-sales-sale-0')).toBeTruthy();
+    expect(screen.queryByTestId('detail-recent-sales-sale-1')).toBeNull();
+    expect(screen.getByTestId('detail-recent-sales-locked')).toBeTruthy();
+    expect(screen.getByTestId('detail-recent-sales-subscribe')).toBeTruthy();
+    // Clear sale's price renders INSIDE the panel (the trend row shows $100 too).
+    expect(
+      within(screen.getByTestId('detail-recent-sales-sale-0')).getByText('$100.00'),
+    ).toBeTruthy();
+
+    // Tapping the clear sale opens the EXACT sold listing.
+    fireEvent.press(screen.getByTestId('detail-recent-sales-sale-0'));
+    expect(openURL).toHaveBeenCalledWith('https://www.ebay.com/itm/100');
+
+    // "See all on eBay" opens a title-derived SOLD search (aggregate list).
+    fireEvent.press(screen.getByTestId('detail-recent-sales-see-all'));
+    const seeAllUrl = openURL.mock.calls[1][0] as string;
+    expect(seeAllUrl).toContain('https://www.ebay.com/sch/i.html');
+    expect(seeAllUrl).toContain('LH_Sold=1');
+    expect(seeAllUrl).toContain('Gengar'); // token mined from the real sold titles
+
+    // Second tap on the row collapses the accordion.
+    fireEvent.press(screen.getByTestId('detail-price-trends-row-PSA 10'));
+    expect(screen.queryByTestId('detail-recent-sales')).toBeNull();
+
+    // Re-expand: served from the per-row cache — no second fetch.
+    fireEvent.press(screen.getByTestId('detail-price-trends-row-PSA 10'));
+    expect(screen.getByTestId('detail-recent-sales')).toBeTruthy();
+    expect(getCardRecentSales).toHaveBeenCalledTimes(1);
+  });
+
+  it('subscribe CTA fires the paywall event and the stub toast', async () => {
+    const getCardPriceTrends = jest.fn(async (query: { mode: string }) => ({
+      mode: query.mode as 'raw' | 'graded',
+      provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
+      rows: trendRows(query.mode),
+    }));
+    const getCardRecentSales = jest.fn(async () => recentSalesRecord);
+
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardPriceTrends,
+          getCardRecentSales,
+        }),
+      },
+    );
+
+    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA 10'));
+    await waitFor(() => {
+      expect(screen.getByTestId('detail-recent-sales-subscribe')).toBeTruthy();
+    });
+
+    fireEvent.press(screen.getByTestId('detail-recent-sales-subscribe'));
+    expect(capturePostHogEvent).toHaveBeenCalledWith('paywall_subscribe_tapped', {
+      surface: 'pdp_recent_sales',
+    });
+    expect(screen.getByTestId('detail-subscribe-stub-toast')).toBeTruthy();
   });
 
   it('parses the pipe-delimited graded row key too (backend version robustness)', async () => {
@@ -617,21 +707,29 @@ describe('CardDetailScreen', () => {
       provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
       rows: trendRows(query.mode, true),
     }));
-    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as never);
+    const getCardRecentSales = jest.fn(async () => recentSalesRecord);
 
     renderWithProviders(
       <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
-      { spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends }) },
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardPriceTrends,
+          getCardRecentSales,
+        }),
+      },
     );
 
     fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
     fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA|10|'));
 
+    // The pipe key "PSA|10|<variant>" still yields grader=PSA, grade=10 for the
+    // recent-sales fetch behind the accordion.
     await waitFor(() => {
-      expect(openURL).toHaveBeenCalledTimes(1);
+      expect(getCardRecentSales).toHaveBeenCalledWith(
+        expect.objectContaining({ slabContext: { grader: 'PSA', grade: '10' } }),
+      );
     });
-    // The pipe key "PSA|10|<variant>" still yields grader=PSA, grade=10 in the query.
-    expect(openURL.mock.calls[0][0] as string).toContain('_nkw=%22PSA+10%22');
+    expect(await screen.findByTestId('detail-recent-sales')).toBeTruthy();
   });
 
   it('tapping the TCGplayer logo (raw lane) opens the Near Mint search', async () => {
