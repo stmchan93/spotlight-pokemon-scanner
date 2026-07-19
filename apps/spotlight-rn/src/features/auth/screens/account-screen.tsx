@@ -253,7 +253,7 @@ export function AccountScreen() {
                 Collection data
               </Text>
               <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>
-                Export your whole collection as a spreadsheet (CSV) — it&apos;s yours to keep.
+                Export your collection
               </Text>
             </View>
             <View style={styles.collectionDataButtons}>
