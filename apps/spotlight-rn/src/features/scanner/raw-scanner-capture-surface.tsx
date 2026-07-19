@@ -2,7 +2,7 @@
 // runtime (silently dropped every scan's source image — see scanner dashboard).
 import * as FileSystem from 'expo-file-system/legacy';
 import type { ReactNode, RefObject } from 'react';
-import { useCallback, useEffect, useImperativeHandle, useState } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import {
   Platform,
   Pressable,
@@ -21,6 +21,7 @@ import {
   CommonResolutions,
   useCameraDevice,
   usePhotoOutput,
+  type CameraRef,
 } from 'react-native-vision-camera';
 
 import {
@@ -279,6 +280,10 @@ export function RawScannerCaptureSurface({
     qualityPrioritization: 'balanced',
   });
 
+  // Ref to the <Camera> itself (not the photo output): Android's fast-path
+  // capture uses `takeSnapshot()`, which lives on the camera/preview handle.
+  const cameraComponentRef = useRef<CameraRef>(null);
+
   // Detect whether the chosen device bundles the ultra-wide (so zoom=1 is the
   // ultra-wide ~0.5x). `device.physicalDevices` is an array of lens descriptors;
   // handle both string and {type} shapes defensively across vision-camera builds.
@@ -322,6 +327,50 @@ export function RawScannerCaptureSurface({
       // (the Nitro capture settings have no per-call quality knob), so the arg is
       // accepted for the handle contract but the output's quality is what applies.
       async takePicture(opts) {
+        // Android fast path: the full photo capture ('balanced', no ZSL) is too
+        // slow for burst scanning — the phone moves before the shutter resolves,
+        // so the still is motion-blurred. `takeSnapshot()` grabs the CURRENT
+        // preview frame instead: near-instant, and it's the exact frame the user
+        // framed in the reticle (zoom + FOV already applied) — NOT a stale ZSL
+        // ring-buffer frame (that path was reverted for causing wrong matches).
+        // Tradeoff: preview-resolution, not full HD; match-accuracy impact TBD on
+        // real scans. iOS keeps the full capturePhoto path (its shutter is fast).
+        if (Platform.OS === 'android') {
+          const camera = cameraComponentRef.current;
+          if (!camera) {
+            return null;
+          }
+          try {
+            const image = await camera.takeSnapshot();
+            try {
+              const path = await image.saveToTemporaryFileAsync(
+                'jpg',
+                Math.round(rawVisualCaptureQuality * 100),
+              );
+              const uri = path.startsWith('file://') ? path : `file://${path}`;
+              let base64: string | undefined;
+              if (opts?.includeBase64) {
+                try {
+                  base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
+                } catch {
+                  base64 = undefined;
+                }
+              }
+              if (__DEV__) {
+                console.info(
+                  `[SCANNER CAPTURE:android-snapshot] ${image.width}x${image.height} ` +
+                    `zoomFactor=${zoomFactor}`,
+                );
+              }
+              return { uri, base64, width: image.width, height: image.height };
+            } finally {
+              (image as { dispose?: () => void }).dispose?.();
+            }
+          } catch {
+            return null;
+          }
+        }
+
         if (!photoOutput) {
           return null;
         }
@@ -442,6 +491,7 @@ export function RawScannerCaptureSurface({
     <View style={styles.previewCanvas}>
       {isCameraMounted ? (
         <Camera
+          ref={cameraComponentRef}
           device={device}
           isActive={shouldMountCamera}
           key={`camera-${cameraSessionEpoch}`}
