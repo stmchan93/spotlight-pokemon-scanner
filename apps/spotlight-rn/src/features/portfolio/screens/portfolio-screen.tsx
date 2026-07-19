@@ -48,10 +48,10 @@ import { useAppServices } from '@/providers/app-providers';
 
 const GRID_TEST_ID = 'collection-masonry-grid';
 
-// UI kill-switch (2026-07-18 user ask): hide the portfolio/collection graph
-// card from the screen while keeping the chart code, scrub wiring, and data
-// fetches intact. Flip to true to restore the graph.
-const SHOW_PORTFOLIO_CHART = false;
+// UI kill-switch for the portfolio/collection graph card (chart code, scrub
+// wiring, and data fetches stay intact either way). Briefly false on
+// 2026-07-18 — that turned out to be a misread of the ask; the graph stays.
+const SHOW_PORTFOLIO_CHART = true;
 
 // Press-and-hold duration before a card's actions menu opens — a standard
 // long-press (iOS context menus sit around here).

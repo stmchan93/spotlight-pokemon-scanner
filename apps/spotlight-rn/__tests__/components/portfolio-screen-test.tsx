@@ -208,10 +208,8 @@ describe('PortfolioScreen', () => {
     renderPortfolioScreen({ repository });
 
     expect(screen.queryByText('Loading your portfolio...')).toBeNull();
-    // The chart card is hidden behind SHOW_PORTFOLIO_CHART (2026-07-18), so no
-    // chart skeleton renders — the header summary + cached rows carry the page.
-    expect(await screen.findByTestId('portfolio-summary-value')).toBeTruthy();
-    expect(screen.queryByTestId('portfolio-chart-skeleton')).toBeNull();
+    expect(await screen.findByTestId('portfolio-chart-skeleton')).toBeTruthy();
+    expect(screen.getByTestId('portfolio-summary-value')).toBeTruthy();
     expect(screen.getAllByText('Scorbunny').length).toBeGreaterThan(0);
 
     const dashboardResult = await sourceRepository.loadPortfolioDashboard();
@@ -219,6 +217,9 @@ describe('PortfolioScreen', () => {
       resolveDashboard(dashboardResult);
     });
 
+    await waitFor(() => {
+      expect(screen.queryByTestId('portfolio-chart-skeleton')).toBeNull();
+    });
     expect(screen.getByTestId('portfolio-summary-value')).toBeTruthy();
   });
 
@@ -606,10 +607,7 @@ describe('PortfolioScreen', () => {
     expect(screen.getByTestId('collection-masonry-grid-tile-cheap')).toBeTruthy();
   });
 
-  // Skipped while the chart card is hidden behind SHOW_PORTFOLIO_CHART
-  // (2026-07-18): the range pills aren't reachable without the chart UI.
-  // Re-enable when the flag flips back on.
-  it.skip('fetches a chart range on demand only when it has not been loaded yet', async () => {
+  it('fetches a chart range on demand only when it has not been loaded yet', async () => {
     const point = { isoDate: '2026-06-01', shortLabel: 'Jun 1', value: 100 };
     const dashboard = {
       ...buildDashboardWithInventory([buildInventoryEntry({ id: 'a', name: 'Alpha' })]),
