@@ -33,7 +33,6 @@ import {
   chunkCollectionGridRows,
 } from '@/features/portfolio/components/collection-masonry-grid';
 import { CollectionListRow } from '@/features/portfolio/components/collection-list-view';
-import { TrendWindowTag } from '@/features/portfolio/components/trend-window-tag';
 import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
 import { EditDoneButton } from '@/components/edit-done-button';
 import { CardActionsSheet } from '@/features/cards/components/card-actions-sheet';
@@ -48,6 +47,11 @@ import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAppServices } from '@/providers/app-providers';
 
 const GRID_TEST_ID = 'collection-masonry-grid';
+
+// UI kill-switch (2026-07-18 user ask): hide the portfolio/collection graph
+// card from the screen while keeping the chart code, scrub wiring, and data
+// fetches intact. Flip to true to restore the graph.
+const SHOW_PORTFOLIO_CHART = false;
 
 // Press-and-hold duration before a card's actions menu opens — a standard
 // long-press (iOS context menus sit around here).
@@ -591,17 +595,19 @@ export function PortfolioScreen({
             onToggleHidden={toggleSummaryHidden}
           />
 
-          <View style={styles.chartWrap}>
-            <PortfolioChartCard
-              chartMode="portfolio"
-              dashboard={model.dashboard}
-              isLoading={(model.isLoadingDashboard && !model.hasLoadedDashboard) || model.isLoadingSelectedRange}
-              onActivePointChange={setActiveChartPoint}
-              onRangeChange={model.setSelectedRange}
-              onScrubLockChange={setIsChartScrubbing}
-              selectedRange={model.selectedRange}
-            />
-          </View>
+          {SHOW_PORTFOLIO_CHART ? (
+            <View style={styles.chartWrap}>
+              <PortfolioChartCard
+                chartMode="portfolio"
+                dashboard={model.dashboard}
+                isLoading={(model.isLoadingDashboard && !model.hasLoadedDashboard) || model.isLoadingSelectedRange}
+                onActivePointChange={setActiveChartPoint}
+                onRangeChange={model.setSelectedRange}
+                onScrubLockChange={setIsChartScrubbing}
+                selectedRange={model.selectedRange}
+              />
+            </View>
+          ) : null}
 
           {model.loadError || model.isDashboardStale ? (
             // Slow/failed background refresh: never alarm with a "couldn't refresh"
@@ -625,9 +631,6 @@ export function PortfolioScreen({
               onFocus={handleSearchFocus}
               onToggleViewMode={toggleViewMode}
               query={model.searchQuery}
-              // Scope tag for every row/tile percent below (SINCE ADDED ⇄ 30D),
-              // right-aligned on the "My Collection" title line; both view modes.
-              titleAccessory={<TrendWindowTag />}
               viewMode={viewMode}
             />
           </View>

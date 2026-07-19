@@ -208,8 +208,10 @@ describe('PortfolioScreen', () => {
     renderPortfolioScreen({ repository });
 
     expect(screen.queryByText('Loading your portfolio...')).toBeNull();
-    expect(await screen.findByTestId('portfolio-chart-skeleton')).toBeTruthy();
-    expect(screen.getByTestId('portfolio-summary-value')).toBeTruthy();
+    // The chart card is hidden behind SHOW_PORTFOLIO_CHART (2026-07-18), so no
+    // chart skeleton renders — the header summary + cached rows carry the page.
+    expect(await screen.findByTestId('portfolio-summary-value')).toBeTruthy();
+    expect(screen.queryByTestId('portfolio-chart-skeleton')).toBeNull();
     expect(screen.getAllByText('Scorbunny').length).toBeGreaterThan(0);
 
     const dashboardResult = await sourceRepository.loadPortfolioDashboard();
@@ -217,9 +219,6 @@ describe('PortfolioScreen', () => {
       resolveDashboard(dashboardResult);
     });
 
-    await waitFor(() => {
-      expect(screen.queryByTestId('portfolio-chart-skeleton')).toBeNull();
-    });
     expect(screen.getByTestId('portfolio-summary-value')).toBeTruthy();
   });
 
@@ -383,11 +382,15 @@ describe('PortfolioScreen', () => {
     expect(screen.queryByTestId('collection-masonry-grid-tile-fav-3')).toBeNull();
   });
 
-  it('trend window tag renders in card view and toggles the tile percent source (since-added ⇄ 30d)', async () => {
+  // The since-added/30d trend UI was removed from the Collection screen
+  // (2026-07-18; it is moving to the PDP): no header tag, no tile/row percents,
+  // no row sparklines — even when the entries carry the trend data.
+  it('renders no trend tag, tile/row percents, or row sparklines', async () => {
     const inventory = [
       buildInventoryEntry({
         id: 'trend-1',
         name: 'Trendy Card',
+        cardId: 'card-trend-1',
         marketPrice: 600,
         sinceAddedChangePercent: 31,
         sparkTrendPct: 12,
@@ -402,74 +405,26 @@ describe('PortfolioScreen', () => {
 
     renderPortfolioScreen({ repository });
 
-    // Default card (grid) view — the tag renders here too, since tiles carry
-    // the trend now.
+    // Card (grid) view: tile renders, but no tag and no trend percent.
     await screen.findByTestId('portfolio-header-title');
     await waitFor(() => {
       expect(screen.getByTestId('collection-masonry-grid-tile-trend-1')).toBeTruthy();
     });
-    expect(screen.getByTestId('trend-window-tag')).toBeTruthy();
-    expect(screen.getByText('SINCE ADDED ▾')).toBeTruthy();
-    // Since-added is the default window.
-    expect(screen.getByTestId('collection-masonry-grid-tile-trend-1-trend')).toBeTruthy();
-    expect(screen.getByText('+31.00%')).toBeTruthy();
-
-    // One tap cycles to the 30d window: tiles now show the sparkline trend.
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('trend-window-tag'));
-    });
-    expect(screen.getByText('30D ▾')).toBeTruthy();
-    expect(screen.getByText('+12.00%')).toBeTruthy();
+    expect(screen.queryByTestId('trend-window-tag')).toBeNull();
+    expect(screen.queryByTestId('collection-masonry-grid-tile-trend-1-trend')).toBeNull();
     expect(screen.queryByText('+31.00%')).toBeNull();
-  });
 
-  it('trend window tag toggles the row percent source in list view', async () => {
-    const inventory = [
-      buildInventoryEntry({
-        id: 'trend-2',
-        name: 'Trendy Row',
-        cardId: 'card-trend-2',
-        marketPrice: 600,
-        sinceAddedChangePercent: 31,
-        sparkTrendPct: 12,
-        sparkPoints: [500, 520, 600],
-      }),
-    ];
-    const dashboard = buildDashboardWithInventory(inventory);
-    const repository = createTestSpotlightRepository({
-      loadInventoryEntries: async () => ({ state: 'success', data: inventory, errorMessage: null }),
-      loadPortfolioDashboard: async () => ({ state: 'success', data: dashboard, errorMessage: null }),
-    });
-
-    renderPortfolioScreen({ repository });
-
-    await screen.findByTestId('portfolio-header-title');
-    await waitFor(() => {
-      expect(screen.getByTestId('collection-masonry-grid')).toBeTruthy();
-    });
-
-    // Switch to list view — the tag stays mounted (it is view-mode agnostic).
+    // List view: row renders without the trend percent or sparkline.
     await act(async () => {
       fireEvent.press(screen.getByTestId('collection-search-row-view-toggle'));
     });
     await waitFor(() => {
-      expect(screen.getByTestId('card-list-row-card-trend-2')).toBeTruthy();
+      expect(screen.getByTestId('card-list-row-card-trend-1')).toBeTruthy();
     });
-    expect(screen.getByTestId('trend-window-tag')).toBeTruthy();
-    expect(screen.getByTestId('card-list-row-card-trend-2-trend')).toBeTruthy();
-    expect(screen.getByText('+31.00%')).toBeTruthy();
-
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('trend-window-tag'));
-    });
-    expect(screen.getByText('+12.00%')).toBeTruthy();
+    expect(screen.queryByTestId('trend-window-tag')).toBeNull();
+    expect(screen.queryByTestId('card-list-row-card-trend-1-trend')).toBeNull();
+    expect(screen.queryByTestId('card-list-row-card-trend-1-sparkline')).toBeNull();
     expect(screen.queryByText('+31.00%')).toBeNull();
-
-    // A second tap cycles back to since-added.
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('trend-window-tag'));
-    });
-    expect(screen.getByText('+31.00%')).toBeTruthy();
   });
 
   it('long-pressing a card opens the actions menu; Wishlist toggles the favorite', async () => {
@@ -651,7 +606,10 @@ describe('PortfolioScreen', () => {
     expect(screen.getByTestId('collection-masonry-grid-tile-cheap')).toBeTruthy();
   });
 
-  it('fetches a chart range on demand only when it has not been loaded yet', async () => {
+  // Skipped while the chart card is hidden behind SHOW_PORTFOLIO_CHART
+  // (2026-07-18): the range pills aren't reachable without the chart UI.
+  // Re-enable when the flag flips back on.
+  it.skip('fetches a chart range on demand only when it has not been loaded yet', async () => {
     const point = { isoDate: '2026-06-01', shortLabel: 'Jun 1', value: 100 };
     const dashboard = {
       ...buildDashboardWithInventory([buildInventoryEntry({ id: 'a', name: 'Alpha' })]),
@@ -752,51 +710,6 @@ describe('PortfolioScreen', () => {
     // No "View More" pagination gate anymore.
     expect(screen.queryByTestId('portfolio-list-pagination')).toBeNull();
     expect(screen.queryByTestId('portfolio-list-pagination-view-more')).toBeNull();
-  });
-
-  it('list rows show the SINCE-ADDED change pill (not day change) with caption + sparkline', async () => {
-    const inventory = [
-      buildInventoryEntry({
-        id: 'since-1',
-        cardId: 'since-1',
-        name: 'Charizard',
-        marketPrice: 600,
-        // Day change present but must NOT drive the row pill anymore.
-        dayChangeAmount: 2.5,
-        dayChangePercent: 0.4,
-        sinceAddedChangeAmount: 142,
-        sinceAddedChangePercent: 31,
-        sinceAddedBaselineDate: '2026-03-12',
-        sparkPoints: [500, 520, 480, 600],
-        sparkTrendPct: 20,
-      }),
-    ];
-    const dashboard = buildDashboardWithInventory(inventory);
-    const repository = createTestSpotlightRepository({
-      loadInventoryEntries: async () => ({ state: 'success', data: inventory, errorMessage: null }),
-      loadPortfolioDashboard: async () => ({ state: 'success', data: dashboard, errorMessage: null }),
-    });
-
-    renderPortfolioScreen({ repository });
-
-    await screen.findByTestId('portfolio-header-title');
-    await waitFor(() => {
-      expect(screen.getByTestId('collection-masonry-grid')).toBeTruthy();
-    });
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('collection-search-row-view-toggle'));
-    });
-    await waitFor(() => {
-      expect(screen.getByTestId('card-list-row-since-1')).toBeTruthy();
-    });
-
-    // Signed since-added percent stacked under the price (Robinhood-style).
-    expect(screen.getByTestId('card-list-row-since-1-trend')).toBeTruthy();
-    expect(screen.getByText('+31.00%')).toBeTruthy();
-    // The day-change amount is no longer rendered on the row.
-    expect(screen.queryByText('$2.50')).toBeNull();
-    // The 30d sparkline renders between the copy block and the price column.
-    expect(screen.getByTestId('card-list-row-since-1-sparkline')).toBeTruthy();
   });
 
   it('list rows hide the pill and sparkline when the since-added fields are null', async () => {

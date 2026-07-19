@@ -65,50 +65,12 @@ describe('PortfolioBalanceHeader', () => {
     expect(screen.queryByTestId('portfolio-summary-added')).toBeNull();
   });
 
-  it('shows "Added N cards (+$...)" while scrubbing a point with adds', () => {
-    renderHeader({
-      activeChartPoint: buildActivePoint({ addedCount: 3, addedValueLabel: '+$210.00' }),
-    });
-
-    expect(screen.getByTestId('portfolio-summary-added')).toHaveTextContent(
-      'Added 3 cards (+$210.00)',
-    );
-    // The scrub date still renders alongside the new line.
-    expect(screen.getByTestId('portfolio-summary-delta-date')).toBeTruthy();
-  });
-
-  it('uses the singular "card" for a single add', () => {
-    renderHeader({
-      activeChartPoint: buildActivePoint({ addedCount: 1, addedValueLabel: '+$5.00' }),
-    });
-
-    expect(screen.getByTestId('portfolio-summary-added')).toHaveTextContent(
-      'Added 1 card (+$5.00)',
-    );
-  });
-
-  it('hides the added line when the scrubbed point has no adds', () => {
-    renderHeader({
-      activeChartPoint: buildActivePoint({ addedCount: 0, addedValueLabel: null }),
-    });
-
-    expect(screen.queryByTestId('portfolio-summary-added')).toBeNull();
-  });
-
-  it('hides the added line for payloads without the add fields (older chart)', () => {
+  // The buy-marker "Added N cards" feature was removed entirely (2026-07-18):
+  // the added line must never render, even while scrubbing.
+  it('never renders an added line while scrubbing', () => {
     renderHeader({ activeChartPoint: buildActivePoint() });
 
     expect(screen.queryByTestId('portfolio-summary-added')).toBeNull();
-  });
-
-  it('masks the dollar amount on the added line while the summary is hidden', () => {
-    renderHeader({
-      activeChartPoint: buildActivePoint({ addedCount: 3, addedValueLabel: '+$210.00' }),
-      isSummaryHidden: true,
-    });
-
-    const addedLine = screen.getByTestId('portfolio-summary-added');
-    expect(addedLine).toHaveTextContent('Added 3 cards');
-    expect(addedLine).not.toHaveTextContent('$210.00');
+    expect(screen.getByTestId('portfolio-summary-delta-date')).toBeTruthy();
   });
 });

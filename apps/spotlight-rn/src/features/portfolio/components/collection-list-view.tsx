@@ -2,7 +2,6 @@ import { CardListRow } from '@spotlight/design-system';
 import type { InventoryCardEntry } from '@spotlight/api-client';
 
 import { getCardImageUrl } from '@/lib/card-images';
-import { trendPercentForWindow, useTrendWindow } from '@/features/portfolio/hooks/use-trend-window';
 
 // "Variant · Condition" for raw ("Holofoil · NM") and "Variant · Grader Grade"
 // for slabs — the variant leads, then the dot, then the quality (user ask; the
@@ -50,10 +49,6 @@ export function CollectionListRow({
   selectable = false,
   selected = false,
 }: CollectionListRowProps) {
-  // Shared persisted trend window (SINCE ADDED ⇄ 30D) — the TrendWindowTag in
-  // the screen header drives it; every row re-renders in lockstep.
-  const { trendWindow } = useTrendWindow();
-
   return (
     <CardListRow
       cardNumber={entry.cardNumber}
@@ -74,15 +69,10 @@ export function CollectionListRow({
       selectable={selectable}
       selected={selected}
       setName={entry.setName}
-      // Last-30d sparkline; tinted by its own direction while the pill carries
-      // the since-added truth (Robinhood's 1D-chart vs total-return split).
-      sparkPoints={entry.sparkPoints ?? undefined}
-      sparkTrendPct={entry.sparkTrendPct ?? null}
+      // No sparkline / trend pill on Collection rows — the since-added and 30d
+      // trend UI moved off this screen (headed for the PDP); the data plumbing
+      // (entry.sparkPoints / sinceAddedChangePercent) is still served.
       testID={`card-list-row-${entry.cardId}`}
-      // Window-scoped trend (never day change — that stays on the balance
-      // header + PDP): since-added by default, or the 30d sparkline trend when
-      // the header tag is flipped to 30D.
-      trendChangePercent={trendPercentForWindow(trendWindow, entry)}
     />
   );
 }
