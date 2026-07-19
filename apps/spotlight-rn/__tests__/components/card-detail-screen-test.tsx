@@ -632,7 +632,7 @@ describe('CardDetailScreen', () => {
         // configurator's selected variant, scoping the backend comp filter.
         slabContext: { grader: 'PSA', grade: '10', variantName: 'Normal' },
         source: 'ebay',
-        limit: 5,
+        limit: 20,
         refresh: true,
       }),
     );
@@ -678,6 +678,58 @@ describe('CardDetailScreen', () => {
     fireEvent.press(screen.getByTestId('detail-price-trends-row-PSA 10'));
     expect(screen.getByTestId('detail-recent-sales')).toBeTruthy();
     expect(getCardRecentSales).toHaveBeenCalledTimes(1);
+  });
+
+  it('"Show more" reveals the rest of the fetched sales in place (no extra fetch)', async () => {
+    const manySalesRecord = {
+      ...recentSalesRecord,
+      saleCount: 8,
+      sales: [0, 1, 2, 3, 4, 5, 6, 7].map((index) => ({
+        id: `sale-${index}`,
+        title: `Gengar ex 088/091 SV5K Japanese PSA 10 lot-${index}`,
+        soldAt: '2026-07-10T00:00:00.000Z',
+        priceAmount: 100 + index,
+        currencyCode: 'USD',
+        saleUrl: `https://www.ebay.com/itm/10${index}`,
+      })),
+    };
+    const getCardPriceTrends = jest.fn(async (query: { mode: string }) => ({
+      mode: query.mode as 'raw' | 'graded',
+      provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
+      rows: trendRows(query.mode),
+    }));
+    const getCardRecentSales = jest.fn(async () => manySalesRecord);
+
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardPriceTrends,
+          getCardRecentSales,
+        }),
+      },
+    );
+
+    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA 10'));
+    await waitFor(() => {
+      expect(screen.getByTestId('detail-recent-sales')).toBeTruthy();
+    });
+
+    // First slice: 1 clear + 4 locked (5 visible of 8), with a Show-more button.
+    expect(screen.getByTestId('detail-recent-sales-locked-3')).toBeTruthy();
+    expect(screen.queryByTestId('detail-recent-sales-locked-4')).toBeNull();
+    fireEvent.press(screen.getByTestId('detail-recent-sales-show-more'));
+
+    // All 8 now visible (1 clear + 7 locked on the free tier), button gone,
+    // and NO second fetch — the extra rows come from the same cached page.
+    expect(screen.getByTestId('detail-recent-sales-locked-6')).toBeTruthy();
+    expect(screen.queryByTestId('detail-recent-sales-show-more')).toBeNull();
+    expect(getCardRecentSales).toHaveBeenCalledTimes(1);
+    expect(capturePostHogEvent).toHaveBeenCalledWith('pdp_recent_sales_show_more', {
+      grader: 'PSA',
+      grade: '10',
+    });
   });
 
   it('subscribe CTA fires the paywall event and the stub toast', async () => {

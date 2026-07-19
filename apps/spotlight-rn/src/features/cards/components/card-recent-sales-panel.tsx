@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { IconLock } from '@tabler/icons-react-native';
@@ -26,8 +27,15 @@ type CardRecentSalesPanelProps = {
   /** Aggregated sold-search link ("See all on eBay") — title-derived. */
   seeAllUrl: string | null;
   onSubscribePress: () => void;
+  /** Fired when "Show more" reveals the rest of the fetched sales (analytics). */
+  onShowMorePress?: () => void;
   testID?: string;
 };
+
+// First slice shown on expand; "Show more" reveals the rest of the fetched
+// page (up to the 20 the screen requests) in place — all served from the same
+// cached Scrydex page, zero extra credits.
+const INITIAL_VISIBLE_SALES = 5;
 
 // Sellers often lead titles with the raw cert number ("140550170 Suicune…"),
 // which is pure noise on a one-line row — strip a leading 7+ digit run (with
@@ -129,9 +137,11 @@ export function CardRecentSalesPanel({
   isPremium,
   seeAllUrl,
   onSubscribePress,
+  onShowMorePress,
   testID = 'recent-sales-panel',
 }: CardRecentSalesPanelProps) {
   const theme = useSpotlightTheme();
+  const [showAllSales, setShowAllSales] = useState(false);
 
   if (isLoading) {
     return (
@@ -164,8 +174,10 @@ export function CardRecentSalesPanel({
     );
   }
 
-  const clearSales = isPremium ? sales : sales.slice(0, 1);
-  const lockedSales = isPremium ? [] : sales.slice(1);
+  const visibleSales = showAllSales ? sales : sales.slice(0, INITIAL_VISIBLE_SALES);
+  const hiddenCount = sales.length - visibleSales.length;
+  const clearSales = isPremium ? visibleSales : visibleSales.slice(0, 1);
+  const lockedSales = isPremium ? [] : visibleSales.slice(1);
 
   return (
     <View style={styles.panel} testID={testID}>
@@ -218,6 +230,24 @@ export function CardRecentSalesPanel({
             variant="dark"
           />
         </View>
+      ) : null}
+
+      {hiddenCount > 0 ? (
+        <Pressable
+          accessibilityLabel={`Show ${hiddenCount} more recent sales`}
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={() => {
+            setShowAllSales(true);
+            onShowMorePress?.();
+          }}
+          style={({ pressed }) => [styles.showMore, { opacity: pressed ? 0.6 : 1 }]}
+          testID={`${testID}-show-more`}
+        >
+          <Text style={[theme.typography.labelStrong, { color: theme.colors.gray600 }]}>
+            {`Show ${hiddenCount} more sales`}
+          </Text>
+        </Pressable>
       ) : null}
 
       <View style={styles.footer}>
@@ -292,5 +322,9 @@ const styles = StyleSheet.create({
   },
   saleTitle: {
     flexShrink: 1,
+  },
+  showMore: {
+    alignItems: 'center',
+    paddingVertical: 6,
   },
 });

@@ -779,7 +779,9 @@ export function CardDetailScreen({
           cardId: activeCardId,
           slabContext: { grader, grade, variantName },
           source: 'ebay',
-          limit: 5,
+          // 20 rows for the panel's "Show more" — same single cached Scrydex
+          // page (fetched at 25) either way, so no extra credit cost.
+          limit: 20,
           refresh: true,
         })
         .then((record) => {
@@ -852,8 +854,12 @@ export function CardDetailScreen({
     const seeAllUrl = buildEbaySearchUrl(fallbackParams);
     return (
       <CardRecentSalesPanel
+        key={expandedTrendRowKey}
         isLoading={recentSalesLoadingKey === expandedTrendRowKey}
         isPremium={isPremium}
+        onShowMorePress={() => {
+          capturePostHogEvent('pdp_recent_sales_show_more', { grader, grade });
+        }}
         onSubscribePress={() => {
           capturePostHogEvent('paywall_subscribe_tapped', { surface: 'pdp_recent_sales' });
           setShowSubscribeStubToast(true);
