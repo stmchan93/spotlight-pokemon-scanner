@@ -6,10 +6,31 @@ import { cacheDirectory, writeAsStringAsync } from 'expo-file-system/legacy';
 
 import type { SpotlightRepository } from '@spotlight/api-client';
 
+// expo-sharing is a NATIVE module added after some shipped binaries were built,
+// and OTA'd JS must not crash on them — lazy-require and fall back (same
+// pattern as react-native-image-colors). On binaries that have it, it's the
+// only path that shares an actual FILE on Android (RN Share's `url` is
+// iOS-only; Android's share sheet ignores it, which broke Android export).
+type SharingModule = {
+  isAvailableAsync: () => Promise<boolean>;
+  shareAsync: (
+    url: string,
+    options?: { mimeType?: string; UTI?: string; dialogTitle?: string },
+  ) => Promise<void>;
+};
+function loadSharingModule(): SharingModule | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require('expo-sharing') as SharingModule;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Fetch the user's holdings as CSV from the backend, write it to a temp file,
- * and hand it to the OS share sheet (iOS surfaces "Save to Files" here).
- * Owner-scoping is enforced server-side.
+ * and hand it to the OS share sheet (iOS surfaces "Save to Files"; Android
+ * shows the system share targets). Owner-scoping is enforced server-side.
  */
 export async function exportCollectionCsv(repository: SpotlightRepository): Promise<void> {
   try {
@@ -28,7 +49,17 @@ export async function exportCollectionCsv(repository: SpotlightRepository): Prom
     const fileUri = `${cacheDirectory}spotlight-collection.csv`;
     await writeAsStringAsync(fileUri, csv, { encoding: 'utf8' });
 
-    await Share.share({ url: fileUri });
+    const sharing = loadSharingModule();
+    if (sharing && (await sharing.isAvailableAsync())) {
+      await sharing.shareAsync(fileUri, {
+        mimeType: 'text/csv',
+        UTI: 'public.comma-separated-values-text',
+        dialogTitle: 'Export collection',
+      });
+    } else {
+      // Old binary without expo-sharing: keep the iOS-only RN share path.
+      await Share.share({ url: fileUri });
+    }
   } catch (error) {
     const message =
       error instanceof Error && error.message.trim()
