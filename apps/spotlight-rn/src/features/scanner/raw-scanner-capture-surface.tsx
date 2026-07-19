@@ -312,21 +312,6 @@ export function RawScannerCaptureSurface({
     ? Math.min(Math.max(wideBaseline * zoomFactor, deviceMinZoom), deviceMaxZoom)
     : wideBaseline;
 
-  // Dev-only: confirm on-device that 1x/1.5x/2x map to real magnification and inspect
-  // the device's lenses / zoom range. Visible in the Metro / dev-client console.
-  const lensesLabel = physicalLensTypes.join(',');
-  useEffect(() => {
-    if (!__DEV__ || !device) {
-      return;
-    }
-    console.info(
-      `[SCANNER ZOOM] factor=${zoomFactor} -> appliedZoom=${zoom.toFixed(3)} | ` +
-        `hasUltraWide=${hasUltraWide} baseline=${wideBaseline} ` +
-        `min=${(device as { minZoom?: number }).minZoom} max=${(device as { maxZoom?: number }).maxZoom} ` +
-        `lenses=[${lensesLabel}]`,
-    );
-  }, [zoomFactor, zoom, device, hasUltraWide, wideBaseline, lensesLabel]);
-
   useImperativeHandle(
     cameraRef,
     () => ({
@@ -366,16 +351,6 @@ export function RawScannerCaptureSurface({
           },
           {},
         );
-        // Dev-only: confirm on-device that the captured FOV now matches the
-        // preview. Compare these dims/zoom against what the reticle framed; the
-        // normalized crop should contain only the target card. Remove once
-        // validated on a build.
-        if (__DEV__) {
-          console.info(
-            `[SCANNER CAPTURE] photo=${photo.width}x${photo.height} ` +
-              `appliedZoom=${zoom.toFixed(3)} zoomFactor=${zoomFactor}`,
-          );
-        }
         try {
           const path = await photo.saveToTemporaryFileAsync();
           const uri = path.startsWith('file://') ? path : `file://${path}`;
@@ -401,7 +376,7 @@ export function RawScannerCaptureSurface({
         }
       },
     }),
-    [photoOutput, zoom, zoomFactor],
+    [photoOutput],
   );
 
   // Keep the <Camera> MOUNTED whenever we have a device + permission, and let
