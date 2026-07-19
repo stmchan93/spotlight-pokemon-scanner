@@ -81,7 +81,7 @@ export function AddAllMenu({
         {/* iOS context-menu glass (Figma 1821:9651): blur of the dark tray
             under a translucent light-gray fill, so the card reads GRAY over
             the scanner instead of a flat white chip. */}
-        <BlurView intensity={40} style={StyleSheet.absoluteFill} tint="light" />
+        <BlurView experimentalBlurMethod="dimezisBlurView" intensity={40} style={StyleSheet.absoluteFill} tint="light" />
         <View style={[StyleSheet.absoluteFill, styles.glassFill]} />
 
         <Pressable

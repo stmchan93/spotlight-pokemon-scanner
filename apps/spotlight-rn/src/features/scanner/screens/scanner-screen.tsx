@@ -2877,6 +2877,10 @@ export function ScannerScreen({
         <GestureDetector gesture={trayPanGesture}>
         <View style={styles.trayShell} testID="scanner-tray">
           <BlurView
+            // Android needs the dimezisBlurView method or BlurView is a silent
+            // no-op (frosted tray rendered flat vs iOS). Matches the card-detail
+            // panels, which already opt in. iOS ignores the prop.
+            experimentalBlurMethod="dimezisBlurView"
             intensity={isTrayExpanded ? 80 : 24}
             pointerEvents="none"
             style={styles.trayBackdropBlur}

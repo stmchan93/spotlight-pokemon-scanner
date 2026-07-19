@@ -202,6 +202,8 @@ export function ChangeCardPicker({
           than px; 24 is the scanner's established ~8px-equivalent value and
           pairs with the same 0.3 overlay used by the tray backdrop. */}
       <BlurView
+        // Android no-ops BlurView without this method (flat overlay vs iOS frost).
+        experimentalBlurMethod="dimezisBlurView"
         intensity={24}
         pointerEvents="none"
         style={styles.backdropBlur}
