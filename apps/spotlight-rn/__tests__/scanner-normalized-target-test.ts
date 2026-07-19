@@ -74,7 +74,10 @@ describe('scanner-normalized-target', () => {
         height: rawCardNormalizedTargetHeight,
         width: rawCardNormalizedTargetWidth,
       });
-      expect(target!.normalizedImageBase64.length).toBeGreaterThan(0);
+      // Scan hot path: the target is a saved FILE (streamed via multipart);
+      // base64 is only materialized when a caller opts in via includeBase64.
+      expect(target!.normalizedImageUri).toEqual(expect.stringContaining('file://'));
+      expect(target!.normalizedImageBase64).toBeNull();
 
       // Crop is canonical (630:880) and stays within the orientation-fixed source.
       const crop = target!.sourceImageCrop;
@@ -103,7 +106,21 @@ describe('scanner-normalized-target', () => {
         height: rawCardNormalizedTargetHeight,
         width: rawCardNormalizedTargetWidth,
       });
-      expect(target!.normalizedImageBase64.length).toBeGreaterThan(0);
+      expect(target!.normalizedImageBase64).toBeNull();
+    });
+
+    it('materializes inline base64 only when includeBase64 is requested (labeling lane)', async () => {
+      const target = await buildNormalizedScannerTarget({
+        includeBase64: true,
+        previewLayout,
+        reticle,
+        sourceImageDimensions: { height: 1620, width: 1080 },
+        sourceImageUri: 'file:///mock-portrait-capture.jpg',
+      });
+
+      expect(target).toBeTruthy();
+      expect(target!.normalizedImageBase64).toEqual(expect.any(String));
+      expect(target!.normalizedImageBase64!.length).toBeGreaterThan(0);
     });
   });
 });

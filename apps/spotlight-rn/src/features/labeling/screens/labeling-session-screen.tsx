@@ -424,6 +424,9 @@ export function LabelingSessionScreen() {
 
     try {
       const photo = await cameraRef.current.takePicture({
+        // Labeling uploads inline-base64 payloads, so it opts into the base64
+        // reads the scanner hot path no longer performs.
+        includeBase64: true,
         quality: rawVisualCaptureQuality,
       });
 
@@ -437,6 +440,7 @@ export function LabelingSessionScreen() {
       };
       const sourceImageDimensions = makeOrientationFixedSourceImageDimensions(rawSourceDimensions);
       const normalizedTarget = await buildNormalizedScannerTarget({
+        includeBase64: true,
         previewLayout: {
           height: captureSurfaceLayout.previewHeight,
           width: captureSurfaceLayout.previewWidth,
@@ -446,7 +450,7 @@ export function LabelingSessionScreen() {
         sourceImageUri: photo.uri,
       });
 
-      if (!normalizedTarget) {
+      if (!normalizedTarget?.normalizedImageBase64) {
         throw new Error('normalized_target_unavailable');
       }
 

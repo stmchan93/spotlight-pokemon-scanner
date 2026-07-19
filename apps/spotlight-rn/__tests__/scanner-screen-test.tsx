@@ -392,11 +392,17 @@ describe('ScannerScreen', () => {
   });
 
   it('sends a normalized reticle target to scanner matching', async () => {
-    const payloads: { height: number; jpegBase64: string; width: number }[] = [];
+    const payloads: {
+      height: number;
+      fileUri: string | null | undefined;
+      jpegBase64: string | null | undefined;
+      width: number;
+    }[] = [];
     const spotlightRepository = createTestSpotlightRepository({
       matchScannerCapture: async (payload) => {
         payloads.push({
           height: payload.height,
+          fileUri: payload.fileUri,
           jpegBase64: payload.jpegBase64,
           width: payload.width,
         });
@@ -426,9 +432,12 @@ describe('ScannerScreen', () => {
       expect(payloads).toHaveLength(1);
     });
 
+    // The scan hot path passes the normalized target as a FILE URI (multipart
+    // streaming) and performs no base64 read at all.
     expect(payloads[0]).toEqual({
       height: 880,
-      jpegBase64: 'bm9ybWFsaXplZC1zY2FuLWJhc2U2NA==',
+      fileUri: expect.stringContaining('file:///mock-normalized-'),
+      jpegBase64: undefined,
       width: 630,
     });
   });
@@ -470,18 +479,27 @@ describe('ScannerScreen', () => {
       captureSource: 'camera',
       cameraZoomFactor: 1,
       sourceImage: {
-        jpegBase64: 'bW9jay1zY2FuLWJhc2U2NA==',
+        fileUri: 'file:///mock-scan.jpg',
       },
     });
+    expect(payloads[0].sourceImage.jpegBase64).toBeUndefined();
     expect(payloads[0].sourceImage.width).toBeGreaterThan(0);
     expect(payloads[0].sourceImage.height).toBeGreaterThan(0);
     expect(payloads[0].normalizedImage).toEqual(expect.objectContaining({
-      jpegBase64: payloads[0].jpegBase64,
+      fileUri: payloads[0].fileUri,
       width: payloads[0].width,
       height: payloads[0].height,
     }));
+    expect(payloads[0].normalizedImage.jpegBase64).toBeUndefined();
     expect(typeof payloads[0].submittedAt).toBe('string');
     expect(payloads[0].slabAnalysis).toBeUndefined();
+
+    // The JSON+base64 fallback reads lazily through the payload's reader —
+    // it must resolve real bytes for both the source photo and the normalized
+    // target without having been called during the default (multipart) flow.
+    expect(typeof payloads[0].readFileAsBase64).toBe('function');
+    await expect(payloads[0].readFileAsBase64('file:///mock-scan.jpg'))
+      .resolves.toBe('bW9jay1zY2FuLWJhc2U2NA==');
   });
 
   it('threads the selected Pokémon JP card type into the match payload language', async () => {
@@ -547,7 +565,7 @@ describe('ScannerScreen', () => {
   });
 
   it('runs a fixture-backed smoke scan through the real match flow', async () => {
-    const payloads: { height: number; jpegBase64: string; mode: string; width: number }[] = [];
+    const payloads: import('@spotlight/api-client').ScannerCapturePayload[] = [];
     const spotlightRepository = createTestSpotlightRepository({
       matchScannerCapture: async (payload) => {
         payloads.push(payload);
@@ -586,8 +604,11 @@ describe('ScannerScreen', () => {
     });
 
     expect(mockLoadRawScannerSmokeFixture).toHaveBeenCalledTimes(1);
+    // The fixture carries both transports: fileUri for the default multipart
+    // lane and inline base64 so the JSON fallback stays read-free.
     expect(payloads).toEqual([{
       height: 880,
+      fileUri: 'file:///scanner-smoke-fixture.jpg',
       jpegBase64: 'c21va2UtZml4dHVyZS1iYXNlNjQ=',
       mode: 'raw',
       width: 630,

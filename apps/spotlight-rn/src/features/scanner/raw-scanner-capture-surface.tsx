@@ -63,7 +63,16 @@ export const slabGuideHorizontalInset = 8;
  * shape the downstream normalize pipeline expects.
  */
 export type RawScannerCameraHandle = {
-  takePicture(opts: { quality: number }): Promise<{
+  takePicture(opts: {
+    quality: number;
+    /**
+     * Also read the saved photo back as base64 (a full-resolution ~MB-scale
+     * string through the JS thread). Default OFF: the scanner uploads the
+     * photo FILE via multipart streaming. Labeling — whose upload payloads are
+     * inline base64 — opts in.
+     */
+    includeBase64?: boolean;
+  }): Promise<{
     uri: string;
     base64?: string;
     width: number;
@@ -311,7 +320,7 @@ export function RawScannerCaptureSurface({
       // `quality` is honored at the output level via `usePhotoOutput({ quality })`
       // (the Nitro capture settings have no per-call quality knob), so the arg is
       // accepted for the handle contract but the output's quality is what applies.
-      async takePicture(_opts) {
+      async takePicture(opts) {
         if (!photoOutput) {
           return null;
         }
@@ -346,11 +355,14 @@ export function RawScannerCaptureSurface({
           const path = await photo.saveToTemporaryFileAsync();
           const uri = path.startsWith('file://') ? path : `file://${path}`;
 
+          // Only labeling asks for inline base64; scans stream the file itself.
           let base64: string | undefined;
-          try {
-            base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
-          } catch {
-            base64 = undefined;
+          if (opts?.includeBase64) {
+            try {
+              base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
+            } catch {
+              base64 = undefined;
+            }
           }
 
           return {

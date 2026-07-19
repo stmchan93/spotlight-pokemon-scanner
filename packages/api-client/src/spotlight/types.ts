@@ -14,7 +14,18 @@ export type ScannerMode = 'raw' | 'slabs';
 export type ScannerCardLanguage = 'english' | 'japanese';
 
 export type ScannerImagePayload = {
-  jpegBase64: string;
+  /**
+   * Inline base64 JPEG bytes. Optional: the default scan transport is
+   * multipart/form-data where the image travels as a native file part
+   * (`fileUri`), so base64 is only materialized for the JSON fallback.
+   */
+  jpegBase64?: string | null;
+  /**
+   * Local file URI (file:// or content://) for the JPEG. When present, the
+   * repository streams it as a multipart file part so the bytes never cross
+   * the JS thread as a base64 string.
+   */
+  fileUri?: string | null;
   width: number;
   height: number;
 };
@@ -62,6 +73,13 @@ export type ScannerCapturePayload = ScannerImagePayload & {
    * carry their OCR evidence inside `slabAnalysis.ocrAnalysis`).
    */
   ocrAnalysis?: ScannerOcrAnalysisPayload | null;
+  /**
+   * Lazily reads a local scan file as base64. Supplied by the app shell (which
+   * owns the filesystem APIs) so the repository can materialize the JSON+base64
+   * fallback body ONLY when the multipart transport is unavailable. Resolves to
+   * null when the read fails; never throws into the scan flow.
+   */
+  readFileAsBase64?: ((fileUri: string) => Promise<string | null>) | null;
 };
 
 export type ScannerOcrAnalysisPayload = {

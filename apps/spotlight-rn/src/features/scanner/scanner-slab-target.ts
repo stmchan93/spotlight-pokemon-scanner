@@ -189,8 +189,9 @@ export async function buildSlabScannerTarget({
     });
 
     normalizedImageRef = await context.renderAsync();
+    // No base64: the scan payload carries the saved file's URI and uploads it
+    // via multipart streaming (JSON fallback reads the file lazily on demand).
     normalizedImage = await normalizedImageRef.saveAsync({
-      base64: true,
       compress: normalizedTargetCompress,
       format: SaveFormat.JPEG,
     });
@@ -199,12 +200,12 @@ export async function buildSlabScannerTarget({
     context.release?.();
   }
 
-  if (!normalizedImage?.base64) {
+  if (!normalizedImage?.uri) {
     return null;
   }
 
   return {
-    normalizedImageBase64: normalizedImage.base64,
+    normalizedImageBase64: normalizedImage.base64 ?? null,
     normalizedImageDimensions: {
       height: normalizedImage.height,
       width: normalizedImage.width,

@@ -29,7 +29,12 @@ type ReticleLayout = {
 };
 
 export type NormalizedScannerTarget = {
-  normalizedImageBase64: string;
+  /**
+   * Inline base64 of the normalized JPEG. Null on the scanner hot path — scans
+   * upload via multipart file streaming from `normalizedImageUri`, so base64 is
+   * only produced when a caller opts in (`includeBase64`, e.g. labeling).
+   */
+  normalizedImageBase64: string | null;
   normalizedImageDimensions: ScanSourceImageDimensions;
   normalizedImageUri: string;
   nativeSourceImageDimensions: ScanSourceImageDimensions;
@@ -167,11 +172,19 @@ export function makeReticleSourceImageCrop({
 }
 
 export async function buildNormalizedScannerTarget({
+  includeBase64 = false,
   previewLayout,
   reticle,
   sourceImageDimensions,
   sourceImageUri,
 }: {
+  /**
+   * Materialize the normalized JPEG as base64 too. Default OFF: the scanner
+   * uploads the saved file via multipart streaming, so pulling ~150KB of
+   * base64 through the JS thread per scan is pure waste. Labeling (which posts
+   * inline base64 payloads) opts in.
+   */
+  includeBase64?: boolean;
   previewLayout: PreviewLayout;
   reticle: ReticleLayout;
   sourceImageDimensions: ScanSourceImageDimensions;
@@ -217,7 +230,7 @@ export async function buildNormalizedScannerTarget({
 
     normalizedImageRef = await context.renderAsync();
     normalizedImage = await normalizedImageRef.saveAsync({
-      base64: true,
+      base64: includeBase64,
       compress: normalizedTargetCompress,
       format: SaveFormat.JPEG,
     });
@@ -226,12 +239,12 @@ export async function buildNormalizedScannerTarget({
     context.release?.();
   }
 
-  if (!normalizedImage?.base64) {
+  if (!normalizedImage?.uri || (includeBase64 && !normalizedImage.base64)) {
     return null;
   }
 
   return {
-    normalizedImageBase64: normalizedImage.base64,
+    normalizedImageBase64: normalizedImage.base64 ?? null,
     normalizedImageDimensions: {
       height: normalizedImage.height,
       width: normalizedImage.width,

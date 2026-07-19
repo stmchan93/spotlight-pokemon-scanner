@@ -103,6 +103,7 @@ import type {
   ScannerArtifactUploadResult,
   ScannerCapturePayload,
   ScannerCardLanguage,
+  ScannerImagePayload,
   ScanFeedbackPayload,
   ScannerMatchOptions,
   ScannerMatchResult,
@@ -1582,6 +1583,103 @@ function normalizeTcgPlayerVariants(
   return normalized;
 }
 
+// ---------------------------------------------------------------------------
+// Multipart scan transport
+//
+// Scan images used to travel as ~150KB+ base64 strings inside JSON bodies,
+// which burns JS-thread time on encode + GC (worst on budget Android phones).
+// The default transport for POST /api/v1/scan/visual-match and
+// POST /api/v1/scan-artifacts is now multipart/form-data:
+//   - part `payload`: the same JSON body minus the base64 image field(s)
+//   - part `normalized_image` (+ optional `source_image` for scan-artifacts):
+//     JPEG file parts the OS streams natively from disk.
+// Older backends without multipart answer 404/405/415 — and, critically, the
+// CURRENTLY DEPLOYED backends answer 400 ("Invalid JSON body") because their
+// JSON reader chokes on the multipart body. All four fall back to the
+// JSON+base64 request for that call AND remember the failure for the rest of
+// the app session so later scans go straight to JSON. A scan must never hard-
+// fail just because multipart is unsupported. (A genuine post-upgrade 400
+// costs one extra JSON attempt, which will surface the same 400 — correct,
+// just slightly slower on a path that is already an error path.)
+// ---------------------------------------------------------------------------
+
+let scanMultipartUnsupportedThisSession = false;
+
+export function __resetScanMultipartSupportForTests() {
+  scanMultipartUnsupportedThisSession = false;
+}
+
+function canAttemptScanMultipart() {
+  return !scanMultipartUnsupportedThisSession && typeof FormData === 'function';
+}
+
+function markScanMultipartUnsupported() {
+  scanMultipartUnsupportedThisSession = true;
+}
+
+function isMultipartUnsupportedStatus(status: number | null | undefined) {
+  return status === 400 || status === 404 || status === 405 || status === 415;
+}
+
+function scannerImageFileUri(
+  image: { fileUri?: string | null } | null | undefined,
+): string | null {
+  return normalizeString(image?.fileUri);
+}
+
+// React Native's fetch uploads `{ uri, name, type }` FormData entries by
+// streaming the file from disk natively; the DOM typings only know Blob, hence
+// the cast.
+function appendMultipartJpegPart(
+  form: FormData,
+  partName: string,
+  fileUri: string,
+  fileName: string,
+) {
+  form.append(partName, { uri: fileUri, name: fileName, type: 'image/jpeg' } as unknown as Blob);
+}
+
+/**
+ * Width/height-only copy of an image payload for the multipart `payload` part —
+ * the same JSON as the base64 body minus the inline image bytes (and minus the
+ * client-local fileUri, which the backend has no use for).
+ */
+function multipartImageMetadata(image: ScannerImagePayload) {
+  return { width: image.width, height: image.height };
+}
+
+/**
+ * Materializes an image payload into the inline-base64 shape the JSON endpoints
+ * expect. Uses inline bytes when already present; otherwise LAZILY reads the
+ * file via the app-supplied reader. Returns null when neither is available —
+ * callers decide whether that image was optional.
+ */
+async function materializeScannerImageForJson(
+  image: ScannerImagePayload | null | undefined,
+  readFileAsBase64: ScannerCapturePayload['readFileAsBase64'],
+): Promise<{ jpegBase64: string; width: number; height: number } | null> {
+  if (!image) {
+    return null;
+  }
+  const inline = normalizeString(image.jpegBase64);
+  if (inline) {
+    return { jpegBase64: inline, width: image.width, height: image.height };
+  }
+  const fileUri = scannerImageFileUri(image);
+  if (!fileUri || !readFileAsBase64) {
+    return null;
+  }
+  try {
+    const base64 = normalizeString(await readFileAsBase64(fileUri));
+    return base64 ? { jpegBase64: base64, width: image.width, height: image.height } : null;
+  } catch {
+    return null;
+  }
+}
+
+// NOTE: `image` is emitted WITHOUT jpegBase64 — this object doubles as the
+// multipart `payload` part. The JSON transport adds `image.jpegBase64` at the
+// call site (matchScannerCapture) right before serializing.
 function createScannerMatchPayload(
   payload: ScannerCapturePayload,
   scanID: string,
@@ -1614,7 +1712,6 @@ function createScannerMatchPayload(
       timeZoneIdentifier: timeZone,
     },
     image: {
-      jpegBase64: payload.jpegBase64,
       width: Math.max(1, normalizeInteger(payload.width, 1)),
       height: Math.max(1, normalizeInteger(payload.height, 1)),
     },
@@ -4345,29 +4442,99 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     const scanID = createPseudoUUID();
     const isRawMatch = payload.mode === 'raw';
 
-    // Build the request body once and reuse it across retry attempts.
-    const matchRequestBody = JSON.stringify(
-      createScannerMatchPayload(payload, scanID, this.clientContext ?? undefined),
-    );
-    const runMatchRequest = () => this.requestJson<ScanMatchResponseDTO>(
-      `${this.baseUrl}/${endpointPath}`,
-      {
-        body: matchRequestBody,
-        headers: {
-          'Content-Type': 'application/json',
+    // Build the payload JSON once and reuse it across retry attempts. It rides
+    // as the multipart `payload` part (default) or — with image.jpegBase64
+    // added — as the JSON fallback body.
+    const baseMatchPayload = createScannerMatchPayload(payload, scanID, this.clientContext ?? undefined);
+    const matchImageMeta = baseMatchPayload.image as { height: number; width: number };
+    const normalizedFileUri = normalizeString(payload.fileUri)
+      ?? scannerImageFileUri(payload.normalizedImage);
+    // Only the raw lane's /scan/visual-match speaks multipart (the slab lane's
+    // /scan/match is not part of the multipart contract), and only when the
+    // capture has a normalized file on disk to stream.
+    let useMultipart = isRawMatch && !!normalizedFileUri && canAttemptScanMultipart();
+
+    const matchRequestOptions: JsonRequestOptions = {
+      candidateStrategy: 'single_active',
+      logTransport: true,
+      requestLabel: endpointPath,
+      // Raw matches return in <1s; use a short per-attempt timeout so a stalled
+      // upload gives up fast and a retry can land. Slabs keep the single long timeout
+      // (their matches legitimately take 40-50s).
+      timeoutMs: isRawMatch ? rawMatchPerAttemptTimeoutMs : scanMatchRequestTimeoutMs,
+    };
+
+    // JSON+base64 fallback body, built LAZILY (and cached across retries) so
+    // the default multipart path never materializes base64 on the JS thread at
+    // all; the read only happens when the fallback is actually taken.
+    let jsonMatchBodyPromise: Promise<string | null> | null = null;
+    const resolveJsonMatchBody = () => {
+      jsonMatchBodyPromise ??= (async () => {
+        const inline = normalizeString(payload.jpegBase64);
+        const jpegBase64 = inline
+          ?? (normalizedFileUri && payload.readFileAsBase64
+            ? normalizeString(await payload.readFileAsBase64(normalizedFileUri).catch(() => null))
+            : null);
+        if (!jpegBase64) {
+          return null;
+        }
+        return JSON.stringify({
+          ...baseMatchPayload,
+          image: { jpegBase64, ...matchImageMeta },
+        });
+      })();
+      return jsonMatchBodyPromise;
+    };
+
+    const runMatchRequest = async (): Promise<JsonRequestResult<ScanMatchResponseDTO>> => {
+      if (useMultipart && normalizedFileUri) {
+        const form = new FormData();
+        form.append('payload', JSON.stringify(baseMatchPayload));
+        appendMultipartJpegPart(form, 'normalized_image', normalizedFileUri, 'normalized.jpg');
+        const multipartResponse = await this.requestJson<ScanMatchResponseDTO>(
+          `${this.baseUrl}/${endpointPath}`,
+          {
+            body: form,
+            // CRITICAL: no Content-Type header here — fetch must generate the
+            // multipart boundary itself.
+            method: 'POST',
+          },
+          matchRequestOptions,
+        );
+        if (!(multipartResponse.kind === 'error'
+          && isMultipartUnsupportedStatus(multipartResponse.error.status))) {
+          return multipartResponse;
+        }
+        // Older backend without multipart: remember for the rest of the app
+        // session and retry THIS call over JSON+base64 so the scan never
+        // hard-fails on transport negotiation.
+        markScanMultipartUnsupported();
+        useMultipart = false;
+      }
+
+      const jsonBody = await resolveJsonMatchBody();
+      if (!jsonBody) {
+        return {
+          kind: 'error',
+          error: new SpotlightRepositoryRequestError(
+            'Scan image could not be read for upload.',
+            'request_failed',
+          ),
+          meta: null,
+        };
+      }
+      return this.requestJson<ScanMatchResponseDTO>(
+        `${this.baseUrl}/${endpointPath}`,
+        {
+          body: jsonBody,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          method: 'POST',
         },
-        method: 'POST',
-      },
-      {
-        candidateStrategy: 'single_active',
-        logTransport: true,
-        requestLabel: endpointPath,
-        // Raw matches return in <1s; use a short per-attempt timeout so a stalled
-        // upload gives up fast and a retry can land. Slabs keep the single long timeout
-        // (their matches legitimately take 40-50s).
-        timeoutMs: isRawMatch ? rawMatchPerAttemptTimeoutMs : scanMatchRequestTimeoutMs,
-      },
-    );
+        matchRequestOptions,
+      );
+    };
 
     // Fire-and-forget the artifact (training image) upload. The backend accepts the same
     // client-generated scanID for both endpoints, and failures are surfaced via the
@@ -5840,7 +6007,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     const normalizedOnlyPayload = { ...uploadPayload, sourceImage: null };
     const retryBackoffsMs = [750, 1500, 3000];
 
-    let result = await this.postScanArtifacts(uploadPayload);
+    let result = await this.postScanArtifacts(uploadPayload, payload.readFileAsBase64);
     for (
       let attempt = 0;
       result.status === 'failed' && attempt < retryBackoffsMs.length;
@@ -5848,31 +6015,97 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     ) {
       const jitterMs = Math.floor(Math.random() * 250);
       await new Promise((resolve) => setTimeout(resolve, retryBackoffsMs[attempt] + jitterMs));
-      result = await this.postScanArtifacts(normalizedOnlyPayload);
+      result = await this.postScanArtifacts(normalizedOnlyPayload, payload.readFileAsBase64);
     }
     return result;
   }
 
   private async postScanArtifacts(
     uploadPayload: Record<string, unknown>,
+    readFileAsBase64?: ScannerCapturePayload['readFileAsBase64'],
   ): Promise<ScannerArtifactUploadResult> {
     const startedAt = Date.now();
-    const response = await this.requestJson<ScanArtifactUploadResponseDTO>(
-      `${this.baseUrl}/api/v1/scan-artifacts`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+    const url = `${this.baseUrl}/api/v1/scan-artifacts`;
+    const requestOptions: JsonRequestOptions = {
+      candidateStrategy: 'single_active',
+      logTransport: true,
+      requestLabel: 'api/v1/scan-artifacts',
+      timeoutMs: scanArtifactUploadTimeoutMs,
+    };
+    const normalizedImage = (uploadPayload.normalizedImage ?? null) as ScannerImagePayload | null;
+    const sourceImage = (uploadPayload.sourceImage ?? null) as ScannerImagePayload | null;
+
+    const runUploadRequest = async (): Promise<JsonRequestResult<ScanArtifactUploadResponseDTO>> => {
+      const normalizedFileUri = scannerImageFileUri(normalizedImage);
+      // Multipart needs every image it is sending to exist as a file part; a
+      // mixed payload (e.g. inline-only source) falls back to JSON so nothing
+      // is silently dropped.
+      const canStreamAllParts = !!normalizedFileUri
+        && (!sourceImage || !!scannerImageFileUri(sourceImage));
+      if (normalizedImage && normalizedFileUri && canStreamAllParts && canAttemptScanMultipart()) {
+        const form = new FormData();
+        form.append('payload', JSON.stringify({
+          ...uploadPayload,
+          normalizedImage: multipartImageMetadata(normalizedImage),
+          sourceImage: sourceImage ? multipartImageMetadata(sourceImage) : null,
+        }));
+        appendMultipartJpegPart(form, 'normalized_image', normalizedFileUri, 'normalized.jpg');
+        const sourceFileUri = scannerImageFileUri(sourceImage);
+        if (sourceFileUri) {
+          appendMultipartJpegPart(form, 'source_image', sourceFileUri, 'source.jpg');
+        }
+        const multipartResponse = await this.requestJson<ScanArtifactUploadResponseDTO>(
+          url,
+          {
+            body: form,
+            // CRITICAL: no Content-Type header — fetch generates the multipart
+            // boundary itself.
+            method: 'POST',
+          },
+          requestOptions,
+        );
+        if (!(multipartResponse.kind === 'error'
+          && isMultipartUnsupportedStatus(multipartResponse.error.status))) {
+          return multipartResponse;
+        }
+        // Older backend without multipart: remember for the app session, then
+        // fall through to the JSON+base64 body for this same upload.
+        markScanMultipartUnsupported();
+      }
+
+      // JSON+base64 path: materialize inline bytes lazily. The normalized image
+      // is training-critical (fail without it, so the outer retry loop can try
+      // again); the source image stays optional exactly as before.
+      const jsonNormalized = await materializeScannerImageForJson(normalizedImage, readFileAsBase64);
+      if (!jsonNormalized) {
+        return {
+          kind: 'error',
+          error: new SpotlightRepositoryRequestError(
+            'Scan artifact image could not be read for upload.',
+            'request_failed',
+          ),
+          meta: null,
+        };
+      }
+      const jsonSource = await materializeScannerImageForJson(sourceImage, readFileAsBase64);
+      return this.requestJson<ScanArtifactUploadResponseDTO>(
+        url,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ...uploadPayload,
+            normalizedImage: jsonNormalized,
+            sourceImage: jsonSource,
+          }),
         },
-        body: JSON.stringify(uploadPayload),
-      },
-      {
-        candidateStrategy: 'single_active',
-        logTransport: true,
-        requestLabel: 'api/v1/scan-artifacts',
-        timeoutMs: scanArtifactUploadTimeoutMs,
-      },
-    );
+        requestOptions,
+      );
+    };
+
+    const response = await runUploadRequest();
 
     const roundTripMs = Date.now() - startedAt;
     if (response.kind !== 'success') {

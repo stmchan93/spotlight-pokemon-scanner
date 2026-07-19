@@ -1258,7 +1258,12 @@ export function ScannerScreen({
           capturePostHogEvent('scan_raw_collector_number_read', { mode });
         }
       }
-      const estimatedPayloadKB = Math.round((matchTarget.normalizedImageBase64.length * 0.75) / 1024);
+      // Base64 no longer exists on the scan hot path (multipart streams the
+      // file), so the payload-size estimate is only available when a target
+      // opted into inline base64 (e.g. the smoke fixture).
+      const estimatedPayloadKB = matchTarget.normalizedImageBase64
+        ? Math.round((matchTarget.normalizedImageBase64.length * 0.75) / 1024)
+        : null;
       if (mode === 'raw' && process.env.NODE_ENV !== 'test') {
         console.info(
           `[SCANNER VISUAL TEST] dispatch `
@@ -1266,7 +1271,7 @@ export function ScannerScreen({
           + `nativeSource=${matchTarget.nativeSourceImageDimensions.width}x${matchTarget.nativeSourceImageDimensions.height} `
           + `rotate=${matchTarget.normalizationRotationDegrees} `
           + `normalized=${matchTarget.normalizedImageDimensions.width}x${matchTarget.normalizedImageDimensions.height} `
-          + `payloadKB=${estimatedPayloadKB} `
+          + `payloadKB=${estimatedPayloadKB ?? 'n/a'} `
           + `quality=${captureSource === 'camera' ? rawVisualCaptureQuality : 'fixture'}`,
         );
       }
@@ -1305,7 +1310,7 @@ export function ScannerScreen({
           + `rotate=${matchTarget.normalizationRotationDegrees} `
           + `crop=${matchTarget.sourceImageCrop.width}x${matchTarget.sourceImageCrop.height} `
           + `normalized=${matchTarget.normalizedImageDimensions.width}x${matchTarget.normalizedImageDimensions.height} `
-          + `payloadKB=${estimatedPayloadKB} `
+          + `payloadKB=${estimatedPayloadKB ?? 'n/a'} `
           + `quality=${captureSource === 'camera' ? rawVisualCaptureQuality : 'fixture'} `
           + `normalizeMs=${normalizeMs} `
           + `matchMs=${clientMatchMs} `
@@ -1405,7 +1410,9 @@ export function ScannerScreen({
           + `nativeSource=${matchTarget.nativeSourceImageDimensions.width}x${matchTarget.nativeSourceImageDimensions.height} `
           + `rotate=${matchTarget.normalizationRotationDegrees} `
           + `normalized=${matchTarget.normalizedImageDimensions.width}x${matchTarget.normalizedImageDimensions.height} `
-          + `payloadKB=${Math.round((matchTarget.normalizedImageBase64.length * 0.75) / 1024)}`,
+          + `payloadKB=${matchTarget.normalizedImageBase64
+            ? Math.round((matchTarget.normalizedImageBase64.length * 0.75) / 1024)
+            : 'n/a'}`,
           error,
         );
       }
@@ -1664,52 +1671,59 @@ export function ScannerScreen({
           ? readRawCollectorNumber(normalizedTarget.normalizedImageUri)
           : null;
 
-      // expo-camera occasionally returns photo.base64 = undefined under memory
-      // pressure. Fall back to reading from disk so the artifact upload always
-      // has a source image and scan data is never silently dropped.
-      let sourceBase64 = photo.base64 ?? null;
-      if (!sourceBase64 && photo.uri) {
+      // Default transport passes FILE URIs: the repository streams them as
+      // multipart file parts, so no base64 ever crosses the JS thread on the
+      // scan hot path. If the backend doesn't speak multipart (404/405/415),
+      // the repository falls back to the JSON+base64 body and materializes the
+      // bytes through this LAZY reader — the only place a base64 read still
+      // happens.
+      const readScanImageAsBase64 = async (fileUri: string) => {
         try {
-          sourceBase64 = await FileSystem.readAsStringAsync(photo.uri, {
+          const base64 = await FileSystem.readAsStringAsync(fileUri, {
             encoding: 'base64',
           });
+          if (base64) {
+            return base64;
+          }
         } catch {
-          // Non-fatal: the source capture is optional. The artifact upload now
-          // proceeds with the normalized_target alone (the training-critical
-          // image), so the scan's data is no longer dropped — only the optional
-          // source context is omitted.
+          // Non-fatal: fall through to the breadcrumb below. The artifact
+          // upload proceeds with the normalized target alone (the training-
+          // critical image), so scan data is never silently dropped — only the
+          // optional source context can be omitted.
         }
-      }
-      if (!sourceBase64) {
-        // Breadcrumb so we can measure how often the optional source image drops
-        // (the dominant cause of the 2026-05 card-show artifact loss).
-        capturePostHogEvent('scan_source_base64_missing', {
-          mode: isSlab ? 'slabs' : 'raw',
-          had_photo_uri: Boolean(photo.uri),
-        });
-      }
+        if (fileUri === photo.uri) {
+          // Breadcrumb so we can measure how often the optional source image
+          // drops (the dominant cause of the 2026-05 card-show artifact loss).
+          // On the multipart path the OS streams the file natively, so this
+          // can only fire when the JSON fallback is actually taken.
+          capturePostHogEvent('scan_source_base64_missing', {
+            mode: isSlab ? 'slabs' : 'raw',
+            had_photo_uri: Boolean(photo.uri),
+          });
+        }
+        return null;
+      };
 
       let matchPayload: ScannerCapturePayload = {
         height: normalizedTarget.normalizedImageDimensions.height,
-        jpegBase64: normalizedTarget.normalizedImageBase64,
+        fileUri: normalizedTarget.normalizedImageUri,
         mode: isSlab ? 'slabs' : 'raw',
         cardLanguage: cardLanguageForCardType(cardType),
         width: normalizedTarget.normalizedImageDimensions.width,
         captureSource: 'camera',
         cameraZoomFactor: zoomFactor,
         normalizedImage: {
-          jpegBase64: normalizedTarget.normalizedImageBase64,
+          fileUri: normalizedTarget.normalizedImageUri,
           width: normalizedTarget.normalizedImageDimensions.width,
           height: normalizedTarget.normalizedImageDimensions.height,
         },
-        sourceImage: sourceBase64
-          ? {
-            jpegBase64: sourceBase64,
-            width: normalizedTarget.nativeSourceImageDimensions.width,
-            height: normalizedTarget.nativeSourceImageDimensions.height,
-          }
-          : null,
+        sourceImage: {
+          fileUri: photo.uri,
+          width: normalizedTarget.nativeSourceImageDimensions.width,
+          height: normalizedTarget.nativeSourceImageDimensions.height,
+        },
         submittedAt: new Date(scanStartedAt).toISOString(),
+        readFileAsBase64: readScanImageAsBase64,
       };
 
       let slabContext: SlabContext | null = null;
@@ -1894,6 +1908,10 @@ export function ScannerScreen({
         captureSource: 'smoke_fixture',
         matchPayload: {
           height: normalizedTarget.normalizedImageDimensions.height,
+          // The fixture ships both transports: the file URI drives the default
+          // multipart path (same lane as real scans) and the inline base64
+          // keeps the JSON fallback read-free.
+          fileUri: normalizedTarget.normalizedImageUri,
           jpegBase64: normalizedTarget.normalizedImageBase64,
           mode: 'raw',
           width: normalizedTarget.normalizedImageDimensions.width,
