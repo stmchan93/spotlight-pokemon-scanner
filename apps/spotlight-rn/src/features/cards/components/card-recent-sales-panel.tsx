@@ -24,8 +24,6 @@ type CardRecentSalesPanelProps = {
   record: CardRecentSalesRecord | null;
   isLoading: boolean;
   isPremium: boolean;
-  /** Aggregated sold-search link ("See all on eBay") — title-derived. */
-  seeAllUrl: string | null;
   onSubscribePress: () => void;
   /** Fired when "Show more" reveals the rest of the fetched sales (analytics). */
   onShowMorePress?: () => void;
@@ -139,7 +137,6 @@ export function CardRecentSalesPanel({
   record,
   isLoading,
   isPremium,
-  seeAllUrl,
   onSubscribePress,
   onShowMorePress,
   testID = 'recent-sales-panel',
@@ -258,31 +255,18 @@ export function CardRecentSalesPanel({
         </Pressable>
       ) : null}
 
-      <View style={styles.footer}>
-        {updatedText ? (
+      {/* The in-app rows above are the accurate last-solds (each taps through to
+          its exact Scrydex/eBay listing). The old "See all on eBay →" footer link
+          was a title-derived SEARCH that couldn't reproduce these specific comps
+          (wrong/mismatched listings), so it was removed — we surface the real
+          sold listings inline instead. */}
+      {updatedText ? (
+        <View style={styles.footer}>
           <Text style={[theme.typography.overline, { color: theme.colors.gray400 }]}>
             {updatedText}
           </Text>
-        ) : (
-          <View />
-        )}
-        {seeAllUrl ? (
-          <Pressable
-            accessibilityLabel="See all sold listings on eBay"
-            accessibilityRole="link"
-            hitSlop={8}
-            onPress={() => {
-              void Linking.openURL(seeAllUrl);
-            }}
-            style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
-            testID={`${testID}-see-all`}
-          >
-            <Text style={[theme.typography.labelStrong, { color: theme.colors.gray900 }]}>
-              See all on eBay →
-            </Text>
-          </Pressable>
-        ) : null}
-      </View>
+        </View>
+      ) : null}
     </View>
   );
 }

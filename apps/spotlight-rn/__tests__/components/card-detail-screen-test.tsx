@@ -662,13 +662,9 @@ describe('CardDetailScreen', () => {
     fireEvent.press(screen.getByTestId('detail-recent-sales-sale-0'));
     expect(openURL).toHaveBeenCalledWith('https://www.ebay.com/itm/100');
 
-    // "See all on eBay" opens the metadata-built SOLD search (aggregate list),
-    // grade-quoted so it can't backfill with other grades.
-    fireEvent.press(screen.getByTestId('detail-recent-sales-see-all'));
-    const seeAllUrl = openURL.mock.calls[1][0] as string;
-    expect(seeAllUrl).toContain('https://www.ebay.com/sch/i.html');
-    expect(seeAllUrl).toContain('LH_Sold=1');
-    expect(seeAllUrl).toContain('%22PSA+10%22'); // quoted grade phrase (inside the OR-group)
+    // The aggregate "See all on eBay" title-search link was removed (it couldn't
+    // reproduce the specific sold comps) — only the exact per-row listings remain.
+    expect(screen.queryByTestId('detail-recent-sales-see-all')).toBeNull();
 
     // Second tap on the row collapses the accordion.
     fireEvent.press(screen.getByTestId('detail-price-trends-row-PSA 10'));

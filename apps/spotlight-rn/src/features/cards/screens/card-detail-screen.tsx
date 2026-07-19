@@ -870,19 +870,6 @@ export function CardDetailScreen({
     }
     const [grader, grade] = expandedTrendRowKey.replace(/\|/g, ' ').trim().split(/\s+/);
     const record = recentSalesByRowKey[expandedTrendRowKey] ?? null;
-    const fallbackParams = {
-      name: detail.name,
-      cardNumber: detail.cardNumber,
-      setName: detail.setName,
-      grader: grader ?? null,
-      grade: grade ?? null,
-      variant: selectedVariantLabel,
-      language: detail.language,
-    };
-    // The proven metadata query (name + number + set + quoted grade). A
-    // title-mined query was tried and reverted: seller typos/cert numbers get
-    // AND-required by eBay and zero the search.
-    const seeAllUrl = buildEbaySearchUrl(fallbackParams);
     const listedRecord = lowestListedByRowKey[expandedTrendRowKey] ?? null;
     return (
       <View key={expandedTrendRowKey}>
@@ -909,7 +896,6 @@ export function CardDetailScreen({
             setShowSubscribeStubToast(true);
           }}
           record={record}
-          seeAllUrl={seeAllUrl}
           testID="detail-recent-sales"
         />
         <View
