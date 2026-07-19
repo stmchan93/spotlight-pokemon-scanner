@@ -213,10 +213,11 @@ describe('scanner multipart transport', () => {
     expect(typeof allMatchCalls[2][1]?.body).toBe('string');
   }, 15000);
 
-  it('does NOT fall back (or mark the session) on other multipart failures — retries stay multipart', async () => {
-    // A 500 means the backend understood multipart but failed; the raw retry
-    // loop should retry multipart rather than silently downgrading transport.
-    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+  it('on a non-negotiation failure (500): retries THIS call over JSON without latching — the next call attempts multipart again', async () => {
+    // Belt and braces: a scan must never fail without having tried the JSON
+    // transport once. But a 500 is not "multipart unsupported", so the session
+    // flag must NOT latch — the next scan attempts multipart again.
+    global.fetch = jest.fn().mockImplementation(async (url: string, init?: RequestInit) => {
       if (String(url).includes('scan-artifacts')) {
         return jsonResponse(200, { normalizedObjectPath: 'n', storage: 'gcs' });
       }
@@ -228,11 +229,19 @@ describe('scanner multipart transport', () => {
     await expect(repository.matchScannerCapture(payload)).rejects.toBeTruthy();
 
     const matchCalls = callsTo('scan/visual-match');
-    expect(matchCalls).toHaveLength(3); // 1 initial + 2 raw retries
-    for (const [, init] of matchCalls) {
-      expect(init?.body).toBeInstanceOf(MockFormData);
-    }
-    expect(payload.readFileAsBase64).not.toHaveBeenCalled();
+    // Multipart attempts (initial + raw retries) then JSON attempts for the
+    // same call — both transports were exercised before surfacing the error.
+    const formCalls = matchCalls.filter(([, init]) => init?.body instanceof MockFormData);
+    const jsonCalls = matchCalls.filter(([, init]) => !(init?.body instanceof MockFormData));
+    expect(formCalls.length).toBeGreaterThan(0);
+    expect(jsonCalls.length).toBeGreaterThan(0);
+    expect(payload.readFileAsBase64).toHaveBeenCalled();
+
+    // No latch: a fresh call starts on multipart again.
+    (global.fetch as jest.Mock).mockClear();
+    await expect(repository.matchScannerCapture(rawFilePayload())).rejects.toBeTruthy();
+    const secondCalls = callsTo('scan/visual-match');
+    expect(secondCalls[0]?.[1]?.body).toBeInstanceOf(MockFormData);
   }, 15000);
 
   it('keeps the slab match on JSON (multipart is only contracted for /scan/visual-match), reading base64 lazily', async () => {
@@ -257,12 +266,16 @@ describe('scanner multipart transport', () => {
     expect(payload.readFileAsBase64).toHaveBeenCalledWith('file:///normalized.jpg');
   });
 
-  it('drops the source_image part (and nulls it in the payload part) on the normalized-only artifact retry', async () => {
+  it('full-upload failure on BOTH transports → normalized-only retry starts multipart again without source_image', async () => {
+    // Attempt 1: multipart full upload → 500. Attempt 2: same-call JSON
+    // belt-and-braces → 500. Outer retry then goes normalized-only, starting
+    // on multipart again (no latch from a 500): no source part, sourceImage
+    // null in the payload part.
     let artifactAttempts = 0;
     global.fetch = jest.fn().mockImplementation(async (url: string) => {
       if (String(url).includes('scan-artifacts')) {
         artifactAttempts += 1;
-        if (artifactAttempts === 1) {
+        if (artifactAttempts <= 2) {
           return jsonResponse(500, { error: 'boom' });
         }
         return jsonResponse(200, { normalizedObjectPath: 'n', storage: 'gcs' });
@@ -280,11 +293,15 @@ describe('scanner multipart transport', () => {
     expect(result?.status).toBe('uploaded');
 
     const artifactCalls = callsTo('scan-artifacts');
-    expect(artifactCalls.length).toBeGreaterThanOrEqual(2);
-    // First attempt streams both files...
+    expect(artifactCalls.length).toBeGreaterThanOrEqual(3);
+    // First attempt streams both files as multipart...
     const firstParts = partsOf(artifactCalls[0][1]);
     expect(firstParts.some((part) => part.fieldName === 'source_image')).toBe(true);
-    // ...the retry is normalized-only: no source part, sourceImage null in payload.
+    // ...second attempt is the same-call JSON fallback carrying both images...
+    const secondBody = artifactCalls[1][1]?.body;
+    expect(typeof secondBody).toBe('string');
+    expect(String(secondBody)).toContain('jpegBase64');
+    // ...and the normalized-only retry is multipart again with no source part.
     const retryCall = artifactCalls[artifactCalls.length - 1];
     const retryParts = partsOf(retryCall[1]);
     expect(retryParts.some((part) => part.fieldName === 'source_image')).toBe(false);
