@@ -266,17 +266,29 @@ export function RawScannerCaptureSurface({
     physicalDevices: ['ultra-wide-angle', 'wide-angle', 'telephoto'],
   });
 
+  // Android burst re-tap latency is dominated by 3A (auto-focus/exposure)
+  // re-converging per shot in 'balanced' mode — measured captureMs swings
+  // 1.1s→3.4s (a fixed encode cost would be constant; the swing is focus hunt).
+  // 'speed' maps to CameraX CAPTURE_MODE_MINIMIZE_LATENCY, which captures without
+  // waiting for full 3A convergence — the one lever that cuts the spikes. This is
+  // the family we reverted before (the iOS ZSL ring-buffer served pre-tap frames →
+  // wrong matches), but that was ALSO before disabling virtual-device fusion, and
+  // Android's minimize-latency is not the same pre-tap ring buffer. So we A/B it
+  // on Android ONLY, gated on the device actually supporting it (capturePhoto
+  // throws otherwise), and validate match correctness the same way. iOS stays
+  // 'balanced' (its shutter is already fast and ZSL there is the known trap).
+  const supportsSpeedCapture =
+    (device as { supportsSpeedQualityPrioritization?: boolean } | null)
+      ?.supportsSpeedQualityPrioritization ?? false;
+  const qualityPrioritization =
+    Platform.OS === 'android' && supportsSpeedCapture ? 'speed' : 'balanced';
+
   // ~1280 long-side target replaces the old Android picture-size negotiation.
   // The session treats this as a target and may land near it.
   const photoOutput = usePhotoOutput({
     targetResolution: CommonResolutions.HD_16_9,
     quality: rawVisualCaptureQuality,
-    // 'balanced' on BOTH platforms. Android briefly ran 'speed' (ZSL) to kill
-    // the capture stall, but zero-shutter-lag serves a ring-buffer frame that
-    // can predate the tap — in burst scanning that meant motion-blurred/stale
-    // frames and WRONG MATCHES. Match accuracy outranks shutter latency;
-    // the UI-thread flash masks the balanced-mode stall.
-    qualityPrioritization: 'balanced',
+    qualityPrioritization,
   });
 
   // Detect whether the chosen device bundles the ultra-wide (so zoom=1 is the
@@ -311,9 +323,19 @@ export function RawScannerCaptureSurface({
       `[SCANNER ZOOM] factor=${zoomFactor} -> appliedZoom=${zoom.toFixed(3)} | ` +
         `hasUltraWide=${hasUltraWide} baseline=${wideBaseline} ` +
         `min=${(device as { minZoom?: number }).minZoom} max=${(device as { maxZoom?: number }).maxZoom} ` +
-        `lenses=[${lensesLabel}]`,
+        `lenses=[${lensesLabel}] captureMode=${qualityPrioritization} ` +
+        `supportsSpeed=${supportsSpeedCapture}`,
     );
-  }, [zoomFactor, zoom, device, hasUltraWide, wideBaseline, lensesLabel]);
+  }, [
+    zoomFactor,
+    zoom,
+    device,
+    hasUltraWide,
+    wideBaseline,
+    lensesLabel,
+    qualityPrioritization,
+    supportsSpeedCapture,
+  ]);
 
   useImperativeHandle(
     cameraRef,

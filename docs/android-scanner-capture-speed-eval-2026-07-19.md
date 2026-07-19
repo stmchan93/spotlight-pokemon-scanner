@@ -24,7 +24,30 @@ ZSL (reads too LATE, not pre-tap) but the same net failure: wrong card. Reverted
 Lesson: `capturePhoto()` latches the sensor **at the tap** and is the only
 correctly-timed source on Android — the fix must make *it* faster, not replace it.
 
-## Current state (in test) — Lever 4b: disable virtual-device image fusion
+## Lever 4b (disable fusion) — WORKS for correctness (2026-07-19)
+On-device: photos look much better and each row resolved to the RIGHT card (the
+takeSnapshot wrong-card failure is gone). BUT re-tap latency still ~2-3s. Measured
+`captureMs` across a burst: `1548, 3393, 3310, 3346, 3407, 2356, 1084, 3368, 2374,
+1127, 1158 ms`. The **variance** (1.1s→3.4s) rules out encode (which would be
+constant) and points to **3A (auto-focus/exposure) re-converging per shot**. Same
+log: we capture 1080×2340 (2.5MP) but only use a 630×880 crop (4.6× waste, but not
+the bottleneck), and `roundTripMs` climbed 2s→16s across the burst (2-vCPU staging
+box saturating — separate capacity issue). Fusion-off is KEPT (it fixed
+correctness); it just doesn't touch the focus-convergence wait.
+
+## Current state (in test) — Lever: `qualityPrioritization: 'speed'` on Android
+- User approved A/B-ing the reverted speed family now that fusion-off gives good
+  correctness independently. `'speed'` → CameraX `CAPTURE_MODE_MINIMIZE_LATENCY`,
+  which captures without waiting for full 3A convergence — the only lever that
+  attacks the 1-3.4s focus-hunt spikes. Android ONLY, gated on
+  `device.supportsSpeedQualityPrioritization` (capturePhoto throws otherwise), iOS
+  stays `'balanced'` (ZSL is the known trap there). Dev log `[SCANNER ZOOM]` now
+  prints `captureMode=`/`supportsSpeed=` to confirm it engaged.
+  **Decision rule:** ship only if EVERY burst row is still the correct card AND
+  `captureMs` drops materially. If any card is wrong → revert to fusion-off
+  `'balanced'` (the current known-good correctness baseline).
+
+## (superseded) Lever 4b: disable virtual-device image fusion
 - On **Android only**, `capturePhoto()` now passes `enableVirtualDeviceFusion:
   false` (`raw-scanner-capture-surface.tsx`). The back device bundles ultra-wide +
   wide + telephoto (for iOS Auto-Macro), so CameraX defaults to blending several
