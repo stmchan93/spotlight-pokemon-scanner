@@ -38,8 +38,6 @@ import { ConfirmDeleteSheet } from '@/features/cards/components/confirm-delete-s
 import { saveCardDetailPreviewFromFavorite } from '@/features/cards/card-detail-preview-session';
 import { prefetchCardDetail } from '@/features/cards/card-detail-prefetch';
 import { formatOptionalCurrency } from '@/features/portfolio/components/portfolio-formatting';
-import { TrendWindowTag } from '@/features/portfolio/components/trend-window-tag';
-import { trendPercentForWindow, useTrendWindow } from '@/features/portfolio/hooks/use-trend-window';
 import { WishlistHeader } from '@/features/wishlist/components/wishlist-header';
 import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { useAppServices } from '@/providers/app-providers';
@@ -460,12 +458,6 @@ export function WishlistScreen() {
           })}
         </ScrollView>
 
-        {/* Scope tag for every row/tile percent below: SINCE ADDED ⇄ 30D.
-            Shares the Collection screen's persisted window; rendered in BOTH
-            view modes (grid tiles carry the trend too). */}
-        <View style={styles.trendWindowRow}>
-          <TrendWindowTag testID="wishlist-trend-window-tag" />
-        </View>
       </View>
 
       <View style={styles.listTopSpacer} />
@@ -627,9 +619,6 @@ function WishlistListRow({
   // Whether the swipe-to-delete rail is currently revealed. Drives the gesture
   // activation range below so closed rows never claim rightward pans.
   const [deleteRailOpen, setDeleteRailOpen] = useState(false);
-  // Shared persisted trend window (SINCE ADDED ⇄ 30D) — the TrendWindowTag in
-  // the header drives it; every row re-renders in lockstep.
-  const { trendWindow } = useTrendWindow();
 
   const row = (
     <CardListRow
@@ -651,14 +640,9 @@ function WishlistListRow({
       selected={editMode && selected}
       setName={entry.setName}
       showQuantity={false}
-      // Last-30d sparkline; tinted by its own direction while the pill carries
-      // the since-added truth.
-      sparkPoints={entry.sparkPoints ?? undefined}
-      sparkTrendPct={entry.sparkTrendPct ?? null}
+      // No sparkline / trend pill — the since-added and 30d trend UI moved off
+      // this screen (headed for the PDP), same as the Collection rows.
       testID={`wishlist-row-${entry.cardId}`}
-      // Window-scoped trend (never day change): since-wishlisted by default,
-      // or the 30d sparkline trend when the header tag is flipped to 30D.
-      trendChangePercent={trendPercentForWindow(trendWindow, entry)}
     />
   );
 
@@ -809,9 +793,6 @@ function WishlistGridTile({ entry, onPress, selectable = false, selected = false
   // match Collection's card view; and the print variant is omitted (wishlist
   // tracks the card, not a specific printing).
   const tileKind = entry.slabContext ? 'slab' : 'raw';
-  // Shared persisted trend window (SINCE ADDED ⇄ 30D) — same source as the
-  // list rows, so grid tiles and rows always show the same percent.
-  const { trendWindow } = useTrendWindow();
   return (
     <InventoryCardTile
       bordered={false}
@@ -831,9 +812,9 @@ function WishlistGridTile({ entry, onPress, selectable = false, selected = false
       priceLabel={formatOptionalCurrency(entry.marketPrice, entry.currencyCode)}
       // Numeric price feeds the tile's penny guard (sub-$1 → no trend line).
       marketPrice={entry.marketPrice ?? null}
-      // Window-scoped trend under the price (arrow + signed percent) — the
-      // same expression as the list rows.
-      trendChangePercent={trendPercentForWindow(trendWindow, entry)}
+      // No trend percent under the price — the trend UI moved off this screen
+      // (headed for the PDP), same as the Collection tiles.
+      trendChangePercent={null}
       isFavorite
       showFavorite={false}
       selectable={selectable}
@@ -870,12 +851,6 @@ const styles = StyleSheet.create({
   filterRow: {
     gap: 8,
     paddingRight: 16,
-  },
-  // Row hosting the SINCE ADDED ⇄ 30D scope tag under the filter chips. The
-  // controls wrapper's gap supplies the vertical rhythm; the row just aligns
-  // the pill to the leading edge.
-  trendWindowRow: {
-    alignItems: 'flex-start',
   },
   // 16px gap below the filter row before the first ruled row (Figma 1874-21756
   // rhythm: search → 16 → chips → 16 → grid/list). The old 32px doubled up the
