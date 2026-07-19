@@ -60,6 +60,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--mobile-env-file")
     parser.add_argument("--mobile-action", default="none", choices=("none", "build", "release"))
     parser.add_argument("--skip-check", action="store_true")
+    # What the pre-deploy check step runs. "auto" scopes it to the artifact
+    # being shipped: a backend-only deploy (mobile-action=none) runs ONLY the
+    # backend test suite; a mobile build/release runs the full workspace check
+    # (mobile lint + typecheck + jest coverage + backend tests). Pass "full"
+    # to force the workspace check on a backend-only deploy.
+    parser.add_argument("--check-scope", default="auto", choices=("auto", "full", "backend"))
     parser.add_argument("--skip-audit", action="store_true")
     parser.add_argument("--skip-deploy", action="store_true")
     parser.add_argument("--skip-smoke", action="store_true")
@@ -647,12 +653,26 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         if not args.skip_check:
-            run_subprocess_step(
-                summary,
-                name="check",
-                command=["pnpm", "check"],
-                cwd=root,
-            )
+            check_scope = args.check_scope
+            if check_scope == "auto":
+                check_scope = "backend" if args.mobile_action == "none" else "full"
+            if check_scope == "backend":
+                # Backend-only deploy: the mobile app is not being shipped, so
+                # the (slow, runInBand+coverage) mobile jest suite guards
+                # nothing here — run the backend suite only.
+                run_subprocess_step(
+                    summary,
+                    name="check:backend",
+                    command=["bash", "backend/run_all_tests.sh"],
+                    cwd=root,
+                )
+            else:
+                run_subprocess_step(
+                    summary,
+                    name="check",
+                    command=["pnpm", "check"],
+                    cwd=root,
+                )
 
         if not args.skip_audit:
             audit_command = ["python3", "tools/audit_release_config.py", "--environment", args.environment]
