@@ -588,10 +588,13 @@ def _rebuild_pricing_tables_if_needed(connection: sqlite3.Connection) -> None:
         "default_raw_high_price",
         "default_raw_direct_low_price",
         "default_raw_trend_price",
-        "raw_contexts_json",
-        "graded_contexts_json",
+        # raw_contexts_json / graded_contexts_json / source_payload_json are
+        # intentionally NOT required: they were dropped from card_price_history_daily
+        # in the Phase-5 slim-table migration (normalized cells are the source of
+        # truth). If they were still required here, the startup rebuild-guard would
+        # DROP TABLE the slimmed history on the first boot after the drop. source_url
+        # stays — the portfolio covering index projects it.
         "source_url",
-        "source_payload_json",
         "updated_at",
     }
 
@@ -1121,10 +1124,13 @@ def _runtime_schema_is_compatible(connection: sqlite3.Connection) -> bool:
         "default_raw_high_price",
         "default_raw_direct_low_price",
         "default_raw_trend_price",
-        "raw_contexts_json",
-        "graded_contexts_json",
+        # raw_contexts_json / graded_contexts_json / source_payload_json are
+        # intentionally NOT required: they were dropped from card_price_history_daily
+        # in the Phase-5 slim-table migration (normalized cells are the source of
+        # truth). If they were still required here, the startup rebuild-guard would
+        # DROP TABLE the slimmed history on the first boot after the drop. source_url
+        # stays — the portfolio covering index projects it.
         "source_url",
-        "source_payload_json",
         "updated_at",
     }
     required_fx_columns = {

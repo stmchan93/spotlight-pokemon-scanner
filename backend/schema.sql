@@ -109,6 +109,10 @@ CREATE TABLE IF NOT EXISTS card_price_history_daily (
     default_raw_high_price REAL,
     default_raw_direct_low_price REAL,
     default_raw_trend_price REAL,
+    -- NOTE: these 3 JSON blob columns are still CREATEd (fresh installs + JSON-mode
+    -- back-compat rely on them), but they are NOT in required_history_columns in
+    -- catalog_tools.py — so a PROD DB that has had them dropped (Phase-5 slim-table
+    -- migration) passes the startup guard without a rebuild. source_url stays.
     raw_contexts_json TEXT NOT NULL DEFAULT '{}',
     graded_contexts_json TEXT NOT NULL DEFAULT '{}',
     source_url TEXT,
