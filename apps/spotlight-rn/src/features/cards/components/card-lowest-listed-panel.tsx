@@ -229,25 +229,9 @@ export function CardLowestListedPanel({
         </Pressable>
       ) : null}
 
-      {record.searchUrl ? (
-        <View style={styles.footer}>
-          <View />
-          <Pressable
-            accessibilityLabel="See all listings on eBay"
-            accessibilityRole="link"
-            hitSlop={8}
-            onPress={() => {
-              void Linking.openURL(record.searchUrl as string);
-            }}
-            style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
-            testID={`${testID}-see-all`}
-          >
-            <Text style={[theme.typography.labelStrong, { color: theme.colors.gray900 }]}>
-              See all on eBay →
-            </Text>
-          </Pressable>
-        </View>
-      ) : null}
+      {/* The aggregate "See all on eBay →" search link was removed — like the
+          recent-sales one, it was a broad title-search that couldn't reproduce
+          the specific listings shown. The per-row listings above link exactly. */}
     </View>
   );
 }

@@ -872,61 +872,25 @@ describe('CardDetailScreen', () => {
     expect(url).not.toContain('Printing=');
   });
 
-  it('tapping the eBay logo (graded lane) opens sold listings for the selected grade', async () => {
+  it('does not make the graded-lane eBay logo a link (its search was inaccurate)', async () => {
     const getCardPriceTrends = jest.fn(async (query: { mode: string }) => ({
       mode: query.mode as 'raw' | 'graded',
       provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
       rows: trendRows(query.mode),
     }));
-    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as never);
 
     renderWithProviders(
       <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
       { spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends }) },
     );
 
+    // Raw lane: the TCGplayer logo IS a pressable link (covered above). Switch to
+    // the graded (eBay) lane — its logo is now a static image, so the pressable
+    // provider button is absent.
     fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
-    fireEvent.press(await screen.findByTestId('detail-price-trends-provider'));
-
     await waitFor(() => {
-      expect(openURL).toHaveBeenCalledTimes(1);
+      expect(screen.queryByTestId('detail-price-trends-provider')).toBeNull();
     });
-    const url = openURL.mock.calls[0][0] as string;
-    expect(url).toContain('https://www.ebay.com/sch/i.html');
-    expect(url).toContain('%22PSA+10%22'); // defaults to the seeded PSA 10
-    expect(url).toContain('LH_Sold=1');
-  });
-
-  it('keeps the PDP eBay link independent of the Add to Collection grade dropdown', async () => {
-    const getCardPriceTrends = jest.fn(async (query: { mode: string }) => ({
-      mode: query.mode as 'raw' | 'graded',
-      provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
-      rows: trendRows(query.mode),
-    }));
-    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as never);
-
-    renderWithProviders(
-      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
-      { spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends }) },
-    );
-
-    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
-    // Add Item opens at the Raw default; switch it to PSA and pick a different
-    // grade (9.5) INSIDE the sheet, then dismiss it. The sheet owns its own
-    // selection now, so this must NOT change the page — the PDP's eBay link keeps
-    // its own selection (PSA 10).
-    fireEvent.press(screen.getByTestId('detail-add-item'));
-    fireEvent.press(await screen.findByTestId('detail-add-sheet-configurator-grader-PSA'));
-    fireEvent.press(await screen.findByTestId('detail-add-sheet-grade-trigger'));
-    fireEvent.press(await screen.findByTestId('detail-grade-sheet-option-9.5'));
-    fireEvent.press(screen.getByTestId('detail-add-sheet-backdrop'));
-    fireEvent.press(await screen.findByTestId('detail-price-trends-provider'));
-
-    await waitFor(() => {
-      expect(openURL).toHaveBeenCalledTimes(1);
-    });
-    // The add-sheet selection did NOT leak to the page: still PSA 10, not 9.5.
-    expect(openURL.mock.calls[0][0] as string).toContain('%22PSA+10%22');
   });
 
   it('a graded-only card (no raw pricing) defaults to the graded lane so a chart shows', async () => {

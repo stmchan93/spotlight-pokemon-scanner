@@ -2077,7 +2077,10 @@ export function CardDetailScreen({
               expandedContent={expandedTrendContent}
               expandedRowKey={priceTrends.mode === 'graded' ? expandedTrendRowKey : null}
               list={priceTrends}
-              onProviderPress={handleProviderPress}
+              // Raw lane only: the TCGplayer logo opens the EXACT product page
+              // (accurate). The graded lane's eBay logo opened a broad eBay
+              // SEARCH (inaccurate), so its logo is now a static image — no link.
+              onProviderPress={priceTrends.mode === 'graded' ? undefined : handleProviderPress}
               onRowPress={handleTrendRowPress}
               testID="detail-price-trends"
             />
