@@ -124,8 +124,11 @@ describe('InventoryDropdown', () => {
     fireEvent.press(screen.getByTestId('detail-inventory-row-b-menu'));
 
     expect(onPressEntryMenu).toHaveBeenCalledTimes(1);
+    // Second arg is the measured anchor (null in the test env, where
+    // measureInWindow isn't implemented).
     expect(onPressEntryMenu).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'b' }),
+      null,
     );
   });
 

@@ -19,8 +19,14 @@ type InventoryDropdownProps = {
   language?: string | null;
   /** Row tap — e.g. re-open the PDP pinned to that entry's edit context. */
   onPressEntry?: (entry: InventoryCardEntry) => void;
-  /** "..." tap — open the per-entry actions menu (Add another / Delete). */
-  onPressEntryMenu: (entry: InventoryCardEntry) => void;
+  /**
+   * "..." tap — open the per-entry actions popover (Add another / Delete),
+   * anchored to the tapped trigger's measured screen rect (null if unmeasurable).
+   */
+  onPressEntryMenu: (
+    entry: InventoryCardEntry,
+    anchor: { x: number; y: number; width: number; height: number } | null,
+  ) => void;
   initiallyExpanded?: boolean;
   testID?: string;
 };
@@ -150,7 +156,23 @@ export function InventoryDropdown({
                         accessibilityLabel="Entry actions"
                         accessibilityRole="button"
                         hitSlop={8}
-                        onPress={() => onPressEntryMenu(entry)}
+                        onPress={(event) => {
+                          // Measure the "..." so the popover pops anchored to it
+                          // (measureInWindow is native-only; fall back to null in
+                          // tests / when unavailable so the menu still opens).
+                          const target = event?.currentTarget as {
+                            measureInWindow?: (
+                              cb: (x: number, y: number, width: number, height: number) => void,
+                            ) => void;
+                          } | null | undefined;
+                          if (target && typeof target.measureInWindow === 'function') {
+                            target.measureInWindow((x, y, width, height) =>
+                              onPressEntryMenu(entry, { height, width, x, y }),
+                            );
+                          } else {
+                            onPressEntryMenu(entry, null);
+                          }
+                        }}
                         style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
                         testID={rowTestID ? `${rowTestID}-menu` : undefined}
                       >

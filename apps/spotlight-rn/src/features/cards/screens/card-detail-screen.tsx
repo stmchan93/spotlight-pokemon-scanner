@@ -36,7 +36,10 @@ import { NavArrowLeft, ShareIos, Trash } from 'iconoir-react-native';
 
 import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { AddToCollectionSheet } from '@/features/cards/components/add-to-collection-sheet';
-import { InventoryEntryActionsSheet } from '@/features/cards/components/inventory-entry-actions-sheet';
+import {
+  InventoryEntryMenu,
+  type InventoryEntryMenuAnchor,
+} from '@/features/cards/components/inventory-entry-menu';
 import { ConfirmDeleteSheet } from '@/features/cards/components/confirm-delete-sheet';
 import {
   GradeConditionSheet,
@@ -251,6 +254,7 @@ export function CardDetailScreen({
   // the row the menu was opened on; `deleteTargetEntry` is the row a Delete will
   // act on (defaults to the selected/pinned entry for the header trash).
   const [entryActionsEntry, setEntryActionsEntry] = useState<InventoryCardEntry | null>(null);
+  const [entryActionsAnchor, setEntryActionsAnchor] = useState<InventoryEntryMenuAnchor | null>(null);
   const [deleteTargetEntry, setDeleteTargetEntry] = useState<InventoryCardEntry | null>(null);
   // Owned-card inline edit mode (Figma 1874:21729): Quantity + Cost Basis edited
   // on the page; Variant/Grader/Grade/Condition reuse the page configurator state.
@@ -1537,11 +1541,15 @@ export function CardDetailScreen({
     [router, selectedEntry?.id, spotlightRepository],
   );
 
-  // Inventory dropdown "...": open the per-entry actions sheet (Add another /
-  // Delete) for the tapped row.
-  const handlePressInventoryEntryMenu = useCallback((entry: InventoryCardEntry) => {
-    setEntryActionsEntry(entry);
-  }, []);
+  // Inventory dropdown "...": open the per-entry actions popover (Add another /
+  // Delete), anchored to the tapped "..." trigger.
+  const handlePressInventoryEntryMenu = useCallback(
+    (entry: InventoryCardEntry, anchor: InventoryEntryMenuAnchor | null) => {
+      setEntryActionsAnchor(anchor);
+      setEntryActionsEntry(entry);
+    },
+    [],
+  );
 
   // Actions-sheet → "Add another to Collection": reuse the PDP's Add sheet. Close
   // the actions sheet FIRST, then present the Add sheet a beat later so the two
@@ -2098,21 +2106,8 @@ export function CardDetailScreen({
           visible={confirmDeleteOpen}
         />
 
-        <InventoryEntryActionsSheet
-          entryLabel={
-            entryActionsEntry
-              ? [
-                  entryActionsEntry.slabContext
-                    ? [entryActionsEntry.slabContext.grader, entryActionsEntry.slabContext.grade]
-                        .filter(Boolean)
-                        .join(' ')
-                    : entryActionsEntry.conditionShortLabel,
-                  entryActionsEntry.slabContext?.variantName ?? entryActionsEntry.variantName,
-                ]
-                  .filter(Boolean)
-                  .join(' · ') || null
-              : null
-          }
+        <InventoryEntryMenu
+          anchor={entryActionsAnchor}
           onAdd={handleEntryActionAdd}
           onClose={() => setEntryActionsEntry(null)}
           onDelete={handleEntryActionDelete}
