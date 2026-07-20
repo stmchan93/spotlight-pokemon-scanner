@@ -134,11 +134,14 @@ export function CardLowestListedPanel({
 
   const listings = record?.listings ?? [];
 
+  // Degrade gracefully: whether eBay Browse is unavailable (daily rate limit /
+  // auth) or genuinely returned nothing, show the same calm "none found" line —
+  // never an alarming "Couldn't load" error. No extra calls either way.
   if (!record || (record.status !== 'available' && listings.length === 0)) {
     return (
       <View style={styles.panel} testID={`${testID}-error`}>
         <Text style={[theme.typography.label, { color: theme.colors.gray500 }]}>
-          {record ? 'No active eBay listings found.' : "Couldn't load listings."}
+          No active eBay listings found.
         </Text>
       </View>
     );

@@ -155,11 +155,14 @@ export function CardRecentSalesPanel({
   const sales = record?.sales ?? [];
   const updatedText = formatUpdatedAgo(record?.fetchedAt);
 
+  // Degrade gracefully: whether the live Scrydex sold-comps call is unavailable
+  // (e.g. staging runs keyless to save credits) or genuinely returned nothing,
+  // show the same calm "none found" line — never an alarming "Couldn't load".
   if (!record || (record.status !== 'available' && sales.length === 0)) {
     return (
       <View style={styles.panel} testID={`${testID}-error`}>
         <Text style={[theme.typography.label, { color: theme.colors.gray500 }]}>
-          {record ? 'No recent eBay sales found.' : "Couldn't load recent sales."}
+          No recent eBay sales found.
         </Text>
       </View>
     );
