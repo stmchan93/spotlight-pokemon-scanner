@@ -1,4 +1,5 @@
 import { usePathname, useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Bookmark,
   GraphUp,
@@ -56,6 +57,7 @@ function formatMemberSince(isoString: string | null | undefined): string | null 
 
 export function AppDrawer() {
   const { isOpen, closeDrawer } = useAppDrawer();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const pathname = usePathname();
   const auth = useAuth();
@@ -245,7 +247,14 @@ export function AppDrawer() {
         ]}
         testID="app-drawer-panel"
       >
-        <View style={styles.contentInner}>
+        <View
+          style={[
+            styles.contentInner,
+            // Lift the bottom (logout) above Android's system nav bar; the base 32
+            // stays the design gap on notchless/gesture devices where inset is 0.
+            { paddingBottom: 32 + insets.bottom, paddingTop: 75 + insets.top },
+          ]}
+        >
           <Pressable
             accessibilityLabel="Account settings"
             accessibilityRole="button"
