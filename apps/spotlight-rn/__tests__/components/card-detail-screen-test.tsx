@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 
 import type { CardDetailRecord, CardText, InventoryCardEntry } from '@spotlight/api-client';
 import { CardDetailScreen } from '@/features/cards/screens/card-detail-screen';
+import { resetPremiumUnlock } from '@/features/monetization/entitlements';
 import {
   clearCardDetailPreviewSessions,
   saveCardDetailPreviewFromInventoryEntry,
@@ -60,6 +61,7 @@ describe('CardDetailScreen', () => {
     clearCardDetailPreviewSessions();
     clearScanCandidateReviewSessions();
     clearCardDetailCache();
+    resetPremiumUnlock();
     jest.clearAllMocks();
   });
 
@@ -811,7 +813,11 @@ describe('CardDetailScreen', () => {
     expect(capturePostHogEvent).toHaveBeenCalledWith('paywall_subscribe_tapped', {
       surface: 'pdp_recent_sales',
     });
-    expect(screen.getByTestId('detail-subscribe-stub-toast')).toBeTruthy();
+    // Interim free unlock (no payment provider yet): the paywall lifts — the
+    // subscribe CTA disappears and the previously-locked rows are revealed.
+    await waitFor(() => {
+      expect(screen.queryByTestId('detail-recent-sales-subscribe')).toBeNull();
+    });
   });
 
   it('parses the pipe-delimited graded row key too (backend version robustness)', async () => {
