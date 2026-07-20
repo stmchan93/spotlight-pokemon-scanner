@@ -15,6 +15,7 @@ import {
   Animated,
   Easing,
   Image,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -250,9 +251,12 @@ export function AppDrawer() {
         <View
           style={[
             styles.contentInner,
-            // Lift the bottom (logout) above Android's system nav bar; the base 32
-            // stays the design gap on notchless/gesture devices where inset is 0.
-            { paddingBottom: 32 + insets.bottom, paddingTop: 75 + insets.top },
+            // ANDROID ONLY: lift the logout row above the system nav bar. iOS was
+            // already correct with the fixed 32 (adding its home-indicator inset
+            // would just over-pad a fine screen), so leave iOS untouched.
+            Platform.OS === 'android'
+              ? { paddingBottom: 32 + insets.bottom }
+              : null,
           ]}
         >
           <Pressable
