@@ -1,6 +1,6 @@
 import { Fragment, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { ArrowDown, ArrowUp, BoxIso, NavArrowDown, NavArrowUp, Trash } from 'iconoir-react-native';
+import { ArrowDown, ArrowUp, BoxIso, MoreHoriz, NavArrowDown, NavArrowUp } from 'iconoir-react-native';
 
 import { AppText, borderWidths, radii, useSpotlightTheme } from '@spotlight/design-system';
 import { deckConditionOptions, type InventoryCardEntry } from '@spotlight/api-client';
@@ -19,7 +19,7 @@ type InventoryDropdownProps = {
   language?: string | null;
   /** Row tap — e.g. re-open the PDP pinned to that entry's edit context. */
   onPressEntry?: (entry: InventoryCardEntry) => void;
-  /** Trash tap — delete that entry (the current entry opens confirm-delete). */
+  /** "..." tap — open the per-entry actions menu (Add another / Delete). */
   onPressEntryMenu: (entry: InventoryCardEntry) => void;
   initiallyExpanded?: boolean;
   testID?: string;
@@ -147,14 +147,14 @@ export function InventoryDropdown({
                         </View>
                       </View>
                       <Pressable
-                        accessibilityLabel="Delete entry"
+                        accessibilityLabel="Entry actions"
                         accessibilityRole="button"
                         hitSlop={8}
                         onPress={() => onPressEntryMenu(entry)}
                         style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
                         testID={rowTestID ? `${rowTestID}-menu` : undefined}
                       >
-                        <Trash color={theme.colors.gray900} height={22} width={22} />
+                        <MoreHoriz color={theme.colors.gray900} height={24} width={24} />
                       </Pressable>
                     </View>
                     <View style={styles.priceRow}>

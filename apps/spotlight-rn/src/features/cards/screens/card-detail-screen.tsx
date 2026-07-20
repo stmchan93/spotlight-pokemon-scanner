@@ -36,6 +36,7 @@ import { NavArrowLeft, ShareIos, Trash } from 'iconoir-react-native';
 
 import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { AddToCollectionSheet } from '@/features/cards/components/add-to-collection-sheet';
+import { InventoryEntryActionsSheet } from '@/features/cards/components/inventory-entry-actions-sheet';
 import { ConfirmDeleteSheet } from '@/features/cards/components/confirm-delete-sheet';
 import {
   GradeConditionSheet,
@@ -246,6 +247,11 @@ export function CardDetailScreen({
   // PDP"): the trash affordance in the header opens it; CONFIRM removes the entry.
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [isDeletePending, setIsDeletePending] = useState(false);
+  // Per-entry "..." actions sheet (Add another / Delete). `entryActionsEntry` is
+  // the row the menu was opened on; `deleteTargetEntry` is the row a Delete will
+  // act on (defaults to the selected/pinned entry for the header trash).
+  const [entryActionsEntry, setEntryActionsEntry] = useState<InventoryCardEntry | null>(null);
+  const [deleteTargetEntry, setDeleteTargetEntry] = useState<InventoryCardEntry | null>(null);
   // Owned-card inline edit mode (Figma 1874:21729): Quantity + Cost Basis edited
   // on the page; Variant/Grader/Grade/Condition reuse the page configurator state.
   // SAVE persists via replace + cost-basis; the grade/condition picker is hosted
@@ -1465,17 +1471,27 @@ export function CardDetailScreen({
   // pop back to where the user came from (Collection). Guarded so a stray tap
   // without an owned entry — or a double-tap — can't fire a delete.
   const handleConfirmDelete = useCallback(() => {
-    const deckEntryID = selectedEntry?.id;
+    // The "..." actions sheet targets a specific entry; the header trash falls
+    // back to the pinned/selected one.
+    const target = deleteTargetEntry ?? selectedEntry;
+    const deckEntryID = target?.id;
     if (!deckEntryID || isDeletePending) {
       return;
     }
+    const wasPinnedEntry = target?.id === selectedEntry?.id;
     setIsDeletePending(true);
     spotlightRepository
       .deletePortfolioEntry({ deckEntryID })
       .then(() => {
         setConfirmDeleteOpen(false);
+        setDeleteTargetEntry(null);
+        removeOptimisticInventoryEntries([deckEntryID]);
         refreshData();
-        onBack();
+        // Only leave the PDP when we deleted the entry it's pinned to; deleting a
+        // DIFFERENT owned variant keeps you here (the inventory list just updates).
+        if (wasPinnedEntry) {
+          onBack();
+        }
       })
       .catch(() => {
         setErrorMessage('Could not delete this item right now.');
@@ -1483,7 +1499,15 @@ export function CardDetailScreen({
       .finally(() => {
         setIsDeletePending(false);
       });
-  }, [isDeletePending, onBack, refreshData, selectedEntry, spotlightRepository]);
+  }, [
+    deleteTargetEntry,
+    isDeletePending,
+    onBack,
+    refreshData,
+    removeOptimisticInventoryEntries,
+    selectedEntry,
+    spotlightRepository,
+  ]);
 
   // Inventory dropdown row tap: re-open the PDP pinned to THAT entry (the same
   // prefetch + entryId push the Collection's Edit action uses), so its inline
@@ -1513,20 +1537,28 @@ export function CardDetailScreen({
     [router, selectedEntry?.id, spotlightRepository],
   );
 
-  // Inventory dropdown MoreHoriz: per-entry actions reuse what this screen
-  // already has — the selected entry's actions live here (inline edit + the
-  // confirm-delete sheet the header trash opens), so its menu opens that sheet;
-  // any OTHER entry first re-pins the PDP to it via the row-tap navigation.
-  const handlePressInventoryEntryMenu = useCallback(
-    (entry: InventoryCardEntry) => {
-      if (entry.id === selectedEntry?.id) {
-        setConfirmDeleteOpen(true);
-        return;
-      }
-      handlePressInventoryEntry(entry);
-    },
-    [handlePressInventoryEntry, selectedEntry?.id],
-  );
+  // Inventory dropdown "...": open the per-entry actions sheet (Add another /
+  // Delete) for the tapped row.
+  const handlePressInventoryEntryMenu = useCallback((entry: InventoryCardEntry) => {
+    setEntryActionsEntry(entry);
+  }, []);
+
+  // Actions-sheet → "Add another to Collection": reuse the PDP's Add sheet. Close
+  // the actions sheet FIRST, then present the Add sheet a beat later so the two
+  // Modals never present/tear-down simultaneously (that collision froze the app).
+  const handleEntryActionAdd = useCallback(() => {
+    setEntryActionsEntry(null);
+    setTimeout(() => setAddSheetOpen(true), 220);
+  }, []);
+
+  // Actions-sheet → "Delete this entry": target the tapped row, then open the
+  // destructive confirm (same defer to avoid the Modal-teardown collision).
+  const handleEntryActionDelete = useCallback(() => {
+    const target = entryActionsEntry;
+    setEntryActionsEntry(null);
+    setDeleteTargetEntry(target);
+    setTimeout(() => setConfirmDeleteOpen(true), 220);
+  }, [entryActionsEntry]);
 
   // --- Owned-card inline edit mode (Figma 1874:21729) ---------------------
   // Page is in edit mode whenever it shows an owned entry. The Variant / Grader
@@ -2056,11 +2088,36 @@ export function CardDetailScreen({
 
         <ConfirmDeleteSheet
           confirmPending={isDeletePending}
-          onClose={() => setConfirmDeleteOpen(false)}
+          onClose={() => {
+            setConfirmDeleteOpen(false);
+            setDeleteTargetEntry(null);
+          }}
           onConfirm={handleConfirmDelete}
-          quantity={selectedEntry?.quantity ?? 1}
+          quantity={(deleteTargetEntry ?? selectedEntry)?.quantity ?? 1}
           testID="detail-delete-sheet"
           visible={confirmDeleteOpen}
+        />
+
+        <InventoryEntryActionsSheet
+          entryLabel={
+            entryActionsEntry
+              ? [
+                  entryActionsEntry.slabContext
+                    ? [entryActionsEntry.slabContext.grader, entryActionsEntry.slabContext.grade]
+                        .filter(Boolean)
+                        .join(' ')
+                    : entryActionsEntry.conditionShortLabel,
+                  entryActionsEntry.slabContext?.variantName ?? entryActionsEntry.variantName,
+                ]
+                  .filter(Boolean)
+                  .join(' · ') || null
+              : null
+          }
+          onAdd={handleEntryActionAdd}
+          onClose={() => setEntryActionsEntry(null)}
+          onDelete={handleEntryActionDelete}
+          testID="detail-entry-actions"
+          visible={entryActionsEntry != null}
         />
 
         <GradeConditionSheet
