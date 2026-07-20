@@ -125,6 +125,8 @@ from catalog_tools import (
     replace_scan_prediction_candidates,
     replace_scan_price_observations,
     replace_slab_recent_sales_cache,
+    card_ebay_listings_cache,
+    replace_card_ebay_listings_cache,
     record_sale_event,
     slab_recent_sales_cache,
     utc_now,
@@ -300,6 +302,14 @@ RECENT_SALES_DEFAULT_LIMIT = 5
 RECENT_SALES_MAX_LIMIT = 25
 RECENT_SALES_FRESHNESS_HOURS = 24
 RECENT_SALES_EMPTY_REFRESH_HOURS = 48
+
+# "Lowest Listed" = CURRENT active eBay listings (Browse API, a free rate-limited
+# token — NOT Scrydex credits). Prices are volatile and the cheapest listing sells
+# first, so keep this MUCH fresher than the 24h Scrydex sold cache: refresh after
+# 1h. Cards with zero listings wait longer (6h) before re-checking — niche cards
+# rarely gain a listing, so don't spend calls re-polling dead ones.
+EBAY_LISTINGS_FRESHNESS_HOURS = 1
+EBAY_LISTINGS_EMPTY_REFRESH_HOURS = 6
 
 # Fail-fast budget for slab resolution. Slabs hit the OCR label-scoring
 # fallback when both the cert cache and (gated) remote search miss; that
@@ -11903,13 +11913,69 @@ class SpotlightScanService:
         normalized_limit = max(1, min(normalized_limit, MAX_EBAY_LISTING_LIMIT))
         if normalized_grader is None and normalized_grade is not None:
             normalized_grader = "PSA"
-        return fetch_graded_card_ebay_comps(
+
+        # "Lowest Listed" is cached briefly (EBAY_LISTINGS_FRESHNESS_HOURS) so a
+        # repeatedly-viewed card doesn't spend an eBay Browse call per open. Keyed
+        # by grader+grade+variant (edition-scoped); '' variant when there's no split.
+        cache_variant = selected_variant or ""
+        if normalized_grader and normalized_grade:
+            cached = card_ebay_listings_cache(
+                self.connection,
+                card_id=card_id,
+                grader=normalized_grader,
+                grade=normalized_grade,
+                variant=cache_variant,
+            )
+            if cached is not None:
+                age_hours = _recent_sales_age_hours(cached.get("fetchedAt"))
+                refresh_after_hours = (
+                    EBAY_LISTINGS_EMPTY_REFRESH_HOURS
+                    if str(cached.get("statusReason") or "").strip() == "no_results"
+                    else EBAY_LISTINGS_FRESHNESS_HOURS
+                )
+                if age_hours is not None and age_hours < refresh_after_hours:
+                    cached_payload = cached.get("payload")
+                    if isinstance(cached_payload, dict) and cached_payload:
+                        return cached_payload
+
+        payload = fetch_graded_card_ebay_comps(
             card,
             grader=normalized_grader,
             selected_grade=normalized_grade,
             variant=selected_variant,
             limit=normalized_limit,
         )
+        # Cache ONLY a successful fetch ('available', including 0-result). A
+        # transient 'unavailable' (rate limit / auth / fetch error) stays live so
+        # the next open retries instead of serving a stuck failure for hours.
+        if (
+            normalized_grader
+            and normalized_grade
+            and isinstance(payload, dict)
+            and str(payload.get("status") or "").strip() == "available"
+        ):
+            try:
+                replace_card_ebay_listings_cache(
+                    self.connection,
+                    card_id=card_id,
+                    grader=normalized_grader,
+                    grade=normalized_grade,
+                    variant=cache_variant,
+                    status=str(payload.get("status") or "available"),
+                    status_reason=(
+                        str(payload.get("statusReason"))
+                        if payload.get("statusReason") is not None
+                        else None
+                    ),
+                    result_count=int(payload.get("transactionCount") or 0),
+                    payload=payload,
+                    fetched_at=utc_now(),
+                )
+                self.connection.commit()
+            except Exception:
+                # Cache write is best-effort; never fail the response over it.
+                pass
+        return payload
 
     def card_recent_sales(
         self,

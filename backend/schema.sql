@@ -451,6 +451,26 @@ CREATE TABLE IF NOT EXISTS slab_recent_sales_cache (
     PRIMARY KEY (card_id, grader, grade, source)
 );
 
+-- Cheapest ACTIVE eBay listings ("Lowest Listed"), cached as the whole response
+-- blob keyed by card+grader+grade+variant (edition-scoped). eBay Browse is a free
+-- rate-limited token (not Scrydex credits), so this is a short-TTL cache (see
+-- EBAY_LISTINGS_FRESHNESS_HOURS) that mostly spares the daily call limit on
+-- repeatedly-viewed cards. `variant` is '' when the card has no edition split.
+CREATE TABLE IF NOT EXISTS card_ebay_listings_cache (
+    card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+    grader TEXT NOT NULL,
+    grade TEXT NOT NULL,
+    variant TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL,
+    status_reason TEXT,
+    result_count INTEGER NOT NULL DEFAULT 0,
+    fetched_at TEXT NOT NULL,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (card_id, grader, grade, variant)
+);
+
 CREATE TABLE IF NOT EXISTS slab_recent_sales (
     id TEXT PRIMARY KEY,
     card_id TEXT NOT NULL,

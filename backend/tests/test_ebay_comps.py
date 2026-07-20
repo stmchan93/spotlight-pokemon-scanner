@@ -319,6 +319,38 @@ class EbayCompsTests(unittest.TestCase):
         finally:
             service.connection.close()
 
+    def test_card_ebay_comps_serves_second_open_from_cache(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        try:
+            available = {
+                "status": "available",
+                "statusReason": None,
+                "transactionCount": 2,
+                "transactions": [{"price": 10.0}, {"price": 12.0}],
+            }
+            with patch("server.fetch_graded_card_ebay_comps", return_value=available) as mocked:
+                first = service.card_ebay_comps("gym1-60", grader="psa", grade="9", limit=20)
+                second = service.card_ebay_comps("gym1-60", grader="psa", grade="9", limit=20)
+            self.assertEqual(first, available)
+            self.assertEqual(second, available)
+            # Second open within the freshness window is served from the cache — the
+            # eBay Browse call fires only once.
+            mocked.assert_called_once()
+        finally:
+            service.connection.close()
+
+    def test_card_ebay_comps_does_not_cache_unavailable(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        try:
+            unavailable = {"status": "unavailable", "statusReason": "browse_disabled"}
+            with patch("server.fetch_graded_card_ebay_comps", return_value=unavailable) as mocked:
+                service.card_ebay_comps("gym1-60", grader="psa", grade="9", limit=20)
+                service.card_ebay_comps("gym1-60", grader="psa", grade="9", limit=20)
+            # A transient failure is never cached, so each open retries live.
+            self.assertEqual(mocked.call_count, 2)
+        finally:
+            service.connection.close()
+
     def test_ebay_comps_route_dispatches_to_service(self) -> None:
         handler = SpotlightRequestHandler.__new__(SpotlightRequestHandler)
         handler.path = "/api/v1/cards/gym1-60/ebay-comps?grade=9&limit=5"

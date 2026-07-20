@@ -6651,6 +6651,113 @@ def replace_slab_recent_sales_cache(
     }
 
 
+def card_ebay_listings_cache(
+    connection: sqlite3.Connection,
+    *,
+    card_id: str,
+    grader: str,
+    grade: str,
+    variant: str | None = None,
+) -> dict[str, Any] | None:
+    """Read the cached "Lowest Listed" (active eBay listings) response blob for a
+    card+grader+grade+variant, or None if absent. The caller decides freshness."""
+    normalized_card_id = str(card_id or "").strip()
+    normalized_grader = str(grader or "").strip().upper()
+    normalized_grade = str(grade or "").strip().upper()
+    normalized_variant = str(variant or "").strip()
+    if not normalized_card_id or not normalized_grader or not normalized_grade:
+        return None
+    if not _table_exists(connection, "card_ebay_listings_cache"):
+        return None
+    row = connection.execute(
+        """
+        SELECT *
+        FROM card_ebay_listings_cache
+        WHERE card_id = ? AND grader = ? AND grade = ? AND variant = ?
+        LIMIT 1
+        """,
+        (normalized_card_id, normalized_grader, normalized_grade, normalized_variant),
+    ).fetchone()
+    if row is None:
+        return None
+    return {
+        "cardID": row["card_id"],
+        "grader": row["grader"],
+        "grade": row["grade"],
+        "variant": row["variant"],
+        "status": row["status"],
+        "statusReason": row["status_reason"],
+        "resultCount": int(row["result_count"] or 0),
+        "fetchedAt": row["fetched_at"],
+        "payload": _json_load(row["payload_json"], {}),
+    }
+
+
+def replace_card_ebay_listings_cache(
+    connection: sqlite3.Connection,
+    *,
+    card_id: str,
+    grader: str,
+    grade: str,
+    variant: str | None = None,
+    status: str,
+    status_reason: str | None = None,
+    result_count: int = 0,
+    payload: dict[str, Any] | None = None,
+    fetched_at: str | None = None,
+) -> dict[str, Any] | None:
+    """Upsert the cached active-eBay-listings response blob. Callers should only
+    cache SUCCESSFUL fetches (status 'available'); transient failures stay live."""
+    normalized_card_id = str(card_id or "").strip()
+    normalized_grader = str(grader or "").strip().upper()
+    normalized_grade = str(grade or "").strip().upper()
+    normalized_variant = str(variant or "").strip()
+    if not normalized_card_id or not normalized_grader or not normalized_grade:
+        raise ValueError("card_id, grader, and grade are required")
+    if not _card_exists(connection, normalized_card_id):
+        raise ValueError("card_id does not exist")
+    if not _table_exists(connection, "card_ebay_listings_cache"):
+        raise ValueError("card_ebay_listings_cache schema is not installed")
+    now = utc_now()
+    recorded_at = str(fetched_at or now).strip() or now
+    connection.execute(
+        """
+        INSERT INTO card_ebay_listings_cache (
+            card_id, grader, grade, variant, status, status_reason,
+            result_count, fetched_at, payload_json, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(card_id, grader, grade, variant) DO UPDATE SET
+            status=excluded.status,
+            status_reason=excluded.status_reason,
+            result_count=excluded.result_count,
+            fetched_at=excluded.fetched_at,
+            payload_json=excluded.payload_json,
+            updated_at=excluded.updated_at
+        """,
+        (
+            normalized_card_id,
+            normalized_grader,
+            normalized_grade,
+            normalized_variant,
+            str(status),
+            str(status_reason) if status_reason is not None else None,
+            int(result_count or 0),
+            recorded_at,
+            json.dumps(payload or {}),
+            now,
+            now,
+        ),
+    )
+    return card_ebay_listings_cache(
+        connection,
+        card_id=normalized_card_id,
+        grader=normalized_grader,
+        grade=normalized_grade,
+        variant=normalized_variant,
+    )
+
+
 def upsert_card_price_summary(
     connection: sqlite3.Connection,
     *,
