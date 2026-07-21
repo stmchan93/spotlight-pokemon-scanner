@@ -4,6 +4,7 @@ import {
   Bookmark,
   GraphUp,
   LogOut,
+  MagicWand,
   Menu as MenuIcon,
   Scanning,
   Settings,
@@ -216,6 +217,12 @@ export function AppDrawer() {
         // Scanner lives on the tabs root; navigate via the tabs index path
         setTimeout(() => router.push('/scan' as never), ANIM_DURATION_MS / 2);
       },
+    },
+    {
+      key: 'whos-that-pokemon',
+      label: "Who's That Pokémon?",
+      icon: MagicWand,
+      onPress: gate(() => goTo('/whos-that-pokemon')),
     },
   ];
 

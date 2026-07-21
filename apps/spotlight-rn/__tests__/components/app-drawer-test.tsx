@@ -110,9 +110,38 @@ describe('AppDrawer', () => {
     expect(screen.getByTestId('app-drawer-nav-insights')).toBeTruthy();
     expect(screen.getByTestId('app-drawer-nav-wishlist')).toBeTruthy();
     expect(screen.getByTestId('app-drawer-nav-scan')).toBeTruthy();
+    expect(screen.getByTestId('app-drawer-nav-whos-that-pokemon')).toBeTruthy();
     // Account Settings sits directly above Log Out and routes to /account.
     expect(screen.getByTestId('app-drawer-nav-account-settings')).toBeTruthy();
     expect(screen.getByTestId('app-drawer-nav-logout')).toBeTruthy();
+  });
+
+  it("navigates to /whos-that-pokemon when Who's That Pokémon? is tapped", () => {
+    jest.useFakeTimers();
+    try {
+      renderWithProviders(
+        <>
+          <DrawerController />
+          <AppDrawer />
+        </>,
+      );
+
+      act(() => {
+        drawerHandleRef.current?.open();
+      });
+
+      fireEvent.press(screen.getByTestId('app-drawer-nav-whos-that-pokemon'));
+
+      act(() => {
+        jest.advanceTimersByTime(500);
+      });
+
+      // From the Collection root the drawer PUSHES stack routes so swipe-back
+      // returns to Collection (same as Wishlist/Insights).
+      expect(push).toHaveBeenCalledWith('/whos-that-pokemon');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('renders the display name and Member since line from auth + session', () => {
