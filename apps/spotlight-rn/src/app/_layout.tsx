@@ -94,14 +94,28 @@ function RootNavigator() {
     [fontFamilies.bodySemiBold]: require('../../assets/fonts/PlusJakartaSans-SemiBold.ttf'),
     [fontFamilies.bodyBold]: require('../../assets/fonts/PlusJakartaSans-Bold.ttf'),
   });
+  const auth = useAuth();
+
+  // Hold the NATIVE splash until the app can paint its real first frame:
+  // fonts ready AND the persisted session restored (auth out of 'loading').
+  // Hiding on fonts alone flashed AuthGate's near-empty loading screen for
+  // ~0.5s (splash → white → app). Session restore always resolves (it falls
+  // back to 'signedOut' on failure), but keep a safety timer so a pathological
+  // hang can never trap the user on the splash forever.
+  const isReady = fontsLoaded && auth.state !== 'loading';
 
   useEffect(() => {
-    if (fontsLoaded) {
+    if (isReady) {
       void SplashScreen.hideAsync();
+      return;
     }
-  }, [fontsLoaded]);
+    const failSafe = setTimeout(() => {
+      void SplashScreen.hideAsync();
+    }, 8000);
+    return () => clearTimeout(failSafe);
+  }, [isReady]);
 
-  if (!fontsLoaded) {
+  if (!isReady) {
     return null;
   }
 

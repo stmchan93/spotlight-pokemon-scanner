@@ -15,7 +15,7 @@
     "backend:restore:local": "bash tools/restore_staging_db_local.sh",
     "frontend:build:staging": "bash tools/run_staging_mobile_release_gate.sh build",
     "frontend:release:staging": "bash tools/run_staging_mobile_release_gate.sh release",
-    "frontend:update:staging": "bash tools/run_mobile_eas.sh staging update ios staging",
+    "frontend:update:staging": "bash tools/run_mobile_eas.sh staging update ios staging && bash tools/run_mobile_eas.sh staging update android staging",
     "frontend:release:production": "bash tools/run_mobile_eas.sh production release ios production",
     "frontend:update:production": "bash tools/run_mobile_eas.sh production update ios production",
     "audit:staging": "python3 tools/audit_release_config.py --environment staging",
