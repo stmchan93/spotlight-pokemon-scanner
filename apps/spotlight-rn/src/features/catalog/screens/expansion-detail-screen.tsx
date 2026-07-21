@@ -5,13 +5,12 @@ import {
   Image,
   Pressable,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { CatalogSearchResult } from '@spotlight/api-client';
-import { SearchField, StateCard, colors, useSpotlightTheme } from '@spotlight/design-system';
+import { SearchField, StateCard, Text, colors, useSpotlightTheme } from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import { useAppServices } from '@/providers/app-providers';

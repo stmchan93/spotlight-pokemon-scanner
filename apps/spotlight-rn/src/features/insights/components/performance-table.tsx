@@ -1,8 +1,8 @@
 import { forwardRef, useCallback } from 'react';
-import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import type { ListRenderItemInfo, NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 
-import { borderWidths, PriceSparkline, radii, useSpotlightTheme } from '@spotlight/design-system';
+import { borderWidths, PriceSparkline, radii, Text, useSpotlightTheme } from '@spotlight/design-system';
 import { deckConditionOptions, type PortfolioPerformanceRow } from '@spotlight/api-client';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
@@ -32,7 +32,9 @@ const CELL_GAP = 16;
 const CARD_METRIC_EXTRA_GAP = 24 - CELL_GAP;
 const HEADER_BOTTOM_GAP = 24;
 const CHART_W = 62;
-const CELL_W = 60;
+// Wide enough for a 6-char value (e.g. "$87.06") on one line even at the 1.2×
+// Dynamic Type cap; value cells also force numberOfLines={1} so nothing wraps.
+const CELL_W = 68;
 const THUMB_W = 58;
 const THUMB_H = 80; // 58x80 card thumbnail (Figma 2652-24367)
 
@@ -324,22 +326,22 @@ export const PerformanceTable = forwardRef<
           {/* Current = unit price × quantity (backend `currentValue`), not the
               per-unit price — a 3× Near Mint entry shows the position's worth.
               The $ G/L column is likewise quantity-scaled backend-side. */}
-          <Text style={[theme.typography.body, styles.cell, { color: theme.colors.gray900 }]}>
+          <Text numberOfLines={1} style={[theme.typography.body, styles.cell, { color: theme.colors.gray900 }]}>
             {money(row.currentValue)}
           </Text>
-          <Text style={[theme.typography.body, styles.cell, { color: dollarDeltaColor(row.monthGainDollar) }]}>
+          <Text numberOfLines={1} style={[theme.typography.body, styles.cell, { color: dollarDeltaColor(row.monthGainDollar) }]}>
             {gainMoney(row.monthGainDollar)}
           </Text>
-          <Text style={[theme.typography.body, styles.cell, { color: deltaColor(row.monthGainPercent) }]}>
+          <Text numberOfLines={1} style={[theme.typography.body, styles.cell, { color: deltaColor(row.monthGainPercent) }]}>
             {percent(row.monthGainPercent)}
           </Text>
-          <Text style={[theme.typography.body, styles.cell, { color: dollarDeltaColor(totalDollar) }]}>
+          <Text numberOfLines={1} style={[theme.typography.body, styles.cell, { color: dollarDeltaColor(totalDollar) }]}>
             {gainMoney(totalDollar)}
           </Text>
-          <Text style={[theme.typography.body, styles.cell, { color: deltaColor(totalPercent) }]}>
+          <Text numberOfLines={1} style={[theme.typography.body, styles.cell, { color: deltaColor(totalPercent) }]}>
             {percent(totalPercent)}
           </Text>
-          <Text style={[theme.typography.body, styles.cell, { color: theme.colors.gray900 }]}>
+          <Text numberOfLines={1} style={[theme.typography.body, styles.cell, { color: theme.colors.gray900 }]}>
             {money(row.costBasisTotal)}
           </Text>
         </View>

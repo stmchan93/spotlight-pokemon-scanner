@@ -3,14 +3,13 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   View,
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { CatalogSearchResult } from '@spotlight/api-client';
-import { SectionHeader, colors, useSpotlightTheme } from '@spotlight/design-system';
+import { SectionHeader, Text, colors, useSpotlightTheme } from '@spotlight/design-system';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { ChromeBackButton } from '@/components/chrome-back-button';

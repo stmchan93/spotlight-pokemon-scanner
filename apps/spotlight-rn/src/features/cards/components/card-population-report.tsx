@@ -1,6 +1,6 @@
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 
-import { borderWidths, radii, useSpotlightTheme } from '@spotlight/design-system';
+import { borderWidths, radii, Text, useSpotlightTheme } from '@spotlight/design-system';
 import type { CardPopulation } from '@spotlight/api-client';
 
 type CardPopulationReportProps = {

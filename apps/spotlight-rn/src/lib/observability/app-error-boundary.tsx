@@ -1,4 +1,8 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+// Deliberately dependency-light: use react-native's Text directly (not the
+// design-system capped Text) so this boundary still renders even if a shared
+// primitive is what threw. Apply the Dynamic Type cap inline instead.
+// eslint-disable-next-line no-restricted-imports
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { capturePostHogException } from './posthog';
@@ -47,8 +51,8 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
 
     return (
       <View style={styles.container}>
-        <Text style={styles.title}>Something went wrong</Text>
-        <Text style={styles.body}>
+        <Text maxFontSizeMultiplier={1.2} style={styles.title}>Something went wrong</Text>
+        <Text maxFontSizeMultiplier={1.2} style={styles.body}>
           The app hit an unexpected error. Reloading usually fixes it.
         </Text>
         <Pressable
@@ -57,7 +61,7 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
           style={({ pressed }) => [styles.button, pressed ? styles.buttonPressed : null]}
           testID="app-error-boundary-reload"
         >
-          <Text style={styles.buttonLabel}>Reload</Text>
+          <Text maxFontSizeMultiplier={1.2} style={styles.buttonLabel}>Reload</Text>
         </Pressable>
       </View>
     );

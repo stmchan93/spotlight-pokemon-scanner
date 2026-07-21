@@ -1,6 +1,6 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
-import { fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
+import { Text, fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
 
 import { AuthScreenLayout } from './auth-screen-layout';
 import {

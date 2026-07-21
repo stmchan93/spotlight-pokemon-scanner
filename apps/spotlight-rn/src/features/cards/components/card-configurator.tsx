@@ -1,6 +1,6 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
-import { SkeletonBlock, useSpotlightTheme, type SpotlightTheme } from '@spotlight/design-system';
+import { SkeletonBlock, Text, useSpotlightTheme, type SpotlightTheme } from '@spotlight/design-system';
 import type { MarketHistoryOption } from '@spotlight/api-client';
 
 type CardConfiguratorProps = {

@@ -1,8 +1,8 @@
 import { Fragment, type ReactNode } from 'react';
-import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, StyleSheet, View } from 'react-native';
 import { IconChevronDown, IconChevronRight } from '@tabler/icons-react-native';
 
-import { borderWidths, colors, PriceSparkline, useSpotlightTheme } from '@spotlight/design-system';
+import { borderWidths, colors, PriceSparkline, Text, useSpotlightTheme } from '@spotlight/design-system';
 import type {
   CardPriceTrendList as CardPriceTrendListType,
   CardPriceTrendRow,

@@ -2,14 +2,13 @@ import { useState, type ReactNode } from 'react';
 import {
   Pressable,
   StyleSheet,
-  Text,
   TextInput,
   View,
   type TextInputProps,
 } from 'react-native';
 import { CheckCircle, CheckCircleSolid, Eye, EyeClosed } from 'iconoir-react-native';
 
-import { fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
+import { Text, fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
 
 /**
  * Presentational building blocks shared by the light-theme email-auth screens

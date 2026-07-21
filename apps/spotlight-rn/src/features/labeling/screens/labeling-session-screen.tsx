@@ -7,7 +7,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   View,
   useWindowDimensions,
 } from 'react-native';
@@ -19,6 +18,7 @@ import {
   SearchField,
   StateCard,
   SurfaceCard,
+  Text,
   colors,
   useSpotlightTheme,
 } from '@spotlight/design-system';

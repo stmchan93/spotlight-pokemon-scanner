@@ -5,7 +5,6 @@ import {
   Platform,
   Share,
   StyleSheet,
-  Text,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -31,7 +30,7 @@ import {
   type MarketHistoryOption,
   type SlabContext,
 } from '@spotlight/api-client';
-import { Button, IconButton, Toast, TrendTriangle, colors, fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
+import { Button, IconButton, Text, Toast, TrendTriangle, colors, fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
 import { NavArrowLeft, ShareIos, Trash } from 'iconoir-react-native';
 
 import { useGuestGate } from '@/features/auth/use-guest-gate';

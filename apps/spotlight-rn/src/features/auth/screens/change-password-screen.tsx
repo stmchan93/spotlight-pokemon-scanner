@@ -1,8 +1,8 @@
 import { useCallback, useState } from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import { Alert, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 
-import { fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
+import { Text, fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
 
 import { AuthScreenLayout } from '@/features/auth/components/auth-screen-layout';
 import {

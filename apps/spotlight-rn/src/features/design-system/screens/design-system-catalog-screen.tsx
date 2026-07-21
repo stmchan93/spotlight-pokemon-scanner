@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 import {
   ScrollView,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -24,6 +23,7 @@ import {
   spacing,
   StateCard,
   SurfaceCard,
+  Text,
   TextField,
   useSpotlightTheme,
 } from '@spotlight/design-system';

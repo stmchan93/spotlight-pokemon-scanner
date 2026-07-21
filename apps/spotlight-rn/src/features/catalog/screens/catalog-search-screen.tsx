@@ -5,7 +5,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -17,7 +16,7 @@ import {
   type ExpansionRecord,
   type RarityFilterBucket,
 } from '@spotlight/api-client';
-import { PillButton, SearchField, StateCard, colors, useSpotlightTheme } from '@spotlight/design-system';
+import { PillButton, SearchField, StateCard, Text, colors, useSpotlightTheme } from '@spotlight/design-system';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { ChromeBackButton } from '@/components/chrome-back-button';

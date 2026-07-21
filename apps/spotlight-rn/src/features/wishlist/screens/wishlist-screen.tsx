@@ -5,7 +5,6 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
 import { ArrowUp, CheckCircle, Trash } from 'iconoir-react-native';
@@ -26,6 +25,7 @@ import {
   InventoryCardTile,
   PillButton,
   SearchField,
+  Text,
   colors,
   useSpotlightTheme,
 } from '@spotlight/design-system';

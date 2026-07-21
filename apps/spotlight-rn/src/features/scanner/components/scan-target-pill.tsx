@@ -1,7 +1,7 @@
 import { IconChevronDown } from '@tabler/icons-react-native';
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { Pressable, StyleSheet } from 'react-native';
 
-import { colors, textStyles } from '@spotlight/design-system';
+import { Text, colors, textStyles } from '@spotlight/design-system';
 
 import { RoundFlag } from './round-flag';
 

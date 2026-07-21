@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AccessibilityInfo, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, StyleSheet, View } from 'react-native';
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -8,7 +8,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
-import { SkeletonBlock, useSpotlightTheme } from '@spotlight/design-system';
+import { SkeletonBlock, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 type CardPriceTrendSkeletonProps = {
   /** Number of placeholder rows to render (matches the trend list density). */

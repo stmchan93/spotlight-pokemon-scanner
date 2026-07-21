@@ -2,13 +2,12 @@ import { useEffect, useState } from 'react';
 import {
   FlatList,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { ExpansionRecord } from '@spotlight/api-client';
-import { SearchField, StateCard, colors, useSpotlightTheme } from '@spotlight/design-system';
+import { SearchField, StateCard, Text, colors, useSpotlightTheme } from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import { ExpansionCell } from '@/features/catalog/components/expansion-cell';

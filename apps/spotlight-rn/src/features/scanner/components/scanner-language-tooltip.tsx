@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Pressable, StyleSheet, Text } from 'react-native';
+import { Animated, Pressable, StyleSheet } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
-import { fontFamilies, colors } from '@spotlight/design-system';
+import { Text, fontFamilies, colors } from '@spotlight/design-system';
 
 // Speech-bubble tail from the Figma asset (2302:29022) — a 56×13 curved swoosh
 // pointing down at the language pill.

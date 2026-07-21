@@ -17,7 +17,6 @@ import {
   Platform,
   Pressable,
   StyleSheet,
-  Text,
   UIManager,
   View,
   useWindowDimensions,
@@ -47,6 +46,7 @@ import {
 } from '@spotlight/api-client';
 import {
   Button,
+  Text,
   colors,
   fontFamilies,
   radii,

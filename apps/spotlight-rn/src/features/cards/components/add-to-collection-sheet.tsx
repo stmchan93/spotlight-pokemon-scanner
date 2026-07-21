@@ -8,13 +8,12 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Minus, NavArrowDown, Plus } from 'iconoir-react-native';
 
-import { Button, useSpotlightTheme } from '@spotlight/design-system';
+import { Button, Text, useSpotlightTheme } from '@spotlight/design-system';
 import type { MarketHistoryOption } from '@spotlight/api-client';
 
 import { CardConfigurator } from '@/features/cards/components/card-configurator';

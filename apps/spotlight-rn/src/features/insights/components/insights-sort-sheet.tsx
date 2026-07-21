@@ -7,12 +7,11 @@ import {
   PanResponder,
   Pressable,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, useSpotlightTheme } from '@spotlight/design-system';
+import { Button, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 // Sort keys for the Insights performance table (Figma 2179:16233 "Filter By").
 export type InsightsSortKey =

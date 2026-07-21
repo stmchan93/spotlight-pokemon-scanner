@@ -7,7 +7,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -25,6 +24,7 @@ import {
   IconButton,
   SheetHeader,
   SurfaceCard,
+  Text,
   colors,
   textStyles,
   useSpotlightTheme,

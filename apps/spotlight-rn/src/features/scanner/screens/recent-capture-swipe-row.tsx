@@ -1,6 +1,6 @@
 import { memo, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { GridPlus, Trash } from 'iconoir-react-native';
-import { AccessibilityInfo, Animated, Dimensions, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Animated, Dimensions, Pressable, StyleSheet, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import Reanimated, {
   Easing,
@@ -10,7 +10,7 @@ import Reanimated, {
   type ExitAnimationsValues,
 } from 'react-native-reanimated';
 
-import { textStyles, useSpotlightTheme } from '@spotlight/design-system';
+import { Text, textStyles, useSpotlightTheme } from '@spotlight/design-system';
 
 import {
   recentCaptureActionCircleSize,

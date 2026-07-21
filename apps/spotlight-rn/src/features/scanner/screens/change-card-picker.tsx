@@ -9,7 +9,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
 import { NavArrowLeft, Search as SearchIcon } from 'iconoir-react-native';
@@ -17,7 +16,7 @@ import { BlurView } from 'expo-blur';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { CatalogSearchResult } from '@spotlight/api-client';
-import { colors } from '@spotlight/design-system';
+import { Text, colors } from '@spotlight/design-system';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 

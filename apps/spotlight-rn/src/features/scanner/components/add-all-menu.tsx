@@ -1,8 +1,8 @@
-import { Dimensions, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Dimensions, Modal, Pressable, StyleSheet, View } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { GridPlus, Bookmark, Trash } from 'iconoir-react-native';
 
-import { useSpotlightTheme } from '@spotlight/design-system';
+import { Text, useSpotlightTheme } from '@spotlight/design-system';
 
 export type AddAllMenuAction = 'collection' | 'wishlist' | 'remove';
 

@@ -7,13 +7,12 @@ import {
   PanResponder,
   Pressable,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Copy, EditPencil, Heart, ShareIos, Trash } from 'iconoir-react-native';
 
-import { useSpotlightTheme } from '@spotlight/design-system';
+import { Text, useSpotlightTheme } from '@spotlight/design-system';
 
 type CardActionsSheetProps = {
   visible: boolean;

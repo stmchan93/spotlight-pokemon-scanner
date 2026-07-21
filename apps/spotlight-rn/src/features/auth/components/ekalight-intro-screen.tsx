@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { AccessibilityInfo, StyleSheet, useWindowDimensions, View } from 'react-native';
 import Animated, {
   Easing,
   runOnJS,
@@ -11,7 +11,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
-import { fontFamilies } from '@spotlight/design-system';
+import { Text, fontFamilies } from '@spotlight/design-system';
 
 const INK = '#000000';
 const PAPER = '#FFFFFF';

@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, View } from 'react-native';
 
 import type { ExpansionRecord } from '@spotlight/api-client';
-import { useSpotlightTheme } from '@spotlight/design-system';
+import { Text, useSpotlightTheme } from '@spotlight/design-system';
 
 type ExpansionCellProps = {
   expansion: ExpansionRecord;

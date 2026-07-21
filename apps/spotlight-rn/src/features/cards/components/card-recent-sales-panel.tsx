@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, StyleSheet, View } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { IconLock } from '@tabler/icons-react-native';
 
-import { Button, useSpotlightTheme } from '@spotlight/design-system';
+import { Button, Text, useSpotlightTheme } from '@spotlight/design-system';
 import type { CardRecentSaleRecord, CardRecentSalesRecord } from '@spotlight/api-client';
 
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';

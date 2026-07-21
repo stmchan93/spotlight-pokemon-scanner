@@ -1,7 +1,7 @@
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { ArrowDown, ArrowUp, Minus, NavArrowDown, Plus } from 'iconoir-react-native';
 
-import { useSpotlightTheme } from '@spotlight/design-system';
+import { Text, useSpotlightTheme } from '@spotlight/design-system';
 
 type OwnedEntryEditFieldsProps = {
   /** Section title for the grade/condition selector ("Condition"). */

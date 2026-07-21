@@ -6,7 +6,6 @@ import {
   RefreshControl,
   Share,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,7 +13,7 @@ import { useRouter } from 'expo-router';
 import { Filter, NavArrowLeft, ShareIos } from 'iconoir-react-native';
 
 import type { PortfolioPerformance, PortfolioPerformanceRow } from '@spotlight/api-client';
-import { IconButton, SearchField, colors, textStyles, useSpotlightTheme } from '@spotlight/design-system';
+import { IconButton, SearchField, Text, colors, textStyles, useSpotlightTheme } from '@spotlight/design-system';
 
 import { useTabBarScrollHandler } from '@/contexts/tab-bar-chrome-context';
 import { useGuestGate } from '@/features/auth/use-guest-gate';

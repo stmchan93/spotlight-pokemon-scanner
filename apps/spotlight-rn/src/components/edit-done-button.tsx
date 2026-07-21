@@ -1,6 +1,6 @@
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { Pressable, StyleSheet } from 'react-native';
 
-import { useSpotlightTheme } from '@spotlight/design-system';
+import { Text, useSpotlightTheme } from '@spotlight/design-system';
 
 type EditDoneButtonProps = {
   onPress: () => void;

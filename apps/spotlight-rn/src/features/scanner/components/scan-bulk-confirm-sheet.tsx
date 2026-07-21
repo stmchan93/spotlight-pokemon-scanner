@@ -6,12 +6,11 @@ import {
   Modal,
   Pressable,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, useSpotlightTheme } from '@spotlight/design-system';
+import { Button, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 import { SheetDismissHandle } from '@/components/sheet-dismiss-handle';
 

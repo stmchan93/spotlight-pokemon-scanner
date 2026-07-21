@@ -1,7 +1,7 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { HeartSolid } from 'iconoir-react-native';
 
-import { useSpotlightTheme } from '@spotlight/design-system';
+import { Text, useSpotlightTheme } from '@spotlight/design-system';
 
 type CardWishlistCounterProps = {
   /** Public wishlist count (how many collectors have wishlisted this card). */

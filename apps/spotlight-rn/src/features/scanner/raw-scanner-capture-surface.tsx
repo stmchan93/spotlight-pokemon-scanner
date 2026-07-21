@@ -7,7 +7,6 @@ import {
   Platform,
   Pressable,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
 import Reanimated, {
@@ -24,6 +23,7 @@ import {
 } from 'react-native-vision-camera';
 
 import {
+  Text,
   colors,
   textStyles,
 } from '@spotlight/design-system';

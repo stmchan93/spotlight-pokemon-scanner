@@ -1,8 +1,8 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import type { ReactNode } from 'react';
 import type { TextInputProps } from 'react-native';
 
-import { IconButton, SearchField, colors, textStyles } from '@spotlight/design-system';
+import { IconButton, SearchField, Text, colors, textStyles } from '@spotlight/design-system';
 
 import { GridViewIcon, ListViewIcon } from '../../../components/view-toggle-icons';
 

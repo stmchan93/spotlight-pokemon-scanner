@@ -5,13 +5,12 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NavArrowLeft } from 'iconoir-react-native';
 
-import { fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
+import { Text, fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
 
 type AuthScreenLayoutProps = {
   /** Content flows top-down inside the scroll area on the white screen. */

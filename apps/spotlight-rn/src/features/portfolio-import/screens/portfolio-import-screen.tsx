@@ -5,7 +5,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -24,6 +23,7 @@ import {
   SearchField,
   SheetHeader,
   SurfaceCard,
+  Text,
   colors,
   useSpotlightTheme,
 } from '@spotlight/design-system';

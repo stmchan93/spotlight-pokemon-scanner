@@ -4,7 +4,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   View,
   useWindowDimensions,
 } from 'react-native';
@@ -23,6 +22,7 @@ import {
   PillButton,
   SearchField,
   StateCard,
+  Text,
   colors,
   useSpotlightTheme,
 } from '@spotlight/design-system';

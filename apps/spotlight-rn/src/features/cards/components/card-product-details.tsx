@@ -1,7 +1,7 @@
 import { Fragment } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
-import { useSpotlightTheme } from '@spotlight/design-system';
+import { Text, useSpotlightTheme } from '@spotlight/design-system';
 import type { CardText, CardTextTypeValue } from '@spotlight/api-client';
 
 type CardProductDetailsProps = {
