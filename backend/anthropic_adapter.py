@@ -225,9 +225,11 @@ def _lookalike_prompt(palette_hints: list[str] | None) -> str:
             )
     return (
         "We're playing \"Who's That Pokemon?\" — a lighthearted party game. "
-        "Look at this selfie and pick the 3 real Pokemon this person most "
-        "RESEMBLES, judging by face shape, expression, hairstyle, accessories, "
-        f"and outfit colors.{hint_text} For each match give a confidence "
+        "Look at this photo and pick the 3 real Pokemon this person most "
+        "RESEMBLES. It is often a full-body shot, so weight their whole look — "
+        "overall silhouette and body type, pose and stance, outfit style and "
+        "colors, hairstyle, accessories, and general vibe — not just the face. "
+        f"{hint_text} For each match give a confidence "
         "between 0 and 1 and ONE short playful reason a friend would laugh at. "
         "Keep it warm and PG: never mean-spirited, and never comment "
         "negatively on anyone's body or skin. Species must be real Pokemon "

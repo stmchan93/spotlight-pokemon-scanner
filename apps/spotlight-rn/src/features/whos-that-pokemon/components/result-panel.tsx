@@ -15,12 +15,17 @@ import {
 import { CachedImage } from '@/components/cached-image';
 
 import { officialArtworkUrl } from '../artwork';
+import { MorphLoop } from './morph-loop';
 
 type ResultPanelProps = {
   /** Top-3 matches, best first. */
   matches: WhosThatPokemonMatch[];
   /** Index of the match shown as the hero (alternates can be promoted). */
   activeIndex: number;
+  /** Local uri of the captured photo — the "before" in the morph + comparison. */
+  selfieUri: string | null;
+  /** Top selfie palette swatch — tints the morph dissolve wash. */
+  washColor: string;
   /** Tap on an alternate row → re-runs the reveal morph to that artwork. */
   onSelectMatch: (index: number) => void;
   onShare: () => void;
@@ -68,6 +73,8 @@ function ConfidencePill({ confidence, testID }: { confidence: number; testID?: s
 export function ResultPanel({
   matches,
   activeIndex,
+  selfieUri,
+  washColor,
   onSelectMatch,
   onShare,
   onTryAgain,
@@ -79,18 +86,57 @@ export function ResultPanel({
   if (!hero) {
     return null;
   }
+  const heroArtworkUrl = officialArtworkUrl(hero.pokedexId);
 
   return (
     <View style={styles.root} testID={testID}>
       <SurfaceCard padding={spacing.md} radius={radii.xl} testID={`${testID}-hero`}>
         <View style={styles.heroContent}>
-          <CachedImage
-            cachePolicy="disk"
-            contentFit="contain"
-            style={styles.heroArtwork}
-            testID={`${testID}-hero-artwork`}
-            uri={officialArtworkUrl(hero.pokedexId)}
+          {/* The transformation replays on a loop so you can watch how you
+              morphed into the Pokémon. */}
+          <MorphLoop
+            artworkUrl={heroArtworkUrl}
+            selfieUri={selfieUri}
+            testID={`${testID}-morph`}
+            washColor={washColor}
           />
+
+          {/* Side-by-side before → after, always visible for comparison. */}
+          <View style={styles.compareRow} testID={`${testID}-compare`}>
+            <View style={styles.compareCell}>
+              {selfieUri ? (
+                <CachedImage
+                  cachePolicy="memory-disk"
+                  contentFit="cover"
+                  style={styles.compareThumb}
+                  uri={selfieUri}
+                />
+              ) : (
+                <View style={[styles.compareThumb, { backgroundColor: theme.colors.surfaceMuted }]} />
+              )}
+              <AppText style={[theme.typography.captionMedium, { color: theme.colors.textSecondary }]}>
+                You
+              </AppText>
+            </View>
+            <AppText style={[theme.typography.titleSmall, { color: theme.colors.textSecondary }]}>
+              →
+            </AppText>
+            <View style={styles.compareCell}>
+              <CachedImage
+                cachePolicy="disk"
+                contentFit="contain"
+                style={styles.compareThumb}
+                uri={heroArtworkUrl}
+              />
+              <AppText
+                numberOfLines={1}
+                style={[theme.typography.captionMedium, { color: theme.colors.textSecondary }]}
+              >
+                {hero.species}
+              </AppText>
+            </View>
+          </View>
+
           <AppText style={theme.typography.captionMedium}>You are basically…</AppText>
           <AppText style={theme.typography.titleLarge} testID={`${testID}-hero-name`}>
             {hero.species}
@@ -183,9 +229,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.xxs,
   },
-  heroArtwork: {
-    height: 200,
-    width: 200,
+  compareRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
+    justifyContent: 'center',
+    marginTop: spacing.xs,
+  },
+  compareCell: {
+    alignItems: 'center',
+    gap: 2,
+    width: 76,
+  },
+  compareThumb: {
+    borderRadius: radii.md,
+    height: 64,
+    width: 64,
   },
   heroReason: {
     textAlign: 'center',

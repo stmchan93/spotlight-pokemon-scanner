@@ -339,6 +339,9 @@ export function WhosThatPokemonScreen() {
         )}
 
         <View style={[styles.captureFooter, { paddingBottom: insets.bottom + spacing.lg }]}>
+          <AppText style={styles.captureHint} testID="wtp-capture-hint">
+            Step back for a full-body shot — your whole outfit &amp; vibe make the match.
+          </AppText>
           <AppText style={styles.privacyCaption} testID="wtp-privacy-caption">
             Analyzed in the moment. Never stored.
           </AppText>
@@ -407,6 +410,8 @@ export function WhosThatPokemonScreen() {
             activeIndex={activeMatchIndex}
             isSharing={isSharing}
             matches={matches}
+            selfieUri={selfie?.uri ?? null}
+            washColor={washColor}
             onSelectMatch={handleSelectMatch}
             onShare={() => {
               void handleShare();
@@ -469,6 +474,12 @@ const styles = StyleSheet.create({
     left: 0,
     position: 'absolute',
     right: 0,
+  },
+  captureHint: {
+    ...textStyles.titleSmall,
+    color: colors.scannerTextPrimary,
+    marginHorizontal: spacing.xl,
+    textAlign: 'center',
   },
   privacyCaption: {
     ...textStyles.captionMedium,
