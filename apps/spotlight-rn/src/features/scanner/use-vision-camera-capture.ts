@@ -36,6 +36,13 @@ export type VisionCameraCaptureOptions = {
 export type UseVisionCameraCaptureOptions = {
   /** Default output quality for the photo output. */
   quality?: number;
+  /**
+   * Which camera to use. Defaults to `'back'` (all pre-existing callers).
+   * `'front'` selects the selfie camera and skips the multi-cam
+   * `physicalDevices` hint — that hint exists so the back ultra-wide can
+   * Auto-Macro a close-held card, which has no front-camera equivalent.
+   */
+  position?: 'back' | 'front';
 };
 
 /**
@@ -48,12 +55,19 @@ export type UseVisionCameraCaptureOptions = {
  * The full raw scanner adapter (`raw-scanner-capture-surface.tsx`) intentionally
  * keeps its own copy of this recipe; this hook is for the two simpler screens.
  */
-export function useVisionCameraCapture({ quality = 0.72 }: UseVisionCameraCaptureOptions = {}) {
-  // Prefer the virtual multi-cam device that bundles the ultra-wide so iOS Auto
-  // Macro can focus a close-held card; single-lens phones fall back to wide.
-  const device = useCameraDevice('back', {
-    physicalDevices: ['ultra-wide-angle', 'wide-angle', 'telephoto'],
-  });
+export function useVisionCameraCapture({
+  quality = 0.72,
+  position = 'back',
+}: UseVisionCameraCaptureOptions = {}) {
+  // Back camera: prefer the virtual multi-cam device that bundles the ultra-wide
+  // so iOS Auto Macro can focus a close-held card; single-lens phones fall back
+  // to wide. Front camera: no physicalDevices hint — take the default selfie cam.
+  const device = useCameraDevice(
+    position,
+    position === 'back'
+      ? { physicalDevices: ['ultra-wide-angle', 'wide-angle', 'telephoto'] }
+      : undefined,
+  );
 
   const { hasPermission, requestPermission } = useCameraPermission();
 
@@ -101,7 +115,7 @@ export function useVisionCameraCapture({ quality = 0.72 }: UseVisionCameraCaptur
 
   return useMemo(
     () => ({
-      /** Best-matching back camera device, or `undefined` while resolving. */
+      /** Best-matching camera device for the requested position, or `undefined` while resolving. */
       device,
       /** Camera component to render the preview. */
       Camera,

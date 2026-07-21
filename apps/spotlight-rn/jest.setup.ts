@@ -73,6 +73,7 @@ jest.mock('iconoir-react-native', () => {
     HeartSolid: make('heart-solid'),
     Mail: make('mail'),
     LogOut: make('log-out'),
+    MagicWand: make('magic-wand'),
     MediaImage: make('media-image'),
     Menu: make('menu'),
     Minus: make('minus'),
@@ -479,7 +480,10 @@ jest.mock('expo-file-system/legacy', () => ({
     Base64: 'base64',
   },
   readAsStringAsync: jest.fn(async () => 'bW9jay1zY2FuLWJhc2U2NA=='),
+  writeAsStringAsync: jest.fn(async () => {}),
   getInfoAsync: jest.fn(async () => ({ exists: false })),
   deleteAsync: jest.fn(async () => {}),
   readDirectoryAsync: jest.fn(async () => []),
+  documentDirectory: 'file:///mock-docs/',
+  cacheDirectory: 'file:///mock-cache/',
 }));
