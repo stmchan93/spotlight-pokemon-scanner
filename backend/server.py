@@ -140,6 +140,7 @@ from ebay_comps import (
     MAX_RESULT_LIMIT as MAX_EBAY_LISTING_LIMIT,
     fetch_graded_card_ebay_comps,
 )
+from anthropic_adapter import identify_pokemon_lookalike
 from pricecharting_adapter import PriceChartingProvider
 from pricing_provider import PricingProviderRegistry
 from portfolio_imports import (
@@ -176,6 +177,7 @@ from scan_artifact_store import (
     build_scan_artifact_store,
 )
 from request_auth import RequestAuthError, RequestIdentity, SupabaseRequestAuthenticator
+from whos_that_share_card import compose_share_card
 
 _OMIT_STRUCTURED_LOG_VALUE = object()
 
@@ -271,6 +273,18 @@ SCAN_INFERENCE_ACQUIRE_TIMEOUT_S = float(
     os.environ.get("SPOTLIGHT_SCAN_INFERENCE_ACQUIRE_TIMEOUT_S") or "6.0"
 )
 _scan_inference_semaphore = threading.BoundedSemaphore(SCAN_INFERENCE_MAX_CONCURRENCY)
+
+# Dedicated concurrency pool for LLM-proxy endpoints ("Who's That Pokemon").
+# Claude vision calls take seconds, so they get their OWN small pool — they
+# must never occupy scan-inference slots and starve the scanner. Same
+# queue/wait-then-retryable-503 shape as scan inference.
+LLM_PROXY_MAX_CONCURRENCY = max(
+    1, int(os.environ.get("SPOTLIGHT_LLM_PROXY_MAX_CONCURRENCY", "2"))
+)
+LLM_PROXY_ACQUIRE_TIMEOUT_S = float(
+    os.environ.get("SPOTLIGHT_LLM_PROXY_ACQUIRE_TIMEOUT_S") or "6.0"
+)
+_llm_proxy_semaphore = threading.BoundedSemaphore(LLM_PROXY_MAX_CONCURRENCY)
 
 # Heavy-read backpressure (separate pool from scan inference: those are CPU-bound,
 # these are disk-I/O-bound). Caps how many expensive portfolio/collection reads
@@ -12899,6 +12913,80 @@ class SpotlightScanService:
         height = int(height_value) if isinstance(height_value, int) else None
         return raw_bytes, width, height
 
+    def identify_pokemon_selfie(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """"Who's That Pokemon": Claude vision picks the top-3 lookalikes.
+
+        HARD PRIVACY RULE: the selfie exists in memory only for the lifetime
+        of this request. NEVER store it (no artifact store, no DB writes) and
+        NEVER log its bytes/base64 — log lines carry only width/height/duration.
+        """
+        selfie_bytes, width, height = self._decode_scan_image_payload(payload, field_name="image")
+        palette_raw = payload.get("palette")
+        palette_hints: list[str] | None = None
+        if isinstance(palette_raw, list):
+            palette_hints = [
+                str(item).strip() for item in palette_raw if str(item or "").strip()
+            ] or None
+        started = perf_counter()
+        matches = identify_pokemon_lookalike(selfie_bytes, palette_hints=palette_hints)
+        self._emit_structured_log(
+            {
+                "severity": "INFO",
+                "event": "whos_that_pokemon_request",
+                "imageWidth": width,
+                "imageHeight": height,
+                "durationMs": round((perf_counter() - started) * 1000.0, 1),
+                "matchCount": len(matches),
+            }
+        )
+        return {"matches": matches}
+
+    def compose_pokemon_share_card(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Compose the branded share PNG for a "Who's That Pokemon" match.
+
+        Stateless: the selfie bytes stay in memory; the only disk write is the
+        public PokeAPI artwork cache (never the selfie).
+        """
+        selfie_bytes, width, height = self._decode_scan_image_payload(payload, field_name="image")
+        species = str(payload.get("species") or "").strip()
+        if not species:
+            raise ValueError("species is required")
+        pokedex_raw = payload.get("pokedexId")
+        if isinstance(pokedex_raw, bool) or not isinstance(pokedex_raw, (int, float, str)):
+            raise ValueError("pokedexId is required")
+        try:
+            pokedex_id = int(pokedex_raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("pokedexId must be an integer") from exc
+        if not (1 <= pokedex_id <= 1025):
+            raise ValueError("pokedexId is out of range")
+        reason = str(payload.get("reason") or "").strip()
+        try:
+            confidence = float(payload.get("confidence") or 0.0)
+        except (TypeError, ValueError):
+            confidence = 0.0
+        confidence = min(1.0, max(0.0, confidence))
+        started = perf_counter()
+        png_bytes = compose_share_card(
+            selfie_jpeg=selfie_bytes,
+            species=species,
+            pokedex_id=pokedex_id,
+            reason=reason,
+            confidence=confidence,
+            dataset_root=_default_dataset_root(),
+        )
+        self._emit_structured_log(
+            {
+                "severity": "INFO",
+                "event": "whos_that_pokemon_share_card",
+                "imageWidth": width,
+                "imageHeight": height,
+                "durationMs": round((perf_counter() - started) * 1000.0, 1),
+                "pokedexId": pokedex_id,
+            }
+        )
+        return {"pngBase64": base64.b64encode(png_bytes).decode("ascii")}
+
     def _record_failed_scan_artifact(self, scan_id: str, owner_user_id: str | None, created_at: str) -> None:
         """Best-effort 'failed' marker so a dropped upload is visible (one row per
         attempt) instead of silently absent. Must never mask the original error."""
@@ -16455,6 +16543,27 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         )
         return False
 
+    def _acquire_llm_proxy_slot(self) -> bool:
+        """Reserve a slot before proxying a request to Claude (queue/wait).
+
+        Dedicated pool for the "Who's That Pokemon" endpoints so seconds-long
+        Claude vision latency can never occupy scan-inference slots. A request
+        without a free slot WAITS up to the acquire timeout; on success the
+        caller MUST release the slot in a ``finally``. Only if the wait is
+        exceeded does this write a retryable 503.
+        """
+        if _llm_proxy_semaphore.acquire(timeout=LLM_PROXY_ACQUIRE_TIMEOUT_S):
+            return True
+        self._write_json(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            {
+                "error": "Who's That Pokemon is busy right now. Please try again.",
+                "errorType": "LLMProxyBusy",
+                "retryable": True,
+            },
+        )
+        return False
+
     def _acquire_heavy_read_slot(self) -> bool:
         """Reserve a slot before an expensive portfolio/collection read.
 
@@ -17489,6 +17598,68 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 getattr(self, "_json_body_error_status", HTTPStatus.BAD_REQUEST),
                 {"error": getattr(self, "_json_body_error_message", "Invalid JSON body")},
             )
+            return
+
+        if parsed.path == "/api/v1/whos-that-pokemon":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            if not self._require_access(identity):
+                return
+            # No Claude key configured → the feature is off, not broken.
+            if not str(os.environ.get("ANTHROPIC_API_KEY") or "").strip():
+                self._write_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "feature_unavailable"})
+                return
+            if not self._acquire_llm_proxy_slot():
+                return
+            # PRIVACY: the selfie must never be persisted or logged — no
+            # artifact-store calls, no DB writes, no payload echo on errors.
+            try:
+                with self.service.request_identity_context(identity):
+                    self._write_json(
+                        HTTPStatus.OK,
+                        self.service.identify_pokemon_selfie(payload),
+                    )
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            except Exception as error:
+                print(
+                    "[WHOS-THAT] identify failed "
+                    f"errorType={type(error).__name__}",
+                    file=sys.stderr,
+                )
+                self._write_json(HTTPStatus.BAD_GATEWAY, {"error": "match_unavailable"})
+            finally:
+                _llm_proxy_semaphore.release()
+            return
+
+        if parsed.path == "/api/v1/whos-that-pokemon/share-card":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            if not self._require_access(identity):
+                return
+            if not self._acquire_llm_proxy_slot():
+                return
+            # PRIVACY: selfie bytes stay in memory; only the public PokeAPI
+            # artwork cache touches disk.
+            try:
+                with self.service.request_identity_context(identity):
+                    self._write_json(
+                        HTTPStatus.OK,
+                        self.service.compose_pokemon_share_card(payload),
+                    )
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            except Exception as error:
+                print(
+                    "[WHOS-THAT] share card failed "
+                    f"errorType={type(error).__name__}",
+                    file=sys.stderr,
+                )
+                self._write_json(HTTPStatus.BAD_GATEWAY, {"error": "share_card_unavailable"})
+            finally:
+                _llm_proxy_semaphore.release()
             return
 
         # --- Public App Store ACCESS GATE: redeem (auth, never access-gated) ---
