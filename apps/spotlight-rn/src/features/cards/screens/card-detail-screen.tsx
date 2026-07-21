@@ -62,7 +62,8 @@ import {
   buildTcgPlayerSearchUrl,
   resolveTcgPlayerProductId,
 } from '@/features/cards/marketplace-urls';
-import { grantPremiumUnlock, useIsPremium } from '@/features/monetization/entitlements';
+import { useIsPremium } from '@/features/monetization/entitlements';
+import { requestPremiumUnlock } from '@/features/monetization/purchases';
 import {
   cardDetailPreviewFromCatalogResult,
   cardDetailPreviewFromInventoryEntry,
@@ -903,9 +904,8 @@ export function CardDetailScreen({
           }}
           onSubscribePress={() => {
             capturePostHogEvent('paywall_subscribe_tapped', { surface: 'pdp_recent_sales' });
-            // No payment provider yet: unlock every paywalled surface now (free
-            // while in beta). Swaps for the real entitlement when subscriptions land.
-            grantPremiumUnlock();
+            // RevenueCat purchase when live; interim free unlock until then.
+            void requestPremiumUnlock();
           }}
           record={record}
           testID="detail-recent-sales"
@@ -934,7 +934,7 @@ export function CardDetailScreen({
           }}
           onSubscribePress={() => {
             capturePostHogEvent('paywall_subscribe_tapped', { surface: 'pdp_lowest_listed' });
-            grantPremiumUnlock();
+            void requestPremiumUnlock();
           }}
           record={listedRecord}
           testID="detail-lowest-listed"

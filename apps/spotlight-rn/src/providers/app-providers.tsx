@@ -27,6 +27,7 @@ import {
   removeDashboardInventoryEntries,
   removeInventoryEntries,
 } from '@/features/portfolio/optimistic-inventory';
+import { configurePurchases } from '@/features/monetization/purchases';
 import { prefetchCardImages } from '@/lib/card-images';
 import { resolveRuntimeValue } from '@/lib/runtime-config';
 
@@ -288,6 +289,15 @@ export function AppProviders({
       current ? removeDashboardInventoryEntries(current, ids) : current
     ));
   }, [setInventoryEntriesCache, setPortfolioDashboardCache]);
+
+  // Configure RevenueCat once at startup. No-op until the native module + public
+  // SDK keys are present (the CTA's interim unlock covers the gap before then).
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'test') {
+      return;
+    }
+    configurePurchases();
+  }, []);
 
   useEffect(() => {
     if (process.env.NODE_ENV === 'test') {

@@ -24,6 +24,9 @@ DerivedData/
 .AppleDouble
 .LSOverride
 
+# Google Play service-account key (used by `eas submit -p android`)
+apps/spotlight-rn/credentials/
+
 # Backend Python
 .env
 __pycache__/

@@ -79,6 +79,7 @@ Use these docs for:
 
 ## Product Feature Specs (not yet built)
 
+- Social layer DB design (posts/comments/likes/DMs/moderation on Supabase Postgres; backend migrations + moderation worker scaffolded, not applied): [social-layer-database-design-2026-07-20.md](/Users/stephenchan/Code/spotlight/docs/social-layer-database-design-2026-07-20.md)
 - Grading advisor + trade analyzer: [grading-advisor-and-trade-analyzer-spec-2026-07-16.md](/Users/stephenchan/Code/spotlight/docs/grading-advisor-and-trade-analyzer-spec-2026-07-16.md)
 - Notifications / market signals (tabled): [notifications-market-signals-plan-2026-07-15-TABLED.md](/Users/stephenchan/Code/spotlight/docs/notifications-market-signals-plan-2026-07-15-TABLED.md)
 - Marketplace strategy + business plan: [marketplace-business-plan-2026-07-07.txt](/Users/stephenchan/Code/spotlight/docs/marketplace-business-plan-2026-07-07.txt)

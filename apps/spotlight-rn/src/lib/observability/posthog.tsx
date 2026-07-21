@@ -115,7 +115,16 @@ function createPostHogClient() {
         console: false,
       },
     },
-    enableSessionReplay: false,
+    // Session replay: record the FLOW (screens, taps, navigation) to see where
+    // users drop off — NOT their content. Privacy-first masking: card scan images
+    // and thumbnails are blocked out, and text inputs (email/password) are masked.
+    // Only active where PostHog itself is (production). Free under 5k recordings/mo.
+    enableSessionReplay: true,
+    sessionReplayConfig: {
+      maskAllImages: true,
+      maskAllTextInputs: true,
+      captureNetworkTelemetry: false,
+    },
     personProfiles: 'identified_only',
     setDefaultPersonProperties: false,
     customAppProperties: getPostHogCustomAppProperties(),
