@@ -46,13 +46,24 @@ def _downscale_jpeg_for_vision(jpeg_bytes: bytes) -> bytes:
     Falls back to the original bytes if Pillow is unavailable or the image can't
     be decoded — the request still goes out, and the adapter's error logging
     will surface any resulting size rejection.
+
+    Emits a metadata-only diagnostic line (input size, detected format, output
+    size) — never the image bytes/base64 — so a decode failure is visible.
     """
+    import sys
+
     try:
         from PIL import Image  # imported lazily; same dep the share-card path uses
-    except Exception:
+    except Exception as exc:
+        print(
+            f"[WHOS-THAT] downscale: Pillow unavailable ({type(exc).__name__}); "
+            f"passing original in={len(jpeg_bytes)}B",
+            file=sys.stderr,
+        )
         return jpeg_bytes
     try:
         with Image.open(io.BytesIO(jpeg_bytes)) as image:
+            source_format = image.format
             image = image.convert("RGB")
             longest = max(image.size)
             if longest > _VISION_MAX_EDGE:
@@ -64,8 +75,19 @@ def _downscale_jpeg_for_vision(jpeg_bytes: bytes) -> bytes:
                 image = image.resize(new_size, Image.LANCZOS)
             buffer = io.BytesIO()
             image.save(buffer, format="JPEG", quality=_VISION_JPEG_QUALITY)
-            return buffer.getvalue()
-    except Exception:
+            out = buffer.getvalue()
+            print(
+                f"[WHOS-THAT] downscale ok: srcFormat={source_format} "
+                f"in={len(jpeg_bytes)}B out={len(out)}B",
+                file=sys.stderr,
+            )
+            return out
+    except Exception as exc:
+        print(
+            f"[WHOS-THAT] downscale FELL BACK: {type(exc).__name__}: {exc} "
+            f"(in={len(jpeg_bytes)}B) — Pillow could not decode the source image",
+            file=sys.stderr,
+        )
         return jpeg_bytes
 
 
