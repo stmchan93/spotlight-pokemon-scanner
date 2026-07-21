@@ -1,27 +1,22 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   FlatList,
   type LayoutChangeEvent,
-  Platform,
   Pressable,
   RefreshControl,
   Share,
   StyleSheet,
+  type StyleProp,
   Text,
   View,
+  type ViewStyle,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { CheckCircle, EditPencil, Menu as MenuIcon, Trash } from 'iconoir-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { InventoryCardEntry } from '@spotlight/api-client';
-import {
-  GlassSurface,
-  IconButton,
-  isLiquidGlassAvailable,
-  StateCard,
-  useSpotlightTheme,
-} from '@spotlight/design-system';
+import { GlassSurface, StateCard, useSpotlightTheme } from '@spotlight/design-system';
 
 import {
   PortfolioChartCard,
@@ -41,7 +36,6 @@ import {
 } from '@/features/portfolio/components/collection-masonry-grid';
 import { CollectionListRow } from '@/features/portfolio/components/collection-list-view';
 import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
-import { EditDoneButton } from '@/components/edit-done-button';
 import { CardActionsSheet } from '@/features/cards/components/card-actions-sheet';
 import { ConfirmDeleteSheet } from '@/features/cards/components/confirm-delete-sheet';
 import { ScrollToTopFab, useScrollToTop } from '@/components/scroll-to-top-fab';
@@ -75,12 +69,52 @@ function triggerSelectionHaptic() {
 // land directly underneath). This small gap keeps it off the very top edge.
 const SEARCH_FOCUS_TOP_GAP = 12;
 
-// Height of the pinned "Collection" header row (Figma 800-9337). On iOS 26 the
-// header is lifted into an absolute glass overlay and a spacer of this height is
-// inserted at the top of the list chrome so content scrolls under the glass —
-// which keeps the FlatList top inset (and the search-focus scroll math that
-// depends on it) byte-identical to the non-glass layout.
-const COLLECTION_HEADER_HEIGHT = 40;
+// Diameter of the floating glass nav bubbles (menu / edit) that sit in the top
+// corners over the scrolling content — the iOS 26 Liquid Glass chrome shape.
+const BUBBLE_SIZE = 44;
+
+/**
+ * A floating circular Liquid Glass button. Real iOS 26 glass over a solid base
+ * (which is also the non-glass fallback + what the shadow casts from); content
+ * refracts under it as the list scrolls.
+ */
+function GlassNavBubble({
+  accessibilityLabel,
+  children,
+  onPress,
+  style,
+  testID,
+}: {
+  accessibilityLabel: string;
+  children: ReactNode;
+  onPress: () => void;
+  style?: StyleProp<ViewStyle>;
+  testID?: string;
+}) {
+  const theme = useSpotlightTheme();
+  return (
+    <View
+      style={[styles.bubble, theme.shadows.card, { backgroundColor: theme.colors.canvasElevated }, style]}
+    >
+      <GlassSurface
+        fallbackColor={theme.colors.canvasElevated}
+        glassColorScheme="light"
+        pointerEvents="none"
+        style={styles.bubbleGlass}
+      />
+      <Pressable
+        accessibilityLabel={accessibilityLabel}
+        accessibilityRole="button"
+        hitSlop={8}
+        onPress={onPress}
+        style={styles.bubblePress}
+        testID={testID}
+      >
+        {children}
+      </Pressable>
+    </View>
+  );
+}
 
 type PortfolioScreenProps = {
   onOpenInventoryEntry?: (entry: InventoryCardEntry) => void;
@@ -172,10 +206,10 @@ export function PortfolioScreen({
 }: PortfolioScreenProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
-  // Only on a real iOS 26 Liquid Glass build do we pin the header as a glass
-  // overlay with content scrolling under it; everywhere else the header stays
-  // in-flow and solid, exactly as today (no blur/rgba imitation).
-  const useGlassHeader = Platform.OS === 'ios' && isLiquidGlassAvailable();
+  // The floating menu/edit bubbles rest just below the safe-area inset; content
+  // is inset by the bubble band so the large "Collection" title clears them.
+  const bubbleTop = insets.top + 8;
+  const listTopInset = insets.top + 8 + BUBBLE_SIZE + 8;
   // NOTE: no guest on-mount redirect here. This screen is mounted *alongside*
   // the scanner in the tabs pager (both pages live at once), so a redirect would
   // fire the instant a guest lands on the scanner and bounce them to login.
@@ -461,11 +495,11 @@ export function PortfolioScreen({
   // FlatList's top inset plus its measured y within the header chrome.
   const handleSearchFocus = useCallback(() => {
     const offset = Math.max(
-      theme.layout.pageTopInset + searchRowYRef.current - SEARCH_FOCUS_TOP_GAP,
+      listTopInset + searchRowYRef.current - SEARCH_FOCUS_TOP_GAP,
       0,
     );
     scrollRef.current?.scrollToOffset({ offset, animated: true });
-  }, [theme.layout.pageTopInset]);
+  }, [listTopInset]);
 
   // The whole screen is one virtualized FlatList: the balance/chart/search/
   // filter chrome rides along as the list header, and the collection renders
@@ -539,71 +573,39 @@ export function PortfolioScreen({
     [editMode, handleLongPressEntry, handlePressEntry, selectedIds],
   );
 
-  // Pinned top bar (kept OUT of the FlatList's ListHeaderComponent so it stays
-  // fixed while the balance/chart/search/filter chrome and the list scroll under
-  // it).
-  const stickyHeader = (
-    <View
-      style={[
-        styles.header,
-        { paddingHorizontal: theme.layout.pageGutter },
-        useGlassHeader ? styles.headerPinned : null,
-      ]}
-    >
-      {useGlassHeader ? (
-        // iOS 26 → real Liquid Glass behind the header; content refracts as it
-        // scrolls under. `pointerEvents="none"` so the menu/title/edit controls
-        // above it stay tappable.
-        <GlassSurface
-          fallbackColor={theme.colors.gray0}
-          glassColorScheme="light"
-          pointerEvents="none"
-          style={StyleSheet.absoluteFill}
-          testID="portfolio-header-glass"
-        />
-      ) : null}
-      <Pressable
+  // Floating glass nav bubbles (menu + edit) that hover in the top corners over
+  // the scrolling content. The "Collection" title itself is a large heading that
+  // scrolls with the list (see listHeader) — the iOS 26 large-title pattern.
+  const headerBubbles = (
+    <>
+      <GlassNavBubble
         accessibilityLabel="Open menu"
-        accessibilityRole="button"
-        hitSlop={12}
         onPress={openDrawer}
-        style={styles.headerIcon}
+        style={{ left: theme.layout.pageGutter, top: bubbleTop }}
         testID="portfolio-header-menu"
       >
-        <MenuIcon color={theme.colors.gray900} height={24} width={24} />
-      </Pressable>
-      <Text
-        numberOfLines={1}
-        style={[theme.typography.titleMedium, styles.headerTitle]}
-        testID="portfolio-header-title"
+        <MenuIcon color={theme.colors.gray900} height={22} width={22} />
+      </GlassNavBubble>
+      <GlassNavBubble
+        accessibilityLabel={editMode ? 'Done editing' : 'Edit collection'}
+        onPress={editMode ? handleExitEditMode : () => setEditMode(true)}
+        style={{ right: theme.layout.pageGutter, top: bubbleTop }}
+        testID={editMode ? 'portfolio-header-done' : 'portfolio-header-edit'}
       >
-        Collection
-      </Text>
-      {editMode ? (
-        <EditDoneButton onPress={handleExitEditMode} testID="portfolio-header-done" />
-      ) : (
-        <IconButton
-          accessibilityLabel="Edit collection"
-          onPress={() => setEditMode(true)}
-          size={36}
-          testID="portfolio-header-edit"
-          variant="subtle"
-        >
+        {editMode ? (
+          <CheckCircle color={theme.colors.gray900} height={22} width={22} />
+        ) : (
           <EditPencil color={theme.colors.gray900} height={20} width={20} />
-        </IconButton>
-      )}
-    </View>
+        )}
+      </GlassNavBubble>
+    </>
   );
 
   const listHeader = (
     <View style={styles.chrome}>
-      {useGlassHeader ? (
-        // Reserves the pinned glass header's height at the top of the scroll
-        // content. Because it lives inside the list header, it shifts the
-        // measured search-row offset in lockstep — so the FlatList top inset and
-        // handleSearchFocus math need no change.
-        <View style={{ height: COLLECTION_HEADER_HEIGHT }} />
-      ) : null}
+      <Text numberOfLines={1} style={[theme.typography.display, styles.bigTitle]} testID="portfolio-header-title">
+        Collection
+      </Text>
       {shouldShowInitialError ? (
         <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
           <StateCard
@@ -695,11 +697,9 @@ export function PortfolioScreen({
 
   return (
     <SafeAreaView
-      edges={['top', 'left', 'right']}
+      edges={['left', 'right']}
       style={[styles.safeArea, { backgroundColor: theme.colors.gray0 }]}
     >
-      {stickyHeader}
-
       <View
         style={styles.listWrap}
         testID={
@@ -723,7 +723,7 @@ export function PortfolioScreen({
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={{
-            paddingTop: theme.layout.pageTopInset,
+            paddingTop: listTopInset,
             paddingBottom: bottomNavClearance,
           }}
           data={listData}
@@ -747,6 +747,8 @@ export function PortfolioScreen({
           testID="portfolio-scroll-view"
         />
       </View>
+
+      {headerBubbles}
 
       <ScrollToTopFab
         onPress={scrollToTop}
@@ -881,28 +883,33 @@ const styles = StyleSheet.create({
   staleHint: {
     paddingHorizontal: 16,
   },
-  header: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    height: COLLECTION_HEADER_HEIGHT,
+  bigTitle: {
+    marginBottom: 4,
+    paddingHorizontal: 16,
   },
-  headerPinned: {
-    // iOS 26 glass only: lift the header out of the column flow into a fixed
-    // overlay so the list scrolls under it. zIndex keeps it above the list,
-    // which is an earlier-declared sibling.
+  bubble: {
+    alignItems: 'center',
+    borderRadius: BUBBLE_SIZE / 2,
+    height: BUBBLE_SIZE,
+    justifyContent: 'center',
+    overflow: 'visible',
+    position: 'absolute',
+    width: BUBBLE_SIZE,
+    zIndex: 5,
+  },
+  bubbleGlass: {
+    borderRadius: BUBBLE_SIZE / 2,
+    bottom: 0,
     left: 0,
     position: 'absolute',
     right: 0,
     top: 0,
-    zIndex: 5,
   },
-  headerIcon: {
-    height: 24,
-    width: 24,
-  },
-  headerTitle: {
-    flex: 1,
-    textAlign: 'center',
+  bubblePress: {
+    alignItems: 'center',
+    height: '100%',
+    justifyContent: 'center',
+    width: '100%',
   },
   editBar: {
     alignItems: 'center',

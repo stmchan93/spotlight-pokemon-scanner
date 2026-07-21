@@ -12,9 +12,8 @@ import { GlassSurface } from './glass-surface';
 import { useSpotlightTheme } from '../theme';
 
 /**
- * Visible bar height above the safe-area inset (Figma 1277-7732: 44 = 4px top
- * pad + a 40px nav-item row). Exported so floating affordances (e.g. the add
- * FAB) can sit a fixed gap above the bar.
+ * Visible bar height above the safe-area inset. Exported so floating affordances
+ * (e.g. the add FAB) can sit a fixed gap above the nav.
  */
 export const bottomTabBarHeight = 44;
 
@@ -32,8 +31,9 @@ type BottomTabBarProps = {
   bottomInset?: number;
   /**
    * iOS 26-style "minimize on scroll" signal (0 = expanded, 1 = hidden). When
-   * provided, the bar slides down by its full height and fades out as the value
-   * approaches 1, so it disappears on scroll-down and returns on scroll-up.
+   * provided, the floating pill slides down past the screen edge and fades out
+   * as the value approaches 1, so it disappears on scroll-down and returns on
+   * scroll-up.
    */
   collapseProgress?: Animated.Value;
   style?: ViewStyle;
@@ -41,9 +41,11 @@ type BottomTabBarProps = {
 };
 
 /**
- * Anchored bottom navigation bar. Sits flush against the screen's bottom
- * edge, full screen width, with an icon-over-label layout per tab. Distinct
- * from `FloatingBottomNav`, which renders a pill floating above content.
+ * Floating bottom navigation. A centered glass "stadium" pill sitting a margin
+ * above the screen's bottom edge (not a full-width anchored bar) — the iOS 26
+ * Liquid Glass chrome shape. On a real iOS 26 build the pill is the native
+ * glass material (content refracts under it); everywhere else it's the same
+ * solid `canvasElevated` pill. Distinct from `FloatingBottomNav`.
  */
 export function BottomTabBar({
   items,
@@ -54,9 +56,11 @@ export function BottomTabBar({
 }: BottomTabBarProps) {
   const theme = useSpotlightTheme();
 
-  // Slide the whole bar (visible height + safe-area inset) below the screen and
-  // fade it as the collapse signal climbs to 1; absent the signal it's static.
-  const collapseDistance = bottomTabBarHeight + bottomInset;
+  // The pill rests `bottomNavBottomInset` above the safe-area inset; the collapse
+  // signal slides it fully off the bottom (its own height + the rest gap + a
+  // buffer) and fades it out.
+  const restGap = theme.layout.bottomNavBottomInset + bottomInset;
+  const collapseDistance = theme.layout.bottomNavHeight + restGap + 24;
   const translateY = collapseProgress
     ? collapseProgress.interpolate({
         inputRange: [0, 1],
@@ -70,65 +74,61 @@ export function BottomTabBar({
 
   return (
     <Animated.View
+      pointerEvents="box-none"
       style={[
-        styles.bar,
-        {
-          opacity,
-          paddingBottom: bottomInset,
-          transform: [{ translateY }],
-        },
+        styles.root,
+        { paddingBottom: restGap, opacity, transform: [{ translateY }] },
         style,
       ]}
       testID={testID}
     >
-      {/*
-        iOS 26 → real Liquid Glass material; every other target → the exact
-        solid `canvasElevated` bar we ship today. Sits behind the tab row as an
-        absolute-fill layer so the row's content still sizes the bar height.
-      */}
-      <GlassSurface
-        fallbackColor={theme.colors.canvasElevated}
-        glassColorScheme="light"
-        pointerEvents="none"
-        style={StyleSheet.absoluteFill}
-        testID={testID ? `${testID}-glass` : undefined}
-      />
-      <View style={styles.row}>
-        {items.map((item) => {
-          const selected = item.selected === true;
-          return (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ selected }}
-              key={item.key}
-              onPress={item.onPress}
-              style={({ pressed }) => [styles.tab, { opacity: pressed ? 0.7 : 1 }]}
-              testID={item.testID}
-            >
-              <View style={styles.iconSlot}>{item.icon}</View>
-              <Text
-                style={[
-                  selected ? theme.typography.navLabelSelected : theme.typography.navLabel,
-                  { color: theme.colors.textPrimary },
-                ]}
+      <View
+        style={[
+          styles.pill,
+          theme.shadows.card,
+          { backgroundColor: theme.colors.canvasElevated },
+        ]}
+      >
+        {/* Real iOS 26 Liquid Glass over the solid base; the base doubles as the
+            fallback surface + the thing the shadow casts from. */}
+        <GlassSurface
+          fallbackColor={theme.colors.canvasElevated}
+          glassColorScheme="light"
+          pointerEvents="none"
+          style={styles.pillGlass}
+          testID={testID ? `${testID}-glass` : undefined}
+        />
+        <View style={styles.row}>
+          {items.map((item) => {
+            const selected = item.selected === true;
+            return (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                key={item.key}
+                onPress={item.onPress}
+                style={({ pressed }) => [styles.tab, { opacity: pressed ? 0.7 : 1 }]}
+                testID={item.testID}
               >
-                {item.label}
-              </Text>
-            </Pressable>
-          );
-        })}
+                <View style={styles.iconSlot}>{item.icon}</View>
+                <Text
+                  style={[
+                    selected ? theme.typography.navLabelSelected : theme.typography.navLabel,
+                    { color: theme.colors.textPrimary },
+                  ]}
+                >
+                  {item.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
       </View>
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  bar: {
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
-    right: 0,
-  },
   iconSlot: {
     // 22×22 glyph per Figma nav (node 1313:7454 — `size-[22px]`).
     alignItems: 'center',
@@ -137,22 +137,42 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: 22,
   },
+  pill: {
+    alignSelf: 'center',
+    // Fully rounded ends → the "long oval" / stadium shape.
+    borderRadius: 999,
+    overflow: 'visible',
+  },
+  pillGlass: {
+    borderRadius: 999,
+    bottom: 0,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
+  root: {
+    alignItems: 'center',
+    bottom: 0,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+  },
   row: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 32,
+    gap: 12,
     justifyContent: 'center',
-    paddingHorizontal: 8,
-    paddingTop: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   tab: {
     alignItems: 'center',
     flexDirection: 'column',
     flexShrink: 0,
     gap: 2,
-    // 40 + the row's 4px top padding = 44px bar (Figma 1277-7732).
-    height: 40,
     justifyContent: 'center',
-    width: 59,
+    paddingHorizontal: 14,
+    paddingVertical: 4,
   },
 });
