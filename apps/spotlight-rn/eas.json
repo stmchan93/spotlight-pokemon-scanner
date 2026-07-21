@@ -41,6 +41,7 @@
         "EXPO_PUBLIC_SPOTLIGHT_AUTH_SCHEME": "spotlight",
         "EXPO_PUBLIC_SPOTLIGHT_SUPABASE_ANON_KEY": "sb_publishable_qt8HOMPYzMc0UUAgLg0e8A_JYcA53An",
         "EXPO_PUBLIC_SPOTLIGHT_SUPABASE_URL": "https://lvnjshymwvagwadqeofm.supabase.co",
+        "EXPO_PUBLIC_REVENUECAT_IOS_KEY": "appl_QGgRbNEwtZfltRBsLpmkgUPssMA",
         "SPOTLIGHT_ANDROID_PACKAGE": "com.ekalight.app.staging",
         "SPOTLIGHT_APP_ENV": "staging",
         "SPOTLIGHT_APP_SCHEME": "spotlight",
