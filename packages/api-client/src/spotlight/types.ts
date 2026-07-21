@@ -144,6 +144,47 @@ export type ScannerMatchOptions = {
   onArtifactUploadComplete?: (result: ScannerArtifactUploadResult | null) => void;
 };
 
+/** One "Who's That Pokémon" selfie-match candidate returned by the backend. */
+export type WhosThatPokemonMatch = {
+  /** Display species name, e.g. "Pikachu". */
+  species: string;
+  /** National Pokédex number — also keys the official artwork URL. */
+  pokedexId: number;
+  /** Normalized match confidence in [0, 1]. */
+  confidence: number;
+  /** Playful one-liner explaining the match. */
+  reason: string;
+};
+
+export type WhosThatPokemonResult = {
+  /** Top matches, best first (the backend returns exactly 3). */
+  matches: WhosThatPokemonMatch[];
+};
+
+export type WhosThatPokemonPayload = {
+  /** Inline base64 JPEG bytes of the selfie. Never persisted server-side. */
+  jpegBase64: string;
+  width: number;
+  height: number;
+  /** Optional dominant-color hexes extracted on-device from the selfie. */
+  palette?: string[] | null;
+};
+
+export type WhosThatShareCardPayload = {
+  /** Inline base64 JPEG bytes of the selfie used for the match. */
+  jpegBase64: string;
+  species: string;
+  pokedexId: number;
+  reason: string;
+  /** Normalized match confidence in [0, 1]. */
+  confidence: number;
+};
+
+export type WhosThatShareCardResult = {
+  /** Server-composed share card as base64 PNG bytes. */
+  pngBase64: string;
+};
+
 export const spotlightRepositoryLoadStates = ['success', 'empty', 'not_found', 'error'] as const;
 
 export type SpotlightRepositoryLoadState = (typeof spotlightRepositoryLoadStates)[number];

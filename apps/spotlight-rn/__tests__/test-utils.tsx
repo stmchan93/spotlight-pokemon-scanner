@@ -110,6 +110,14 @@ export function createTestSpotlightRepository(
       return overrides.submitScanFeedback?.(...args)
         ?? baseRepository.submitScanFeedback(...args);
     },
+    whosThatPokemon: (...args) => {
+      return overrides.whosThatPokemon?.(...args)
+        ?? baseRepository.whosThatPokemon(...args);
+    },
+    whosThatShareCard: (...args) => {
+      return overrides.whosThatShareCard?.(...args)
+        ?? baseRepository.whosThatShareCard(...args);
+    },
     loadCardDetail: (...args) => {
       return overrides.loadCardDetail?.(...args)
         ?? baseRepository.loadCardDetail(...args);

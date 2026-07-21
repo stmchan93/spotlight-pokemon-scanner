@@ -111,6 +111,11 @@ import type {
   ScannerTargetLanguageMismatch,
   SlabContext,
   SpotlightRepositoryLoadResult,
+  WhosThatPokemonMatch,
+  WhosThatPokemonPayload,
+  WhosThatPokemonResult,
+  WhosThatShareCardPayload,
+  WhosThatShareCardResult,
 } from './types';
 
 /** Catalog search load result augmented with the pagination `hasMore` flag. */
@@ -152,6 +157,14 @@ export interface SpotlightRepository {
   ): Promise<{ candidates: CatalogSearchResult[]; total: number }>;
   getScannerCandidates(mode: ScannerMode, limit?: number): Promise<CatalogSearchResult[]>;
   submitScanFeedback(payload: ScanFeedbackPayload): Promise<void>;
+  /**
+   * "Who's That Pokémon" selfie match. Sends the selfie inline as JSON+base64
+   * (plus optional on-device palette hexes) and resolves the backend's top-3
+   * species matches. The image is analyzed in the moment and never stored.
+   */
+  whosThatPokemon(payload: WhosThatPokemonPayload): Promise<WhosThatPokemonResult>;
+  /** Server-composed "Who's That Pokémon" share card (PNG, base64). */
+  whosThatShareCard(payload: WhosThatShareCardPayload): Promise<WhosThatShareCardResult>;
   createLabelingSession(payload: LabelingSessionCreatePayload): Promise<LabelingSessionRecord>;
   uploadLabelingSessionArtifact(payload: LabelingSessionArtifactUploadPayload): Promise<LabelingSessionArtifactRecord>;
   completeLabelingSession(
@@ -263,6 +276,10 @@ const rawMatchRetryBackoffsMs = [500, 1000];
 // base64, so it's heavier than the match request and was being starved by the
 // 12s default while match got 20s. Give it its own, longer budget.
 const scanArtifactUploadTimeoutMs = 25000;
+// "Who's That Pokémon" carries a full selfie as JSON+base64 and the backend runs
+// a vision model over it (share-card composition renders a PNG server-side), so
+// both calls get a longer budget than the 12s default.
+const whosThatPokemonRequestTimeoutMs = 30000;
 // The consolidated dashboard endpoint computes every section server-side in one
 // request, so it gets a longer budget than a single section. Raised to 30s so a
 // cold-cache first load on the small VM (re-reading price history from disk) has
@@ -2993,6 +3010,39 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return undefined;
   }
 
+  async whosThatPokemon(_payload: WhosThatPokemonPayload): Promise<WhosThatPokemonResult> {
+    return {
+      matches: [
+        {
+          species: 'Pikachu',
+          pokedexId: 25,
+          confidence: 0.92,
+          reason: 'Bright-eyed, high-energy, and impossible to miss in a crowd.',
+        },
+        {
+          species: 'Snorlax',
+          pokedexId: 143,
+          confidence: 0.54,
+          reason: 'Radiates serious nap-first, snack-second energy.',
+        },
+        {
+          species: 'Psyduck',
+          pokedexId: 54,
+          confidence: 0.21,
+          reason: 'A little chaotic, endlessly lovable, mildly confused.',
+        },
+      ],
+    };
+  }
+
+  async whosThatShareCard(_payload: WhosThatShareCardPayload): Promise<WhosThatShareCardResult> {
+    // 1x1 transparent PNG so mock share flows produce a real (tiny) file.
+    return {
+      pngBase64:
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+    };
+  }
+
   async createLabelingSession(payload: LabelingSessionCreatePayload) {
     const cardID = normalizeString(payload.cardID);
     if (!cardID) {
@@ -4658,6 +4708,93 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       },
       body: JSON.stringify(payload),
     });
+  }
+
+  async whosThatPokemon(payload: WhosThatPokemonPayload): Promise<WhosThatPokemonResult> {
+    // Mirrors the matchScannerCapture JSON+base64 transport: the selfie travels
+    // inline in the JSON body; auth rides on requestInitWithAuth inside
+    // requestJson. Palette hexes are optional and omitted when empty.
+    const body: Record<string, unknown> = {
+      image: {
+        jpegBase64: payload.jpegBase64,
+        width: payload.width,
+        height: payload.height,
+      },
+    };
+    const palette = (payload.palette ?? []).filter(
+      (hex) => typeof hex === 'string' && hex.trim().length > 0,
+    );
+    if (palette.length > 0) {
+      body.palette = palette;
+    }
+
+    const response = await this.requestJsonOrThrow<{ matches?: unknown }>(
+      `${this.baseUrl}/api/v1/whos-that-pokemon`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      },
+      { timeoutMs: whosThatPokemonRequestTimeoutMs },
+    );
+
+    const rawMatches = Array.isArray(response.matches) ? response.matches : [];
+    const matches = rawMatches.flatMap((raw): WhosThatPokemonMatch[] => {
+      const record = (raw ?? {}) as Record<string, unknown>;
+      const species = normalizeString(record.species);
+      const pokedexId = normalizeNumber(record.pokedexId);
+      if (!species || pokedexId == null || pokedexId <= 0) {
+        return [];
+      }
+      const confidence = normalizeNumber(record.confidence) ?? 0;
+      return [{
+        species,
+        pokedexId: Math.trunc(pokedexId),
+        confidence: Math.min(1, Math.max(0, confidence)),
+        reason: normalizeString(record.reason) ?? '',
+      }];
+    });
+
+    if (matches.length === 0) {
+      throw new SpotlightRepositoryRequestError(
+        'The match service returned no Pokémon matches.',
+        'invalid_response',
+      );
+    }
+
+    return { matches };
+  }
+
+  async whosThatShareCard(payload: WhosThatShareCardPayload): Promise<WhosThatShareCardResult> {
+    const response = await this.requestJsonOrThrow<{ pngBase64?: unknown }>(
+      `${this.baseUrl}/api/v1/whos-that-pokemon/share-card`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          image: { jpegBase64: payload.jpegBase64 },
+          species: payload.species,
+          pokedexId: payload.pokedexId,
+          reason: payload.reason,
+          confidence: payload.confidence,
+        }),
+      },
+      { timeoutMs: whosThatPokemonRequestTimeoutMs },
+    );
+
+    const pngBase64 = normalizeString(response.pngBase64);
+    if (!pngBase64) {
+      throw new SpotlightRepositoryRequestError(
+        'The share card image was missing from the response.',
+        'invalid_response',
+      );
+    }
+
+    return { pngBase64 };
   }
 
   async createLabelingSession(payload: LabelingSessionCreatePayload) {
