@@ -42,15 +42,17 @@ def anthropic_api_key() -> str | None:
 def anthropic_messages_request(payload: dict[str, Any], *, timeout: int = 20) -> dict[str, Any]:
     """POST ``payload`` to the Anthropic Messages API and return the parsed JSON.
 
-    One retry on transient failures (network errors, timeouts, HTTP 429/5xx)
-    with a short backoff, then the original error is raised.
+    Up to TWO retries on transient failures (network errors, timeouts, HTTP
+    429/5xx) with a short backoff, then the original error is raised. Transient
+    429/overloaded errors fail fast, so with the caller's tightened per-call
+    ``timeout`` all three attempts still fit inside the client's request budget.
     """
     api_key = anthropic_api_key()
     if api_key is None:
         raise ValueError("ANTHROPIC_API_KEY is not configured")
 
     body = json.dumps(payload).encode("utf-8")
-    last_attempt = 1
+    last_attempt = 2
     for attempt in range(last_attempt + 1):
         request = Request(ANTHROPIC_MESSAGES_URL, data=body, method="POST")
         request.add_header("x-api-key", api_key)
@@ -206,7 +208,10 @@ def identify_pokemon_lookalike(
         "tool_choice": {"type": "tool", "name": "report_matches"},
     }
 
-    response = anthropic_messages_request(payload)
+    # Tighter per-call timeout (Haiku vision on a small selfie normally answers
+    # in a few seconds) so all THREE attempts fit inside the 30s client budget:
+    # 3 x 9s + 2 x 0.75s backoff ~= 28.5s.
+    response = anthropic_messages_request(payload, timeout=9)
 
     tool_input: dict[str, Any] | None = None
     for block in response.get("content") or []:

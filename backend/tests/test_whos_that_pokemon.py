@@ -180,6 +180,31 @@ class AnthropicAdapterTests(unittest.TestCase):
         sleeper.assert_called_once()
         self.assertEqual(len(matches), 3)
 
+    def test_request_retries_twice_on_transient_then_succeeds(self) -> None:
+        err429 = HTTPError(
+            "https://api.anthropic.com/v1/messages", 429, "rate limited", None, io.BytesIO(b"")
+        )
+        err529 = HTTPError(
+            "https://api.anthropic.com/v1/messages", 529, "overloaded", None, io.BytesIO(b"")
+        )
+        responses = [err429, err529, _FakeHTTPResponse(_tool_use_response(_VALID_MATCHES))]
+
+        def fake_urlopen(request, timeout=0):  # noqa: ANN001
+            result = responses.pop(0)
+            if isinstance(result, Exception):
+                raise result
+            return result
+
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+            with patch("anthropic_adapter.urlopen", side_effect=fake_urlopen) as mocked:
+                with patch("anthropic_adapter.time.sleep") as sleeper:
+                    matches = identify_pokemon_lookalike(b"jpeg")
+
+        # Two transient failures now recover: 3 attempts total, 2 backoffs.
+        self.assertEqual(mocked.call_count, 3)
+        self.assertEqual(sleeper.call_count, 2)
+        self.assertEqual(len(matches), 3)
+
     def test_request_does_not_retry_client_errors(self) -> None:
         error = HTTPError(
             "https://api.anthropic.com/v1/messages", 400, "bad request", None, io.BytesIO(b"")

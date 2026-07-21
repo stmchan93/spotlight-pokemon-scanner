@@ -17623,9 +17623,12 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             except ValueError as error:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
             except Exception as error:
+                # Log the upstream HTTP status (429 rate-limit vs 5xx/overloaded)
+                # so a recurrence is diagnosable — status only, never the body.
                 print(
                     "[WHOS-THAT] identify failed "
-                    f"errorType={type(error).__name__}",
+                    f"errorType={type(error).__name__} "
+                    f"status={getattr(error, 'code', None)}",
                     file=sys.stderr,
                 )
                 self._write_json(HTTPStatus.BAD_GATEWAY, {"error": "match_unavailable"})
