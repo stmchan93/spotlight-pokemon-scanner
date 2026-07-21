@@ -1,31 +1,24 @@
-import { Text, TextInput } from 'react-native';
-
-import { MAX_FONT_SIZE_MULTIPLIER } from '@spotlight/design-system';
-
 /**
- * Global Dynamic Type ceiling. Without this, iOS "Larger Text" multiplies every
- * font (and its baked-in lineHeight) with no cap, blowing up our fixed-size
- * layouts. Setting a default `maxFontSizeMultiplier` on Text/TextInput caps the
- * growth app-wide — including raw `Text` usages and third-party UI we don't own.
+ * Dynamic Type ceiling — how it's enforced, and why NOT here.
  *
- * Explicit per-component props always win over defaultProps, so intentional
- * opt-outs (auth OTP cells, RollingNumberText's measured digit columns) and the
- * design-system primitives' own defaults are unaffected.
+ * This file used to set `Text.defaultProps.maxFontSizeMultiplier` to cap iOS
+ * "Larger Text" app-wide. That silently BROKE: React 19 (and RN 0.83, which
+ * gates it behind `reduceDefaultPropsInText`) ignore `defaultProps` on the
+ * function-component `Text`/`TextInput`, so the cap became a no-op and large
+ * accessibility fonts blew up every fixed-width layout (truncated nav labels,
+ * chips, headers, etc.). There is no first-class global API to replace it.
  *
- * `Text.defaultProps` is the long-standing RN pattern for an app-wide scaling
- * default; there is no first-class global API for it.
+ * The cap is now enforced at the source instead:
+ *   - Design-system primitives import a capped `Text` from
+ *     `packages/design-system/src/components/scaled-text.tsx` (re-exported as
+ *     `Text` from `@spotlight/design-system`) — it defaults `maxFontSizeMultiplier`
+ *     to `MAX_FONT_SIZE_MULTIPLIER`.
+ *   - `AppText`, `SearchField`, and `TextField` set the cap explicitly.
+ *   - App chrome that renders text imports the capped `Text` from the design
+ *     system rather than from `react-native`.
+ *
+ * New text should use the capped `Text` (or `AppText`) from `@spotlight/design-system`,
+ * not a raw `react-native` `Text`, so scaling stays bounded.
  */
-type Defaultable = { defaultProps?: Record<string, unknown> };
 
-const TextWithDefaults = Text as unknown as Defaultable;
-const InputWithDefaults = TextInput as unknown as Defaultable;
-
-TextWithDefaults.defaultProps = {
-  ...TextWithDefaults.defaultProps,
-  maxFontSizeMultiplier: MAX_FONT_SIZE_MULTIPLIER,
-};
-
-InputWithDefaults.defaultProps = {
-  ...InputWithDefaults.defaultProps,
-  maxFontSizeMultiplier: MAX_FONT_SIZE_MULTIPLIER,
-};
+export {};

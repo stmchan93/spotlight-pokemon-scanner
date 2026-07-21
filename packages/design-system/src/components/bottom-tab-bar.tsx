@@ -3,12 +3,12 @@ import {
   Animated,
   Pressable,
   StyleSheet,
-  Text,
   View,
   type ViewStyle,
 } from 'react-native';
 
 import { GlassSurface } from './glass-surface';
+import { Text } from './scaled-text';
 import { useSpotlightTheme } from '../theme';
 
 /**

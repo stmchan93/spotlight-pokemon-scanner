@@ -1,7 +1,8 @@
-import { ActivityIndicator, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { ActivityIndicator, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { useSpotlightTheme } from '../theme';
 import { Button, type ButtonVariant } from './button';
+import { Text } from './scaled-text';
 import { SurfaceCard } from './surface-card';
 
 type StateCardProps = {

@@ -12,7 +12,6 @@ import {
   LayoutChangeEvent,
   Pressable,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
@@ -38,7 +37,7 @@ import type {
   PortfolioHistoryRange,
   RecentSaleRecord,
 } from '@spotlight/api-client';
-import { fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
+import { fontFamilies, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 import {
   formatCurrency,

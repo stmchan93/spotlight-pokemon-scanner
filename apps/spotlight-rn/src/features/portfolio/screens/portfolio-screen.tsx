@@ -7,7 +7,6 @@ import {
   Share,
   StyleSheet,
   type StyleProp,
-  Text,
   View,
   type ViewStyle,
 } from 'react-native';
@@ -16,7 +15,7 @@ import { CheckCircle, EditPencil, Menu as MenuIcon, Trash } from 'iconoir-react-
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { InventoryCardEntry } from '@spotlight/api-client';
-import { GlassSurface, StateCard, useSpotlightTheme } from '@spotlight/design-system';
+import { GlassSurface, StateCard, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 import {
   PortfolioChartCard,

@@ -1,5 +1,6 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
+import { Text } from './scaled-text';
 import { useSpotlightTheme } from '../theme';
 
 export type SegmentedControlItem<T extends string> = {

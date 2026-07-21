@@ -1,6 +1,7 @@
-import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { ArrowUp, ArrowDown, Minus, Plus } from 'iconoir-react-native';
 
+import { Text } from './scaled-text';
 import { useSpotlightTheme } from '../theme';
 
 export type TrendPillDirection = 'up' | 'down' | 'flat' | 'plus';

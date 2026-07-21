@@ -3,12 +3,12 @@ import {
   Animated,
   Pressable,
   StyleSheet,
-  Text,
   View,
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
 
+import { Text } from './scaled-text';
 import { colors, textStyles } from '../tokens';
 
 export type ToastTone = 'dark' | 'light' | 'warning';

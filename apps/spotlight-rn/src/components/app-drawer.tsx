@@ -19,12 +19,11 @@ import {
   Platform,
   Pressable,
   StyleSheet,
-  Text,
   View,
   useWindowDimensions,
 } from 'react-native';
 
-import { colors, fontFamilies, textStyles } from '@spotlight/design-system';
+import { colors, fontFamilies, Text, textStyles } from '@spotlight/design-system';
 
 import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAuth } from '@/providers/auth-provider';

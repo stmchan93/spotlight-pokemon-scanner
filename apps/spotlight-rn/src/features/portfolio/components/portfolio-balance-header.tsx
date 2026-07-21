@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { Eye, EyeClosed } from 'iconoir-react-native';
 import Svg, { Path } from 'react-native-svg';
 
@@ -6,6 +6,7 @@ import type { PortfolioSummary } from '@spotlight/api-client';
 import {
   IconButton,
   RollingNumberText,
+  Text,
   colors,
   fontFamilies,
   useSpotlightTheme,
