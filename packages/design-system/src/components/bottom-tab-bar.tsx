@@ -8,6 +8,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 
+import { GlassSurface } from './glass-surface';
 import { useSpotlightTheme } from '../theme';
 
 /**
@@ -72,7 +73,6 @@ export function BottomTabBar({
       style={[
         styles.bar,
         {
-          backgroundColor: theme.colors.canvasElevated,
           opacity,
           paddingBottom: bottomInset,
           transform: [{ translateY }],
@@ -81,6 +81,18 @@ export function BottomTabBar({
       ]}
       testID={testID}
     >
+      {/*
+        iOS 26 → real Liquid Glass material; every other target → the exact
+        solid `canvasElevated` bar we ship today. Sits behind the tab row as an
+        absolute-fill layer so the row's content still sizes the bar height.
+      */}
+      <GlassSurface
+        fallbackColor={theme.colors.canvasElevated}
+        glassColorScheme="light"
+        pointerEvents="none"
+        style={StyleSheet.absoluteFill}
+        testID={testID ? `${testID}-glass` : undefined}
+      />
       <View style={styles.row}>
         {items.map((item) => {
           const selected = item.selected === true;

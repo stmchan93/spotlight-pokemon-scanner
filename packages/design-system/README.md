@@ -496,6 +496,29 @@ Current behavior:
 - default surface uses a frosted/glass capsule shell with a soft selected segment treatment
 - scanner surface keeps the tighter, darker scanner-specific treatment
 
+### GlassSurface
+
+File: `src/components/glass-surface.tsx`
+
+A background shell that renders the real native iOS 26 "Liquid Glass" material
+(`expo-glass-effect`'s `GlassView` / `UIGlassEffect`) when it is genuinely
+available, and a plain solid `View` otherwise.
+
+Current behavior:
+
+- iOS 26 (device on iOS 26 **and** binary compiled with the Xcode-26 SDK) →
+  real Liquid Glass material
+- every other target (Android, iOS < 26, glass disabled via accessibility) →
+  a solid `View` in the required `fallbackColor` prop — pass the surface's
+  existing token color so the fallback is byte-identical to today's look
+- deliberately has **no** `BlurView`/`rgba` branch: a frosted-blur knockoff
+  reads as a non-native imitation (a prior attempt shipped that and was reverted)
+- caller owns the shape (radius, size, overflow clip) via `style`
+- `isLiquidGlassAvailable()` is re-exported here so screens can gate their own
+  layout (e.g. pinning a header so content scrolls under the glass) without
+  importing `expo-glass-effect` directly
+- glass only appears via a fresh native build, never OTA
+
 ## Design-System Editing Rules
 
 - Prefer editing tokens or shared primitives before patching individual screens.

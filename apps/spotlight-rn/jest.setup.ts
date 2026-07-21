@@ -217,6 +217,18 @@ jest.mock('expo-blur', () => {
   };
 });
 
+jest.mock('expo-glass-effect', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { View } = require('react-native');
+
+  // Real Liquid Glass only exists on an iOS 26 device + Xcode-26 build, so in
+  // tests glass is always unavailable — components render their solid fallback.
+  return {
+    GlassView: View,
+    isLiquidGlassAvailable: () => false,
+  };
+});
+
 jest.mock('expo-image', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');

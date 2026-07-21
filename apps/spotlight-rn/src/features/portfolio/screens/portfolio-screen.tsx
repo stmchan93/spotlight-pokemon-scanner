@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   type LayoutChangeEvent,
+  Platform,
   Pressable,
   RefreshControl,
   Share,
@@ -14,7 +15,13 @@ import { CheckCircle, EditPencil, Menu as MenuIcon, Trash } from 'iconoir-react-
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { InventoryCardEntry } from '@spotlight/api-client';
-import { IconButton, StateCard, useSpotlightTheme } from '@spotlight/design-system';
+import {
+  GlassSurface,
+  IconButton,
+  isLiquidGlassAvailable,
+  StateCard,
+  useSpotlightTheme,
+} from '@spotlight/design-system';
 
 import {
   PortfolioChartCard,
@@ -67,6 +74,13 @@ function triggerSelectionHaptic() {
 // top of the viewport so the keyboard can't cover it (and the filtered results
 // land directly underneath). This small gap keeps it off the very top edge.
 const SEARCH_FOCUS_TOP_GAP = 12;
+
+// Height of the pinned "Collection" header row (Figma 800-9337). On iOS 26 the
+// header is lifted into an absolute glass overlay and a spacer of this height is
+// inserted at the top of the list chrome so content scrolls under the glass —
+// which keeps the FlatList top inset (and the search-focus scroll math that
+// depends on it) byte-identical to the non-glass layout.
+const COLLECTION_HEADER_HEIGHT = 40;
 
 type PortfolioScreenProps = {
   onOpenInventoryEntry?: (entry: InventoryCardEntry) => void;
@@ -158,6 +172,10 @@ export function PortfolioScreen({
 }: PortfolioScreenProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
+  // Only on a real iOS 26 Liquid Glass build do we pin the header as a glass
+  // overlay with content scrolling under it; everywhere else the header stays
+  // in-flow and solid, exactly as today (no blur/rgba imitation).
+  const useGlassHeader = Platform.OS === 'ios' && isLiquidGlassAvailable();
   // NOTE: no guest on-mount redirect here. This screen is mounted *alongside*
   // the scanner in the tabs pager (both pages live at once), so a redirect would
   // fire the instant a guest lands on the scanner and bounce them to login.
@@ -528,11 +546,22 @@ export function PortfolioScreen({
     <View
       style={[
         styles.header,
-        {
-          paddingHorizontal: theme.layout.pageGutter,
-        },
+        { paddingHorizontal: theme.layout.pageGutter },
+        useGlassHeader ? styles.headerPinned : null,
       ]}
     >
+      {useGlassHeader ? (
+        // iOS 26 → real Liquid Glass behind the header; content refracts as it
+        // scrolls under. `pointerEvents="none"` so the menu/title/edit controls
+        // above it stay tappable.
+        <GlassSurface
+          fallbackColor={theme.colors.gray0}
+          glassColorScheme="light"
+          pointerEvents="none"
+          style={StyleSheet.absoluteFill}
+          testID="portfolio-header-glass"
+        />
+      ) : null}
       <Pressable
         accessibilityLabel="Open menu"
         accessibilityRole="button"
@@ -568,6 +597,13 @@ export function PortfolioScreen({
 
   const listHeader = (
     <View style={styles.chrome}>
+      {useGlassHeader ? (
+        // Reserves the pinned glass header's height at the top of the scroll
+        // content. Because it lives inside the list header, it shifts the
+        // measured search-row offset in lockstep — so the FlatList top inset and
+        // handleSearchFocus math need no change.
+        <View style={{ height: COLLECTION_HEADER_HEIGHT }} />
+      ) : null}
       {shouldShowInitialError ? (
         <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
           <StateCard
@@ -848,7 +884,17 @@ const styles = StyleSheet.create({
   header: {
     alignItems: 'center',
     flexDirection: 'row',
-    height: 40,
+    height: COLLECTION_HEADER_HEIGHT,
+  },
+  headerPinned: {
+    // iOS 26 glass only: lift the header out of the column flow into a fixed
+    // overlay so the list scrolls under it. zIndex keeps it above the list,
+    // which is an earlier-declared sibling.
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    zIndex: 5,
   },
   headerIcon: {
     height: 24,
