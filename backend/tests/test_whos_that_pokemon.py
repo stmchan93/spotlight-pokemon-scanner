@@ -130,6 +130,24 @@ class AnthropicAdapterTests(unittest.TestCase):
         garbage = b"not-a-real-jpeg"
         self.assertEqual(anthropic_adapter._downscale_jpeg_for_vision(garbage), garbage)
 
+    def test_downscale_transcodes_heic_selfie_to_jpeg(self) -> None:
+        # iPhone selfies arrive as HEIC — Anthropic rejects them and stock
+        # Pillow can't decode them. With pillow-heif registered, the downscaler
+        # must transcode HEIC -> a JPEG that Pillow (and Anthropic) can read.
+        try:
+            import pillow_heif  # noqa: F401
+        except Exception:
+            self.skipTest("pillow-heif not installed in this environment")
+        buffer = io.BytesIO()
+        Image.new("RGB", (2000, 1500), (30, 90, 160)).save(buffer, format="HEIF")
+        heic_bytes = buffer.getvalue()
+        # Sanity: the raw HEIC is what a JPEG-only decoder would choke on.
+        out = anthropic_adapter._downscale_jpeg_for_vision(heic_bytes)
+        self.assertNotEqual(out, heic_bytes)
+        with Image.open(io.BytesIO(out)) as image:
+            self.assertEqual(image.format, "JPEG")
+            self.assertEqual(max(image.size), anthropic_adapter._VISION_MAX_EDGE)
+
     def test_downscale_keeps_small_images_within_cap(self) -> None:
         small = _small_jpeg(width=100, height=120)
         out = anthropic_adapter._downscale_jpeg_for_vision(small)

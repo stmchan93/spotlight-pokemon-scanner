@@ -1,5 +1,7 @@
 numpy==2.4.4
 Pillow==12.2.0
+# HEIC/HEIF decode so iPhone selfies (Who's That Pokémon) transcode to JPEG.
+pillow-heif==0.18.0
 google-cloud-storage==2.19.0
 PyJWT[crypto]>=2.10,<3
 python-dotenv==1.2.2

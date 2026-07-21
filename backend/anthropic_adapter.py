@@ -40,6 +40,30 @@ _VISION_MAX_EDGE = 1024
 _VISION_JPEG_QUALITY = 85
 
 
+def _register_heif_opener_once() -> None:
+    """Teach Pillow to decode HEIC/HEIF (iOS's default photo format).
+
+    iPhone captures arrive as HEIC, which stock Pillow cannot decode and which
+    Anthropic's vision API rejects outright (it accepts only JPEG/PNG/GIF/WebP).
+    Registering the pillow-heif opener lets ``_downscale_jpeg_for_vision``
+    transcode HEIC → JPEG. Optional dependency: if it isn't installed we simply
+    keep JPEG/PNG support and HEIC selfies still fail loudly in the logs.
+    """
+    if getattr(_register_heif_opener_once, "_done", False):
+        return
+    try:
+        import pillow_heif  # optional; manylinux wheel bundles libheif
+
+        pillow_heif.register_heif_opener()
+    except Exception:
+        pass
+    _register_heif_opener_once._done = True  # type: ignore[attr-defined]
+
+
+# Register at import so both the identify and share-card paths can read HEIC.
+_register_heif_opener_once()
+
+
 def _downscale_jpeg_for_vision(jpeg_bytes: bytes) -> bytes:
     """Return a re-encoded JPEG with its long edge capped at ``_VISION_MAX_EDGE``.
 
