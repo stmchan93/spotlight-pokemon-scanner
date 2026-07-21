@@ -117,6 +117,25 @@ class AnthropicAdapterTests(unittest.TestCase):
         self.assertAlmostEqual(matches[0]["confidence"], 0.92)
         self.assertEqual(matches[2]["reason"], "Ready to sing uninvited.")
 
+    def test_downscale_caps_long_edge_and_shrinks_payload(self) -> None:
+        big = _small_jpeg(width=4000, height=3000)
+        out = anthropic_adapter._downscale_jpeg_for_vision(big)
+        with Image.open(io.BytesIO(out)) as image:
+            self.assertEqual(max(image.size), anthropic_adapter._VISION_MAX_EDGE)
+            # Aspect ratio preserved (4:3).
+            self.assertEqual(image.size, (1024, 768))
+        self.assertLess(len(out), len(big))
+
+    def test_downscale_leaves_undecodable_bytes_untouched(self) -> None:
+        garbage = b"not-a-real-jpeg"
+        self.assertEqual(anthropic_adapter._downscale_jpeg_for_vision(garbage), garbage)
+
+    def test_downscale_keeps_small_images_within_cap(self) -> None:
+        small = _small_jpeg(width=100, height=120)
+        out = anthropic_adapter._downscale_jpeg_for_vision(small)
+        with Image.open(io.BytesIO(out)) as image:
+            self.assertEqual(image.size, (100, 120))
+
     def test_identify_clamps_confidence_into_unit_range(self) -> None:
         matches_payload = [dict(match) for match in _VALID_MATCHES]
         matches_payload[0]["confidence"] = 1.7

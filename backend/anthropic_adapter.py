@@ -12,6 +12,7 @@ codes and short messages, never request bodies.
 from __future__ import annotations
 
 import base64
+import io
 import json
 import os
 import time
@@ -28,6 +29,44 @@ LOOKALIKE_MAX_TOKENS = 700
 MIN_POKEDEX_ID = 1
 MAX_POKEDEX_ID = 1025
 _RETRY_BACKOFF_SECONDS = 0.75
+
+# Anthropic vision limits: a single image may not exceed 5 MB (base64) and is
+# downscaled server-side above ~1568px on the long edge anyway. Full-res phone
+# selfies (12MP+, several MB) blow past the 5 MB cap and get rejected with a
+# persistent HTTP 400 — so we downscale + re-encode in memory before sending.
+# A lookalike judgement needs no more than ~1024px; this keeps us far under the
+# cap and cheaper. In-memory only — the selfie is never written to disk.
+_VISION_MAX_EDGE = 1024
+_VISION_JPEG_QUALITY = 85
+
+
+def _downscale_jpeg_for_vision(jpeg_bytes: bytes) -> bytes:
+    """Return a re-encoded JPEG with its long edge capped at ``_VISION_MAX_EDGE``.
+
+    Falls back to the original bytes if Pillow is unavailable or the image can't
+    be decoded — the request still goes out, and the adapter's error logging
+    will surface any resulting size rejection.
+    """
+    try:
+        from PIL import Image  # imported lazily; same dep the share-card path uses
+    except Exception:
+        return jpeg_bytes
+    try:
+        with Image.open(io.BytesIO(jpeg_bytes)) as image:
+            image = image.convert("RGB")
+            longest = max(image.size)
+            if longest > _VISION_MAX_EDGE:
+                scale = _VISION_MAX_EDGE / float(longest)
+                new_size = (
+                    max(1, round(image.size[0] * scale)),
+                    max(1, round(image.size[1] * scale)),
+                )
+                image = image.resize(new_size, Image.LANCZOS)
+            buffer = io.BytesIO()
+            image.save(buffer, format="JPEG", quality=_VISION_JPEG_QUALITY)
+            return buffer.getvalue()
+    except Exception:
+        return jpeg_bytes
 
 
 class AnthropicResponseError(RuntimeError):
@@ -66,6 +105,16 @@ def anthropic_messages_request(payload: dict[str, Any], *, timeout: int = 20) ->
             if retryable and attempt < last_attempt:
                 time.sleep(_RETRY_BACKOFF_SECONDS)
                 continue
+            # Attach Anthropic's OWN error message (from its response body) so
+            # the caller can log WHY the request was rejected. This is the API's
+            # error text (e.g. "model: ... not found", "image exceeds N MB"),
+            # NOT our request payload — safe to surface per the privacy rule.
+            try:
+                detail = exc.read().decode("utf-8", "replace")[:400]
+            except Exception:
+                detail = ""
+            if detail:
+                exc.anthropic_error_detail = detail  # type: ignore[attr-defined]
             raise
         except (URLError, TimeoutError, OSError):
             # URLError covers connection failures; socket timeouts surface as
@@ -184,6 +233,10 @@ def identify_pokemon_lookalike(
     """
     if not jpeg_bytes:
         raise ValueError("selfie image bytes are required")
+
+    # Cap the image well under Anthropic's 5 MB/image limit before base64 —
+    # full-res phone selfies otherwise trigger a persistent HTTP 400.
+    jpeg_bytes = _downscale_jpeg_for_vision(jpeg_bytes)
 
     payload = {
         "model": LOOKALIKE_MODEL,

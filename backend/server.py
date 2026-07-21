@@ -17628,7 +17628,8 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 print(
                     "[WHOS-THAT] identify failed "
                     f"errorType={type(error).__name__} "
-                    f"status={getattr(error, 'code', None)}",
+                    f"status={getattr(error, 'code', None)} "
+                    f"detail={getattr(error, 'anthropic_error_detail', None)!r}",
                     file=sys.stderr,
                 )
                 self._write_json(HTTPStatus.BAD_GATEWAY, {"error": "match_unavailable"})
