@@ -71,23 +71,16 @@ type ScrollToTopFabProps = {
 };
 
 /**
- * Positions the shared `ScrollToTopButton` as a floating affordance stacked
- * directly above the `+` add FAB at the bottom-right of the collection / sales
- * / wishlist screens.
+ * Positions the shared `ScrollToTopButton` as a floating affordance at the
+ * bottom-LEFT of the collection / sales / wishlist screens — mirroring the `+`
+ * add FAB's height on the right, so the two never stack or collide.
  */
-// Mirror CollectionAddFab: it's a 40pt-tall FAB anchored 16px above the bottom
-// tab bar. We stack 12px above it (Figma 1263-2822).
-const ADD_FAB_HEIGHT = 40;
-const STACK_GAP = 12;
-
 export function ScrollToTopFab({ visible, onPress, testID }: ScrollToTopFabProps) {
   const insets = useSafeAreaInsets();
 
-  // Use CollectionAddFab's exact bottom math (insets.bottom + bottomTabBarHeight
-  // + 28), then lift one FAB-height + a 12px gap so the up button sits exactly
-  // 12px above the + button.
-  const bottom =
-    Math.max(insets.bottom, 0) + bottomTabBarHeight + 28 + ADD_FAB_HEIGHT + STACK_GAP;
+  // Same vertical anchor as CollectionAddFab (insets.bottom + bottomTabBarHeight
+  // + 28) so the pair sit level across the screen.
+  const bottom = Math.max(insets.bottom, 0) + bottomTabBarHeight + 28;
 
   return (
     <ScrollToTopButton
@@ -101,7 +94,7 @@ export function ScrollToTopFab({ visible, onPress, testID }: ScrollToTopFabProps
 
 const styles = StyleSheet.create({
   fab: {
+    left: 16,
     position: 'absolute',
-    right: 16,
   },
 });

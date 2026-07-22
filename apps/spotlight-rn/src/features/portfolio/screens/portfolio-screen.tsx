@@ -15,7 +15,7 @@ import { CheckCircle, EditPencil, Menu as MenuIcon, Trash } from 'iconoir-react-
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { InventoryCardEntry } from '@spotlight/api-client';
-import { GlassSurface, StateCard, Text, useSpotlightTheme } from '@spotlight/design-system';
+import { GlassSurface, StateCard, Text, isLiquidGlassAvailable, useSpotlightTheme } from '@spotlight/design-system';
 
 import {
   PortfolioChartCard,
@@ -91,13 +91,22 @@ function GlassNavBubble({
   testID?: string;
 }) {
   const theme = useSpotlightTheme();
+  // Real glass: transparent base + the clear material so content genuinely
+  // shows through (matches the bottom nav pill). A solid base under glass
+  // reads opaque; fallback targets keep the solid bubble + shadow.
+  const hasGlass = isLiquidGlassAvailable();
   return (
     <View
-      style={[styles.bubble, theme.shadows.card, { backgroundColor: theme.colors.canvasElevated }, style]}
+      style={[
+        styles.bubble,
+        hasGlass ? null : [theme.shadows.card, { backgroundColor: theme.colors.canvasElevated }],
+        style,
+      ]}
     >
       <GlassSurface
         fallbackColor={theme.colors.canvasElevated}
         glassColorScheme="light"
+        glassEffectStyle="clear"
         pointerEvents="none"
         style={styles.bubbleGlass}
       />

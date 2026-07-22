@@ -65,11 +65,13 @@ export function BottomTabBar({
 
   // Animate the expand/collapse width morph. configureNext must run before the
   // layout change commits, so it lives in render, gated on an actual change.
+  // scaleXY + a slightly longer ease makes the bounds change glide instead of
+  // snapping (opacity-only read as an abrupt pop).
   const prevCollapsedRef = useRef(isCollapsed);
   if (prevCollapsedRef.current !== isCollapsed) {
     prevCollapsedRef.current = isCollapsed;
     LayoutAnimation.configureNext(
-      LayoutAnimation.create(220, LayoutAnimation.Types.easeInEaseOut, LayoutAnimation.Properties.opacity),
+      LayoutAnimation.create(300, LayoutAnimation.Types.easeInEaseOut, LayoutAnimation.Properties.scaleXY),
     );
   }
 
