@@ -69,6 +69,25 @@ describe('HttpSpotlightRepository — whos-that-pokemon', () => {
       confidence: 0.92,
       reason: 'Energetic.',
     });
+    // No cutout field in the response → null (morph falls back to crossfade).
+    expect(result.personCutoutUri).toBeNull();
+  });
+
+  it('maps personCutoutPngBase64 into a data URI for the outline morph', async () => {
+    global.fetch = jest.fn().mockResolvedValue(
+      jsonResponse(200, { ...matchesBody, personCutoutPngBase64: 'Y3V0b3V0' }),
+    ) as typeof fetch;
+    const repository = new HttpSpotlightRepository('http://example.test', {
+      getAccessToken: () => 'test-access-token',
+    });
+
+    const result = await repository.whosThatPokemon({
+      jpegBase64: 'c2VsZmll',
+      width: 720,
+      height: 1280,
+    });
+
+    expect(result.personCutoutUri).toBe('data:image/png;base64,Y3V0b3V0');
   });
 
   it('omits the palette field entirely when no colors were extracted', async () => {

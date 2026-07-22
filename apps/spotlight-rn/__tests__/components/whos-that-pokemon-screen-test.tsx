@@ -44,6 +44,7 @@ const mockMatches: WhosThatPokemonResult = {
       reason: 'A little chaotic.',
     },
   ],
+  personCutoutUri: 'data:image/png;base64,Y3V0b3V0',
 };
 
 const mockShareCard: WhosThatShareCardResult = { pngBase64: 'cG5nLWJ5dGVz' };
@@ -107,6 +108,12 @@ describe('WhosThatPokemonScreen', () => {
     // The other two matches render as alternate rows.
     expect(screen.getByTestId('wtp-result-alternate-1')).toBeTruthy();
     expect(screen.getByTestId('wtp-result-alternate-2')).toBeTruthy();
+
+    // The backend returned a person cutout → the morph renders the outline
+    // arc layers (backdrop + silhouette glow + the cutout itself).
+    expect(screen.getByTestId('wtp-result-morph-cutout')).toBeTruthy();
+    expect(screen.getByTestId('wtp-result-morph-glow')).toBeTruthy();
+    expect(screen.getByTestId('wtp-result-morph-backdrop')).toBeTruthy();
   });
 
   it('shows the friendly retry state when the match fails, then recovers on retry', async () => {

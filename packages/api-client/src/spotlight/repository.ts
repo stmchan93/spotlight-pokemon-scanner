@@ -3032,6 +3032,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
           reason: 'A little chaotic, endlessly lovable, mildly confused.',
         },
       ],
+      personCutoutUri: null,
     };
   }
 
@@ -4728,7 +4729,10 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       body.palette = palette;
     }
 
-    const response = await this.requestJsonOrThrow<{ matches?: unknown }>(
+    const response = await this.requestJsonOrThrow<{
+      matches?: unknown;
+      personCutoutPngBase64?: unknown;
+    }>(
       `${this.baseUrl}/api/v1/whos-that-pokemon`,
       {
         method: 'POST',
@@ -4764,7 +4768,13 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       );
     }
 
-    return { matches };
+    // Person cutout (background-removed selfie) for the outline morph —
+    // optional; absent whenever server-side segmentation is unavailable.
+    const cutoutBase64 = normalizeString(response.personCutoutPngBase64);
+    return {
+      matches,
+      personCutoutUri: cutoutBase64 ? `data:image/png;base64,${cutoutBase64}` : null,
+    };
   }
 
   async whosThatShareCard(payload: WhosThatShareCardPayload): Promise<WhosThatShareCardResult> {

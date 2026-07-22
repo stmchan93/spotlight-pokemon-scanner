@@ -100,3 +100,6 @@ staging-smoke-*.png
 
 # generated audit/output artifacts from tools/ scripts
 tools/output/
+
+# Lazily-downloaded ONNX model artifacts (person_cutout u2netp etc.)
+backend/models/

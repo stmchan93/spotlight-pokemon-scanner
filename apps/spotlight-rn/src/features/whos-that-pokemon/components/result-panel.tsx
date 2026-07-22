@@ -24,6 +24,8 @@ type ResultPanelProps = {
   activeIndex: number;
   /** Local uri of the captured photo — the "before" in the morph + comparison. */
   selfieUri: string | null;
+  /** Background-removed selfie (data URI) — powers the outline morph; null → crossfade. */
+  personCutoutUri?: string | null;
   /** Top selfie palette swatch — tints the morph dissolve wash. */
   washColor: string;
   /** Tap on an alternate row → re-runs the reveal morph to that artwork. */
@@ -74,6 +76,7 @@ export function ResultPanel({
   matches,
   activeIndex,
   selfieUri,
+  personCutoutUri = null,
   washColor,
   onSelectMatch,
   onShare,
@@ -96,6 +99,7 @@ export function ResultPanel({
               morphed into the Pokémon. */}
           <MorphLoop
             artworkUrl={heroArtworkUrl}
+            cutoutUri={personCutoutUri}
             selfieUri={selfieUri}
             testID={`${testID}-morph`}
             washColor={washColor}

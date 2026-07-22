@@ -28,6 +28,13 @@ const HOLD_ARTWORK_MS = 1300;
 type MorphLoopProps = {
   /** Local uri of the captured photo (the "before"). */
   selfieUri: string | null;
+  /**
+   * Background-removed selfie (data URI, PNG with alpha). When present the
+   * morph gets the full outline arc: the background falls away leaving YOU,
+   * a palette glow blooms around your silhouette, and your outline dissolves
+   * into the Pokémon. Null → the original plain crossfade.
+   */
+  cutoutUri?: string | null;
   /** Official artwork of the matched species (the "after"). */
   artworkUrl: string;
   /** Top palette swatch — tints the dissolve wash at the crossfade midpoint. */
@@ -35,15 +42,26 @@ type MorphLoopProps = {
   testID?: string;
 };
 
+// Piecewise-linear ramp over t (worklet-safe; plain function of t.value).
+function ramp(t: number, from: number, to: number): number {
+  'worklet';
+  if (to === from) {
+    return t < from ? 0 : 1;
+  }
+  return Math.max(0, Math.min(1, (t - from) / (to - from)));
+}
+
 /**
  * A contained, auto-looping "how you transformed" animation for the result
  * screen: the captured photo dissolves (blur + palette wash + a slight zoom)
  * into the matched species' official artwork, holds, then dissolves back — on
- * a loop the user can just watch, no interaction. Reduce-motion falls back to a
- * static crossfade parked on the artwork.
+ * a loop the user can just watch, no interaction. With a person cutout the
+ * dissolve becomes an outline morph (background → silhouette glow → Pokémon).
+ * Reduce-motion falls back to a static crossfade parked on the artwork.
  */
 export function MorphLoop({
   selfieUri,
+  cutoutUri = null,
   artworkUrl,
   washColor,
   testID = 'wtp-morph-loop',
@@ -72,12 +90,15 @@ export function MorphLoop({
     };
   }, [reduceMotion, t]);
 
+  const hasCutout = Boolean(cutoutUri);
+
   const selfieStyle = useAnimatedStyle(() => ({
     // Slight zoom as it dissolves so the morph reads as motion, not a cut.
     transform: [{ scale: 1 + 0.06 * t.value }],
   }));
   const artworkStyle = useAnimatedStyle(() => ({
-    opacity: t.value,
+    // Outline arc: the Pokémon emerges only after the silhouette phase.
+    opacity: hasCutout ? ramp(t.value, 0.5, 0.85) : t.value,
     transform: [{ scale: interpolate(t.value, [0, 1], [0.9, 1]) }],
   }));
   // Blur + wash flare at the crossfade midpoint (t≈0.5) and fade at both ends.
@@ -85,7 +106,24 @@ export function MorphLoop({
     opacity: Math.sin(Math.max(0, Math.min(1, t.value)) * Math.PI),
   }));
   const washStyle = useAnimatedStyle(() => ({
-    opacity: Math.sin(Math.max(0, Math.min(1, t.value)) * Math.PI) * 0.5,
+    opacity: Math.sin(Math.max(0, Math.min(1, t.value)) * Math.PI) * (hasCutout ? 0.3 : 0.5),
+  }));
+
+  // Outline arc, phase 1 (t 0→0.35): the background falls away to the dark
+  // canvas while the cutout (you) stays lit — the "grab your outline" moment.
+  const backdropStyle = useAnimatedStyle(() => ({
+    opacity: ramp(t.value, 0.05, 0.35),
+  }));
+  // Palette glow blooming from BEHIND your silhouette: the same cutout, tinted
+  // and scaled up slightly, peaking through the middle of the morph.
+  const glowStyle = useAnimatedStyle(() => ({
+    opacity: ramp(t.value, 0.15, 0.45) * (1 - ramp(t.value, 0.6, 0.85)),
+    transform: [{ scale: 1.07 + 0.05 * t.value }],
+  }));
+  // Phase 2 (t 0.45→0.8): your lit silhouette dissolves into the artwork.
+  const cutoutStyle = useAnimatedStyle(() => ({
+    opacity: 1 - ramp(t.value, 0.45, 0.8),
+    transform: [{ scale: 1 + 0.06 * t.value }],
   }));
 
   return (
@@ -99,6 +137,48 @@ export function MorphLoop({
             uri={selfieUri}
           />
         </Animated.View>
+      ) : null}
+
+      {cutoutUri ? (
+        <>
+          {/* Background falls away → only your outline stays lit. */}
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              StyleSheet.absoluteFillObject,
+              { backgroundColor: colors.scannerCanvas },
+              backdropStyle,
+            ]}
+            testID={`${testID}-backdrop`}
+          />
+          {/* Palette glow blooming from behind your silhouette. */}
+          <Animated.View
+            pointerEvents="none"
+            style={[StyleSheet.absoluteFillObject, glowStyle]}
+            testID={`${testID}-glow`}
+          >
+            <CachedImage
+              cachePolicy="memory"
+              contentFit="contain"
+              style={StyleSheet.absoluteFillObject}
+              tintColor={washColor}
+              uri={cutoutUri}
+            />
+          </Animated.View>
+          {/* You, cut out of the scene — dissolves into the Pokémon. */}
+          <Animated.View
+            pointerEvents="none"
+            style={[StyleSheet.absoluteFillObject, cutoutStyle]}
+            testID={`${testID}-cutout`}
+          >
+            <CachedImage
+              cachePolicy="memory"
+              contentFit="contain"
+              style={StyleSheet.absoluteFillObject}
+              uri={cutoutUri}
+            />
+          </Animated.View>
+        </>
       ) : null}
 
       <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFillObject, midFlareStyle]}>

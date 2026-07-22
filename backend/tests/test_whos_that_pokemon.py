@@ -447,5 +447,71 @@ class ShareCardComposerTests(unittest.TestCase):
         self.assertEqual(rendered.size, (1080, 1350))
 
 
+class PersonCutoutTests(unittest.TestCase):
+    def _service_with_stubbed_decode(self) -> Mock:
+        from server import SpotlightScanService
+
+        fake = Mock()
+        fake._decode_scan_image_payload.return_value = (_small_jpeg(), 100, 120)
+        fake._emit_structured_log = Mock()
+        fake_method = SpotlightScanService.identify_pokemon_selfie
+        return fake, fake_method
+
+    def test_identify_response_includes_cutout_when_available(self) -> None:
+        fake, method = self._service_with_stubbed_decode()
+        cutout = _small_png()
+        with patch("server.identify_pokemon_lookalike", return_value=_VALID_MATCHES):
+            with patch("server.extract_person_cutout_png", return_value=cutout):
+                payload = method(fake, {"image": {"jpegBase64": "ignored"}})
+
+        self.assertEqual(payload["matches"], _VALID_MATCHES)
+        self.assertEqual(base64.b64decode(payload["personCutoutPngBase64"]), cutout)
+
+    def test_identify_response_omits_cutout_when_unavailable(self) -> None:
+        # Segmentation is best-effort garnish: a None cutout must not add the
+        # field or disturb the matches (app falls back to the plain crossfade).
+        fake, method = self._service_with_stubbed_decode()
+        with patch("server.identify_pokemon_lookalike", return_value=_VALID_MATCHES):
+            with patch("server.extract_person_cutout_png", return_value=None):
+                payload = method(fake, {"image": {"jpegBase64": "ignored"}})
+
+        self.assertEqual(payload["matches"], _VALID_MATCHES)
+        self.assertNotIn("personCutoutPngBase64", payload)
+
+    def test_extract_person_cutout_png_builds_alpha_matte(self) -> None:
+        # Exercise the real pre/post pipeline against a stubbed onnx session:
+        # a centered bright square in the saliency map must yield a PNG whose
+        # alpha is opaque in the middle and transparent at the corners.
+        import numpy as np
+
+        import person_cutout
+
+        prediction = np.zeros((1, 1, 320, 320), dtype=np.float32)
+        prediction[0, 0, 80:240, 80:240] = 1.0
+        session = Mock()
+        model_input = Mock()
+        model_input.name = "input.1"
+        session.get_inputs.return_value = [model_input]
+        session.run.return_value = [prediction]
+
+        with patch.object(person_cutout, "_get_session", return_value=session):
+            png_bytes = person_cutout.extract_person_cutout_png(_small_jpeg(400, 400))
+
+        self.assertIsNotNone(png_bytes)
+        with Image.open(io.BytesIO(png_bytes)) as cutout:
+            self.assertEqual(cutout.mode, "RGBA")
+            alpha = cutout.getchannel("A")
+            center = alpha.getpixel((cutout.width // 2, cutout.height // 2))
+            corner = alpha.getpixel((2, 2))
+        self.assertGreater(center, 200)
+        self.assertLess(corner, 40)
+
+    def test_extract_person_cutout_png_returns_none_without_session(self) -> None:
+        import person_cutout
+
+        with patch.object(person_cutout, "_get_session", return_value=None):
+            self.assertIsNone(person_cutout.extract_person_cutout_png(_small_jpeg()))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -98,6 +98,9 @@ export function WhosThatPokemonScreen() {
   const [selfie, setSelfie] = useState<SelfieCapture | null>(null);
   const [palette, setPalette] = useState<string[]>(fallbackSelfiePalette);
   const [matches, setMatches] = useState<WhosThatPokemonMatch[]>([]);
+  // Background-removed selfie (data URI) from the backend — lets the morph
+  // grab the user's actual outline; null → plain crossfade fallback.
+  const [personCutoutUri, setPersonCutoutUri] = useState<string | null>(null);
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
   const [isSharing, setIsSharing] = useState(false);
 
@@ -169,6 +172,7 @@ export function WhosThatPokemonScreen() {
       }
 
       setMatches(result.matches);
+      setPersonCutoutUri(result.personCutoutUri ?? null);
       setActiveMatchIndex(0);
       setPhase('reveal');
     } catch {
@@ -229,6 +233,7 @@ export function WhosThatPokemonScreen() {
     deleteSelfieFile();
     setSelfie(null);
     setMatches([]);
+    setPersonCutoutUri(null);
     setActiveMatchIndex(0);
     setPalette(fallbackSelfiePalette);
     setMatchFailed(false);
@@ -410,6 +415,7 @@ export function WhosThatPokemonScreen() {
             activeIndex={activeMatchIndex}
             isSharing={isSharing}
             matches={matches}
+            personCutoutUri={personCutoutUri}
             selfieUri={selfie?.uri ?? null}
             washColor={washColor}
             onSelectMatch={handleSelectMatch}

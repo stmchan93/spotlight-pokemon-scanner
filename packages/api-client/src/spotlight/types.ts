@@ -159,6 +159,13 @@ export type WhosThatPokemonMatch = {
 export type WhosThatPokemonResult = {
   /** Top matches, best first (the backend returns exactly 3). */
   matches: WhosThatPokemonMatch[];
+  /**
+   * Data URI (image/png) of the person cutout — the selfie with the
+   * background removed, so the morph can grab the user's actual outline.
+   * Null when server-side segmentation was unavailable (morph falls back to
+   * the plain crossfade).
+   */
+  personCutoutUri: string | null;
 };
 
 export type WhosThatPokemonPayload = {

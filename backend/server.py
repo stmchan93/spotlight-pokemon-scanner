@@ -177,6 +177,7 @@ from scan_artifact_store import (
     build_scan_artifact_store,
 )
 from request_auth import RequestAuthError, RequestIdentity, SupabaseRequestAuthenticator
+from person_cutout import extract_person_cutout_png
 from whos_that_share_card import compose_share_card
 
 _OMIT_STRUCTURED_LOG_VALUE = object()
@@ -12929,6 +12930,12 @@ class SpotlightScanService:
             ] or None
         started = perf_counter()
         matches = identify_pokemon_lookalike(selfie_bytes, palette_hints=palette_hints)
+        # Person cutout (PNG with alpha) so the app's morph can grab the user's
+        # actual outline. Best-effort: None → the app falls back to the plain
+        # crossfade. Runs on-VM (u2netp via onnxruntime) — the selfie never
+        # leaves our backend for this, and the bytes stay memory-only.
+        cutout_started = perf_counter()
+        cutout_png = extract_person_cutout_png(selfie_bytes)
         self._emit_structured_log(
             {
                 "severity": "INFO",
@@ -12936,10 +12943,15 @@ class SpotlightScanService:
                 "imageWidth": width,
                 "imageHeight": height,
                 "durationMs": round((perf_counter() - started) * 1000.0, 1),
+                "cutoutMs": round((perf_counter() - cutout_started) * 1000.0, 1),
+                "cutoutBytes": len(cutout_png) if cutout_png else 0,
                 "matchCount": len(matches),
             }
         )
-        return {"matches": matches}
+        payload_out: dict[str, Any] = {"matches": matches}
+        if cutout_png:
+            payload_out["personCutoutPngBase64"] = base64.b64encode(cutout_png).decode("ascii")
+        return payload_out
 
     def compose_pokemon_share_card(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Compose the branded share PNG for a "Who's That Pokemon" match.
