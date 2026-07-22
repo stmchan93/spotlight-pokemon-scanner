@@ -1,6 +1,7 @@
 import 'expo-dev-client';
-// Side-effect import: installs the global Dynamic Type font-scaling cap. Must
-// run before any Text renders, so keep it at the top of the app entry.
+// Docs pointer: the Dynamic Type cap is enforced by the capped `Text` primitive
+// (see @/lib/text-scaling for why the old global Text.defaultProps approach is
+// dead under React 19). Kept as a discoverable breadcrumb.
 import '@/lib/text-scaling';
 
 import {
@@ -15,6 +16,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import {
   type ReactNode,
+  useCallback,
   useEffect,
 } from 'react';
 import {
@@ -104,9 +106,13 @@ function RootNavigator() {
   // hang can never trap the user on the splash forever.
   const isReady = fontsLoaded && auth.state !== 'loading';
 
+  // Fail-safe ONLY: if readiness never resolves, lift the splash anyway after 8s
+  // so a pathological hang can't trap the user on it. The happy path hides the
+  // splash in onLayout below — not here — so the native splash lifts only AFTER
+  // the first real JS frame has painted. Hiding in a useEffect fired ~1 frame
+  // early, which showed as a single blink between the native splash and the app.
   useEffect(() => {
     if (isReady) {
-      void SplashScreen.hideAsync();
       return;
     }
     const failSafe = setTimeout(() => {
@@ -115,11 +121,22 @@ function RootNavigator() {
     return () => clearTimeout(failSafe);
   }, [isReady]);
 
+  // Lift the native splash once the first ready frame has laid out — the JS
+  // loading screen (which mirrors the native splash) is already on screen, so
+  // there's no blink. Safe to call on every layout: hideAsync is a no-op once hidden.
+  const handleFirstFrameLayout = useCallback(() => {
+    void SplashScreen.hideAsync();
+  }, []);
+
   if (!isReady) {
     return null;
   }
 
-  return <AuthenticatedRoot />;
+  return (
+    <View onLayout={handleFirstFrameLayout} style={{ flex: 1 }}>
+      <AuthenticatedRoot />
+    </View>
+  );
 }
 
 function AuthenticatedRoot() {
