@@ -155,7 +155,7 @@ export function AccountScreen() {
   const handleDeleteAccount = useCallback(() => {
     Alert.alert(
       'Delete account',
-      'This permanently deletes your account and your whole collection. This can’t be undone.',
+      'This permanently deletes your account and your whole portfolio. This can’t be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -260,7 +260,7 @@ export function AccountScreen() {
             <View style={styles.collectionDataButtons}>
               <Button
                 disabled={collectionDataBusy}
-                label={collectionDataBusy ? 'Exporting…' : 'Export collection (CSV)'}
+                label={collectionDataBusy ? 'Exporting…' : 'Export portfolio (CSV)'}
                 onPress={() => {
                   void handleExportCollection();
                 }}

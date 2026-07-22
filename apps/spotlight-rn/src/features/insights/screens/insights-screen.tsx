@@ -295,13 +295,13 @@ export function InsightsScreen() {
           <View style={[styles.searchRow, styles.gutter]}>
             <View style={styles.searchSlot}>
               <SearchField
-                accessibilityLabel="Search your collection"
+                accessibilityLabel="Search your portfolio"
                 autoCapitalize="none"
                 autoCorrect={false}
                 clearButtonMode="while-editing"
                 containerTestID="insights-search-input"
                 onChangeText={setSearchQuery}
-                placeholder="Search your collection"
+                placeholder="Search your portfolio"
                 returnKeyType="search"
                 size="collection"
                 surface="muted"

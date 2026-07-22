@@ -127,7 +127,7 @@ describe('PortfolioScreen', () => {
 
     // Header.
     expect(await screen.findByTestId('portfolio-header-title')).toBeTruthy();
-    expect(screen.getByTestId('portfolio-header-title').props.children).toBe('Collection');
+    expect(screen.getByTestId('portfolio-header-title').props.children).toBe('Portfolio');
     expect(screen.getByTestId('portfolio-header-menu')).toBeTruthy();
 
     // Summary block.

@@ -123,12 +123,12 @@ describe('InsightsScreen — performance tracker', () => {
       expect(screen.getByText('Ludicolo')).toBeTruthy();
     });
 
-    fireEvent.changeText(screen.getByPlaceholderText('Search your collection'), 'gengar');
+    fireEvent.changeText(screen.getByPlaceholderText('Search your portfolio'), 'gengar');
     expect(screen.getByText('Gengar')).toBeTruthy();
     expect(screen.queryByText('Ludicolo')).toBeNull();
     expect(screen.getByText('1 Item')).toBeTruthy();
 
-    fireEvent.changeText(screen.getByPlaceholderText('Search your collection'), 'zzz');
+    fireEvent.changeText(screen.getByPlaceholderText('Search your portfolio'), 'zzz');
     expect(screen.getByText('No cards match your search.')).toBeTruthy();
   });
 

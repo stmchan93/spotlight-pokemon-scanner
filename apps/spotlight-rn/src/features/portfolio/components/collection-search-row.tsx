@@ -39,20 +39,20 @@ export function CollectionSearchRow({
   return (
     <View style={styles.container} testID={testID}>
       <View style={styles.titleRow}>
-        <Text style={styles.title}>My Collection</Text>
+        <Text style={styles.title}>My Portfolio</Text>
         {titleAccessory ?? null}
       </View>
       <View style={styles.row}>
         <View style={styles.searchSlot}>
           <SearchField
-            accessibilityLabel="Search your collection"
+            accessibilityLabel="Search your portfolio"
             autoCorrect={false}
             autoCapitalize="none"
             clearButtonMode="while-editing"
             containerTestID={`${testID}-input`}
             onChangeText={onChangeQuery}
             onFocus={onFocus}
-            placeholder="Search your collection"
+            placeholder="Search your portfolio"
             returnKeyType="search"
             size="collection"
             surface="muted"

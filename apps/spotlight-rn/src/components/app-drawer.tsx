@@ -184,7 +184,7 @@ export function AppDrawer() {
   const collectionItems: NavItem[] = [
     {
       key: 'collection',
-      label: 'Collection',
+      label: 'Portfolio',
       icon: ViewGrid,
       selected: activeKey === 'collection',
       onPress: gate(navigateToCollection),
@@ -358,7 +358,7 @@ export function AppDrawer() {
               onPress={gate(() => {
                 Alert.alert(
                   'Log out?',
-                  "You'll need to sign in again to view your collection.",
+                  "You'll need to sign in again to view your portfolio.",
                   [
                     { text: 'Cancel', style: 'cancel' },
                     {

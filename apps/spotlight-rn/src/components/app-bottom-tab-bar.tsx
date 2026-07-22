@@ -93,7 +93,7 @@ export function AppBottomTabBar({
       items={[
         {
           key: 'portfolio',
-          label: 'Collection',
+          label: 'Portfolio',
           selected: activeKey === 'portfolio',
           onPress: activeKey === 'portfolio' ? noop : gate(goToPortfolio),
           testID: 'bottom-nav-portfolio',

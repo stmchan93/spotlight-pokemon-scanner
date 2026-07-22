@@ -60,7 +60,7 @@ describe('AccountScreen', () => {
     // Export stays (the differentiator); the Collectr/TCGplayer import entry points
     // were removed from the account screen — the importer code/backend remain.
     expect(screen.getByTestId('account-export-csv')).toBeTruthy();
-    expect(screen.getByText('Export collection (CSV)')).toBeTruthy();
+    expect(screen.getByText('Export portfolio (CSV)')).toBeTruthy();
     expect(screen.queryByTestId('account-import-tcgplayer')).toBeNull();
     expect(screen.queryByTestId('account-import-collectr')).toBeNull();
     expect(screen.queryByText('Import from TCGplayer')).toBeNull();

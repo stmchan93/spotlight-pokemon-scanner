@@ -312,7 +312,7 @@ export function PortfolioScreen({
 
   const selectedCount = selectedIds.size;
   const deleteMessage = `You're about to delete ${selectedCount} item${selectedCount === 1 ? '' : 's'} `
-    + "from your Collection. This can't be undone, and your Portfolio value and Insights will be recalculated.";
+    + "from your Portfolio. This can't be undone, and your Portfolio value and Insights will be recalculated.";
 
   const handleConfirmBulkDelete = useCallback(() => {
     if (selectedIds.size === 0 || isDeleting) {
@@ -586,7 +586,7 @@ export function PortfolioScreen({
         <MenuIcon color={theme.colors.gray900} height={22} width={22} />
       </GlassNavBubble>
       <GlassNavBubble
-        accessibilityLabel={editMode ? 'Done editing' : 'Edit collection'}
+        accessibilityLabel={editMode ? 'Done editing' : 'Edit portfolio'}
         onPress={editMode ? handleExitEditMode : () => setEditMode(true)}
         style={{ right: theme.layout.pageGutter, top: bubbleTop }}
         testID={editMode ? 'portfolio-header-done' : 'portfolio-header-edit'}
@@ -603,7 +603,7 @@ export function PortfolioScreen({
   const listHeader = (
     <View style={styles.chrome}>
       <Text numberOfLines={1} style={[theme.typography.display, styles.bigTitle]} testID="portfolio-header-title">
-        Collection
+        Portfolio
       </Text>
       {shouldShowInitialError ? (
         <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
@@ -680,15 +680,15 @@ export function PortfolioScreen({
     <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
       {model.hasInventoryEntries ? (
         <StateCard
-          message="Add cards from the scanner or tap the + button to start your collection."
+          message="Add cards from the scanner or tap the + button to start your portfolio."
           style={styles.emptyStateCard}
           title="No cards match this filter"
         />
       ) : (
         <StateCard
-          message="Tap the scan button in the tab bar below to add to your collection!"
+          message="Tap the scan button in the tab bar below to add to your portfolio!"
           style={styles.emptyStateCard}
-          title="No cards in your collection"
+          title="No cards in your portfolio"
         />
       )}
     </View>
