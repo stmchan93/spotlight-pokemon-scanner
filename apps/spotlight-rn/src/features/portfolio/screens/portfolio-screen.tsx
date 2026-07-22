@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import {
   FlatList,
   type LayoutChangeEvent,
+  Linking,
   Pressable,
   RefreshControl,
   Share,
@@ -11,11 +12,20 @@ import {
   type ViewStyle,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { useRouter } from 'expo-router';
 import { CheckCircle, EditPencil, Menu as MenuIcon, Trash } from 'iconoir-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { InventoryCardEntry } from '@spotlight/api-client';
-import { GlassSurface, StateCard, Text, isLiquidGlassAvailable, useSpotlightTheme } from '@spotlight/design-system';
+import {
+  GlassSurface,
+  PageTabs,
+  type PageTab,
+  StateCard,
+  Text,
+  isLiquidGlassAvailable,
+  useSpotlightTheme,
+} from '@spotlight/design-system';
 
 import {
   PortfolioChartCard,
@@ -45,8 +55,20 @@ import { useTabBarScrollHandler } from '@/contexts/tab-bar-chrome-context';
 import { useTabsPage } from '@/contexts/tabs-page-context';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAppServices } from '@/providers/app-providers';
+import { ProfileHeader } from '@/features/profile/components/profile-header';
+import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
+import { useAuth } from '@/providers/auth-provider';
 
 const GRID_TEST_ID = 'collection-masonry-grid';
+
+// The public "Portfolio" profile tabs. Only Collection is wired for now; For Sale
+// and Activity render a gated "Coming soon" state until their roadmap phases ship.
+type ProfileTab = 'collection' | 'forsale' | 'activity';
+const PROFILE_TABS: readonly PageTab<ProfileTab>[] = [
+  { value: 'collection', label: 'Collection' },
+  { value: 'forsale', label: 'For Sale' },
+  { value: 'activity', label: 'Activity' },
+];
 
 // Press-and-hold duration before a card's actions menu opens — a standard
 // long-press (iOS context menus sit around here).
@@ -214,10 +236,27 @@ export function PortfolioScreen({
 }: PortfolioScreenProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
-  // The floating menu/edit bubbles rest just below the safe-area inset; content
-  // is inset by the bubble band so the large "Collection" title clears them.
+  const router = useRouter();
+  const auth = useAuth();
+  const currentUser = auth.currentUser;
+  // Public profile tab (Collection / For Sale / Activity). Only Collection is
+  // live; the others show a "Coming soon" placeholder until their phases ship.
+  const [activeProfileTab, setActiveProfileTab] = useState<ProfileTab>('collection');
+  const profileName = currentUser ? getResolvedDisplayName(currentUser) : 'Portfolio';
+  const profileInitials = currentUser ? getUserInitials(currentUser) : 'P';
+  const handleSocialLinkPress = useCallback(() => {
+    const link = currentUser?.socialLink;
+    if (!link) {
+      return;
+    }
+    const url = /^https?:\/\//i.test(link) ? link : `https://${link}`;
+    void Linking.openURL(url).catch(() => {});
+  }, [currentUser?.socialLink]);
+  // The floating menu/edit bubbles rest just below the safe-area inset and float
+  // OVER the profile cover hero, which is full-bleed to the very top (under the
+  // status bar) — so the scroll content starts at 0.
   const bubbleTop = insets.top + 8;
-  const listTopInset = insets.top + 8 + BUBBLE_SIZE + 8;
+  const listTopInset = 0;
   // NOTE: no guest on-mount redirect here. This screen is mounted *alongside*
   // the scanner in the tabs pager (both pages live at once), so a redirect would
   // fire the instant a guest lands on the scanner and bounce them to login.
@@ -595,26 +634,48 @@ export function PortfolioScreen({
         <MenuIcon color={theme.colors.gray900} height={22} width={22} />
       </GlassNavBubble>
       <GlassNavBubble
-        accessibilityLabel={editMode ? 'Done editing' : 'Edit portfolio'}
-        onPress={editMode ? handleExitEditMode : () => setEditMode(true)}
+        accessibilityLabel="Edit profile"
+        onPress={() => router.push('/edit-profile' as never)}
         style={{ right: theme.layout.pageGutter, top: bubbleTop }}
-        testID={editMode ? 'portfolio-header-done' : 'portfolio-header-edit'}
+        testID="portfolio-header-edit"
       >
-        {editMode ? (
-          <CheckCircle color={theme.colors.gray900} height={22} width={22} />
-        ) : (
-          <EditPencil color={theme.colors.gray900} height={20} width={20} />
-        )}
+        <EditPencil color={theme.colors.gray900} height={20} width={20} />
       </GlassNavBubble>
     </>
   );
 
   const listHeader = (
     <View style={styles.chrome}>
-      <Text numberOfLines={1} style={[theme.typography.display, styles.bigTitle]} testID="portfolio-header-title">
-        Portfolio
-      </Text>
-      {shouldShowInitialError ? (
+      <ProfileHeader
+        avatarUrl={currentUser?.avatarURL}
+        bio={currentUser?.bio}
+        displayName={profileName}
+        followerCount={currentUser?.followerCount}
+        followingCount={currentUser?.followingCount}
+        handle={currentUser?.handle}
+        initials={profileInitials}
+        isVerified={currentUser?.isVerified}
+        onSocialLinkPress={handleSocialLinkPress}
+        reputation={currentUser?.reputation}
+        socialLink={currentUser?.socialLink}
+        testID="portfolio-header-title"
+      />
+      <PageTabs
+        onChange={setActiveProfileTab}
+        tabs={PROFILE_TABS}
+        testID="portfolio-profile-tabs"
+        value={activeProfileTab}
+      />
+      {activeProfileTab !== 'collection' ? (
+        <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
+          <StateCard
+            message="For Sale and Activity are coming soon."
+            style={styles.emptyStateCard}
+            title="Coming soon"
+            variant="field"
+          />
+        </View>
+      ) : shouldShowInitialError ? (
         <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
           <StateCard
             message={model.loadError || 'Please try again once your backend is reachable.'}
@@ -626,11 +687,6 @@ export function PortfolioScreen({
         <>
           <PortfolioBalanceHeader
             summary={summary}
-            // Only show a hovered point while a scrub is actually active. The
-            // scrub-lock flag flips off synchronously on release/terminate, so
-            // even if the active-point reset is ever lost (e.g. the chart
-            // unmounts mid-scrub) the header can't get stranded on a stale
-            // $0.00 baseline — it falls straight back to the real summary.
             activeChartPoint={isChartScrubbing ? activeChartPoint : null}
             isSummaryHidden={isSummaryHidden}
             onToggleHidden={toggleSummaryHidden}
@@ -649,9 +705,6 @@ export function PortfolioScreen({
           </View>
 
           {model.loadError || model.isDashboardStale ? (
-            // Slow/failed background refresh: never alarm with a "couldn't refresh"
-            // error — the last data stays on screen and the app keeps revalidating,
-            // so show a gentle, low-key "still loading" hint instead.
             <Text
               style={[
                 theme.typography.captionMedium,
@@ -670,6 +723,18 @@ export function PortfolioScreen({
               onFocus={handleSearchFocus}
               onToggleViewMode={toggleViewMode}
               query={model.searchQuery}
+              titleAccessory={(
+                <Pressable
+                  accessibilityRole="button"
+                  hitSlop={8}
+                  onPress={editMode ? handleExitEditMode : () => setEditMode(true)}
+                  testID="portfolio-select-toggle"
+                >
+                  <Text style={[theme.typography.control, { color: theme.colors.purple500 }]}>
+                    {editMode ? 'Done' : 'Select'}
+                  </Text>
+                </Pressable>
+              )}
               viewMode={viewMode}
             />
           </View>
@@ -734,10 +799,10 @@ export function PortfolioScreen({
             paddingTop: listTopInset,
             paddingBottom: bottomNavClearance,
           }}
-          data={listData}
+          data={activeProfileTab === 'collection' ? listData : []}
           keyExtractor={(item) => item.key}
-          ListEmptyComponent={listEmpty}
-          ListFooterComponent={listData.length > 0 ? <View style={styles.footerSpacer} /> : null}
+          ListEmptyComponent={activeProfileTab === 'collection' ? listEmpty : null}
+          ListFooterComponent={activeProfileTab === 'collection' && listData.length > 0 ? <View style={styles.footerSpacer} /> : null}
           ListHeaderComponent={listHeader}
           onLayout={handleLayout}
           onScroll={handleScroll}
@@ -889,10 +954,6 @@ const styles = StyleSheet.create({
     height: 16,
   },
   staleHint: {
-    paddingHorizontal: 16,
-  },
-  bigTitle: {
-    marginBottom: 4,
     paddingHorizontal: 16,
   },
   bubble: {

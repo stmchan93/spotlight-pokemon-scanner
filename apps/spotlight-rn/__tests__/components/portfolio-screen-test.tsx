@@ -127,7 +127,8 @@ describe('PortfolioScreen', () => {
 
     // Header.
     expect(await screen.findByTestId('portfolio-header-title')).toBeTruthy();
-    expect(screen.getByTestId('portfolio-header-title').props.children).toBe('Portfolio');
+    // The header is now the profile block; its name sub-element carries the display name.
+    expect(screen.getByTestId('portfolio-header-title-name')).toBeTruthy();
     expect(screen.getByTestId('portfolio-header-menu')).toBeTruthy();
 
     // Summary block.

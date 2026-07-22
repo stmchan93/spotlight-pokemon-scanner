@@ -6,6 +6,18 @@ export type UserProfile = {
   avatarURL: string | null;
   labelerEnabled: boolean;
   adminEnabled: boolean;
+  // Social profile fields (Supabase `user_profiles`, social migrations).
+  // Optional so existing fixtures/callers don't all need updating; the auth
+  // service populates them, consumers read with sensible defaults.
+  handle?: string | null;
+  bio?: string | null;
+  location?: string | null;
+  socialLink?: string | null;
+  isVerified?: boolean;
+  reputation?: number;
+  followerCount?: number;
+  followingCount?: number;
+  postCount?: number;
 };
 
 export type AppUser = {
@@ -16,6 +28,25 @@ export type AppUser = {
   providers: string[];
   labelerEnabled: boolean;
   adminEnabled: boolean;
+  handle?: string | null;
+  bio?: string | null;
+  location?: string | null;
+  socialLink?: string | null;
+  isVerified?: boolean;
+  reputation?: number;
+  followerCount?: number;
+  followingCount?: number;
+  postCount?: number;
+};
+
+/** Fields the Edit Profile screen can write. */
+export type ProfileUpdate = {
+  displayName?: string | null;
+  handle?: string | null;
+  bio?: string | null;
+  location?: string | null;
+  socialLink?: string | null;
+  avatarURL?: string | null;
 };
 
 export function normalizeDisplayName(value: string | null | undefined) {

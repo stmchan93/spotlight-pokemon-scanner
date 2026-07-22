@@ -483,6 +483,12 @@ jest.mock('expo-document-picker', () => ({
   })),
 }));
 
+jest.mock('expo-image-picker', () => ({
+  MediaTypeOptions: { Images: 'Images' },
+  requestMediaLibraryPermissionsAsync: jest.fn(async () => ({ granted: true, status: 'granted' })),
+  launchImageLibraryAsync: jest.fn(async () => ({ canceled: true, assets: null })),
+}));
+
 // The scanner now reads captured images via `expo-file-system/legacy` (SDK 55:
 // readAsStringAsync only works from /legacy). Return the same mock base64 the
 // non-legacy mock does so the scan match payload carries a sourceImage.

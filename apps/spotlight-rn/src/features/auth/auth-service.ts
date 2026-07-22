@@ -4,6 +4,7 @@ import { sha256 } from 'js-sha256';
 
 import {
   type AppUser,
+  type ProfileUpdate,
   type UserProfile,
   normalizeDisplayName,
   requiresProfileCompletion,
@@ -39,10 +40,24 @@ type UserProfileRow = {
   display_name: string | null;
   labeler_enabled?: boolean | null;
   user_id: string;
+  handle?: string | null;
+  bio?: string | null;
+  location?: string | null;
+  social_link?: string | null;
+  is_verified?: boolean | null;
+  reputation?: number | null;
+  follower_count?: number | null;
+  following_count?: number | null;
+  post_count?: number | null;
 };
 
 const profileSelectBase = 'user_id, display_name, avatar_url';
 const profileSelectWithCapabilities = `${profileSelectBase}, labeler_enabled, admin_enabled`;
+// Full social profile row. Falls back to the narrower selects when the social
+// columns aren't present yet (older env / migration not applied), so a missing
+// column never nulls out the whole profile.
+const profileSelectFull =
+  `${profileSelectWithCapabilities}, handle, bio, location, social_link, is_verified, reputation, follower_count, following_count, post_count`;
 
 export class AuthCanceledError extends Error {
   constructor(message = 'Authentication was canceled.') {
@@ -115,6 +130,15 @@ function mapUserProfile(row: UserProfileRow): UserProfile {
     displayName: row.display_name,
     labelerEnabled: row.labeler_enabled === true,
     userID: row.user_id,
+    handle: row.handle ?? null,
+    bio: row.bio ?? null,
+    location: row.location ?? null,
+    socialLink: row.social_link ?? null,
+    isVerified: row.is_verified === true,
+    reputation: row.reputation ?? 0,
+    followerCount: row.follower_count ?? 0,
+    followingCount: row.following_count ?? 0,
+    postCount: row.post_count ?? 0,
   };
 }
 
@@ -192,7 +216,7 @@ export async function fetchProfile(userID: string) {
   try {
     const { data, error } = await supabase
       .from('user_profiles')
-      .select(profileSelectWithCapabilities)
+      .select(profileSelectFull)
       .eq('user_id', userID)
       .single();
 
@@ -237,6 +261,15 @@ export async function upsertProfile(
     displayName: normalizedDisplayName,
     labelerEnabled: false,
     userID,
+    handle: null,
+    bio: null,
+    location: null,
+    socialLink: null,
+    isVerified: false,
+    reputation: 0,
+    followerCount: 0,
+    followingCount: 0,
+    postCount: 0,
   };
 
   if (!supabase) {
@@ -281,7 +314,54 @@ export async function resolveAppUserFromSession(session: Session): Promise<AppUs
     id: authUser.id,
     labelerEnabled: profile?.labelerEnabled ?? false,
     providers: dedupeProviders(authUser),
+    handle: profile?.handle ?? null,
+    bio: profile?.bio ?? null,
+    location: profile?.location ?? null,
+    socialLink: profile?.socialLink ?? null,
+    isVerified: profile?.isVerified ?? false,
+    reputation: profile?.reputation ?? 0,
+    followerCount: profile?.followerCount ?? 0,
+    followingCount: profile?.followingCount ?? 0,
+    postCount: profile?.postCount ?? 0,
   };
+}
+
+/**
+ * Write the Edit Profile fields to `user_profiles` (only the keys provided).
+ * Returns the refetched full profile so callers can update UI, or null off
+ * Supabase / on failure.
+ */
+export async function updateProfile(
+  userID: string,
+  patch: ProfileUpdate,
+): Promise<UserProfile | null> {
+  if (!supabase) {
+    return null;
+  }
+
+  const row: Record<string, string | null> = { user_id: userID };
+  if (patch.displayName !== undefined) {
+    row.display_name = normalizeDisplayName(patch.displayName) ?? patch.displayName;
+  }
+  if (patch.handle !== undefined) row.handle = patch.handle;
+  if (patch.bio !== undefined) row.bio = patch.bio;
+  if (patch.location !== undefined) row.location = patch.location;
+  if (patch.socialLink !== undefined) row.social_link = patch.socialLink;
+  if (patch.avatarURL !== undefined) row.avatar_url = patch.avatarURL;
+
+  try {
+    if (row.display_name || patch.avatarURL !== undefined) {
+      await syncUserMetadata(
+        String(row.display_name ?? ''),
+        patch.avatarURL ?? null,
+      );
+    }
+    await supabase.from('user_profiles').upsert(row, { onConflict: 'user_id' });
+    return await fetchProfile(userID);
+  } catch (error) {
+    console.warn('[AUTH] Failed to update user profile.', error);
+    return null;
+  }
 }
 
 export async function bootstrapProfileIfNeeded(

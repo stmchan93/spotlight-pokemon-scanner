@@ -26,11 +26,12 @@ import {
   signOut,
   signUpWithEmail,
   updatePassword as updatePasswordService,
+  updateProfile as updateProfileService,
   upsertProfile,
   verifyRecoveryCode,
   verifySignupCode,
 } from '@/features/auth/auth-service';
-import { getResolvedDisplayName } from '@/features/auth/auth-models';
+import { getResolvedDisplayName, type ProfileUpdate } from '@/features/auth/auth-models';
 import { hasEverSignedIn, markHasSignedIn } from '@/features/auth/guest-first-launch';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { supabase } from '@/lib/supabase';
@@ -67,6 +68,8 @@ type AuthContextValue = EmailAuthActions & {
   signOut: () => Promise<void>;
   state: AuthState;
   submitProfile: () => Promise<void>;
+  /** Persist Edit Profile fields, then refresh the current user. */
+  updateProfile: (patch: ProfileUpdate) => Promise<void>;
 };
 
 export type { EmailAuthActions };
@@ -498,6 +501,18 @@ export function AuthProvider({ children }: PropsWithChildren) {
         setProfileDraftName(trimmedName);
         setState('signedIn');
         captureProfileCompleted();
+      });
+    },
+    updateProfile: async (patch: ProfileUpdate) => {
+      if (!currentUser) {
+        return;
+      }
+      await performAuthAction(async () => {
+        await updateProfileService(currentUser.id, patch);
+        const refreshedSession = currentSession ?? await getCurrentSession();
+        if (refreshedSession) {
+          await updateFromSession(refreshedSession);
+        }
       });
     },
   }), [

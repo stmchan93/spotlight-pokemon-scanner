@@ -1,4 +1,5 @@
 export * from './components/app-text';
+export * from './components/avatar';
 export * from './components/badge';
 export * from './components/bottom-tab-bar';
 export * from './components/button';
