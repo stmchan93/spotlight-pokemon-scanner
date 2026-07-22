@@ -71,16 +71,20 @@ type ScrollToTopFabProps = {
 };
 
 /**
- * Positions the shared `ScrollToTopButton` as a floating affordance at the
- * bottom-LEFT of the collection / sales / wishlist screens — mirroring the `+`
- * add FAB's height on the right, so the two never stack or collide.
+ * Positions the shared `ScrollToTopButton` stacked directly above the search
+ * FAB at the bottom-RIGHT of the collection / sales / wishlist screens. (The
+ * bottom-LEFT corner is reserved for the Reddit-style collapsed tab circle.)
  */
+const SEARCH_FAB_HEIGHT = 48;
+const STACK_GAP = 12;
+
 export function ScrollToTopFab({ visible, onPress, testID }: ScrollToTopFabProps) {
   const insets = useSafeAreaInsets();
 
-  // Same vertical anchor as CollectionAddFab (insets.bottom + bottomTabBarHeight
-  // + 28) so the pair sit level across the screen.
-  const bottom = Math.max(insets.bottom, 0) + bottomTabBarHeight + 28;
+  // CollectionAddFab's anchor (insets.bottom + bottomTabBarHeight + 28), then
+  // lift one FAB-height + a 12px gap so this sits exactly above the search FAB.
+  const bottom =
+    Math.max(insets.bottom, 0) + bottomTabBarHeight + 28 + SEARCH_FAB_HEIGHT + STACK_GAP;
 
   return (
     <ScrollToTopButton
@@ -94,7 +98,7 @@ export function ScrollToTopFab({ visible, onPress, testID }: ScrollToTopFabProps
 
 const styles = StyleSheet.create({
   fab: {
-    left: 16,
     position: 'absolute',
+    right: 16,
   },
 });
