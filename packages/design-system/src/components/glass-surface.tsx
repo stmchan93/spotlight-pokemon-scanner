@@ -23,6 +23,12 @@ export type GlassSurfaceProps = ViewProps & {
    * system when they can diverge; defaults to following the system (`auto`).
    */
   glassColorScheme?: 'auto' | 'light' | 'dark';
+  /**
+   * Native material variant: `regular` (frosted, default) or `clear` — the
+   * more transparent glass where the content genuinely shows through
+   * (Reddit-style floating chrome). Ignored on fallback targets.
+   */
+  glassEffectStyle?: 'regular' | 'clear';
 };
 
 /**
@@ -41,6 +47,7 @@ export function GlassSurface({
   fallbackColor,
   glassTintColor,
   glassColorScheme = 'auto',
+  glassEffectStyle = 'regular',
   style,
   children,
   ...rest
@@ -49,7 +56,7 @@ export function GlassSurface({
     return (
       <GlassView
         colorScheme={glassColorScheme}
-        glassEffectStyle="regular"
+        glassEffectStyle={glassEffectStyle}
         style={style}
         tintColor={glassTintColor}
         {...rest}

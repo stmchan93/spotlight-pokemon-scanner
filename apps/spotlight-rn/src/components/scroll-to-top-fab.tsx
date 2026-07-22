@@ -84,10 +84,10 @@ export function ScrollToTopFab({ visible, onPress, testID }: ScrollToTopFabProps
   const insets = useSafeAreaInsets();
 
   // Use CollectionAddFab's exact bottom math (insets.bottom + bottomTabBarHeight
-  // + 16), then lift one FAB-height + a 12px gap so the up button sits exactly
+  // + 28), then lift one FAB-height + a 12px gap so the up button sits exactly
   // 12px above the + button.
   const bottom =
-    Math.max(insets.bottom, 0) + bottomTabBarHeight + 16 + ADD_FAB_HEIGHT + STACK_GAP;
+    Math.max(insets.bottom, 0) + bottomTabBarHeight + 28 + ADD_FAB_HEIGHT + STACK_GAP;
 
   return (
     <ScrollToTopButton

@@ -4,22 +4,22 @@ import {
   useContext,
   useMemo,
   useRef,
+  useState,
   type PropsWithChildren,
 } from 'react';
 import {
-  Animated,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
 
 /**
- * iOS 26-style "minimize on scroll" chrome signal for the bottom tab bar.
+ * Reddit-style "minimize on scroll" chrome signal for the bottom tab bar.
  *
- * A single `Animated.Value` (`collapseProgress`) is shared between the screens
- * that scroll and the `AppBottomTabBar` that renders the design-system
- * `BottomTabBar`. The bar consumes the value as `collapseProgress`:
- *   0 = expanded full bar
- *   1 = collapsed to a pill showing only the active tab icon
+ * A shared boolean (`collapsed`) connects the screens that scroll with the
+ * `AppBottomTabBar` that renders the design-system `BottomTabBar`:
+ *   false = expanded full bar
+ *   true  = collapsed to an icon-only circle showing just the active tab
+ * (The bar itself animates the morph via LayoutAnimation.)
  *
  * Screens spread `useTabBarScrollHandler()` onto their ScrollView/FlatList
  * `onScroll` (with `scrollEventThrottle={16}`); scrolling down collapses the
@@ -32,8 +32,6 @@ const MIN_DELTA = 6;
 const COLLAPSE_OFFSET = 48;
 // Anything inside this band at the very top is always treated as "expanded".
 const TOP_FORCE_EXPANDED_OFFSET = 16;
-
-const COLLAPSE_ANIMATION_DURATION = 180;
 
 /**
  * Pure collapse-state decision with a small threshold + hysteresis so the bar
@@ -70,19 +68,17 @@ export function nextCollapsed(
 }
 
 type TabBarChromeContextValue = {
-  collapseProgress: Animated.Value;
+  collapsed: boolean;
   handleScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
 };
 
-const fallbackCollapseProgress = new Animated.Value(0);
-
 const TabBarChromeContext = createContext<TabBarChromeContextValue>({
-  collapseProgress: fallbackCollapseProgress,
+  collapsed: false,
   handleScroll: () => {},
 });
 
 export function TabBarChromeProvider({ children }: PropsWithChildren) {
-  const collapseProgress = useRef(new Animated.Value(0)).current;
+  const [collapsed, setCollapsed] = useState(false);
   const lastOffsetRef = useRef(0);
   const collapsedRef = useRef(false);
 
@@ -92,24 +88,19 @@ export function TabBarChromeProvider({ children }: PropsWithChildren) {
       const prevOffset = lastOffsetRef.current;
       lastOffsetRef.current = nextOffset;
 
-      const collapsed = nextCollapsed(prevOffset, nextOffset, collapsedRef.current);
-      if (collapsed === collapsedRef.current) {
+      const next = nextCollapsed(prevOffset, nextOffset, collapsedRef.current);
+      if (next === collapsedRef.current) {
         return;
       }
-      collapsedRef.current = collapsed;
-
-      Animated.timing(collapseProgress, {
-        toValue: collapsed ? 1 : 0,
-        duration: COLLAPSE_ANIMATION_DURATION,
-        useNativeDriver: true,
-      }).start();
+      collapsedRef.current = next;
+      setCollapsed(next);
     },
-    [collapseProgress],
+    [],
   );
 
   const value = useMemo<TabBarChromeContextValue>(
-    () => ({ collapseProgress, handleScroll }),
-    [collapseProgress, handleScroll],
+    () => ({ collapsed, handleScroll }),
+    [collapsed, handleScroll],
   );
 
   return (
@@ -130,10 +121,10 @@ export function useTabBarScrollHandler(): (
 }
 
 /**
- * Read the shared collapse signal (0 = expanded, 1 = collapsed) so the bottom
- * bar can animate itself out on scroll. Falls back to a static 0 with no
+ * Read the shared collapse state (false = expanded, true = icon-only pill) so
+ * the bottom bar can morph on scroll. Falls back to a static false with no
  * provider, so the bar simply stays expanded.
  */
-export function useTabBarCollapseProgress(): Animated.Value {
-  return useContext(TabBarChromeContext).collapseProgress;
+export function useTabBarCollapsed(): boolean {
+  return useContext(TabBarChromeContext).collapsed;
 }

@@ -163,7 +163,9 @@ export const layout = {
   titleBodyGap: 14,
   bottomNavHeight: 72,
   bottomNavSideInset: 16,
-  bottomNavBottomInset: 16,
+  // Rest gap between the floating nav pill and the safe-area edge. Kept tight
+  // (Reddit-style) so the pill hugs the bottom of the screen.
+  bottomNavBottomInset: 6,
   bottomNavIconSize: 52,
   chartCardRadius: 24,
   inventoryTileRadius: 18,

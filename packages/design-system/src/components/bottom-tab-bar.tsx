@@ -1,13 +1,13 @@
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
 import {
-  Animated,
+  LayoutAnimation,
   Pressable,
   StyleSheet,
   View,
   type ViewStyle,
 } from 'react-native';
 
-import { GlassSurface } from './glass-surface';
+import { GlassSurface, isLiquidGlassAvailable } from './glass-surface';
 import { Text } from './scaled-text';
 import { useSpotlightTheme } from '../theme';
 
@@ -30,12 +30,12 @@ type BottomTabBarProps = {
   items: readonly BottomTabBarItem[];
   bottomInset?: number;
   /**
-   * iOS 26-style "minimize on scroll" signal (0 = expanded, 1 = hidden). When
-   * provided, the floating pill slides down past the screen edge and fades out
-   * as the value approaches 1, so it disappears on scroll-down and returns on
-   * scroll-up.
+   * Reddit-style "minimize on scroll": when true the pill morphs down to just
+   * the ACTIVE tab (icon-only circle) instead of leaving the screen; scrolling
+   * back up restores the full bar. The width change animates via
+   * LayoutAnimation. No selected item → the bar simply stays expanded.
    */
-  collapseProgress?: Animated.Value;
+  collapsed?: boolean;
   style?: ViewStyle;
   testID?: string;
 };
@@ -43,41 +43,44 @@ type BottomTabBarProps = {
 /**
  * Floating bottom navigation. A centered glass "stadium" pill sitting a margin
  * above the screen's bottom edge (not a full-width anchored bar) — the iOS 26
- * Liquid Glass chrome shape. On a real iOS 26 build the pill is the native
- * glass material (content refracts under it); everywhere else it's the same
- * solid `canvasElevated` pill. Distinct from `FloatingBottomNav`.
+ * Liquid Glass chrome shape. On a real iOS 26 build the pill is the CLEAR
+ * native glass material (content genuinely shows through, Reddit-style);
+ * everywhere else it's the same solid `canvasElevated` pill. Distinct from
+ * `FloatingBottomNav`.
  */
 export function BottomTabBar({
   items,
   bottomInset = 0,
-  collapseProgress,
+  collapsed = false,
   style,
   testID,
 }: BottomTabBarProps) {
   const theme = useSpotlightTheme();
+  const hasGlass = isLiquidGlassAvailable();
 
-  // The pill rests `bottomNavBottomInset` above the safe-area inset; the collapse
-  // signal slides it fully off the bottom (its own height + the rest gap + a
-  // buffer) and fades it out.
-  const restGap = theme.layout.bottomNavBottomInset + bottomInset;
-  const collapseDistance = theme.layout.bottomNavHeight + restGap + 24;
-  const translateY = collapseProgress
-    ? collapseProgress.interpolate({
-        inputRange: [0, 1],
-        outputRange: [0, collapseDistance],
-        extrapolate: 'clamp',
-      })
-    : 0;
-  const opacity = collapseProgress
-    ? collapseProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 0], extrapolate: 'clamp' })
-    : 1;
+  // Collapse only makes sense down to SOMETHING — with no selected tab (e.g. a
+  // pushed utility screen) keep the full bar.
+  const activeItem = items.find((item) => item.selected === true) ?? null;
+  const isCollapsed = collapsed && activeItem != null;
+
+  // Animate the expand/collapse width morph. configureNext must run before the
+  // layout change commits, so it lives in render, gated on an actual change.
+  const prevCollapsedRef = useRef(isCollapsed);
+  if (prevCollapsedRef.current !== isCollapsed) {
+    prevCollapsedRef.current = isCollapsed;
+    LayoutAnimation.configureNext(
+      LayoutAnimation.create(220, LayoutAnimation.Types.easeInEaseOut, LayoutAnimation.Properties.opacity),
+    );
+  }
+
+  const visibleItems = isCollapsed && activeItem ? [activeItem] : items;
 
   return (
-    <Animated.View
+    <View
       pointerEvents="box-none"
       style={[
         styles.root,
-        { paddingBottom: restGap, opacity, transform: [{ translateY }] },
+        { paddingBottom: theme.layout.bottomNavBottomInset + bottomInset },
         style,
       ]}
       testID={testID}
@@ -85,21 +88,24 @@ export function BottomTabBar({
       <View
         style={[
           styles.pill,
-          theme.shadows.card,
-          { backgroundColor: theme.colors.canvasElevated },
+          // Real glass: fully transparent base so the clear material does the
+          // work (a solid base under glass reads opaque — the pre-Reddit look).
+          // Fallback targets keep the solid elevated pill + its shadow.
+          hasGlass
+            ? null
+            : [theme.shadows.card, { backgroundColor: theme.colors.canvasElevated }],
         ]}
       >
-        {/* Real iOS 26 Liquid Glass over the solid base; the base doubles as the
-            fallback surface + the thing the shadow casts from. */}
         <GlassSurface
           fallbackColor={theme.colors.canvasElevated}
           glassColorScheme="light"
+          glassEffectStyle="clear"
           pointerEvents="none"
           style={styles.pillGlass}
           testID={testID ? `${testID}-glass` : undefined}
         />
         <View style={styles.row}>
-          {items.map((item) => {
+          {visibleItems.map((item) => {
             const selected = item.selected === true;
             return (
               <Pressable
@@ -107,24 +113,30 @@ export function BottomTabBar({
                 accessibilityState={{ selected }}
                 key={item.key}
                 onPress={item.onPress}
-                style={({ pressed }) => [styles.tab, { opacity: pressed ? 0.7 : 1 }]}
+                style={({ pressed }) => [
+                  styles.tab,
+                  isCollapsed ? styles.tabCollapsed : null,
+                  { opacity: pressed ? 0.7 : 1 },
+                ]}
                 testID={item.testID}
               >
                 <View style={styles.iconSlot}>{item.icon}</View>
-                <Text
-                  style={[
-                    selected ? theme.typography.navLabelSelected : theme.typography.navLabel,
-                    { color: theme.colors.textPrimary },
-                  ]}
-                >
-                  {item.label}
-                </Text>
+                {isCollapsed ? null : (
+                  <Text
+                    style={[
+                      selected ? theme.typography.navLabelSelected : theme.typography.navLabel,
+                      { color: theme.colors.textPrimary },
+                    ]}
+                  >
+                    {item.label}
+                  </Text>
+                )}
               </Pressable>
             );
           })}
         </View>
       </View>
-    </Animated.View>
+    </View>
   );
 }
 
@@ -174,5 +186,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 14,
     paddingVertical: 4,
+  },
+  tabCollapsed: {
+    // Icon-only circle: equalize padding so the collapsed pill reads round.
+    paddingHorizontal: 10,
+    paddingVertical: 10,
   },
 });

@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BottomTabBar, useSpotlightTheme } from '@spotlight/design-system';
 
-import { useTabBarCollapseProgress } from '@/contexts/tab-bar-chrome-context';
+import { useTabBarCollapsed } from '@/contexts/tab-bar-chrome-context';
 import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { CollectionTabIcon, ScanTabIcon, WishlistTabIcon } from './nav-tab-icons';
 
@@ -42,9 +42,9 @@ export function AppBottomTabBar({
   const router = useRouter();
   // Guests can scan freely but Collection/Wishlist are gated behind login.
   const { gate } = useGuestGate();
-  // iOS 26-style minimize-on-scroll: the bar slides down + fades as the user
-  // scrolls the active list, and returns on scroll-up.
-  const collapseProgress = useTabBarCollapseProgress();
+  // Reddit-style minimize-on-scroll: the bar morphs down to the active tab's
+  // icon-only circle as the user scrolls the list, and expands on scroll-up.
+  const collapsed = useTabBarCollapsed();
 
   const iconColor = theme.colors.textPrimary;
   // Figma nav glyph size (node 1313:7454 — `size-[22px]`).
@@ -89,7 +89,7 @@ export function AppBottomTabBar({
   return (
     <BottomTabBar
       bottomInset={Math.max(insets.bottom, 0)}
-      collapseProgress={collapseProgress}
+      collapsed={collapsed}
       items={[
         {
           key: 'portfolio',

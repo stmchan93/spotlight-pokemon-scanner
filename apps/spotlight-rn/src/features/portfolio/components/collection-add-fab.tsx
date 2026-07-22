@@ -25,9 +25,11 @@ export function CollectionAddFab({
     router.push('/catalog/search' as never);
   };
 
-  // Sit exactly 16px above the Collection/Scan/Events nav bar (the bar is
-  // bottomTabBarHeight tall and padded by the bottom safe-area inset).
-  const bottom = Math.max(insets.bottom, 0) + bottomTabBarHeight + 16;
+  // Sit 28px above the Collection/Scan/Events nav bar (the bar is
+  // bottomTabBarHeight tall and padded by the bottom safe-area inset) — the
+  // extra clearance keeps the FAB visually detached now the pill hugs the
+  // screen bottom.
+  const bottom = Math.max(insets.bottom, 0) + bottomTabBarHeight + 28;
 
   return (
     <Pressable
