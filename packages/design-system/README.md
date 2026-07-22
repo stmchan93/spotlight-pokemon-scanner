@@ -517,6 +517,11 @@ Current behavior:
 - `isLiquidGlassAvailable()` is re-exported here so screens can gate their own
   layout (e.g. pinning a header so content scrolls under the glass) without
   importing `expo-glass-effect` directly
+- `glassEffectStyle` prop selects the material variant: `regular` (frosted,
+  default) or `clear` (more transparent — content genuinely shows through;
+  used by the floating `BottomTabBar` pill for the Reddit-style look, whose
+  base is fully transparent on real glass so the material isn't backed by a
+  solid fill)
 - glass only appears via a fresh native build, never OTA
 
 ## Design-System Editing Rules
