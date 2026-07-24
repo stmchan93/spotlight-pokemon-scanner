@@ -17,6 +17,7 @@ import { CachedImage } from '@/components/cached-image';
 import rouletteSpecies from '../data/roulette-species.json';
 import { officialArtworkUrl } from '../artwork';
 import { useReduceMotion } from '../use-reduce-motion';
+import { SelfieImage } from './selfie-image';
 
 const isTestEnv = process.env.NODE_ENV === 'test';
 
@@ -155,7 +156,7 @@ export function ScanningTheater({ selfieUri, palette, testID = 'wtp-theater' }: 
     <View style={styles.root} testID={testID}>
       <View style={styles.reticleFrame}>
         {selfieUri ? (
-          <CachedImage
+          <SelfieImage
             cachePolicy="memory-disk"
             contentFit="cover"
             style={styles.selfie}

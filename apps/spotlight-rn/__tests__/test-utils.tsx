@@ -82,6 +82,14 @@ export function createTestSpotlightRepository(
       return overrides.getInventoryEntries?.(...args)
         ?? baseRepository.getInventoryEntries(...args);
     },
+    getProfileDeckEntries: (...args) => {
+      return overrides.getProfileDeckEntries?.(...args)
+        ?? baseRepository.getProfileDeckEntries(...args);
+    },
+    getProfilePortfolioSummary: (...args) => {
+      return overrides.getProfilePortfolioSummary?.(...args)
+        ?? baseRepository.getProfilePortfolioSummary(...args);
+    },
     loadCatalogCards: (...args) => {
       return overrides.loadCatalogCards?.(...args)
         ?? baseRepository.loadCatalogCards(...args);

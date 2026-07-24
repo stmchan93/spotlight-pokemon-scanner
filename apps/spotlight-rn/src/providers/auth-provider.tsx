@@ -507,7 +507,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
       if (!currentUser) {
         return;
       }
-      await performAuthAction(async () => {
+      // runWithBusy, not performAuthAction: a rejected write (e.g. a handle
+      // claimed out from under us) has to reach the caller, or Edit Profile
+      // dismisses itself as though the save landed.
+      await runWithBusy(async () => {
         await updateProfileService(currentUser.id, patch);
         const refreshedSession = currentSession ?? await getCurrentSession();
         if (refreshedSession) {

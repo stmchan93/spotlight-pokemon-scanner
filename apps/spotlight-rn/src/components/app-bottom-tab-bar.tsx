@@ -47,8 +47,9 @@ export function AppBottomTabBar({
   const collapsed = useTabBarCollapsed();
 
   const iconColor = theme.colors.textPrimary;
-  // White glyph for the Reddit-style dark stadium behind the active tab.
-  const selectedIconColor = theme.colors.gray0;
+  // Reddit's active tab is a LIGHT-grey stadium, so the selected glyph stays
+  // dark (filled) — same ink as the label beneath it — not a white knockout.
+  const selectedIconColor = theme.colors.textPrimary;
   // Figma nav glyph size (node 1313:7454 — `size-[22px]`).
   const NAV_ICON_SIZE = 22;
 

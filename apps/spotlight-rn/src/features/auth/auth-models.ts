@@ -58,6 +58,62 @@ export function normalizeDisplayName(value: string | null | undefined) {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+export const HANDLE_MIN_LENGTH = 3;
+export const HANDLE_MAX_LENGTH = 20;
+
+/**
+ * Fold what the user typed into a storable @handle: drop a leading `@`,
+ * lowercase, keep only `[a-z0-9_]`, and cap the length. Safe to run on every
+ * keystroke — it never rejects, it only narrows, so the field can't fight the
+ * user mid-word.
+ */
+export function sanitizeHandleInput(value: string): string {
+  return value
+    .trim()
+    .replace(/^@+/, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, '')
+    .slice(0, HANDLE_MAX_LENGTH);
+}
+
+export type HandleValidity = 'empty' | 'too-short' | 'too-long' | 'bad-start' | 'ok';
+
+/**
+ * Validate an already-sanitized handle. `empty` is a legitimate state, not an
+ * error: handles are optional, and profiles stay reachable by user id.
+ */
+export function validateHandle(value: string | null | undefined): HandleValidity {
+  const handle = sanitizeHandleInput(value ?? '');
+  if (handle.length === 0) {
+    return 'empty';
+  }
+  if (handle.length < HANDLE_MIN_LENGTH) {
+    return 'too-short';
+  }
+  if (handle.length > HANDLE_MAX_LENGTH) {
+    return 'too-long';
+  }
+  // Leading underscores read as reserved/system names — require a letter or digit.
+  if (!/^[a-z0-9]/.test(handle)) {
+    return 'bad-start';
+  }
+  return 'ok';
+}
+
+/** User-facing explanation for a non-`ok` validity, or null when nothing is wrong. */
+export function describeHandleValidity(validity: HandleValidity): string | null {
+  switch (validity) {
+    case 'too-short':
+      return `At least ${HANDLE_MIN_LENGTH} characters.`;
+    case 'too-long':
+      return `At most ${HANDLE_MAX_LENGTH} characters.`;
+    case 'bad-start':
+      return 'Start with a letter or number.';
+    default:
+      return null;
+  }
+}
+
 export function requiresProfileCompletion(user: AppUser) {
   return normalizeDisplayName(user.displayName) === null;
 }

@@ -17,6 +17,7 @@ import { colors, radii } from '@spotlight/design-system';
 import { CachedImage } from '@/components/cached-image';
 
 import { useReduceMotion } from '../use-reduce-motion';
+import { SelfieImage } from './selfie-image';
 
 const isTestEnv = process.env.NODE_ENV === 'test';
 
@@ -130,7 +131,7 @@ export function MorphLoop({
     <View style={styles.root} testID={testID}>
       {selfieUri ? (
         <Animated.View style={[StyleSheet.absoluteFillObject, selfieStyle]}>
-          <CachedImage
+          <SelfieImage
             cachePolicy="memory-disk"
             contentFit="cover"
             style={StyleSheet.absoluteFillObject}
@@ -157,7 +158,7 @@ export function MorphLoop({
             style={[StyleSheet.absoluteFillObject, glowStyle]}
             testID={`${testID}-glow`}
           >
-            <CachedImage
+            <SelfieImage
               cachePolicy="memory"
               contentFit="contain"
               style={StyleSheet.absoluteFillObject}
@@ -171,7 +172,7 @@ export function MorphLoop({
             style={[StyleSheet.absoluteFillObject, cutoutStyle]}
             testID={`${testID}-cutout`}
           >
-            <CachedImage
+            <SelfieImage
               cachePolicy="memory"
               contentFit="contain"
               style={StyleSheet.absoluteFillObject}

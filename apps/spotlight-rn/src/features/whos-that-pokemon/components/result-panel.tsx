@@ -16,6 +16,7 @@ import { CachedImage } from '@/components/cached-image';
 
 import { officialArtworkUrl } from '../artwork';
 import { MorphLoop } from './morph-loop';
+import { SelfieImage } from './selfie-image';
 
 type ResultPanelProps = {
   /** Top-3 matches, best first. */
@@ -109,7 +110,7 @@ export function ResultPanel({
           <View style={styles.compareRow} testID={`${testID}-compare`}>
             <View style={styles.compareCell}>
               {selfieUri ? (
-                <CachedImage
+                <SelfieImage
                   cachePolicy="memory-disk"
                   contentFit="cover"
                   style={styles.compareThumb}

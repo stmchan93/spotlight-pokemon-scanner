@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { forwardRef, type ReactNode } from 'react';
 import {
   StyleSheet,
   TextInput,
@@ -30,7 +30,7 @@ type SearchFieldProps = Omit<TextInputProps, 'style'> & {
   surface?: SearchFieldSurface;
 };
 
-export function SearchField({
+export const SearchField = forwardRef<TextInput, SearchFieldProps>(function SearchField({
   containerStyle,
   containerTestID,
   inputStyle,
@@ -40,7 +40,7 @@ export function SearchField({
   size = 'default',
   surface = 'default',
   ...inputProps
-}: SearchFieldProps) {
+}, ref) {
   const theme = useSpotlightTheme();
   const isCompact = size === 'compact';
   const isCollection = size === 'collection';
@@ -98,6 +98,7 @@ export function SearchField({
         <SearchIcon color={iconColor} height={16} width={16} />
       )}
       <TextInput
+        ref={ref}
         maxFontSizeMultiplier={MAX_FONT_SIZE_MULTIPLIER}
         placeholderTextColor={placeholderColor}
         style={[
@@ -112,7 +113,7 @@ export function SearchField({
       {trailing}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: {

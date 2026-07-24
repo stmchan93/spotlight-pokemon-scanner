@@ -1013,6 +1013,29 @@ export type InventoryEntriesQuery = {
   includeInactive?: boolean;
 };
 
+/**
+ * Pagination for another user's public holdings
+ * (`GET /api/v1/profiles/{userId}/deck/entries`).
+ */
+export type ProfileDeckEntriesQuery = {
+  limit?: number;
+  offset?: number;
+};
+
+/**
+ * Public portfolio headline for another user
+ * (`GET /api/v1/profiles/{userId}/portfolio/summary`).
+ *
+ * Total value + card count only — the owner-only dashboard (price history,
+ * ranges, insights) is deliberately not part of the public read path.
+ */
+export type ProfilePortfolioSummary = {
+  userId: string;
+  totalValue: number;
+  cardCount: number;
+  currency: string;
+};
+
 export type CardFavoriteRecord = {
   cardId: string;
   isFavorite: boolean;

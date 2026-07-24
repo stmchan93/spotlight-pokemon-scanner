@@ -326,10 +326,64 @@ export async function resolveAppUserFromSession(session: Session): Promise<AppUs
   };
 }
 
+/** Postgres unique-violation, raised by `uq_user_profiles_handle`. */
+const PG_UNIQUE_VIOLATION = '23505';
+
+/**
+ * Thrown when a profile write is rejected for a reason the user can fix, so the
+ * screen can say which field is wrong instead of a generic failure.
+ */
+export type ProfileUpdateErrorCode = 'handle-taken' | 'save-failed';
+
+export class ProfileUpdateError extends Error {
+  readonly code: ProfileUpdateErrorCode;
+
+  constructor(code: ProfileUpdateErrorCode, message: string) {
+    super(message);
+    this.name = 'ProfileUpdateError';
+    this.code = code;
+  }
+}
+
+/**
+ * Is this @handle free? True when nothing owns it, or when the caller already
+ * does. `handle` is `citext`, so the match is case-insensitive in the DB.
+ *
+ * Reads `public_profiles`, not `user_profiles`: the base table is self-read-only,
+ * so querying it would report every other user's handle as free.
+ *
+ * Advisory only. `uq_user_profiles_handle` is the real enforcement, and the view
+ * hides suspended/shadowbanned users — so a handle held by one of them reads as
+ * available here and is rejected at save time. Never treat a `true` from this as
+ * permission to skip handling a save-time conflict.
+ */
+export async function isHandleAvailable(handle: string, userID: string): Promise<boolean> {
+  if (!supabase || !handle) {
+    return false;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('public_profiles')
+      .select('user_id')
+      .eq('handle', handle)
+      .maybeSingle();
+    if (error) {
+      return false;
+    }
+    return !data || data.user_id === userID;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Write the Edit Profile fields to `user_profiles` (only the keys provided).
  * Returns the refetched full profile so callers can update UI, or null off
  * Supabase / on failure.
+ *
+ * Throws `ProfileUpdateError` when the write is rejected for a user-fixable
+ * reason (a taken handle) — those must not silently no-op.
  */
 export async function updateProfile(
   userID: string,
@@ -356,10 +410,33 @@ export async function updateProfile(
         patch.avatarURL ?? null,
       );
     }
-    await supabase.from('user_profiles').upsert(row, { onConflict: 'user_id' });
-    return await fetchProfile(userID);
+    const { error } = await supabase.from('user_profiles').upsert(row, { onConflict: 'user_id' });
+    if (error) {
+      // A racing claim (or a stale availability read) lands here — the unique
+      // index is the only authority on who owns a handle.
+      if (error.code === PG_UNIQUE_VIOLATION && row.handle) {
+        throw new ProfileUpdateError('handle-taken', 'That handle is already taken.');
+      }
+      throw error;
+    }
   } catch (error) {
+    if (error instanceof ProfileUpdateError) {
+      throw error;
+    }
+    // Real write failures used to be swallowed here (warn + return null), so the
+    // Edit Profile screen closed as though the save landed. That silence is what
+    // hid missing columns on an unmigrated database. Log for the console, then
+    // rethrow so the caller can tell the user the save did not happen.
     console.warn('[AUTH] Failed to update user profile.', error);
+    throw new ProfileUpdateError('save-failed', 'Could not save your profile.');
+  }
+
+  // The write landed. The refresh read is best-effort — if it blips, the caller
+  // falls back to the session, and we must NOT report a save failure for a save
+  // that succeeded.
+  try {
+    return await fetchProfile(userID);
+  } catch {
     return null;
   }
 }

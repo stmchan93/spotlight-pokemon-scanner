@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'expo-router';
 import {
   Alert,
@@ -15,11 +15,19 @@ import { Camera, Check, NavArrowLeft, NavArrowRight } from 'iconoir-react-native
 
 import { Avatar, Button, Text, useSpotlightTheme } from '@spotlight/design-system';
 
-import { getUserInitials, type ProfileUpdate } from '@/features/auth/auth-models';
+import {
+  describeHandleValidity,
+  getUserInitials,
+  sanitizeHandleInput,
+  validateHandle,
+  type ProfileUpdate,
+} from '@/features/auth/auth-models';
+import { isHandleAvailable, ProfileUpdateError } from '@/features/auth/auth-service';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/providers/auth-provider';
 
 const BIO_MAX_LENGTH = 150;
+const HANDLE_CHECK_DEBOUNCE_MS = 400;
 const COVER_HEIGHT = 150;
 const AVATAR_SIZE = 80;
 
@@ -51,13 +59,67 @@ export function EditProfileScreen() {
   const user = auth.currentUser;
 
   const [displayName, setDisplayName] = useState(user?.displayName ?? '');
+  const [handle, setHandle] = useState(() => sanitizeHandleInput(user?.handle ?? ''));
   const [socialLink, setSocialLink] = useState(user?.socialLink ?? '');
   const [location, setLocation] = useState(user?.location ?? '');
   const [bio, setBio] = useState(user?.bio ?? '');
   const [avatarUrl, setAvatarUrl] = useState(user?.avatarURL ?? null);
   const [isSaving, setIsSaving] = useState(false);
+  const [handleAvailability, setHandleAvailability] =
+    useState<'idle' | 'checking' | 'available' | 'taken'>('idle');
 
   const initials = useMemo(() => (user ? getUserInitials(user) : '?'), [user]);
+
+  const savedHandle = useMemo(() => sanitizeHandleInput(user?.handle ?? ''), [user?.handle]);
+  const handleValidity = validateHandle(handle);
+  const handleHint = describeHandleValidity(handleValidity);
+  // Only the user's own unchanged handle is exempt from the availability check.
+  const handleIsUnchanged = handle === savedHandle;
+
+  // Debounced availability probe. The request counter drops stale responses so a
+  // slow early check can't overwrite the verdict for what's currently typed.
+  const handleCheckSeq = useRef(0);
+  useEffect(() => {
+    if (!user || handleValidity !== 'ok' || handleIsUnchanged) {
+      setHandleAvailability('idle');
+      return;
+    }
+
+    setHandleAvailability('checking');
+    const seq = handleCheckSeq.current + 1;
+    handleCheckSeq.current = seq;
+
+    const timer = setTimeout(() => {
+      void isHandleAvailable(handle, user.id).then((available) => {
+        if (handleCheckSeq.current === seq) {
+          setHandleAvailability(available ? 'available' : 'taken');
+        }
+      });
+    }, HANDLE_CHECK_DEBOUNCE_MS);
+
+    return () => clearTimeout(timer);
+  }, [handle, handleIsUnchanged, handleValidity, user]);
+
+  const handleStatusText = (() => {
+    if (handleHint) {
+      return handleHint;
+    }
+    if (handleAvailability === 'checking') {
+      return 'Checking availability…';
+    }
+    if (handleAvailability === 'available') {
+      return `@${handle} is available.`;
+    }
+    if (handleAvailability === 'taken') {
+      return `@${handle} is taken.`;
+    }
+    return null;
+  })();
+
+  const handleStatusIsError = Boolean(handleHint) || handleAvailability === 'taken';
+  // An empty handle is fine — profiles stay reachable by user id.
+  const canSaveHandle =
+    handleValidity === 'empty' || (handleValidity === 'ok' && handleAvailability !== 'taken');
 
   const handlePickAvatar = useCallback(async () => {
     const ImagePicker = loadImagePicker();
@@ -130,7 +192,7 @@ export function EditProfileScreen() {
   }, []);
 
   const handleSave = useCallback(async () => {
-    if (isSaving) {
+    if (isSaving || !canSaveHandle) {
       return;
     }
     setIsSaving(true);
@@ -139,17 +201,35 @@ export function EditProfileScreen() {
         avatarURL: avatarUrl,
         bio: bio.trim(),
         displayName: displayName.trim(),
+        // Clearing the field releases the handle rather than writing ''.
+        handle: handle.length > 0 ? handle : null,
         location: location.trim(),
         socialLink: socialLink.trim(),
       };
       await auth.updateProfile(patch);
       router.back();
-    } catch {
+    } catch (error) {
+      if (error instanceof ProfileUpdateError && error.code === 'handle-taken') {
+        setHandleAvailability('taken');
+        Alert.alert('Handle taken', `@${handle} was just claimed. Try another one.`);
+        return;
+      }
       Alert.alert('Could not save', 'Something went wrong saving your profile. Please try again.');
     } finally {
       setIsSaving(false);
     }
-  }, [auth, avatarUrl, bio, displayName, isSaving, location, router, socialLink]);
+  }, [
+    auth,
+    avatarUrl,
+    bio,
+    canSaveHandle,
+    displayName,
+    handle,
+    isSaving,
+    location,
+    router,
+    socialLink,
+  ]);
 
   return (
     <SafeAreaView
@@ -234,6 +314,43 @@ export function EditProfileScreen() {
                 testID="edit-profile-name-input"
                 value={displayName}
               />
+            </View>
+
+            <View style={styles.field}>
+              <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
+                Handle
+              </Text>
+              <View
+                style={[styles.handleRow, { borderBottomColor: theme.colors.outlineSubtle }]}
+              >
+                <Text style={[styles.handlePrefix, { color: theme.colors.textSecondary }]}>@</Text>
+                <TextInput
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  maxFontSizeMultiplier={1.2}
+                  onChangeText={(next) => setHandle(sanitizeHandleInput(next))}
+                  placeholder="yourhandle"
+                  placeholderTextColor={theme.colors.textSecondary}
+                  style={[styles.handleInput, { color: theme.colors.textPrimary }]}
+                  testID="edit-profile-handle-input"
+                  value={handle}
+                />
+              </View>
+              <Text
+                style={[
+                  theme.typography.caption,
+                  {
+                    // dangerStrong, not danger: caption-size error text needs the
+                    // darker red to stay legible on the light form background.
+                    color: handleStatusIsError
+                      ? theme.colors.dangerStrong
+                      : theme.colors.textSecondary,
+                  },
+                ]}
+                testID="edit-profile-handle-status"
+              >
+                {handleStatusText ?? 'Optional. People can find you by your handle.'}
+              </Text>
             </View>
 
             <View style={styles.field}>
@@ -329,7 +446,7 @@ export function EditProfileScreen() {
             </View>
             <View style={styles.actionButton}>
               <Button
-                disabled={isSaving}
+                disabled={isSaving || !canSaveHandle}
                 label={isSaving ? 'SAVING…' : 'SAVE'}
                 onPress={() => {
                   void handleSave();
@@ -422,6 +539,23 @@ const styles = StyleSheet.create({
     gap: 20,
     paddingHorizontal: 20,
     paddingTop: 16,
+  },
+  handleInput: {
+    flex: 1,
+    fontFamily: 'SpotlightBodyRegular',
+    fontSize: 16,
+  },
+  handlePrefix: {
+    fontFamily: 'SpotlightBodyRegular',
+    fontSize: 16,
+  },
+  handleRow: {
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    gap: 2,
+    paddingBottom: 8,
+    paddingTop: 4,
   },
   fullWidth: {
     width: '100%',

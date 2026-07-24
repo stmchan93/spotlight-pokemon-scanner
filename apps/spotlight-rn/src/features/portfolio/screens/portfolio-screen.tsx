@@ -8,12 +8,13 @@ import {
   Share,
   StyleSheet,
   type StyleProp,
+  type TextInput,
   View,
   type ViewStyle,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
-import { CheckCircle, EditPencil, Menu as MenuIcon, Trash } from 'iconoir-react-native';
+import { CheckCircle, EditPencil, Menu as MenuIcon, Search as SearchIcon, Trash } from 'iconoir-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { InventoryCardEntry } from '@spotlight/api-client';
@@ -93,6 +94,8 @@ const SEARCH_FOCUS_TOP_GAP = 12;
 // Diameter of the floating glass nav bubbles (menu / edit) that sit in the top
 // corners over the scrolling content — the iOS 26 Liquid Glass chrome shape.
 const BUBBLE_SIZE = 44;
+// Figma node 2919:9651 — gap between the hamburger bubble and the profile avatar.
+const PROFILE_AVATAR_GAP = 24.5;
 
 /**
  * A floating circular Liquid Glass button. Real iOS 26 glass over a solid base
@@ -256,6 +259,9 @@ export function PortfolioScreen({
   // OVER the profile cover hero, which is full-bleed to the very top (under the
   // status bar) — so the scroll content starts at 0.
   const bubbleTop = insets.top + 8;
+  // Figma: the profile avatar sits 24.5px below the hamburger bubble. Anchor it to
+  // the bubble rather than the cover, so the gap holds across safe-area insets.
+  const profileAvatarTop = bubbleTop + BUBBLE_SIZE + PROFILE_AVATAR_GAP;
   const listTopInset = 0;
   // NOTE: no guest on-mount redirect here. This screen is mounted *alongside*
   // the scanner in the tabs pager (both pages live at once), so a redirect would
@@ -299,6 +305,9 @@ export function PortfolioScreen({
   // Y offset of the search row within the list header chrome, captured on
   // layout so focusing the field can scroll it into a keyboard-safe position.
   const searchRowYRef = useRef(0);
+  // The collection search input, so the top-bar search bubble can scroll the
+  // row into view and drop the keyboard open on it.
+  const searchInputRef = useRef<TextInput>(null);
 
   const bottomNavClearance =
     theme.layout.bottomNavHeight
@@ -548,6 +557,18 @@ export function PortfolioScreen({
     scrollRef.current?.scrollToOffset({ offset, animated: true });
   }, [listTopInset]);
 
+  // Top-bar search bubble: reveal the buried search row (Collection tab only)
+  // and focus it. Switch to the Collection tab first if we're on another tab,
+  // then scroll it up and open the keyboard on the input.
+  const handleTopSearchPress = useCallback(() => {
+    if (activeProfileTab !== 'collection') {
+      setActiveProfileTab('collection');
+    }
+    handleSearchFocus();
+    // Let the scroll settle before focusing so the input is mounted on-screen.
+    requestAnimationFrame(() => searchInputRef.current?.focus());
+  }, [activeProfileTab, handleSearchFocus]);
+
   // The whole screen is one virtualized FlatList: the balance/chart/search/
   // filter chrome rides along as the list header, and the collection renders
   // row-by-row (one card per row in list view, two tiles per ruled row in card
@@ -633,6 +654,16 @@ export function PortfolioScreen({
       >
         <MenuIcon color={theme.colors.gray900} height={22} width={22} />
       </GlassNavBubble>
+      {activeProfileTab === 'collection' ? (
+        <GlassNavBubble
+          accessibilityLabel="Search your portfolio"
+          onPress={handleTopSearchPress}
+          style={{ right: theme.layout.pageGutter + BUBBLE_SIZE + 8, top: bubbleTop }}
+          testID="portfolio-header-search"
+        >
+          <SearchIcon color={theme.colors.gray900} height={20} width={20} />
+        </GlassNavBubble>
+      ) : null}
       <GlassNavBubble
         accessibilityLabel="Edit profile"
         onPress={() => router.push('/edit-profile' as never)}
@@ -647,6 +678,7 @@ export function PortfolioScreen({
   const listHeader = (
     <View style={styles.chrome}>
       <ProfileHeader
+        avatarTop={profileAvatarTop}
         avatarUrl={currentUser?.avatarURL}
         bio={currentUser?.bio}
         displayName={profileName}
@@ -719,6 +751,7 @@ export function PortfolioScreen({
 
           <View onLayout={handleSearchRowLayout}>
             <CollectionSearchRow
+              inputRef={searchInputRef}
               onChangeQuery={model.setSearchQuery}
               onFocus={handleSearchFocus}
               onToggleViewMode={toggleViewMode}

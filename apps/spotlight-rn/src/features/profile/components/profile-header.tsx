@@ -19,6 +19,13 @@ type ProfileHeaderProps = {
   onSocialLinkPress?: () => void;
   onFollowersPress?: () => void;
   onFollowingPress?: () => void;
+  /**
+   * Distance from the top of the header block to the top of the avatar. Screens
+   * pass this so the avatar keeps a fixed gap below the floating nav bubbles,
+   * whose position depends on the device's top safe-area inset. Omit to keep the
+   * default overlap onto the bottom of the cover.
+   */
+  avatarTop?: number;
   testID?: string;
 };
 
@@ -41,6 +48,7 @@ export function ProfileHeader({
   onSocialLinkPress,
   onFollowersPress,
   onFollowingPress,
+  avatarTop,
   testID = 'profile-header',
 }: ProfileHeaderProps) {
   const theme = useSpotlightTheme();
@@ -66,7 +74,11 @@ export function ProfileHeader({
           initials={initials}
           ring
           size={AVATAR_SIZE}
-          style={styles.avatar}
+          style={
+            avatarTop === undefined
+              ? styles.avatar
+              : { marginTop: avatarTop - COVER_HEIGHT }
+          }
           testID={`${testID}-avatar`}
           uri={avatarUrl}
         />
@@ -136,7 +148,9 @@ export function ProfileHeader({
           />
           <StatChip
             count={reputation ?? 0}
-            label="Reputation"
+            // User-facing name is "Fame"; the `reputation` column and props keep
+            // their name, same as Wishlist/favorite.
+            label="Fame"
             testID={`${testID}-reputation`}
           />
         </View>

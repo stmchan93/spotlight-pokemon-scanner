@@ -22,8 +22,8 @@ export type BottomTabBarItem = {
   label: string;
   icon: ReactNode;
   /**
-   * Icon variant shown inside the dark active-tab highlight when the bar is
-   * expanded (Reddit-style: white glyph on a dark stadium). Falls back to
+   * Icon variant shown inside the active-tab highlight when the bar is expanded
+   * (Reddit-style: dark filled glyph on a light-grey stadium). Falls back to
    * `icon` when omitted. The collapsed circle always uses `icon`.
    */
   selectedIcon?: ReactNode;
@@ -120,9 +120,10 @@ export function BottomTabBar({
         <View style={styles.row}>
           {visibleItems.map((item) => {
             const selected = item.selected === true;
-            // Reddit-style active treatment: when expanded, the selected tab's
-            // icon sits on a dark stadium highlight (white glyph); the label
-            // stays dark beneath it. Collapsed shows the bare dark icon.
+            // Reddit-style active treatment: when expanded, the selected tab sits
+            // on a light-grey stadium that wraps BOTH the icon AND the label
+            // (not a dark icon-only chip). Glyph + text stay dark throughout.
+            // Collapsed shows the bare dark icon with no highlight.
             const showHighlight = selected && !isCollapsed;
             return (
               <Pressable
@@ -133,20 +134,15 @@ export function BottomTabBar({
                 style={({ pressed }) => [
                   styles.tab,
                   isCollapsed ? styles.tabCollapsed : null,
+                  showHighlight
+                    ? [styles.tabSelected, { backgroundColor: theme.colors.gray200 }]
+                    : null,
                   { opacity: pressed ? 0.7 : 1 },
                 ]}
                 testID={item.testID}
               >
-                <View
-                  style={
-                    showHighlight
-                      ? [styles.iconHighlight, { backgroundColor: theme.colors.textPrimary }]
-                      : styles.iconPlain
-                  }
-                >
-                  <View style={styles.iconSlot}>
-                    {showHighlight ? item.selectedIcon ?? item.icon : item.icon}
-                  </View>
+                <View style={styles.iconSlot}>
+                  {showHighlight ? item.selectedIcon ?? item.icon : item.icon}
                 </View>
                 {isCollapsed ? null : (
                   <Text
@@ -205,20 +201,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
-  iconHighlight: {
-    // Dark stadium behind the active tab's icon (Reddit-style).
-    alignItems: 'center',
-    borderRadius: 999,
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-  },
-  iconPlain: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    // Match the highlight's vertical footprint so tabs don't shift height.
-    paddingVertical: 6,
-  },
   tab: {
     alignItems: 'center',
     flexDirection: 'column',
@@ -227,6 +209,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 10,
     paddingVertical: 2,
+  },
+  tabSelected: {
+    // Light-grey stadium wrapping the active tab's icon + label together
+    // (Reddit-style). Fully-rounded ends read as an oval around the column.
+    borderRadius: 999,
+    paddingHorizontal: 18,
+    paddingVertical: 6,
   },
   tabCollapsed: {
     // Icon-only circle: equalize padding so the collapsed pill reads round.

@@ -313,6 +313,25 @@ HEAVY_READ_ACQUIRE_TIMEOUT_S = float(
 )
 _heavy_read_semaphore = threading.BoundedSemaphore(HEAVY_READ_MAX_CONCURRENCY)
 
+# Public-profile reads take the TARGET user id from the URL path, so it is
+# untrusted input. Backend identities are Supabase auth UUIDs; anything that is
+# not shaped like one is rejected with 400 before it ever reaches a query.
+PUBLIC_PROFILE_USER_ID_PATTERN = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+
+
+PUBLIC_PROFILE_PATH_PREFIX = "/api/v1/profiles/"
+PUBLIC_PROFILE_DECK_ENTRIES_SUFFIX = "/deck/entries"
+PUBLIC_PROFILE_SUMMARY_SUFFIX = "/portfolio/summary"
+
+
+def is_plausible_user_id(value: str | None) -> bool:
+    """True when ``value`` looks like a Supabase auth UUID (the id space every
+    owner-scoped backend row is keyed on)."""
+    return bool(PUBLIC_PROFILE_USER_ID_PATTERN.match(str(value or "").strip()))
+
+
 RECENT_SALES_DEFAULT_LIMIT = 5
 RECENT_SALES_MAX_LIMIT = 25
 RECENT_SALES_FRESHNESS_HOURS = 24
@@ -15396,6 +15415,29 @@ class SpotlightScanService:
         favorites_only: bool = False,
         compute_day_change: bool = True,
     ) -> dict[str, Any]:
+        """Owner-scoped read for the CALLER, resolved from the ambient request
+        identity. Thin wrapper over ``deck_entries_for_owner`` — that explicit
+        form is the real implementation, so every non-caller read has to name the
+        owner at the call site and can never be mistaken for a write path."""
+        return self.deck_entries_for_owner(
+            self._current_owner_user_id(),
+            limit=limit,
+            offset=offset,
+            include_inactive=include_inactive,
+            favorites_only=favorites_only,
+            compute_day_change=compute_day_change,
+        )
+
+    def deck_entries_for_owner(
+        self,
+        owner_user_id: str,
+        *,
+        limit: int = 200,
+        offset: int = 0,
+        include_inactive: bool = False,
+        favorites_only: bool = False,
+        compute_day_change: bool = True,
+    ) -> dict[str, Any]:
         """Cache-and-dogpile wrapper over the heavy inventory computation, the
         same pattern as ``portfolio_dashboard``. The payload is a pure function
         of the owner's deck rows, favorites, and the latest daily prices —
@@ -15403,8 +15445,14 @@ class SpotlightScanService:
         cache auto-invalidates on any collection mutation, wishlist change, or
         daily sync. Uncached, every Collection view re-ran ~1s of GIL-bound
         per-card pricing; ~30 concurrent browsers saturated the heavy-read slots
-        and shed 503s (load-tested 2026-07-05). A hit serves in ~1ms."""
-        owner_user_id = self._current_owner_user_id()
+        and shed 503s (load-tested 2026-07-05). A hit serves in ~1ms.
+
+        ``owner_user_id`` is EXPLICIT: this is the form the public-profile read
+        endpoints call with a target user id while the ambient request identity
+        still belongs to the (authenticated) caller. Read-only by construction."""
+        owner_user_id = str(owner_user_id or "").strip()
+        if not owner_user_id:
+            raise ValueError("owner_user_id is required")
         started_at = perf_counter()
         try:
             version = self._deck_entries_version_token(owner_user_id)
@@ -15433,7 +15481,8 @@ class SpotlightScanService:
                 if cached is not None and cached[0] == version:
                     self._log_deck_entries_timing(started_at, outcome="hit_after_wait")
                     return cached[1]
-            payload = self._compute_deck_entries(
+            payload = self._compute_deck_entries_for_owner(
+                owner_user_id,
                 limit=limit,
                 offset=offset,
                 include_inactive=include_inactive,
@@ -15460,6 +15509,44 @@ class SpotlightScanService:
         )
         entries = payload.get("entries", []) if isinstance(payload, dict) else []
         return deck_entries_export_csv(entries)
+
+    def portfolio_summary_for_owner(self, owner_user_id: str) -> dict[str, Any]:
+        """Cheap public headline for a portfolio: total value + card count only.
+
+        Deliberately NOT the portfolio dashboard — the chart/history reads are the
+        known-expensive per-owner work and stay owner-only (see
+        docs/portfolio-social-phase-2-public-profiles-follow-2026-07-23.md). This
+        rides the same cached ``deck_entries_for_owner`` payload the Collection
+        grid already computes, with day-change skipped, so a profile visit costs
+        at most one inventory compute that the grid request shares.
+
+        ``cardCount`` is the number of cards held (quantity summed across owned
+        entries), not the number of deck rows."""
+        owner_user_id = str(owner_user_id or "").strip()
+        if not owner_user_id:
+            raise ValueError("owner_user_id is required")
+        payload = self.deck_entries_for_owner(
+            owner_user_id,
+            limit=1000,
+            offset=0,
+            include_inactive=False,
+            favorites_only=False,
+            compute_day_change=False,
+        )
+        summary = payload.get("summary") or {}
+        entries = payload.get("entries") or []
+        card_count = 0
+        for entry in entries:
+            try:
+                card_count += max(0, int(entry.get("quantity") or 0))
+            except (TypeError, ValueError):
+                continue
+        return {
+            "userId": owner_user_id,
+            "totalValue": round(float(summary.get("totalValue") or 0.0), 2),
+            "cardCount": card_count,
+            "currency": "USD",
+        }
 
     def _deck_entries_version_token(self, owner_user_id: str) -> str:
         """The dashboard version token (deck mutations + events + sales + latest
@@ -15518,7 +15605,30 @@ class SpotlightScanService:
         favorites_only: bool = False,
         compute_day_change: bool = True,
     ) -> dict[str, Any]:
-        owner_user_id = self._current_owner_user_id()
+        """Ambient-identity wrapper; ``_compute_deck_entries_for_owner`` is the
+        real implementation."""
+        return self._compute_deck_entries_for_owner(
+            self._current_owner_user_id(),
+            limit=limit,
+            offset=offset,
+            include_inactive=include_inactive,
+            favorites_only=favorites_only,
+            compute_day_change=compute_day_change,
+        )
+
+    def _compute_deck_entries_for_owner(
+        self,
+        owner_user_id: str,
+        *,
+        limit: int = 200,
+        offset: int = 0,
+        include_inactive: bool = False,
+        favorites_only: bool = False,
+        compute_day_change: bool = True,
+    ) -> dict[str, Any]:
+        owner_user_id = str(owner_user_id or "").strip()
+        if not owner_user_id:
+            raise ValueError("owner_user_id is required")
         safe_limit = max(0, min(int(limit), 1000))
         safe_offset = max(0, int(offset))
         where_clauses = ["owner_user_id = ?"]
@@ -16532,6 +16642,25 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         )
         return False
 
+    def _public_profile_target_user_id(self, path: str, *, suffix: str) -> str | None:
+        """Pull the TARGET user id out of ``/api/v1/profiles/{userId}<suffix>``.
+
+        Returns the validated id, or writes a 400 and returns ``None``. The id is
+        read-only routing input: it is handed to an explicit-owner service read
+        and never installed into the ambient request identity, so it can never
+        reach a write path.
+        """
+        target_user_id = unquote(
+            path.removeprefix(PUBLIC_PROFILE_PATH_PREFIX).removesuffix(suffix).strip("/")
+        )
+        if not is_plausible_user_id(target_user_id):
+            self._write_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "userId must be a valid user id"},
+            )
+            return None
+        return target_user_id
+
     def _acquire_scan_inference_slot(self) -> bool:
         """Reserve a slot before running the CPU-bound encoder (queue/wait).
 
@@ -16908,6 +17037,89 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                     )
             finally:
                 _heavy_read_semaphore.release()
+            return
+
+        # --- Public profiles (Phase 2a): READ-ONLY reads of ANOTHER user's
+        # portfolio. The caller still authenticates as themselves and still passes
+        # the access gate; the target owner comes from the path and is passed
+        # EXPLICITLY to the service. The ambient request identity keeps holding the
+        # caller, so a borrowed identity can never reach a write path.
+        if parsed.path.startswith(PUBLIC_PROFILE_PATH_PREFIX) and parsed.path.endswith(
+            PUBLIC_PROFILE_DECK_ENTRIES_SUFFIX
+        ):
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            if not self._require_access(identity):
+                return
+            target_user_id = self._public_profile_target_user_id(
+                parsed.path, suffix=PUBLIC_PROFILE_DECK_ENTRIES_SUFFIX
+            )
+            if target_user_id is None:
+                return
+            try:
+                limit = int(query.get("limit", ["200"])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "limit must be an integer"})
+                return
+            try:
+                offset = int(query.get("offset", ["0"])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "offset must be an integer"})
+                return
+            if not self._acquire_heavy_read_slot():
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    payload = self.service.deck_entries_for_owner(
+                        target_user_id,
+                        limit=limit,
+                        offset=offset,
+                        include_inactive=False,
+                        favorites_only=False,
+                    )
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"Public collection load failed: {error}"},
+                )
+                return
+            finally:
+                _heavy_read_semaphore.release()
+            self._write_json(HTTPStatus.OK, payload)
+            return
+
+        # Total value + card count only. The portfolio dashboard/chart/history stay
+        # owner-only: they are the known-expensive per-owner reads.
+        if parsed.path.startswith(PUBLIC_PROFILE_PATH_PREFIX) and parsed.path.endswith(
+            PUBLIC_PROFILE_SUMMARY_SUFFIX
+        ):
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            if not self._require_access(identity):
+                return
+            target_user_id = self._public_profile_target_user_id(
+                parsed.path, suffix=PUBLIC_PROFILE_SUMMARY_SUFFIX
+            )
+            if target_user_id is None:
+                return
+            if not self._acquire_heavy_read_slot():
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    payload = self.service.portfolio_summary_for_owner(target_user_id)
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"Public portfolio summary failed: {error}"},
+                )
+                return
+            finally:
+                _heavy_read_semaphore.release()
+            self._write_json(HTTPStatus.OK, payload)
             return
 
         if parsed.path in {"/api/v1/deck/history", "/api/v1/portfolio/history"}:

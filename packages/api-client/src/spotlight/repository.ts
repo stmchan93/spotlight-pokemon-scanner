@@ -92,6 +92,8 @@ import type {
   TransactionInsights,
   PortfolioSaleRequestPayload,
   PortfolioSaleResponsePayload,
+  ProfileDeckEntriesQuery,
+  ProfilePortfolioSummary,
   RawPricingMatrix,
   RawPricingMatrixConditionRow,
   RarityBucket,
@@ -142,6 +144,20 @@ export interface SpotlightRepository {
   getPortfolioPerformance(): Promise<PortfolioPerformance>;
   loadInventoryEntries(query?: InventoryEntriesQuery): Promise<SpotlightRepositoryLoadResult<InventoryCardEntry[]>>;
   getInventoryEntries(query?: InventoryEntriesQuery): Promise<InventoryCardEntry[]>;
+  /**
+   * Another user's public holdings, for the public profile screen. Read-only and
+   * scoped by an EXPLICIT `userID` at the call site — this never resolves the
+   * owner from the caller's own session, and there is no matching write route.
+   */
+  getProfileDeckEntries(
+    userID: string,
+    query?: ProfileDeckEntriesQuery,
+  ): Promise<InventoryCardEntry[]>;
+  /**
+   * Another user's public portfolio headline (total value + card count). The
+   * owner-only dashboard (chart/history/insights) stays off the public path.
+   */
+  getProfilePortfolioSummary(userID: string): Promise<ProfilePortfolioSummary>;
   loadCatalogCards(query: string, limit?: number, offset?: number, options?: CatalogSearchOptions): Promise<CatalogSearchLoadResult>;
   searchCatalogCards(query: string, limit?: number): Promise<CatalogSearchResult[]>;
   /** Paginated catalog search for infinite scroll — returns a page + hasMore. */
@@ -474,6 +490,15 @@ type PortfolioDashboardDTO = {
     ledger?: PortfolioLedgerDTO | null;
   }>>;
   sections?: Record<string, string>;
+};
+
+// Response of GET /api/v1/profiles/{userId}/portfolio/summary — the public
+// (non-owner) portfolio headline. Values arrive untrusted and are normalized.
+type ProfilePortfolioSummaryDTO = {
+  userId?: unknown;
+  totalValue?: unknown;
+  cardCount?: unknown;
+  currency?: unknown;
 };
 
 type SearchResultsDTO = {
@@ -1319,6 +1344,17 @@ function buildInventoryEntriesQueryParams(query?: InventoryEntriesQuery) {
   }
   if (query?.includeInactive) {
     params.set('includeInactive', '1');
+  }
+  return params;
+}
+
+function buildProfileDeckEntriesQueryParams(query?: ProfileDeckEntriesQuery) {
+  const params = new URLSearchParams();
+  if (query?.limit != null) {
+    params.set('limit', String(Math.max(1, Math.min(Math.trunc(query.limit), 200))));
+  }
+  if (query?.offset != null) {
+    params.set('offset', String(Math.max(0, Math.trunc(query.offset))));
   }
   return params;
 }
@@ -2939,6 +2975,29 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return result.data ?? [];
   }
 
+  // Mock public profile: every "other user" simply shows the seeded holdings,
+  // so the public profile screen has something to render offline/in tests.
+  async getProfileDeckEntries(_userID: string, query?: ProfileDeckEntriesQuery) {
+    const entries = this.inventoryEntriesForQuery();
+    const offset = Math.max(0, Math.trunc(query?.offset ?? 0));
+    const limit = query?.limit != null ? Math.max(1, Math.trunc(query.limit)) : entries.length;
+    return entries.slice(offset, offset + limit);
+  }
+
+  async getProfilePortfolioSummary(userID: string): Promise<ProfilePortfolioSummary> {
+    const entries = this.inventoryEntriesForQuery();
+    const totalValue = entries.reduce(
+      (total, entry) => total + (entry.hasMarketPrice ? entry.marketPrice * entry.quantity : 0),
+      0,
+    );
+    return {
+      userId: userID,
+      totalValue,
+      cardCount: entries.reduce((total, entry) => total + entry.quantity, 0),
+      currency: entries[0]?.currencyCode ?? 'USD',
+    };
+  }
+
   async loadCatalogCards(query: string, limit = 20, offset = 0, options?: CatalogSearchOptions): Promise<CatalogSearchLoadResult> {
     const normalized = query.trim().toLowerCase();
     const rarityBucket = options?.rarityBucket;
@@ -4401,6 +4460,44 @@ export class HttpSpotlightRepository implements SpotlightRepository {
   async getInventoryEntries(query?: InventoryEntriesQuery) {
     const result = await this.loadInventoryEntries(query);
     return result.data ?? [];
+  }
+
+  // Public profile reads (Phase 2a). Both endpoints are owner-scoped by the
+  // explicit `{userId}` path segment rather than by the caller's ambient
+  // identity, so a public read can never reach the caller's own write paths.
+  // They mirror the owner-side payload shapes exactly.
+  async getProfileDeckEntries(userID: string, query?: ProfileDeckEntriesQuery) {
+    const encodedUserID = encodeURIComponent(userID);
+    const queryParams = buildProfileDeckEntriesQueryParams(query);
+    const response = await this.requestJsonOrThrow<{ entries?: DeckEntryDTO[] } | DeckEntryDTO[]>(
+      `${this.baseUrl}/api/v1/profiles/${encodedUserID}/deck/entries${queryParams.toString() ? `?${queryParams.toString()}` : ''}`,
+      { method: 'GET' },
+    );
+
+    const rawEntries = Array.isArray(response)
+      ? response
+      : Array.isArray(response?.entries)
+        ? response.entries
+        : [];
+
+    return rawEntries
+      .map((entry: DeckEntryDTO) => mapDeckEntry(entry, this.baseUrl))
+      .filter((entry): entry is InventoryCardEntry => entry !== null);
+  }
+
+  async getProfilePortfolioSummary(userID: string): Promise<ProfilePortfolioSummary> {
+    const encodedUserID = encodeURIComponent(userID);
+    const payload = await this.requestJsonOrThrow<ProfilePortfolioSummaryDTO>(
+      `${this.baseUrl}/api/v1/profiles/${encodedUserID}/portfolio/summary`,
+      { method: 'GET' },
+    );
+
+    return {
+      userId: normalizeString(payload?.userId) ?? userID,
+      totalValue: normalizeNumber(payload?.totalValue) ?? 0,
+      cardCount: normalizeNumber(payload?.cardCount) ?? 0,
+      currency: normalizeString(payload?.currency) ?? 'USD',
+    };
   }
 
   async loadCatalogCards(query: string, limit = 20, offset = 0, options?: CatalogSearchOptions): Promise<CatalogSearchLoadResult> {
