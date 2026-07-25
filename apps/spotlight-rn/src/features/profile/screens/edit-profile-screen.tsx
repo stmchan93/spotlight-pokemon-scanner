@@ -23,7 +23,7 @@ import {
   type ProfileUpdate,
 } from '@/features/auth/auth-models';
 import { isHandleAvailable, ProfileUpdateError } from '@/features/auth/auth-service';
-import { supabase } from '@/lib/supabase';
+import { useAppServices } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
 
 const BIO_MAX_LENGTH = 150;
@@ -56,6 +56,7 @@ export function EditProfileScreen() {
   const router = useRouter();
   const theme = useSpotlightTheme();
   const auth = useAuth();
+  const { spotlightRepository } = useAppServices();
   const user = auth.currentUser;
 
   const [displayName, setDisplayName] = useState(user?.displayName ?? '');
@@ -127,7 +128,7 @@ export function EditProfileScreen() {
       Alert.alert('Update needed', 'Changing your photo needs the latest app version.');
       return;
     }
-    if (!supabase || !user) {
+    if (!user) {
       return;
     }
 
@@ -163,16 +164,12 @@ export function EditProfileScreen() {
 
       const response = await fetch(uploadUri);
       const data = await response.arrayBuffer();
-      const path = `${user.id}/avatar.jpg`;
 
-      const uploadResult = await supabase.storage
-        .from('avatars')
-        .upload(path, data, { contentType: 'image/jpeg', upsert: true });
-      if (uploadResult.error) {
-        return;
-      }
-
-      const publicUrl = supabase.storage.from('avatars').getPublicUrl(path).data.publicUrl;
+      // Upload the resized JPEG to the backend, which stores it in the public
+      // GCS avatar bucket and returns the public URL. The object is owner-scoped
+      // by the auth header on the backend, so no user id is sent here. (Supabase
+      // Storage is no longer involved.)
+      const { avatarUrl: publicUrl } = await spotlightRepository.uploadProfileAvatar(data);
       if (publicUrl) {
         // Cache-bust so the freshly uploaded image replaces the old cached one.
         setAvatarUrl(`${publicUrl}?t=${Date.now()}`);
@@ -180,7 +177,7 @@ export function EditProfileScreen() {
     } catch {
       // Never surface picker/upload failures to the UI — leave the current avatar.
     }
-  }, [user]);
+  }, [spotlightRepository, user]);
 
   const handlePickCover = useCallback(() => {
     // Cover images aren't persisted yet — keep the badge non-crashing.

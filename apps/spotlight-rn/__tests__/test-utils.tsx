@@ -90,6 +90,10 @@ export function createTestSpotlightRepository(
       return overrides.getProfilePortfolioSummary?.(...args)
         ?? baseRepository.getProfilePortfolioSummary(...args);
     },
+    uploadProfileAvatar: (...args) => {
+      return overrides.uploadProfileAvatar?.(...args)
+        ?? baseRepository.uploadProfileAvatar(...args);
+    },
     loadCatalogCards: (...args) => {
       return overrides.loadCatalogCards?.(...args)
         ?? baseRepository.loadCatalogCards(...args);

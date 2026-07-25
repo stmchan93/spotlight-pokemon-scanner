@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Linking, StyleSheet, View } from 'react-native';
+import { useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { InventoryCardEntry, ProfilePortfolioSummary } from '@spotlight/api-client';
 import {
+  Button,
   PageTabs,
   type PageTab,
   StateCard,
@@ -19,9 +21,16 @@ import {
   chunkCollectionGridRows,
 } from '@/features/portfolio/components/collection-masonry-grid';
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
-import { fetchProfileByHandle, fetchProfileById } from '@/features/profile/profile-service';
+import {
+  fetchProfileByHandle,
+  fetchProfileById,
+  followUser,
+  isFollowing,
+  unfollowUser,
+} from '@/features/profile/profile-service';
 import { ProfileHeader } from '@/features/profile/components/profile-header';
 import { useAppServices } from '@/providers/app-providers';
+import { useAuth } from '@/providers/auth-provider';
 
 const GRID_TEST_ID = 'public-profile-collection-grid';
 
@@ -42,6 +51,11 @@ const PROFILE_TABS: readonly PageTab<ProfileTab>[] = [
 type ProfileStatus = 'loading' | 'ready' | 'not-found';
 /** Has the visitor-visible collection loaded? */
 type CollectionStatus = 'idle' | 'loading' | 'ready' | 'error';
+/**
+ * Does the signed-in viewer follow this profile? `null` while the initial
+ * `isFollowing` read is in flight — the button stays disabled until it resolves.
+ */
+type FollowState = 'following' | 'not-following' | null;
 
 // One virtualized row of the visitor-facing card grid (two tiles per ruled row,
 // or a single boxed tile when the portfolio holds exactly one card).
@@ -103,7 +117,11 @@ export function PublicProfileScreen({
 }: PublicProfileScreenProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { spotlightRepository } = useAppServices();
+  // The signed-in viewer. Used to hide the Follow button on your own profile
+  // (you can't follow yourself) and to seed the initial isFollowing read.
+  const viewerId = useAuth().currentUser?.id ?? null;
 
   const [activeTab, setActiveTab] = useState<ProfileTab>('collection');
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -111,6 +129,12 @@ export function PublicProfileScreen({
   const [entries, setEntries] = useState<InventoryCardEntry[]>([]);
   const [summary, setSummary] = useState<ProfilePortfolioSummary | null>(null);
   const [collectionStatus, setCollectionStatus] = useState<CollectionStatus>('idle');
+  // Follow graph (Phase 2b). `followState` is null until the initial isFollowing
+  // read lands. `displayFollowerCount` is the header count with the viewer's
+  // optimistic follow/unfollow folded in; `followPending` de-dupes taps.
+  const [followState, setFollowState] = useState<FollowState>(null);
+  const [displayFollowerCount, setDisplayFollowerCount] = useState(0);
+  const [followPending, setFollowPending] = useState(false);
   // Paging state. The header shows the target's TRUE card count, so rendering a
   // single capped page would quietly under-show a large collection.
   const [hasMoreEntries, setHasMoreEntries] = useState(false);
@@ -130,6 +154,8 @@ export function PublicProfileScreen({
     setCollectionStatus('idle');
     setHasMoreEntries(false);
     setIsLoadingMore(false);
+    setFollowState(null);
+    setFollowPending(false);
     loadingMoreRef.current = false;
 
     void (async () => {
@@ -146,6 +172,7 @@ export function PublicProfileScreen({
 
       setProfile(resolved);
       setProfileStatus('ready');
+      setDisplayFollowerCount(resolved.followerCount ?? 0);
       setCollectionStatus('loading');
 
       try {
@@ -206,6 +233,84 @@ export function PublicProfileScreen({
       }
     })();
   }, [collectionStatus, entries.length, hasMoreEntries, profile?.userID, spotlightRepository]);
+
+  // You can follow this profile only if it's someone else. `viewerId === userID`
+  // (your own profile) or a signed-out viewer both hide the button.
+  const targetUserId = profile?.userID ?? null;
+  const canFollow = Boolean(targetUserId && viewerId && viewerId !== targetUserId);
+
+  // Seed the follow toggle once the profile is someone else's. Kept separate from
+  // the profile-resolution effect so a re-check doesn't refetch the collection.
+  useEffect(() => {
+    if (!canFollow || !targetUserId) {
+      setFollowState(null);
+      return;
+    }
+
+    let cancelled = false;
+    setFollowState(null);
+    void isFollowing(targetUserId).then((following) => {
+      if (!cancelled) {
+        setFollowState(following ? 'following' : 'not-following');
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canFollow, targetUserId]);
+
+  // Optimistically flip the button AND the header follower count, then reconcile:
+  // roll both back if the write returns false. The screen stays interactive — only
+  // this one control is guarded against a double-tap while the write is in flight.
+  const handleToggleFollow = useCallback(() => {
+    if (!targetUserId || followPending || followState === null) {
+      return;
+    }
+
+    const wasFollowing = followState === 'following';
+    const nextFollowing = !wasFollowing;
+
+    setFollowState(nextFollowing ? 'following' : 'not-following');
+    setDisplayFollowerCount((count) => count + (nextFollowing ? 1 : -1));
+    setFollowPending(true);
+
+    void (async () => {
+      const ok = await (nextFollowing ? followUser(targetUserId) : unfollowUser(targetUserId));
+      if (!ok) {
+        // Reconcile: the write failed, so undo the optimistic flip + count.
+        setFollowState(wasFollowing ? 'following' : 'not-following');
+        setDisplayFollowerCount((count) => count + (nextFollowing ? -1 : 1));
+      }
+      setFollowPending(false);
+    })();
+  }, [followPending, followState, targetUserId]);
+
+  // Header chips → this collector's followers / following lists. `/u/[handle]`
+  // when they've claimed a handle, else `/u/<userId>`; the explicit `userId`
+  // param lets the list route skip the handle lookup.
+  const followListParams = useMemo(() => {
+    if (!targetUserId) {
+      return null;
+    }
+    const handleSlug = profile?.handle?.trim();
+    return {
+      handle: handleSlug && handleSlug.length > 0 ? handleSlug : targetUserId,
+      userId: targetUserId,
+    };
+  }, [profile?.handle, targetUserId]);
+
+  const handleOpenFollowers = useCallback(() => {
+    if (followListParams) {
+      router.push({ pathname: '/u/[handle]/followers', params: followListParams });
+    }
+  }, [followListParams, router]);
+
+  const handleOpenFollowing = useCallback(() => {
+    if (followListParams) {
+      router.push({ pathname: '/u/[handle]/following', params: followListParams });
+    }
+  }, [followListParams, router]);
 
   const handleSocialLinkPress = useCallback(() => {
     const link = profile?.socialLink;
@@ -316,16 +421,30 @@ export function PublicProfileScreen({
         avatarUrl={profile?.avatarURL}
         bio={profile?.bio}
         displayName={displayName}
-        followerCount={profile?.followerCount}
+        followerCount={displayFollowerCount}
         followingCount={profile?.followingCount}
         handle={profile?.handle}
         initials={getProfileInitials(profile?.displayName)}
         isVerified={profile?.isVerified}
+        onFollowersPress={handleOpenFollowers}
+        onFollowingPress={handleOpenFollowing}
         onSocialLinkPress={handleSocialLinkPress}
         reputation={profile?.reputation}
         socialLink={profile?.socialLink}
         testID={`${testID}-header`}
       />
+
+      {canFollow ? (
+        <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
+          <Button
+            disabled={followState === null}
+            label={followState === 'following' ? 'Following' : 'Follow'}
+            onPress={handleToggleFollow}
+            testID={`${testID}-follow-button`}
+            variant={followState === 'following' ? 'secondary' : 'dark'}
+          />
+        </View>
+      ) : null}
 
       <PageTabs
         onChange={setActiveTab}

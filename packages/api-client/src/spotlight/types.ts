@@ -1036,6 +1036,16 @@ export type ProfilePortfolioSummary = {
   currency: string;
 };
 
+/**
+ * Result of uploading the caller's own profile avatar
+ * (`POST /api/v1/profile/avatar`). The backend stores the JPEG in the public
+ * avatar bucket and returns the public object URL. The caller adds its own
+ * cache-buster to the URL before persisting it to the profile.
+ */
+export type ProfileAvatarUploadResult = {
+  avatarUrl: string;
+};
+
 export type CardFavoriteRecord = {
   cardId: string;
   isFavorite: boolean;

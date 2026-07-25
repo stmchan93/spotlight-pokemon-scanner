@@ -32,6 +32,7 @@ TEST_MODULES=(
   backend.tests.test_scrydex_adapter_helpers
   backend.tests.test_server_helpers
   backend.tests.test_scan_artifact_store_helpers
+  backend.tests.test_profile_avatar_upload
   backend.tests.test_scrydex_tool_scripts
   backend.tests.test_request_auth
   backend.tests.test_vm_sync_schedule

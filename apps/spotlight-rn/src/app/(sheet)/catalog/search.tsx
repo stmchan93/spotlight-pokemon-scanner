@@ -28,6 +28,16 @@ export default function CatalogSearchRoute() {
           },
         });
       }}
+      onOpenPerson={(person) => {
+        // Route to the person's public profile. Prefer their @handle; fall back
+        // to the user id for collectors who haven't claimed a handle — the
+        // `/u/[handle]` route detects a UUID slug and resolves it by id.
+        const slug = person.handle?.trim() || person.userID;
+        router.push({
+          pathname: '/u/[handle]',
+          params: { handle: slug },
+        });
+      }}
       onSelectExpansion={(expansion) => {
         router.push({
           pathname: '/catalog/expansion/[expansionId]',

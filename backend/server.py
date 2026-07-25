@@ -176,6 +176,11 @@ from scan_artifact_store import (
     SCAN_ARTIFACTS_ROOT_ENV,
     build_scan_artifact_store,
 )
+from avatar_store import (
+    AVATARS_GCS_BUCKET_ENV,
+    AvatarStoreError,
+    build_avatar_store,
+)
 from request_auth import RequestAuthError, RequestIdentity, SupabaseRequestAuthenticator
 from person_cutout import extract_person_cutout_png
 from whos_that_share_card import compose_share_card
@@ -1408,6 +1413,12 @@ class SpotlightScanService:
             storage_override=os.environ.get(SCAN_ARTIFACTS_STORAGE_ENV),
             root_override=os.environ.get(SCAN_ARTIFACTS_ROOT_ENV),
             gcs_bucket_override=os.environ.get(SCAN_ARTIFACTS_GCS_BUCKET_ENV),
+        )
+        # Public profile avatars live in their OWN GCS bucket (public-read),
+        # kept separate from the private scan-artifacts bucket. When the bucket
+        # env var is unset this is None and the avatar endpoint stays inert.
+        self.avatar_store = build_avatar_store(
+            gcs_bucket=os.environ.get(AVATARS_GCS_BUCKET_ENV),
         )
 
         self.pricing_registry = PricingProviderRegistry()
@@ -17809,6 +17820,54 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, {"status": "started"})
             return
 
+        if parsed.path == "/api/v1/profile/avatar":
+            # Owner-scoped avatar upload. The request body is the raw resized
+            # JPEG bytes (image/jpeg), NOT JSON, so this lane is handled before
+            # the JSON/multipart body readers below. The stored object path is
+            # derived from the AUTHENTICATED caller's user id — never from any
+            # client-supplied value — so nobody can overwrite another user's
+            # avatar. Backs the public GCS avatar bucket (Supabase Storage is no
+            # longer involved).
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            if not self._require_access(identity):
+                return
+            avatar_store = self.service.avatar_store
+            if avatar_store is None:
+                # Bucket not provisioned yet → the feature is inert, not broken.
+                self._write_json(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {
+                        "error": "avatar_storage_unconfigured",
+                        "message": "Avatar storage is not configured.",
+                    },
+                )
+                return
+            image_bytes = self._read_raw_image_body()
+            if image_bytes is None:
+                self._write_json(
+                    getattr(self, "_json_body_error_status", HTTPStatus.BAD_REQUEST),
+                    {"error": getattr(self, "_json_body_error_message", "Invalid image body")},
+                )
+                return
+            try:
+                avatar_url = avatar_store.store_avatar(
+                    user_id=identity.user_id,
+                    jpeg_bytes=image_bytes,
+                )
+            except AvatarStoreError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except Exception as error:  # noqa: BLE001 - upstream/storage failure
+                self._write_json(
+                    HTTPStatus.BAD_GATEWAY,
+                    {"error": f"Avatar upload failed: {error}"},
+                )
+                return
+            self._write_json(HTTPStatus.OK, {"avatarUrl": avatar_url})
+            return
+
         if parsed.path in MULTIPART_SCAN_PATHS and self._is_multipart_request():
             # Multipart lane for scan uploads only: reconstructs the exact JSON
             # payload shape, then falls through to the same endpoint dispatch.
@@ -18908,6 +18967,40 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return None
         _inject_multipart_scan_images(request_path, payload, parts)
         return payload
+
+    def _read_raw_image_body(self) -> bytes | None:
+        """Read a raw binary image body (the avatar upload lane).
+
+        Unlike ``_read_json_body`` the body is the JPEG bytes themselves, not
+        JSON. Reuses the same ``_json_body_error_*`` attributes so the caller
+        surfaces the same error envelope. Returns ``None`` (with the error
+        attributes set) on any transport-level problem, or an empty body.
+        """
+        self._json_body_error_status = None
+        self._json_body_error_message = None
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self._json_body_error_status = HTTPStatus.BAD_REQUEST
+            self._json_body_error_message = "Content-Length must be an integer"
+            return None
+        if content_length <= 0:
+            self._json_body_error_status = HTTPStatus.BAD_REQUEST
+            self._json_body_error_message = "image body is required"
+            return None
+        # Avatars are already resized to ~512px JPEGs client-side; the default
+        # JSON body ceiling is a comfortable, generous cap for that.
+        max_body_bytes = DEFAULT_JSON_BODY_LIMIT_BYTES
+        if content_length > max_body_bytes:
+            self._json_body_error_status = HTTPStatus.REQUEST_ENTITY_TOO_LARGE
+            self._json_body_error_message = f"image body exceeds {max_body_bytes} bytes"
+            return None
+        body = self.rfile.read(content_length)
+        if not body:
+            self._json_body_error_status = HTTPStatus.BAD_REQUEST
+            self._json_body_error_message = "image body is required"
+            return None
+        return body
 
     def _read_json_body(self) -> dict[str, Any] | None:
         self._json_body_error_status = None

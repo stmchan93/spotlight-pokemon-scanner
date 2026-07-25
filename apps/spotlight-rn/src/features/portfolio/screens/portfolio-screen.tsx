@@ -255,6 +255,33 @@ export function PortfolioScreen({
     const url = /^https?:\/\//i.test(link) ? link : `https://${link}`;
     void Linking.openURL(url).catch(() => {});
   }, [currentUser?.socialLink]);
+
+  // Owner's own followers / following lists. Reuse the shared `/u/[handle]`
+  // follow-list routes with the signed-in user's id (and handle when claimed),
+  // so the owner and public-profile paths render the same screen.
+  const ownFollowListParams = useMemo(() => {
+    const ownerId = currentUser?.id;
+    if (!ownerId) {
+      return null;
+    }
+    const handleSlug = currentUser?.handle?.trim();
+    return {
+      handle: handleSlug && handleSlug.length > 0 ? handleSlug : ownerId,
+      userId: ownerId,
+    };
+  }, [currentUser?.handle, currentUser?.id]);
+
+  const handleOpenFollowers = useCallback(() => {
+    if (ownFollowListParams) {
+      router.push({ pathname: '/u/[handle]/followers', params: ownFollowListParams });
+    }
+  }, [ownFollowListParams, router]);
+
+  const handleOpenFollowing = useCallback(() => {
+    if (ownFollowListParams) {
+      router.push({ pathname: '/u/[handle]/following', params: ownFollowListParams });
+    }
+  }, [ownFollowListParams, router]);
   // The floating menu/edit bubbles rest just below the safe-area inset and float
   // OVER the profile cover hero, which is full-bleed to the very top (under the
   // status bar) — so the scroll content starts at 0.
@@ -687,6 +714,8 @@ export function PortfolioScreen({
         handle={currentUser?.handle}
         initials={profileInitials}
         isVerified={currentUser?.isVerified}
+        onFollowersPress={handleOpenFollowers}
+        onFollowingPress={handleOpenFollowing}
         onSocialLinkPress={handleSocialLinkPress}
         reputation={currentUser?.reputation}
         socialLink={currentUser?.socialLink}

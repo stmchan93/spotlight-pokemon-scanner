@@ -128,3 +128,188 @@ export async function fetchProfileById(userID: string): Promise<UserProfile | nu
   }
   return fetchPublicProfileBy('user_id', normalized);
 }
+
+// ---------------------------------------------------------------------------
+// Follow graph (Phase 2b)
+// ---------------------------------------------------------------------------
+// All follow reads/writes go straight to the `follows` table under its RLS
+// policies (public select; insert/delete only your own rows; can't follow someone
+// who blocked you). The DB triggers keep follower_count / following_count on
+// user_profiles correct — the client never touches those counters.
+
+/** The signed-in user's id, or null when unauthenticated / Supabase absent. */
+async function currentUserId(): Promise<string | null> {
+  if (!supabase) {
+    return null;
+  }
+  try {
+    const { data } = await supabase.auth.getUser();
+    return data.user?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Does the signed-in user follow `targetUserId`? False on any failure. */
+export async function isFollowing(targetUserId: string): Promise<boolean> {
+  const me = await currentUserId();
+  if (!supabase || !me || !targetUserId || me === targetUserId) {
+    return false;
+  }
+  try {
+    const { data, error } = await supabase
+      .from('follows')
+      .select('followee_id')
+      .eq('follower_id', me)
+      .eq('followee_id', targetUserId)
+      .maybeSingle();
+    return !error && Boolean(data);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Follow `targetUserId`. Idempotent (the row's PK is (follower,followee), so a
+ * repeat insert is ignored). Returns true when the follow is in place afterward.
+ * Throws nothing — the caller rolls back its optimistic count on a false return.
+ */
+export async function followUser(targetUserId: string): Promise<boolean> {
+  const me = await currentUserId();
+  if (!supabase || !me || !targetUserId || me === targetUserId) {
+    return false;
+  }
+  try {
+    const { error } = await supabase
+      .from('follows')
+      .upsert(
+        { follower_id: me, followee_id: targetUserId },
+        { onConflict: 'follower_id,followee_id', ignoreDuplicates: true },
+      );
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/** Unfollow `targetUserId`. Returns true when the row is gone afterward. */
+export async function unfollowUser(targetUserId: string): Promise<boolean> {
+  const me = await currentUserId();
+  if (!supabase || !me || !targetUserId) {
+    return false;
+  }
+  try {
+    const { error } = await supabase
+      .from('follows')
+      .delete()
+      .eq('follower_id', me)
+      .eq('followee_id', targetUserId);
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve a set of follow-edge rows into public profiles. Two steps rather than a
+ * PostgREST embed: `follows` has FKs to `auth.users`, not to the `public_profiles`
+ * view, so there is no auto-embeddable relationship. We read the id column from
+ * `follows`, then hydrate through the same moderation-filtered view every other
+ * profile read uses — so blocked/suspended users drop out of the list for free.
+ */
+async function fetchFollowList(
+  filterColumn: 'follower_id' | 'followee_id',
+  matchColumn: 'follower_id' | 'followee_id',
+  userID: string,
+  limit: number,
+): Promise<UserProfile[]> {
+  if (!supabase || !userID) {
+    return [];
+  }
+  try {
+    const { data: edges, error } = await supabase
+      .from('follows')
+      .select(matchColumn)
+      .eq(filterColumn, userID)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error || !edges || edges.length === 0) {
+      return [];
+    }
+
+    const ids = edges
+      .map((row) => (row as Record<string, string>)[matchColumn])
+      .filter((id): id is string => Boolean(id));
+    if (ids.length === 0) {
+      return [];
+    }
+
+    const { data: rows, error: profileError } = await supabase
+      .from(PUBLIC_PROFILES_VIEW)
+      .select(publicProfileSelect)
+      .in('user_id', ids);
+    if (profileError || !rows) {
+      return [];
+    }
+
+    // Preserve the follow order (most-recent first); the `in` read comes back
+    // unordered.
+    const byId = new Map(rows.map((row) => [(row as PublicProfileRow).user_id, row as PublicProfileRow]));
+    return ids
+      .map((id) => byId.get(id))
+      .filter((row): row is PublicProfileRow => Boolean(row))
+      .map(mapPublicProfile);
+  } catch {
+    return [];
+  }
+}
+
+/** Profiles that follow `userID` (their followers). */
+export function fetchFollowers(userID: string, limit = 100): Promise<UserProfile[]> {
+  return fetchFollowList('followee_id', 'follower_id', userID, limit);
+}
+
+/** Profiles that `userID` follows (their following). */
+export function fetchFollowing(userID: string, limit = 100): Promise<UserProfile[]> {
+  return fetchFollowList('follower_id', 'followee_id', userID, limit);
+}
+
+// ---------------------------------------------------------------------------
+// People discovery (Phase 2c)
+// ---------------------------------------------------------------------------
+
+/**
+ * Prefix-search public profiles by @handle or display name. Reads the
+ * moderation-filtered view, so hidden users never surface. Returns [] for a blank
+ * query or any failure. The query is sanitized to the handle/name character set
+ * before it is interpolated into the PostgREST `or` filter, so it cannot break the
+ * filter grammar.
+ */
+export async function searchUsers(query: string, limit = 20): Promise<UserProfile[]> {
+  const cleaned = (query ?? '')
+    .trim()
+    .replace(/^@+/, '')
+    // Keep only characters that appear in handles/names; this also neutralizes the
+    // comma/paren/dot that PostgREST's or() grammar treats as syntax.
+    .replace(/[^a-zA-Z0-9_ ]/g, '')
+    .trim();
+  if (!supabase || cleaned.length === 0) {
+    return [];
+  }
+
+  try {
+    const pattern = `${cleaned}%`;
+    const { data, error } = await supabase
+      .from(PUBLIC_PROFILES_VIEW)
+      .select(publicProfileSelect)
+      .or(`handle.ilike.${pattern},display_name.ilike.${pattern}`)
+      .order('follower_count', { ascending: false })
+      .limit(limit);
+    if (error || !data) {
+      return [];
+    }
+    return (data as PublicProfileRow[]).map(mapPublicProfile);
+  } catch {
+    return [];
+  }
+}

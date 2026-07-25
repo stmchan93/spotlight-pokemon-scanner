@@ -92,6 +92,7 @@ import type {
   TransactionInsights,
   PortfolioSaleRequestPayload,
   PortfolioSaleResponsePayload,
+  ProfileAvatarUploadResult,
   ProfileDeckEntriesQuery,
   ProfilePortfolioSummary,
   RawPricingMatrix,
@@ -158,6 +159,13 @@ export interface SpotlightRepository {
    * owner-only dashboard (chart/history/insights) stays off the public path.
    */
   getProfilePortfolioSummary(userID: string): Promise<ProfilePortfolioSummary>;
+  /**
+   * Upload the caller's own profile avatar (a resized JPEG) to the backend,
+   * which stores it in the public avatar bucket and returns the public URL. The
+   * object is owner-scoped by the authenticated identity, never by a
+   * client-supplied id, so it can only ever replace the caller's own avatar.
+   */
+  uploadProfileAvatar(jpegBytes: ArrayBuffer | Uint8Array): Promise<ProfileAvatarUploadResult>;
   loadCatalogCards(query: string, limit?: number, offset?: number, options?: CatalogSearchOptions): Promise<CatalogSearchLoadResult>;
   searchCatalogCards(query: string, limit?: number): Promise<CatalogSearchResult[]>;
   /** Paginated catalog search for infinite scroll — returns a page + hasMore. */
@@ -499,6 +507,12 @@ type ProfilePortfolioSummaryDTO = {
   totalValue?: unknown;
   cardCount?: unknown;
   currency?: unknown;
+};
+
+// Response of POST /api/v1/profile/avatar — the public URL of the just-stored
+// avatar. Value arrives untrusted and is normalized.
+type ProfileAvatarUploadResponseDTO = {
+  avatarUrl?: unknown;
 };
 
 type SearchResultsDTO = {
@@ -2998,6 +3012,14 @@ export class MockSpotlightRepository implements SpotlightRepository {
     };
   }
 
+  async uploadProfileAvatar(
+    _jpegBytes: ArrayBuffer | Uint8Array,
+  ): Promise<ProfileAvatarUploadResult> {
+    // Offline/test double: echo a stable placeholder URL so the edit-profile
+    // flow can render the "uploaded" avatar without a real bucket.
+    return { avatarUrl: 'https://storage.googleapis.com/mock-avatars/avatars/mock-user.jpg' };
+  }
+
   async loadCatalogCards(query: string, limit = 20, offset = 0, options?: CatalogSearchOptions): Promise<CatalogSearchLoadResult> {
     const normalized = query.trim().toLowerCase();
     const rarityBucket = options?.rarityBucket;
@@ -4498,6 +4520,33 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       cardCount: normalizeNumber(payload?.cardCount) ?? 0,
       currency: normalizeString(payload?.currency) ?? 'USD',
     };
+  }
+
+  async uploadProfileAvatar(
+    jpegBytes: ArrayBuffer | Uint8Array,
+  ): Promise<ProfileAvatarUploadResult> {
+    // The body is the raw resized JPEG bytes (image/jpeg), not JSON. The
+    // owner is resolved from the auth header on the backend, so no user id is
+    // sent. 'single_active' avoids re-uploading the bytes to fallback base URLs
+    // on an HTTP error.
+    const payload = await this.requestJsonOrThrow<ProfileAvatarUploadResponseDTO>(
+      `${this.baseUrl}/api/v1/profile/avatar`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'image/jpeg' },
+        body: jpegBytes as BodyInit,
+      },
+      { candidateStrategy: 'single_active' },
+    );
+
+    const avatarUrl = normalizeString(payload?.avatarUrl);
+    if (!avatarUrl) {
+      throw new SpotlightRepositoryRequestError(
+        'Avatar upload did not return a URL.',
+        'invalid_response',
+      );
+    }
+    return { avatarUrl };
   }
 
   async loadCatalogCards(query: string, limit = 20, offset = 0, options?: CatalogSearchOptions): Promise<CatalogSearchLoadResult> {

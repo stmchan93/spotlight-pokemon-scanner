@@ -3,15 +3,33 @@ import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import type { InventoryCardEntry } from '@spotlight/api-client';
 
 import type { UserProfile } from '@/features/auth/auth-models';
-import { fetchProfileByHandle, fetchProfileById } from '@/features/profile/profile-service';
+import {
+  fetchProfileByHandle,
+  fetchProfileById,
+  followUser,
+  isFollowing,
+  unfollowUser,
+} from '@/features/profile/profile-service';
 import { PublicProfileScreen } from '@/features/profile/screens/public-profile-screen';
 
 import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
 
+jest.mock('expo-router', () => ({
+  useRouter: () => ({ push: jest.fn(), back: jest.fn() }),
+}));
+
 jest.mock('@/features/profile/profile-service', () => ({
   fetchProfileByHandle: jest.fn(),
   fetchProfileById: jest.fn(),
+  isFollowing: jest.fn(),
+  followUser: jest.fn(),
+  unfollowUser: jest.fn(),
 }));
+
+// The auth-provider test bypass signs in as this synthetic user, so the viewer's
+// id is fixed. A profile whose userID differs is "someone else" (Follow shows);
+// a profile with this exact id is "your own" (Follow hides).
+const VIEWER_ID = '00000000-0000-0000-0000-000000000001';
 
 const profile: UserProfile = {
   userID: 'user-1',
@@ -79,6 +97,9 @@ describe('PublicProfileScreen', () => {
     jest.clearAllMocks();
     (fetchProfileByHandle as jest.Mock).mockResolvedValue(profile);
     (fetchProfileById as jest.Mock).mockResolvedValue(null);
+    (isFollowing as jest.Mock).mockResolvedValue(false);
+    (followUser as jest.Mock).mockResolvedValue(true);
+    (unfollowUser as jest.Mock).mockResolvedValue(true);
   });
 
   it('shows a loading state before the profile resolves', () => {
@@ -196,6 +217,98 @@ describe('PublicProfileScreen', () => {
     expect(onOpenEntry).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'entry-1', name: 'Pikachu' }),
     );
+  });
+
+  describe('the Follow button', () => {
+    it('is hidden when you are viewing your own profile', async () => {
+      (fetchProfileByHandle as jest.Mock).mockResolvedValue({ ...profile, userID: VIEWER_ID });
+
+      renderPublicProfile();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('public-profile-header')).toBeTruthy();
+      });
+
+      expect(screen.queryByTestId('public-profile-follow-button')).toBeNull();
+      // Your own profile never fires an isFollowing read.
+      expect(isFollowing).not.toHaveBeenCalled();
+    });
+
+    it('shows Follow for someone else and seeds from isFollowing', async () => {
+      (isFollowing as jest.Mock).mockResolvedValue(true);
+
+      renderPublicProfile();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent('Following');
+      });
+      expect(isFollowing).toHaveBeenCalledWith('user-1');
+    });
+
+    it('optimistically flips to Following and bumps the follower count on press', async () => {
+      renderPublicProfile();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent('Follow');
+      });
+      // Seeded from the profile's follower_count.
+      expect(screen.getByText('12')).toBeTruthy();
+
+      fireEvent.press(screen.getByTestId('public-profile-follow-button'));
+
+      // Optimistic: label + count flip before the write settles.
+      expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent('Following');
+      expect(screen.getByText('13')).toBeTruthy();
+
+      await waitFor(() => expect(followUser).toHaveBeenCalledWith('user-1'));
+      // Still followed after the successful write.
+      expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent('Following');
+      expect(screen.getByText('13')).toBeTruthy();
+    });
+
+    it('rolls back the flip and the count when followUser fails', async () => {
+      (followUser as jest.Mock).mockResolvedValue(false);
+
+      renderPublicProfile();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent('Follow');
+      });
+
+      fireEvent.press(screen.getByTestId('public-profile-follow-button'));
+
+      // Optimistic flip lands first...
+      expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent('Following');
+      expect(screen.getByText('13')).toBeTruthy();
+
+      // ...then the failed write rolls both back.
+      await waitFor(() =>
+        expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent('Follow'),
+      );
+      expect(screen.getByText('12')).toBeTruthy();
+    });
+
+    it('unfollows optimistically and rolls back when unfollowUser fails', async () => {
+      (isFollowing as jest.Mock).mockResolvedValue(true);
+      (unfollowUser as jest.Mock).mockResolvedValue(false);
+
+      renderPublicProfile();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent('Following');
+      });
+
+      fireEvent.press(screen.getByTestId('public-profile-follow-button'));
+
+      // Optimistic unfollow: label + count drop.
+      expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent('Follow');
+      expect(screen.getByText('11')).toBeTruthy();
+
+      await waitFor(() =>
+        expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent('Following'),
+      );
+      expect(screen.getByText('12')).toBeTruthy();
+    });
   });
 
   describe('paging past the first page', () => {
