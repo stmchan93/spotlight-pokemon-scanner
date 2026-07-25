@@ -1,7 +1,9 @@
 # Portfolio Social — Phase 2: public profiles + follow graph
 
 Date: 2026-07-23
-Status: PLANNED — build starting with 2a
+Status: DONE 2026-07-24 — 2a + 2b + 2c all built and committed (a19c82f, ef299ae); social
+migrations pushed live. Not yet deployed/OTA'd. Deferred: manual user_profiles RLS apply.
+Plus Option C (avatars → GCS) landed alongside — see docs/supabase-exit-options-and-cost-2026-07-24.md.
 Predecessor: Phase 0 (rename, `b62852b`) and Phase 1 (profile header / Edit Profile / avatars, `62467ad`) are shipped.
 
 ---
