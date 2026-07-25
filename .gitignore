@@ -103,3 +103,6 @@ tools/output/
 
 # Lazily-downloaded ONNX model artifacts (person_cutout u2netp etc.)
 backend/models/
+
+# Supabase CLI local link cache
+apps/spotlight-rn/supabase/.temp/
