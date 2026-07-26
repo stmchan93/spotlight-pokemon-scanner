@@ -16,11 +16,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { MediaImage, Plus, Xmark } from 'iconoir-react-native';
 
 import type { CatalogSearchResult } from '@spotlight/api-client';
-import { Button, IconButton, Text, useSpotlightTheme } from '@spotlight/design-system';
+import { Avatar, Button, IconButton, SheetHeader, Text, useSpotlightTheme } from '@spotlight/design-system';
 
+import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
 import { CatalogSearchScreen } from '@/features/catalog/screens/catalog-search-screen';
 import { createPost } from '@/features/social/social-service';
 import { useAppServices } from '@/providers/app-providers';
+import { useAuth } from '@/providers/auth-provider';
 
 // Max post length. Mirrors the backend `posts.body` guard; the counter warns as
 // the author approaches it and `maxLength` hard-stops at it.
@@ -86,17 +88,59 @@ type AttachedCard = {
 };
 
 /**
- * New Post composer (Phase 3c). A multiline body, an optional attached card
- * (picked by reusing the catalog search screen in a modal), and an optional
- * image (picked + downscaled to a ~1080px JPEG). Submit inserts the text/card
- * post via `createPost`, then best-effort uploads the image to the post-media
- * endpoint — a failed image upload leaves the text post intact. Every native
- * dependency is loaded defensively so the screen never crashes.
+ * A filled composer affordance pill — the gray "Post Controls" chips from the
+ * Figma New Post sheet (gray/100 fill, radius-8, 40pt tall, an 18pt icon + a
+ * 13pt Label). Used for the "Add card" / "Add photo" actions.
+ */
+function ControlChip({
+  icon,
+  label,
+  onPress,
+  testID,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onPress: () => void;
+  testID: string;
+}) {
+  const theme = useSpotlightTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.controlChip,
+        {
+          backgroundColor: theme.colors.gray100,
+          borderRadius: theme.radii.sm,
+          opacity: pressed ? 0.85 : 1,
+        },
+      ]}
+      testID={testID}
+    >
+      {icon}
+      <Text style={[theme.typography.label, { color: theme.colors.textPrimary }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+/**
+ * New Post composer (Phase 3c). Restyled to match the Figma "Post flow" bottom
+ * sheet: a drag handle + close + centered title, the author's avatar/name, a
+ * multiline body, filled "Post Controls" chips for the optional attachments
+ * (card picked via the catalog search modal, image picked + downscaled to a
+ * ~1080px JPEG), and a full-width dark POST button pinned to the bottom.
+ *
+ * Submit inserts the text/card post via `createPost`, then best-effort uploads
+ * the image to the post-media endpoint — a failed image upload leaves the text
+ * post intact. Every native dependency is loaded defensively so the screen
+ * never crashes.
  */
 export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
   const theme = useSpotlightTheme();
   const router = useRouter();
   const { spotlightRepository } = useAppServices();
+  const { currentUser } = useAuth();
 
   const [body, setBody] = useState('');
   const [attachedCard, setAttachedCard] = useState<AttachedCard | null>(null);
@@ -106,6 +150,9 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
 
   const trimmedBody = body.trim();
   const canPost = !isSubmitting && (trimmedBody.length > 0 || attachedCard !== null);
+
+  const authorName = currentUser ? getResolvedDisplayName(currentUser) : 'Collector';
+  const authorInitials = currentUser ? getUserInitials(currentUser) : 'C';
 
   const handleAttachCard = useCallback((result: CatalogSearchResult) => {
     setAttachedCard({
@@ -207,44 +254,49 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
   return (
     <SafeAreaView
       edges={['top', 'bottom', 'left', 'right']}
-      style={[styles.safeArea, { backgroundColor: theme.colors.canvas }]}
+      style={[styles.safeArea, { backgroundColor: theme.colors.canvasElevated }]}
       testID={testID}
     >
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.flex}
       >
-        <View style={styles.headerRow}>
-          <IconButton
-            accessibilityLabel="Cancel"
-            onPress={() => router.back()}
-            testID={`${testID}-cancel`}
-            variant="subtle"
-          >
-            <Xmark color={theme.colors.textPrimary} height={20} width={20} />
-          </IconButton>
-
-          <Text style={[theme.typography.titleCompact, { color: theme.colors.textPrimary }]}>
-            New Post
-          </Text>
-
-          <Button
-            disabled={!canPost}
-            label={isSubmitting ? 'POSTING…' : 'POST'}
-            onPress={() => {
-              void handleSubmit();
-            }}
-            size="sm"
-            testID={`${testID}-submit`}
-            variant="dark"
-          />
-        </View>
+        <SheetHeader
+          align="center"
+          leadingAccessory={
+            <IconButton
+              accessibilityLabel="Cancel"
+              onPress={() => router.back()}
+              size={36}
+              testID={`${testID}-cancel`}
+              variant="subtle"
+            >
+              <Xmark color={theme.colors.textPrimary} height={20} width={20} />
+            </IconButton>
+          }
+          showHandle
+          style={styles.header}
+          title="New Post"
+          titleStyleVariant="titleCompact"
+        />
 
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+          <View style={styles.authorRow}>
+            <Avatar
+              initials={authorInitials}
+              size={40}
+              testID={`${testID}-author-avatar`}
+              uri={currentUser?.avatarURL}
+            />
+            <Text style={[theme.typography.bodyMedium, { color: theme.colors.gray900 }]}>
+              {authorName}
+            </Text>
+          </View>
+
           <TextInput
             autoFocus
             maxFontSizeMultiplier={1.3}
@@ -252,8 +304,8 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
             multiline
             onChangeText={setBody}
             placeholder="Share something with collectors…"
-            placeholderTextColor={theme.colors.textSecondary}
-            style={[styles.bodyInput, { color: theme.colors.textPrimary }]}
+            placeholderTextColor={theme.colors.gray400}
+            style={[styles.bodyInput, theme.typography.body, { color: theme.colors.gray800 }]}
             testID={`${testID}-body-input`}
             textAlignVertical="top"
             value={body}
@@ -270,8 +322,8 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
               style={[
                 styles.cardChip,
                 {
-                  backgroundColor: theme.colors.surfaceMuted,
-                  borderColor: theme.colors.outlineSubtle,
+                  backgroundColor: theme.colors.gray50,
+                  borderColor: theme.colors.gray200,
                   borderRadius: theme.radii.md,
                 },
               ]}
@@ -309,7 +361,7 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
                 accessibilityIgnoresInvertColors
                 contentFit="cover"
                 source={{ uri: imageUri }}
-                style={[styles.imagePreview, { borderRadius: theme.radii.md, backgroundColor: theme.colors.surfaceMuted }]}
+                style={[styles.imagePreview, { borderRadius: theme.radii.md, backgroundColor: theme.colors.gray100 }]}
               />
               <Pressable
                 accessibilityLabel="Remove image"
@@ -326,35 +378,51 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
               </Text>
             </View>
           ) : null}
-
-          <View style={styles.attachmentRow}>
-            {!attachedCard ? (
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setIsCardPickerOpen(true)}
-                style={[styles.attachButton, { borderColor: theme.colors.outlineSubtle, borderRadius: theme.radii.pill }]}
-                testID={`${testID}-add-card`}
-              >
-                <Plus color={theme.colors.textPrimary} height={16} width={16} />
-                <Text style={[theme.typography.control, { color: theme.colors.textPrimary }]}>Add card</Text>
-              </Pressable>
-            ) : null}
-
-            {!imageUri ? (
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => {
-                  void handlePickImage();
-                }}
-                style={[styles.attachButton, { borderColor: theme.colors.outlineSubtle, borderRadius: theme.radii.pill }]}
-                testID={`${testID}-add-image`}
-              >
-                <MediaImage color={theme.colors.textPrimary} height={16} width={16} />
-                <Text style={[theme.typography.control, { color: theme.colors.textPrimary }]}>Add photo</Text>
-              </Pressable>
-            ) : null}
-          </View>
         </ScrollView>
+
+        <View
+          style={[
+            styles.footer,
+            { backgroundColor: theme.colors.canvasElevated, borderTopColor: theme.colors.gray100 },
+          ]}
+        >
+          {!attachedCard || !imageUri ? (
+            <View style={styles.controlRow}>
+              {!attachedCard ? (
+                <ControlChip
+                  icon={<Plus color={theme.colors.textPrimary} height={18} width={18} />}
+                  label="Add card"
+                  onPress={() => setIsCardPickerOpen(true)}
+                  testID={`${testID}-add-card`}
+                />
+              ) : null}
+
+              {!imageUri ? (
+                <ControlChip
+                  icon={<MediaImage color={theme.colors.textPrimary} height={18} width={18} />}
+                  label="Add photo"
+                  onPress={() => {
+                    void handlePickImage();
+                  }}
+                  testID={`${testID}-add-image`}
+                />
+              ) : null}
+            </View>
+          ) : null}
+
+          <Button
+            disabled={!canPost}
+            label={isSubmitting ? 'POSTING…' : 'POST'}
+            onPress={() => {
+              void handleSubmit();
+            }}
+            shape="rounded"
+            size="md"
+            style={styles.postButton}
+            testID={`${testID}-submit`}
+            variant="dark"
+          />
+        </View>
       </KeyboardAvoidingView>
 
       <Modal
@@ -373,25 +441,14 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
 }
 
 const styles = StyleSheet.create({
-  attachButton: {
+  authorRow: {
     alignItems: 'center',
-    borderWidth: 1,
     flexDirection: 'row',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-  },
-  attachmentRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    marginTop: 16,
+    gap: 8,
+    marginBottom: 12,
   },
   bodyInput: {
-    fontFamily: 'SpotlightBodyRegular',
-    fontSize: 17,
-    lineHeight: 24,
-    minHeight: 120,
+    minHeight: 96,
   },
   cardChip: {
     alignItems: 'center',
@@ -409,6 +466,19 @@ const styles = StyleSheet.create({
     height: 48,
     width: 34,
   },
+  controlChip: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 4,
+    height: 40,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  controlRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
   counterRow: {
     alignItems: 'flex-end',
     marginTop: 6,
@@ -416,13 +486,16 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
-  headerRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingBottom: 12,
+  footer: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    gap: 12,
+    paddingBottom: 8,
     paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingTop: 12,
+  },
+  header: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
   },
   imagePreview: {
     aspectRatio: 4 / 3,
@@ -445,12 +518,15 @@ const styles = StyleSheet.create({
   moderationNote: {
     marginTop: 2,
   },
+  postButton: {
+    width: '100%',
+  },
   safeArea: {
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 40,
-    paddingHorizontal: 20,
-    paddingTop: 8,
+    paddingBottom: 24,
+    paddingHorizontal: 16,
+    paddingTop: 12,
   },
 });
