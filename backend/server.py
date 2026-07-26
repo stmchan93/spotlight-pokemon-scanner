@@ -16850,6 +16850,125 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         first = rows[0]
         return first if isinstance(first, dict) else None
 
+    def _insert_post_media_row_via_rls(
+        self,
+        *,
+        media_id: str,
+        post_id: str,
+        storage_path: str,
+        authorization_header: str | None,
+    ) -> dict[str, Any] | None:
+        """INSERT a ``post_media`` row AS THE CALLER — RLS is the authorization.
+
+        The backend does NOT check post ownership itself. It POSTs the new row to
+        PostgREST forwarding the caller's raw bearer JWT (plus the anon apikey),
+        so Supabase RLS decides whether the caller may attach media to
+        ``post_id``: only the post's author is allowed. A rejected insert (RLS
+        denial, or the caller doesn't own the post) yields zero rows / an error
+        and this returns ``None`` — the endpoint then refuses without uploading
+        any bytes. ``moderation_status`` is intentionally omitted so it defaults
+        to ``pending`` server-side. Returns the inserted row dict on success.
+        """
+        supabase_url = str(
+            os.environ.get(SUPABASE_URL_ENV)
+            or os.environ.get("EXPO_PUBLIC_SPOTLIGHT_SUPABASE_URL")
+            or os.environ.get("SPOTLIGHT_SUPABASE_URL")
+            or ""
+        ).strip().rstrip("/")
+        anon_key = str(
+            os.environ.get("SUPABASE_ANON_KEY")
+            or os.environ.get("EXPO_PUBLIC_SPOTLIGHT_SUPABASE_ANON_KEY")
+            or os.environ.get("SPOTLIGHT_SUPABASE_ANON_KEY")
+            or ""
+        ).strip()
+        bearer = str(authorization_header or "").strip()
+        if not supabase_url or not anon_key or not bearer:
+            return None
+
+        from urllib.request import Request, urlopen
+
+        rest_url = f"{supabase_url}/rest/v1/post_media"
+        payload = json.dumps(
+            {
+                "id": media_id,
+                "post_id": post_id,
+                "storage_path": storage_path,
+                "position": 0,
+            }
+        ).encode("utf-8")
+        request = Request(
+            rest_url,
+            data=payload,
+            method="POST",
+            headers={
+                "apikey": anon_key,
+                "Authorization": bearer,
+                "Content-Type": "application/json",
+                "Prefer": "return=representation",
+                "Accept": "application/json",
+            },
+        )
+        try:
+            with urlopen(request, timeout=10) as response:
+                raw = response.read()
+        except Exception:  # noqa: BLE001 - any failure denies the insert → 403
+            return None
+
+        try:
+            rows = json.loads(raw.decode("utf-8"))
+        except Exception:  # noqa: BLE001
+            return None
+        if isinstance(rows, dict):
+            return rows or None
+        if not isinstance(rows, list) or not rows:
+            return None
+        first = rows[0]
+        return first if isinstance(first, dict) else None
+
+    def _delete_post_media_row_via_rls(
+        self, media_id: str, authorization_header: str | None
+    ) -> None:
+        """Best-effort DELETE of a ``post_media`` row AS THE CALLER.
+
+        Used to roll back a row inserted moments ago when the subsequent GCS
+        upload fails, so a failed upload never leaves a dangling row pointing at
+        bytes that were never written. Any failure here is swallowed — the
+        endpoint has already decided to return an error to the caller.
+        """
+        supabase_url = str(
+            os.environ.get(SUPABASE_URL_ENV)
+            or os.environ.get("EXPO_PUBLIC_SPOTLIGHT_SUPABASE_URL")
+            or os.environ.get("SPOTLIGHT_SUPABASE_URL")
+            or ""
+        ).strip().rstrip("/")
+        anon_key = str(
+            os.environ.get("SUPABASE_ANON_KEY")
+            or os.environ.get("EXPO_PUBLIC_SPOTLIGHT_SUPABASE_ANON_KEY")
+            or os.environ.get("SPOTLIGHT_SUPABASE_ANON_KEY")
+            or ""
+        ).strip()
+        bearer = str(authorization_header or "").strip()
+        if not supabase_url or not anon_key or not bearer:
+            return
+
+        from urllib.request import Request, urlopen
+
+        query = urlencode({"id": f"eq.{media_id}"})
+        rest_url = f"{supabase_url}/rest/v1/post_media?{query}"
+        request = Request(
+            rest_url,
+            method="DELETE",
+            headers={
+                "apikey": anon_key,
+                "Authorization": bearer,
+            },
+        )
+        try:
+            with urlopen(request, timeout=10):
+                pass
+        except Exception:  # noqa: BLE001 - rollback is best-effort
+            pass
+
     def _write_html(self, status: HTTPStatus, html: str) -> None:
         body = html.encode("utf-8")
         self.send_response(status.value)
@@ -17980,6 +18099,90 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 daemon=True,
             ).start()
             self._write_json(HTTPStatus.OK, {"status": "started"})
+            return
+
+        if parsed.path == "/api/v1/post-media":
+            # Upload a post's image to the PRIVATE post-media GCS bucket. The
+            # request body is the raw resized JPEG bytes (image/jpeg), NOT JSON,
+            # so this lane is handled before the JSON body readers below.
+            #
+            # AUTHORIZATION IS DELEGATED TO SUPABASE RLS: the client has already
+            # created the `posts` row (client-direct) and passes its id as
+            # ?postId=. Here the backend INSERTs the post_media row AS THE CALLER
+            # (forwarding the caller's bearer), so RLS decides whether the caller
+            # may attach media to that post — only the post's author is allowed.
+            # A rejected insert means the caller doesn't own the post, and NO
+            # bytes are uploaded. Only after a successful insert are the bytes
+            # written to GCS; if that write fails the row is rolled back.
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            query = parse_qs(parsed.query)
+            post_id = query.get("postId", [""])[0].strip()
+            if not is_plausible_user_id(post_id):
+                # post_media.post_id is a UUID, same shape as a user id.
+                self._write_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": "postId must be a valid id"},
+                )
+                return
+            post_media_store = self.service.post_media_store
+            if post_media_store is None:
+                # Private bucket not provisioned yet → inert, not broken.
+                self._write_json(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {
+                        "error": "post_media_storage_unconfigured",
+                        "message": "Post media storage is not configured.",
+                    },
+                )
+                return
+            image_bytes = self._read_raw_image_body()
+            if image_bytes is None:
+                self._write_json(
+                    getattr(self, "_json_body_error_status", HTTPStatus.BAD_REQUEST),
+                    {"error": getattr(self, "_json_body_error_message", "Invalid image body")},
+                )
+                return
+            media_id = str(uuid.uuid4())
+            # Object key is namespaced under the post id so a post's images live
+            # together and a media id can never address another post's objects.
+            storage_path = f"{post_id}/{media_id}.jpg"
+            authorization_header = self.headers.get("Authorization")
+            row = self._insert_post_media_row_via_rls(
+                media_id=media_id,
+                post_id=post_id,
+                storage_path=storage_path,
+                authorization_header=authorization_header,
+            )
+            if not row:
+                # RLS rejected the insert (caller doesn't own the post) or it
+                # errored → refuse WITHOUT uploading any bytes.
+                self._write_json(
+                    HTTPStatus.FORBIDDEN,
+                    {"error": "Not allowed to attach media to this post"},
+                )
+                return
+            try:
+                post_media_store.store_bytes(
+                    storage_path=storage_path,
+                    image_bytes=image_bytes,
+                    content_type="image/jpeg",
+                )
+            except PostMediaStoreError as error:
+                self._delete_post_media_row_via_rls(media_id, authorization_header)
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except Exception as error:  # noqa: BLE001 - storage/upload failure
+                # Best-effort rollback of the row we just inserted so a failed
+                # upload doesn't leave a row pointing at absent bytes.
+                self._delete_post_media_row_via_rls(media_id, authorization_header)
+                self._write_json(
+                    HTTPStatus.BAD_GATEWAY,
+                    {"error": f"Post media upload failed: {error}"},
+                )
+                return
+            self._write_json(HTTPStatus.OK, {"mediaId": media_id})
             return
 
         if parsed.path == "/api/v1/profile/avatar":

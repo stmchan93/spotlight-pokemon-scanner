@@ -29,6 +29,13 @@ jest.mock('@/features/profile/profile-service', () => ({
 
 jest.mock('@/features/social/social-service', () => ({
   fetchAuthorPosts: jest.fn(),
+  fetchLikedPostIds: jest.fn(async () => new Set()),
+  likePost: jest.fn(async () => true),
+  unlikePost: jest.fn(async () => true),
+  fetchComments: jest.fn(async () => []),
+  addComment: jest.fn(async () => null),
+  likeComment: jest.fn(async () => true),
+  unlikeComment: jest.fn(async () => true),
 }));
 
 function buildPost(overrides: { id: string } & Record<string, unknown>) {

@@ -292,3 +292,261 @@ export function fetchAuthorPosts(authorId: string, limit = DEFAULT_LIMIT, before
   }
   return fetchPosts((query) => query.eq('author_id', trimmed), limit, before);
 }
+
+// ---------------------------------------------------------------------------
+// Likes (Phase 3b)
+// ---------------------------------------------------------------------------
+// All client-direct to `post_likes` / `comment_likes` under RLS (you manage only
+// your own like rows). The DB triggers keep `like_count` on posts/comments — the
+// client never writes those counters; it updates its own optimistic count and
+// reconciles on the next read.
+
+const POST_LIKES_TABLE = 'post_likes';
+const COMMENT_LIKES_TABLE = 'comment_likes';
+const COMMENTS_TABLE = 'comments';
+
+/**
+ * Which of `postIds` the signed-in user has already liked. Powers the filled/empty
+ * heart on each card. Returns an empty set on any failure or when unauthenticated —
+ * so a like-state read never blocks the feed from rendering.
+ */
+export async function fetchLikedPostIds(postIds: string[]): Promise<Set<string>> {
+  const me = await currentUserId();
+  const ids = Array.from(new Set(postIds.filter(Boolean)));
+  if (!supabase || !me || ids.length === 0) {
+    return new Set();
+  }
+  try {
+    const { data, error } = await supabase
+      .from(POST_LIKES_TABLE)
+      .select('post_id')
+      .eq('user_id', me)
+      .in('post_id', ids);
+    if (error || !data) {
+      return new Set();
+    }
+    return new Set((data as { post_id: string }[]).map((row) => row.post_id));
+  } catch {
+    return new Set();
+  }
+}
+
+/** Like a post (idempotent). Returns true when the like is in place afterward. */
+export async function likePost(postId: string): Promise<boolean> {
+  const me = await currentUserId();
+  if (!supabase || !me || !postId) {
+    return false;
+  }
+  try {
+    const { error } = await supabase
+      .from(POST_LIKES_TABLE)
+      .upsert({ post_id: postId, user_id: me }, { onConflict: 'post_id,user_id', ignoreDuplicates: true });
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/** Unlike a post. Returns true when the like row is gone afterward. */
+export async function unlikePost(postId: string): Promise<boolean> {
+  const me = await currentUserId();
+  if (!supabase || !me || !postId) {
+    return false;
+  }
+  try {
+    const { error } = await supabase
+      .from(POST_LIKES_TABLE)
+      .delete()
+      .eq('post_id', postId)
+      .eq('user_id', me);
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/** Like a comment (idempotent). */
+export async function likeComment(commentId: string): Promise<boolean> {
+  const me = await currentUserId();
+  if (!supabase || !me || !commentId) {
+    return false;
+  }
+  try {
+    const { error } = await supabase
+      .from(COMMENT_LIKES_TABLE)
+      .upsert({ comment_id: commentId, user_id: me }, { onConflict: 'comment_id,user_id', ignoreDuplicates: true });
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/** Unlike a comment. */
+export async function unlikeComment(commentId: string): Promise<boolean> {
+  const me = await currentUserId();
+  if (!supabase || !me || !commentId) {
+    return false;
+  }
+  try {
+    const { error } = await supabase
+      .from(COMMENT_LIKES_TABLE)
+      .delete()
+      .eq('comment_id', commentId)
+      .eq('user_id', me);
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Comments (Phase 3b)
+// ---------------------------------------------------------------------------
+
+const commentSelect =
+  'id, post_id, author_id, parent_comment_id, body, like_count, created_at, content_status, deleted_at';
+
+type CommentRow = {
+  id: string;
+  post_id: string;
+  author_id: string;
+  parent_comment_id: string | null;
+  body: string | null;
+  like_count: number | null;
+  created_at: string;
+  content_status: string | null;
+  deleted_at: string | null;
+};
+
+export type PostComment = {
+  id: string;
+  postId: string;
+  authorId: string;
+  /** Null when the author isn't publicly visible. */
+  author: FeedPostAuthor | null;
+  body: string | null;
+  parentCommentId: string | null;
+  likeCount: number;
+  createdAt: string;
+};
+
+/**
+ * Comments for one post, oldest-first (chat order), author-hydrated via
+ * `public_profiles`. Threading is carried by `parentCommentId` — the caller nests.
+ * Returns `[]` on any failure. Soft-deleted rows are excluded.
+ */
+export async function fetchComments(postId: string, limit = 100): Promise<PostComment[]> {
+  const trimmed = (postId ?? '').trim();
+  if (!supabase || !trimmed) {
+    return [];
+  }
+  try {
+    const { data, error } = await supabase
+      .from(COMMENTS_TABLE)
+      .select(commentSelect)
+      .eq('post_id', trimmed)
+      .is('deleted_at', null)
+      .neq('content_status', 'deleted')
+      .order('created_at', { ascending: true })
+      .limit(limit);
+    if (error || !data) {
+      return [];
+    }
+
+    const rows = data as CommentRow[];
+    const authorIds = Array.from(new Set(rows.map((row) => row.author_id).filter(Boolean)));
+    const authorsById = new Map<string, FeedPostAuthor>();
+    if (authorIds.length > 0) {
+      const { data: authorData, error: authorError } = await supabase
+        .from(PUBLIC_PROFILES_VIEW)
+        .select(postAuthorSelect)
+        .in('user_id', authorIds);
+      if (!authorError && authorData) {
+        for (const row of authorData as PostAuthorRow[]) {
+          authorsById.set(row.user_id, mapAuthor(row));
+        }
+      }
+    }
+
+    return rows.map((row) => ({
+      id: row.id,
+      postId: row.post_id,
+      authorId: row.author_id,
+      author: authorsById.get(row.author_id) ?? null,
+      body: row.body ?? null,
+      parentCommentId: row.parent_comment_id ?? null,
+      likeCount: row.like_count ?? 0,
+      createdAt: row.created_at,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Add a comment (or a reply when `parentCommentId` is set). Returns the created
+ * comment id, or null on failure. The in-DB moderation trigger (blocked_terms +
+ * rate limit) runs on insert; a rejected insert resolves to null.
+ */
+export async function addComment(
+  postId: string,
+  body: string,
+  parentCommentId?: string | null,
+): Promise<string | null> {
+  const me = await currentUserId();
+  const text = (body ?? '').trim();
+  if (!supabase || !me || !postId || text.length === 0) {
+    return null;
+  }
+  try {
+    const { data, error } = await supabase
+      .from(COMMENTS_TABLE)
+      .insert({
+        post_id: postId,
+        author_id: me,
+        body: text,
+        parent_comment_id: parentCommentId ?? null,
+      })
+      .select('id')
+      .single();
+    if (error || !data) {
+      return null;
+    }
+    return (data as { id: string }).id;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Compose (Phase 3c)
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a text/card post authored by the signed-in user. Returns the new post id,
+ * or null on failure (unauthenticated, empty body with no card, moderation reject).
+ * Image attachment is a separate step: the composer uploads each image to the
+ * backend post-media endpoint with this post id. `content_status` defaults to
+ * visible; the in-DB moderation trigger runs on insert.
+ */
+export async function createPost(input: { body?: string | null; cardId?: string | null }): Promise<string | null> {
+  const me = await currentUserId();
+  const body = (input.body ?? '').trim();
+  const cardId = (input.cardId ?? '').trim() || null;
+  if (!supabase || !me || (body.length === 0 && !cardId)) {
+    return null;
+  }
+  try {
+    const { data, error } = await supabase
+      .from(POSTS_TABLE)
+      .insert({ author_id: me, body: body.length > 0 ? body : null, card_id: cardId })
+      .select('id')
+      .single();
+    if (error || !data) {
+      return null;
+    }
+    return (data as { id: string }).id;
+  } catch {
+    return null;
+  }
+}

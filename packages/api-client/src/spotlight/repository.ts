@@ -93,6 +93,7 @@ import type {
   PortfolioSaleRequestPayload,
   PortfolioSaleResponsePayload,
   ProfileAvatarUploadResult,
+  PostMediaUploadResult,
   ProfileDeckEntriesQuery,
   ProfilePortfolioSummary,
   RawPricingMatrix,
@@ -166,6 +167,8 @@ export interface SpotlightRepository {
    * client-supplied id, so it can only ever replace the caller's own avatar.
    */
   uploadProfileAvatar(jpegBytes: ArrayBuffer | Uint8Array): Promise<ProfileAvatarUploadResult>;
+  /** Upload one image for an already-created post; returns the new media id. */
+  uploadPostMedia(postId: string, jpegBytes: ArrayBuffer | Uint8Array): Promise<PostMediaUploadResult>;
   loadCatalogCards(query: string, limit?: number, offset?: number, options?: CatalogSearchOptions): Promise<CatalogSearchLoadResult>;
   searchCatalogCards(query: string, limit?: number): Promise<CatalogSearchResult[]>;
   /** Paginated catalog search for infinite scroll — returns a page + hasMore. */
@@ -513,6 +516,12 @@ type ProfilePortfolioSummaryDTO = {
 // avatar. Value arrives untrusted and is normalized.
 type ProfileAvatarUploadResponseDTO = {
   avatarUrl?: unknown;
+};
+
+// Response of POST /api/v1/post-media — the id of the just-inserted post_media
+// row. Value arrives untrusted and is normalized.
+type PostMediaUploadResponseDTO = {
+  mediaId?: unknown;
 };
 
 type SearchResultsDTO = {
@@ -3020,6 +3029,15 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return { avatarUrl: 'https://storage.googleapis.com/mock-avatars/avatars/mock-user.jpg' };
   }
 
+  async uploadPostMedia(
+    _postId: string,
+    _jpegBytes: ArrayBuffer | Uint8Array,
+  ): Promise<PostMediaUploadResult> {
+    // Offline/test double: return a stable placeholder media id so the composer
+    // flow can proceed without a real bucket or Supabase insert.
+    return { mediaId: 'mock-post-media-id' };
+  }
+
   async loadCatalogCards(query: string, limit = 20, offset = 0, options?: CatalogSearchOptions): Promise<CatalogSearchLoadResult> {
     const normalized = query.trim().toLowerCase();
     const rarityBucket = options?.rarityBucket;
@@ -4547,6 +4565,36 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       );
     }
     return { avatarUrl };
+  }
+
+  async uploadPostMedia(
+    postId: string,
+    jpegBytes: ArrayBuffer | Uint8Array,
+  ): Promise<PostMediaUploadResult> {
+    // The body is the raw resized JPEG bytes (image/jpeg), not JSON. The post is
+    // identified by ?postId=; the backend INSERTs the post_media row as the
+    // caller so Supabase RLS is the authorization (only the post's author may
+    // attach media). 'single_active' avoids re-uploading the bytes to fallback
+    // base URLs on an HTTP error.
+    const queryParams = new URLSearchParams({ postId });
+    const payload = await this.requestJsonOrThrow<PostMediaUploadResponseDTO>(
+      `${this.baseUrl}/api/v1/post-media?${queryParams.toString()}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'image/jpeg' },
+        body: jpegBytes as BodyInit,
+      },
+      { candidateStrategy: 'single_active' },
+    );
+
+    const mediaId = normalizeString(payload?.mediaId);
+    if (!mediaId) {
+      throw new SpotlightRepositoryRequestError(
+        'Post media upload did not return a media id.',
+        'invalid_response',
+      );
+    }
+    return { mediaId };
   }
 
   async loadCatalogCards(query: string, limit = 20, offset = 0, options?: CatalogSearchOptions): Promise<CatalogSearchLoadResult> {

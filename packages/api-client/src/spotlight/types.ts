@@ -1046,6 +1046,18 @@ export type ProfileAvatarUploadResult = {
   avatarUrl: string;
 };
 
+/**
+ * Result of uploading one image for a post (`POST /api/v1/post-media?postId=`).
+ * The client has already created the `posts` row (client-direct) and passes its
+ * id; the backend INSERTs the `post_media` row as the caller (Supabase RLS is
+ * the authorization: only the post's author may attach media), uploads the JPEG
+ * to the private post-media bucket, and returns the new media id. The image is
+ * `pending` moderation and invisible to others until a worker approves it.
+ */
+export type PostMediaUploadResult = {
+  mediaId: string;
+};
+
 export type CardFavoriteRecord = {
   cardId: string;
   isFavorite: boolean;

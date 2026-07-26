@@ -1,11 +1,18 @@
-import { useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
-import { ChatBubbleEmpty, CheckCircle, Heart, MediaImage } from 'iconoir-react-native';
+import { ChatBubbleEmpty, CheckCircle, Heart, HeartSolid, MediaImage } from 'iconoir-react-native';
 
 import { Avatar, Text, useSpotlightTheme } from '@spotlight/design-system';
 
-import type { FeedPost, FeedPostMedia } from '@/features/social/social-service';
+import { CommentsSheet } from '@/features/social/components/comments-sheet';
+import {
+  type FeedPost,
+  type FeedPostMedia,
+  fetchLikedPostIds,
+  likePost,
+  unlikePost,
+} from '@/features/social/social-service';
 
 type PostCardProps = {
   post: FeedPost;
@@ -15,6 +22,12 @@ type PostCardProps = {
   accessToken?: string | null;
   /** Tap the card chip → open the anchored card's PDP. */
   onPressCard?: (cardId: string) => void;
+  /**
+   * Optional seed for the viewer's liked state. When omitted (the default), the
+   * card self-resolves it on mount via `fetchLikedPostIds`, so feeds need no new
+   * props. Pass it when the caller already batch-fetched liked ids.
+   */
+  initialLiked?: boolean;
   testID?: string;
 };
 
@@ -94,15 +107,16 @@ function PostImage({
 }
 
 /**
- * Read-only post card (Phase 3a): author row, body, optional card chip, image(s),
- * and static like/comment counts. No like/comment/compose interactions yet — the
- * only tappable affordance is the card chip → PDP.
+ * Post card (Phase 3b): author row, body, optional card chip, image(s), plus an
+ * interactive like button (optimistic heart + count) and a comment button that
+ * opens the thread sheet. The only other tappable affordance is the card chip → PDP.
  */
 export function PostCard({
   post,
   apiBaseUrl,
   accessToken,
   onPressCard,
+  initialLiked,
   testID = 'post-card',
 }: PostCardProps) {
   const theme = useSpotlightTheme();
@@ -113,6 +127,66 @@ export function PostCard({
 
   const canShowImages = Boolean(apiBaseUrl) && Boolean(accessToken) && post.media.length > 0;
   const trimmedBase = apiBaseUrl ? apiBaseUrl.replace(/\/+$/, '') : '';
+
+  // Interaction state. `liked` / `likeCount` are optimistic; they reconcile to the
+  // post prop on the next feed read. `likePending` de-dupes a double-tap while the
+  // write is in flight. `commentCount` folds in comments added from the sheet.
+  const [liked, setLiked] = useState(initialLiked ?? false);
+  const [likeCount, setLikeCount] = useState(post.likeCount);
+  const [likePending, setLikePending] = useState(false);
+  const [commentCount, setCommentCount] = useState(post.commentCount);
+  const [commentsVisible, setCommentsVisible] = useState(false);
+
+  // Keep the optimistic counters in sync when a fresh copy of the post arrives
+  // (e.g. a feed refresh). The optimistic writes above win only until then.
+  useEffect(() => {
+    setLikeCount(post.likeCount);
+  }, [post.likeCount]);
+  useEffect(() => {
+    setCommentCount(post.commentCount);
+  }, [post.commentCount]);
+
+  // Self-resolve the viewer's liked state on mount so callers need no new props.
+  // Skipped when the caller already seeded it. A failed read just leaves it unliked.
+  useEffect(() => {
+    if (initialLiked !== undefined) {
+      return;
+    }
+    let cancelled = false;
+    void fetchLikedPostIds([post.id])
+      .then((likedIds) => {
+        if (!cancelled) {
+          setLiked(likedIds.has(post.id));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [initialLiked, post.id]);
+
+  // Optimistically flip the heart AND the count, then reconcile: roll both back if
+  // the write returns false. Guarded against a double-tap while in flight.
+  const handleToggleLike = useCallback(() => {
+    if (likePending) {
+      return;
+    }
+    const wasLiked = liked;
+    const nextLiked = !wasLiked;
+
+    setLiked(nextLiked);
+    setLikeCount((count) => Math.max(0, count + (nextLiked ? 1 : -1)));
+    setLikePending(true);
+
+    void (async () => {
+      const ok = await (nextLiked ? likePost(post.id) : unlikePost(post.id));
+      if (!ok) {
+        setLiked(wasLiked);
+        setLikeCount((count) => Math.max(0, count + (nextLiked ? -1 : 1)));
+      }
+      setLikePending(false);
+    })();
+  }, [liked, likePending, post.id]);
 
   return (
     <View
@@ -200,19 +274,52 @@ export function PostCard({
       ) : null}
 
       <View style={styles.countsRow}>
-        <View style={styles.countItem} testID={`${testID}-like-count`}>
-          <Heart color={theme.colors.gray500} height={16} width={16} />
-          <Text style={[theme.typography.captionMedium, { color: theme.colors.gray600 }]}>
-            {post.likeCount}
+        <Pressable
+          accessibilityLabel={liked ? 'Unlike post' : 'Like post'}
+          accessibilityRole="button"
+          accessibilityState={{ selected: liked }}
+          hitSlop={8}
+          onPress={handleToggleLike}
+          style={styles.countItem}
+          testID={`${testID}-like-button`}
+        >
+          {liked ? (
+            <HeartSolid color={theme.colors.red500} height={16} width={16} />
+          ) : (
+            <Heart color={theme.colors.gray500} height={16} width={16} />
+          )}
+          <Text
+            style={[theme.typography.captionMedium, { color: liked ? theme.colors.red500 : theme.colors.gray600 }]}
+            testID={`${testID}-like-count`}
+          >
+            {likeCount}
           </Text>
-        </View>
-        <View style={styles.countItem} testID={`${testID}-comment-count`}>
+        </Pressable>
+        <Pressable
+          accessibilityLabel="View comments"
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={() => setCommentsVisible(true)}
+          style={styles.countItem}
+          testID={`${testID}-comment-button`}
+        >
           <ChatBubbleEmpty color={theme.colors.gray500} height={16} width={16} />
-          <Text style={[theme.typography.captionMedium, { color: theme.colors.gray600 }]}>
-            {post.commentCount}
+          <Text
+            style={[theme.typography.captionMedium, { color: theme.colors.gray600 }]}
+            testID={`${testID}-comment-count`}
+          >
+            {commentCount}
           </Text>
-        </View>
+        </Pressable>
       </View>
+
+      <CommentsSheet
+        onClose={() => setCommentsVisible(false)}
+        onCommentAdded={() => setCommentCount((count) => count + 1)}
+        postId={post.id}
+        testID={`${testID}-comments`}
+        visible={commentsVisible}
+      />
     </View>
   );
 }

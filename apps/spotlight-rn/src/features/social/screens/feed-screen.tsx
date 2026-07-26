@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { EditPencil } from 'iconoir-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
+  IconButton,
   ScreenHeader,
   SegmentedControl,
   type SegmentedControlItem,
@@ -13,6 +15,7 @@ import {
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import { PostCard } from '@/features/social/components/post-card';
+import { consumeFeedRefreshSignal } from '@/features/social/screens/new-post-screen';
 import {
   type FeedPost,
   fetchFollowingFeed,
@@ -93,6 +96,17 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     loadSegment(segment);
   }, [loadSegment, segment]);
 
+  // After composing a post, the composer flips a one-shot flag; reload the active
+  // segment when the feed regains focus so the new post appears at the top.
+  // Returning from anywhere else (e.g. a PDP) leaves the flag clear → no refetch.
+  useFocusEffect(
+    useCallback(() => {
+      if (consumeFeedRefreshSignal()) {
+        loadSegment(segment);
+      }
+    }, [loadSegment, segment]),
+  );
+
   const handleRefresh = useCallback(() => {
     const token = ++loadTokenRef.current;
     setRefreshing(true);
@@ -159,6 +173,16 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     <View style={styles.chrome}>
       <ScreenHeader
         leftAccessory={<ChromeBackButton onPress={() => router.back()} testID={`${testID}-back`} />}
+        rightAccessory={
+          <IconButton
+            accessibilityLabel="New post"
+            onPress={() => router.push('/new-post' as never)}
+            testID={`${testID}-compose`}
+            variant="subtle"
+          >
+            <EditPencil color={theme.colors.textPrimary} height={20} width={20} />
+          </IconButton>
+        }
         title="Feed"
       />
       <SegmentedControl
