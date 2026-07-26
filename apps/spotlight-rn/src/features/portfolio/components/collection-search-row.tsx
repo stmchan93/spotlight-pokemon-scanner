@@ -1,6 +1,7 @@
 import { StyleSheet, View } from 'react-native';
 import type { ReactNode, RefObject } from 'react';
 import type { TextInput, TextInputProps } from 'react-native';
+import { Search as SearchIcon } from 'iconoir-react-native';
 
 import { IconButton, SearchField, Text, colors, textStyles } from '@spotlight/design-system';
 
@@ -14,6 +15,12 @@ type CollectionSearchRowProps = {
   viewMode?: CollectionViewMode;
   onToggleViewMode?: () => void;
   onFocus?: TextInputProps['onFocus'];
+  /**
+   * "Search Card" action — opens the card-catalog search dialog. Rendered as the
+   * bordered button to the right of the collection search input (Figma
+   * 2724:1722). Replaces the old floating bottom-right catalog-search FAB.
+   */
+  onSearchCard?: () => void;
   /** Ref to the underlying search input so callers can focus it (e.g. the
    * top-bar search bubble that scrolls here and drops the keyboard open). */
   inputRef?: RefObject<TextInput | null>;
@@ -31,6 +38,7 @@ export function CollectionSearchRow({
   viewMode,
   onToggleViewMode,
   onFocus,
+  onSearchCard,
   inputRef,
   titleAccessory,
   testID = 'collection-search-row',
@@ -74,6 +82,18 @@ export function CollectionSearchRow({
             variant="outlined"
           >
             <ToggleIcon color={colors.gray900} height={16} width={16} />
+          </IconButton>
+        ) : null}
+        {onSearchCard ? (
+          <IconButton
+            accessibilityLabel="Search Card"
+            onPress={onSearchCard}
+            shape="rounded"
+            size={40}
+            testID={`${testID}-search-card`}
+            variant="outlined"
+          >
+            <SearchIcon color={colors.gray900} height={16} width={16} />
           </IconButton>
         ) : null}
       </View>

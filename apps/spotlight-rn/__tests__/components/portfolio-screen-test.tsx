@@ -160,8 +160,9 @@ describe('PortfolioScreen', () => {
     expect(screen.getByTestId('collection-masonry-grid')).toBeTruthy();
     expect(screen.getAllByText('Scorbunny').length).toBeGreaterThan(0);
 
-    // Floating add button.
-    expect(screen.getByTestId('collection-add-fab')).toBeTruthy();
+    // "Search Card" button lives in the search row (top), not a floating FAB.
+    expect(screen.getByTestId('collection-search-row-search-card')).toBeTruthy();
+    expect(screen.queryByTestId('collection-add-fab')).toBeNull();
   });
 
   it('masks the summary value and delta when the visibility toggle is pressed', async () => {
@@ -786,13 +787,13 @@ describe('PortfolioScreen', () => {
     expect(screen.queryByTestId('portfolio-list-pagination-view-more')).toBeNull();
   });
 
-  it('navigates to the catalog search route when the FAB is tapped', async () => {
+  it('navigates to the catalog search route when the Search Card button is tapped', async () => {
     renderPortfolioScreen();
 
-    const fab = await screen.findByTestId('collection-add-fab');
+    const searchCard = await screen.findByTestId('collection-search-row-search-card');
 
     await act(async () => {
-      fireEvent.press(fab);
+      fireEvent.press(searchCard);
     });
 
     expect(push).toHaveBeenCalledWith('/catalog/search');

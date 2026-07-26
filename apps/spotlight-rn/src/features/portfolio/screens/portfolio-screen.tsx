@@ -45,7 +45,6 @@ import {
   chunkCollectionGridRows,
 } from '@/features/portfolio/components/collection-masonry-grid';
 import { CollectionListRow } from '@/features/portfolio/components/collection-list-view';
-import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
 import { CardActionsSheet } from '@/features/cards/components/card-actions-sheet';
 import { ConfirmDeleteSheet } from '@/features/cards/components/confirm-delete-sheet';
 import { ScrollToTopFab, useScrollToTop } from '@/components/scroll-to-top-fab';
@@ -783,6 +782,7 @@ export function PortfolioScreen({
               inputRef={searchInputRef}
               onChangeQuery={model.setSearchQuery}
               onFocus={handleSearchFocus}
+              onSearchCard={() => router.push('/catalog/search' as never)}
               onToggleViewMode={toggleViewMode}
               query={model.searchQuery}
               titleAccessory={(
@@ -890,8 +890,6 @@ export function PortfolioScreen({
         testID="portfolio-scroll-to-top"
         visible={showScrollTop}
       />
-
-      {editMode ? null : <CollectionAddFab />}
 
       {editMode ? (
         <View
