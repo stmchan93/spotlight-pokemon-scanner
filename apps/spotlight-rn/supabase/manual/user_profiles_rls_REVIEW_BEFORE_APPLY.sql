@@ -1,8 +1,19 @@
 -- ============================================================================
--- REVIEW BEFORE APPLYING — this touches the LIVE user_profiles (auth) table.
+-- SUPERSEDED 2026-07-25 — DO NOT APPLY. Kept for history only.
 -- ============================================================================
--- Deliberately NOT in migrations/ so `supabase db push` does NOT run it. Apply it
--- consciously, on a preview branch / dev project first.
+-- This reviewed policy was promoted to a TRACKED migration and APPLIED live:
+--   migrations/20260724090000_social_08_user_profiles_rls_hardening.sql
+-- social_08 additionally fences the INSERT path (this draft only fenced UPDATE),
+-- closing a new-row admin_enabled escalation. Verified live against a guest token:
+-- self read/insert/update work; admin_enabled self-set is blocked (403);
+-- cross-user reads are self-only; public_profiles stays readable.
+-- Re-running this file would be redundant (and re-drops policies) — use social_08.
+--
+-- ============================================================================
+-- (original) REVIEW BEFORE APPLYING — touches the LIVE user_profiles table.
+-- ============================================================================
+-- Deliberately NOT in migrations/ so `supabase db push` did NOT run it. It was
+-- applied consciously via social_08 after review.
 --
 -- REVISED 2026-07-23 after a security review of the original draft. The original
 -- would have (a) left the legacy dashboard policies in place, ORing away its own
