@@ -29,7 +29,9 @@ import {
   unfollowUser,
 } from '@/features/profile/profile-service';
 import { ProfileHeader } from '@/features/profile/components/profile-header';
-import { useAppServices } from '@/providers/app-providers';
+import { PostCard } from '@/features/social/components/post-card';
+import { type FeedPost, fetchAuthorPosts } from '@/features/social/social-service';
+import { resolveRepositoryBaseUrl, useAppServices } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
 
 const GRID_TEST_ID = 'public-profile-collection-grid';
@@ -39,7 +41,8 @@ const GRID_TEST_ID = 'public-profile-collection-grid';
 const COLLECTION_PAGE_SIZE = 200;
 
 // Same three tabs the owner sees on their own Portfolio. Only Collection is
-// live; For Sale and Activity render the identical "Coming soon" gated state.
+// live; Activity renders this collector's posts (Phase 3a). For Sale is still
+// the gated "Coming soon" state.
 type ProfileTab = 'collection' | 'forsale' | 'activity';
 const PROFILE_TABS: readonly PageTab<ProfileTab>[] = [
   { value: 'collection', label: 'Collection' },
@@ -61,7 +64,11 @@ type FollowState = 'following' | 'not-following' | null;
 // or a single boxed tile when the portfolio holds exactly one card).
 type PublicCollectionRow =
   | { kind: 'grid'; key: string; rowEntries: InventoryCardEntry[]; rowIndex: number }
-  | { kind: 'grid-single'; key: string; entry: InventoryCardEntry };
+  | { kind: 'grid-single'; key: string; entry: InventoryCardEntry }
+  | { kind: 'post'; key: string; post: FeedPost };
+
+/** Has this profile's Activity posts loaded? */
+type ActivityStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 /**
  * Initials for a profile we only know from `user_profiles` (no auth user, so no
@@ -119,9 +126,13 @@ export function PublicProfileScreen({
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { spotlightRepository } = useAppServices();
+  const auth = useAuth();
   // The signed-in viewer. Used to hide the Follow button on your own profile
   // (you can't follow yourself) and to seed the initial isFollowing read.
-  const viewerId = useAuth().currentUser?.id ?? null;
+  const viewerId = auth.currentUser?.id ?? null;
+  // Backend proxy base + bearer for the authed post-media images (Phase 3a).
+  const accessToken = auth.accessToken;
+  const apiBaseUrl = resolveRepositoryBaseUrl();
 
   const [activeTab, setActiveTab] = useState<ProfileTab>('collection');
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -140,6 +151,13 @@ export function PublicProfileScreen({
   const [hasMoreEntries, setHasMoreEntries] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const loadingMoreRef = useRef(false);
+  // Activity tab (Phase 3a): this collector's posts. Fetched lazily the first
+  // time the tab is opened, then cached for the rest of the visit.
+  const [activityPosts, setActivityPosts] = useState<FeedPost[]>([]);
+  const [activityStatus, setActivityStatus] = useState<ActivityStatus>('idle');
+  // Which user's Activity posts have already been requested this visit, so
+  // re-selecting the tab doesn't refetch. Reset when the profile changes.
+  const activityLoadedRef = useRef<string | null>(null);
 
   // Resolve the profile from Supabase first (handle, then user-id fallback), and
   // only then ask the backend for their holdings — so a profile we can't see
@@ -156,6 +174,9 @@ export function PublicProfileScreen({
     setIsLoadingMore(false);
     setFollowState(null);
     setFollowPending(false);
+    setActivityPosts([]);
+    setActivityStatus('idle');
+    activityLoadedRef.current = null;
     loadingMoreRef.current = false;
 
     void (async () => {
@@ -260,6 +281,31 @@ export function PublicProfileScreen({
     };
   }, [canFollow, targetUserId]);
 
+  // Lazily load this collector's posts the first time the Activity tab opens.
+  // Keyed on the profile so switching profiles refetches; guarded so re-selecting
+  // the tab doesn't re-hit the network.
+  useEffect(() => {
+    if (activeTab !== 'activity' || !targetUserId || activityLoadedRef.current === targetUserId) {
+      return;
+    }
+
+    activityLoadedRef.current = targetUserId;
+    let cancelled = false;
+    setActivityStatus('loading');
+    void (async () => {
+      const loaded = await fetchAuthorPosts(targetUserId);
+      if (cancelled) {
+        return;
+      }
+      setActivityPosts(loaded);
+      setActivityStatus('ready');
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, targetUserId]);
+
   // Optimistically flip the button AND the header follower count, then reconcile:
   // roll both back if the write returns false. The screen stays interactive — only
   // this one control is guarded against a double-tap while the write is in flight.
@@ -329,6 +375,9 @@ export function PublicProfileScreen({
   );
 
   const listData = useMemo<PublicCollectionRow[]>(() => {
+    if (activeTab === 'activity') {
+      return activityPosts.map((post) => ({ kind: 'post', key: post.id, post }));
+    }
     if (activeTab !== 'collection' || entries.length === 0) {
       return [];
     }
@@ -341,10 +390,30 @@ export function PublicProfileScreen({
       rowEntries,
       rowIndex,
     }));
-  }, [activeTab, entries]);
+  }, [activeTab, activityPosts, entries]);
+
+  const handleOpenCard = useCallback(
+    (cardId: string) => {
+      router.push({ pathname: '/cards/[cardId]', params: { cardId } });
+    },
+    [router],
+  );
 
   const renderItem = useCallback(
     ({ item }: { item: PublicCollectionRow }) => {
+      if (item.kind === 'post') {
+        return (
+          <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
+            <PostCard
+              accessToken={accessToken}
+              apiBaseUrl={apiBaseUrl}
+              onPressCard={handleOpenCard}
+              post={item.post}
+              testID={`${testID}-post`}
+            />
+          </View>
+        );
+      }
       if (item.kind === 'grid-single') {
         return (
           <CollectionGridSingleRow
@@ -364,7 +433,7 @@ export function PublicProfileScreen({
         />
       );
     },
-    [handlePressEntry],
+    [accessToken, apiBaseUrl, handleOpenCard, handlePressEntry, testID, theme.layout.pageGutter],
   );
 
   const backButton = onBack ? (
@@ -453,10 +522,10 @@ export function PublicProfileScreen({
         value={activeTab}
       />
 
-      {activeTab !== 'collection' ? (
+      {activeTab === 'activity' ? null : activeTab === 'forsale' ? (
         <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
           <StateCard
-            message="For Sale and Activity are coming soon."
+            message="For Sale is coming soon."
             style={styles.stateCard}
             title="Coming soon"
             variant="field"
@@ -502,7 +571,22 @@ export function PublicProfileScreen({
   );
 
   const listEmpty =
-    activeTab !== 'collection' || collectionStatus === 'error' ? null : (
+    activeTab === 'activity' ? (
+      <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
+        <StateCard
+          loading={activityStatus === 'loading' || activityStatus === 'idle'}
+          message={
+            activityStatus === 'ready'
+              ? 'This collector has no posts yet.'
+              : 'Fetching their posts.'
+          }
+          style={styles.stateCard}
+          testID={`${testID}-activity-empty`}
+          title={activityStatus === 'ready' ? 'No posts yet' : 'Loading activity'}
+          variant="field"
+        />
+      </View>
+    ) : activeTab !== 'collection' || collectionStatus === 'error' ? null : (
       <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
         <StateCard
           message={

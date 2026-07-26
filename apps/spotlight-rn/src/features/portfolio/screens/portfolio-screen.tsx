@@ -54,7 +54,9 @@ import { usePortfolioSummaryVisibility } from '@/features/portfolio/use-portfoli
 import { useTabBarScrollHandler } from '@/contexts/tab-bar-chrome-context';
 import { useTabsPage } from '@/contexts/tabs-page-context';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
-import { useAppServices } from '@/providers/app-providers';
+import { resolveRepositoryBaseUrl, useAppServices } from '@/providers/app-providers';
+import { PostCard } from '@/features/social/components/post-card';
+import { type FeedPost, fetchAuthorPosts } from '@/features/social/social-service';
 import { ProfileHeader } from '@/features/profile/components/profile-header';
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
 import { useAuth } from '@/providers/auth-provider';
@@ -62,7 +64,7 @@ import { useAuth } from '@/providers/auth-provider';
 const GRID_TEST_ID = 'collection-masonry-grid';
 
 // The public "Portfolio" profile tabs. Only Collection is wired for now; For Sale
-// and Activity render a gated "Coming soon" state until their roadmap phases ship.
+// renders a gated "Coming soon" state until its roadmap phase ships; Activity is live (Phase 3a).
 type ProfileTab = 'collection' | 'forsale' | 'activity';
 const PROFILE_TABS: readonly PageTab<ProfileTab>[] = [
   { value: 'collection', label: 'Collection' },
@@ -158,7 +160,11 @@ type PortfolioScreenProps = {
 type CollectionRow =
   | { kind: 'list'; key: string; entry: InventoryCardEntry; firstInSection: boolean }
   | { kind: 'grid'; key: string; rowEntries: InventoryCardEntry[]; rowIndex: number }
-  | { kind: 'grid-single'; key: string; entry: InventoryCardEntry };
+  | { kind: 'grid-single'; key: string; entry: InventoryCardEntry }
+  | { kind: 'post'; key: string; post: FeedPost };
+
+/** Has the owner's Activity posts loaded? */
+type ActivityStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 function applyInventorySearch(items: InventoryCardEntry[], query: string) {
   const normalized = query.trim().toLowerCase();
@@ -244,6 +250,15 @@ export function PortfolioScreen({
   // Public profile tab (Collection / For Sale / Activity). Only Collection is
   // live; the others show a "Coming soon" placeholder until their phases ship.
   const [activeProfileTab, setActiveProfileTab] = useState<ProfileTab>('collection');
+  // Owner Activity tab (Phase 3a): the signed-in user's own posts, plus the
+  // backend proxy base + bearer the post images stream through.
+  const accessToken = auth.accessToken;
+  const apiBaseUrl = resolveRepositoryBaseUrl();
+  const [activityPosts, setActivityPosts] = useState<FeedPost[]>([]);
+  const [activityStatus, setActivityStatus] = useState<ActivityStatus>('idle');
+  // Which user's Activity posts have already been requested, so re-selecting the
+  // tab doesn't refetch.
+  const activityLoadedRef = useRef<string | null>(null);
   const profileName = currentUser ? getResolvedDisplayName(currentUser) : 'Portfolio';
   const profileInitials = currentUser ? getUserInitials(currentUser) : 'P';
   const handleSocialLinkPress = useCallback(() => {
@@ -355,6 +370,28 @@ export function PortfolioScreen({
     const filtered = applyCollectionFilter(present, activeFilter);
     return applyInventorySearch(filtered, model.searchQuery);
   }, [activeFilter, baseInventory, model.searchQuery, removedIds]);
+
+  // Lazily load the owner's own posts the first time the Activity tab opens.
+  const ownerId = currentUser?.id ?? null;
+  useEffect(() => {
+    if (activeProfileTab !== 'activity' || !ownerId || activityLoadedRef.current === ownerId) {
+      return;
+    }
+    activityLoadedRef.current = ownerId;
+    let cancelled = false;
+    setActivityStatus('loading');
+    void (async () => {
+      const loaded = await fetchAuthorPosts(ownerId);
+      if (cancelled) {
+        return;
+      }
+      setActivityPosts(loaded);
+      setActivityStatus('ready');
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProfileTab, ownerId]);
 
   // Mirror edit mode into the tabs pager so it hides the bottom tab bar + locks
   // the horizontal swipe, and always release the lock on unmount.
@@ -622,8 +659,33 @@ export function PortfolioScreen({
     }));
   }, [shouldShowInitialError, viewMode, visibleInventory]);
 
+  const activityData = useMemo<CollectionRow[]>(
+    () => activityPosts.map((post) => ({ kind: 'post', key: post.id, post })),
+    [activityPosts],
+  );
+
+  const handleOpenPostCard = useCallback(
+    (cardId: string) => {
+      router.push({ pathname: '/cards/[cardId]', params: { cardId } });
+    },
+    [router],
+  );
+
   const renderItem = useCallback(
     ({ item }: { item: CollectionRow }) => {
+      if (item.kind === 'post') {
+        return (
+          <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
+            <PostCard
+              accessToken={accessToken}
+              apiBaseUrl={apiBaseUrl}
+              onPressCard={handleOpenPostCard}
+              post={item.post}
+              testID="portfolio-activity-post"
+            />
+          </View>
+        );
+      }
       if (item.kind === 'list') {
         return (
           <CollectionListRow
@@ -664,7 +726,16 @@ export function PortfolioScreen({
         />
       );
     },
-    [editMode, handleLongPressEntry, handlePressEntry, selectedIds],
+    [
+      accessToken,
+      apiBaseUrl,
+      editMode,
+      handleLongPressEntry,
+      handleOpenPostCard,
+      handlePressEntry,
+      selectedIds,
+      theme.layout.pageGutter,
+    ],
   );
 
   // Floating glass nav bubbles (menu + edit) that hover in the top corners over
@@ -726,10 +797,10 @@ export function PortfolioScreen({
         testID="portfolio-profile-tabs"
         value={activeProfileTab}
       />
-      {activeProfileTab !== 'collection' ? (
+      {activeProfileTab === 'activity' ? null : activeProfileTab === 'forsale' ? (
         <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
           <StateCard
-            message="For Sale and Activity are coming soon."
+            message="For Sale is coming soon."
             style={styles.emptyStateCard}
             title="Coming soon"
             variant="field"
@@ -810,6 +881,23 @@ export function PortfolioScreen({
     </View>
   );
 
+  const activityEmpty = (
+    <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
+      <StateCard
+        loading={activityStatus === 'loading' || activityStatus === 'idle'}
+        message={
+          activityStatus === 'ready'
+            ? 'Your posts will show up here.'
+            : 'Fetching your posts.'
+        }
+        style={styles.emptyStateCard}
+        testID="portfolio-activity-empty"
+        title={activityStatus === 'ready' ? 'No posts yet' : 'Loading activity'}
+        variant="field"
+      />
+    </View>
+  );
+
   // Truly-empty collection (no cards at all) reads differently from an active
   // filter/search that just matched nothing.
   const listEmpty = shouldShowInitialError ? null : (
@@ -861,9 +949,21 @@ export function PortfolioScreen({
             paddingTop: listTopInset,
             paddingBottom: bottomNavClearance,
           }}
-          data={activeProfileTab === 'collection' ? listData : []}
+          data={
+            activeProfileTab === 'collection'
+              ? listData
+              : activeProfileTab === 'activity'
+                ? activityData
+                : []
+          }
           keyExtractor={(item) => item.key}
-          ListEmptyComponent={activeProfileTab === 'collection' ? listEmpty : null}
+          ListEmptyComponent={
+            activeProfileTab === 'collection'
+              ? listEmpty
+              : activeProfileTab === 'activity'
+                ? activityEmpty
+                : null
+          }
           ListFooterComponent={activeProfileTab === 'collection' && listData.length > 0 ? <View style={styles.footerSpacer} /> : null}
           ListHeaderComponent={listHeader}
           onLayout={handleLayout}

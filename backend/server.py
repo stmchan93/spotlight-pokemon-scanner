@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Literal
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlencode, urlparse
 from zoneinfo import ZoneInfo
 
 from env_loader import load_backend_env_file as _load_backend_env_file
@@ -180,6 +180,12 @@ from avatar_store import (
     AVATARS_GCS_BUCKET_ENV,
     AvatarStoreError,
     build_avatar_store,
+)
+from post_media_store import (
+    POST_MEDIA_GCS_BUCKET_ENV,
+    PostMediaStoreError,
+    build_post_media_store,
+    content_type_for_path,
 )
 from request_auth import RequestAuthError, RequestIdentity, SupabaseRequestAuthenticator
 from person_cutout import extract_person_cutout_png
@@ -1419,6 +1425,15 @@ class SpotlightScanService:
         # env var is unset this is None and the avatar endpoint stays inert.
         self.avatar_store = build_avatar_store(
             gcs_bucket=os.environ.get(AVATARS_GCS_BUCKET_ENV),
+        )
+        # User-generated POST MEDIA images live in their OWN PRIVATE GCS bucket,
+        # kept separate from the public avatars bucket: post photos must stay
+        # hidden until moderation approves them, so they are never public and are
+        # only ever streamed back through the authenticated /api/v1/post-media
+        # proxy after Supabase RLS confirms the caller may see the row. When the
+        # bucket env var is unset this is None and the endpoint returns 503.
+        self.post_media_store = build_post_media_store(
+            gcs_bucket=os.environ.get(POST_MEDIA_GCS_BUCKET_ENV),
         )
 
         self.pricing_registry = PricingProviderRegistry()
@@ -16751,6 +16766,90 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 f"path={getattr(self, 'path', '<unknown>')} status={status.value}"
             )
 
+    def _write_post_media_image(
+        self, body: bytes, *, content_type: str
+    ) -> None:
+        """Stream approved post-media bytes back to the caller.
+
+        Unlike ``_write_image`` (scan-review images, ``no-store``), post media is
+        immutable once approved and safe to cache on the caller's own device, so
+        it uses ``private, max-age=86400`` — private because the bytes are
+        authorization-gated per caller and must never land in a shared cache.
+        """
+        self.send_response(HTTPStatus.OK.value)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "private, max-age=86400")
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            print(
+                "[HTTP] Client disconnected before post-media write completed: "
+                f"path={getattr(self, 'path', '<unknown>')}"
+            )
+
+    def _fetch_post_media_row_via_rls(
+        self, media_id: str, authorization_header: str | None
+    ) -> dict[str, Any] | None:
+        """Return the ``post_media`` row for ``media_id`` IF the caller may see it.
+
+        AUTHORIZATION IS DELEGATED TO SUPABASE RLS — the backend does NOT
+        reimplement post-media visibility. It issues a PostgREST GET as the CALLER
+        (forwarding the caller's raw bearer JWT plus the anon apikey). RLS on
+        ``post_media`` only returns rows the caller is allowed to see (approved
+        rows, plus the author's own pending rows), so a row coming back is itself
+        the authorization decision. Returns the first row dict, or ``None`` when
+        zero rows come back, auth/env is missing, or the request errors.
+        """
+        supabase_url = str(
+            os.environ.get(SUPABASE_URL_ENV)
+            or os.environ.get("EXPO_PUBLIC_SPOTLIGHT_SUPABASE_URL")
+            or os.environ.get("SPOTLIGHT_SUPABASE_URL")
+            or ""
+        ).strip().rstrip("/")
+        anon_key = str(
+            os.environ.get("SUPABASE_ANON_KEY")
+            or os.environ.get("EXPO_PUBLIC_SPOTLIGHT_SUPABASE_ANON_KEY")
+            or os.environ.get("SPOTLIGHT_SUPABASE_ANON_KEY")
+            or ""
+        ).strip()
+        bearer = str(authorization_header or "").strip()
+        if not supabase_url or not anon_key or not bearer:
+            return None
+
+        from urllib.request import Request, urlopen
+
+        query = urlencode(
+            {
+                "id": f"eq.{media_id}",
+                "select": "storage_path,moderation_status",
+            }
+        )
+        rest_url = f"{supabase_url}/rest/v1/post_media?{query}"
+        request = Request(
+            rest_url,
+            headers={
+                "apikey": anon_key,
+                "Authorization": bearer,
+                "Accept": "application/json",
+            },
+        )
+        try:
+            with urlopen(request, timeout=10) as response:
+                raw = response.read()
+        except Exception:  # noqa: BLE001 - any failure denies access → 404
+            return None
+
+        try:
+            rows = json.loads(raw.decode("utf-8"))
+        except Exception:  # noqa: BLE001
+            return None
+        if not isinstance(rows, list) or not rows:
+            return None
+        first = rows[0]
+        return first if isinstance(first, dict) else None
+
     def _write_html(self, status: HTTPStatus, html: str) -> None:
         body = html.encode("utf-8")
         self.send_response(status.value)
@@ -16887,6 +16986,69 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.NOT_FOUND, {"error": "Scan image not found"})
                 return
             self._write_image(HTTPStatus.OK, image_bytes)
+            return
+
+        if parsed.path.startswith("/api/v1/post-media/"):
+            # Backend-proxied read of a PRIVATE post-media image. Authorization is
+            # delegated entirely to Supabase RLS (see _fetch_post_media_row_via_rls):
+            # the backend re-issues the lookup AS THE CALLER, and a row coming back
+            # is the authorization decision — no visibility logic is reimplemented
+            # here. The bytes live in a private GCS bucket and are only ever
+            # streamed through this authenticated proxy.
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            media_id = unquote(
+                parsed.path.removeprefix("/api/v1/post-media/").strip("/")
+            )
+            if not is_plausible_user_id(media_id):
+                # post_media.id is a UUID, same shape as a user id; reuse the guard.
+                self._write_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": "mediaId must be a valid id"},
+                )
+                return
+            post_media_store = self.service.post_media_store
+            if post_media_store is None:
+                # Private bucket not provisioned yet → inert, not broken.
+                self._write_json(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {
+                        "error": "post_media_storage_unconfigured",
+                        "message": "Post media storage is not configured.",
+                    },
+                )
+                return
+            row = self._fetch_post_media_row_via_rls(
+                media_id, self.headers.get("Authorization")
+            )
+            storage_path = str((row or {}).get("storage_path") or "").strip()
+            if not row or not storage_path:
+                # RLS returned nothing (not approved / not visible / not found).
+                self._write_json(
+                    HTTPStatus.NOT_FOUND, {"error": "Post media not found"}
+                )
+                return
+            try:
+                image_bytes = post_media_store.read_bytes(storage_path)
+            except PostMediaStoreError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except Exception as error:  # noqa: BLE001 - storage/object failure
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.NOT_FOUND,
+                    {"error": f"Post media load failed: {error}"},
+                )
+                return
+            if not image_bytes:
+                self._write_json(
+                    HTTPStatus.NOT_FOUND, {"error": "Post media not found"}
+                )
+                return
+            self._write_post_media_image(
+                image_bytes, content_type=content_type_for_path(storage_path)
+            )
             return
 
         if (

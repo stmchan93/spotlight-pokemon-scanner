@@ -10,6 +10,7 @@ import {
   isFollowing,
   unfollowUser,
 } from '@/features/profile/profile-service';
+import { fetchAuthorPosts } from '@/features/social/social-service';
 import { PublicProfileScreen } from '@/features/profile/screens/public-profile-screen';
 
 import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
@@ -25,6 +26,24 @@ jest.mock('@/features/profile/profile-service', () => ({
   followUser: jest.fn(),
   unfollowUser: jest.fn(),
 }));
+
+jest.mock('@/features/social/social-service', () => ({
+  fetchAuthorPosts: jest.fn(),
+}));
+
+function buildPost(overrides: { id: string } & Record<string, unknown>) {
+  return {
+    authorId: 'user-1',
+    author: { displayName: 'Ash Ketchum', handle: 'ash', avatarUrl: null, isVerified: true },
+    body: 'A post body',
+    cardId: null,
+    likeCount: 0,
+    commentCount: 0,
+    createdAt: '2026-05-01T00:00:00.000Z',
+    media: [],
+    ...overrides,
+  };
+}
 
 // The auth-provider test bypass signs in as this synthetic user, so the viewer's
 // id is fixed. A profile whose userID differs is "someone else" (Follow shows);
@@ -100,6 +119,7 @@ describe('PublicProfileScreen', () => {
     (isFollowing as jest.Mock).mockResolvedValue(false);
     (followUser as jest.Mock).mockResolvedValue(true);
     (unfollowUser as jest.Mock).mockResolvedValue(true);
+    (fetchAuthorPosts as jest.Mock).mockResolvedValue([]);
   });
 
   it('shows a loading state before the profile resolves', () => {
@@ -162,7 +182,7 @@ describe('PublicProfileScreen', () => {
     expect(screen.queryByTestId('portfolio-balance-header')).toBeNull();
   });
 
-  it('gates For Sale and Activity behind the same Coming soon state', async () => {
+  it('gates For Sale behind a Coming soon state', async () => {
     renderPublicProfile();
 
     await waitFor(() => {
@@ -171,10 +191,67 @@ describe('PublicProfileScreen', () => {
 
     fireEvent.press(screen.getByTestId('public-profile-tabs-tab-forsale'));
     expect(screen.getByText('Coming soon')).toBeTruthy();
-    expect(screen.getByText('For Sale and Activity are coming soon.')).toBeTruthy();
+    expect(screen.getByText('For Sale is coming soon.')).toBeTruthy();
+  });
 
-    fireEvent.press(screen.getByTestId('public-profile-tabs-tab-activity'));
-    expect(screen.getByText('Coming soon')).toBeTruthy();
+  describe('the Activity tab', () => {
+    it('renders the collector\'s posts', async () => {
+      (fetchAuthorPosts as jest.Mock).mockResolvedValue([
+        buildPost({ id: 'post-1', body: 'First scan of the day!' }),
+        buildPost({ id: 'post-2', body: 'Just pulled a Charizard' }),
+      ]);
+
+      renderPublicProfile();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('public-profile-tabs')).toBeTruthy();
+      });
+
+      fireEvent.press(screen.getByTestId('public-profile-tabs-tab-activity'));
+
+      await waitFor(() => {
+        expect(screen.getByText('First scan of the day!')).toBeTruthy();
+      });
+      expect(fetchAuthorPosts).toHaveBeenCalledWith('user-1');
+      expect(screen.getByText('Just pulled a Charizard')).toBeTruthy();
+    });
+
+    it('shows a friendly empty state when there are no posts', async () => {
+      (fetchAuthorPosts as jest.Mock).mockResolvedValue([]);
+
+      renderPublicProfile();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('public-profile-tabs')).toBeTruthy();
+      });
+
+      fireEvent.press(screen.getByTestId('public-profile-tabs-tab-activity'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('public-profile-activity-empty')).toBeTruthy();
+      });
+      expect(screen.getByText('No posts yet')).toBeTruthy();
+      expect(screen.getByText('This collector has no posts yet.')).toBeTruthy();
+    });
+
+    it('renders a card chip on a post anchored to a card', async () => {
+      (fetchAuthorPosts as jest.Mock).mockResolvedValue([
+        buildPost({ id: 'post-1', body: 'Look at this one', cardId: 'card-xyz' }),
+      ]);
+
+      renderPublicProfile();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('public-profile-tabs')).toBeTruthy();
+      });
+
+      fireEvent.press(screen.getByTestId('public-profile-tabs-tab-activity'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('public-profile-post-card-chip')).toBeTruthy();
+      });
+      expect(screen.getByText('View card')).toBeTruthy();
+    });
   });
 
   it('renders a not-found state for a handle that matches nobody', async () => {
