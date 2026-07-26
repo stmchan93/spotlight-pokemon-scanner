@@ -402,16 +402,16 @@ export function PublicProfileScreen({
   const renderItem = useCallback(
     ({ item }: { item: PublicCollectionRow }) => {
       if (item.kind === 'post') {
+        // Full-bleed post card (Figma 2903-7128): the card owns its inner padding
+        // and its image spans edge-to-edge, so no page-gutter wrapper here.
         return (
-          <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
-            <PostCard
-              accessToken={accessToken}
-              apiBaseUrl={apiBaseUrl}
-              onPressCard={handleOpenCard}
-              post={item.post}
-              testID={`${testID}-post`}
-            />
-          </View>
+          <PostCard
+            accessToken={accessToken}
+            apiBaseUrl={apiBaseUrl}
+            onPressCard={handleOpenCard}
+            post={item.post}
+            testID={`${testID}-post`}
+          />
         );
       }
       if (item.kind === 'grid-single') {
@@ -433,7 +433,7 @@ export function PublicProfileScreen({
         />
       );
     },
-    [accessToken, apiBaseUrl, handleOpenCard, handlePressEntry, testID, theme.layout.pageGutter],
+    [accessToken, apiBaseUrl, handleOpenCard, handlePressEntry, testID],
   );
 
   const backButton = onBack ? (

@@ -674,16 +674,16 @@ export function PortfolioScreen({
   const renderItem = useCallback(
     ({ item }: { item: CollectionRow }) => {
       if (item.kind === 'post') {
+        // Full-bleed: the post card owns its own 16px inner padding and its image
+        // spans edge-to-edge (Figma 2903-7128), so no page-gutter wrapper here.
         return (
-          <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
-            <PostCard
-              accessToken={accessToken}
-              apiBaseUrl={apiBaseUrl}
-              onPressCard={handleOpenPostCard}
-              post={item.post}
-              testID="portfolio-activity-post"
-            />
-          </View>
+          <PostCard
+            accessToken={accessToken}
+            apiBaseUrl={apiBaseUrl}
+            onPressCard={handleOpenPostCard}
+            post={item.post}
+            testID="portfolio-activity-post"
+          />
         );
       }
       if (item.kind === 'list') {
@@ -734,7 +734,6 @@ export function PortfolioScreen({
       handleOpenPostCard,
       handlePressEntry,
       selectedIds,
-      theme.layout.pageGutter,
     ],
   );
 

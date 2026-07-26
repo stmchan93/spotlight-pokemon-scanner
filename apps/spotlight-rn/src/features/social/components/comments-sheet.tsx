@@ -13,7 +13,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ChatBubbleEmpty, Heart, HeartSolid, SendDiagonal, Xmark } from 'iconoir-react-native';
+import { ChatBubbleEmpty, SendDiagonal, ThumbsUp, Xmark } from 'iconoir-react-native';
 
 import { Avatar, Text, TextField, useSpotlightTheme } from '@spotlight/design-system';
 
@@ -36,7 +36,11 @@ type CommentsSheetProps = {
 };
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
-const AVATAR_SIZE = 32;
+// 24px avatar (Figma 2903-7590) — the reply column is indented by the avatar
+// width + row gap so a reply's avatar sits under the parent's body text.
+const AVATAR_SIZE = 24;
+const ROW_GAP = 8;
+const REPLY_INDENT = AVATAR_SIZE + ROW_GAP;
 
 type LoadStatus = 'loading' | 'ready' | 'error';
 
@@ -77,20 +81,29 @@ function formatRelativeTime(createdAt: string): string {
   return new Date(then).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-/**
- * One flattened render row: a top-level comment (`depth: 0`) or a reply nested one
- * level under its top-level ancestor (`depth: 1`). Replies of replies collapse to
- * depth 1 so the thread never indents past a single level.
- */
-type CommentRow = { comment: PostComment; depth: 0 | 1 };
+/** Best display name for a comment author, falling back to handle then a generic label. */
+function authorDisplayName(comment: PostComment): string {
+  const author = comment.author;
+  return author?.displayName?.trim() || (author?.handle ? `@${author.handle}` : 'Collector');
+}
 
 /**
- * Order comments for display: top-level comments oldest-first, each immediately
- * followed by its descendant replies (also oldest-first). Every reply is attributed
- * to its TOP-LEVEL ancestor by walking the parent chain, so a reply-to-a-reply
- * renders flat beneath the same root rather than disappearing.
+ * One top-level comment plus its (flattened) replies. Replies-of-replies are
+ * attributed to their TOP-LEVEL ancestor by walking the parent chain, so the
+ * thread never indents past a single level. Each reply also carries the handle of
+ * its DIRECT parent's author, rendered as an inline blue @mention.
  */
-function buildCommentRows(comments: PostComment[]): CommentRow[] {
+type CommentThread = {
+  comment: PostComment;
+  replies: { comment: PostComment; mentionHandle: string | null }[];
+};
+
+/**
+ * Group threaded comments for display: top-level comments oldest-first, each with
+ * its descendant replies (also oldest-first) attributed to its top-level ancestor.
+ * A reply's `mentionHandle` is the handle of the comment it directly replies to.
+ */
+function buildCommentThreads(comments: PostComment[]): CommentThread[] {
   const byId = new Map<string, PostComment>();
   for (const comment of comments) {
     byId.set(comment.id, comment);
@@ -107,35 +120,48 @@ function buildCommentRows(comments: PostComment[]): CommentRow[] {
     return current.id;
   };
 
-  const topLevel = comments.filter((comment) => !comment.parentCommentId || !byId.has(comment.parentCommentId));
-  const repliesByRoot = new Map<string, PostComment[]>();
+  // The handle to @mention on a reply = the author of its DIRECT parent comment.
+  const mentionHandleOf = (comment: PostComment): string | null => {
+    const parent = comment.parentCommentId ? byId.get(comment.parentCommentId) : undefined;
+    if (!parent) {
+      return null;
+    }
+    return parent.author?.handle?.trim() || parent.author?.displayName?.trim() || null;
+  };
+
+  const topLevel = comments.filter(
+    (comment) => !comment.parentCommentId || !byId.has(comment.parentCommentId),
+  );
+  const repliesByRoot = new Map<string, CommentThread['replies']>();
   for (const comment of comments) {
     if (comment.parentCommentId && byId.has(comment.parentCommentId)) {
       const root = rootIdOf(comment);
       const list = repliesByRoot.get(root) ?? [];
-      list.push(comment);
+      list.push({ comment, mentionHandle: mentionHandleOf(comment) });
       repliesByRoot.set(root, list);
     }
   }
 
-  const rows: CommentRow[] = [];
-  for (const root of topLevel) {
-    rows.push({ comment: root, depth: 0 });
-    const replies = repliesByRoot.get(root.id) ?? [];
-    // Comments arrive oldest-first from the service; preserve that under each root.
-    for (const reply of replies) {
-      rows.push({ comment: reply, depth: 1 });
-    }
-  }
-  return rows;
+  // Comments arrive oldest-first from the service; preserve that ordering.
+  return topLevel.map((comment) => ({
+    comment,
+    replies: repliesByRoot.get(comment.id) ?? [],
+  }));
 }
 
 /**
  * Bottom-sheet comment thread (Phase 3b). Loads `fetchComments(postId)`, renders it
- * oldest-first with one level of reply nesting, and lets the viewer like a comment
- * (optimistic) or add a comment / reply (optimistically appended on success). Mirrors
- * `CardActionsSheet`'s Modal + slide-up + scrim + drag-handle so the sheets read as
- * one system.
+ * oldest-first with one level of reply nesting behind a per-comment "N replies"
+ * toggle, and lets the viewer like a comment (optimistic) or add a comment / reply
+ * (optimistically appended on success). Mirrors `CardActionsSheet`'s Modal +
+ * slide-up + scrim + drag-handle so the sheets read as one system.
+ *
+ * NOTE: the Figma mock shows several custom sticker/emoji reactions per comment
+ * (blepcat, derp-goku, …) with counts and an add-emoji button. Those are NOT
+ * backed by the schema — the DB has only a single `comment_likes` (a thumbs-up),
+ * so we render only the real like. Multi-emoji reactions would need a new
+ * `comment_reactions` table (comment_id, user_id, emoji) plus service reads/writes;
+ * deferred, so no fake/non-functional emoji buttons are shipped here.
  */
 export function CommentsSheet({
   visible,
@@ -155,6 +181,8 @@ export function CommentsSheet({
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [replyTo, setReplyTo] = useState<PostComment | null>(null);
+  // Which top-level comments have their replies revealed (tap "N replies" to toggle).
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   // Optimistic per-comment like state. Absent id = not liked; the count override map
   // holds the adjusted like_count so the row reflects the tap before any refetch.
   const [likedCommentIds, setLikedCommentIds] = useState<Set<string>>(new Set());
@@ -191,7 +219,7 @@ export function CommentsSheet({
   }, [translateY, visible]);
 
   // Load (or reload) the thread each time the sheet opens for a post. Reset the
-  // draft/reply/optimistic-like state so a reopen starts clean.
+  // draft/reply/expand/optimistic-like state so a reopen starts clean.
   useEffect(() => {
     if (!visible || !postId) {
       return;
@@ -200,6 +228,7 @@ export function CommentsSheet({
     setStatus('loading');
     setDraft('');
     setReplyTo(null);
+    setExpandedIds(new Set());
     setLikedCommentIds(new Set());
     setLikeCountOverrides({});
     void (async () => {
@@ -221,7 +250,19 @@ export function CommentsSheet({
     };
   }, [postId, visible]);
 
-  const rows = useMemo(() => buildCommentRows(comments), [comments]);
+  const threads = useMemo(() => buildCommentThreads(comments), [comments]);
+
+  const toggleReplies = useCallback((commentId: string) => {
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      if (next.has(commentId)) {
+        next.delete(commentId);
+      } else {
+        next.add(commentId);
+      }
+      return next;
+    });
+  }, []);
 
   const handleToggleCommentLike = useCallback(
     (comment: PostComment) => {
@@ -251,7 +292,7 @@ export function CommentsSheet({
       void (async () => {
         const ok = await (nextLiked ? likeComment(comment.id) : unlikeComment(comment.id));
         if (!ok) {
-          // Roll both the heart and the count back to their pre-tap values.
+          // Roll both the thumbs-up and the count back to their pre-tap values.
           setLikedCommentIds((current) => {
             const next = new Set(current);
             if (nextLiked) {
@@ -291,6 +332,10 @@ export function CommentsSheet({
           createdAt: new Date().toISOString(),
         };
         setComments((current) => [...current, optimistic]);
+        // Keep a freshly-added reply visible under its parent.
+        if (parent) {
+          setExpandedIds((current) => new Set(current).add(parent.id));
+        }
         setDraft('');
         setReplyTo(null);
         onCommentAdded?.(optimistic);
@@ -298,6 +343,81 @@ export function CommentsSheet({
       setSending(false);
     })();
   }, [draft, onCommentAdded, postId, replyTo, sending]);
+
+  // Renders one comment (top-level or reply): avatar + name/time + body (with an
+  // optional inline blue @mention on replies) + the thumbs-up like and Reply action.
+  const renderComment = useCallback(
+    (comment: PostComment, options: { isReply: boolean; mentionHandle?: string | null }) => {
+      const liked = likedCommentIds.has(comment.id);
+      const likeCount = likeCountOverrides[comment.id] ?? comment.likeCount;
+      const mention = options.mentionHandle?.trim();
+
+      return (
+        <View style={styles.commentRow} testID={`${testID}-comment-${comment.id}`}>
+          <Avatar
+            initials={commentInitials(comment.author?.displayName ?? null, comment.author?.handle ?? null)}
+            size={AVATAR_SIZE}
+            uri={comment.author?.avatarUrl}
+          />
+          <View style={styles.commentBody}>
+            <View style={styles.commentMeta}>
+              <Text
+                numberOfLines={1}
+                style={[theme.typography.bodyMedium, styles.commentName, { color: theme.colors.gray900 }]}
+              >
+                {authorDisplayName(comment)}
+              </Text>
+              <Text style={[theme.typography.captionMedium, { color: theme.colors.gray400 }]}>
+                {formatRelativeTime(comment.createdAt)}
+              </Text>
+            </View>
+            {comment.body ? (
+              <Text style={[theme.typography.body, styles.commentText, { color: theme.colors.gray700 }]}>
+                {options.isReply && mention ? (
+                  <Text style={[theme.typography.body, { color: theme.colors.blue400 }]}>{`@${mention} `}</Text>
+                ) : null}
+                {comment.body}
+              </Text>
+            ) : null}
+            <View style={styles.commentActions}>
+              <Pressable
+                accessibilityLabel={liked ? 'Unlike comment' : 'Like comment'}
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={() => handleToggleCommentLike(comment)}
+                style={styles.commentAction}
+                testID={`${testID}-comment-${comment.id}-like`}
+              >
+                <ThumbsUp
+                  color={liked ? theme.colors.purple500 : theme.colors.gray500}
+                  fill={liked ? theme.colors.purple500 : 'none'}
+                  height={16}
+                  width={16}
+                />
+                {likeCount > 0 ? (
+                  <Text style={[theme.typography.captionMedium, { color: theme.colors.gray600 }]}>
+                    {likeCount}
+                  </Text>
+                ) : null}
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={() => setReplyTo(comment)}
+                style={styles.commentAction}
+                testID={`${testID}-comment-${comment.id}-reply`}
+              >
+                <Text style={[theme.typography.captionMedium, { color: theme.colors.gray600 }]}>
+                  Reply
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      );
+    },
+    [handleToggleCommentLike, likeCountOverrides, likedCommentIds, testID, theme],
+  );
 
   if (!isRendered) {
     return null;
@@ -347,7 +467,7 @@ export function CommentsSheet({
             >
               <View style={[styles.handleBar, { backgroundColor: theme.colors.gray200 }]} />
             </Pressable>
-            <Text style={[theme.typography.bodyMedium, styles.title, { color: theme.colors.gray900 }]}>
+            <Text style={[theme.typography.bodyStrong, styles.title, { color: theme.colors.gray900 }]}>
               Comments
             </Text>
           </View>
@@ -368,7 +488,7 @@ export function CommentsSheet({
                   Could not load comments.
                 </Text>
               </View>
-            ) : rows.length === 0 ? (
+            ) : threads.length === 0 ? (
               <View style={styles.centered} testID={`${testID}-empty`}>
                 <ChatBubbleEmpty color={theme.colors.gray400} height={28} width={28} />
                 <Text style={[theme.typography.body, { color: theme.colors.gray600 }]}>
@@ -376,83 +496,34 @@ export function CommentsSheet({
                 </Text>
               </View>
             ) : (
-              rows.map(({ comment, depth }) => {
-                const author = comment.author;
-                const displayName =
-                  author?.displayName?.trim() || (author?.handle ? `@${author.handle}` : 'Collector');
-                const liked = likedCommentIds.has(comment.id);
-                const likeCount = likeCountOverrides[comment.id] ?? comment.likeCount;
+              threads.map(({ comment, replies }) => {
+                const expanded = expandedIds.has(comment.id);
                 return (
-                  <View
-                    key={comment.id}
-                    style={[styles.commentRow, depth === 1 ? { marginLeft: 40 } : null]}
-                    testID={`${testID}-comment-${comment.id}`}
-                  >
-                    <Avatar
-                      initials={commentInitials(author?.displayName ?? null, author?.handle ?? null)}
-                      size={AVATAR_SIZE}
-                      uri={author?.avatarUrl}
-                    />
-                    <View style={styles.commentBody}>
-                      <View style={styles.commentMeta}>
-                        <Text
-                          numberOfLines={1}
-                          style={[theme.typography.bodyStrong, styles.commentName, { color: theme.colors.gray900 }]}
-                        >
-                          {displayName}
+                  <View key={comment.id} style={styles.thread}>
+                    {renderComment(comment, { isReply: false })}
+                    {replies.length > 0 ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        hitSlop={8}
+                        onPress={() => toggleReplies(comment.id)}
+                        style={styles.repliesToggle}
+                        testID={`${testID}-comment-${comment.id}-replies-toggle`}
+                      >
+                        <View style={[styles.repliesDash, { backgroundColor: theme.colors.gray400 }]} />
+                        <Text style={[theme.typography.label, { color: theme.colors.gray600 }]}>
+                          {expanded
+                            ? 'Hide replies'
+                            : `${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}`}
                         </Text>
-                        {author?.handle ? (
-                          <Text
-                            numberOfLines={1}
-                            style={[theme.typography.captionMedium, { color: theme.colors.gray500 }]}
-                          >
-                            @{author.handle}
-                          </Text>
-                        ) : null}
-                        <Text style={[theme.typography.captionMedium, { color: theme.colors.gray500 }]}>
-                          {`· ${formatRelativeTime(comment.createdAt)}`}
-                        </Text>
-                      </View>
-                      {comment.body ? (
-                        <Text style={[theme.typography.body, { color: theme.colors.gray900 }]}>
-                          {comment.body}
-                        </Text>
-                      ) : null}
-                      <View style={styles.commentActions}>
-                        <Pressable
-                          accessibilityLabel={liked ? 'Unlike comment' : 'Like comment'}
-                          accessibilityRole="button"
-                          hitSlop={8}
-                          onPress={() => handleToggleCommentLike(comment)}
-                          style={styles.commentAction}
-                          testID={`${testID}-comment-${comment.id}-like`}
-                        >
-                          {liked ? (
-                            <HeartSolid color={theme.colors.red500} height={14} width={14} />
-                          ) : (
-                            <Heart color={theme.colors.gray500} height={14} width={14} />
-                          )}
-                          {likeCount > 0 ? (
-                            <Text style={[theme.typography.captionMedium, { color: theme.colors.gray600 }]}>
-                              {likeCount}
-                            </Text>
-                          ) : null}
-                        </Pressable>
-                        {depth === 0 ? (
-                          <Pressable
-                            accessibilityRole="button"
-                            hitSlop={8}
-                            onPress={() => setReplyTo(comment)}
-                            style={styles.commentAction}
-                            testID={`${testID}-comment-${comment.id}-reply`}
-                          >
-                            <Text style={[theme.typography.captionMedium, { color: theme.colors.gray600 }]}>
-                              Reply
-                            </Text>
-                          </Pressable>
-                        ) : null}
-                      </View>
-                    </View>
+                      </Pressable>
+                    ) : null}
+                    {expanded
+                      ? replies.map(({ comment: reply, mentionHandle }) => (
+                          <View key={reply.id} style={styles.replyRow}>
+                            {renderComment(reply, { isReply: true, mentionHandle })}
+                          </View>
+                        ))
+                      : null}
                   </View>
                 );
               })
@@ -468,7 +539,7 @@ export function CommentsSheet({
                 numberOfLines={1}
                 style={[theme.typography.captionMedium, styles.replyBannerText, { color: theme.colors.gray600 }]}
               >
-                Replying to {replyTo.author?.displayName?.trim() || (replyTo.author?.handle ? `@${replyTo.author.handle}` : 'this comment')}
+                {`Replying to ${authorDisplayName(replyTo)}`}
               </Text>
               <Pressable
                 accessibilityLabel="Cancel reply"
@@ -536,7 +607,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: 16,
-    marginTop: 4,
+    marginTop: 6,
   },
   commentBody: {
     flex: 1,
@@ -545,7 +616,6 @@ const styles = StyleSheet.create({
   commentMeta: {
     alignItems: 'center',
     flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: 6,
   },
   commentName: {
@@ -553,7 +623,10 @@ const styles = StyleSheet.create({
   },
   commentRow: {
     flexDirection: 'row',
-    gap: 10,
+    gap: ROW_GAP,
+  },
+  commentText: {
+    marginTop: 1,
   },
   composer: {
     alignItems: 'center',
@@ -587,6 +660,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
+  repliesDash: {
+    borderRadius: 1,
+    height: 1,
+    width: 14,
+  },
+  repliesToggle: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    marginLeft: REPLY_INDENT,
+    marginTop: 10,
+  },
   replyBanner: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -597,6 +682,10 @@ const styles = StyleSheet.create({
   },
   replyBannerText: {
     flex: 1,
+  },
+  replyRow: {
+    marginLeft: REPLY_INDENT,
+    marginTop: 14,
   },
   root: {
     flex: 1,
@@ -613,6 +702,9 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 0,
     maxHeight: SCREEN_HEIGHT * 0.85,
     paddingTop: 10,
+  },
+  thread: {
+    width: '100%',
   },
   title: {
     paddingBottom: 4,

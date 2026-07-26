@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
-import { ChatBubbleEmpty, CheckCircle, Heart, HeartSolid, MediaImage } from 'iconoir-react-native';
+import {
+  ChatBubbleEmpty,
+  CheckCircle,
+  MediaImage,
+  MoreHoriz,
+  ShareIos,
+  ThumbsUp,
+} from 'iconoir-react-native';
 
 import { Avatar, Text, useSpotlightTheme } from '@spotlight/design-system';
 
@@ -32,6 +39,9 @@ type PostCardProps = {
 };
 
 const AVATAR_SIZE = 40;
+/** Portrait image frame per Figma 2903-7128 (3:4). */
+const IMAGE_ASPECT_RATIO = 3 / 4;
+const METRIC_ICON_SIZE = 18;
 
 /** Two initials for the author avatar fallback. Mirrors `getProfileInitials`. */
 function authorInitials(displayName: string | null, handle: string | null): string {
@@ -41,39 +51,24 @@ function authorInitials(displayName: string | null, handle: string | null): stri
   return letters.length > 0 ? letters.join('') : 'C';
 }
 
-/** Compact relative time: "now", "5m", "3h", "2d", "4w", else a short date. */
-function formatRelativeTime(createdAt: string): string {
+/** Absolute post date, e.g. "Jul 16, 2026". Empty for an unparseable timestamp. */
+function formatPostDate(createdAt: string): string {
   const then = Date.parse(createdAt);
   if (Number.isNaN(then)) {
     return '';
   }
-  const seconds = Math.max(0, Math.floor((Date.now() - then) / 1000));
-  if (seconds < 45) {
-    return 'now';
-  }
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) {
-    return `${minutes}m`;
-  }
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) {
-    return `${hours}h`;
-  }
-  const days = Math.floor(hours / 24);
-  if (days < 7) {
-    return `${days}d`;
-  }
-  const weeks = Math.floor(days / 7);
-  if (weeks < 5) {
-    return `${weeks}w`;
-  }
-  return new Date(then).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return new Date(then).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
 }
 
 /**
  * A single authed post image, streamed from `${apiBaseUrl}/api/v1/post-media/<id>`
  * with a bearer header (the bytes are private until moderation approves them, so
  * they're never a plain public URL). Uses the media blurhash as the placeholder.
+ * Rendered full-bleed at a fixed 3:4 portrait frame.
  */
 function PostImage({
   media,
@@ -87,8 +82,6 @@ function PostImage({
   testID?: string;
 }) {
   const theme = useSpotlightTheme();
-  const aspectRatio =
-    media.width && media.height && media.height > 0 ? media.width / media.height : 4 / 3;
 
   return (
     <ExpoImage
@@ -99,7 +92,7 @@ function PostImage({
       source={{ uri, headers: { Authorization: `Bearer ${accessToken}` } }}
       style={[
         styles.image,
-        { aspectRatio, borderRadius: theme.radii.md, backgroundColor: theme.colors.surfaceMuted },
+        { aspectRatio: IMAGE_ASPECT_RATIO, backgroundColor: theme.colors.surfaceMuted },
       ]}
       testID={testID}
     />
@@ -107,9 +100,13 @@ function PostImage({
 }
 
 /**
- * Post card (Phase 3b): author row, body, optional card chip, image(s), plus an
- * interactive like button (optimistic heart + count) and a comment button that
- * opens the thread sheet. The only other tappable affordance is the card chip → PDP.
+ * Post card (Figma 2903-7128, Activity feed): a full-bleed card — header row
+ * (avatar + name/date + a ⋯ options button), body text, an optional card chip,
+ * full-bleed 3:4 image(s), and a metrics row (thumbs-up like + comment on the
+ * left, share on the right) closed by a hairline divider. Interactions are
+ * preserved: the like keeps its optimistic toggle+rollback (now a thumbs-up that
+ * tints to the accent color when liked), the comment control opens the thread
+ * sheet, and the card chip opens the anchored card's PDP.
  */
 export function PostCard({
   post,
@@ -123,7 +120,7 @@ export function PostCard({
 
   const author = post.author;
   const displayName = author?.displayName?.trim() || (author?.handle ? `@${author.handle}` : 'Collector');
-  const relativeTime = useMemo(() => formatRelativeTime(post.createdAt), [post.createdAt]);
+  const postDate = useMemo(() => formatPostDate(post.createdAt), [post.createdAt]);
 
   const canShowImages = Boolean(apiBaseUrl) && Boolean(accessToken) && post.media.length > 0;
   const trimmedBase = apiBaseUrl ? apiBaseUrl.replace(/\/+$/, '') : '';
@@ -165,7 +162,7 @@ export function PostCard({
     };
   }, [initialLiked, post.id]);
 
-  // Optimistically flip the heart AND the count, then reconcile: roll both back if
+  // Optimistically flip the like AND the count, then reconcile: roll both back if
   // the write returns false. Guarded against a double-tap while in flight.
   const handleToggleLike = useCallback(() => {
     if (likePending) {
@@ -188,23 +185,26 @@ export function PostCard({
     })();
   }, [liked, likePending, post.id]);
 
+  // Accent tint marks the "filled" like state (iconoir ThumbsUp has no solid variant).
+  const likeColor = liked ? theme.colors.purple500 : theme.colors.gray700;
+
   return (
     <View
-      style={[styles.card, { backgroundColor: theme.colors.canvasElevated, borderRadius: theme.radii.lg }]}
+      style={[styles.card, { backgroundColor: theme.colors.canvasElevated }]}
       testID={`${testID}-${post.id}`}
     >
-      <View style={styles.authorRow}>
+      <View style={styles.headerRow}>
         <Avatar
           initials={authorInitials(author?.displayName ?? null, author?.handle ?? null)}
           size={AVATAR_SIZE}
           testID={`${testID}-avatar`}
           uri={author?.avatarUrl}
         />
-        <View style={styles.authorText}>
+        <View style={styles.headerText}>
           <View style={styles.nameRow}>
             <Text
               numberOfLines={1}
-              style={[theme.typography.bodyStrong, { color: theme.colors.gray900 }]}
+              style={[theme.typography.bodyMedium, { color: theme.colors.gray900 }]}
               testID={`${testID}-author-name`}
             >
               {displayName}
@@ -218,27 +218,29 @@ export function PostCard({
               />
             ) : null}
           </View>
-          <View style={styles.metaRow}>
-            {author?.handle ? (
-              <Text
-                numberOfLines={1}
-                style={[theme.typography.captionMedium, { color: theme.colors.gray500 }]}
-              >
-                @{author.handle}
-              </Text>
-            ) : null}
-            {relativeTime ? (
-              <Text style={[theme.typography.captionMedium, { color: theme.colors.gray500 }]}>
-                {author?.handle ? ` · ${relativeTime}` : relativeTime}
-              </Text>
-            ) : null}
-          </View>
+          {postDate ? (
+            <Text
+              style={[theme.typography.cardMeta, { color: theme.colors.gray600 }]}
+              testID={`${testID}-date`}
+            >
+              {postDate}
+            </Text>
+          ) : null}
         </View>
+        <Pressable
+          accessibilityLabel="Post options"
+          accessibilityRole="button"
+          hitSlop={8}
+          style={styles.moreButton}
+          testID={`${testID}-more-button`}
+        >
+          <MoreHoriz color={theme.colors.gray700} height={20} width={20} />
+        </Pressable>
       </View>
 
       {post.body ? (
         <Text
-          style={[theme.typography.body, { color: theme.colors.gray900 }]}
+          style={[styles.bodyText, theme.typography.body, { color: theme.colors.gray800 }]}
           testID={`${testID}-body`}
         >
           {post.body}
@@ -273,45 +275,59 @@ export function PostCard({
         </View>
       ) : null}
 
-      <View style={styles.countsRow}>
-        <Pressable
-          accessibilityLabel={liked ? 'Unlike post' : 'Like post'}
-          accessibilityRole="button"
-          accessibilityState={{ selected: liked }}
-          hitSlop={8}
-          onPress={handleToggleLike}
-          style={styles.countItem}
-          testID={`${testID}-like-button`}
-        >
-          {liked ? (
-            <HeartSolid color={theme.colors.red500} height={16} width={16} />
-          ) : (
-            <Heart color={theme.colors.gray500} height={16} width={16} />
-          )}
-          <Text
-            style={[theme.typography.captionMedium, { color: liked ? theme.colors.red500 : theme.colors.gray600 }]}
-            testID={`${testID}-like-count`}
+      <View style={styles.metricsRow}>
+        <View style={styles.metricsLeft}>
+          <Pressable
+            accessibilityLabel={liked ? 'Unlike post' : 'Like post'}
+            accessibilityRole="button"
+            accessibilityState={{ selected: liked }}
+            hitSlop={8}
+            onPress={handleToggleLike}
+            style={styles.metricItem}
+            testID={`${testID}-like-button`}
           >
-            {likeCount}
-          </Text>
-        </Pressable>
+            <ThumbsUp
+              color={likeColor}
+              height={METRIC_ICON_SIZE}
+              testID={`${testID}-like-icon`}
+              width={METRIC_ICON_SIZE}
+            />
+            <Text
+              style={[theme.typography.bodyMedium, { color: likeColor }]}
+              testID={`${testID}-like-count`}
+            >
+              {likeCount}
+            </Text>
+          </Pressable>
+          <Pressable
+            accessibilityLabel="View comments"
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => setCommentsVisible(true)}
+            style={styles.metricItem}
+            testID={`${testID}-comment-button`}
+          >
+            <ChatBubbleEmpty color={theme.colors.gray700} height={METRIC_ICON_SIZE} width={METRIC_ICON_SIZE} />
+            <Text
+              style={[theme.typography.bodyMedium, { color: theme.colors.gray700 }]}
+              testID={`${testID}-comment-count`}
+            >
+              {commentCount}
+            </Text>
+          </Pressable>
+        </View>
         <Pressable
-          accessibilityLabel="View comments"
+          accessibilityLabel="Share post"
           accessibilityRole="button"
           hitSlop={8}
-          onPress={() => setCommentsVisible(true)}
-          style={styles.countItem}
-          testID={`${testID}-comment-button`}
+          style={styles.metricItem}
+          testID={`${testID}-share-button`}
         >
-          <ChatBubbleEmpty color={theme.colors.gray500} height={16} width={16} />
-          <Text
-            style={[theme.typography.captionMedium, { color: theme.colors.gray600 }]}
-            testID={`${testID}-comment-count`}
-          >
-            {commentCount}
-          </Text>
+          <ShareIos color={theme.colors.gray700} height={METRIC_ICON_SIZE} width={METRIC_ICON_SIZE} />
         </Pressable>
       </View>
+
+      <View style={[styles.divider, { backgroundColor: theme.colors.outlineSubtle }]} />
 
       <CommentsSheet
         onClose={() => setCommentsVisible(false)}
@@ -325,36 +341,35 @@ export function PostCard({
 }
 
 const styles = StyleSheet.create({
-  authorRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 10,
-  },
-  authorText: {
-    flex: 1,
-    gap: 1,
+  bodyText: {
+    paddingHorizontal: 16,
   },
   card: {
-    gap: 10,
-    padding: 14,
+    gap: 12,
+    paddingTop: 12,
   },
   cardChip: {
     alignItems: 'center',
     alignSelf: 'flex-start',
     flexDirection: 'row',
     gap: 4,
+    marginHorizontal: 16,
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
-  countItem: {
+  divider: {
+    height: 0.5,
+    width: '100%',
+  },
+  headerRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 4,
+    gap: 10,
+    paddingHorizontal: 16,
   },
-  countsRow: {
-    flexDirection: 'row',
-    gap: 20,
-    marginTop: 2,
+  headerText: {
+    flex: 1,
+    gap: 1,
   },
   image: {
     width: '100%',
@@ -362,9 +377,26 @@ const styles = StyleSheet.create({
   mediaColumn: {
     gap: 8,
   },
-  metaRow: {
+  metricItem: {
     alignItems: 'center',
     flexDirection: 'row',
+    gap: 6,
+  },
+  metricsLeft: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 16,
+  },
+  metricsRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingBottom: 12,
+    paddingHorizontal: 16,
+  },
+  moreButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   nameRow: {
     alignItems: 'center',

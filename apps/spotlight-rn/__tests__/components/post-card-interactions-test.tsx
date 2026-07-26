@@ -59,6 +59,11 @@ async function renderCard(post: FeedPost = buildPost()) {
 }
 
 const likeCountText = () => screen.getByTestId('post-card-like-count').props.children;
+// The thumbs-up has no solid variant; it tints to the accent color when liked.
+// (gray700 unliked, purple500 liked — see PostCard's `likeColor`.)
+const likeIconColor = () => screen.getByTestId('post-card-like-icon').props.color;
+const ACCENT = '#A54BFA';
+const GRAY700 = '#4A4A4A';
 
 describe('PostCard likes', () => {
   beforeEach(() => {
@@ -68,24 +73,23 @@ describe('PostCard likes', () => {
     (unlikePost as jest.Mock).mockResolvedValue(true);
   });
 
-  it('optimistically flips the heart + count, then rolls both back when the write fails', async () => {
+  it('optimistically tints the thumbs-up + bumps the count, then rolls both back when the write fails', async () => {
     (likePost as jest.Mock).mockResolvedValue(false);
     await renderCard();
 
-    // Seeded unliked: outline heart, count = 2.
+    // Seeded unliked: gray thumbs-up, count = 2.
     expect(likeCountText()).toBe(2);
-    expect(screen.getByTestId('iconoir-heart')).toBeTruthy();
-    expect(screen.queryByTestId('iconoir-heart-solid')).toBeNull();
+    expect(likeIconColor()).toBe(GRAY700);
 
     fireEvent.press(screen.getByTestId('post-card-like-button'));
 
-    // Optimistic: filled heart + count bumped BEFORE the write resolves.
+    // Optimistic: accent-tinted thumbs-up + count bumped BEFORE the write resolves.
     expect(likeCountText()).toBe(3);
-    expect(screen.getByTestId('iconoir-heart-solid')).toBeTruthy();
+    expect(likeIconColor()).toBe(ACCENT);
 
-    // The write returned false → both the heart and the count roll back.
+    // The write returned false → both the tint and the count roll back.
     await waitFor(() => expect(likeCountText()).toBe(2));
-    expect(screen.queryByTestId('iconoir-heart-solid')).toBeNull();
+    expect(likeIconColor()).toBe(GRAY700);
     expect(likePost as jest.Mock).toHaveBeenCalledWith('post-1');
   });
 
@@ -96,9 +100,9 @@ describe('PostCard likes', () => {
     expect(likeCountText()).toBe(3);
 
     await waitFor(() => expect(likePost as jest.Mock).toHaveBeenCalledWith('post-1'));
-    // Success → no rollback: stays liked at 3.
+    // Success → no rollback: stays liked at 3, thumbs-up stays accent-tinted.
     expect(likeCountText()).toBe(3);
-    expect(screen.getByTestId('iconoir-heart-solid')).toBeTruthy();
+    expect(likeIconColor()).toBe(ACCENT);
   });
 });
 

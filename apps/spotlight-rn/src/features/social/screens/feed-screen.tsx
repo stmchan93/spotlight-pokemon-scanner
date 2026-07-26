@@ -243,7 +243,8 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         contentContainerStyle={{
           gap: 12,
           paddingBottom: insets.bottom + 24,
-          paddingHorizontal: theme.layout.pageGutter,
+          // No horizontal padding: post cards are full-bleed (edge-to-edge image,
+          // Figma 2903-7128). The header + state cards carry their own 16px inset.
         }}
         data={posts}
         keyExtractor={(item) => item.id}
@@ -279,6 +280,8 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
 const styles = StyleSheet.create({
   chrome: {
     gap: 16,
+    // The list is edge-to-edge for full-bleed post cards; re-inset the header.
+    paddingHorizontal: 16,
   },
   footerSpinner: {
     paddingVertical: 20,
@@ -291,5 +294,7 @@ const styles = StyleSheet.create({
   },
   stateCard: {
     marginTop: 12,
+    // Re-inset state cards since the list itself has no horizontal padding.
+    marginHorizontal: 16,
   },
 });
