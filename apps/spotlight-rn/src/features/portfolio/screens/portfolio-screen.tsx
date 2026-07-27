@@ -95,8 +95,10 @@ const SEARCH_FOCUS_TOP_GAP = 12;
 // Diameter of the floating glass nav bubbles (menu / edit) that sit in the top
 // corners over the scrolling content — the iOS 26 Liquid Glass chrome shape.
 const BUBBLE_SIZE = 44;
-// Figma 2724:1757 — gap between the profile tab bar and the Portfolio balance.
-const TABS_TO_BALANCE_GAP = 24;
+// Figma 2724:1757 — 24px total between the profile tab bar and the Portfolio
+// balance. The chrome wrapper already contributes a 16px inter-child gap, so this
+// marginTop adds only the remaining 8px (16 + 8 = 24).
+const TABS_TO_BALANCE_GAP = 8;
 
 /**
  * A floating circular Liquid Glass button. Real iOS 26 glass over a solid base
