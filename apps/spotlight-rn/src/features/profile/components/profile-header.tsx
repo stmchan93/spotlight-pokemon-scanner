@@ -87,7 +87,10 @@ export function ProfileHeader({
 
         <View style={styles.identity}>
           <View style={styles.nameRow}>
-            <Text style={theme.typography.titleMedium} testID={`${testID}-name`}>
+            <Text
+              style={[theme.typography.titleMedium, { lineHeight: 22 }]}
+              testID={`${testID}-name`}
+            >
               {displayName}
             </Text>
             {isVerified ? (
@@ -112,6 +115,26 @@ export function ProfileHeader({
           ) : null}
         </View>
 
+        {socialLink ? (
+          <Pressable
+            onPress={onSocialLinkPress}
+            style={styles.socialRow}
+            testID={`${testID}-social-link`}
+          >
+            {/* Link is blue (#1A6FE8 / blue400) at 13px Medium — Figma 3083:12352.
+                Sits directly under the name, above the bio. */}
+            <Link color={theme.colors.blue400} height={16} width={16} />
+            <Text
+              style={[
+                theme.typography.bodyMedium,
+                { fontSize: 13, lineHeight: 16, color: theme.colors.blue400 },
+              ]}
+            >
+              {socialLink}
+            </Text>
+          </Pressable>
+        ) : null}
+
         {bio ? (
           <Text
             numberOfLines={3}
@@ -121,19 +144,6 @@ export function ProfileHeader({
           >
             {bio}
           </Text>
-        ) : null}
-
-        {socialLink ? (
-          <Pressable
-            onPress={onSocialLinkPress}
-            style={styles.socialRow}
-            testID={`${testID}-social-link`}
-          >
-            <Link color={theme.colors.purple500} height={16} width={16} />
-            <Text style={[theme.typography.bodyMedium, { color: theme.colors.purple500 }]}>
-              {socialLink}
-            </Text>
-          </Pressable>
         ) : null}
 
         <View style={styles.statsRow}>
@@ -224,7 +234,8 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   body: {
-    gap: 8,
+    // Figma 3083:12127 — tight vertical rhythm (name / link / bio / chips).
+    gap: 6,
   },
   chip: {
     alignItems: 'center',
