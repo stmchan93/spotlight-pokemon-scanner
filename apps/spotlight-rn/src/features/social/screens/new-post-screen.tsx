@@ -340,17 +340,12 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
             onChangeText={setBody}
             placeholder="What's on your mind?"
             placeholderTextColor={theme.colors.gray600}
-            style={[styles.bodyInput, theme.typography.body, { color: theme.colors.gray800 }]}
+            // Body copy is regular 14 / gray-800 (Figma 3147:10825).
+            style={[styles.bodyInput, theme.typography.body, { fontSize: 14, lineHeight: 20, color: theme.colors.gray800 }]}
             testID={`${testID}-body-input`}
             textAlignVertical="top"
             value={body}
           />
-
-          <View style={styles.counterRow}>
-            <Text style={[theme.typography.caption, { color: counterColor }]}>
-              {body.length}/{BODY_MAX_LENGTH}
-            </Text>
-          </View>
 
           {imageUri ? (
             <View style={styles.imagePreviewWrap} testID={`${testID}-image-preview`}>
@@ -383,6 +378,13 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
             { backgroundColor: theme.colors.canvasElevated, borderTopColor: theme.colors.gray100 },
           ]}
         >
+          {/* Character counter sits bottom-right, directly above the control chips. */}
+          <View style={styles.counterRow}>
+            <Text style={[theme.typography.caption, { color: counterColor }]}>
+              {body.length}/{BODY_MAX_LENGTH}
+            </Text>
+          </View>
+
           <View style={styles.controlRow}>
             <ControlChip
               icon={<Globe color={theme.colors.gray900} height={18} width={18} />}
@@ -448,6 +450,9 @@ const styles = StyleSheet.create({
   },
   controlChip: {
     alignItems: 'center',
+    // Each chip takes an equal share so the row spans the full width (same 16px
+    // side padding as the POST button below), centered — not left-packed.
+    flex: 1,
     flexDirection: 'row',
     gap: 4,
     height: 40,
@@ -456,12 +461,10 @@ const styles = StyleSheet.create({
   },
   controlRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
+    gap: 8,
   },
   counterRow: {
     alignItems: 'flex-end',
-    marginTop: 6,
   },
   flex: {
     flex: 1,
