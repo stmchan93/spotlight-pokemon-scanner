@@ -101,6 +101,10 @@ export function BottomTabBar({
       <View
         style={[
           styles.pill,
+          // Collapsed = pin to the bottom-LEFT. The pill's default alignSelf is
+          // 'center', which would otherwise win over the root's flex-start, so
+          // override it here when collapsed.
+          isCollapsed ? { alignSelf: 'flex-start' } : null,
           // Real glass: fully transparent base so the clear material does the
           // work (a solid base under glass reads opaque — the pre-Reddit look).
           // Fallback targets keep the solid elevated pill + its shadow.

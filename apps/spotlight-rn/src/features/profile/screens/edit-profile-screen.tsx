@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useRouter } from 'expo-router';
 import {
   Alert,
@@ -8,12 +8,13 @@ import {
   ScrollView,
   StyleSheet,
   TextInput,
+  type TextInputProps,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Camera, Check, NavArrowLeft, NavArrowRight } from 'iconoir-react-native';
 
-import { Avatar, Button, Text, TextField, useSpotlightTheme } from '@spotlight/design-system';
+import { Avatar, Button, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 import {
   describeHandleValidity,
@@ -50,6 +51,65 @@ function loadImageManipulator() {
   } catch {
     return null;
   }
+}
+
+type UnderlineFieldProps = {
+  label: string;
+  value: string;
+  placeholder: string;
+  onChangeText: (text: string) => void;
+  testID?: string;
+  /** e.g. the "@" glyph before the handle input. */
+  leading?: ReactNode;
+  /** Overrides the value color — the social link renders in blue, per the design. */
+  valueColor?: string;
+  autoCapitalize?: TextInputProps['autoCapitalize'];
+  autoCorrect?: boolean;
+};
+
+/**
+ * A floating-underline text field (Figma 3095:5517): a tiny label appears above
+ * the value ONLY once the field has content; empty fields show just the
+ * placeholder. A hairline underline sits beneath. Matches the Profile Name /
+ * Social Link / Location fields exactly (Bio is a separate filled box).
+ */
+function UnderlineField({
+  label,
+  value,
+  placeholder,
+  onChangeText,
+  testID,
+  leading,
+  valueColor,
+  autoCapitalize,
+  autoCorrect,
+}: UnderlineFieldProps) {
+  const theme = useSpotlightTheme();
+  const hasValue = value.length > 0;
+  return (
+    <View style={styles.field}>
+      {hasValue ? (
+        <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
+          {label}
+        </Text>
+      ) : null}
+      <View style={styles.fieldInputRow}>
+        {leading}
+        <TextInput
+          autoCapitalize={autoCapitalize}
+          autoCorrect={autoCorrect}
+          maxFontSizeMultiplier={1.2}
+          onChangeText={onChangeText}
+          placeholder={placeholder}
+          placeholderTextColor={theme.colors.textSecondary}
+          style={[styles.fieldInput, { color: valueColor ?? theme.colors.textPrimary }]}
+          testID={testID}
+          value={value}
+        />
+      </View>
+      <View style={[styles.fieldUnderline, { backgroundColor: theme.colors.outlineSubtle }]} />
+    </View>
+  );
 }
 
 export function EditProfileScreen() {
@@ -308,26 +368,24 @@ export function EditProfileScreen() {
           </View>
 
           <View style={styles.form}>
-            <TextField
+            <UnderlineField
               label="Profile Name"
-              maxFontSizeMultiplier={1.2}
               onChangeText={setDisplayName}
               placeholder="Enter Profile Name"
               testID="edit-profile-name-input"
               value={displayName}
             />
 
+            {/* Handle isn't in the 3095:5517 mock, but it's the Phase-2 handle
+                claim — kept here, styled to match the other underline fields. */}
             <View style={styles.handleField}>
-              <TextField
+              <UnderlineField
                 autoCapitalize="none"
                 autoCorrect={false}
                 label="Handle"
                 leading={
-                  <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>
-                    @
-                  </Text>
+                  <Text style={[styles.fieldInput, { color: theme.colors.textSecondary }]}>@</Text>
                 }
-                maxFontSizeMultiplier={1.2}
                 onChangeText={(next) => setHandle(sanitizeHandleInput(next))}
                 placeholder="yourhandle"
                 testID="edit-profile-handle-input"
@@ -350,20 +408,20 @@ export function EditProfileScreen() {
               </Text>
             </View>
 
-            <TextField
+            <UnderlineField
               autoCapitalize="none"
               autoCorrect={false}
               label="Social Link"
-              maxFontSizeMultiplier={1.2}
               onChangeText={setSocialLink}
               placeholder="Enter Social Link"
               testID="edit-profile-social-input"
+              // Social link value renders in blue, per the design.
+              valueColor={theme.colors.blue400}
               value={socialLink}
             />
 
-            <TextField
+            <UnderlineField
               label="Location"
-              maxFontSizeMultiplier={1.2}
               onChangeText={setLocation}
               placeholder="Enter Location"
               testID="edit-profile-location-input"
@@ -523,6 +581,25 @@ const styles = StyleSheet.create({
   },
   cover: {
     height: COVER_HEIGHT,
+    width: '100%',
+  },
+  field: {
+    gap: 4,
+  },
+  fieldInput: {
+    flex: 1,
+    fontFamily: 'SpotlightBodyRegular',
+    fontSize: 16,
+    paddingVertical: 2,
+  },
+  fieldInputRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 2,
+  },
+  fieldUnderline: {
+    height: 1,
+    marginTop: 6,
     width: '100%',
   },
   coverBar: {

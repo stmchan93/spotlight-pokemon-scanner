@@ -71,20 +71,17 @@ type ScrollToTopFabProps = {
 };
 
 /**
- * Positions the shared `ScrollToTopButton` stacked directly above the search
- * FAB at the bottom-RIGHT of the collection / sales / wishlist screens. (The
- * bottom-LEFT corner is reserved for the Reddit-style collapsed tab circle.)
+ * Positions the shared `ScrollToTopButton` at the bottom-RIGHT of the
+ * collection / sales / wishlist screens, sitting where the old search FAB used
+ * to be (that FAB is gone — the catalog search moved into the top search row).
+ * The bottom-LEFT corner is the Reddit-style collapsed tab circle.
  */
-const SEARCH_FAB_HEIGHT = 48;
-const STACK_GAP = 12;
-
 export function ScrollToTopFab({ visible, onPress, testID }: ScrollToTopFabProps) {
   const insets = useSafeAreaInsets();
 
-  // CollectionAddFab's anchor (insets.bottom + bottomTabBarHeight + 28), then
-  // lift one FAB-height + a 12px gap so this sits exactly above the search FAB.
-  const bottom =
-    Math.max(insets.bottom, 0) + bottomTabBarHeight + 28 + SEARCH_FAB_HEIGHT + STACK_GAP;
+  // Sit exactly where the removed search/add FAB was anchored: 28px above the
+  // bottom nav bar. (No longer stacked above another FAB — there isn't one.)
+  const bottom = Math.max(insets.bottom, 0) + bottomTabBarHeight + 28;
 
   return (
     <ScrollToTopButton
