@@ -95,8 +95,8 @@ const SEARCH_FOCUS_TOP_GAP = 12;
 // Diameter of the floating glass nav bubbles (menu / edit) that sit in the top
 // corners over the scrolling content — the iOS 26 Liquid Glass chrome shape.
 const BUBBLE_SIZE = 44;
-// Figma node 2919:9651 — gap between the hamburger bubble and the profile avatar.
-const PROFILE_AVATAR_GAP = 24.5;
+// Figma 2724:1757 — gap between the profile tab bar and the Portfolio balance.
+const TABS_TO_BALANCE_GAP = 24;
 
 /**
  * A floating circular Liquid Glass button. Real iOS 26 glass over a solid base
@@ -300,9 +300,6 @@ export function PortfolioScreen({
   // OVER the profile cover hero, which is full-bleed to the very top (under the
   // status bar) — so the scroll content starts at 0.
   const bubbleTop = insets.top + 8;
-  // Figma: the profile avatar sits 24.5px below the hamburger bubble. Anchor it to
-  // the bubble rather than the cover, so the gap holds across safe-area insets.
-  const profileAvatarTop = bubbleTop + BUBBLE_SIZE + PROFILE_AVATAR_GAP;
   const listTopInset = 0;
   // NOTE: no guest on-mount redirect here. This screen is mounted *alongside*
   // the scanner in the tabs pager (both pages live at once), so a redirect would
@@ -784,7 +781,6 @@ export function PortfolioScreen({
   const listHeader = (
     <View style={styles.chrome}>
       <ProfileHeader
-        avatarTop={profileAvatarTop}
         avatarUrl={currentUser?.avatarURL}
         bio={currentUser?.bio}
         displayName={profileName}
@@ -825,12 +821,14 @@ export function PortfolioScreen({
         </View>
       ) : (
         <>
-          <PortfolioBalanceHeader
-            summary={summary}
-            activeChartPoint={isChartScrubbing ? activeChartPoint : null}
-            isSummaryHidden={isSummaryHidden}
-            onToggleHidden={toggleSummaryHidden}
-          />
+          <View style={{ marginTop: TABS_TO_BALANCE_GAP }}>
+            <PortfolioBalanceHeader
+              summary={summary}
+              activeChartPoint={isChartScrubbing ? activeChartPoint : null}
+              isSummaryHidden={isSummaryHidden}
+              onToggleHidden={toggleSummaryHidden}
+            />
+          </View>
 
           <View style={styles.chartWrap}>
             <PortfolioChartCard

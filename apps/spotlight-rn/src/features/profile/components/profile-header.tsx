@@ -29,9 +29,11 @@ type ProfileHeaderProps = {
   testID?: string;
 };
 
-const COVER_HEIGHT = 150;
+// Banner is 176px tall (Figma 2749:4707); the avatar straddles its bottom edge —
+// half over the banner, half below ("half way up the photo banner").
+const COVER_HEIGHT = 176;
 const AVATAR_SIZE = 84;
-const AVATAR_OVERLAP = -42;
+const AVATAR_OVERLAP = -AVATAR_SIZE / 2;
 
 export function ProfileHeader({
   displayName,
@@ -113,7 +115,8 @@ export function ProfileHeader({
         {bio ? (
           <Text
             numberOfLines={3}
-            style={[theme.typography.body, { color: theme.colors.textSecondary }]}
+            // Bio is regular 13 / gray-700 (Figma 2749:4738).
+            style={[theme.typography.body, { fontSize: 13, lineHeight: 18, color: theme.colors.gray700 }]}
             testID={`${testID}-bio`}
           >
             {bio}
@@ -184,10 +187,15 @@ function StatChip({
         },
       ]}
     >
-      <Text style={[theme.typography.bodyStrong, { color: theme.colors.gray900 }]}>
+      {/* Number bold 14, label regular 14 gray-600 (Figma 3184:17324/3095:5981). */}
+      <Text
+        style={[theme.typography.titleLarge, { fontSize: 14, lineHeight: 18, color: theme.colors.gray900 }]}
+      >
         {count}
       </Text>
-      <Text style={[theme.typography.body, { color: theme.colors.gray600 }]}>
+      <Text
+        style={[theme.typography.body, { fontSize: 14, lineHeight: 18, color: theme.colors.gray600 }]}
+      >
         {label}
       </Text>
     </View>
