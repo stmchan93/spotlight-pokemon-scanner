@@ -41,9 +41,14 @@ export function PageTabs<V extends string>({
           >
             <Text
               style={[
-                theme.typography.headline,
+                theme.typography.bodyMedium,
                 styles.label,
                 {
+                  // Active tab is medium/gray-900; inactive stays regular-weight
+                  // gray-600 (Figma 3184-17337).
+                  fontFamily: selected
+                    ? theme.typography.bodyMedium.fontFamily
+                    : theme.typography.body.fontFamily,
                   color: selected ? theme.colors.textPrimary : theme.colors.textSecondary,
                 },
               ]}
@@ -66,20 +71,23 @@ export function PageTabs<V extends string>({
 }
 
 const styles = StyleSheet.create({
+  // Centered row with wide gaps and content-width tabs (Figma 3184-17337), rather
+  // than full-width flex:1 tabs. The underline hugs the label width.
   container: {
     flexDirection: 'row',
-    alignItems: 'stretch',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 40,
     backgroundColor: 'transparent',
   },
   tab: {
-    flex: 1,
     alignItems: 'center',
     justifyContent: 'flex-end',
-    paddingVertical: 8,
+    paddingVertical: 4,
   },
   label: {
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   underline: {
     height: 2,

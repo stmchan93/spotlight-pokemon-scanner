@@ -85,7 +85,7 @@ export function ProfileHeader({
 
         <View style={styles.identity}>
           <View style={styles.nameRow}>
-            <Text style={theme.typography.titleLarge} testID={`${testID}-name`}>
+            <Text style={theme.typography.titleMedium} testID={`${testID}-name`}>
               {displayName}
             </Text>
             {isVerified ? (
@@ -177,15 +177,17 @@ function StatChip({
       style={[
         styles.chip,
         {
-          backgroundColor: theme.colors.surfaceMuted,
-          borderRadius: theme.radii.md,
+          // Flat gray-50 pill, radius-8 (Figma 3184-17324/28/32) — not the
+          // purple-tinted surfaceMuted.
+          backgroundColor: theme.colors.gray50,
+          borderRadius: theme.radii.sm,
         },
       ]}
     >
       <Text style={[theme.typography.bodyStrong, { color: theme.colors.gray900 }]}>
         {count}
       </Text>
-      <Text style={[theme.typography.captionMedium, { color: theme.colors.gray600 }]}>
+      <Text style={[theme.typography.body, { color: theme.colors.gray600 }]}>
         {label}
       </Text>
     </View>
@@ -220,11 +222,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
   },
   chipPressable: {
-    flexShrink: 1,
+    // Each pill takes an equal third of the row (Figma: flex-1 containers).
+    flex: 1,
   },
   cover: {
     height: COVER_HEIGHT,
