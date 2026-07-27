@@ -12,7 +12,8 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Camera, Check, NavArrowLeft, NavArrowRight } from 'iconoir-react-native';
+import Svg, { Path } from 'react-native-svg';
+import { Camera, NavArrowLeft, NavArrowRight } from 'iconoir-react-native';
 
 import { Avatar, Button, Text, useSpotlightTheme } from '@spotlight/design-system';
 
@@ -31,6 +32,8 @@ const BIO_MAX_LENGTH = 150;
 const HANDLE_CHECK_DEBOUNCE_MS = 400;
 const COVER_HEIGHT = 176;
 const AVATAR_SIZE = 80;
+/** Camera glyph inside the avatar/cover badges (Figma 3083:12761 / 3083:12763). */
+const CAMERA_ICON_SIZE = 16;
 
 // expo-image-picker / expo-image-manipulator are native modules that may not be
 // present in an OTA-updated JS bundle. Load them defensively so the screen never
@@ -68,10 +71,14 @@ type UnderlineFieldProps = {
 };
 
 /**
- * A floating-underline text field (Figma 3095:5517): a tiny label appears above
+ * A floating-underline text field (Figma 3083:9398): a tiny label appears above
  * the value ONLY once the field has content; empty fields show just the
  * placeholder. A hairline underline sits beneath. Matches the Profile Name /
  * Social Link / Location fields exactly (Bio is a separate filled box).
+ *
+ * The 48px frame is bottom-anchored so the value keeps its centerline whether or
+ * not the floating label is showing, which is what stops the row from jumping as
+ * you type the first character.
  */
 function UnderlineField({
   label,
@@ -87,9 +94,14 @@ function UnderlineField({
   const theme = useSpotlightTheme();
   const hasValue = value.length > 0;
   return (
-    <View style={styles.field}>
+    <View
+      style={[
+        styles.field,
+        { borderBottomColor: theme.colors.gray400, borderBottomWidth: theme.borderWidths.rule },
+      ]}
+    >
       {hasValue ? (
-        <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
+        <Text style={[theme.typography.overline, { color: theme.colors.gray500 }]}>
           {label}
         </Text>
       ) : null}
@@ -101,14 +113,39 @@ function UnderlineField({
           maxFontSizeMultiplier={1.2}
           onChangeText={onChangeText}
           placeholder={placeholder}
-          placeholderTextColor={theme.colors.textSecondary}
-          style={[styles.fieldInput, { color: valueColor ?? theme.colors.textPrimary }]}
+          placeholderTextColor={theme.colors.gray400}
+          style={[styles.fieldInput, { color: valueColor ?? theme.colors.gray900 }]}
           testID={testID}
           value={value}
         />
       </View>
-      <View style={[styles.fieldUnderline, { backgroundColor: theme.colors.outlineSubtle }]} />
     </View>
+  );
+}
+
+/**
+ * The scalloped verified seal (Figma "badge-check" 3095:5501): a solid purple
+ * starburst badge with a white check. Reuses iconoir's BadgeCheck vector data,
+ * but filled (the icon ships as an outline) to match the design's solid fill.
+ */
+function VerifiedSeal({ size = 24 }: { size?: number }) {
+  const theme = useSpotlightTheme();
+  return (
+    <Svg fill="none" height={size} viewBox="0 0 24 24" width={size}>
+      <Path
+        d="M10.5213 2.62368C11.3147 1.75255 12.6853 1.75255 13.4787 2.62368L14.4989 3.74391C14.8998 4.18418 15.4761 4.42288 16.071 4.39508L17.5845 4.32435C18.7614 4.26934 19.7307 5.23857 19.6757 6.41554L19.6049 7.92905C19.5771 8.52388 19.8158 9.10016 20.2561 9.50111L21.3763 10.5213C22.2475 11.3147 22.2475 12.6853 21.3763 13.4787L20.2561 14.4989C19.8158 14.8998 19.5771 15.4761 19.6049 16.071L19.6757 17.5845C19.7307 18.7614 18.7614 19.7307 17.5845 19.6757L16.071 19.6049C15.4761 19.5771 14.8998 19.8158 14.4989 20.2561L13.4787 21.3763C12.6853 22.2475 11.3147 22.2475 10.5213 21.3763L9.50111 20.2561C9.10016 19.8158 8.52388 19.5771 7.92905 19.6049L6.41553 19.6757C5.23857 19.7307 4.26934 18.7614 4.32435 17.5845L4.39508 16.071C4.42288 15.4761 4.18418 14.8998 3.74391 14.4989L2.62368 13.4787C1.75255 12.6853 1.75255 11.3147 2.62368 10.5213L3.74391 9.50111C4.18418 9.10016 4.42288 8.52388 4.39508 7.92905L4.32435 6.41553C4.26934 5.23857 5.23857 4.26934 6.41554 4.32435L7.92905 4.39508C8.52388 4.42288 9.10016 4.18418 9.50111 3.74391L10.5213 2.62368Z"
+        fill={theme.colors.brandStrong}
+        stroke={theme.colors.brandStrong}
+        strokeWidth={1.5}
+      />
+      <Path
+        d="M9 12L11 14L15 10"
+        stroke={theme.colors.gray0}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+      />
+    </Svg>
   );
 }
 
@@ -317,12 +354,6 @@ export function EditProfileScreen() {
               >
                 <NavArrowLeft color={theme.colors.textPrimary} height={20} width={20} />
               </Pressable>
-
-              <Text style={[theme.typography.titleMedium, { color: theme.colors.gray0 }]}>
-                Edit Profile
-              </Text>
-
-              <View style={styles.circleButton} />
             </SafeAreaView>
 
             <Pressable
@@ -330,16 +361,10 @@ export function EditProfileScreen() {
               accessibilityRole="button"
               hitSlop={8}
               onPress={handlePickCover}
-              style={[
-                styles.coverCameraBadge,
-                {
-                  backgroundColor: theme.colors.brandStrong,
-                  borderColor: theme.colors.canvasElevated,
-                },
-              ]}
+              style={[styles.coverCameraBadge, { backgroundColor: theme.colors.gray0 }]}
               testID="edit-profile-cover-camera"
             >
-              <Camera color={theme.colors.gray0} height={15} width={15} />
+              <Camera color={theme.colors.gray900} height={CAMERA_ICON_SIZE} width={CAMERA_ICON_SIZE} />
             </Pressable>
           </View>
 
@@ -353,16 +378,10 @@ export function EditProfileScreen() {
                 onPress={() => {
                   void handlePickAvatar();
                 }}
-                style={[
-                  styles.avatarBadge,
-                  {
-                    backgroundColor: theme.colors.brandStrong,
-                    borderColor: theme.colors.canvasElevated,
-                  },
-                ]}
+                style={[styles.avatarBadge, { backgroundColor: theme.colors.gray0 }]}
                 testID="edit-profile-avatar-camera"
               >
-                <Camera color={theme.colors.gray0} height={15} width={15} />
+                <Camera color={theme.colors.gray900} height={CAMERA_ICON_SIZE} width={CAMERA_ICON_SIZE} />
               </Pressable>
             </View>
           </View>
@@ -384,28 +403,35 @@ export function EditProfileScreen() {
                 autoCorrect={false}
                 label="Handle"
                 leading={
-                  <Text style={[styles.fieldInput, { color: theme.colors.textSecondary }]}>@</Text>
+                  // Must NOT reuse styles.fieldInput — that carries flex:1, so the
+                  // "@" stretched to half the row and pushed the input across.
+                  <Text style={[styles.fieldPrefix, { color: theme.colors.gray900 }]}>@</Text>
                 }
                 onChangeText={(next) => setHandle(sanitizeHandleInput(next))}
                 placeholder="yourhandle"
                 testID="edit-profile-handle-input"
                 value={handle}
               />
-              <Text
-                style={[
-                  theme.typography.caption,
-                  {
-                    // dangerStrong, not danger: caption-size error text needs the
-                    // darker red to stay legible on the light form background.
-                    color: handleStatusIsError
-                      ? theme.colors.dangerStrong
-                      : theme.colors.textSecondary,
-                  },
-                ]}
-                testID="edit-profile-handle-status"
-              >
-                {handleStatusText ?? 'Optional. People can find you by your handle.'}
-              </Text>
+              {/* Only real feedback renders — availability, or an error. There is
+                  no idle "Optional…" hint, so the field sits flush with the rest
+                  of the form until you actually type. */}
+              {handleStatusText ? (
+                <Text
+                  style={[
+                    theme.typography.caption,
+                    {
+                      // dangerStrong, not danger: caption-size error text needs the
+                      // darker red to stay legible on the light form background.
+                      color: handleStatusIsError
+                        ? theme.colors.dangerStrong
+                        : theme.colors.gray500,
+                    },
+                  ]}
+                  testID="edit-profile-handle-status"
+                >
+                  {handleStatusText}
+                </Text>
+              ) : null}
             </View>
 
             <UnderlineField
@@ -430,8 +456,12 @@ export function EditProfileScreen() {
 
             <View style={styles.bioField}>
               <View style={styles.bioLabelRow}>
-                <Text style={[theme.typography.micro, styles.bioLabel]}>Bio</Text>
-                <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
+                {/* The Bio row sits at 12px, unlike the 11px floating labels on
+                    the underline fields above (Figma "Bio Info"). */}
+                <Text style={[theme.typography.caption, { color: theme.colors.gray500 }]}>
+                  Bio
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.gray500 }]}>
                   {bio.length}/{BIO_MAX_LENGTH}
                 </Text>
               </View>
@@ -441,13 +471,14 @@ export function EditProfileScreen() {
                 multiline
                 onChangeText={setBio}
                 placeholder="Tell us about you..."
-                placeholderTextColor={theme.colors.textSecondary}
+                placeholderTextColor={theme.colors.gray400}
                 style={[
                   styles.bioInput,
                   {
-                    backgroundColor: theme.colors.fieldLight,
-                    borderColor: theme.colors.outlineSubtle,
-                    color: theme.colors.textPrimary,
+                    // Figma "Bio Text Container" (3083:12773): a flat gray100
+                    // fill, no border, with gray body text.
+                    backgroundColor: theme.colors.gray100,
+                    color: theme.colors.gray700,
                   },
                 ]}
                 testID="edit-profile-bio-input"
@@ -462,21 +493,20 @@ export function EditProfileScreen() {
               style={[
                 styles.verifyCard,
                 {
-                  backgroundColor: theme.colors.fieldLight,
-                  borderColor: theme.colors.outlineSubtle,
+                  backgroundColor: theme.colors.gray0,
+                  borderColor: theme.colors.gray400,
+                  borderWidth: theme.borderWidths.rule,
                 },
               ]}
               testID="edit-profile-verify"
             >
-              <View style={[styles.verifySeal, { backgroundColor: theme.colors.brandStrong }]}>
-                <Check color={theme.colors.gray0} height={14} width={14} />
+              <View style={styles.verifyBadge}>
+                <VerifiedSeal size={24} />
+                <Text style={[theme.typography.label, { color: theme.colors.gray900 }]}>
+                  Verify page
+                </Text>
               </View>
-              <Text
-                style={[theme.typography.control, styles.verifyLabel, { color: theme.colors.textPrimary }]}
-              >
-                Verify page
-              </Text>
-              <NavArrowRight color={theme.colors.textSecondary} height={20} width={20} />
+              <NavArrowRight color={theme.colors.gray900} height={24} width={24} />
             </Pressable>
           </View>
         </ScrollView>
@@ -495,8 +525,10 @@ export function EditProfileScreen() {
           <View style={styles.actionButton}>
             <Button
               label="CANCEL"
+              labelStyleVariant="label"
               onPress={() => router.back()}
-              size="lg"
+              shape="rounded"
+              size="xs"
               style={styles.fullWidth}
               testID="edit-profile-cancel"
               variant="outline"
@@ -506,10 +538,12 @@ export function EditProfileScreen() {
             <Button
               disabled={isSaving || !canSaveHandle}
               label={isSaving ? 'SAVING…' : 'SAVE'}
+              labelStyleVariant="label"
               onPress={() => {
                 void handleSave();
               }}
-              size="lg"
+              shape="rounded"
+              size="xs"
               style={styles.fullWidth}
               testID="edit-profile-save"
               variant="dark"
@@ -526,16 +560,17 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   actions: {
+    // Figma 3083:12784 — 10px between the two actions, 16px gutter, 10px above.
     borderTopWidth: 1,
     flexDirection: 'row',
-    gap: 12,
-    paddingHorizontal: 20,
-    paddingTop: 16,
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingTop: 10,
   },
   avatarBadge: {
+    // Figma 3083:12761 — matches the cover badge: gray50 circle, black glyph.
     alignItems: 'center',
     borderRadius: 14,
-    borderWidth: 2,
     bottom: -2,
     height: 28,
     justifyContent: 'center',
@@ -552,20 +587,18 @@ const styles = StyleSheet.create({
     width: AVATAR_SIZE,
   },
   bioField: {
-    gap: 8,
+    // Figma "Bio Container" gap.
+    gap: 6,
   },
   bioInput: {
-    borderRadius: 16,
-    borderWidth: 1,
+    // Figma "Bio Text Container": radius 8, even 16 padding, 104 tall, 14px
+    // Regular body on a flat fill (no border).
+    borderRadius: 8,
     fontFamily: 'SpotlightBodyRegular',
-    fontSize: 15,
+    fontSize: 14,
     lineHeight: 20,
     minHeight: 104,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  bioLabel: {
-    letterSpacing: 1.2,
+    padding: 16,
   },
   bioLabelRow: {
     alignItems: 'center',
@@ -584,23 +617,30 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   field: {
-    gap: 4,
+    // 48px frame per Figma 3083:9398, bottom-anchored: the label's baseline lands
+    // 14px from the top and the value keeps its 33px centerline either way.
+    gap: 9,
+    height: 48,
+    justifyContent: 'flex-end',
+    paddingBottom: 5,
   },
   fieldInput: {
     flex: 1,
     fontFamily: 'SpotlightBodyRegular',
-    fontSize: 16,
-    paddingVertical: 2,
+    // 14px Regular — Figma's "Body" role. Was 16, which is what made every value
+    // on this form read a size too large.
+    fontSize: 14,
+    paddingVertical: 0,
   },
   fieldInputRow: {
+    // The "@" prefix must hug the handle — no gap between glyph and input.
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 2,
+    gap: 0,
   },
-  fieldUnderline: {
-    height: 1,
-    marginTop: 6,
-    width: '100%',
+  fieldPrefix: {
+    fontFamily: 'SpotlightBodyRegular',
+    fontSize: 14,
   },
   coverBar: {
     alignItems: 'center',
@@ -610,9 +650,10 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
   coverCameraBadge: {
+    // Figma 3083:12763 — a plain gray50 circle, no ring. Was a purple fill with a
+    // 2px border and a white glyph.
     alignItems: 'center',
     borderRadius: 14,
-    borderWidth: 2,
     bottom: 12,
     height: 28,
     justifyContent: 'center',
@@ -624,8 +665,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   form: {
-    gap: 20,
-    paddingHorizontal: 20,
+    // Figma 3083:9397 — 24px between fields on the standard 16px page gutter.
+    gap: 24,
+    paddingHorizontal: 16,
     paddingTop: 16,
   },
   fullWidth: {
@@ -641,22 +683,18 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
   verifyCard: {
+    // Figma 3095:5499 — white card on a 0.5px gray400 hairline, radius 8, even
+    // 12 padding, badge left / chevron right.
     alignItems: 'center',
-    borderRadius: 16,
-    borderWidth: 1,
+    borderRadius: 8,
     flexDirection: 'row',
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    justifyContent: 'space-between',
+    padding: 12,
   },
-  verifyLabel: {
-    flex: 1,
-  },
-  verifySeal: {
+  verifyBadge: {
+    // Figma 3095:5499 — seal + 13px label sit together on the left, chevron right.
     alignItems: 'center',
-    borderRadius: 12,
-    height: 24,
-    justifyContent: 'center',
-    width: 24,
+    flexDirection: 'row',
+    gap: 4,
   },
 });
