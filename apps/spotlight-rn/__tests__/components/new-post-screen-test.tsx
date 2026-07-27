@@ -18,37 +18,6 @@ jest.mock('@/features/social/social-service', () => ({
   createPost: jest.fn(),
 }));
 
-// Reuse-not-rebuild: the real catalog search is a heavy screen with its own data
-// deps, so stub it to a single button that fires `onOpenCard` with a fixed card.
-// The composer's own card-attach behavior (chip + cardId wiring) is what we test.
-jest.mock('@/features/catalog/screens/catalog-search-screen', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const React = require('react');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { Pressable, Text } = require('react-native');
-  return {
-    CatalogSearchScreen: ({
-      onOpenCard,
-    }: {
-      onOpenCard: (result: { cardId: string; name: string; imageUrl: string; smallImageUrl: string | null }) => void;
-    }) =>
-      React.createElement(
-        Pressable,
-        {
-          testID: 'stub-pick-card',
-          onPress: () =>
-            onOpenCard({
-              cardId: 'card-123',
-              name: 'Charizard',
-              imageUrl: 'https://img.example/charizard.png',
-              smallImageUrl: null,
-            }),
-        },
-        React.createElement(Text, null, 'Pick Charizard'),
-      ),
-  };
-});
-
 const back = jest.fn();
 const push = jest.fn();
 
@@ -59,7 +28,7 @@ describe('NewPostScreen', () => {
     (createPost as jest.Mock).mockResolvedValue('post-1');
   });
 
-  it('disables Post until there is a body or a card', () => {
+  it('disables Post until there is a body', () => {
     renderWithProviders(<NewPostScreen />);
 
     expect(screen.getByTestId('new-post-submit')).toBeDisabled();
@@ -75,6 +44,7 @@ describe('NewPostScreen', () => {
     fireEvent.press(screen.getByTestId('new-post-submit'));
 
     await waitFor(() => expect(createPost).toHaveBeenCalled());
+    // Card attach is no longer a composer affordance — cardId is always null here.
     expect(createPost).toHaveBeenCalledWith({ body: 'Pulled a holo!', cardId: null });
     await waitFor(() => expect(back).toHaveBeenCalledTimes(1));
   });
@@ -87,19 +57,55 @@ describe('NewPostScreen', () => {
     expect(back).not.toHaveBeenCalled();
   });
 
-  it('attaches a picked card and posts with its cardId', async () => {
+  it('shows a note that posts are public (no privacy value is persisted)', () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     renderWithProviders(<NewPostScreen />);
 
-    fireEvent.press(screen.getByTestId('new-post-add-card'));
-    fireEvent.press(await screen.findByTestId('stub-pick-card'));
+    fireEvent.changeText(screen.getByTestId('new-post-body-input'), 'hello');
+    fireEvent.press(screen.getByTestId('new-post-privacy'));
 
-    // The chip renders the attached card and the "Add card" affordance is gone.
-    await waitFor(() => expect(screen.getByTestId('new-post-card-chip')).toBeTruthy());
-    expect(screen.getByText('Charizard')).toBeTruthy();
+    // The Public chip is a static indicator — it explains visibility but never
+    // feeds a value into createPost.
+    expect(alertSpy).toHaveBeenCalledWith('Public post', expect.any(String));
 
     fireEvent.press(screen.getByTestId('new-post-submit'));
-    await waitFor(() => expect(createPost).toHaveBeenCalled());
-    expect(createPost).toHaveBeenCalledWith({ body: null, cardId: 'card-123' });
+    expect(createPost).toHaveBeenCalledWith({ body: 'hello', cardId: null });
+
+    alertSpy.mockRestore();
+  });
+
+  it('captures a photo from the camera and attaches it to the post', async () => {
+    const originalFetch = global.fetch;
+    global.fetch = jest.fn(async () => ({
+      arrayBuffer: async () => new ArrayBuffer(8),
+    })) as unknown as typeof fetch;
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const ImagePicker = require('expo-image-picker');
+    (ImagePicker.launchCameraAsync as jest.Mock).mockResolvedValueOnce({
+      canceled: false,
+      assets: [{ uri: 'file:///captured.jpg' }],
+    });
+
+    const uploadPostMedia = jest.fn().mockResolvedValue({ mediaId: 'media-1' });
+    const repository = { ...createTestSpotlightRepository(), uploadPostMedia };
+
+    renderWithProviders(<NewPostScreen />, { spotlightRepository: repository });
+
+    fireEvent.changeText(screen.getByTestId('new-post-body-input'), 'Live from the show');
+    fireEvent.press(screen.getByTestId('new-post-add-camera'));
+
+    // The camera permission was requested and the captured image lands in the preview.
+    await waitFor(() => expect(ImagePicker.requestCameraPermissionsAsync).toHaveBeenCalled());
+    await screen.findByTestId('new-post-image-preview');
+
+    fireEvent.press(screen.getByTestId('new-post-submit'));
+
+    await waitFor(() => expect(createPost).toHaveBeenCalledWith({ body: 'Live from the show', cardId: null }));
+    await waitFor(() => expect(uploadPostMedia).toHaveBeenCalledWith('post-1', expect.any(ArrayBuffer)));
+    await waitFor(() => expect(back).toHaveBeenCalledTimes(1));
+
+    global.fetch = originalFetch;
   });
 
   it('still completes the text post when the image upload fails', async () => {

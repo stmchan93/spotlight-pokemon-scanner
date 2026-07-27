@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
-import { CheckCircle, EditPencil, Menu as MenuIcon, Search as SearchIcon, Trash } from 'iconoir-react-native';
+import { CheckCircle, EditPencil, Menu as MenuIcon, Plus, Search as SearchIcon, Trash } from 'iconoir-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { InventoryCardEntry } from '@spotlight/api-client';
@@ -758,6 +758,16 @@ export function PortfolioScreen({
           testID="portfolio-header-search"
         >
           <SearchIcon color={theme.colors.gray900} height={20} width={20} />
+        </GlassNavBubble>
+      ) : null}
+      {activeProfileTab === 'activity' ? (
+        <GlassNavBubble
+          accessibilityLabel="New post"
+          onPress={() => router.push('/new-post' as never)}
+          style={{ right: theme.layout.pageGutter + BUBBLE_SIZE + 8, top: bubbleTop }}
+          testID="portfolio-header-new-post"
+        >
+          <Plus color={theme.colors.gray900} height={22} width={22} />
         </GlassNavBubble>
       ) : null}
       <GlassNavBubble

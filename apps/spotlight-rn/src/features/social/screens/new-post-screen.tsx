@@ -2,7 +2,6 @@ import { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -13,13 +12,11 @@ import {
 import { Image as ExpoImage } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { MediaImage, Plus, Xmark } from 'iconoir-react-native';
+import { Camera, Globe, MediaImage, NavArrowDown, Xmark } from 'iconoir-react-native';
 
-import type { CatalogSearchResult } from '@spotlight/api-client';
 import { Avatar, Button, IconButton, SheetHeader, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
-import { CatalogSearchScreen } from '@/features/catalog/screens/catalog-search-screen';
 import { createPost } from '@/features/social/social-service';
 import { useAppServices } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
@@ -81,27 +78,27 @@ function loadImageManipulator() {
   }
 }
 
-type AttachedCard = {
-  cardId: string;
-  name: string;
-  imageUrl: string | null;
-};
-
 /**
  * A filled composer affordance pill — the gray "Post Controls" chips from the
  * Figma New Post sheet (gray/100 fill, radius-8, 40pt tall, an 18pt icon + a
- * 13pt Label). Used for the "Add card" / "Add photo" actions.
+ * 13pt Label). Used for the Public / Photo / Camera controls. The icon and
+ * label colors are passed in so the active "Public" chip can render darker than
+ * the Photo/Camera actions, matching the design.
  */
 function ControlChip({
   icon,
   label,
+  labelColor,
   onPress,
   testID,
+  trailing,
 }: {
   icon: React.ReactNode;
   label: string;
+  labelColor: string;
   onPress: () => void;
   testID: string;
+  trailing?: React.ReactNode;
 }) {
   const theme = useSpotlightTheme();
   return (
@@ -119,22 +116,24 @@ function ControlChip({
       testID={testID}
     >
       {icon}
-      <Text style={[theme.typography.label, { color: theme.colors.textPrimary }]}>{label}</Text>
+      <Text style={[theme.typography.label, { color: labelColor }]}>{label}</Text>
+      {trailing}
     </Pressable>
   );
 }
 
 /**
- * New Post composer (Phase 3c). Restyled to match the Figma "Post flow" bottom
+ * New Post composer (Phase 3c). Restyled to match the Figma "New Post" bottom
  * sheet: a drag handle + close + centered title, the author's avatar/name, a
- * multiline body, filled "Post Controls" chips for the optional attachments
- * (card picked via the catalog search modal, image picked + downscaled to a
- * ~1080px JPEG), and a full-width dark POST button pinned to the bottom.
+ * multiline body ("What's on your mind?"), a row of three filled "Post Controls"
+ * chips — Public (a static visibility indicator), Photo (library picker) and
+ * Camera (device capture) — and a full-width POST button pinned to the bottom
+ * that stays gray/disabled until there's text and turns dark once there is.
  *
- * Submit inserts the text/card post via `createPost`, then best-effort uploads
- * the image to the post-media endpoint — a failed image upload leaves the text
- * post intact. Every native dependency is loaded defensively so the screen
- * never crashes.
+ * Submit inserts the text post via `createPost`, then best-effort uploads the
+ * image to the post-media endpoint — a failed image upload leaves the text post
+ * intact. Every native dependency is loaded defensively so the screen never
+ * crashes.
  */
 export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
   const theme = useSpotlightTheme();
@@ -143,24 +142,31 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
   const { currentUser } = useAuth();
 
   const [body, setBody] = useState('');
-  const [attachedCard, setAttachedCard] = useState<AttachedCard | null>(null);
   const [imageUri, setImageUri] = useState<string | null>(null);
-  const [isCardPickerOpen, setIsCardPickerOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const trimmedBody = body.trim();
-  const canPost = !isSubmitting && (trimmedBody.length > 0 || attachedCard !== null);
+  const canPost = !isSubmitting && trimmedBody.length > 0;
 
   const authorName = currentUser ? getResolvedDisplayName(currentUser) : 'Collector';
   const authorInitials = currentUser ? getUserInitials(currentUser) : 'C';
 
-  const handleAttachCard = useCallback((result: CatalogSearchResult) => {
-    setAttachedCard({
-      cardId: result.cardId,
-      name: result.name,
-      imageUrl: result.smallImageUrl ?? result.imageUrl ?? null,
-    });
-    setIsCardPickerOpen(false);
+  // Downscale a freshly-picked/captured image to a ~1080px JPEG and stage it as
+  // the single pending post image. Shared by the Photo and Camera flows.
+  const stagePickedImage = useCallback(async (rawUri: string) => {
+    let uri = rawUri;
+    const ImageManipulator = loadImageManipulator();
+    if (ImageManipulator) {
+      const manipulated = await ImageManipulator.manipulateAsync(
+        uri,
+        [{ resize: { width: POST_IMAGE_WIDTH } }],
+        { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
+      );
+      if (manipulated?.uri) {
+        uri = manipulated.uri;
+      }
+    }
+    setImageUri(uri);
   }, []);
 
   const handlePickImage = useCallback(async () => {
@@ -186,22 +192,49 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
         return;
       }
 
-      let uri = result.assets[0].uri as string;
-      const ImageManipulator = loadImageManipulator();
-      if (ImageManipulator) {
-        const manipulated = await ImageManipulator.manipulateAsync(
-          uri,
-          [{ resize: { width: POST_IMAGE_WIDTH } }],
-          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
-        );
-        if (manipulated?.uri) {
-          uri = manipulated.uri;
-        }
-      }
-      setImageUri(uri);
+      await stagePickedImage(result.assets[0].uri as string);
     } catch {
       // Never surface picker/resize failures — leave the composer as-is.
     }
+  }, [stagePickedImage]);
+
+  const handleCaptureImage = useCallback(async () => {
+    const ImagePicker = loadImagePicker();
+    if (!ImagePicker || typeof ImagePicker.launchCameraAsync !== 'function') {
+      Alert.alert('Update needed', 'Taking a photo needs the latest app version.');
+      return;
+    }
+
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (permission?.granted === false) {
+        Alert.alert('Camera access needed', 'Allow camera access to take a photo.');
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: false,
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.9,
+      });
+      if (result?.canceled || !result?.assets?.[0]?.uri) {
+        return;
+      }
+
+      await stagePickedImage(result.assets[0].uri as string);
+    } catch {
+      // Never surface camera/resize failures — leave the composer as-is.
+    }
+  }, [stagePickedImage]);
+
+  // The "Public" chip matches the design (globe + label + chevron) but privacy
+  // is NOT schema-backed: `posts` has no `visibility` column, so there's nothing
+  // to persist and no other level to switch to. Rather than ship a dropdown that
+  // silently drops a choice, tapping just confirms that posts are public today.
+  // Real privacy levels (followers-only, private) would need a `posts.visibility`
+  // column plus matching RLS before this can become a functional selector.
+  const handlePrivacy = useCallback(() => {
+    Alert.alert('Public post', 'Posts are visible to everyone. More privacy options are coming soon.');
   }, []);
 
   const handleSubmit = useCallback(async () => {
@@ -212,14 +245,16 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
     try {
       const postId = await createPost({
         body: trimmedBody.length > 0 ? trimmedBody : null,
-        cardId: attachedCard?.cardId ?? null,
+        // Card attach is no longer a composer affordance; the data layer still
+        // accepts a cardId for other callers, so pass an explicit null here.
+        cardId: null,
       });
       if (!postId) {
         Alert.alert("Couldn't post", 'Something went wrong. Please try again.');
         return;
       }
 
-      // Best-effort image upload — the text/card post already exists, so a failed
+      // Best-effort image upload — the text post already exists, so a failed
       // (or unavailable) media upload only costs the image, never the post.
       if (imageUri) {
         const uploader = spotlightRepository as unknown as PostMediaUploader;
@@ -243,7 +278,7 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
     } finally {
       setIsSubmitting(false);
     }
-  }, [attachedCard, canPost, imageUri, router, spotlightRepository, trimmedBody]);
+  }, [canPost, imageUri, router, spotlightRepository, trimmedBody]);
 
   const counterColor = useMemo(
     () =>
@@ -303,8 +338,8 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
             maxLength={BODY_MAX_LENGTH}
             multiline
             onChangeText={setBody}
-            placeholder="Share something with collectors…"
-            placeholderTextColor={theme.colors.gray400}
+            placeholder="What's on your mind?"
+            placeholderTextColor={theme.colors.gray600}
             style={[styles.bodyInput, theme.typography.body, { color: theme.colors.gray800 }]}
             testID={`${testID}-body-input`}
             textAlignVertical="top"
@@ -316,44 +351,6 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
               {body.length}/{BODY_MAX_LENGTH}
             </Text>
           </View>
-
-          {attachedCard ? (
-            <View
-              style={[
-                styles.cardChip,
-                {
-                  backgroundColor: theme.colors.gray50,
-                  borderColor: theme.colors.gray200,
-                  borderRadius: theme.radii.md,
-                },
-              ]}
-              testID={`${testID}-card-chip`}
-            >
-              {attachedCard.imageUrl ? (
-                <ExpoImage
-                  accessibilityIgnoresInvertColors
-                  contentFit="contain"
-                  source={{ uri: attachedCard.imageUrl }}
-                  style={[styles.cardThumb, { backgroundColor: theme.colors.field }]}
-                />
-              ) : null}
-              <Text
-                numberOfLines={2}
-                style={[styles.cardChipLabel, theme.typography.captionMedium, { color: theme.colors.textPrimary }]}
-              >
-                {attachedCard.name}
-              </Text>
-              <Pressable
-                accessibilityLabel="Remove attached card"
-                accessibilityRole="button"
-                hitSlop={10}
-                onPress={() => setAttachedCard(null)}
-                testID={`${testID}-card-remove`}
-              >
-                <Xmark color={theme.colors.textSecondary} height={18} width={18} />
-              </Pressable>
-            </View>
-          ) : null}
 
           {imageUri ? (
             <View style={styles.imagePreviewWrap} testID={`${testID}-image-preview`}>
@@ -386,29 +383,40 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
             { backgroundColor: theme.colors.canvasElevated, borderTopColor: theme.colors.gray100 },
           ]}
         >
-          {!attachedCard || !imageUri ? (
-            <View style={styles.controlRow}>
-              {!attachedCard ? (
-                <ControlChip
-                  icon={<Plus color={theme.colors.textPrimary} height={18} width={18} />}
-                  label="Add card"
-                  onPress={() => setIsCardPickerOpen(true)}
-                  testID={`${testID}-add-card`}
-                />
-              ) : null}
+          <View style={styles.controlRow}>
+            <ControlChip
+              icon={<Globe color={theme.colors.gray900} height={18} width={18} />}
+              label="Public"
+              labelColor={theme.colors.gray900}
+              onPress={handlePrivacy}
+              testID={`${testID}-privacy`}
+              trailing={<NavArrowDown color={theme.colors.gray900} height={18} width={18} />}
+            />
 
-              {!imageUri ? (
+            {!imageUri ? (
+              <>
                 <ControlChip
-                  icon={<MediaImage color={theme.colors.textPrimary} height={18} width={18} />}
-                  label="Add photo"
+                  icon={<MediaImage color={theme.colors.gray700} height={18} width={18} />}
+                  label="Photo"
+                  labelColor={theme.colors.gray700}
                   onPress={() => {
                     void handlePickImage();
                   }}
                   testID={`${testID}-add-image`}
                 />
-              ) : null}
-            </View>
-          ) : null}
+
+                <ControlChip
+                  icon={<Camera color={theme.colors.gray700} height={18} width={18} />}
+                  label="Camera"
+                  labelColor={theme.colors.gray700}
+                  onPress={() => {
+                    void handleCaptureImage();
+                  }}
+                  testID={`${testID}-add-camera`}
+                />
+              </>
+            ) : null}
+          </View>
 
           <Button
             disabled={!canPost}
@@ -424,18 +432,6 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
           />
         </View>
       </KeyboardAvoidingView>
-
-      <Modal
-        animationType="slide"
-        onRequestClose={() => setIsCardPickerOpen(false)}
-        presentationStyle="fullScreen"
-        visible={isCardPickerOpen}
-      >
-        <CatalogSearchScreen
-          onClose={() => setIsCardPickerOpen(false)}
-          onOpenCard={handleAttachCard}
-        />
-      </Modal>
     </SafeAreaView>
   );
 }
@@ -450,29 +446,13 @@ const styles = StyleSheet.create({
   bodyInput: {
     minHeight: 96,
   },
-  cardChip: {
-    alignItems: 'center',
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 12,
-    padding: 10,
-  },
-  cardChipLabel: {
-    flex: 1,
-  },
-  cardThumb: {
-    borderRadius: 6,
-    height: 48,
-    width: 34,
-  },
   controlChip: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: 4,
     height: 40,
     justifyContent: 'center',
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
   },
   controlRow: {
     flexDirection: 'row',

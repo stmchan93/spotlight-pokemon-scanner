@@ -798,4 +798,22 @@ describe('PortfolioScreen', () => {
 
     expect(push).toHaveBeenCalledWith('/catalog/search');
   });
+
+  it('shows a + on the Activity tab that opens the New Post composer', async () => {
+    renderPortfolioScreen();
+    await screen.findByTestId('portfolio-header-title');
+
+    // No + on the default Collection tab.
+    expect(screen.queryByTestId('portfolio-header-new-post')).toBeNull();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('portfolio-profile-tabs-tab-activity'));
+    });
+
+    const newPost = await screen.findByTestId('portfolio-header-new-post');
+    await act(async () => {
+      fireEvent.press(newPost);
+    });
+    expect(push).toHaveBeenCalledWith('/new-post');
+  });
 });

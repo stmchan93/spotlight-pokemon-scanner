@@ -76,6 +76,8 @@ jest.mock('iconoir-react-native', () => {
     LogOut: make('log-out'),
     MagicWand: make('magic-wand'),
     MediaImage: make('media-image'),
+    Camera: make('camera'),
+    Globe: make('globe'),
     Menu: make('menu'),
     Minus: make('minus'),
     MoreHoriz: make('more-horiz'),
@@ -491,6 +493,8 @@ jest.mock('expo-image-picker', () => ({
   MediaTypeOptions: { Images: 'Images' },
   requestMediaLibraryPermissionsAsync: jest.fn(async () => ({ granted: true, status: 'granted' })),
   launchImageLibraryAsync: jest.fn(async () => ({ canceled: true, assets: null })),
+  requestCameraPermissionsAsync: jest.fn(async () => ({ granted: true, status: 'granted' })),
+  launchCameraAsync: jest.fn(async () => ({ canceled: true, assets: null })),
 }));
 
 // The scanner now reads captured images via `expo-file-system/legacy` (SDK 55:
