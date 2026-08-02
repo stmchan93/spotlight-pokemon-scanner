@@ -109,11 +109,17 @@ describe('WhosThatPokemonScreen', () => {
     expect(screen.getByTestId('wtp-result-alternate-1')).toBeTruthy();
     expect(screen.getByTestId('wtp-result-alternate-2')).toBeTruthy();
 
-    // The backend returned a person cutout → the morph renders the outline
-    // arc layers (backdrop + silhouette glow + the cutout itself).
-    expect(screen.getByTestId('wtp-result-morph-cutout')).toBeTruthy();
-    expect(screen.getByTestId('wtp-result-morph-glow')).toBeTruthy();
+    // The backend returned a person cutout → the morph renders the shape arc:
+    // the dark stage, the palette glow, and BOTH silhouettes (yours and the
+    // species') that the transformation crossfades between.
     expect(screen.getByTestId('wtp-result-morph-backdrop')).toBeTruthy();
+    expect(screen.getByTestId('wtp-result-morph-glow')).toBeTruthy();
+    expect(screen.getByTestId('wtp-result-morph-person-shape')).toBeTruthy();
+    expect(screen.getByTestId('wtp-result-morph-species-shape')).toBeTruthy();
+
+    // The cutout is a silhouette SOURCE only — it must never be drawn as a
+    // photo, which is what made the morph look like two copies of the user.
+    expect(screen.queryByTestId('wtp-result-morph-cutout')).toBeNull();
   });
 
   it('shows the friendly retry state when the match fails, then recovers on retry', async () => {

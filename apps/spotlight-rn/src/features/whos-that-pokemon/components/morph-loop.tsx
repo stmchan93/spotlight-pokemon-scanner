@@ -1,10 +1,8 @@
-import { BlurView } from 'expo-blur';
 import { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Animated, {
   cancelAnimation,
   Easing,
-  interpolate,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
@@ -21,31 +19,52 @@ import { SelfieImage } from './selfie-image';
 
 const isTestEnv = process.env.NODE_ENV === 'test';
 
-// One loop: hold on you → dissolve to the Pokémon → hold → dissolve back.
-const HOLD_SELFIE_MS = 900;
-const MORPH_MS = 1150;
-const HOLD_ARTWORK_MS = 1300;
+// One loop: hold on you → transform → hold on the Pokémon → transform back.
+const HOLD_SELFIE_MS = 850;
+const MORPH_MS = 1800;
+const HOLD_ARTWORK_MS = 1250;
+
+/**
+ * Phase boundaries on t (0 = you, 1 = the Pokémon).
+ *
+ * The whole trick is the MORPH beat: your silhouette and the species silhouette
+ * are painted in the SAME palette color and occupy the SAME box, so the only
+ * thing that changes across it is the outline. The eye reads that as one shape
+ * becoming another. Crossfading a photo into artwork — which is what this used
+ * to do — reads instead as two unrelated pictures stacked on top of each other,
+ * because the colors, framing and subject all change at once.
+ */
+const SHAPE: readonly [number, number] = [0.12, 0.34]; // your photo drops to a flat silhouette
+const MORPH: readonly [number, number] = [0.42, 0.62]; // your shape → the species' shape
+const COLOR: readonly [number, number] = [0.66, 0.84]; // the species colors in, front and center
+
+// Without a cutout there is no silhouette of YOU to morph from, so the sequence
+// collapses to: the scene falls away → the species' shape rises out of the dark
+// → it fills in. Still shape-first, and critically the photo is GONE before the
+// artwork arrives instead of sitting behind its transparent background.
+const MORPH_NO_CUTOUT: readonly [number, number] = [0.3, 0.55];
 
 type MorphLoopProps = {
   /** Local uri of the captured photo (the "before"). */
   selfieUri: string | null;
   /**
-   * Background-removed selfie (data URI, PNG with alpha). When present the
-   * morph gets the full outline arc: the background falls away leaving YOU,
-   * a palette glow blooms around your silhouette, and your outline dissolves
-   * into the Pokémon. Null → the original plain crossfade.
+   * Background-removed selfie (data URI, PNG with alpha). Used ONLY as the source
+   * of your silhouette — it is never drawn as a photo. Showing the cutout as a
+   * picture is what made the old morph look like two copies of the user stacked
+   * on top of each other. Null → the shorter shape-only sequence.
    */
   cutoutUri?: string | null;
   /** Official artwork of the matched species (the "after"). */
   artworkUrl: string;
-  /** Top palette swatch — tints the dissolve wash at the crossfade midpoint. */
+  /** Top palette swatch — both silhouettes are painted in it. */
   washColor: string;
   testID?: string;
 };
 
-// Piecewise-linear ramp over t (worklet-safe; plain function of t.value).
-function ramp(t: number, from: number, to: number): number {
+/** Piecewise-linear ramp over t (worklet-safe; plain function of t.value). */
+function ramp(t: number, range: readonly [number, number]): number {
   'worklet';
+  const [from, to] = range;
   if (to === from) {
     return t < from ? 0 : 1;
   }
@@ -54,11 +73,13 @@ function ramp(t: number, from: number, to: number): number {
 
 /**
  * A contained, auto-looping "how you transformed" animation for the result
- * screen: the captured photo dissolves (blur + palette wash + a slight zoom)
- * into the matched species' official artwork, holds, then dissolves back — on
- * a loop the user can just watch, no interaction. With a person cutout the
- * dissolve becomes an outline morph (background → silhouette glow → Pokémon).
- * Reduce-motion falls back to a static crossfade parked on the artwork.
+ * screen. Your photo loses its background, flattens into a silhouette, that
+ * silhouette morphs into the matched species' silhouette, and the species
+ * colors in — then it plays back the other way, on a loop you can just watch.
+ *
+ * Every layer after the opening shot lives in one shared subject box, so your
+ * body and the Pokémon occupy the same space on screen. Reduce-motion parks it
+ * on the finished artwork.
  */
 export function MorphLoop({
   selfieUri,
@@ -69,7 +90,7 @@ export function MorphLoop({
 }: MorphLoopProps) {
   const reduceMotion = useReduceMotion();
 
-  // t: 0 = fully the photo, 1 = fully the Pokémon artwork.
+  // t: 0 = fully you, 1 = fully the Pokémon.
   const t = useSharedValue(0);
 
   useEffect(() => {
@@ -92,40 +113,56 @@ export function MorphLoop({
   }, [reduceMotion, t]);
 
   const hasCutout = Boolean(cutoutUri);
+  const speciesShapeIn = hasCutout ? MORPH : MORPH_NO_CUTOUT;
 
+  // The opening shot: you, full-bleed. It fades out as your silhouette takes
+  // over — the old version left it at full opacity for the whole loop, so the
+  // artwork's transparent background showed the photo through it.
   const selfieStyle = useAnimatedStyle(() => ({
-    // Slight zoom as it dissolves so the morph reads as motion, not a cut.
+    opacity: 1 - ramp(t.value, SHAPE),
     transform: [{ scale: 1 + 0.06 * t.value }],
-  }));
-  const artworkStyle = useAnimatedStyle(() => ({
-    // Outline arc: the Pokémon emerges only after the silhouette phase.
-    opacity: hasCutout ? ramp(t.value, 0.5, 0.85) : t.value,
-    transform: [{ scale: interpolate(t.value, [0, 1], [0.9, 1]) }],
-  }));
-  // Blur + wash flare at the crossfade midpoint (t≈0.5) and fade at both ends.
-  const midFlareStyle = useAnimatedStyle(() => ({
-    opacity: Math.sin(Math.max(0, Math.min(1, t.value)) * Math.PI),
-  }));
-  const washStyle = useAnimatedStyle(() => ({
-    opacity: Math.sin(Math.max(0, Math.min(1, t.value)) * Math.PI) * (hasCutout ? 0.3 : 0.5),
   }));
 
-  // Outline arc, phase 1 (t 0→0.35): the background falls away to the dark
-  // canvas while the cutout (you) stays lit — the "grab your outline" moment.
+  // The dark stage the transformation happens on.
   const backdropStyle = useAnimatedStyle(() => ({
-    opacity: ramp(t.value, 0.05, 0.35),
+    opacity: ramp(t.value, SHAPE),
   }));
-  // Palette glow blooming from BEHIND your silhouette: the same cutout, tinted
-  // and scaled up slightly, peaking through the middle of the morph.
+
+  // Palette glow blooming from behind the subject, brightest across the morph.
   const glowStyle = useAnimatedStyle(() => ({
-    opacity: ramp(t.value, 0.15, 0.45) * (1 - ramp(t.value, 0.6, 0.85)),
-    transform: [{ scale: 1.07 + 0.05 * t.value }],
+    opacity: 0.55 * ramp(t.value, SHAPE) * (1 - ramp(t.value, COLOR)),
+    transform: [{ scale: 1.06 + 0.06 * t.value }],
   }));
-  // Phase 2 (t 0.45→0.8): your lit silhouette dissolves into the artwork.
-  const cutoutStyle = useAnimatedStyle(() => ({
-    opacity: 1 - ramp(t.value, 0.45, 0.8),
-    transform: [{ scale: 1 + 0.06 * t.value }],
+
+  // Your silhouette — the first half of the shape morph. It comes straight out
+  // of the photo; the background-removed PHOTO is never shown.
+  const personShapeStyle = useAnimatedStyle(() => ({
+    opacity: ramp(t.value, SHAPE) * (1 - ramp(t.value, MORPH)),
+    transform: [{ scale: 1 - 0.04 * ramp(t.value, MORPH) }],
   }));
+
+  // The species' silhouette — the second half. Same color, same box: only the
+  // outline changes across this beat.
+  const speciesShapeStyle = useAnimatedStyle(() => ({
+    opacity: ramp(t.value, speciesShapeIn) * (1 - ramp(t.value, COLOR)),
+    transform: [{ scale: 0.96 + 0.04 * ramp(t.value, speciesShapeIn) }],
+  }));
+
+  // The Pokémon arrives front and center: it colors in while easing up to full
+  // size, so the last beat is the species landing rather than a flat fade.
+  const artworkStyle = useAnimatedStyle(() => ({
+    opacity: ramp(t.value, COLOR),
+    transform: [{ scale: 0.94 + 0.06 * ramp(t.value, COLOR) }],
+  }));
+
+  // A soft palette flare at the moment the shape changes, so the swap lands as a
+  // beat rather than a dissolve. Peaks between the two silhouettes.
+  const flareStyle = useAnimatedStyle(() => {
+    const [from, to] = speciesShapeIn;
+    const mid = (from + to) / 2;
+    const distance = Math.min(1, Math.abs(t.value - mid) / 0.22);
+    return { opacity: 0.34 * (1 - distance) };
+  });
 
   return (
     <View style={styles.root} testID={testID}>
@@ -140,69 +177,77 @@ export function MorphLoop({
         </Animated.View>
       ) : null}
 
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          StyleSheet.absoluteFillObject,
+          { backgroundColor: colors.scannerCanvas },
+          backdropStyle,
+        ]}
+        testID={`${testID}-backdrop`}
+      />
+
       {cutoutUri ? (
         <>
-          {/* Background falls away → only your outline stays lit. */}
           <Animated.View
             pointerEvents="none"
-            style={[
-              StyleSheet.absoluteFillObject,
-              { backgroundColor: colors.scannerCanvas },
-              backdropStyle,
-            ]}
-            testID={`${testID}-backdrop`}
-          />
-          {/* Palette glow blooming from behind your silhouette. */}
-          <Animated.View
-            pointerEvents="none"
-            style={[StyleSheet.absoluteFillObject, glowStyle]}
+            style={[styles.subject, glowStyle]}
             testID={`${testID}-glow`}
           >
             <SelfieImage
               cachePolicy="memory"
               contentFit="contain"
-              style={StyleSheet.absoluteFillObject}
+              style={styles.subjectImage}
               tintColor={washColor}
               uri={cutoutUri}
             />
           </Animated.View>
-          {/* You, cut out of the scene — dissolves into the Pokémon. */}
+
           <Animated.View
             pointerEvents="none"
-            style={[StyleSheet.absoluteFillObject, cutoutStyle]}
-            testID={`${testID}-cutout`}
+            style={[styles.subject, personShapeStyle]}
+            testID={`${testID}-person-shape`}
           >
             <SelfieImage
               cachePolicy="memory"
               contentFit="contain"
-              style={StyleSheet.absoluteFillObject}
+              style={styles.subjectImage}
+              tintColor={washColor}
               uri={cutoutUri}
             />
           </Animated.View>
         </>
       ) : null}
 
-      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFillObject, midFlareStyle]}>
-        <BlurView intensity={48} style={StyleSheet.absoluteFillObject} tint="dark" />
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.subject, speciesShapeStyle]}
+        testID={`${testID}-species-shape`}
+      >
+        <CachedImage
+          cachePolicy="disk"
+          contentFit="contain"
+          style={styles.subjectImage}
+          tintColor={washColor}
+          uri={artworkUrl}
+        />
       </Animated.View>
 
       <Animated.View
         pointerEvents="none"
-        style={[StyleSheet.absoluteFillObject, { backgroundColor: washColor }, washStyle]}
+        style={[StyleSheet.absoluteFillObject, { backgroundColor: washColor }, flareStyle]}
         testID={`${testID}-wash`}
       />
 
-      <View pointerEvents="none" style={styles.artworkLayer}>
-        <Animated.View style={artworkStyle}>
-          <CachedImage
-            cachePolicy="disk"
-            contentFit="contain"
-            style={styles.artwork}
-            testID={`${testID}-artwork`}
-            uri={artworkUrl}
-          />
-        </Animated.View>
-      </View>
+      <Animated.View pointerEvents="none" style={[styles.subject, artworkStyle]}>
+        <CachedImage
+          cachePolicy="disk"
+          contentFit="contain"
+          style={styles.subjectImage}
+          testID={`${testID}-artwork`}
+          uri={artworkUrl}
+        />
+      </Animated.View>
     </View>
   );
 }
@@ -215,13 +260,16 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     width: '100%',
   },
-  artworkLayer: {
+  // One box for every "subject" layer — your cutout, both silhouettes and the
+  // artwork — so the transformation happens in place instead of the person and
+  // the Pokémon being drawn at different sizes in different parts of the frame.
+  subject: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  artwork: {
-    height: '78%',
+  subjectImage: {
+    height: '82%',
     width: '86%',
   },
 });
