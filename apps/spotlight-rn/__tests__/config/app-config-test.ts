@@ -362,10 +362,21 @@ describe('app config local overrides bridge', () => {
     );
 
     expect(buildPropertiesEntry).toBeDefined();
-    expect(buildPropertiesEntry?.[1]).toEqual({
+    expect(buildPropertiesEntry?.[1]).toMatchObject({
       ios: {
         deploymentTarget: '15.5',
       },
     });
+
+    // async-storage 3.x needs Gradle pointed at its bundled local maven repo.
+    // The path is absolute and computed from the workspace root, so it differs
+    // between this machine and an EAS worker — match its SHAPE, not the literal
+    // string, or this passes locally and fails in CI.
+    const androidProperties = (buildPropertiesEntry?.[1] as { android?: { extraMavenRepos?: string[] } })
+      .android;
+    expect(androidProperties?.extraMavenRepos).toHaveLength(1);
+    expect(androidProperties?.extraMavenRepos?.[0]).toMatch(
+      /^file:\/\/.+\/@react-native-async-storage\/async-storage\/android\/local_repo$/,
+    );
   });
 });

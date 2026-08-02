@@ -134,6 +134,24 @@ async function loadAuthService(options: LoadOptions = {}) {
   };
 }
 
+/**
+ * Social profile fields (Phase 2a). Every profile the service returns carries
+ * them, and none of the rows in these tests set any — so this is what they fall
+ * back to when the column is absent or null. Spread into the expectations so a
+ * NEW field showing up fails one shared line instead of five scattered ones.
+ */
+const SOCIAL_PROFILE_DEFAULTS = {
+  handle: null,
+  bio: null,
+  location: null,
+  socialLink: null,
+  isVerified: false,
+  reputation: 0,
+  followerCount: 0,
+  followingCount: 0,
+  postCount: 0,
+};
+
 describe('auth-service profiles', () => {
   afterEach(() => {
     jest.restoreAllMocks();
@@ -161,6 +179,7 @@ describe('auth-service profiles', () => {
       displayName: 'Table Vendor',
       labelerEnabled: true,
       userID: 'user-1',
+      ...SOCIAL_PROFILE_DEFAULTS,
     });
     expect(supabase.from).toHaveBeenCalledWith('user_profiles');
     expect(table.eq).toHaveBeenCalledWith('user_id', 'user-1');
@@ -199,6 +218,9 @@ describe('auth-service profiles', () => {
       displayName: 'Fresh Name',
       labelerEnabled: false,
       userID: 'user-1',
+      // An upsert only writes name + avatar; the social fields keep their
+      // defaults rather than being cleared on the returned profile.
+      ...SOCIAL_PROFILE_DEFAULTS,
     });
     expect(supabase.auth.updateUser).toHaveBeenCalledWith({
       data: {
@@ -222,6 +244,7 @@ describe('auth-service profiles', () => {
       displayName: 'Backup Name',
       labelerEnabled: false,
       userID: 'user-2',
+      ...SOCIAL_PROFILE_DEFAULTS,
     });
     expect(warnSpy).toHaveBeenCalledWith('[AUTH] Failed to upsert user profile.', expect.any(Error));
 
@@ -232,6 +255,7 @@ describe('auth-service profiles', () => {
       displayName: 'Local Name',
       labelerEnabled: false,
       userID: 'user-3',
+      ...SOCIAL_PROFILE_DEFAULTS,
     });
   });
 
@@ -261,6 +285,8 @@ describe('auth-service profiles', () => {
       id: 'user-1',
       labelerEnabled: true,
       providers: ['google', 'apple'],
+      // Carried onto the resolved AppUser, not just the UserProfile.
+      ...SOCIAL_PROFILE_DEFAULTS,
     });
 
     table.single

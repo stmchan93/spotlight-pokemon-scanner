@@ -897,9 +897,17 @@ describe('ScannerScreen', () => {
     fireEvent.press(await screen.findByTestId('add-all-menu-wishlist'));
     fireEvent.press(await screen.findByTestId('scan-bulk-confirm-sheet-cancel'));
 
-    await waitFor(() => {
-      expect(screen.queryByTestId('scan-bulk-confirm-sheet')).toBeNull();
-    });
+    // The sheet unmounts from the completion callback of its 200ms JS-driven
+    // close animation, so "gone" is gated on real elapsed time, not a state
+    // flush. waitFor's 1s default is enough when this file runs alone but not
+    // when the whole suite runs in parallel workers — same 2500 used elsewhere
+    // in this file for animation-gated waits.
+    await waitFor(
+      () => {
+        expect(screen.queryByTestId('scan-bulk-confirm-sheet')).toBeNull();
+      },
+      { timeout: 2500 },
+    );
     expect(favoritePayloads).toHaveLength(0);
     expect(screen.getByTestId('scanner-recent-title').props.children).toBe('SCAN: 1');
   });
