@@ -87,6 +87,20 @@ describe('FeedScreen', () => {
     expect(screen.getByText('Follow collectors to see their posts here.')).toBeTruthy();
   });
 
+  it('shows the composer entry row even when there are no posts, and opens the composer', async () => {
+    (fetchFollowingFeed as jest.Mock).mockResolvedValue([]);
+
+    renderWithProviders(<FeedScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('feed-empty')).toBeTruthy();
+    });
+    expect(screen.getByText('What’s on your mind?')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('feed-composer-row'));
+    expect(push).toHaveBeenCalledWith('/new-post');
+  });
+
   it('renders a card chip for a post anchored to a card', async () => {
     (fetchFollowingFeed as jest.Mock).mockResolvedValue([
       buildPost({ id: '1', body: 'Card post', cardId: 'card-xyz' }),

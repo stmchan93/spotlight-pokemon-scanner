@@ -4,10 +4,11 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { SpotlightThemeProvider } from '@spotlight/design-system';
 
-import { CommentsSheet } from '@/features/social/components/comments-sheet';
+import { CommentsSheet, shouldDismissOnDrag } from '@/features/social/components/comments-sheet';
 import {
   addComment,
   fetchComments,
+  fetchLikedCommentIds,
   likeComment,
   type PostComment,
   unlikeComment,
@@ -15,9 +16,25 @@ import {
 
 jest.mock('@/features/social/social-service', () => ({
   fetchComments: jest.fn(async () => []),
+  fetchLikedCommentIds: jest.fn(async () => new Set()),
   addComment: jest.fn(async () => null),
   likeComment: jest.fn(async () => true),
   unlikeComment: jest.fn(async () => true),
+}));
+
+// The sheet stamps a just-posted comment with the signed-in user's identity, so
+// it needs the auth context. Stub it rather than booting the whole provider.
+jest.mock('@/providers/auth-provider', () => ({
+  useAuth: () => ({
+    currentUser: {
+      id: 'me',
+      displayName: 'Ash Ketchum',
+      handle: 'ash',
+      avatarURL: null,
+      email: 'ash@example.com',
+      isVerified: false,
+    },
+  }),
 }));
 
 const safeAreaMetrics = {
@@ -58,6 +75,7 @@ describe('CommentsSheet', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (fetchComments as jest.Mock).mockResolvedValue([]);
+    (fetchLikedCommentIds as jest.Mock).mockResolvedValue(new Set());
     (addComment as jest.Mock).mockResolvedValue(null);
     (likeComment as jest.Mock).mockResolvedValue(true);
     (unlikeComment as jest.Mock).mockResolvedValue(true);
@@ -97,8 +115,48 @@ describe('CommentsSheet', () => {
     fireEvent.press(screen.getByTestId('comments-sheet-send'));
 
     expect(await screen.findByText('My first comment')).toBeTruthy();
+    // The new row is attributed to the signed-in user, not the anonymous
+    // "Collector" fallback used when an author can't be resolved.
+    expect(screen.getByText('Ash Ketchum')).toBeTruthy();
+    expect(screen.queryByText('Collector')).toBeNull();
     expect(addComment as jest.Mock).toHaveBeenCalledWith('post-1', 'My first comment', null);
     await waitFor(() => expect(onCommentAdded).toHaveBeenCalled());
+  });
+
+  it('reports the loaded thread size so a stale post comment_count can be corrected', async () => {
+    (fetchComments as jest.Mock).mockResolvedValue([
+      buildComment(),
+      buildComment({ id: 'c2', body: 'Second' }),
+    ]);
+    const onCommentCountResolved = jest.fn();
+    render(
+      <CommentsSheet
+        onClose={jest.fn()}
+        onCommentCountResolved={onCommentCountResolved}
+        postId="post-1"
+        testID="comments-sheet"
+        visible
+      />,
+      { wrapper: Wrapper },
+    );
+
+    await waitFor(() => expect(onCommentCountResolved).toHaveBeenCalledWith(2));
+  });
+
+  it('shows a comment you already liked as liked, so tapping it unlikes', async () => {
+    (fetchComments as jest.Mock).mockResolvedValue([buildComment({ likeCount: 5 })]);
+    (fetchLikedCommentIds as jest.Mock).mockResolvedValue(new Set(['c1']));
+    renderSheet();
+    await screen.findByText('Great card!');
+
+    await waitFor(() =>
+      expect(fetchLikedCommentIds as jest.Mock).toHaveBeenCalledWith(['c1']),
+    );
+    // Already liked → the next tap is an UNLIKE, not a second like.
+    fireEvent.press(screen.getByTestId('comments-sheet-comment-c1-like'));
+    await waitFor(() => expect(unlikeComment as jest.Mock).toHaveBeenCalledWith('c1'));
+    expect(likeComment as jest.Mock).not.toHaveBeenCalled();
+    expect(screen.getByText('4')).toBeTruthy();
   });
 
   it('optimistically toggles the comment like and count', async () => {
@@ -157,5 +215,23 @@ describe('CommentsSheet', () => {
     // Tapping again collapses.
     fireEvent.press(toggle);
     await waitFor(() => expect(screen.queryByTestId('comments-sheet-comment-r1')).toBeNull());
+  });
+
+  it('makes the header a drag target so the sheet can be swiped down, not only tapped', async () => {
+    renderSheet();
+    const header = await screen.findByTestId('comments-sheet-header');
+
+    // PanResponder attaches its move/release handlers to the header, so the
+    // whole handle + title strip drags — the tap-to-close Pressable is still
+    // there underneath for a stationary tap.
+    expect(typeof header.props.onMoveShouldSetResponder).toBe('function');
+    expect(typeof header.props.onResponderMove).toBe('function');
+    expect(typeof header.props.onResponderRelease).toBe('function');
+  });
+
+  it('dismisses on a long drag or a flick, and springs back otherwise', () => {
+    expect(shouldDismissOnDrag(120, 0)).toBe(true);
+    expect(shouldDismissOnDrag(20, 1.2)).toBe(true);
+    expect(shouldDismissOnDrag(20, 0.1)).toBe(false);
   });
 });

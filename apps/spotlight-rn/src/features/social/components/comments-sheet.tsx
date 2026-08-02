@@ -4,12 +4,14 @@ import {
   Animated,
   Dimensions,
   Easing,
-  KeyboardAvoidingView,
+  Keyboard,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
+  type TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,18 +22,31 @@ import { Avatar, Text, TextField, useSpotlightTheme } from '@spotlight/design-sy
 import {
   addComment,
   fetchComments,
+  fetchLikedCommentIds,
   likeComment,
   type PostComment,
   unlikeComment,
 } from '@/features/social/social-service';
+import { getResolvedDisplayName } from '@/features/auth/auth-models';
+import { useAuth } from '@/providers/auth-provider';
 
 type CommentsSheetProps = {
   visible: boolean;
   onClose: () => void;
+  /**
+   * Open with the keyboard already up on the composer — how the card's chat icon
+   * enters ("add a comment"), while still showing the thread behind it.
+   */
+  autoFocusComposer?: boolean;
   /** The post whose thread this sheet shows. */
   postId: string;
   /** Fired after a comment is optimistically appended, so the card can bump its count. */
   onCommentAdded?: (comment: PostComment) => void;
+  /**
+   * Fired with the thread's actual comment count once it loads, so the card can
+   * correct a stale `posts.comment_count` instead of rendering it.
+   */
+  onCommentCountResolved?: (count: number) => void;
   testID?: string;
 };
 
@@ -39,8 +54,36 @@ const SCREEN_HEIGHT = Dimensions.get('window').height;
 // 24px avatar (Figma 2903-7590) — the reply column is indented by the avatar
 // width + row gap so a reply's avatar sits under the parent's body text.
 const AVATAR_SIZE = 24;
-const ROW_GAP = 8;
+// 6px avatar→body gap puts the body text at a 30px inset, matching the
+// `left-[30px]` body/reaction/replies column in Figma 2903-7970.
+const ROW_GAP = 6;
 const REPLY_INDENT = AVATAR_SIZE + ROW_GAP;
+/** Comment like icon, 18px per Figma 2903-7970. */
+const COMMENT_ICON_SIZE = 18;
+/** Resting sheet height with the keyboard down. */
+const SHEET_HEIGHT_RESTING = SCREEN_HEIGHT * 0.6;
+/**
+ * Keyboard-up height. The sheet GROWS toward full screen rather than letting the
+ * thread be squeezed by the keyboard (the Instagram comment sheet): the sheet's
+ * bottom `keyboardHeight` sits behind the keyboard, so the readable strip above
+ * the composer stays about half the screen and the thread keeps scrolling while
+ * you type.
+ */
+const SHEET_HEIGHT_EXPANDED = SCREEN_HEIGHT * 0.9;
+/** Gap between the composer's bottom edge and the top of the keyboard. */
+const KEYBOARD_GAP = 8;
+/** Drag distance past which releasing the sheet dismisses it instead of springing back. */
+const DISMISS_DRAG_DISTANCE = 80;
+/** Flick velocity that dismisses even on a short drag. */
+const DISMISS_DRAG_VELOCITY = 0.5;
+
+/**
+ * Whether releasing a downward drag should close the sheet: either it travelled
+ * far enough, or it was flicked hard enough. Matches `CardActionsSheet`.
+ */
+export function shouldDismissOnDrag(dy: number, vy: number): boolean {
+  return dy > DISMISS_DRAG_DISTANCE || vy > DISMISS_DRAG_VELOCITY;
+}
 
 type LoadStatus = 'loading' | 'ready' | 'error';
 
@@ -166,15 +209,26 @@ function buildCommentThreads(comments: PostComment[]): CommentThread[] {
 export function CommentsSheet({
   visible,
   onClose,
+  autoFocusComposer = false,
   postId,
   onCommentAdded,
+  onCommentCountResolved,
   testID = 'comments-sheet',
 }: CommentsSheetProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
 
+  const { currentUser } = useAuth();
   const [isRendered, setIsRendered] = useState(visible);
-  const translateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+  const translateY = useRef(new Animated.Value(SHEET_HEIGHT_RESTING)).current;
+  const sheetHeight = useRef(new Animated.Value(SHEET_HEIGHT_RESTING)).current;
+  const backdropOpacity = useRef(new Animated.Value(0)).current;
+  // How far the sheet has to travel to clear the screen edge — its own current
+  // height, which changes when the keyboard grows it. Held in a ref so the
+  // open/close animation reads the latest value without re-running on keyboard
+  // events.
+  const hiddenOffsetRef = useRef(SHEET_HEIGHT_RESTING);
+  const inputRef = useRef<TextInput | null>(null);
 
   const [comments, setComments] = useState<PostComment[]>([]);
   const [status, setStatus] = useState<LoadStatus>('loading');
@@ -188,35 +242,143 @@ export function CommentsSheet({
   const [likedCommentIds, setLikedCommentIds] = useState<Set<string>>(new Set());
   const [likeCountOverrides, setLikeCountOverrides] = useState<Record<string, number>>({});
   const likePendingRef = useRef<Set<string>>(new Set());
+  // Live keyboard height. The sheet is bottom-anchored, so wrapping it in a
+  // KeyboardAvoidingView padded the WHOLE sheet upward — header, thread and all —
+  // which left a tall dead gap above the composer. Instead we take the keyboard
+  // height ourselves: the composer is padded clear of the keyboard, and the sheet
+  // grows to `SHEET_HEIGHT_EXPANDED` so that padding comes out of new height
+  // rather than out of the thread.
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
-  // Slide the sheet in on open, out on close (matches CardActionsSheet's timing).
+  useEffect(() => {
+    if (!visible) {
+      setKeyboardHeight(0);
+      return;
+    }
+    // iOS gets the "will" events so the sheet tracks the keyboard's own curve;
+    // Android only reliably fires the "did" pair.
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, (event) => {
+      setKeyboardHeight(event.endCoordinates?.height ?? 0);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [visible]);
+
+  // Entering via the card's chat icon means "add a comment": open the keyboard on
+  // the composer once the sheet has slid in. The thread is still there behind it.
+  useEffect(() => {
+    if (!visible || !autoFocusComposer) {
+      return;
+    }
+    const timer = setTimeout(() => inputRef.current?.focus(), 300);
+    return () => clearTimeout(timer);
+  }, [autoFocusComposer, visible]);
+
+  // Grow the sheet toward full screen while the keyboard is up, and settle back
+  // when it goes down. Same 250ms/ease-out shape as the iOS keyboard curve, so
+  // the top edge rises with the keyboard instead of after it.
+  useEffect(() => {
+    hiddenOffsetRef.current = keyboardHeight > 0 ? SHEET_HEIGHT_EXPANDED : SHEET_HEIGHT_RESTING;
+    const animation = Animated.timing(sheetHeight, {
+      toValue: keyboardHeight > 0 ? SHEET_HEIGHT_EXPANDED : SHEET_HEIGHT_RESTING,
+      duration: 250,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [keyboardHeight, sheetHeight]);
+
+  // Slide the sheet in on open, out on close, with the scrim fading in alongside
+  // it. Two things used to make this read as a hard pop rather than a transition:
+  // the scrim appeared at full opacity on the first frame, and `translateY`
+  // travelled a whole SCREEN_HEIGHT when the sheet is only ~60% of the screen
+  // tall — so most of the spring played out below the screen edge and the part
+  // you could actually see was its final, fastest slice. Travel exactly the
+  // sheet's own height, on a softer spring.
   useEffect(() => {
     if (visible) {
       setIsRendered(true);
-      const animation = Animated.spring(translateY, {
-        toValue: 0,
-        damping: 34,
-        mass: 1,
-        stiffness: 320,
-        useNativeDriver: false,
-      });
+      translateY.setValue(hiddenOffsetRef.current);
+      const animation = Animated.parallel([
+        Animated.spring(translateY, {
+          toValue: 0,
+          damping: 30,
+          mass: 1,
+          stiffness: 210,
+          useNativeDriver: false,
+        }),
+        Animated.timing(backdropOpacity, {
+          toValue: 1,
+          duration: 240,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: false,
+        }),
+      ]);
       animation.start();
       return () => animation.stop();
     }
 
-    const animation = Animated.timing(translateY, {
-      toValue: SCREEN_HEIGHT,
-      duration: 200,
-      easing: Easing.in(Easing.cubic),
-      useNativeDriver: false,
-    });
+    const animation = Animated.parallel([
+      Animated.timing(translateY, {
+        toValue: hiddenOffsetRef.current,
+        duration: 220,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: false,
+      }),
+      Animated.timing(backdropOpacity, {
+        toValue: 0,
+        duration: 200,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: false,
+      }),
+    ]);
     animation.start(({ finished }) => {
       if (finished) {
         setIsRendered(false);
       }
     });
     return () => animation.stop();
-  }, [translateY, visible]);
+  }, [backdropOpacity, translateY, visible]);
+
+  // Drag-to-dismiss from the header. The sheet tracks the finger down (never up —
+  // it is already at its resting height) and either closes past a deliberate
+  // threshold or springs back. `onMoveShouldSetPanResponder` only claims a
+  // downward drag, so a stationary tap on the handle still fires its onPress.
+  const dragResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_event, gesture) =>
+          gesture.dy > 4 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+        onPanResponderGrant: () => {
+          // Dragging the sheet down while typing should put the keyboard away
+          // first, the way every other bottom sheet behaves.
+          Keyboard.dismiss();
+        },
+        onPanResponderMove: (_event, gesture) => {
+          translateY.setValue(Math.max(0, gesture.dy));
+        },
+        onPanResponderRelease: (_event, gesture) => {
+          if (shouldDismissOnDrag(gesture.dy, gesture.vy)) {
+            onClose();
+            return;
+          }
+          Animated.spring(translateY, {
+            toValue: 0,
+            damping: 34,
+            mass: 1,
+            stiffness: 320,
+            useNativeDriver: false,
+          }).start();
+        },
+      }),
+    [onClose, translateY],
+  );
 
   // Load (or reload) the thread each time the sheet opens for a post. Reset the
   // draft/reply/expand/optimistic-like state so a reopen starts clean.
@@ -239,6 +401,16 @@ export function CommentsSheet({
         }
         setComments(loaded);
         setStatus('ready');
+        // Report the thread's real size. `posts.comment_count` is maintained by
+        // a DB trigger; when that count is stale the card would otherwise keep
+        // showing it (a post you just commented on reads as 0 comments).
+        onCommentCountResolved?.(loaded.length);
+        // Restore which of these comments the viewer already liked, so an
+        // already-liked comment shows filled instead of inviting a second like.
+        const likedIds = await fetchLikedCommentIds(loaded.map((comment) => comment.id));
+        if (!cancelled) {
+          setLikedCommentIds(likedIds);
+        }
       } catch {
         if (!cancelled) {
           setStatus('error');
@@ -248,6 +420,9 @@ export function CommentsSheet({
     return () => {
       cancelled = true;
     };
+    // `onCommentCountResolved` is a reporting callback; re-running the fetch
+    // when the parent re-creates it would refetch the thread on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [postId, visible]);
 
   const threads = useMemo(() => buildCommentThreads(comments), [comments]);
@@ -324,8 +499,18 @@ export function CommentsSheet({
         const optimistic: PostComment = {
           id: newId,
           postId,
-          authorId: '',
-          author: null,
+          // The author is the signed-in user, whose profile we already hold.
+          // Leaving these empty made a just-posted comment render as the
+          // anonymous "Collector" fallback until the thread was refetched.
+          authorId: currentUser?.id ?? '',
+          author: currentUser
+            ? {
+                displayName: getResolvedDisplayName(currentUser),
+                handle: currentUser.handle ?? null,
+                avatarUrl: currentUser.avatarURL ?? null,
+                isVerified: currentUser.isVerified === true,
+              }
+            : null,
           body: text,
           parentCommentId: parent?.id ?? null,
           likeCount: 0,
@@ -342,7 +527,7 @@ export function CommentsSheet({
       }
       setSending(false);
     })();
-  }, [draft, onCommentAdded, postId, replyTo, sending]);
+  }, [currentUser, draft, onCommentAdded, postId, replyTo, sending]);
 
   // Renders one comment (top-level or reply): avatar + name/time + body (with an
   // optional inline blue @mention on replies) + the thumbs-up like and Reply action.
@@ -367,7 +552,7 @@ export function CommentsSheet({
               >
                 {authorDisplayName(comment)}
               </Text>
-              <Text style={[theme.typography.captionMedium, { color: theme.colors.gray400 }]}>
+              <Text style={[theme.typography.bodyMedium, { color: theme.colors.gray400 }]}>
                 {formatRelativeTime(comment.createdAt)}
               </Text>
             </View>
@@ -391,11 +576,11 @@ export function CommentsSheet({
                 <ThumbsUp
                   color={liked ? theme.colors.purple500 : theme.colors.gray500}
                   fill={liked ? theme.colors.purple500 : 'none'}
-                  height={16}
-                  width={16}
+                  height={COMMENT_ICON_SIZE}
+                  width={COMMENT_ICON_SIZE}
                 />
                 {likeCount > 0 ? (
-                  <Text style={[theme.typography.captionMedium, { color: theme.colors.gray600 }]}>
+                  <Text style={[theme.typography.bodyMedium, { color: theme.colors.gray600 }]}>
                     {likeCount}
                   </Text>
                 ) : null}
@@ -403,11 +588,16 @@ export function CommentsSheet({
               <Pressable
                 accessibilityRole="button"
                 hitSlop={8}
-                onPress={() => setReplyTo(comment)}
+                onPress={() => {
+                  setReplyTo(comment);
+                  // Otherwise "Reply" only swaps the placeholder — the composer
+                  // is off at the bottom of the sheet with no keyboard up.
+                  inputRef.current?.focus();
+                }}
                 style={styles.commentAction}
                 testID={`${testID}-comment-${comment.id}-reply`}
               >
-                <Text style={[theme.typography.captionMedium, { color: theme.colors.gray600 }]}>
+                <Text style={[theme.typography.bodyMedium, { color: theme.colors.gray600 }]}>
                   Reply
                 </Text>
               </Pressable>
@@ -434,29 +624,33 @@ export function CommentsSheet({
       transparent
       visible={visible}
     >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.root}
-      >
-        <Pressable
-          accessibilityLabel="Close"
-          accessibilityRole="button"
-          onPress={onClose}
-          style={styles.backdrop}
-          testID={`${testID}-backdrop`}
-        />
+      <View style={styles.root}>
+        <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]}>
+          <Pressable
+            accessibilityLabel="Close"
+            accessibilityRole="button"
+            onPress={onClose}
+            style={StyleSheet.absoluteFill}
+            testID={`${testID}-backdrop`}
+          />
+        </Animated.View>
         <Animated.View
           style={[
             styles.sheet,
             {
               backgroundColor: theme.colors.gray0,
-              paddingBottom: Math.max(insets.bottom, 12),
+              height: sheetHeight,
+              // Lift the composer clear of the keyboard. The sheet grew by the
+              // same amount, so the thread keeps its height instead of paying
+              // for the composer.
+              paddingBottom:
+                keyboardHeight > 0 ? keyboardHeight + KEYBOARD_GAP : Math.max(insets.bottom, 12),
               transform: [{ translateY }],
             },
           ]}
           testID={testID}
         >
-          <View style={styles.header}>
+          <View style={styles.header} testID={`${testID}-header`} {...dragResponder.panHandlers}>
             <Pressable
               accessibilityLabel="Close"
               accessibilityRole="button"
@@ -559,6 +753,7 @@ export function CommentsSheet({
                 onChangeText={setDraft}
                 onSubmitEditing={handleSend}
                 placeholder={replyTo ? 'Add a reply…' : 'Add a comment…'}
+                ref={inputRef}
                 returnKeyType="send"
                 testID={`${testID}-input`}
                 value={draft}
@@ -583,7 +778,7 @@ export function CommentsSheet({
             </Pressable>
           </View>
         </Animated.View>
-      </KeyboardAvoidingView>
+      </View>
     </Modal>
   );
 }
@@ -595,7 +790,9 @@ const styles = StyleSheet.create({
   },
   centered: {
     alignItems: 'center',
+    flex: 1,
     gap: 8,
+    justifyContent: 'center',
     paddingVertical: 40,
   },
   commentAction: {
@@ -606,12 +803,16 @@ const styles = StyleSheet.create({
   commentActions: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 16,
-    marginTop: 6,
+    // 12px between actions and 12px above them — the body→actions→replies
+    // column rhythm in Figma 2903-7970.
+    gap: 12,
+    marginTop: 12,
   },
   commentBody: {
     flex: 1,
-    gap: 2,
+    // No `gap` here — the meta→body and body→actions steps are different sizes
+    // (2 / 12) and a container gap silently added itself to both.
+    flexShrink: 1,
   },
   commentMeta: {
     alignItems: 'center',
@@ -626,7 +827,7 @@ const styles = StyleSheet.create({
     gap: ROW_GAP,
   },
   commentText: {
-    marginTop: 1,
+    marginTop: 2,
   },
   composer: {
     alignItems: 'center',
@@ -634,7 +835,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     paddingHorizontal: 16,
-    paddingTop: 10,
+    paddingTop: 12,
   },
   composerField: {
     flex: 1,
@@ -653,28 +854,37 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   list: {
-    maxHeight: SCREEN_HEIGHT * 0.5,
+    // Takes whatever the header and composer leave inside the sheet's fixed
+    // height, so the thread scrolls in place while the keyboard is up.
+    flex: 1,
   },
   listContent: {
-    gap: 18,
+    // Fill the scroll viewport so the empty/loading states can center in it.
+    flexGrow: 1,
+    // 20 between threads so a thread's own 12px body→actions→replies rhythm
+    // stays visibly tighter than the gap to the next comment.
+    gap: 20,
+    paddingBottom: 16,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingTop: 12,
   },
   repliesDash: {
     borderRadius: 1,
     height: 1,
-    width: 14,
+    width: 16,
   },
   repliesToggle: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
     marginLeft: REPLY_INDENT,
-    marginTop: 10,
+    marginTop: 12,
   },
   replyBanner: {
     alignItems: 'center',
+    borderRadius: 10,
     flexDirection: 'row',
+    gap: 8,
     justifyContent: 'space-between',
     marginHorizontal: 16,
     paddingHorizontal: 12,
@@ -700,7 +910,8 @@ const styles = StyleSheet.create({
   sheet: {
     borderTopLeftRadius: 0,
     borderTopRightRadius: 0,
-    maxHeight: SCREEN_HEIGHT * 0.85,
+    // height is applied inline — it animates between the resting and
+    // keyboard-up heights.
     paddingTop: 10,
   },
   thread: {

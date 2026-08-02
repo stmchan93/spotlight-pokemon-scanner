@@ -14,6 +14,8 @@ import {
 } from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
+import { getUserInitials } from '@/features/auth/auth-models';
+import { FeedComposerRow } from '@/features/social/components/feed-composer-row';
 import { PostCard } from '@/features/social/components/post-card';
 import { consumeFeedRefreshSignal } from '@/features/social/screens/new-post-screen';
 import {
@@ -49,7 +51,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const accessToken = useAuth().accessToken;
+  const { accessToken, currentUser } = useAuth();
   const apiBaseUrl = resolveRepositoryBaseUrl();
 
   const [segment, setSegment] = useState<FeedSegment>('following');
@@ -169,27 +171,41 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     [router],
   );
 
+  const openComposer = useCallback(() => {
+    router.push('/new-post' as never);
+  }, [router]);
+
   const listHeader = (
-    <View style={styles.chrome}>
-      <ScreenHeader
-        leftAccessory={<ChromeBackButton onPress={() => router.back()} testID={`${testID}-back`} />}
-        rightAccessory={
-          <IconButton
-            accessibilityLabel="New post"
-            onPress={() => router.push('/new-post' as never)}
-            testID={`${testID}-compose`}
-            variant="subtle"
-          >
-            <EditPencil color={theme.colors.textPrimary} height={20} width={20} />
-          </IconButton>
-        }
-        title="Feed"
-      />
-      <SegmentedControl
-        items={SEGMENTS}
-        onChange={setSegment}
-        testID={`${testID}-segment`}
-        value={segment}
+    <View style={styles.headerStack}>
+      <View style={styles.chrome}>
+        <ScreenHeader
+          leftAccessory={
+            <ChromeBackButton onPress={() => router.back()} testID={`${testID}-back`} />
+          }
+          rightAccessory={
+            <IconButton
+              accessibilityLabel="New post"
+              onPress={openComposer}
+              testID={`${testID}-compose`}
+              variant="subtle"
+            >
+              <EditPencil color={theme.colors.textPrimary} height={20} width={20} />
+            </IconButton>
+          }
+          title="Feed"
+        />
+        <SegmentedControl
+          items={SEGMENTS}
+          onChange={setSegment}
+          testID={`${testID}-segment`}
+          value={segment}
+        />
+      </View>
+      <FeedComposerRow
+        avatarUrl={currentUser?.avatarURL}
+        initials={currentUser ? getUserInitials(currentUser) : 'C'}
+        onPress={openComposer}
+        testID={`${testID}-composer-row`}
       />
     </View>
   );
@@ -288,6 +304,11 @@ const styles = StyleSheet.create({
   },
   headerSpacing: {
     marginBottom: 12,
+  },
+  headerStack: {
+    // The composer row is full-bleed (its divider runs edge to edge), so the
+    // 16px inset lives on `chrome` rather than on this wrapper.
+    gap: 16,
   },
   safeArea: {
     flex: 1,
