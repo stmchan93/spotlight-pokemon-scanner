@@ -47,7 +47,7 @@ describe('CatalogSearchScreen', () => {
       <CatalogSearchScreen onClose={onClose} onOpenCard={onOpenCard} />,
     );
 
-    expect(screen.getByText('Add Card')).toBeTruthy();
+    expect(screen.getByText('Search Cards')).toBeTruthy();
     expect(StyleSheet.flatten(screen.getByTestId('catalog-header-back-row').props.style)).toMatchObject({
       alignSelf: 'flex-start',
     });

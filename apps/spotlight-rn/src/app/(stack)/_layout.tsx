@@ -33,7 +33,36 @@ export default function BrowseStackLayout() {
           },
           headerShown: false,
         }}
-      />
+      >
+        {/*
+          New Post is a NATIVE form sheet, not a full-screen push. Figma
+          3147:4638 sizes the sheet 393×787 on an 852pt screen (top edge at
+          y=65), which is the 0.92 detent below.
+
+          `formSheet` is what buys the two dismissal gestures for free — drag
+          the sheet down, or tap the dimmed area above it — so neither needs a
+          hand-rolled backdrop Pressable or pan handler.
+
+          `sheetGrabberVisible` stays false because the composer draws its own
+          grabber (SheetHeader `showHandle`, Figma 3147:4639); letting iOS add
+          its system grabber too would stack two bars.
+
+          `sheetExpandsWhenScrolledToEdge` is off so scrolling the body to its
+          end doesn't try to grow the sheet — with one detent there is nothing
+          to grow into, and the default (true) makes the scroll feel sticky.
+        */}
+        <Stack.Screen
+          name="new-post"
+          options={{
+            gestureEnabled: true,
+            presentation: 'formSheet',
+            sheetAllowedDetents: [0.92],
+            sheetCornerRadius: 16,
+            sheetExpandsWhenScrolledToEdge: false,
+            sheetGrabberVisible: false,
+          }}
+        />
+      </Stack>
     </TabsPageContext.Provider>
   );
 }

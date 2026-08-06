@@ -6,6 +6,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { InventoryCardEntry, ProfilePortfolioSummary } from '@spotlight/api-client';
 import {
   Button,
+  InlineLoader,
   PageTabs,
   type PageTab,
   StateCard,
@@ -572,35 +573,34 @@ export function PublicProfileScreen({
 
   const listEmpty =
     activeTab === 'activity' ? (
-      <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
-        <StateCard
-          loading={activityStatus === 'loading' || activityStatus === 'idle'}
-          message={
-            activityStatus === 'ready'
-              ? 'This collector has no posts yet.'
-              : 'Fetching their posts.'
-          }
-          style={styles.stateCard}
-          testID={`${testID}-activity-empty`}
-          title={activityStatus === 'ready' ? 'No posts yet' : 'Loading activity'}
-          variant="field"
-        />
-      </View>
+      // Loading is a chromeless spinner; only the settled empty state earns a card.
+      activityStatus === 'ready' ? (
+        <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
+          <StateCard
+            message="This collector has no posts yet."
+            style={styles.stateCard}
+            testID={`${testID}-activity-empty`}
+            title="No posts yet"
+            variant="field"
+          />
+        </View>
+      ) : (
+        <InlineLoader label="Fetching posts" testID={`${testID}-activity-empty`} />
+      )
     ) : activeTab !== 'collection' || collectionStatus === 'error' ? null : (
-      <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
-        <StateCard
-          message={
-            collectionStatus === 'loading'
-              ? 'Fetching their cards.'
-              : 'This collector has no cards in their portfolio yet.'
-          }
-          loading={collectionStatus === 'loading'}
-          style={styles.stateCard}
-          testID={`${testID}-collection-empty`}
-          title={collectionStatus === 'loading' ? 'Loading collection' : 'Nothing here yet'}
-          variant="field"
-        />
-      </View>
+      collectionStatus === 'loading' ? (
+        <InlineLoader label="Fetching cards" testID={`${testID}-collection-empty`} />
+      ) : (
+        <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
+          <StateCard
+            message="This collector has no cards in their portfolio yet."
+            style={styles.stateCard}
+            testID={`${testID}-collection-empty`}
+            title="Nothing here yet"
+            variant="field"
+          />
+        </View>
+      )
     );
 
   const listFooter =

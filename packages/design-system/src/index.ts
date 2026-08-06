@@ -9,6 +9,7 @@ export * from './components/floating-bottom-nav';
 export * from './components/glass-surface';
 export * from './components/grader-wordmark';
 export * from './components/icon-button';
+export * from './components/inline-loader';
 export * from './components/inventory-card-tile';
 export * from './components/list-pagination-footer';
 export * from './components/list-row';

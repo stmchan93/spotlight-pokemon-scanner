@@ -17,6 +17,7 @@ import { Camera, Globe, MediaImage, NavArrowDown, Xmark } from 'iconoir-react-na
 import { Avatar, Button, IconButton, SheetHeader, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
+import { loadNativeImagePicker } from '@/lib/native-image-picker';
 import { createPost } from '@/features/social/social-service';
 import { useAppServices } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
@@ -58,17 +59,10 @@ type PostMediaUploader = {
 };
 
 // expo-image-picker / expo-image-manipulator are native modules that may be
-// absent from an OTA-updated JS bundle. Load them defensively (exactly like
-// edit-profile-screen) so the composer never crashes when they're missing.
-function loadImagePicker() {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require('expo-image-picker');
-  } catch {
-    return null;
-  }
-}
-
+// absent from the binary an OTA-updated JS bundle is running on. The picker is
+// probed through `loadNativeImagePicker`, which checks the NATIVE registry —
+// requiring the JS alone succeeds even when the native half is missing, which is
+// what crashed the composer's Photo/Camera chips.
 function loadImageManipulator() {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -170,7 +164,7 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
   }, []);
 
   const handlePickImage = useCallback(async () => {
-    const ImagePicker = loadImagePicker();
+    const ImagePicker = loadNativeImagePicker();
     if (!ImagePicker) {
       Alert.alert('Update needed', 'Adding a photo needs the latest app version.');
       return;
@@ -199,7 +193,7 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
   }, [stagePickedImage]);
 
   const handleCaptureImage = useCallback(async () => {
-    const ImagePicker = loadImagePicker();
+    const ImagePicker = loadNativeImagePicker();
     if (!ImagePicker || typeof ImagePicker.launchCameraAsync !== 'function') {
       Alert.alert('Update needed', 'Taking a photo needs the latest app version.');
       return;
@@ -288,12 +282,22 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
 
   return (
     <SafeAreaView
-      edges={['top', 'bottom', 'left', 'right']}
+      // No 'top' edge. This screen presents as a native form sheet (see the
+      // `new-post` Stack.Screen options), so its top edge sits ~65pt down the
+      // screen, nowhere near the notch — but safe-area-context still reports
+      // the WINDOW's top inset, which would pad the grabber and title down by
+      // the status-bar height. The bottom edge is still real: the sheet is
+      // flush with the bottom of the screen, over the home indicator.
+      edges={['bottom', 'left', 'right']}
       style={[styles.safeArea, { backgroundColor: theme.colors.canvasElevated }]}
       testID={testID}
     >
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        // iOS moves a form sheet up for the keyboard by itself. Adding
+        // `padding` on top of that double-counts the keyboard height and lifts
+        // the POST button off the sheet, so iOS opts out here and only Android
+        // (where the window resizes instead) gets explicit handling.
+        behavior={Platform.OS === 'android' ? 'height' : undefined}
         style={styles.flex}
       >
         <SheetHeader
@@ -312,7 +316,8 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
           showHandle
           style={styles.header}
           title="New Post"
-          titleStyleVariant="titleCompact"
+          // Figma 3147:10838 — compact 14/600 gray-900 sheet title.
+          titleStyle={theme.typography.titleXsmall}
         />
 
         <ScrollView

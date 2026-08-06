@@ -2,6 +2,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-
 import { useRouter } from 'expo-router';
 import { Text } from 'react-native';
 
+import { MockSpotlightRepository } from '@spotlight/api-client';
 import type { InventoryCardEntry, PortfolioDashboard } from '@spotlight/api-client';
 
 import { TabsPageContext } from '@/contexts/tabs-page-context';
@@ -15,6 +16,8 @@ import { createTestSpotlightRepository, renderWithProviders } from '../test-util
 
 jest.mock('expo-router', () => ({
   useRouter: jest.fn(),
+  // Focus effect runs the composer-refresh consumer; no-op in tests.
+  useFocusEffect: jest.fn(),
 }));
 
 // RollingNumberText is a slot-machine display (each digit is a column rendering
@@ -160,9 +163,90 @@ describe('PortfolioScreen', () => {
     expect(screen.getByTestId('collection-masonry-grid')).toBeTruthy();
     expect(screen.getAllByText('Scorbunny').length).toBeGreaterThan(0);
 
-    // "Search Card" button lives in the search row (top), not a floating FAB.
-    expect(screen.getByTestId('collection-search-row-search-card')).toBeTruthy();
+    // Neither the old floating catalog-search FAB nor the in-row "Search Cards"
+    // magnifier that replaced it: catalog search is reached from the top-bar
+    // search bubble only.
+    expect(screen.queryByTestId('collection-search-row-search-card')).toBeNull();
     expect(screen.queryByTestId('collection-add-fab')).toBeNull();
+  });
+
+  it('renders the collection summary line in place of the old "My Portfolio" title', async () => {
+    renderPortfolioScreen();
+
+    await screen.findByTestId('collection-search-row');
+
+    // Figma 2749:4749 — collection picker on the left, running total on the right.
+    expect(screen.getByTestId('collection-search-row-collection')).toBeTruthy();
+    expect(screen.getByText('Main Collection')).toBeTruthy();
+    expect(screen.getByTestId('collection-search-row-total-value').props.children).toMatch(
+      /^Total Value: \$[\d.,]+k?$/,
+    );
+    expect(screen.queryByText('My Portfolio')).toBeNull();
+    // The Select / Done edit-mode toggle was removed from the search row.
+    expect(screen.queryByTestId('portfolio-select-toggle')).toBeNull();
+  });
+
+  it('opens the collection picker from the summary line and walks ADD → CREATE', async () => {
+    // Deliberately NOT stubbing createCollection/listCollections: the mock
+    // repository's own implementations keep them consistent with each other, so
+    // this exercises the real create → re-read → switch sequence. A stub that
+    // creates without appearing in the next list is a fake the product never has.
+    const createCollection = jest.spyOn(
+      MockSpotlightRepository.prototype,
+      'createCollection',
+    );
+    const repository = createTestSpotlightRepository();
+
+    renderPortfolioScreen({ repository });
+    await screen.findByTestId('collection-search-row');
+
+    // The picker used to be inert — tapping it is the entry point to the flow.
+    fireEvent.press(screen.getByTestId('collection-search-row-collection'));
+    expect(await screen.findByTestId('collection-picker-sheet')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('collection-picker-sheet-add'));
+    fireEvent.changeText(screen.getByTestId('collection-picker-sheet-name-input'), 'Grails');
+    fireEvent.press(screen.getByTestId('collection-picker-sheet-create'));
+
+    await waitFor(() => {
+      expect(createCollection).toHaveBeenCalledWith('Grails');
+    });
+    // Creating switches the tab to the new (empty) collection.
+    await waitFor(() => {
+      expect(screen.getByText('Grails')).toBeTruthy();
+    });
+  });
+
+  it('masks the collection total too when the balance is hidden', async () => {
+    renderPortfolioScreen();
+
+    const totalValue = await screen.findByTestId('collection-search-row-total-value');
+    expect(totalValue.props.children).not.toContain('*****');
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('portfolio-summary-visibility-toggle'));
+    });
+
+    // Otherwise hiding the big balance would leak the same number one row down.
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('collection-search-row-total-value').props.children,
+      ).toBe('Total Value: *****'),
+    );
+  });
+
+  it('shows an inert share bubble alongside search and edit', async () => {
+    renderPortfolioScreen();
+
+    const share = await screen.findByTestId('portfolio-header-share');
+    expect(screen.getByTestId('portfolio-header-search')).toBeTruthy();
+    expect(screen.getByTestId('portfolio-header-edit')).toBeTruthy();
+
+    // Sharing isn't built yet — pressing it must not navigate or throw.
+    await act(async () => {
+      fireEvent.press(share);
+    });
+    expect(screen.getByTestId('portfolio-header-share')).toBeTruthy();
   });
 
   it('masks the summary value and delta when the visibility toggle is pressed', async () => {
@@ -787,13 +871,15 @@ describe('PortfolioScreen', () => {
     expect(screen.queryByTestId('portfolio-list-pagination-view-more')).toBeNull();
   });
 
-  it('navigates to the catalog search route when the Search Card button is tapped', async () => {
+  it('navigates to the catalog search route from the top-bar search bubble', async () => {
     renderPortfolioScreen();
 
-    const searchCard = await screen.findByTestId('collection-search-row-search-card');
+    // The in-row "Search Cards" magnifier is gone, so this bubble is now the
+    // only way into catalog search from the Collection page.
+    const searchBubble = await screen.findByTestId('portfolio-header-search');
 
     await act(async () => {
-      fireEvent.press(searchCard);
+      fireEvent.press(searchBubble);
     });
 
     expect(push).toHaveBeenCalledWith('/catalog/search');

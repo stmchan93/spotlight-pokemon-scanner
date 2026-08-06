@@ -42,6 +42,10 @@ const AVATAR_SIZE = 40;
 /** Portrait image frame per Figma 2903-7128 (3:4). */
 const IMAGE_ASPECT_RATIO = 3 / 4;
 const METRIC_ICON_SIZE = 18;
+// The comment icon and its count are two separate targets 4px apart, so their
+// hit slops are trimmed on the facing edges instead of overlapping.
+const COMMENT_ICON_HIT_SLOP = { top: 8, bottom: 8, left: 8, right: 2 } as const;
+const COMMENT_COUNT_HIT_SLOP = { top: 8, bottom: 8, left: 2, right: 8 } as const;
 
 /** Two initials for the author avatar fallback. Mirrors `getProfileInitials`. */
 function authorInitials(displayName: string | null, handle: string | null): string {
@@ -105,8 +109,9 @@ function PostImage({
  * full-bleed 3:4 image(s), and a metrics row (thumbs-up like + comment on the
  * left, share on the right) closed by a hairline divider. Interactions are
  * preserved: the like keeps its optimistic toggle+rollback (now a thumbs-up that
- * tints to the accent color when liked), the comment control opens the thread
- * sheet, and the card chip opens the anchored card's PDP.
+ * tints to the accent color when liked) and the card chip opens the anchored
+ * card's PDP. Both comment targets — the chat icon and the count — open the full
+ * thread sheet; the icon additionally focuses its composer.
  */
 export function PostCard({
   post,
@@ -132,7 +137,12 @@ export function PostCard({
   const [likeCount, setLikeCount] = useState(post.likeCount);
   const [likePending, setLikePending] = useState(false);
   const [commentCount, setCommentCount] = useState(post.commentCount);
+  // Both the chat icon and the count open the SAME thread sheet — they sit a few
+  // pixels apart, and having the icon pop a composer-only sheet made whether you
+  // saw the existing comments feel random. The icon just also focuses the
+  // composer so you can type straight away.
   const [commentsVisible, setCommentsVisible] = useState(false);
+  const [focusComposerOnOpen, setFocusComposerOnOpen] = useState(false);
 
   // Keep the optimistic counters in sync when a fresh copy of the post arrives
   // (e.g. a feed refresh). The optimistic writes above win only until then.
@@ -185,7 +195,7 @@ export function PostCard({
     })();
   }, [liked, likePending, post.id]);
 
-  // Accent tint marks the "filled" like state (iconoir ThumbsUp has no solid variant).
+  // Liked = solid purple thumb (stroke + fill) with a matching count.
   const likeColor = liked ? theme.colors.purple500 : theme.colors.gray700;
 
   return (
@@ -288,6 +298,10 @@ export function PostCard({
           >
             <ThumbsUp
               color={likeColor}
+              // Solid purple thumb when liked, not just a purple outline. The
+              // glyph's outline is a closed path, so filling it with the same
+              // color reads as a single solid shape.
+              fill={liked ? theme.colors.purple500 : 'none'}
               height={METRIC_ICON_SIZE}
               testID={`${testID}-like-icon`}
               width={METRIC_ICON_SIZE}
@@ -299,22 +313,37 @@ export function PostCard({
               {likeCount}
             </Text>
           </Pressable>
-          <Pressable
-            accessibilityLabel="View comments"
-            accessibilityRole="button"
-            hitSlop={8}
-            onPress={() => setCommentsVisible(true)}
-            style={styles.metricItem}
-            testID={`${testID}-comment-button`}
-          >
-            <ChatBubbleEmpty color={theme.colors.gray700} height={METRIC_ICON_SIZE} width={METRIC_ICON_SIZE} />
-            <Text
-              style={[theme.typography.bodyMedium, { color: theme.colors.gray700 }]}
-              testID={`${testID}-comment-count`}
+          <View style={styles.metricItem}>
+            <Pressable
+              accessibilityLabel="Add a comment"
+              accessibilityRole="button"
+              hitSlop={COMMENT_ICON_HIT_SLOP}
+              onPress={() => {
+                setFocusComposerOnOpen(true);
+                setCommentsVisible(true);
+              }}
+              testID={`${testID}-comment-button`}
             >
-              {commentCount}
-            </Text>
-          </Pressable>
+              <ChatBubbleEmpty color={theme.colors.gray700} height={METRIC_ICON_SIZE} width={METRIC_ICON_SIZE} />
+            </Pressable>
+            <Pressable
+              accessibilityLabel="View comments"
+              accessibilityRole="button"
+              hitSlop={COMMENT_COUNT_HIT_SLOP}
+              onPress={() => {
+                setFocusComposerOnOpen(false);
+                setCommentsVisible(true);
+              }}
+              testID={`${testID}-comment-count-button`}
+            >
+              <Text
+                style={[theme.typography.bodyMedium, { color: theme.colors.gray700 }]}
+                testID={`${testID}-comment-count`}
+              >
+                {commentCount}
+              </Text>
+            </Pressable>
+          </View>
         </View>
         <Pressable
           accessibilityLabel="Share post"
@@ -330,8 +359,10 @@ export function PostCard({
       <View style={[styles.divider, { backgroundColor: theme.colors.outlineSubtle }]} />
 
       <CommentsSheet
+        autoFocusComposer={focusComposerOnOpen}
         onClose={() => setCommentsVisible(false)}
         onCommentAdded={() => setCommentCount((count) => count + 1)}
+        onCommentCountResolved={setCommentCount}
         postId={post.id}
         testID={`${testID}-comments`}
         visible={commentsVisible}
@@ -345,8 +376,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   card: {
-    gap: 12,
-    paddingTop: 12,
+    // Figma 2903-7128 stacks the whole card on an 8px rhythm (header→body 8,
+    // body→image 8, image→metrics 8) and separates cards by 16 after the
+    // hairline divider.
+    gap: 8,
+    paddingTop: 16,
   },
   cardChip: {
     alignItems: 'center',
@@ -364,12 +398,12 @@ const styles = StyleSheet.create({
   headerRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
     paddingHorizontal: 16,
   },
   headerText: {
     flex: 1,
-    gap: 1,
+    gap: 4,
   },
   image: {
     width: '100%',
@@ -380,7 +414,7 @@ const styles = StyleSheet.create({
   metricItem: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 6,
+    gap: 4,
   },
   metricsLeft: {
     alignItems: 'center',
@@ -391,7 +425,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingBottom: 12,
+    paddingBottom: 8,
     paddingHorizontal: 16,
   },
   moreButton: {

@@ -1,6 +1,7 @@
 import { fireEvent, screen } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 
-import { PageTabs } from '@spotlight/design-system';
+import { PageTabs, colors } from '@spotlight/design-system';
 
 import { renderWithProviders } from '../test-utils';
 
@@ -60,6 +61,23 @@ describe('PageTabs', () => {
 
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith('favorites');
+  });
+
+  it('draws a gray rail spanning the full width under all tabs', () => {
+    renderWithProviders(
+      <PageTabs<TabValue>
+        tabs={TABS}
+        value="portfolio"
+        onChange={jest.fn()}
+        testID="page-tabs"
+      />,
+    );
+
+    const rail = StyleSheet.flatten(screen.getByTestId('page-tabs-rail').props.style);
+    expect(rail.backgroundColor).toBe(colors.gray200);
+    // Edge to edge, not inset by the page gutter or the tab widths.
+    expect(rail).toMatchObject({ position: 'absolute', left: 0, right: 0, bottom: 0 });
+    expect(rail.height).toBeGreaterThan(0);
   });
 
   it('exposes the container testID and per-tab testIDs', () => {

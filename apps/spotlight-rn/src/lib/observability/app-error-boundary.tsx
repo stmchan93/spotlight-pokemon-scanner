@@ -71,7 +71,7 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
 const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
-    backgroundColor: '#FCFCFA',
+    backgroundColor: '#FFFFFF',
     flex: 1,
     gap: 12,
     justifyContent: 'center',

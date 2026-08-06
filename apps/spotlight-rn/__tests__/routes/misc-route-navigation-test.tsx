@@ -33,14 +33,21 @@ jest.mock('expo-router', () => ({
     return <Text testID="slot-screen">slot</Text>;
   },
   Stack: Object.assign(
-    ({ screenOptions }: { screenOptions?: object }) => {
-      const { Text } = require('react-native');
-      return <Text testID="stack-screen-options">{JSON.stringify(screenOptions ?? null)}</Text>;
+    // Children are rendered too, so per-route `<Stack.Screen options>` (e.g. the
+    // New Post form-sheet presentation) is assertable and not silently dropped.
+    ({ children, screenOptions }: { children?: React.ReactNode; screenOptions?: object }) => {
+      const { Text, View } = require('react-native');
+      return (
+        <View>
+          <Text testID="stack-screen-options">{JSON.stringify(screenOptions ?? null)}</Text>
+          {children}
+        </View>
+      );
     },
     {
-      Screen: ({ options }: { options?: object }) => {
+      Screen: ({ name, options }: { name?: string; options?: object }) => {
         const { Text } = require('react-native');
-        return <Text testID="stack-screen">{JSON.stringify(options ?? null)}</Text>;
+        return <Text testID={`stack-screen-${name ?? 'unnamed'}`}>{JSON.stringify(options ?? null)}</Text>;
       },
     },
   ),
@@ -245,6 +252,26 @@ describe('misc route wrappers', () => {
     const browse = render(<BrowseStackLayout />);
     expect(screen.getByTestId('stack-screen-options').props.children).toContain('"backgroundColor":"transparent"');
     browse.unmount();
+
+    render(<TabsLayout />);
+    expect(screen.getByTestId('slot-screen')).toBeTruthy();
+  });
+
+  it('presents New Post as a 92%-height form sheet that drags and taps away', () => {
+    render(<BrowseStackLayout />);
+
+    const options = JSON.parse(
+      screen.getByTestId('stack-screen-new-post').props.children as string,
+    );
+
+    // Figma 3147:4638 — 787pt of an 852pt screen.
+    expect(options.presentation).toBe('formSheet');
+    expect(options.sheetAllowedDetents).toEqual([0.92]);
+    // Both dismissals come from the native sheet: drag-down needs the gesture,
+    // and tap-outside is what `formSheet` gives over a full-screen push.
+    expect(options.gestureEnabled).toBe(true);
+    // The composer draws its own grabber, so iOS must not add a second one.
+    expect(options.sheetGrabberVisible).toBe(false);
 
     render(<TabsLayout />);
     expect(screen.getByTestId('slot-screen')).toBeTruthy();

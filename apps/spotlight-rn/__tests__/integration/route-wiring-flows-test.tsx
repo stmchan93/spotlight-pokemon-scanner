@@ -73,7 +73,7 @@ function CatalogSearchRouteHarness() {
 
   return (
     <View>
-      <Text>Add Card</Text>
+      <Text>Search Cards</Text>
       <TextInput
         onChangeText={setQuery}
         placeholder="Search by name, set, or number"
@@ -155,8 +155,6 @@ describe('route wiring flows', () => {
   });
 
   it('navigates from add-card search to the card detail screen', async () => {
-    jest.useFakeTimers();
-
     // Add Card moved from the Portfolio screen to the Inventory Browser, so
     // this flow now starts from `/inventory` instead of `/portfolio`. The old
     // add-to-collection sheet was removed; reaching the card detail is the flow.
@@ -166,12 +164,14 @@ describe('route wiring flows', () => {
     });
 
     fireEvent.press(await screen.findByTestId('inventory-add-card'));
-    expect(await screen.findByText('Add Card')).toBeTruthy();
+    expect(await screen.findByText('Search Cards')).toBeTruthy();
 
     fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'tree');
 
+    // The harness debounces the query by 275ms. Wait it out on the real clock:
+    // faking timers here would freeze the same clock `findBy*` polls on.
     await act(async () => {
-      jest.advanceTimersByTime(300);
+      await new Promise((resolve) => setTimeout(resolve, 350));
     });
 
     expect(await screen.findByText('5 results')).toBeTruthy();

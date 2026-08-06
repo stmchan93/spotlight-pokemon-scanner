@@ -214,6 +214,7 @@ export function usePortfolioScreenModel() {
     setInventoryEntriesCache,
     portfolioDashboardCache,
     setPortfolioDashboardCache,
+    activeCollectionID,
   } = useAppServices();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [dashboard, setDashboard] = useState<PortfolioDashboard>(
@@ -244,6 +245,12 @@ export function usePortfolioScreenModel() {
   useEffect(() => {
     selectedRangeRef.current = selectedRange;
   }, [selectedRange]);
+  // Same reason as the range ref: `loadDashboard` must not be re-created when the
+  // collection changes, or the auto-refresh effect re-fires on every switch.
+  const activeCollectionIDRef = useRef(activeCollectionID);
+  useEffect(() => {
+    activeCollectionIDRef.current = activeCollectionID;
+  }, [activeCollectionID]);
   const loadedRangesRef = useRef<Set<PortfolioHistoryRange>>(new Set<PortfolioHistoryRange>(['1W']));
   const [chartMode, setChartMode] = useState<ChartMode>('portfolio');
   const [inventoryExpanded, setInventoryExpanded] = useState(true);
@@ -254,7 +261,9 @@ export function usePortfolioScreenModel() {
 
   const loadInventory = useCallback(async () => {
     setIsLoadingInventory(true);
-    const loadResult = await spotlightRepository.loadInventoryEntries();
+    const loadResult = await spotlightRepository.loadInventoryEntries({
+      collectionID: activeCollectionIDRef.current,
+    });
 
     if (loadResult.data && loadResult.state !== 'error') {
       const inventoryItems = loadResult.data;
@@ -284,7 +293,7 @@ export function usePortfolioScreenModel() {
     }
     let cancelled = false;
     void (async () => {
-      const persisted = await readPersistedDashboard(sessionOwnerKey);
+      const persisted = await readPersistedDashboard(sessionOwnerKey, activeCollectionID);
       if (cancelled || hasUsableDashboardRef.current || !persisted) {
         return;
       }
@@ -309,7 +318,10 @@ export function usePortfolioScreenModel() {
     // ref so this callback isn't re-created on every range switch (which would
     // re-trigger the auto-refresh effect).
     const openRange = selectedRangeRef.current;
-    const loadResult = await spotlightRepository.loadPortfolioDashboard({ range: openRange });
+    const loadResult = await spotlightRepository.loadPortfolioDashboard({
+      range: openRange,
+      collectionID: activeCollectionIDRef.current,
+    });
 
     // The backend returns state 'empty' only when it sees NO inventory AND NO
     // sales. For someone who already has a portfolio that's never legitimate — a
@@ -355,7 +367,7 @@ export function usePortfolioScreenModel() {
       setIsDashboardStale(false);
       setLastUpdatedAt(savedAt);
       hasUsableDashboardRef.current = true;
-      persistDashboard(loadResult.data, savedAt, sessionOwnerKey);
+      persistDashboard(loadResult.data, savedAt, sessionOwnerKey, activeCollectionIDRef.current);
       setLoadError(null);
     } else if (loadResult.state === 'error' || isSuspiciousEmpty) {
       // Stale-while-revalidate: if we already have a chart to show, keep it and
@@ -418,11 +430,14 @@ export function usePortfolioScreenModel() {
   const { activePage } = useTabsPage();
   const isPortfolioActive = activePage === 'portfolio';
 
+  // `activeCollectionID` is a dependency so switching collections refetches. The
+  // loaders read it from a ref, so the callbacks stay stable and this effect is
+  // the ONLY thing the switch re-triggers.
   useEffect(() => {
     if (!isPortfolioActive) return;
     void loadInventory();
     void loadDashboard();
-  }, [dataVersion, isPortfolioActive, loadDashboard, loadInventory]);
+  }, [activeCollectionID, dataVersion, isPortfolioActive, loadDashboard, loadInventory]);
 
   // Live-reflect external optimistic adds. When a card is added from the card
   // detail or scanner, `prependOptimisticInventoryEntry` prepends it into the

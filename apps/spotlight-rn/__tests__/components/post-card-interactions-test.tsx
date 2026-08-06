@@ -19,9 +19,25 @@ jest.mock('@/features/social/social-service', () => ({
   likePost: jest.fn(async () => true),
   unlikePost: jest.fn(async () => true),
   fetchComments: jest.fn(async () => []),
+  fetchLikedCommentIds: jest.fn(async () => new Set()),
   addComment: jest.fn(async () => null),
   likeComment: jest.fn(async () => true),
   unlikeComment: jest.fn(async () => true),
+}));
+
+// The comments sheet the card renders reads the signed-in user so a just-posted
+// comment carries their name. Stub the context instead of booting the provider.
+jest.mock('@/providers/auth-provider', () => ({
+  useAuth: () => ({
+    currentUser: {
+      id: 'me',
+      displayName: 'Ash Ketchum',
+      handle: 'ash',
+      avatarURL: null,
+      email: 'ash@example.com',
+      isVerified: false,
+    },
+  }),
 }));
 
 const safeAreaMetrics = {
@@ -106,7 +122,7 @@ describe('PostCard likes', () => {
   });
 });
 
-describe('PostCard comments sheet', () => {
+describe('PostCard chat icon', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (fetchLikedPostIds as jest.Mock).mockResolvedValue(new Set());
@@ -114,7 +130,10 @@ describe('PostCard comments sheet', () => {
     (addComment as jest.Mock).mockResolvedValue(null);
   });
 
-  it('loads and shows comments when the comment button is pressed', async () => {
+  // The icon and the count sit a few pixels apart; when the icon opened a
+  // composer-only sheet, whether you saw the existing thread depended on which
+  // of the two you happened to hit. Both now open the same thread sheet.
+  it('opens the full thread — the same sheet the count opens', async () => {
     (fetchComments as jest.Mock).mockResolvedValue([
       {
         id: 'c1',
@@ -135,11 +154,62 @@ describe('PostCard comments sheet', () => {
     expect(fetchComments as jest.Mock).toHaveBeenCalledWith('post-1');
   });
 
+  it('posts from the thread sheet and bumps the card count', async () => {
+    (addComment as jest.Mock).mockResolvedValue('c-new');
+    await renderCard();
+
+    expect(screen.getByTestId('post-card-comment-count').props.children).toBe(0);
+
+    fireEvent.press(screen.getByTestId('post-card-comment-button'));
+    fireEvent.changeText(
+      await screen.findByTestId('post-card-comments-input'),
+      'Straight to the composer',
+    );
+    fireEvent.press(screen.getByTestId('post-card-comments-send'));
+
+    await waitFor(() =>
+      expect(addComment as jest.Mock).toHaveBeenCalledWith('post-1', 'Straight to the composer', null),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('post-card-comment-count').props.children).toBe(1),
+    );
+  });
+});
+
+describe('PostCard comments sheet', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (fetchLikedPostIds as jest.Mock).mockResolvedValue(new Set());
+    (fetchComments as jest.Mock).mockResolvedValue([]);
+    (addComment as jest.Mock).mockResolvedValue(null);
+  });
+
+  it('loads and shows comments when the comment count is pressed', async () => {
+    (fetchComments as jest.Mock).mockResolvedValue([
+      {
+        id: 'c1',
+        postId: 'post-1',
+        authorId: 'a1',
+        author: { displayName: 'Misty', handle: 'misty', avatarUrl: null, isVerified: false },
+        body: 'Great card!',
+        parentCommentId: null,
+        likeCount: 0,
+        createdAt: '2026-05-01T00:00:00.000Z',
+      },
+    ]);
+    await renderCard();
+
+    fireEvent.press(screen.getByTestId('post-card-comment-count-button'));
+
+    expect(await screen.findByText('Great card!')).toBeTruthy();
+    expect(fetchComments as jest.Mock).toHaveBeenCalledWith('post-1');
+  });
+
   it('shows the empty state when there are no comments', async () => {
     (fetchComments as jest.Mock).mockResolvedValue([]);
     await renderCard();
 
-    fireEvent.press(screen.getByTestId('post-card-comment-button'));
+    fireEvent.press(screen.getByTestId('post-card-comment-count-button'));
 
     expect(await screen.findByTestId('post-card-comments-empty')).toBeTruthy();
     expect(screen.getByText('Be the first to comment')).toBeTruthy();
@@ -152,7 +222,7 @@ describe('PostCard comments sheet', () => {
 
     expect(screen.getByTestId('post-card-comment-count').props.children).toBe(0);
 
-    fireEvent.press(screen.getByTestId('post-card-comment-button'));
+    fireEvent.press(screen.getByTestId('post-card-comment-count-button'));
     await screen.findByTestId('post-card-comments-empty');
 
     fireEvent.changeText(screen.getByTestId('post-card-comments-input'), 'My first comment');

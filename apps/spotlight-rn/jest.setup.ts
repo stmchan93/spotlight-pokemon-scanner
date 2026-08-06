@@ -87,6 +87,7 @@ jest.mock('iconoir-react-native', () => {
     ScanQrCode: make('scan-qr-code'),
     NavArrowDown: make('nav-arrow-down'),
     NavArrowLeft: make('nav-arrow-left'),
+    NavArrowRight: make('nav-arrow-right'),
     NavArrowUp: make('nav-arrow-up'),
     Plus: make('plus'),
     RefreshDouble: make('refresh-double'),
@@ -130,6 +131,7 @@ jest.mock('react-native-webview', () => {
 jest.mock('expo-splash-screen', () => ({
   hideAsync: jest.fn(),
   preventAutoHideAsync: jest.fn(),
+  setOptions: jest.fn(),
 }));
 
 jest.mock('expo-web-browser', () => ({
@@ -487,6 +489,16 @@ jest.mock('expo-document-picker', () => ({
     canceled: true,
     assets: null,
   })),
+}));
+
+// Screens reach the picker through `@/lib/native-image-picker`, which probes the
+// NATIVE registry first (an OTA can ship expo-image-picker's JS onto a binary
+// that has no native half — that is what crashed the post composer). Under jest
+// no native module exists, so hand back the mocked JS below; the missing-module
+// path is what binaries in the field hit, not what these tests cover.
+jest.mock('@/lib/native-image-picker', () => ({
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  loadNativeImagePicker: () => require('expo-image-picker'),
 }));
 
 jest.mock('expo-image-picker', () => ({

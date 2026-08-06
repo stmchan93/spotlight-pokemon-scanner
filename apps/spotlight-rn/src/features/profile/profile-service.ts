@@ -137,12 +137,23 @@ export async function fetchProfileById(userID: string): Promise<UserProfile | nu
 // who blocked you). The DB triggers keep follower_count / following_count on
 // user_profiles correct — the client never touches those counters.
 
-/** The signed-in user's id, or null when unauthenticated / Supabase absent. */
+/**
+ * The signed-in user's id, or null when unauthenticated / Supabase absent.
+ * Prefers the locally persisted session over `auth.getUser()`, which costs an
+ * auth-server round trip on every call (RLS still validates the JWT server-side).
+ */
 async function currentUserId(): Promise<string | null> {
   if (!supabase) {
     return null;
   }
   try {
+    if (typeof supabase.auth.getSession === 'function') {
+      const { data } = await supabase.auth.getSession();
+      const sessionUserId = data?.session?.user?.id ?? null;
+      if (sessionUserId) {
+        return sessionUserId;
+      }
+    }
     const { data } = await supabase.auth.getUser();
     return data.user?.id ?? null;
   } catch {
