@@ -35,6 +35,7 @@ TEST_MODULES=(
   backend.tests.test_profile_avatar_upload
   backend.tests.test_post_media_serving
   backend.tests.test_post_media_upload
+  backend.tests.test_social_moderation_worker
   backend.tests.test_scrydex_tool_scripts
   backend.tests.test_request_auth
   backend.tests.test_vm_sync_schedule
@@ -50,6 +51,7 @@ TEST_MODULES=(
   backend.tests.test_card_language_linker
   backend.tests.test_day_change_condition_match
   backend.tests.test_card_likes
+  backend.tests.test_multi_collection
 )
 
 run_targeted_tests() {
