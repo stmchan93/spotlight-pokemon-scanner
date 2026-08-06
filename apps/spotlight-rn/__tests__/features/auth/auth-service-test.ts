@@ -2,11 +2,13 @@ type SupabaseMock = {
   auth: {
     exchangeCodeForSession: jest.Mock;
     getSession: jest.Mock;
+    linkIdentity: jest.Mock;
     setSession: jest.Mock;
     signInWithIdToken: jest.Mock;
     signInWithOAuth: jest.Mock;
     signOut: jest.Mock;
     updateUser: jest.Mock;
+    verifyOtp: jest.Mock;
   };
   from: jest.Mock;
 };
@@ -54,11 +56,13 @@ function makeSupabaseMock(): SupabaseMock {
     auth: {
       exchangeCodeForSession: jest.fn(),
       getSession: jest.fn(),
+      linkIdentity: jest.fn(),
       setSession: jest.fn(),
       signInWithIdToken: jest.fn(),
       signInWithOAuth: jest.fn(),
       signOut: jest.fn(),
       updateUser: jest.fn().mockResolvedValue({ data: {}, error: null }),
+      verifyOtp: jest.fn(),
     },
     from: jest.fn(),
   };
@@ -545,5 +549,161 @@ describe('auth-service session helpers', () => {
     const unavailable = await loadAuthService({ supabase: null });
     await expect(unavailable.service.getCurrentSession()).resolves.toBeNull();
     await expect(unavailable.service.signOut()).resolves.toBeUndefined();
+  });
+});
+
+// Converting a guest with signUp() would mint a SECOND auth user: the Python
+// backend's `owner_user_id` IS the Supabase uuid, so every scan the guest made
+// would stay attached to a user nobody can sign in as — and Supabase would bill
+// two Monthly Active Users for one human. These helpers keep the uuid.
+describe('auth-service guest conversion', () => {
+  function anonymousSession() {
+    return {
+      access_token: 'anon-token',
+      refresh_token: 'anon-refresh',
+      user: {
+        email: null,
+        id: 'guest-1',
+        identities: [],
+        is_anonymous: true,
+        user_metadata: {},
+      },
+    };
+  }
+
+  it('attaches the email to the EXISTING anonymous user and asks for a code', async () => {
+    const supabase = makeSupabaseMock();
+    supabase.auth.getSession.mockResolvedValue({
+      data: { session: anonymousSession() },
+      error: null,
+    });
+
+    const { service } = await loadAuthService({ supabase });
+
+    await expect(service.convertAnonymousUserToEmailAccount({
+      email: '  new@example.com ',
+      fullName: 'New Trainer',
+    })).resolves.toEqual({ needsCode: true });
+
+    expect(supabase.auth.updateUser).toHaveBeenCalledWith({
+      data: { display_name: 'New Trainer' },
+      email: 'new@example.com',
+    });
+  });
+
+  it('verifies the email_change code, sets the password, and keeps the SAME uuid', async () => {
+    const supabase = makeSupabaseMock();
+    supabase.auth.getSession.mockResolvedValue({
+      data: { session: anonymousSession() },
+      error: null,
+    });
+    supabase.auth.verifyOtp.mockResolvedValue({
+      data: {
+        session: {
+          access_token: 'converted-token',
+          user: {
+            email: 'new@example.com',
+            // Same id as the guest — the whole point of this path.
+            id: 'guest-1',
+            identities: [{ provider: 'email' }],
+            is_anonymous: false,
+            user_metadata: {},
+          },
+        },
+      },
+      error: null,
+    });
+    const upsert = upsertTableResult({ data: null, error: null });
+    supabase.from.mockReturnValue(upsert.table);
+
+    const { service } = await loadAuthService({ supabase });
+
+    const session = await service.verifyAnonymousEmailConversion({
+      code: ' 123456 ',
+      email: 'new@example.com',
+      fullName: 'New Trainer',
+      password: 'hunter2hunter2',
+    });
+
+    // `signup`, not `email_change`, would be wrong: the user already exists.
+    expect(supabase.auth.verifyOtp).toHaveBeenCalledWith({
+      email: 'new@example.com',
+      token: '123456',
+      type: 'email_change',
+    });
+    expect(supabase.auth.updateUser).toHaveBeenCalledWith({ password: 'hunter2hunter2' });
+    expect(session.user.id).toBe('guest-1');
+  });
+
+  it('links an OAuth identity to the current anonymous user rather than signing in fresh', async () => {
+    const supabase = makeSupabaseMock();
+    supabase.auth.getSession.mockResolvedValue({
+      data: { session: anonymousSession() },
+      error: null,
+    });
+    supabase.auth.linkIdentity.mockResolvedValue({
+      data: { url: 'https://supabase.test/link' },
+      error: null,
+    });
+    supabase.auth.setSession.mockResolvedValue({
+      data: {
+        session: {
+          access_token: 'linked-token',
+          user: { id: 'guest-1', identities: [], is_anonymous: false, user_metadata: {} },
+        },
+      },
+      error: null,
+    });
+    const openAuthSessionAsync = jest.fn().mockResolvedValue({
+      type: 'success',
+      url: 'spotlight://login-callback#access_token=linked-token&refresh_token=linked-refresh',
+    });
+
+    const { service } = await loadAuthService({
+      supabase,
+      webBrowserModule: { openAuthSessionAsync },
+    });
+
+    const session = await service.linkOAuthIdentityToCurrentUser('google');
+
+    expect(supabase.auth.linkIdentity).toHaveBeenCalledWith({
+      provider: 'google',
+      options: {
+        redirectTo: 'spotlight://login-callback',
+        skipBrowserRedirect: true,
+      },
+    });
+    expect(supabase.auth.signInWithOAuth).not.toHaveBeenCalled();
+    expect(session?.user.id).toBe('guest-1');
+  });
+
+  // The guards are what make it safe to call these from the shared login flow:
+  // a stray call on a REAL account must never mutate its email or password.
+  it('refuses to run against a real account or with no session at all', async () => {
+    const realSupabase = makeSupabaseMock();
+    realSupabase.auth.getSession.mockResolvedValue({
+      data: { session: makeSession() },
+      error: null,
+    });
+    const real = await loadAuthService({ supabase: realSupabase });
+
+    await expect(real.service.convertAnonymousUserToEmailAccount({ email: 'a@b.test' }))
+      .rejects.toThrow('This session is already a real account.');
+    await expect(real.service.verifyAnonymousEmailConversion({
+      code: '123456',
+      email: 'a@b.test',
+      password: 'hunter2hunter2',
+    })).rejects.toThrow('This session is already a real account.');
+    await expect(real.service.linkOAuthIdentityToCurrentUser('google'))
+      .rejects.toThrow('This session is already a real account.');
+    expect(realSupabase.auth.updateUser).not.toHaveBeenCalled();
+    expect(realSupabase.auth.linkIdentity).not.toHaveBeenCalled();
+
+    const emptySupabase = makeSupabaseMock();
+    emptySupabase.auth.getSession.mockResolvedValue({ data: { session: null }, error: null });
+    const empty = await loadAuthService({ supabase: emptySupabase });
+
+    await expect(empty.service.convertAnonymousUserToEmailAccount({ email: 'a@b.test' }))
+      .rejects.toThrow('There is no guest session to convert.');
   });
 });

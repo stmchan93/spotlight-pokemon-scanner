@@ -1,5 +1,15 @@
 export type AuthState = 'loading' | 'signedOut' | 'needsProfile' | 'signedIn';
 
+/**
+ * Placeholder id for a guest who has NOT been given a Supabase user yet (guest
+ * mode defers the mint to the first scan — every anonymous user is a billable
+ * MAU). It is the same string on every device, so it must never be used as an
+ * identity: analytics keyed on it would merge every pending guest into one
+ * person. Lives here, not in the auth provider, so `@/lib/observability/posthog`
+ * can guard against it without an import cycle.
+ */
+export const PENDING_GUEST_USER_ID = 'pending-guest';
+
 export type UserProfile = {
   userID: string;
   displayName: string | null;

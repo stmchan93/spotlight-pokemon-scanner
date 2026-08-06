@@ -3,6 +3,7 @@ import { act, render, screen, waitFor } from '@testing-library/react-native';
 import { Text } from 'react-native';
 import Constants from 'expo-constants';
 
+import { ALL_COLLECTIONS_ID } from '../../../../packages/api-client/src/spotlight/types';
 import {
   HttpSpotlightRepository,
   MockSpotlightRepository,
@@ -78,6 +79,19 @@ function CacheProbe({
       {'|'}
       {portfolioDashboardCache?.inventoryCount ?? 'no-dashboard'}
     </Text>
+  );
+}
+
+function OwnerScopeProbe() {
+  const { activeCollectionID, sessionOwnerKey, setActiveCollectionID } = useAppServices();
+
+  return (
+    <>
+      <Text testID="owner-scope">{`owner:${sessionOwnerKey}|collection:${activeCollectionID}`}</Text>
+      <Text testID="choose-collection" onPress={() => setActiveCollectionID('collection-a')}>
+        choose
+      </Text>
+    </>
   );
 }
 
@@ -261,5 +275,84 @@ describe('AppProviders', () => {
     });
 
     expect(screen.getByText('no-inventory|no-dashboard')).toBeTruthy();
+  });
+
+  // Isolation must come from the owner key we are PASSED, never from the caller
+  // remounting us. `_layout` deliberately keeps ONE tree across the guest mint
+  // (an in-flight scan is riding on it), so this rerenders the SAME provider
+  // instance — no `key`, no unmount — and the previous account's data still has
+  // to be unreachable.
+  it('isolates account data on an owner-key change alone, with no remount', async () => {
+    setNodeEnv('test');
+    const repository = new MockSpotlightRepository();
+    const seedInventory = await repository.getInventoryEntries();
+    const seedPortfolio = await repository.getPortfolioDashboard();
+
+    const view = render(
+      <AppProviders sessionOwnerKey="user-a">
+        <CacheProbe seedInventory={seedInventory} seedPortfolio={seedPortfolio} />
+        <OwnerScopeProbe />
+      </AppProviders>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/Scorbunny\|/)).toBeTruthy();
+    });
+
+    // Account A picks a collection; it is persisted under A's key.
+    await act(async () => {
+      screen.getByTestId('choose-collection').props.onPress();
+    });
+    await waitFor(() => {
+      expect(screen.getByText('owner:user-a|collection:collection-a')).toBeTruthy();
+    });
+
+    await act(async () => {
+      view.rerender(
+        <AppProviders sessionOwnerKey="user-b">
+          <CacheProbe />
+          <OwnerScopeProbe />
+        </AppProviders>,
+      );
+    });
+
+    // Same mounted provider, different owner: no inventory, no dashboard, and
+    // the collection scope falls back to "all" rather than inheriting A's.
+    expect(screen.getByText('no-inventory|no-dashboard')).toBeTruthy();
+    expect(screen.getByText(`owner:user-b|collection:${ALL_COLLECTIONS_ID}`)).toBeTruthy();
+  });
+
+  // The guest mint lands a token mid-scan, after the closure that dispatches the
+  // request was already built. A snapshot token would send that first guest scan
+  // out unauthenticated, so the repository reads the token per request.
+  it('reads the access token per request so a mid-flight sign-in still authenticates', async () => {
+    setNodeEnv('development');
+    process.env.EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL = 'http://example.test';
+
+    const authorizationHeaders: (string | null)[] = [];
+    const originalFetch = global.fetch;
+    global.fetch = jest.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+      authorizationHeaders.push(new Headers(init?.headers ?? undefined).get('Authorization'));
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ entries: [] }),
+      } as Response;
+    }) as typeof fetch;
+
+    try {
+      let accessToken: string | null = null;
+      const repository = createDefaultSpotlightRepository(() => accessToken);
+
+      await repository.loadInventoryEntries();
+      // …the guest scans, the anonymous user is minted, the token lands.
+      accessToken = 'minted-anon-token';
+      await repository.loadInventoryEntries();
+
+      expect(authorizationHeaders[0]).toBeNull();
+      expect(authorizationHeaders[authorizationHeaders.length - 1]).toBe('Bearer minted-anon-token');
+    } finally {
+      global.fetch = originalFetch;
+    }
   });
 });

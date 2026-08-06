@@ -612,6 +612,13 @@ export async function checkEmailExists(email: string): Promise<boolean> {
   return data === true;
 }
 
+/**
+ * Creates a BRAND NEW auth user. Correct for a signed-out visitor.
+ *
+ * ⚠️ Never call this to convert a guest (anonymous) session — it mints a second
+ * uuid, orphaning the guest's backend-owned data and double-billing MAU. Use
+ * `convertAnonymousUserToEmailAccount` + `verifyAnonymousEmailConversion`.
+ */
 export async function signUpWithEmail({
   email,
   password,
@@ -842,6 +849,14 @@ export async function signOut() {
  * so no backend changes are needed. Requires "Allow anonymous sign-ins" to be
  * enabled in the Supabase dashboard — throws if the project has it off, so
  * callers must fall back to the normal login screen on error.
+ *
+ * ⚠️ COSTS MONEY. Supabase bills per Monthly Active User, and an anonymous user
+ * is a billable MAU exactly like a real account. So:
+ *   1. Call this ONLY when an action genuinely needs a server identity (a scan
+ *      dispatch / any authed backend call) — never on app open or on browsing.
+ *      `AuthProvider.ensureGuestSession()` is the deferred entry point.
+ *   2. Convert a guest with `convertAnonymousUserToEmailAccount` /
+ *      `linkOAuthIdentityToCurrentUser`, NEVER `signUpWithEmail` — see below.
  */
 export async function signInAnonymously(): Promise<Session> {
   if (!supabase) {
@@ -863,6 +878,256 @@ export async function signInAnonymously(): Promise<Session> {
 /** True when the session is a guest (Supabase anonymous user). */
 export function isAnonymousSession(session: Session | null): boolean {
   return session?.user.is_anonymous === true;
+}
+
+// ---------------------------------------------------------------------------
+// Guest → real account conversion (identity-preserving)
+//
+// NEVER convert a guest with `signUpWithEmail()`. `supabase.auth.signUp()`
+// mints a SECOND auth user with a NEW uuid, which:
+//   - orphans everything the guest already owns. The Python backend's
+//     `owner_user_id` IS the Supabase auth uuid, so a new uuid means the
+//     scans/collection rows stay attached to a user nobody can sign in as; and
+//   - bills a SECOND Monthly Active User for the same human, on top of the
+//     anonymous one.
+//
+// The supported conversions keep the SAME uuid:
+//   email : updateUser({ email }) → verifyOtp({ type: 'email_change' })
+//           → updateUser({ password })
+//   OAuth : linkIdentity({ provider })
+//
+// Every helper below refuses to run unless the CURRENT session is anonymous, so
+// a real account can never be mutated by a stray call from the guest flow.
+// ---------------------------------------------------------------------------
+
+/** Raised when a conversion helper is called without a live guest session. */
+export class GuestConversionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'GuestConversionError';
+  }
+}
+
+async function requireAnonymousSession(): Promise<Session> {
+  const session = await getCurrentSession();
+  if (!session) {
+    throw new GuestConversionError('There is no guest session to convert.');
+  }
+  if (!isAnonymousSession(session)) {
+    throw new GuestConversionError('This session is already a real account.');
+  }
+  return session;
+}
+
+/**
+ * Step 1 of guest → email account: attach the email to the EXISTING anonymous
+ * user and send it a confirmation code. The uuid does not change.
+ *
+ * Supabase does not accept a password on the same call while the address is
+ * unverified, so the password is set in step 2
+ * (`verifyAnonymousEmailConversion`) once the code proves the address.
+ */
+export async function convertAnonymousUserToEmailAccount({
+  email,
+  fullName,
+}: {
+  email: string;
+  fullName?: string;
+}): Promise<{ needsCode: boolean }> {
+  if (!supabase) {
+    throw new Error(supabaseAuthConfig.configurationIssue ?? 'Supabase Auth is not configured.');
+  }
+
+  await requireAnonymousSession();
+
+  const displayName = normalizeDisplayName(fullName ?? '');
+  const { error } = await supabase.auth.updateUser({
+    email: email.trim(),
+    ...(displayName ? { data: { display_name: displayName } } : {}),
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return { needsCode: true };
+}
+
+/**
+ * Step 2 of guest → email account: verify the emailed code (`email_change`, not
+ * `signup` — the user already exists), then set the password on that same user.
+ * Returns the upgraded session, which carries the ORIGINAL uuid.
+ */
+export async function verifyAnonymousEmailConversion({
+  email,
+  code,
+  password,
+  fullName,
+}: {
+  email: string;
+  code: string;
+  password: string;
+  fullName?: string;
+}): Promise<Session> {
+  if (!supabase) {
+    throw new Error(supabaseAuthConfig.configurationIssue ?? 'Supabase Auth is not configured.');
+  }
+
+  const guestSession = await requireAnonymousSession();
+
+  const { data, error } = await supabase.auth.verifyOtp({
+    email: email.trim(),
+    token: code.trim(),
+    type: 'email_change',
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  const session = data.session;
+  if (!session) {
+    throw new Error('Verification did not create a session.');
+  }
+
+  // Loud, non-fatal: the whole point of this path is that the uuid survives. If
+  // it ever moves, the user's backend-owned data has just been orphaned and we
+  // want that in the logs rather than silently shipped.
+  if (session.user.id !== guestSession.user.id) {
+    console.warn(
+      '[AUTH] Guest conversion changed the user id — backend-owned data is now orphaned.',
+      { from: guestSession.user.id, to: session.user.id },
+    );
+  }
+
+  const { error: passwordError } = await supabase.auth.updateUser({ password });
+  if (passwordError) {
+    throw passwordError;
+  }
+
+  await bootstrapProfileIfNeeded(session.user, fullName ?? null);
+
+  return session;
+}
+
+/**
+ * Guest → OAuth account: link an Apple/Google identity to the CURRENT anonymous
+ * user via the browser redirect flow, so the uuid survives. Returns the
+ * upgraded session, or null when the browser handed off to the system browser
+ * and the session will arrive on the deep link instead.
+ */
+export async function linkOAuthIdentityToCurrentUser(
+  provider: 'apple' | 'google',
+): Promise<Session | null> {
+  if (!supabase) {
+    throw new Error(supabaseAuthConfig.configurationIssue ?? 'Supabase Auth is not configured.');
+  }
+  if (!webBrowserModule) {
+    throw new Error('Account linking is unavailable in the current app build.');
+  }
+
+  await requireAnonymousSession();
+
+  const { data, error } = await supabase.auth.linkIdentity({
+    provider,
+    options: {
+      redirectTo: supabaseAuthConfig.redirectURL,
+      skipBrowserRedirect: true,
+    },
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  const authURL = data?.url ?? '';
+  if (!authURL) {
+    throw new Error('Account linking could not be started.');
+  }
+
+  const result = await webBrowserModule.openAuthSessionAsync(authURL, supabaseAuthConfig.redirectURL);
+
+  if (result.type === 'cancel' || result.type === 'dismiss') {
+    throw new AuthCanceledError();
+  }
+
+  if (result.type !== 'success') {
+    if (result.type === 'opened') {
+      await Linking.openURL(authURL);
+      return null;
+    }
+
+    throw new Error('Account linking could not be completed.');
+  }
+
+  return restoreSessionFromUrl(result.url);
+}
+
+/**
+ * Guest → Apple account on iOS, using the NATIVE Apple sheet (the same flow as
+ * `signInWithApple`) instead of the browser redirect. `linkIdentity` has an
+ * OIDC overload, so the id token links to the current anonymous user and the
+ * uuid survives.
+ */
+export async function linkAppleIdentityToCurrentUser(): Promise<Session> {
+  if (!supabase) {
+    throw new Error(supabaseAuthConfig.configurationIssue ?? 'Supabase Auth is not configured.');
+  }
+  if (!appleAuthenticationModule) {
+    throw new Error('Apple sign-in is unavailable in the current app build.');
+  }
+
+  await requireAnonymousSession();
+
+  try {
+    const nonce = randomNonce();
+    const hashedNonce = sha256(nonce);
+    const credential = await appleAuthenticationModule.signInAsync({
+      nonce: hashedNonce,
+      requestedScopes: [
+        appleAuthenticationModule.AppleAuthenticationScope.FULL_NAME,
+        appleAuthenticationModule.AppleAuthenticationScope.EMAIL,
+      ],
+    });
+
+    if (!credential.identityToken) {
+      throw new Error('Apple sign-in did not return a valid identity token.');
+    }
+
+    const { data, error } = await supabase.auth.linkIdentity({
+      provider: 'apple',
+      token: credential.identityToken,
+      access_token: credential.authorizationCode ?? undefined,
+      nonce,
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    if (!data.session) {
+      throw new Error('Apple account linking did not create a session.');
+    }
+
+    await bootstrapProfileIfNeeded(
+      data.session.user,
+      formatAppleFullName(credential.fullName),
+      null,
+    );
+
+    return data.session;
+  } catch (error) {
+    if (
+      typeof error === 'object'
+      && error !== null
+      && 'code' in error
+      && (error as { code?: string }).code === 'ERR_REQUEST_CANCELED'
+    ) {
+      throw new AuthCanceledError();
+    }
+
+    throw error;
+  }
 }
 
 export async function getCurrentSession() {

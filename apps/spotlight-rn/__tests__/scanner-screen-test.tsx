@@ -90,6 +90,13 @@ jest.mock('expo-router', () => {
   };
 });
 
+// Guest mode: `isGuest` flips the scanner into the first-launch experience, and
+// `ensureGuestSession` is the deferred Supabase anonymous-user mint (a billable
+// MAU) the capture path must pay for exactly once, and only on a real scan.
+const mockGuestSession = { access_token: 'anon-token', user: { id: 'guest-1', is_anonymous: true } };
+const mockEnsureGuestSession = jest.fn(async () => mockGuestSession as any);
+let mockIsGuest = false;
+
 jest.mock('@/providers/auth-provider', () => ({
   useAuth: () => ({
     currentUser: {
@@ -101,6 +108,8 @@ jest.mock('@/providers/auth-provider', () => ({
       labelerEnabled: true,
       providers: ['ui-tests'],
     },
+    ensureGuestSession: mockEnsureGuestSession,
+    isGuest: mockIsGuest,
   }),
 }));
 
@@ -128,6 +137,9 @@ describe('ScannerScreen', () => {
   const originalScannerSmokeEnv = process.env.EXPO_PUBLIC_SPOTLIGHT_SCANNER_SMOKE_ENABLED;
 
   beforeEach(() => {
+    mockIsGuest = false;
+    mockEnsureGuestSession.mockClear();
+    mockEnsureGuestSession.mockImplementation(async () => mockGuestSession as any);
     useKeepAwake.mockClear();
     mockBack.mockReset();
     mockCanGoBack.mockReset();
@@ -1481,6 +1493,89 @@ describe('ScannerScreen', () => {
     expect(addPayloads[0]).toEqual(expect.objectContaining({
       condition: 'lightly_played',
     }));
+  });
+
+  // Supabase bills per Monthly Active User and an anonymous user is one, so a
+  // guest who opens the app, warms the camera and browses must cost nothing.
+  // The scan dispatch is the first thing that genuinely needs a server identity.
+  it('GUEST: opening the scanner mints no Supabase user; the first capture mints exactly one', async () => {
+    mockIsGuest = true;
+    const payloads: unknown[] = [];
+    const spotlightRepository = createTestSpotlightRepository({
+      matchScannerCapture: async (payload) => {
+        payloads.push(payload);
+        return {
+          scanID: 'scan-guest-1',
+          candidates: [{
+            id: 'mcdonalds25-21',
+            cardId: 'mcdonalds25-21',
+            name: 'Oshawott',
+            cardNumber: '#21/25',
+            setName: "McDonald's Collection 2021",
+            imageUrl: 'https://images.pokemontcg.io/mcdonalds25/21.png',
+            marketPrice: 0.56,
+            currencyCode: 'USD',
+          }],
+        };
+      },
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    await waitForScannerReady();
+    expect(mockEnsureGuestSession).not.toHaveBeenCalled();
+
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    await waitFor(() => {
+      expect(payloads).toHaveLength(1);
+    });
+    // One capture, one mint — and it happened BEFORE the match request.
+    expect(mockEnsureGuestSession).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Oshawott')).toBeTruthy();
+  });
+
+  it('GUEST: a failed mint fails the capture instead of firing an unauthenticated match', async () => {
+    mockIsGuest = true;
+    // Anonymous sign-ins disabled / offline: the provider keeps the user in
+    // guest mode and resolves null rather than throwing them out.
+    mockEnsureGuestSession.mockImplementation(async () => null as any);
+
+    const payloads: unknown[] = [];
+    const spotlightRepository = createTestSpotlightRepository({
+      matchScannerCapture: async (payload) => {
+        payloads.push(payload);
+        throw new Error('should not reach the backend without a session');
+      },
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    // The row lands in the tray and leaves its "Finding match" state through the
+    // normal scan-failure path — no crash, no dropped capture, no doomed 401.
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    });
+    await waitFor(() => {
+      expect(screen.queryByText('Finding match')).toBeNull();
+    });
+    expect(mockEnsureGuestSession).toHaveBeenCalledTimes(1);
+    expect(payloads).toHaveLength(0);
+  });
+
+  it('SIGNED IN: a capture never touches the guest mint', async () => {
+    renderScannerScreen();
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    });
+    expect(mockEnsureGuestSession).not.toHaveBeenCalled();
   });
 
 });

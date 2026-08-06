@@ -1,7 +1,10 @@
 type SupabaseMock = {
   auth: {
+    getSession: jest.Mock;
+    linkIdentity: jest.Mock;
     resend: jest.Mock;
     resetPasswordForEmail: jest.Mock;
+    setSession: jest.Mock;
     signInWithPassword: jest.Mock;
     signUp: jest.Mock;
     updateUser: jest.Mock;
@@ -39,8 +42,11 @@ function makeSession(overrides: Record<string, unknown> = {}) {
 function makeSupabaseMock(): SupabaseMock {
   return {
     auth: {
+      getSession: jest.fn().mockResolvedValue({ data: { session: null }, error: null }),
+      linkIdentity: jest.fn(),
       resend: jest.fn().mockResolvedValue({ data: {}, error: null }),
       resetPasswordForEmail: jest.fn().mockResolvedValue({ data: {}, error: null }),
+      setSession: jest.fn(),
       signInWithPassword: jest.fn(),
       signUp: jest.fn(),
       updateUser: jest.fn().mockResolvedValue({ data: {}, error: null }),
@@ -51,10 +57,30 @@ function makeSupabaseMock(): SupabaseMock {
   };
 }
 
+/** Make `getCurrentSession()` report a guest (anonymous) session. */
+function withAnonymousSession(supabase: SupabaseMock, userID = 'guest-1') {
+  const session = makeSession({
+    user: { id: userID, email: null, identities: [], is_anonymous: true, user_metadata: {} },
+  });
+  supabase.auth.getSession.mockResolvedValue({ data: { session }, error: null });
+  return session;
+}
+
+/** Silence the profile upsert that `bootstrapProfileIfNeeded` performs. */
+function stubProfileWrites(supabase: SupabaseMock) {
+  const single = jest.fn().mockResolvedValue({ data: null, error: new Error('no profile') });
+  const select = jest.fn(() => ({ single }));
+  const upsert = jest.fn(() => ({ select }));
+  const eq = jest.fn(() => ({ single }));
+  supabase.from.mockReturnValue({ select: jest.fn(() => ({ eq })), upsert });
+}
+
 async function loadAuthService(options: LoadOptions = {}) {
   jest.resetModules();
 
   const supabase = options.supabase === undefined ? makeSupabaseMock() : options.supabase;
+  const openAuthSessionAsync = jest.fn();
+  const appleSignInAsync = jest.fn();
 
   jest.doMock('@/lib/supabase', () => ({
     supabase,
@@ -64,17 +90,17 @@ async function loadAuthService(options: LoadOptions = {}) {
     },
   }));
   jest.doMock('expo-linking', () => ({ openURL: jest.fn() }));
-  jest.doMock('expo-web-browser', () => ({ openAuthSessionAsync: jest.fn() }));
+  jest.doMock('expo-web-browser', () => ({ openAuthSessionAsync }));
   jest.doMock('expo-apple-authentication', () => ({
     AppleAuthenticationScope: { EMAIL: 'EMAIL', FULL_NAME: 'FULL_NAME' },
     isAvailableAsync: jest.fn().mockResolvedValue(false),
-    signInAsync: jest.fn(),
+    signInAsync: appleSignInAsync,
   }));
 
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const service = require('@/features/auth/auth-service') as typeof import('@/features/auth/auth-service');
 
-  return { service, supabase };
+  return { appleSignInAsync, openAuthSessionAsync, service, supabase };
 }
 
 describe('auth-service checkEmailExists', () => {
@@ -399,5 +425,273 @@ describe('auth-service updatePassword', () => {
     const { service } = await loadAuthService({ supabase });
 
     await expect(service.updatePassword('newhunter2hunter2')).rejects.toThrow('update failed');
+  });
+});
+
+// The point of every test below: a guest converting to a real account must keep
+// the SAME auth uuid. A new uuid orphans their backend-owned rows
+// (`owner_user_id` IS the Supabase uuid) and bills a second Monthly Active User.
+// `signUp()` mints a new uuid, so it must never appear in these paths.
+describe('auth-service convertAnonymousUserToEmailAccount', () => {
+  it('attaches the email to the EXISTING anonymous user and never calls signUp', async () => {
+    const supabase = makeSupabaseMock();
+    withAnonymousSession(supabase);
+
+    const { service } = await loadAuthService({ supabase });
+
+    await expect(service.convertAnonymousUserToEmailAccount({
+      email: '  collector@example.com  ',
+      fullName: '  Apple Collector  ',
+    })).resolves.toEqual({ needsCode: true });
+
+    expect(supabase.auth.updateUser).toHaveBeenCalledWith({
+      email: 'collector@example.com',
+      data: { display_name: 'Apple Collector' },
+    });
+    expect(supabase.auth.signUp).not.toHaveBeenCalled();
+  });
+
+  it('omits the metadata write when no name is supplied', async () => {
+    const supabase = makeSupabaseMock();
+    withAnonymousSession(supabase);
+
+    const { service } = await loadAuthService({ supabase });
+
+    await service.convertAnonymousUserToEmailAccount({ email: 'collector@example.com' });
+
+    expect(supabase.auth.updateUser).toHaveBeenCalledWith({ email: 'collector@example.com' });
+  });
+
+  it('refuses to touch a REAL account', async () => {
+    const supabase = makeSupabaseMock();
+    supabase.auth.getSession.mockResolvedValue({ data: { session: makeSession() }, error: null });
+
+    const { service } = await loadAuthService({ supabase });
+
+    await expect(service.convertAnonymousUserToEmailAccount({
+      email: 'collector@example.com',
+    })).rejects.toThrow('This session is already a real account.');
+    expect(supabase.auth.updateUser).not.toHaveBeenCalled();
+  });
+
+  it('refuses when there is no session at all', async () => {
+    const supabase = makeSupabaseMock();
+
+    const { service } = await loadAuthService({ supabase });
+
+    await expect(service.convertAnonymousUserToEmailAccount({
+      email: 'collector@example.com',
+    })).rejects.toThrow('There is no guest session to convert.');
+    expect(supabase.auth.updateUser).not.toHaveBeenCalled();
+  });
+
+  it('throws when the email update is rejected', async () => {
+    const supabase = makeSupabaseMock();
+    withAnonymousSession(supabase);
+    supabase.auth.updateUser.mockResolvedValue({ data: {}, error: new Error('email taken') });
+
+    const { service } = await loadAuthService({ supabase });
+
+    await expect(service.convertAnonymousUserToEmailAccount({
+      email: 'collector@example.com',
+    })).rejects.toThrow('email taken');
+  });
+});
+
+describe('auth-service verifyAnonymousEmailConversion', () => {
+  it('verifies with type email_change, then sets the password on the same user', async () => {
+    const supabase = makeSupabaseMock();
+    withAnonymousSession(supabase, 'guest-1');
+    stubProfileWrites(supabase);
+    // The upgraded session keeps the guest's uuid — that is the whole point.
+    const upgraded = makeSession({
+      user: { id: 'guest-1', email: 'collector@example.com', identities: [], user_metadata: {} },
+    });
+    supabase.auth.verifyOtp.mockResolvedValue({ data: { session: upgraded }, error: null });
+
+    const { service } = await loadAuthService({ supabase });
+
+    await expect(service.verifyAnonymousEmailConversion({
+      email: 'collector@example.com',
+      code: '  123456  ',
+      password: 'hunter2hunter2',
+      fullName: 'Collector',
+    })).resolves.toBe(upgraded);
+
+    expect(supabase.auth.verifyOtp).toHaveBeenCalledWith({
+      email: 'collector@example.com',
+      token: '123456',
+      type: 'email_change',
+    });
+    expect(supabase.auth.updateUser).toHaveBeenCalledWith({ password: 'hunter2hunter2' });
+    expect(supabase.auth.signUp).not.toHaveBeenCalled();
+  });
+
+  it('warns when the uuid moved (data would be orphaned) but still returns the session', async () => {
+    const supabase = makeSupabaseMock();
+    withAnonymousSession(supabase, 'guest-1');
+    stubProfileWrites(supabase);
+    const upgraded = makeSession({
+      user: { id: 'someone-else', email: 'collector@example.com', identities: [], user_metadata: {} },
+    });
+    supabase.auth.verifyOtp.mockResolvedValue({ data: { session: upgraded }, error: null });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const { service } = await loadAuthService({ supabase });
+
+    await expect(service.verifyAnonymousEmailConversion({
+      email: 'collector@example.com',
+      code: '123456',
+      password: 'hunter2hunter2',
+    })).resolves.toBe(upgraded);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('changed the user id'),
+      { from: 'guest-1', to: 'someone-else' },
+    );
+
+    warn.mockRestore();
+  });
+
+  it('refuses to run against a real account', async () => {
+    const supabase = makeSupabaseMock();
+    supabase.auth.getSession.mockResolvedValue({ data: { session: makeSession() }, error: null });
+
+    const { service } = await loadAuthService({ supabase });
+
+    await expect(service.verifyAnonymousEmailConversion({
+      email: 'collector@example.com',
+      code: '123456',
+      password: 'hunter2hunter2',
+    })).rejects.toThrow('This session is already a real account.');
+    expect(supabase.auth.verifyOtp).not.toHaveBeenCalled();
+  });
+
+  it('throws when the code is wrong, without touching the password', async () => {
+    const supabase = makeSupabaseMock();
+    withAnonymousSession(supabase);
+    supabase.auth.verifyOtp.mockResolvedValue({ data: { session: null }, error: new Error('invalid code') });
+
+    const { service } = await loadAuthService({ supabase });
+
+    await expect(service.verifyAnonymousEmailConversion({
+      email: 'collector@example.com',
+      code: '000000',
+      password: 'hunter2hunter2',
+    })).rejects.toThrow('invalid code');
+    expect(supabase.auth.updateUser).not.toHaveBeenCalled();
+  });
+
+  it('throws when the password write fails', async () => {
+    const supabase = makeSupabaseMock();
+    withAnonymousSession(supabase, 'guest-1');
+    const upgraded = makeSession({
+      user: { id: 'guest-1', email: 'collector@example.com', identities: [], user_metadata: {} },
+    });
+    supabase.auth.verifyOtp.mockResolvedValue({ data: { session: upgraded }, error: null });
+    supabase.auth.updateUser.mockResolvedValue({ data: {}, error: new Error('weak password') });
+
+    const { service } = await loadAuthService({ supabase });
+
+    await expect(service.verifyAnonymousEmailConversion({
+      email: 'collector@example.com',
+      code: '123456',
+      password: 'short',
+    })).rejects.toThrow('weak password');
+  });
+});
+
+describe('auth-service linkOAuthIdentityToCurrentUser', () => {
+  it('links the provider to the current guest and restores the upgraded session', async () => {
+    const supabase = makeSupabaseMock();
+    withAnonymousSession(supabase);
+    supabase.auth.linkIdentity.mockResolvedValue({
+      data: { url: 'https://auth.example.com/authorize' },
+      error: null,
+    });
+    const upgraded = makeSession();
+    supabase.auth.setSession.mockResolvedValue({ data: { session: upgraded }, error: null });
+
+    const { openAuthSessionAsync, service } = await loadAuthService({ supabase });
+    openAuthSessionAsync.mockResolvedValue({
+      type: 'success',
+      url: 'spotlight://login-callback#access_token=a&refresh_token=b',
+    });
+
+    await expect(service.linkOAuthIdentityToCurrentUser('google')).resolves.toBe(upgraded);
+
+    expect(supabase.auth.linkIdentity).toHaveBeenCalledWith({
+      provider: 'google',
+      options: {
+        redirectTo: 'spotlight://login-callback',
+        skipBrowserRedirect: true,
+      },
+    });
+    expect(supabase.auth.signUp).not.toHaveBeenCalled();
+  });
+
+  it('refuses to link onto a real account', async () => {
+    const supabase = makeSupabaseMock();
+    supabase.auth.getSession.mockResolvedValue({ data: { session: makeSession() }, error: null });
+
+    const { service } = await loadAuthService({ supabase });
+
+    await expect(service.linkOAuthIdentityToCurrentUser('google'))
+      .rejects.toThrow('This session is already a real account.');
+    expect(supabase.auth.linkIdentity).not.toHaveBeenCalled();
+  });
+
+  it('maps a dismissed browser to the cancellation error', async () => {
+    const supabase = makeSupabaseMock();
+    withAnonymousSession(supabase);
+    supabase.auth.linkIdentity.mockResolvedValue({
+      data: { url: 'https://auth.example.com/authorize' },
+      error: null,
+    });
+
+    const { openAuthSessionAsync, service } = await loadAuthService({ supabase });
+    openAuthSessionAsync.mockResolvedValue({ type: 'cancel' });
+
+    await expect(service.linkOAuthIdentityToCurrentUser('apple')).rejects.toThrow(
+      'Authentication was canceled.',
+    );
+  });
+});
+
+describe('auth-service linkAppleIdentityToCurrentUser', () => {
+  it('links the native Apple id token to the current guest', async () => {
+    const supabase = makeSupabaseMock();
+    withAnonymousSession(supabase, 'guest-1');
+    stubProfileWrites(supabase);
+    const upgraded = makeSession({
+      user: { id: 'guest-1', email: 'collector@example.com', identities: [], user_metadata: {} },
+    });
+    supabase.auth.linkIdentity.mockResolvedValue({ data: { session: upgraded }, error: null });
+
+    const { appleSignInAsync, service } = await loadAuthService({ supabase });
+    appleSignInAsync.mockResolvedValue({
+      authorizationCode: 'auth-code',
+      fullName: { givenName: 'Ash', familyName: 'Ketchum' },
+      identityToken: 'identity-token',
+    });
+
+    await expect(service.linkAppleIdentityToCurrentUser()).resolves.toBe(upgraded);
+
+    expect(supabase.auth.linkIdentity).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'apple',
+      token: 'identity-token',
+      access_token: 'auth-code',
+    }));
+    expect(supabase.auth.signUp).not.toHaveBeenCalled();
+  });
+
+  it('refuses to link onto a real account', async () => {
+    const supabase = makeSupabaseMock();
+    supabase.auth.getSession.mockResolvedValue({ data: { session: makeSession() }, error: null });
+
+    const { appleSignInAsync, service } = await loadAuthService({ supabase });
+
+    await expect(service.linkAppleIdentityToCurrentUser())
+      .rejects.toThrow('This session is already a real account.');
+    expect(appleSignInAsync).not.toHaveBeenCalled();
   });
 });

@@ -179,10 +179,14 @@ function buildInventoryEntryArgs(
   activeCandidate: CatalogSearchResult,
   addedAt: string,
   conditionCode: DeckConditionCode,
+  collectionID: string,
 ): InventoryEntryCreateRequestPayload {
   return {
     addedAt,
     cardID: activeCandidate.cardId,
+    // Scans land in the collection the Collection tab is showing. "All" is not a
+    // real target, so the backend files those into the default collection.
+    collectionID,
     condition: capture.mode === 'slabs' ? null : conditionCode,
     quantity: 1,
     selectedRank: capture.activeCandidateIndex + 1,
@@ -585,12 +589,13 @@ export function ScannerScreen({
   const router = useRouter();
   // Guest gating: capture stays open, but tray/collection/wishlist/eBay/etc.
   // actions route guests to the login modal instead of running.
-  const { gate, isGuest, openLogin } = useGuestGate();
+  const { ensureGuestSession, gate, isGuest, openLogin } = useGuestGate();
   const {
     dataVersion,
     refreshData,
     spotlightRepository,
     prependOptimisticInventoryEntry,
+    activeCollectionID,
   } = useAppServices();
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
@@ -1489,6 +1494,14 @@ export function ScannerScreen({
     const scanStartedAt = Date.now();
     setIsCapturing(true);
 
+    // THE billable moment. A guest browses with no Supabase user at all (each
+    // anonymous user is a Monthly Active User Supabase charges for), so the scan
+    // dispatch is where we finally mint one. Started here, in parallel with the
+    // shutter + normalization, so it costs no visible latency, and awaited
+    // before the match request goes out. Single-flight in the auth provider: a
+    // burst of taps bills ONE user. No-op for anyone who already has a session.
+    const guestSessionPromise = isGuest ? ensureGuestSession() : null;
+
     const captureId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     setRecentCaptures((current) => applyCapEviction([
       {
@@ -1792,6 +1805,15 @@ export function ScannerScreen({
         };
       }));
 
+      // The match (and the artifact upload it carries) is the first authed call
+      // of a guest's life. If the mint failed — anonymous sign-ins off, offline
+      // — fail the capture the same way a failed match does (tray row drops out
+      // of its loading state, error haptic, scan_match_failed) instead of firing
+      // a request that can only 401. The next tap retries the mint.
+      if (guestSessionPromise && !(await guestSessionPromise)) {
+        throw new Error('guest_session_unavailable');
+      }
+
       void runMatchForCapture({
         captureId,
         captureMs,
@@ -1859,9 +1881,11 @@ export function ScannerScreen({
     }
   }, [
     cardType,
+    ensureGuestSession,
     hasPermission,
     isCameraReady,
     isCapturing,
+    isGuest,
     requestPermission,
     runMatchForCapture,
     triggerCaptureFlash,
@@ -2130,7 +2154,7 @@ export function ScannerScreen({
       trackCandidateSelectionIfNeeded(capture);
       const selectedCondition: DeckConditionCode = priceSelection.get(capture.id)?.conditionCode ?? 'near_mint';
       const createResponse = await spotlightRepository.createInventoryEntry(
-        buildInventoryEntryArgs(capture, activeCandidate, addedAt, selectedCondition),
+        buildInventoryEntryArgs(capture, activeCandidate, addedAt, selectedCondition, activeCollectionID),
       );
       capturePostHogEvent('scan_inventory_add_succeeded', {
         mode: capture.mode,
@@ -2290,7 +2314,7 @@ export function ScannerScreen({
           const addedAt = new Date().toISOString();
           const condition: DeckConditionCode = priceSelection.get(capture.id)?.conditionCode ?? 'near_mint';
           const createResponse = await spotlightRepository.createInventoryEntry(
-            buildInventoryEntryArgs(capture, candidate, addedAt, condition),
+            buildInventoryEntryArgs(capture, candidate, addedAt, condition, activeCollectionID),
           );
           prependOptimisticInventoryEntry(
             buildOptimisticInventoryEntry(

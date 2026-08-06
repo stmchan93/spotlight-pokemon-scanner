@@ -45,9 +45,22 @@ import { PostHogScreenTracker } from '@/lib/observability/posthog-screen-tracker
 import { AppProviders } from '@/providers/app-providers';
 import { AppDrawer } from '@/components/app-drawer';
 import { AppDrawerProvider } from '@/providers/app-drawer-provider';
-import { AuthProvider, useAuth } from '@/providers/auth-provider';
+import { PENDING_GUEST_USER_ID } from '@/features/auth/auth-models';
+import {
+  AuthProvider,
+  resolveProviderRemountKey,
+  resolveSessionOwnerKey,
+  useAuth,
+} from '@/providers/auth-provider';
 
 void SplashScreen.preventAutoHideAsync();
+
+// Cross-dissolve the native splash out instead of cutting it. Even when the JS
+// first frame is already painted, a hard cut exposes any sub-frame mismatch
+// between the native splash view and the RN root as a visible blink; a short
+// fade makes the two overlap so there is nothing to catch. iOS-only (the option
+// is a no-op elsewhere).
+SplashScreen.setOptions({ duration: 220, fade: true });
 
 // Freeze blurred stack screens (react-native-screens). The Scan tab deliberately
 // PUSHES a fresh tabs instance so Back returns to the screen you scanned from —
@@ -62,7 +75,7 @@ const navigationTheme: Theme = {
   dark: false,
   colors: {
     primary: '#0F0F12',
-    background: '#FCFCFA',
+    background: '#FFFFFF',
     card: '#FFFFFF',
     text: '#0F0F12',
     border: 'rgba(0, 0, 0, 0.08)',
@@ -121,11 +134,18 @@ function RootNavigator() {
     return () => clearTimeout(failSafe);
   }, [isReady]);
 
-  // Lift the native splash once the first ready frame has laid out — the JS
-  // loading screen (which mirrors the native splash) is already on screen, so
-  // there's no blink. Safe to call on every layout: hideAsync is a no-op once hidden.
+  // Lift the native splash once the first ready frame has been PRESENTED. Layout
+  // is not paint: onLayout fires when the shadow tree has measured, one or two
+  // frames before those pixels reach the screen, so hiding directly in onLayout
+  // still exposed a blank frame. Two chained rAFs push the hide past the commit
+  // that actually draws the content. Safe to call repeatedly — hideAsync is a
+  // no-op once the splash is gone.
   const handleFirstFrameLayout = useCallback(() => {
-    void SplashScreen.hideAsync();
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        void SplashScreen.hideAsync();
+      });
+    });
   }, []);
 
   if (!isReady) {
@@ -191,10 +211,19 @@ function AuthenticatedRoot() {
 
 function ObservabilityAuthSync() {
   const auth = useAuth();
+  const currentUser = auth.currentUser;
 
   useEffect(() => {
-    identifyPostHogUser(auth.currentUser);
-  }, [auth.currentUser]);
+    // A PENDING guest has no Supabase user yet — its id is a shared placeholder,
+    // so identifying it would merge every device's pending guest into one
+    // PostHog person and wreck the counts. Stay on the anonymous distinct_id and
+    // identify when a real uuid exists (the mint re-runs this effect). Not a
+    // reset either: `identifyPostHogUser(null)` would drop the anonymous id.
+    if (currentUser?.id === PENDING_GUEST_USER_ID) {
+      return;
+    }
+    identifyPostHogUser(currentUser);
+  }, [currentUser]);
 
   return null;
 }
@@ -205,9 +234,20 @@ function AuthenticatedAppProviders({
   children: ReactNode;
 }) {
   const auth = useAuth();
-  const sessionOwnerKey = auth.currentSession?.user.id ?? 'signed-out';
+  // Owner key = the exact Supabase uuid whenever there is one. It scopes every
+  // persisted/in-memory cache below, and is what keeps two accounts' data apart.
+  const sessionOwnerKey = resolveSessionOwnerKey(auth.currentSession?.user.id, auth.isGuest);
+  // Remount key: coarser on purpose, so the guest mint that happens mid-scan
+  // doesn't tear the tree down and discard the capture. See
+  // resolveProviderRemountKey for why this can't leak data across accounts.
+  const providerRemountKey = resolveProviderRemountKey(sessionOwnerKey, auth.isGuest);
   return (
-    <AppProviders key={sessionOwnerKey} accessToken={auth.accessToken} sessionOwnerKey={sessionOwnerKey}>
+    <AppProviders
+      key={providerRemountKey}
+      accessToken={auth.accessToken}
+      getAccessToken={auth.getAccessToken}
+      sessionOwnerKey={sessionOwnerKey}
+    >
       {children}
     </AppProviders>
   );

@@ -1,7 +1,12 @@
 # Guest mode: first-launch scanner under a phantom account, everything else gates to login
 
-Status: **DEFERRED — planned 2026-07-02, not implemented.** Product decisions below are confirmed with
-the user; build when asked. All client-side / OTA-able; one Supabase ops prerequisite.
+Status: **BUILT 2026-07-14** (`8712e72 feat(auth): guest mode …`). **Deferred mint wired and turned ON
+2026-08-06** — opening the app no longer creates a Supabase user; the first scan does. Anonymous
+sign-ins are enabled in the Supabase dashboard, so the ops prerequisite is met.
+
+⚠️ **Read [MAU billing rules](#mau-billing-rules-non-negotiable) before touching anything in this
+document.** Anonymous users are not free, and the conversion path in the original plan (step "Guest →
+login/signup uses the existing `signUpEmail` action") is **wrong** — it creates a second user.
 
 ## Context
 
@@ -25,6 +30,79 @@ Decisions confirmed with the user (2026-07-02):
   training data).
 - **Guests bypass the invite/access gate**; it still applies to real accounts.
 
+## MAU billing rules (non-negotiable)
+
+Added 2026-08-06. Supabase bills per **Monthly Active User** — anyone who signs in or refreshes a token
+in the month. **An anonymous user is a billable MAU, exactly like a real account.** Three rules follow.
+
+### 1. Never mint an anonymous identity on app open
+
+Minting at launch bills every install that merely *opens* the app, including people who look once and
+never scan. Mint only at the first action that genuinely needs a **server** identity — dispatching a
+scan, or any authed backend write. Browsing, navigating, opening the scanner screen, and warming the
+camera all need nothing from the server and must stay free.
+
+Worse than the once-per-install cost: **a guest whose session is lost comes back as a NEW user.** The
+`@spotlight/auth/has-signed-in` flag only flips for a *real* login, so it never flips for a guest. If an
+anonymous refresh token lapses (device left idle past the refresh-token TTL, storage cleared, reinstall),
+the next cold start satisfies "no session AND never signed in" and mints a *fresh* anonymous user: a
+second MAU for the same human, plus a second `owner_user_id` in the backend that nothing can ever
+reunite with the first.
+
+Mechanism (built 2026-08-06, `src/providers/auth-provider.tsx`):
+
+- `shouldDeferGuestSessionMint` — runtime flag `EXPO_PUBLIC_SPOTLIGHT_DEFER_GUEST_SESSION`,
+  **default off**. Off = today's shipped eager mint at launch. On = first launch enters guest mode with
+  **no Supabase user at all** (`isPendingGuest`: `isGuest` is true, the profile gate is skipped, the app
+  is fully browsable, `accessToken` is null).
+- `useAuth().ensureGuestSession()` — mints on demand, single-flight (a burst of gated actions bills one
+  user, not several), idempotent for anyone who already has a session, and resolves to `null` on failure
+  while *keeping* the user in guest mode.
+
+**To flip the flag on, these call sites must await `ensureGuestSession()` first** — otherwise a pending
+guest hits the backend with no JWT and every scan 401s:
+
+1. `src/features/scanner/screens/scanner-screen.tsx` — `handleCapture` (~L1473), before
+   `spotlightRepository.matchScannerCapture` (~L1303). This is the important one.
+2. Any other guest-reachable authed read (card-detail/PDP pricing fetches) — audit before flipping.
+3. `src/app/_layout.tsx` — `ObservabilityAuthSync` should skip `identifyPostHogUser` while the guest is
+   pending, or PostHog merges every pending guest on every device into one `pending-guest` person.
+4. Check the remount: `sessionOwnerKey` in `_layout.tsx` is `currentSession?.user.id ?? 'signed-out'`,
+   so the mint changes the `AppProviders` key and remounts the tree. Mint **before** the capture work
+   begins (or hoist the key) so an in-flight scan is not thrown away.
+
+### 2. Never use `signUp()` to convert a guest
+
+`supabase.auth.signUp()` creates a **second auth user with a new uuid**. That double-bills MAU and — the
+real damage — orphans the guest's data: the Python backend's `owner_user_id` **is** the Supabase auth
+uuid, so everything the guest owned stays attached to a user nobody can sign in as.
+
+Identity-preserving conversion keeps the same uuid:
+
+| Path | Calls |
+| --- | --- |
+| Email + password | `updateUser({ email })` → `verifyOtp({ type: 'email_change' })` → `updateUser({ password })` |
+| Google / Apple (web) | `linkIdentity({ provider })` |
+| Apple (native sheet) | `linkIdentity({ provider: 'apple', token, nonce })` (OIDC overload) |
+
+Built 2026-08-06 in `src/features/auth/auth-service.ts`, each guarded so it refuses to run unless the
+current session is anonymous: `convertAnonymousUserToEmailAccount`, `verifyAnonymousEmailConversion`,
+`linkOAuthIdentityToCurrentUser`, `linkAppleIdentityToCurrentUser`.
+
+**Still to wire:** the guest-facing login modal (`src/app/(modal)/login.tsx` → `SignedOutFlow`) still
+runs the plain `signUpEmail` / `signInWithApple` / `signInWithGoogle` actions, so a guest who signs up
+today gets a second uuid. Route those actions through the conversion helpers when `isGuest` is true
+(and expose them on the auth context). Signed-out visitors keep using `signUpWithEmail` — it is correct
+for them and only wrong for guests.
+
+Note this interacts with the "fresh start on signup" product decision below: that decision was about not
+carrying the guest scan tray into the new account, not a licence to abandon the guest's uuid.
+
+### 3. Real accounts are untouched
+
+None of the above changes the signed-out → sign-in path. The guards exist so a stray call from the guest
+flow can never mutate a real account's email or password.
+
 ## Architecture: the phantom account = Supabase anonymous sign-in
 
 `@supabase/supabase-js ^2.104.1` (installed) supports `auth.signInAnonymously()`: each guest device
@@ -45,9 +123,11 @@ sign-ins" in the Supabase dashboard (Auth → Providers) before shipping; code m
   flow). If anonymous sign-in errors (dashboard toggle off, network) → `'signedOut'` fallback.
 - Set the flag whenever a **non-anonymous** session is observed (covers existing installs updating to
   this build, real logins, and signups). `signOut` keeps its behavior → `'signedOut'` → login screen.
-- Guest → login/signup uses the **existing** `signInEmail`/`signUpEmail` actions; the new real session
-  replaces the anonymous one via `onAuthStateChange` (verify the signUp-while-anon-session path in
-  manual testing).
+- ~~Guest → login/signup uses the **existing** `signInEmail`/`signUpEmail` actions~~ — **WRONG, see
+  [MAU billing rules](#mau-billing-rules-non-negotiable) rule 2.** `signUpEmail` mints a second uuid and
+  orphans the guest's backend data. Use the conversion helpers in `auth-service.ts`. (`signInEmail` for
+  a guest who turns out to already *have* an account is fine — that is a switch, not a conversion, and
+  the guest's uuid is discarded on purpose.)
 
 ### Access gate (`src/features/auth/access-gate-provider.tsx`)
 - Skip the backend `getAccessStatus()` check when `isGuest` → always `'allowed'` for guests.
@@ -104,8 +184,10 @@ toggle, price-trend rows/provider links, scrolling/reading everything.
 ## Risks / notes
 - **Supabase dashboard toggle** must be flipped before release; until then guests fall back to the
   login screen (graceful).
-- Anonymous users accumulate in `auth.users` (one per fresh install) — acceptable; consider periodic
-  cleanup + CAPTCHA/rate limits later if abused.
+- ~~Anonymous users accumulate in `auth.users` (one per fresh install) — acceptable~~ — **not
+  acceptable: each one is a billable MAU.** See [MAU billing rules](#mau-billing-rules-non-negotiable).
+  Periodic cleanup of stale anonymous users + CAPTCHA/rate limits are still worth doing, but the primary
+  lever is not minting them in the first place.
 - Guest scans land in scan logs under anon user ids — fine (training data; never `confirmed_card_id`).
 - All JS → **OTA-able**.
 

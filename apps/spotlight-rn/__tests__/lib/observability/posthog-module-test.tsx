@@ -202,6 +202,22 @@ describe('posthog module', () => {
     moduleExports.identifyPostHogUser(null);
     expect(reset).not.toHaveBeenCalled();
 
+    // A PENDING guest (guest mode before its Supabase user is minted) carries a
+    // placeholder id that is identical on every device. Identifying it would
+    // merge every pending guest in the world into one person, so it is ignored
+    // — and it must not reset the anonymous distinct_id either.
+    moduleExports.identifyPostHogUser({
+      adminEnabled: false,
+      avatarURL: null,
+      displayName: 'Guest',
+      email: null,
+      id: 'pending-guest',
+      labelerEnabled: false,
+      providers: [],
+    });
+    expect(identify).not.toHaveBeenCalled();
+    expect(reset).not.toHaveBeenCalled();
+
     moduleExports.identifyPostHogUser({
       adminEnabled: false,
       avatarURL: null,

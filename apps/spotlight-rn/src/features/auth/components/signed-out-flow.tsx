@@ -118,11 +118,14 @@ export function SignedOutFlow({
 
   const handleVerifySignup = useCallback(async () => {
     try {
-      await emailAuth.verifyCode({ email, code, fullName });
+      // `password` is only consumed on the guest path (converting an anonymous
+      // user sets the password after the code verifies the address); a plain
+      // signup already carried it and ignores this.
+      await emailAuth.verifyCode({ email, code, fullName, password });
     } catch {
       /* stay on the verify step */
     }
-  }, [code, email, emailAuth, fullName]);
+  }, [code, email, emailAuth, fullName, password]);
 
   const handleResendSignup = useCallback(() => {
     void emailAuth.resendCode(email).catch(() => {});
