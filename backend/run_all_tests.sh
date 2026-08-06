@@ -38,6 +38,7 @@ TEST_MODULES=(
   backend.tests.test_social_moderation_worker
   backend.tests.test_scrydex_tool_scripts
   backend.tests.test_request_auth
+  backend.tests.test_audit_release_config
   backend.tests.test_vm_sync_schedule
   backend.tests.test_vm_runtime_config
   backend.tests.test_auto_stub_sale

@@ -10,6 +10,10 @@ import {
   requiresProfileCompletion,
 } from './auth-models';
 import {
+  markAnonymousIdentityReleased,
+  recordAnonymousIdentityMint,
+} from './anonymous-identity-churn';
+import {
   supabase,
   supabaseAuthConfig,
 } from '@/lib/supabase';
@@ -835,6 +839,11 @@ export async function updatePassword(
 }
 
 export async function signOut() {
+  // Recorded even without a Supabase client so the marker can never be missed:
+  // a deliberate sign-out means the anonymous identity was GIVEN UP, and the
+  // next mint must not be reported as churn. Never throws.
+  await markAnonymousIdentityReleased();
+
   if (!supabase) {
     return;
   }
@@ -871,6 +880,12 @@ export async function signInAnonymously(): Promise<Session> {
   if (!data.session) {
     throw new Error('Anonymous sign-in did not create a session.');
   }
+
+  // The ONE hook point for the anonymous-identity churn metric. This function is
+  // the only place an anonymous user is ever minted (the provider calls it from
+  // both the deferred `ensureGuestSession()` and the eager rollback path), so
+  // instrumenting here cannot double-count or miss a lane. Never throws.
+  await recordAnonymousIdentityMint(data.session.user.id);
 
   return data.session;
 }

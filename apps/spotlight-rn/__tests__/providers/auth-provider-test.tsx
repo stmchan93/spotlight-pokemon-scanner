@@ -714,6 +714,40 @@ describe('AuthProvider', () => {
     expect(getByText('token:access-token')).toBeTruthy();
   });
 
+  // The anonymous-identity churn metric is hooked in exactly ONE place —
+  // `signInAnonymously()` in auth-service, the only function that mints an
+  // anonymous user. A second hook here would double-count every mint (and the
+  // eager rollback path would still be missed), so the provider must stay silent.
+  it('DEFERRED MINT: the provider does not report the mint itself (single hook point)', async () => {
+    const guestSession = {
+      access_token: 'anon-token',
+      user: { id: 'guest-1', is_anonymous: true },
+    } as any;
+
+    const { capturePostHogEvent, fireEvent, getByTestId, getByText, waitFor } = renderAuthProvider({
+      hasSignedInBefore: false,
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => null),
+        signInAnonymously: jest.fn(async () => guestSession),
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('state:signedIn')).toBeTruthy();
+    });
+
+    fireEvent.press(getByTestId('ensure-guest-session'));
+
+    await waitFor(() => {
+      expect(getByText('user:guest-1')).toBeTruthy();
+    });
+
+    expect(capturePostHogEvent).not.toHaveBeenCalledWith(
+      'auth_anonymous_identity_minted',
+      expect.anything(),
+    );
+  });
+
   it('DEFERRED MINT: a failed mint keeps the user in guest mode instead of ejecting to login', async () => {
     const signInAnonymously = jest.fn(async () => {
       throw new Error('Anonymous sign-ins are disabled');
