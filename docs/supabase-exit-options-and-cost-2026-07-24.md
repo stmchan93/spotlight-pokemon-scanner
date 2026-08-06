@@ -1,8 +1,11 @@
 # Getting off Supabase — options, cost, and a phased exit
 
 Date: 2026-07-24
-Status: strategy + actionable plan. Option C (avatars → GCS) is being implemented now; the rest is a
-roadmap to execute when the cost or lock-in actually bites.
+Status: **SUPERSEDED 2026-08-06 by `docs/supabase-scale-plan-and-escape-hatch-2026-08-06.md`.**
+Kept for history. Its analysis was directionally right — data lock-in near zero, auth is the anchor,
+Option C (avatars → GCS) was the highest-leverage move and is now **done**. What it lacked was real
+numbers: measured MAU, actual Supabase/Cloud SQL/auth-vendor pricing, and the finding that the
+scanner fleet, not the database, is what breaks first. Read the 2026-08-06 doc for the decision.
 
 Related: [[project_social_layer]], `docs/gcp-cost-hosting-decision` (staying on GCP), and the Phase 2
 plan `docs/portfolio-social-phase-2-public-profiles-follow-2026-07-23.md`.

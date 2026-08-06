@@ -1,9 +1,15 @@
 # Social Layer — Database Design (posts, comments, likes, messaging, moderation)
 
-> **STATUS: BACKEND SCAFFOLDED 2026-07-20.** Migration SQL + moderation worker are checked in
-> (`apps/spotlight-rn/supabase/migrations/`, `backend/social_moderation_worker.py`). NOT yet applied
-> to the Supabase project and NOT wired to any cron — additive new tables only, zero effect on the
-> live app. Frontend (RN screens) is a later phase. Target use: the next card show.
+> **STATUS (updated 2026-08-06): APPLIED.** Migrations `social_00` through `social_09` are live on
+> the Supabase project — this doc's original "not yet applied" header was stale. Phase 2 (public
+> profiles, handles, follows) shipped; Phase 3 (posts/comments/likes) is partially built. Still NOT
+> wired to cron: `backend/social_moderation_worker.py` (and it has a known bug — it signs objects
+> out of Supabase Storage, but post-media bytes now live in GCS).
+>
+> The datastore decision recorded below ("social lives in Supabase Postgres") was **re-confirmed
+> 2026-08-06** with real cost and scale numbers — see
+> `docs/supabase-scale-plan-and-escape-hatch-2026-08-06.md`, which is the current source of truth
+> for the Supabase posture, the MAU cost model, and the escape-hatch rules.
 
 ## Context
 

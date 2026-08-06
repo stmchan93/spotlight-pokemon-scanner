@@ -79,7 +79,7 @@ Use these docs for:
 
 ## Product Feature Specs (not yet built)
 
-- Social layer DB design (posts/comments/likes/DMs/moderation on Supabase Postgres; backend migrations + moderation worker scaffolded, not applied): [social-layer-database-design-2026-07-20.md](/Users/stephenchan/Code/spotlight/docs/social-layer-database-design-2026-07-20.md)
+- Social layer DB design (posts/comments/likes/DMs/moderation on Supabase Postgres; migrations `social_00`–`social_09` APPLIED, moderation worker still not on cron): [social-layer-database-design-2026-07-20.md](/Users/stephenchan/Code/spotlight/docs/social-layer-database-design-2026-07-20.md)
 - Grading advisor + trade analyzer: [grading-advisor-and-trade-analyzer-spec-2026-07-16.md](/Users/stephenchan/Code/spotlight/docs/grading-advisor-and-trade-analyzer-spec-2026-07-16.md)
 - Notifications / market signals (tabled): [notifications-market-signals-plan-2026-07-15-TABLED.md](/Users/stephenchan/Code/spotlight/docs/notifications-market-signals-plan-2026-07-15-TABLED.md)
 - Marketplace strategy + business plan: [marketplace-business-plan-2026-07-07.txt](/Users/stephenchan/Code/spotlight/docs/marketplace-business-plan-2026-07-07.txt)
@@ -91,6 +91,10 @@ Use these docs for: starting any of these builds without re-deriving scope — i
 - Release automation: [release-automation-spec-2026-04-29.md](/Users/stephenchan/Code/spotlight/docs/release-automation-spec-2026-04-29.md)
 - Repo asset storage migration: [repo-asset-storage-migration-spec-2026-04-12.md](/Users/stephenchan/Code/spotlight/docs/repo-asset-storage-migration-spec-2026-04-12.md)
 - Supabase auth setup: [supabase-auth-phase1-setup-2026-04-19.md](/Users/stephenchan/Code/spotlight/docs/supabase-auth-phase1-setup-2026-04-19.md)
+- **Supabase posture, MAU cost model, escape-hatch rules (current source of truth; supersedes the 2026-07-24 exit-options doc)**: [supabase-scale-plan-and-escape-hatch-2026-08-06.md](/Users/stephenchan/Code/spotlight/docs/supabase-scale-plan-and-escape-hatch-2026-08-06.md)
+- Supabase migration runbook (STANDBY — decision log, invariants, phased steps, failure modes, rollback; open only if a trigger in the doc above fires): [supabase-migration-runbook-if-ever-needed-2026-08-06.md](/Users/stephenchan/Code/spotlight/docs/supabase-migration-runbook-if-ever-needed-2026-08-06.md)
+- **Supabase project split (staging `mphjenaaorntwkyivqtm` vs production `lvnjshymwvagwadqeofm`) + promotion checklist — READ BEFORE ANY `supabase db push`**: [supabase-project-split-and-promotion-2026-08-06.md](/Users/stephenchan/Code/spotlight/docs/supabase-project-split-and-promotion-2026-08-06.md)
+- Staging Supabase dashboard settings checklist (Apple/Google providers, OTP email templates, SMTP, anonymous sign-ins; marks the 3 values that MUST differ from production): [supabase-staging-project-settings-checklist-2026-08-06.md](/Users/stephenchan/Code/spotlight/docs/supabase-staging-project-settings-checklist-2026-08-06.md)
 
 Use these docs for:
 
