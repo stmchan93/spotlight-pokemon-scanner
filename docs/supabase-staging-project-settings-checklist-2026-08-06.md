@@ -135,6 +135,29 @@ Auth → Rate Limits. Match production, and specifically keep **per-address `max
 the app's resend cooldown is built around it (`RESEND_COOLDOWN_SECONDS = 60` in
 `verify-code-screen.tsx`). A different value here desynchronizes the UI countdown from reality.
 
+## 6b. Enable Manual Linking — **required for guest → account conversion**
+
+**Authentication → Providers → Configuration Options → Enable Manual Linking.** Off by default.
+
+Guest conversion for Apple/Google calls `supabase.auth.linkIdentity()`
+(`linkOAuthIdentityToCurrentUser` / `linkAppleIdentityToCurrentUser` in `auth-service.ts`), and
+without this setting GoTrue rejects it with **"Manual linking is disabled"** — which is what a guest
+tapping "Continue with Google" hits. Confirmed on a real device 2026-08-06.
+
+This cannot be caught by the test suite: the tests mock `@supabase/supabase-js`, so a project-level
+auth setting is invisible to them. Needed on **both** projects — staging now, production before
+guest conversion ships there.
+
+Why it matters that we use `linkIdentity` at all: it upgrades the **existing** anonymous user in
+place, preserving their uuid. `signUp()` would create a second user and orphan everything the guest
+scanned, because `owner_user_id` in the backend's SQLite *is* the Supabase auth uuid.
+
+Security note, so it's a decision rather than a default: manual linking lets a signed-in user attach
+an additional identity to their own account. Supabase's *automatic* linking has extra guards (it
+requires verified email addresses and drops unconfirmed identities to prevent takeover). Enabling
+manual linking is the supported path for exactly this conversion flow, but it should be enabled
+deliberately, not left on without reason.
+
 ## 7. Anonymous sign-ins — **required, on**
 
 Auth → Sign In / Providers → **Allow anonymous sign-ins: ON**.
@@ -185,6 +208,7 @@ still point at the **production** Supabase project. Two consequences:
 | SMTP | Resend, `smtp.resend.com:587`, `no-reply@ekalight.com` | **same** |
 | Per-address `max_frequency` | 60s | 60s |
 | Allow anonymous sign-ins | ON | ON |
+| **Enable Manual Linking** | **ON** (required by `linkIdentity` for guest→account) | **ON** |
 
 ### ⚠️ Verify production's Apple Client IDs
 
