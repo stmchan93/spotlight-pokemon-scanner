@@ -29,6 +29,12 @@ compute — the included $10 credit only covers the first.)
 
 The staging DB password is at `~/.spotlight-staging-db-password` (mode 600), outside the repo.
 
+> **Trap: `supabase projects api-keys` MASKS secret keys by default.** It returns
+> `sb_secret_-7hcy···············` — a real-looking, correct-length string full of `·` characters
+> that writes cleanly into an env file and then fails at runtime with
+> `{"message":"Invalid API key"}`. **Use `--reveal`**, and verify the key authenticates against
+> PostgREST *before* writing it anywhere. This cost a deploy cycle on 2026-08-06.
+
 ## A gap this exposed
 
 `social_00` opens with `alter table public.user_profiles ...`, but that table only ever existed as
