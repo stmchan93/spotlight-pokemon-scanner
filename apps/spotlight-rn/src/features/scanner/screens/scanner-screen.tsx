@@ -125,9 +125,11 @@ import {
   captureFailureSubtitle,
   captureFailureTitle,
   formatCurrency,
+  formatTrayTotal,
   isFinitePrice,
   isNonPSAUnsupportedSlabCapture,
   logScannerDiagnostic,
+  resolveCaptureTrayPrice,
   scannerCapturePriceLabel,
   scannerCaptureThumbUri,
   scannerErrorKind,
@@ -136,6 +138,8 @@ import {
   scannerSlabInlineLabel,
   scannerSlabSubtitle,
   slabContextFromAnalysis,
+  summarizeTrayPrices,
+  supportedTrayCurrencyCode,
   triggerScannerHaptic,
   triggerScannerProcessedHaptic,
   unsupportedSlabSubtitle,
@@ -387,12 +391,10 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
 }: CaptureTrayRowProps) {
   const theme = useSpotlightTheme();
   const candidate = activeCandidateForCapture(capture);
-  const baseMarketPrice = candidate?.marketPrice;
-  const currencyCode = candidate?.currencyCode ?? 'USD';
   const canCycleCandidate = !!candidate && capture.candidates.length > 1;
-  const displayMarketPrice = isFinitePrice(selection?.marketPrice ?? null)
-    ? (selection!.marketPrice as number)
-    : (isFinitePrice(baseMarketPrice) ? baseMarketPrice : null);
+  // Shared with the tray header TOTAL (`trayPriceSummary`) so the rows and the
+  // number a dealer prices a stack off can never drift apart.
+  const { amount: displayMarketPrice, currencyCode } = resolveCaptureTrayPrice(capture, selection);
   const setAndNumberLine = candidate
     ? [candidate.setName, candidate.cardNumber ? `#${candidate.cardNumber.replace(/^#/, '')}` : null]
       .filter(Boolean)
@@ -1112,14 +1114,39 @@ export function ScannerScreen({
     return lookup;
   }, [inventoryEntries]);
 
-  const trayPriceSummary = useMemo(() => {
-    const total = recentCaptures.reduce((sum, capture) => {
-      const marketPrice = activeCandidateForCapture(capture)?.marketPrice;
-      return isFinitePrice(marketPrice) ? sum + marketPrice : sum;
-    }, 0);
+  // The header TOTAL is the sum of exactly what the rows show: each capture is
+  // priced through the SAME `resolveCaptureTrayPrice` the row cell uses, honoring
+  // the price-sheet selection (e.g. a Lightly Played comp) instead of the raw
+  // candidate market price. One O(n) pass over the tray with a Map lookup per
+  // capture — no per-row inventory/pricing fetches — memoized on the only two
+  // inputs that can change it, so a 150-item tray recomputes only when the tray
+  // itself or a price selection mutates.
+  const trayPriceSummary = useMemo(
+    () => summarizeTrayPrices(recentCaptures.map(
+      (capture) => resolveCaptureTrayPrice(capture, priceSelection.get(capture.id) ?? null),
+    )),
+    [priceSelection, recentCaptures],
+  );
 
-    return { total };
-  }, [recentCaptures]);
+  // A candidate priced in something other than USD is dropped from the TOTAL
+  // rather than summed into it (see `summarizeTrayPrices`). That drop is
+  // invisible on screen by design — no UI for a case the product doesn't
+  // support yet — so report it instead of letting it disappear. Deduped per
+  // currency for the session: this recomputes on every tray mutation, and we
+  // want to learn THAT it happens, not one event per re-render.
+  const reportedUnsupportedCurrenciesRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    trayPriceSummary.unsupportedCurrencyCodes.forEach((currencyCode) => {
+      if (reportedUnsupportedCurrenciesRef.current.has(currencyCode)) {
+        return;
+      }
+      reportedUnsupportedCurrenciesRef.current.add(currencyCode);
+      capturePostHogEvent('scan_tray_unsupported_currency', {
+        currency_code: currencyCode,
+        supported_currency_code: supportedTrayCurrencyCode,
+      });
+    });
+  }, [trayPriceSummary]);
 
   const deleteRecentCapture = useCallback((captureId: string) => {
     setRecentCaptures((current) => {
@@ -2959,7 +2986,7 @@ export function ScannerScreen({
               </View>
               <View style={styles.trayInfoPill}>
                 <Text style={styles.trayInfoPillLabel} testID="scanner-value-pill-text">
-                  {`TOTAL: ${formatCurrency(trayPriceSummary.total)}`}
+                  {`TOTAL: ${formatTrayTotal(trayPriceSummary)}`}
                 </Text>
               </View>
             </View>

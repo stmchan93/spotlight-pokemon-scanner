@@ -1578,4 +1578,150 @@ describe('ScannerScreen', () => {
     expect(mockEnsureGuestSession).not.toHaveBeenCalled();
   });
 
+  it('keeps the tray TOTAL equal to the row price after a non-NM condition is picked', async () => {
+    // Dealers price a stack off the header TOTAL, so it must be the sum of the
+    // numbers on the rows above it. The row honors the price-sheet selection
+    // (Lightly Played, $0.42); the TOTAL used to ignore the selection entirely
+    // and sum the raw candidate market price ($0.55), so every non-NM card in a
+    // tray silently made the header disagree with its own rows.
+    const spotlightRepository = createTestSpotlightRepository({
+      getInventoryEntries: async () => [],
+      matchScannerCapture: async () => ({
+        scanID: 'scan-froakie',
+        candidates: [{
+          id: 'froakie-candidate',
+          cardId: 'mcdonalds25-22',
+          name: 'Froakie',
+          cardNumber: '#22/25',
+          setName: "McDonald's Collection 2021",
+          imageUrl: 'https://cdn.spotlight.test/froakie.png',
+          marketPrice: 0.55,
+          currencyCode: 'USD',
+        }],
+      }),
+      getRawPricingMatrix: async () => ({
+        cardID: 'mcdonalds25-22',
+        currencyCode: 'USD',
+        variants: [
+          {
+            variant: 'Holofoil',
+            variantKey: 'holofoil',
+            conditions: [
+              { code: 'NM', label: 'Near Mint', market: 0.55, low: null, mid: null, high: null },
+              { code: 'LP', label: 'Lightly Played', market: 0.42, low: null, mid: null, high: null },
+            ],
+          },
+        ],
+      }),
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    expect(await screen.findByText('Froakie')).toBeTruthy();
+    expect(screen.getByTestId('scanner-tray-price-0')).toHaveTextContent('$0.55');
+    expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.55');
+
+    fireEvent.press(screen.getByTestId('scanner-tray-price-0'));
+    fireEvent.press(await screen.findByTestId('scan-price-sheet-row-holofoil-LP'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-price-0')).toHaveTextContent('$0.42');
+    });
+    expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.42');
+  });
+
+  it('leaves captures with no finite price out of the tray TOTAL', async () => {
+    // A matched card with no market price renders an em-dash, not "$0.00" — so
+    // it must contribute nothing to the TOTAL rather than counting as zero.
+    let matchCount = 0;
+    const spotlightRepository = createTestSpotlightRepository({
+      getInventoryEntries: async () => [],
+      matchScannerCapture: async () => {
+        matchCount += 1;
+        return matchCount === 1
+          ? {
+            scanID: 'scan-oshawott',
+            candidates: [{
+              id: 'mcdonalds25-21',
+              cardId: 'mcdonalds25-21',
+              name: 'Oshawott',
+              cardNumber: '#21/25',
+              setName: "McDonald's Collection 2021",
+              imageUrl: 'https://images.pokemontcg.io/mcdonalds25/21.png',
+              marketPrice: 0.56,
+              currencyCode: 'USD',
+            }],
+          }
+          : {
+            scanID: 'scan-poncho-pikachu',
+            candidates: [{
+              id: 'xy-promo-poncho-pikachu',
+              cardId: 'xy-promo-poncho-pikachu',
+              name: 'Poncho Pikachu',
+              cardNumber: '#202/XY-P',
+              setName: 'XY Promo',
+              imageUrl: 'https://images.pokemontcg.io/xyp/202.png',
+              marketPrice: null,
+              currencyCode: 'USD',
+            }],
+          };
+      },
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+    expect(await screen.findByText('Oshawott')).toBeTruthy();
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+    expect(await screen.findByText('Poncho Pikachu')).toBeTruthy();
+
+    expect(screen.getByTestId('scanner-recent-title').props.children).toBe('SCAN: 2');
+    // Newest capture is prepended, so the unpriced Poncho Pikachu is row 0.
+    expect(screen.getByTestId('scanner-tray-price-0')).toHaveTextContent('—');
+    expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.56');
+  });
+
+  it('drops a non-USD candidate from the tray TOTAL instead of summing it as USD', async () => {
+    // The tray prices in USD only. A ¥4,000 row folded into a USD sum would read
+    // as $4,000 — a ~25x overstatement a dealer could act on financially — so an
+    // unsupported currency is excluded from the TOTAL and reported to PostHog.
+    // The row itself still shows the card's own price honestly.
+    //
+    // Reachability of this path is a SERVER-side gap, tracked separately: the
+    // backend normalizes pricing to USD only when it holds an FX snapshot
+    // (`fx_rates.decorate_pricing_summary_with_fx` returns the pricing untouched
+    // on a snapshot miss) and the client mapper preserves whatever arrives.
+    const spotlightRepository = createTestSpotlightRepository({
+      getInventoryEntries: async () => [],
+      matchScannerCapture: async () => ({
+        scanID: 'scan-jp-promo',
+        candidates: [{
+          id: 'jp-promo-gastly',
+          cardId: 'jp-promo-gastly',
+          name: 'Gastly',
+          cardNumber: '#014',
+          setName: 'JP Promo',
+          imageUrl: 'https://cdn.spotlight.test/gastly.png',
+          marketPrice: 4000,
+          currencyCode: 'JPY',
+        }],
+      }),
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    expect(await screen.findByText('Gastly')).toBeTruthy();
+    expect(screen.getByTestId('scanner-tray-price-0')).toHaveTextContent('¥4,000.00');
+    expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.00');
+  });
+
 });

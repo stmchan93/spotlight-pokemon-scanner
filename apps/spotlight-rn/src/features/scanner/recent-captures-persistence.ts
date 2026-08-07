@@ -7,9 +7,37 @@ import type { RecentCapture } from './screens/scanner-screen-types';
 
 export const RECENT_CAPTURES_STORAGE_KEY = '@spotlight/scanner/recent-captures';
 export const RECENT_CAPTURES_DIR = `${FileSystem.documentDirectory ?? ''}scans/`;
-export const RECENT_CAPTURES_MAX = 50;
+/**
+ * Tray cap. Raised 50 -> 150 after production telemetry showed
+ * `scan_tray_evicted_for_cap` silently destroying user data (some dealers lost
+ * 35-40% of every scan they took — dropped from the tray AND deleted from disk).
+ *
+ * Why 150 and not higher: the limit is MOUNTED ROWS, not storage. Storage is
+ * comfortable — ~4.4 KB/capture in the AsyncStorage blob (~660 KB at 150,
+ * ~960 KB worst case) and ~95 ms per write. But the tray is not virtualized:
+ * `scanner-screen.tsx` maps the whole array inside a plain ScrollView, and that
+ * is deliberate — every row stays mounted because mass mount/unmount was
+ * crashing the tray. So every persisted item is a live mounted row. Going past
+ * ~150 needs virtualization work (or a windowed tray), which is out of scope
+ * here; do not raise this number without doing that first.
+ */
+export const RECENT_CAPTURES_MAX = 150;
 export const PERSIST_DEBOUNCE_MS = 500;
 export const PERSIST_ENVELOPE_VERSION = 1;
+/**
+ * How many candidates we persist per capture. The matcher returns 10; the
+ * change-card picker's `loadMoreCandidates` grows the live array 10 -> 20 -> 30
+ * as the user pages and never trims it, so a paged capture would otherwise
+ * carry 3x the bytes in storage forever. `totalCandidateCount` is persisted
+ * untouched, so the picker still knows how many exist and can refetch the rest
+ * from the backend on demand.
+ */
+export const PERSISTED_CANDIDATES_MAX = 10;
+/**
+ * Cap on concurrent filesystem calls. At 150-500 items an unbounded
+ * `Promise.all` fires hundreds of simultaneous native FS calls.
+ */
+export const FS_CONCURRENCY_LIMIT = 16;
 
 export type DeleteReason = 'swipe' | 'clear_all' | 'cap_evict' | 'orphan_sweep' | 'copy_failed' | 'added';
 export type CopySource = 'normalized' | 'raw';
@@ -49,6 +77,12 @@ let pendingDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingSnapshot: RecentCapture[] | null = null;
 let pendingChangeCount = 0;
 let isWriting = false;
+// Snapshot handed to `writePersistedTray` while another write was already in
+// flight. Depth-1 on purpose: a newer snapshot supersedes an older one (each
+// snapshot is the FULL tray, not a delta), so this can never grow. The
+// in-flight write drains it when it resolves — see `writePersistedTray`.
+let queuedSnapshot: RecentCapture[] | null = null;
+let queuedWaiters: (() => void)[] = [];
 // The owner the tray currently belongs to. Set by the scanner before it loads
 // (so a write/stamp uses the right account) and compared on load.
 let currentOwnerKey: string | null = null;
@@ -63,6 +97,33 @@ function normalizeOwnerKey(ownerKey: string | null | undefined): string | null {
  * detected and writes are stamped with the right owner. */
 export function setRecentCapturesOwner(ownerKey: string | null | undefined): void {
   currentOwnerKey = normalizeOwnerKey(ownerKey);
+}
+
+/**
+ * `Promise.all` with a worker cap. Results stay in input order. Used for the
+ * per-item filesystem probes on load and the orphan sweep's deletes, both of
+ * which scale with tray/disk size.
+ */
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  const runners = Array.from({ length: workerCount }, async () => {
+    for (;;) {
+      const index = nextIndex;
+      if (index >= items.length) {
+        return;
+      }
+      nextIndex += 1;
+      results[index] = await worker(items[index], index);
+    }
+  });
+  await Promise.all(runners);
+  return results;
 }
 
 function reportError(kind: 'write' | 'read' | 'copy' | 'delete' | 'sweep', error: unknown) {
@@ -172,6 +233,32 @@ export async function deleteScanFile(
   }
 }
 
+/**
+ * Persist a PREFIX of the candidate list, never a window.
+ *
+ * Normally that prefix is the first `PERSISTED_CANDIDATES_MAX` (10) entries. The
+ * one exception is a selection the user paged to: if `activeCandidateIndex` is
+ * 25, a flat `slice(0, 10)` would orphan the selection on reload, so the prefix
+ * is extended to include it (26 entries here). That costs bytes only for the
+ * rare capture where someone actually paged deep AND picked a deep result —
+ * which is exactly the data worth keeping.
+ *
+ * A prefix (rather than a window around the active index) is load-bearing for
+ * two reasons: `activeCandidateIndex` stays valid with no remapping, and
+ * `loadMoreCandidates` pages with `offset = candidates.length`, which is only
+ * correct if the stored array is the head of the backend's ranked list.
+ */
+function persistedCandidatesFor(capture: RecentCapture): RecentCapture['candidates'] {
+  const activeIndex = Number.isFinite(capture.activeCandidateIndex)
+    ? Math.max(0, Math.floor(capture.activeCandidateIndex))
+    : 0;
+  const keepCount = Math.max(PERSISTED_CANDIDATES_MAX, activeIndex + 1);
+  if (capture.candidates.length <= keepCount) {
+    return capture.candidates;
+  }
+  return capture.candidates.slice(0, keepCount);
+}
+
 function toPersistedCapture(capture: RecentCapture): PersistedCapture {
   return {
     id: capture.id,
@@ -179,7 +266,7 @@ function toPersistedCapture(capture: RecentCapture): PersistedCapture {
     mode: capture.mode,
     uri: capture.uri,
     normalizedImageUri: capture.normalizedImageUri,
-    candidates: capture.candidates,
+    candidates: persistedCandidatesFor(capture),
     activeCandidateIndex: capture.activeCandidateIndex,
     totalCandidateCount: capture.totalCandidateCount,
     matchReviewDisposition: capture.matchReviewDisposition,
@@ -195,6 +282,14 @@ function toPersistedCapture(capture: RecentCapture): PersistedCapture {
 function fromPersistedCapture(persisted: PersistedCapture): RecentCapture {
   return {
     ...persisted,
+    // Defensive clamp: writes always keep the active candidate inside the
+    // persisted prefix (see `persistedCandidatesFor`), but an envelope written
+    // by an older/partial code path must never rehydrate a row whose active
+    // index points past its own candidate array.
+    activeCandidateIndex: Math.min(
+      Math.max(0, persisted.activeCandidateIndex),
+      Math.max(0, persisted.candidates.length - 1),
+    ),
     // Older envelopes predate totalCandidateCount; fall back to what we have.
     totalCandidateCount: persisted.totalCandidateCount ?? persisted.candidates.length,
     isLoadingMoreCandidates: false,
@@ -212,27 +307,30 @@ function isPersistableItem(capture: RecentCapture): boolean {
   return !capture.isLoadingCandidates && Boolean(capture.normalizedImageUri);
 }
 
-async function writePersistedTray(items: RecentCapture[]): Promise<void> {
-  if (isWriting) {
-    return;
-  }
-  isWriting = true;
+/**
+ * One AsyncStorage write. Never rejects: every failure — including envelope
+ * construction and serialization — is reported and swallowed. `writePersistedTray`
+ * depends on this so its drain loop cannot be aborted mid-queue.
+ */
+async function performTrayWrite(items: RecentCapture[]): Promise<void> {
   const startedAt = Date.now();
-  const persistable = items.filter(isPersistableItem);
-  const skippedLoading = items.length - persistable.length;
-  const envelope: PersistedTrayEnvelope = {
-    version: PERSIST_ENVELOPE_VERSION,
-    ownerKey: currentOwnerKey,
-    items: persistable.map(toPersistedCapture),
-  };
-  const coalescedChangeCount = pendingChangeCount;
-  pendingChangeCount = 0;
+  let envelope: PersistedTrayEnvelope;
   let serialized: string;
+  let skippedLoading: number;
+  let coalescedChangeCount: number;
   try {
+    const persistable = items.filter(isPersistableItem);
+    skippedLoading = items.length - persistable.length;
+    envelope = {
+      version: PERSIST_ENVELOPE_VERSION,
+      ownerKey: currentOwnerKey,
+      items: persistable.map(toPersistedCapture),
+    };
+    coalescedChangeCount = pendingChangeCount;
+    pendingChangeCount = 0;
     serialized = JSON.stringify(envelope);
   } catch (error) {
     reportError('write', error);
-    isWriting = false;
     return;
   }
   try {
@@ -246,7 +344,56 @@ async function writePersistedTray(items: RecentCapture[]): Promise<void> {
     });
   } catch (error) {
     reportError('write', error);
+  }
+}
+
+/**
+ * Serialize tray writes without losing any of them.
+ *
+ * Previously this early-returned when a write was already in flight — and by
+ * then `schedulePersist` had already nulled `pendingSnapshot` and cleared its
+ * timer, so the colliding change set was silently DROPPED (recovered only by
+ * the next mutation or the unmount flush). Harmless at ~30 ms writes; at 150+
+ * items writes take hundreds of ms and the casualty is the last scan of a
+ * burst, which is precisely when a dealer notices.
+ *
+ * Now the colliding snapshot is stashed and drained by the in-flight writer
+ * once it resolves, and the colliding caller gets a promise that resolves only
+ * after ITS data has actually landed (so an unmount flush still awaits a real
+ * write).
+ *
+ * No infinite loop / no recursion: the queue is depth-1 (each snapshot is the
+ * whole tray, so a newer one replaces an older one rather than stacking), the
+ * drain is an iterative `while` rather than a re-entrant call, and the loop
+ * exits as soon as no new snapshot arrived during the previous write. Nothing
+ * inside this function ever enqueues — only external callers do.
+ */
+async function writePersistedTray(items: RecentCapture[]): Promise<void> {
+  if (isWriting) {
+    queuedSnapshot = items;
+    return new Promise<void>((resolve) => {
+      queuedWaiters.push(resolve);
+    });
+  }
+  isWriting = true;
+  try {
+    await performTrayWrite(items);
+    while (queuedSnapshot) {
+      const nextSnapshot = queuedSnapshot;
+      const waiters = queuedWaiters;
+      queuedSnapshot = null;
+      queuedWaiters = [];
+      try {
+        await performTrayWrite(nextSnapshot);
+      } finally {
+        // Always release the waiters, even if a write blew up, so an awaiting
+        // unmount flush can never hang.
+        waiters.forEach((resolve) => resolve());
+      }
+    }
   } finally {
+    // Safe: the loop condition and this assignment are separated by no `await`,
+    // so nothing can enqueue between "queue is empty" and "writer is free".
     isWriting = false;
   }
 }
@@ -381,7 +528,9 @@ export async function loadPersistedTray(): Promise<RecentCapture[]> {
 
   const validItems = envelope.items.filter(isPersistedCapture);
   const verifyStartedAt = Date.now();
-  const existsResults = await Promise.all(validItems.map(async (item) => {
+  // Bounded: at a 150-item cap (and larger legacy trays) an unbounded
+  // Promise.all here fires hundreds of concurrent native FS probes at mount.
+  const existsResults = await mapWithConcurrency(validItems, FS_CONCURRENCY_LIMIT, async (item) => {
     const probe = item.normalizedImageUri || item.uri;
     if (!probe) {
       return false;
@@ -392,7 +541,7 @@ export async function loadPersistedTray(): Promise<RecentCapture[]> {
     } catch {
       return false;
     }
-  }));
+  });
   verifyMs = Date.now() - verifyStartedAt;
   const survivors: RecentCapture[] = [];
   let dropped = 0;
@@ -427,7 +576,10 @@ export async function sweepOrphanScans(keepIds: Set<string>): Promise<void> {
     await ensureScansDir();
     const entries = await FileSystem.readDirectoryAsync(RECENT_CAPTURES_DIR);
     filesScanned = entries.length;
-    await Promise.all(entries.map(async (name) => {
+    // Bounded: the scans dir holds up to two files per capture, so a full sweep
+    // (e.g. account switch on a 150-item tray) would otherwise issue 300
+    // concurrent deletes.
+    await mapWithConcurrency(entries, FS_CONCURRENCY_LIMIT, async (name) => {
       // Strip `-src.jpg` or `.jpg` to recover the capture id.
       const id = name.replace(/-src\.jpg$/, '').replace(/\.jpg$/, '');
       if (keepIds.has(id)) {
@@ -439,7 +591,7 @@ export async function sweepOrphanScans(keepIds: Set<string>): Promise<void> {
       } catch (error) {
         reportError('sweep', error);
       }
-    }));
+    });
     capturePostHogEvent('scan_tray_orphan_sweep', {
       sweep_ms: Date.now() - startedAt,
       orphans_deleted: orphansDeleted,
@@ -460,5 +612,8 @@ export function __resetRecentCapturesPersistenceForTests(): void {
   pendingSnapshot = null;
   pendingChangeCount = 0;
   isWriting = false;
+  queuedSnapshot = null;
+  queuedWaiters.forEach((resolve) => resolve());
+  queuedWaiters = [];
   currentOwnerKey = null;
 }
