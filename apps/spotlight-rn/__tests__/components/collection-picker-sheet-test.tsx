@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import type { PropsWithChildren } from 'react';
+import { StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import type { Collection } from '@spotlight/api-client';
@@ -135,6 +136,36 @@ describe('CollectionPickerSheet', () => {
 
     expect(screen.getByText('Collection')).toBeTruthy();
     expect(props.onClose).not.toHaveBeenCalled();
+  });
+
+  it('insets the header on the same 16pt gutter as the rows and centers the title', () => {
+    renderSheet();
+
+    // Regression: SheetHeader ships with NO horizontal padding, so a caller that
+    // forgets to pass one gets a back chevron flush against the screen edge and
+    // an ADD label clipped off the right. Walk up from the chevron to find the
+    // padded container.
+    type StyledNode = { parent: StyledNode | null; props: Record<string, unknown> };
+    let node: StyledNode | null = screen.getByTestId(
+      'collection-picker-sheet-back',
+    ) as unknown as StyledNode;
+    let gutter: number | undefined;
+    for (let depth = 0; depth < 8 && node; depth += 1) {
+      const flat = StyleSheet.flatten(node.props?.style as never) as { paddingHorizontal?: number };
+      if (flat?.paddingHorizontal != null) {
+        gutter = flat.paddingHorizontal;
+        break;
+      }
+      node = node.parent;
+    }
+    expect(gutter).toBe(16);
+
+    // Figma 3377:3133 centers "Collection" rather than left-packing it after the
+    // chevron, which is what align="leading" (the SheetHeader default) does.
+    const title = StyleSheet.flatten(screen.getByText('Collection').props.style) as {
+      textAlign?: string;
+    };
+    expect(title.textAlign).toBe('center');
   });
 
   it('does NOT render the deferred rename/hide/delete controls', () => {

@@ -308,6 +308,12 @@ export function CollectionPickerSheet({
         >
           <View {...dragResponder.panHandlers}>
             <SheetHeader
+              // SheetHeader ships with NO horizontal padding — every caller
+              // supplies its own gutter. Without `styles.header` the back
+              // chevron sits flush against the screen edge and ADD is clipped
+              // off the right. 16pt lines the chevron up with the row icons and
+              // the collection names directly below it (Figma 3377:3130).
+              align="center"
               leadingAccessory={
                 <Pressable
                   accessibilityLabel={step === 'create' ? 'Back to collections' : 'Close'}
@@ -346,6 +352,7 @@ export function CollectionPickerSheet({
                 )
               }
               showHandle
+              style={styles.header}
               title={step === 'list' ? 'Collection' : 'New Collection'}
               titleStyle={styles.title}
             />
@@ -456,6 +463,14 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 16,
     paddingTop: 16,
+  },
+  header: {
+    // Figma 3377:3130 — the header row sits on the same 16pt gutter as the
+    // collection rows beneath it. The 12pt gap puts the row's top edge at y=26
+    // measured from the sheet (10pt padding + the 4pt grabber + 12), which is
+    // where the design places it.
+    gap: 12,
+    paddingHorizontal: 16,
   },
   list: {
     // Caps the sheet at roughly half the screen so a long collection list

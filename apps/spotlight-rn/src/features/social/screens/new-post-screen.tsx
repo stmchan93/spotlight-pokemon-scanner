@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -29,6 +29,14 @@ const BODY_MAX_LENGTH = 500;
 // Post images are downscaled to this width before upload — enough for a
 // full-bleed feed image without shipping a multi-megabyte original.
 const POST_IMAGE_WIDTH = 1080;
+
+// How long to wait before focusing the body field. The composer is a native
+// form sheet, and `autoFocus` used to raise the keyboard DURING the sheet's
+// presentation animation: iOS showed it, the sheet finished animating and
+// re-laid-out, and the field re-acquired focus — which read as the keyboard
+// appearing twice and made opening the composer visibly lag. Focusing after the
+// sheet has settled raises it exactly once. Same trick as the collection picker.
+const BODY_FOCUS_DELAY_MS = 300;
 
 // ---------------------------------------------------------------------------
 // Feed refresh signal
@@ -138,6 +146,16 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
   const [body, setBody] = useState('');
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const bodyInputRef = useRef<TextInput | null>(null);
+
+  // See BODY_FOCUS_DELAY_MS — deferred instead of `autoFocus` so the keyboard
+  // rises once, after the sheet is in place, rather than fighting the
+  // presentation animation.
+  useEffect(() => {
+    const timer = setTimeout(() => bodyInputRef.current?.focus(), BODY_FOCUS_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, []);
 
   const trimmedBody = body.trim();
   const canPost = !isSubmitting && trimmedBody.length > 0;
@@ -338,7 +356,7 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
           </View>
 
           <TextInput
-            autoFocus
+            ref={bodyInputRef}
             maxFontSizeMultiplier={1.3}
             maxLength={BODY_MAX_LENGTH}
             multiline
@@ -482,6 +500,12 @@ const styles = StyleSheet.create({
     paddingTop: 12,
   },
   header: {
+    // Figma 3147:10814 measured from the SHEET's top edge, not the screen's:
+    // grabber at y=10 (paddingTop), close button at y=16. SheetHeader stacks
+    // paddingTop + the 4pt grabber + `gap`, so 10 + 4 + 2 puts the 36pt button
+    // at 16 and its centre at 34 — level with the "New Post" title's centre at
+    // 35. The default 14pt gap pushed the button 12pt below where it belongs.
+    gap: 2,
     paddingHorizontal: 16,
     paddingTop: 10,
   },
