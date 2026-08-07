@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { StyleSheet, View, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
 
 import { Text } from './scaled-text';
 import { useSpotlightTheme } from '../theme';
@@ -13,6 +13,11 @@ type SheetHeaderProps = {
   subtitle?: string;
   title: string;
   titleStyleVariant?: 'title' | 'titleCompact';
+  /**
+   * Override the title text style outright (e.g. a compact 14/600 sheet title).
+   * Takes precedence over `titleStyleVariant` when provided.
+   */
+  titleStyle?: StyleProp<TextStyle>;
 };
 
 export function SheetHeader({
@@ -24,9 +29,11 @@ export function SheetHeader({
   subtitle,
   title,
   titleStyleVariant = 'titleCompact',
+  titleStyle,
 }: SheetHeaderProps) {
   const theme = useSpotlightTheme();
-  const titleStyle = titleStyleVariant === 'title' ? theme.typography.title : theme.typography.titleCompact;
+  const resolvedTitleStyle =
+    titleStyle ?? (titleStyleVariant === 'title' ? theme.typography.title : theme.typography.titleCompact);
 
   return (
     <View style={[styles.header, style]}>
@@ -47,7 +54,7 @@ export function SheetHeader({
         </View>
 
         <View style={[styles.copy, align === 'center' ? styles.copyCentered : null]}>
-          <Text style={[titleStyle, align === 'center' ? styles.textCentered : null]}>{title}</Text>
+          <Text style={[resolvedTitleStyle, align === 'center' ? styles.textCentered : null]}>{title}</Text>
           {subtitle ? (
             <Text
               style={[

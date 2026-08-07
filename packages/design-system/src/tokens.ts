@@ -9,12 +9,17 @@ export const fontFamilies = {
 } as const;
 
 export const colors = {
-  canvas: '#FCFCFA',
+  // Page background is PURE white everywhere outside the scanner. It used to be
+  // the warm off-white #FCFCFA, which read as a visible seam anywhere it met a
+  // true-white surface — most obviously as a "border" around the centered logo
+  // on the splash / auth-loading handoff. Keep `canvas` and the native splash
+  // `backgroundColor` in app.json identical, or that seam comes back.
+  canvas: '#FFFFFF',
   canvasElevated: '#FFFFFF',
   surface: '#F5F5F0',
   surfaceMuted: 'rgba(217, 174, 255, 0.18)',
   surfaceLight: '#FFFFFF',
-  pageLight: '#FCFCFA',
+  pageLight: '#FFFFFF',
   field: '#F2F1EC',
   fieldLight: '#FFFFFF',
   brand: '#D9AEFF',
@@ -243,6 +248,14 @@ export const textStyles = {
     fontFamily: fontFamilies.bodySemiBold,
     fontSize: 16,
     lineHeight: 21.6,
+    color: colors.gray900,
+  } satisfies TextStyle,
+  // Compact sheet title — 14/600 gray-900 (Figma New Post header 3147:10838).
+  titleXsmall: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodySemiBold,
+    fontSize: 14,
+    lineHeight: 21,
     color: colors.gray900,
   } satisfies TextStyle,
   // Figma "Body-medium" — 14/500/150% gray-900
