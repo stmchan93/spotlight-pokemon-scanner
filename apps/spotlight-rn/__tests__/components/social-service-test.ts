@@ -8,7 +8,7 @@ type QueryResult = { data: unknown; error: unknown };
  */
 function makeBuilder(result: QueryResult) {
   const builder: Record<string, unknown> = {};
-  for (const method of ['select', 'is', 'neq', 'in', 'eq', 'lt', 'order', 'limit']) {
+  for (const method of ['select', 'is', 'neq', 'in', 'eq', 'lt', 'order', 'limit', 'upsert', 'delete']) {
     builder[method] = jest.fn(() => builder);
   }
   builder.then = (resolve: (value: QueryResult) => unknown) => Promise.resolve(result).then(resolve);
@@ -23,6 +23,8 @@ type Results = {
   authors?: QueryResult | QueryResult[];
   media?: QueryResult | QueryResult[];
   follows?: QueryResult | QueryResult[];
+  blocks?: QueryResult | QueryResult[];
+  reports?: QueryResult | QueryResult[];
 };
 
 const TABLE_TO_KEY: Record<string, keyof Results> = {
@@ -30,6 +32,8 @@ const TABLE_TO_KEY: Record<string, keyof Results> = {
   public_profiles: 'authors',
   post_media: 'media',
   follows: 'follows',
+  blocks: 'blocks',
+  reports: 'reports',
 };
 
 function makeSupabase(results: Results, userId: string | null = 'me') {
@@ -59,6 +63,9 @@ function makeSupabase(results: Results, userId: string | null = 'me') {
       getUser: jest.fn(async () => ({ data: { user: userId ? { id: userId } : null } })),
     },
     from,
+    // The last builder handed out per table, so a test can assert on the exact
+    // payload a write sent (upsert conflict target, delete scoping).
+    builders,
   };
 }
 
@@ -233,5 +240,144 @@ describe('social-service', () => {
     const { fetchGlobalFeed } = loadService(supabase);
 
     await expect(fetchGlobalFeed()).resolves.toEqual([]);
+  });
+});
+
+// Blocking and reporting are the ONLY safety mechanism behind DMs (no AI pass on
+// private messages), so the "never throws, never lies about failure" contract is
+// load-bearing here in a way it is not for a feed read.
+describe('social-service blocking and reporting', () => {
+  afterEach(() => {
+    jest.resetModules();
+  });
+
+  it('blocks a user with an ignore-duplicates upsert, so blocking twice is idempotent', async () => {
+    const supabase = makeSupabase({ blocks: { data: null, error: null } });
+    const { blockUser } = loadService(supabase);
+
+    await expect(blockUser('them')).resolves.toBe(true);
+    // Blocking again must not surface the primary-key collision as a failure —
+    // the user is already protected, which is what they were asking for.
+    await expect(blockUser('them')).resolves.toBe(true);
+
+    expect(supabase.builders.blocks.upsert).toHaveBeenCalledWith(
+      { blocker_id: 'me', blocked_id: 'them' },
+      { onConflict: 'blocker_id,blocked_id', ignoreDuplicates: true },
+    );
+  });
+
+  it('refuses to block yourself instead of tripping the DB check constraint', async () => {
+    const supabase = makeSupabase({});
+    const { blockUser } = loadService(supabase);
+
+    await expect(blockUser('me')).resolves.toBe(false);
+    expect(supabase.from).not.toHaveBeenCalled();
+  });
+
+  it('reports a failed block rather than swallowing the error', async () => {
+    const supabase = makeSupabase({ blocks: { data: null, error: { message: 'rls' } } });
+    const { blockUser } = loadService(supabase);
+
+    await expect(blockUser('them')).resolves.toBe(false);
+  });
+
+  it('unblocks scoped to both sides of the block row, and is idempotent', async () => {
+    const supabase = makeSupabase({ blocks: { data: null, error: null } });
+    const { unblockUser } = loadService(supabase);
+
+    await expect(unblockUser('them')).resolves.toBe(true);
+    // Unblocking someone who was never blocked deletes zero rows, not an error.
+    await expect(unblockUser('them')).resolves.toBe(true);
+
+    expect(supabase.builders.blocks.delete).toHaveBeenCalled();
+    expect(supabase.builders.blocks.eq).toHaveBeenCalledWith('blocker_id', 'me');
+    expect(supabase.builders.blocks.eq).toHaveBeenCalledWith('blocked_id', 'them');
+  });
+
+  it('reads only outgoing blocks, never who blocked you', async () => {
+    const supabase = makeSupabase({
+      blocks: { data: [{ blocked_id: 'them' }, { blocked_id: 'other' }], error: null },
+    });
+    const { fetchBlockedUserIds } = loadService(supabase);
+
+    await expect(fetchBlockedUserIds()).resolves.toEqual(new Set(['them', 'other']));
+    expect(supabase.builders.blocks.eq).toHaveBeenCalledWith('blocker_id', 'me');
+  });
+
+  it('returns an empty block set when the read errors', async () => {
+    const supabase = makeSupabase({ blocks: { data: null, error: { message: 'boom' } } });
+    const { fetchBlockedUserIds } = loadService(supabase);
+
+    await expect(fetchBlockedUserIds()).resolves.toEqual(new Set());
+  });
+
+  it('reports the most specific target: message beats comment beats post beats profile', async () => {
+    const supabase = makeSupabase({ reports: { data: null, error: null } });
+    const { reportContent } = loadService(supabase);
+
+    await expect(
+      reportContent({ reportedUserId: 'them', postId: 'p1', commentId: 'c1', messageId: 'm1', reason: 'abuse' }),
+    ).resolves.toBe(true);
+    expect(supabase.builders.reports.upsert).toHaveBeenLastCalledWith(
+      { reporter_id: 'me', target_type: 'message', target_id: 'm1', reason: 'abuse' },
+      { onConflict: 'reporter_id,target_type,target_id', ignoreDuplicates: true },
+    );
+
+    await reportContent({ reportedUserId: 'them', postId: 'p1', commentId: 'c1', reason: 'abuse' });
+    expect(supabase.builders.reports.upsert).toHaveBeenLastCalledWith(
+      expect.objectContaining({ target_type: 'comment', target_id: 'c1' }),
+      expect.anything(),
+    );
+
+    await reportContent({ reportedUserId: 'them', postId: 'p1', reason: 'abuse' });
+    expect(supabase.builders.reports.upsert).toHaveBeenLastCalledWith(
+      expect.objectContaining({ target_type: 'post', target_id: 'p1' }),
+      expect.anything(),
+    );
+
+    await reportContent({ reportedUserId: 'them', reason: 'abuse' });
+    expect(supabase.builders.reports.upsert).toHaveBeenLastCalledWith(
+      expect.objectContaining({ target_type: 'profile', target_id: 'them' }),
+      expect.anything(),
+    );
+  });
+
+  it('sends a blank reason as null rather than an empty string', async () => {
+    const supabase = makeSupabase({ reports: { data: null, error: null } });
+    const { reportContent } = loadService(supabase);
+
+    await expect(reportContent({ reportedUserId: 'them', reason: '   ' })).resolves.toBe(true);
+    expect(supabase.builders.reports.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: null }),
+      expect.anything(),
+    );
+  });
+
+  it('does not write a report with no target at all', async () => {
+    const supabase = makeSupabase({});
+    const { reportContent } = loadService(supabase);
+
+    await expect(reportContent({ reportedUserId: '  ', reason: 'abuse' })).resolves.toBe(false);
+    expect(supabase.from).not.toHaveBeenCalled();
+  });
+
+  it('returns safe empty values when Supabase is unavailable, never throwing', async () => {
+    const { blockUser, unblockUser, fetchBlockedUserIds, reportContent } = loadService(null);
+
+    await expect(blockUser('them')).resolves.toBe(false);
+    await expect(unblockUser('them')).resolves.toBe(false);
+    await expect(fetchBlockedUserIds()).resolves.toEqual(new Set());
+    await expect(reportContent({ reportedUserId: 'them', reason: 'abuse' })).resolves.toBe(false);
+  });
+
+  it('returns safe empty values when unauthenticated', async () => {
+    const supabase = makeSupabase({}, null);
+    const { blockUser, unblockUser, fetchBlockedUserIds, reportContent } = loadService(supabase);
+
+    await expect(blockUser('them')).resolves.toBe(false);
+    await expect(unblockUser('them')).resolves.toBe(false);
+    await expect(fetchBlockedUserIds()).resolves.toEqual(new Set());
+    await expect(reportContent({ reportedUserId: 'them', reason: 'abuse' })).resolves.toBe(false);
+    expect(supabase.from).not.toHaveBeenCalled();
   });
 });

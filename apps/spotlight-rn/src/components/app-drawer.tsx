@@ -2,6 +2,7 @@ import { usePathname, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Bookmark,
+  ChatBubbleEmpty,
   GraphUp,
   LogOut,
   MagicWand,
@@ -216,6 +217,17 @@ export function AppDrawer() {
         // Scanner lives on the tabs root; navigate via the tabs index path
         setTimeout(() => router.push('/scan' as never), ANIM_DURATION_MS / 2);
       },
+    },
+    {
+      // The ONLY entry point to the DM inbox — `/messages` is reachable from
+      // nowhere else in the app. Gated like the other signed-in destinations:
+      // every DM read is scoped to `auth.uid()` by RLS, so a guest would land on
+      // a permanently empty inbox.
+      key: 'messages',
+      label: 'Messages',
+      // Same glyph the feed and comments sheet already use for conversation.
+      icon: ChatBubbleEmpty,
+      onPress: gate(() => goTo('/messages')),
     },
     {
       key: 'whos-that-pokemon',

@@ -23,10 +23,13 @@ describe('DesignSystemCatalogScreen', () => {
     expect(screen.getByTestId('catalog-button-accessory')).toBeTruthy();
     expect(screen.getByTestId('catalog-icon-button')).toBeTruthy();
     expect(screen.getByTestId('catalog-pill-button')).toBeTruthy();
+    expect(screen.getByTestId('catalog-pill-button-soft')).toBeTruthy();
     expect(screen.getByTestId('catalog-search-field')).toBeTruthy();
     expect(screen.getByTestId('catalog-text-field')).toBeTruthy();
     expect(screen.getByTestId('catalog-segmented-control-inverted')).toBeTruthy();
     expect(screen.getByTestId('catalog-state-card-action')).toBeTruthy();
+    expect(screen.getByTestId('catalog-empty-state-prompt')).toBeTruthy();
+    expect(screen.getByTestId('catalog-empty-state-prompt-action')).toBeTruthy();
     expect(screen.getByTestId('catalog-list-pagination-footer')).toBeTruthy();
 
     fireEvent.press(screen.getByTestId('design-system-back'));

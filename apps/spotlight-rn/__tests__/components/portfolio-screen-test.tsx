@@ -641,6 +641,79 @@ describe('PortfolioScreen', () => {
     expect(screen.getByTestId('collection-masonry-grid-tile-slab-1')).toBeTruthy();
   });
 
+  describe('empty collection', () => {
+    function renderEmptyCollection() {
+      const repository = createTestSpotlightRepository({
+        loadInventoryEntries: async () => ({ state: 'success', data: [], errorMessage: null }),
+        loadPortfolioDashboard: async () => ({
+          state: 'success',
+          data: buildDashboardWithInventory([]),
+          errorMessage: null,
+        }),
+      });
+      return renderPortfolioScreen({ repository });
+    }
+
+    it('shows the Figma onboarding prompt (mark + copy + Scan to add) when there are no cards at all', async () => {
+      renderEmptyCollection();
+
+      await screen.findByTestId('portfolio-header-title');
+      const prompt = await screen.findByTestId('collection-empty-prompt');
+
+      // Ekalight mark above the copy.
+      expect(within(prompt).getByTestId('ekalight-mark')).toBeTruthy();
+      // Typographic apostrophe, matching the design.
+      expect(within(prompt).getByText('Let’s build your collection')).toBeTruthy();
+      expect(screen.getByTestId('collection-empty-scan-to-add')).toBeTruthy();
+      expect(within(prompt).getByText('Scan to add')).toBeTruthy();
+
+      // The bordered filter-miss card is a different state and must not appear.
+      expect(screen.queryByText('No cards match this filter')).toBeNull();
+      expect(screen.queryByText('No cards in your portfolio')).toBeNull();
+    });
+
+    it('pushes the scanner page when Scan to add is tapped', async () => {
+      renderEmptyCollection();
+
+      await screen.findByTestId('collection-empty-prompt');
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('collection-empty-scan-to-add'));
+      });
+
+      // Scan always PUSHES so Back returns to the Collection tab.
+      expect(push).toHaveBeenCalledWith({ pathname: '/', params: { page: 'scanner' } });
+    });
+
+    it('keeps the "no cards match this filter" state when the collection has cards but the filter matches none', async () => {
+      const inventory = [buildInventoryEntry({ id: 'raw-1', name: 'Raw Card', kind: 'raw' })];
+      const dashboard = buildDashboardWithInventory(inventory);
+      const repository = createTestSpotlightRepository({
+        loadInventoryEntries: async () => ({ state: 'success', data: inventory, errorMessage: null }),
+        loadPortfolioDashboard: async () => ({ state: 'success', data: dashboard, errorMessage: null }),
+      });
+
+      renderPortfolioScreen({ repository });
+
+      await screen.findByTestId('portfolio-header-title');
+      await waitFor(() => {
+        expect(screen.getByTestId('collection-masonry-grid-tile-raw-1')).toBeTruthy();
+      });
+
+      // Graded filter over a raw-only collection => zero rows, but the user
+      // DOES own cards, so this is the filter-miss card, not the onboarding prompt.
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('collection-filter-chip-row-graded'));
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText('No cards match this filter')).toBeTruthy();
+      });
+      expect(screen.queryByTestId('collection-empty-prompt')).toBeNull();
+      expect(screen.queryByTestId('collection-empty-scan-to-add')).toBeNull();
+    });
+  });
+
   it('sorts alphabetically when the A-Z chip is tapped', async () => {
     const inventory = [
       buildInventoryEntry({ id: 'zeta', name: 'Zeta Card' }),

@@ -10,13 +10,22 @@ import {
   isFollowing,
   unfollowUser,
 } from '@/features/profile/profile-service';
+import { findOrCreateDm } from '@/features/social/dm-service';
 import { fetchAuthorPosts } from '@/features/social/social-service';
 import { PublicProfileScreen } from '@/features/profile/screens/public-profile-screen';
 
 import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
 
+// Shared across renders so navigation assertions can inspect it. `mock`-prefixed
+// so babel-plugin-jest-hoist allows it inside the hoisted factory below.
+const mockPush = jest.fn();
+
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: jest.fn(), back: jest.fn() }),
+  useRouter: () => ({ push: mockPush, back: jest.fn() }),
+}));
+
+jest.mock('@/features/social/dm-service', () => ({
+  findOrCreateDm: jest.fn(),
 }));
 
 jest.mock('@/features/profile/profile-service', () => ({
@@ -127,6 +136,7 @@ describe('PublicProfileScreen', () => {
     (followUser as jest.Mock).mockResolvedValue(true);
     (unfollowUser as jest.Mock).mockResolvedValue(true);
     (fetchAuthorPosts as jest.Mock).mockResolvedValue([]);
+    (findOrCreateDm as jest.Mock).mockResolvedValue('conversation-1');
   });
 
   it('shows a loading state before the profile resolves', () => {
@@ -392,6 +402,82 @@ describe('PublicProfileScreen', () => {
         expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent('Following'),
       );
       expect(screen.getByText('12')).toBeTruthy();
+    });
+  });
+
+  describe('the Message button', () => {
+    it('is hidden when you are viewing your own profile', async () => {
+      (fetchProfileByHandle as jest.Mock).mockResolvedValue({ ...profile, userID: VIEWER_ID });
+
+      renderPublicProfile();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('public-profile-header')).toBeTruthy();
+      });
+
+      // `findOrCreateDm` refuses a self-DM, so the control would only ever fail.
+      expect(screen.queryByTestId('public-profile-message-button')).toBeNull();
+    });
+
+    it('opens the thread returned by findOrCreateDm, carrying the display name', async () => {
+      renderPublicProfile();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('public-profile-message-button')).toBeTruthy();
+      });
+
+      fireEvent.press(screen.getByTestId('public-profile-message-button'));
+
+      await waitFor(() => expect(findOrCreateDm).toHaveBeenCalledWith('user-1'));
+      // `name` is what titles the thread header — the thread screen does no
+      // identity lookup of its own.
+      expect(mockPush).toHaveBeenCalledWith({
+        pathname: '/messages/[conversationId]',
+        params: { conversationId: 'conversation-1', name: 'Ash Ketchum' },
+      });
+    });
+
+    it('does not navigate when findOrCreateDm returns null', async () => {
+      (findOrCreateDm as jest.Mock).mockResolvedValue(null);
+
+      renderPublicProfile();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('public-profile-message-button')).toBeTruthy();
+      });
+
+      fireEvent.press(screen.getByTestId('public-profile-message-button'));
+
+      // The failure is surfaced, and `/messages/null` is never pushed.
+      await waitFor(() => {
+        expect(screen.getByText("Couldn't open that conversation. Please try again.")).toBeTruthy();
+      });
+      expect(mockPush).not.toHaveBeenCalled();
+    });
+
+    it('opens at most one thread when the button is double-tapped', async () => {
+      let resolveDm: (value: string | null) => void = () => {};
+      (findOrCreateDm as jest.Mock).mockReturnValue(
+        new Promise<string | null>((resolve) => {
+          resolveDm = resolve;
+        }),
+      );
+
+      renderPublicProfile();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('public-profile-message-button')).toBeTruthy();
+      });
+
+      const button = screen.getByTestId('public-profile-message-button');
+      fireEvent.press(button);
+      fireEvent.press(button);
+
+      expect(findOrCreateDm).toHaveBeenCalledTimes(1);
+
+      resolveDm('conversation-1');
+
+      await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1));
     });
   });
 

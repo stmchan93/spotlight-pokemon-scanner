@@ -818,3 +818,200 @@ export async function markAllNotificationsRead(): Promise<boolean> {
     return false;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Blocking and reporting
+// ---------------------------------------------------------------------------
+// This is the ONLY safety mechanism standing behind DMs. `messages.content_status`
+// is a cheap wordlist/rate-limit gate (social_04) and nothing else: DMs are
+// private, so `backend/social_moderation_worker.py` deliberately never reads them.
+// There is no AI pass on a DM. If a user is being harassed in their inbox, block
+// and report is the whole answer — which is why these four functions exist before
+// the DM surface ships, not after.
+//
+// Both tables have been in the schema since day one and were never wired up:
+// `blocks` since social_00, `reports` since social_04.
+//
+// WHAT BLOCKING ACTUALLY DOES TODAY (be precise about this — it is uneven):
+//   `public.is_blocked(a, b)` is EITHER-DIRECTION and is baked into the RLS
+//   select policies for `posts`, `post_media`, and `comments`, plus the insert
+//   policies for `follows` and `post_likes`. So a block instantly and mutually
+//   removes feed posts, post images, and comment threads for BOTH parties, with
+//   no client-side filtering needed — the rows never leave Postgres.
+//
+//   It does NOT cover `messages` / `conversations` / `conversation_participants`
+//   (social_02 policies check participation only), the `public_profiles` view
+//   (social_07 filters on `status` / `is_shadowbanned`, not blocks), or
+//   `follows` SELECT (`using (true)`). A blocked user can therefore still open a
+//   DM thread and still be listed in a follower list. Closing those gaps is a
+//   migration, not a client change; until then `fetchBlockedUserIds` is how a
+//   surface that reads those tables filters for itself.
+
+const BLOCKS_TABLE = 'blocks';
+const REPORTS_TABLE = 'reports';
+
+/** Report targets, matching the `reports.target_type` values social_04 defines. */
+type ReportTargetType = 'post' | 'comment' | 'message' | 'profile';
+
+export type ReportContentInput = {
+  /** The account being reported. Also the target when no content id is given. */
+  reportedUserId: string;
+  postId?: string | null;
+  commentId?: string | null;
+  messageId?: string | null;
+  reason: string;
+};
+
+/**
+ * Block a user. Idempotent — blocking someone you already blocked is a no-op that
+ * still returns true, because "am I protected from this person" is the question
+ * the caller is really asking, and the answer is yes either way. Modelled on
+ * `likePost`: upsert with `ignoreDuplicates` so a double tap can't surface a
+ * primary-key error as a failed block.
+ *
+ * Self-blocks are rejected here rather than at the DB, where the
+ * `check (blocker_id <> blocked_id)` constraint would come back as an opaque 23514.
+ */
+export async function blockUser(userId: string): Promise<boolean> {
+  const me = await currentUserId();
+  const target = (userId ?? '').trim();
+  if (!supabase || !me || !target || target === me) {
+    return false;
+  }
+  try {
+    const { error } = await supabase
+      .from(BLOCKS_TABLE)
+      .upsert(
+        { blocker_id: me, blocked_id: target },
+        { onConflict: 'blocker_id,blocked_id', ignoreDuplicates: true },
+      );
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Lift a block. Also idempotent: unblocking someone who was never blocked deletes
+ * zero rows and reports success.
+ *
+ * Scoped to `blocker_id = me` on the client as well as in RLS — the `blocks_all`
+ * policy would reject anything else, but an unscoped delete is not a mistake worth
+ * leaving one policy away from a data loss.
+ */
+export async function unblockUser(userId: string): Promise<boolean> {
+  const me = await currentUserId();
+  const target = (userId ?? '').trim();
+  if (!supabase || !me || !target) {
+    return false;
+  }
+  try {
+    const { error } = await supabase
+      .from(BLOCKS_TABLE)
+      .delete()
+      .eq('blocker_id', me)
+      .eq('blocked_id', target);
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The ids the signed-in user has blocked — outgoing blocks only. `blocks_all`
+ * scopes every operation to `blocker_id = auth.uid()`, so this can never reveal
+ * who has blocked YOU, and it must not try: a block the blocked party can detect
+ * is an invitation to retaliate under a second account.
+ *
+ * Same empty-set-on-failure contract as `fetchLikedPostIds`, but the failure mode
+ * is worse here, so callers must treat this as a presentation filter only. RLS is
+ * what actually enforces a block on posts and comments; this set exists for the
+ * surfaces RLS does not cover yet (DM threads, follower lists, profile headers).
+ * A surface that has no server-side block enforcement must never rely on this
+ * read alone to keep a blocked user out.
+ */
+export async function fetchBlockedUserIds(): Promise<Set<string>> {
+  const me = await currentUserId();
+  if (!supabase || !me) {
+    return new Set();
+  }
+  try {
+    const { data, error } = await supabase
+      .from(BLOCKS_TABLE)
+      .select('blocked_id')
+      .eq('blocker_id', me);
+    if (error || !data) {
+      return new Set();
+    }
+    return new Set(
+      (data as { blocked_id: string | null }[])
+        .map((row) => row.blocked_id)
+        .filter((id): id is string => Boolean(id)),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * File a report against a user or one piece of their content.
+ *
+ * `reports` is polymorphic (`target_type` + `target_id`), so the caller's optional
+ * ids collapse to the MOST SPECIFIC one present: message, then comment, then post,
+ * falling back to the account itself. Reporting the exact message beats reporting
+ * the sender, because a moderator reading the queue needs the thing that was said.
+ *
+ * Reporting is NOT blocking. Nothing here hides anything from the reporter — the
+ * social_04 threshold trigger only hides a post/comment once THREE distinct
+ * reporters flag it, and it has no branch for messages at all. A UI that offers
+ * "report" must offer "block" alongside it or the user is left still seeing the
+ * content they just reported.
+ *
+ * Idempotent via `unique (reporter_id, target_type, target_id)`: re-reporting the
+ * same target returns true instead of a duplicate-key failure. `ignoreDuplicates`
+ * matters beyond ergonomics — it compiles to `on conflict do nothing`, whereas an
+ * updating upsert would need a SELECT back, and social_04 gives non-admins insert
+ * only. A report is deliberately write-only; the reporter can never read the queue.
+ */
+export async function reportContent(input: ReportContentInput): Promise<boolean> {
+  const me = await currentUserId();
+  const reportedUserId = (input.reportedUserId ?? '').trim();
+  const postId = (input.postId ?? '').trim();
+  const commentId = (input.commentId ?? '').trim();
+  const messageId = (input.messageId ?? '').trim();
+  const reason = (input.reason ?? '').trim();
+
+  let targetType: ReportTargetType = 'profile';
+  let targetId = reportedUserId;
+  if (messageId) {
+    targetType = 'message';
+    targetId = messageId;
+  } else if (commentId) {
+    targetType = 'comment';
+    targetId = commentId;
+  } else if (postId) {
+    targetType = 'post';
+    targetId = postId;
+  }
+
+  if (!supabase || !me || !targetId) {
+    return false;
+  }
+
+  try {
+    const { error } = await supabase.from(REPORTS_TABLE).upsert(
+      {
+        reporter_id: me,
+        target_type: targetType,
+        target_id: targetId,
+        // `reason` is nullable in social_04; an empty box stays null rather than
+        // filling the moderator queue with blank strings.
+        reason: reason.length > 0 ? reason : null,
+      },
+      { onConflict: 'reporter_id,target_type,target_id', ignoreDuplicates: true },
+    );
+    return !error;
+  } catch {
+    return false;
+  }
+}

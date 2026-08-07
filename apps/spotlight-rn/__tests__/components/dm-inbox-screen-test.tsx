@@ -1,0 +1,184 @@
+import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { useRouter } from 'expo-router';
+
+import {
+  type DmConversation,
+  fetchConversations,
+  fetchMessages,
+} from '@/features/social/dm-service';
+import { DmInboxScreen } from '@/features/social/screens/dm-inbox-screen';
+
+import { renderWithProviders } from '../test-utils';
+
+jest.mock('expo-router', () => ({
+  useRouter: jest.fn(),
+}));
+
+jest.mock('@/features/social/dm-service', () => ({
+  fetchConversations: jest.fn(),
+  fetchMessages: jest.fn(),
+}));
+
+function buildConversation(
+  overrides: Partial<DmConversation> & Pick<DmConversation, 'id'>,
+): DmConversation {
+  return {
+    isGroup: false,
+    otherUserId: `other-${overrides.id}`,
+    otherUser: {
+      displayName: 'Ash Ketchum',
+      handle: 'ash',
+      avatarUrl: null,
+      isVerified: false,
+    },
+    lastMessageAt: '2026-07-28T12:00:00.000Z',
+    lastMessagePreview: 'hello there',
+    lastReadAt: null,
+    unreadCount: 0,
+    ...overrides,
+  };
+}
+
+const back = jest.fn();
+const push = jest.fn();
+
+describe('DmInboxScreen', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (useRouter as jest.Mock).mockReturnValue({ back, push });
+    // `fetchMessages` is mocked but intentionally left unstubbed: this screen
+    // must never call it, and the tests below assert exactly that.
+  });
+
+  it('shows an empty state when there are no conversations', async () => {
+    (fetchConversations as jest.Mock).mockResolvedValue([]);
+
+    renderWithProviders(<DmInboxScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('dm-inbox-empty')).toBeTruthy();
+    });
+    expect(screen.getByText('No messages yet')).toBeTruthy();
+  });
+
+  it('renders a row per conversation, newest first, with the denormalized preview', async () => {
+    (fetchConversations as jest.Mock).mockResolvedValue([
+      buildConversation({
+        id: 'c-1',
+        lastMessagePreview: 'see you at the show',
+        otherUser: { displayName: 'Ash Ketchum', handle: 'ash', avatarUrl: null, isVerified: false },
+      }),
+      buildConversation({
+        id: 'c-2',
+        lastMessageAt: '2026-07-27T12:00:00.000Z',
+        lastMessagePreview: 'nice pull',
+        otherUser: { displayName: 'Misty', handle: 'misty', avatarUrl: null, isVerified: false },
+      }),
+    ]);
+
+    renderWithProviders(<DmInboxScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Ash Ketchum')).toBeTruthy();
+    });
+    expect(screen.getByText('Misty')).toBeTruthy();
+
+    expect(screen.getByTestId('dm-inbox-preview-c-1').props.children).toBe('see you at the show');
+    expect(screen.getByTestId('dm-inbox-preview-c-2').props.children).toBe('nice pull');
+  });
+
+  it('issues NO per-row request: the preview rides along on the conversation', async () => {
+    (fetchConversations as jest.Mock).mockResolvedValue([
+      buildConversation({ id: 'c-1' }),
+      buildConversation({ id: 'c-2' }),
+      buildConversation({ id: 'c-3' }),
+    ]);
+
+    renderWithProviders(<DmInboxScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('dm-inbox-row-c-3')).toBeTruthy();
+    });
+
+    // `last_message_preview` is denormalized onto `conversations` by the trigger
+    // that stamps `last_message_at` (social_13). This screen used to fan out one
+    // `fetchMessages(id, 1)` per row to draw one line of text each; three rows
+    // meant three extra requests, fifty meant fifty. It must now make none.
+    expect(fetchConversations).toHaveBeenCalledTimes(1);
+    expect(fetchMessages).not.toHaveBeenCalled();
+  });
+
+  it('renders a blank preview when there is none (empty or moderation-removed thread)', async () => {
+    (fetchConversations as jest.Mock).mockResolvedValue([
+      buildConversation({ id: 'c-1', lastMessageAt: null, lastMessagePreview: null }),
+    ]);
+
+    renderWithProviders(<DmInboxScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('dm-inbox-row-c-1')).toBeTruthy();
+    });
+
+    // Blank, not a placeholder — and emphatically not a repair read.
+    expect(screen.getByTestId('dm-inbox-preview-c-1').props.children).toBe('');
+    expect(fetchMessages).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the handle, then to a generic name, when identity is missing', async () => {
+    (fetchConversations as jest.Mock).mockResolvedValue([
+      buildConversation({
+        id: 'c-1',
+        otherUser: { displayName: null, handle: 'brock', avatarUrl: null, isVerified: false },
+      }),
+      // A hidden/blocked/suspended participant hydrates to null — the row still
+      // has to be findable and openable.
+      buildConversation({ id: 'c-2', otherUser: null, otherUserId: null }),
+    ]);
+
+    renderWithProviders(<DmInboxScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByText('brock')).toBeTruthy();
+    });
+    expect(screen.getByText('Someone')).toBeTruthy();
+  });
+
+  it('badges a thread with unread messages', async () => {
+    (fetchConversations as jest.Mock).mockResolvedValue([
+      buildConversation({ id: 'c-1', unreadCount: 3 }),
+      buildConversation({ id: 'c-2', unreadCount: 0 }),
+    ]);
+
+    renderWithProviders(<DmInboxScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('dm-inbox-unread-c-1')).toBeTruthy();
+    });
+    expect(screen.getByText('3')).toBeTruthy();
+    expect(screen.queryByTestId('dm-inbox-unread-c-2')).toBeNull();
+  });
+
+  it('pushes the thread with the tapped conversation id', async () => {
+    (fetchConversations as jest.Mock).mockResolvedValue([
+      buildConversation({
+        id: 'c-42',
+        otherUser: { displayName: 'Ash Ketchum', handle: 'ash', avatarUrl: null, isVerified: false },
+      }),
+    ]);
+
+    renderWithProviders(<DmInboxScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('dm-inbox-row-c-42')).toBeTruthy();
+    });
+
+    fireEvent.press(screen.getByTestId('dm-inbox-row-c-42'));
+
+    // The resolved name rides along so the thread header doesn't need a
+    // fetch-one-conversation read the data layer doesn't have.
+    expect(push).toHaveBeenCalledWith({
+      pathname: '/messages/[conversationId]',
+      params: { conversationId: 'c-42', name: 'Ash Ketchum' },
+    });
+  });
+});

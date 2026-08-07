@@ -434,6 +434,16 @@ const secureStoreAdapter = {
 };
 
 let hasRegisteredAutoRefreshListener = false;
+let hasRegisteredRealtimeAuthListener = false;
+
+/**
+ * Caps the message rate this client is allowed to PUSH over the realtime socket
+ * (broadcast/presence); it does not throttle inbound `postgres_changes`. 10/s is
+ * far above anything a human typing DMs produces, while still stopping a runaway
+ * render loop from getting the whole socket rate-limited server-side — which
+ * takes the message stream down with it, not just the offending sender.
+ */
+const REALTIME_EVENTS_PER_SECOND = 10;
 
 export function resolveSupabaseAuthConfig(): SupabaseAuthConfig {
   const supabaseURL = resolveRuntimeValue(
@@ -505,16 +515,101 @@ export const supabase = supabaseAuthConfig.isConfigured
         detectSessionInUrl: false,
         persistSession: true,
       },
+      realtime: {
+        params: {
+          eventsPerSecond: REALTIME_EVENTS_PER_SECOND,
+        },
+      },
     })
   : null;
+
+/**
+ * Realtime access helpers.
+ *
+ * `supabase` is null whenever runtime configuration is incomplete, and the client
+ * is stubbed down to the auth surface in tests, so the realtime handle is reached
+ * through a guard instead of being assumed. These calls run at module scope and
+ * from an AppState callback: a throw in either place would take AUTH down with
+ * it, and realtime is never worth that trade.
+ */
+function getRealtimeClient() {
+  return supabase?.realtime ?? null;
+}
+
+function connectRealtime() {
+  const realtime = getRealtimeClient();
+  if (!realtime || typeof realtime.connect !== 'function') {
+    return;
+  }
+
+  try {
+    // Already-open and mid-connect are both no-ops inside connect(), so this is
+    // safe to call on every foreground without tracking socket state here.
+    realtime.connect();
+  } catch {
+    // connect() throws when no WebSocket implementation is reachable. A
+    // foreground transition must never throw — the next foreground retries.
+  }
+}
+
+function disconnectRealtime() {
+  const realtime = getRealtimeClient();
+  if (!realtime || typeof realtime.disconnect !== 'function') {
+    return;
+  }
+
+  // Channels stay registered on the client across a disconnect and are rejoined
+  // when the socket comes back, so callers do not have to re-subscribe.
+  void Promise.resolve(realtime.disconnect()).catch(() => {});
+}
+
+if (supabase && typeof supabase.auth.onAuthStateChange === 'function' && !hasRegisteredRealtimeAuthListener) {
+  // Same one-shot guard as the AppState listener below: this module is a
+  // singleton in the app, but the test runner re-requires it, and a duplicate
+  // registration would push the same token twice per refresh forever.
+  hasRegisteredRealtimeAuthListener = true;
+
+  supabase.auth.onAuthStateChange((event) => {
+    // ONLY sign-out is handled here. Token refresh is deliberately absent:
+    // supabase-js registers its own auth listener whenever no custom
+    // `accessToken` is configured (which is our case) and calls
+    // `realtime.setAuth(token)` itself on TOKEN_REFRESHED / SIGNED_IN — see
+    // `_listenForAuthEvents` / `_handleTokenChanged` in the client. Re-doing it
+    // here would be a no-op that reads like load-bearing code to the next person
+    // debugging a dead subscription.
+    //
+    // Sign-out is the case the library does NOT cover for us: it calls
+    // `setAuth()` with no argument, which falls back to the cached token rather
+    // than clearing it, so the socket stays authorized as the user who just
+    // left. Dropping the socket is what actually stops their rows streaming, and
+    // it self-heals because `RealtimeChannel.subscribe()` reconnects.
+    if (event === 'SIGNED_OUT') {
+      disconnectRealtime();
+    }
+  });
+}
 
 if (supabase && Platform.OS !== 'web' && !hasRegisteredAutoRefreshListener) {
   hasRegisteredAutoRefreshListener = true;
   AppState.addEventListener('change', (state) => {
     if (state === 'active') {
       void supabase.auth.startAutoRefresh();
-    } else {
-      void supabase.auth.stopAutoRefresh();
+      // iOS tears down backgrounded sockets and they do not come back on their
+      // own, so the socket is re-established on every foreground rather than
+      // only after a transition we happened to observe.
+      connectRealtime();
+      return;
+    }
+
+    void supabase.auth.stopAutoRefresh();
+
+    // Only a real background teardown drops the socket. iOS also reports
+    // 'inactive' for transient interruptions — app switcher, notification
+    // shade, an incoming call — where the socket survives, and disconnecting
+    // there would churn a reconnect plus a full channel rejoin for a half-second
+    // pull-down.
+    if (state === 'background') {
+      disconnectRealtime();
     }
   });
 }

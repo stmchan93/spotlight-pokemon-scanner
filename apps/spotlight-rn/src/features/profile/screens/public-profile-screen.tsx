@@ -11,6 +11,7 @@ import {
   type PageTab,
   StateCard,
   Text,
+  Toast,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
@@ -30,6 +31,7 @@ import {
   unfollowUser,
 } from '@/features/profile/profile-service';
 import { ProfileHeader } from '@/features/profile/components/profile-header';
+import { findOrCreateDm } from '@/features/social/dm-service';
 import { PostCard } from '@/features/social/components/post-card';
 import { type FeedPost, fetchAuthorPosts } from '@/features/social/social-service';
 import { resolveRepositoryBaseUrl, useAppServices } from '@/providers/app-providers';
@@ -147,6 +149,13 @@ export function PublicProfileScreen({
   const [followState, setFollowState] = useState<FollowState>(null);
   const [displayFollowerCount, setDisplayFollowerCount] = useState(0);
   const [followPending, setFollowPending] = useState(false);
+  // DM entry point. `messagePending` only dims the control; the REF is the real
+  // double-tap guard — `findOrCreateDm` can be two round trips, and two taps
+  // landing in the same tick would both read a stale `false` from state and push
+  // the thread twice (same reason `loadingMoreRef` exists below).
+  const [messagePending, setMessagePending] = useState(false);
+  const [messageFailed, setMessageFailed] = useState(false);
+  const messagePendingRef = useRef(false);
   // Paging state. The header shows the target's TRUE card count, so rendering a
   // single capped page would quietly under-show a large collection.
   const [hasMoreEntries, setHasMoreEntries] = useState(false);
@@ -175,10 +184,13 @@ export function PublicProfileScreen({
     setIsLoadingMore(false);
     setFollowState(null);
     setFollowPending(false);
+    setMessagePending(false);
+    setMessageFailed(false);
     setActivityPosts([]);
     setActivityStatus('idle');
     activityLoadedRef.current = null;
     loadingMoreRef.current = false;
+    messagePendingRef.current = false;
 
     void (async () => {
       const byHandle = handle ? await fetchProfileByHandle(handle) : null;
@@ -258,6 +270,11 @@ export function PublicProfileScreen({
 
   // You can follow this profile only if it's someone else. `viewerId === userID`
   // (your own profile) or a signed-out viewer both hide the button.
+  //
+  // Message is gated on exactly the same predicate, and not by coincidence:
+  // `findOrCreateDm` refuses a self-DM (there are no note-to-self threads) and
+  // needs a signed-in caller, so on your own profile the control could only ever
+  // fail. Hiding it is the honest treatment — a visibly dead button is worse.
   const targetUserId = profile?.userID ?? null;
   const canFollow = Boolean(targetUserId && viewerId && viewerId !== targetUserId);
 
@@ -332,6 +349,46 @@ export function PublicProfileScreen({
       setFollowPending(false);
     })();
   }, [followPending, followState, targetUserId]);
+
+  // Open (or create) the 1:1 thread with this collector, then jump straight into
+  // it. The display name rides along as `?name=` because the thread screen titles
+  // its header from that param — there is no fetch-one-conversation read in the
+  // data layer, so without it the header would be blank.
+  const handleOpenMessage = useCallback(() => {
+    if (!targetUserId || messagePendingRef.current) {
+      return;
+    }
+
+    messagePendingRef.current = true;
+    setMessagePending(true);
+    setMessageFailed(false);
+
+    void (async () => {
+      const conversationId = await findOrCreateDm(targetUserId);
+      messagePendingRef.current = false;
+      setMessagePending(false);
+
+      if (!conversationId) {
+        // `findOrCreateDm` returns null for BOTH a failed write and a refused
+        // self-DM. Either way there is no thread to open, and pushing anyway
+        // would land on `/messages/null` — a route that renders nothing. Say so
+        // in passing and leave the profile exactly as it was.
+        setMessageFailed(true);
+        return;
+      }
+
+      // `as never` is the same escape hatch `notifications-screen` uses:
+      // expo-router's typed-route union lives in the gitignored, generated
+      // `.expo/types/router.d.ts`, which only regenerates while the dev server
+      // runs — so `/messages/[conversationId]`, added since the last generation,
+      // isn't in the union and `tsc --noEmit` rejects it. Drop the cast once the
+      // route map has been regenerated.
+      router.push({
+        pathname: '/messages/[conversationId]',
+        params: { conversationId, name: getProfileDisplayName(profile) },
+      } as never);
+    })();
+  }, [profile, router, targetUserId]);
 
   // Header chips → this collector's followers / following lists. `/u/[handle]`
   // when they've claimed a handle, else `/u/<userId>`; the explicit `userId`
@@ -505,13 +562,29 @@ export function PublicProfileScreen({
       />
 
       {canFollow ? (
-        <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
+        // Follow and Message share one row: same Button primitive, same size,
+        // splitting the gutter width so neither reads as the page's single CTA.
+        <View
+          style={[
+            styles.actionRow,
+            { gap: theme.spacing.xxs, paddingHorizontal: theme.layout.pageGutter },
+          ]}
+        >
           <Button
             disabled={followState === null}
             label={followState === 'following' ? 'Following' : 'Follow'}
             onPress={handleToggleFollow}
+            style={styles.actionButton}
             testID={`${testID}-follow-button`}
             variant={followState === 'following' ? 'secondary' : 'dark'}
+          />
+          <Button
+            disabled={messagePending}
+            label="Message"
+            onPress={handleOpenMessage}
+            style={styles.actionButton}
+            testID={`${testID}-message-button`}
+            variant="secondary"
           />
         </View>
       ) : null}
@@ -632,11 +705,38 @@ export function PublicProfileScreen({
         testID={`${testID}-scroll-view`}
       />
       {backButton}
+      {/*
+        A DM that couldn't be opened is a one-off action failure, not a section
+        that failed to load, so it gets the transient Toast rather than one of
+        the inline StateCards above — the profile stays fully usable underneath
+        and nothing has to be dismissed to keep browsing.
+      */}
+      <Toast
+        message="Couldn't open that conversation. Please try again."
+        onDismiss={() => setMessageFailed(false)}
+        style={[
+          styles.messageToast,
+          {
+            bottom: insets.bottom + theme.spacing.lg,
+            left: theme.layout.pageGutter,
+            right: theme.layout.pageGutter,
+          },
+        ]}
+        testID={`${testID}-message-error`}
+        tone="dark"
+        visible={messageFailed}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  actionButton: {
+    flex: 1,
+  },
+  actionRow: {
+    flexDirection: 'row',
+  },
   backButton: {
     position: 'absolute',
     zIndex: 5,
@@ -652,6 +752,10 @@ const styles = StyleSheet.create({
   },
   footerSpinner: {
     paddingVertical: 20,
+  },
+  messageToast: {
+    position: 'absolute',
+    zIndex: 5,
   },
   safeArea: {
     flex: 1,

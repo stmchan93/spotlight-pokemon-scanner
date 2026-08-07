@@ -94,7 +94,7 @@ describe('AppDrawer', () => {
     expect(screen.getByTestId('app-drawer-panel')).toBeTruthy();
   });
 
-  it('renders all six nav items with their testIDs after open', () => {
+  it('renders every nav item with its testID after open', () => {
     renderWithProviders(
       <>
         <DrawerController />
@@ -110,6 +110,8 @@ describe('AppDrawer', () => {
     expect(screen.getByTestId('app-drawer-nav-insights')).toBeTruthy();
     expect(screen.getByTestId('app-drawer-nav-wishlist')).toBeTruthy();
     expect(screen.getByTestId('app-drawer-nav-scan')).toBeTruthy();
+    // The drawer is the only way into the DM inbox.
+    expect(screen.getByTestId('app-drawer-nav-messages')).toBeTruthy();
     expect(screen.getByTestId('app-drawer-nav-whos-that-pokemon')).toBeTruthy();
     // Account Settings sits directly above Log Out and routes to /account.
     expect(screen.getByTestId('app-drawer-nav-account-settings')).toBeTruthy();
@@ -139,6 +141,35 @@ describe('AppDrawer', () => {
       // From the Collection root the drawer PUSHES stack routes so swipe-back
       // returns to Collection (same as Wishlist/Insights).
       expect(push).toHaveBeenCalledWith('/whos-that-pokemon');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('navigates to /messages when Messages is tapped', () => {
+    jest.useFakeTimers();
+    try {
+      renderWithProviders(
+        <>
+          <DrawerController />
+          <AppDrawer />
+        </>,
+      );
+
+      act(() => {
+        drawerHandleRef.current?.open();
+      });
+
+      fireEvent.press(screen.getByTestId('app-drawer-nav-messages'));
+
+      act(() => {
+        jest.advanceTimersByTime(500);
+      });
+
+      // From the Collection root, stack routes are PUSHED so swipe-back returns
+      // to Collection — same as Wishlist/Insights/Who's That Pokémon.
+      expect(push).toHaveBeenCalledWith('/messages');
+      expect(replace).not.toHaveBeenCalled();
     } finally {
       jest.useRealTimers();
     }

@@ -122,6 +122,35 @@ describe('WhosThatPokemonScreen', () => {
     expect(screen.queryByTestId('wtp-result-morph-cutout')).toBeNull();
   });
 
+  it('walks the same phases when the backend attaches segmentation geometry', async () => {
+    // The lock-on prefers the real head box and settles the landmark points on
+    // the species outline; with both present the screen must still land on the
+    // result, and with neither (every other test here) it must too.
+    const whosThatPokemon = jest.fn(async (_payload: WhosThatPokemonPayload) => ({
+      ...mockMatches,
+      headBox: { x: 0.34, y: 0.08, width: 0.3, height: 0.24 },
+      personBounds: { x: 0.2, y: 0.05, width: 0.6, height: 0.9 },
+      speciesOutline: Array.from({ length: 48 }, (_, index) => {
+        const angle = (index / 48) * Math.PI * 2;
+        return { x: 0.5 + Math.cos(angle) * 0.4, y: 0.5 + Math.sin(angle) * 0.4 };
+      }),
+    }));
+    const repository = createTestSpotlightRepository({ whosThatPokemon });
+
+    renderScreen(repository);
+
+    await act(async () => {
+      fireEvent.press(await screen.findByTestId('wtp-shutter'));
+    });
+
+    await waitFor(
+      () => {
+        expect(screen.getByTestId('wtp-result-hero-name').props.children).toBe('Pikachu');
+      },
+      { timeout: 4000 },
+    );
+  });
+
   it('shows the friendly retry state when the match fails, then recovers on retry', async () => {
     const whosThatPokemon = jest
       .fn(async (_payload: WhosThatPokemonPayload) => mockMatches)
