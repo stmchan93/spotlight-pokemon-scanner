@@ -227,6 +227,113 @@ export function isFinitePrice(value: number | null | undefined): value is number
 }
 
 /**
+ * Minimal shape of a scan price-sheet selection needed to price a tray row.
+ * `ScanPriceSheetSelection` is structurally assignable to this; the structural
+ * type is declared here on purpose so this module never imports
+ * `scan-price-sheet` (which imports THIS module for `formatCurrency`).
+ */
+export type ScanTrayPriceSelection = {
+  marketPrice: number | null;
+};
+
+/** The price one tray row actually shows, with the currency it is quoted in. */
+export type ScanTrayPrice = {
+  /** Null when the row has no usable price and renders an em-dash. */
+  amount: number | null;
+  currencyCode: string;
+};
+
+/**
+ * The only currency the scan tray can price in today — the product is USD-only.
+ * Declared once, and always read back from the price/summary rather than
+ * re-typed as a literal at a render site: the original bug was exactly that
+ * drift, where rows passed an explicit currency and the header leaned on
+ * `formatCurrency`'s implicit `'USD'` default. Multi-currency is a planned
+ * direction, so amount and currency travel together throughout this module to
+ * keep that change localized.
+ */
+export const supportedTrayCurrencyCode = 'USD';
+
+/**
+ * THE single price-resolution rule for a scan-tray capture.
+ *
+ * Both the per-row price cell and the tray header TOTAL must go through this.
+ * Dealers price a stack off the header total, so a row and the total disagreeing
+ * is a trust-destroying defect — previously the row honored the price-sheet
+ * selection (e.g. the Lightly Played comp) while the total summed the raw
+ * candidate market price, and any non-NM selection made them disagree.
+ */
+export function resolveCaptureTrayPrice(
+  capture: RecentCapture,
+  selection: ScanTrayPriceSelection | null | undefined,
+): ScanTrayPrice {
+  const candidate = activeCandidateForCapture(capture);
+  // A candidate that reports no currency is taken as the tray's own currency —
+  // named, not a bare 'USD' literal, so the assumption is greppable.
+  const currencyCode = candidate?.currencyCode ?? supportedTrayCurrencyCode;
+
+  if (isFinitePrice(selection?.marketPrice)) {
+    return { amount: selection.marketPrice, currencyCode };
+  }
+
+  const candidateMarketPrice = candidate?.marketPrice;
+  return {
+    amount: isFinitePrice(candidateMarketPrice) ? candidateMarketPrice : null,
+    currencyCode,
+  };
+}
+
+export type TrayPriceSummary = {
+  /** Currency the total is denominated in. Render this — never a literal. */
+  currencyCode: string;
+  /**
+   * Distinct currencies (sorted) that were DROPPED from the total because the
+   * tray cannot price them yet. Empty in the normal case.
+   */
+  unsupportedCurrencyCodes: string[];
+  total: number;
+};
+
+/**
+ * Sum the prices the tray rows actually display.
+ *
+ * Two exclusions, both deliberate:
+ * - Captures with no finite price (still matching, no match, or a matched card
+ *   with no market price — the rows that render an em-dash) contribute nothing
+ *   rather than counting as zero.
+ * - Captures priced in a currency the tray doesn't support are dropped and
+ *   reported instead of being added in. Folding a ¥4,000 row into a USD sum
+ *   would overstate it by roughly 25x, and a dealer pricing inventory could act
+ *   on that number financially — silently wrong is the worst outcome here.
+ */
+export function summarizeTrayPrices(prices: readonly ScanTrayPrice[]): TrayPriceSummary {
+  const unsupportedCurrencyCodes = new Set<string>();
+  let total = 0;
+
+  prices.forEach(({ amount, currencyCode }) => {
+    if (!isFinitePrice(amount)) {
+      return;
+    }
+    if (currencyCode !== supportedTrayCurrencyCode) {
+      unsupportedCurrencyCodes.add(currencyCode);
+      return;
+    }
+    total += amount;
+  });
+
+  return {
+    currencyCode: supportedTrayCurrencyCode,
+    total,
+    unsupportedCurrencyCodes: [...unsupportedCurrencyCodes].sort(),
+  };
+}
+
+/** Header TOTAL text for a tray summary, in the summary's own currency. */
+export function formatTrayTotal(summary: TrayPriceSummary): string {
+  return formatCurrency(summary.total, summary.currencyCode);
+}
+
+/**
  * Build a complete optimistic {@link InventoryCardEntry} from a matched scan
  * candidate. `id` should be the REAL inventory entry id from the create response
  * so a later collection refetch reconciles (dedupes) by id; pass a temp

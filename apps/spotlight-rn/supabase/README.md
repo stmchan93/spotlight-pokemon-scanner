@@ -13,21 +13,58 @@ supabase/
 │  ├─ 20260720090200_social_02_messaging.sql
 │  ├─ 20260720090300_social_03_notifications.sql
 │  ├─ 20260720090400_social_04_moderation.sql
-│  └─ 20260720090500_social_05_storage_and_seed.sql
+│  ├─ 20260720090500_social_05_storage_and_seed.sql
+│  ├─ 20260722090000_social_06_profile_fields_avatars.sql
+│  ├─ 20260723090000_social_07_public_profiles_view_counter_triggers.sql
+│  ├─ 20260724090000_social_08_user_profiles_rls_hardening.sql
+│  ├─ 20260726090000_social_09_engagement_counter_triggers_security_definer.sql
+│  └─ 20260806090000_social_10_public_users_mirror.sql      # NOT applied yet
 ├─ manual/
-│  └─ user_profiles_rls_REVIEW_BEFORE_APPLY.sql   # touches the LIVE auth table — apply by hand
-└─ email_exists.sql                 # pre-existing RPC (unrelated)
+│  └─ user_profiles_rls_REVIEW_BEFORE_APPLY.sql   # superseded by social_08 (kept for history)
+└─ email_exists.sql                 # pre-existing RPC, applied by hand; social_10 promotes it into migrations
 ```
 
+## Applied state
+
+**social_00 through social_09 are APPLIED to the live project.** (Earlier revisions of
+this file said nothing had been applied — that was stale; it is fixed here.) Treat every
+applied migration as **immutable history**: never edit one, always add the next file in
+sequence.
+
+`social_10` is the only file in this directory that has **not** been applied yet.
+
 The migrations are **additive only** — brand-new tables + additive columns on
-`user_profiles`. Applying them has **no effect on the live app** (nothing queries
-these tables yet). RLS on the existing `user_profiles` table is intentionally left
-out of the migrations and isolated in `manual/` because it touches auth.
+`user_profiles`. RLS on the pre-existing `user_profiles` table was promoted out of
+`manual/` into `social_08`.
+
+## Rule: new tables FK `public.users`, never `auth.users`
+
+`social_10` creates `public.users (id uuid primary key, created_at timestamptz)` — an
+id-only mirror of `auth.users`, kept in sync by AFTER INSERT / AFTER DELETE triggers on
+`auth.users`.
+
+- **Every new table that references a user MUST use `references public.users(id)`.**
+- **Do not add new `references auth.users(id)` foreign keys.** The 18 that exist
+  (social_00..social_04) stay as-is — re-pointing live constraints buys nothing while
+  we're on Supabase — but the count stops growing here.
+- FKs to the mirror must be `on delete cascade`, or `on delete set null` for nullable
+  attribution columns (matching social_02/03/04). Anything `restrict`/`no action` would
+  raise inside the delete trigger and **break account deletion**, including the
+  backend's admin-API delete path.
+- The mirror holds **ids only — never email, phone, or any other PII.** It exists to be
+  a foreign-key target; profile data lives in `user_profiles` / `public_profiles`.
+- `public.email_exists(text)` intentionally still reads `auth.users` — it needs an email
+  and the mirror deliberately has none. It is the single remaining public→auth read, and
+  the reasoning is written out at length in `social_10`.
+
+Why: ~18 FKs into GoTrue's proprietary `auth` schema are the single most expensive thing
+to unwind if we ever leave Supabase. The mirror reduces that to "populate `public.users`
+from the new identity provider, repoint one trigger and one RPC."
 
 ## Validate FIRST, then apply (recommended)
 
-Nothing here has been applied yet. Do NOT run this straight against production without
-validating. Two safe ways:
+Do NOT run an unapplied migration straight against production without validating. Two
+safe ways:
 
 **A. Local (needs Docker + the Supabase CLI):**
 ```bash
@@ -45,15 +82,39 @@ project, `supabase link` to it, `supabase db push`, and smoke-test.
 ```bash
 cd apps/spotlight-rn
 supabase link --project-ref <your-project-ref>   # one-time
-supabase db push                                  # runs migrations/ in order
+supabase db push                                  # runs any UNAPPLIED migrations, in order
 ```
-(Or paste each `migrations/*.sql` into the Supabase SQL editor in order.)
+(Or paste the unapplied `migrations/*.sql` into the Supabase SQL editor in order.)
 
-Then, **consciously**, after reviewing it against your current dashboard policies:
-```bash
-# review this file first — it enables RLS on the live user_profiles table
-psql "$DATABASE_URL" -f supabase/manual/user_profiles_rls_REVIEW_BEFORE_APPLY.sql
+### Applying `social_10` (the `public.users` mirror)
+
+Safe to apply to the live project with existing users. It is additive and fully
+transactional: one new table, two triggers on `auth.users`, a backfill, and a
+semantically-identical re-creation of `email_exists`. Nothing existing is altered, and no
+app code reads `public.users` yet.
+
+Two things to know before you run it:
+
+1. **Run it as `postgres`.** `create trigger ... on auth.users` requires ownership of that
+   table. The Supabase SQL editor and `supabase db push` both qualify; a weaker role fails
+   cleanly inside the transaction.
+2. **The insert trigger runs inside signup.** If it ever raises, new signups fail with
+   GoTrue's opaque "Database error saving new user". So: verify immediately after applying,
+   and never drop `public.users` without first dropping the triggers.
+
+Verify (both must return 0), then sign up one throwaway account and re-run:
+
+```sql
+select count(*) from auth.users u
+  left join public.users m on m.id = u.id where m.id is null;   -- auth users not mirrored
+select count(*) from public.users m
+  left join auth.users u on u.id = m.id where u.id is null;     -- orphaned mirror rows
+select public.email_exists('<a real account email>');           -- must still return true
 ```
+
+Rollback is `drop trigger auth_users_mirror_insert on auth.users; drop trigger
+auth_users_mirror_delete on auth.users; drop table public.users;` — safe as long as nothing
+has started FK'ing the mirror yet.
 
 ## After applying
 
@@ -86,3 +147,7 @@ drop table if exists public.notifications, public.messages, public.conversation_
   public.blocked_terms, public.follows, public.blocks, public.mutes cascade;
 -- (the added user_profiles columns are harmless to leave; drop them explicitly if desired)
 ```
+
+`public.users` is deliberately NOT in that list. Drop it only via the `social_10` rollback
+above — **triggers first, table second**. Dropping the table while the triggers still exist
+breaks every new signup.

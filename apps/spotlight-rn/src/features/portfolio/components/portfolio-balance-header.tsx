@@ -12,10 +12,8 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
-import { formatCurrency } from './portfolio-formatting';
+import { HIDDEN_VALUE_MASK as hiddenValueMask, formatCurrency } from './portfolio-formatting';
 import type { PortfolioChartActivePoint } from './portfolio-chart-card';
-
-const hiddenValueMask = '*****';
 
 type PortfolioBalanceHeaderProps = {
   summary: PortfolioSummary;

@@ -37,6 +37,16 @@ describe('NewPostScreen', () => {
     expect(screen.getByTestId('new-post-submit')).toBeEnabled();
   });
 
+  it('does NOT autoFocus the body — the keyboard is raised after the sheet settles', () => {
+    renderWithProviders(<NewPostScreen />);
+
+    // Regression: `autoFocus` raised the keyboard DURING the form sheet's
+    // presentation animation, so it appeared, the sheet re-laid-out, and it
+    // appeared again — the "keyboard comes up twice and lags" report. Focus is
+    // now driven by a timer against the ref (BODY_FOCUS_DELAY_MS) instead.
+    expect(screen.getByTestId('new-post-body-input').props.autoFocus).toBeFalsy();
+  });
+
   it('creates a text post and navigates back', async () => {
     renderWithProviders(<NewPostScreen />);
 

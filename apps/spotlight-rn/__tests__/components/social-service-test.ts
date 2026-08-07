@@ -15,11 +15,14 @@ function makeBuilder(result: QueryResult) {
   return builder;
 }
 
+// A table may be read more than once per call (the post read retries without the
+// embedded-media select when the embed fails), so a result can be a queue: each
+// read takes the next entry and the last one sticks.
 type Results = {
-  posts?: QueryResult;
-  authors?: QueryResult;
-  media?: QueryResult;
-  follows?: QueryResult;
+  posts?: QueryResult | QueryResult[];
+  authors?: QueryResult | QueryResult[];
+  media?: QueryResult | QueryResult[];
+  follows?: QueryResult | QueryResult[];
 };
 
 const TABLE_TO_KEY: Record<string, keyof Results> = {
@@ -32,14 +35,29 @@ const TABLE_TO_KEY: Record<string, keyof Results> = {
 function makeSupabase(results: Results, userId: string | null = 'me') {
   const empty: QueryResult = { data: [], error: null };
   const builders: Record<string, ReturnType<typeof makeBuilder>> = {};
+  const queues: Partial<Record<keyof Results, QueryResult[]>> = {};
   const from = jest.fn((table: string) => {
     const key = TABLE_TO_KEY[table];
-    const result = (key && results[key]) || empty;
+    const configured = key ? results[key] : undefined;
+    let result: QueryResult = empty;
+    if (Array.isArray(configured)) {
+      const queue = (queues[key!] ??= [...configured]);
+      result = (queue.length > 1 ? queue.shift() : queue[0]) ?? empty;
+    } else if (configured) {
+      result = configured;
+    }
     builders[table] = makeBuilder(result);
     return builders[table];
   });
   return {
-    auth: { getUser: jest.fn(async () => ({ data: { user: userId ? { id: userId } : null } })) },
+    auth: {
+      // The service reads the persisted session first and only falls back to
+      // getUser() (a network revalidation) when there is none.
+      getSession: jest.fn(async () => ({
+        data: { session: userId ? { user: { id: userId } } : null },
+      })),
+      getUser: jest.fn(async () => ({ data: { user: userId ? { id: userId } : null } })),
+    },
     from,
   };
 }
@@ -85,17 +103,17 @@ describe('social-service', () => {
     jest.resetModules();
   });
 
-  it('normalizes a global-feed post, hydrating author and media', async () => {
+  it('normalizes a global-feed post from the embedded-media read, without a second media query', async () => {
     const supabase = makeSupabase({
-      posts: { data: [postRow], error: null },
+      posts: { data: [{ ...postRow, post_media: [mediaRow] }], error: null },
       authors: { data: [authorRow], error: null },
-      media: { data: [mediaRow], error: null },
     });
     const { fetchGlobalFeed } = loadService(supabase);
 
     const posts = await fetchGlobalFeed();
 
     expect(supabase.from).toHaveBeenCalledWith('posts');
+    expect(supabase.from).not.toHaveBeenCalledWith('post_media');
     expect(posts).toEqual([
       {
         id: 'post-1',
@@ -123,6 +141,42 @@ describe('social-service', () => {
 
     expect(post.author).toBeNull();
     expect(post.media).toEqual([]);
+  });
+
+  it('falls back to a separate media read when the embedded post select errors', async () => {
+    const supabase = makeSupabase({
+      posts: [
+        { data: null, error: { message: 'could not find a relationship' } },
+        { data: [postRow], error: null },
+      ],
+      authors: { data: [authorRow], error: null },
+      media: { data: [mediaRow], error: null },
+    });
+    const { fetchGlobalFeed } = loadService(supabase);
+
+    const posts = await fetchGlobalFeed();
+
+    expect(supabase.from).toHaveBeenCalledWith('post_media');
+    expect(posts).toHaveLength(1);
+    expect(posts[0].media).toEqual([{ id: 'media-1', width: 800, height: 600, blurhash: 'LKO2' }]);
+  });
+
+  it('skips the author read when the caller already knows the author', async () => {
+    const supabase = makeSupabase({
+      posts: { data: [{ ...postRow, post_media: [] }], error: null },
+    });
+    const { fetchAuthorPosts } = loadService(supabase);
+
+    const knownAuthor = {
+      displayName: 'Ash',
+      handle: 'ash',
+      avatarUrl: 'https://example.com/a.png',
+      isVerified: true,
+    };
+    const posts = await fetchAuthorPosts('author-1', { knownAuthor });
+
+    expect(supabase.from).not.toHaveBeenCalledWith('public_profiles');
+    expect(posts[0].author).toEqual(knownAuthor);
   });
 
   it('returns [] for the following feed when the user follows nobody', async () => {

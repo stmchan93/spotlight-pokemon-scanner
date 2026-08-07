@@ -13,6 +13,13 @@ type PersistedDashboardEnvelope = {
   savedAt?: string;
   /** Supabase user id (or 'signed-out') of the account this snapshot belongs to. */
   ownerKey?: string;
+  /**
+   * Which collection this snapshot was computed for ('all' for the aggregate).
+   * A dashboard is only valid for the collection it was read with — serving one
+   * collection's balance and chart under another's name is the same class of
+   * mistake as serving one account's under another's.
+   */
+  collectionID?: string;
 };
 
 /**
@@ -26,6 +33,7 @@ type PersistedDashboardEnvelope = {
  */
 export async function readPersistedDashboard(
   ownerKey: string,
+  collectionID: string,
 ): Promise<{ dashboard: PortfolioDashboard; savedAt: string } | null> {
   try {
     const raw = await AsyncStorage.getItem(PORTFOLIO_DASHBOARD_STORAGE_KEY);
@@ -36,6 +44,12 @@ export async function readPersistedDashboard(
     if (parsed?.ownerKey !== ownerKey) {
       // Belongs to another account (or predates owner-stamping): never serve it.
       void AsyncStorage.removeItem(PORTFOLIO_DASHBOARD_STORAGE_KEY).catch(() => {});
+      return null;
+    }
+    if ((parsed.collectionID ?? '') !== collectionID) {
+      // Right account, wrong collection (or saved before collections existed).
+      // Keep the snapshot — it is still valid for ITS collection — but don't
+      // hydrate this one with it.
       return null;
     }
     if (parsed.dashboard) {
@@ -51,10 +65,16 @@ export function persistDashboard(
   dashboard: PortfolioDashboard,
   savedAt: string,
   ownerKey: string,
+  collectionID: string,
 ): void {
   void AsyncStorage.setItem(
     PORTFOLIO_DASHBOARD_STORAGE_KEY,
-    JSON.stringify({ dashboard, savedAt, ownerKey } satisfies PersistedDashboardEnvelope),
+    JSON.stringify({
+      dashboard,
+      savedAt,
+      ownerKey,
+      collectionID,
+    } satisfies PersistedDashboardEnvelope),
   ).catch(() => {
     // best-effort; in-memory stale-while-revalidate still works this session
   });

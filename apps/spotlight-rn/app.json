@@ -45,13 +45,20 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#FCFCFA",
+          "backgroundColor": "#FFFFFF",
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "android": {
             "image": "./assets/images/splash-icon.png",
             "imageWidth": 200
           }
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Ekalight to use your photos so you can add them to a post.",
+          "cameraPermission": "Allow Ekalight to use your camera so you can take a photo for a post."
         }
       ]
     ],

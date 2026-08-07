@@ -26,6 +26,10 @@ const EXPO_EXTRA_ENV_MAPPINGS = [
   ['EXPO_PUBLIC_SPOTLIGHT_POSTHOG_API_KEY', 'spotlightPosthogApiKey'],
   ['EXPO_PUBLIC_SPOTLIGHT_POSTHOG_HOST', 'spotlightPosthogHost'],
   ['EXPO_PUBLIC_SPOTLIGHT_POSTHOG_ENABLED', 'spotlightPosthogEnabled'],
+  // Guest mode mints its Supabase anonymous user on the first scan, not on app
+  // open (each one is a billable MAU). Defaults ON in code — set this to 0 only
+  // as an emergency rollback to the eager mint.
+  ['EXPO_PUBLIC_SPOTLIGHT_DEFER_GUEST_SESSION', 'spotlightDeferGuestSession'],
 ];
 
 const PLACEHOLDER_ENV_VALUES = new Set([

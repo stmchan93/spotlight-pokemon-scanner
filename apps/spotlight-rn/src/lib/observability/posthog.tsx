@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { PostHog, PostHogProvider } from 'posthog-react-native';
 import type { CaptureEvent, PostHogEventProperties } from '@posthog/core';
 
-import type { AppUser } from '@/features/auth/auth-models';
+import { PENDING_GUEST_USER_ID, type AppUser } from '@/features/auth/auth-models';
 import { resolveRuntimeBoolean, resolveRuntimeValue } from '@/lib/runtime-config';
 
 import {
@@ -185,6 +185,15 @@ let hasIdentifiedUser = false;
 export function identifyPostHogUser(user: AppUser | null) {
   const client = getPostHogClient();
   if (!client) {
+    return;
+  }
+
+  // A pending guest's id is a placeholder shared by every device, so
+  // identifying it would collapse all of them into ONE PostHog person and make
+  // user counts meaningless. Leave them on their per-device anonymous
+  // distinct_id; the real uuid arrives when the guest's first scan mints one.
+  // Not a reset either — that would throw the anonymous id away.
+  if (user?.id === PENDING_GUEST_USER_ID) {
     return;
   }
 

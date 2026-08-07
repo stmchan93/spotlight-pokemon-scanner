@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 
-import { SpotlightThemeProvider } from '@spotlight/design-system';
+import { SpotlightThemeProvider, colors } from '@spotlight/design-system';
 
 import { ProfileHeader } from '../../src/features/profile/components/profile-header';
 
@@ -53,5 +54,12 @@ describe('ProfileHeader', () => {
     renderHeader(<ProfileHeader displayName="Ash Ketchum" initials="AK" />);
 
     expect(screen.getByText('AK')).toBeTruthy();
+  });
+
+  it('falls back to a very light gray cover banner, not the tinted surface', () => {
+    renderHeader(<ProfileHeader displayName="Ash Ketchum" initials="AK" />);
+
+    const placeholder = screen.getByTestId('profile-header-cover-placeholder');
+    expect(StyleSheet.flatten(placeholder.props.style).backgroundColor).toBe(colors.gray100);
   });
 });

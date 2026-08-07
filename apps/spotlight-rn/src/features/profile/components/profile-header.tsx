@@ -66,7 +66,10 @@ export function ProfileHeader({
         />
       ) : (
         <View
-          style={[styles.cover, { backgroundColor: theme.colors.surfaceMuted }]}
+          // A very light neutral, not the tinted `surfaceMuted` and not black —
+          // the glass nav bubbles float over this band, and a dark backdrop
+          // makes their refraction read as smudges.
+          style={[styles.cover, { backgroundColor: theme.colors.gray100 }]}
           testID={`${testID}-cover-placeholder`}
         />
       )}

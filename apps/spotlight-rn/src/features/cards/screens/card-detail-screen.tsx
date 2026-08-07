@@ -205,6 +205,7 @@ export function CardDetailScreen({
     portfolioDashboardCache,
     prependOptimisticInventoryEntry,
     removeOptimisticInventoryEntries,
+    activeCollectionID,
   } = useAppServices();
   // The card currently DISPLAYED. Starts as the routed `cardId`, but the EN/JP
   // language toggle repoints it to the other-language counterpart IN PLACE (no
@@ -1381,6 +1382,9 @@ export function CardDetailScreen({
       quantity: addedQuantity,
       sourceScanID: null,
       addedAt,
+      // Adds land in the collection the Collection tab is showing; "All" has no
+      // single target, so the backend files those into the default collection.
+      collectionID: activeCollectionID,
     })
       .then((response) => {
         // Optimistic insert: surface the new card at the top of the Collection

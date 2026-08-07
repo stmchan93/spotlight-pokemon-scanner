@@ -322,6 +322,20 @@ CREATE TABLE IF NOT EXISTS card_language_links (
     created_at TEXT NOT NULL
 );
 
+-- Named collections a holding can belong to. Every owner has at least one
+-- ("Main Collection"), created on demand rather than at signup so accounts that
+-- predate multi-collection get one the first time they look.
+CREATE TABLE IF NOT EXISTS collections (
+    id TEXT PRIMARY KEY,
+    owner_user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_collections_owner_user_id
+ON collections(owner_user_id, sort_order, created_at);
+
 CREATE TABLE IF NOT EXISTS deck_entries (
     id TEXT PRIMARY KEY,
     owner_user_id TEXT,
@@ -357,7 +371,11 @@ CREATE TABLE IF NOT EXISTS deck_entries (
     -- filled once by /api/v1/ops/backfill-added-baselines. NULL = no baseline
     -- (unpriced card at add time) and the UI renders nothing.
     added_market_price REAL,
-    added_market_date TEXT
+    added_market_date TEXT,
+    -- Which named collection this holding belongs to (multi-collection v1).
+    -- NULL on rows written before collections existed; the owner's default
+    -- collection adopts them lazily on their first collections read.
+    collection_id TEXT REFERENCES collections(id)
 );
 
 CREATE TABLE IF NOT EXISTS sale_events (
@@ -707,8 +725,12 @@ CREATE INDEX IF NOT EXISTS idx_deck_entries_card_id
     ON deck_entries(card_id);
 CREATE INDEX IF NOT EXISTS idx_deck_entries_owner_user_id
     ON deck_entries(owner_user_id, added_at DESC, id DESC);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_deck_entries_owner_identity
-    ON deck_entries(owner_user_id, identity_key);
+-- Holding identity is unique per COLLECTION, not per owner: the same card may be
+-- held in more than one collection. Databases created before multi-collection
+-- carry the older (owner_user_id, identity_key) index; the runtime patch in
+-- server.py replaces it.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_deck_entries_owner_identity_collection
+    ON deck_entries(owner_user_id, identity_key, collection_id);
 
 CREATE INDEX IF NOT EXISTS idx_deck_entries_added_at
     ON deck_entries(added_at DESC, id DESC);

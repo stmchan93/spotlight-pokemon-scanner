@@ -58,6 +58,12 @@ export function createTestSpotlightRepository(
   const baseRepository = new RealMockSpotlightRepository();
 
   return {
+    listCollections: (...args) => {
+      return overrides.listCollections?.(...args) ?? baseRepository.listCollections(...args);
+    },
+    createCollection: (...args) => {
+      return overrides.createCollection?.(...args) ?? baseRepository.createCollection(...args);
+    },
     loadPortfolioDashboard: (...args) => {
       return overrides.loadPortfolioDashboard?.(...args)
         ?? baseRepository.loadPortfolioDashboard(...args);
@@ -455,9 +461,21 @@ export function renderAppRouter(
     routeMap[routeAliases.get(routeKey) ?? routeKey] = component;
   }
 
-  return renderRouter(routeMap, {
+  const result = renderRouter(routeMap, {
     initialUrl,
   });
+
+  // expo-router's `renderRouter` installs jest fake timers internally
+  // (expo-router/src/testing-library). Left installed, the clock that
+  // `waitFor`/`findBy*` polls on — and the one enforcing jest's own test
+  // timeout — is frozen, so any assertion that needs time to elapse (a
+  // debounce, an animation) can neither resolve nor time out: the suite hangs
+  // forever instead of failing in seconds. Hand the clock back so router tests
+  // behave like every other suite; a test that genuinely wants fake timers can
+  // still call `jest.useFakeTimers()` after rendering.
+  jest.useRealTimers();
+
+  return result;
 }
 
 type RouteCandidate = {

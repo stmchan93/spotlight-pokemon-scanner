@@ -776,6 +776,73 @@ def _apply_collections_redesign_schema_patch(connection: sqlite3.Connection) -> 
     _sqlite_add_column_if_missing(connection, "sale_events", "last_listing_snapshot", "JSONB")
 
 
+def _normalized_collection_query_param(query: dict[str, list[str]]) -> str | None:
+    """The `collectionId` filter from a query string, or None for "everything".
+
+    None is the pre-multi-collection behaviour, so an old client that never sends
+    the param keeps seeing its whole portfolio. The literal "all" is spelled out
+    by the new client for the "All Collection" row and means the same thing.
+    """
+    raw = str((query.get("collectionId") or [""])[0]).strip()
+    if not raw or raw.lower() == "all":
+        return None
+    return raw
+
+
+def _apply_multi_collection_schema_patch(connection: sqlite3.Connection) -> None:
+    """Named collections a holding can belong to (multi-collection v1).
+
+    NOTE the neighbouring `_apply_collections_redesign_schema_patch` is unrelated
+    despite the name — that one adds listing/cost-basis columns for the
+    Collections *tab* redesign. This one introduces the collection as an entity.
+
+    `deck_entries.collection_id` is nullable and stays NULL until the owner's
+    default collection adopts their rows on first read (see
+    `_ensure_owner_collections`). Assigning every existing row here instead would
+    mean rewriting a live table during boot — the failure mode that crash-looped
+    the VM when an index build was moved to startup.
+    """
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS collections (
+            id TEXT PRIMARY KEY,
+            owner_user_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_collections_owner_user_id
+        ON collections(owner_user_id, sort_order, created_at)
+        """
+    )
+    _sqlite_add_column_if_missing(connection, "deck_entries", "collection_id", "TEXT")
+    # Safe to build inline: deck_entries holds user holdings (thousands of rows),
+    # not the 27.5M-row price-history table whose startup index build took the
+    # service down.
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_deck_entries_owner_collection
+        ON deck_entries(owner_user_id, collection_id)
+        """
+    )
+    # The holding-identity uniqueness moves from (owner, identity) to
+    # (owner, identity, collection): the same card CAN be held in two different
+    # collections, and under the old index the second add hit a UNIQUE violation.
+    # Existing data satisfies the wider index by construction — it was unique on
+    # the narrower key — so this never fails on a populated table.
+    connection.execute("DROP INDEX IF EXISTS idx_deck_entries_owner_identity")
+    connection.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_deck_entries_owner_identity_collection
+        ON deck_entries(owner_user_id, identity_key, collection_id)
+        """
+    )
+
+
 def _apply_since_added_baseline_schema_patch(connection: sqlite3.Connection) -> None:
     """Additive columns for the "Since you added it" display: the market price
     (and its date) the app showed for the entry's context on the day it was
@@ -1387,6 +1454,7 @@ class SpotlightScanService:
             _apply_card_likes_schema_patch(bootstrap_connection)
             _apply_sale_payment_schema_patch(bootstrap_connection)
             _apply_collections_redesign_schema_patch(bootstrap_connection)
+            _apply_multi_collection_schema_patch(bootstrap_connection)
             _apply_since_added_baseline_schema_patch(bootstrap_connection)
             _apply_card_transactions_schema_patch(bootstrap_connection)
             _apply_scan_labeling_reviews_schema_patch(bootstrap_connection)
@@ -13591,6 +13659,25 @@ class SpotlightScanService:
             condition=condition,
         )
 
+        # Which collection this card joins. The client sends the one it is
+        # showing; anything else (an older client, or "All Collection" being
+        # active, where there is no single target) falls back to the default.
+        # `_ensure_owner_collections` also runs the lazy backfill, so the first
+        # add after the migration lands with every existing holding already
+        # assigned.
+        default_collection_id = self._ensure_owner_collections(owner_user_id)
+        requested_collection_id = str(payload.get("collectionID") or "").strip()
+        collection_id = default_collection_id
+        if requested_collection_id and requested_collection_id.lower() != "all":
+            owns_collection = self.connection.execute(
+                "SELECT 1 FROM collections WHERE id = ? AND owner_user_id = ? LIMIT 1",
+                (requested_collection_id, owner_user_id),
+            ).fetchone()
+            # Never take the id on trust: an id belonging to another account would
+            # otherwise file this card into their collection.
+            if owns_collection is not None:
+                collection_id = requested_collection_id
+
         try:
             deck_entry_id = upsert_deck_entry(
                 self.connection,
@@ -13608,6 +13695,7 @@ class SpotlightScanService:
                 source_confirmation_id=None,
                 added_market_price=added_market_price,
                 added_market_date=added_market_date,
+                collection_id=collection_id,
             )
             if cost_basis_per_unit_cents is not None:
                 self._set_deck_entry_cost_basis_cents(
@@ -14907,7 +14995,11 @@ class SpotlightScanService:
         return summary
 
     def portfolio_dashboard(
-        self, *, time_zone_name: str | None = None, range_key: str | None = None
+        self,
+        *,
+        time_zone_name: str | None = None,
+        range_key: str | None = None,
+        collection_id: str | None = None,
     ) -> dict[str, Any]:
         """Cache-and-dogpile wrapper over the heavy dashboard computation.
 
@@ -14937,7 +15029,10 @@ class SpotlightScanService:
             traceback.print_exc()
             version = None
 
-        cache_key = (owner_user_id, resolved_tz, range_key or "all")
+        # The collection belongs in the key for the same reason the range does:
+        # each scope is a different payload, and without it switching collections
+        # would be served the previous one's balance and chart.
+        cache_key = (owner_user_id, resolved_tz, range_key or "all", collection_id or "")
         if version is not None:
             cached = self._dashboard_cache.get(cache_key)
             if cached is not None and cached[0] == version:
@@ -14956,6 +15051,7 @@ class SpotlightScanService:
             payload = self._compute_portfolio_dashboard(
                 time_zone_name=resolved_tz,
                 range_keys=[range_key] if range_key else None,
+                collection_id=collection_id,
             )
             if version is not None:
                 self._store_dashboard_cache(cache_key, version, payload)
@@ -15030,7 +15126,11 @@ class SpotlightScanService:
         )
 
     def _compute_portfolio_dashboard(
-        self, *, time_zone_name: str | None = None, range_keys: list[str] | None = None
+        self,
+        *,
+        time_zone_name: str | None = None,
+        range_keys: list[str] | None = None,
+        collection_id: str | None = None,
     ) -> dict[str, Any]:
         """Single-call portfolio dashboard: bundles inventory, every history and
         ledger range, and insights into one response so the client makes ONE
@@ -15052,7 +15152,14 @@ class SpotlightScanService:
                 sections[label] = f"error: {error}"
                 return None
 
-        inventory = _section("inventory", lambda: self.deck_entries(limit=200, offset=0))
+        # Only the holdings sections are collection-scoped in v1. History, ledger
+        # and insights stay account-wide: they are built from sale/event streams
+        # that carry no collection, so scoping them would silently report a
+        # partial history as if it were the whole story.
+        inventory = _section(
+            "inventory",
+            lambda: self.deck_entries(limit=200, offset=0, collection_id=collection_id),
+        )
         insights = _section("insights", self.portfolio_insights)
 
         # Client range key -> backend range_label (matches mapRangeToBackend and
@@ -15440,6 +15547,7 @@ class SpotlightScanService:
         include_inactive: bool = False,
         favorites_only: bool = False,
         compute_day_change: bool = True,
+        collection_id: str | None = None,
     ) -> dict[str, Any]:
         """Owner-scoped read for the CALLER, resolved from the ambient request
         identity. Thin wrapper over ``deck_entries_for_owner`` — that explicit
@@ -15452,6 +15560,7 @@ class SpotlightScanService:
             include_inactive=include_inactive,
             favorites_only=favorites_only,
             compute_day_change=compute_day_change,
+            collection_id=collection_id,
         )
 
     def deck_entries_for_owner(
@@ -15463,6 +15572,7 @@ class SpotlightScanService:
         include_inactive: bool = False,
         favorites_only: bool = False,
         compute_day_change: bool = True,
+        collection_id: str | None = None,
     ) -> dict[str, Any]:
         """Cache-and-dogpile wrapper over the heavy inventory computation, the
         same pattern as ``portfolio_dashboard``. The payload is a pure function
@@ -15493,6 +15603,10 @@ class SpotlightScanService:
             bool(include_inactive),
             bool(favorites_only),
             bool(compute_day_change),
+            # MUST be part of the key: without it, switching collections would be
+            # served the previously-cached collection's holdings for the whole
+            # version window.
+            str(collection_id or ""),
         )
         if version is not None:
             cached = self._deck_entries_cache.get(cache_key)
@@ -15514,11 +15628,180 @@ class SpotlightScanService:
                 include_inactive=include_inactive,
                 favorites_only=favorites_only,
                 compute_day_change=compute_day_change,
+                collection_id=collection_id,
             )
             if version is not None:
                 self._store_deck_entries_cache(cache_key, version, payload)
             self._log_deck_entries_timing(started_at, outcome="miss")
             return payload
+
+    # ------------------------------------------------------------------
+    # Collections (multi-collection v1)
+    # ------------------------------------------------------------------
+
+    DEFAULT_COLLECTION_NAME = "Main Collection"
+    COLLECTION_NAME_MAX_LENGTH = 60
+
+    def _ensure_owner_collections(self, owner_user_id: str) -> str:
+        """Guarantee the owner has a default collection and that none of their
+        holdings are orphaned, returning the default collection's id.
+
+        This is the lazy backfill. Holdings written before multi-collection (or by
+        an older client that sends no collection) carry `collection_id IS NULL`;
+        the first time this owner touches collections, those rows are adopted by
+        "Main Collection". Doing it per-owner on demand — rather than rewriting
+        every row of a live `deck_entries` during boot — is deliberate: the one
+        time heavy schema work was moved into startup it crash-looped the VM.
+        """
+        owner_user_id = str(owner_user_id or "").strip()
+        if not owner_user_id:
+            raise ValueError("owner_user_id is required")
+
+        row = self.connection.execute(
+            """
+            SELECT id FROM collections
+            WHERE owner_user_id = ?
+            ORDER BY sort_order, created_at, id
+            LIMIT 1
+            """,
+            (owner_user_id,),
+        ).fetchone()
+        if row is not None:
+            default_collection_id = str(row["id"] or "").strip()
+        else:
+            default_collection_id = f"collection:{uuid.uuid4().hex}"
+            self.connection.execute(
+                """
+                INSERT INTO collections (id, owner_user_id, name, sort_order, created_at)
+                VALUES (?, ?, ?, 0, ?)
+                """,
+                (
+                    default_collection_id,
+                    owner_user_id,
+                    self.DEFAULT_COLLECTION_NAME,
+                    utc_now(),
+                ),
+            )
+
+        self.connection.execute(
+            """
+            UPDATE deck_entries
+            SET collection_id = ?
+            WHERE owner_user_id = ?
+              AND (collection_id IS NULL OR collection_id = '')
+            """,
+            (default_collection_id, owner_user_id),
+        )
+        self.connection.commit()
+        return default_collection_id
+
+    def default_collection_id(self) -> str:
+        """The caller's default collection, creating it (and adopting their
+        pre-multi-collection holdings) on first use."""
+        return self._ensure_owner_collections(self._current_owner_user_id())
+
+    def list_collections(self) -> dict[str, Any]:
+        """The caller's collections, each with its card count and market value.
+
+        Values ride the same cached `deck_entries` computation the Collection grid
+        uses, with day-change skipped — so opening the picker costs at most one
+        inventory compute per collection, and repeat opens are cache hits.
+        """
+        owner_user_id = self._current_owner_user_id()
+        default_collection_id = self._ensure_owner_collections(owner_user_id)
+
+        rows = self.connection.execute(
+            """
+            SELECT id, name, sort_order, created_at
+            FROM collections
+            WHERE owner_user_id = ?
+            ORDER BY sort_order, created_at, id
+            """,
+            (owner_user_id,),
+        ).fetchall()
+
+        collections: list[dict[str, Any]] = []
+        for row in rows:
+            collection_id = str(row["id"] or "").strip()
+            summary = self.deck_entries_for_owner(
+                owner_user_id,
+                limit=1000,
+                offset=0,
+                include_inactive=False,
+                compute_day_change=False,
+                collection_id=collection_id,
+            )["summary"]
+            collections.append(
+                {
+                    "id": collection_id,
+                    "name": str(row["name"] or "").strip() or self.DEFAULT_COLLECTION_NAME,
+                    "sortOrder": int(row["sort_order"] or 0),
+                    "createdAt": str(row["created_at"] or "").strip(),
+                    "cardCount": int(summary.get("count") or 0),
+                    "totalValue": round(float(summary.get("totalValue") or 0.0), 2),
+                    "isDefault": collection_id == default_collection_id,
+                }
+            )
+
+        # The "All Collection" row is the un-scoped read, not a sum of the rows
+        # above — so it stays correct even if a holding is ever missing a
+        # collection between the write and the next backfill.
+        all_summary = self.deck_entries_for_owner(
+            owner_user_id,
+            limit=1000,
+            offset=0,
+            include_inactive=False,
+            compute_day_change=False,
+        )["summary"]
+
+        return {
+            "collections": collections,
+            "defaultCollectionID": default_collection_id,
+            "all": {
+                "cardCount": int(all_summary.get("count") or 0),
+                "totalValue": round(float(all_summary.get("totalValue") or 0.0), 2),
+            },
+        }
+
+    def create_collection(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Create a named collection for the caller and return it (empty)."""
+        owner_user_id = self._current_owner_user_id()
+        self._ensure_owner_collections(owner_user_id)
+
+        name = str((payload or {}).get("name") or "").strip()
+        if not name:
+            raise ValueError("name is required")
+        if len(name) > self.COLLECTION_NAME_MAX_LENGTH:
+            name = name[: self.COLLECTION_NAME_MAX_LENGTH].strip()
+
+        next_sort_order_row = self.connection.execute(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_sort_order FROM collections WHERE owner_user_id = ?",
+            (owner_user_id,),
+        ).fetchone()
+        sort_order = int(next_sort_order_row["next_sort_order"] or 0) if next_sort_order_row else 0
+
+        collection_id = f"collection:{uuid.uuid4().hex}"
+        created_at = utc_now()
+        self.connection.execute(
+            """
+            INSERT INTO collections (id, owner_user_id, name, sort_order, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (collection_id, owner_user_id, name, sort_order, created_at),
+        )
+        self.connection.commit()
+
+        return {
+            "collection": {
+                "id": collection_id,
+                "name": name,
+                "sortOrder": sort_order,
+                "createdAt": created_at,
+                "cardCount": 0,
+                "totalValue": 0.0,
+                "isDefault": False,
+            }
+        }
 
     def deck_entries_export_csv(self) -> str:
         """Owner-scoped holdings-snapshot CSV export. Reuses the same
@@ -15651,6 +15934,7 @@ class SpotlightScanService:
         include_inactive: bool = False,
         favorites_only: bool = False,
         compute_day_change: bool = True,
+        collection_id: str | None = None,
     ) -> dict[str, Any]:
         owner_user_id = str(owner_user_id or "").strip()
         if not owner_user_id:
@@ -15658,6 +15942,13 @@ class SpotlightScanService:
         safe_limit = max(0, min(int(limit), 1000))
         safe_offset = max(0, int(offset))
         where_clauses = ["owner_user_id = ?"]
+        where_params: list[Any] = [owner_user_id]
+        # None = every collection (the "All Collection" row, and every caller that
+        # predates multi-collection). A concrete id scopes the read to one.
+        scoped_collection_id = str(collection_id or "").strip()
+        if scoped_collection_id:
+            where_clauses.append("collection_id = ?")
+            where_params.append(scoped_collection_id)
         if not include_inactive:
             where_clauses.append("quantity > 0")
         if favorites_only:
@@ -15701,7 +15992,7 @@ class SpotlightScanService:
             ORDER BY added_at DESC, id DESC
             LIMIT ? OFFSET ?
             """.format(where_clause=where_clause),
-            (owner_user_id, safe_limit, safe_offset),
+            (*where_params, safe_limit, safe_offset),
         ).fetchall()
         deck_card_ids = [str(row["card_id"] or "").strip() for row in rows]
         cards_by_id_map = cards_by_ids(self.connection, deck_card_ids)
@@ -16789,18 +17080,30 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 f"path={getattr(self, 'path', '<unknown>')}"
             )
 
-    def _fetch_post_media_row_via_rls(
-        self, media_id: str, authorization_header: str | None
-    ) -> dict[str, Any] | None:
-        """Return the ``post_media`` row for ``media_id`` IF the caller may see it.
+    # ------------------------------------------------------------------
+    # post_media access — SERVER-SIDE authorization over Supabase Postgres.
+    #
+    # The rows still live in Supabase (PostgREST is the store), but THIS backend
+    # — not Supabase RLS — makes the authorization decision. Every call below
+    # uses the SERVICE-ROLE key (the same privileged pattern as
+    # `_delete_supabase_auth_user` above and `social_moderation_worker.py`),
+    # which BYPASSES RLS, so each caller-facing helper must apply the rule
+    # itself against the VERIFIED request identity (`_require_request_identity`
+    # → `identity.user_id`), never against client-supplied input.
+    #
+    # The RLS policies stay enabled in the database as defense in depth for
+    # client-direct traffic; the Python checks below are a faithful mirror of
+    # `post_media_select` / `post_media_write` in
+    # apps/spotlight-rn/supabase/migrations/
+    #   20260720090100_social_01_posts_comments_reactions.sql
+    # ------------------------------------------------------------------
 
-        AUTHORIZATION IS DELEGATED TO SUPABASE RLS — the backend does NOT
-        reimplement post-media visibility. It issues a PostgREST GET as the CALLER
-        (forwarding the caller's raw bearer JWT plus the anon apikey). RLS on
-        ``post_media`` only returns rows the caller is allowed to see (approved
-        rows, plus the author's own pending rows), so a row coming back is itself
-        the authorization decision. Returns the first row dict, or ``None`` when
-        zero rows come back, auth/env is missing, or the request errors.
+    @staticmethod
+    def _supabase_rest_config() -> tuple[str, str] | None:
+        """``(base_url, service_role_key)``, or ``None`` when Supabase is unset.
+
+        A missing service-role key must never silently downgrade to an anon or
+        caller-scoped call: callers treat ``None`` as "deny".
         """
         supabase_url = str(
             os.environ.get(SUPABASE_URL_ENV)
@@ -16808,86 +17111,218 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             or os.environ.get("SPOTLIGHT_SUPABASE_URL")
             or ""
         ).strip().rstrip("/")
-        anon_key = str(
-            os.environ.get("SUPABASE_ANON_KEY")
-            or os.environ.get("EXPO_PUBLIC_SPOTLIGHT_SUPABASE_ANON_KEY")
-            or os.environ.get("SPOTLIGHT_SUPABASE_ANON_KEY")
+        service_role_key = str(
+            os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+            or os.environ.get("SPOTLIGHT_SUPABASE_SERVICE_ROLE_KEY")
             or ""
         ).strip()
-        bearer = str(authorization_header or "").strip()
-        if not supabase_url or not anon_key or not bearer:
+        if not supabase_url or not service_role_key:
             return None
+        return supabase_url, service_role_key
+
+    def _supabase_rest_select(
+        self, table: str, params: dict[str, str]
+    ) -> list[dict[str, Any]] | None:
+        """Privileged PostgREST SELECT (RLS bypassed — authorize before/after).
+
+        Returns the row list (possibly empty), or ``None`` when the read could
+        not be completed at all (no service-role env, transport error,
+        unparseable body). Callers distinguish the two so they can fail CLOSED.
+        """
+        config = self._supabase_rest_config()
+        if config is None:
+            return None
+        supabase_url, service_role_key = config
 
         from urllib.request import Request, urlopen
 
-        query = urlencode(
-            {
-                "id": f"eq.{media_id}",
-                "select": "storage_path,moderation_status",
-            }
-        )
-        rest_url = f"{supabase_url}/rest/v1/post_media?{query}"
         request = Request(
-            rest_url,
+            f"{supabase_url}/rest/v1/{table}?{urlencode(params)}",
             headers={
-                "apikey": anon_key,
-                "Authorization": bearer,
+                "apikey": service_role_key,
+                "Authorization": f"Bearer {service_role_key}",
                 "Accept": "application/json",
             },
         )
         try:
             with urlopen(request, timeout=10) as response:
                 raw = response.read()
-        except Exception:  # noqa: BLE001 - any failure denies access → 404
+        except Exception:  # noqa: BLE001 - any failure denies access
             return None
-
         try:
-            rows = json.loads(raw.decode("utf-8"))
+            parsed = json.loads(raw.decode("utf-8"))
         except Exception:  # noqa: BLE001
             return None
-        if not isinstance(rows, list) or not rows:
+        if not isinstance(parsed, list):
+            # PostgREST errors are JSON objects; never mistake one for a row.
             return None
-        first = rows[0]
-        return first if isinstance(first, dict) else None
+        return [row for row in parsed if isinstance(row, dict)]
 
-    def _insert_post_media_row_via_rls(
+    def _post_authorization_row(self, post_id: str) -> dict[str, Any] | None:
+        """The parent-post fields every post_media authorization decision needs."""
+        post_id = str(post_id or "").strip()
+        if not post_id:
+            return None
+        rows = self._supabase_rest_select(
+            "posts",
+            {
+                "id": f"eq.{post_id}",
+                "select": "author_id,content_status,deleted_at",
+                "limit": "1",
+            },
+        )
+        if not rows:
+            return None
+        return rows[0]
+
+    def _supabase_user_is_admin(self, user_id: str) -> bool:
+        """Python mirror of the SQL helper ``public.is_admin()``.
+
+        ``user_profiles.admin_enabled`` for the VERIFIED caller. Fails closed:
+        an unreadable profile is not an admin.
+        """
+        user_id = str(user_id or "").strip()
+        if not user_id:
+            return False
+        rows = self._supabase_rest_select(
+            "user_profiles",
+            {"user_id": f"eq.{user_id}", "select": "admin_enabled", "limit": "1"},
+        )
+        if not rows:
+            return False
+        return rows[0].get("admin_enabled") is True
+
+    def _supabase_users_blocked(self, user_id: str, other_user_id: str) -> bool:
+        """Python mirror of ``public.is_blocked(a, b)`` — a block in EITHER
+        direction hides the content.
+
+        Fails CLOSED: when the lookup cannot be completed we report "blocked" so
+        an outage can never widen visibility.
+        """
+        user_id = str(user_id or "").strip()
+        other_user_id = str(other_user_id or "").strip()
+        if not user_id or not other_user_id:
+            return True
+        rows = self._supabase_rest_select(
+            "blocks",
+            {
+                "or": (
+                    f"(and(blocker_id.eq.{user_id},blocked_id.eq.{other_user_id}),"
+                    f"and(blocker_id.eq.{other_user_id},blocked_id.eq.{user_id}))"
+                ),
+                "select": "blocker_id",
+                "limit": "1",
+            },
+        )
+        if rows is None:
+            return True
+        return bool(rows)
+
+    def _caller_may_write_post_media(self, post_id: str, caller_user_id: str) -> bool:
+        """Mirror of the ``post_media_write`` WITH CHECK clause: only the parent
+        post's AUTHOR may attach media to it. Admins are deliberately excluded —
+        the SQL ``with check`` is author-only too."""
+        caller_user_id = str(caller_user_id or "").strip()
+        if not caller_user_id:
+            return False
+        post = self._post_authorization_row(post_id)
+        if not post:
+            return False
+        return str(post.get("author_id") or "").strip() == caller_user_id
+
+    def _caller_may_delete_post_media(self, post_id: str, caller_user_id: str) -> bool:
+        """Mirror of the ``post_media_write`` USING clause: the parent post's
+        author OR an admin may remove a media row."""
+        caller_user_id = str(caller_user_id or "").strip()
+        if not caller_user_id:
+            return False
+        if self._caller_may_write_post_media(post_id, caller_user_id):
+            return True
+        return self._supabase_user_is_admin(caller_user_id)
+
+    def _fetch_authorized_post_media_row(
+        self, media_id: str, caller_user_id: str
+    ) -> dict[str, Any] | None:
+        """Return the ``post_media`` row for ``media_id`` IF ``caller_user_id``
+        may see it, else ``None`` (the endpoint turns that into a 404).
+
+        AUTHORIZATION IS DECIDED HERE, in Python, from the VERIFIED caller id —
+        a faithful mirror of the ``post_media_select`` RLS policy:
+
+            parent post exists AND deleted_at IS NULL
+            AND (   post.author_id = caller                 -- own media, incl. pending
+                 OR is_admin(caller)
+                 OR (media.moderation_status = 'approved'
+                     AND post.content_status  = 'visible'
+                     AND NOT is_blocked(caller, post.author_id)))
+
+        The admin branch is evaluated LAST so the two common paths (own media,
+        someone else's approved media) cost no extra round trip. Anything that
+        cannot be read fails CLOSED.
+        """
+        media_id = str(media_id or "").strip()
+        caller_user_id = str(caller_user_id or "").strip()
+        if not media_id or not caller_user_id:
+            return None
+        rows = self._supabase_rest_select(
+            "post_media",
+            {
+                "id": f"eq.{media_id}",
+                "select": "storage_path,moderation_status,post_id",
+                "limit": "1",
+            },
+        )
+        if not rows:
+            return None
+        row = rows[0]
+
+        post = self._post_authorization_row(str(row.get("post_id") or ""))
+        if not post:
+            return None
+        if post.get("deleted_at") is not None:
+            # Soft-deleted post: hidden from EVERYONE, author and admin included.
+            return None
+        author_id = str(post.get("author_id") or "").strip()
+
+        if author_id and author_id == caller_user_id:
+            return row
+        if (
+            str(row.get("moderation_status") or "").strip() == "approved"
+            and str(post.get("content_status") or "").strip() == "visible"
+            and not self._supabase_users_blocked(caller_user_id, author_id)
+        ):
+            return row
+        if self._supabase_user_is_admin(caller_user_id):
+            return row
+        # Not the author, and the media is pending/rejected or the post is not
+        # visible → the caller must not learn it exists.
+        return None
+
+    def _insert_post_media_row(
         self,
         *,
         media_id: str,
         post_id: str,
         storage_path: str,
-        authorization_header: str | None,
+        caller_user_id: str,
     ) -> dict[str, Any] | None:
-        """INSERT a ``post_media`` row AS THE CALLER — RLS is the authorization.
+        """INSERT a ``post_media`` row after checking ownership SERVER-SIDE.
 
-        The backend does NOT check post ownership itself. It POSTs the new row to
-        PostgREST forwarding the caller's raw bearer JWT (plus the anon apikey),
-        so Supabase RLS decides whether the caller may attach media to
-        ``post_id``: only the post's author is allowed. A rejected insert (RLS
-        denial, or the caller doesn't own the post) yields zero rows / an error
-        and this returns ``None`` — the endpoint then refuses without uploading
-        any bytes. ``moderation_status`` is intentionally omitted so it defaults
-        to ``pending`` server-side. Returns the inserted row dict on success.
+        The caller must be the author of ``post_id`` (mirror of the
+        ``post_media_write`` WITH CHECK clause). Returns ``None`` when the caller
+        is not the author or the insert fails — the endpoint then refuses
+        WITHOUT uploading any bytes. ``moderation_status`` is intentionally
+        omitted so it defaults to ``pending`` server-side.
         """
-        supabase_url = str(
-            os.environ.get(SUPABASE_URL_ENV)
-            or os.environ.get("EXPO_PUBLIC_SPOTLIGHT_SUPABASE_URL")
-            or os.environ.get("SPOTLIGHT_SUPABASE_URL")
-            or ""
-        ).strip().rstrip("/")
-        anon_key = str(
-            os.environ.get("SUPABASE_ANON_KEY")
-            or os.environ.get("EXPO_PUBLIC_SPOTLIGHT_SUPABASE_ANON_KEY")
-            or os.environ.get("SPOTLIGHT_SUPABASE_ANON_KEY")
-            or ""
-        ).strip()
-        bearer = str(authorization_header or "").strip()
-        if not supabase_url or not anon_key or not bearer:
+        if not self._caller_may_write_post_media(post_id, caller_user_id):
             return None
+        config = self._supabase_rest_config()
+        if config is None:
+            return None
+        supabase_url, service_role_key = config
 
         from urllib.request import Request, urlopen
 
-        rest_url = f"{supabase_url}/rest/v1/post_media"
         payload = json.dumps(
             {
                 "id": media_id,
@@ -16897,12 +17332,12 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             }
         ).encode("utf-8")
         request = Request(
-            rest_url,
+            f"{supabase_url}/rest/v1/post_media",
             data=payload,
             method="POST",
             headers={
-                "apikey": anon_key,
-                "Authorization": bearer,
+                "apikey": service_role_key,
+                "Authorization": f"Bearer {service_role_key}",
                 "Content-Type": "application/json",
                 "Prefer": "return=representation",
                 "Accept": "application/json",
@@ -16925,42 +17360,39 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         first = rows[0]
         return first if isinstance(first, dict) else None
 
-    def _delete_post_media_row_via_rls(
-        self, media_id: str, authorization_header: str | None
+    def _delete_post_media_row(
+        self, media_id: str, *, post_id: str, caller_user_id: str
     ) -> None:
-        """Best-effort DELETE of a ``post_media`` row AS THE CALLER.
+        """Best-effort DELETE of a ``post_media`` row, authorized SERVER-SIDE.
 
         Used to roll back a row inserted moments ago when the subsequent GCS
         upload fails, so a failed upload never leaves a dangling row pointing at
-        bytes that were never written. Any failure here is swallowed — the
-        endpoint has already decided to return an error to the caller.
+        bytes that were never written. The caller must still pass the
+        ``post_media_write`` USING check (post author, or admin), and the delete
+        is scoped to ``id`` AND ``post_id`` so it can never reach another post's
+        rows. Any failure here is swallowed — the endpoint has already decided to
+        return an error to the caller.
         """
-        supabase_url = str(
-            os.environ.get(SUPABASE_URL_ENV)
-            or os.environ.get("EXPO_PUBLIC_SPOTLIGHT_SUPABASE_URL")
-            or os.environ.get("SPOTLIGHT_SUPABASE_URL")
-            or ""
-        ).strip().rstrip("/")
-        anon_key = str(
-            os.environ.get("SUPABASE_ANON_KEY")
-            or os.environ.get("EXPO_PUBLIC_SPOTLIGHT_SUPABASE_ANON_KEY")
-            or os.environ.get("SPOTLIGHT_SUPABASE_ANON_KEY")
-            or ""
-        ).strip()
-        bearer = str(authorization_header or "").strip()
-        if not supabase_url or not anon_key or not bearer:
+        media_id = str(media_id or "").strip()
+        post_id = str(post_id or "").strip()
+        if not media_id or not post_id:
             return
+        if not self._caller_may_delete_post_media(post_id, caller_user_id):
+            return
+        config = self._supabase_rest_config()
+        if config is None:
+            return
+        supabase_url, service_role_key = config
 
         from urllib.request import Request, urlopen
 
-        query = urlencode({"id": f"eq.{media_id}"})
-        rest_url = f"{supabase_url}/rest/v1/post_media?{query}"
+        query = urlencode({"id": f"eq.{media_id}", "post_id": f"eq.{post_id}"})
         request = Request(
-            rest_url,
+            f"{supabase_url}/rest/v1/post_media?{query}",
             method="DELETE",
             headers={
-                "apikey": anon_key,
-                "Authorization": bearer,
+                "apikey": service_role_key,
+                "Authorization": f"Bearer {service_role_key}",
             },
         )
         try:
@@ -17108,12 +17540,13 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path.startswith("/api/v1/post-media/"):
-            # Backend-proxied read of a PRIVATE post-media image. Authorization is
-            # delegated entirely to Supabase RLS (see _fetch_post_media_row_via_rls):
-            # the backend re-issues the lookup AS THE CALLER, and a row coming back
-            # is the authorization decision — no visibility logic is reimplemented
-            # here. The bytes live in a private GCS bucket and are only ever
-            # streamed through this authenticated proxy.
+            # Backend-proxied read of a PRIVATE post-media image. Authorization
+            # is decided HERE, by this backend, from the VERIFIED caller identity
+            # (see _fetch_authorized_post_media_row): the row is looked up with
+            # the service-role key and the visibility rule is applied in Python,
+            # so the authorization decision never depends on Supabase RLS. The
+            # bytes live in a private GCS bucket and are only ever streamed
+            # through this authenticated proxy.
             identity = self._require_request_identity()
             if identity is None:
                 return
@@ -17138,12 +17571,12 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                     },
                 )
                 return
-            row = self._fetch_post_media_row_via_rls(
-                media_id, self.headers.get("Authorization")
-            )
+            row = self._fetch_authorized_post_media_row(media_id, identity.user_id)
             storage_path = str((row or {}).get("storage_path") or "").strip()
             if not row or not storage_path:
-                # RLS returned nothing (not approved / not visible / not found).
+                # Not visible to this caller (not the author and not approved /
+                # not a visible post / blocked), or no such media at all. Both
+                # answer the same 404 so existence never leaks.
                 self._write_json(
                     HTTPStatus.NOT_FOUND, {"error": "Post media not found"}
                 )
@@ -17314,6 +17747,9 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                     "yes",
                     "on",
                 }
+            # Absent (or "all") keeps the un-scoped read every pre-multi-collection
+            # client already gets.
+            collection_id = _normalized_collection_query_param(query)
             if not self._acquire_heavy_read_slot():
                 return
             try:
@@ -17325,8 +17761,30 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                             offset=offset,
                             include_inactive=include_inactive,
                             favorites_only=favorites_only,
+                            collection_id=collection_id,
                         ),
                     )
+            finally:
+                _heavy_read_semaphore.release()
+            return
+
+        if parsed.path == "/api/v1/collections":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            if not self._require_access(identity):
+                return
+            if not self._acquire_heavy_read_slot():
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    self._write_json(HTTPStatus.OK, self.service.list_collections())
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"Collections read failed: {error}"},
+                )
             finally:
                 _heavy_read_semaphore.release()
             return
@@ -17539,12 +17997,15 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             # The chart's open range — compute only this one; the client fetches
             # the rest on demand via /portfolio/history. Absent → all six (legacy).
             range_key = query.get("range", [""])[0].strip() or None
+            collection_id = _normalized_collection_query_param(query)
             if not self._acquire_heavy_read_slot():
                 return
             try:
                 with self.service.request_identity_context(identity):
                     payload = self.service.portfolio_dashboard(
-                        time_zone_name=time_zone_name, range_key=range_key
+                        time_zone_name=time_zone_name,
+                        range_key=range_key,
+                        collection_id=collection_id,
                     )
             except Exception as error:
                 traceback.print_exc()
@@ -18106,14 +18567,14 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             # request body is the raw resized JPEG bytes (image/jpeg), NOT JSON,
             # so this lane is handled before the JSON body readers below.
             #
-            # AUTHORIZATION IS DELEGATED TO SUPABASE RLS: the client has already
-            # created the `posts` row (client-direct) and passes its id as
-            # ?postId=. Here the backend INSERTs the post_media row AS THE CALLER
-            # (forwarding the caller's bearer), so RLS decides whether the caller
-            # may attach media to that post — only the post's author is allowed.
-            # A rejected insert means the caller doesn't own the post, and NO
-            # bytes are uploaded. Only after a successful insert are the bytes
-            # written to GCS; if that write fails the row is rolled back.
+            # AUTHORIZATION IS ENFORCED HERE: the client has already created the
+            # `posts` row (client-direct) and passes its id as ?postId=. This
+            # backend checks that the VERIFIED caller authors that post before
+            # inserting the post_media row (see _insert_post_media_row) — the
+            # decision is not delegated to Supabase RLS. A caller who doesn't own
+            # the post is refused and NO bytes are uploaded. Only after a
+            # successful insert are the bytes written to GCS; if that write fails
+            # the row is rolled back.
             identity = self._require_request_identity()
             if identity is None:
                 return
@@ -18148,16 +18609,15 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             # Object key is namespaced under the post id so a post's images live
             # together and a media id can never address another post's objects.
             storage_path = f"{post_id}/{media_id}.jpg"
-            authorization_header = self.headers.get("Authorization")
-            row = self._insert_post_media_row_via_rls(
+            row = self._insert_post_media_row(
                 media_id=media_id,
                 post_id=post_id,
                 storage_path=storage_path,
-                authorization_header=authorization_header,
+                caller_user_id=identity.user_id,
             )
             if not row:
-                # RLS rejected the insert (caller doesn't own the post) or it
-                # errored → refuse WITHOUT uploading any bytes.
+                # The caller does not author this post (or the insert errored)
+                # → refuse WITHOUT uploading any bytes.
                 self._write_json(
                     HTTPStatus.FORBIDDEN,
                     {"error": "Not allowed to attach media to this post"},
@@ -18170,13 +18630,17 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                     content_type="image/jpeg",
                 )
             except PostMediaStoreError as error:
-                self._delete_post_media_row_via_rls(media_id, authorization_header)
+                self._delete_post_media_row(
+                    media_id, post_id=post_id, caller_user_id=identity.user_id
+                )
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
                 return
             except Exception as error:  # noqa: BLE001 - storage/upload failure
                 # Best-effort rollback of the row we just inserted so a failed
                 # upload doesn't leave a row pointing at absent bytes.
-                self._delete_post_media_row_via_rls(media_id, authorization_header)
+                self._delete_post_media_row(
+                    media_id, post_id=post_id, caller_user_id=identity.user_id
+                )
                 self._write_json(
                     HTTPStatus.BAD_GATEWAY,
                     {"error": f"Post media upload failed: {error}"},
@@ -19022,6 +19486,25 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Scan feedback failed: {error}"})
                 return
             self._write_json(HTTPStatus.ACCEPTED, {"status": "accepted"})
+            return
+
+        if parsed.path == "/api/v1/collections":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            if not self._require_access(identity):
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    self._write_json(HTTPStatus.OK, self.service.create_collection(payload))
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"Collection creation failed: {error}"},
+                )
             return
 
         if parsed.path == "/api/v1/deck/entries":

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { useRouter } from 'expo-router';
 import {
   Alert,
@@ -11,42 +11,31 @@ import {
   type TextInputProps,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import { Camera, NavArrowLeft, NavArrowRight } from 'iconoir-react-native';
 
 import { Avatar, Button, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 import {
-  describeHandleValidity,
   getUserInitials,
-  sanitizeHandleInput,
-  validateHandle,
   type ProfileUpdate,
 } from '@/features/auth/auth-models';
-import { isHandleAvailable, ProfileUpdateError } from '@/features/auth/auth-service';
+import { loadNativeImagePicker } from '@/lib/native-image-picker';
 import { useAppServices } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
 
 const BIO_MAX_LENGTH = 150;
-const HANDLE_CHECK_DEBOUNCE_MS = 400;
 const COVER_HEIGHT = 176;
 const AVATAR_SIZE = 80;
 /** Camera glyph inside the avatar/cover badges (Figma 3083:12761 / 3083:12763). */
 const CAMERA_ICON_SIZE = 16;
 
 // expo-image-picker / expo-image-manipulator are native modules that may not be
-// present in an OTA-updated JS bundle. Load them defensively so the screen never
-// crashes when they're missing from the running binary.
-function loadImagePicker() {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require('expo-image-picker');
-  } catch {
-    return null;
-  }
-}
-
+// present in the binary an OTA-updated JS bundle is running on. The picker goes
+// through `loadNativeImagePicker`, which probes the NATIVE registry — requiring
+// the JS alone succeeds even when the native half is absent, and the first call
+// then takes the app down instead of failing softly.
 function loadImageManipulator() {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -62,10 +51,15 @@ type UnderlineFieldProps = {
   placeholder: string;
   onChangeText: (text: string) => void;
   testID?: string;
-  /** e.g. the "@" glyph before the handle input. */
+  /** Optional glyph rendered before the input. */
   leading?: ReactNode;
   /** Overrides the value color — the social link renders in blue, per the design. */
   valueColor?: string;
+  /**
+   * Overrides the value's type. The social link is 13px Medium rather than the
+   * 14px Regular the other fields use (Figma 3083:9399).
+   */
+  valueStyle?: TextInputProps['style'];
   autoCapitalize?: TextInputProps['autoCapitalize'];
   autoCorrect?: boolean;
 };
@@ -88,6 +82,7 @@ function UnderlineField({
   testID,
   leading,
   valueColor,
+  valueStyle,
   autoCapitalize,
   autoCorrect,
 }: UnderlineFieldProps) {
@@ -114,7 +109,7 @@ function UnderlineField({
           onChangeText={onChangeText}
           placeholder={placeholder}
           placeholderTextColor={theme.colors.gray400}
-          style={[styles.fieldInput, { color: valueColor ?? theme.colors.gray900 }]}
+          style={[styles.fieldInput, { color: valueColor ?? theme.colors.gray900 }, valueStyle]}
           testID={testID}
           value={value}
         />
@@ -152,75 +147,22 @@ function VerifiedSeal({ size = 24 }: { size?: number }) {
 export function EditProfileScreen() {
   const router = useRouter();
   const theme = useSpotlightTheme();
+  const insets = useSafeAreaInsets();
   const auth = useAuth();
   const { spotlightRepository } = useAppServices();
   const user = auth.currentUser;
 
   const [displayName, setDisplayName] = useState(user?.displayName ?? '');
-  const [handle, setHandle] = useState(() => sanitizeHandleInput(user?.handle ?? ''));
   const [socialLink, setSocialLink] = useState(user?.socialLink ?? '');
   const [location, setLocation] = useState(user?.location ?? '');
   const [bio, setBio] = useState(user?.bio ?? '');
   const [avatarUrl, setAvatarUrl] = useState(user?.avatarURL ?? null);
   const [isSaving, setIsSaving] = useState(false);
-  const [handleAvailability, setHandleAvailability] =
-    useState<'idle' | 'checking' | 'available' | 'taken'>('idle');
 
   const initials = useMemo(() => (user ? getUserInitials(user) : '?'), [user]);
 
-  const savedHandle = useMemo(() => sanitizeHandleInput(user?.handle ?? ''), [user?.handle]);
-  const handleValidity = validateHandle(handle);
-  const handleHint = describeHandleValidity(handleValidity);
-  // Only the user's own unchanged handle is exempt from the availability check.
-  const handleIsUnchanged = handle === savedHandle;
-
-  // Debounced availability probe. The request counter drops stale responses so a
-  // slow early check can't overwrite the verdict for what's currently typed.
-  const handleCheckSeq = useRef(0);
-  useEffect(() => {
-    if (!user || handleValidity !== 'ok' || handleIsUnchanged) {
-      setHandleAvailability('idle');
-      return;
-    }
-
-    setHandleAvailability('checking');
-    const seq = handleCheckSeq.current + 1;
-    handleCheckSeq.current = seq;
-
-    const timer = setTimeout(() => {
-      void isHandleAvailable(handle, user.id).then((available) => {
-        if (handleCheckSeq.current === seq) {
-          setHandleAvailability(available ? 'available' : 'taken');
-        }
-      });
-    }, HANDLE_CHECK_DEBOUNCE_MS);
-
-    return () => clearTimeout(timer);
-  }, [handle, handleIsUnchanged, handleValidity, user]);
-
-  const handleStatusText = (() => {
-    if (handleHint) {
-      return handleHint;
-    }
-    if (handleAvailability === 'checking') {
-      return 'Checking availability…';
-    }
-    if (handleAvailability === 'available') {
-      return `@${handle} is available.`;
-    }
-    if (handleAvailability === 'taken') {
-      return `@${handle} is taken.`;
-    }
-    return null;
-  })();
-
-  const handleStatusIsError = Boolean(handleHint) || handleAvailability === 'taken';
-  // An empty handle is fine — profiles stay reachable by user id.
-  const canSaveHandle =
-    handleValidity === 'empty' || (handleValidity === 'ok' && handleAvailability !== 'taken');
-
   const handlePickAvatar = useCallback(async () => {
-    const ImagePicker = loadImagePicker();
+    const ImagePicker = loadNativeImagePicker();
     if (!ImagePicker) {
       Alert.alert('Update needed', 'Changing your photo needs the latest app version.');
       return;
@@ -286,28 +228,26 @@ export function EditProfileScreen() {
   }, []);
 
   const handleSave = useCallback(async () => {
-    if (isSaving || !canSaveHandle) {
+    if (isSaving) {
       return;
     }
     setIsSaving(true);
     try {
+      // `handle` is deliberately NOT in the patch. The field was removed from
+      // this form, and `updateProfile` only writes keys that are present
+      // (`if (patch.handle !== undefined)`), so omitting it leaves whatever
+      // handle the account already owns intact. Sending `null` here would
+      // release the handle on every save.
       const patch: ProfileUpdate = {
         avatarURL: avatarUrl,
         bio: bio.trim(),
         displayName: displayName.trim(),
-        // Clearing the field releases the handle rather than writing ''.
-        handle: handle.length > 0 ? handle : null,
         location: location.trim(),
         socialLink: socialLink.trim(),
       };
       await auth.updateProfile(patch);
       router.back();
-    } catch (error) {
-      if (error instanceof ProfileUpdateError && error.code === 'handle-taken') {
-        setHandleAvailability('taken');
-        Alert.alert('Handle taken', `@${handle} was just claimed. Try another one.`);
-        return;
-      }
+    } catch {
       Alert.alert('Could not save', 'Something went wrong saving your profile. Please try again.');
     } finally {
       setIsSaving(false);
@@ -316,9 +256,7 @@ export function EditProfileScreen() {
     auth,
     avatarUrl,
     bio,
-    canSaveHandle,
     displayName,
-    handle,
     isSaving,
     location,
     router,
@@ -327,7 +265,9 @@ export function EditProfileScreen() {
 
   return (
     <SafeAreaView
-      edges={['bottom', 'left', 'right']}
+      // No 'bottom' edge — the sticky action bar owns the bottom inset itself,
+      // exactly like the PDP footer. Keeping both double-padded the home bar.
+      edges={['left', 'right']}
       style={[styles.safeArea, { backgroundColor: theme.colors.canvas }]}
     >
       <KeyboardAvoidingView
@@ -354,6 +294,23 @@ export function EditProfileScreen() {
               >
                 <NavArrowLeft color={theme.colors.textPrimary} height={20} width={20} />
               </Pressable>
+
+              {/* Figma 3083:12783 — "Edit Profile", 14/600 in gray/0, centered on
+                  the SCREEN rather than on the space left over beside the back
+                  button. A flexible title between two equal 36pt slots centers it
+                  exactly; the trailing slot is an empty spacer, not a control. */}
+              <Text
+                numberOfLines={1}
+                style={[
+                  theme.typography.titleXsmall,
+                  styles.coverTitle,
+                  { color: theme.colors.gray0 },
+                ]}
+                testID="edit-profile-title"
+              >
+                Edit Profile
+              </Text>
+              <View style={styles.coverBarSpacer} />
             </SafeAreaView>
 
             <Pressable
@@ -395,45 +352,6 @@ export function EditProfileScreen() {
               value={displayName}
             />
 
-            {/* Handle isn't in the 3095:5517 mock, but it's the Phase-2 handle
-                claim — kept here, styled to match the other underline fields. */}
-            <View style={styles.handleField}>
-              <UnderlineField
-                autoCapitalize="none"
-                autoCorrect={false}
-                label="Handle"
-                leading={
-                  // Must NOT reuse styles.fieldInput — that carries flex:1, so the
-                  // "@" stretched to half the row and pushed the input across.
-                  <Text style={[styles.fieldPrefix, { color: theme.colors.gray900 }]}>@</Text>
-                }
-                onChangeText={(next) => setHandle(sanitizeHandleInput(next))}
-                placeholder="yourhandle"
-                testID="edit-profile-handle-input"
-                value={handle}
-              />
-              {/* Only real feedback renders — availability, or an error. There is
-                  no idle "Optional…" hint, so the field sits flush with the rest
-                  of the form until you actually type. */}
-              {handleStatusText ? (
-                <Text
-                  style={[
-                    theme.typography.caption,
-                    {
-                      // dangerStrong, not danger: caption-size error text needs the
-                      // darker red to stay legible on the light form background.
-                      color: handleStatusIsError
-                        ? theme.colors.dangerStrong
-                        : theme.colors.gray500,
-                    },
-                  ]}
-                  testID="edit-profile-handle-status"
-                >
-                  {handleStatusText}
-                </Text>
-              ) : null}
-            </View>
-
             <UnderlineField
               autoCapitalize="none"
               autoCorrect={false}
@@ -441,8 +359,9 @@ export function EditProfileScreen() {
               onChangeText={setSocialLink}
               placeholder="Enter Social Link"
               testID="edit-profile-social-input"
-              // Social link value renders in blue, per the design.
+              // Social link value renders in blue 13px Medium, per Figma 3083:9399.
               valueColor={theme.colors.blue400}
+              valueStyle={styles.fieldInputLink}
               value={socialLink}
             />
 
@@ -511,17 +430,22 @@ export function EditProfileScreen() {
           </View>
         </ScrollView>
 
-        {/* Footer actions stay pinned above the keyboard/home indicator, matching
-            the Figma "Dropdown Handle" footer that hosts Cancel / Save. */}
-        <View
-          style={[
-            styles.actions,
-            {
-              backgroundColor: theme.colors.canvas,
-              borderTopColor: theme.colors.outlineSubtle,
-            },
-          ]}
-        >
+      </KeyboardAvoidingView>
+
+      {/* Sticky action bar — same treatment as the PDP's ADD ITEM / SHARE bar:
+          absolutely pinned to the bottom OUTSIDE the keyboard avoider, padded by
+          the safe-area inset. Keeping it inside KeyboardAvoidingView made it ride
+          up and sit flush on top of the keyboard with no bottom inset. */}
+      <View
+        style={[
+          styles.actions,
+          {
+            backgroundColor: theme.colors.gray0,
+            borderTopColor: theme.colors.outlineSubtle,
+            paddingBottom: insets.bottom + 8,
+          },
+        ]}
+      >
           <View style={styles.actionButton}>
             <Button
               label="CANCEL"
@@ -536,7 +460,7 @@ export function EditProfileScreen() {
           </View>
           <View style={styles.actionButton}>
             <Button
-              disabled={isSaving || !canSaveHandle}
+              disabled={isSaving}
               label={isSaving ? 'SAVING…' : 'SAVE'}
               labelStyleVariant="label"
               onPress={() => {
@@ -549,8 +473,7 @@ export function EditProfileScreen() {
               variant="dark"
             />
           </View>
-        </View>
-      </KeyboardAvoidingView>
+      </View>
     </SafeAreaView>
   );
 }
@@ -560,12 +483,21 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   actions: {
-    // Figma 3083:12784 — 10px between the two actions, 16px gutter, 10px above.
+    // Mirrors the PDP sticky footer (card-detail-screen `stickyFooter` +
+    // `actionBar`): absolutely pinned, elevated above the scroll content, 16px
+    // gutter and 10px above the buttons. Bottom padding is applied inline from
+    // the safe-area inset.
     borderTopWidth: 1,
+    bottom: 0,
+    elevation: 10,
     flexDirection: 'row',
-    gap: 10,
+    gap: 12,
+    left: 0,
     paddingHorizontal: 16,
     paddingTop: 10,
+    position: 'absolute',
+    right: 0,
+    zIndex: 10,
   },
   avatarBadge: {
     // Figma 3083:12761 — matches the cover badge: gray50 circle, black glyph.
@@ -638,9 +570,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 0,
   },
-  fieldPrefix: {
-    fontFamily: 'SpotlightBodyRegular',
-    fontSize: 14,
+  fieldInputLink: {
+    // Social link value: 13px Medium (Figma 3083:9399), not the 14px Regular the
+    // other field values use.
+    fontFamily: 'SpotlightBodyMedium',
+    fontSize: 13,
   },
   coverBar: {
     alignItems: 'center',
@@ -648,6 +582,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingTop: 8,
+  },
+  // Mirrors `circleButton`'s 36pt width so the flexible title between them lands
+  // on the screen's centerline instead of being pushed right by the back button.
+  coverBarSpacer: {
+    height: 36,
+    width: 36,
+  },
+  coverTitle: {
+    flex: 1,
+    textAlign: 'center',
   },
   coverCameraBadge: {
     // Figma 3083:12763 — a plain gray50 circle, no ring. Was a purple fill with a
@@ -673,14 +617,13 @@ const styles = StyleSheet.create({
   fullWidth: {
     width: '100%',
   },
-  handleField: {
-    gap: 6,
-  },
   safeArea: {
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 24,
+    // Clears the absolutely-pinned action bar (32px buttons + 10 top + ~8 inset)
+    // so the Verify row can still be scrolled clear of it.
+    paddingBottom: 96,
   },
   verifyCard: {
     // Figma 3095:5499 — white card on a 0.5px gray400 hairline, radius 8, even

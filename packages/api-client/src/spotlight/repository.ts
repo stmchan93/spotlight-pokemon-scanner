@@ -11,7 +11,7 @@ import {
   seedMockScannerCandidates,
   updateInventoryForSale,
 } from './mock-data';
-import { labelingSessionAngleLabels, RARITY_BUCKET_VALUES } from './types';
+import { ALL_COLLECTIONS_ID, labelingSessionAngleLabels, RARITY_BUCKET_VALUES } from './types';
 import type {
   AccessRedeemResult,
   AccessStatus,
@@ -58,6 +58,8 @@ import type {
   InventoryEntryCreateResponsePayload,
   InventoryCardEntry,
   InventoryEntriesQuery,
+  Collection,
+  CollectionsSnapshot,
   InsightGrowthCard,
   LabelingSessionArtifactRecord,
   LabelingSessionArtifactUploadPayload,
@@ -140,7 +142,14 @@ export type CatalogSearchOptions = {
 };
 
 export interface SpotlightRepository {
-  loadPortfolioDashboard(options?: { range?: keyof PortfolioDashboard['ranges'] }): Promise<SpotlightRepositoryLoadResult<PortfolioDashboard>>;
+  /** The owner's collections plus the "All Collection" totals. */
+  listCollections(): Promise<CollectionsSnapshot>;
+  /** Create a named collection. Returns it, empty. */
+  createCollection(name: string): Promise<Collection>;
+  loadPortfolioDashboard(options?: {
+    range?: keyof PortfolioDashboard['ranges'];
+    collectionID?: string | null;
+  }): Promise<SpotlightRepositoryLoadResult<PortfolioDashboard>>;
   getPortfolioDashboard(): Promise<PortfolioDashboard>;
   getPortfolioRange(range: keyof PortfolioDashboard['ranges']): Promise<PortfolioDashboard['ranges'][keyof PortfolioDashboard['ranges']]>;
   getPortfolioPerformance(): Promise<PortfolioPerformance>;
@@ -1368,6 +1377,12 @@ function buildInventoryEntriesQueryParams(query?: InventoryEntriesQuery) {
   if (query?.includeInactive) {
     params.set('includeInactive', '1');
   }
+  // Left off entirely for "all", so the request is byte-identical to what a
+  // pre-multi-collection client sends.
+  const collectionID = query?.collectionID?.trim();
+  if (collectionID && collectionID !== ALL_COLLECTIONS_ID) {
+    params.set('collectionId', collectionID);
+  }
   return params;
 }
 
@@ -1401,6 +1416,45 @@ function normalizeNumber(value: unknown) {
 
 function normalizeBoolean(value: unknown) {
   return typeof value === 'boolean' ? value : null;
+}
+
+/** One collection row from the server, or null when it is unusable (no id/name). */
+function mapCollection(value: unknown): Collection | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const id = normalizeString(value.id);
+  if (!id) {
+    return null;
+  }
+  return {
+    id,
+    name: normalizeString(value.name) ?? 'Collection',
+    sortOrder: normalizeNumber(value.sortOrder) ?? 0,
+    createdAt: normalizeString(value.createdAt) ?? '',
+    cardCount: normalizeNumber(value.cardCount) ?? 0,
+    totalValue: normalizeNumber(value.totalValue) ?? 0,
+    isDefault: normalizeBoolean(value.isDefault) ?? false,
+  };
+}
+
+function mapCollectionsSnapshot(value: unknown): CollectionsSnapshot {
+  const record = isRecord(value) ? value : {};
+  const collections = Array.isArray(record.collections)
+    ? record.collections.map(mapCollection).filter((entry): entry is Collection => entry !== null)
+    : [];
+  const allRecord = isRecord(record.all) ? record.all : {};
+  return {
+    collections,
+    // Fall back to the first collection so the client always has a real target
+    // for adds even if the server omits the field.
+    defaultCollectionID:
+      normalizeString(record.defaultCollectionID) ?? collections[0]?.id ?? '',
+    all: {
+      cardCount: normalizeNumber(allRecord.cardCount) ?? 0,
+      totalValue: normalizeNumber(allRecord.totalValue) ?? 0,
+    },
+  };
 }
 
 // Row-sparkline series: an array of finite numbers, or null when the backend
@@ -2887,8 +2941,12 @@ async function safeResponseText(response: Response) {
   }
 }
 
+/** The mock's stand-in for the default collection every real owner is given. */
+const MOCK_DEFAULT_COLLECTION_ID = 'collection:mock-default';
+
 export class MockSpotlightRepository implements SpotlightRepository {
   private inventoryEntries = seedMockInventoryEntries();
+  private createdCollections: Collection[] = [];
   private recentSales = seedMockRecentSales();
   private cardTransactions: CardTransactionRecord[] = seedMockCardTransactions();
   private catalogResults = seedMockCatalogResults();
@@ -2928,7 +2986,64 @@ export class MockSpotlightRepository implements SpotlightRepository {
     };
   }
 
-  async loadPortfolioDashboard(_options?: { range?: keyof PortfolioDashboard['ranges'] }) {
+  async listCollections(): Promise<CollectionsSnapshot> {
+    const totalValue = this.inventoryEntriesForQuery().reduce(
+      (sum, entry) => sum + (entry.hasMarketPrice ? entry.marketPrice * entry.quantity : 0),
+      0,
+    );
+    const cardCount = this.inventoryEntriesForQuery().length;
+    const mockCollections: Collection[] = [
+      {
+        id: MOCK_DEFAULT_COLLECTION_ID,
+        name: 'Main Collection',
+        sortOrder: 0,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        cardCount,
+        totalValue,
+        isDefault: true,
+      },
+      ...this.createdCollections,
+    ];
+    return {
+      collections: mockCollections,
+      defaultCollectionID: MOCK_DEFAULT_COLLECTION_ID,
+      all: { cardCount, totalValue },
+    };
+  }
+
+  async createCollection(name: string): Promise<Collection> {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      throw new SpotlightRepositoryRequestError('name is required', 'invalid_response');
+    }
+    const collection: Collection = {
+      id: `collection:mock-${this.createdCollections.length + 1}`,
+      name: trimmed,
+      sortOrder: this.createdCollections.length + 1,
+      createdAt: new Date().toISOString(),
+      cardCount: 0,
+      totalValue: 0,
+      isDefault: false,
+    };
+    this.createdCollections.push(collection);
+    return collection;
+  }
+
+  async loadPortfolioDashboard(options?: {
+    range?: keyof PortfolioDashboard['ranges'];
+    collectionID?: string | null;
+  }) {
+    // A collection created in the mock has no holdings, so scoping to it yields
+    // the empty dashboard — which is what the real backend returns and what the
+    // "Let's build your collection" empty state is driven by.
+    const scopedCollectionID = options?.collectionID?.trim();
+    const isEmptyMockCollection =
+      !!scopedCollectionID &&
+      scopedCollectionID !== ALL_COLLECTIONS_ID &&
+      scopedCollectionID !== MOCK_DEFAULT_COLLECTION_ID;
+    if (isEmptyMockCollection) {
+      return buildLoadResult('empty', buildEmptyPortfolioDashboard());
+    }
     const dashboard = buildMockDashboard(this.inventoryEntriesForQuery(), this.recentSales);
     dashboard.inventoryItems = dashboard.inventoryItems.map((entry) => this.annotateInventoryEntry(entry));
     return buildLoadResult(
@@ -4159,16 +4274,54 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     return candidate;
   }
 
-  async loadPortfolioDashboard(options?: { range?: keyof PortfolioDashboard['ranges'] }) {
+  async listCollections(): Promise<CollectionsSnapshot> {
+    const response = await this.requestJsonOrThrow<{
+      collections?: unknown;
+      defaultCollectionID?: unknown;
+      all?: unknown;
+    }>(`${this.baseUrl}/api/v1/collections`);
+    return mapCollectionsSnapshot(response);
+  }
+
+  async createCollection(name: string): Promise<Collection> {
+    const response = await this.requestJsonOrThrow<{ collection?: unknown }>(
+      `${this.baseUrl}/api/v1/collections`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      },
+    );
+    const collection = mapCollection(response.collection);
+    if (!collection) {
+      throw new SpotlightRepositoryRequestError(
+        'The server did not return the created collection.',
+        'invalid_response',
+      );
+    }
+    return collection;
+  }
+
+  async loadPortfolioDashboard(options?: {
+    range?: keyof PortfolioDashboard['ranges'];
+    collectionID?: string | null;
+  }) {
     // Prefer the single consolidated endpoint (one request instead of ~14).
     // Falls back to the legacy per-section fan-out when the backend doesn't yet
     // expose the endpoint (404) or the consolidated call fails, so OTA clients
     // and backend deploys don't have to be in lockstep.
     const range = options?.range ?? '1W';
-    const consolidated = await this.loadPortfolioDashboardViaConsolidatedEndpoint(range);
+    const consolidated = await this.loadPortfolioDashboardViaConsolidatedEndpoint(
+      range,
+      options?.collectionID ?? null,
+    );
     if (consolidated) {
       return consolidated;
     }
+    // NOTE the fan-out fallback is NOT collection-scoped — it predates
+    // collections and hits per-section endpoints that take no collection. It
+    // only runs when the consolidated endpoint is missing (an app newer than its
+    // backend), where showing the whole portfolio beats showing nothing.
     return this.loadPortfolioDashboardViaFanout();
   }
 
@@ -4189,8 +4342,13 @@ export class HttpSpotlightRepository implements SpotlightRepository {
 
   private async loadPortfolioDashboardViaConsolidatedEndpoint(
     range: keyof PortfolioDashboard['ranges'],
+    collectionID: string | null = null,
   ): Promise<SpotlightRepositoryLoadResult<PortfolioDashboard> | null> {
     const queryParams = new URLSearchParams({ timeZone: 'America/Los_Angeles', range });
+    const scopedCollectionID = collectionID?.trim();
+    if (scopedCollectionID && scopedCollectionID !== ALL_COLLECTIONS_ID) {
+      queryParams.set('collectionId', scopedCollectionID);
+    }
     const url = `${this.baseUrl}/api/v1/portfolio/dashboard?${queryParams.toString()}`;
 
     // Retry transport/timeout failures with a short backoff: a cold-cache first

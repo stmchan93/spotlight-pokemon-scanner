@@ -125,9 +125,11 @@ import {
   captureFailureSubtitle,
   captureFailureTitle,
   formatCurrency,
+  formatTrayTotal,
   isFinitePrice,
   isNonPSAUnsupportedSlabCapture,
   logScannerDiagnostic,
+  resolveCaptureTrayPrice,
   scannerCapturePriceLabel,
   scannerCaptureThumbUri,
   scannerErrorKind,
@@ -136,6 +138,8 @@ import {
   scannerSlabInlineLabel,
   scannerSlabSubtitle,
   slabContextFromAnalysis,
+  summarizeTrayPrices,
+  supportedTrayCurrencyCode,
   triggerScannerHaptic,
   triggerScannerProcessedHaptic,
   unsupportedSlabSubtitle,
@@ -179,10 +183,14 @@ function buildInventoryEntryArgs(
   activeCandidate: CatalogSearchResult,
   addedAt: string,
   conditionCode: DeckConditionCode,
+  collectionID: string,
 ): InventoryEntryCreateRequestPayload {
   return {
     addedAt,
     cardID: activeCandidate.cardId,
+    // Scans land in the collection the Collection tab is showing. "All" is not a
+    // real target, so the backend files those into the default collection.
+    collectionID,
     condition: capture.mode === 'slabs' ? null : conditionCode,
     quantity: 1,
     selectedRank: capture.activeCandidateIndex + 1,
@@ -383,12 +391,10 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
 }: CaptureTrayRowProps) {
   const theme = useSpotlightTheme();
   const candidate = activeCandidateForCapture(capture);
-  const baseMarketPrice = candidate?.marketPrice;
-  const currencyCode = candidate?.currencyCode ?? 'USD';
   const canCycleCandidate = !!candidate && capture.candidates.length > 1;
-  const displayMarketPrice = isFinitePrice(selection?.marketPrice ?? null)
-    ? (selection!.marketPrice as number)
-    : (isFinitePrice(baseMarketPrice) ? baseMarketPrice : null);
+  // Shared with the tray header TOTAL (`trayPriceSummary`) so the rows and the
+  // number a dealer prices a stack off can never drift apart.
+  const { amount: displayMarketPrice, currencyCode } = resolveCaptureTrayPrice(capture, selection);
   const setAndNumberLine = candidate
     ? [candidate.setName, candidate.cardNumber ? `#${candidate.cardNumber.replace(/^#/, '')}` : null]
       .filter(Boolean)
@@ -585,12 +591,13 @@ export function ScannerScreen({
   const router = useRouter();
   // Guest gating: capture stays open, but tray/collection/wishlist/eBay/etc.
   // actions route guests to the login modal instead of running.
-  const { gate, isGuest, openLogin } = useGuestGate();
+  const { ensureGuestSession, gate, isGuest, openLogin } = useGuestGate();
   const {
     dataVersion,
     refreshData,
     spotlightRepository,
     prependOptimisticInventoryEntry,
+    activeCollectionID,
   } = useAppServices();
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
@@ -1107,14 +1114,39 @@ export function ScannerScreen({
     return lookup;
   }, [inventoryEntries]);
 
-  const trayPriceSummary = useMemo(() => {
-    const total = recentCaptures.reduce((sum, capture) => {
-      const marketPrice = activeCandidateForCapture(capture)?.marketPrice;
-      return isFinitePrice(marketPrice) ? sum + marketPrice : sum;
-    }, 0);
+  // The header TOTAL is the sum of exactly what the rows show: each capture is
+  // priced through the SAME `resolveCaptureTrayPrice` the row cell uses, honoring
+  // the price-sheet selection (e.g. a Lightly Played comp) instead of the raw
+  // candidate market price. One O(n) pass over the tray with a Map lookup per
+  // capture — no per-row inventory/pricing fetches — memoized on the only two
+  // inputs that can change it, so a 150-item tray recomputes only when the tray
+  // itself or a price selection mutates.
+  const trayPriceSummary = useMemo(
+    () => summarizeTrayPrices(recentCaptures.map(
+      (capture) => resolveCaptureTrayPrice(capture, priceSelection.get(capture.id) ?? null),
+    )),
+    [priceSelection, recentCaptures],
+  );
 
-    return { total };
-  }, [recentCaptures]);
+  // A candidate priced in something other than USD is dropped from the TOTAL
+  // rather than summed into it (see `summarizeTrayPrices`). That drop is
+  // invisible on screen by design — no UI for a case the product doesn't
+  // support yet — so report it instead of letting it disappear. Deduped per
+  // currency for the session: this recomputes on every tray mutation, and we
+  // want to learn THAT it happens, not one event per re-render.
+  const reportedUnsupportedCurrenciesRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    trayPriceSummary.unsupportedCurrencyCodes.forEach((currencyCode) => {
+      if (reportedUnsupportedCurrenciesRef.current.has(currencyCode)) {
+        return;
+      }
+      reportedUnsupportedCurrenciesRef.current.add(currencyCode);
+      capturePostHogEvent('scan_tray_unsupported_currency', {
+        currency_code: currencyCode,
+        supported_currency_code: supportedTrayCurrencyCode,
+      });
+    });
+  }, [trayPriceSummary]);
 
   const deleteRecentCapture = useCallback((captureId: string) => {
     setRecentCaptures((current) => {
@@ -1489,6 +1521,14 @@ export function ScannerScreen({
     const scanStartedAt = Date.now();
     setIsCapturing(true);
 
+    // THE billable moment. A guest browses with no Supabase user at all (each
+    // anonymous user is a Monthly Active User Supabase charges for), so the scan
+    // dispatch is where we finally mint one. Started here, in parallel with the
+    // shutter + normalization, so it costs no visible latency, and awaited
+    // before the match request goes out. Single-flight in the auth provider: a
+    // burst of taps bills ONE user. No-op for anyone who already has a session.
+    const guestSessionPromise = isGuest ? ensureGuestSession() : null;
+
     const captureId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     setRecentCaptures((current) => applyCapEviction([
       {
@@ -1792,6 +1832,15 @@ export function ScannerScreen({
         };
       }));
 
+      // The match (and the artifact upload it carries) is the first authed call
+      // of a guest's life. If the mint failed — anonymous sign-ins off, offline
+      // — fail the capture the same way a failed match does (tray row drops out
+      // of its loading state, error haptic, scan_match_failed) instead of firing
+      // a request that can only 401. The next tap retries the mint.
+      if (guestSessionPromise && !(await guestSessionPromise)) {
+        throw new Error('guest_session_unavailable');
+      }
+
       void runMatchForCapture({
         captureId,
         captureMs,
@@ -1859,9 +1908,11 @@ export function ScannerScreen({
     }
   }, [
     cardType,
+    ensureGuestSession,
     hasPermission,
     isCameraReady,
     isCapturing,
+    isGuest,
     requestPermission,
     runMatchForCapture,
     triggerCaptureFlash,
@@ -2130,7 +2181,7 @@ export function ScannerScreen({
       trackCandidateSelectionIfNeeded(capture);
       const selectedCondition: DeckConditionCode = priceSelection.get(capture.id)?.conditionCode ?? 'near_mint';
       const createResponse = await spotlightRepository.createInventoryEntry(
-        buildInventoryEntryArgs(capture, activeCandidate, addedAt, selectedCondition),
+        buildInventoryEntryArgs(capture, activeCandidate, addedAt, selectedCondition, activeCollectionID),
       );
       capturePostHogEvent('scan_inventory_add_succeeded', {
         mode: capture.mode,
@@ -2290,7 +2341,7 @@ export function ScannerScreen({
           const addedAt = new Date().toISOString();
           const condition: DeckConditionCode = priceSelection.get(capture.id)?.conditionCode ?? 'near_mint';
           const createResponse = await spotlightRepository.createInventoryEntry(
-            buildInventoryEntryArgs(capture, candidate, addedAt, condition),
+            buildInventoryEntryArgs(capture, candidate, addedAt, condition, activeCollectionID),
           );
           prependOptimisticInventoryEntry(
             buildOptimisticInventoryEntry(
@@ -2935,7 +2986,7 @@ export function ScannerScreen({
               </View>
               <View style={styles.trayInfoPill}>
                 <Text style={styles.trayInfoPillLabel} testID="scanner-value-pill-text">
-                  {`TOTAL: ${formatCurrency(trayPriceSummary.total)}`}
+                  {`TOTAL: ${formatTrayTotal(trayPriceSummary)}`}
                 </Text>
               </View>
             </View>

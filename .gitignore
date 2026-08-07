@@ -36,6 +36,10 @@ backend/*.pyc
 backend/venv/
 backend/.env
 backend/.env.*.secrets
+# ...and any backup/rotation copy of a secrets file (e.g. .secrets.bak-<reason>).
+# The bare rule above does NOT match a suffixed copy, so one made during a
+# credential rotation would otherwise show up as an untracked, committable file.
+backend/.env.*.secrets.*
 .venv-raw-visual-poc/
 .env.*.smoke.local
 
@@ -106,3 +110,7 @@ backend/models/
 
 # Supabase CLI local link cache
 apps/spotlight-rn/supabase/.temp/
+
+# Stray Supabase CLI link state when a command is run from the repo root
+# without --workdir (the real project lives in apps/spotlight-rn/supabase).
+/supabase/.temp/

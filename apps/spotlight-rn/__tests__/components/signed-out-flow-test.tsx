@@ -110,6 +110,35 @@ describe('SignedOutFlow — split Log In vs Sign Up (Figma 2161:6847)', () => {
     });
   });
 
+  // The guest conversion sets the password only AFTER the emailed code proves
+  // the address (Supabase won't take both at once on an unverified email), so
+  // the code step has to carry the draft password back to the provider.
+  it('carries the signup password into code verification (guest conversion needs it)', async () => {
+    const emailAuth = buildEmailAuth({ checkEmail: jest.fn(async () => false) });
+    renderFlow(emailAuth);
+
+    fireEvent.press(screen.getByTestId('auth-login-signup'));
+    fireEvent.changeText(screen.getByTestId('auth-signup-email-input'), 'new@example.com');
+    fillSignUp();
+    fireEvent.press(screen.getByTestId('auth-signup-continue'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('auth-verify-code-screen')).toBeTruthy();
+    });
+
+    fireEvent.changeText(screen.getByTestId('auth-code-input'), '123456');
+    fireEvent.press(screen.getByTestId('auth-verify-continue'));
+
+    await waitFor(() => {
+      expect(emailAuth.verifyCode).toHaveBeenCalledWith({
+        code: '123456',
+        email: 'new@example.com',
+        fullName: 'Ash Ketchum',
+        password: 'pikachu25!',
+      });
+    });
+  });
+
   it('Forgot password? opens the PASSWORD RESET screen and sends the code', async () => {
     const emailAuth = buildEmailAuth();
     renderFlow(emailAuth);

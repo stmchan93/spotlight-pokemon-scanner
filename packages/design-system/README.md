@@ -99,6 +99,7 @@ Current API concepts:
   - `dark` — `gray900` (#1A1A1A) fill with a white label (black commit CTA, e.g. Add-to-Collection CONFIRM)
   - `destructive` — `dangerStrong` (#D93025) fill with a white label (destructive CTA, e.g. bulk Remove)
 - sizes:
+  - `xs` — 32px min height, 12/8 padding (compact form-footer action)
   - `sm`
   - `md`
   - `lg`
@@ -113,9 +114,14 @@ Current API concepts:
   - `label` — 13px Medium (`typography.label`)
 - optional `leadingAccessory`
 - optional `trailingAccessory`
+- `disabled` — filled variants (`primary` / `dark` / `accent` / `destructive`) collapse to the disabled token: a flat `gray400` (#BEBEBE) fill, white label, **no border** (Figma 3147:10840). Light/bordered variants keep a subtle premixed-alpha fade. (Borders are drawn transparent rather than as a translucent same-color ring, which used to composite into a dark outline.)
 
 PDP usage: `<Button variant="outline" shape="rounded" labelStyleVariant="label" … />` and
 `<Button variant="accent" shape="rounded" labelStyleVariant="label" … />`.
+
+Edit-Profile footer usage (Figma 3083:12784):
+`<Button variant="outline" shape="rounded" size="xs" labelStyleVariant="label" … />` paired with
+`<Button variant="dark" shape="rounded" size="xs" labelStyleVariant="label" … />`.
 
 ### IconButton
 
@@ -156,6 +162,12 @@ Current API concepts:
 - optional helper text
 - optional leading and trailing nodes
 - RN `TextInput` props passthrough
+- forwarded `ref` to the underlying `TextInput` (for `focus()` / `blur()`)
+- `variant`:
+  - `filled` (default) — rounded, tinted box; the standard form input
+  - `underline` — no fill or box, just a bottom rule. For surfaces where the
+    input IS the content rather than one row of a form (the New Collection name
+    field, Figma 3357:9430)
 
 ### ScreenHeader
 
@@ -200,8 +212,8 @@ Current API concepts:
 - optional right accessory
 - optional subtitle
 - title style:
-  - `title`
-  - `titleCompact`
+  - `titleStyleVariant`: `title` | `titleCompact`
+  - `titleStyle`: a full `TextStyle` override that wins over the variant (e.g. `typography.titleXsmall` for a compact 14/600 sheet title)
 
 ### SheetSurface
 
@@ -261,7 +273,9 @@ Current API concepts:
 
 File: `src/components/state-card.tsx`
 
-Use for loading, empty, retry, and unavailable states.
+Use for empty, retry, and unavailable states — outcomes the user reads or acts
+on. For a transient "still fetching" placeholder that content will replace,
+use `InlineLoader` instead: a bordered card reads as a result, not as progress.
 
 Current API concepts:
 
@@ -270,6 +284,19 @@ Current API concepts:
 - optional loading indicator
 - optional action button
 - optional centered layout
+
+### InlineLoader
+
+File: `src/components/inline-loader.tsx`
+
+Use for in-place loading: a spinner over one line of secondary copy, with no
+card, border, or fill. This is the default treatment while a list/section is
+fetching.
+
+Current API concepts:
+
+- optional label (one short line, e.g. "Fetching posts")
+- size (`small` default / `large`)
 
 ### SlabFrame
 
@@ -484,6 +511,22 @@ Use for mutually exclusive short option groups.
 Current label role:
 
 - `typography.control`
+
+### PageTabs
+
+File: `src/components/page-tabs.tsx`
+
+Use for the page-level tab bar that switches a profile or screen between views
+(e.g. Collection / For Sale / Activity).
+
+Current API concepts:
+
+- centered, content-width tabs with a 40px gap (Figma 3184-17337) — not full-width `flex: 1` tabs
+- active tab: `bodyMedium` / `textPrimary` with a 2px `textPrimary` underline hugging the label
+- inactive tab: `body` / `textSecondary`, no underline
+- a full-bleed `gray200` rail runs edge to edge under all tabs; the active underline shares its
+  baseline and paints over it. The rail is **not** inset by the page gutter, so render `PageTabs`
+  full-bleed rather than inside a horizontally padded wrapper.
 
 ### FloatingBottomNav
 

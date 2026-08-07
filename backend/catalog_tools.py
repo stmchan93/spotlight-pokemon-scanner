@@ -424,6 +424,12 @@ def _apply_additive_runtime_migrations(connection: sqlite3.Connection) -> None:
     # filled once by /api/v1/ops/backfill-added-baselines.
     _add_column_if_missing(connection, "deck_entries", "added_market_price", "REAL")
     _add_column_if_missing(connection, "deck_entries", "added_market_date", "TEXT")
+    # Which collection this holding lives in (multi-collection v1). NULL means
+    # "not yet assigned" — every owner's NULL rows are adopted by their default
+    # collection the first time they read /api/v1/collections. The backfill is
+    # deliberately per-owner and lazy: rewriting every row of a live deck_entries
+    # at startup is exactly the shape of work that crash-looped the VM before.
+    _add_column_if_missing(connection, "deck_entries", "collection_id", "TEXT")
     _add_column_if_missing(connection, "sale_events", "owner_user_id", "TEXT")
     _add_column_if_missing(connection, "sale_events", "cost_basis_total", "REAL")
     _add_column_if_missing(connection, "sale_events", "cost_basis_unit_price", "REAL")
@@ -836,6 +842,17 @@ def _reconcile_deck_entry_quantities_from_events(connection: sqlite3.Connection)
         )
 
 
+# SQLite allows at most 999 bound variables in one statement by default, so any
+# `IN (...)` built from a caller-supplied id list has to be issued in chunks.
+# Sized below the limit to leave headroom for other bound values in the query.
+_SQL_MAX_BOUND_VARIABLES = 900
+
+
+def _chunked_sql_values(values: list[str], size: int = _SQL_MAX_BOUND_VARIABLES) -> Iterable[list[str]]:
+    for start in range(0, len(values), size):
+        yield values[start : start + size]
+
+
 def _normalized_alias_text(value: object) -> str:
     text = str(value or "").strip()
     if not text:
@@ -1048,20 +1065,20 @@ def _card_title_aliases_by_card_ids(
     if not normalized_ids:
         return {}
 
-    placeholders = ", ".join("?" for _ in normalized_ids)
-    rows = connection.execute(
-        f"""
-        SELECT card_id, alias
-        FROM card_name_aliases
-        WHERE card_id IN ({placeholders})
-        ORDER BY card_id, alias
-        """,
-        normalized_ids,
-    ).fetchall()
-
     grouped: dict[str, list[str]] = {}
-    for row in rows:
-        grouped.setdefault(str(row["card_id"]), []).append(str(row["alias"]))
+    for chunk in _chunked_sql_values(normalized_ids):
+        placeholders = ", ".join("?" for _ in chunk)
+        rows = connection.execute(
+            f"""
+            SELECT card_id, alias
+            FROM card_name_aliases
+            WHERE card_id IN ({placeholders})
+            ORDER BY card_id, alias
+            """,
+            chunk,
+        ).fetchall()
+        for row in rows:
+            grouped.setdefault(str(row["card_id"]), []).append(str(row["alias"]))
     return {card_id: tuple(aliases) for card_id, aliases in grouped.items()}
 
 
@@ -3072,11 +3089,15 @@ def cards_by_ids(connection: sqlite3.Connection, card_ids: Iterable[str]) -> dic
     if not normalized_ids:
         return {}
 
-    placeholders = ",".join("?" for _ in normalized_ids)
-    rows = connection.execute(
-        f"SELECT * FROM cards WHERE id IN ({placeholders})",
-        tuple(normalized_ids),
-    ).fetchall()
+    rows: list[sqlite3.Row] = []
+    for chunk in _chunked_sql_values(normalized_ids):
+        placeholders = ",".join("?" for _ in chunk)
+        rows.extend(
+            connection.execute(
+                f"SELECT * FROM cards WHERE id IN ({placeholders})",
+                tuple(chunk),
+            ).fetchall()
+        )
     alias_map = _card_title_aliases_by_card_ids(connection, normalized_ids)
     return {
         str(row["id"]): _card_row_to_dict(row, title_aliases=alias_map.get(str(row["id"]), ()))
@@ -3086,9 +3107,15 @@ def cards_by_ids(connection: sqlite3.Connection, card_ids: Iterable[str]) -> dic
 
 # Ceiling on the candidate pool a single search gathers, so offset pagination
 # has a STABLE, complete set to slice (a top illustrator like Kagemaru Himeno
-# has many hundreds of cards). Kept under SQLite's 999-variable limit because
-# cards_by_ids builds one `IN (...)` per candidate id with no chunking.
+# has many hundreds of cards). No longer tied to SQLite's 999-variable limit —
+# cards_by_ids chunks its `IN (...)` — so this is now purely a scoring-cost
+# bound and can be raised if a broad query is found losing real matches.
 _MANUAL_SEARCH_POOL_CEILING = 900
+
+# Weight on the fraction of the user's typed words a card actually accounts for.
+# Sized below the exact-alias retrieval tier (500) so a full-name match still
+# beats a card that merely covers more query words.
+_MANUAL_SEARCH_COVERAGE_WEIGHT = 400.0
 
 
 def _normalized_manual_search_limit(limit: int) -> int:
@@ -3487,6 +3514,28 @@ def _manual_search_candidate_rows_for_phrase(
             _manual_search_prefix_bounds(normalized_phrase),
         ),
     ]
+
+    # Substring match on the alias text. Every branch above is exact-or-prefix, so
+    # a word that is not at the START of the name is unreachable: "nidoking" never
+    # matches "Team Rocket's Nidoking ex". That hides ~2k cards — every owner
+    # possessive (Team Rocket's, Giovanni's, Cynthia's, Ethan's …) plus the Dark /
+    # Shining / Radiant prefixes — behind names the user has no reason to guess.
+    #
+    # Restricted to single tokens of 3+ characters. Multi-word phrases are already
+    # served by the prefix tiers plus token coverage in the scorer, and short
+    # tokens ("s", "ex") appear in most of the catalog, so scanning for them costs
+    # a full pass to return noise. Scored below every prefix tier so a prefix hit
+    # still wins: "char" keeps ranking Charizard above Dark Charizard.
+    #
+    # No LIKE escaping needed — tokenize() (`[^\W_]+`) has already stripped `%`
+    # and `_` out of normalized_phrase.
+    if len(normalized_phrase) >= 3 and " " not in normalized_phrase:
+        query_specs.append(
+            (
+                "SELECT card_id AS id, 300.0 AS score FROM card_name_aliases WHERE normalized_alias LIKE ? LIMIT ?",
+                (f"%{normalized_phrase}%",),
+            )
+        )
 
     if len(normalized_phrase) <= 12:
         query_specs.extend(
@@ -3938,8 +3987,13 @@ def search_cards(
     candidate_scores: dict[str, float] = {}
     candidate_order: list[str] = []
     seen_candidates: set[str] = set()
+    # Which of the user's typed word tokens each candidate was retrieved by. The
+    # pool gets truncated before any card row is loaded, so this is the only
+    # relevance signal available at truncation time — without it the cut falls
+    # through to card_id and drops real matches alphabetically.
+    candidate_token_hits: dict[str, set[str]] = {}
 
-    def add_candidate(card_id: str, score: float) -> None:
+    def add_candidate(card_id: str, score: float, matched_tokens: Iterable[str] = ()) -> None:
         normalized_card_id = str(card_id or "").strip()
         if not normalized_card_id:
             return
@@ -3947,6 +4001,9 @@ def search_cards(
             seen_candidates.add(normalized_card_id)
             candidate_order.append(normalized_card_id)
         candidate_scores[normalized_card_id] = max(candidate_scores.get(normalized_card_id, 0.0), float(score))
+        hits = {token for token in matched_tokens if token in name_query_tokens}
+        if hits:
+            candidate_token_hits.setdefault(normalized_card_id, set()).update(hits)
 
     # Non-paginating callers (pool_ceiling=None) keep the original small pool.
     # The paginated endpoint passes a ceiling so the whole candidate set (up to
@@ -3964,12 +4021,13 @@ def search_cards(
         add_candidate(card_id, score)
 
     for phrase in query_phrases:
+        phrase_tokens = tokenize(phrase)
         for card_id, score in _manual_search_candidate_rows_for_phrase(
             connection,
             phrase,
             limit=per_phrase_limit,
         ):
-            add_candidate(card_id, score)
+            add_candidate(card_id, score, phrase_tokens)
         # Illustrator match (e.g. "sugimori" → Ken Sugimori's cards). Scored below
         # name/set so artist-only hits rank under genuine name matches.
         for card_id, score in _manual_search_candidate_rows_for_artist(
@@ -3977,7 +4035,7 @@ def search_cards(
             phrase,
             limit=per_phrase_limit,
         ):
-            add_candidate(card_id, score)
+            add_candidate(card_id, score, phrase_tokens)
 
     # Name + set/code intersection (e.g. "pikachu sun moon promos", "pikachu
     # sm-p"). Pulls in prints that the per-phrase retrieval misses because a
@@ -3993,15 +4051,22 @@ def search_cards(
     if not candidate_order:
         return []
 
-    # Bound the total distinct candidates before cards_by_ids so its single
-    # `IN (...)` stays under SQLite's 999-variable limit (with a large pool,
-    # several phrases × several helpers can accumulate past that). Keep the
-    # highest retrieval-scored ids; deterministic id tie-break keeps pagination
-    # stable across page requests. A no-op for the small (non-paginated) pool.
+    # Bound the total distinct candidates before cards_by_ids (several phrases ×
+    # several helpers accumulate well past the ceiling on a broad query). Rank by
+    # how many of the user's typed words each candidate was retrieved by FIRST:
+    # retrieval tiers are coarse, so a broad query leaves hundreds of cards tied
+    # on score alone and an id tie-break then drops real matches alphabetically —
+    # "Team Rocket's Nidoking ex" fell at rank 959 of 1651 cards tied at 450 and
+    # never reached the scorer at all. Score and id still break remaining ties,
+    # which keeps offset pagination stable across page requests.
     if len(candidate_order) > _MANUAL_SEARCH_POOL_CEILING:
         candidate_order = sorted(
             candidate_order,
-            key=lambda card_id: (-candidate_scores.get(card_id, 0.0), card_id),
+            key=lambda card_id: (
+                -len(candidate_token_hits.get(card_id, ())),
+                -candidate_scores.get(card_id, 0.0),
+                card_id,
+            ),
         )[:_MANUAL_SEARCH_POOL_CEILING]
 
     candidate_map = cards_by_ids(connection, candidate_order)
@@ -4020,6 +4085,7 @@ def search_cards(
             explicit_number_forms=explicit_number_forms,
         )
         retrieval_score = candidate_scores.get(card_id, 0.0)
+        coverage_score = 0.0
         # If the user typed a name/set word but this card matches none of them,
         # it was pulled in only by a shared collector number — down-weight its
         # retrieval boost too so the real name match isn't buried (e.g. a
@@ -4044,7 +4110,17 @@ def search_cards(
             )
             if not (name_query_tokens & card_word_tokens):
                 retrieval_score *= 0.2
-        final_score = retrieval_score + search_score
+            # How much of what the user typed this card actually accounts for.
+            # Retrieval tiers are per-phrase, so a card matching one word of the
+            # query scores identically to one matching every word, and the sort
+            # then falls through to the alphabetical tie-break in scored_cards —
+            # which is why "Team Rocket's Nidoking ex" returned Ampharos, Arbok,
+            # Archer and never reached N. Weighted below the exact-alias tier
+            # (500) so a whole-name hit still outranks a broader partial match.
+            coverage_score = (
+                len(name_query_tokens & card_word_tokens) / len(name_query_tokens)
+            ) * _MANUAL_SEARCH_COVERAGE_WEIGHT
+        final_score = retrieval_score + search_score + coverage_score
         if final_score <= 0:
             continue
         scored_cards.append((final_score, card))
@@ -7600,6 +7676,7 @@ def upsert_deck_entry(
     event_kind: str = "add",
     added_market_price: float | None = None,
     added_market_date: str | None = None,
+    collection_id: str | None = None,
 ) -> str:
     normalized_owner_user_id = (
         str(owner_user_id or "").strip()
@@ -7619,16 +7696,34 @@ def upsert_deck_entry(
     item_kind = "slab" if any(str(value or "").strip() for value in (grader, grade, cert_number)) else "raw"
     normalized_quantity = max(1, int(quantity))
     cost_basis_total = 0.0 if unit_price is None else round(float(unit_price) * normalized_quantity, 2)
-    existing_row = connection.execute(
-        """
-        SELECT id
-        FROM deck_entries
-        WHERE owner_user_id = ?
-          AND identity_key = ?
-        LIMIT 1
-        """,
-        (normalized_owner_user_id, identity_key),
-    ).fetchone()
+    # The same card may be held in more than one collection, so the "do I already
+    # own this?" lookup is scoped per collection — otherwise adding a card while
+    # "Grails" is active would find the copy in "Main Collection" and bump ITS
+    # quantity, silently adding to the collection the user is not looking at.
+    normalized_collection_id = str(collection_id or "").strip() or None
+    if normalized_collection_id:
+        existing_row = connection.execute(
+            """
+            SELECT id
+            FROM deck_entries
+            WHERE owner_user_id = ?
+              AND identity_key = ?
+              AND collection_id = ?
+            LIMIT 1
+            """,
+            (normalized_owner_user_id, identity_key, normalized_collection_id),
+        ).fetchone()
+    else:
+        existing_row = connection.execute(
+            """
+            SELECT id
+            FROM deck_entries
+            WHERE owner_user_id = ?
+              AND identity_key = ?
+            LIMIT 1
+            """,
+            (normalized_owner_user_id, identity_key),
+        ).fetchone()
     deck_entry_id = str(existing_row["id"] or "").strip() if existing_row is not None else f"deckentry:{uuid.uuid4().hex}"
     if existing_row is None:
         connection.execute(
@@ -7637,9 +7732,9 @@ def upsert_deck_entry(
                 id, owner_user_id, identity_key, item_kind, card_id, grader, grade, cert_number, variant_name,
                 condition, quantity, cost_basis_total, cost_basis_currency_code,
                 added_at, updated_at, source_scan_id, source_confirmation_id,
-                added_market_price, added_market_date
+                added_market_price, added_market_date, collection_id
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 deck_entry_id,
@@ -7661,6 +7756,7 @@ def upsert_deck_entry(
                 source_confirmation_id,
                 added_market_price,
                 str(added_market_date or "").strip() or None,
+                normalized_collection_id,
             ),
         )
     else:

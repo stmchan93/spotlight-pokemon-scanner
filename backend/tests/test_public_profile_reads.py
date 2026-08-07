@@ -168,6 +168,9 @@ class PublicProfileReadTests(unittest.TestCase):
                 "include_inactive": True,
                 "favorites_only": False,
                 "compute_day_change": True,
+                # None = every collection, which is what a caller that names no
+                # collection (including every pre-multi-collection caller) gets.
+                "collection_id": None,
             },
         )
 

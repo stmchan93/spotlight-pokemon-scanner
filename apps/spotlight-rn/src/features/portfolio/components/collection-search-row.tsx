@@ -1,7 +1,7 @@
-import { StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import type { ReactNode, RefObject } from 'react';
 import type { TextInput, TextInputProps } from 'react-native';
-import { Search as SearchIcon } from 'iconoir-react-native';
+import { NavArrowDown, Search as SearchIcon } from 'iconoir-react-native';
 
 import { IconButton, SearchField, Text, colors, textStyles } from '@spotlight/design-system';
 
@@ -25,10 +25,23 @@ type CollectionSearchRowProps = {
    * top-bar search bubble that scrolls here and drops the keyboard open). */
   inputRef?: RefObject<TextInput | null>;
   /**
-   * Optional element rendered at the right edge of the "My Collection" title
-   * line (e.g. the SINCE ADDED / 30D trend-window tag).
+   * Name shown in the collection picker on the summary line (Figma 2749:4749).
+   * Reads "All Collection" when the aggregate is active, otherwise the active
+   * collection's name.
    */
-  titleAccessory?: ReactNode;
+  collectionName?: string;
+  /**
+   * Right side of the summary line — already formatted and already masked when
+   * the viewer has hidden their balance, so this component stays presentational.
+   */
+  totalValueLabel?: string;
+  /** Tap on the collection name + chevron. Inert (no picker) when omitted. */
+  onPressCollection?: () => void;
+  /**
+   * Optional element rendered at the right edge of the search row, after the
+   * icon buttons (e.g. the Select / Done edit-mode toggle).
+   */
+  trailingAction?: ReactNode;
   testID?: string;
 };
 
@@ -40,7 +53,10 @@ export function CollectionSearchRow({
   onFocus,
   onSearchCard,
   inputRef,
-  titleAccessory,
+  collectionName = 'Main Collection',
+  totalValueLabel,
+  onPressCollection,
+  trailingAction,
   testID = 'collection-search-row',
 }: CollectionSearchRowProps) {
   const showToggle = viewMode != null && onToggleViewMode != null;
@@ -50,9 +66,28 @@ export function CollectionSearchRow({
 
   return (
     <View style={styles.container} testID={testID}>
-      <View style={styles.titleRow}>
-        <Text style={styles.title}>My Portfolio</Text>
-        {titleAccessory ?? null}
+      {/* Collection summary line, Figma 2749:4749 — the collection picker on the
+          left, the running total on the right. */}
+      <View style={styles.summaryRow}>
+        <Pressable
+          accessibilityLabel={`Collection: ${collectionName}`}
+          accessibilityRole="button"
+          disabled={!onPressCollection}
+          hitSlop={8}
+          onPress={onPressCollection}
+          style={styles.collectionPicker}
+          testID={`${testID}-collection`}
+        >
+          <Text numberOfLines={1} style={styles.summaryText}>
+            {collectionName}
+          </Text>
+          <NavArrowDown color={colors.gray900} height={24} width={24} />
+        </Pressable>
+        {totalValueLabel ? (
+          <Text style={styles.summaryText} testID={`${testID}-total-value`}>
+            {`Total Value: ${totalValueLabel}`}
+          </Text>
+        ) : null}
       </View>
       <View style={styles.row}>
         <View style={styles.searchSlot}>
@@ -86,7 +121,7 @@ export function CollectionSearchRow({
         ) : null}
         {onSearchCard ? (
           <IconButton
-            accessibilityLabel="Search Card"
+            accessibilityLabel="Search Cards"
             onPress={onSearchCard}
             shape="rounded"
             size={40}
@@ -96,6 +131,7 @@ export function CollectionSearchRow({
             <SearchIcon color={colors.gray900} height={16} width={16} />
           </IconButton>
         ) : null}
+        {trailingAction ?? null}
       </View>
     </View>
   );
@@ -114,13 +150,20 @@ const styles = StyleSheet.create({
   searchSlot: {
     flex: 1,
   },
-  title: {
-    ...textStyles.titleMedium,
-    color: colors.gray900,
+  collectionPicker: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    // No gap — the 24px chevron glyph carries its own optical padding, which is
+    // how it sits flush against the label in Figma 2749:4750.
+    flexShrink: 1,
   },
-  titleRow: {
+  summaryRow: {
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
+  },
+  summaryText: {
+    ...textStyles.bodyMedium,
+    color: colors.gray900,
   },
 });

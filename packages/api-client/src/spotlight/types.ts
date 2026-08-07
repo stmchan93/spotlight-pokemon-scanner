@@ -547,6 +547,39 @@ export type TransactionInsights = {
   refreshedAt?: string | null;
 };
 
+/**
+ * A named collection holdings can belong to. Every owner has at least one
+ * ("Main Collection"); it is created on demand the first time they read their
+ * collections, which is also when pre-multi-collection holdings are adopted.
+ */
+export type Collection = {
+  id: string;
+  name: string;
+  sortOrder: number;
+  createdAt: string;
+  cardCount: number;
+  totalValue: number;
+  /** The collection that receives adds when no specific one is active. */
+  isDefault: boolean;
+};
+
+export type CollectionsSnapshot = {
+  collections: Collection[];
+  defaultCollectionID: string;
+  /**
+   * The "All Collection" row — the un-scoped totals. Deliberately read from the
+   * server rather than summed on the client, so it stays right even if a holding
+   * is briefly missing a collection.
+   */
+  all: { cardCount: number; totalValue: number };
+};
+
+/**
+ * The pseudo-id for "All Collection". Not a real collection row — it means "do
+ * not scope this read", which is also what the backend does with no id at all.
+ */
+export const ALL_COLLECTIONS_ID = 'all';
+
 export type PortfolioDashboard = {
   summary: PortfolioSummary;
   inventoryCount: number;
@@ -1011,6 +1044,11 @@ export type CardConditionHistoryQuery = {
 export type InventoryEntriesQuery = {
   favoritesOnly?: boolean;
   includeInactive?: boolean;
+  /**
+   * Scope the read to one collection. Omitted — or `ALL_COLLECTIONS_ID` — reads
+   * every collection, which is what clients that predate multi-collection get.
+   */
+  collectionID?: string | null;
 };
 
 /**
@@ -1168,6 +1206,13 @@ export type InventoryEntryCreateRequestPayload = {
    * the inventory row's `cost_basis_cents` column for Insights aggregates.
    */
   costBasisPerUnit?: number | null;
+  /**
+   * Which collection the card joins. Omitted (or the "All Collection" pseudo-id)
+   * files it into the owner's default collection — the backend never takes this
+   * id on trust, so one belonging to another account is ignored rather than
+   * honoured.
+   */
+  collectionID?: string | null;
 };
 
 export type InventoryEntryCreateResponsePayload = {

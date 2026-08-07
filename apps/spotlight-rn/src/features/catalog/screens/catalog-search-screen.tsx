@@ -741,7 +741,7 @@ export function CatalogSearchScreen({
             />
           </View>
 
-          <Text style={theme.typography.display}>Add Card</Text>
+          <Text style={theme.typography.display}>Search Cards</Text>
         </View>
 
         <SearchField

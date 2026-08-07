@@ -12,6 +12,7 @@ import {
 import Constants from 'expo-constants';
 
 import {
+  ALL_COLLECTIONS_ID,
   HttpSpotlightRepository,
   MockSpotlightRepository,
   type InventoryCardEntry,
@@ -27,6 +28,10 @@ import {
   removeDashboardInventoryEntries,
   removeInventoryEntries,
 } from '@/features/portfolio/optimistic-inventory';
+import {
+  persistActiveCollection,
+  readPersistedActiveCollection,
+} from '@/features/portfolio/persisted-active-collection';
 import { configurePurchases } from '@/features/monetization/purchases';
 import { prefetchCardImages } from '@/lib/card-images';
 import { resolveRuntimeValue } from '@/lib/runtime-config';
@@ -129,7 +134,17 @@ export function resolveRepositoryBaseUrl() {
   return resolveRepositoryBaseUrls()[0] ?? null;
 }
 
-export function createDefaultSpotlightRepository(accessToken?: string | null): SpotlightRepository {
+/**
+ * `accessToken` may be a value OR a getter. Prefer the getter: it is read per
+ * request, so a token that lands mid-flight (the guest mint on the first scan)
+ * still authenticates requests dispatched by closures created before it.
+ */
+export function createDefaultSpotlightRepository(
+  accessToken?: string | null | (() => string | null),
+): SpotlightRepository {
+  const readAccessToken = typeof accessToken === 'function'
+    ? accessToken
+    : () => accessToken ?? null;
   const repositoryBaseUrls = resolveRepositoryBaseUrls();
   if (process.env.NODE_ENV !== 'test') {
     console.info(
@@ -139,7 +154,7 @@ export function createDefaultSpotlightRepository(accessToken?: string | null): S
   if (repositoryBaseUrls.length > 0) {
     return new HttpSpotlightRepository(repositoryBaseUrls, {
       clientContext: resolveRepositoryClientContext(),
-      getAccessToken: () => accessToken ?? null,
+      getAccessToken: readAccessToken,
     });
   }
 
@@ -190,6 +205,13 @@ type AppServices = {
    * reconciles to the server truth.
    */
   removeOptimisticInventoryEntries: (ids: string[]) => void;
+  /**
+   * Collection the Collection tab is scoped to — a collection id, or
+   * `ALL_COLLECTIONS_ID` for the aggregate. Also the target for new adds, so
+   * scanner/PDP writes land where the user is looking.
+   */
+  activeCollectionID: string;
+  setActiveCollectionID: (collectionID: string) => void;
 };
 
 const AppServicesContext = createContext<AppServices | null>(null);
@@ -201,6 +223,12 @@ type ScopedCache<T> = {
 
 type AppProvidersProps = PropsWithChildren<{
   accessToken?: string | null;
+  /**
+   * Live token read, preferred over the `accessToken` snapshot. Supplied by the
+   * auth provider so a request already in flight when the guest session mints
+   * still picks the new token up.
+   */
+  getAccessToken?: (() => string | null) | null;
   sessionOwnerKey?: string | null;
   spotlightRepository?: SpotlightRepository | null;
 }>;
@@ -208,6 +236,7 @@ type AppProvidersProps = PropsWithChildren<{
 export function AppProviders({
   accessToken,
   children,
+  getAccessToken,
   sessionOwnerKey,
   spotlightRepository: repositoryOverride,
 }: AppProvidersProps) {
@@ -216,10 +245,14 @@ export function AppProviders({
   const [inventoryEntriesCacheState, setInventoryEntriesCacheState] = useState<ScopedCache<InventoryCardEntry[]> | null>(null);
   const [portfolioDashboardCacheState, setPortfolioDashboardCacheState] = useState<ScopedCache<PortfolioDashboard> | null>(null);
   const [portfolioPerformanceCacheState, setPortfolioPerformanceCacheState] = useState<ScopedCache<PortfolioPerformance> | null>(null);
+  const [activeCollectionState, setActiveCollectionState] = useState<ScopedCache<string> | null>(null);
 
+  // `accessToken` stays in the deps so a newly-authenticated session still
+  // triggers the load effect below; the repository itself reads the token
+  // through `getAccessToken` when one is supplied.
   const spotlightRepository = useMemo<SpotlightRepository>(() => {
-    return repositoryOverride ?? createDefaultSpotlightRepository(accessToken);
-  }, [accessToken, repositoryOverride]);
+    return repositoryOverride ?? createDefaultSpotlightRepository(getAccessToken ?? accessToken);
+  }, [accessToken, getAccessToken, repositoryOverride]);
 
   const inventoryEntriesCache = useMemo(() => {
     return inventoryEntriesCacheState?.ownerKey === activeSessionOwnerKey
@@ -232,6 +265,46 @@ export function AppProviders({
       ? portfolioDashboardCacheState.value
       : null;
   }, [activeSessionOwnerKey, portfolioDashboardCacheState]);
+
+  // Active collection. Owner-scoped in memory (same ScopedCache rule as the
+  // caches above) AND on disk, so switching accounts can never leave account A's
+  // collection selected — which would scope account B's reads and adds to a
+  // collection they do not own.
+  const activeCollectionID = useMemo(() => {
+    return activeCollectionState?.ownerKey === activeSessionOwnerKey
+      ? activeCollectionState.value
+      : ALL_COLLECTIONS_ID;
+  }, [activeCollectionState, activeSessionOwnerKey]);
+
+  const setActiveCollectionID = useCallback(
+    (collectionID: string) => {
+      const nextCollectionID = collectionID.trim() || ALL_COLLECTIONS_ID;
+      setActiveCollectionState({ ownerKey: activeSessionOwnerKey, value: nextCollectionID });
+      persistActiveCollection(nextCollectionID, activeSessionOwnerKey);
+    },
+    [activeSessionOwnerKey],
+  );
+
+  // Restore the last choice for THIS account on mount / account switch.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const persisted = await readPersistedActiveCollection(activeSessionOwnerKey);
+      if (cancelled || !persisted) {
+        return;
+      }
+      setActiveCollectionState((current) => {
+        // Don't clobber a choice the user made while the read was in flight.
+        if (current?.ownerKey === activeSessionOwnerKey) {
+          return current;
+        }
+        return { ownerKey: activeSessionOwnerKey, value: persisted };
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSessionOwnerKey]);
 
   const setInventoryEntriesCache = useCallback<Dispatch<SetStateAction<InventoryCardEntry[] | null>>>((value) => {
     setInventoryEntriesCacheState((current) => {
@@ -336,8 +409,12 @@ export function AppProviders({
       setPortfolioPerformanceCache,
       prependOptimisticInventoryEntry,
       removeOptimisticInventoryEntries,
+      activeCollectionID,
+      setActiveCollectionID,
     };
   }, [
+    activeCollectionID,
+    setActiveCollectionID,
     activeSessionOwnerKey,
     dataVersion,
     inventoryEntriesCache,

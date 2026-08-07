@@ -312,6 +312,106 @@ class ManualCardSearchTests(unittest.TestCase):
         self.assertEqual(top_ids("096/xy-p")[0], "xyp-warm-pikachu-96")
         self.assertEqual(top_ids("096/XY-P")[0], "xyp-warm-pikachu-96")
 
+    def test_search_finds_owner_prefixed_cards_by_the_pokemon_name(self) -> None:
+        # Name retrieval used to be exact-or-prefix only, so a word that is not at
+        # the START of the name was unreachable: "nidoking" never matched "Team
+        # Rocket's Nidoking ex". That hid every owner-possessive card (Team
+        # Rocket's, Giovanni's, Cynthia's …) plus the Dark / Shining / Radiant
+        # prefixes behind a name the user has no reason to guess.
+        owner_prefixed = [
+            catalog_card(
+                card_id="sv10-nidoking-119",
+                name="Team Rocket's Nidoking ex",
+                set_name="Destined Rivals",
+                number="119/182",
+                set_id="sv10",
+            ),
+            catalog_card(
+                card_id="gym2-nidoking-7",
+                name="Giovanni's Nidoking",
+                set_name="Gym Challenge",
+                number="7/132",
+                set_id="gym2",
+            ),
+        ]
+        for card in owner_prefixed:
+            upsert_catalog_card(
+                self.connection, card, REPO_ROOT, "2026-04-20T12:00:00Z", refresh_embeddings=False
+            )
+        self.connection.commit()
+
+        def ids(query: str) -> set[str]:
+            return {row["id"] for row in search_cards(self.connection, query, limit=15)}
+
+        # The Pokémon's own name reaches both owner-prefixed prints.
+        self.assertIn("sv10-nidoking-119", ids("nidoking"))
+        self.assertIn("gym2-nidoking-7", ids("nidoking"))
+        # The full typed name still resolves to the right one of the two.
+        self.assertIn("sv10-nidoking-119", ids("team rocket's nidoking ex"))
+        self.assertIn("gym2-nidoking-7", ids("giovanni's nidoking"))
+
+    def test_search_ranks_full_name_match_above_shared_prefix_matches(self) -> None:
+        # Every "Team Rocket's *" card ties on the shared-prefix retrieval hit, so
+        # ranking used to fall through to the alphabetical tie-break — a search
+        # for "Team Rocket's Nidoking ex" returned Ampharos, Arbok, Archer … and
+        # never reached N. Token coverage has to break that tie instead.
+        team_rocket = [
+            ("sv10-nidoking-119", "Team Rocket's Nidoking ex", "119/182"),
+            ("sv10-ampharos-074", "Team Rocket's Ampharos", "074/182"),
+            ("sv10-arbok-113", "Team Rocket's Arbok", "113/182"),
+            ("sv10-archer-092", "Team Rocket's Archer", "092/182"),
+        ]
+        for card_id, name, number in team_rocket:
+            upsert_catalog_card(
+                self.connection,
+                catalog_card(
+                    card_id=card_id,
+                    name=name,
+                    set_name="Destined Rivals",
+                    number=number,
+                    set_id="sv10",
+                ),
+                REPO_ROOT,
+                "2026-04-20T12:00:00Z",
+                refresh_embeddings=False,
+            )
+        self.connection.commit()
+
+        results = search_cards(self.connection, "team rocket's nidoking ex", limit=10)
+
+        self.assertGreater(len(results), 0)
+        self.assertEqual(results[0]["id"], "sv10-nidoking-119")
+
+    def test_search_keeps_prefix_matches_ahead_of_substring_matches(self) -> None:
+        # The substring branch must stay BELOW every prefix tier, or adding it
+        # would demote the obvious answer: "charizard" has to keep returning
+        # Charizard ahead of Dark Charizard.
+        upsert_catalog_card(
+            self.connection,
+            catalog_card(
+                card_id="tr-dark-charizard-4",
+                name="Dark Charizard",
+                set_name="Team Rocket",
+                number="4/82",
+                set_id="base5",
+            ),
+            REPO_ROOT,
+            "2026-04-20T12:00:00Z",
+            refresh_embeddings=False,
+        )
+        self.connection.commit()
+
+        top_ids = [row["id"] for row in search_cards(self.connection, "charizard", limit=10)]
+
+        self.assertIn("tr-dark-charizard-4", top_ids)
+        self.assertTrue(top_ids[0].endswith("charizard-4") and top_ids[0].startswith("base"))
+        self.assertLess(top_ids.index("base-charizard-4"), top_ids.index("tr-dark-charizard-4"))
+        # And the substring branch still makes it findable by its own full name.
+        self.assertEqual(
+            search_cards(self.connection, "dark charizard", limit=5)[0]["id"],
+            "tr-dark-charizard-4",
+        )
+
     def test_search_supports_structured_name_queries(self) -> None:
         results = search_cards(self.connection, "name:charizard", limit=10)
 

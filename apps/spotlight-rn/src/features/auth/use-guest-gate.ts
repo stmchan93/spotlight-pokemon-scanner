@@ -24,9 +24,14 @@ const LOGIN_HREF = '/login' as Href;
  * Or check/route imperatively:
  *   const { isGuest, openLogin } = useGuestGate();
  *   if (isGuest) { openLogin(); return; }
+ *
+ * `ensureGuestSession` is re-exported here because the ALLOWED guest actions
+ * live next to the gated ones: a guest has no Supabase user until the first
+ * action that needs a server identity mints one. Await it before that call, and
+ * never on app open or navigation — each anonymous user is a billable MAU.
  */
 export function useGuestGate() {
-  const { isGuest } = useAuth();
+  const { ensureGuestSession, isGuest } = useAuth();
   const router = useRouter();
 
   const openLogin = useCallback(() => {
@@ -45,5 +50,5 @@ export function useGuestGate() {
     [isGuest, openLogin],
   );
 
-  return { isGuest, gate, openLogin };
+  return { ensureGuestSession, isGuest, gate, openLogin };
 }

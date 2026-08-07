@@ -15,6 +15,8 @@ import { createTestSpotlightRepository, renderWithProviders } from '../test-util
 
 jest.mock('expo-router', () => ({
   useRouter: jest.fn(),
+  // Focus effect runs the composer-refresh consumer; no-op in tests.
+  useFocusEffect: jest.fn(),
 }));
 
 jest.mock('@spotlight/design-system', () => {

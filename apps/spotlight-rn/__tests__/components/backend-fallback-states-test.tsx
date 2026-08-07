@@ -8,6 +8,14 @@ import { PortfolioScreen } from '@/features/portfolio/screens/portfolio-screen';
 
 import { renderWithProviders } from '../test-utils';
 
+// PortfolioScreen refreshes its Activity tab on focus. These renders are
+// isolated (no navigation container), so only that hook is stubbed — the rest
+// of expo-router, `useRouter` included, stays real.
+jest.mock('expo-router', () => ({
+  ...jest.requireActual('expo-router'),
+  useFocusEffect: jest.fn(),
+}));
+
 // PortfolioScreen's dashboard refresh is gated on activePage='portfolio'.
 // Default context value is 'scanner', so isolated test renders must override.
 const portfolioTabsContext = {

@@ -17,16 +17,25 @@ describe('AuthProvider', () => {
     nodeEnv = 'development',
     authServiceOverrides,
     initialURL = null,
-    hasSignedInBefore = false,
+    // Default to a device that has signed in before, i.e. the ordinary
+    // signed-out login flow. First-launch/guest tests opt into `false`, which
+    // now (deferred mint on) means pending-guest rather than signed-out.
+    hasSignedInBefore = true,
+    // Deferring the mint is the shipped DEFAULT; the flag only exists as an
+    // emergency rollback, so tests of the legacy eager mint must turn it off
+    // explicitly (which also proves the rollback switch still works).
+    deferGuestSession = true,
   }: {
     nodeEnv?: string;
     authServiceOverrides?: Record<string, unknown>;
     initialURL?: string | null;
     hasSignedInBefore?: boolean;
+    deferGuestSession?: boolean;
   } = {}) {
     process.env = {
       ...originalEnv,
       NODE_ENV: nodeEnv,
+      EXPO_PUBLIC_SPOTLIGHT_DEFER_GUEST_SESSION: deferGuestSession ? '1' : '0',
     } as NodeJS.ProcessEnv;
 
     const capturePostHogEvent = jest.fn();
@@ -59,6 +68,12 @@ describe('AuthProvider', () => {
       isAnonymousSession: jest.fn((session) => session?.user?.is_anonymous === true),
       isAuthCanceledError: jest.fn((error) => error instanceof MockAuthCanceledError),
       signInAnonymously: jest.fn(async () => null),
+      signUpWithEmail: jest.fn(async () => ({ needsCode: true, session: null })),
+      verifySignupCode: jest.fn(async () => null),
+      convertAnonymousUserToEmailAccount: jest.fn(async () => ({ needsCode: true })),
+      verifyAnonymousEmailConversion: jest.fn(async () => null),
+      linkOAuthIdentityToCurrentUser: jest.fn(async () => null),
+      linkAppleIdentityToCurrentUser: jest.fn(async () => null),
       resolveAppUserFromSession: jest.fn(async (session) => ({
         adminEnabled: false,
         avatarURL: null,
@@ -135,6 +150,38 @@ describe('AuthProvider', () => {
           React.createElement(Text, { testID: 'configured' }, `configured:${String(auth.isConfigured)}`),
           React.createElement(Text, { testID: 'config-issue' }, `config:${auth.configurationIssue ?? 'none'}`),
           React.createElement(Text, { testID: 'token' }, `token:${auth.accessToken ?? 'none'}`),
+          React.createElement(Text, { testID: 'live-token' }, `live-token:${auth.getAccessToken() ?? 'none'}`),
+          React.createElement(Text, { testID: 'guest' }, `guest:${String(auth.isGuest)}`),
+          React.createElement(Pressable, {
+            testID: 'sign-up-email',
+            onPress: () => {
+              void auth.signUpEmail({
+                email: 'new@example.com',
+                fullName: 'New Trainer',
+                password: 'hunter2hunter2',
+              }).catch(() => {});
+            },
+          }),
+          React.createElement(Pressable, {
+            testID: 'verify-code',
+            onPress: () => {
+              void auth.verifyCode({
+                code: '123456',
+                email: 'new@example.com',
+                fullName: 'New Trainer',
+                password: 'hunter2hunter2',
+              }).catch(() => {});
+            },
+          }),
+          React.createElement(Pressable, {
+            testID: 'ensure-guest-session',
+            // Fired twice on purpose: the mint must be single-flight, or a burst
+            // of gated actions would bill several anonymous MAUs for one device.
+            onPress: () => {
+              void auth.ensureGuestSession();
+              void auth.ensureGuestSession();
+            },
+          }),
           React.createElement(Pressable, { testID: 'sign-in-apple', onPress: () => { void auth.signInWithApple(); } }),
           React.createElement(Pressable, { testID: 'sign-in-google', onPress: () => { void auth.signInWithGoogle(); } }),
           React.createElement(Pressable, { testID: 'sign-out', onPress: () => { void auth.signOut(); } }),
@@ -584,7 +631,7 @@ describe('AuthProvider', () => {
     expect(resolveAppUserFromSession).not.toHaveBeenCalled();
   });
 
-  it('FIRST LAUNCH (never signed in): signs in anonymously and lands on the guest scanner', async () => {
+  it('ROLLBACK (flag off): first launch signs in anonymously and lands on the guest scanner', async () => {
     const guestSession = {
       access_token: 'anon-token',
       user: { id: 'guest-1', is_anonymous: true },
@@ -593,6 +640,7 @@ describe('AuthProvider', () => {
     const resolveAppUserFromSession = jest.fn();
 
     const { getByText, markHasSignedIn, waitFor } = renderAuthProvider({
+      deferGuestSession: false,
       hasSignedInBefore: false,
       authServiceOverrides: {
         getCurrentSession: jest.fn(async () => null),
@@ -610,6 +658,138 @@ describe('AuthProvider', () => {
     // flag (so it only ever flips on a real login).
     expect(resolveAppUserFromSession).not.toHaveBeenCalled();
     expect(markHasSignedIn).not.toHaveBeenCalled();
+  });
+
+  // Supabase bills per Monthly Active User and an anonymous user is a billable
+  // MAU, so opening the app must not create one.
+  it('DEFAULT: first launch enters guest mode WITHOUT creating an anonymous user', async () => {
+    const signInAnonymously = jest.fn(async () => {
+      throw new Error('signInAnonymously must not run on app open');
+    });
+
+    const { getByText, waitFor } = renderAuthProvider({
+      hasSignedInBefore: false,
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => null),
+        signInAnonymously,
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('state:signedIn')).toBeTruthy();
+    });
+    expect(signInAnonymously).not.toHaveBeenCalled();
+    // Guest mode is fully live in the UI, it just has no server identity yet.
+    expect(getByText('guest:true')).toBeTruthy();
+    expect(getByText('token:none')).toBeTruthy();
+  });
+
+  it('DEFERRED MINT: ensureGuestSession mints exactly once and lands the guest session', async () => {
+    const guestSession = {
+      access_token: 'anon-token',
+      user: { id: 'guest-1', is_anonymous: true },
+    } as any;
+    const signInAnonymously = jest.fn(async () => guestSession);
+
+    const { fireEvent, getByTestId, getByText, waitFor } = renderAuthProvider({
+      hasSignedInBefore: false,
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => null),
+        signInAnonymously,
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('state:signedIn')).toBeTruthy();
+    });
+
+    fireEvent.press(getByTestId('ensure-guest-session'));
+
+    await waitFor(() => {
+      expect(getByText('user:guest-1')).toBeTruthy();
+    });
+    // Two concurrent calls, ONE anonymous user.
+    expect(signInAnonymously).toHaveBeenCalledTimes(1);
+    expect(getByText('guest:true')).toBeTruthy();
+    expect(getByText('token:access-token')).toBeTruthy();
+  });
+
+  // The anonymous-identity churn metric is hooked in exactly ONE place —
+  // `signInAnonymously()` in auth-service, the only function that mints an
+  // anonymous user. A second hook here would double-count every mint (and the
+  // eager rollback path would still be missed), so the provider must stay silent.
+  it('DEFERRED MINT: the provider does not report the mint itself (single hook point)', async () => {
+    const guestSession = {
+      access_token: 'anon-token',
+      user: { id: 'guest-1', is_anonymous: true },
+    } as any;
+
+    const { capturePostHogEvent, fireEvent, getByTestId, getByText, waitFor } = renderAuthProvider({
+      hasSignedInBefore: false,
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => null),
+        signInAnonymously: jest.fn(async () => guestSession),
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('state:signedIn')).toBeTruthy();
+    });
+
+    fireEvent.press(getByTestId('ensure-guest-session'));
+
+    await waitFor(() => {
+      expect(getByText('user:guest-1')).toBeTruthy();
+    });
+
+    expect(capturePostHogEvent).not.toHaveBeenCalledWith(
+      'auth_anonymous_identity_minted',
+      expect.anything(),
+    );
+  });
+
+  it('DEFERRED MINT: a failed mint keeps the user in guest mode instead of ejecting to login', async () => {
+    const signInAnonymously = jest.fn(async () => {
+      throw new Error('Anonymous sign-ins are disabled');
+    });
+
+    const { fireEvent, getByTestId, getByText, waitFor } = renderAuthProvider({
+      hasSignedInBefore: false,
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => null),
+        signInAnonymously,
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('state:signedIn')).toBeTruthy();
+    });
+
+    fireEvent.press(getByTestId('ensure-guest-session'));
+
+    await waitFor(() => {
+      expect(signInAnonymously).toHaveBeenCalled();
+    });
+    expect(getByText('state:signedIn')).toBeTruthy();
+    expect(getByText('guest:true')).toBeTruthy();
+  });
+
+  it('DEFERRED MINT: a returning device still goes straight to the login screen', async () => {
+    const signInAnonymously = jest.fn();
+
+    const { getByText, waitFor } = renderAuthProvider({
+      hasSignedInBefore: true,
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => null),
+        signInAnonymously,
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('state:signedOut')).toBeTruthy();
+    });
+    expect(signInAnonymously).not.toHaveBeenCalled();
+    expect(getByText('guest:false')).toBeTruthy();
   });
 
   it('RETURNING USER (has signed in before): shows the login screen and does NOT create a guest', async () => {
@@ -631,12 +811,13 @@ describe('AuthProvider', () => {
     expect(signInAnonymously).not.toHaveBeenCalled();
   });
 
-  it('FALLBACK: anonymous sign-in failure (dashboard toggle off) drops to the login screen', async () => {
+  it('ROLLBACK (flag off): anonymous sign-in failure (dashboard toggle off) drops to the login screen', async () => {
     const signInAnonymously = jest.fn(async () => {
       throw new Error('Anonymous sign-ins are disabled');
     });
 
     const { getByText, waitFor } = renderAuthProvider({
+      deferGuestSession: false,
       hasSignedInBefore: false,
       authServiceOverrides: {
         getCurrentSession: jest.fn(async () => null),
@@ -658,7 +839,7 @@ describe('AuthProvider', () => {
     } as any;
 
     const { act, authStateChangeHandler, getByText, markHasSignedIn, waitFor } = renderAuthProvider({
-      hasSignedInBefore: false,
+      hasSignedInBefore: true,
       authServiceOverrides: {
         getCurrentSession: jest.fn(async () => null),
         getNeedsProfile: jest.fn(() => false),
@@ -688,6 +869,233 @@ describe('AuthProvider', () => {
       expect(getByText('state:signedIn')).toBeTruthy();
     });
     expect(markHasSignedIn).toHaveBeenCalled();
+  });
+
+  // The token has to be readable the INSTANT the session lands: the scan that
+  // triggered the mint is already running inside a closure built before it, so a
+  // render-snapshot token would send that first guest scan out unauthenticated.
+  it('DEFERRED MINT: getAccessToken() reports the minted token without waiting for a render', async () => {
+    const guestSession = {
+      access_token: 'anon-token',
+      user: { id: 'guest-1', is_anonymous: true },
+    } as any;
+
+    const { fireEvent, getByTestId, getByText, waitFor } = renderAuthProvider({
+      hasSignedInBefore: false,
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => null),
+        signInAnonymously: jest.fn(async () => guestSession),
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('live-token:none')).toBeTruthy();
+    });
+
+    fireEvent.press(getByTestId('ensure-guest-session'));
+
+    await waitFor(() => {
+      expect(getByText('live-token:access-token')).toBeTruthy();
+    });
+  });
+
+  it('GUEST SIGNUP: converts the anonymous user in place and never calls signUp', async () => {
+    const guestSession = {
+      access_token: 'anon-token',
+      user: { id: 'guest-1', is_anonymous: true },
+    } as any;
+    // Same uuid, no longer anonymous — that is the whole point of the flow.
+    const convertedSession = {
+      access_token: 'converted-token',
+      user: { id: 'guest-1', email: 'new@example.com', is_anonymous: false },
+    } as any;
+
+    const { authService, fireEvent, getByTestId, getByText, waitFor } = renderAuthProvider({
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => guestSession),
+        getNeedsProfile: jest.fn(() => false),
+        verifyAnonymousEmailConversion: jest.fn(async () => convertedSession),
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('guest:true')).toBeTruthy();
+    });
+
+    fireEvent.press(getByTestId('sign-up-email'));
+
+    await waitFor(() => {
+      expect(authService.convertAnonymousUserToEmailAccount).toHaveBeenCalledWith({
+        email: 'new@example.com',
+        fullName: 'New Trainer',
+      });
+    });
+    // signUp() would mint a SECOND uuid, orphaning every scan this guest owns.
+    expect(authService.signUpWithEmail).not.toHaveBeenCalled();
+
+    fireEvent.press(getByTestId('verify-code'));
+
+    await waitFor(() => {
+      expect(getByText('guest:false')).toBeTruthy();
+    });
+    expect(authService.verifyAnonymousEmailConversion).toHaveBeenCalledWith({
+      code: '123456',
+      email: 'new@example.com',
+      fullName: 'New Trainer',
+      password: 'hunter2hunter2',
+    });
+    expect(authService.verifySignupCode).not.toHaveBeenCalled();
+    // Same uuid before and after: the guest keeps their scans.
+    expect(getByText('user:guest-1')).toBeTruthy();
+  });
+
+  it('GUEST SIGNUP: links Apple and Google to the existing anonymous user', async () => {
+    const guestSession = {
+      access_token: 'anon-token',
+      user: { id: 'guest-1', is_anonymous: true },
+    } as any;
+    const linkedSession = {
+      access_token: 'linked-token',
+      user: { id: 'guest-1', email: 'linked@example.com', is_anonymous: false },
+    } as any;
+
+    const { authService, fireEvent, getByTestId, getByText, waitFor } = renderAuthProvider({
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => guestSession),
+        getNeedsProfile: jest.fn(() => false),
+        linkAppleIdentityToCurrentUser: jest.fn(async () => linkedSession),
+        linkOAuthIdentityToCurrentUser: jest.fn(async () => linkedSession),
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('guest:true')).toBeTruthy();
+    });
+
+    await fireEvent.press(getByTestId('sign-in-apple'));
+
+    await waitFor(() => {
+      expect(authService.linkAppleIdentityToCurrentUser).toHaveBeenCalledTimes(1);
+    });
+    expect(authService.signInWithApple).not.toHaveBeenCalled();
+    expect(getByText('user:guest-1')).toBeTruthy();
+  });
+
+  it('GUEST SIGNUP: Google links to the anonymous user instead of signing in fresh', async () => {
+    const guestSession = {
+      access_token: 'anon-token',
+      user: { id: 'guest-1', is_anonymous: true },
+    } as any;
+
+    const { authService, fireEvent, getByTestId, getByText, waitFor } = renderAuthProvider({
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => guestSession),
+        getNeedsProfile: jest.fn(() => false),
+        linkOAuthIdentityToCurrentUser: jest.fn(async () => ({
+          access_token: 'linked-token',
+          user: { id: 'guest-1', email: 'linked@example.com', is_anonymous: false },
+        })),
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('guest:true')).toBeTruthy();
+    });
+
+    fireEvent.press(getByTestId('sign-in-google'));
+
+    await waitFor(() => {
+      expect(authService.linkOAuthIdentityToCurrentUser).toHaveBeenCalledWith('google');
+    });
+    expect(authService.signInWithGoogle).not.toHaveBeenCalled();
+    expect(getByText('user:guest-1')).toBeTruthy();
+  });
+
+  // A signed-out visitor is NOT a guest: signUp is correct for them, and the
+  // conversion helpers (which mutate the current user) must stay away.
+  it('SIGNED-OUT SIGNUP: still creates a brand new account, untouched by the guest path', async () => {
+    const { authService, fireEvent, getByTestId, getByText, waitFor } = renderAuthProvider({
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => null),
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('state:signedOut')).toBeTruthy();
+    });
+
+    fireEvent.press(getByTestId('sign-up-email'));
+
+    await waitFor(() => {
+      expect(authService.signUpWithEmail).toHaveBeenCalledTimes(1);
+    });
+    expect(authService.convertAnonymousUserToEmailAccount).not.toHaveBeenCalled();
+
+    fireEvent.press(getByTestId('verify-code'));
+
+    await waitFor(() => {
+      expect(authService.verifySignupCode).toHaveBeenCalledTimes(1);
+    });
+    expect(authService.verifyAnonymousEmailConversion).not.toHaveBeenCalled();
+  });
+
+  // A PENDING guest owns nothing (no Supabase user was ever minted), so there is
+  // nothing to preserve — and taking the normal signup path means they never
+  // cost an anonymous MAU at all.
+  it('PENDING GUEST SIGNUP: takes the normal signup path, no anonymous user involved', async () => {
+    const { authService, fireEvent, getByTestId, getByText, waitFor } = renderAuthProvider({
+      hasSignedInBefore: false,
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => null),
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('guest:true')).toBeTruthy();
+    });
+
+    fireEvent.press(getByTestId('sign-up-email'));
+
+    await waitFor(() => {
+      expect(authService.signUpWithEmail).toHaveBeenCalledTimes(1);
+    });
+    expect(authService.signInAnonymously).not.toHaveBeenCalled();
+    expect(authService.convertAnonymousUserToEmailAccount).not.toHaveBeenCalled();
+  });
+
+  // Owner key = data isolation; remount key = how much of the tree survives a
+  // transition. They are deliberately different, and only for guests.
+  it('keys the provider tree per account, collapsing ONLY the pending-guest → guest mint', () => {
+    const { authModule } = renderAuthProvider();
+    const {
+      PENDING_GUEST_USER_ID,
+      resolveProviderRemountKey,
+      resolveSessionOwnerKey,
+    } = authModule;
+
+    const pendingGuestOwnerKey = resolveSessionOwnerKey(null, true);
+    const guestOwnerKey = resolveSessionOwnerKey('anon-uuid', true);
+    const accountAOwnerKey = resolveSessionOwnerKey('user-a', false);
+    const accountBOwnerKey = resolveSessionOwnerKey('user-b', false);
+    const signedOutOwnerKey = resolveSessionOwnerKey(null, false);
+
+    // Owner keys stay per-uuid — this is what scopes caches and persisted data.
+    expect(pendingGuestOwnerKey).toBe(PENDING_GUEST_USER_ID);
+    expect(guestOwnerKey).toBe('anon-uuid');
+    expect(accountAOwnerKey).toBe('user-a');
+    expect(signedOutOwnerKey).toBe('signed-out');
+
+    // The mint must NOT remount (an in-flight scan is riding on it)…
+    expect(resolveProviderRemountKey(pendingGuestOwnerKey, true))
+      .toBe(resolveProviderRemountKey(guestOwnerKey, true));
+
+    // …but every real account boundary still does.
+    expect(resolveProviderRemountKey(accountAOwnerKey, false))
+      .not.toBe(resolveProviderRemountKey(accountBOwnerKey, false));
+    expect(resolveProviderRemountKey(guestOwnerKey, true))
+      .not.toBe(resolveProviderRemountKey(accountAOwnerKey, false));
+    expect(resolveProviderRemountKey(accountAOwnerKey, false))
+      .not.toBe(resolveProviderRemountKey(signedOutOwnerKey, false));
   });
 
   it('throws when useAuth is read outside the provider', () => {

@@ -13,13 +13,24 @@ import {
   type ViewStyle,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { useRouter } from 'expo-router';
-import { CheckCircle, EditPencil, Menu as MenuIcon, Plus, Search as SearchIcon, Trash } from 'iconoir-react-native';
+import { useFocusEffect, useRouter } from 'expo-router';
+import {
+  CheckCircle,
+  EditPencil,
+  Menu as MenuIcon,
+  Plus,
+  Search as SearchIcon,
+  ShareIos,
+  Trash,
+} from 'iconoir-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import type { InventoryCardEntry } from '@spotlight/api-client';
+import { ALL_COLLECTIONS_ID } from '@spotlight/api-client';
+import type { CollectionsSnapshot, InventoryCardEntry } from '@spotlight/api-client';
 import {
+  Avatar,
   GlassSurface,
+  InlineLoader,
   PageTabs,
   type PageTab,
   StateCard,
@@ -33,7 +44,12 @@ import {
   type PortfolioChartActivePoint,
 } from '@/features/portfolio/components/portfolio-chart-card';
 import { PortfolioBalanceHeader } from '@/features/portfolio/components/portfolio-balance-header';
+import {
+  HIDDEN_VALUE_MASK,
+  formatAbbreviatedCurrency,
+} from '@/features/portfolio/components/portfolio-formatting';
 import { SalePriceEditSheet } from '@/features/portfolio/components/sale-price-edit-sheet';
+import { CollectionPickerSheet } from '@/features/portfolio/components/collection-picker-sheet';
 import { CollectionSearchRow } from '@/features/portfolio/components/collection-search-row';
 import {
   CollectionFilterChipRow,
@@ -56,7 +72,8 @@ import { useTabsPage } from '@/contexts/tabs-page-context';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { resolveRepositoryBaseUrl, useAppServices } from '@/providers/app-providers';
 import { PostCard } from '@/features/social/components/post-card';
-import { type FeedPost, fetchAuthorPosts } from '@/features/social/social-service';
+import { type FeedPost, type FeedPostAuthor, fetchAuthorPosts } from '@/features/social/social-service';
+import { consumeFeedRefreshSignal } from '@/features/social/screens/new-post-screen';
 import { ProfileHeader } from '@/features/profile/components/profile-header';
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
 import { useAuth } from '@/providers/auth-provider';
@@ -95,6 +112,8 @@ const SEARCH_FOCUS_TOP_GAP = 12;
 // Diameter of the floating glass nav bubbles (menu / edit) that sit in the top
 // corners over the scrolling content — the iOS 26 Liquid Glass chrome shape.
 const BUBBLE_SIZE = 44;
+/** Spacing between adjacent bubbles in the same top corner. */
+const BUBBLE_GAP = 8;
 // Figma 2724:1757 — 24px total between the profile tab bar and the Portfolio
 // balance. The chrome wrapper already contributes a 16px inter-child gap, so this
 // marginTop adds only the remaining 8px (16 + 8 = 24).
@@ -258,6 +277,8 @@ export function PortfolioScreen({
   const apiBaseUrl = resolveRepositoryBaseUrl();
   const [activityPosts, setActivityPosts] = useState<FeedPost[]>([]);
   const [activityStatus, setActivityStatus] = useState<ActivityStatus>('idle');
+  // Bumped to force an Activity re-fetch (e.g. after composing a post).
+  const [activityReloadToken, setActivityReloadToken] = useState(0);
   // Which user's Activity posts have already been requested, so re-selecting the
   // tab doesn't refetch.
   const activityLoadedRef = useRef<string | null>(null);
@@ -309,7 +330,16 @@ export function PortfolioScreen({
   // Guests are kept out of Collection by the pager lock + the gated Collection
   // tab/drawer entries instead.
   const model = usePortfolioScreenModel();
-  const { spotlightRepository, refreshData, removeOptimisticInventoryEntries } = useAppServices();
+  const {
+    spotlightRepository,
+    refreshData,
+    removeOptimisticInventoryEntries,
+    activeCollectionID,
+    setActiveCollectionID,
+  } = useAppServices();
+  const [isCollectionPickerVisible, setIsCollectionPickerVisible] = useState(false);
+  const [collectionsSnapshot, setCollectionsSnapshot] = useState<CollectionsSnapshot | null>(null);
+  const [isLoadingCollections, setIsLoadingCollections] = useState(false);
   const { isHidden: isSummaryHidden, toggle: toggleSummaryHidden } = usePortfolioSummaryVisibility();
   const { viewMode, toggleViewMode } = usePortfolioViewMode();
   const { openDrawer } = useAppDrawer();
@@ -362,6 +392,87 @@ export function PortfolioScreen({
   const summary = model.dashboard.summary;
   const baseInventory = model.dashboard.inventoryItems;
 
+  // Abbreviated total on the collection summary line (Figma 2749:4753). It
+  // honours the balance-visibility toggle — otherwise hiding the big balance
+  // would leak the same number one row further down.
+  const collectionTotalLabel = isSummaryHidden
+    ? HIDDEN_VALUE_MASK
+    : formatAbbreviatedCurrency(summary.currentValue);
+
+  // Name shown on the picker. Falls back to "All Collection" for the aggregate,
+  // and to the plain label until the collections read lands.
+  const activeCollectionName = useMemo(() => {
+    const collections = collectionsSnapshot?.collections ?? [];
+    if (activeCollectionID === ALL_COLLECTIONS_ID) {
+      // With a single collection the aggregate IS that collection, so name it —
+      // "All Collection" only earns its place once there is more than one
+      // (Figma 3356:2371 rests on "Main Collection").
+      return collections.length === 1 ? collections[0].name : 'All Collection';
+    }
+    const match = collections.find((collection) => collection.id === activeCollectionID);
+    return match?.name ?? 'Main Collection';
+  }, [activeCollectionID, collectionsSnapshot]);
+
+  // Values inside the picker honour the balance-visibility toggle, for the same
+  // reason the summary line does — otherwise hiding the balance leaks it here.
+  const formatCollectionValue = useCallback(
+    (value: number) => (isSummaryHidden ? HIDDEN_VALUE_MASK : formatAbbreviatedCurrency(value)),
+    [isSummaryHidden],
+  );
+
+  const loadCollections = useCallback(async () => {
+    setIsLoadingCollections(true);
+    try {
+      const snapshot = await spotlightRepository.listCollections();
+      setCollectionsSnapshot(snapshot);
+      return snapshot;
+    } catch {
+      // The picker can still switch between what it already knows about; the
+      // next open retries.
+      return null;
+    } finally {
+      setIsLoadingCollections(false);
+    }
+  }, [spotlightRepository]);
+
+  // Read the collections once so the picker label is right before it is opened.
+  // Deliberately does NOT change the active scope: the unscoped read is already
+  // correct for someone who has not picked a collection, and switching the scope
+  // here would cost a second (expensive) dashboard fetch on every cold start.
+  useEffect(() => {
+    void loadCollections();
+  }, [loadCollections]);
+
+  const handleOpenCollectionPicker = useCallback(() => {
+    setIsCollectionPickerVisible(true);
+    void loadCollections();
+  }, [loadCollections]);
+
+  const handleCreateCollection = useCallback(
+    async (name: string) => {
+      const created = await spotlightRepository.createCollection(name);
+      // Merge it in before switching. Without this the picker label falls back to
+      // the previous collection's name until the re-read lands, so the tab would
+      // briefly claim you are looking at "Main Collection" right after naming
+      // something else.
+      setCollectionsSnapshot((current) =>
+        current
+          ? { ...current, collections: [...current.collections, created] }
+          : {
+              collections: [created],
+              defaultCollectionID: created.id,
+              all: { cardCount: 0, totalValue: 0 },
+            },
+      );
+      // Switch to it immediately: the whole point of naming a collection is to
+      // start filling it, and it is empty, so the Collection tab lands on the
+      // "Let's build your collection" state (Figma 3370:3771).
+      setActiveCollectionID(created.id);
+      void loadCollections();
+    },
+    [loadCollections, setActiveCollectionID, spotlightRepository],
+  );
+
   const visibleInventory = useMemo(() => {
     const present = removedIds.size > 0
       ? baseInventory.filter((entry) => !removedIds.has(entry.id))
@@ -370,17 +481,33 @@ export function PortfolioScreen({
     return applyInventorySearch(filtered, model.searchQuery);
   }, [activeFilter, baseInventory, model.searchQuery, removedIds]);
 
-  // Lazily load the owner's own posts the first time the Activity tab opens.
+  // Prefetch the owner's own posts as soon as we know who they are, rather than
+  // waiting for the Activity tab to be tapped — the round trip then overlaps
+  // with the Collection load instead of starting cold on tab switch, so Activity
+  // is usually already populated by the time it's opened.
+  // `activityReloadToken` bumps to force a re-fetch after composing a post.
   const ownerId = currentUser?.id ?? null;
+  const ownerAuthor = useMemo<FeedPostAuthor | null>(() => (
+    currentUser
+      ? {
+          displayName: getResolvedDisplayName(currentUser),
+          handle: currentUser.handle ?? null,
+          avatarUrl: currentUser.avatarURL ?? null,
+          isVerified: currentUser.isVerified === true,
+        }
+      : null
+  ), [currentUser]);
   useEffect(() => {
-    if (activeProfileTab !== 'activity' || !ownerId || activityLoadedRef.current === ownerId) {
+    if (!ownerId || activityLoadedRef.current === ownerId) {
       return;
     }
     activityLoadedRef.current = ownerId;
     let cancelled = false;
     setActivityStatus('loading');
     void (async () => {
-      const loaded = await fetchAuthorPosts(ownerId);
+      // The author of every row is the signed-in user, whose profile we already
+      // hold — passing it skips the `public_profiles` hydration round trip.
+      const loaded = await fetchAuthorPosts(ownerId, { knownAuthor: ownerAuthor });
       if (cancelled) {
         return;
       }
@@ -390,7 +517,23 @@ export function PortfolioScreen({
     return () => {
       cancelled = true;
     };
-  }, [activeProfileTab, ownerId]);
+    // `ownerAuthor` is display-only here; re-running on every profile edit would
+    // refetch the list for no benefit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ownerId, activityReloadToken]);
+
+  // The composer flips a one-shot refresh flag on a successful post. Consume it
+  // when this screen regains focus and force the owner's Activity to reload —
+  // otherwise the lazy-load ref keeps the stale, pre-post list and the new post
+  // never appears (the "I posted but see nothing" bug).
+  useFocusEffect(
+    useCallback(() => {
+      if (consumeFeedRefreshSignal()) {
+        activityLoadedRef.current = null;
+        setActivityReloadToken((token) => token + 1);
+      }
+    }, []),
+  );
 
   // Mirror edit mode into the tabs pager so it hides the bottom tab bar + locks
   // the horizontal swipe, and always release the lock on unmount.
@@ -412,12 +555,6 @@ export function PortfolioScreen({
       }
       return next;
     });
-  }, []);
-
-  const handleExitEditMode = useCallback(() => {
-    setEditMode(false);
-    setSelectedIds(new Set());
-    setDeleteError(null);
   }, []);
 
   const allVisibleSelected = visibleInventory.length > 0
@@ -563,10 +700,12 @@ export function PortfolioScreen({
         sourceScanID: null,
         addedAt: new Date().toISOString(),
         costBasisPerUnit: entry.costBasisPerUnit ?? null,
+        // Duplicating a card keeps it in the collection you are viewing.
+        collectionID: activeCollectionID,
       })
       .then(() => refreshData())
       .catch(() => undefined);
-  }, [actionMenuEntry, refreshData, spotlightRepository]);
+  }, [actionMenuEntry, activeCollectionID, refreshData, spotlightRepository]);
 
   // Delete from the menu: queue the confirm sheet on the actions sheet's
   // deterministic dismissal (same pattern as Share) instead of a timed guess.
@@ -619,17 +758,13 @@ export function PortfolioScreen({
     scrollRef.current?.scrollToOffset({ offset, animated: true });
   }, [listTopInset]);
 
-  // Top-bar search bubble: reveal the buried search row (Collection tab only)
-  // and focus it. Switch to the Collection tab first if we're on another tab,
-  // then scroll it up and open the keyboard on the input.
+  // Top-bar search bubble opens the catalog "Search Cards" screen. It used to
+  // scroll down to the inline collection-filter field, which reads as the same
+  // affordance as the search row already on the page — the magnifier in the top
+  // bar is for finding a card, not for filtering what you own.
   const handleTopSearchPress = useCallback(() => {
-    if (activeProfileTab !== 'collection') {
-      setActiveProfileTab('collection');
-    }
-    handleSearchFocus();
-    // Let the scroll settle before focusing so the input is mounted on-screen.
-    requestAnimationFrame(() => searchInputRef.current?.focus());
-  }, [activeProfileTab, handleSearchFocus]);
+    router.push('/catalog/search' as never);
+  }, [router]);
 
   // The whole screen is one virtualized FlatList: the balance/chart/search/
   // filter chrome rides along as the list header, and the collection renders
@@ -736,8 +871,13 @@ export function PortfolioScreen({
     ],
   );
 
-  // Floating glass nav bubbles (menu + edit) that hover in the top corners over
-  // the scrolling content. The "Collection" title itself is a large heading that
+  // Right-edge offset for the Nth bubble in from the right (0 = outermost).
+  const bubbleRight = (indexFromRight: number) =>
+    theme.layout.pageGutter + indexFromRight * (BUBBLE_SIZE + BUBBLE_GAP);
+
+  // Floating glass nav bubbles (menu on the left; share + edit on the right,
+  // plus a context bubble per tab) that hover in the top corners over the
+  // scrolling content. The "Collection" title itself is a large heading that
   // scrolls with the list (see listHeader) — the iOS 26 large-title pattern.
   const headerBubbles = (
     <>
@@ -751,9 +891,9 @@ export function PortfolioScreen({
       </GlassNavBubble>
       {activeProfileTab === 'collection' ? (
         <GlassNavBubble
-          accessibilityLabel="Search your portfolio"
+          accessibilityLabel="Search cards"
           onPress={handleTopSearchPress}
-          style={{ right: theme.layout.pageGutter + BUBBLE_SIZE + 8, top: bubbleTop }}
+          style={{ right: bubbleRight(2), top: bubbleTop }}
           testID="portfolio-header-search"
         >
           <SearchIcon color={theme.colors.gray900} height={20} width={20} />
@@ -763,16 +903,26 @@ export function PortfolioScreen({
         <GlassNavBubble
           accessibilityLabel="New post"
           onPress={() => router.push('/new-post' as never)}
-          style={{ right: theme.layout.pageGutter + BUBBLE_SIZE + 8, top: bubbleTop }}
+          style={{ right: bubbleRight(2), top: bubbleTop }}
           testID="portfolio-header-new-post"
         >
           <Plus color={theme.colors.gray900} height={22} width={22} />
         </GlassNavBubble>
       ) : null}
       <GlassNavBubble
+        accessibilityLabel="Share profile"
+        // Figma 3095:7044. Sharing isn't built yet, so the control is present
+        // and inert rather than wired to a half-working share sheet.
+        onPress={() => {}}
+        style={{ right: bubbleRight(1), top: bubbleTop }}
+        testID="portfolio-header-share"
+      >
+        <ShareIos color={theme.colors.gray900} height={20} width={20} />
+      </GlassNavBubble>
+      <GlassNavBubble
         accessibilityLabel="Edit profile"
         onPress={() => router.push('/edit-profile' as never)}
-        style={{ right: theme.layout.pageGutter, top: bubbleTop }}
+        style={{ right: bubbleRight(0), top: bubbleTop }}
         testID="portfolio-header-edit"
       >
         <EditPencil color={theme.colors.gray900} height={20} width={20} />
@@ -857,26 +1007,22 @@ export function PortfolioScreen({
             </Text>
           ) : null}
 
+          {/* The search row is the filter field + the view toggle only. The
+              "Search Cards" magnifier that used to sit here was a duplicate of
+              the top-bar search bubble (both push /catalog/search), and the
+              Select / Done edit-mode toggle was removed alongside it. Edit mode
+              itself is still wired below — it just has no entry point on this
+              row right now. */}
           <View onLayout={handleSearchRowLayout}>
             <CollectionSearchRow
+              collectionName={activeCollectionName}
               inputRef={searchInputRef}
               onChangeQuery={model.setSearchQuery}
               onFocus={handleSearchFocus}
-              onSearchCard={() => router.push('/catalog/search' as never)}
+              onPressCollection={handleOpenCollectionPicker}
               onToggleViewMode={toggleViewMode}
               query={model.searchQuery}
-              titleAccessory={(
-                <Pressable
-                  accessibilityRole="button"
-                  hitSlop={8}
-                  onPress={editMode ? handleExitEditMode : () => setEditMode(true)}
-                  testID="portfolio-select-toggle"
-                >
-                  <Text style={[theme.typography.control, { color: theme.colors.purple500 }]}>
-                    {editMode ? 'Done' : 'Select'}
-                  </Text>
-                </Pressable>
-              )}
+              totalValueLabel={collectionTotalLabel}
               viewMode={viewMode}
             />
           </View>
@@ -890,22 +1036,39 @@ export function PortfolioScreen({
     </View>
   );
 
-  const activityEmpty = (
-    <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
-      <StateCard
-        loading={activityStatus === 'loading' || activityStatus === 'idle'}
-        message={
-          activityStatus === 'ready'
-            ? 'Your posts will show up here.'
-            : 'Fetching your posts.'
-        }
-        style={styles.emptyStateCard}
+  // Empty Activity: once the (empty) posts have actually loaded, show the Figma
+  // "What's on your mind?" compose prompt (avatar + gray placeholder, 3147:10061)
+  // that opens the composer on tap — not a dead "No posts yet" card. While the
+  // posts are still loading (or errored) fall back to a state card.
+  const activityEmpty =
+    activityStatus === 'ready' ? (
+      <Pressable
+        accessibilityLabel="Create a post"
+        accessibilityRole="button"
+        onPress={() => router.push('/new-post' as never)}
+        style={({ pressed }) => [styles.composePrompt, { opacity: pressed ? 0.7 : 1 }]}
         testID="portfolio-activity-empty"
-        title={activityStatus === 'ready' ? 'No posts yet' : 'Loading activity'}
-        variant="field"
-      />
-    </View>
-  );
+      >
+        <Avatar initials={profileInitials} size={40} uri={currentUser?.avatarURL} />
+        <Text style={[theme.typography.body, { fontSize: 14, color: theme.colors.gray600 }]}>
+          What&rsquo;s on your mind?
+        </Text>
+      </Pressable>
+    ) : activityStatus === 'error' ? (
+      <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
+        <StateCard
+          message="Please try again in a moment."
+          style={styles.emptyStateCard}
+          testID="portfolio-activity-empty"
+          title="Could not load activity"
+          variant="field"
+        />
+      </View>
+    ) : (
+      // Still fetching: a chromeless spinner, not a bordered card — the card
+      // reads as a permanent result when it's really just a transient wait.
+      <InlineLoader label="Fetching posts" testID="portfolio-activity-empty" />
+    );
 
   // Truly-empty collection (no cards at all) reads differently from an active
   // filter/search that just matched nothing.
@@ -980,6 +1143,10 @@ export function PortfolioScreen({
           refreshControl={(
             <RefreshControl
               onRefresh={model.refresh}
+              // The list starts under the notch (SafeAreaView only insets
+              // left/right), so without an offset the spinner spins up against
+              // the status bar. Drop it below the safe-area top.
+              progressViewOffset={insets.top + 8}
               refreshing={model.isRefreshing}
               testID="portfolio-refresh-control"
               tintColor={theme.colors.gray400}
@@ -1094,6 +1261,18 @@ export function PortfolioScreen({
         priceText={model.editingSalePriceText}
         sale={model.editingSale}
       />
+
+      <CollectionPickerSheet
+        activeCollectionID={activeCollectionID}
+        allTotals={collectionsSnapshot?.all ?? { cardCount: 0, totalValue: 0 }}
+        collections={collectionsSnapshot?.collections ?? []}
+        formatValue={formatCollectionValue}
+        loading={isLoadingCollections}
+        onClose={() => setIsCollectionPickerVisible(false)}
+        onCreateCollection={handleCreateCollection}
+        onSelectCollection={setActiveCollectionID}
+        visible={isCollectionPickerVisible}
+      />
     </SafeAreaView>
   );
 }
@@ -1114,6 +1293,15 @@ const styles = StyleSheet.create({
     // 1252:2596) — the first row carries only a top hairline, no padding.
     gap: 16,
     paddingBottom: 16,
+  },
+  composePrompt: {
+    // Empty-Activity compose prompt (Figma 3147:10061): avatar + gray
+    // placeholder in a tappable row, page-gutter aligned.
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 4,
   },
   emptyStateCard: {
     marginTop: 12,

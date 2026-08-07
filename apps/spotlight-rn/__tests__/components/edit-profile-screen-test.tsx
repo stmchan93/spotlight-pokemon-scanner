@@ -89,6 +89,11 @@ describe('EditProfileScreen', () => {
     expect(screen.getByDisplayValue('https://example.com')).toBeTruthy();
     expect(screen.getByDisplayValue('Pallet Town')).toBeTruthy();
     expect(screen.getByDisplayValue('Collector of holos')).toBeTruthy();
+
+    // A filled field also floats its label above the value (Figma 3083:9800).
+    expect(screen.getByText('Profile Name')).toBeTruthy();
+    expect(screen.getByText('Social Link')).toBeTruthy();
+    expect(screen.getByText('Location')).toBeTruthy();
   });
 
   it('navigates back when Cancel is pressed', () => {
@@ -115,73 +120,30 @@ describe('EditProfileScreen', () => {
     alert.mockRestore();
   });
 
-  describe('handle field', () => {
-    it('prefills the saved handle and does not re-check it', () => {
+  describe('handle field (removed)', () => {
+    it('no longer renders a handle field or availability check', () => {
       renderWithProviders(<EditProfileScreen />);
 
-      expect(screen.getByDisplayValue('ash')).toBeTruthy();
+      expect(screen.queryByTestId('edit-profile-handle-input')).toBeNull();
+      expect(screen.queryByTestId('edit-profile-handle-status')).toBeNull();
+      // The saved handle isn't prefilled anywhere either…
+      expect(screen.queryByDisplayValue('ash')).toBeNull();
+      // …and nothing probes availability now that there's nothing to claim.
       expect(isHandleAvailable).not.toHaveBeenCalled();
     });
 
-    it('sanitizes what the user types', () => {
+    it('OMITS handle from the patch so saving never releases the account handle', async () => {
       renderWithProviders(<EditProfileScreen />);
-
-      fireEvent.changeText(screen.getByTestId('edit-profile-handle-input'), '@Misty Waters!');
-      expect(screen.getByDisplayValue('mistywaters')).toBeTruthy();
-    });
-
-    it('explains a too-short handle and blocks the save', () => {
-      renderWithProviders(<EditProfileScreen />);
-
-      fireEvent.changeText(screen.getByTestId('edit-profile-handle-input'), 'ab');
-      expect(screen.getByTestId('edit-profile-handle-status')).toHaveTextContent(
-        'At least 3 characters.',
-      );
 
       fireEvent.press(screen.getByTestId('edit-profile-save'));
-      expect(updateProfile).not.toHaveBeenCalled();
-    });
 
-    it('reports a taken handle and blocks the save', async () => {
-      (isHandleAvailable as jest.Mock).mockResolvedValue(false);
-      renderWithProviders(<EditProfileScreen />);
-
-      fireEvent.changeText(screen.getByTestId('edit-profile-handle-input'), 'brock');
-      await waitFor(() =>
-        expect(screen.getByTestId('edit-profile-handle-status')).toHaveTextContent(
-          '@brock is taken.',
-        ),
-      );
-
-      fireEvent.press(screen.getByTestId('edit-profile-save'));
-      expect(updateProfile).not.toHaveBeenCalled();
-    });
-
-    it('saves an available handle', async () => {
-      renderWithProviders(<EditProfileScreen />);
-
-      fireEvent.changeText(screen.getByTestId('edit-profile-handle-input'), 'brock');
-      await waitFor(() =>
-        expect(screen.getByTestId('edit-profile-handle-status')).toHaveTextContent(
-          '@brock is available.',
-        ),
-      );
-
-      fireEvent.press(screen.getByTestId('edit-profile-save'));
-      await waitFor(() =>
-        expect(updateProfile).toHaveBeenCalledWith(expect.objectContaining({ handle: 'brock' })),
-      );
-    });
-
-    it('releases the handle when the field is cleared', async () => {
-      renderWithProviders(<EditProfileScreen />);
-
-      fireEvent.changeText(screen.getByTestId('edit-profile-handle-input'), '');
-      fireEvent.press(screen.getByTestId('edit-profile-save'));
-
-      await waitFor(() =>
-        expect(updateProfile).toHaveBeenCalledWith(expect.objectContaining({ handle: null })),
-      );
+      await waitFor(() => expect(updateProfile).toHaveBeenCalled());
+      // `updateProfile` writes any key that is present, so a `handle: null` here
+      // would drop the user's @handle on every profile save. The key must be
+      // absent, not null.
+      const patch = updateProfile.mock.calls[0][0];
+      expect(patch).not.toHaveProperty('handle');
+      expect(back).toHaveBeenCalled();
     });
   });
 });

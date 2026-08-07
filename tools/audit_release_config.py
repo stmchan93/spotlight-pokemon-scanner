@@ -62,6 +62,85 @@ def require_non_placeholder(values: dict[str, str], key: str, failures: list[str
         require(not has_placeholder(value), f"Placeholder value detected for {key}", failures)
 
 
+# Until 2026-08-06 development, staging AND production all resolved to ONE Supabase
+# project: eas.json hardcoded the same URL + publishable key in every build profile and
+# backend/.env.staging was byte-identical to backend/.env.production. Every staging
+# sign-in, smoke fixture and schema migration therefore ran against the project holding
+# the real user accounts, and it went unnoticed for months because this gate only ever
+# validated each environment in isolation. The checks below are the regression guard.
+# They compare resolved values between environments and never assert a literal project
+# ref, so recreating a Supabase project does not break them.
+SUPABASE_IDENTITY_KEYS = (
+    "SUPABASE_URL",
+    "SUPABASE_JWKS_URL",
+    "EXPO_PUBLIC_SPOTLIGHT_SUPABASE_ANON_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY",
+)
+
+MOBILE_SUPABASE_IDENTITY_KEYS = (
+    "EXPO_PUBLIC_SPOTLIGHT_SUPABASE_URL",
+    "EXPO_PUBLIC_SPOTLIGHT_SUPABASE_ANON_KEY",
+)
+
+
+def summarize_shared_value(key: str, value: str) -> str:
+    trimmed = value.strip()
+    if "URL" in key.upper():
+        return trimmed
+    if len(trimmed) <= 12:
+        return "(identical value)"
+    return f"{trimmed[:10]}...{trimmed[-4:]}"
+
+
+def require_distinct_supabase_project(
+    *,
+    key: str,
+    non_production_environment: str,
+    non_production_source: str,
+    non_production_value: str,
+    production_source: str,
+    production_value: str,
+    failures: list[str],
+) -> None:
+    """Fail when a non-production environment resolves to production's Supabase project."""
+    non_production = str(non_production_value or "").strip()
+    production = str(production_value or "").strip()
+    if not non_production or not production or non_production != production:
+        return
+    failures.append(
+        f"SUPABASE PROJECT COLLISION: {key} is identical in {non_production_environment} "
+        f"({non_production_source}) and production ({production_source}); shared value "
+        f"{summarize_shared_value(key, production)}. Both environments therefore talk to the "
+        "SAME Supabase project, and production holds the REAL user accounts -- every "
+        f"{non_production_environment} sign-in, smoke fixture and schema migration would run "
+        f"against live user data. Give {non_production_environment} its own Supabase project "
+        f"(its own project ref AND its own publishable/anon and service-role keys) in "
+        f"{non_production_source} before releasing."
+    )
+
+
+def require_distinct_supabase_projects(
+    *,
+    keys: tuple[str, ...],
+    non_production_environment: str,
+    non_production_source: str,
+    non_production_values: dict[str, str],
+    production_source: str,
+    production_values: dict[str, str],
+    failures: list[str],
+) -> None:
+    for key in keys:
+        require_distinct_supabase_project(
+            key=key,
+            non_production_environment=non_production_environment,
+            non_production_source=non_production_source,
+            non_production_value=non_production_values.get(key, ""),
+            production_source=production_source,
+            production_value=production_values.get(key, ""),
+            failures=failures,
+        )
+
+
 def require_https_url(values: dict[str, str], key: str, failures: list[str]) -> None:
     value = values.get(key, "").strip()
     require_non_placeholder(values, key, failures)
@@ -237,8 +316,8 @@ def audit_backend(
         require_non_placeholder(secret_values, "EBAY_CLIENT_ID", failures)
         require_non_placeholder(secret_values, "EBAY_CLIENT_SECRET", failures)
 
-    counterpart_name = ".env.production" if environment == "staging" else ".env.staging"
-    counterpart_path = backend_env_path.with_name(counterpart_name)
+    counterpart_environment = "production" if environment == "staging" else "staging"
+    counterpart_path = backend_env_path.with_name(f".env.{counterpart_environment}")
     if counterpart_path.exists():
         counterpart_values = parse_required_dotenv(counterpart_path)
         current_bucket = env_values.get("SPOTLIGHT_SCAN_ARTIFACTS_GCS_BUCKET", "").strip()
@@ -247,6 +326,44 @@ def audit_backend(
             not current_bucket or not other_bucket or current_bucket != other_bucket,
             "Staging and production backend artifact buckets must be different",
             failures,
+        )
+
+        if environment == "staging":
+            staging_env, production_env = env_values, counterpart_values
+            staging_source, production_source = backend_env_path.name, counterpart_path.name
+        else:
+            staging_env, production_env = counterpart_values, env_values
+            staging_source, production_source = counterpart_path.name, backend_env_path.name
+        require_distinct_supabase_projects(
+            keys=SUPABASE_IDENTITY_KEYS,
+            non_production_environment="staging",
+            non_production_source=staging_source,
+            non_production_values=staging_env,
+            production_source=production_source,
+            production_values=production_env,
+            failures=failures,
+        )
+
+    # The Supabase publishable/anon, service-role and JWKS values live in the secrets
+    # files, not the plain env files: a shared key means a shared project even when the
+    # URLs were edited to look split.
+    counterpart_secrets_path = backend_secrets_path.with_name(f".env.{counterpart_environment}.secrets")
+    if counterpart_secrets_path.exists() and counterpart_secrets_path != backend_secrets_path:
+        counterpart_secret_values = parse_required_dotenv(counterpart_secrets_path)
+        if environment == "staging":
+            staging_secrets, production_secrets = secret_values, counterpart_secret_values
+            staging_source, production_source = backend_secrets_path.name, counterpart_secrets_path.name
+        else:
+            staging_secrets, production_secrets = counterpart_secret_values, secret_values
+            staging_source, production_source = counterpart_secrets_path.name, backend_secrets_path.name
+        require_distinct_supabase_projects(
+            keys=SUPABASE_IDENTITY_KEYS,
+            non_production_environment="staging",
+            non_production_source=staging_source,
+            non_production_values=staging_secrets,
+            production_source=production_source,
+            production_values=production_secrets,
+            failures=failures,
         )
 
 
@@ -277,7 +394,13 @@ def audit_mobile(
 
     counterpart_environment = "production" if environment == "staging" else "staging"
     try:
-        counterpart_values = resolve_mobile_env_values(repo_root_path, counterpart_environment, counterpart_environment)
+        counterpart_values: dict[str, str] | None = resolve_mobile_env_values(
+            repo_root_path, counterpart_environment, counterpart_environment
+        )
+    except Exception:
+        counterpart_values = None
+
+    if counterpart_values is not None:
         current_bundle = values.get("SPOTLIGHT_IOS_BUNDLE_IDENTIFIER", "").strip()
         other_bundle = counterpart_values.get("SPOTLIGHT_IOS_BUNDLE_IDENTIFIER", "").strip()
         warn(
@@ -285,8 +408,40 @@ def audit_mobile(
             "Staging and production iOS bundle identifiers are identical; separate bundle IDs are safer for parallel installs/TestFlight lanes",
             warnings,
         )
-    except Exception:
-        pass
+
+    production_values = values if environment == "production" else counterpart_values
+    if production_values is not None:
+        production_source = "EAS build profile 'production' (apps/spotlight-rn/eas.json)"
+        staging_values = values if environment == "staging" else counterpart_values
+        if staging_values is not None:
+            require_distinct_supabase_projects(
+                keys=MOBILE_SUPABASE_IDENTITY_KEYS,
+                non_production_environment="staging",
+                non_production_source="EAS build profile 'staging' (apps/spotlight-rn/eas.json)",
+                non_production_values=staging_values,
+                production_source=production_source,
+                production_values=production_values,
+                failures=failures,
+            )
+
+        # The original bug also pointed local development at production, so every dev
+        # sign-in wrote to real user accounts. Guard that profile too.
+        try:
+            development_values: dict[str, str] | None = resolve_mobile_env_values(
+                repo_root_path, "development", "development"
+            )
+        except Exception:
+            development_values = None
+        if development_values is not None:
+            require_distinct_supabase_projects(
+                keys=MOBILE_SUPABASE_IDENTITY_KEYS,
+                non_production_environment="development",
+                non_production_source="EAS build profile 'development' (apps/spotlight-rn/eas.json)",
+                non_production_values=development_values,
+                production_source=production_source,
+                production_values=production_values,
+                failures=failures,
+            )
 
 
 def build_parser() -> argparse.ArgumentParser:
