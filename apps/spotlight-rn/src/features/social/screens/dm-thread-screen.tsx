@@ -12,7 +12,7 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SendDiagonal } from 'iconoir-react-native';
 
-import { StateCard, Text, TextField, useSpotlightTheme } from '@spotlight/design-system';
+import { Text, TextField, useSpotlightTheme } from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import {
@@ -328,7 +328,7 @@ export function DmThreadScreen({
       style={[styles.safeArea, { backgroundColor: theme.colors.gray0 }]}
       testID={testID}
     >
-      <View style={styles.header}>
+      <View style={[styles.header, { borderBottomColor: theme.colors.gray200 }]}>
         <ChromeBackButton onPress={() => router.back()} testID={`${testID}-back`} />
         <Text numberOfLines={1} style={[theme.typography.titleXsmall, styles.title]}>
           {title?.trim() || 'Message'}
@@ -350,12 +350,21 @@ export function DmThreadScreen({
           keyExtractor={(item) => item.id}
           ListEmptyComponent={
             isLoading ? null : (
-              <StateCard
-                message="Say something to start this conversation."
+              // Plain centred line, NOT a StateCard. A card with a "No messages
+              // yet" heading frames an empty thread as a failed load — the same
+              // treatment this app gives a backend error. An empty thread isn't
+              // a problem, it's the normal first moment of every conversation,
+              // so it gets one quiet prompt and nothing else.
+              <Text
+                style={[
+                  theme.typography.body,
+                  styles.emptyPrompt,
+                  { color: theme.colors.gray600 },
+                ]}
                 testID={`${testID}-empty`}
-                title="No messages yet"
-                variant="field"
-              />
+              >
+                Say something to start this conversation
+              </Text>
             )
           }
           // Newest sits at the bottom, so every content-height change (first
@@ -423,13 +432,24 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   emptyContent: {
+    // `flexGrow` (not `flex`) so the container fills the list only while empty;
+    // once messages exist the content sizes to them and stays bottom-pinned.
+    flexGrow: 1,
+    justifyContent: 'center',
     padding: 16,
+  },
+  emptyPrompt: {
+    textAlign: 'center',
   },
   flex: {
     flex: 1,
   },
   header: {
     alignItems: 'center',
+    // Separates the header from the thread. The screen previously had a single
+    // rule at the very bottom (the composer's top edge), so the back button and
+    // the name floated against the first message with nothing dividing them.
+    borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
     gap: 12,
     paddingHorizontal: 16,

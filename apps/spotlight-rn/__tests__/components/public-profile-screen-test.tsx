@@ -334,7 +334,7 @@ describe('PublicProfileScreen', () => {
       renderPublicProfile();
 
       await waitFor(() => {
-        expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent('Following');
+        expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent('FOLLOWING');
       });
       expect(isFollowing).toHaveBeenCalledWith('user-1');
     });
@@ -343,7 +343,7 @@ describe('PublicProfileScreen', () => {
       renderPublicProfile();
 
       await waitFor(() => {
-        expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent('Follow');
+        expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent(/^FOLLOW$/);
       });
       // Seeded from the profile's follower_count.
       expect(screen.getByText('12')).toBeTruthy();
@@ -351,12 +351,12 @@ describe('PublicProfileScreen', () => {
       fireEvent.press(screen.getByTestId('public-profile-follow-button'));
 
       // Optimistic: label + count flip before the write settles.
-      expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent('Following');
+      expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent('FOLLOWING');
       expect(screen.getByText('13')).toBeTruthy();
 
       await waitFor(() => expect(followUser).toHaveBeenCalledWith('user-1'));
       // Still followed after the successful write.
-      expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent('Following');
+      expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent('FOLLOWING');
       expect(screen.getByText('13')).toBeTruthy();
     });
 
@@ -366,18 +366,18 @@ describe('PublicProfileScreen', () => {
       renderPublicProfile();
 
       await waitFor(() => {
-        expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent('Follow');
+        expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent(/^FOLLOW$/);
       });
 
       fireEvent.press(screen.getByTestId('public-profile-follow-button'));
 
       // Optimistic flip lands first...
-      expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent('Following');
+      expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent('FOLLOWING');
       expect(screen.getByText('13')).toBeTruthy();
 
       // ...then the failed write rolls both back.
       await waitFor(() =>
-        expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent('Follow'),
+        expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent(/^FOLLOW$/),
       );
       expect(screen.getByText('12')).toBeTruthy();
     });
@@ -389,17 +389,17 @@ describe('PublicProfileScreen', () => {
       renderPublicProfile();
 
       await waitFor(() => {
-        expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent('Following');
+        expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent('FOLLOWING');
       });
 
       fireEvent.press(screen.getByTestId('public-profile-follow-button'));
 
       // Optimistic unfollow: label + count drop.
-      expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent('Follow');
+      expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent(/^FOLLOW$/);
       expect(screen.getByText('11')).toBeTruthy();
 
       await waitFor(() =>
-        expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent('Following'),
+        expect(screen.getByTestId('public-profile-follow-button')).toHaveTextContent('FOLLOWING'),
       );
       expect(screen.getByText('12')).toBeTruthy();
     });

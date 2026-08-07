@@ -3,13 +3,21 @@ import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-nat
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Avatar, StateCard, Text, useSpotlightTheme } from '@spotlight/design-system';
+import { Avatar, SearchField, StateCard, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
-import { type DmConversation, fetchConversations } from '@/features/social/dm-service';
+import type { UserProfile } from '@/features/auth/auth-models';
+import { type DmConversation, fetchConversations, findOrCreateDm } from '@/features/social/dm-service';
+import { searchUsers } from '@/features/profile/profile-service';
 
 /** Anything past this reads as "a lot" — the badge is a signal, not a counter. */
 const UNREAD_BADGE_MAX = 99;
+
+/**
+ * Debounce before a keystroke becomes a query. `searchUsers` is a network read
+ * per call, so typing "trogdor" unthrottled is seven requests for one intent.
+ */
+const SEARCH_DEBOUNCE_MS = 250;
 
 /**
  * DM inbox. Reached from the Messages entry point and pushed as a ROOT route
@@ -61,6 +69,75 @@ export function DmInboxScreen({ testID = 'dm-inbox' }: { testID?: string }) {
     setIsRefreshing(true);
     void load().finally(() => setIsRefreshing(false));
   }, [load]);
+
+  // ---------------------------------------------------------------------------
+  // Search for someone to message
+  // ---------------------------------------------------------------------------
+  // Without this, starting a NEW conversation meant leaving the inbox entirely:
+  // Collection → search bubble → People tab → their profile → Message. The inbox
+  // is where you go to message someone, so the people search belongs here too.
+  //
+  // `searchUsers` matches handle OR display_name, prefix-style, against
+  // `public_profiles` — the same query the catalog People tab issues.
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<UserProfile[]>([]);
+  const [isOpening, setIsOpening] = useState(false);
+  // Monotonic token: a slow response for "tro" must not overwrite the newer
+  // results for "trogdor". Same guard as `loadTokenRef` above.
+  const searchTokenRef = useRef(0);
+  // Synchronous, unlike state — two taps in the same tick would both read a
+  // stale `false` and open two threads.
+  const openingRef = useRef(false);
+
+  const trimmedQuery = query.trim();
+  const isSearching = trimmedQuery.length > 0;
+
+  useEffect(() => {
+    if (!isSearching) {
+      setResults([]);
+      return;
+    }
+    const token = ++searchTokenRef.current;
+    const timer = setTimeout(() => {
+      void searchUsers(trimmedQuery).then((rows) => {
+        if (token === searchTokenRef.current) {
+          setResults(rows);
+        }
+      });
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [isSearching, trimmedQuery]);
+
+  const openThreadWith = useCallback(
+    (person: UserProfile) => {
+      if (openingRef.current) {
+        return;
+      }
+      openingRef.current = true;
+      setIsOpening(true);
+      void findOrCreateDm(person.userID)
+        .then((conversationId) => {
+          if (!conversationId) {
+            // Never navigate to /messages/null. Leaving the search open with the
+            // query intact is the recoverable state.
+            return;
+          }
+          setQuery('');
+          router.push({
+            pathname: '/messages/[conversationId]',
+            params: {
+              conversationId,
+              name: person.displayName ?? person.handle ?? '',
+            },
+          } as never);
+        })
+        .finally(() => {
+          openingRef.current = false;
+          setIsOpening(false);
+        });
+    },
+    [router],
+  );
 
   const renderItem = useCallback(
     ({ item }: { item: DmConversation }) => {
@@ -163,24 +240,88 @@ export function DmInboxScreen({ testID = 'dm-inbox' }: { testID?: string }) {
         <View style={styles.headerSpacer} />
       </View>
 
-      <FlatList
-        contentContainerStyle={items.length === 0 ? styles.emptyContent : undefined}
-        data={items}
-        keyExtractor={(item) => item.id}
-        ListEmptyComponent={
-          isLoading ? null : (
+      <View style={styles.searchRow}>
+        <SearchField
+          autoCapitalize="none"
+          autoCorrect={false}
+          containerTestID={`${testID}-search`}
+          onChangeText={setQuery}
+          placeholder="Search collectors"
+          returnKeyType="search"
+          size="collection"
+          surface="muted"
+          value={query}
+        />
+      </View>
+
+      {isSearching ? (
+        // While searching, people REPLACE the thread list rather than sitting
+        // above it. Two stacked lists of avatars — one of threads, one of
+        // strangers — makes it ambiguous which one a tap continues versus starts.
+        <FlatList
+          contentContainerStyle={results.length === 0 ? styles.emptyContent : undefined}
+          data={results}
+          keyExtractor={(person) => person.userID}
+          keyboardShouldPersistTaps="handled"
+          ListEmptyComponent={
             <StateCard
-              message="Open a collector's profile and say hello to start a conversation."
-              testID={`${testID}-empty`}
-              title="No messages yet"
+              message="No collectors match that name or @handle."
+              testID={`${testID}-search-empty`}
+              title="No one found"
               variant="field"
             />
-          )
-        }
-        refreshControl={<RefreshControl onRefresh={handleRefresh} refreshing={isRefreshing} />}
-        renderItem={renderItem}
-        testID={`${testID}-list`}
-      />
+          }
+          renderItem={({ item }) => (
+            <Pressable
+              accessibilityRole="button"
+              disabled={isOpening}
+              onPress={() => openThreadWith(item)}
+              style={({ pressed }) => [
+                styles.row,
+                { borderBottomColor: theme.colors.gray200 },
+                pressed ? { backgroundColor: theme.colors.gray50 } : null,
+              ]}
+              testID={`${testID}-person-${item.userID}`}
+            >
+              <Avatar
+                initials={(item.displayName ?? item.handle ?? '?').charAt(0).toUpperCase()}
+                size={40}
+                uri={item.avatarURL ?? undefined}
+              />
+              <View style={styles.copy}>
+                <Text style={[theme.typography.bodyMedium, { color: theme.colors.gray900 }]}>
+                  {item.displayName ?? item.handle ?? 'Collector'}
+                </Text>
+                {item.handle ? (
+                  <Text style={[theme.typography.label, { color: theme.colors.gray600 }]}>
+                    @{item.handle}
+                  </Text>
+                ) : null}
+              </View>
+            </Pressable>
+          )}
+          testID={`${testID}-search-results`}
+        />
+      ) : (
+        <FlatList
+          contentContainerStyle={items.length === 0 ? styles.emptyContent : undefined}
+          data={items}
+          keyExtractor={(item) => item.id}
+          ListEmptyComponent={
+            isLoading ? null : (
+              <StateCard
+                message="Search for a collector above to start a conversation."
+                testID={`${testID}-empty`}
+                title="No messages yet"
+                variant="field"
+              />
+            )
+          }
+          refreshControl={<RefreshControl onRefresh={handleRefresh} refreshing={isRefreshing} />}
+          renderItem={renderItem}
+          testID={`${testID}-list`}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -222,6 +363,12 @@ function formatRelativeTime(iso: string | null): string {
 }
 
 const styles = StyleSheet.create({
+  // Same 16pt gutter as the rows below it, so the field lines up with the
+  // avatars rather than floating on its own inset.
+  searchRow: {
+    paddingBottom: 8,
+    paddingHorizontal: 16,
+  },
   copy: {
     flex: 1,
     gap: 2,

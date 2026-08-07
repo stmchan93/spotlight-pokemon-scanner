@@ -562,29 +562,36 @@ export function PublicProfileScreen({
       />
 
       {canFollow ? (
-        // Follow and Message share one row: same Button primitive, same size,
-        // splitting the gutter width so neither reads as the page's single CTA.
-        <View
-          style={[
-            styles.actionRow,
-            { gap: theme.spacing.xxs, paddingHorizontal: theme.layout.pageGutter },
-          ]}
-        >
+        // Figma 2730:4617. Two 32pt rounded buttons splitting the gutter width
+        // (175.5pt each at 393pt) with a 10pt gap, uppercase 13pt labels.
+        //
+        // The emphasis is deliberately inverted from what you'd guess: MESSAGE
+        // is the dark fill and FOLLOW is the white outline. On someone else's
+        // profile the design treats starting a conversation as the primary act,
+        // not following. FOLLOWING keeps the same outline shell so the row
+        // doesn't reflow when the state flips — only the label changes.
+        <View style={[styles.actionRow, { paddingHorizontal: theme.layout.pageGutter }]}>
           <Button
             disabled={followState === null}
-            label={followState === 'following' ? 'Following' : 'Follow'}
+            label={followState === 'following' ? 'FOLLOWING' : 'FOLLOW'}
+            labelStyleVariant="label"
             onPress={handleToggleFollow}
+            shape="rounded"
+            size="xs"
             style={styles.actionButton}
             testID={`${testID}-follow-button`}
-            variant={followState === 'following' ? 'secondary' : 'dark'}
+            variant="outline"
           />
           <Button
             disabled={messagePending}
-            label="Message"
+            label="MESSAGE"
+            labelStyleVariant="label"
             onPress={handleOpenMessage}
+            shape="rounded"
+            size="xs"
             style={styles.actionButton}
             testID={`${testID}-message-button`}
-            variant="secondary"
+            variant="dark"
           />
         </View>
       ) : null}
@@ -736,6 +743,9 @@ const styles = StyleSheet.create({
   },
   actionRow: {
     flexDirection: 'row',
+    // 10, not a spacing token: the scale jumps 8 → 12 and Figma 2730:4617 is
+    // explicit about 10 here, which is what lands each button on 175.5pt.
+    gap: 10,
   },
   backButton: {
     position: 'absolute',

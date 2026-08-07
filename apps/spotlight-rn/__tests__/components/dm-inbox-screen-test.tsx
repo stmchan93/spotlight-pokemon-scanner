@@ -5,7 +5,9 @@ import {
   type DmConversation,
   fetchConversations,
   fetchMessages,
+  findOrCreateDm,
 } from '@/features/social/dm-service';
+import { searchUsers } from '@/features/profile/profile-service';
 import { DmInboxScreen } from '@/features/social/screens/dm-inbox-screen';
 
 import { renderWithProviders } from '../test-utils';
@@ -17,7 +19,24 @@ jest.mock('expo-router', () => ({
 jest.mock('@/features/social/dm-service', () => ({
   fetchConversations: jest.fn(),
   fetchMessages: jest.fn(),
+  findOrCreateDm: jest.fn(),
 }));
+
+jest.mock('@/features/profile/profile-service', () => ({
+  searchUsers: jest.fn(),
+}));
+
+function buildPerson(overrides: Record<string, unknown> = {}) {
+  return {
+    userID: 'user-trogdor',
+    displayName: 'trogdor85',
+    avatarURL: null,
+    labelerEnabled: false,
+    adminEnabled: false,
+    handle: null,
+    ...overrides,
+  } as never;
+}
 
 function buildConversation(
   overrides: Partial<DmConversation> & Pick<DmConversation, 'id'>,
@@ -179,6 +198,67 @@ describe('DmInboxScreen', () => {
     expect(push).toHaveBeenCalledWith({
       pathname: '/messages/[conversationId]',
       params: { conversationId: 'c-42', name: 'Ash Ketchum' },
+    });
+  });
+
+  describe('searching for someone to message', () => {
+    it('replaces the thread list with people results while searching', async () => {
+      (fetchConversations as jest.Mock).mockResolvedValue([buildConversation({ id: 'c-1' })]);
+      (searchUsers as jest.Mock).mockResolvedValue([buildPerson()]);
+      renderWithProviders(<DmInboxScreen />);
+      await screen.findByTestId('dm-inbox-row-c-1');
+
+      fireEvent.changeText(screen.getByTestId('dm-inbox-search'), 'trog');
+
+      // People REPLACE threads rather than stacking above them: two lists of
+      // avatars would make it ambiguous which tap continues a conversation and
+      // which starts one.
+      await waitFor(() => expect(screen.getByTestId('dm-inbox-person-user-trogdor')).toBeTruthy());
+      expect(screen.queryByTestId('dm-inbox-row-c-1')).toBeNull();
+    });
+
+    it('opens a thread with the tapped person', async () => {
+      (fetchConversations as jest.Mock).mockResolvedValue([]);
+      (searchUsers as jest.Mock).mockResolvedValue([buildPerson()]);
+      (findOrCreateDm as jest.Mock).mockResolvedValue('conv-99');
+      renderWithProviders(<DmInboxScreen />);
+
+      fireEvent.changeText(screen.getByTestId('dm-inbox-search'), 'trog');
+      const row = await screen.findByTestId('dm-inbox-person-user-trogdor');
+      fireEvent.press(row);
+
+      await waitFor(() => expect(findOrCreateDm).toHaveBeenCalledWith('user-trogdor'));
+      await waitFor(() =>
+        expect(push).toHaveBeenCalledWith({
+          pathname: '/messages/[conversationId]',
+          params: { conversationId: 'conv-99', name: 'trogdor85' },
+        }),
+      );
+    });
+
+    it('does NOT navigate when the conversation cannot be created', async () => {
+      (fetchConversations as jest.Mock).mockResolvedValue([]);
+      (searchUsers as jest.Mock).mockResolvedValue([buildPerson()]);
+      // findOrCreateDm returns null on failure — navigating anyway would push
+      // /messages/null and render a thread that cannot exist.
+      (findOrCreateDm as jest.Mock).mockResolvedValue(null);
+      renderWithProviders(<DmInboxScreen />);
+
+      fireEvent.changeText(screen.getByTestId('dm-inbox-search'), 'trog');
+      fireEvent.press(await screen.findByTestId('dm-inbox-person-user-trogdor'));
+
+      await waitFor(() => expect(findOrCreateDm).toHaveBeenCalled());
+      expect(push).not.toHaveBeenCalled();
+    });
+
+    it('shows a no-one-found state rather than an empty screen', async () => {
+      (fetchConversations as jest.Mock).mockResolvedValue([]);
+      (searchUsers as jest.Mock).mockResolvedValue([]);
+      renderWithProviders(<DmInboxScreen />);
+
+      fireEvent.changeText(screen.getByTestId('dm-inbox-search'), 'nobody');
+
+      await waitFor(() => expect(screen.getByTestId('dm-inbox-search-empty')).toBeTruthy());
     });
   });
 });
