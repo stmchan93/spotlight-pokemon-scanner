@@ -9,6 +9,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import {
   Button,
   colors,
+  EmptyStatePrompt,
   fontFamilies,
   GraderWordmark,
   IconButton,
@@ -190,6 +191,11 @@ export function DesignSystemCatalogScreen({
                 testID="catalog-pill-button-leading"
                 tone="filter"
               />
+              <PillButton
+                label="Scan to add"
+                testID="catalog-pill-button-soft"
+                tone="soft"
+              />
             </View>
 
             {/* Grader wordmarks: each mark is keyed by its own grader; unknown
@@ -256,6 +262,15 @@ export function DesignSystemCatalogScreen({
               message="This is the standard retry and empty-state treatment."
               onActionPress={() => {}}
               title="Search unavailable"
+            />
+
+            <EmptyStatePrompt
+              actionLabel="Scan to add"
+              actionTestID="catalog-empty-state-prompt-action"
+              illustration={<Text style={theme.typography.displayLarge}>◎</Text>}
+              message="Let’s build your collection"
+              onActionPress={() => {}}
+              testID="catalog-empty-state-prompt"
             />
 
             <SurfaceCard padding={18} radius={22} variant="field">

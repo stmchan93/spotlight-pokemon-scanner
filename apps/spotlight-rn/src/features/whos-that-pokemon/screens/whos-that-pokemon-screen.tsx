@@ -8,7 +8,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import type { WhosThatPokemonMatch } from '@spotlight/api-client';
+import type {
+  NormalizedBox,
+  NormalizedPoint,
+  WhosThatPokemonMatch,
+} from '@spotlight/api-client';
 import {
   AppText,
   colors,
@@ -23,6 +27,7 @@ import { useVisionCameraCapture } from '@/features/scanner/use-vision-camera-cap
 import { useAppServices } from '@/providers/app-providers';
 
 import { officialArtworkUrl } from '../artwork';
+import { FaceLockOn } from '../components/face-lock-on';
 import { RevealMorph } from '../components/reveal-morph';
 import { ScanningTheater } from '../components/scanning-theater';
 import { ResultPanel } from '../components/result-panel';
@@ -31,13 +36,15 @@ import { extractSelfiePalette, fallbackSelfiePalette } from '../palette';
 const isTestEnv = process.env.NODE_ENV === 'test';
 
 // The scanning theater plays for at least this long even when the API answers
-// faster, so the reveal never feels instant/anticlimactic. Shortened under jest
-// so screen tests can walk the phases on real timers.
-const MIN_THEATER_MS = isTestEnv ? 40 : 3000;
+// faster, so the reveal never feels instant/anticlimactic. Sized to the
+// theater's own palette-sampling stagger (5 swatches at 420ms) — the lock-on
+// phase now carries the "analysing you" beat, so the floor no longer has to.
+// Shortened under jest so screen tests can walk the phases on real timers.
+const MIN_THEATER_MS = isTestEnv ? 40 : 2400;
 
 const SHARE_FILE_NAME = 'whos-that-pokemon.png';
 
-type Phase = 'capture' | 'scanning' | 'reveal' | 'result';
+type Phase = 'capture' | 'scanning' | 'lockon' | 'reveal' | 'result';
 
 type SelfieCapture = {
   uri: string;
@@ -70,10 +77,12 @@ function delay(ms: number) {
 }
 
 /**
- * "Who's That Pokémon?" — one screen, four phases in local state:
- * capture (front-camera selfie) → scanning (theater plays while the backend
- * matches) → reveal (selfie dissolves into the top match's official artwork)
- * → result (top-3 + playful reasons + server-composed share card).
+ * "Who's That Pokémon?" — one screen, five phases in local state:
+ * capture (front-camera selfie) → scanning (calm theater plays while the
+ * backend matches) → lockon (your face is measured, then the landmark points
+ * fly out and settle into the species outline) → reveal (the classic strobe
+ * turns that silhouette into the artwork) → result (top-3 + playful reasons +
+ * server-composed share card).
  *
  * The selfie is analyzed in the moment and never stored: it travels inline in
  * the request and the temp file is best-effort deleted on reset/unmount.
@@ -101,7 +110,15 @@ export function WhosThatPokemonScreen() {
   // Background-removed selfie (data URI) from the backend — lets the morph
   // grab the user's actual outline; null → plain crossfade fallback.
   const [personCutoutUri, setPersonCutoutUri] = useState<string | null>(null);
+  // Segmentation geometry for the lock-on. `headBox` is normalized to the
+  // ORIGINAL SELFIE; `speciesOutline` to the ARTWORK IMAGE. Both are optional —
+  // FaceLockOn falls back to a proportional head box and a scatter exit.
+  const [headBox, setHeadBox] = useState<NormalizedBox | null>(null);
+  const [speciesOutline, setSpeciesOutline] = useState<NormalizedPoint[] | null>(null);
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
+  // True only when the reveal is taking over from the lock-on, which already
+  // collapsed the scene onto the silhouette.
+  const [revealFromSilhouette, setRevealFromSilhouette] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
 
   // Track the live selfie temp file + an incrementing run id so a stale match
@@ -173,8 +190,11 @@ export function WhosThatPokemonScreen() {
 
       setMatches(result.matches);
       setPersonCutoutUri(result.personCutoutUri ?? null);
+      setHeadBox(result.headBox ?? null);
+      setSpeciesOutline(result.speciesOutline ?? null);
       setActiveMatchIndex(0);
-      setPhase('reveal');
+      setRevealFromSilhouette(false);
+      setPhase('lockon');
     } catch {
       if (matchRunRef.current !== runId || !mountedRef.current) {
         return;
@@ -234,7 +254,10 @@ export function WhosThatPokemonScreen() {
     setSelfie(null);
     setMatches([]);
     setPersonCutoutUri(null);
+    setHeadBox(null);
+    setSpeciesOutline(null);
     setActiveMatchIndex(0);
+    setRevealFromSilhouette(false);
     setPalette(fallbackSelfiePalette);
     setMatchFailed(false);
     setIsCameraReady(isTestEnv);
@@ -243,7 +266,9 @@ export function WhosThatPokemonScreen() {
 
   const handleSelectMatch = useCallback((index: number) => {
     setActiveMatchIndex(index);
-    // Re-run the dissolve morph into the newly chosen artwork.
+    // Promoting an alternate replays the reveal only — the lock-on measures
+    // YOUR face and has already happened; repeating it would be filler.
+    setRevealFromSilhouette(false);
     setPhase('reveal');
   }, []);
 
@@ -393,10 +418,26 @@ export function WhosThatPokemonScreen() {
     <View style={styles.root} testID="whos-that-pokemon-screen">
       {phase === 'capture' ? renderCapturePhase() : null}
       {phase === 'scanning' ? renderScanningPhase() : null}
+      {phase === 'lockon' && activeMatch ? (
+        <FaceLockOn
+          artworkUrl={officialArtworkUrl(activeMatch.pokedexId)}
+          headBox={headBox}
+          onDone={() => {
+            setRevealFromSilhouette(true);
+            setPhase('reveal');
+          }}
+          selfieUri={selfie?.uri ?? null}
+          sourceHeight={selfie?.height ?? 0}
+          sourceWidth={selfie?.width ?? 0}
+          speciesOutline={speciesOutline}
+          washColor={washColor}
+        />
+      ) : null}
       {phase === 'reveal' && activeMatch ? (
         <RevealMorph
           artworkUrl={officialArtworkUrl(activeMatch.pokedexId)}
           burstColors={palette}
+          fromSilhouette={revealFromSilhouette}
           key={`reveal-${activeMatch.pokedexId}`}
           onDone={() => setPhase('result')}
           selfieUri={selfie?.uri ?? null}

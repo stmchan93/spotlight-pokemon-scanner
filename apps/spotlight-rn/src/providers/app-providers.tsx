@@ -254,27 +254,37 @@ export function AppProviders({
     return repositoryOverride ?? createDefaultSpotlightRepository(getAccessToken ?? accessToken);
   }, [accessToken, getAccessToken, repositoryOverride]);
 
-  const inventoryEntriesCache = useMemo(() => {
-    return inventoryEntriesCacheState?.ownerKey === activeSessionOwnerKey
-      ? inventoryEntriesCacheState.value
-      : null;
-  }, [activeSessionOwnerKey, inventoryEntriesCacheState]);
-
-  const portfolioDashboardCache = useMemo(() => {
-    return portfolioDashboardCacheState?.ownerKey === activeSessionOwnerKey
-      ? portfolioDashboardCacheState.value
-      : null;
-  }, [activeSessionOwnerKey, portfolioDashboardCacheState]);
-
-  // Active collection. Owner-scoped in memory (same ScopedCache rule as the
-  // caches above) AND on disk, so switching accounts can never leave account A's
-  // collection selected — which would scope account B's reads and adds to a
-  // collection they do not own.
+  // Active collection. Owner-scoped in memory AND on disk, so switching accounts
+  // can never leave account A's collection selected — which would scope account
+  // B's reads and adds to a collection they do not own.
   const activeCollectionID = useMemo(() => {
     return activeCollectionState?.ownerKey === activeSessionOwnerKey
       ? activeCollectionState.value
       : ALL_COLLECTIONS_ID;
   }, [activeCollectionState, activeSessionOwnerKey]);
+
+  /**
+   * Scope key for the HOLDINGS caches (inventory + dashboard). These are a
+   * function of the collection as well as the account, so the key carries both —
+   * otherwise switching collections (or remounting after a switch) serves the
+   * previous collection's cards and balance under the new collection's name.
+   * Insights/performance stays account-wide and keeps the plain owner key.
+   */
+  const holdingsCacheScopeKey = `${activeSessionOwnerKey}::${activeCollectionID}`;
+
+  const inventoryEntriesCache = useMemo(() => {
+    return inventoryEntriesCacheState?.ownerKey === holdingsCacheScopeKey
+      ? inventoryEntriesCacheState.value
+      : null;
+  }, [holdingsCacheScopeKey, inventoryEntriesCacheState]);
+
+  const portfolioDashboardCache = useMemo(() => {
+    return portfolioDashboardCacheState?.ownerKey === holdingsCacheScopeKey
+      ? portfolioDashboardCacheState.value
+      : null;
+  }, [holdingsCacheScopeKey, portfolioDashboardCacheState]);
+
+
 
   const setActiveCollectionID = useCallback(
     (collectionID: string) => {
@@ -308,19 +318,19 @@ export function AppProviders({
 
   const setInventoryEntriesCache = useCallback<Dispatch<SetStateAction<InventoryCardEntry[] | null>>>((value) => {
     setInventoryEntriesCacheState((current) => {
-      const currentValue = current?.ownerKey === activeSessionOwnerKey ? current.value : null;
+      const currentValue = current?.ownerKey === holdingsCacheScopeKey ? current.value : null;
       const nextValue = typeof value === 'function' ? value(currentValue) : value;
-      return nextValue ? { ownerKey: activeSessionOwnerKey, value: nextValue } : null;
+      return nextValue ? { ownerKey: holdingsCacheScopeKey, value: nextValue } : null;
     });
-  }, [activeSessionOwnerKey]);
+  }, [holdingsCacheScopeKey]);
 
   const setPortfolioDashboardCache = useCallback<Dispatch<SetStateAction<PortfolioDashboard | null>>>((value) => {
     setPortfolioDashboardCacheState((current) => {
-      const currentValue = current?.ownerKey === activeSessionOwnerKey ? current.value : null;
+      const currentValue = current?.ownerKey === holdingsCacheScopeKey ? current.value : null;
       const nextValue = typeof value === 'function' ? value(currentValue) : value;
-      return nextValue ? { ownerKey: activeSessionOwnerKey, value: nextValue } : null;
+      return nextValue ? { ownerKey: holdingsCacheScopeKey, value: nextValue } : null;
     });
-  }, [activeSessionOwnerKey]);
+  }, [holdingsCacheScopeKey]);
 
   const portfolioPerformanceCache = useMemo(() => {
     return portfolioPerformanceCacheState?.ownerKey === activeSessionOwnerKey

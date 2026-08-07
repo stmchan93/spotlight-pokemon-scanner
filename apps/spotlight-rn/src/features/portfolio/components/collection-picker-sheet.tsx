@@ -15,10 +15,19 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Check, NavArrowLeft, NavArrowRight, ViewGrid } from 'iconoir-react-native';
+import {
+  Check,
+  EditPencil,
+  Eye,
+  EyeClosed,
+  NavArrowLeft,
+  NavArrowRight,
+  Trash,
+  ViewGrid,
+} from 'iconoir-react-native';
 
 import { ALL_COLLECTIONS_ID, type Collection } from '@spotlight/api-client';
-import { SheetHeader, Text, TextField, colors, textStyles } from '@spotlight/design-system';
+import { Text, TextField, colors, textStyles } from '@spotlight/design-system';
 
 /** Figma 3377:3089 — every collection row is 57pt with a 0.5pt rule beneath. */
 const ROW_HEIGHT = 57;
@@ -30,6 +39,16 @@ const DISMISS_DRAG_DISTANCE = 80;
 const DISMISS_DRAG_VELOCITY = 0.5;
 /** Mirrors the backend cap so the field can't accept a name the server truncates. */
 const NAME_MAX_LENGTH = 60;
+
+/** Grabber height (Figma 3357:8970). */
+const HANDLE_HEIGHT = 4;
+/**
+ * Space above and below the header row. 16pt between the grabber and the row,
+ * and the same 16pt between the row and whatever the step renders underneath.
+ */
+const HEADER_GAP = 16;
+/** SHEET_PADDING_TOP + HANDLE_HEIGHT + HEADER_GAP = 26pt to the header row. */
+const SHEET_PADDING_TOP = 6;
 
 type CollectionPickerStep = 'list' | 'create';
 
@@ -44,6 +63,16 @@ type CollectionPickerSheetProps = {
   onSelectCollection: (collectionID: string) => void;
   /** Resolves once the collection exists; the sheet then closes and switches to it. */
   onCreateCollection: (name: string) => Promise<void>;
+  /** Rename an existing collection. */
+  onRenameCollection: (collectionID: string, name: string) => Promise<void>;
+  /** Toggle whether a collection counts toward the un-scoped totals. */
+  onToggleHidden: (collection: Collection) => void;
+  /**
+   * Hand the collection to the host to confirm deletion. Deleting takes its
+   * CARDS too, so the confirm has to name the count — the sheet never deletes
+   * directly.
+   */
+  onRequestDelete: (collection: Collection) => void;
   /** Formats a collection's market value for display (owner's masking applies). */
   formatValue: (value: number) => string;
   loading?: boolean;
@@ -53,13 +82,12 @@ type CollectionPickerSheetProps = {
 /**
  * The collection picker (Figma 3377:3154). One bottom sheet, two steps:
  *
- *   list   — "All Collection" plus one row per collection; ADD opens the form
- *   create — name the collection, CREATE makes it and switches to it
+ *   list   — "All Collection" plus one row per collection, each with its
+ *            hide / rename / delete actions; ADD opens the form
+ *   form   — name a NEW collection (CREATE) or rename an existing one (SAVE)
  *
- * v1 is create + switch, so the design's per-row rename/hide/delete icons and
- * drag handles are deliberately NOT rendered: shipping controls that do nothing
- * is worse than shipping fewer of them (same call as the comment sheet's
- * unbacked emoji reactions).
+ * Reordering is still the one thing the Figma row shows that isn't here: the
+ * drag handle is left out because nothing persists an order yet.
  */
 export function CollectionPickerSheet({
   visible,
@@ -69,6 +97,9 @@ export function CollectionPickerSheet({
   activeCollectionID,
   onSelectCollection,
   onCreateCollection,
+  onRenameCollection,
+  onToggleHidden,
+  onRequestDelete,
   formatValue,
   loading = false,
   testID = 'collection-picker-sheet',
@@ -80,6 +111,9 @@ export function CollectionPickerSheet({
   const [draftName, setDraftName] = useState('');
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  // Set while the form is renaming an EXISTING collection rather than making a
+  // new one — same step, same field, different verb.
+  const [renameTarget, setRenameTarget] = useState<Collection | null>(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   const translateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
@@ -94,6 +128,7 @@ export function CollectionPickerSheet({
       setDraftName('');
       setCreateError(null);
       setCreating(false);
+      setRenameTarget(null);
     }
   }, [visible]);
 
@@ -215,21 +250,44 @@ export function CollectionPickerSheet({
     setCreateError(null);
     void (async () => {
       try {
-        await onCreateCollection(trimmedName);
-        onClose();
+        if (renameTarget) {
+          await onRenameCollection(renameTarget.id, trimmedName);
+          // Back to the list rather than closing: renaming is a tidy-up, and
+          // seeing the new name land is the confirmation.
+          setRenameTarget(null);
+          setDraftName('');
+          setStep('list');
+          Keyboard.dismiss();
+        } else {
+          await onCreateCollection(trimmedName);
+          onClose();
+        }
       } catch {
         // Keep the sheet open with the typed name intact so the author can
         // retry — losing what they typed is the worst possible failure here.
-        setCreateError('Could not create that collection. Try again.');
+        setCreateError(
+          renameTarget
+            ? 'Could not rename that collection. Try again.'
+            : 'Could not create that collection. Try again.',
+        );
       } finally {
         setCreating(false);
       }
     })();
-  }, [canCreate, onClose, onCreateCollection, trimmedName]);
+  }, [canCreate, onClose, onCreateCollection, onRenameCollection, renameTarget, trimmedName]);
+
+  const startRename = useCallback((collection: Collection) => {
+    setRenameTarget(collection);
+    setDraftName(collection.name);
+    setCreateError(null);
+    setStep('create');
+  }, []);
 
   const handleBack = useCallback(() => {
     if (step === 'create') {
       setStep('list');
+      setRenameTarget(null);
+      setDraftName('');
       Keyboard.dismiss();
       return;
     }
@@ -248,6 +306,8 @@ export function CollectionPickerSheet({
     leadingIcon?: React.ReactNode;
     trailingIcon?: React.ReactNode;
     isFirst?: boolean;
+    /** Hidden collections read back but don't count — show them muted. */
+    dimmed?: boolean;
     testID: string;
   }) => (
     <Pressable
@@ -264,7 +324,7 @@ export function CollectionPickerSheet({
     >
       <View style={styles.rowLeading}>
         {options.leadingIcon ?? <View style={styles.rowIconSpacer} />}
-        <View style={styles.rowCopy}>
+        <View style={[styles.rowCopy, options.dimmed ? styles.rowCopyDimmed : null]}>
           <Text numberOfLines={1} style={styles.rowTitle}>
             {options.title}
           </Text>
@@ -306,56 +366,60 @@ export function CollectionPickerSheet({
           ]}
           testID={testID}
         >
+          {/* Header, Figma "Action Button" 3368:2567 + Handle 3357:8970. Built
+              here rather than with SheetHeader because the geometry is exact and
+              differs from that primitive: the handle is 36x4 at radius 2 (not
+              48x4 at a pill radius), and the title is CENTRED ON THE SHEET —
+              absolutely, so a wide action like CREATE can't shove it off-centre
+              the way a flex row would. */}
           <View {...dragResponder.panHandlers}>
-            <SheetHeader
-              // SheetHeader ships with NO horizontal padding — every caller
-              // supplies its own gutter. Without `styles.header` the back
-              // chevron sits flush against the screen edge and ADD is clipped
-              // off the right. 16pt lines the chevron up with the row icons and
-              // the collection names directly below it (Figma 3377:3130).
-              align="center"
-              leadingAccessory={
+            <View style={styles.handle} />
+            <View style={styles.headerRow}>
+              <Pressable
+                accessibilityLabel={step === 'create' ? 'Back to collections' : 'Close'}
+                accessibilityRole="button"
+                hitSlop={12}
+                onPress={handleBack}
+                testID={`${testID}-back`}
+              >
+                <NavArrowLeft color={colors.gray900} height={ROW_ICON_SIZE} width={ROW_ICON_SIZE} />
+              </Pressable>
+
+              <View pointerEvents="none" style={styles.headerTitleSlot}>
+                <Text style={styles.title}>
+                  {step === 'list'
+                    ? 'Collection'
+                    : renameTarget
+                      ? 'Rename Collection'
+                      : 'New Collection'}
+                </Text>
+              </View>
+
+              {step === 'list' ? (
                 <Pressable
-                  accessibilityLabel={step === 'create' ? 'Back to collections' : 'Close'}
+                  accessibilityLabel="Add a collection"
                   accessibilityRole="button"
                   hitSlop={12}
-                  onPress={handleBack}
-                  testID={`${testID}-back`}
+                  onPress={() => setStep('create')}
+                  testID={`${testID}-add`}
                 >
-                  <NavArrowLeft color={colors.gray900} height={ROW_ICON_SIZE} width={ROW_ICON_SIZE} />
+                  <Text style={styles.action}>ADD</Text>
                 </Pressable>
-              }
-              rightAccessory={
-                step === 'list' ? (
-                  <Pressable
-                    accessibilityLabel="Add a collection"
-                    accessibilityRole="button"
-                    hitSlop={12}
-                    onPress={() => setStep('create')}
-                    testID={`${testID}-add`}
-                  >
-                    <Text style={styles.action}>ADD</Text>
-                  </Pressable>
-                ) : (
-                  <Pressable
-                    accessibilityLabel="Create collection"
-                    accessibilityRole="button"
-                    disabled={!canCreate}
-                    hitSlop={12}
-                    onPress={handleCreate}
-                    testID={`${testID}-create`}
-                  >
-                    <Text style={[styles.action, canCreate ? null : styles.actionDisabled]}>
-                      CREATE
-                    </Text>
-                  </Pressable>
-                )
-              }
-              showHandle
-              style={styles.header}
-              title={step === 'list' ? 'Collection' : 'New Collection'}
-              titleStyle={styles.title}
-            />
+              ) : (
+                <Pressable
+                  accessibilityLabel={renameTarget ? 'Save collection name' : 'Create collection'}
+                  accessibilityRole="button"
+                  disabled={!canCreate}
+                  hitSlop={12}
+                  onPress={handleCreate}
+                  testID={`${testID}-create`}
+                >
+                  <Text style={[styles.action, canCreate ? null : styles.actionDisabled]}>
+                    {renameTarget ? 'SAVE' : 'CREATE'}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
           </View>
 
           {step === 'list' ? (
@@ -394,18 +458,72 @@ export function CollectionPickerSheet({
                       title: collection.name,
                       valueLabel: formatValue(collection.totalValue),
                       onPress: () => handleSelect(collection.id),
-                      // The design has no selected state (its rows carry the
-                      // deferred edit icons instead). Without one there is no way
-                      // to tell which collection you are looking at, so the active
-                      // row gets a check where those icons would sit.
-                      trailingIcon:
-                        collection.id === activeCollectionID ? (
-                          <Check
-                            color={colors.purple500}
-                            height={ROW_ICON_SIZE}
-                            width={ROW_ICON_SIZE}
-                          />
-                        ) : null,
+                      dimmed: collection.hidden,
+                      // Figma 3357:9013 — eye / edit-pencil / trash at 20pt on a
+                      // 12pt gap. The active row shows a check in front of them
+                      // so you can still tell what you are looking at.
+                      trailingIcon: (
+                        <View style={styles.rowActions}>
+                          {collection.id === activeCollectionID ? (
+                            <Check
+                              color={colors.purple500}
+                              height={ROW_ICON_SIZE}
+                              width={ROW_ICON_SIZE}
+                            />
+                          ) : null}
+                          <Pressable
+                            accessibilityLabel={
+                              collection.hidden
+                                ? `Count ${collection.name} toward your total`
+                                : `Stop counting ${collection.name} toward your total`
+                            }
+                            accessibilityRole="button"
+                            hitSlop={8}
+                            onPress={() => onToggleHidden(collection)}
+                            testID={`${testID}-row-${collection.id}-hide`}
+                          >
+                            {collection.hidden ? (
+                              <EyeClosed
+                                color={colors.gray400}
+                                height={ROW_ICON_SIZE}
+                                width={ROW_ICON_SIZE}
+                              />
+                            ) : (
+                              <Eye
+                                color={colors.gray900}
+                                height={ROW_ICON_SIZE}
+                                width={ROW_ICON_SIZE}
+                              />
+                            )}
+                          </Pressable>
+                          <Pressable
+                            accessibilityLabel={`Rename ${collection.name}`}
+                            accessibilityRole="button"
+                            hitSlop={8}
+                            onPress={() => startRename(collection)}
+                            testID={`${testID}-row-${collection.id}-rename`}
+                          >
+                            <EditPencil
+                              color={colors.gray900}
+                              height={ROW_ICON_SIZE}
+                              width={ROW_ICON_SIZE}
+                            />
+                          </Pressable>
+                          <Pressable
+                            accessibilityLabel={`Delete ${collection.name}`}
+                            accessibilityRole="button"
+                            hitSlop={8}
+                            onPress={() => onRequestDelete(collection)}
+                            testID={`${testID}-row-${collection.id}-delete`}
+                          >
+                            <Trash
+                              color={colors.gray900}
+                              height={ROW_ICON_SIZE}
+                              width={ROW_ICON_SIZE}
+                            />
+                          </Pressable>
+                        </View>
+                      ),
                       testID: `${testID}-row-${collection.id}`,
                     }),
                   )}
@@ -424,6 +542,9 @@ export function CollectionPickerSheet({
                 }}
                 onSubmitEditing={handleCreate}
                 placeholder="Enter Portfolio Name"
+                // Figma 3368:2573 places the placeholder at gray/400, lighter
+                // than the default secondary text.
+                placeholderTextColor={colors.gray400}
                 ref={inputRef}
                 returnKeyType="done"
                 testID={`${testID}-name-input`}
@@ -462,15 +583,34 @@ const styles = StyleSheet.create({
   form: {
     gap: 8,
     paddingHorizontal: 16,
-    paddingTop: 16,
+    // The naming step is deliberately roomier than the list: the input gets the
+    // whole surface rather than sitting tight under the header (Figma 3357:9430
+    // gives it a 48pt field and open space below).
+    paddingBottom: 24,
   },
-  header: {
-    // Figma 3377:3130 — the header row sits on the same 16pt gutter as the
-    // collection rows beneath it. The 12pt gap puts the row's top edge at y=26
-    // measured from the sheet (10pt padding + the 4pt grabber + 12), which is
-    // where the design places it.
-    gap: 12,
+  handle: {
+    alignSelf: 'center',
+    backgroundColor: colors.gray200,
+    // Figma Handle 3357:8970 — 36x4 at radius 2, NOT the 48x4 pill the shared
+    // SheetHeader draws.
+    borderRadius: 2,
+    height: HANDLE_HEIGHT,
+    width: 36,
+  },
+  headerRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    // Figma 3368:2567 — the chevron and the action sit at the 16pt gutter, the
+    // same one the collection rows use, with the title centred between them.
+    justifyContent: 'space-between',
+    marginBottom: HEADER_GAP,
+    marginTop: HEADER_GAP,
     paddingHorizontal: 16,
+  },
+  headerTitleSlot: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   list: {
     // Caps the sheet at roughly half the screen so a long collection list
@@ -494,9 +634,20 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
   },
+  rowActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    // Figma 3357:9013.
+    gap: 12,
+  },
   rowCopy: {
     flexShrink: 1,
     gap: 4,
+  },
+  rowCopyDimmed: {
+    // Hidden collections still list and still open — they just don't count, so
+    // they read muted rather than disappearing.
+    opacity: 0.45,
   },
   rowFirst: {
     borderTopColor: colors.gray300,
@@ -524,10 +675,13 @@ const styles = StyleSheet.create({
   },
   sheet: {
     backgroundColor: colors.gray0,
-    paddingTop: 10,
+    // Handle top edge. With HEADER_GAP below it this puts the header row at 26pt
+    // from the top of the sheet, which is where Figma places it.
+    paddingTop: SHEET_PADDING_TOP,
   },
   title: {
     ...textStyles.titleXsmall,
+    textAlign: 'center',
   },
 });
 

@@ -251,6 +251,10 @@ export function usePortfolioScreenModel() {
   useEffect(() => {
     activeCollectionIDRef.current = activeCollectionID;
   }, [activeCollectionID]);
+  // Which collection the dashboard currently ON SCREEN belongs to. Distinct from
+  // `activeCollectionIDRef` (what the next load will ask for) — the gap between
+  // the two is exactly the "switched, refetch in flight" window.
+  const displayedCollectionIDRef = useRef(activeCollectionID);
   const loadedRangesRef = useRef<Set<PortfolioHistoryRange>>(new Set<PortfolioHistoryRange>(['1W']));
   const [chartMode, setChartMode] = useState<ChartMode>('portfolio');
   const [inventoryExpanded, setInventoryExpanded] = useState(true);
@@ -330,9 +334,18 @@ export function usePortfolioScreenModel() {
     // (e.g. right after rapid scans, which serialize backend work). Accepting it
     // would zero AND cache the value until an app restart, so treat it as a
     // failed refresh: keep the real value and let it revalidate.
+    //
+    // That reasoning only holds WITHIN one collection. Switching to a
+    // just-created collection legitimately returns empty, and treating it as
+    // suspicious kept the previous collection's balance on screen under the new
+    // collection's name. So the guard applies only when this load is for the same
+    // collection the displayed dashboard came from.
     const current = dashboardRef.current;
+    const loadedCollectionID = activeCollectionIDRef.current;
+    const isSameCollectionAsDisplayed = displayedCollectionIDRef.current === loadedCollectionID;
     const currentlyHasValue = current.inventoryCount > 0 || current.summary.currentValue > 0;
-    const isSuspiciousEmpty = loadResult.state === 'empty' && currentlyHasValue;
+    const isSuspiciousEmpty =
+      loadResult.state === 'empty' && currentlyHasValue && isSameCollectionAsDisplayed;
 
     if (loadResult.data && loadResult.state !== 'error' && !isSuspiciousEmpty) {
       const savedAt = new Date().toISOString();
@@ -367,7 +380,8 @@ export function usePortfolioScreenModel() {
       setIsDashboardStale(false);
       setLastUpdatedAt(savedAt);
       hasUsableDashboardRef.current = true;
-      persistDashboard(loadResult.data, savedAt, sessionOwnerKey, activeCollectionIDRef.current);
+      displayedCollectionIDRef.current = loadedCollectionID;
+      persistDashboard(loadResult.data, savedAt, sessionOwnerKey, loadedCollectionID);
       setLoadError(null);
     } else if (loadResult.state === 'error' || isSuspiciousEmpty) {
       // Stale-while-revalidate: if we already have a chart to show, keep it and

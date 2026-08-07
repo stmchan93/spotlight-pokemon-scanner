@@ -26,9 +26,10 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ALL_COLLECTIONS_ID } from '@spotlight/api-client';
-import type { CollectionsSnapshot, InventoryCardEntry } from '@spotlight/api-client';
+import type { Collection, CollectionsSnapshot, InventoryCardEntry } from '@spotlight/api-client';
 import {
   Avatar,
+  EmptyStatePrompt,
   GlassSurface,
   InlineLoader,
   PageTabs,
@@ -63,6 +64,8 @@ import {
 import { CollectionListRow } from '@/features/portfolio/components/collection-list-view';
 import { CardActionsSheet } from '@/features/cards/components/card-actions-sheet';
 import { ConfirmDeleteSheet } from '@/features/cards/components/confirm-delete-sheet';
+import { EkalightMark } from '@/components/ekalight-mark';
+import { ScanTabIcon } from '@/components/nav-tab-icons';
 import { ScrollToTopFab, useScrollToTop } from '@/components/scroll-to-top-fab';
 import { usePortfolioScreenModel } from '@/features/portfolio/hooks/use-portfolio-screen-model';
 import { usePortfolioViewMode } from '@/features/portfolio/hooks/use-portfolio-view-mode';
@@ -84,6 +87,13 @@ import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-mo
 import { useAuth } from '@/providers/auth-provider';
 
 const GRID_TEST_ID = 'collection-masonry-grid';
+
+// Empty-collection onboarding copy (Figma 3370:4175). The apostrophe is the
+// typographic U+2019 the design uses, not a straight quote.
+const COLLECTION_EMPTY_MESSAGE = 'Let’s build your collection';
+
+// Figma nav-glyph size, shared with the bottom tab bar (node 1313:7454).
+const SCAN_GLYPH_SIZE = 22;
 
 // The public "Portfolio" profile tabs. Only Collection is wired for now; For Sale
 // renders a gated "Coming soon" state until its roadmap phase ships; Activity is live (Phase 3a).
@@ -143,9 +153,11 @@ function GlassNavBubble({
   testID?: string;
 }) {
   const theme = useSpotlightTheme();
-  // Real glass: transparent base + the clear material so content genuinely
-  // shows through (matches the bottom nav pill). A solid base under glass
-  // reads opaque; fallback targets keep the solid bubble + shadow.
+  // `regular` + the system colour scheme, matching the NATIVE tab bar exactly —
+  // that bar is UIKit's own UIGlassEffect and we do not get to configure it, so
+  // the chrome has to meet it rather than the other way round. This was `clear`
+  // + a forced light scheme, which read noticeably more transparent than the bar
+  // sitting directly beneath it.
   const hasGlass = isLiquidGlassAvailable();
   return (
     <View
@@ -157,8 +169,8 @@ function GlassNavBubble({
     >
       <GlassSurface
         fallbackColor={theme.colors.canvasElevated}
-        glassColorScheme="light"
-        glassEffectStyle="clear"
+        glassColorScheme="auto"
+        glassEffectStyle="regular"
         pointerEvents="none"
         style={styles.bubbleGlass}
       />
@@ -345,6 +357,9 @@ export function PortfolioScreen({
   const [isCollectionPickerVisible, setIsCollectionPickerVisible] = useState(false);
   const [collectionsSnapshot, setCollectionsSnapshot] = useState<CollectionsSnapshot | null>(null);
   const [isLoadingCollections, setIsLoadingCollections] = useState(false);
+  const [collectionPendingDelete, setCollectionPendingDelete] = useState<Collection | null>(null);
+  const [isDeletingCollection, setIsDeletingCollection] = useState(false);
+  const [collectionDeleteError, setCollectionDeleteError] = useState<string | null>(null);
   const { isHidden: isSummaryHidden, toggle: toggleSummaryHidden } = usePortfolioSummaryVisibility();
   const { viewMode, toggleViewMode } = usePortfolioViewMode();
   const { openDrawer } = useAppDrawer();
@@ -452,6 +467,98 @@ export function PortfolioScreen({
     setIsCollectionPickerVisible(true);
     void loadCollections();
   }, [loadCollections]);
+
+  const handleRenameCollection = useCallback(
+    async (collectionID: string, name: string) => {
+      await spotlightRepository.updateCollection({ collectionID, name });
+      // Reflect it immediately so the picker label and row don't lag the rename.
+      setCollectionsSnapshot((current) =>
+        current
+          ? {
+              ...current,
+              collections: current.collections.map((entry) =>
+                entry.id === collectionID ? { ...entry, name } : entry,
+              ),
+            }
+          : current,
+      );
+      void loadCollections();
+    },
+    [loadCollections, spotlightRepository],
+  );
+
+  const handleToggleCollectionHidden = useCallback(
+    (collection: Collection) => {
+      const nextHidden = !collection.hidden;
+      // Optimistic: the eye should flip under the finger, not after a round trip.
+      setCollectionsSnapshot((current) =>
+        current
+          ? {
+              ...current,
+              collections: current.collections.map((entry) =>
+                entry.id === collection.id ? { ...entry, hidden: nextHidden } : entry,
+              ),
+            }
+          : current,
+      );
+      void (async () => {
+        try {
+          await spotlightRepository.updateCollection({
+            collectionID: collection.id,
+            hidden: nextHidden,
+          });
+          // Hiding changes the un-scoped totals, so the tab has to re-read.
+          refreshData();
+        } catch {
+          // Put the eye back rather than leaving the row lying about its state.
+          setCollectionsSnapshot((current) =>
+            current
+              ? {
+                  ...current,
+                  collections: current.collections.map((entry) =>
+                    entry.id === collection.id ? { ...entry, hidden: collection.hidden } : entry,
+                  ),
+                }
+              : current,
+          );
+        }
+        void loadCollections();
+      })();
+    },
+    [loadCollections, refreshData, spotlightRepository],
+  );
+
+  const handleConfirmDeleteCollection = useCallback(() => {
+    const target = collectionPendingDelete;
+    if (!target) {
+      return;
+    }
+    setIsDeletingCollection(true);
+    void (async () => {
+      try {
+        await spotlightRepository.deleteCollection(target.id);
+        setCollectionPendingDelete(null);
+        // If the deleted one was on screen, fall back to the aggregate rather
+        // than leaving the tab scoped to a collection that no longer exists.
+        if (activeCollectionID === target.id) {
+          setActiveCollectionID(ALL_COLLECTIONS_ID);
+        }
+        refreshData();
+        void loadCollections();
+      } catch {
+        setCollectionDeleteError('Could not delete that collection. Try again.');
+      } finally {
+        setIsDeletingCollection(false);
+      }
+    })();
+  }, [
+    activeCollectionID,
+    collectionPendingDelete,
+    loadCollections,
+    refreshData,
+    setActiveCollectionID,
+    spotlightRepository,
+  ]);
 
   const handleCreateCollection = useCallback(
     async (name: string) => {
@@ -794,6 +901,13 @@ export function PortfolioScreen({
     router.push('/catalog/search' as never);
   }, [router]);
 
+  // Empty-collection "Scan to add" chip. Mirrors the bottom tab bar's Scan
+  // handler: scanning always PUSHES (never dismisses to the tabs root) so Back
+  // returns to the screen the user scanned from — see app-bottom-tab-bar.tsx.
+  const handleScanToAddPress = useCallback(() => {
+    router.push({ pathname: '/', params: { page: 'scanner' } } as never);
+  }, [router]);
+
   // The whole screen is one virtualized FlatList: the balance/chart/search/
   // filter chrome rides along as the list header, and the collection renders
   // row-by-row (one card per row in list view, two tiles per ruled row in card
@@ -1121,7 +1235,10 @@ export function PortfolioScreen({
     );
 
   // Truly-empty collection (no cards at all) reads differently from an active
-  // filter/search that just matched nothing.
+  // filter/search that just matched nothing. A filter miss is a RESULT, so it
+  // keeps the bordered StateCard; a brand-new collection is an INVITATION, so
+  // it gets the Figma onboarding prompt (3370:4175): the Ekalight mark, one
+  // encouraging line, and a soft chip straight into the scanner.
   const listEmpty = shouldShowInitialError ? null : (
     <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
       {model.hasInventoryEntries ? (
@@ -1131,10 +1248,15 @@ export function PortfolioScreen({
           title="No cards match this filter"
         />
       ) : (
-        <StateCard
-          message="Tap the scan button in the tab bar below to add to your portfolio!"
-          style={styles.emptyStateCard}
-          title="No cards in your portfolio"
+        <EmptyStatePrompt
+          actionIcon={<ScanTabIcon color={theme.colors.gray900} size={SCAN_GLYPH_SIZE} />}
+          actionLabel="Scan to add"
+          actionTestID="collection-empty-scan-to-add"
+          illustration={<EkalightMark />}
+          message={COLLECTION_EMPTY_MESSAGE}
+          onActionPress={handleScanToAddPress}
+          style={styles.emptyPrompt}
+          testID="collection-empty-prompt"
         />
       )}
     </View>
@@ -1320,8 +1442,38 @@ export function PortfolioScreen({
         loading={isLoadingCollections}
         onClose={() => setIsCollectionPickerVisible(false)}
         onCreateCollection={handleCreateCollection}
+        onRenameCollection={handleRenameCollection}
+        onRequestDelete={(collection) => {
+          setCollectionDeleteError(null);
+          setCollectionPendingDelete(collection);
+        }}
         onSelectCollection={setActiveCollectionID}
+        onToggleHidden={handleToggleCollectionHidden}
         visible={isCollectionPickerVisible}
+      />
+
+      {/* Deleting a collection takes its CARDS with it, so the confirm names the
+          count instead of asking a generic "are you sure?". */}
+      <ConfirmDeleteSheet
+        confirmPending={isDeletingCollection}
+        message={
+          collectionPendingDelete
+            ? collectionPendingDelete.cardCount > 0
+              ? `"${collectionPendingDelete.name}" and its ${collectionPendingDelete.cardCount} ${
+                  collectionPendingDelete.cardCount === 1 ? 'card' : 'cards'
+                } will be permanently deleted. This can't be undone.${
+                  collectionDeleteError ? `\n\n${collectionDeleteError}` : ''
+                }`
+              : `"${collectionPendingDelete.name}" will be permanently deleted.${
+                  collectionDeleteError ? `\n\n${collectionDeleteError}` : ''
+                }`
+            : undefined
+        }
+        onClose={() => setCollectionPendingDelete(null)}
+        onConfirm={handleConfirmDeleteCollection}
+        testID="collection-delete-confirm"
+        title="Delete collection"
+        visible={collectionPendingDelete !== null}
       />
     </SafeAreaView>
   );
@@ -1352,6 +1504,11 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 16,
     paddingVertical: 4,
+  },
+  emptyPrompt: {
+    // Same top offset as the filter-miss StateCard so both empty states sit at
+    // the same distance below the filter chips.
+    marginTop: 12,
   },
   emptyStateCard: {
     marginTop: 12,

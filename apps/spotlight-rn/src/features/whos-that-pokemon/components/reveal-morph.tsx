@@ -15,35 +15,29 @@ import { colors } from '@spotlight/design-system';
 
 import { CachedImage } from '@/components/cached-image';
 
+import { REVEAL_ARTWORK_HEIGHT_PCT, REVEAL_ARTWORK_WIDTH_PCT } from '../face-geometry';
 import { useReduceMotion } from '../use-reduce-motion';
 import { SelfieImage } from './selfie-image';
 
 const isTestEnv = process.env.NODE_ENV === 'test';
 
-// The reveal is styled after the Pokémon evolution sequence: a dark stage, an
-// accelerating white strobe where the "form" charges up (the selfie flickers
-// between flashes), a full white-out, then the matched species blooms out of
-// the light with a sparkle burst.
+// The reveal is styled after the Pokémon evolution sequence: a dark stage where
+// the "form" charges up, ONE smooth white-out, then the matched species blooms
+// out of the light with a sparkle burst.
 //
-// Strobe pulses as [rampUpMs, fadeDownMs], accelerating toward the white-out.
-// Peaks ramp from a glimpse-through flash to a full blowout.
-const STROBE_PULSES: readonly (readonly [number, number])[] = [
-  [170, 200],
-  [140, 165],
-  [115, 135],
-  [95, 110],
-  [80, 95],
-  [70, 85],
-];
-const STROBE_PEAKS = [0.88, 0.92, 0.95, 0.97, 1, 1];
-const WHITEOUT_UP_MS = 150;
+// There is deliberately no strobe or flicker here. Repeated high-contrast
+// flashes are a photosensitivity hazard, and the beat reads cleaner as a single
+// swell of light than as a stutter.
+/** Dark stage + palette aura settle while the form scales up. No flash yet. */
+const CHARGE_MS = 520;
+/** One continuous, accelerating ramp to full white — the only flash there is. */
+const WHITEOUT_UP_MS = 620;
 const WHITEOUT_HOLD_MS = 90;
 const WHITEOUT_DOWN_MS = 560;
 
-const STROBE_MS = STROBE_PULSES.reduce((sum, [up, down]) => sum + up + down, 0);
-// The form swaps under the full white-out so the selfie is never seen crossfading
-// into the artwork — it flickers away and the Pokémon flickers in, evolution-style.
-const SWAP_AT_MS = STROBE_MS + WHITEOUT_UP_MS;
+// The form swaps at the peak of the white-out, so the selfie is never seen
+// crossfading into the artwork — the light swallows one and gives back the other.
+const SWAP_AT_MS = CHARGE_MS + WHITEOUT_UP_MS;
 
 // Total morph runtime before onDone fires. Shortened under jest so screen tests
 // can walk capture → scanning → reveal → result on real timers.
@@ -63,6 +57,13 @@ type RevealMorphProps = {
   washColor: string;
   /** Palette colors cycled across the particle burst. */
   burstColors: string[];
+  /**
+   * True when the lock-on already collapsed the scene onto the species
+   * silhouette. The reveal then opens on that silhouette instead of the selfie
+   * — silhouette → white-out → full colour, i.e. the TV reveal — so the handoff
+   * has no visual seam.
+   */
+  fromSilhouette?: boolean;
   /** Fired once the morph has fully played. */
   onDone: () => void;
   testID?: string;
@@ -143,6 +144,7 @@ export function RevealMorph({
   artworkUrl,
   washColor,
   burstColors,
+  fromSilhouette = false,
   onDone,
   testID = 'wtp-reveal',
 }: RevealMorphProps) {
@@ -166,8 +168,9 @@ export function RevealMorph({
 
   useEffect(() => {
     if (reduceMotion) {
-      // Evolution flashes trigger photosensitivity — swap the strobe for a
-      // single soft white bloom and a plain crossfade.
+      // Same shape as the full sequence, minus the motion: the bloom peaks
+      // lower (0.7, not a full white-out), nothing scales, and the particle
+      // burst is skipped — so the whole thing resolves in a third of the time.
       blurOpacity.value = 1;
       washOpacity.value = 0.22;
       selfieOpacity.value = withDelay(200, withTiming(0, { duration: 220 }));
@@ -188,7 +191,7 @@ export function RevealMorph({
     }
 
     // 1. Dark stage + palette aura settle in fast; the form charges (scales up)
-    //    through the whole strobe.
+    //    all the way into the white-out.
     blurOpacity.value = withTiming(1, { duration: 460, easing: Easing.out(Easing.ease) });
     washOpacity.value = withTiming(0.24, { duration: 500, easing: Easing.out(Easing.ease) });
     selfieScale.value = withTiming(1.1, {
@@ -196,23 +199,21 @@ export function RevealMorph({
       easing: Easing.inOut(Easing.quad),
     });
 
-    // 2. Accelerating white strobe → full white-out. Peaks ramp so the selfie is
-    //    still glimpsed between early flashes, then the light swallows it.
-    const strobe = STROBE_PULSES.flatMap(([up, down], i) => [
-      withTiming(STROBE_PEAKS[i], { duration: up, easing: Easing.out(Easing.ease) }),
-      withTiming(0, { duration: down, easing: Easing.in(Easing.ease) }),
-    ]);
-    flashOpacity.value = withSequence(
-      ...strobe,
-      withTiming(1, { duration: WHITEOUT_UP_MS, easing: Easing.out(Easing.ease) }),
-      withDelay(
-        WHITEOUT_HOLD_MS,
-        withTiming(0, { duration: WHITEOUT_DOWN_MS, easing: Easing.out(Easing.cubic) }),
+    // 2. One white-out: the light holds off through the charge, then swells on
+    //    an accelerating curve so it still builds — without ever flickering.
+    flashOpacity.value = withDelay(
+      CHARGE_MS,
+      withSequence(
+        withTiming(1, { duration: WHITEOUT_UP_MS, easing: Easing.in(Easing.cubic) }),
+        withDelay(
+          WHITEOUT_HOLD_MS,
+          withTiming(0, { duration: WHITEOUT_DOWN_MS, easing: Easing.out(Easing.cubic) }),
+        ),
       ),
     );
 
-    // 3. The form swaps under the full white-out: selfie flickers off, the
-    //    Pokémon flickers in, then blooms out as the light recedes.
+    // 3. The form swaps at the peak, hidden under full white, then blooms out
+    //    as the light recedes.
     selfieOpacity.value = withDelay(SWAP_AT_MS, withTiming(0, { duration: 40 }));
     artworkOpacity.value = withDelay(SWAP_AT_MS - 40, withTiming(1, { duration: 60 }));
     artworkScale.value = withDelay(
@@ -262,7 +263,23 @@ export function RevealMorph({
 
   return (
     <View style={styles.root} testID={testID}>
-      {selfieUri ? (
+      {fromSilhouette ? (
+        // Opens exactly where the lock-on left off: the palette-painted
+        // silhouette, in the same box the coloured artwork occupies. It charges
+        // up and dissolves under the white-out, same as the selfie does.
+        <View pointerEvents="none" style={styles.artworkLayer}>
+          <Animated.View style={selfieStyle}>
+            <CachedImage
+              cachePolicy="disk"
+              contentFit="contain"
+              style={styles.artwork}
+              testID={`${testID}-silhouette`}
+              tintColor={washColor}
+              uri={artworkUrl}
+            />
+          </Animated.View>
+        </View>
+      ) : selfieUri ? (
         <Animated.View style={[StyleSheet.absoluteFillObject, selfieStyle]}>
           <SelfieImage
             cachePolicy="memory-disk"
@@ -295,9 +312,9 @@ export function RevealMorph({
         </Animated.View>
       </View>
 
-      {/* Evolution white strobe — flickers over both forms, then blows out and
-          recedes to reveal the Pokémon. Sits above the artwork so the swap
-          happens hidden under the light. */}
+      {/* The white-out — one swell of light that blows out and recedes to
+          reveal the Pokémon. Sits above the artwork so the swap happens hidden
+          under the light. */}
       <Animated.View
         pointerEvents="none"
         style={[StyleSheet.absoluteFillObject, styles.flash, flashStyle]}
@@ -331,9 +348,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Shared with the lock-on silhouette via face-geometry's REVEAL_ARTWORK_BOX,
+  // so the shape does not jump on handoff.
   artwork: {
-    height: '58%',
-    width: '80%',
+    height: REVEAL_ARTWORK_HEIGHT_PCT,
+    width: REVEAL_ARTWORK_WIDTH_PCT,
   },
   flash: {
     backgroundColor: '#ffffff',

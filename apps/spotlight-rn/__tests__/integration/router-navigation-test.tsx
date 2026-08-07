@@ -4,38 +4,38 @@ import { Text } from 'react-native';
 
 import { renderAppRouter } from '../test-utils';
 
+function ScanCameraStub() {
+  return <Text testID="scan-camera-stub">camera</Text>;
+}
+
 function WishlistTabStub() {
   return <Text testID="wishlist-stub-screen">wishlist</Text>;
 }
 
 describe('mobile app routing', () => {
-  it('boots into collection and navigates between the tabs', async () => {
-    const app = renderAppRouter('/');
+  it('boots into collection, and the Scan tab launches the pushed camera', async () => {
+    const app = renderAppRouter('/', { 'scan-camera': ScanCameraStub });
 
     await waitFor(() => {
       expect(screen.getByTestId('portfolio-header-menu')).toBeTruthy();
     });
 
     // The pager is gone: Collection and Scan are separate ROUTES now, not two
-    // slots mounted side-by-side behind a translate. Nothing should render it.
+    // slots mounted side-by-side behind a translate.
     expect(screen.queryByTestId('top-tabs-pager')).toBeNull();
 
     act(() => {
       router.push('/scan');
     });
 
+    // The Scan TAB is a launcher, not a screen — focusing it pushes the camera
+    // over the tabs, which is what hides the native tab bar and keeps the
+    // viewfinder full-bleed. Landing on /scan itself would mean the bar is
+    // still up and the reticle is being inset.
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-prompt').props.children).toBe('Tap to scan');
+      expect(app.getPathname()).toBe('/scan-camera');
     });
-    expect(screen.getByTestId('scanner-tray')).toBeTruthy();
-
-    // The scanner's back affordance returns to Collection.
-    fireEvent.press(screen.getByTestId('scanner-back-button'));
-
-    await waitFor(() => {
-      expect(app.getPathname()).toBe('/');
-    });
-    expect(screen.getByTestId('portfolio-header-menu')).toBeTruthy();
+    expect(screen.getByTestId('scan-camera-stub')).toBeTruthy();
   });
 
   it('reaches Wishlist as a tab route', async () => {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Animated, {
   cancelAnimation,
@@ -7,15 +7,12 @@ import Animated, {
   useSharedValue,
   withDelay,
   withRepeat,
+  withSequence,
   withTiming,
 } from 'react-native-reanimated';
 
-import { AppText, colors, radii, RollingNumberText, spacing, textStyles } from '@spotlight/design-system';
+import { AppText, colors, radii, spacing, textStyles } from '@spotlight/design-system';
 
-import { CachedImage } from '@/components/cached-image';
-
-import rouletteSpecies from '../data/roulette-species.json';
-import { officialArtworkUrl } from '../artwork';
 import { useReduceMotion } from '../use-reduce-motion';
 import { SelfieImage } from './selfie-image';
 
@@ -24,11 +21,16 @@ const isTestEnv = process.env.NODE_ENV === 'test';
 // Sweep timing cribbed from the scanner reticle choreography (lock pulse runs
 // 140ms out-cubic; the sweep itself reads best around 1.4s per pass).
 const SWEEP_DURATION_MS = 1400;
-const ROULETTE_TICK_MS = 170;
-const ROULETTE_TICK_REDUCED_MS = 700;
-const TICKER_TICK_MS = 150;
-const STATUS_TICK_MS = 1100;
-const SWATCH_STAGGER_MS = 140;
+
+// Deliberately slow. Nothing in this phase may change faster than ~300ms —
+// quick swapping reads as a strobe, and a strobe reads as decoration rather
+// than work. Everything below is either continuous motion or a step tied to a
+// real event (a colour actually being sampled off the selfie).
+const SWATCH_STAGGER_MS = 420;
+const SWATCH_IN_MS = 420;
+const STATUS_TICK_MS = 1600;
+const STATUS_FADE_OUT_MS = 200;
+const STATUS_FADE_IN_MS = 340;
 
 const STATUS_LINES = [
   'Reading your aura…',
@@ -36,8 +38,6 @@ const STATUS_LINES = [
   'Comparing silhouettes…',
   'Matching your colors…',
 ] as const;
-
-type RouletteSpeciesEntry = { id: number; name: string };
 
 type ScanningTheaterProps = {
   /** Local file uri of the captured selfie. */
@@ -47,23 +47,22 @@ type ScanningTheaterProps = {
   testID?: string;
 };
 
-function shuffle<T>(entries: readonly T[]): T[] {
-  const result = [...entries];
-  for (let index = result.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1));
-    [result[index], result[swapIndex]] = [result[swapIndex], result[index]];
-  }
-  return result;
-}
-
-/** Animated swatch: pops in with a stagger keyed by its row index. */
+/**
+ * Animated swatch: eases in on a stagger keyed by its row index, as if that
+ * tone were being lifted off the selfie one at a time. These are the user's
+ * REAL extracted colors (see `palette.ts`), which is the whole reason this
+ * phase can look like work instead of theatre.
+ */
 function PaletteSwatch({ color, index, testID }: { color: string; index: number; testID?: string }) {
-  const progress = useSharedValue(0);
+  const progress = useSharedValue(isTestEnv ? 1 : 0);
 
   useEffect(() => {
+    if (isTestEnv) {
+      return undefined;
+    }
     progress.value = withDelay(
       index * SWATCH_STAGGER_MS,
-      withTiming(1, { duration: 320, easing: Easing.out(Easing.cubic) }),
+      withTiming(1, { duration: SWATCH_IN_MS, easing: Easing.out(Easing.cubic) }),
     );
     return () => {
       cancelAnimation(progress);
@@ -73,7 +72,7 @@ function PaletteSwatch({ color, index, testID }: { color: string; index: number;
 
   const style = useAnimatedStyle(() => ({
     opacity: progress.value,
-    transform: [{ scale: 0.4 + progress.value * 0.6 }],
+    transform: [{ scale: 0.6 + progress.value * 0.4 }],
   }));
 
   return (
@@ -85,27 +84,25 @@ function PaletteSwatch({ color, index, testID }: { color: string; index: number;
 }
 
 /**
- * The dark "scanning theater" phase: reticle sweep over the dimmed selfie,
- * palette swatches animating in, a silhouette roulette cycling iconic species,
- * and a confidence ticker climbing while the real API call runs behind it.
+ * The dark "scanning theater" phase: a single slow reticle sweep over the
+ * dimmed selfie, the user's own colors being sampled one by one, and a status
+ * line that changes at a walking pace while the real API call runs behind it.
+ *
+ * There is deliberately NO species roulette and NO climbing confidence number
+ * here. Both used to tick several times a second, and both were inventions —
+ * fast fake data is exactly what made this read as strobe lights rather than
+ * analysis.
  */
 export function ScanningTheater({ selfieUri, palette, testID = 'wtp-theater' }: ScanningTheaterProps) {
   const reduceMotion = useReduceMotion();
 
-  // Stable shuffled roulette order for this theater run.
-  const roulette = useMemo(
-    () => shuffle(rouletteSpecies as RouletteSpeciesEntry[]),
-    [],
-  );
-  const [rouletteIndex, setRouletteIndex] = useState(0);
+  const swatches = palette.slice(0, 5);
+  const swatchCount = swatches.length;
+  const [sampledCount, setSampledCount] = useState(isTestEnv ? swatchCount : 0);
   const [statusIndex, setStatusIndex] = useState(0);
-  // Confidence ticker climbs toward (but never reaches) a plausible ceiling.
-  const confidenceRef = useRef(7 + Math.random() * 6);
-  const [confidenceLabel, setConfidenceLabel] = useState(
-    `${confidenceRef.current.toFixed(1)}%`,
-  );
 
   const sweepProgress = useSharedValue(0);
+  const statusOpacity = useSharedValue(1);
 
   useEffect(() => {
     if (reduceMotion || isTestEnv) {
@@ -121,36 +118,55 @@ export function ScanningTheater({ selfieUri, palette, testID = 'wtp-theater' }: 
     };
   }, [reduceMotion, sweepProgress]);
 
-  // Roulette + status + ticker intervals. Skipped under jest (the theater only
-  // flashes by in tests, and interval state updates would fire outside act).
+  // The sampled counter steps in lockstep with the swatch stagger, so the
+  // number describes what just appeared on screen rather than counting on its
+  // own clock.
+  useEffect(() => {
+    if (isTestEnv) {
+      setSampledCount(swatchCount);
+      return undefined;
+    }
+    setSampledCount(0);
+    const timers = Array.from({ length: swatchCount }, (_, index) =>
+      setTimeout(() => setSampledCount(index + 1), index * SWATCH_STAGGER_MS + SWATCH_IN_MS),
+    );
+    return () => {
+      timers.forEach(clearTimeout);
+    };
+  }, [swatchCount]);
+
+  // Status line: fade out, swap the copy at the trough, fade back in. Never a
+  // hard cut, never faster than STATUS_TICK_MS.
   useEffect(() => {
     if (isTestEnv) {
       return undefined;
     }
-    const rouletteTimer = setInterval(() => {
-      setRouletteIndex((current) => (current + 1) % roulette.length);
-    }, reduceMotion ? ROULETTE_TICK_REDUCED_MS : ROULETTE_TICK_MS);
-    const statusTimer = setInterval(() => {
-      setStatusIndex((current) => (current + 1) % STATUS_LINES.length);
+    const swapTimers: ReturnType<typeof setTimeout>[] = [];
+    const timer = setInterval(() => {
+      if (!reduceMotion) {
+        statusOpacity.value = withSequence(
+          withTiming(0, { duration: STATUS_FADE_OUT_MS, easing: Easing.in(Easing.ease) }),
+          withTiming(1, { duration: STATUS_FADE_IN_MS, easing: Easing.out(Easing.ease) }),
+        );
+      }
+      swapTimers.push(
+        setTimeout(
+          () => setStatusIndex((current) => (current + 1) % STATUS_LINES.length),
+          reduceMotion ? 0 : STATUS_FADE_OUT_MS,
+        ),
+      );
     }, STATUS_TICK_MS);
-    const tickerTimer = setInterval(() => {
-      // Ease toward ~97%: big strides early, crawling at the top.
-      const remaining = 97 - confidenceRef.current;
-      confidenceRef.current += Math.max(0.1, remaining * (0.06 + Math.random() * 0.08));
-      setConfidenceLabel(`${Math.min(confidenceRef.current, 97).toFixed(1)}%`);
-    }, TICKER_TICK_MS);
     return () => {
-      clearInterval(rouletteTimer);
-      clearInterval(statusTimer);
-      clearInterval(tickerTimer);
+      clearInterval(timer);
+      swapTimers.forEach(clearTimeout);
+      cancelAnimation(statusOpacity);
     };
-  }, [reduceMotion, roulette.length]);
+  }, [reduceMotion, statusOpacity]);
 
   const sweepStyle = useAnimatedStyle(() => ({
     top: `${8 + sweepProgress.value * 84}%`,
   }));
-
-  const currentSpecies = roulette[rouletteIndex] ?? roulette[0];
+  const statusStyle = useAnimatedStyle(() => ({ opacity: statusOpacity.value }));
 
   return (
     <View style={styles.root} testID={testID}>
@@ -174,43 +190,27 @@ export function ScanningTheater({ selfieUri, palette, testID = 'wtp-theater' }: 
         )}
       </View>
 
-      <View style={styles.swatchRow} testID={`${testID}-swatches`}>
-        {palette.slice(0, 5).map((color, index) => (
-          <PaletteSwatch
-            color={color}
-            index={index}
-            key={`${color}-${index}`}
-            testID={`${testID}-swatch-${index}`}
-          />
-        ))}
-      </View>
-
-      <View style={styles.rouletteRow}>
-        {currentSpecies ? (
-          <CachedImage
-            cachePolicy="memory-disk"
-            contentFit="contain"
-            style={styles.rouletteImage}
-            // Low-alpha tint flattens the artwork into a silhouette.
-            tintColor={colors.scannerTextMuted}
-            uri={officialArtworkUrl(currentSpecies.id)}
-          />
-        ) : null}
-        <AppText style={styles.rouletteName} testID={`${testID}-roulette-name`}>
-          {currentSpecies?.name ?? ''}
+      <View style={styles.sampleBlock}>
+        <View style={styles.swatchRow} testID={`${testID}-swatches`}>
+          {swatches.map((color, index) => (
+            <PaletteSwatch
+              color={color}
+              index={index}
+              key={`${color}-${index}`}
+              testID={`${testID}-swatch-${index}`}
+            />
+          ))}
+        </View>
+        <AppText style={styles.sampleCaption} testID={`${testID}-sample-count`}>
+          {`${sampledCount} of ${swatchCount} tones sampled`}
         </AppText>
       </View>
 
-      <View style={styles.tickerBlock}>
-        <RollingNumberText
-          style={styles.tickerText}
-          testID={`${testID}-confidence`}
-          value={confidenceLabel}
-        />
+      <Animated.View style={[styles.statusBlock, statusStyle]}>
         <AppText style={styles.statusText} testID={`${testID}-status`}>
           {STATUS_LINES[statusIndex]}
         </AppText>
-      </View>
+      </Animated.View>
     </View>
   );
 }
@@ -281,44 +281,32 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     width: '88%',
   },
+  sampleBlock: {
+    alignItems: 'center',
+    gap: spacing.xxs,
+    marginTop: spacing.xl,
+  },
   swatchRow: {
     flexDirection: 'row',
     gap: spacing.xs,
-    marginTop: spacing.lg,
   },
   swatch: {
     borderColor: colors.scannerOutline,
     borderRadius: radii.pill,
     borderWidth: 1,
-    height: 22,
-    width: 22,
+    height: 26,
+    width: 26,
   },
-  rouletteRow: {
-    alignItems: 'center',
-    gap: spacing.xxs,
-    marginTop: spacing.lg,
-    minHeight: 96,
-  },
-  rouletteImage: {
-    height: 72,
-    opacity: 0.5,
-    width: 72,
-  },
-  rouletteName: {
+  sampleCaption: {
     ...textStyles.captionMedium,
     color: colors.scannerTextMuted,
   },
-  tickerBlock: {
-    alignItems: 'center',
-    gap: spacing.xxxs,
-    marginTop: spacing.md,
-  },
-  tickerText: {
-    ...textStyles.titleLarge,
-    color: colors.scannerTextPrimary,
+  statusBlock: {
+    marginTop: spacing.lg,
   },
   statusText: {
     ...textStyles.captionMedium,
     color: colors.scannerTextSecondary,
+    textAlign: 'center',
   },
 });

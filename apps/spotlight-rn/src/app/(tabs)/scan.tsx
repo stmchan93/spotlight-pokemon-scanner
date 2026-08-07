@@ -1,24 +1,50 @@
-import { useRouter } from 'expo-router';
+import { useCallback, useRef } from 'react';
+import { View } from 'react-native';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 
-import { NativeTabsPageBridge } from '@/components/native-tabs-page-bridge';
-import { ScannerScreen } from '@/features/scanner/screens/scanner-screen';
-
 /**
- * Scanner tab. Was a redirect into the pager's scanner page; it is now a real
- * screen, because the pager is gone.
+ * The Scan TAB is a launcher, not a screen.
  *
- * `onTopLevelSwipeEnabledChange` is deliberately not passed — it told the pager
- * to stop claiming horizontal swipes, and there is no pager to tell.
+ * Tapping it pushes the camera (`/scan-camera`) over the tabs. That push is what
+ * hides the tab bar: UIKit's `hidesBottomBarWhenPushed` applies to pushed view
+ * controllers, so the camera gets the full screen — full-bleed preview, reticle
+ * back to its original size — and the bar returns on pop, for free. Making the
+ * camera a tab SCREEN instead is what shrank the reticle, because a tab always
+ * renders the bar over its content and insets it.
+ *
+ * A native tab cannot simply push instead of switching (NativeBottomTabsNavigator
+ * dispatches JUMP_TO without reading `defaultPrevented`), so the switch still
+ * happens — this screen just never becomes visible.
+ *
+ * THE LOOP THIS AVOIDS: popping the camera refocuses this tab, which would push
+ * the camera straight back and trap the user. `pushedRef` alternates, so the
+ * first focus launches the camera and the focus caused by the pop sends the user
+ * to Collection instead. That covers the back BUTTON and the back-SWIPE
+ * identically, which matters because the swipe never runs our exit handler.
  */
-export default function ScanRoute() {
+export default function ScanTab() {
   const router = useRouter();
+  const pushedRef = useRef(false);
 
+  useFocusEffect(
+    useCallback(() => {
+      if (!pushedRef.current) {
+        pushedRef.current = true;
+        router.push('/scan-camera' as never);
+        return;
+      }
+      // Back from the camera. Land on Collection rather than this empty tab.
+      pushedRef.current = false;
+      router.replace('/' as never);
+    }, [router]),
+  );
+
+  // Black, not transparent: this is visible for one frame behind the push, and
+  // black matches the camera it becomes rather than flashing the light surface.
   return (
-    <NativeTabsPageBridge page="scanner">
-      {/* Dark viewfinder needs light status-bar icons. */}
+    <View style={{ backgroundColor: '#000000', flex: 1 }} testID="scan-tab-launcher">
       <StatusBar style="light" />
-      <ScannerScreen onExitToPortfolio={() => router.push('/' as never)} />
-    </NativeTabsPageBridge>
+    </View>
   );
 }

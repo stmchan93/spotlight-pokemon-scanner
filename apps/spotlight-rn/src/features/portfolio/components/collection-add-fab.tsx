@@ -61,8 +61,8 @@ export function CollectionAddFab({
     >
       <GlassSurface
         fallbackColor={theme.colors.canvasElevated}
-        glassColorScheme="light"
-        glassEffectStyle="clear"
+        glassColorScheme="auto"
+        glassEffectStyle="regular"
         pointerEvents="none"
         style={styles.fabGlass}
       />
