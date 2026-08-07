@@ -10,7 +10,10 @@ import {
   View,
 } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
-import { useRouter } from 'expo-router';
+import { useNavigation, useRouter } from 'expo-router';
+// `transitionEnd` is a NATIVE-STACK event, so the navigation object has to be
+// typed as one — expo-router's default generic only knows the core events.
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Camera, Globe, MediaImage, NavArrowDown, Xmark } from 'iconoir-react-native';
 
@@ -30,13 +33,22 @@ const BODY_MAX_LENGTH = 500;
 // full-bleed feed image without shipping a multi-megabyte original.
 const POST_IMAGE_WIDTH = 1080;
 
-// How long to wait before focusing the body field. The composer is a native
-// form sheet, and `autoFocus` used to raise the keyboard DURING the sheet's
-// presentation animation: iOS showed it, the sheet finished animating and
-// re-laid-out, and the field re-acquired focus — which read as the keyboard
-// appearing twice and made opening the composer visibly lag. Focusing after the
-// sheet has settled raises it exactly once. Same trick as the collection picker.
-const BODY_FOCUS_DELAY_MS = 300;
+// Safety net for raising the keyboard, NOT the primary mechanism.
+//
+// `autoFocus` raised the keyboard DURING the sheet's presentation animation:
+// iOS showed it, the sheet finished animating and re-laid-out, and the field
+// re-acquired focus — the keyboard visibly appeared twice and opening the
+// composer lagged. A fixed 300ms delay did not fix it either, because an iOS
+// form-sheet presentation takes roughly 500ms, so the timer still fired
+// mid-animation. Guessing a duration is the bug, so the focus now hangs off the
+// navigator's own `transitionEnd` event, which fires exactly when the sheet has
+// settled regardless of platform or animation duration.
+//
+// This timeout only covers the case where `transitionEnd` never arrives (an
+// un-animated presentation, or a navigator that doesn't emit it). It is
+// deliberately longer than any real transition so it never races the event —
+// whichever fires first wins, and the other becomes a no-op.
+const BODY_FOCUS_FALLBACK_MS = 900;
 
 // ---------------------------------------------------------------------------
 // Feed refresh signal
@@ -140,6 +152,7 @@ function ControlChip({
 export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
   const theme = useSpotlightTheme();
   const router = useRouter();
+  const navigation = useNavigation<NativeStackNavigationProp<Record<string, undefined>>>();
   const { spotlightRepository } = useAppServices();
   const { currentUser } = useAuth();
 
@@ -149,13 +162,32 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
 
   const bodyInputRef = useRef<TextInput | null>(null);
 
-  // See BODY_FOCUS_DELAY_MS — deferred instead of `autoFocus` so the keyboard
-  // rises once, after the sheet is in place, rather than fighting the
-  // presentation animation.
+  // Raise the keyboard exactly once, after the sheet has finished presenting.
+  // See BODY_FOCUS_FALLBACK_MS for why this is event-driven and not a timer.
   useEffect(() => {
-    const timer = setTimeout(() => bodyInputRef.current?.focus(), BODY_FOCUS_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, []);
+    let focused = false;
+    const focusOnce = () => {
+      if (focused) {
+        return;
+      }
+      focused = true;
+      bodyInputRef.current?.focus();
+    };
+
+    const unsubscribe = navigation.addListener('transitionEnd', (event) => {
+      // The same event fires on the way out; focusing then would fight the
+      // dismissal and pop the keyboard back up as the sheet slides away.
+      if (!event?.data?.closing) {
+        focusOnce();
+      }
+    });
+    const fallback = setTimeout(focusOnce, BODY_FOCUS_FALLBACK_MS);
+
+    return () => {
+      unsubscribe();
+      clearTimeout(fallback);
+    };
+  }, [navigation]);
 
   const trimmedBody = body.trim();
   const canPost = !isSubmitting && trimmedBody.length > 0;

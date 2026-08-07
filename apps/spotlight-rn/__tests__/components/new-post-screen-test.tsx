@@ -1,6 +1,6 @@
 import { Alert } from 'react-native';
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
-import { useRouter } from 'expo-router';
+import { useNavigation, useRouter } from 'expo-router';
 
 import { createPost } from '@/features/social/social-service';
 import { NewPostScreen } from '@/features/social/screens/new-post-screen';
@@ -9,6 +9,7 @@ import { createTestSpotlightRepository, renderWithProviders } from '../test-util
 
 jest.mock('expo-router', () => ({
   useRouter: jest.fn(),
+  useNavigation: jest.fn(),
   // NewPostScreen doesn't use useFocusEffect, but keep it defined so any
   // transitive import resolves.
   useFocusEffect: jest.fn(),
@@ -21,10 +22,22 @@ jest.mock('@/features/social/social-service', () => ({
 const back = jest.fn();
 const push = jest.fn();
 
+/** Listeners the screen registered, keyed by event name, so tests can fire them. */
+let navListeners: Record<string, (event?: unknown) => void>;
+
 describe('NewPostScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    navListeners = {};
     (useRouter as jest.Mock).mockReturnValue({ back, push });
+    (useNavigation as jest.Mock).mockReturnValue({
+      addListener: (event: string, handler: (event?: unknown) => void) => {
+        navListeners[event] = handler;
+        return () => {
+          delete navListeners[event];
+        };
+      },
+    });
     (createPost as jest.Mock).mockResolvedValue('post-1');
   });
 
@@ -37,14 +50,29 @@ describe('NewPostScreen', () => {
     expect(screen.getByTestId('new-post-submit')).toBeEnabled();
   });
 
-  it('does NOT autoFocus the body — the keyboard is raised after the sheet settles', () => {
+  it('raises the keyboard once, when the sheet transition ENDS — never on mount', () => {
     renderWithProviders(<NewPostScreen />);
 
     // Regression: `autoFocus` raised the keyboard DURING the form sheet's
     // presentation animation, so it appeared, the sheet re-laid-out, and it
-    // appeared again — the "keyboard comes up twice and lags" report. Focus is
-    // now driven by a timer against the ref (BODY_FOCUS_DELAY_MS) instead.
+    // appeared again — the "keyboard comes up twice and lags" report. A fixed
+    // 300ms delay didn't fix it either, since the presentation takes ~500ms.
     expect(screen.getByTestId('new-post-body-input').props.autoFocus).toBeFalsy();
+
+    // Focus hangs off the navigator telling us the sheet has settled, rather
+    // than a guessed delay. NOTE: the TextInput's host ref isn't reachable from
+    // the test tree and RNTL 13 has no focus matcher, so this pins the WIRING
+    // (no autoFocus, listener registered, both closing branches safe) — the
+    // single-raise behaviour itself needs a device check.
+    expect(navListeners.transitionEnd).toBeDefined();
+
+    expect(() => navListeners.transitionEnd({ data: { closing: true } })).not.toThrow();
+    expect(() => navListeners.transitionEnd({ data: { closing: false } })).not.toThrow();
+    expect(() => navListeners.transitionEnd(undefined)).not.toThrow();
+
+    // The composer still works after the transition settles.
+    fireEvent.changeText(screen.getByTestId('new-post-body-input'), 'gm');
+    expect(screen.getByTestId('new-post-submit')).toBeEnabled();
   });
 
   it('creates a text post and navigates back', async () => {
