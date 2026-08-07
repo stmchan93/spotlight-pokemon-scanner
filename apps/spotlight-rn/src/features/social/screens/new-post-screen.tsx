@@ -332,13 +332,15 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
 
   return (
     <SafeAreaView
-      // No 'top' edge. This screen presents as a native form sheet (see the
-      // `new-post` Stack.Screen options), so its top edge sits ~65pt down the
-      // screen, nowhere near the notch — but safe-area-context still reports
-      // the WINDOW's top inset, which would pad the grabber and title down by
-      // the status-bar height. The bottom edge is still real: the sheet is
-      // flush with the bottom of the screen, over the home indicator.
-      edges={['bottom', 'left', 'right']}
+      // KEEP the 'top' edge. `SafeAreaView` here is the native
+      // react-native-safe-area-context view, which measures the inset from its
+      // OWN frame rather than the window: presented as a form sheet its top
+      // edge sits ~65pt down, clear of the notch, so the inset resolves to 0 and
+      // costs nothing. Dropping 'top' as "the sheet handles it" is what left the
+      // close button jammed under the status bar when the sheet silently failed
+      // to present — this edge is the fail-safe that keeps the header reachable
+      // even if the composer ever renders full-screen again.
+      edges={['top', 'bottom', 'left', 'right']}
       style={[styles.safeArea, { backgroundColor: theme.colors.canvasElevated }]}
       testID={testID}
     >

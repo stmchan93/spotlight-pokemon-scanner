@@ -257,24 +257,33 @@ describe('misc route wrappers', () => {
     expect(screen.getByTestId('slot-screen')).toBeTruthy();
   });
 
-  it('presents New Post as a 92%-height form sheet that drags and taps away', () => {
-    render(<BrowseStackLayout />);
+  it('registers New Post on the ROOT stack so its formSheet actually presents', () => {
+    // This is a structural assertion on purpose. react-native-screens ignores
+    // `stackPresentation` on a stack's BOTTOM-MOST screen, and pushing
+    // /new-post from the tabs used to mount the `(stack)` navigator with
+    // new-post as its only route — so the sheet was silently a no-op and the
+    // composer rendered full-screen with its close button under the status bar.
+    // Nothing about that is visible to a render test; only the route's PLACEMENT
+    // prevents it, so that placement is what gets pinned.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fs = require('node:fs');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const path = require('node:path');
+    const appDir = path.join(__dirname, '..', '..', 'src', 'app');
 
-    const options = JSON.parse(
-      screen.getByTestId('stack-screen-new-post').props.children as string,
-    );
+    expect(fs.existsSync(path.join(appDir, 'new-post.tsx'))).toBe(true);
+    // Back under a group and it is that group's first screen again.
+    expect(fs.existsSync(path.join(appDir, '(stack)', 'new-post.tsx'))).toBe(false);
 
-    // Figma 3147:4638 — 787pt of an 852pt screen.
-    expect(options.presentation).toBe('formSheet');
-    expect(options.sheetAllowedDetents).toEqual([0.92]);
-    // Both dismissals come from the native sheet: drag-down needs the gesture,
-    // and tap-outside is what `formSheet` gives over a full-screen push.
-    expect(options.gestureEnabled).toBe(true);
+    const rootLayout: string = fs.readFileSync(path.join(appDir, '_layout.tsx'), 'utf8');
+    expect(rootLayout).toContain('name="new-post"');
+    expect(rootLayout).toContain("presentation: 'formSheet'");
+    // Figma 3147:10814 — 787pt of an 852pt screen.
+    expect(rootLayout).toContain('sheetAllowedDetents: [0.92]');
+    // Drag-down needs the gesture; tap-outside comes with formSheet itself.
+    expect(rootLayout).toContain('gestureEnabled: true');
     // The composer draws its own grabber, so iOS must not add a second one.
-    expect(options.sheetGrabberVisible).toBe(false);
-
-    render(<TabsLayout />);
-    expect(screen.getByTestId('slot-screen')).toBeTruthy();
+    expect(rootLayout).toContain('sheetGrabberVisible: false');
   });
 
   it('renders the account route screen', () => {

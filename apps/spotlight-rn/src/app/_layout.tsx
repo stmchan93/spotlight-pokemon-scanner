@@ -183,6 +183,38 @@ function AuthenticatedRoot() {
               <Stack.Screen name="(stack)" />
               <Stack.Screen name="(sheet)" />
               <Stack.Screen name="(modal)" />
+              {/*
+                New Post lives at the ROOT, not in `(stack)`, and that placement
+                is load-bearing. react-native-screens ignores `stackPresentation`
+                on a stack's BOTTOM-MOST screen — there is nothing to present
+                over — and pushing `/new-post` from the tabs mounted the `(stack)`
+                navigator with new-post as its only route. The formSheet was
+                silently a no-op and the composer rendered as a full-screen push
+                with its close button jammed under the status bar.
+
+                Here it is pushed over `(tabs)`, which is the root stack's
+                initial route, so the sheet presentation actually applies.
+                Figma 3147:10814 sizes it 393x787 on an 852pt screen (top edge at
+                y=65) — the 0.92 detent. `formSheet` is also what buys the two
+                dismissal gestures for free: drag down, or tap the dimmed area.
+
+                `sheetGrabberVisible` stays false because the composer draws its
+                own grabber; letting iOS add its system one would stack two bars.
+
+                If you ever move this route back under a group, re-check that it
+                is not that group's first screen or the sheet silently dies again.
+              */}
+              <Stack.Screen
+                name="new-post"
+                options={{
+                  gestureEnabled: true,
+                  presentation: 'formSheet',
+                  sheetAllowedDetents: [0.92],
+                  sheetCornerRadius: 16,
+                  sheetExpandsWhenScrolledToEdge: false,
+                  sheetGrabberVisible: false,
+                }}
+              />
             </Stack>
           </View>
         </AccessGate>
