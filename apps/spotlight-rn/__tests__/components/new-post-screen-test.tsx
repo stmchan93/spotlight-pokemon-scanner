@@ -1,6 +1,6 @@
 import { Alert } from 'react-native';
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
-import { useNavigation, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 
 import { createPost } from '@/features/social/social-service';
 import { NewPostScreen } from '@/features/social/screens/new-post-screen';
@@ -22,22 +22,10 @@ jest.mock('@/features/social/social-service', () => ({
 const back = jest.fn();
 const push = jest.fn();
 
-/** Listeners the screen registered, keyed by event name, so tests can fire them. */
-let navListeners: Record<string, (event?: unknown) => void>;
-
 describe('NewPostScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    navListeners = {};
     (useRouter as jest.Mock).mockReturnValue({ back, push });
-    (useNavigation as jest.Mock).mockReturnValue({
-      addListener: (event: string, handler: (event?: unknown) => void) => {
-        navListeners[event] = handler;
-        return () => {
-          delete navListeners[event];
-        };
-      },
-    });
     (createPost as jest.Mock).mockResolvedValue('post-1');
   });
 
@@ -50,29 +38,25 @@ describe('NewPostScreen', () => {
     expect(screen.getByTestId('new-post-submit')).toBeEnabled();
   });
 
-  it('raises the keyboard once, when the sheet transition ENDS — never on mount', () => {
+  it('opens with the keyboard DOWN, exactly as Figma 3147:10814 draws it', () => {
     renderWithProviders(<NewPostScreen />);
 
-    // Regression: `autoFocus` raised the keyboard DURING the form sheet's
-    // presentation animation, so it appeared, the sheet re-laid-out, and it
-    // appeared again — the "keyboard comes up twice and lags" report. A fixed
-    // 300ms delay didn't fix it either, since the presentation takes ~500ms.
+    // The sheet and the keyboard are two animations competing for the same
+    // height, so raising the keyboard on open made the sheet visibly arrive in
+    // two stages. No delay fixes that — the design simply has no keyboard on
+    // open: placeholder visible, all three chips visible, POST disabled. The
+    // keyboard belongs to the moment the author taps the field.
     expect(screen.getByTestId('new-post-body-input').props.autoFocus).toBeFalsy();
 
-    // Focus hangs off the navigator telling us the sheet has settled, rather
-    // than a guessed delay. NOTE: the TextInput's host ref isn't reachable from
-    // the test tree and RNTL 13 has no focus matcher, so this pins the WIRING
-    // (no autoFocus, listener registered, both closing branches safe) — the
-    // single-raise behaviour itself needs a device check.
-    expect(navListeners.transitionEnd).toBeDefined();
+    // Nothing may schedule focus behind the scenes either.
+    expect(screen.getByTestId('new-post-body-input').props.value).toBe('');
+    expect(screen.getByPlaceholderText("What's on your mind?")).toBeTruthy();
 
-    expect(() => navListeners.transitionEnd({ data: { closing: true } })).not.toThrow();
-    expect(() => navListeners.transitionEnd({ data: { closing: false } })).not.toThrow();
-    expect(() => navListeners.transitionEnd(undefined)).not.toThrow();
-
-    // The composer still works after the transition settles.
-    fireEvent.changeText(screen.getByTestId('new-post-body-input'), 'gm');
-    expect(screen.getByTestId('new-post-submit')).toBeEnabled();
+    // The full opening state is on screen — not hidden behind a keyboard.
+    expect(screen.getByTestId('new-post-privacy')).toBeTruthy();
+    expect(screen.getByTestId('new-post-add-image')).toBeTruthy();
+    expect(screen.getByTestId('new-post-add-camera')).toBeTruthy();
+    expect(screen.getByTestId('new-post-submit')).toBeDisabled();
   });
 
   it('creates a text post and navigates back', async () => {

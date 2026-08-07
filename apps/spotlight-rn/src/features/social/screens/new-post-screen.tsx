@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -10,10 +10,7 @@ import {
   View,
 } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
-import { useNavigation, useRouter } from 'expo-router';
-// `transitionEnd` is a NATIVE-STACK event, so the navigation object has to be
-// typed as one — expo-router's default generic only knows the core events.
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Camera, Globe, MediaImage, NavArrowDown, Xmark } from 'iconoir-react-native';
 
@@ -33,22 +30,24 @@ const BODY_MAX_LENGTH = 500;
 // full-bleed feed image without shipping a multi-megabyte original.
 const POST_IMAGE_WIDTH = 1080;
 
-// Safety net for raising the keyboard, NOT the primary mechanism.
+// NOTE ON FOCUS — the composer deliberately does NOT focus its body on open.
 //
-// `autoFocus` raised the keyboard DURING the sheet's presentation animation:
-// iOS showed it, the sheet finished animating and re-laid-out, and the field
-// re-acquired focus — the keyboard visibly appeared twice and opening the
-// composer lagged. A fixed 300ms delay did not fix it either, because an iOS
-// form-sheet presentation takes roughly 500ms, so the timer still fired
-// mid-animation. Guessing a duration is the bug, so the focus now hangs off the
-// navigator's own `transitionEnd` event, which fires exactly when the sheet has
-// settled regardless of platform or animation duration.
+// Figma 3147:10814 is the opening state, and it has no keyboard: the placeholder
+// "What's on your mind?" in gray/600, all three control chips, and a disabled
+// gray/400 POST button are all visible. The keyboard belongs to the moment the
+// author taps the field, not to the moment the sheet appears.
 //
-// This timeout only covers the case where `transitionEnd` never arrives (an
-// un-animated presentation, or a navigator that doesn't emit it). It is
-// deliberately longer than any real transition so it never races the event —
-// whichever fires first wins, and the other becomes a no-op.
-const BODY_FOCUS_FALLBACK_MS = 900;
+// Auto-focusing fought the sheet in every form it was tried. `autoFocus` raised
+// the keyboard mid-presentation, so it appeared, the sheet re-laid-out, and it
+// appeared again. A 300ms timer still fired mid-animation (an iOS form-sheet
+// presentation takes ~500ms). Waiting for the navigator's `transitionEnd` fixed
+// the double-raise but simply moved the problem: the sheet animated to its
+// detent, then the keyboard arrived and UIKit resized the sheet to accommodate
+// it — a visible two-stage open.
+//
+// There is no delay that fixes this, because the keyboard and the sheet are two
+// animations competing for the same height. Not raising the keyboard on open
+// removes the competition entirely AND matches the design.
 
 // ---------------------------------------------------------------------------
 // Feed refresh signal
@@ -152,42 +151,12 @@ function ControlChip({
 export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
   const theme = useSpotlightTheme();
   const router = useRouter();
-  const navigation = useNavigation<NativeStackNavigationProp<Record<string, undefined>>>();
   const { spotlightRepository } = useAppServices();
   const { currentUser } = useAuth();
 
   const [body, setBody] = useState('');
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const bodyInputRef = useRef<TextInput | null>(null);
-
-  // Raise the keyboard exactly once, after the sheet has finished presenting.
-  // See BODY_FOCUS_FALLBACK_MS for why this is event-driven and not a timer.
-  useEffect(() => {
-    let focused = false;
-    const focusOnce = () => {
-      if (focused) {
-        return;
-      }
-      focused = true;
-      bodyInputRef.current?.focus();
-    };
-
-    const unsubscribe = navigation.addListener('transitionEnd', (event) => {
-      // The same event fires on the way out; focusing then would fight the
-      // dismissal and pop the keyboard back up as the sheet slides away.
-      if (!event?.data?.closing) {
-        focusOnce();
-      }
-    });
-    const fallback = setTimeout(focusOnce, BODY_FOCUS_FALLBACK_MS);
-
-    return () => {
-      unsubscribe();
-      clearTimeout(fallback);
-    };
-  }, [navigation]);
 
   const trimmedBody = body.trim();
   const canPost = !isSubmitting && trimmedBody.length > 0;
@@ -390,7 +359,6 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
           </View>
 
           <TextInput
-            ref={bodyInputRef}
             maxFontSizeMultiplier={1.3}
             maxLength={BODY_MAX_LENGTH}
             multiline
