@@ -29,6 +29,22 @@ export default function NativeTabsLayout() {
         <Icon sf={{ default: 'square.grid.2x2', selected: 'square.grid.2x2.fill' }} />
         <Label>Collection</Label>
       </Trigger>
+      {/*
+        Middle slot, by request. Being a real tab is the ONLY way to sit in a
+        native bar — and it costs the full-bleed camera: UIKit draws the bar over
+        the viewfinder and insets the content, which shrinks the reticle.
+
+        `disableAutomaticContentInsets` is the fix and we cannot use it yet: it
+        is in expo-router's NativeTabOptions but absent from react-native-screens
+        4.23.0, so it needs 4.25+ — a native build, not an OTA.
+
+        `/native-scan` is kept alive as the pushed-route alternative for exactly
+        this reason; deep link it to compare a full-size reticle against this.
+      */}
+      <Trigger name="scan">
+        <Icon sf={{ default: 'viewfinder', selected: 'viewfinder' }} />
+        <Label>Scan</Label>
+      </Trigger>
       <Trigger name="wishlist">
         <Icon sf={{ default: 'bookmark', selected: 'bookmark.fill' }} />
         <Label>Wishlist</Label>
