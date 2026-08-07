@@ -235,18 +235,31 @@ describe('PortfolioScreen', () => {
     );
   });
 
-  it('shows an inert share bubble alongside search and edit', async () => {
+  it('opens notifications from the bell, which replaced the inert share bubble', async () => {
     renderPortfolioScreen();
 
-    const share = await screen.findByTestId('portfolio-header-share');
+    const bell = await screen.findByTestId('portfolio-header-notifications');
     expect(screen.getByTestId('portfolio-header-search')).toBeTruthy();
     expect(screen.getByTestId('portfolio-header-edit')).toBeTruthy();
 
-    // Sharing isn't built yet — pressing it must not navigate or throw.
+    // The Share bubble that used to sit here was wired to `onPress={() => {}}`
+    // — present but doing nothing. The bell took its slot rather than becoming a
+    // fourth bubble, so its absence is the point, not an oversight.
+    expect(screen.queryByTestId('portfolio-header-share')).toBeNull();
+
     await act(async () => {
-      fireEvent.press(share);
+      fireEvent.press(bell);
     });
-    expect(screen.getByTestId('portfolio-header-share')).toBeTruthy();
+    expect(push).toHaveBeenCalledWith('/notifications');
+  });
+
+  it('hides the unread badge when there is nothing unread', async () => {
+    renderPortfolioScreen();
+
+    await screen.findByTestId('portfolio-header-notifications');
+    // The default mock resolves 0 unread; a badge showing "0" would be worse
+    // than no badge, so it must not render at all.
+    expect(screen.queryByTestId('portfolio-header-notifications-badge')).toBeNull();
   });
 
   it('masks the summary value and delta when the visibility toggle is pressed', async () => {

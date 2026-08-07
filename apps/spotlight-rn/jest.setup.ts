@@ -87,6 +87,7 @@ jest.mock('iconoir-react-native', () => {
     ScanQrCode: make('scan-qr-code'),
     NavArrowDown: make('nav-arrow-down'),
     NavArrowLeft: make('nav-arrow-left'),
+    Bell: make('bell'),
     NavArrowRight: make('nav-arrow-right'),
     NavArrowUp: make('nav-arrow-up'),
     Plus: make('plus'),

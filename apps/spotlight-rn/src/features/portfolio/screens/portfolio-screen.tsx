@@ -15,12 +15,12 @@ import {
 import * as Haptics from 'expo-haptics';
 import { useFocusEffect, useRouter } from 'expo-router';
 import {
+  Bell,
   CheckCircle,
   EditPencil,
   Menu as MenuIcon,
   Plus,
   Search as SearchIcon,
-  ShareIos,
   Trash,
 } from 'iconoir-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -72,7 +72,12 @@ import { useTabsPage } from '@/contexts/tabs-page-context';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { resolveRepositoryBaseUrl, useAppServices } from '@/providers/app-providers';
 import { PostCard } from '@/features/social/components/post-card';
-import { type FeedPost, type FeedPostAuthor, fetchAuthorPosts } from '@/features/social/social-service';
+import {
+  type FeedPost,
+  type FeedPostAuthor,
+  fetchAuthorPosts,
+  fetchUnreadNotificationCount,
+} from '@/features/social/social-service';
 import { consumeFeedRefreshSignal } from '@/features/social/screens/new-post-screen';
 import { ProfileHeader } from '@/features/profile/components/profile-header';
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
@@ -535,6 +540,29 @@ export function PortfolioScreen({
     }, []),
   );
 
+  // Unread badge on the bell. Refreshed on FOCUS rather than on an interval:
+  // returning from the notifications list (which marks everything read) is the
+  // moment the badge must clear, and focus is exactly that moment. It also means
+  // no timer runs while the user is elsewhere in the app.
+  //
+  // This is a client-direct Supabase count, not a backend call — it never touches
+  // the VM, so polling it costs nothing on the resource that actually constrains
+  // this app. `cancelled` guards the async set against a fast unmount.
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      void fetchUnreadNotificationCount().then((count) => {
+        if (!cancelled) {
+          setUnreadNotifications(count);
+        }
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, []),
+  );
+
   // Mirror edit mode into the tabs pager so it hides the bottom tab bar + locks
   // the horizontal swipe, and always release the lock on unmount.
   useEffect(() => {
@@ -909,15 +937,37 @@ export function PortfolioScreen({
           <Plus color={theme.colors.gray900} height={22} width={22} />
         </GlassNavBubble>
       ) : null}
+      {/*
+        Notifications. This slot used to hold a Share bubble from Figma 3095:7044
+        that was wired to `onPress={() => {}}` — present but inert, because
+        sharing was never built. Rather than add a FOURTH bubble beside it (four
+        44pt bubbles plus the menu leaves ~117pt of clear space on a 393pt
+        screen), the bell takes the dead control's slot. Share can come back here
+        when it does something, or move into the drawer.
+      */}
       <GlassNavBubble
-        accessibilityLabel="Share profile"
-        // Figma 3095:7044. Sharing isn't built yet, so the control is present
-        // and inert rather than wired to a half-working share sheet.
-        onPress={() => {}}
+        accessibilityLabel={
+          unreadNotifications > 0
+            ? `Notifications, ${unreadNotifications} unread`
+            : 'Notifications'
+        }
+        onPress={() => router.push('/notifications' as never)}
         style={{ right: bubbleRight(1), top: bubbleTop }}
-        testID="portfolio-header-share"
+        testID="portfolio-header-notifications"
       >
-        <ShareIos color={theme.colors.gray900} height={20} width={20} />
+        <Bell color={theme.colors.gray900} height={20} width={20} />
+        {unreadNotifications > 0 ? (
+          <View
+            // Count capped at 9+ so the badge stays a circle — a 3-digit count
+            // would stretch it into a lozenge that overhangs the bubble.
+            style={[styles.notificationBadge, { backgroundColor: theme.colors.dangerStrong }]}
+            testID="portfolio-header-notifications-badge"
+          >
+            <Text style={[theme.typography.overline, { color: theme.colors.gray0 }]}>
+              {unreadNotifications > 9 ? '9+' : String(unreadNotifications)}
+            </Text>
+          </View>
+        ) : null}
       </GlassNavBubble>
       <GlassNavBubble
         accessibilityLabel="Edit profile"
@@ -1322,6 +1372,19 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: BUBBLE_SIZE,
     zIndex: 5,
+  },
+  // Sits on the bell's top-right corner. The parent bubble is
+  // `overflow: 'visible'`, so the badge can hang past its edge without clipping.
+  notificationBadge: {
+    alignItems: 'center',
+    borderRadius: 9,
+    height: 18,
+    justifyContent: 'center',
+    minWidth: 18,
+    paddingHorizontal: 4,
+    position: 'absolute',
+    right: 4,
+    top: 4,
   },
   bubbleGlass: {
     borderRadius: BUBBLE_SIZE / 2,

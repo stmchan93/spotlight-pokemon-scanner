@@ -253,6 +253,7 @@ SYNC_LOG_FILE="$LOG_DIR/scrydex_sync.log"
 HEALTH_MONITOR_LOG_FILE="$LOG_DIR/health_monitor.log"
 RESOURCE_MONITOR_LOG_FILE="$LOG_DIR/resource_monitor.log"
 PPT_POPULATION_LOG_FILE="$LOG_DIR/ppt_population.log"
+SOCIAL_MODERATION_LOG_FILE="$LOG_DIR/social_moderation.log"
 TORCH_CPU_INDEX_URL="${SPOTLIGHT_VM_TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}"
 TORCH_PACKAGE_SPEC="${SPOTLIGHT_VM_TORCH_PACKAGE_SPEC:-torch==2.11.0+cpu}"
 SYNC_CRON_SCHEDULE="${SPOTLIGHT_VM_SYNC_CRON:-0 18 * * *}"
@@ -371,7 +372,8 @@ chmod +x \
   "$SCRIPT_DIR/run_sync_vm.sh" \
   "$SCRIPT_DIR/run_sync_vm_scheduled.sh" \
   "$SCRIPT_DIR/run_vm_health_check.sh" \
-  "$SCRIPT_DIR/run_vm_resource_snapshot.sh"
+  "$SCRIPT_DIR/run_vm_resource_snapshot.sh" \
+  "$SCRIPT_DIR/run_social_moderation_vm.sh"
 
 sudo tee "$SERVICE_PATH" >/dev/null <<EOF
 [Unit]
@@ -438,6 +440,14 @@ RESOURCE_LINE="$RESOURCE_CRON_SCHEDULE cd $REPO_ROOT && $SCRIPT_DIR/run_vm_resou
 # unsupported by Ubuntu's vixie cron, so we anchor in UTC). Enrichment-only; no-ops
 # if PPT_API_KEY is absent from the secrets file.
 PPT_POPULATION_LINE="30 6 * * * cd $REPO_ROOT && $SCRIPT_DIR/run_ppt_population_vm.sh >> $PPT_POPULATION_LOG_FILE 2>&1"
+# Social moderation — every 2 minutes, on BOTH environments. Unlike the Scrydex
+# and PPT jobs above this burns no credits: OpenAI's omni-moderation endpoint is
+# free for text and images, so the only cost is GCS egress reading each image
+# once. It has to run on staging precisely because that is where the users are —
+# post images stay hidden by RLS until this approves them.
+# Two minutes is a latency choice, not a throughput one: the worker batches, so
+# the interval only sets how long a new image waits to become visible to others.
+SOCIAL_MODERATION_LINE="*/2 * * * * cd $REPO_ROOT && $SCRIPT_DIR/run_social_moderation_vm.sh >> $SOCIAL_MODERATION_LOG_FILE 2>&1"
 
 CURRENT_CRONTAB="$(mktemp "${TMPDIR:-/tmp}/spotlight-crontab.XXXXXX")"
 trap 'rm -f "$CURRENT_CRONTAB"' EXIT
@@ -478,6 +488,7 @@ PY
   fi
   echo "$HEALTH_LINE"
   echo "$RESOURCE_LINE"
+  echo "$SOCIAL_MODERATION_LINE"
   echo "$CRON_END"
 } | crontab -
 

@@ -668,3 +668,153 @@ export async function createPost(input: { body?: string | null; cardId?: string 
     return null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+// Rows are written server-side by the `social_11` triggers (a like/comment/follow
+// inserts one in the same transaction). The client only ever READS and marks
+// read: `notifications` has a select and an update policy scoped to the
+// recipient, and deliberately NO insert policy — so nothing here writes a row.
+//
+// Polling, not Realtime, on purpose. These queries go client-direct to Supabase
+// and never touch the backend VM, so a foreground poll costs zero VM CPU — the
+// resource that actually constrains this app. The unread count is a covered read
+// against `idx_notifications_unread`, a partial index on `read_at is null`.
+
+const NOTIFICATIONS_TABLE = 'notifications';
+
+/** Types the app renders. `mention`/`message` exist in the schema but nothing
+ *  produces them yet (no parser, no DMs), so they are not surfaced. */
+export type NotificationType = 'like' | 'comment' | 'follow';
+
+export type AppNotification = {
+  id: string;
+  type: NotificationType;
+  actor: FeedPostAuthor | null;
+  postId: string | null;
+  commentId: string | null;
+  createdAt: string;
+  readAt: string | null;
+};
+
+type NotificationRow = {
+  id: string;
+  type: string;
+  actor_id: string | null;
+  post_id: string | null;
+  comment_id: string | null;
+  created_at: string;
+  read_at: string | null;
+};
+
+const RENDERABLE_NOTIFICATION_TYPES: readonly string[] = ['like', 'comment', 'follow'];
+
+/**
+ * How many unread notifications the signed-in user has — the number on the bell.
+ *
+ * Uses a `head: true` count so Postgres answers from the partial unread index
+ * without materializing any rows; the badge cost stays flat as history grows.
+ * Returns 0 on any failure: a badge that silently shows nothing is much better
+ * than one that blocks the Collection header from rendering.
+ */
+export async function fetchUnreadNotificationCount(): Promise<number> {
+  const me = await currentUserId();
+  if (!supabase || !me) {
+    return 0;
+  }
+  try {
+    const { count, error } = await supabase
+      .from(NOTIFICATIONS_TABLE)
+      .select('id', { count: 'exact', head: true })
+      .eq('recipient_id', me)
+      .is('read_at', null);
+    return error ? 0 : (count ?? 0);
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * The notification list, newest first, with actors hydrated from
+ * `public_profiles` in ONE follow-up query rather than per row.
+ *
+ * Unknown `type` values are filtered out rather than rendered as a blank row —
+ * the schema allows `mention`/`message`, and a future migration could add more.
+ */
+export async function fetchNotifications(limit = 50): Promise<AppNotification[]> {
+  const me = await currentUserId();
+  if (!supabase || !me) {
+    return [];
+  }
+  try {
+    const { data, error } = await supabase
+      .from(NOTIFICATIONS_TABLE)
+      .select('id, type, actor_id, post_id, comment_id, created_at, read_at')
+      .eq('recipient_id', me)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error || !data) {
+      return [];
+    }
+
+    const rows = (data as NotificationRow[]).filter((row) =>
+      RENDERABLE_NOTIFICATION_TYPES.includes(row.type),
+    );
+    if (rows.length === 0) {
+      return [];
+    }
+
+    const actorIds = Array.from(
+      new Set(rows.map((row) => row.actor_id).filter((id): id is string => Boolean(id))),
+    );
+    const actorsById = new Map<string, FeedPostAuthor>();
+    if (actorIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from(PUBLIC_PROFILES_VIEW)
+        .select(postAuthorSelect)
+        .in('user_id', actorIds);
+      for (const profile of (profiles ?? []) as PostAuthorRow[]) {
+        actorsById.set(profile.user_id, mapAuthor(profile));
+      }
+    }
+
+    return rows.map((row) => ({
+      id: row.id,
+      type: row.type as NotificationType,
+      // An actor whose account was deleted leaves a null FK — the notification
+      // is still real, so render it rather than dropping it.
+      actor: row.actor_id ? actorsById.get(row.actor_id) ?? null : null,
+      postId: row.post_id,
+      commentId: row.comment_id,
+      createdAt: row.created_at,
+      readAt: row.read_at,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Mark every unread notification read. Called when the list opens, so the badge
+ * clears on view — the same model as the rest of the app's read state.
+ *
+ * Scoped to `read_at is null` so it only ever touches unread rows: re-opening the
+ * list can't rewrite timestamps on history you already saw.
+ */
+export async function markAllNotificationsRead(): Promise<boolean> {
+  const me = await currentUserId();
+  if (!supabase || !me) {
+    return false;
+  }
+  try {
+    const { error } = await supabase
+      .from(NOTIFICATIONS_TABLE)
+      .update({ read_at: new Date().toISOString() })
+      .eq('recipient_id', me)
+      .is('read_at', null);
+    return !error;
+  } catch {
+    return false;
+  }
+}
