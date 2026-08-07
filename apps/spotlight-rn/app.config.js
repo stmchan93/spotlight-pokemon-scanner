@@ -273,7 +273,7 @@ function buildExpoConfigForEnv(env = process.env, overridesPath = LOCAL_OVERRIDE
   // Ekalight "E" mark for the real app builds. Both the staging TestFlight build
   // and the production App Store build use it; only development keeps the base icon.
   if (resolvedAppEnv === 'staging' || resolvedAppEnv === 'production') {
-    ios.icon = './assets/images/ekalight-e-icon.png';
+    ios.icon = './assets/ekalight.icon';
   }
 
   const android = {
