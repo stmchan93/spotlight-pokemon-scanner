@@ -1,7 +1,21 @@
 import { requireOptionalNativeModule } from 'expo-modules-core';
 
-/** The Expo native module name expo-image-picker registers on the client. */
-const IMAGE_PICKER_NATIVE_MODULE = 'ExpoImagePicker';
+/**
+ * The Expo native module name expo-image-picker registers on the client.
+ *
+ * It is "Exponent…", NOT "Expo…" — the package kept the legacy prefix that most
+ * other Expo modules dropped (ImagePickerModule.swift / ImagePickerModule.kt
+ * both declare `Name("ExponentImagePicker")`, and the library's own JS does
+ * `requireNativeModule('ExponentImagePicker')`).
+ *
+ * Getting this wrong is silent and total: `requireOptionalNativeModule` returns
+ * null for an unknown name exactly as it does for a genuinely missing module, so
+ * a typo here disables Photo, Camera, and avatar upload on EVERY build while
+ * telling the user to update an app that is already current. It did — that is
+ * why `native-image-picker-test.ts` pins this string against the installed
+ * package rather than trusting it by eye.
+ */
+const IMAGE_PICKER_NATIVE_MODULE = 'ExponentImagePicker';
 
 /**
  * `expo-image-picker`'s JavaScript ships in every OTA bundle, but its NATIVE
