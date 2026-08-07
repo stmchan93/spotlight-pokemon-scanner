@@ -1287,6 +1287,12 @@ export function PortfolioScreen({
           // while typing. Swipe-to-dismiss + persist-taps let you reach a result
           // (open the card) without an extra tap to drop the keyboard first.
           automaticallyAdjustKeyboardInsets
+          // UIKit only minimizes the native tab bar for the scroll view it is
+          // actually tracking, and it only tracks one whose
+          // contentInsetAdjustmentBehavior is `automatic`. React Native defaults
+          // it to `never`, so without this the bar never collapses no matter what
+          // `minimizeBehavior` is set to on the layout.
+          contentInsetAdjustmentBehavior="automatic"
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={{

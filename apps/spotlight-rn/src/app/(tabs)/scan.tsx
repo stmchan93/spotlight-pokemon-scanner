@@ -1,5 +1,6 @@
-import { useCallback, useRef } from 'react';
+import { useCallback } from 'react';
 import { View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 
@@ -9,38 +10,46 @@ import { StatusBar } from 'expo-status-bar';
  * Tapping it pushes the camera (`/scan-camera`) over the tabs. That push is what
  * hides the tab bar: UIKit's `hidesBottomBarWhenPushed` applies to pushed view
  * controllers, so the camera gets the full screen — full-bleed preview, reticle
- * back to its original size — and the bar returns on pop, for free. Making the
- * camera a tab SCREEN instead is what shrank the reticle, because a tab always
- * renders the bar over its content and insets it.
+ * at its original size — and the bar returns on pop, for free. Making the camera
+ * a tab SCREEN instead is what shrank the reticle, because a tab always renders
+ * the bar over its content and insets it.
  *
- * A native tab cannot simply push instead of switching (NativeBottomTabsNavigator
- * dispatches JUMP_TO without reading `defaultPrevented`), so the switch still
- * happens — this screen just never becomes visible.
+ * A native tab cannot push instead of switching (NativeBottomTabsNavigator
+ * dispatches JUMP_TO without reading `defaultPrevented`), so the tab switch still
+ * happens underneath — this screen just must never be what the user is left on.
  *
- * THE LOOP THIS AVOIDS: popping the camera refocuses this tab, which would push
- * the camera straight back and trap the user. `pushedRef` alternates, so the
- * first focus launches the camera and the focus caused by the pop sends the user
- * to Collection instead. That covers the back BUTTON and the back-SWIPE
- * identically, which matters because the swipe never runs our exit handler.
+ * ===========================================================================
+ * WHY THE TAB SELECTION IS HANDED BACK IMMEDIATELY
+ * ===========================================================================
+ * The first version tried to detect the return: launch on first focus, and on
+ * the focus caused by popping, redirect to Collection. That strands the user on
+ * a black screen, which is what shipped — the launcher does not reliably receive
+ * a second focus event, so the redirect never runs and the popped stack lands on
+ * a blank tab with Scan still selected.
+ *
+ * Detecting the return was the wrong shape. Instead, never be the return target:
+ * switch the tab selection back to Collection in the same breath as launching.
+ * The camera is a stack screen ABOVE the tabs, so this does not disturb it — it
+ * only changes which tab sits underneath. Popping then lands on Collection
+ * whether the user used the back button or the back-swipe, and there is no
+ * relaunch loop to guard because this tab is no longer selected.
+ *
+ * `getParent()` targets the TAB navigator specifically. Using `router.replace`
+ * here would rewrite the root stack's top entry — which is the camera — and
+ * dismiss the very screen we just pushed.
  */
 export default function ScanTab() {
   const router = useRouter();
-  const pushedRef = useRef(false);
+  const navigation = useNavigation();
 
   useFocusEffect(
     useCallback(() => {
-      if (!pushedRef.current) {
-        pushedRef.current = true;
-        router.push('/scan-camera' as never);
-        return;
-      }
-      // Back from the camera. Land on Collection rather than this empty tab.
-      pushedRef.current = false;
-      router.replace('/' as never);
-    }, [router]),
+      router.push('/scan-camera' as never);
+      navigation.getParent()?.navigate('index' as never);
+    }, [navigation, router]),
   );
 
-  // Black, not transparent: this is visible for one frame behind the push, and
+  // Black, not transparent: this is visible for a frame behind the push, and
   // black matches the camera it becomes rather than flashing the light surface.
   return (
     <View style={{ backgroundColor: '#000000', flex: 1 }} testID="scan-tab-launcher">
