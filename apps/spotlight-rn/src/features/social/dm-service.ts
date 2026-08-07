@@ -266,6 +266,25 @@ async function findConversationIdByDmKey(dmKey: string): Promise<string | null> 
 }
 
 /** Idempotent participant insert. `true` when the row exists afterward. */
+/** Postgres unique-violation. A duplicate here means the row already exists. */
+const PG_UNIQUE_VIOLATION = '23505';
+
+/**
+ * Add a participant row, treating "already there" as success.
+ *
+ * PLAIN INSERT, NOT UPSERT — this is load-bearing, and it was a real bug.
+ * supabase-js `.upsert()` compiles to `INSERT ... ON CONFLICT`, and Postgres
+ * requires an UPDATE policy to be present for that form. `social_02` gives these
+ * tables only SELECT and INSERT policies, so EVERY upsert was rejected with
+ * 42501 "new row violates row-level security policy" — regardless of
+ * `ignoreDuplicates`. A plain insert with the identical body succeeds.
+ *
+ * Verified against staging: plain insert 201, upsert 403 with both
+ * `ignore-duplicates` and `merge-duplicates`.
+ *
+ * So the duplicate is caught here instead: a 23505 means the row is already
+ * present, which is exactly the state the caller wanted.
+ */
 async function addParticipant(conversationId: string, userId: string): Promise<boolean> {
   if (!supabase) {
     return false;
@@ -273,11 +292,11 @@ async function addParticipant(conversationId: string, userId: string): Promise<b
   try {
     const { error } = await supabase
       .from(CONVERSATION_PARTICIPANTS_TABLE)
-      .upsert(
-        { conversation_id: conversationId, user_id: userId },
-        { onConflict: 'conversation_id,user_id', ignoreDuplicates: true },
-      );
-    return !error;
+      .insert({ conversation_id: conversationId, user_id: userId });
+    if (!error) {
+      return true;
+    }
+    return (error as { code?: string }).code === PG_UNIQUE_VIOLATION;
   } catch {
     return false;
   }
@@ -313,16 +332,26 @@ export async function findOrCreateDm(otherUserId: string): Promise<string | null
 
     const conversationId = deriveConversationId(dmKey);
 
-    // Deliberately no `.select()` — see `deriveConversationId`. The arbiter is
-    // `dm_key` rather than the primary key because a concurrent creator may have
-    // won the race; since the id is derived FROM the key, a key conflict and an
-    // id conflict are always the same row.
-    await supabase
+    // Deliberately no `.select()` — see `deriveConversationId`.
+    //
+    // PLAIN INSERT, NOT UPSERT — same reason as `addParticipant`: `.upsert()`
+    // compiles to `INSERT ... ON CONFLICT`, which Postgres will only allow when
+    // an UPDATE policy exists, and `conversations` has none. Every upsert here
+    // was rejected with 42501, the error was never checked, and the participant
+    // insert then failed on a conversation that had never been created — which
+    // surfaced as "Couldn't open that conversation" for every DM ever attempted.
+    //
+    // A unique violation on `dm_key` is the good case: someone else created the
+    // thread between our lookup and our insert. Since the id is derived FROM the
+    // key, their row and ours are the same row, so we simply continue.
+    const { error: createError } = await supabase
       .from(CONVERSATIONS_TABLE)
-      .upsert(
-        { id: conversationId, is_group: false, dm_key: dmKey, created_by: me },
-        { onConflict: 'dm_key', ignoreDuplicates: true },
-      );
+      .insert({ id: conversationId, is_group: false, dm_key: dmKey, created_by: me });
+    if (createError && (createError as { code?: string }).code !== PG_UNIQUE_VIOLATION) {
+      // A real failure (RLS, connectivity). Re-read in case a concurrent writer
+      // succeeded where we did not; null if there is genuinely nothing.
+      return findConversationIdByDmKey(dmKey);
+    }
 
     // Mine first, and as its own statement. `conv_participants_insert` allows
     // adding someone else only once `is_conversation_participant(conv, me)` is

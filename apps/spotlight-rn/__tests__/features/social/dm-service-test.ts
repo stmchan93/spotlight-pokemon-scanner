@@ -153,8 +153,8 @@ describe('dm-service', () => {
       );
       const zedsId = await loadService(zed).findOrCreateDm('aaaaaaaa-1111-4111-8111-111111111111');
 
-      const [aliceInsert] = writesTo(alice.calls, 'conversations', 'upsert');
-      const [zedInsert] = writesTo(zed.calls, 'conversations', 'upsert');
+      const [aliceInsert] = writesTo(alice.calls, 'conversations', 'insert');
+      const [zedInsert] = writesTo(zed.calls, 'conversations', 'insert');
       const alicePayload = aliceInsert.args[0] as { dm_key: string };
       const zedPayload = zedInsert.args[0] as { dm_key: string };
 
@@ -174,7 +174,7 @@ describe('dm-service', () => {
 
       const id = await findOrCreateDm('you');
 
-      const participantWrites = writesTo(supabase.calls, 'conversation_participants', 'upsert');
+      const participantWrites = writesTo(supabase.calls, 'conversation_participants', 'insert');
       expect(participantWrites).toHaveLength(2);
       expect(participantWrites[0].args[0]).toEqual({ conversation_id: id, user_id: 'me' });
       expect(participantWrites[1].args[0]).toEqual({ conversation_id: id, user_id: 'you' });
@@ -187,11 +187,24 @@ describe('dm-service', () => {
       await findOrCreateDm('you');
 
       // The only conversations select is the dm_key lookup, which happens before
-      // the upsert. Nothing selects after it.
+      // the insert. Nothing selects after it.
       const conversationCalls = supabase.calls.filter((call) => call.table === 'conversations');
-      const upsertIndex = conversationCalls.findIndex((call) => call.method === 'upsert');
-      expect(upsertIndex).toBeGreaterThanOrEqual(0);
-      expect(conversationCalls.slice(upsertIndex).some((call) => call.method === 'select')).toBe(false);
+      const insertIndex = conversationCalls.findIndex((call) => call.method === 'insert');
+      expect(insertIndex).toBeGreaterThanOrEqual(0);
+      expect(conversationCalls.slice(insertIndex).some((call) => call.method === 'select')).toBe(false);
+
+      // And it must never become an UPSERT again. `.upsert()` compiles to
+      // INSERT ... ON CONFLICT, which Postgres only permits when an UPDATE
+      // policy exists — `conversations` and `conversation_participants` have
+      // none, so every upsert was rejected 42501 and no DM could be created at
+      // all. Verified against staging: plain insert 201, upsert 403 under both
+      // `ignore-duplicates` and `merge-duplicates`.
+      expect(conversationCalls.some((call) => call.method === 'upsert')).toBe(false);
+      expect(
+        supabase.calls.some(
+          (call) => call.table === 'conversation_participants' && call.method === 'upsert',
+        ),
+      ).toBe(false);
     });
 
     it('reuses the existing thread instead of creating a second one', async () => {
@@ -199,7 +212,7 @@ describe('dm-service', () => {
       const { findOrCreateDm } = loadService(supabase);
 
       await expect(findOrCreateDm('you')).resolves.toBe('conv-1');
-      expect(writesTo(supabase.calls, 'conversations', 'upsert')).toHaveLength(0);
+      expect(writesTo(supabase.calls, 'conversations', 'insert')).toHaveLength(0);
     });
 
     it('refuses a thread with yourself', async () => {
@@ -214,7 +227,7 @@ describe('dm-service', () => {
       const supabase = makeSupabase({
         conversations: [
           { data: null, error: null }, // first lookup: nothing visible yet
-          { data: null, error: null }, // upsert (no-op, someone else won)
+          { data: null, error: null }, // insert (duplicate tolerated, someone else won)
           { data: { id: 'conv-winner' }, error: null }, // re-read by dm_key
         ],
         // Our participant insert fails the foreign key against the derived id.
