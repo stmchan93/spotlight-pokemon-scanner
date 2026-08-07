@@ -22,7 +22,16 @@ import { CollectionTabIcon, ScanTabIcon, WishlistTabIcon } from './nav-tab-icons
  * `native-image-picker.ts` does: a missing native module must degrade, never
  * crash — that exact assumption is what took the composer down once already.
  */
-const SYMBOLS_NATIVE_MODULE = 'ExpoSymbols';
+/**
+ * It is `SymbolModule`, NOT `ExpoSymbols`. The COCOAPOD is named ExpoSymbols
+ * (Podfile.lock) but the module registers `Name("SymbolModule")` in
+ * SymbolModule.swift, and the library's own JS does
+ * `requireNativeModule('SymbolModule')`. Taking the name off the pod shipped a
+ * probe that never matched, so the bar silently kept its old glyphs — the same
+ * failure as the image-picker probe, made again in the same file-reading way.
+ * The test pins this against the installed package for exactly that reason.
+ */
+const SYMBOLS_NATIVE_MODULE = 'SymbolModule';
 
 function hasNativeSymbols(): boolean {
   return Platform.OS === 'ios' && requireOptionalNativeModule(SYMBOLS_NATIVE_MODULE) != null;

@@ -1,3 +1,6 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
+
 import { render, screen } from '@testing-library/react-native';
 import { requireOptionalNativeModule } from 'expo-modules-core';
 import { Platform } from 'react-native';
@@ -31,6 +34,32 @@ describe('nav tab symbols', () => {
   afterEach(() => {
     Platform.OS = originalOS;
     probe.mockReset();
+  });
+
+  it('probes the module name expo-symbols actually registers', () => {
+    // THE test. The first version of this file mocked the probe but never
+    // checked WHICH name it asked for, so it passed against 'ExpoSymbols' — the
+    // CocoaPod's name, not the module's — and the bar shipped still rendering
+    // its old glyphs. Read the name back out of the installed package so a typo
+    // or a future rename fails here instead of degrading silently in the field.
+    // Read by path, not require.resolve: jest's resolver intercepts that and
+    // cannot see a package this file has mocked. Checks both the hoisted root
+    // and a local install so pnpm's layout can change without breaking this.
+    const candidates = [
+      resolvePath(__dirname, '../../../../node_modules/expo-symbols/build/SymbolModule.js'),
+      resolvePath(__dirname, '../../node_modules/expo-symbols/build/SymbolModule.js'),
+    ];
+    const found = candidates.find((candidate) => existsSync(candidate));
+    expect(found).toBeTruthy();
+    const source = readFileSync(found as string, 'utf8');
+    const registered = /requireNativeModule\(\s*['"]([^'"]+)['"]\s*\)/.exec(source)?.[1];
+    expect(registered).toBe('SymbolModule');
+
+    Platform.OS = 'ios';
+    probe.mockReturnValue({});
+    render(<CollectionNavSymbol color="#1A1A1A" size={22} />);
+
+    expect(probe).toHaveBeenCalledWith(registered);
   });
 
   it('renders the SF Symbol when the native module is in the binary', () => {
