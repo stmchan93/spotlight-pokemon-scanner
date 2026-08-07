@@ -58,7 +58,7 @@
         "expo-image-picker",
         {
           "photosPermission": "Allow Ekalight to use your photos so you can add them to a post.",
-          "cameraPermission": "Allow Ekalight to use your camera so you can take a photo for a post."
+          "cameraPermission": "Allow Ekalight to use your camera to scan cards."
         }
       ]
     ],

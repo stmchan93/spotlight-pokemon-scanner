@@ -351,6 +351,33 @@ describe('app config local overrides bridge', () => {
     ]));
   });
 
+  it('keeps the SCANNER wording on the camera permission the image picker overrides', () => {
+    const config = buildExpoConfigForEnv({}, '/virtual/LocalOverrides.xcconfig');
+
+    type PluginEntry = string | [string, ...unknown[]];
+    const plugins = (config.plugins ?? []) as PluginEntry[];
+    const pickerEntry = plugins.find(
+      (entry): entry is [string, Record<string, unknown>] =>
+        Array.isArray(entry) && entry[0] === 'expo-image-picker',
+    );
+
+    expect(pickerEntry).toBeDefined();
+
+    // expo-image-picker's `cameraPermission` WINS over ios.infoPlist
+    // NSCameraUsageDescription — it is not merged, it replaces it. When this was
+    // first added it silently rewrote the prompt to "so you can take a photo for
+    // a post", but the camera prompt users actually hit first is the SCANNER,
+    // the core feature. Apple also expects the string to describe real usage.
+    // Both places must therefore agree on the scanner wording.
+    const scannerCopy = 'Allow Ekalight to use your camera to scan cards.';
+    expect(pickerEntry?.[1].cameraPermission).toBe(scannerCopy);
+    expect(config.ios?.infoPlist?.NSCameraUsageDescription).toBe(scannerCopy);
+
+    // The photo-library string is picker-only, so it keeps its own wording — and
+    // it must stay set, since its absence is what made Photo/avatar picking fail.
+    expect(pickerEntry?.[1].photosPermission).toEqual(expect.stringContaining('photos'));
+  });
+
   it('configures expo-build-properties with the iOS deployment target ML Kit requires', () => {
     const config = buildExpoConfigForEnv({}, '/virtual/LocalOverrides.xcconfig');
 
