@@ -4,17 +4,23 @@ const { Trigger } = NativeTabs;
 const { Icon, Label } = Trigger;
 
 /**
- * PHASE 1 of native-tab adoption — see docs/native-tabs-adoption-plan-2026-08-07.md.
+ * Native iOS 26 tab bar — Collection and Wishlist only.
  *
- * The REAL Collection and Scanner mounted in Apple's native tab bar, reachable
- * only at /native-tabs. The live `(tabs)` pager is untouched, so this is a true
- * side-by-side: same screens, same data, two navigation shells.
+ * SCAN IS DELIBERATELY NOT A TAB. Two hard constraints force this, both verified
+ * in source rather than assumed:
  *
- * It is deliberately NOT behind a boolean flag in the live route. Swapping
- * `(tabs)` between a pager and native tabs would mean one route tree trying to
- * be both, and the failure mode we care about most — the camera mounting when it
- * shouldn't — is exactly the kind of bug that hides in that branching. A
- * separate route proves the behaviour first; flipping the default is Phase 2.
+ *  1. `NativeBottomTabsNavigator` emits `tabPress` and then dispatches JUMP_TO
+ *     WITHOUT reading `defaultPrevented`, so a native tab item can never be
+ *     intercepted to push a full-screen route instead of switching to it.
+ *  2. A native tab necessarily renders the bar over its screen and applies
+ *     automatic content insets. On the camera that shrank the reticle, because
+ *     reticle geometry comes from `useWindowDimensions()` (scanner-screen.tsx
+ *     :862-863) — full-window math inside an inset container.
+ *
+ * So the camera is a pushed route (`/native-scan`) instead. That is not a
+ * consolation prize: a pushed screen is full-bleed, keeps the reticle at full
+ * size, and gets a real back button plus iOS's own interactive drag-follow
+ * back-swipe — the swipe the pager hand-rolled in 358 lines, owned by UIKit.
  */
 export default function NativeTabsLayout() {
   return (
@@ -23,9 +29,9 @@ export default function NativeTabsLayout() {
         <Icon sf={{ default: 'square.grid.2x2', selected: 'square.grid.2x2.fill' }} />
         <Label>Collection</Label>
       </Trigger>
-      <Trigger name="scan">
-        <Icon sf={{ default: 'viewfinder', selected: 'viewfinder' }} />
-        <Label>Scan</Label>
+      <Trigger name="wishlist">
+        <Icon sf={{ default: 'bookmark', selected: 'bookmark.fill' }} />
+        <Label>Wishlist</Label>
       </Trigger>
     </NativeTabs>
   );
