@@ -289,11 +289,23 @@ export function DmInboxScreen({ testID = 'dm-inbox' }: { testID?: string }) {
                 uri={item.avatarURL ?? undefined}
               />
               <View style={styles.copy}>
-                <Text style={[theme.typography.bodyMedium, { color: theme.colors.gray900 }]}>
+                {/*
+                  numberOfLines is what keeps this row vertically centred. Without
+                  it a long display name wraps, the copy column grows past the 40pt
+                  avatar, and the name's first line lands above the avatar's middle
+                  — the row reads as top-aligned even though the container centres.
+                */}
+                <Text
+                  numberOfLines={1}
+                  style={[theme.typography.bodyMedium, { color: theme.colors.gray900 }]}
+                >
                   {item.displayName ?? item.handle ?? 'Collector'}
                 </Text>
                 {item.handle ? (
-                  <Text style={[theme.typography.label, { color: theme.colors.gray600 }]}>
+                  <Text
+                    numberOfLines={1}
+                    style={[theme.typography.label, { color: theme.colors.gray600 }]}
+                  >
                     @{item.handle}
                   </Text>
                 ) : null}
@@ -372,6 +384,10 @@ const styles = StyleSheet.create({
   copy: {
     flex: 1,
     gap: 2,
+    // Yoga won't shrink a flex child below its intrinsic content width unless
+    // minWidth is 0, so without this a long name pushes the timestamp column off
+    // the row instead of truncating. Same fix follow-list-screen already carries.
+    minWidth: 0,
   },
   emptyContent: {
     padding: 16,

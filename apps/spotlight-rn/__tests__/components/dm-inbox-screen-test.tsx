@@ -217,6 +217,25 @@ describe('DmInboxScreen', () => {
       expect(screen.queryByTestId('dm-inbox-row-c-1')).toBeNull();
     });
 
+    it('truncates a long name to one line so the row stays centred on the avatar', async () => {
+      // A wrapping name is what breaks vertical alignment here: the copy column
+      // grows past the 40pt avatar and the name's first line ends up above the
+      // avatar's middle, so the row reads as top-aligned. Truncation is the fix,
+      // which makes numberOfLines load-bearing rather than cosmetic.
+      (fetchConversations as jest.Mock).mockResolvedValue([]);
+      (searchUsers as jest.Mock).mockResolvedValue([
+        buildPerson({ displayName: 'a collector with a truly enormous display name', handle: 'x' }),
+      ]);
+      renderWithProviders(<DmInboxScreen />);
+
+      fireEvent.changeText(screen.getByTestId('dm-inbox-search'), 'trog');
+
+      await screen.findByTestId('dm-inbox-person-user-trogdor');
+      const name = screen.getByText('a collector with a truly enormous display name');
+      expect(name.props.numberOfLines).toBe(1);
+      expect(screen.getByText('@x').props.numberOfLines).toBe(1);
+    });
+
     it('opens a thread with the tapped person', async () => {
       (fetchConversations as jest.Mock).mockResolvedValue([]);
       (searchUsers as jest.Mock).mockResolvedValue([buildPerson()]);
