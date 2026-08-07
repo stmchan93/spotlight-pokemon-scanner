@@ -8,7 +8,7 @@
     "scheme": "spotlight",
     "userInterfaceStyle": "light",
     "ios": {
-      "icon": "./assets/expo.icon",
+      "icon": "./assets/ekalight.icon",
       "bundleIdentifier": "com.ekalight.app.staging",
       "usesAppleSignIn": true,
       "infoPlist": {
