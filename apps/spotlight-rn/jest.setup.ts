@@ -445,10 +445,10 @@ jest.mock('expo-image-manipulator', () => {
     },
     manipulateAsync: jest.fn(async (
       uri: string,
-      actions: Array<{
+      actions: {
         crop?: { originX: number; originY: number; width: number; height: number };
         resize?: { height?: number | null; width?: number | null };
-      }> = [],
+      }[] = [],
       { base64 }: { base64?: boolean } = {},
     ) => {
       let current = dimensionsByUri.get(uri) ?? { height: 1620, width: 1080 };
@@ -491,6 +491,29 @@ jest.mock('expo-document-picker', () => ({
     assets: null,
   })),
 }));
+
+// The tabs layout renders Apple's native tab bar, which has no JS
+// implementation to exercise under test. Delegate to expo-router's `Slot` so the
+// FOCUSED child route still renders and route-level integration tests keep
+// working; the bar itself is UIKit's and is not ours to assert on.
+jest.mock('expo-router/unstable-native-tabs', () => {
+  const Trigger = Object.assign(() => null, {
+    Icon: () => null,
+    Label: () => null,
+  });
+  return {
+    NativeTabs: Object.assign(
+      () => {
+        // createElement, not JSX: this setup file is .ts, not .tsx.
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { Slot } = require('expo-router');
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        return require('react').createElement(Slot);
+      },
+      { Trigger },
+    ),
+  };
+});
 
 // Screens reach the picker through `@/lib/native-image-picker`, which probes the
 // NATIVE registry first (an OTA can ship expo-image-picker's JS onto a binary

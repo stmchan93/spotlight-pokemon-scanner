@@ -128,7 +128,7 @@ describe('WishlistScreen', () => {
     fireEvent.press(screen.getByTestId('wishlist-filter-sir'));
 
     await waitFor(() => {
-      expect(screen.queryByTestId('wishlist-row-shiny-card')).toBeNull();
+      expect(screen.queryByTestId('wishlist-row-shiny-card')).not.toBeOnTheScreen();
     });
     expect(screen.getByTestId('wishlist-row-sir-card')).toBeTruthy();
     expect(screen.queryByTestId('wishlist-row-plain-card')).toBeNull();
@@ -415,8 +415,8 @@ describe('WishlistScreen', () => {
     expect(setCardFavorite).toHaveBeenCalledWith('gengar', false);
 
     await waitFor(() => {
-      expect(screen.queryByTestId('wishlist-row-charizard')).toBeNull();
-      expect(screen.queryByTestId('wishlist-row-gengar')).toBeNull();
+      expect(screen.queryByTestId('wishlist-row-charizard')).not.toBeOnTheScreen();
+      expect(screen.queryByTestId('wishlist-row-gengar')).not.toBeOnTheScreen();
     });
   });
 

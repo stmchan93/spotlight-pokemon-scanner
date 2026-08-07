@@ -64,6 +64,12 @@ export function createTestSpotlightRepository(
     createCollection: (...args) => {
       return overrides.createCollection?.(...args) ?? baseRepository.createCollection(...args);
     },
+    updateCollection: (...args) => {
+      return overrides.updateCollection?.(...args) ?? baseRepository.updateCollection(...args);
+    },
+    deleteCollection: (...args) => {
+      return overrides.deleteCollection?.(...args) ?? baseRepository.deleteCollection(...args);
+    },
     loadPortfolioDashboard: (...args) => {
       return overrides.loadPortfolioDashboard?.(...args)
         ?? baseRepository.loadPortfolioDashboard(...args);

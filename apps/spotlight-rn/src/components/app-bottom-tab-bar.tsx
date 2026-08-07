@@ -69,14 +69,14 @@ export function AppBottomTabBar({
 
   const goToPortfolio = onPressPortfolio
     ?? (() => runGuardedNav('portfolio', dismissToTabs
-      ? () => router.dismissTo({ pathname: '/', params: { page: 'portfolio' } } as never)
-      : () => router.push({ pathname: '/', params: { page: 'portfolio' } } as never)));
-  // Scan always PUSHES — even from `dismissToTabs` screens. Dismissing here
-  // popped the pushed screen (e.g. Wishlist) off the stack before showing the
-  // scanner, so the back-swipe/back button from Scan had no history and landed
-  // on the tabs root's Collection page instead of the screen the user left.
+      ? () => router.dismissTo('/' as never)
+      : () => router.push('/' as never)));
+  // Scan, Collection and Wishlist are now TABS, not pager pages, so these
+  // navigate to real routes rather than passing `page` params into the tabs
+  // root. This bar only survives on pushed stack screens (insights,
+  // transactions); the tabs themselves are drawn by UIKit.
   const goToScan = onPressScan
-    ?? (() => runGuardedNav('scan', () => router.push({ pathname: '/', params: { page: 'scanner' } } as never)));
+    ?? (() => runGuardedNav('scan', () => router.push('/scan' as never)));
   // Wishlist is a pushed stack screen: replace when already on a stack route
   // so the back-stack doesn't accumulate, push from the tabs root.
   const goToWishlist = onPressWishlist

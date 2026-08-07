@@ -29,6 +29,7 @@ const MAIN: Collection = {
   cardCount: 12,
   totalValue: 1450.12,
   isDefault: true,
+  hidden: false,
 };
 
 const GRAILS: Collection = {
@@ -39,6 +40,7 @@ const GRAILS: Collection = {
   cardCount: 3,
   totalValue: 1450.12,
   isDefault: false,
+  hidden: false,
 };
 
 function renderSheet(overrides: Partial<React.ComponentProps<typeof CollectionPickerSheet>> = {}) {
@@ -49,6 +51,9 @@ function renderSheet(overrides: Partial<React.ComponentProps<typeof CollectionPi
     formatValue: (value: number) => `$${value.toFixed(2)}`,
     onClose: jest.fn(),
     onCreateCollection: jest.fn(async () => {}),
+    onRenameCollection: jest.fn(async () => {}),
+    onToggleHidden: jest.fn(),
+    onRequestDelete: jest.fn(),
     onSelectCollection: jest.fn(),
     visible: true,
     ...overrides,
@@ -160,22 +165,88 @@ describe('CollectionPickerSheet', () => {
     }
     expect(gutter).toBe(16);
 
-    // Figma 3377:3133 centers "Collection" rather than left-packing it after the
-    // chevron, which is what align="leading" (the SheetHeader default) does.
+    // Figma 3368:2567 centers "Collection" rather than left-packing it after the
+    // chevron.
     const title = StyleSheet.flatten(screen.getByText('Collection').props.style) as {
       textAlign?: string;
     };
     expect(title.textAlign).toBe('center');
+
+    // And it is centered on the SHEET, not between the accessories: the title
+    // sits in an absolutely-positioned slot spanning the row, so the wider
+    // "CREATE" label on the next step can't shove it off-centre. Walk up to that
+    // slot the same way as the gutter above.
+    let titleNode: StyledNode | null = screen.getByText('Collection') as unknown as StyledNode;
+    let slotPosition: string | undefined;
+    for (let depth = 0; depth < 6 && titleNode; depth += 1) {
+      const flat = StyleSheet.flatten(titleNode.props?.style as never) as { position?: string };
+      if (flat?.position === 'absolute') {
+        slotPosition = flat.position;
+        break;
+      }
+      titleNode = titleNode.parent;
+    }
+    expect(slotPosition).toBe('absolute');
   });
 
-  it('does NOT render the deferred rename/hide/delete controls', () => {
-    // v1 is create + switch. The Figma rows carry eye/pencil/trash icons that
-    // nothing is wired to yet — shipping them dead would be worse than omitting
-    // them, so this pins their absence.
+  it('renames from the row without closing the sheet', async () => {
+    const props = renderSheet();
+
+    fireEvent.press(screen.getByTestId('collection-picker-sheet-row-collection:grails-rename'));
+
+    // The form opens prefilled — renaming starts from the current name.
+    expect(screen.getByText('Rename Collection')).toBeTruthy();
+    expect(screen.getByTestId('collection-picker-sheet-name-input').props.value).toBe('Gengar Only');
+
+    fireEvent.changeText(screen.getByTestId('collection-picker-sheet-name-input'), 'Grails');
+    fireEvent.press(screen.getByTestId('collection-picker-sheet-create'));
+
+    await waitFor(() => {
+      expect(props.onRenameCollection).toHaveBeenCalledWith('collection:grails', 'Grails');
+    });
+    // Renaming returns to the list rather than closing — seeing the new name is
+    // the confirmation.
+    await waitFor(() => {
+      expect(screen.getByText('Collection')).toBeTruthy();
+    });
+    expect(props.onClose).not.toHaveBeenCalled();
+  });
+
+  it('toggles hidden from the row', () => {
+    const props = renderSheet();
+
+    fireEvent.press(screen.getByTestId('collection-picker-sheet-row-collection:grails-hide'));
+
+    expect(props.onToggleHidden).toHaveBeenCalledWith(GRAILS);
+  });
+
+  it('asks the host to confirm a delete rather than deleting directly', () => {
+    // Deleting takes the collection's CARDS with it, so the sheet must never be
+    // the thing that performs it — the host owns the confirm.
+    const props = renderSheet();
+
+    fireEvent.press(screen.getByTestId('collection-picker-sheet-row-collection:grails-delete'));
+
+    expect(props.onRequestDelete).toHaveBeenCalledWith(GRAILS);
+  });
+
+  it('does NOT render a reorder handle — nothing persists an order yet', () => {
+    // The Figma row carries a drag handle, but no endpoint stores an order, so
+    // it stays out rather than shipping as a control that does nothing.
     renderSheet();
 
-    expect(screen.queryByLabelText('Rename collection')).toBeNull();
-    expect(screen.queryByLabelText('Delete collection')).toBeNull();
-    expect(screen.queryByLabelText('Hide collection')).toBeNull();
+    expect(screen.queryByLabelText(/reorder/i)).toBeNull();
+    expect(screen.queryByTestId('collection-picker-sheet-row-collection:grails-reorder')).toBeNull();
+  });
+
+  it('mutes a hidden collection and offers to count it again', () => {
+    renderSheet({ collections: [MAIN, { ...GRAILS, hidden: true }] });
+
+    // Hidden means "don't count this", not "hide it away" — the row is still
+    // listed and still selectable so it can be un-hidden.
+    expect(screen.getByText('Gengar Only')).toBeTruthy();
+    expect(
+      screen.getByLabelText('Count Gengar Only toward your total'),
+    ).toBeTruthy();
   });
 });

@@ -26,6 +26,25 @@ const mockSaveInventoryPreview: jest.Mock<string, [InventoryCardEntry]> = jest.f
   (_entry: InventoryCardEntry) => 'inventory-preview-id',
 );
 
+jest.mock('expo-router/unstable-native-tabs', () => {
+  const { Text, View } = require('react-native');
+  const Trigger = Object.assign(
+    ({ name }: { name?: string }) => <Text testID={`native-tab-${name}`}>{name}</Text>,
+    { Icon: () => null, Label: ({ children }: { children?: unknown }) => <Text>{children}</Text> },
+  );
+  return {
+    NativeTabs: Object.assign(
+      ({ children, minimizeBehavior }: { children?: React.ReactNode; minimizeBehavior?: string }) => (
+        <View>
+          <Text testID="native-tabs-minimize">{String(minimizeBehavior)}</Text>
+          {children}
+        </View>
+      ),
+      { Trigger },
+    ),
+  };
+});
+
 jest.mock('expo-router', () => ({
   Redirect: (props: { href: unknown }) => mockRedirect(props),
   Slot: () => {
@@ -217,7 +236,6 @@ import LabelingSessionRoute from '@/app/(stack)/labeling/session';
 import SalesHistoryRoute from '@/app/(stack)/sales-history';
 import TabsLayout from '@/app/(tabs)/_layout';
 import PortfolioRedirect from '@/app/(tabs)/portfolio';
-import ScanRedirect from '@/app/(tabs)/scan';
 import LoginCallbackScreen from '@/app/login-callback';
 
 describe('misc route wrappers', () => {
@@ -253,8 +271,12 @@ describe('misc route wrappers', () => {
     expect(screen.getByTestId('stack-screen-options').props.children).toContain('"backgroundColor":"transparent"');
     browse.unmount();
 
+    // The tabs layout is Apple's native tab bar now, not a Slot.
     render(<TabsLayout />);
-    expect(screen.getByTestId('slot-screen')).toBeTruthy();
+    expect(screen.getByTestId('native-tabs-minimize').props.children).toBe('onScrollDown');
+    expect(screen.getByTestId('native-tab-index')).toBeTruthy();
+    expect(screen.getByTestId('native-tab-scan')).toBeTruthy();
+    expect(screen.getByTestId('native-tab-wishlist')).toBeTruthy();
   });
 
   it('registers New Post on the ROOT stack so its formSheet actually presents', () => {
@@ -337,17 +359,12 @@ describe('misc route wrappers', () => {
     expect(mockBack).toHaveBeenCalledTimes(1);
   });
 
-  it('renders the portfolio and scan redirects', () => {
-    const first = render(<PortfolioRedirect />);
-    expect(screen.getByTestId('redirect-target').props.children).toBe(
-      JSON.stringify({ pathname: '/', params: { page: 'portfolio' } }),
-    );
-
-    first.unmount();
-    render(<ScanRedirect />);
-    expect(screen.getByTestId('redirect-target').props.children).toBe(
-      JSON.stringify({ pathname: '/', params: { page: 'scanner' } }),
-    );
+  it('redirects /portfolio to the Collection tab', () => {
+    // `page` params are gone with the pager: Collection and Scan are real tab
+    // routes now, so /portfolio is a plain alias for / and /scan is a SCREEN,
+    // not a redirect (which is why it is no longer asserted here).
+    render(<PortfolioRedirect />);
+    expect(screen.getByTestId('redirect-target').props.children).toBe(JSON.stringify('/'));
   });
 
   it('wires inventory back and card detail navigation', () => {

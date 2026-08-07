@@ -317,7 +317,7 @@ describe('PortfolioScreen', () => {
     });
 
     await waitFor(() => {
-      expect(screen.queryByTestId('portfolio-chart-skeleton')).toBeNull();
+      expect(screen.queryByTestId('portfolio-chart-skeleton')).not.toBeOnTheScreen();
     });
     expect(screen.getByTestId('portfolio-summary-value')).toBeTruthy();
   });
@@ -476,7 +476,7 @@ describe('PortfolioScreen', () => {
     });
 
     await waitFor(() => {
-      expect(screen.queryByTestId('collection-masonry-grid-tile-fav-2')).toBeNull();
+      expect(screen.queryByTestId('collection-masonry-grid-tile-fav-2')).not.toBeOnTheScreen();
     });
     expect(screen.getByTestId('collection-masonry-grid-tile-fav-1')).toBeTruthy();
     expect(screen.queryByTestId('collection-masonry-grid-tile-fav-3')).toBeNull();
@@ -598,7 +598,7 @@ describe('PortfolioScreen', () => {
     });
 
     await waitFor(() => {
-      expect(screen.queryByTestId('collection-masonry-grid-tile-slab-1')).toBeNull();
+      expect(screen.queryByTestId('collection-masonry-grid-tile-slab-1')).not.toBeOnTheScreen();
     });
     expect(screen.getByTestId('collection-masonry-grid-tile-raw-1')).toBeTruthy();
   });
@@ -636,7 +636,7 @@ describe('PortfolioScreen', () => {
     });
 
     await waitFor(() => {
-      expect(screen.queryByTestId('collection-masonry-grid-tile-raw-1')).toBeNull();
+      expect(screen.queryByTestId('collection-masonry-grid-tile-raw-1')).not.toBeOnTheScreen();
     });
     expect(screen.getByTestId('collection-masonry-grid-tile-slab-1')).toBeTruthy();
   });

@@ -465,7 +465,7 @@ describe('CardDetailScreen', () => {
 
     // Selecting closes the sheet, so the option unmounts.
     await waitFor(() => {
-      expect(screen.queryByTestId('detail-grade-sheet-option-lightly_played')).toBeNull();
+      expect(screen.queryByTestId('detail-grade-sheet-option-lightly_played')).not.toBeOnTheScreen();
     }, { timeout: 5000 });
   });
 
@@ -816,7 +816,7 @@ describe('CardDetailScreen', () => {
     // Interim free unlock (no payment provider yet): the paywall lifts — the
     // subscribe CTA disappears and the previously-locked rows are revealed.
     await waitFor(() => {
-      expect(screen.queryByTestId('detail-recent-sales-subscribe')).toBeNull();
+      expect(screen.queryByTestId('detail-recent-sales-subscribe')).not.toBeOnTheScreen();
     });
   });
 
@@ -895,7 +895,7 @@ describe('CardDetailScreen', () => {
     // provider button is absent.
     fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
     await waitFor(() => {
-      expect(screen.queryByTestId('detail-price-trends-provider')).toBeNull();
+      expect(screen.queryByTestId('detail-price-trends-provider')).not.toBeOnTheScreen();
     });
   });
 

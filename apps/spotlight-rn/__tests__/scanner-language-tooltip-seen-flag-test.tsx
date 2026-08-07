@@ -177,7 +177,7 @@ describe('ScannerScreen language-tooltip seen flag (SecureStore + legacy AsyncSt
     });
     // The bubble unmounts once its 180ms fade-out completes.
     await waitFor(() => {
-      expect(screen.queryByTestId('scanner-language-tooltip')).toBeNull();
+      expect(screen.queryByTestId('scanner-language-tooltip')).not.toBeOnTheScreen();
     });
   });
 

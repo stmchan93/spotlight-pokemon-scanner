@@ -47,7 +47,7 @@ describe('backend-backed fallback states', () => {
     // Portfolio shell uses a centered "Collection" title in the redesign.
     expect(await screen.findByTestId('portfolio-header-title')).toBeTruthy();
     await waitFor(() => {
-      expect(screen.queryByText('Loading Ekalight...')).toBeNull();
+      expect(screen.queryByText('Loading Ekalight...')).not.toBeOnTheScreen();
     });
     // The dashboard now retries once on transport failure with a ~1.2s backoff,
     // so the error card surfaces later than findByText's 1s default allows.

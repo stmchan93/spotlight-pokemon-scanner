@@ -214,7 +214,7 @@ describe('CommentsSheet', () => {
 
     // Tapping again collapses.
     fireEvent.press(toggle);
-    await waitFor(() => expect(screen.queryByTestId('comments-sheet-comment-r1')).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('comments-sheet-comment-r1')).not.toBeOnTheScreen());
   });
 
   it('makes the header a drag target so the sheet can be swiped down, not only tapped', async () => {

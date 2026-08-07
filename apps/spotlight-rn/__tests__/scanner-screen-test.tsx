@@ -772,7 +772,7 @@ describe('ScannerScreen', () => {
     }));
 
     await waitFor(() => {
-      expect(screen.queryByTestId('scanner-tray-row-1')).toBeNull();
+      expect(screen.queryByTestId('scanner-tray-row-1')).not.toBeOnTheScreen();
     });
 
     expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
@@ -916,7 +916,7 @@ describe('ScannerScreen', () => {
     // in this file for animation-gated waits.
     await waitFor(
       () => {
-        expect(screen.queryByTestId('scan-bulk-confirm-sheet')).toBeNull();
+        expect(screen.queryByTestId('scan-bulk-confirm-sheet')).not.toBeOnTheScreen();
       },
       { timeout: 2500 },
     );
@@ -1245,7 +1245,7 @@ describe('ScannerScreen', () => {
     // Once a card is added to the collection it should leave the recent-scans
     // tray (after a brief "ADDED" confirmation) rather than lingering.
     await waitFor(() => {
-      expect(screen.queryByTestId('scanner-tray-row-0')).toBeNull();
+      expect(screen.queryByTestId('scanner-tray-row-0')).not.toBeOnTheScreen();
     }, { timeout: 2500 });
   });
 
@@ -1299,7 +1299,7 @@ describe('ScannerScreen', () => {
     // After wishlisting, the row slides out of the tray (same exit as a
     // collection add) rather than lingering.
     await waitFor(() => {
-      expect(screen.queryByTestId('scanner-tray-row-0')).toBeNull();
+      expect(screen.queryByTestId('scanner-tray-row-0')).not.toBeOnTheScreen();
     }, { timeout: 2500 });
   });
 
@@ -1560,7 +1560,7 @@ describe('ScannerScreen', () => {
       expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
     });
     await waitFor(() => {
-      expect(screen.queryByText('Finding match')).toBeNull();
+      expect(screen.queryByText('Finding match')).not.toBeOnTheScreen();
     });
     expect(mockEnsureGuestSession).toHaveBeenCalledTimes(1);
     expect(payloads).toHaveLength(0);

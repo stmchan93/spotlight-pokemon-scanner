@@ -2,6 +2,7 @@ import { screen, waitFor } from '@testing-library/react-native';
 import { AccessibilityInfo, Dimensions, StyleSheet } from 'react-native';
 
 import { FaceLockOn } from '@/features/whos-that-pokemon/components/face-lock-on';
+import { RevealMorph } from '@/features/whos-that-pokemon/components/reveal-morph';
 import { ScanningTheater } from '@/features/whos-that-pokemon/components/scanning-theater';
 import { FACE_LANDMARKS, type Point } from '@/features/whos-that-pokemon/face-geometry';
 
@@ -89,7 +90,7 @@ describe('ScanningTheater', () => {
     renderWithProviders(<ScanningTheater palette={PALETTE} selfieUri="file:///selfie.jpg" />);
 
     await waitFor(() => {
-      expect(query('wtp-theater-sweep')).toBeNull();
+      expect(query('wtp-theater-sweep')).not.toBeOnTheScreen();
     });
     // The status line still reads, so the phase never looks dead.
     expect(get('wtp-theater-status')).toBeTruthy();
@@ -120,6 +121,25 @@ describe('FaceLockOn', () => {
     // One dot per landmark, all mounted before they travel.
     expect(get(`wtp-lockon-dot-${FACE_LANDMARKS.length - 1}`)).toBeTruthy();
     expect(get('wtp-lockon-head-frame')).toBeTruthy();
+  });
+
+  it('draws points and the lock-on bracket, never a wireframe over the face', async () => {
+    renderWithProviders(
+      <FaceLockOn
+        {...baseProps}
+        headBox={{ x: 0.06, y: 0.05, width: 0.24, height: 0.18 }}
+        onDone={jest.fn()}
+        speciesOutline={circleOutline(48)}
+      />,
+    );
+
+    await screen.findByTestId('wtp-lockon');
+    // The points measure the face; the bracket says where the face is. The mesh
+    // that used to connect the points is gone and must not come back.
+    expect(get('wtp-lockon-dot-0')).toBeTruthy();
+    expect(get('wtp-lockon-head-frame')).toBeTruthy();
+    expect(get('wtp-lockon-readouts')).toBeTruthy();
+    expect(query('wtp-lockon-mesh-0')).toBeNull();
   });
 
   it('places the landmarks where the head box says — the box really drives it', async () => {
@@ -157,9 +177,9 @@ describe('FaceLockOn', () => {
 
     expect(await screen.findByTestId('wtp-lockon')).toBeTruthy();
     expect(get('wtp-lockon-caption').props.children).toBe('Estimating your frame');
-    // Still a full mesh and a silhouette — the beat must never look broken.
+    // Still a full point cloud and a silhouette — the beat must never look broken.
     expect(get('wtp-lockon-dot-0')).toBeTruthy();
-    expect(get('wtp-lockon-mesh-0')).toBeTruthy();
+    expect(get('wtp-lockon-head-frame')).toBeTruthy();
     expect(get('wtp-lockon-silhouette')).toBeTruthy();
   });
 
@@ -201,9 +221,8 @@ describe('FaceLockOn', () => {
     );
 
     await waitFor(() => {
-      expect(query('wtp-lockon-dot-0')).toBeNull();
+      expect(query('wtp-lockon-dot-0')).not.toBeOnTheScreen();
     });
-    expect(query('wtp-lockon-mesh-0')).toBeNull();
     expect(query('wtp-lockon-readouts')).toBeNull();
     expect(query('wtp-lockon-head-frame')).toBeNull();
     // The silhouette — the thing the reveal takes over — is still there.
@@ -211,6 +230,49 @@ describe('FaceLockOn', () => {
 
     await waitFor(() => {
       expect(onDone).toHaveBeenCalled();
+    });
+  });
+});
+
+describe('RevealMorph', () => {
+  const baseProps = {
+    artworkUrl: ARTWORK,
+    burstColors: PALETTE,
+    selfieUri: 'file:///selfie.jpg',
+    washColor: '#112233',
+  };
+
+  it('reveals the species behind a single white-out and hands back once', async () => {
+    const onDone = jest.fn();
+    renderWithProviders(<RevealMorph {...baseProps} onDone={onDone} />);
+
+    expect(await screen.findByTestId('wtp-reveal')).toBeTruthy();
+    expect(get('wtp-reveal-artwork')).toBeTruthy();
+    // One flash layer, not a strobe rig — the whiteout is a single swell.
+    expect(get('wtp-reveal-flash')).toBeTruthy();
+
+    await waitFor(() => {
+      expect(onDone).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('opens on the lock-on silhouette so the handoff has no seam', async () => {
+    renderWithProviders(<RevealMorph {...baseProps} fromSilhouette onDone={jest.fn()} />);
+
+    await screen.findByTestId('wtp-reveal');
+    expect(get('wtp-reveal-silhouette')).toBeTruthy();
+    expect(get('wtp-reveal-artwork')).toBeTruthy();
+  });
+
+  it('still completes under reduce motion', async () => {
+    enableReduceMotion();
+    const onDone = jest.fn();
+
+    renderWithProviders(<RevealMorph {...baseProps} onDone={onDone} />);
+
+    await screen.findByTestId('wtp-reveal');
+    await waitFor(() => {
+      expect(onDone).toHaveBeenCalledTimes(1);
     });
   });
 });
