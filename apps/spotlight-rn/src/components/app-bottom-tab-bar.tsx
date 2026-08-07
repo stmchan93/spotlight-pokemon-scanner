@@ -6,7 +6,7 @@ import { BottomTabBar, useSpotlightTheme } from '@spotlight/design-system';
 
 import { useTabBarCollapsed } from '@/contexts/tab-bar-chrome-context';
 import { useGuestGate } from '@/features/auth/use-guest-gate';
-import { CollectionTabIcon, ScanTabIcon, WishlistTabIcon } from './nav-tab-icons';
+import { CollectionNavSymbol, ScanNavSymbol, WishlistNavSymbol } from './nav-tab-symbols';
 
 export type AppBottomTabKey = 'portfolio' | 'scan' | 'wishlist';
 
@@ -100,8 +100,8 @@ export function AppBottomTabBar({
           selected: activeKey === 'portfolio',
           onPress: activeKey === 'portfolio' ? noop : gate(goToPortfolio),
           testID: 'bottom-nav-portfolio',
-          icon: <CollectionTabIcon color={iconColor} filled={activeKey === 'portfolio'} size={NAV_ICON_SIZE} />,
-          selectedIcon: <CollectionTabIcon color={selectedIconColor} filled size={NAV_ICON_SIZE} />,
+          icon: <CollectionNavSymbol color={iconColor} filled={activeKey === 'portfolio'} size={NAV_ICON_SIZE} />,
+          selectedIcon: <CollectionNavSymbol color={selectedIconColor} filled size={NAV_ICON_SIZE} />,
         },
         {
           key: 'scan',
@@ -109,8 +109,8 @@ export function AppBottomTabBar({
           selected: activeKey === 'scan',
           onPress: activeKey === 'scan' ? noop : goToScan,
           testID: 'bottom-nav-scan',
-          icon: <ScanTabIcon color={iconColor} size={NAV_ICON_SIZE} />,
-          selectedIcon: <ScanTabIcon color={selectedIconColor} size={NAV_ICON_SIZE} />,
+          icon: <ScanNavSymbol color={iconColor} size={NAV_ICON_SIZE} />,
+          selectedIcon: <ScanNavSymbol color={selectedIconColor} size={NAV_ICON_SIZE} />,
         },
         {
           key: 'wishlist',
@@ -119,8 +119,8 @@ export function AppBottomTabBar({
           onPress: activeKey === 'wishlist' ? noop : gate(goToWishlist),
           testID: 'bottom-nav-wishlist',
           // Bookmark fills in when the Wishlist tab is the active one.
-          icon: <WishlistTabIcon color={iconColor} filled={activeKey === 'wishlist'} size={NAV_ICON_SIZE} />,
-          selectedIcon: <WishlistTabIcon color={selectedIconColor} filled size={NAV_ICON_SIZE} />,
+          icon: <WishlistNavSymbol color={iconColor} filled={activeKey === 'wishlist'} size={NAV_ICON_SIZE} />,
+          selectedIcon: <WishlistNavSymbol color={selectedIconColor} filled size={NAV_ICON_SIZE} />,
         },
       ]}
     />

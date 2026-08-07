@@ -117,6 +117,9 @@ importers:
       expo-status-bar:
         specifier: ~55.0.5
         version: 55.0.5(react-native@0.83.6(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.0))(react@19.2.0)
+      expo-symbols:
+        specifier: ~55.0.7
+        version: 55.0.7(expo-font@55.0.6)(expo@55.0.18)(react-native@0.83.6(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.0))(react@19.2.0)
       expo-system-ui:
         specifier: ~55.0.16
         version: 55.0.16(expo@55.0.18)(react-native-web@0.21.2(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(react-native@0.83.6(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.0))
