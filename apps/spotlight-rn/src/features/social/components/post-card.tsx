@@ -356,7 +356,13 @@ export function PostCard({
         </Pressable>
       </View>
 
-      <View style={[styles.divider, { backgroundColor: theme.colors.outlineSubtle }]} />
+      {/*
+        Figma 2903:7528 — the rule between posts is #D4D4D4 (= gray300) at 0.5.
+        It was `outlineSubtle`, i.e. rgba(0,0,0,0.08), which composites to about
+        #EBEBEB on white and read as washed out next to the design. gray300 is
+        the same value the Figma stroke uses, so this is the token, not a nudge.
+      */}
+      <View style={[styles.divider, { backgroundColor: theme.colors.gray300 }]} />
 
       <CommentsSheet
         autoFocusComposer={focusComposerOnOpen}

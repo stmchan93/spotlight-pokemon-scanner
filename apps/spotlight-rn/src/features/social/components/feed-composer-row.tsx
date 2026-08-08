@@ -35,7 +35,10 @@ export function FeedComposerRow({
       onPress={onPress}
       style={({ pressed }) => [
         styles.row,
-        { borderBottomColor: theme.colors.outlineSubtle },
+        // Same rule as the one under each post (Figma 2903:7528, gray300) —
+        // this row sits in the same list, so a lighter seam here would read as
+        // an inconsistency rather than a distinction.
+        { borderBottomColor: theme.colors.gray300 },
         pressed ? { backgroundColor: theme.colors.gray50 } : null,
       ]}
       testID={testID}
