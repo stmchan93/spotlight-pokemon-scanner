@@ -95,12 +95,18 @@ describe('HttpSpotlightRepository — whos-that-pokemon', () => {
       x: index / 12,
       y: 1 - index / 12,
     }));
+    // YOUR outline — the other half of the morph, normalized to the cutout PNG.
+    const personOutline = Array.from({ length: 12 }, (_, index) => ({
+      x: 1 - index / 12,
+      y: index / 12,
+    }));
     global.fetch = jest.fn().mockResolvedValue(
       jsonResponse(200, {
         ...matchesBody,
         personBounds: { x: 0.2, y: 0.05, width: 0.6, height: 0.9 },
         headBox: { x: 0.34, y: 0.08, width: 0.3, height: 0.24 },
         speciesOutline,
+        personOutline,
       }),
     ) as typeof fetch;
     const repository = new HttpSpotlightRepository('http://example.test');
@@ -114,6 +120,7 @@ describe('HttpSpotlightRepository — whos-that-pokemon', () => {
     expect(result.headBox).toEqual({ x: 0.34, y: 0.08, width: 0.3, height: 0.24 });
     expect(result.personBounds).toEqual({ x: 0.2, y: 0.05, width: 0.6, height: 0.9 });
     expect(result.speciesOutline).toEqual(speciesOutline);
+    expect(result.personOutline).toEqual(personOutline);
   });
 
   it('nulls out missing, degenerate, or too-short geometry instead of half-trusting it', async () => {
@@ -123,6 +130,7 @@ describe('HttpSpotlightRepository — whos-that-pokemon', () => {
         // Zero-width box and a 4-point "outline" are both unusable.
         headBox: { x: 0.3, y: 0.1, width: 0, height: 0.2 },
         speciesOutline: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }],
+        personOutline: 'not-an-outline',
       }),
     ) as typeof fetch;
     const repository = new HttpSpotlightRepository('http://example.test');
@@ -136,6 +144,7 @@ describe('HttpSpotlightRepository — whos-that-pokemon', () => {
     expect(result.headBox).toBeNull();
     expect(result.personBounds).toBeNull();
     expect(result.speciesOutline).toBeNull();
+    expect(result.personOutline).toBeNull();
   });
 
   it('omits the palette field entirely when no colors were extracted', async () => {

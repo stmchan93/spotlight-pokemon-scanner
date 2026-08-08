@@ -11,16 +11,19 @@ import Animated, {
 } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 
+import type { NormalizedPoint } from '@spotlight/api-client';
 import { AppText, colors, spacing, textStyles } from '@spotlight/design-system';
 
 import { CachedImage } from '@/components/cached-image';
 
 import {
+  resolveArtworkRect,
   resolveHeadRect,
   REVEAL_ARTWORK_HEIGHT_PCT,
   REVEAL_ARTWORK_WIDTH_PCT,
   type NormalizedBox,
 } from '../face-geometry';
+import { buildMorphOutlines, outlinePathD } from '../outline-morph';
 import { useReduceMotion } from '../use-reduce-motion';
 import { SelfieImage } from './selfie-image';
 
@@ -60,6 +63,15 @@ type FaceLockOnProps = {
   sourceHeight: number;
   /** Official artwork of the matched species — the silhouette target. */
   artworkUrl: string;
+  /**
+   * YOUR traced outline (normalized to the person cutout) and the species'
+   * (normalized to the artwork). When BOTH are present the lock-on resolves
+   * onto YOUR shape and the reveal deforms it from there. They travel together
+   * on purpose: the reveal can only morph with both, and if the lock-on ended
+   * on a shape the reveal could not continue from, the handoff would jump.
+   */
+  personOutline?: NormalizedPoint[] | null;
+  speciesOutline?: NormalizedPoint[] | null;
   /** Top selfie palette swatch — paints the silhouette, as in `morph-loop`. */
   washColor: string;
   /** Fired once the silhouette has settled and the reveal should take over. */
@@ -68,8 +80,12 @@ type FaceLockOnProps = {
 };
 
 /**
- * The lock-on: a bracket finds your face, holds, then the matched species'
- * silhouette rises out of it and hands off to the classic reveal.
+ * The lock-on: a bracket finds your face, holds, then YOUR silhouette rises out
+ * of it and hands off to the reveal, which deforms it into the species.
+ *
+ * When the backend could not trace your outline there is nothing of yours to
+ * rise, so the species silhouette rises instead — the pre-morph behaviour, and
+ * exactly what `RevealMorph` falls back to, so the handoff still matches.
  *
  * This used to scatter landmark dots over the face with caliper readouts
  * ("JAW 87°", "EYE SPAN 0.42w"). They were removed because they were theatre:
@@ -84,6 +100,8 @@ export function FaceLockOn({
   sourceWidth,
   sourceHeight,
   artworkUrl,
+  personOutline = null,
+  speciesOutline = null,
   washColor,
   onDone,
   testID = 'wtp-lockon',
@@ -119,6 +137,20 @@ export function FaceLockOn({
     });
     return { headRect: head.rect, isMeasured: head.isMeasured };
   }, [containerHeight, containerWidth, headBox, sourceHeight, sourceWidth]);
+
+  // Built with the SAME inputs, the SAME rect and the SAME helper the reveal
+  // uses, so the shape this beat lands on is pixel-identical to the one the
+  // reveal opens on. That identity IS the seamless handoff.
+  const morph = useMemo(
+    () =>
+      buildMorphOutlines({
+        personOutline,
+        speciesOutline,
+        artworkRect: resolveArtworkRect(containerWidth, containerHeight),
+      }),
+    [containerHeight, containerWidth, personOutline, speciesOutline],
+  );
+  const personShapePath = morph.canMorph ? outlinePathD(morph.from) : '';
 
   const onDoneRef = useRef(onDone);
   useEffect(() => {
@@ -206,18 +238,31 @@ export function FaceLockOn({
         style={[StyleSheet.absoluteFillObject, styles.scrim, scrimStyle]}
       />
 
-      {/* The species silhouette, painted in the selfie's own palette color —
-          same treatment `morph-loop` uses, so the language is consistent. */}
-      <Animated.View pointerEvents="none" style={[styles.artworkLayer, silhouetteStyle]}>
-        <CachedImage
-          cachePolicy="disk"
-          contentFit="contain"
-          style={styles.artwork}
-          testID={`${testID}-silhouette`}
-          tintColor={washColor}
-          uri={artworkUrl}
-        />
-      </Animated.View>
+      {/* YOUR silhouette, painted in the selfie's own palette color — the shape
+          the reveal then deforms into the species. Without a traced outline the
+          species silhouette rises instead (same treatment, same box). */}
+      {personShapePath ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[StyleSheet.absoluteFillObject, silhouetteStyle]}
+          testID={`${testID}-person-shape`}
+        >
+          <Svg height={containerHeight} width={containerWidth}>
+            <Path d={personShapePath} fill={washColor} testID={`${testID}-person-shape-path`} />
+          </Svg>
+        </Animated.View>
+      ) : (
+        <Animated.View pointerEvents="none" style={[styles.artworkLayer, silhouetteStyle]}>
+          <CachedImage
+            cachePolicy="disk"
+            contentFit="contain"
+            style={styles.artwork}
+            testID={`${testID}-silhouette`}
+            tintColor={washColor}
+            uri={artworkUrl}
+          />
+        </Animated.View>
+      )}
 
       {reduceMotion ? null : (
         <>

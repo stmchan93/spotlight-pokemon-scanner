@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import type { WhosThatPokemonMatch } from '@spotlight/api-client';
+import type { NormalizedPoint, WhosThatPokemonMatch } from '@spotlight/api-client';
 import {
   AppText,
   Button,
@@ -27,6 +27,13 @@ type ResultPanelProps = {
   selfieUri: string | null;
   /** Background-removed selfie (data URI) — powers the outline morph; null → crossfade. */
   personCutoutUri?: string | null;
+  /**
+   * The two traced outlines the loop's geometric morph needs. The species one
+   * describes the TOP match only, so the caller withholds it once an alternate
+   * has been promoted.
+   */
+  personOutline?: NormalizedPoint[] | null;
+  speciesOutline?: NormalizedPoint[] | null;
   /** Top selfie palette swatch — tints the morph dissolve wash. */
   washColor: string;
   /** Tap on an alternate row → re-runs the reveal morph to that artwork. */
@@ -78,6 +85,8 @@ export function ResultPanel({
   activeIndex,
   selfieUri,
   personCutoutUri = null,
+  personOutline = null,
+  speciesOutline = null,
   washColor,
   onSelectMatch,
   onShare,
@@ -101,7 +110,9 @@ export function ResultPanel({
           <MorphLoop
             artworkUrl={heroArtworkUrl}
             cutoutUri={personCutoutUri}
+            personOutline={personOutline}
             selfieUri={selfieUri}
+            speciesOutline={speciesOutline}
             testID={`${testID}-morph`}
             washColor={washColor}
           />

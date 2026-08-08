@@ -5230,6 +5230,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       personBounds?: unknown;
       headBox?: unknown;
       speciesOutline?: unknown;
+      personOutline?: unknown;
     }>(
       `${this.baseUrl}/api/v1/whos-that-pokemon`,
       {
@@ -5274,10 +5275,12 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       personCutoutUri: cutoutBase64 ? `data:image/png;base64,${cutoutBase64}` : null,
       // Segmentation geometry — all optional. `personBounds`/`headBox` are
       // normalized to the ORIGINAL SELFIE; `speciesOutline` is normalized to
-      // the ARTWORK IMAGE. The reveal handles every one of them being null.
+      // the ARTWORK IMAGE; `personOutline` to the CUTOUT PNG. The reveal
+      // handles every one of them being null.
       personBounds: normalizeNormalizedBox(response.personBounds),
       headBox: normalizeNormalizedBox(response.headBox),
       speciesOutline: normalizeNormalizedOutline(response.speciesOutline),
+      personOutline: normalizeNormalizedOutline(response.personOutline),
     };
   }
 

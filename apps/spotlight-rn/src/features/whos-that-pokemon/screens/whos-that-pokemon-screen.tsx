@@ -115,6 +115,10 @@ export function WhosThatPokemonScreen() {
   // FaceLockOn falls back to a proportional head box and a scatter exit.
   const [headBox, setHeadBox] = useState<NormalizedBox | null>(null);
   const [speciesOutline, setSpeciesOutline] = useState<NormalizedPoint[] | null>(null);
+  // YOUR traced outline, normalized to the PERSON CUTOUT. Paired with
+  // `speciesOutline`, it is what lets the reveal deform one shape into the
+  // other instead of cutting between two pictures. Optional like the rest.
+  const [personOutline, setPersonOutline] = useState<NormalizedPoint[] | null>(null);
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
   // True only when the reveal is taking over from the lock-on, which already
   // collapsed the scene onto the silhouette.
@@ -192,6 +196,7 @@ export function WhosThatPokemonScreen() {
       setPersonCutoutUri(result.personCutoutUri ?? null);
       setHeadBox(result.headBox ?? null);
       setSpeciesOutline(result.speciesOutline ?? null);
+      setPersonOutline(result.personOutline ?? null);
       setActiveMatchIndex(0);
       setRevealFromSilhouette(false);
       setPhase('lockon');
@@ -256,6 +261,7 @@ export function WhosThatPokemonScreen() {
     setPersonCutoutUri(null);
     setHeadBox(null);
     setSpeciesOutline(null);
+    setPersonOutline(null);
     setActiveMatchIndex(0);
     setRevealFromSilhouette(false);
     setPalette(fallbackSelfiePalette);
@@ -332,6 +338,10 @@ export function WhosThatPokemonScreen() {
 
   const activeMatch = matches[activeMatchIndex] ?? null;
   const washColor = palette[0] ?? colors.brand;
+  // The backend traces the outline of the TOP match only, so promoting an
+  // alternate must drop it — otherwise the morph would deform into the wrong
+  // creature's shape and then colour in as a different one.
+  const activeSpeciesOutline = activeMatchIndex === 0 ? speciesOutline : null;
 
   const renderCapturePhase = () => {
     if (!hasPermission) {
@@ -426,9 +436,11 @@ export function WhosThatPokemonScreen() {
             setRevealFromSilhouette(true);
             setPhase('reveal');
           }}
+          personOutline={personOutline}
           selfieUri={selfie?.uri ?? null}
           sourceHeight={selfie?.height ?? 0}
           sourceWidth={selfie?.width ?? 0}
+          speciesOutline={activeSpeciesOutline}
           washColor={washColor}
         />
       ) : null}
@@ -439,7 +451,9 @@ export function WhosThatPokemonScreen() {
           fromSilhouette={revealFromSilhouette}
           key={`reveal-${activeMatch.pokedexId}`}
           onDone={() => setPhase('result')}
+          personOutline={personOutline}
           selfieUri={selfie?.uri ?? null}
+          speciesOutline={activeSpeciesOutline}
           washColor={washColor}
         />
       ) : null}
@@ -456,7 +470,9 @@ export function WhosThatPokemonScreen() {
             isSharing={isSharing}
             matches={matches}
             personCutoutUri={personCutoutUri}
+            personOutline={personOutline}
             selfieUri={selfie?.uri ?? null}
+            speciesOutline={activeSpeciesOutline}
             washColor={washColor}
             onSelectMatch={handleSelectMatch}
             onShare={() => {

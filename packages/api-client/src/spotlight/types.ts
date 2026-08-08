@@ -195,6 +195,16 @@ export type WhosThatPokemonResult = {
    * into the species shape.
    */
   speciesOutline?: NormalizedPoint[] | null;
+  /**
+   * Ordered outline of YOUR silhouette (~48 points), each normalized 0..1
+   * against the PERSON CUTOUT PNG — a third space again. Produced by the same
+   * tracer, point count and angular order (clockwise from 3 o'clock) as
+   * `speciesOutline`, so index i is the same bearing on both shapes and the
+   * client can interpolate them point-for-point instead of crossfading.
+   * Absent/null whenever segmentation was unavailable → the reveal falls back
+   * to the species silhouette rising on its own.
+   */
+  personOutline?: NormalizedPoint[] | null;
 };
 
 export type WhosThatPokemonPayload = {

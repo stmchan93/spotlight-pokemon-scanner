@@ -144,17 +144,23 @@ export function resolveHeadRect(options: {
  * ARTWORK space → LAYOUT space. The artwork is drawn `contain` inside
  * `REVEAL_ARTWORK_BOX`; official artwork PNGs are square, so the default
  * aspect is 1.
+ *
+ * `box` exists because the result panel's morph loop draws the same artwork in
+ * a different percentage box (`morph-loop.tsx`'s subject box). Both surfaces
+ * need the exact rect the PNG lands in so an outline path can be laid over it
+ * without drifting, and there should only ever be one letterbox-fit routine.
  */
 export function resolveArtworkRect(
   containerWidth: number,
   containerHeight: number,
   aspect = 1,
+  box: { widthRatio: number; heightRatio: number } = REVEAL_ARTWORK_BOX,
 ): Rect {
   if (!isFinitePositive(containerWidth) || !isFinitePositive(containerHeight)) {
     return { x: 0, y: 0, width: 0, height: 0 };
   }
-  const boxWidth = containerWidth * REVEAL_ARTWORK_BOX.widthRatio;
-  const boxHeight = containerHeight * REVEAL_ARTWORK_BOX.heightRatio;
+  const boxWidth = containerWidth * box.widthRatio;
+  const boxHeight = containerHeight * box.heightRatio;
   const fitted = Math.min(boxWidth, boxHeight * aspect);
   const width = fitted;
   const height = fitted / aspect;

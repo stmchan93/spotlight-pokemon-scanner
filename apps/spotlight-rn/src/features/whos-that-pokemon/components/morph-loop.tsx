@@ -1,23 +1,38 @@
-import { useEffect } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { type LayoutChangeEvent, StyleSheet, View } from 'react-native';
 import Animated, {
   cancelAnimation,
   Easing,
+  useAnimatedProps,
   useAnimatedStyle,
+  useDerivedValue,
   useSharedValue,
   withRepeat,
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
+import Svg, { Path } from 'react-native-svg';
 
+import type { NormalizedPoint } from '@spotlight/api-client';
 import { colors, radii } from '@spotlight/design-system';
 
 import { CachedImage } from '@/components/cached-image';
 
+import { resolveArtworkRect } from '../face-geometry';
+import { buildMorphOutlines, morphPathD, outlinePathD } from '../outline-morph';
 import { useReduceMotion } from '../use-reduce-motion';
 import { SelfieImage } from './selfie-image';
 
 const isTestEnv = process.env.NODE_ENV === 'test';
+
+const AnimatedPath = Animated.createAnimatedComponent(Path);
+
+/**
+ * The subject box every layer shares, as a fraction of this (square) card —
+ * kept in lockstep with `styles.subjectImage` so the outline path lands exactly
+ * on the artwork it is tracing.
+ */
+const SUBJECT_BOX = { widthRatio: 0.86, heightRatio: 0.82 } as const;
 
 // One loop: hold on you → transform → hold on the Pokémon → transform back.
 const HOLD_SELFIE_MS = 850;
@@ -33,6 +48,11 @@ const HOLD_ARTWORK_MS = 1250;
  * becoming another. Crossfading a photo into artwork — which is what this used
  * to do — reads instead as two unrelated pictures stacked on top of each other,
  * because the colors, framing and subject all change at once.
+ *
+ * When the backend traced BOTH outlines the beat is a true geometric morph: one
+ * path whose points are interpolated between the two shapes, the same one the
+ * reveal plays. Before that it was still an opacity crossfade between two
+ * silhouette images, which at 200ms reads as a flash rather than a deformation.
  */
 const SHAPE: readonly [number, number] = [0.12, 0.34]; // your photo drops to a flat silhouette
 const MORPH: readonly [number, number] = [0.42, 0.62]; // your shape → the species' shape
@@ -56,6 +76,13 @@ type MorphLoopProps = {
   cutoutUri?: string | null;
   /** Official artwork of the matched species (the "after"). */
   artworkUrl: string;
+  /**
+   * The two traced outlines — yours (normalized to the cutout) and the
+   * species' (normalized to the artwork). Both present → the geometric morph.
+   * Either missing → the older silhouette crossfade.
+   */
+  personOutline?: NormalizedPoint[] | null;
+  speciesOutline?: NormalizedPoint[] | null;
   /** Top palette swatch — both silhouettes are painted in it. */
   washColor: string;
   testID?: string;
@@ -85,6 +112,8 @@ export function MorphLoop({
   selfieUri,
   cutoutUri = null,
   artworkUrl,
+  personOutline = null,
+  speciesOutline = null,
   washColor,
   testID = 'wtp-morph-loop',
 }: MorphLoopProps) {
@@ -92,6 +121,38 @@ export function MorphLoop({
 
   // t: 0 = fully you, 1 = fully the Pokémon.
   const t = useSharedValue(0);
+
+  // This card is laid out by its parent, so unlike the full-bleed reveal there
+  // is no window fallback — the path simply has nothing to draw until the first
+  // layout pass.
+  const [measured, setMeasured] = useState<{ width: number; height: number } | null>(null);
+  const handleLayout = useCallback((event: LayoutChangeEvent) => {
+    const { width, height } = event.nativeEvent.layout;
+    setMeasured((current) => {
+      if (width <= 0 || height <= 0) {
+        return current;
+      }
+      if (current && current.width === width && current.height === height) {
+        return current;
+      }
+      return { width, height };
+    });
+  }, []);
+
+  const morph = useMemo(
+    () =>
+      buildMorphOutlines({
+        personOutline,
+        speciesOutline,
+        artworkRect: resolveArtworkRect(
+          measured?.width ?? 0,
+          measured?.height ?? 0,
+          1,
+          SUBJECT_BOX,
+        ),
+      }),
+    [measured?.height, measured?.width, personOutline, speciesOutline],
+  );
 
   useEffect(() => {
     if (reduceMotion || isTestEnv) {
@@ -112,6 +173,7 @@ export function MorphLoop({
     };
   }, [reduceMotion, t]);
 
+  const canMorph = morph.canMorph;
   const hasCutout = Boolean(cutoutUri);
   const speciesShapeIn = hasCutout ? MORPH : MORPH_NO_CUTOUT;
 
@@ -148,6 +210,25 @@ export function MorphLoop({
     transform: [{ scale: 0.96 + 0.04 * ramp(t.value, speciesShapeIn) }],
   }));
 
+  // The geometric morph: ONE shape for the whole transformation. It holds your
+  // outline, deforms into the species' across MORPH, and holds there until the
+  // colour takes over — so nothing ever crossfades between two silhouettes.
+  const morphShapeStyle = useAnimatedStyle(() => ({
+    opacity: ramp(t.value, SHAPE) * (1 - ramp(t.value, COLOR)),
+  }));
+  const morphFrom = morph.from;
+  const morphTo = morph.to;
+  // Built ONCE per frame and read by both the shape and its glow, so the halo
+  // is the same outline rather than a second, differently-framed drawing of you.
+  const morphPath = useDerivedValue(() =>
+    morphPathD(morphFrom, morphTo, ramp(t.value, MORPH)),
+  );
+  const morphPathProps = useAnimatedProps(() => ({ d: morphPath.value }));
+  const morphGlowProps = useAnimatedProps(() => ({ d: morphPath.value }));
+  // First-frame `d` (t = 0, i.e. you), same pattern as HeartToggle's
+  // AnimatedPath — the UI thread takes the prop over from there.
+  const openingShapePath = useMemo(() => outlinePathD(morphFrom), [morphFrom]);
+
   // The Pokémon arrives front and center: it colors in while easing up to full
   // size, so the last beat is the species landing rather than a flat fade.
   const artworkStyle = useAnimatedStyle(() => ({
@@ -165,7 +246,7 @@ export function MorphLoop({
   });
 
   return (
-    <View style={styles.root} testID={testID}>
+    <View onLayout={handleLayout} style={styles.root} testID={testID}>
       {selfieUri ? (
         <Animated.View style={[StyleSheet.absoluteFillObject, selfieStyle]}>
           <SelfieImage
@@ -187,7 +268,28 @@ export function MorphLoop({
         testID={`${testID}-backdrop`}
       />
 
-      {cutoutUri ? (
+      <Animated.View
+        pointerEvents="none"
+        style={[StyleSheet.absoluteFillObject, { backgroundColor: washColor }, flareStyle]}
+        testID={`${testID}-wash`}
+      />
+
+      {canMorph ? (
+        // The halo is the morphing outline itself, scaled up — the cutout image
+        // is framed by the whole selfie, so tinting it as a glow would sit at a
+        // different size and position from the traced path in front of it.
+        <Animated.View
+          pointerEvents="none"
+          style={[StyleSheet.absoluteFillObject, glowStyle]}
+          testID={`${testID}-glow`}
+        >
+          <Svg height={measured?.height ?? 0} width={measured?.width ?? 0}>
+            <AnimatedPath animatedProps={morphGlowProps} d={openingShapePath} fill={washColor} />
+          </Svg>
+        </Animated.View>
+      ) : null}
+
+      {cutoutUri && !canMorph ? (
         <>
           <Animated.View
             pointerEvents="none"
@@ -219,25 +321,36 @@ export function MorphLoop({
         </>
       ) : null}
 
-      <Animated.View
-        pointerEvents="none"
-        style={[styles.subject, speciesShapeStyle]}
-        testID={`${testID}-species-shape`}
-      >
-        <CachedImage
-          cachePolicy="disk"
-          contentFit="contain"
-          style={styles.subjectImage}
-          tintColor={washColor}
-          uri={artworkUrl}
-        />
-      </Animated.View>
-
-      <Animated.View
-        pointerEvents="none"
-        style={[StyleSheet.absoluteFillObject, { backgroundColor: washColor }, flareStyle]}
-        testID={`${testID}-wash`}
-      />
+      {canMorph ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[StyleSheet.absoluteFillObject, morphShapeStyle]}
+          testID={`${testID}-shape`}
+        >
+          <Svg height={measured?.height ?? 0} width={measured?.width ?? 0}>
+            <AnimatedPath
+              animatedProps={morphPathProps}
+              d={openingShapePath}
+              fill={washColor}
+              testID={`${testID}-shape-path`}
+            />
+          </Svg>
+        </Animated.View>
+      ) : (
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.subject, speciesShapeStyle]}
+          testID={`${testID}-species-shape`}
+        >
+          <CachedImage
+            cachePolicy="disk"
+            contentFit="contain"
+            style={styles.subjectImage}
+            tintColor={washColor}
+            uri={artworkUrl}
+          />
+        </Animated.View>
+      )}
 
       <Animated.View pointerEvents="none" style={[styles.subject, artworkStyle]}>
         <CachedImage

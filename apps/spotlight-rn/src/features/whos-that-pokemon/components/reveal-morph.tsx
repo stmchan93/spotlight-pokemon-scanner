@@ -1,67 +1,98 @@
 import { BlurView } from 'expo-blur';
-import { useEffect, useRef, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type LayoutChangeEvent, StyleSheet, useWindowDimensions, View } from 'react-native';
 import Animated, {
   cancelAnimation,
   Easing,
+  useAnimatedProps,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
+import Svg, { Path } from 'react-native-svg';
 
+import type { NormalizedPoint } from '@spotlight/api-client';
 import { colors } from '@spotlight/design-system';
 
 import { CachedImage } from '@/components/cached-image';
 
-import { REVEAL_ARTWORK_HEIGHT_PCT, REVEAL_ARTWORK_WIDTH_PCT } from '../face-geometry';
+import {
+  resolveArtworkRect,
+  REVEAL_ARTWORK_HEIGHT_PCT,
+  REVEAL_ARTWORK_WIDTH_PCT,
+} from '../face-geometry';
+import { buildMorphOutlines, morphPathD, outlinePathD } from '../outline-morph';
 import { useReduceMotion } from '../use-reduce-motion';
 import { SelfieImage } from './selfie-image';
 
 const isTestEnv = process.env.NODE_ENV === 'test';
 
-// The reveal is styled after the Pokémon evolution sequence: a dark stage where
-// the "form" charges up, ONE smooth white-out, then the matched species blooms
-// out of the light with a sparkle burst.
+const AnimatedPath = Animated.createAnimatedComponent(Path);
+
+// THE BEAT
 //
-// There is deliberately no strobe or flicker here. Repeated high-contrast
-// flashes are a photosensitivity hazard, and the beat reads cleaner as a single
-// swell of light than as a stutter.
-/** Dark stage + palette aura settle while the form scales up. No flash yet. */
-const CHARGE_MS = 520;
-/** One continuous, accelerating ramp to full white — the only flash there is. */
-const WHITEOUT_UP_MS = 620;
-const WHITEOUT_HOLD_MS = 90;
-const WHITEOUT_DOWN_MS = 560;
+// This screen used to end on a hard cut: the selfie swapped for the artwork in
+// 40ms, timed to the peak of a full-white flash. Nothing morphed — the flash was
+// there to hide that there was no morph. It is gone.
+//
+// What plays now, when the backend traced both outlines:
+//
+//   0 .. RESOLVE      your photo drops away to a dark stage and resolves into
+//                     YOUR silhouette, drawn as a filled path
+//   .. + MORPH        that path continuously DEFORMS into the species' outline,
+//                     point for point, in one shared box
+//   .. + COLOR        the creature colours in out of its own silhouette
+//
+// The deformation gets the longest beat on purpose: it is the whole point of the
+// screen. A palette bloom swells across it — soft, palette-tinted, never a
+// white-out, and never covering the shape it is lit by.
+/** Photo → dark stage → your outline. Skipped when the lock-on already did it. */
+const RESOLVE_MS = 460;
+/** Handoff settle when the lock-on already left your silhouette on screen. */
+const HANDOFF_MS = 160;
+/** The morph itself. */
+const MORPH_MS = 1240;
+/** The species colours in out of the silhouette. */
+const COLOR_MS = 460;
+/** Tail after the colour lands, before the result panel takes over. */
+const SETTLE_MS = 260;
 
-// The form swaps at the peak of the white-out, so the selfie is never seen
-// crossfading into the artwork — the light swallows one and gives back the other.
-const SWAP_AT_MS = CHARGE_MS + WHITEOUT_UP_MS;
+// Without YOUR outline there is nothing to deform FROM, so the sequence
+// collapses to the honest version of itself: dark stage → the species
+// silhouette rises → it colours in. Shape-first, no deceptive flash.
+const SILHOUETTE_RISE_MS = 620;
+const SILHOUETTE_HOLD_MS = 240;
 
-// Total morph runtime before onDone fires. Shortened under jest so screen tests
-// can walk capture → scanning → reveal → result on real timers.
-const MORPH_DONE_MS = isTestEnv
-  ? 40
-  : SWAP_AT_MS + WHITEOUT_HOLD_MS + WHITEOUT_DOWN_MS + 280;
 const REDUCED_DONE_MS = isTestEnv ? 40 : 900;
-const BURST_AT_MS = SWAP_AT_MS + WHITEOUT_HOLD_MS + 40;
 const PARTICLE_COUNT = 14;
 
 type RevealMorphProps = {
-  /** Local uri of the selfie that dissolves away. */
+  /** Local uri of the selfie the morph resolves out of. */
   selfieUri: string | null;
-  /** Official artwork of the matched species that crossfades in. */
+  /** Official artwork of the matched species the morph resolves into. */
   artworkUrl: string;
-  /** Top selfie palette swatch — tints the dissolve wash. */
+  /** Top selfie palette swatch — paints the silhouette and the bloom. */
   washColor: string;
   /** Palette colors cycled across the particle burst. */
   burstColors: string[];
   /**
-   * True when the lock-on already collapsed the scene onto the species
-   * silhouette. The reveal then opens on that silhouette instead of the selfie
-   * — silhouette → white-out → full colour, i.e. the TV reveal — so the handoff
-   * has no visual seam.
+   * YOUR traced outline, normalized 0..1 against the person cutout. Absent →
+   * the silhouette-rise fallback. Mirrored on projection, because the selfie is
+   * flipped for display.
+   */
+  personOutline?: NormalizedPoint[] | null;
+  /**
+   * The species' traced outline, normalized 0..1 against the artwork PNG. Only
+   * valid for the TOP match — the caller must not pass it for a promoted
+   * alternate.
+   */
+  speciesOutline?: NormalizedPoint[] | null;
+  /**
+   * True when the lock-on already collapsed the scene onto the silhouette. The
+   * reveal then opens on exactly that shape — same outlines, same rect, same
+   * palette colour — instead of replaying the photo, so the handoff has no seam.
    */
   fromSilhouette?: boolean;
   /** Fired once the morph has fully played. */
@@ -133,17 +164,24 @@ function BurstParticle({
 }
 
 /**
- * Dissolve morph: the selfie scales up slightly while a blur + palette-tinted
- * color wash swallows it, then the matched species' official artwork
- * crossfades in with a palette-colored particle burst. Calls `onDone` when the
- * choreography finishes. Reduce-motion swaps the whole sequence for a quick
- * plain crossfade with no particles.
+ * The reveal: your photo resolves into your own silhouette, that silhouette
+ * deforms into the matched species' silhouette, and the species colours in.
+ *
+ * Both silhouettes are the SAME filled path — one palette colour, one box — so
+ * across the middle beat the only thing changing on screen is the outline, which
+ * is what makes the eye read it as one shape becoming another rather than as two
+ * pictures being swapped.
+ *
+ * Calls `onDone` when the choreography finishes. Reduce-motion resolves straight
+ * onto the artwork with no travel and no particles.
  */
 export function RevealMorph({
   selfieUri,
   artworkUrl,
   washColor,
   burstColors,
+  personOutline = null,
+  speciesOutline = null,
   fromSilhouette = false,
   onDone,
   testID = 'wtp-reveal',
@@ -151,13 +189,44 @@ export function RevealMorph({
   const reduceMotion = useReduceMotion();
   const [showBurst, setShowBurst] = useState(false);
 
-  const selfieScale = useSharedValue(1);
+  // Start from the window (correct on this full-bleed route, and available on
+  // the first frame) and switch to the measured box if it turns out smaller.
+  // The lock-on resolves its geometry exactly the same way, which is what keeps
+  // the handoff shape in place.
+  const screenSize = useWindowDimensions();
+  const [measured, setMeasured] = useState<{ width: number; height: number } | null>(null);
+  const handleLayout = useCallback((event: LayoutChangeEvent) => {
+    const { width, height } = event.nativeEvent.layout;
+    setMeasured((current) => {
+      if (width <= 0 || height <= 0) {
+        return current;
+      }
+      if (current && current.width === width && current.height === height) {
+        return current;
+      }
+      return { width, height };
+    });
+  }, []);
+  const containerWidth = measured?.width ?? screenSize.width;
+  const containerHeight = measured?.height ?? screenSize.height;
+
+  const morph = useMemo(() => {
+    const artworkRect = resolveArtworkRect(containerWidth, containerHeight);
+    return buildMorphOutlines({ personOutline, speciesOutline, artworkRect });
+  }, [containerHeight, containerWidth, personOutline, speciesOutline]);
+  const canMorph = morph.canMorph;
+
+  const stageOpacity = useSharedValue(fromSilhouette ? 1 : 0);
   const selfieOpacity = useSharedValue(1);
-  const blurOpacity = useSharedValue(0);
-  const washOpacity = useSharedValue(0);
-  const flashOpacity = useSharedValue(0);
+  const shapeOpacity = useSharedValue(fromSilhouette ? 1 : 0);
+  const shapeProgress = useSharedValue(0);
+  const bloomOpacity = useSharedValue(0);
   const artworkOpacity = useSharedValue(0);
-  const artworkScale = useSharedValue(0.86);
+  // ONE scale for the silhouette AND the artwork. Both are centred on the same
+  // point, so a shared scale keeps them registered on top of each other through
+  // the colour-in — scaling only the artwork would make it drift off the shape
+  // it is supposed to be emerging from.
+  const subjectScale = useSharedValue(1);
 
   // Hold the latest onDone without restarting the choreography if the parent
   // re-renders with a new closure.
@@ -167,138 +236,207 @@ export function RevealMorph({
   }, [onDone]);
 
   useEffect(() => {
+    const cancelAll = () => {
+      cancelAnimation(stageOpacity);
+      cancelAnimation(selfieOpacity);
+      cancelAnimation(shapeOpacity);
+      cancelAnimation(shapeProgress);
+      cancelAnimation(bloomOpacity);
+      cancelAnimation(artworkOpacity);
+      cancelAnimation(subjectScale);
+    };
+
     if (reduceMotion) {
-      // Same shape as the full sequence, minus the motion: the bloom peaks
-      // lower (0.7, not a full white-out), nothing scales, and the particle
-      // burst is skipped — so the whole thing resolves in a third of the time.
-      blurOpacity.value = 1;
-      washOpacity.value = 0.22;
-      selfieOpacity.value = withDelay(200, withTiming(0, { duration: 220 }));
-      flashOpacity.value = withSequence(
-        withTiming(0.7, { duration: 220, easing: Easing.out(Easing.ease) }),
-        withTiming(0, { duration: 420, easing: Easing.out(Easing.cubic) }),
+      // Motion-free resolve: no travel, no deformation, no particles. The shape
+      // is parked on its END state so nothing appears to move under someone who
+      // asked for less movement.
+      stageOpacity.value = 1;
+      shapeProgress.value = 1;
+      shapeOpacity.value = withTiming(0, { duration: 260 });
+      selfieOpacity.value = withTiming(0, { duration: 220 });
+      bloomOpacity.value = withSequence(
+        withTiming(0.22, { duration: 200 }),
+        withTiming(0, { duration: 380 }),
       );
-      artworkOpacity.value = withDelay(220, withTiming(1, { duration: 300 }));
-      artworkScale.value = withDelay(220, withTiming(1, { duration: 300 }));
+      artworkOpacity.value = withDelay(160, withTiming(1, { duration: 300 }));
       const doneTimer = setTimeout(() => onDoneRef.current(), REDUCED_DONE_MS);
       return () => {
         clearTimeout(doneTimer);
-        cancelAnimation(selfieOpacity);
-        cancelAnimation(flashOpacity);
-        cancelAnimation(artworkOpacity);
-        cancelAnimation(artworkScale);
+        cancelAll();
       };
     }
 
-    // 1. Dark stage + palette aura settle in fast; the form charges (scales up)
-    //    all the way into the white-out.
-    blurOpacity.value = withTiming(1, { duration: 460, easing: Easing.out(Easing.ease) });
-    washOpacity.value = withTiming(0.24, { duration: 500, easing: Easing.out(Easing.ease) });
-    selfieScale.value = withTiming(1.1, {
-      duration: SWAP_AT_MS,
-      easing: Easing.inOut(Easing.quad),
+    // Beat 1 — the photo falls away to a dark stage and the silhouette resolves.
+    // When the lock-on handed off, the shape is already on screen at full
+    // opacity and this beat is just a short settle.
+    const resolveMs = fromSilhouette ? HANDOFF_MS : RESOLVE_MS;
+    stageOpacity.value = withTiming(1, {
+      duration: Math.max(220, resolveMs),
+      easing: Easing.out(Easing.ease),
     });
+    selfieOpacity.value = withTiming(0, {
+      duration: Math.max(220, resolveMs),
+      easing: Easing.out(Easing.ease),
+    });
+    // Beat 2 — the deformation. Slow in, slow out, no cut anywhere in it.
+    const morphMs = canMorph ? MORPH_MS : SILHOUETTE_RISE_MS + SILHOUETTE_HOLD_MS;
+    const colorAtMs = resolveMs + morphMs;
 
-    // 2. One white-out: the light holds off through the charge, then swells on
-    //    an accelerating curve so it still builds — without ever flickering.
-    flashOpacity.value = withDelay(
-      CHARGE_MS,
-      withSequence(
-        withTiming(1, { duration: WHITEOUT_UP_MS, easing: Easing.in(Easing.cubic) }),
-        withDelay(
-          WHITEOUT_HOLD_MS,
-          withTiming(0, { duration: WHITEOUT_DOWN_MS, easing: Easing.out(Easing.cubic) }),
-        ),
+    // The silhouette's whole life in ONE assignment: rise, hold through the
+    // deformation, fade out under the colour. Splitting it across two writes to
+    // the same shared value would silently cancel the rise — the second write
+    // replaces the running animation rather than queueing behind it.
+    const riseDelayMs = canMorph ? 0 : Math.round(resolveMs * 0.5);
+    const riseMs = canMorph ? resolveMs : SILHOUETTE_RISE_MS;
+    const shapeOutAtMs = colorAtMs + COLOR_MS * 0.5;
+    shapeOpacity.value = withSequence(
+      withDelay(riseDelayMs, withTiming(1, { duration: riseMs })),
+      withDelay(
+        Math.max(0, shapeOutAtMs - riseDelayMs - riseMs),
+        withTiming(0, { duration: COLOR_MS * 0.6 }),
       ),
     );
 
-    // 3. The form swaps at the peak, hidden under full white, then blooms out
-    //    as the light recedes.
-    selfieOpacity.value = withDelay(SWAP_AT_MS, withTiming(0, { duration: 40 }));
-    artworkOpacity.value = withDelay(SWAP_AT_MS - 40, withTiming(1, { duration: 60 }));
-    artworkScale.value = withDelay(
-      SWAP_AT_MS + WHITEOUT_HOLD_MS,
+    if (canMorph) {
+      shapeProgress.value = withDelay(
+        resolveMs,
+        withTiming(1, { duration: MORPH_MS, easing: Easing.inOut(Easing.cubic) }),
+      );
+    } else {
+      // No outline for you → nothing to deform from; the species silhouette
+      // simply rises. Still shape-first, and still no flash.
+      shapeProgress.value = 1;
+    }
+
+    // A palette bloom across the shape change. It sits BEHIND the silhouette and
+    // tops out at 0.24, so it lights the stage in your own colour without ever
+    // covering the thing it is lighting. The old full-white version was in front
+    // and peaked at 1.0 — the only thing it lit was the swap it was hiding.
+    bloomOpacity.value = withDelay(
+      Math.round(resolveMs + morphMs * 0.3),
       withSequence(
-        withTiming(1.08, { duration: 360, easing: Easing.out(Easing.cubic) }),
-        withTiming(1, { duration: 260, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0.24, { duration: morphMs * 0.5, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0.08, { duration: COLOR_MS, easing: Easing.out(Easing.cubic) }),
+        withTiming(0, { duration: SETTLE_MS }),
       ),
     );
 
-    const burstTimer = setTimeout(() => setShowBurst(true), BURST_AT_MS);
-    const doneTimer = setTimeout(() => onDoneRef.current(), MORPH_DONE_MS);
+    // Beat 3 — the species colours in out of its own silhouette. The shape holds
+    // underneath while the artwork rises over it, so the fill never blinks.
+    artworkOpacity.value = withDelay(
+      colorAtMs,
+      withTiming(1, { duration: COLOR_MS, easing: Easing.out(Easing.ease) }),
+    );
+    // The landing: shape and artwork breathe together, so the moment reads as
+    // the creature arriving rather than as a picture being scaled into place.
+    subjectScale.value = withDelay(
+      colorAtMs,
+      withSequence(
+        withTiming(1.04, { duration: COLOR_MS, easing: Easing.out(Easing.cubic) }),
+        withTiming(1, { duration: SETTLE_MS, easing: Easing.inOut(Easing.ease) }),
+      ),
+    );
+
+    const doneMs = colorAtMs + COLOR_MS + SETTLE_MS;
+    const burstTimer = setTimeout(() => setShowBurst(true), colorAtMs + 40);
+    // Shortened under jest so screen tests can walk capture → scanning →
+    // lock-on → reveal → result on real timers. Every layer still mounts.
+    const doneTimer = setTimeout(() => onDoneRef.current(), isTestEnv ? 40 : doneMs);
     return () => {
       clearTimeout(burstTimer);
       clearTimeout(doneTimer);
-      cancelAnimation(selfieScale);
-      cancelAnimation(selfieOpacity);
-      cancelAnimation(blurOpacity);
-      cancelAnimation(washOpacity);
-      cancelAnimation(flashOpacity);
-      cancelAnimation(artworkOpacity);
-      cancelAnimation(artworkScale);
+      cancelAll();
     };
     // Play once per mount — the parent re-keys this component to re-run it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reduceMotion]);
+  }, [canMorph, fromSilhouette, reduceMotion]);
 
-  const selfieStyle = useAnimatedStyle(() => ({
-    opacity: selfieOpacity.value,
-    transform: [{ scale: selfieScale.value }],
-  }));
-  const flashStyle = useAnimatedStyle(() => ({
-    opacity: flashOpacity.value,
-  }));
-  const blurStyle = useAnimatedStyle(() => ({
-    opacity: blurOpacity.value,
-  }));
-  const washStyle = useAnimatedStyle(() => ({
-    opacity: washOpacity.value,
+  const selfieStyle = useAnimatedStyle(() => ({ opacity: selfieOpacity.value }));
+  const stageStyle = useAnimatedStyle(() => ({ opacity: stageOpacity.value }));
+  const bloomStyle = useAnimatedStyle(() => ({ opacity: bloomOpacity.value }));
+  const shapeStyle = useAnimatedStyle(() => ({
+    opacity: shapeOpacity.value,
+    transform: [{ scale: subjectScale.value }],
   }));
   const artworkStyle = useAnimatedStyle(() => ({
     opacity: artworkOpacity.value,
-    transform: [{ scale: artworkScale.value }],
+    transform: [{ scale: subjectScale.value }],
   }));
+
+  // The deformation itself: one closed path re-evaluated every frame between
+  // the two traced outlines. `morphPathD` and everything it calls are worklets.
+  const morphFrom = morph.from;
+  const morphTo = morph.to;
+  const shapePathProps = useAnimatedProps(() => ({
+    d: morphPathD(morphFrom, morphTo, shapeProgress.value),
+  }));
+  // First-frame `d`, so the shape is already YOUR outline before the UI thread
+  // takes the prop over — the same static path the lock-on ended on. Mirrors
+  // HeartToggle, which also hands its AnimatedPath a plain `d`.
+  const openingShapePath = useMemo(() => outlinePathD(morphFrom), [morphFrom]);
 
   const burstPalette = burstColors.length > 0 ? burstColors : [washColor];
 
   return (
-    <View style={styles.root} testID={testID}>
-      {fromSilhouette ? (
-        // Opens exactly where the lock-on left off: the palette-painted
-        // silhouette, in the same box the coloured artwork occupies. It charges
-        // up and dissolves under the white-out, same as the selfie does.
-        <View pointerEvents="none" style={styles.artworkLayer}>
-          <Animated.View style={selfieStyle}>
-            <CachedImage
-              cachePolicy="disk"
-              contentFit="contain"
-              style={styles.artwork}
-              testID={`${testID}-silhouette`}
-              tintColor={washColor}
-              uri={artworkUrl}
-            />
-          </Animated.View>
-        </View>
-      ) : selfieUri ? (
-        <Animated.View style={[StyleSheet.absoluteFillObject, selfieStyle]}>
+    <View onLayout={handleLayout} style={styles.root} testID={testID}>
+      {fromSilhouette || !selfieUri ? null : (
+        <Animated.View
+          style={[StyleSheet.absoluteFillObject, selfieStyle]}
+          testID={`${testID}-selfie`}
+        >
           <SelfieImage
             cachePolicy="memory-disk"
             contentFit="cover"
             style={StyleSheet.absoluteFillObject}
             uri={selfieUri}
           />
+          <BlurView intensity={55} style={StyleSheet.absoluteFillObject} tint="dark" />
         </Animated.View>
-      ) : null}
+      )}
 
-      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFillObject, blurStyle]}>
-        <BlurView intensity={55} style={StyleSheet.absoluteFillObject} tint="dark" />
-      </Animated.View>
-
+      {/* The dark stage the transformation happens on. */}
       <Animated.View
         pointerEvents="none"
-        style={[StyleSheet.absoluteFillObject, { backgroundColor: washColor }, washStyle]}
-        testID={`${testID}-wash`}
+        style={[StyleSheet.absoluteFillObject, styles.stage, stageStyle]}
+        testID={`${testID}-stage`}
       />
+
+      {/* Palette bloom — a swell of the selfie's own colour across the shape
+          change. Deliberately NOT a white-out, and deliberately BEHIND the
+          silhouette: it lights the morph, it does not hide it. */}
+      <Animated.View
+        pointerEvents="none"
+        style={[StyleSheet.absoluteFillObject, { backgroundColor: washColor }, bloomStyle]}
+        testID={`${testID}-bloom`}
+      />
+
+      {canMorph ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[StyleSheet.absoluteFillObject, shapeStyle]}
+          testID={`${testID}-shape`}
+        >
+          <Svg height={containerHeight} width={containerWidth}>
+            <AnimatedPath
+              animatedProps={shapePathProps}
+              d={openingShapePath}
+              fill={washColor}
+              testID={`${testID}-shape-path`}
+            />
+          </Svg>
+        </Animated.View>
+      ) : (
+        <Animated.View pointerEvents="none" style={[styles.artworkLayer, shapeStyle]}>
+          <CachedImage
+            cachePolicy="disk"
+            contentFit="contain"
+            style={styles.artwork}
+            testID={`${testID}-silhouette`}
+            tintColor={washColor}
+            uri={artworkUrl}
+          />
+        </Animated.View>
+      )}
 
       <View pointerEvents="none" style={styles.artworkLayer}>
         <Animated.View style={artworkStyle}>
@@ -311,15 +449,6 @@ export function RevealMorph({
           />
         </Animated.View>
       </View>
-
-      {/* The white-out — one swell of light that blows out and recedes to
-          reveal the Pokémon. Sits above the artwork so the swap happens hidden
-          under the light. */}
-      <Animated.View
-        pointerEvents="none"
-        style={[StyleSheet.absoluteFillObject, styles.flash, flashStyle]}
-        testID={`${testID}-flash`}
-      />
 
       <View pointerEvents="none" style={styles.artworkLayer}>
         {showBurst && !reduceMotion ? (
@@ -343,6 +472,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.scannerCanvas,
     flex: 1,
   },
+  stage: {
+    backgroundColor: colors.scannerCanvas,
+  },
   artworkLayer: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
@@ -353,9 +485,6 @@ const styles = StyleSheet.create({
   artwork: {
     height: REVEAL_ARTWORK_HEIGHT_PCT,
     width: REVEAL_ARTWORK_WIDTH_PCT,
-  },
-  flash: {
-    backgroundColor: '#ffffff',
   },
   burstLayer: {
     ...StyleSheet.absoluteFillObject,
