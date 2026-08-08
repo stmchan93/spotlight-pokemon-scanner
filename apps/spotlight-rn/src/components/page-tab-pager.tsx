@@ -175,6 +175,14 @@ type CollapsibleTabPagerProps<V extends string> = {
   pageRefs?: Partial<Record<V, { readonly current: CollapsibleScrollTarget | null }>>;
   renderPage: (page: V, props: CollapsiblePageProps) => ReactNode;
   /**
+   * Optional externally-owned scroll offset, so the SCREEN can drive chrome of
+   * its own from the same value the header collapse runs on (Home fades the
+   * search pill out of its floating top bar). It is written by the pager's
+   * `Animated.event`, so a consumer must only ever READ it — interpolate it,
+   * never `setValue` it. Omit and the pager keeps a private value.
+   */
+  scrollY?: Animated.Value;
+  /**
    * Extra stand-down check, evaluated at the moment of decision rather than at
    * render, for state the pager cannot see (e.g. "the collection search field
    * currently has focus", which is only knowable from the input's own
@@ -295,6 +303,7 @@ export function CollapsibleTabPager<V extends string>({
   order,
   pageRefs,
   renderPage,
+  scrollY: scrollYProp,
   shouldStandDown,
   style,
   tabBar,
@@ -311,7 +320,8 @@ export function CollapsibleTabPager<V extends string>({
   const [containerHeight, setContainerHeight] = useState(0);
 
   /** Vertical offset of whichever page last scrolled. Drives the header. */
-  const scrollY = useRef(new Animated.Value(0)).current;
+  const ownScrollY = useRef(new Animated.Value(0)).current;
+  const scrollY = scrollYProp ?? ownScrollY;
   /** Horizontal position of the three-page row. */
   const translateX = useRef(new Animated.Value(0)).current;
 

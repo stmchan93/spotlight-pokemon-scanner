@@ -610,16 +610,18 @@ Current behavior:
 
 File: `src/components/glass-nav-bubble.tsx`
 
-The shared floating circular nav button used by the Collection corner chrome, the
-scanner viewfinder, and the Wishlist header. Built on `GlassSurface`, so real
+The shared floating circular nav button used by the Home top bar, the scanner
+viewfinder, and the Wishlist header. Built on `GlassSurface`, so real
 iOS 26 Liquid Glass (`regular` material) sits behind the glyph and everything
 else gets a solid, honest fallback — never a blur/rgba imitation.
 
 Props:
 
 - `accessibilityLabel` (required), `children` (the glyph), `onPress`
-- `size`: `'small'` (32pt — dense chrome over a live surface, e.g. the scanner)
-  or `'medium'` (44pt, default — the standard nav bubble)
+- `size`: `'small'` (32pt — dense chrome over a live surface, e.g. the scanner),
+  `'compact'` (36pt — sharing a top bar with a 36pt `SearchEntryPill`, e.g. the
+  Home header; the 8pt `hitSlop` carries it back over the 44pt touch minimum), or
+  `'medium'` (44pt, default — the standard standalone nav bubble)
 - `surface`: describes what is UNDERNEATH, not the glass material —
   `'onLight'` (default) or `'onDark'`
 - `disabled`, `style` (positioning is caller-owned), `testID`

@@ -181,7 +181,26 @@ function AuthenticatedRoot() {
             >
               <Stack.Screen name="(tabs)" />
               <Stack.Screen name="(stack)" />
-              <Stack.Screen name="(sheet)" />
+              {/*
+                Catalog search (and the expansion browser beside it) comes UP
+                from the bottom as a full-screen surface rather than pushing in
+                from the right: search is a place you drop into and dismiss, not
+                a step deeper into the collection. The Home top bar's "Search
+                Cards" pill is the main way in (Figma 3505:14526).
+
+                The presentation goes on the GROUP, not on the search route:
+                react-native-screens ignores `stackPresentation` on a stack's
+                bottom-most screen, and `/catalog/search` is exactly that inside
+                `(sheet)`'s own stack — the same trap documented on `new-post`
+                below. Routes pushed from WITHIN the group (expansion detail)
+                still push normally, because they are pushed on the inner stack.
+
+                `fullScreenModal` and not `formSheet`: the screen already carries
+                its own full safe-area chrome and a close button, and a card
+                presentation would leave the collection showing behind a search
+                that is meant to take over.
+              */}
+              <Stack.Screen name="(sheet)" options={{ presentation: 'fullScreenModal' }} />
               <Stack.Screen name="(modal)" />
               {/*
                 New Post lives at the ROOT, not in `(stack)`, and that placement

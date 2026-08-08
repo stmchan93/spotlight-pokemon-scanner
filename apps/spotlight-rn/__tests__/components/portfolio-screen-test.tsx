@@ -633,12 +633,16 @@ describe('PortfolioScreen', () => {
 
     const bell = await screen.findByTestId('portfolio-header-notifications');
     expect(screen.getByTestId('portfolio-header-search')).toBeTruthy();
-    expect(screen.getByTestId('portfolio-header-edit')).toBeTruthy();
 
     // The Share bubble that used to sit here was wired to `onPress={() => {}}`
     // — present but doing nothing. The bell took its slot rather than becoming a
     // fourth bubble, so its absence is the point, not an oversight.
     expect(screen.queryByTestId('portfolio-header-share')).toBeNull();
+
+    // Edit Profile is NOT in the bar: Figma 3505:14521 spends its four slots on
+    // menu / search / bell / +, so edit moved down onto the profile block.
+    expect(screen.queryByTestId('portfolio-header-edit')).toBeNull();
+    expect(screen.getByTestId('portfolio-header-title-edit')).toBeTruthy();
 
     await act(async () => {
       fireEvent.press(bell);
@@ -1444,21 +1448,65 @@ describe('PortfolioScreen', () => {
     alertSpy.mockRestore();
   });
 
-  it('shows a + on the Activity tab that opens the New Post composer', async () => {
+  it('follows the active tab with the top bar +: catalog search, then the composer', async () => {
     renderPortfolioScreen();
     await screen.findByTestId('portfolio-header-title');
 
-    // No + on the default Collection tab.
-    expect(screen.queryByTestId('portfolio-header-new-post')).toBeNull();
+    // The + is a permanent slot in the bar now (Figma 3505:14539), not a
+    // per-tab bubble that appears and disappears — only its destination moves.
+    const add = screen.getByTestId('portfolio-header-add');
+    await act(async () => {
+      fireEvent.press(add);
+    });
+    expect(push).toHaveBeenLastCalledWith('/catalog/search');
 
     await act(async () => {
       fireEvent.press(screen.getByTestId('portfolio-profile-tabs-tab-activity'));
     });
 
-    const newPost = await screen.findByTestId('portfolio-header-new-post');
     await act(async () => {
-      fireEvent.press(newPost);
+      fireEvent.press(screen.getByTestId('portfolio-header-add'));
     });
-    expect(push).toHaveBeenCalledWith('/new-post');
+    expect(push).toHaveBeenLastCalledWith('/new-post');
+  });
+
+  it('opens the full-screen card search from the top bar pill', async () => {
+    renderPortfolioScreen();
+
+    const pill = await screen.findByTestId('portfolio-header-search');
+    await act(async () => {
+      fireEvent.press(pill);
+    });
+    expect(push).toHaveBeenLastCalledWith('/catalog/search');
+  });
+
+  it('stops the faded-out search pill taking taps, while the glass buttons keep working', async () => {
+    renderPortfolioScreen();
+    await screen.findByTestId('portfolio-header-title');
+
+    await act(async () => {
+      fireEvent.scroll(screen.getByTestId('portfolio-scroll-view'), {
+        nativeEvent: {
+          contentOffset: { y: 240 },
+          contentSize: { height: 2400, width: 393 },
+          layoutMeasurement: { height: 800, width: 393 },
+        },
+      });
+    });
+
+    // The fade itself is a native-driven opacity we cannot read here. What must
+    // hold either way is that an invisible pill is not still a tap target
+    // sitting over the collection — `pointerEvents` is switched off with it.
+    push.mockClear();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('portfolio-header-search'));
+    });
+    expect(push).not.toHaveBeenCalled();
+
+    // The bubbles beside it do NOT fade — that is the whole point of the design.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('portfolio-header-notifications'));
+    });
+    expect(push).toHaveBeenLastCalledWith('/notifications');
   });
 });

@@ -1,5 +1,5 @@
 import { Image } from 'expo-image';
-import { CheckCircle, Link } from 'iconoir-react-native';
+import { CheckCircle, EditPencil, Link } from 'iconoir-react-native';
 import { useCallback, useEffect, useState } from 'react';
 import { AccessibilityInfo, Pressable, StyleSheet, View } from 'react-native';
 import Animated, {
@@ -11,7 +11,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Avatar, SkeletonBlock, Text, useSpotlightTheme } from '@spotlight/design-system';
+import { Avatar, PillButton, SkeletonBlock, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 type ProfileHeaderProps = {
   displayName: string;
@@ -38,6 +38,14 @@ type ProfileHeaderProps = {
   onSocialLinkPress?: () => void;
   onFollowersPress?: () => void;
   onFollowingPress?: () => void;
+  /**
+   * Owner-only affordance: opens Edit Profile. Passed by Home, which is the one
+   * place this block shows YOUR profile — the public profile omits it, and the
+   * control is simply absent rather than disabled when it is not yours to edit.
+   * It lives here, beside the name it edits, rather than in the top bar: Home's
+   * bar is Figma 3505:14521 and has exactly four slots, none of them this.
+   */
+  onEditPress?: () => void;
   /**
    * Distance from the top of the header block to the top of the avatar. Screens
    * pass this so the avatar keeps a fixed gap below the floating nav bubbles,
@@ -77,6 +85,7 @@ export function ProfileHeader({
   onSocialLinkPress,
   onFollowersPress,
   onFollowingPress,
+  onEditPress,
   avatarTop,
   testID = 'profile-header',
 }: ProfileHeaderProps) {
@@ -181,33 +190,48 @@ export function ProfileHeader({
           uri={avatarUrl}
         />
 
-        <View style={styles.identity}>
-          <View style={styles.nameRow}>
-            <Text
-              style={[theme.typography.titleMedium, { lineHeight: 22 }]}
-              testID={`${testID}-name`}
-            >
-              {displayName}
-            </Text>
-            {isVerified ? (
-              <View style={styles.verifiedRow} testID={`${testID}-verified`}>
-                <CheckCircle color={theme.colors.purple500} height={14} width={14} />
-                <Text
-                  style={[theme.typography.captionMedium, { color: theme.colors.purple500 }]}
-                >
-                  Verified
-                </Text>
-              </View>
+        <View style={styles.identityRow}>
+          <View style={styles.identity}>
+            <View style={styles.nameRow}>
+              <Text
+                style={[theme.typography.titleMedium, { lineHeight: 22 }]}
+                testID={`${testID}-name`}
+              >
+                {displayName}
+              </Text>
+              {isVerified ? (
+                <View style={styles.verifiedRow} testID={`${testID}-verified`}>
+                  <CheckCircle color={theme.colors.purple500} height={14} width={14} />
+                  <Text
+                    style={[theme.typography.captionMedium, { color: theme.colors.purple500 }]}
+                  >
+                    Verified
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+
+            {handle ? (
+              <Text
+                style={[theme.typography.captionMedium, { color: theme.colors.gray500 }]}
+                testID={`${testID}-handle`}
+              >
+                @{handle}
+              </Text>
             ) : null}
           </View>
 
-          {handle ? (
-            <Text
-              style={[theme.typography.captionMedium, { color: theme.colors.gray500 }]}
-              testID={`${testID}-handle`}
-            >
-              @{handle}
-            </Text>
+          {onEditPress ? (
+            <PillButton
+              label="Edit"
+              leading={<EditPencil color={theme.colors.gray900} height={14} width={14} />}
+              onPress={onEditPress}
+              testID={`${testID}-edit`}
+              // Same gray-50 / radius-8 chip as the Followers / Following / Fame
+              // pills directly below, so the block reads as one set of controls
+              // rather than a button bolted onto a profile.
+              tone="soft"
+            />
           ) : null}
         </View>
 
@@ -414,7 +438,16 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   identity: {
+    flex: 1,
     gap: 2,
+  },
+  // Name / handle on the left, the owner-only Edit chip on the right. The
+  // identity column takes the slack so a long display name wraps instead of
+  // pushing the chip off the gutter.
+  identityRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
   },
   nameRow: {
     alignItems: 'center',

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Animated,
   FlatList,
   type LayoutChangeEvent,
   Linking,
@@ -15,15 +16,7 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useFocusEffect, useRouter } from 'expo-router';
-import {
-  Bell,
-  CheckCircle,
-  EditPencil,
-  Menu as MenuIcon,
-  Plus,
-  Search as SearchIcon,
-  Trash,
-} from 'iconoir-react-native';
+import { CheckCircle, Trash } from 'iconoir-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ALL_COLLECTIONS_ID } from '@spotlight/api-client';
@@ -31,13 +24,11 @@ import type { Collection, CollectionsSnapshot, InventoryCardEntry } from '@spotl
 import {
   Avatar,
   EmptyStatePrompt,
-  GlassNavBubble,
   InlineLoader,
   PageTabs,
   type PageTab,
   StateCard,
   Text,
-  glassNavBubbleSizes,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
@@ -53,6 +44,7 @@ import {
 import { SalePriceEditSheet } from '@/features/portfolio/components/sale-price-edit-sheet';
 import { CollectionPickerSheet } from '@/features/portfolio/components/collection-picker-sheet';
 import { CollectionSearchRow } from '@/features/portfolio/components/collection-search-row';
+import { HomeHeader } from '@/features/portfolio/components/home-header';
 import {
   CollectionFilterChipRow,
   type CollectionFilterKey,
@@ -138,11 +130,13 @@ function triggerSelectionHaptic() {
 // land directly underneath). This small gap keeps it off the very top edge.
 const SEARCH_FOCUS_TOP_GAP = 12;
 
-// Diameter of the floating glass nav bubbles (menu / edit) that sit in the top
-// corners over the scrolling content — the shared `GlassNavBubble` chrome shape.
-const BUBBLE_SIZE = glassNavBubbleSizes.medium;
-/** Spacing between adjacent bubbles in the same top corner. */
-const BUBBLE_GAP = 8;
+/**
+ * How far the page scrolls before the top bar's "Search Cards" pill has faded
+ * out completely. Roughly the pill's own height plus the bar's padding, so it is
+ * gone by the time the first row of the collection has reached the bar — the
+ * glass bubbles beside it stay put for the whole scroll.
+ */
+const SEARCH_FADE_DISTANCE = 56;
 // Figma 2724:1757 — 24px total between the profile tab bar and the Portfolio
 // balance. This used to be 8 because the shared header wrapper contributed a
 // 16px inter-child gap on top of it; the tab bar now lives in the pinned chrome
@@ -297,10 +291,27 @@ export function PortfolioScreen({
       router.push({ pathname: '/u/[handle]/following', params: ownFollowListParams });
     }
   }, [ownFollowListParams, router]);
-  // The floating menu/edit bubbles rest just below the safe-area inset and float
-  // OVER the profile cover hero, which is full-bleed to the very top (under the
+  // The floating top bar rests just below the safe-area inset and hovers OVER
+  // the profile cover hero, which is full-bleed to the very top (under the
   // status bar) — so the scroll content starts at 0.
-  const bubbleTop = insets.top + 8;
+  //
+  // The pager writes its scroll offset into this value; the screen only reads it
+  // (see `searchOpacity`). Owning it here rather than letting the pager keep it
+  // private is what lets the pill fade on the UI thread instead of a JS frame
+  // behind the finger.
+  const pagerScrollY = useRef(new Animated.Value(0)).current;
+  const searchOpacity = useMemo(
+    () =>
+      pagerScrollY.interpolate({
+        inputRange: [0, SEARCH_FADE_DISTANCE],
+        outputRange: [1, 0],
+        extrapolate: 'clamp',
+      }),
+    [pagerScrollY],
+  );
+  // `pointerEvents` is not animatable, so the faded-out pill has to be disarmed
+  // from JS or it stays an invisible tap target over the collection.
+  const [isSearchPillHidden, setIsSearchPillHidden] = useState(false);
   // NOTE: no guest on-mount redirect here. This screen is mounted *alongside*
   // the scanner in the tabs pager (both pages live at once), so a redirect would
   // fire the instant a guest lands on the scanner and bounce them to login.
@@ -907,12 +918,27 @@ export function PortfolioScreen({
     [],
   );
 
-  // Top-bar search bubble opens the catalog "Search Cards" screen. It used to
-  // scroll down to the inline collection-filter field, which reads as the same
-  // affordance as the search row already on the page — the magnifier in the top
-  // bar is for finding a card, not for filtering what you own.
+  // The top bar's "Search Cards" pill opens the catalog search, which presents
+  // as a full-screen modal up from the bottom (see the `(sheet)` group in the
+  // root layout). It used to scroll down to the inline collection-filter field,
+  // which reads as the same affordance as the search row already on the page —
+  // the top bar is for finding a card, not for filtering what you own.
   const handleTopSearchPress = useCallback(() => {
     router.push('/catalog/search' as never);
+  }, [router]);
+
+  // The top bar's `+`, which follows the tab you are on: composing a post on
+  // Activity, adding a card anywhere else.
+  const handleTopAddPress = useCallback(() => {
+    if (activeProfileTab === 'activity') {
+      router.push('/new-post' as never);
+      return;
+    }
+    router.push('/catalog/search' as never);
+  }, [activeProfileTab, router]);
+
+  const handleEditProfilePress = useCallback(() => {
+    router.push('/edit-profile' as never);
   }, [router]);
 
   // Empty-collection "Scan to add" chip.
@@ -1040,85 +1066,34 @@ export function PortfolioScreen({
     ],
   );
 
-  // Right-edge offset for the Nth bubble in from the right (0 = outermost).
-  const bubbleRight = (indexFromRight: number) =>
-    theme.layout.pageGutter + indexFromRight * (BUBBLE_SIZE + BUBBLE_GAP);
+  /*
+    Home's floating top bar (Figma 3505:14521) — menu, the "Search Cards" pill,
+    notifications, `+`. It hovers over the scrolling content rather than sitting
+    above it, so the buttons are glass and the bar has no background of its own.
 
-  // Floating glass nav bubbles (menu on the left; share + edit on the right,
-  // plus a context bubble per tab) that hover in the top corners over the
-  // scrolling content. The "Collection" title itself is a large heading that
-  // scrolls with the list (see listHeader) — the iOS 26 large-title pattern.
-  const headerBubbles = (
-    <>
-      <GlassNavBubble
-        accessibilityLabel="Open menu"
-        onPress={openDrawer}
-        style={[styles.bubble, { left: theme.layout.pageGutter, top: bubbleTop }]}
-        testID="portfolio-header-menu"
-      >
-        <MenuIcon color={theme.colors.gray900} height={22} width={22} />
-      </GlassNavBubble>
-      {activeProfileTab === 'collection' ? (
-        <GlassNavBubble
-          accessibilityLabel="Search cards"
-          onPress={handleTopSearchPress}
-          style={[styles.bubble, { right: bubbleRight(2), top: bubbleTop }]}
-          testID="portfolio-header-search"
-        >
-          <SearchIcon color={theme.colors.gray900} height={20} width={20} />
-        </GlassNavBubble>
-      ) : null}
-      {activeProfileTab === 'activity' ? (
-        <GlassNavBubble
-          accessibilityLabel="New post"
-          onPress={() => router.push('/new-post' as never)}
-          style={[styles.bubble, { right: bubbleRight(2), top: bubbleTop }]}
-          testID="portfolio-header-new-post"
-        >
-          <Plus color={theme.colors.gray900} height={22} width={22} />
-        </GlassNavBubble>
-      ) : null}
-      {/*
-        Notifications. This slot used to hold a Share bubble from Figma 3095:7044
-        that was wired to `onPress={() => {}}` — present but inert, because
-        sharing was never built. Rather than add a FOURTH bubble beside it (four
-        44pt bubbles plus the menu leaves ~117pt of clear space on a 393pt
-        screen), the bell takes the dead control's slot. Share can come back here
-        when it does something, or move into the drawer.
-      */}
-      <GlassNavBubble
-        accessibilityLabel={
-          unreadNotifications > 0
-            ? `Notifications, ${unreadNotifications} unread`
-            : 'Notifications'
-        }
-        onPress={() => router.push('/notifications' as never)}
-        style={[styles.bubble, { right: bubbleRight(1), top: bubbleTop }]}
-        testID="portfolio-header-notifications"
-      >
-        <Bell color={theme.colors.gray900} height={20} width={20} />
-        {unreadNotifications > 0 ? (
-          <View
-            // Count capped at 9+ so the badge stays a circle — a 3-digit count
-            // would stretch it into a lozenge that overhangs the bubble.
-            style={[styles.notificationBadge, { backgroundColor: theme.colors.dangerStrong }]}
-            testID="portfolio-header-notifications-badge"
-          >
-            <Text style={[theme.typography.overline, { color: theme.colors.gray0 }]}>
-              {unreadNotifications > 9 ? '9+' : String(unreadNotifications)}
-            </Text>
-          </View>
-        ) : null}
-      </GlassNavBubble>
-      <GlassNavBubble
-        accessibilityLabel="Edit profile"
-        onPress={() => router.push('/edit-profile' as never)}
-        style={[styles.bubble, { right: bubbleRight(0), top: bubbleTop }]}
-        testID="portfolio-header-edit"
-      >
-        <EditPencil color={theme.colors.gray900} height={20} width={20} />
-      </GlassNavBubble>
-    </>
+    This replaced four separate corner bubbles. Two of them changed job:
+      - SEARCH is now the pill, which is the whole point of the design: a target
+        the width of the screen instead of a 44pt magnifier, and one that says
+        what it searches. It fades out as you scroll while the bubbles stay.
+      - EDIT PROFILE moved onto the profile block below (`ProfileHeader`'s own
+        edit control), where it belongs with the rest of "you" — the bar has room
+        for four controls and the design spends the fourth on `+`.
+    A Share bubble from Figma 3095:7044 sat here before that, wired to
+    `onPress={() => {}}` — present but inert, because sharing was never built.
+    It can come back when it does something, or move into the drawer.
+  */
+  const homeHeader = (
+    <HomeHeader
+      addAccessibilityLabel={activeProfileTab === 'activity' ? 'New post' : 'Add a card'}
+      onOpenAdd={handleTopAddPress}
+      onOpenMenu={openDrawer}
+      onOpenNotifications={() => router.push('/notifications' as never)}
+      onOpenSearch={handleTopSearchPress}
+      searchInteractive={!isSearchPillHidden}
+      searchOpacity={searchOpacity}
+      testID="portfolio-header"
+      unreadCount={unreadNotifications}
+    />
   );
 
   // ── The PINNED chrome ──────────────────────────────────────────────────────
@@ -1140,6 +1115,7 @@ export function PortfolioScreen({
         handle={currentUser?.handle}
         initials={profileInitials}
         isVerified={currentUser?.isVerified}
+        onEditPress={handleEditProfilePress}
         onFollowersPress={handleOpenFollowers}
         onFollowingPress={handleOpenFollowing}
         onSocialLinkPress={handleSocialLinkPress}
@@ -1481,6 +1457,13 @@ export function PortfolioScreen({
     if (tab === 'collection') {
       handleScroll(event);
     }
+    // The FADE itself is native-driven off `pagerScrollY`; this only flips the
+    // pill's tap target off once it is invisible. Runs on every page so the
+    // state cannot go stale when a swipe lands on a tab parked further down.
+    // The equality guard means React only re-renders on the crossing, not per
+    // scroll frame.
+    const hidden = event.nativeEvent.contentOffset.y >= SEARCH_FADE_DISTANCE;
+    setIsSearchPillHidden((previous) => (previous === hidden ? previous : hidden));
   };
 
   return (
@@ -1517,13 +1500,14 @@ export function PortfolioScreen({
         order={PROFILE_TAB_ORDER}
         pageRefs={pageScrollRefs}
         renderPage={renderProfilePage}
+        scrollY={pagerScrollY}
         shouldStandDown={isSearchFieldFocused}
         tabBar={pagerTabBar}
         testID="portfolio-page-tab-pager"
         value={activeProfileTab}
       />
 
-      {headerBubbles}
+      {homeHeader}
 
       <ScrollToTopFab
         onPress={scrollToTop}
@@ -1713,25 +1697,6 @@ const styles = StyleSheet.create({
   },
   staleHint: {
     paddingHorizontal: 16,
-  },
-  // Only positioning — the circle, glass and fallback all live in the shared
-  // `GlassNavBubble` primitive.
-  bubble: {
-    position: 'absolute',
-    zIndex: 5,
-  },
-  // Sits on the bell's top-right corner. The parent bubble is
-  // `overflow: 'visible'`, so the badge can hang past its edge without clipping.
-  notificationBadge: {
-    alignItems: 'center',
-    borderRadius: 9,
-    height: 18,
-    justifyContent: 'center',
-    minWidth: 18,
-    paddingHorizontal: 4,
-    position: 'absolute',
-    right: 4,
-    top: 4,
   },
   editBar: {
     alignItems: 'center',
