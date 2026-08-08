@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Linking, StyleSheet, View } from 'react-native';
+import {
+  ActivityIndicator,
+  type FlatList,
+  Linking,
+  type ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -16,6 +23,13 @@ import {
 } from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
+import {
+  AnimatedFlatList,
+  AnimatedScrollView,
+  CollapsibleTabPager,
+  type CollapsiblePageProps,
+  type CollapsibleScrollTarget,
+} from '@/components/page-tab-pager';
 import type { UserProfile } from '@/features/auth/auth-models';
 import {
   CollectionGridRow,
@@ -52,6 +66,9 @@ const PROFILE_TABS: readonly PageTab<ProfileTab>[] = [
   { value: 'forsale', label: 'For Sale' },
   { value: 'activity', label: 'Activity' },
 ];
+// Left→right order the horizontal page swipe walks. Derived from PROFILE_TABS so
+// the two can never disagree about which tab is "next".
+const PROFILE_TAB_ORDER = PROFILE_TABS.map((tab) => tab.value);
 
 /** Has the profile row itself resolved? */
 type ProfileStatus = 'loading' | 'ready' | 'not-found';
@@ -156,6 +173,21 @@ export function PublicProfileScreen({
   const [messagePending, setMessagePending] = useState(false);
   const [messageFailed, setMessageFailed] = useState(false);
   const messagePendingRef = useRef(false);
+  // One scroller per page tab. The pager keeps their vertical offsets in step so
+  // a horizontal swipe can never reveal a page whose header sits somewhere else.
+  const collectionScrollRef = useRef<FlatList<PublicCollectionRow>>(null);
+  const forSaleScrollRef = useRef<ScrollView>(null);
+  const activityScrollRef = useRef<FlatList<PublicCollectionRow>>(null);
+  const pageScrollRefs = useMemo<
+    Partial<Record<ProfileTab, { readonly current: CollapsibleScrollTarget | null }>>
+  >(
+    () => ({
+      collection: collectionScrollRef,
+      forsale: forSaleScrollRef,
+      activity: activityScrollRef,
+    }),
+    [],
+  );
   // Paging state. The header shows the target's TRUE card count, so rendering a
   // single capped page would quietly under-show a large collection.
   const [hasMoreEntries, setHasMoreEntries] = useState(false);
@@ -432,11 +464,10 @@ export function PublicProfileScreen({
     [onOpenEntry],
   );
 
-  const listData = useMemo<PublicCollectionRow[]>(() => {
-    if (activeTab === 'activity') {
-      return activityPosts.map((post) => ({ kind: 'post', key: post.id, post }));
-    }
-    if (activeTab !== 'collection' || entries.length === 0) {
+  // Each page owns its own list now, so the two data sets are built
+  // independently instead of one being selected by the active tab.
+  const collectionData = useMemo<PublicCollectionRow[]>(() => {
+    if (entries.length === 0) {
       return [];
     }
     if (entries.length === 1) {
@@ -448,7 +479,12 @@ export function PublicProfileScreen({
       rowEntries,
       rowIndex,
     }));
-  }, [activeTab, activityPosts, entries]);
+  }, [entries]);
+
+  const activityData = useMemo<PublicCollectionRow[]>(
+    () => activityPosts.map((post) => ({ kind: 'post', key: post.id, post })),
+    [activityPosts],
+  );
 
   const handleOpenCard = useCallback(
     (cardId: string) => {
@@ -542,8 +578,13 @@ export function PublicProfileScreen({
     ? formatCurrency(summary.totalValue, summary.currency)
     : null;
 
-  const listHeader = (
-    <View style={styles.chrome}>
+  // ── The PINNED chrome ──────────────────────────────────────────────────────
+  // Profile block + follow/message row + tab bar are rendered ONCE, above all
+  // three pages. The profile block still scrolls away (the pager translates it
+  // up with the active page's offset); the tab bar stops at the top and pins.
+  // Both need an opaque background — page content scrolls UNDER them.
+  const pagerHeader = (
+    <View style={[styles.chrome, { backgroundColor: theme.colors.gray0 }]}>
       <ProfileHeader
         avatarUrl={profile?.avatarURL}
         bio={profile?.bio}
@@ -596,24 +637,27 @@ export function PublicProfileScreen({
           />
         </View>
       ) : null}
+    </View>
+  );
 
+  const pagerTabBar = (
+    <View style={{ backgroundColor: theme.colors.gray0 }}>
       <PageTabs
         onChange={setActiveTab}
         tabs={PROFILE_TABS}
         testID={`${testID}-tabs`}
         value={activeTab}
       />
+    </View>
+  );
 
-      {activeTab === 'activity' ? null : activeTab === 'forsale' ? (
-        <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
-          <StateCard
-            message="For Sale is coming soon."
-            style={styles.stateCard}
-            title="Coming soon"
-            variant="field"
-          />
-        </View>
-      ) : collectionStatus === 'error' ? (
+  // ── The Collection page's OWN header ───────────────────────────────────────
+  // The portfolio headline used to be a sibling of the profile block in one
+  // shared list header. It belongs to Collection only, so it moves into that
+  // page and scrolls under the pinned tab bar.
+  const collectionChrome = (
+    <View style={styles.pageChrome}>
+      {collectionStatus === 'error' ? (
         <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
           <StateCard
             message="Please try again in a moment."
@@ -652,47 +696,110 @@ export function PublicProfileScreen({
     </View>
   );
 
-  const listEmpty =
-    activeTab === 'activity' ? (
-      // Loading is a chromeless spinner; only the settled empty state earns a card.
-      activityStatus === 'ready' ? (
-        <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
-          <StateCard
-            message="This collector has no posts yet."
-            style={styles.stateCard}
-            testID={`${testID}-activity-empty`}
-            title="No posts yet"
-            variant="field"
-          />
-        </View>
-      ) : (
-        <InlineLoader label="Fetching posts" testID={`${testID}-activity-empty`} />
-      )
-    ) : activeTab !== 'collection' || collectionStatus === 'error' ? null : (
-      collectionStatus === 'loading' ? (
-        <InlineLoader label="Fetching cards" testID={`${testID}-collection-empty`} />
-      ) : (
-        <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
-          <StateCard
-            message="This collector has no cards in their portfolio yet."
-            style={styles.stateCard}
-            testID={`${testID}-collection-empty`}
-            title="Nothing here yet"
-            variant="field"
-          />
-        </View>
-      )
-    );
-
-  const listFooter =
-    activeTab === 'collection' && isLoadingMore ? (
-      <View style={styles.footerSpinner}>
-        <ActivityIndicator
-          color={theme.colors.textSecondary}
-          testID={`${testID}-collection-loading-more`}
+  // Loading is a chromeless spinner; only the settled empty state earns a card.
+  const activityEmpty =
+    activityStatus === 'ready' ? (
+      <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
+        <StateCard
+          message="This collector has no posts yet."
+          style={styles.stateCard}
+          testID={`${testID}-activity-empty`}
+          title="No posts yet"
+          variant="field"
         />
       </View>
-    ) : null;
+    ) : (
+      <InlineLoader label="Fetching posts" testID={`${testID}-activity-empty`} />
+    );
+
+  const collectionEmpty =
+    collectionStatus === 'error' ? null : collectionStatus === 'loading' ? (
+      <InlineLoader label="Fetching cards" testID={`${testID}-collection-empty`} />
+    ) : (
+      <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
+        <StateCard
+          message="This collector has no cards in their portfolio yet."
+          style={styles.stateCard}
+          testID={`${testID}-collection-empty`}
+          title="Nothing here yet"
+          variant="field"
+        />
+      </View>
+    );
+
+  const collectionFooter = isLoadingMore ? (
+    <View style={styles.footerSpinner}>
+      <ActivityIndicator
+        color={theme.colors.textSecondary}
+        testID={`${testID}-collection-loading-more`}
+      />
+    </View>
+  ) : null;
+
+  // One scroller per page tab, each with its own virtualization. `page` carries
+  // the padding and the animated scroll handler the pager needs; pass
+  // `page.onScroll` STRAIGHT through or it silently loses the native driver.
+  const renderProfilePage = (tab: ProfileTab, page: CollapsiblePageProps) => {
+    const contentContainerStyle = [
+      page.contentContainerStyle,
+      { paddingBottom: insets.bottom + 24 },
+    ];
+
+    if (tab === 'forsale') {
+      return (
+        <AnimatedScrollView
+          ref={forSaleScrollRef}
+          contentContainerStyle={contentContainerStyle}
+          onScroll={page.onScroll}
+          scrollEventThrottle={page.scrollEventThrottle}
+          testID={`${testID}-forsale-page`}
+        >
+          <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
+            <StateCard
+              message="For Sale is coming soon."
+              style={styles.stateCard}
+              title="Coming soon"
+              variant="field"
+            />
+          </View>
+        </AnimatedScrollView>
+      );
+    }
+
+    if (tab === 'activity') {
+      return (
+        <AnimatedFlatList
+          ref={activityScrollRef}
+          contentContainerStyle={contentContainerStyle}
+          data={activityData}
+          keyExtractor={(item) => item.key}
+          ListEmptyComponent={activityEmpty}
+          onScroll={page.onScroll}
+          renderItem={renderItem}
+          scrollEventThrottle={page.scrollEventThrottle}
+          testID={`${testID}-activity-page`}
+        />
+      );
+    }
+
+    return (
+      <AnimatedFlatList
+        ref={collectionScrollRef}
+        contentContainerStyle={contentContainerStyle}
+        data={collectionData}
+        keyExtractor={(item) => item.key}
+        ListEmptyComponent={collectionEmpty}
+        ListFooterComponent={collectionFooter}
+        ListHeaderComponent={collectionChrome}
+        onEndReached={handleLoadMoreEntries}
+        onEndReachedThreshold={0.5}
+        onScroll={page.onScroll}
+        renderItem={renderItem}
+        scrollEventThrottle={page.scrollEventThrottle}
+        testID={`${testID}-scroll-view`}
+      />
+    );
+  };
 
   return (
     <SafeAreaView
@@ -700,17 +807,22 @@ export function PublicProfileScreen({
       style={[styles.safeArea, { backgroundColor: theme.colors.gray0 }]}
       testID={testID}
     >
-      <FlatList
-        contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
-        data={listData}
-        keyExtractor={(item) => item.key}
-        ListEmptyComponent={listEmpty}
-        ListFooterComponent={listFooter}
-        ListHeaderComponent={listHeader}
-        onEndReached={handleLoadMoreEntries}
-        onEndReachedThreshold={0.5}
-        renderItem={renderItem}
-        testID={`${testID}-scroll-view`}
+      {/*
+        Collapsing profile header, pinned tab bar, drag-following pages beneath —
+        the same shape the owner's Portfolio has. There is no `DrawerEdgeSwipe`
+        on this route, but the left-edge band is still spoken for: this is a
+        PUSHED stack screen, so that band is the interactive back-swipe. The
+        pager ignores it by default.
+      */}
+      <CollapsibleTabPager
+        header={pagerHeader}
+        onChange={setActiveTab}
+        order={PROFILE_TAB_ORDER}
+        pageRefs={pageScrollRefs}
+        renderPage={renderProfilePage}
+        tabBar={pagerTabBar}
+        testID={`${testID}-page-tab-pager`}
+        value={activeTab}
       />
       {backButton}
       {/*
@@ -760,6 +872,12 @@ const styles = StyleSheet.create({
     // Match the owner Portfolio's header chrome rhythm.
     gap: 16,
     paddingBottom: 16,
+  },
+  // The Collection page's own header, below the pinned tab bar. 24px down from
+  // the bar, matching the owner Portfolio's tabs→balance gap.
+  pageChrome: {
+    paddingBottom: 16,
+    paddingTop: 24,
   },
   footerSpinner: {
     paddingVertical: 20,

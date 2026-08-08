@@ -3,8 +3,9 @@ import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'rea
 
 import { Text } from './scaled-text';
 import { useSpotlightTheme } from '../theme';
+import { radii, spacing } from '../tokens';
 
-export type PillButtonTone = 'default' | 'filter';
+export type PillButtonTone = 'default' | 'filter' | 'soft';
 
 type PillButtonProps = {
   label: string;
@@ -24,6 +25,9 @@ type PillButtonProps = {
    * filter modal etc. 'filter' is the chip used in the Collection / Sales chip
    * rows: a white pill when inactive and a solid black (gray900) pill with a
    * white label when selected (Figma — selected chips read black, not purple).
+   * 'soft' is the borderless gray-50 chip used inside empty states (Figma
+   * "Scan to add", 3370:4175) — a low-emphasis suggestion, not a toggle, so it
+   * ignores `selected`.
    */
   tone?: PillButtonTone;
 };
@@ -40,20 +44,35 @@ export function PillButton({
 }: PillButtonProps) {
   const theme = useSpotlightTheme();
 
-  const containerStyle = tone === 'filter' ? styles.filterContainer : styles.container;
-  const labelStyle = tone === 'filter' ? theme.typography.label : theme.typography.control;
+  const containerStyle = tone === 'filter'
+    ? styles.filterContainer
+    : tone === 'soft'
+      ? styles.softContainer
+      : styles.container;
+
+  const labelStyle = tone === 'filter'
+    ? theme.typography.label
+    : tone === 'soft'
+      ? theme.typography.bodyMedium
+      : theme.typography.control;
 
   const backgroundColor = tone === 'filter'
     ? (selected ? theme.colors.gray900 : theme.colors.gray0)
-    : (selected ? theme.colors.brand : theme.colors.field);
+    : tone === 'soft'
+      ? theme.colors.gray50
+      : (selected ? theme.colors.brand : theme.colors.field);
 
   const borderColor = tone === 'filter'
     ? (selected ? theme.colors.gray900 : theme.colors.gray300)
-    : (selected ? theme.colors.brand : theme.colors.outlineSubtle);
+    : tone === 'soft'
+      ? 'transparent'
+      : (selected ? theme.colors.brand : theme.colors.outlineSubtle);
 
   const labelColor = tone === 'filter'
     ? (selected ? theme.colors.gray0 : theme.colors.gray900)
-    : theme.colors.textPrimary;
+    : tone === 'soft'
+      ? theme.colors.gray900
+      : theme.colors.textPrimary;
 
   return (
     <Pressable
@@ -112,6 +131,19 @@ const styles = StyleSheet.create({
   },
   label: {
     textAlign: 'center',
+  },
+  // Figma empty-state "Scan to add" chip (3370:4175): gray-50 fill, radius 8,
+  // 12/6 padding, 8 gap, no stroke. Borderless, so the width is set by the
+  // content rather than by a stroked shell.
+  softContainer: {
+    alignItems: 'center',
+    borderRadius: radii.sm,
+    borderWidth: 0,
+    flexDirection: 'row',
+    gap: spacing.xxs,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 6,
   },
   leading: {
     alignItems: 'center',

@@ -58,7 +58,9 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
             ? {
                 backgroundColor: 'transparent',
                 borderBottomWidth: StyleSheet.hairlineWidth,
-                borderColor: theme.colors.gray300,
+                // Figma draws the rule at gray/400 — a touch darker than the
+                // outline used on filled fields, so it reads on white.
+                borderColor: theme.colors.gray400,
                 borderRadius: 0,
                 borderWidth: 0,
                 paddingHorizontal: 0,

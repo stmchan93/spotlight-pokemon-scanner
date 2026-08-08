@@ -84,6 +84,9 @@ export function PageTabs<V extends string>({
   );
 }
 
+/** How far the active underline extends past its label, per side. */
+const UNDERLINE_OVERHANG = 4;
+
 const styles = StyleSheet.create({
   root: {
     width: '100%',
@@ -119,5 +122,10 @@ const styles = StyleSheet.create({
   underline: {
     height: 2,
     alignSelf: 'stretch',
+    // 4pt past the label on each side (8pt wider overall). `stretch` alone hugs
+    // the text exactly, which made the stroke read as clipped to the word rather
+    // than marking the tab. Negative margin rather than a width, so it still
+    // tracks each label's own width instead of being pinned to one number.
+    marginHorizontal: -UNDERLINE_OVERHANG,
   },
 });

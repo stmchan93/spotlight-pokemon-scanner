@@ -4,7 +4,10 @@ import {
   type LayoutChangeEvent,
   Linking,
   Pressable,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   RefreshControl,
+  type ScrollView,
   Share,
   StyleSheet,
   type TextInput,
@@ -63,6 +66,14 @@ import { CollectionListRow } from '@/features/portfolio/components/collection-li
 import { CardActionsSheet } from '@/features/cards/components/card-actions-sheet';
 import { ConfirmDeleteSheet } from '@/features/cards/components/confirm-delete-sheet';
 import { DrawerEdgeSwipe } from '@/components/drawer-edge-swipe';
+import {
+  AnimatedFlatList,
+  AnimatedScrollView,
+  CollapsibleTabPager,
+  PageSwipeGuard,
+  type CollapsiblePageProps,
+  type CollapsibleScrollTarget,
+} from '@/components/page-tab-pager';
 import { EkalightMark } from '@/components/ekalight-mark';
 import { ScanTabIcon } from '@/components/nav-tab-icons';
 import { ScrollToTopFab, useScrollToTop } from '@/components/scroll-to-top-fab';
@@ -103,6 +114,9 @@ const PROFILE_TABS: readonly PageTab<ProfileTab>[] = [
   { value: 'forsale', label: 'For Sale' },
   { value: 'activity', label: 'Activity' },
 ];
+// Left→right order the horizontal page swipe walks. Derived from PROFILE_TABS so
+// the two can never disagree about which tab is "next".
+const PROFILE_TAB_ORDER = PROFILE_TABS.map((tab) => tab.value);
 
 // Press-and-hold duration before a card's actions menu opens — a standard
 // long-press (iOS context menus sit around here).
@@ -130,9 +144,10 @@ const BUBBLE_SIZE = glassNavBubbleSizes.medium;
 /** Spacing between adjacent bubbles in the same top corner. */
 const BUBBLE_GAP = 8;
 // Figma 2724:1757 — 24px total between the profile tab bar and the Portfolio
-// balance. The chrome wrapper already contributes a 16px inter-child gap, so this
-// marginTop adds only the remaining 8px (16 + 8 = 24).
-const TABS_TO_BALANCE_GAP = 8;
+// balance. This used to be 8 because the shared header wrapper contributed a
+// 16px inter-child gap on top of it; the tab bar now lives in the pinned chrome
+// ABOVE the page, so this carries the whole gap on its own.
+const TABS_TO_BALANCE_GAP = 24;
 
 type PortfolioScreenProps = {
   onOpenInventoryEntry?: (entry: InventoryCardEntry) => void;
@@ -286,7 +301,6 @@ export function PortfolioScreen({
   // OVER the profile cover hero, which is full-bleed to the very top (under the
   // status bar) — so the scroll content starts at 0.
   const bubbleTop = insets.top + 8;
-  const listTopInset = 0;
   // NOTE: no guest on-mount redirect here. This screen is mounted *alongside*
   // the scanner in the tabs pager (both pages live at once), so a redirect would
   // fire the instant a guest lands on the scanner and bounce them to login.
@@ -341,8 +355,28 @@ export function PortfolioScreen({
   const pendingDismissActionRef = useRef<(() => void) | null>(null);
   const [singleDeleteEntry, setSingleDeleteEntry] = useState<InventoryCardEntry | null>(null);
   const [isSingleDeleting, setIsSingleDeleting] = useState(false);
+  // One scroller per page tab. The pager keeps their vertical offsets in step
+  // so a horizontal swipe can never reveal a page whose header sits somewhere
+  // else; `scrollRef` (Collection) is also the one the scroll-to-top FAB and
+  // the search-focus scroll drive, since it is the only long list.
   const scrollRef = useRef<FlatList<CollectionRow>>(null);
-  // Y offset of the search row within the list header chrome, captured on
+  const forSaleScrollRef = useRef<ScrollView>(null);
+  const activityScrollRef = useRef<FlatList<CollectionRow>>(null);
+  const pageScrollRefs = useMemo<
+    Partial<Record<ProfileTab, { readonly current: CollapsibleScrollTarget | null }>>
+  >(
+    () => ({
+      collection: scrollRef,
+      forsale: forSaleScrollRef,
+      activity: activityScrollRef,
+    }),
+    [],
+  );
+  // Height of the pinned chrome (profile header + tab bar), captured from the
+  // page props so `handleSearchFocus` can convert a layout y inside the page's
+  // own header into a content offset.
+  const chromePaddingRef = useRef(0);
+  // Y offset of the search row within the page header chrome, captured on
   // layout so focusing the field can scroll it into a keyboard-safe position.
   const searchRowYRef = useRef(0);
   // The collection search input, so the top-bar search bubble can scroll the
@@ -853,15 +887,25 @@ export function PortfolioScreen({
     searchRowYRef.current = event.nativeEvent.layout.y;
   }, []);
 
-  // The search row lives inside the list header, so its content offset is the
-  // FlatList's top inset plus its measured y within the header chrome.
+  // The search row lives inside the Collection page's own list header, which
+  // starts below the pinned chrome — so its content offset is that chrome's
+  // height plus the row's measured y within the page header.
   const handleSearchFocus = useCallback(() => {
     const offset = Math.max(
-      listTopInset + searchRowYRef.current - SEARCH_FOCUS_TOP_GAP,
+      chromePaddingRef.current + searchRowYRef.current - SEARCH_FOCUS_TOP_GAP,
       0,
     );
     scrollRef.current?.scrollToOffset({ offset, animated: true });
-  }, [listTopInset]);
+  }, []);
+
+  // The horizontal page-tab swipe stands down while the collection filter field
+  // has focus — the keyboard is up and the user is typing, not paging. Read from
+  // the input itself rather than a mirrored flag: `CollectionSearchRow` forwards
+  // `onFocus` but no `onBlur`, so there would be no reliable moment to clear one.
+  const isSearchFieldFocused = useCallback(
+    () => searchInputRef.current?.isFocused() === true,
+    [],
+  );
 
   // Top-bar search bubble opens the catalog "Search Cards" screen. It used to
   // scroll down to the inline collection-filter field, which reads as the same
@@ -1077,8 +1121,13 @@ export function PortfolioScreen({
     </>
   );
 
-  const listHeader = (
-    <View style={styles.chrome}>
+  // ── The PINNED chrome ──────────────────────────────────────────────────────
+  // Profile block + tab bar are rendered ONCE, above all three pages. The
+  // profile block still scrolls away (the pager translates it up with the active
+  // page's offset); the tab bar stops at the top and pins. Both need an opaque
+  // background — page content scrolls UNDER them.
+  const pagerHeader = (
+    <View style={[styles.pinnedBlock, { backgroundColor: theme.colors.gray0 }]}>
       <ProfileHeader
         avatarUrl={currentUser?.avatarURL}
         bio={currentUser?.bio}
@@ -1098,23 +1147,28 @@ export function PortfolioScreen({
         socialLink={currentUser?.socialLink}
         testID="portfolio-header-title"
       />
+    </View>
+  );
+
+  const pagerTabBar = (
+    <View style={{ backgroundColor: theme.colors.gray0 }}>
       <PageTabs
         onChange={setActiveProfileTab}
         tabs={PROFILE_TABS}
         testID="portfolio-profile-tabs"
         value={activeProfileTab}
       />
-      {activeProfileTab === 'activity' ? null : activeProfileTab === 'forsale' ? (
-        <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
-          <StateCard
-            message="For Sale is coming soon."
-            style={styles.emptyStateCard}
-            title="Coming soon"
-            variant="field"
-          />
-        </View>
-      ) : shouldShowInitialError ? (
-        <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
+    </View>
+  );
+
+  // ── The Collection page's OWN header ───────────────────────────────────────
+  // Balance, chart, stale hint, search row and filter chips used to be siblings
+  // of the profile block in one shared list header. They belong to Collection
+  // only, so they move into that page and scroll under the pinned tab bar.
+  const collectionChrome = (
+    <View style={styles.chrome}>
+      {shouldShowInitialError ? (
+        <View style={{ paddingHorizontal: theme.layout.pageGutter, paddingTop: TABS_TO_BALANCE_GAP }}>
           <StateCard
             message={model.loadError || 'Please try again once your backend is reachable.'}
             title="Could not load your backend data"
@@ -1177,10 +1231,15 @@ export function PortfolioScreen({
             />
           </View>
 
-          <CollectionFilterChipRow
-            activeFilter={activeFilter}
-            onFilterChange={setActiveFilter}
-          />
+          {/* The chips scroll horizontally, so without this guard the page swipe
+              (a capture-phase ancestor, and therefore asked first) would page the
+              tabs instead of scrolling to the rarity chips. */}
+          <PageSwipeGuard>
+            <CollectionFilterChipRow
+              activeFilter={activeFilter}
+              onFilterChange={setActiveFilter}
+            />
+          </PageSwipeGuard>
         </>
       )}
     </View>
@@ -1248,25 +1307,61 @@ export function PortfolioScreen({
     </View>
   );
 
-  return (
-    /*
-      Left-edge drag opens the hamburger drawer. This lived in TopTabsPager's pan
-      responder and was lost with it — the drawer BUTTON kept working, the drag
-      did not.
+  // One scroller per page tab. Each keeps its OWN virtualization — the heavy
+  // Collection list is exactly as virtualized as it was when it was the whole
+  // screen. `page` carries the padding, the animated scroll handler and the
+  // refresh-spinner offset the pager needs; spread it, never wrap `page.onScroll`
+  // in another function or it silently loses the native driver.
+  const renderProfilePage = (tab: ProfileTab, page: CollapsiblePageProps) => {
+    // Captured for `handleSearchFocus`, which has to turn a layout y inside the
+    // Collection page header into an absolute content offset.
+    chromePaddingRef.current = page.contentContainerStyle.paddingTop;
 
-      WRAPPER, not an edge overlay. As a sibling strip it depended on touches
-      hit-testing to it, and the collection list swallowed them first, so the
-      gesture never fired. Wrapping means the recogniser sits above everything in
-      the tree and sees every touch through the CAPTURE phase — exactly what the
-      pager did (`onMoveShouldSetPanResponderCapture`) and for exactly this
-      reason. It claims the gesture only once it is unambiguously a drawer swipe,
-      which cancels the card underneath; ordinary scrolls are never claimed.
-    */
-    <DrawerEdgeSwipe>
-    <SafeAreaView
-      edges={['left', 'right']}
-      style={[styles.safeArea, { backgroundColor: theme.colors.gray0 }]}
-    >
+    if (tab === 'forsale') {
+      return (
+        <AnimatedScrollView
+          ref={forSaleScrollRef}
+          contentContainerStyle={page.contentContainerStyle}
+          onScroll={page.onScroll}
+          scrollEventThrottle={page.scrollEventThrottle}
+          testID="portfolio-forsale-page"
+        >
+          <View
+            style={{
+              paddingHorizontal: theme.layout.pageGutter,
+              paddingTop: TABS_TO_BALANCE_GAP,
+            }}
+          >
+            <StateCard
+              message="For Sale is coming soon."
+              title="Coming soon"
+              variant="field"
+            />
+          </View>
+        </AnimatedScrollView>
+      );
+    }
+
+    if (tab === 'activity') {
+      return (
+        <AnimatedFlatList
+          ref={activityScrollRef}
+          contentContainerStyle={[
+            page.contentContainerStyle,
+            { paddingBottom: bottomNavClearance },
+          ]}
+          data={activityData}
+          keyExtractor={(item) => item.key}
+          ListEmptyComponent={activityEmpty}
+          onScroll={page.onScroll}
+          renderItem={renderItem}
+          scrollEventThrottle={page.scrollEventThrottle}
+          testID="portfolio-activity-page"
+        />
+      );
+    }
+
+    return (
       <View
         /*
           THIS IS WHAT MAKES THE NATIVE TAB BAR MINIMIZE ON SCROLL. Not a
@@ -1286,10 +1381,8 @@ export function PortfolioScreen({
               for none of the conditions
           and `sliceChildShadowNodeViewPairs.cpp` then mounts a node whose
           children are "flattened" as a real but EMPTY view, re-parenting its
-          children as its own next SIBLINGS. So this wrapper was mounted at
-          index 0 of the SafeAreaView and the FlatList at index 1 — the walk hit
-          the empty wrapper and returned nil, and UIKit had no scroll view to
-          track.
+          children as its own next SIBLINGS, which ends the walk at an empty view
+          and leaves UIKit with no scroll view to track.
 
           `collapsable={false}` forces formsStackingContext, so the FlatList
           stays inside this view and index 0 leads to it at every level. This is
@@ -1297,8 +1390,10 @@ export function PortfolioScreen({
           software-mansion/react-native-screens#3954 (closed as answered), for
           this exact symptom.
 
-          It changes nothing else: this view has one child, so z-order and
-          layout are identical either way.
+          The pager renders the PAGES before the pinned chrome for the same
+          reason — see the note in `page-tab-pager.tsx`. Collection is page 0, so
+          it is the list the walk reaches; the other two tabs do not drive the
+          minimize, which is the one thing this restructure gives up.
         */
         collapsable={false}
         style={styles.listWrap}
@@ -1310,7 +1405,7 @@ export function PortfolioScreen({
               : 'collection-list-view'
         }
       >
-        <FlatList
+        <AnimatedFlatList
           ref={scrollRef}
           // Keyboard handling for the in-header search field: inset the scroll
           // content by the keyboard height so a small (e.g. single-result)
@@ -1348,36 +1443,23 @@ export function PortfolioScreen({
           contentInsetAdjustmentBehavior="automatic"
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{
-            paddingTop: listTopInset,
-            paddingBottom: bottomNavClearance,
-          }}
-          data={
-            activeProfileTab === 'collection'
-              ? listData
-              : activeProfileTab === 'activity'
-                ? activityData
-                : []
-          }
+          contentContainerStyle={[
+            page.contentContainerStyle,
+            { paddingBottom: bottomNavClearance },
+          ]}
+          data={listData}
           keyExtractor={(item) => item.key}
-          ListEmptyComponent={
-            activeProfileTab === 'collection'
-              ? listEmpty
-              : activeProfileTab === 'activity'
-                ? activityEmpty
-                : null
-          }
-          ListFooterComponent={activeProfileTab === 'collection' && listData.length > 0 ? <View style={styles.footerSpacer} /> : null}
-          ListHeaderComponent={listHeader}
+          ListEmptyComponent={listEmpty}
+          ListFooterComponent={listData.length > 0 ? <View style={styles.footerSpacer} /> : null}
+          ListHeaderComponent={collectionChrome}
           onLayout={handleLayout}
-          onScroll={handleScroll}
+          onScroll={page.onScroll}
           refreshControl={(
             <RefreshControl
               onRefresh={model.refresh}
-              // The list starts under the notch (SafeAreaView only insets
-              // left/right), so without an offset the spinner spins up against
-              // the status bar. Drop it below the safe-area top.
-              progressViewOffset={insets.top + 8}
+              // Drop the spinner below the pinned chrome rather than letting it
+              // spin up behind the profile header / tab bar.
+              progressViewOffset={page.progressViewOffset}
               refreshing={model.isRefreshing}
               testID="portfolio-refresh-control"
               tintColor={theme.colors.gray400}
@@ -1385,10 +1467,61 @@ export function PortfolioScreen({
           )}
           renderItem={renderItem}
           scrollEnabled={!isChartScrubbing}
-          scrollEventThrottle={16}
+          scrollEventThrottle={page.scrollEventThrottle}
           testID="portfolio-scroll-view"
         />
       </View>
+    );
+  };
+
+  // Only the Collection page drives the scroll-to-top FAB and the bottom-bar
+  // minimize signal: it is the only page long enough for either to mean
+  // anything, and `scrollToTop` targets its ref.
+  const handlePageScroll = (tab: ProfileTab, event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (tab === 'collection') {
+      handleScroll(event);
+    }
+  };
+
+  return (
+    /*
+      Left-edge drag opens the hamburger drawer. This lived in TopTabsPager's pan
+      responder and was lost with it — the drawer BUTTON kept working, the drag
+      did not.
+
+      WRAPPER, not an edge overlay. As a sibling strip it depended on touches
+      hit-testing to it, and the collection list swallowed them first, so the
+      gesture never fired. Wrapping means the recogniser sits above everything in
+      the tree and sees every touch through the CAPTURE phase — exactly what the
+      pager did (`onMoveShouldSetPanResponderCapture`) and for exactly this
+      reason. It claims the gesture only once it is unambiguously a drawer swipe,
+      which cancels the card underneath; ordinary scrolls are never claimed.
+    */
+    <DrawerEdgeSwipe>
+    <SafeAreaView
+      edges={['left', 'right']}
+      style={[styles.safeArea, { backgroundColor: theme.colors.gray0 }]}
+    >
+      {/*
+        Collapsing profile header, pinned tab bar, drag-following pages beneath.
+        INSIDE `DrawerEdgeSwipe`, so the drawer's capture handler is asked first;
+        the two never actually race because this one ignores the 24pt left-edge
+        band the drawer owns. It is also the FIRST child of the SafeAreaView, so
+        the `subviews[0]` walk still reaches the Collection list.
+      */}
+      <CollapsibleTabPager
+        disabled={editMode}
+        header={pagerHeader}
+        onChange={setActiveProfileTab}
+        onPageScroll={handlePageScroll}
+        order={PROFILE_TAB_ORDER}
+        pageRefs={pageScrollRefs}
+        renderPage={renderProfilePage}
+        shouldStandDown={isSearchFieldFocused}
+        tabBar={pagerTabBar}
+        testID="portfolio-page-tab-pager"
+        value={activeProfileTab}
+      />
 
       {headerBubbles}
 
@@ -1550,6 +1683,11 @@ const styles = StyleSheet.create({
     // the gap from the filter chips to the first card row to 16px (Figma
     // 1252:2596) — the first row carries only a top hairline, no padding.
     gap: 16,
+    paddingBottom: 16,
+  },
+  // The profile block inside the pinned chrome. It carries the 16px that the
+  // shared header wrapper's `gap` used to put between it and the tab bar.
+  pinnedBlock: {
     paddingBottom: 16,
   },
   composePrompt: {
