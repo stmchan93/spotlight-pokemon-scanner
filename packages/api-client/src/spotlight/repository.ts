@@ -65,6 +65,8 @@ import type {
   LabelingSessionArtifactUploadPayload,
   LabelingSessionCreatePayload,
   LabelingSessionRecord,
+  NormalizedBox,
+  NormalizedPoint,
   PortfolioEntryBulkDeleteRequestPayload,
   PortfolioEntryBulkDeleteResponsePayload,
   PortfolioEntryDeleteRequestPayload,
@@ -95,6 +97,7 @@ import type {
   PortfolioSaleRequestPayload,
   PortfolioSaleResponsePayload,
   ProfileAvatarUploadResult,
+  ProfileCoverUploadResult,
   PostMediaUploadResult,
   ProfileDeckEntriesQuery,
   ProfilePortfolioSummary,
@@ -146,6 +149,10 @@ export interface SpotlightRepository {
   listCollections(): Promise<CollectionsSnapshot>;
   /** Create a named collection. Returns it, empty. */
   createCollection(name: string): Promise<Collection>;
+  /** Rename a collection and/or toggle whether it counts toward totals. */
+  updateCollection(input: { collectionID: string; name?: string; hidden?: boolean }): Promise<void>;
+  /** Delete a collection AND the holdings inside it. Returns how many went. */
+  deleteCollection(collectionID: string): Promise<{ deletedEntryCount: number }>;
   loadPortfolioDashboard(options?: {
     range?: keyof PortfolioDashboard['ranges'];
     collectionID?: string | null;
@@ -176,6 +183,13 @@ export interface SpotlightRepository {
    * client-supplied id, so it can only ever replace the caller's own avatar.
    */
   uploadProfileAvatar(jpegBytes: ArrayBuffer | Uint8Array): Promise<ProfileAvatarUploadResult>;
+  /**
+   * Upload the caller's own profile COVER banner (a resized wide JPEG). Same
+   * owner-scoping guarantee as `uploadProfileAvatar` — the object path comes
+   * from the authenticated identity, so it can only replace the caller's own
+   * cover — but a separate object, so changing one never clobbers the other.
+   */
+  uploadProfileCover(jpegBytes: ArrayBuffer | Uint8Array): Promise<ProfileCoverUploadResult>;
   /** Upload one image for an already-created post; returns the new media id. */
   uploadPostMedia(postId: string, jpegBytes: ArrayBuffer | Uint8Array): Promise<PostMediaUploadResult>;
   loadCatalogCards(query: string, limit?: number, offset?: number, options?: CatalogSearchOptions): Promise<CatalogSearchLoadResult>;
@@ -525,6 +539,12 @@ type ProfilePortfolioSummaryDTO = {
 // avatar. Value arrives untrusted and is normalized.
 type ProfileAvatarUploadResponseDTO = {
   avatarUrl?: unknown;
+};
+
+// Response of POST /api/v1/profile/cover — the public URL of the just-stored
+// cover banner. Value arrives untrusted and is normalized.
+type ProfileCoverUploadResponseDTO = {
+  coverUrl?: unknown;
 };
 
 // Response of POST /api/v1/post-media — the id of the just-inserted post_media
@@ -1418,6 +1438,49 @@ function normalizeBoolean(value: unknown) {
   return typeof value === 'boolean' ? value : null;
 }
 
+/**
+ * A 0..1 normalized box, or null when the field is absent/malformed/degenerate.
+ * Used by the "Who's That Pokémon" segmentation geometry, which is entirely
+ * optional — every consumer must handle null.
+ */
+function normalizeNormalizedBox(value: unknown): NormalizedBox | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const x = normalizeNumber(value.x);
+  const y = normalizeNumber(value.y);
+  const width = normalizeNumber(value.width);
+  const height = normalizeNumber(value.height);
+  if (x == null || y == null || width == null || height == null) {
+    return null;
+  }
+  if (width <= 0 || height <= 0) {
+    return null;
+  }
+  return { x, y, width, height };
+}
+
+/** Ordered 0..1 normalized outline points, or null when unusable. */
+function normalizeNormalizedOutline(value: unknown): NormalizedPoint[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const points: NormalizedPoint[] = [];
+  for (const entry of value) {
+    if (!isRecord(entry)) {
+      continue;
+    }
+    const x = normalizeNumber(entry.x);
+    const y = normalizeNumber(entry.y);
+    if (x == null || y == null) {
+      continue;
+    }
+    points.push({ x, y });
+  }
+  // Too few points to describe a shape — treat as absent.
+  return points.length >= 8 ? points : null;
+}
+
 /** One collection row from the server, or null when it is unusable (no id/name). */
 function mapCollection(value: unknown): Collection | null {
   if (!isRecord(value)) {
@@ -1435,6 +1498,7 @@ function mapCollection(value: unknown): Collection | null {
     cardCount: normalizeNumber(value.cardCount) ?? 0,
     totalValue: normalizeNumber(value.totalValue) ?? 0,
     isDefault: normalizeBoolean(value.isDefault) ?? false,
+    hidden: normalizeBoolean(value.hidden) ?? false,
   };
 }
 
@@ -3001,6 +3065,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
         cardCount,
         totalValue,
         isDefault: true,
+        hidden: false,
       },
       ...this.createdCollections,
     ];
@@ -3024,9 +3089,30 @@ export class MockSpotlightRepository implements SpotlightRepository {
       cardCount: 0,
       totalValue: 0,
       isDefault: false,
+      hidden: false,
     };
     this.createdCollections.push(collection);
     return collection;
+  }
+
+  async updateCollection(input: { collectionID: string; name?: string; hidden?: boolean }) {
+    const target = this.createdCollections.find((entry) => entry.id === input.collectionID);
+    if (target) {
+      if (input.name != null) {
+        target.name = input.name;
+      }
+      if (input.hidden != null) {
+        target.hidden = input.hidden;
+      }
+    }
+  }
+
+  async deleteCollection(collectionID: string) {
+    const before = this.createdCollections.length;
+    this.createdCollections = this.createdCollections.filter(
+      (entry) => entry.id !== collectionID,
+    );
+    return { deletedEntryCount: before === this.createdCollections.length ? 0 : 0 };
   }
 
   async loadPortfolioDashboard(options?: {
@@ -3142,6 +3228,14 @@ export class MockSpotlightRepository implements SpotlightRepository {
     // Offline/test double: echo a stable placeholder URL so the edit-profile
     // flow can render the "uploaded" avatar without a real bucket.
     return { avatarUrl: 'https://storage.googleapis.com/mock-avatars/avatars/mock-user.jpg' };
+  }
+
+  async uploadProfileCover(
+    _jpegBytes: ArrayBuffer | Uint8Array,
+  ): Promise<ProfileCoverUploadResult> {
+    // Offline/test double: same shape as the avatar double, a stable wide-banner
+    // URL so the edit-profile flow can render the "uploaded" cover.
+    return { coverUrl: 'https://storage.googleapis.com/mock-avatars/covers/mock-user.jpg' };
   }
 
   async uploadPostMedia(
@@ -4302,6 +4396,29 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     return collection;
   }
 
+  async updateCollection(input: { collectionID: string; name?: string; hidden?: boolean }) {
+    await this.requestJsonOrThrow<{ collection?: unknown }>(
+      `${this.baseUrl}/api/v1/collections/update`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      },
+    );
+  }
+
+  async deleteCollection(collectionID: string) {
+    const response = await this.requestJsonOrThrow<{ deletedEntryCount?: unknown }>(
+      `${this.baseUrl}/api/v1/collections/delete`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ collectionID }),
+      },
+    );
+    return { deletedEntryCount: normalizeNumber(response.deletedEntryCount) ?? 0 };
+  }
+
   async loadPortfolioDashboard(options?: {
     range?: keyof PortfolioDashboard['ranges'];
     collectionID?: string | null;
@@ -4725,6 +4842,32 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     return { avatarUrl };
   }
 
+  async uploadProfileCover(
+    jpegBytes: ArrayBuffer | Uint8Array,
+  ): Promise<ProfileCoverUploadResult> {
+    // Byte-for-byte the same lane as `uploadProfileAvatar` (raw image/jpeg body,
+    // owner resolved from the auth header, no retry across fallback base URLs) —
+    // only the path and the returned key differ.
+    const payload = await this.requestJsonOrThrow<ProfileCoverUploadResponseDTO>(
+      `${this.baseUrl}/api/v1/profile/cover`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'image/jpeg' },
+        body: jpegBytes as BodyInit,
+      },
+      { candidateStrategy: 'single_active' },
+    );
+
+    const coverUrl = normalizeString(payload?.coverUrl);
+    if (!coverUrl) {
+      throw new SpotlightRepositoryRequestError(
+        'Cover upload did not return a URL.',
+        'invalid_response',
+      );
+    }
+    return { coverUrl };
+  }
+
   async uploadPostMedia(
     postId: string,
     jpegBytes: ArrayBuffer | Uint8Array,
@@ -5084,6 +5227,9 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     const response = await this.requestJsonOrThrow<{
       matches?: unknown;
       personCutoutPngBase64?: unknown;
+      personBounds?: unknown;
+      headBox?: unknown;
+      speciesOutline?: unknown;
     }>(
       `${this.baseUrl}/api/v1/whos-that-pokemon`,
       {
@@ -5126,6 +5272,12 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     return {
       matches,
       personCutoutUri: cutoutBase64 ? `data:image/png;base64,${cutoutBase64}` : null,
+      // Segmentation geometry — all optional. `personBounds`/`headBox` are
+      // normalized to the ORIGINAL SELFIE; `speciesOutline` is normalized to
+      // the ARTWORK IMAGE. The reveal handles every one of them being null.
+      personBounds: normalizeNormalizedBox(response.personBounds),
+      headBox: normalizeNormalizedBox(response.headBox),
+      speciesOutline: normalizeNormalizedOutline(response.speciesOutline),
     };
   }
 

@@ -74,13 +74,19 @@ describe('WishlistScreen', () => {
     });
   });
 
-  it('highlights the Wishlist tab in the bottom nav (filled bookmark)', async () => {
+  // Was: "highlights the Wishlist tab in the bottom nav (filled bookmark)".
+  // Wishlist is a real tab now (`(tabs)/wishlist.tsx`) and the bar is Apple's
+  // native iOS 26 one, drawn by UIKit from `(tabs)/_layout.tsx` — there is no JS
+  // bar left to assert a selected state on, and it can't be reached from jest.
+  // Inverted into the regression guard for the bug that motivated the change:
+  // the screen kept rendering its own `AppBottomTabBar`, so the user saw TWO
+  // stacked bottom bars.
+  it('renders no JS bottom tab bar — the native tab bar is the only one', async () => {
     renderWishlistScreen();
-    const tab = await screen.findByTestId('bottom-nav-wishlist');
-    expect(tab.props.accessibilityState?.selected).toBe(true);
-    // Collection is no longer the highlighted tab while on Wishlist.
-    const portfolioTab = await screen.findByTestId('bottom-nav-portfolio');
-    expect(portfolioTab.props.accessibilityState?.selected).toBe(false);
+    await screen.findByTestId('wishlist-header-title');
+    expect(screen.queryByTestId('bottom-nav-wishlist')).toBeNull();
+    expect(screen.queryByTestId('bottom-nav-portfolio')).toBeNull();
+    expect(screen.queryByTestId('bottom-nav-scan')).toBeNull();
   });
 
   it('renders the whole list view virtualized, with no View More gate', async () => {
@@ -327,7 +333,10 @@ describe('WishlistScreen', () => {
     expect(setCardFavorite).toHaveBeenCalledWith('charizard', false);
   });
 
-  it('enters edit mode from the header, swapping in Done + the edit bar and hiding the tab bar', async () => {
+  // The "hides the tab bar" half of this test is gone: that was the JS
+  // `AppBottomTabBar` this screen used to draw. UIKit owns the bar now and it
+  // can't be hidden per-screen, so edit mode only swaps the header + edit bar.
+  it('enters edit mode from the header, swapping in Done + the edit bar', async () => {
     const favorites = [
       buildFavoriteEntry({ cardId: 'charizard', name: 'Charizard' }),
       buildFavoriteEntry({ cardId: 'gengar', name: 'Gengar ex' }),
@@ -339,8 +348,8 @@ describe('WishlistScreen', () => {
     renderWishlistScreen(repository);
 
     const editButton = await screen.findByTestId('wishlist-header-edit');
-    // The Collection tab is shown in the bottom nav before edit mode.
-    expect(screen.queryByTestId('bottom-nav-portfolio')).toBeTruthy();
+    // The catalog-search FAB is up before edit mode...
+    expect(screen.queryByTestId('collection-add-fab')).toBeTruthy();
 
     await act(async () => {
       fireEvent.press(editButton);
@@ -348,8 +357,8 @@ describe('WishlistScreen', () => {
 
     expect(screen.getByTestId('wishlist-header-done')).toBeTruthy();
     expect(screen.getByTestId('wishlist-edit-bar')).toBeTruthy();
-    // The bottom tab bar is hidden while selecting.
-    expect(screen.queryByTestId('bottom-nav-portfolio')).toBeNull();
+    // ...and is hidden while selecting, so it can't overlap the edit bar.
+    expect(screen.queryByTestId('collection-add-fab')).toBeNull();
   });
 
   it('toggles a row selection (instead of navigating) when tapped in edit mode', async () => {

@@ -13,6 +13,7 @@ import {
   markAnonymousIdentityReleased,
   recordAnonymousIdentityMint,
 } from './anonymous-identity-churn';
+import { isMissingColumnError } from '@/lib/postgrest-errors';
 import {
   supabase,
   supabaseAuthConfig,
@@ -48,6 +49,7 @@ type UserProfileRow = {
   bio?: string | null;
   location?: string | null;
   social_link?: string | null;
+  cover_url?: string | null;
   is_verified?: boolean | null;
   reputation?: number | null;
   follower_count?: number | null;
@@ -60,8 +62,14 @@ const profileSelectWithCapabilities = `${profileSelectBase}, labeler_enabled, ad
 // Full social profile row. Falls back to the narrower selects when the social
 // columns aren't present yet (older env / migration not applied), so a missing
 // column never nulls out the whole profile.
-const profileSelectFull =
+const profileSelectSocial =
   `${profileSelectWithCapabilities}, handle, bio, location, social_link, is_verified, reputation, follower_count, following_count, post_count`;
+// `cover_url` is the newest column and is NOT yet present on every environment.
+// PostgREST fails the whole select on one unknown column, so the cover lives in
+// its own widest tier rather than being folded into `profileSelectSocial`: an
+// env without the column falls back one rung and keeps handle/bio/verified,
+// instead of collapsing all the way to the bare base select.
+const profileSelectFull = `${profileSelectSocial}, cover_url`;
 
 export class AuthCanceledError extends Error {
   constructor(message = 'Authentication was canceled.') {
@@ -138,6 +146,7 @@ function mapUserProfile(row: UserProfileRow): UserProfile {
     bio: row.bio ?? null,
     location: row.location ?? null,
     socialLink: row.social_link ?? null,
+    coverURL: row.cover_url ?? null,
     isVerified: row.is_verified === true,
     reputation: row.reputation ?? 0,
     followerCount: row.follower_count ?? 0,
@@ -218,27 +227,31 @@ export async function fetchProfile(userID: string) {
   }
 
   try {
-    const { data, error } = await supabase
-      .from('user_profiles')
-      .select(profileSelectFull)
-      .eq('user_id', userID)
-      .single();
+    // Widest → narrowest. Each rung drops the columns the environment below it
+    // may not have yet (cover first, then the whole social block), so a single
+    // unmigrated column costs one field, not the entire profile. Only a
+    // MISSING-COLUMN error walks down a rung: any other failure (no row, RLS,
+    // transport) would fail identically on the narrower select, and retrying it
+    // would just spend round trips inside the auth-path timeout.
+    for (const select of [profileSelectFull, profileSelectSocial, profileSelectBase]) {
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select(select)
+        .eq('user_id', userID)
+        .single();
 
-    if (!error && data) {
-      return mapUserProfile(data as UserProfileRow);
+      if (!error && data) {
+        // Double cast: a select whose column list is a runtime variable gives
+        // postgrest-js no literal to infer the row shape from, so it widens to
+        // its error-string union. `UserProfileRow` is the real shape.
+        return mapUserProfile(data as unknown as UserProfileRow);
+      }
+      if (!isMissingColumnError(error)) {
+        return null;
+      }
     }
 
-    const fallback = await supabase
-      .from('user_profiles')
-      .select(profileSelectBase)
-      .eq('user_id', userID)
-      .single();
-
-    if (fallback.error || !fallback.data) {
-      return null;
-    }
-
-    return mapUserProfile(fallback.data as UserProfileRow);
+    return null;
   } catch {
     return null;
   }
@@ -269,6 +282,7 @@ export async function upsertProfile(
     bio: null,
     location: null,
     socialLink: null,
+    coverURL: null,
     isVerified: false,
     reputation: 0,
     followerCount: 0,
@@ -322,6 +336,7 @@ export async function resolveAppUserFromSession(session: Session): Promise<AppUs
     bio: profile?.bio ?? null,
     location: profile?.location ?? null,
     socialLink: profile?.socialLink ?? null,
+    coverURL: profile?.coverURL ?? null,
     isVerified: profile?.isVerified ?? false,
     reputation: profile?.reputation ?? 0,
     followerCount: profile?.followerCount ?? 0,
@@ -406,6 +421,8 @@ export async function updateProfile(
   if (patch.location !== undefined) row.location = patch.location;
   if (patch.socialLink !== undefined) row.social_link = patch.socialLink;
   if (patch.avatarURL !== undefined) row.avatar_url = patch.avatarURL;
+  // Present only when the user picked a new cover — see the ProfileUpdate note.
+  if (patch.coverURL !== undefined) row.cover_url = patch.coverURL;
 
   try {
     if (row.display_name || patch.avatarURL !== undefined) {

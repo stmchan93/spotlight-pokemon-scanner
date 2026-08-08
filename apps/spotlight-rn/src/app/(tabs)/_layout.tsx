@@ -1,5 +1,7 @@
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
 
+import { colors } from '@spotlight/design-system';
+
 const { Trigger } = NativeTabs;
 const { Icon, Label } = Trigger;
 
@@ -22,10 +24,53 @@ const { Icon, Label } = Trigger;
  * react-native-screens 4.25+ (we are on 4.23.0) — a native build, not an OTA.
  *
  * The pager is still in git history if this needs reverting.
+ *
+ * SELECTED-TAB COLOUR — why `tintColor` and nothing else.
+ * Without it UIKit uses the system accent (iOS blue). `tintColor` is the ONE
+ * prop that covers every surface of the selected item, because expo-router fans
+ * it out three ways (expo-router/build/native-tabs/NativeBottomTabsNavigator.js
+ * + NativeTabsView.js):
+ *   1. `selectedIconColor: iconColor.selected ?? tintColor`
+ *      -> standardAppearance.stacked.selected.tabBarItemIconColor  (ICON)
+ *   2. `selectedLabelStyle: { color: tintColor }`
+ *      -> standardAppearance.stacked.selected.tabBarItemTitleFontColor (LABEL)
+ *   3. `tabBarTintColor={tintColor}` on the react-native-screens host, which per
+ *      TabsHost.types.ts also tints the iOS 26 Liquid Glass SELECTION GLOW.
+ * Setting `iconColor`/`labelStyle` on top would only re-state 1 and 2 while
+ * risking a mismatch with 3, so this stays a single source of truth.
+ *
+ * UNSELECTED items are deliberately left alone: expo-router only writes these
+ * values into the `selected`/`focused` appearance states, and react-native-screens
+ * documents that from iOS 26 the unselected items follow the tab bar's own
+ * light/dark appearance. Forcing gray900 on `normal` too would kill that
+ * contrast in dark mode.
+ *
+ * `minimizeBehavior` IS KNOWN NOT TO WORK AT react-native-screens 4.23.0.
+ * It is left set because it is correct and costs nothing, but do not spend more
+ * time on the JS side — the blocker is native and outside this repo:
+ *   - The prop reaches UIKit fine: expo-router forwards it as
+ *     `tabBarMinimizeBehavior`, and RNSBottomTabsHostComponentView assigns
+ *     `_controller.tabBarMinimizeBehavior` (guarded by an iOS 26 SDK check).
+ *   - UIKit then has to work out WHICH scroll view to track, via
+ *     `UIViewController.contentScrollView(for:)`. react-native-screens 4.23.0
+ *     never implements or calls it — `grep -r contentScrollView` over its `ios/`
+ *     dir finds only an unused `RNSScrollViewFinder` helper. So resolution is
+ *     left entirely to UIKit's own shallow auto-detection.
+ *   - That auto-detection loses the list behind the styled UIViews stacked
+ *     between the tab screen and it. Two of those are added by EXPO-ROUTER, not
+ *     by us: `Screen()` in expo-router/build/native-tabs/NativeTabsView.js wraps
+ *     every iOS tab in a `<SafeAreaProvider>` and then a
+ *     `<View collapsable={false}>` carrying backgroundColor + overflow:'hidden'.
+ *     Nothing exposed on NativeTabs or Trigger removes them.
+ *     Upstream: software-mansion/react-native-screens#4145 (and #3954), which
+ *     ask for `contentScrollViewForEdge:` on RNSTabsScreenViewController.
+ * Setting `contentInsetAdjustmentBehavior` on the list does NOT fix this —
+ * screens already forces that value; see the note in portfolio-screen.tsx.
+ * Re-test after a screens upgrade past 4.23.0, not before.
  */
 export default function TabsLayout() {
   return (
-    <NativeTabs minimizeBehavior="onScrollDown">
+    <NativeTabs minimizeBehavior="onScrollDown" tintColor={colors.gray900}>
       <Trigger name="index">
         <Icon sf={{ default: 'square.grid.2x2', selected: 'square.grid.2x2.fill' }} />
         <Label>Collection</Label>

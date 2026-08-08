@@ -188,7 +188,8 @@ from post_media_store import (
     content_type_for_path,
 )
 from request_auth import RequestAuthError, RequestIdentity, SupabaseRequestAuthenticator
-from person_cutout import extract_person_cutout_png
+from person_cutout import extract_person_cutout
+from species_outline import species_outline
 from whos_that_share_card import compose_share_card
 
 _OMIT_STRUCTURED_LOG_VALUE = object()
@@ -655,6 +656,25 @@ def _default_dataset_root() -> Path:
     return Path.home() / "spotlight-datasets"
 
 
+def _species_outline_for_match(match: Any) -> list[dict[str, float]] | None:
+    """Silhouette outline points for a match's species; None on anything odd.
+
+    Best-effort garnish for the "Who's That Pokemon" reveal — a bad/missing
+    pokedexId or an unavailable artwork just means the client animates without
+    the outline. Never raises into the request path.
+    """
+    if not isinstance(match, dict):
+        return None
+    pokedex_raw = match.get("pokedexId")
+    if isinstance(pokedex_raw, bool) or not isinstance(pokedex_raw, (int, float, str)):
+        return None
+    try:
+        pokedex_id = int(pokedex_raw)
+    except (TypeError, ValueError):
+        return None
+    return species_outline(pokedex_id, dataset_root=_default_dataset_root())
+
+
 def _default_raw_visual_train_root() -> Path:
     configured = str(os.environ.get("SPOTLIGHT_RAW_VISUAL_TRAIN_ROOT") or "").strip()
     if configured:
@@ -818,6 +838,13 @@ def _apply_multi_collection_schema_patch(connection: sqlite3.Connection) -> None
         CREATE INDEX IF NOT EXISTS idx_collections_owner_user_id
         ON collections(owner_user_id, sort_order, created_at)
         """
+    )
+    # Hidden collections are excluded from every UN-SCOPED holdings read (the
+    # "All Collection" total, the ledger's inventory value, exports). Viewing a
+    # hidden collection directly still works — hiding means "don't count this
+    # toward my portfolio", not "make it unreachable".
+    _sqlite_add_column_if_missing(
+        connection, "collections", "hidden", "INTEGER NOT NULL DEFAULT 0"
     )
     _sqlite_add_column_if_missing(connection, "deck_entries", "collection_id", "TEXT")
     # Safe to build inline: deck_entries holds user holdings (thousands of rows),
@@ -13043,12 +13070,26 @@ class SpotlightScanService:
             ] or None
         started = perf_counter()
         matches = identify_pokemon_lookalike(selfie_bytes, palette_hints=palette_hints)
-        # Person cutout (PNG with alpha) so the app's morph can grab the user's
-        # actual outline. Best-effort: None → the app falls back to the plain
-        # crossfade. Runs on-VM (u2netp via onnxruntime) — the selfie never
-        # leaves our backend for this, and the bytes stay memory-only.
+        # Person cutout (PNG with alpha) plus the geometry the reveal animation
+        # needs to lock a face mesh onto the real head. One segmentation pass
+        # feeds both. Best-effort: None → the app falls back to the plain
+        # crossfade with proportional placement. Runs on-VM (u2netp via
+        # onnxruntime) — the selfie never leaves our backend for this, the
+        # bytes stay memory-only, and no geometry is persisted anywhere.
         cutout_started = perf_counter()
-        cutout_png = extract_person_cutout_png(selfie_bytes)
+        cutout = extract_person_cutout(selfie_bytes)
+        cutout_png = cutout.png_bytes if cutout is not None else None
+        person_bounds = cutout.person_bounds if cutout is not None else None
+        head_box = cutout.head_box if cutout is not None else None
+        cutout_ms = round((perf_counter() - cutout_started) * 1000.0, 1)
+
+        # Silhouette of the top match, so the landmarks can fly out and settle
+        # into the creature's shape. Cached per species (memo + disk), so this
+        # is a dict lookup on every request after the first for that Pokemon.
+        outline_started = perf_counter()
+        outline = _species_outline_for_match(matches[0] if matches else None)
+        outline_ms = round((perf_counter() - outline_started) * 1000.0, 1)
+
         self._emit_structured_log(
             {
                 "severity": "INFO",
@@ -13056,14 +13097,27 @@ class SpotlightScanService:
                 "imageWidth": width,
                 "imageHeight": height,
                 "durationMs": round((perf_counter() - started) * 1000.0, 1),
-                "cutoutMs": round((perf_counter() - cutout_started) * 1000.0, 1),
+                "cutoutMs": cutout_ms,
                 "cutoutBytes": len(cutout_png) if cutout_png else 0,
+                "boundsPresent": bool(person_bounds and head_box),
+                "outlineMs": outline_ms,
+                "outlinePoints": len(outline) if outline else 0,
                 "matchCount": len(matches),
             }
         )
         payload_out: dict[str, Any] = {"matches": matches}
         if cutout_png:
             payload_out["personCutoutPngBase64"] = base64.b64encode(cutout_png).decode("ascii")
+        # Normalized 0..1 against the selfie the client just sent (same frame
+        # as the cutout PNG). Omitted entirely when segmentation fails.
+        if person_bounds:
+            payload_out["personBounds"] = person_bounds
+        if head_box:
+            payload_out["headBox"] = head_box
+        # Normalized 0..1 against the species' official-artwork image — a
+        # different coordinate space from personBounds/headBox.
+        if outline:
+            payload_out["speciesOutline"] = outline
         return payload_out
 
     def compose_pokemon_share_card(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -15077,9 +15131,23 @@ class SpotlightScanService:
                 (SELECT COUNT(*) FROM deck_entry_events WHERE owner_user_id = ?) AS ev_count,
                 (SELECT MAX(created_at) FROM sale_events WHERE owner_user_id = ?) AS sale_created,
                 (SELECT COUNT(*) FROM sale_events WHERE owner_user_id = ?) AS sale_count,
-                (SELECT MAX(price_date) FROM card_price_history_daily) AS price_date
+                (SELECT MAX(price_date) FROM card_price_history_daily) AS price_date,
+                -- Collection membership changes what an un-scoped read returns:
+                -- creating/deleting one changes the set, and hiding one drops its
+                -- cards from every total. Without these the cached payload
+                -- survives a hide and the aggregate keeps counting it.
+                (SELECT COUNT(*) FROM collections WHERE owner_user_id = ?) AS col_count,
+                (
+                    SELECT GROUP_CONCAT(id) FROM (
+                        SELECT id FROM collections
+                        WHERE owner_user_id = ? AND hidden = 1
+                        ORDER BY id
+                    )
+                ) AS col_hidden
             """,
             (
+                owner_user_id,
+                owner_user_id,
                 owner_user_id,
                 owner_user_id,
                 owner_user_id,
@@ -15712,7 +15780,7 @@ class SpotlightScanService:
 
         rows = self.connection.execute(
             """
-            SELECT id, name, sort_order, created_at
+            SELECT id, name, sort_order, created_at, hidden
             FROM collections
             WHERE owner_user_id = ?
             ORDER BY sort_order, created_at, id
@@ -15740,12 +15808,14 @@ class SpotlightScanService:
                     "cardCount": int(summary.get("count") or 0),
                     "totalValue": round(float(summary.get("totalValue") or 0.0), 2),
                     "isDefault": collection_id == default_collection_id,
+                    "hidden": bool(row["hidden"]),
                 }
             )
 
         # The "All Collection" row is the un-scoped read, not a sum of the rows
         # above — so it stays correct even if a holding is ever missing a
-        # collection between the write and the next backfill.
+        # collection between the write and the next backfill. The un-scoped read
+        # already drops hidden collections, so this matches the rows it sits over.
         all_summary = self.deck_entries_for_owner(
             owner_user_id,
             limit=1000,
@@ -15801,6 +15871,95 @@ class SpotlightScanService:
                 "totalValue": 0.0,
                 "isDefault": False,
             }
+        }
+
+    def _owned_collection_row(self, owner_user_id: str, collection_id: str) -> sqlite3.Row:
+        """Fetch one of the CALLER's collections, or raise. Every mutation goes
+        through this so an id belonging to another account can never be renamed,
+        hidden or deleted."""
+        row = self.connection.execute(
+            "SELECT id, name, hidden FROM collections WHERE id = ? AND owner_user_id = ? LIMIT 1",
+            (collection_id, owner_user_id),
+        ).fetchone()
+        if row is None:
+            raise FileNotFoundError("collection not found")
+        return row
+
+    def update_collection(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Rename a collection and/or toggle whether it counts toward totals."""
+        owner_user_id = self._current_owner_user_id()
+        self._ensure_owner_collections(owner_user_id)
+
+        collection_id = str((payload or {}).get("collectionID") or "").strip()
+        if not collection_id:
+            raise ValueError("collectionID is required")
+        row = self._owned_collection_row(owner_user_id, collection_id)
+
+        name = row["name"]
+        if "name" in (payload or {}):
+            requested_name = str(payload.get("name") or "").strip()
+            if not requested_name:
+                raise ValueError("name is required")
+            name = requested_name[: self.COLLECTION_NAME_MAX_LENGTH].strip()
+
+        hidden = bool(row["hidden"])
+        if "hidden" in (payload or {}):
+            hidden = bool(payload.get("hidden"))
+
+        self.connection.execute(
+            "UPDATE collections SET name = ?, hidden = ? WHERE id = ? AND owner_user_id = ?",
+            (name, 1 if hidden else 0, collection_id, owner_user_id),
+        )
+        self.connection.commit()
+        return {"collection": {"id": collection_id, "name": name, "hidden": hidden}}
+
+    def delete_collection(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Delete a collection AND the holdings inside it.
+
+        DESTRUCTIVE by design (the product decision is that the cards go with the
+        collection), so two guards apply:
+
+        * the collection must belong to the caller, and
+        * it may not be their LAST one — otherwise a single tap in a picker wipes
+          the entire portfolio, and the lazy backfill would then hand the account
+          a fresh empty "Main Collection" as if nothing had been there.
+        """
+        owner_user_id = self._current_owner_user_id()
+        self._ensure_owner_collections(owner_user_id)
+
+        collection_id = str((payload or {}).get("collectionID") or "").strip()
+        if not collection_id:
+            raise ValueError("collectionID is required")
+        self._owned_collection_row(owner_user_id, collection_id)
+
+        remaining_row = self.connection.execute(
+            "SELECT COUNT(*) AS total FROM collections WHERE owner_user_id = ?",
+            (owner_user_id,),
+        ).fetchone()
+        if int(remaining_row["total"] or 0) <= 1:
+            raise ValueError("cannot delete your only collection")
+
+        deleted_entries_row = self.connection.execute(
+            "SELECT COUNT(*) AS total FROM deck_entries WHERE owner_user_id = ? AND collection_id = ?",
+            (owner_user_id, collection_id),
+        ).fetchone()
+        deleted_entry_count = int(deleted_entries_row["total"] or 0)
+
+        # Entry rows first: deck_entry_events/sale_events reference them with
+        # ON DELETE CASCADE, so this also clears their history.
+        self.connection.execute(
+            "DELETE FROM deck_entries WHERE owner_user_id = ? AND collection_id = ?",
+            (owner_user_id, collection_id),
+        )
+        self.connection.execute(
+            "DELETE FROM collections WHERE id = ? AND owner_user_id = ?",
+            (collection_id, owner_user_id),
+        )
+        self.connection.commit()
+
+        return {
+            "deletedCollectionID": collection_id,
+            "deletedEntryCount": deleted_entry_count,
         }
 
     def deck_entries_export_csv(self) -> str:
@@ -15949,6 +16108,24 @@ class SpotlightScanService:
         if scoped_collection_id:
             where_clauses.append("collection_id = ?")
             where_params.append(scoped_collection_id)
+        else:
+            # Un-scoped read: drop holdings that live in a hidden collection, so
+            # "All Collection" (and every total derived from an un-scoped read)
+            # matches what the owner asked to be counted. Viewing a hidden
+            # collection directly still returns its cards — that path takes the
+            # branch above.
+            where_clauses.append(
+                """
+                (
+                    collection_id IS NULL
+                    OR collection_id NOT IN (
+                        SELECT id FROM collections
+                        WHERE owner_user_id = ? AND hidden = 1
+                    )
+                )
+                """
+            )
+            where_params.append(owner_user_id)
         if not include_inactive:
             where_clauses.append("quantity > 0")
         if favorites_only:
@@ -18697,6 +18874,51 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, {"avatarUrl": avatar_url})
             return
 
+        if parsed.path == "/api/v1/profile/cover":
+            # Owner-scoped profile COVER upload. Same lane as the avatar above —
+            # raw image/jpeg body, owner derived from the AUTHENTICATED caller,
+            # same public bucket — only the object prefix and response key
+            # differ, so a cover upload can never overwrite an avatar (or
+            # anyone else's cover).
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            if not self._require_access(identity):
+                return
+            avatar_store = self.service.avatar_store
+            if avatar_store is None:
+                self._write_json(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {
+                        "error": "avatar_storage_unconfigured",
+                        "message": "Profile image storage is not configured.",
+                    },
+                )
+                return
+            image_bytes = self._read_raw_image_body()
+            if image_bytes is None:
+                self._write_json(
+                    getattr(self, "_json_body_error_status", HTTPStatus.BAD_REQUEST),
+                    {"error": getattr(self, "_json_body_error_message", "Invalid image body")},
+                )
+                return
+            try:
+                cover_url = avatar_store.store_cover(
+                    user_id=identity.user_id,
+                    jpeg_bytes=image_bytes,
+                )
+            except AvatarStoreError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except Exception as error:  # noqa: BLE001 - upstream/storage failure
+                self._write_json(
+                    HTTPStatus.BAD_GATEWAY,
+                    {"error": f"Cover upload failed: {error}"},
+                )
+                return
+            self._write_json(HTTPStatus.OK, {"coverUrl": cover_url})
+            return
+
         if parsed.path in MULTIPART_SCAN_PATHS and self._is_multipart_request():
             # Multipart lane for scan uploads only: reconstructs the exact JSON
             # payload shape, then falls through to the same endpoint dispatch.
@@ -19504,6 +19726,33 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                     {"error": f"Collection creation failed: {error}"},
+                )
+            return
+
+        if parsed.path in {"/api/v1/collections/update", "/api/v1/collections/delete"}:
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            if not self._require_access(identity):
+                return
+            is_delete = parsed.path.endswith("/delete")
+            try:
+                with self.service.request_identity_context(identity):
+                    self._write_json(
+                        HTTPStatus.OK,
+                        self.service.delete_collection(payload)
+                        if is_delete
+                        else self.service.update_collection(payload),
+                    )
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"Collection update failed: {error}"},
                 )
             return
 

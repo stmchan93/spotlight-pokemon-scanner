@@ -1,4 +1,5 @@
 import type { UserProfile } from '@/features/auth/auth-models';
+import { isMissingColumnError } from '@/lib/postgrest-errors';
 import { supabase } from '@/lib/supabase';
 
 /**
@@ -35,6 +36,7 @@ type PublicProfileRow = {
   bio: string | null;
   location: string | null;
   social_link: string | null;
+  cover_url?: string | null;
   is_verified: boolean | null;
   reputation: number | null;
   follower_count: number | null;
@@ -47,6 +49,12 @@ type PublicProfileRow = {
 // deliberately absent.
 const publicProfileSelect =
   'user_id, display_name, avatar_url, handle, bio, location, social_link, is_verified, reputation, follower_count, following_count, post_count';
+// `cover_url` is the newest column on the view and is not present on every
+// environment yet. PostgREST fails the whole select on one unknown column, so
+// single-profile reads try this first and fall back to `publicProfileSelect` —
+// a not-yet-migrated view costs the banner, not the profile. List reads
+// (followers/following/search) never render a cover and stay on the base select.
+const publicProfileSelectWithCover = `${publicProfileSelect}, cover_url`;
 
 function mapPublicProfile(row: PublicProfileRow): UserProfile {
   return {
@@ -61,6 +69,7 @@ function mapPublicProfile(row: PublicProfileRow): UserProfile {
     bio: row.bio ?? null,
     location: row.location ?? null,
     socialLink: row.social_link ?? null,
+    coverURL: row.cover_url ?? null,
     isVerified: row.is_verified === true,
     reputation: row.reputation ?? 0,
     followerCount: row.follower_count ?? 0,
@@ -83,17 +92,28 @@ async function fetchPublicProfileBy(
   }
 
   try {
-    const { data, error } = await supabase
-      .from(PUBLIC_PROFILES_VIEW)
-      .select(publicProfileSelect)
-      .eq(column, value)
-      .maybeSingle();
+    // Widest first, then the cover-less select. Anything other than a missing
+    // column would fail the same way on the narrower select, so only that walks
+    // down a rung.
+    for (const select of [publicProfileSelectWithCover, publicProfileSelect]) {
+      const { data, error } = await supabase
+        .from(PUBLIC_PROFILES_VIEW)
+        .select(select)
+        .eq(column, value)
+        .maybeSingle();
 
-    if (error || !data) {
-      return null;
+      if (!error && data) {
+        // Double cast: a select whose column list is a runtime variable gives
+        // postgrest-js no literal to infer the row shape from, so it widens to
+        // its error-string union. `PublicProfileRow` is the real shape.
+        return mapPublicProfile(data as unknown as PublicProfileRow);
+      }
+      if (!isMissingColumnError(error)) {
+        return null;
+      }
     }
 
-    return mapPublicProfile(data as PublicProfileRow);
+    return null;
   } catch {
     return null;
   }

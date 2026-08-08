@@ -24,6 +24,7 @@ from server import SpotlightRequestHandler  # noqa: E402
 VALID_USER_ID = "11111111-2222-4333-8444-555555555555"
 JPEG_BYTES = b"\xff\xd8\xff\xe0avatar-bytes\x00\xff\xd9"
 AVATAR_PATH = "/api/v1/profile/avatar"
+COVER_PATH = "/api/v1/profile/cover"
 
 
 # --- Fake GCS plumbing (mirrors test_scan_artifact_store_helpers) -------------
@@ -59,9 +60,10 @@ def make_avatar_post_handler(
     body: bytes,
     service: object,
     content_type: str = "image/jpeg",
+    path: str = AVATAR_PATH,
 ) -> tuple[SpotlightRequestHandler, dict[str, object]]:
     handler = SpotlightRequestHandler.__new__(SpotlightRequestHandler)
-    handler.path = AVATAR_PATH
+    handler.path = path
     handler.service = service
     handler.headers = {
         "Content-Type": content_type,
@@ -209,6 +211,134 @@ class AvatarUploadEndpointTests(unittest.TestCase):
 
         self.assertEqual(captured["status"], HTTPStatus.BAD_REQUEST)
         store.store_avatar.assert_not_called()
+
+
+class CoverStoreTests(unittest.TestCase):
+    def test_store_cover_uses_its_own_prefix_under_the_same_bucket(self) -> None:
+        client = _FakeGCSClient()
+        store = GoogleCloudAvatarStore("ekalight-avatars", client=client)
+
+        url = store.store_cover(user_id=VALID_USER_ID, jpeg_bytes=JPEG_BYTES)
+
+        self.assertEqual(
+            url,
+            f"https://storage.googleapis.com/ekalight-avatars/covers/{VALID_USER_ID}.jpg",
+        )
+        bucket = client.buckets["ekalight-avatars"]
+        object_path = f"covers/{VALID_USER_ID}.jpg"
+        self.assertIn(object_path, bucket.blobs)
+        upload = bucket.blobs[object_path].uploads[-1]
+        self.assertEqual(upload["data"], JPEG_BYTES)
+        self.assertEqual(upload["content_type"], "image/jpeg")
+
+    def test_cover_and_avatar_are_independent_objects(self) -> None:
+        # The point of the separate prefix: uploading a cover must never replace
+        # the avatar (or the other way round).
+        client = _FakeGCSClient()
+        store = GoogleCloudAvatarStore("ekalight-avatars", client=client)
+
+        store.store_avatar(user_id=VALID_USER_ID, jpeg_bytes=b"avatar")
+        store.store_cover(user_id=VALID_USER_ID, jpeg_bytes=b"cover")
+
+        blobs = client.buckets["ekalight-avatars"].blobs
+        self.assertEqual(blobs[f"avatars/{VALID_USER_ID}.jpg"].uploads[-1]["data"], b"avatar")
+        self.assertEqual(blobs[f"covers/{VALID_USER_ID}.jpg"].uploads[-1]["data"], b"cover")
+
+    def test_store_cover_rejects_non_uuid_owner_id(self) -> None:
+        store = GoogleCloudAvatarStore("ekalight-avatars", client=_FakeGCSClient())
+        with self.assertRaises(AvatarStoreError):
+            store.store_cover(user_id="../someone-else", jpeg_bytes=JPEG_BYTES)
+
+
+class CoverUploadEndpointTests(unittest.TestCase):
+    def _service_with_store(self, store: object) -> Mock:
+        service = Mock()
+        service.avatar_store = store
+        service.access_allowed.return_value = True
+        return service
+
+    def test_upload_stores_at_authenticated_owner_path_and_returns_url(self) -> None:
+        client = _FakeGCSClient()
+        store = GoogleCloudAvatarStore("ekalight-avatars", client=client)
+        service = self._service_with_store(store)
+
+        handler, captured = make_avatar_post_handler(
+            body=JPEG_BYTES, service=service, path=COVER_PATH
+        )
+        handler._require_request_identity = lambda: RequestIdentity(  # type: ignore[method-assign]
+            user_id=VALID_USER_ID, auth_source="test"
+        )
+        handler.do_POST()
+
+        self.assertEqual(captured["status"], HTTPStatus.OK)
+        self.assertEqual(
+            captured["payload"],
+            {
+                "coverUrl": (
+                    f"https://storage.googleapis.com/ekalight-avatars/covers/{VALID_USER_ID}.jpg"
+                )
+            },
+        )
+
+    def test_upload_ignores_any_client_supplied_id_and_scopes_to_token(self) -> None:
+        attacker_body = b'{"userId":"99999999-9999-4999-8999-999999999999"}' + JPEG_BYTES
+        store = Mock()
+        store.store_cover.return_value = (
+            f"https://storage.googleapis.com/ekalight-avatars/covers/{VALID_USER_ID}.jpg"
+        )
+        service = self._service_with_store(store)
+
+        handler, captured = make_avatar_post_handler(
+            body=attacker_body, service=service, path=COVER_PATH
+        )
+        handler._require_request_identity = lambda: RequestIdentity(  # type: ignore[method-assign]
+            user_id=VALID_USER_ID, auth_source="test"
+        )
+        handler.do_POST()
+
+        self.assertEqual(captured["status"], HTTPStatus.OK)
+        store.store_cover.assert_called_once_with(
+            user_id=VALID_USER_ID, jpeg_bytes=attacker_body
+        )
+
+    def test_returns_503_when_storage_unconfigured(self) -> None:
+        service = self._service_with_store(None)
+        handler, captured = make_avatar_post_handler(
+            body=JPEG_BYTES, service=service, path=COVER_PATH
+        )
+        handler._require_request_identity = lambda: RequestIdentity(  # type: ignore[method-assign]
+            user_id=VALID_USER_ID, auth_source="test"
+        )
+        handler.do_POST()
+
+        self.assertEqual(captured["status"], HTTPStatus.SERVICE_UNAVAILABLE)
+        self.assertEqual(captured["payload"]["error"], "avatar_storage_unconfigured")
+
+    def test_returns_401_when_unauthenticated(self) -> None:
+        service = self._service_with_store(GoogleCloudAvatarStore("b", client=_FakeGCSClient()))
+        service.authenticator.resolve_identity.side_effect = RequestAuthError(
+            "Authentication required."
+        )
+        handler, captured = make_avatar_post_handler(
+            body=JPEG_BYTES, service=service, path=COVER_PATH
+        )
+        handler.do_POST()
+
+        self.assertEqual(captured["status"], HTTPStatus.UNAUTHORIZED)
+
+    def test_returns_400_when_body_empty(self) -> None:
+        store = Mock()
+        service = self._service_with_store(store)
+        handler, captured = make_avatar_post_handler(
+            body=b"", service=service, path=COVER_PATH
+        )
+        handler._require_request_identity = lambda: RequestIdentity(  # type: ignore[method-assign]
+            user_id=VALID_USER_ID, auth_source="test"
+        )
+        handler.do_POST()
+
+        self.assertEqual(captured["status"], HTTPStatus.BAD_REQUEST)
+        store.store_cover.assert_not_called()
 
 
 if __name__ == "__main__":

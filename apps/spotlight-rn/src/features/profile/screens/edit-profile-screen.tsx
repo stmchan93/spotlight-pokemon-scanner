@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import {
   Alert,
@@ -28,6 +29,14 @@ import { useAuth } from '@/providers/auth-provider';
 const BIO_MAX_LENGTH = 150;
 const COVER_HEIGHT = 176;
 const AVATAR_SIZE = 80;
+/**
+ * Longest edge of the uploaded cover JPEG. The banner renders full-bleed at
+ * 176pt tall on a ~393pt-wide screen, i.e. ~1180px on a 3x device, so 1200 is
+ * one comfortable oversample rather than the 2x the 80pt avatar gets at 512.
+ */
+const COVER_UPLOAD_WIDTH = 1200;
+/** Longest edge of the uploaded avatar JPEG (80pt circle at 3x, oversampled). */
+const AVATAR_UPLOAD_WIDTH = 512;
 /** Camera glyph inside the avatar/cover badges (Figma 3083:12761 / 3083:12763). */
 const CAMERA_ICON_SIZE = 16;
 
@@ -157,71 +166,134 @@ export function EditProfileScreen() {
   const [location, setLocation] = useState(user?.location ?? '');
   const [bio, setBio] = useState(user?.bio ?? '');
   const [avatarUrl, setAvatarUrl] = useState(user?.avatarURL ?? null);
+  const [coverUrl, setCoverUrl] = useState(user?.coverURL ?? null);
+  // Only a cover the user picked in THIS session goes into the save patch —
+  // `updateProfile` writes every key it is handed, and `cover_url` is the newest
+  // column, so an untouched cover must not be part of an ordinary name/bio save.
+  const [coverChanged, setCoverChanged] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   const initials = useMemo(() => (user ? getUserInitials(user) : '?'), [user]);
 
-  const handlePickAvatar = useCallback(async () => {
-    const ImagePicker = loadNativeImagePicker();
-    if (!ImagePicker) {
-      Alert.alert('Update needed', 'Changing your photo needs the latest app version.');
-      return;
-    }
-    if (!user) {
-      return;
-    }
-
-    try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (permission?.granted === false) {
-        Alert.alert('Photos access needed', 'Allow photo access to change your picture.');
-        return;
+  /**
+   * Shared picker → resize → upload lane for both profile images. The only
+   * differences between avatar and cover are the crop shape, the resize width,
+   * and which upload the repository runs; everything else (native-module probe,
+   * permission prompt, JPEG re-encode, cache-buster) is identical by design.
+   *
+   * Returns the public URL to show, or null when the user backed out or the
+   * upload failed.
+   */
+  const pickAndUploadImage = useCallback(
+    async (options: {
+      /** iOS's built-in editor only crops SQUARE, so only the avatar uses it. */
+      allowsEditing: boolean;
+      resizeWidth: number;
+      upload: (bytes: ArrayBuffer) => Promise<string | null>;
+    }): Promise<string | null> => {
+      const ImagePicker = loadNativeImagePicker();
+      if (!ImagePicker) {
+        Alert.alert('Update needed', 'Changing your photo needs the latest app version.');
+        return null;
+      }
+      if (!user) {
+        return null;
       }
 
-      const result = await ImagePicker.launchImageLibraryAsync({
-        allowsEditing: true,
-        aspect: [1, 1],
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 0.8,
-      });
-      if (result?.canceled || !result?.assets?.[0]?.uri) {
-        return;
-      }
-
-      let uploadUri = result.assets[0].uri as string;
-      const ImageManipulator = loadImageManipulator();
-      if (ImageManipulator) {
-        const manipulated = await ImageManipulator.manipulateAsync(
-          uploadUri,
-          [{ resize: { width: 512 } }],
-          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
-        );
-        if (manipulated?.uri) {
-          uploadUri = manipulated.uri;
+      let pickedUri: string | null = null;
+      try {
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (permission?.granted === false) {
+          Alert.alert('Photos access needed', 'Allow photo access to change your picture.');
+          return null;
         }
+
+        const result = await ImagePicker.launchImageLibraryAsync({
+          allowsEditing: options.allowsEditing,
+          ...(options.allowsEditing ? { aspect: [1, 1] as [number, number] } : {}),
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          quality: 0.8,
+        });
+        if (result?.canceled || !result?.assets?.[0]?.uri) {
+          return null;
+        }
+        pickedUri = result.assets[0].uri as string;
+      } catch {
+        // Picker/permission trouble: leave the current image, say nothing. The
+        // user just came from the system sheet and already knows they bailed.
+        return null;
       }
 
-      const response = await fetch(uploadUri);
-      const data = await response.arrayBuffer();
+      try {
+        let uploadUri = pickedUri;
+        const ImageManipulator = loadImageManipulator();
+        if (ImageManipulator) {
+          const manipulated = await ImageManipulator.manipulateAsync(
+            uploadUri,
+            [{ resize: { width: options.resizeWidth } }],
+            { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
+          );
+          if (manipulated?.uri) {
+            uploadUri = manipulated.uri;
+          }
+        }
 
-      // Upload the resized JPEG to the backend, which stores it in the public
-      // GCS avatar bucket and returns the public URL. The object is owner-scoped
-      // by the auth header on the backend, so no user id is sent here. (Supabase
-      // Storage is no longer involved.)
-      const { avatarUrl: publicUrl } = await spotlightRepository.uploadProfileAvatar(data);
-      if (publicUrl) {
+        const response = await fetch(uploadUri);
+        const data = await response.arrayBuffer();
+
+        // Upload the resized JPEG to the backend, which stores it in the public
+        // GCS profile-images bucket and returns the public URL. The object is
+        // owner-scoped by the auth header on the backend, so no user id is sent
+        // here. (Supabase Storage is no longer involved.)
+        const publicUrl = await options.upload(data);
+        if (!publicUrl) {
+          return null;
+        }
         // Cache-bust so the freshly uploaded image replaces the old cached one.
-        setAvatarUrl(`${publicUrl}?t=${Date.now()}`);
+        return `${publicUrl}?t=${Date.now()}`;
+      } catch {
+        // An upload that fails silently is indistinguishable from a broken
+        // feature — the user picked a photo and nothing happened. Say so.
+        Alert.alert('Could not update photo', 'Your photo did not upload. Please try again.');
+        return null;
       }
-    } catch {
-      // Never surface picker/upload failures to the UI — leave the current avatar.
-    }
-  }, [spotlightRepository, user]);
+    },
+    [user],
+  );
 
-  const handlePickCover = useCallback(() => {
-    // Cover images aren't persisted yet — keep the badge non-crashing.
-    Alert.alert('Coming soon', 'Custom cover photos are coming soon.');
-  }, []);
+  const handlePickAvatar = useCallback(async () => {
+    const uploadedUrl = await pickAndUploadImage({
+      allowsEditing: true,
+      resizeWidth: AVATAR_UPLOAD_WIDTH,
+      upload: async (bytes) => {
+        const { avatarUrl: publicUrl } = await spotlightRepository.uploadProfileAvatar(bytes);
+        return publicUrl ?? null;
+      },
+    });
+    if (uploadedUrl) {
+      setAvatarUrl(uploadedUrl);
+    }
+  }, [pickAndUploadImage, spotlightRepository]);
+
+  const handlePickCover = useCallback(async () => {
+    const uploadedUrl = await pickAndUploadImage({
+      // No `allowsEditing` for the banner: expo-image-picker's `aspect` is
+      // Android-only, and iOS's built-in editor forces a SQUARE crop — the user
+      // would frame a square that the 2.2:1 banner then crops again. Taking the
+      // whole picture and letting the header's `contentFit="cover"` do the
+      // cropping is what actually lands the framing they saw.
+      allowsEditing: false,
+      resizeWidth: COVER_UPLOAD_WIDTH,
+      upload: async (bytes) => {
+        const { coverUrl: publicUrl } = await spotlightRepository.uploadProfileCover(bytes);
+        return publicUrl ?? null;
+      },
+    });
+    if (uploadedUrl) {
+      setCoverUrl(uploadedUrl);
+      setCoverChanged(true);
+    }
+  }, [pickAndUploadImage, spotlightRepository]);
 
   const handleVerifyPage = useCallback(() => {
     Alert.alert('Verification coming soon', 'Page verification is coming soon.');
@@ -244,6 +316,9 @@ export function EditProfileScreen() {
         displayName: displayName.trim(),
         location: location.trim(),
         socialLink: socialLink.trim(),
+        // Same reasoning as `handle` above, for the newest column: send
+        // `coverURL` only when the user actually picked one this session.
+        ...(coverChanged ? { coverURL: coverUrl } : {}),
       };
       await auth.updateProfile(patch);
       router.back();
@@ -256,6 +331,8 @@ export function EditProfileScreen() {
     auth,
     avatarUrl,
     bio,
+    coverChanged,
+    coverUrl,
     displayName,
     isSaving,
     location,
@@ -283,6 +360,16 @@ export function EditProfileScreen() {
               left, and a cover-photo camera badge pinned to the bottom-right —
               mirroring the Figma "Banner Section". */}
           <View style={[styles.cover, { backgroundColor: theme.colors.surfaceMuted }]}>
+            {coverUrl ? (
+              // Cropped the same way the profile header crops it, so what you
+              // frame here is what the profile shows.
+              <Image
+                contentFit="cover"
+                source={{ uri: coverUrl }}
+                style={StyleSheet.absoluteFill}
+                testID="edit-profile-cover-image"
+              />
+            ) : null}
             <SafeAreaView edges={['top']} style={styles.coverBar}>
               <Pressable
                 accessibilityLabel="Go back"
@@ -317,7 +404,9 @@ export function EditProfileScreen() {
               accessibilityLabel="Change cover photo"
               accessibilityRole="button"
               hitSlop={8}
-              onPress={handlePickCover}
+              onPress={() => {
+                void handlePickCover();
+              }}
               style={[styles.coverCameraBadge, { backgroundColor: theme.colors.gray0 }]}
               testID="edit-profile-cover-camera"
             >

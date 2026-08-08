@@ -19,11 +19,11 @@ const NAV_DEBOUNCE_MS = 600;
 
 type AppBottomTabBarProps = {
   activeKey?: AppBottomTabKey | null;
-  // Pushed (stack) screens (wishlist/transactions/insights) set this so a
-  // Collection/Wishlist tab tap collapses the pushed stack back to the
-  // target tab instead of pushing a duplicate `(tabs)` route on top (which made
-  // Back return to the page you left). Scan is the exception: it always pushes,
-  // so Back returns to the pushed screen the user scanned from (see goToScan below).
+  // Pushed (stack) screens — after the native-tabs migration that means Insights
+  // and nothing else — set this so a Collection/Wishlist tap collapses the pushed
+  // stack back to the target tab instead of pushing a duplicate `(tabs)` route on
+  // top (which made Back return to the page you left). Scan is the exception: it
+  // always pushes, so Back returns to the screen you scanned from (see goToScan).
   dismissToTabs?: boolean;
   onPressPortfolio?: () => void;
   onPressScan?: () => void;
@@ -73,15 +73,25 @@ export function AppBottomTabBar({
       : () => router.push('/' as never)));
   // Scan, Collection and Wishlist are now TABS, not pager pages, so these
   // navigate to real routes rather than passing `page` params into the tabs
-  // root. This bar only survives on pushed stack screens (insights,
-  // transactions); the tabs themselves are drawn by UIKit.
+  // root. This bar only survives on pushed stack screens (insights); the tabs
+  // themselves are drawn by UIKit.
+  //
+  // Straight to `/scan-camera`, NOT the `/scan` tab. `(tabs)/scan` is only a
+  // launcher that pushes the camera and immediately hands the tab selection back
+  // to Collection; routing through it from a pushed screen would first stack a
+  // second `(tabs)` instance underneath. `/scan-camera` is a ROOT route, so it
+  // pushes over whatever is on screen and Back returns here — which is the
+  // documented intent of Scan being the push exception.
   const goToScan = onPressScan
-    ?? (() => runGuardedNav('scan', () => router.push('/scan' as never)));
-  // Wishlist is a pushed stack screen: replace when already on a stack route
-  // so the back-stack doesn't accumulate, push from the tabs root.
+    ?? (() => runGuardedNav('scan', () => router.push('/scan-camera' as never)));
+  // Wishlist is a TAB now (it used to be a pushed stack screen, which is why
+  // this branch used to `replace`). From a pushed screen, `replace` would swap
+  // the pushed entry for a SECOND `(tabs)` instance stacked on the one already
+  // underneath; dismissTo pops back to the real one and selects the tab — same
+  // treatment Collection already gets one line up.
   const goToWishlist = onPressWishlist
     ?? (() => runGuardedNav('wishlist', dismissToTabs
-      ? () => router.replace('/wishlist' as never)
+      ? () => router.dismissTo('/wishlist' as never)
       : () => router.push('/wishlist' as never)));
 
   // Tapping the tab you are already on is a no-op — re-navigating pushed a

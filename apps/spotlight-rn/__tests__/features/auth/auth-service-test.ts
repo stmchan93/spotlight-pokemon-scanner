@@ -190,6 +190,7 @@ const SOCIAL_PROFILE_DEFAULTS = {
   bio: null,
   location: null,
   socialLink: null,
+  coverURL: null,
   isVerified: false,
   reputation: 0,
   followerCount: 0,
@@ -228,6 +229,58 @@ describe('auth-service profiles', () => {
     });
     expect(supabase.from).toHaveBeenCalledWith('user_profiles');
     expect(table.eq).toHaveBeenCalledWith('user_id', 'user-1');
+  });
+
+  it('retries a NARROWER select when a column is missing, keeping the rest of the profile', async () => {
+    // Production may be several migrations behind the app bundle. PostgREST
+    // fails the WHOLE select on one unknown column, so asking for `cover_url`
+    // on a database that has not run the cover migration must cost the banner
+    // only — not handle/bio/verified, and not the profile itself.
+    const supabase = makeSupabaseMock();
+    const table = profileTableResult({ data: null, error: null });
+    table.single
+      .mockResolvedValueOnce({
+        data: null,
+        error: { code: '42703', message: 'column user_profiles.cover_url does not exist' },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          admin_enabled: false,
+          avatar_url: null,
+          bio: 'Collector',
+          display_name: 'Table Vendor',
+          handle: 'vendor',
+          labeler_enabled: false,
+          user_id: 'user-1',
+        },
+        error: null,
+      });
+    supabase.from.mockReturnValue(table.table);
+
+    const { service } = await loadAuthService({ supabase });
+    const profile = await service.fetchProfile('user-1');
+
+    expect(profile).toMatchObject({ bio: 'Collector', coverURL: null, handle: 'vendor' });
+    // Exactly two reads: the widest select, then the one without `cover_url`.
+    expect(table.single).toHaveBeenCalledTimes(2);
+    const selects = table.select.mock.calls as unknown as string[][];
+    expect(selects[0][0]).toContain('cover_url');
+    expect(selects[1][0]).not.toContain('cover_url');
+  });
+
+  it('does NOT spend extra reads when the failure is not a missing column', async () => {
+    const supabase = makeSupabaseMock();
+    const table = profileTableResult({
+      data: null,
+      // PGRST116 = no row matched. A narrower select would miss it too.
+      error: { code: 'PGRST116', message: 'JSON object requested, multiple (or no) rows returned' },
+    });
+    supabase.from.mockReturnValue(table.table);
+
+    const { service } = await loadAuthService({ supabase });
+
+    await expect(service.fetchProfile('user-1')).resolves.toBeNull();
+    expect(table.single).toHaveBeenCalledTimes(1);
   });
 
   it('returns null when profile fetch fails or Supabase is unavailable', async () => {

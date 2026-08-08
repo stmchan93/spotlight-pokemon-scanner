@@ -19,6 +19,12 @@ AVATARS_GCS_BUCKET_ENV = "SPOTLIGHT_AVATARS_GCS_BUCKET"
 # Object path prefix inside the avatars bucket.
 AVATAR_OBJECT_PREFIX = "avatars"
 
+# Profile COVER banners live in the SAME public bucket under their own prefix.
+# Same visibility rules (public-read, owner-write) and same lifecycle, so a
+# second bucket would only add provisioning work; a separate prefix keeps the
+# two objects independent so replacing one never touches the other.
+COVER_OBJECT_PREFIX = "covers"
+
 # The stored object is a single deterministic JPEG per user, so a repeat upload
 # overwrites in place (no orphaned objects to garbage-collect). The client adds
 # its own `?t=<ts>` cache-buster to the returned URL so the CDN/image cache
@@ -50,12 +56,23 @@ class AvatarStore(Protocol):
     def store_avatar(self, *, user_id: str, jpeg_bytes: bytes) -> str:
         ...
 
+    def store_cover(self, *, user_id: str, jpeg_bytes: bytes) -> str:
+        ...
 
-def _avatar_object_path(user_id: str) -> str:
+
+def _owner_object_path(prefix: str, user_id: str) -> str:
     normalized = str(user_id or "").strip()
     if not _USER_ID_PATTERN.match(normalized):
         raise AvatarStoreError("avatar owner id must be a valid user id")
-    return f"{AVATAR_OBJECT_PREFIX}/{normalized}.jpg"
+    return f"{prefix}/{normalized}.jpg"
+
+
+def _avatar_object_path(user_id: str) -> str:
+    return _owner_object_path(AVATAR_OBJECT_PREFIX, user_id)
+
+
+def _cover_object_path(user_id: str) -> str:
+    return _owner_object_path(COVER_OBJECT_PREFIX, user_id)
 
 
 class GoogleCloudAvatarStore:
@@ -99,6 +116,7 @@ class GoogleCloudAvatarStore:
             "storage": self.storage_kind,
             "activeBucketName": self.bucket_name,
             "objectPrefix": AVATAR_OBJECT_PREFIX,
+            "coverObjectPrefix": COVER_OBJECT_PREFIX,
         }
 
     def public_url(self, object_path: str) -> str:
@@ -106,6 +124,18 @@ class GoogleCloudAvatarStore:
 
     def store_avatar(self, *, user_id: str, jpeg_bytes: bytes) -> str:
         object_path = _avatar_object_path(user_id)
+        blob = self.bucket.blob(object_path)
+        blob.upload_from_string(jpeg_bytes, content_type=_AVATAR_CONTENT_TYPE)
+        return self.public_url(object_path)
+
+    def store_cover(self, *, user_id: str, jpeg_bytes: bytes) -> str:
+        """Store the caller's profile cover banner (``covers/<user_id>.jpg``).
+
+        Identical owner-scoping to ``store_avatar`` — the path is derived from
+        the authenticated caller's id, never from client input — writing to a
+        different prefix so avatar and cover replace independently.
+        """
+        object_path = _cover_object_path(user_id)
         blob = self.bucket.blob(object_path)
         blob.upload_from_string(jpeg_bytes, content_type=_AVATAR_CONTENT_TYPE)
         return self.public_url(object_path)

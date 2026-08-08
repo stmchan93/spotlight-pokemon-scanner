@@ -547,6 +547,7 @@ export function PublicProfileScreen({
       <ProfileHeader
         avatarUrl={profile?.avatarURL}
         bio={profile?.bio}
+        coverUrl={profile?.coverURL}
         displayName={displayName}
         followerCount={displayFollowerCount}
         followingCount={profile?.followingCount}

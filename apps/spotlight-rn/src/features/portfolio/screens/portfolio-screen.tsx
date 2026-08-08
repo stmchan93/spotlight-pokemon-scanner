@@ -64,6 +64,7 @@ import {
 import { CollectionListRow } from '@/features/portfolio/components/collection-list-view';
 import { CardActionsSheet } from '@/features/cards/components/card-actions-sheet';
 import { ConfirmDeleteSheet } from '@/features/cards/components/confirm-delete-sheet';
+import { DrawerEdgeSwipe } from '@/components/drawer-edge-swipe';
 import { EkalightMark } from '@/components/ekalight-mark';
 import { ScanTabIcon } from '@/components/nav-tab-icons';
 import { ScrollToTopFab, useScrollToTop } from '@/components/scroll-to-top-fab';
@@ -1099,6 +1100,9 @@ export function PortfolioScreen({
       <ProfileHeader
         avatarUrl={currentUser?.avatarURL}
         bio={currentUser?.bio}
+        // Without this your cover shows on Edit Profile and on your PUBLIC
+        // profile, but not on your own Portfolio — the one place you look first.
+        coverUrl={currentUser?.coverURL}
         displayName={profileName}
         followerCount={currentUser?.followerCount}
         followingCount={currentUser?.followingCount}
@@ -1287,11 +1291,20 @@ export function PortfolioScreen({
           // while typing. Swipe-to-dismiss + persist-taps let you reach a result
           // (open the card) without an extra tap to drop the keyboard first.
           automaticallyAdjustKeyboardInsets
-          // UIKit only minimizes the native tab bar for the scroll view it is
-          // actually tracking, and it only tracks one whose
-          // contentInsetAdjustmentBehavior is `automatic`. React Native defaults
-          // it to `never`, so without this the bar never collapses no matter what
-          // `minimizeBehavior` is set to on the layout.
+          // Keeps this list on UIKit's `automatic` inset behaviour instead of
+          // React Native's `never` default, which is what lets the content sit
+          // correctly under the native tab bar.
+          //
+          // DO NOT read this as the fix for tab-bar minimize-on-scroll — it is
+          // not, and it was wrongly commented as such once. react-native-screens
+          // 4.23.0 ALREADY forces this exact value: `TabsScreen`'s
+          // `overrideScrollViewContentInsetAdjustmentBehavior` defaults to true
+          // (expo-router passes `!disableAutomaticContentInsets`), and
+          // `RNSBottomTabsScreenComponentView.mountChildComponentView` runs
+          // `RNSScrollViewHelper` over the first-descendant chain — which this
+          // list is on (SafeAreaView > listWrap > FlatList are each subviews[0]).
+          // So this prop is belt-and-braces for remount ordering only. The real
+          // minimize blocker is documented in `src/app/(tabs)/_layout.tsx`.
           contentInsetAdjustmentBehavior="automatic"
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
@@ -1336,6 +1349,17 @@ export function PortfolioScreen({
           testID="portfolio-scroll-view"
         />
       </View>
+
+      {/*
+        Left-edge drag to open the hamburger drawer. This gesture used to live in
+        TopTabsPager's pan responder and was lost when the native tab bar
+        replaced it; the drawer BUTTON kept working, the drag did not.
+
+        Order is load-bearing: after the list so the strip paints above it, but
+        BEFORE `headerBubbles` so it stays under the floating controls —
+        otherwise it clips the left edge of the menu button it exists to open.
+      */}
+      <DrawerEdgeSwipe />
 
       {headerBubbles}
 

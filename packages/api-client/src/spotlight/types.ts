@@ -156,6 +156,17 @@ export type WhosThatPokemonMatch = {
   reason: string;
 };
 
+/** Axis-aligned box normalized to 0..1 against some reference image. */
+export type NormalizedBox = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+/** Point normalized to 0..1 against some reference image. */
+export type NormalizedPoint = { x: number; y: number };
+
 export type WhosThatPokemonResult = {
   /** Top matches, best first (the backend returns exactly 3). */
   matches: WhosThatPokemonMatch[];
@@ -166,6 +177,24 @@ export type WhosThatPokemonResult = {
    * the plain crossfade).
    */
   personCutoutUri: string | null;
+  /**
+   * Person bounding box, normalized 0..1 against the ORIGINAL SELFIE.
+   * Absent/null whenever segmentation was unavailable.
+   */
+  personBounds?: NormalizedBox | null;
+  /**
+   * Head bounding box, normalized 0..1 against the ORIGINAL SELFIE. Drives the
+   * reveal's face-analysis overlay; absent/null → the overlay falls back to a
+   * proportional head box.
+   */
+  headBox?: NormalizedBox | null;
+  /**
+   * Ordered outline of the top match's official artwork (~48 points), each
+   * normalized 0..1 against the ARTWORK IMAGE — a different space from the
+   * boxes above. Absent/null → the lock-on points scatter instead of settling
+   * into the species shape.
+   */
+  speciesOutline?: NormalizedPoint[] | null;
 };
 
 export type WhosThatPokemonPayload = {
@@ -561,6 +590,12 @@ export type Collection = {
   totalValue: number;
   /** The collection that receives adds when no specific one is active. */
   isDefault: boolean;
+  /**
+   * Excluded from every un-scoped holdings read — the "All Collection" total,
+   * the ledger's inventory value, exports. The collection itself stays readable,
+   * so hiding is reversible; it means "don't count this", not "hide it away".
+   */
+  hidden: boolean;
 };
 
 export type CollectionsSnapshot = {
@@ -1082,6 +1117,16 @@ export type ProfilePortfolioSummary = {
  */
 export type ProfileAvatarUploadResult = {
   avatarUrl: string;
+};
+
+/**
+ * Result of uploading the caller's own profile COVER photo
+ * (`POST /api/v1/profile/cover`). Same lane as the avatar — the public profile
+ * bucket, owner-scoped object path derived from the authenticated identity —
+ * but a wide banner object rather than the square avatar.
+ */
+export type ProfileCoverUploadResult = {
+  coverUrl: string;
 };
 
 /**

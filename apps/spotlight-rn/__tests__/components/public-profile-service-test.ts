@@ -39,6 +39,7 @@ const fullRow = {
   bio: 'Gotta collect them all.',
   location: 'Pallet Town',
   social_link: 'ash.example.com',
+  cover_url: 'https://example.com/cover.png',
   is_verified: true,
   reputation: 42,
   follower_count: 7,
@@ -73,12 +74,36 @@ describe('profile-service', () => {
       bio: 'Gotta collect them all.',
       location: 'Pallet Town',
       socialLink: 'ash.example.com',
+      coverURL: 'https://example.com/cover.png',
       isVerified: true,
       reputation: 42,
       followerCount: 7,
       followingCount: 3,
       postCount: 5,
     });
+  });
+
+  it('re-reads without cover_url when the view has not been migrated yet', async () => {
+    // PostgREST fails the ENTIRE select on one unknown column. An environment
+    // whose `public_profiles` view predates the cover column must still return
+    // a profile — losing the banner, not the person.
+    const query = makeQuery({ data: null, error: null });
+    const { cover_url: _cover, ...rowWithoutCover } = fullRow;
+    query.maybeSingle
+      .mockResolvedValueOnce({
+        data: null,
+        error: { code: '42703', message: 'column public_profiles.cover_url does not exist' },
+      })
+      .mockResolvedValueOnce({ data: rowWithoutCover, error: null });
+    const supabase = { from: jest.fn(() => query) };
+    const { fetchProfileByHandle } = loadProfileService(supabase);
+
+    const profile = await fetchProfileByHandle('ash');
+
+    expect(profile?.displayName).toBe('Ash Ketchum');
+    expect(profile?.coverURL).toBeNull();
+    expect(query.select.mock.calls[0][0]).toContain('cover_url');
+    expect(query.select.mock.calls[1][0]).not.toContain('cover_url');
   });
 
   it('strips a leading @ from the requested handle', async () => {

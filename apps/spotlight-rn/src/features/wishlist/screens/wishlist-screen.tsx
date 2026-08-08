@@ -30,7 +30,6 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
-import { AppBottomTabBar } from '@/components/app-bottom-tab-bar';
 import { ScrollToTopFab, useScrollToTop } from '@/components/scroll-to-top-fab';
 import { GridViewIcon, ListViewIcon } from '@/components/view-toggle-icons';
 import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
@@ -139,8 +138,9 @@ export function WishlistScreen() {
   const [activeFilter, setActiveFilter] = useState<WishlistFilterKey>('all');
   const [viewMode, setViewMode] = useWishlistViewMode();
   // Bulk multi-select "edit mode" (mirrors the Collection screen). While active
-  // the FAB + bottom tab bar are hidden, tapping a card toggles selection
-  // instead of opening it, and the bottom edit bar drives un-favorite in bulk.
+  // the FAB is hidden, tapping a card toggles selection instead of opening it,
+  // and the bottom edit bar drives un-favorite in bulk. (It used to hide the
+  // JS tab bar too; UIKit owns the bar now and it can't be hidden per-screen.)
   const [editMode, setEditMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [isDeleting, setIsDeleting] = useState(false);
@@ -148,10 +148,15 @@ export function WishlistScreen() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const scrollRef = useRef<FlatList<WishlistRow>>(null);
 
-  const bottomNavClearance =
-    theme.layout.bottomNavHeight
-    + theme.layout.bottomNavBottomInset
-    + Math.max(insets.bottom - 8, 0);
+  // No manual bottom-nav clearance any more. Wishlist is a real tab now, and a
+  // native tab screen is rendered INSIDE a container UIKit has already inset by
+  // the tab bar (see `(tabs)/_layout.tsx` and docs/native-tabs-adoption-2026-08-07.md
+  // — the same automatic content insets that shrank the scanner reticle). The old
+  // `bottomNavHeight + bottomNavBottomInset + insets.bottom` padding cleared the
+  // JS `AppBottomTabBar` this screen used to draw itself; keeping it on top of
+  // UIKit's inset would just leave ~100px of dead space under the last row. All
+  // that's left is the list's own breathing room.
+  const listBottomPadding = 16;
 
   const loadFavorites = useCallback(async () => {
     try {
@@ -495,7 +500,7 @@ export function WishlistScreen() {
           ref={scrollRef}
           contentContainerStyle={[
             styles.scrollContent,
-            { paddingBottom: bottomNavClearance + 16 },
+            { paddingBottom: listBottomPadding },
           ]}
           data={listData}
           keyExtractor={(item) => item.key}
@@ -525,7 +530,10 @@ export function WishlistScreen() {
       />
 
       {editMode ? null : <CollectionAddFab />}
-      {editMode ? null : <AppBottomTabBar activeKey="wishlist" dismissToTabs />}
+      {/* No `<AppBottomTabBar>` here. Wishlist was a PUSHED stack screen that had
+          to draw its own JS tab bar; it is a real tab now (`(tabs)/wishlist.tsx`)
+          and Apple's native iOS 26 bar from `(tabs)/_layout.tsx` is already on
+          screen — rendering ours as well stacked two bars on top of each other. */}
 
       {editMode ? (
         <View

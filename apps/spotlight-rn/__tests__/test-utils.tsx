@@ -106,6 +106,10 @@ export function createTestSpotlightRepository(
       return overrides.uploadProfileAvatar?.(...args)
         ?? baseRepository.uploadProfileAvatar(...args);
     },
+    uploadProfileCover: (...args) => {
+      return overrides.uploadProfileCover?.(...args)
+        ?? baseRepository.uploadProfileCover(...args);
+    },
     uploadPostMedia: (...args) => {
       return overrides.uploadPostMedia?.(...args)
         ?? baseRepository.uploadPostMedia(...args);

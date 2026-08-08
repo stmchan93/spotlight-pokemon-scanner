@@ -330,7 +330,10 @@ CREATE TABLE IF NOT EXISTS collections (
     owner_user_id TEXT NOT NULL,
     name TEXT NOT NULL,
     sort_order INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    -- Excluded from un-scoped holdings reads (the "All Collection" total, the
+    -- ledger's inventory value, exports). The collection is still viewable.
+    hidden INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_collections_owner_user_id

@@ -62,4 +62,20 @@ describe('ProfileHeader', () => {
     const placeholder = screen.getByTestId('profile-header-cover-placeholder');
     expect(StyleSheet.flatten(placeholder.props.style).backgroundColor).toBe(colors.gray100);
   });
+
+  it('renders the uploaded cover banner instead of the placeholder', () => {
+    renderHeader(
+      <ProfileHeader
+        coverUrl="https://cdn.test/covers/user-1.jpg"
+        displayName="Ash Ketchum"
+        initials="AK"
+      />,
+    );
+
+    const cover = screen.getByTestId('profile-header-cover');
+    // Cropped to fill the banner band — a portrait photo must not letterbox.
+    expect(cover.props.contentFit).toBe('cover');
+    expect(cover.props.source).toEqual({ uri: 'https://cdn.test/covers/user-1.jpg' });
+    expect(screen.queryByTestId('profile-header-cover-placeholder')).toBeNull();
+  });
 });

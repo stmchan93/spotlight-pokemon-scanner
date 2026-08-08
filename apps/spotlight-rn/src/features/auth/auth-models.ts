@@ -23,6 +23,8 @@ export type UserProfile = {
   bio?: string | null;
   location?: string | null;
   socialLink?: string | null;
+  /** Wide banner behind the profile header (`user_profiles.cover_url`). */
+  coverURL?: string | null;
   isVerified?: boolean;
   reputation?: number;
   followerCount?: number;
@@ -42,6 +44,7 @@ export type AppUser = {
   bio?: string | null;
   location?: string | null;
   socialLink?: string | null;
+  coverURL?: string | null;
   isVerified?: boolean;
   reputation?: number;
   followerCount?: number;
@@ -57,6 +60,13 @@ export type ProfileUpdate = {
   location?: string | null;
   socialLink?: string | null;
   avatarURL?: string | null;
+  /**
+   * Only send this key when the user actually picked a new cover. `updateProfile`
+   * writes every key that is present, and `cover_url` is the newest column — an
+   * unconditional `coverURL` on every save would fail the whole write on a
+   * database that has not run the cover migration yet.
+   */
+  coverURL?: string | null;
 };
 
 export function normalizeDisplayName(value: string | null | undefined) {
