@@ -143,8 +143,9 @@ export function DmInboxScreen({ testID = 'dm-inbox' }: { testID?: string }) {
     ({ item }: { item: DmConversation }) => {
       const name = displayNameFor(item);
       // Null preview = a thread with no messages yet, or one whose last message
-      // was moderation-removed. Both render as an empty line rather than a
-      // placeholder, so the row keeps its height and nothing is invented.
+      // was moderation-removed. Neither invents a placeholder; the line is
+      // simply not rendered, so the row collapses to one line and centres on the
+      // avatar (see the render below).
       const preview = item.lastMessagePreview ?? '';
       const isUnread = item.unreadCount > 0;
 
@@ -190,18 +191,28 @@ export function DmInboxScreen({ testID = 'dm-inbox' }: { testID?: string }) {
             >
               {name}
             </Text>
-            <Text
-              numberOfLines={1}
-              style={[
-                theme.typography.label,
-                // An unread thread's preview reads at full strength; a read one
-                // recedes. Same row, two weights of attention.
-                { color: isUnread ? theme.colors.gray800 : theme.colors.gray600 },
-              ]}
-              testID={`${testID}-preview-${item.id}`}
-            >
-              {preview}
-            </Text>
+            {/*
+              Only rendered when there IS a preview. An empty string still
+              occupies a full line, which pushed the name above the avatar's
+              centre and left dead space beneath it — a never-messaged thread
+              looked misaligned while search results (usually one line) looked
+              right. Dropping the empty line lets a single-line row centre on the
+              avatar exactly the way the search rows do.
+            */}
+            {preview ? (
+              <Text
+                numberOfLines={1}
+                style={[
+                  theme.typography.label,
+                  // An unread thread's preview reads at full strength; a read one
+                  // recedes. Same row, two weights of attention.
+                  { color: isUnread ? theme.colors.gray800 : theme.colors.gray600 },
+                ]}
+                testID={`${testID}-preview-${item.id}`}
+              >
+                {preview}
+              </Text>
+            ) : null}
           </View>
 
           <View style={styles.meta}>

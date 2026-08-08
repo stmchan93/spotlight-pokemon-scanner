@@ -127,7 +127,7 @@ describe('DmInboxScreen', () => {
     expect(fetchMessages).not.toHaveBeenCalled();
   });
 
-  it('renders a blank preview when there is none (empty or moderation-removed thread)', async () => {
+  it('omits the preview line entirely when there is none, so the row stays centred', async () => {
     (fetchConversations as jest.Mock).mockResolvedValue([
       buildConversation({ id: 'c-1', lastMessageAt: null, lastMessagePreview: null }),
     ]);
@@ -138,8 +138,12 @@ describe('DmInboxScreen', () => {
       expect(screen.getByTestId('dm-inbox-row-c-1')).toBeTruthy();
     });
 
-    // Blank, not a placeholder — and emphatically not a repair read.
-    expect(screen.getByTestId('dm-inbox-preview-c-1').props.children).toBe('');
+    // No element at all — not a blank one. An empty Text still occupies a full
+    // line, which pushed the name above the avatar's centre and left dead space
+    // beneath it on every never-messaged thread. Omitting it lets the row centre
+    // the way the single-line search rows do. Still emphatically not a repair
+    // read and not an invented placeholder.
+    expect(screen.queryByTestId('dm-inbox-preview-c-1')).toBeNull();
     expect(fetchMessages).not.toHaveBeenCalled();
   });
 

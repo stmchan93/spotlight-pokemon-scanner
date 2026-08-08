@@ -6,6 +6,7 @@ import {
   Pressable,
   RefreshControl,
   StyleSheet,
+  type TextInput as RNTextInput,
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -102,6 +103,8 @@ export function DmThreadScreen({
 
   const [messages, setMessages] = useState<ThreadMessage[]>([]);
   const [draft, setDraft] = useState('');
+  // Needed to clear the NATIVE text, not just React state — see handleSend.
+  const composerRef = useRef<RNTextInput>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -245,6 +248,13 @@ export function DmThreadScreen({
       ].sort(compareMessages),
     );
     setDraft('');
+    // Clearing state alone is not enough on iOS. While an autocorrect /
+    // predictive-text suggestion is still pending, UIKit holds uncommitted
+    // "marked text" in the field that React does not own, so setting value=''
+    // leaves the sentence visibly sitting there — and the NEXT send appears to
+    // be the one that clears it. `clear()` drops the marked text at the native
+    // layer, which is the only thing that ends the composition session.
+    composerRef.current?.clear();
     void deliver(localId, text);
   }, [conversationId, deliver, draft, myUserId]);
 
@@ -384,6 +394,7 @@ export function DmThreadScreen({
           <View style={styles.composerField}>
             <TextField
               onChangeText={setDraft}
+              ref={composerRef}
               onSubmitEditing={handleSend}
               placeholder="Message…"
               returnKeyType="send"
