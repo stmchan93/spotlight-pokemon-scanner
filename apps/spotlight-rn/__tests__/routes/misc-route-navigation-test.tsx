@@ -28,12 +28,41 @@ const mockSaveInventoryPreview: jest.Mock<string, [InventoryCardEntry]> = jest.f
 
 // Drives the tabs layout's `hidden` decision (the bar is hidden on /scan).
 const mockPathname = jest.fn(() => '/');
+// The You tab's icon. Null = no photo rasterised yet, which is the SF-symbol
+// fallback case.
+let mockTabAvatar: unknown = null;
+jest.mock('@/components/circular-tab-avatar', () => ({
+  useCircularTabAvatar: () => mockTabAvatar,
+}));
 
 jest.mock('expo-router/unstable-native-tabs', () => {
   const { Text, View } = require('react-native');
   const Trigger = Object.assign(
-    ({ name }: { name?: string }) => <Text testID={`native-tab-${name}`}>{name}</Text>,
-    { Icon: () => null, Label: ({ children }: { children?: unknown }) => <Text>{children}</Text> },
+    ({ name, children }: { name?: string; children?: React.ReactNode }) => (
+      <View>
+        <Text testID={`native-tab-${name}`}>{name}</Text>
+        {children}
+      </View>
+    ),
+    {
+      // Surfaces which icon source each trigger chose. `tab-icon` deliberately
+      // does NOT start with `native-tab-`, so it stays out of the regex that
+      // asserts tab ORDER below.
+      Icon: ({
+        renderingMode,
+        sf,
+        src,
+      }: {
+        renderingMode?: string;
+        sf?: unknown;
+        src?: unknown;
+      }) => (
+        <Text testID="tab-icon">
+          {JSON.stringify({ renderingMode: renderingMode ?? null, sf: sf ?? null, src: src ?? null })}
+        </Text>
+      ),
+      Label: ({ children }: { children?: unknown }) => <Text>{children}</Text>,
+    },
   );
   return {
     NativeTabs: Object.assign(
@@ -299,6 +328,33 @@ describe('misc route wrappers', () => {
     mockPathname.mockReturnValue('/scan');
     render(<TabsLayout />);
     expect(screen.getByTestId('native-tabs-hidden').props.children).toBe('true');
+  });
+
+  // `sf` and `src` are MUTUALLY EXCLUSIVE on the You tab, and the failure is
+  // silent in both directions: iOS resolves `sf` > `xcasset` > `src`, so passing
+  // both means the symbol always wins and the avatar simply never appears; and
+  // without `renderingMode="original"` the tint configured by `tintColor` turns
+  // the photograph into a flat silhouette. Neither shows up as an error.
+  it('swaps the You glyph for the avatar photo, untinted, once one exists', () => {
+    mockPathname.mockReturnValue('/');
+
+    mockTabAvatar = null;
+    const glyph = render(<TabsLayout />);
+    const asGlyph = JSON.parse(screen.getAllByTestId('tab-icon')[3].props.children);
+    expect(asGlyph.sf).not.toBeNull();
+    expect(asGlyph.src).toBeNull();
+    glyph.unmount();
+
+    mockTabAvatar = { uri: 'data:image/png;base64,PNG', width: 28, height: 28, scale: 3 };
+    render(<TabsLayout />);
+    const asPhoto = JSON.parse(screen.getAllByTestId('tab-icon')[3].props.children);
+    expect(asPhoto.src).toEqual(mockTabAvatar);
+    expect(asPhoto.sf).toBeNull();
+    expect(asPhoto.renderingMode).toBe('original');
+
+    // The other three tabs stay on symbols either way.
+    expect(JSON.parse(screen.getAllByTestId('tab-icon')[0].props.children).src).toBeNull();
+    mockTabAvatar = null;
   });
 
   // A structural assertion, for the same reason the New Post one below is:

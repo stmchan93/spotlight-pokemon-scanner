@@ -3,6 +3,8 @@ import { NativeTabs } from 'expo-router/unstable-native-tabs';
 
 import { colors } from '@spotlight/design-system';
 
+import { useCircularTabAvatar } from '@/components/circular-tab-avatar';
+
 const { Trigger } = NativeTabs;
 const { Icon, Label } = Trigger;
 
@@ -98,6 +100,9 @@ export default function TabsLayout() {
   // so there is nothing to come back from.
   const pathname = usePathname();
   const isScanner = pathname === '/scan';
+  // Null until the user's photo has been rasterised into a circle — see
+  // `circular-tab-avatar.tsx` for why a tab icon cannot just be a remote URL.
+  const avatarIcon = useCircularTabAvatar();
 
   return (
     <NativeTabs
@@ -125,7 +130,23 @@ export default function TabsLayout() {
         <Label>Wishlist</Label>
       </Trigger>
       <Trigger name="you">
-        <Icon sf={{ default: 'person.crop.circle', selected: 'person.crop.circle.fill' }} />
+        {/*
+          Your own face, once there is one to draw. `renderingMode="original"` is
+          not optional: `tintColor` above configures an icon colour, which makes
+          expo-router default images to `template` — and a templated photograph
+          is a flat silhouette in the tint colour, not a portrait.
+
+          `sf` and `src` are mutually exclusive here rather than a pair, because
+          iOS resolves them in the order `sf` > `xcasset` > `src`; passing both
+          would mean the symbol always won and the avatar never appeared. The
+          glyph is the fallback for a guest, an account with no photo, and the
+          frame or two before the raster lands.
+        */}
+        {avatarIcon ? (
+          <Icon renderingMode="original" src={avatarIcon} />
+        ) : (
+          <Icon sf={{ default: 'person.crop.circle', selected: 'person.crop.circle.fill' }} />
+        )}
         <Label>You</Label>
       </Trigger>
     </NativeTabs>

@@ -44,6 +44,7 @@ import { PostHogAppProvider, identifyPostHogUser } from '@/lib/observability/pos
 import { PostHogScreenTracker } from '@/lib/observability/posthog-screen-tracker';
 import { AppProviders } from '@/providers/app-providers';
 import { AppDrawer } from '@/components/app-drawer';
+import { CircularTabAvatarProvider } from '@/components/circular-tab-avatar';
 import { AppDrawerProvider } from '@/providers/app-drawer-provider';
 import { PENDING_GUEST_USER_ID } from '@/features/auth/auth-models';
 import {
@@ -316,11 +317,19 @@ function RootLayout() {
                 <AppErrorBoundary>
                   <AuthenticatedAppProviders>
                     <AppDrawerProvider>
-                      <View style={{ flex: 1, backgroundColor: navigationTheme.colors.background }}>
-                        <RootNavigator />
-                        <StagingSmokeDiagnostics />
-                        <AppDrawer />
-                      </View>
+                      {/*
+                        Wraps the navigator because the You TAB reads the icon it
+                        publishes, and mounts the off-screen SVG it rasterises
+                        from HERE because `<NativeTabs>` drops any child that is
+                        not a Trigger or a BottomAccessory — see the file.
+                      */}
+                      <CircularTabAvatarProvider>
+                        <View style={{ flex: 1, backgroundColor: navigationTheme.colors.background }}>
+                          <RootNavigator />
+                          <StagingSmokeDiagnostics />
+                          <AppDrawer />
+                        </View>
+                      </CircularTabAvatarProvider>
                     </AppDrawerProvider>
                   </AuthenticatedAppProviders>
                 </AppErrorBoundary>
