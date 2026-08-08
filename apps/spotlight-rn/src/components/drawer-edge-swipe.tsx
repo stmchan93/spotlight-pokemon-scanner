@@ -22,7 +22,13 @@ import { useAuth } from '@/providers/auth-provider';
  */
 export const DRAWER_EDGE_WIDTH = 24;
 
-/** Minimum inward (rightward) travel before the drawer opens. */
+/**
+ * Minimum inward (rightward) travel before the drawer opens.
+ *
+ * This is also the point at which the gesture is CLAIMED, and the two must stay
+ * the same number — see "WHY IT CLAIMS" below. A tap's finger jitter is a few
+ * pixels at most, so 12 keeps taps in the edge band working normally.
+ */
 const MIN_HORIZONTAL_DRAG = 12;
 
 /**
@@ -35,7 +41,7 @@ type DrawerEdgeSwipeProps = {
   /**
    * WRAPPER MODE. When children are passed the recogniser attaches to a
    * `flex: 1` container around them instead of rendering an edge strip, and
-   * blocks nothing at all (see OVERLAY VS WRAPPER below).
+   * hit-tests nothing away from them (see OVERLAY VS WRAPPER below).
    */
   children?: ReactNode;
   /** Force the gesture off. Guest mode is already handled internally. */
@@ -57,22 +63,40 @@ type DrawerEdgeSwipeProps = {
  *   - the touch must start within `edgeWidth` of the left screen edge;
  *   - the drag must travel inward (dx > 0) and be clearly horizontal;
  *   - `openDrawer()` fires exactly ONCE per gesture (the move-should-set
- *     predicate is dispatched repeatedly while a finger is down);
- *   - the recogniser ALWAYS returns false, so it never becomes the responder.
- *     The drawer animates itself in; nothing underneath is interrupted, and a
- *     drag that turns out not to be a drawer swipe is left to whoever else
- *     wants it.
+ *     predicate is dispatched repeatedly while a finger is down).
+ *
+ * WHY IT CLAIMS (it did not used to)
+ * The original contract was "always return false, never become the responder",
+ * on the reasoning that a detector which declines can never steal a scroll.
+ * True — but declining also means the touch runs to completion underneath, and
+ * `Pressable` fires `onPress` on release unless it was CANCELLED. So the edge
+ * swipe opened the drawer *and* opened whatever collection card the finger
+ * happened to start on. Nothing about the drawer needs the responder; cancelling
+ * the child does, and taking the responder is the only thing in the RN responder
+ * system that cancels it (the child gets `onResponderTerminate`, and Pressability
+ * drops the press instead of firing it).
+ *
+ * The safety comes from *when* it claims, not from never claiming: the single
+ * decision point below is already the point where the gesture is unambiguously a
+ * drawer swipe (edge start + inward travel + horizontal dominance), and it is the
+ * same instant the drawer opens. One decision, one claim, one open — they cannot
+ * drift apart and leave a window where the drawer opens but the card underneath
+ * is still live. Everything that fails any of those tests — taps, vertical
+ * scrolls, mid-screen drags, leftward drags, chart scrubs — still returns false
+ * and is never touched.
  *
  * WHY PanResponder AND NOT react-native-gesture-handler
- * The whole point is a detector that *declines* the gesture. PanResponder says
- * that natively — return `false` from the should-set callbacks. The gesture-
- * handler equivalent needs `manualActivation(true)` plus a worklet that never
- * activates, and the one thing it must do (call `openDrawer`) is JS state, so it
- * would have to hop back over `runOnJS` — the exact shape that has crashed this
- * app before. There is no animation being driven off the UI thread here, so
- * gesture-handler's advantage buys nothing. The app already reserves it for the
- * cases that do need it (pinch-zoom hero, Swipeable rows) and used PanResponder
- * for gesture *negotiation*, which is what this is.
+ * The whole point is a detector that declines every gesture but one, and then
+ * takes that one away from the view underneath. PanResponder says both natively:
+ * return `false` from the should-set callbacks to decline, `true` to take over,
+ * and the responder system handles the hand-off (including the child's
+ * termination) for us. The gesture-handler equivalent needs `manualActivation`
+ * plus a worklet, and the one thing this must do (call `openDrawer`) is JS
+ * state, so it would have to hop back over `runOnJS` — the exact shape that has
+ * crashed this app before. There is no animation being driven off the UI thread
+ * here, so gesture-handler's advantage buys nothing. The app already reserves it
+ * for the cases that do need it (pinch-zoom hero, Swipeable rows) and used
+ * PanResponder for gesture *negotiation*, which is what this is.
  *
  * OVERLAY VS WRAPPER
  * Overlay mode (no children) is the drop-in: an absolutely positioned strip down
@@ -85,8 +109,9 @@ type DrawerEdgeSwipeProps = {
  *
  * Wrapper mode (`<DrawerEdgeSwipe>{content}</DrawerEdgeSwipe>`) has no such
  * cost: as an ANCESTOR of the content it sees every touch through the capture
- * phase while the list keeps receiving them normally. Prefer it if the dead
- * strip is ever noticeable.
+ * phase while the list keeps receiving them normally. It is also the only mode
+ * that can cancel the child, because you cannot take the responder away from a
+ * view you are not an ancestor of. Prefer it.
  */
 export function DrawerEdgeSwipe({
   children,
@@ -128,18 +153,30 @@ export function DrawerEdgeSwipe({
    * Absolute screen X where the current touch first landed. Captured on touch
    * start because `gestureState.x0` is still 0 while the move-should-set
    * decision is being made — it is only filled in once the responder is granted,
-   * which for this component never happens.
+   * which is strictly after the decision that grants it.
    */
   const startXRef = useRef<number | null>(null);
-  /** Fires-once guard, reset on every new touch. */
+  /**
+   * Opens-and-claims-once guard, reset on every new touch. The move-should-set
+   * predicate keeps being dispatched for the rest of the drag; this makes every
+   * later dispatch a no-op so the drawer opens once and the claim is not
+   * re-attempted.
+   */
   const handledRef = useRef(false);
 
   const panResponder = useMemo(() => {
     const beginTouch = (event: GestureResponderEvent) => {
       startXRef.current = event.nativeEvent.pageX;
       handledRef.current = false;
-      // Recording the start must never itself claim the gesture.
+      // Recording the start must never itself claim the gesture: at touch-down
+      // a drawer swipe and a tap on a card are indistinguishable, and claiming
+      // on start would kill every tap in the edge band.
       return false;
+    };
+
+    const endTouch = () => {
+      startXRef.current = null;
+      handledRef.current = false;
     };
 
     const evaluate = (_event: GestureResponderEvent, gesture: PanResponderGestureState) => {
@@ -174,9 +211,12 @@ export function DrawerEdgeSwipe({
 
       handledRef.current = true;
       state.open();
-      // NEVER claim. The drawer slides itself in and the touch stays with
-      // whatever was already handling it.
-      return false;
+      // CLAIM. The drawer does not need the responder — the child does not get
+      // to keep it. Taking it here is what turns the collection card's pending
+      // press into an `onResponderTerminate`, so the card cancels instead of
+      // navigating on finger-up. Returning false here is what caused the drawer
+      // to open *and* push the product detail page. See WHY IT CLAIMS above.
+      return true;
     };
 
     return PanResponder.create({
@@ -185,11 +225,28 @@ export function DrawerEdgeSwipe({
       // that reach this view directly.
       onStartShouldSetPanResponderCapture: beginTouch,
       onStartShouldSetPanResponder: beginTouch,
+      // Capture is the phase that matters: it runs from the root down, so it
+      // reaches this wrapper before the card/chart underneath is asked, and it
+      // is dispatched on every move even while a descendant already holds the
+      // responder — which is how a claim mid-gesture is possible at all.
       onMoveShouldSetPanResponderCapture: evaluate,
       onMoveShouldSetPanResponder: evaluate,
-      // We never hold the responder, but be explicit about yielding it.
-      onPanResponderTerminationRequest: () => true,
-      onShouldBlockNativeResponder: () => false,
+      // Only ever reached after a claim, i.e. on a confirmed drawer swipe. Hold
+      // it for the rest of the finger-down so the list underneath cannot take it
+      // back and start scrolling while the drawer is animating in.
+      onPanResponderTerminationRequest: () => false,
+      // Same reasoning one layer down: stop the native scroll view from
+      // continuing the gesture natively (Android). Only consulted on grant,
+      // which only happens for a confirmed drawer swipe. This is also
+      // PanResponder's default — stated explicitly because the old
+      // never-claiming version deliberately turned it off, and reverting that
+      // is part of the fix.
+      onShouldBlockNativeResponder: () => true,
+      // Nothing to drive — the drawer already opened at the decision point. The
+      // responder is held purely to keep the child cancelled. Clearing the start
+      // means a stale coordinate can never arm the next gesture.
+      onPanResponderRelease: endTouch,
+      onPanResponderTerminate: endTouch,
     });
   }, []);
 

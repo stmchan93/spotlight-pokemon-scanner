@@ -1,8 +1,16 @@
 import { Image } from 'expo-image';
 import { CheckCircle, Link } from 'iconoir-react-native';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { AccessibilityInfo, Pressable, StyleSheet, View } from 'react-native';
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 
-import { Avatar, Text, useSpotlightTheme } from '@spotlight/design-system';
+import { Avatar, SkeletonBlock, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 type ProfileHeaderProps = {
   displayName: string;
@@ -13,6 +21,16 @@ type ProfileHeaderProps = {
   socialLink?: string | null;
   avatarUrl?: string | null;
   coverUrl?: string | null;
+  /**
+   * On-device URI for a cover the user just picked (the resized JPEG that was
+   * uploaded). The remote `coverUrl` is a cold GCS fetch that takes seconds on
+   * first paint, but these exact bytes are already on disk — handing them over
+   * lets the banner paint immediately and cross-fade to the remote copy once it
+   * is cached, instead of showing a skeleton for something the device has.
+   * Omit it (the normal case, e.g. viewing someone else's profile) and the
+   * skeleton covers the wait.
+   */
+  coverPreviewUri?: string | null;
   followerCount?: number;
   followingCount?: number;
   reputation?: number;
@@ -35,6 +53,13 @@ const COVER_HEIGHT = 176;
 const AVATAR_SIZE = 84;
 const AVATAR_OVERLAP = -AVATAR_SIZE / 2;
 
+/**
+ * Cross-fade for the cover once the bytes are decoded. Short on purpose: long
+ * enough to read as "arriving", short enough that it never feels like more
+ * waiting on top of the download.
+ */
+const COVER_TRANSITION_MS = 180;
+
 export function ProfileHeader({
   displayName,
   handle,
@@ -44,6 +69,7 @@ export function ProfileHeader({
   socialLink,
   avatarUrl,
   coverUrl,
+  coverPreviewUri,
   followerCount,
   followingCount,
   reputation,
@@ -55,15 +81,55 @@ export function ProfileHeader({
 }: ProfileHeaderProps) {
   const theme = useSpotlightTheme();
 
+  // Which cover URL has finished loading (or failed). Storing the URL rather
+  // than a boolean means a newly uploaded cover re-enters the loading state on
+  // its own, with no reset effect and no one-frame flash of the loaded photo.
+  const [settledCoverUrl, setSettledCoverUrl] = useState<string | null>(null);
+
+  const handleCoverSettled = useCallback(() => {
+    setSettledCoverUrl(coverUrl ?? null);
+  }, [coverUrl]);
+
+  const hasPreview = typeof coverPreviewUri === 'string' && coverPreviewUri.length > 0;
+  // The skeleton is only for a wait the user cannot see through. With a local
+  // preview the banner already shows the right picture, so a skeleton over it
+  // would be a downgrade.
+  const isCoverLoading = Boolean(coverUrl) && !hasPreview && settledCoverUrl !== coverUrl;
+
   return (
     <View style={styles.block} testID={testID}>
       {coverUrl ? (
-        <Image
-          contentFit="cover"
-          source={{ uri: coverUrl }}
-          style={styles.cover}
-          testID={`${testID}-cover`}
-        />
+        // The band keeps its own light-neutral fill behind the photo so the
+        // slot is never transparent mid-load and never changes height when the
+        // bytes land — the image fills the frame absolutely.
+        <View
+          style={[styles.cover, { backgroundColor: theme.colors.gray100 }]}
+          testID={`${testID}-cover-frame`}
+        >
+          <Image
+            accessibilityIgnoresInvertColors
+            // Covers are re-read on every visit to Portfolio and to the public
+            // profile; memory-disk keeps a warm launch instant and a cold one
+            // network-free after the first fetch.
+            cachePolicy="memory-disk"
+            contentFit="cover"
+            onError={handleCoverSettled}
+            onLoad={handleCoverSettled}
+            // The just-picked JPEG is already on disk, so it paints on the
+            // first frame while the identical remote copy is fetched.
+            placeholder={hasPreview ? { uri: coverPreviewUri as string } : undefined}
+            placeholderContentFit="cover"
+            priority="high"
+            recyclingKey={coverUrl}
+            source={{ uri: coverUrl }}
+            style={StyleSheet.absoluteFill}
+            testID={`${testID}-cover`}
+            transition={COVER_TRANSITION_MS}
+          />
+          {isCoverLoading ? (
+            <CoverSkeleton testID={`${testID}-cover-skeleton`} />
+          ) : null}
+        </View>
       ) : (
         <View
           // A very light neutral, not the tinted `surfaceMuted` and not black —
@@ -172,6 +238,70 @@ export function ProfileHeader({
         </View>
       </View>
     </View>
+  );
+}
+
+/**
+ * Loading affordance for the cover banner. Fills the whole 176pt band with the
+ * shared `SkeletonBlock` fill and pulses it, so a cover that is still
+ * downloading reads as "arriving" instead of as the flat gray band a
+ * cover-less profile shows. Same reduce-motion-gated pulse as
+ * `CardPriceTrendSkeleton`, which is the app's existing skeleton idiom.
+ */
+function CoverSkeleton({ testID }: { testID?: string }) {
+  const theme = useSpotlightTheme();
+
+  // null = not yet resolved; gate the pulse on a known preference.
+  const [reduceMotion, setReduceMotion] = useState<boolean | null>(null);
+  const pulse = useSharedValue(1);
+
+  useEffect(() => {
+    let cancelled = false;
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then((value) => {
+        if (!cancelled) {
+          setReduceMotion(value);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setReduceMotion(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (reduceMotion !== false) {
+      pulse.value = 1;
+      return;
+    }
+    pulse.value = withRepeat(
+      withTiming(0.45, { duration: 800, easing: Easing.inOut(Easing.ease) }),
+      -1,
+      true,
+    );
+  }, [pulse, reduceMotion]);
+
+  const pulseStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
+
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[StyleSheet.absoluteFill, pulseStyle]}
+      testID={testID}
+    >
+      <SkeletonBlock
+        // Square corners and a slightly deeper gray than the band's own
+        // gray100 fill, so the pulse is visible against it.
+        height={COVER_HEIGHT}
+        radius={0}
+        style={{ backgroundColor: theme.colors.gray200 }}
+        width="100%"
+      />
+    </Animated.View>
   );
 }
 

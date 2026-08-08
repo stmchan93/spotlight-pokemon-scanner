@@ -13,7 +13,7 @@ import {
   markAnonymousIdentityReleased,
   recordAnonymousIdentityMint,
 } from './anonymous-identity-churn';
-import { isMissingColumnError } from '@/lib/postgrest-errors';
+import { isColumnWriteRejectedError, isMissingColumnError } from '@/lib/postgrest-errors';
 import {
   supabase,
   supabaseAuthConfig,
@@ -413,6 +413,9 @@ export async function updateProfile(
   }
 
   const row: Record<string, string | null> = { user_id: userID };
+  // The one column in this patch an environment is allowed to refuse. See the
+  // retry below.
+  const COVER_COLUMN = 'cover_url';
   if (patch.displayName !== undefined) {
     row.display_name = normalizeDisplayName(patch.displayName) ?? patch.displayName;
   }
@@ -431,7 +434,36 @@ export async function updateProfile(
         patch.avatarURL ?? null,
       );
     }
-    const { error } = await supabase.from('user_profiles').upsert(row, { onConflict: 'user_id' });
+    let { error } = await supabase.from('user_profiles').upsert(row, { onConflict: 'user_id' });
+
+    // The Edit Profile form goes up as ONE upsert, and PostgREST fails the WHOLE
+    // statement when a single column is unacceptable — so one refused column
+    // silently becomes "nothing on this screen saves". `cover_url` is the newest
+    // column and the only one that can legitimately be refused:
+    //
+    //   * it may not exist yet (the cover migration is not applied), or
+    //   * it may exist with no write grant. `user_profiles` is fenced by COLUMN
+    //     grants — social_08 revokes table-level insert/update from
+    //     `authenticated` and re-grants column by column — so a column added by a
+    //     later migration has NO write privilege until it is granted by name.
+    //     Reads still work, which is why this presents as "the cover uploads but
+    //     the profile won't save".
+    //
+    // Drop the cover and write the rest, mirroring the read path's rule: an
+    // environment that is behind costs the banner, not the profile. The cover is
+    // deliberately not retried anywhere else — it simply does not persist until
+    // the database is fixed, so the refetch below returns the truth rather than a
+    // cover we failed to store.
+    if (error && COVER_COLUMN in row && isColumnWriteRejectedError(error)) {
+      console.warn(
+        `[AUTH] user_profiles.${COVER_COLUMN} is not writable here; saving the profile without the cover.`,
+        error,
+      );
+      const rowWithoutCover = { ...row };
+      delete rowWithoutCover[COVER_COLUMN];
+      ({ error } = await supabase.from('user_profiles').upsert(rowWithoutCover, { onConflict: 'user_id' }));
+    }
+
     if (error) {
       // A racing claim (or a stale availability read) lands here — the unique
       // index is the only authority on who owns a handle.

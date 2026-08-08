@@ -3,6 +3,7 @@ import { useNavigation } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 
 import { NativeTabsPageBridge } from '@/components/native-tabs-page-bridge';
+import { ScannerExitSwipe } from '@/components/scanner-exit-swipe';
 import { ScannerScreen } from '@/features/scanner/screens/scanner-screen';
 
 /**
@@ -45,7 +46,13 @@ export default function ScanRoute() {
     <NativeTabsPageBridge page="scanner">
       {/* Dark viewfinder needs light status-bar icons. */}
       <StatusBar style="light" />
-      <ScannerScreen onExitToPortfolio={goToCollection} />
+      {/* A pushed camera route used to give a back-swipe for free; a tab does
+          not. This puts the left-edge drag back, wired to the same destination
+          as the back button so there is exactly one way out with two ways to
+          ask for it. */}
+      <ScannerExitSwipe onExit={goToCollection}>
+        <ScannerScreen onExitToPortfolio={goToCollection} />
+      </ScannerExitSwipe>
     </NativeTabsPageBridge>
   );
 }

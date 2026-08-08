@@ -1301,7 +1301,8 @@ export function PortfolioScreen({
       gesture never fired. Wrapping means the recogniser sits above everything in
       the tree and sees every touch through the CAPTURE phase — exactly what the
       pager did (`onMoveShouldSetPanResponderCapture`) and for exactly this
-      reason. It still never claims the gesture, so scrolling is untouched.
+      reason. It claims the gesture only once it is unambiguously a drawer swipe,
+      which cancels the card underneath; ordinary scrolls are never claimed.
     */
     <DrawerEdgeSwipe>
     <SafeAreaView
@@ -1309,6 +1310,39 @@ export function PortfolioScreen({
       style={[styles.safeArea, { backgroundColor: theme.colors.gray0 }]}
     >
       <View
+        /*
+          THIS IS WHAT MAKES THE NATIVE TAB BAR MINIMIZE ON SCROLL. Not a
+          micro-optimisation — removing it silently kills the behaviour again.
+
+          Both UIKit and react-native-screens locate a screen's "content scroll
+          view" by walking `subviews[0]` down from the tab screen
+          (`RNSScrollViewFinder.findScrollViewInFirstDescendantChainFrom`,
+          documented there as mirroring UIKit). Anything that leaves a childless
+          UIView at index 0 ends that walk.
+
+          React Native's view flattening does exactly that here.
+          `ViewShadowNode::initialize` (ReactCommon/.../view/ViewShadowNode.cpp)
+          computes two separate traits:
+            - formsView          <- true for this View, because `testId` is set
+            - formsStackingContext <- FALSE, because `flex: 1` alone qualifies
+              for none of the conditions
+          and `sliceChildShadowNodeViewPairs.cpp` then mounts a node whose
+          children are "flattened" as a real but EMPTY view, re-parenting its
+          children as its own next SIBLINGS. So this wrapper was mounted at
+          index 0 of the SafeAreaView and the FlatList at index 1 — the walk hit
+          the empty wrapper and returned nil, and UIKit had no scroll view to
+          track.
+
+          `collapsable={false}` forces formsStackingContext, so the FlatList
+          stays inside this view and index 0 leads to it at every level. This is
+          the fix the react-native-screens maintainer gives in
+          software-mansion/react-native-screens#3954 (closed as answered), for
+          this exact symptom.
+
+          It changes nothing else: this view has one child, so z-order and
+          layout are identical either way.
+        */
+        collapsable={false}
         style={styles.listWrap}
         testID={
           shouldShowInitialError
@@ -1343,16 +1377,16 @@ export function PortfolioScreen({
           // React Native's `never` default, which is what lets the content sit
           // correctly under the native tab bar.
           //
-          // DO NOT read this as the fix for tab-bar minimize-on-scroll — it is
-          // not, and it was wrongly commented as such once. react-native-screens
-          // 4.23.0 ALREADY forces this exact value: `TabsScreen`'s
-          // `overrideScrollViewContentInsetAdjustmentBehavior` defaults to true
-          // (expo-router passes `!disableAutomaticContentInsets`), and
-          // `RNSBottomTabsScreenComponentView.mountChildComponentView` runs
-          // `RNSScrollViewHelper` over the first-descendant chain — which this
-          // list is on (SafeAreaView > listWrap > FlatList are each subviews[0]).
-          // So this prop is belt-and-braces for remount ordering only. The real
-          // minimize blocker is documented in `src/app/(tabs)/_layout.tsx`.
+          // This prop is NOT what makes the tab bar minimize on scroll — the
+          // `collapsable={false}` on the wrapper above is. Keep both: they share
+          // a cause but not a mechanism. react-native-screens also wants to set
+          // this value itself (`TabsScreen`'s
+          // `overrideScrollViewContentInsetAdjustmentBehavior` defaults to true,
+          // and `RNSBottomTabsScreenComponentView.mountChildComponentView` runs
+          // `RNSScrollViewHelper` over the first-descendant chain) — but that
+          // helper walks the SAME `subviews[0]` chain, so while the chain was
+          // broken it never reached this list and this prop was carrying the
+          // inset behaviour on its own.
           contentInsetAdjustmentBehavior="automatic"
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"

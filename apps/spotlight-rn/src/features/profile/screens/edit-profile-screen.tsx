@@ -22,6 +22,7 @@ import {
   getUserInitials,
   type ProfileUpdate,
 } from '@/features/auth/auth-models';
+import { prefetchImageUrls } from '@/lib/card-images';
 import { loadNativeImagePicker } from '@/lib/native-image-picker';
 import { useAppServices } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
@@ -292,6 +293,14 @@ export function EditProfileScreen() {
     if (uploadedUrl) {
       setCoverUrl(uploadedUrl);
       setCoverChanged(true);
+      // Warm the cache while the user is still on this form. The upload returns
+      // a `?t=` cache-busted URL, which by construction has never been fetched
+      // by anyone — so the banner's first paint on Portfolio was a guaranteed
+      // cold round-trip to GCS, and that is most of the 3-4s blank band. Users
+      // sit on this form for several seconds before saving, so by the time they
+      // navigate back the bytes are already local. Fire-and-forget: a failed
+      // prefetch costs a slower paint, never a failed save.
+      void prefetchImageUrls([uploadedUrl], 'memory-disk').catch(() => undefined);
     }
   }, [pickAndUploadImage, spotlightRepository]);
 

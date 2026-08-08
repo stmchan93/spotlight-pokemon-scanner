@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import type { PropsWithChildren } from 'react';
-import { StyleSheet } from 'react-native';
+import { Keyboard, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import type { Collection } from '@spotlight/api-client';
@@ -51,6 +51,7 @@ function renderSheet(overrides: Partial<React.ComponentProps<typeof CollectionPi
     formatValue: (value: number) => `$${value.toFixed(2)}`,
     onClose: jest.fn(),
     onCreateCollection: jest.fn(async () => {}),
+    onDismissed: jest.fn(),
     onRenameCollection: jest.fn(async () => {}),
     onToggleHidden: jest.fn(),
     onRequestDelete: jest.fn(),
@@ -58,8 +59,9 @@ function renderSheet(overrides: Partial<React.ComponentProps<typeof CollectionPi
     visible: true,
     ...overrides,
   };
-  render(<CollectionPickerSheet {...props} />, { wrapper: Wrapper });
-  return props;
+  const view = render(<CollectionPickerSheet {...props} />, { wrapper: Wrapper });
+  return { ...props, rerender: (next: Partial<typeof props>) =>
+    view.rerender(<CollectionPickerSheet {...props} {...next} />) };
 }
 
 describe('CollectionPickerSheet', () => {
@@ -237,6 +239,41 @@ describe('CollectionPickerSheet', () => {
 
     expect(screen.queryByLabelText(/reorder/i)).toBeNull();
     expect(screen.queryByTestId('collection-picker-sheet-row-collection:grails-reorder')).toBeNull();
+  });
+
+  it('drops the keyboard on the way out of the naming step', async () => {
+    // The naming field focuses itself, so closing from that step used to leave
+    // the modal to tear down with the keyboard still up — and the Collection
+    // list underneath reacts to keyboard frames it has no business reacting to.
+    // Every exit has to resign first.
+    const dismiss = jest.spyOn(Keyboard, 'dismiss');
+    const props = renderSheet();
+
+    fireEvent.press(screen.getByTestId('collection-picker-sheet-add'));
+    expect(screen.getByTestId('collection-picker-sheet-name-input')).toBeTruthy();
+    dismiss.mockClear();
+
+    fireEvent.press(screen.getByTestId('collection-picker-sheet-backdrop'));
+
+    expect(dismiss).toHaveBeenCalled();
+    expect(props.onClose).toHaveBeenCalled();
+    dismiss.mockRestore();
+  });
+
+  it('reports its dismissal exactly once, and only after it has closed', async () => {
+    // The host opens the delete confirm off this signal: a second modal cannot
+    // present while this one is still up, so firing early is the bug it exists
+    // to prevent.
+    const props = renderSheet();
+    expect(props.onDismissed).not.toHaveBeenCalled();
+
+    await act(async () => {
+      props.rerender({ visible: false });
+    });
+
+    await waitFor(() => {
+      expect(props.onDismissed).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('mutes a hidden collection and offers to count it again', () => {

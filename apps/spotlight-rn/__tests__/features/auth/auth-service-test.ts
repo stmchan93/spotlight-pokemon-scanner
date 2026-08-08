@@ -399,6 +399,141 @@ describe('auth-service profiles', () => {
   });
 });
 
+/**
+ * `updateProfile` writes the Edit Profile form as ONE upsert. Everything below
+ * pins the blast radius of that choice: one column the database refuses must
+ * never take the other five down with it.
+ */
+function profileWriteMock() {
+  const upsert = jest.fn().mockResolvedValue({ error: null });
+  const single = jest.fn().mockResolvedValue({
+    data: { avatar_url: null, display_name: 'Ash', user_id: 'user-1' },
+    error: null,
+  });
+  const eq = jest.fn(() => ({ single }));
+  const select = jest.fn(() => ({ eq }));
+
+  return { eq, select, single, table: { select, upsert }, upsert };
+}
+
+/** The full Edit Profile patch, i.e. a save made after picking a cover photo. */
+const COVER_SAVE_PATCH = {
+  avatarURL: 'https://cdn.test/a.png',
+  bio: 'Collector of holos',
+  coverURL: 'https://cdn.test/covers/user-1.jpg',
+  displayName: 'Ash',
+  location: 'Pallet Town',
+  socialLink: 'https://example.com',
+};
+
+describe('auth-service updateProfile', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  // REGRESSION (2026-08-07). social_15 added `user_profiles.cover_url` but no
+  // grant, and `user_profiles` is fenced by COLUMN grants (social_08 revokes
+  // table-level insert/update from `authenticated`), so the column reads fine and
+  // refuses every write with 42501. Because the whole form goes up as one upsert,
+  // the user's bio / location / social link stopped saving too — the reported
+  // symptom. The cover is the only field allowed to be lost here.
+  it.each([
+    ['no write grant on the column', { code: '42501', message: 'permission denied for table user_profiles' }],
+    ['the column does not exist yet', { code: '42703', message: 'column "cover_url" of relation "user_profiles" does not exist' }],
+    ['PostgREST does not know the column', { code: 'PGRST204', message: "Could not find the 'cover_url' column of 'user_profiles' in the schema cache" }],
+  ])('saves the rest of the profile when the database refuses cover_url (%s)', async (_label, error) => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const supabase = makeSupabaseMock();
+    const table = profileWriteMock();
+    table.upsert.mockResolvedValueOnce({ error });
+    supabase.from.mockReturnValue(table.table);
+
+    const { service } = await loadAuthService({ supabase });
+
+    await expect(service.updateProfile('user-1', COVER_SAVE_PATCH)).resolves.toMatchObject({
+      displayName: 'Ash',
+    });
+
+    expect(table.upsert).toHaveBeenCalledTimes(2);
+    const [first, second] = table.upsert.mock.calls.map((call) => call[0] as Record<string, unknown>);
+    expect(first).toHaveProperty('cover_url', 'https://cdn.test/covers/user-1.jpg');
+    // The retry keeps every field the database WILL accept.
+    expect(second).not.toHaveProperty('cover_url');
+    expect(second).toMatchObject({
+      avatar_url: 'https://cdn.test/a.png',
+      bio: 'Collector of holos',
+      display_name: 'Ash',
+      location: 'Pallet Town',
+      social_link: 'https://example.com',
+      user_id: 'user-1',
+    });
+  });
+
+  it('does NOT retry when the patch carries no cover_url', async () => {
+    const supabase = makeSupabaseMock();
+    const table = profileWriteMock();
+    table.upsert.mockResolvedValue({
+      error: { code: '42501', message: 'permission denied for table user_profiles' },
+    });
+    supabase.from.mockReturnValue(table.table);
+
+    const { service } = await loadAuthService({ supabase });
+
+    // Nothing to drop, so a second round trip could only fail the same way.
+    await expect(service.updateProfile('user-1', { bio: 'Hi' })).rejects.toMatchObject({
+      code: 'save-failed',
+    });
+    expect(table.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT retry, and still fails loudly, when the error is unrelated to a column', async () => {
+    const supabase = makeSupabaseMock();
+    const table = profileWriteMock();
+    table.upsert.mockResolvedValue({ error: { code: '08006', message: 'connection failure' } });
+    supabase.from.mockReturnValue(table.table);
+
+    const { service } = await loadAuthService({ supabase });
+
+    await expect(service.updateProfile('user-1', COVER_SAVE_PATCH)).rejects.toMatchObject({
+      code: 'save-failed',
+    });
+    expect(table.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('still reports a taken handle rather than swallowing it as a column problem', async () => {
+    const supabase = makeSupabaseMock();
+    const table = profileWriteMock();
+    table.upsert.mockResolvedValue({
+      error: { code: '23505', message: 'duplicate key value violates unique constraint' },
+    });
+    supabase.from.mockReturnValue(table.table);
+
+    const { service } = await loadAuthService({ supabase });
+
+    await expect(service.updateProfile('user-1', { handle: 'ash' })).rejects.toMatchObject({
+      code: 'handle-taken',
+    });
+  });
+
+  it('writes only the keys the patch carries', async () => {
+    const supabase = makeSupabaseMock();
+    const table = profileWriteMock();
+    supabase.from.mockReturnValue(table.table);
+
+    const { service } = await loadAuthService({ supabase });
+    await service.updateProfile('user-1', { bio: 'Collector', location: 'Pallet Town' });
+
+    expect(table.upsert).toHaveBeenCalledTimes(1);
+    expect(table.upsert.mock.calls[0][0]).toEqual({
+      bio: 'Collector',
+      location: 'Pallet Town',
+      user_id: 'user-1',
+    });
+    // Omitted keys must stay omitted — `handle: null` would release the @handle.
+    expect(table.upsert.mock.calls[0][0]).not.toHaveProperty('handle');
+  });
+});
+
 describe('auth-service callback restore', () => {
   it('restores access-token callbacks, auth-code callbacks, errors, and no-op URLs', async () => {
     const supabase = makeSupabaseMock();

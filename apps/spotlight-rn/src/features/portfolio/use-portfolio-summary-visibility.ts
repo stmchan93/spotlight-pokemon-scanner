@@ -7,9 +7,15 @@ const listeners = new Set<(hidden: boolean) => void>();
 let cachedValue = false;
 let hasHydratedCache = false;
 let hydrationPromise: Promise<void> | null = null;
+// Set the first time the owner toggles in this session. The read from disk is
+// async, so a tap that lands before it resolves would otherwise be overwritten
+// by the older stored value — the toggle visibly springing back, which reads as
+// "it doesn't stick".
+let hasLocalWrite = false;
 
 function notifyListeners(value: boolean) {
   cachedValue = value;
+  hasLocalWrite = true;
   for (const listener of listeners) {
     listener(value);
   }
@@ -28,9 +34,13 @@ async function hydrateCache(): Promise<void> {
     hydrationPromise = (async () => {
       try {
         const raw = await AsyncStorage.getItem(PORTFOLIO_SUMMARY_HIDDEN_STORAGE_KEY);
-        cachedValue = parseStoredValue(raw);
+        if (!hasLocalWrite) {
+          cachedValue = parseStoredValue(raw);
+        }
       } catch {
-        cachedValue = false;
+        if (!hasLocalWrite) {
+          cachedValue = false;
+        }
       } finally {
         hasHydratedCache = true;
       }
@@ -109,5 +119,6 @@ export function __resetPortfolioSummaryVisibilityForTests(): void {
   cachedValue = false;
   hasHydratedCache = false;
   hydrationPromise = null;
+  hasLocalWrite = false;
   listeners.clear();
 }

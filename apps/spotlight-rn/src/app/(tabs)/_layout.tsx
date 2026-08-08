@@ -47,28 +47,38 @@ const { Icon, Label } = Trigger;
  * light/dark appearance. Forcing gray900 on `normal` too would kill that
  * contrast in dark mode.
  *
- * `minimizeBehavior` IS KNOWN NOT TO WORK AT react-native-screens 4.23.0.
- * It is left set because it is correct and costs nothing, but do not spend more
- * time on the JS side — the blocker is native and outside this repo:
- *   - The prop reaches UIKit fine: expo-router forwards it as
- *     `tabBarMinimizeBehavior`, and RNSBottomTabsHostComponentView assigns
- *     `_controller.tabBarMinimizeBehavior` (guarded by an iOS 26 SDK check).
- *   - UIKit then has to work out WHICH scroll view to track, via
- *     `UIViewController.contentScrollView(for:)`. react-native-screens 4.23.0
- *     never implements or calls it — `grep -r contentScrollView` over its `ios/`
- *     dir finds only an unused `RNSScrollViewFinder` helper. So resolution is
- *     left entirely to UIKit's own shallow auto-detection.
- *   - That auto-detection loses the list behind the styled UIViews stacked
- *     between the tab screen and it. Two of those are added by EXPO-ROUTER, not
- *     by us: `Screen()` in expo-router/build/native-tabs/NativeTabsView.js wraps
- *     every iOS tab in a `<SafeAreaProvider>` and then a
- *     `<View collapsable={false}>` carrying backgroundColor + overflow:'hidden'.
- *     Nothing exposed on NativeTabs or Trigger removes them.
- *     Upstream: software-mansion/react-native-screens#4145 (and #3954), which
- *     ask for `contentScrollViewForEdge:` on RNSTabsScreenViewController.
- * Setting `contentInsetAdjustmentBehavior` on the list does NOT fix this —
- * screens already forces that value; see the note in portfolio-screen.tsx.
- * Re-test after a screens upgrade past 4.23.0, not before.
+ * `minimizeBehavior` — WHAT IT ACTUALLY DEPENDS ON. This was twice written off
+ * as blocked on native support. It is not: the requirement is a JS-side tree
+ * shape, and it is met in `portfolio-screen.tsx`, not here.
+ *
+ * The prop reaches UIKit fine — expo-router forwards it as
+ * `tabBarMinimizeBehavior` and `RNSBottomTabsHostComponentView` assigns
+ * `_controller.tabBarMinimizeBehavior` behind an iOS 26 SDK check. UIKit then
+ * has to work out WHICH scroll view to track, and it finds it by walking
+ * `subviews[0]` down from the tab screen's view. react-native-screens 4.23.0
+ * indeed never implements `contentScrollViewForEdge:`, but it does not need to:
+ * it replicates the same walk in
+ * `ios/helpers/scroll-view/RNSScrollViewFinder.mm`, whose header says outright
+ * that it works "similar to UIKit behavior". DEPTH IS NOT THE CONSTRAINT — the
+ * walk is unbounded, and expo-router's own two wrappers (a `<SafeAreaProvider>`
+ * and a `<View collapsable={false}>`, in NativeTabsView.js `Screen()`) are both
+ * real single-child views and pass it fine.
+ *
+ * What breaks it is React Native VIEW FLATTENING. A plain `<View>` that has a
+ * `testID` but no stacking-context trigger is mounted as a real but EMPTY
+ * UIView, with its children re-parented as its own siblings
+ * (`ViewShadowNode::initialize` + `sliceChildShadowNodeViewPairs.cpp`). One such
+ * wrapper anywhere on the chain parks a childless view at index 0 and the walk
+ * returns nil. `collapsable={false}` on that wrapper is the whole fix, and is
+ * what the screens maintainer prescribes in
+ * software-mansion/react-native-screens#3954. (#4145 is a different, still-open
+ * case: a scroll view under a nested native STACK, which no JS flag reaches.)
+ *
+ * So: if minimize ever stops working, do not look here and do not look at
+ * `contentInsetAdjustmentBehavior`. Look for a new unflattened `<View>` between
+ * the tab screen and the list. `<DrawerEdgeSwipe>` in wrapper mode is safe — its
+ * PanResponder handlers set `ViewEvents` bits, which force a stacking context on
+ * their own.
  */
 export default function TabsLayout() {
   // Hide the BAR ITSELF on the Scanner. `hidden` on <NativeTabs> maps to

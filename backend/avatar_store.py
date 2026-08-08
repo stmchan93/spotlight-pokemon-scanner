@@ -119,14 +119,26 @@ class GoogleCloudAvatarStore:
             "coverObjectPrefix": COVER_OBJECT_PREFIX,
         }
 
+    # The client cache-busts every upload with `?t=<epoch>`, so any given URL
+    # names immutable bytes: a new photo is always a NEW url. That makes a long
+    # immutable max-age safe, and it is the only thing that helps OTHER people
+    # viewing this profile — they cannot prefetch the way the uploader's own
+    # device can. Without it every viewer paid a cold GCS round-trip on a blank
+    # banner. Objects are overwritten in place on re-upload, but the previous
+    # URL is never requested again, so no stale copy is ever served.
+    _IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
+
+    def _upload_public_image(self, object_path: str, jpeg_bytes: bytes) -> str:
+        blob = self.bucket.blob(object_path)
+        blob.cache_control = self._IMMUTABLE_CACHE_CONTROL
+        blob.upload_from_string(jpeg_bytes, content_type=_AVATAR_CONTENT_TYPE)
+        return self.public_url(object_path)
+
     def public_url(self, object_path: str) -> str:
         return f"https://storage.googleapis.com/{self.bucket_name}/{object_path}"
 
     def store_avatar(self, *, user_id: str, jpeg_bytes: bytes) -> str:
-        object_path = _avatar_object_path(user_id)
-        blob = self.bucket.blob(object_path)
-        blob.upload_from_string(jpeg_bytes, content_type=_AVATAR_CONTENT_TYPE)
-        return self.public_url(object_path)
+        return self._upload_public_image(_avatar_object_path(user_id), jpeg_bytes)
 
     def store_cover(self, *, user_id: str, jpeg_bytes: bytes) -> str:
         """Store the caller's profile cover banner (``covers/<user_id>.jpg``).
@@ -135,10 +147,7 @@ class GoogleCloudAvatarStore:
         the authenticated caller's id, never from client input — writing to a
         different prefix so avatar and cover replace independently.
         """
-        object_path = _cover_object_path(user_id)
-        blob = self.bucket.blob(object_path)
-        blob.upload_from_string(jpeg_bytes, content_type=_AVATAR_CONTENT_TYPE)
-        return self.public_url(object_path)
+        return self._upload_public_image(_cover_object_path(user_id), jpeg_bytes)
 
 
 def build_avatar_store(

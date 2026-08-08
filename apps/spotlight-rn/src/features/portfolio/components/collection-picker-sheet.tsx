@@ -34,6 +34,8 @@ const ROW_HEIGHT = 57;
 /** Leading glyphs (view-grid, chevron) are 20pt. */
 const ROW_ICON_SIZE = 20;
 const SCREEN_HEIGHT = Dimensions.get('window').height;
+/** How long the sheet takes to slide back out. */
+const CLOSE_ANIMATION_MS = 220;
 /** Drag distance past which releasing dismisses instead of springing back. */
 const DISMISS_DRAG_DISTANCE = 80;
 const DISMISS_DRAG_VELOCITY = 0.5;
@@ -73,6 +75,16 @@ type CollectionPickerSheetProps = {
    * directly.
    */
   onRequestDelete: (collection: Collection) => void;
+  /**
+   * Fires ONCE per close, after this sheet's modal is actually gone.
+   *
+   * A second `overFullScreen` modal cannot present while this one is still up:
+   * on iOS it collides at the view-controller layer, so the follow-up sheet
+   * never appears (the same collision documented on the card actions menu).
+   * Anything that opens another modal in response to a row action — the delete
+   * confirm — must wait for this.
+   */
+  onDismissed?: () => void;
   /** Formats a collection's market value for display (owner's masking applies). */
   formatValue: (value: number) => string;
   loading?: boolean;
@@ -100,6 +112,7 @@ export function CollectionPickerSheet({
   onRenameCollection,
   onToggleHidden,
   onRequestDelete,
+  onDismissed,
   formatValue,
   loading = false,
   testID = 'collection-picker-sheet',
@@ -120,6 +133,35 @@ export function CollectionPickerSheet({
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const inputRef = useRef<TextInput | null>(null);
 
+  // `onDismissed` must fire exactly once per close. Two things can tell us the
+  // sheet is gone — the native modal's own dismissal (iOS only) and the close
+  // timer below (every platform, and the only one under test) — so take
+  // whichever arrives first and ignore the other. Starts "already notified" so
+  // the first open can't emit a dismissal for a sheet that was never shown.
+  const dismissNotifiedRef = useRef(true);
+  const onDismissedRef = useRef(onDismissed);
+  onDismissedRef.current = onDismissed;
+  const notifyDismissed = useCallback(() => {
+    if (dismissNotifiedRef.current) {
+      return;
+    }
+    dismissNotifiedRef.current = true;
+    onDismissedRef.current?.();
+  }, []);
+
+  /**
+   * The only way this sheet closes. Resigns the keyboard first: the create step
+   * focuses its field, and tearing the modal down while that field is still the
+   * first responder leaves the keyboard to collapse on its own AFTER the sheet
+   * has gone — which drags the screen underneath through a keyboard-inset pass
+   * it has no business reacting to (see `automaticallyAdjustKeyboardInsets` on
+   * the Collection list).
+   */
+  const requestClose = useCallback(() => {
+    Keyboard.dismiss();
+    onClose();
+  }, [onClose]);
+
   // Every open starts on the list with a clean form — a half-typed name from a
   // previous open reappearing under a "New Collection" title reads as a bug.
   useEffect(() => {
@@ -129,6 +171,7 @@ export function CollectionPickerSheet({
       setCreateError(null);
       setCreating(false);
       setRenameTarget(null);
+      dismissNotifiedRef.current = false;
     }
   }, [visible]);
 
@@ -184,7 +227,7 @@ export function CollectionPickerSheet({
     const animation = Animated.parallel([
       Animated.timing(translateY, {
         toValue: SCREEN_HEIGHT,
-        duration: 220,
+        duration: CLOSE_ANIMATION_MS,
         easing: Easing.in(Easing.cubic),
         useNativeDriver: false,
       }),
@@ -195,13 +238,24 @@ export function CollectionPickerSheet({
         useNativeDriver: false,
       }),
     ]);
-    animation.start(({ finished }) => {
-      if (finished) {
-        setIsRendered(false);
-      }
-    });
-    return () => animation.stop();
-  }, [backdropOpacity, translateY, visible]);
+    animation.start();
+    // The unmount is on a timer rather than the animation's completion
+    // callback: RN's Modal stops rendering its children the moment `visible`
+    // goes false on every platform except iOS, which tears the animated views
+    // (and with them the completion callback) down mid-flight — so that
+    // callback cannot be relied on to end the close.
+    const closeTimer = setTimeout(() => {
+      setIsRendered(false);
+      // Backstop for `Modal.onDismiss`, which RN only fires on iOS. There it
+      // arrives first (an `animationType="none"` dismissal is unanimated) and
+      // this is a no-op; everywhere else it is the only signal there is.
+      notifyDismissed();
+    }, CLOSE_ANIMATION_MS);
+    return () => {
+      animation.stop();
+      clearTimeout(closeTimer);
+    };
+  }, [backdropOpacity, notifyDismissed, translateY, visible]);
 
   const dragResponder = useMemo(
     () =>
@@ -216,7 +270,7 @@ export function CollectionPickerSheet({
         },
         onPanResponderRelease: (_event, gesture) => {
           if (gesture.dy > DISMISS_DRAG_DISTANCE || gesture.vy > DISMISS_DRAG_VELOCITY) {
-            onClose();
+            requestClose();
             return;
           }
           Animated.spring(translateY, {
@@ -228,15 +282,15 @@ export function CollectionPickerSheet({
           }).start();
         },
       }),
-    [onClose, translateY],
+    [requestClose, translateY],
   );
 
   const handleSelect = useCallback(
     (collectionID: string) => {
       onSelectCollection(collectionID);
-      onClose();
+      requestClose();
     },
-    [onClose, onSelectCollection],
+    [onSelectCollection, requestClose],
   );
 
   const trimmedName = draftName.trim();
@@ -260,7 +314,7 @@ export function CollectionPickerSheet({
           Keyboard.dismiss();
         } else {
           await onCreateCollection(trimmedName);
-          onClose();
+          requestClose();
         }
       } catch {
         // Keep the sheet open with the typed name intact so the author can
@@ -274,7 +328,7 @@ export function CollectionPickerSheet({
         setCreating(false);
       }
     })();
-  }, [canCreate, onClose, onCreateCollection, onRenameCollection, renameTarget, trimmedName]);
+  }, [canCreate, onCreateCollection, onRenameCollection, renameTarget, requestClose, trimmedName]);
 
   const startRename = useCallback((collection: Collection) => {
     setRenameTarget(collection);
@@ -291,8 +345,8 @@ export function CollectionPickerSheet({
       Keyboard.dismiss();
       return;
     }
-    onClose();
-  }, [onClose, step]);
+    requestClose();
+  }, [requestClose, step]);
 
   if (!isRendered) {
     return null;
@@ -338,7 +392,10 @@ export function CollectionPickerSheet({
   return (
     <Modal
       animationType="none"
-      onRequestClose={onClose}
+      // iOS-only, and the authoritative "the view controller is really gone"
+      // signal — the close timer above is the cross-platform fallback.
+      onDismiss={notifyDismissed}
+      onRequestClose={requestClose}
       presentationStyle="overFullScreen"
       statusBarTranslucent
       transparent
@@ -349,7 +406,7 @@ export function CollectionPickerSheet({
           <Pressable
             accessibilityLabel="Close"
             accessibilityRole="button"
-            onPress={onClose}
+            onPress={requestClose}
             style={StyleSheet.absoluteFill}
             testID={`${testID}-backdrop`}
           />

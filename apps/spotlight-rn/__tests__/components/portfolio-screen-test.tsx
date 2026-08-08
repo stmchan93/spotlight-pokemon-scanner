@@ -1,13 +1,22 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import { useRouter } from 'expo-router';
 import { Text } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { MockSpotlightRepository } from '@spotlight/api-client';
-import type { InventoryCardEntry, PortfolioDashboard } from '@spotlight/api-client';
+import type {
+  Collection,
+  CollectionsSnapshot,
+  InventoryCardEntry,
+  PortfolioDashboard,
+} from '@spotlight/api-client';
 
 import { TabsPageContext } from '@/contexts/tabs-page-context';
 import { PortfolioScreen } from '@/features/portfolio/screens/portfolio-screen';
-import { __resetPortfolioSummaryVisibilityForTests } from '@/features/portfolio/use-portfolio-summary-visibility';
+import {
+  PORTFOLIO_SUMMARY_HIDDEN_STORAGE_KEY,
+  __resetPortfolioSummaryVisibilityForTests,
+} from '@/features/portfolio/use-portfolio-summary-visibility';
 import { __resetPortfolioViewModeForTests } from '@/features/portfolio/hooks/use-portfolio-view-mode';
 import { __resetTrendWindowForTests } from '@/features/portfolio/hooks/use-trend-window';
 
@@ -106,6 +115,98 @@ function buildDashboardWithInventory(items: InventoryCardEntry[]): PortfolioDash
       ALL: { portfolio: [], sales: [] },
     },
   };
+}
+
+// Two collections with different holdings, so "which collection am I looking
+// at?" is answerable from the screen.
+const MAIN_COLLECTION: Collection = {
+  id: 'collection:main',
+  name: 'Main Collection',
+  sortOrder: 0,
+  createdAt: '2026-01-01T00:00:00.000Z',
+  cardCount: 1,
+  totalValue: 100,
+  isDefault: true,
+  hidden: false,
+};
+
+const GRAILS_COLLECTION: Collection = {
+  id: 'collection:grails',
+  name: 'Grails',
+  sortOrder: 1,
+  createdAt: '2026-02-01T00:00:00.000Z',
+  cardCount: 1,
+  totalValue: 42,
+  isDefault: false,
+  hidden: false,
+};
+
+const COLLECTIONS_SNAPSHOT: CollectionsSnapshot = {
+  collections: [MAIN_COLLECTION, GRAILS_COLLECTION],
+  defaultCollectionID: MAIN_COLLECTION.id,
+  all: { cardCount: 2, totalValue: 142 },
+};
+
+function buildScopedDashboard(items: InventoryCardEntry[], currentValue: number): PortfolioDashboard {
+  const base = buildDashboardWithInventory(items);
+  return {
+    ...base,
+    summary: { ...base.summary, currentValue },
+    ranges: {
+      ...base.ranges,
+      // A hydrated open range, so the inventory load merges into this dashboard
+      // instead of recomputing the value from the entries.
+      '1W': {
+        portfolio: [{ isoDate: '2026-05-01', shortLabel: 'May 1', value: currentValue }],
+        sales: [],
+      },
+    },
+  };
+}
+
+/**
+ * A repository whose holdings actually differ per collection — the only way to
+ * tell a re-scoped read from a stale one. `grailsDashboard` lets a test make the
+ * second collection EMPTY, which is the case the owner hit (a just-created
+ * collection still showing the main collection's money).
+ */
+function createCollectionScopedRepository({
+  grailsDashboard,
+  ...overrides
+}: Partial<mockApiClient.SpotlightRepository> & { grailsDashboard?: PortfolioDashboard } = {}) {
+  const mainItems = [buildInventoryEntry({ id: 'main-1', name: 'Main Card', marketPrice: 100 })];
+  const grailItems = [buildInventoryEntry({ id: 'grail-1', name: 'Grail Card', marketPrice: 42 })];
+  const grails = grailsDashboard ?? buildScopedDashboard(grailItems, 42);
+
+  return createTestSpotlightRepository({
+    listCollections: async () => COLLECTIONS_SNAPSHOT,
+    loadInventoryEntries: async (query?: { collectionID?: string | null }) => ({
+      state: 'success' as const,
+      data: query?.collectionID === GRAILS_COLLECTION.id ? grails.inventoryItems : mainItems,
+      errorMessage: null,
+    }),
+    loadPortfolioDashboard: async (options?: { collectionID?: string | null }) => (
+      options?.collectionID === GRAILS_COLLECTION.id
+        ? {
+            state: (grails.inventoryItems.length > 0 ? 'success' : 'empty') as 'success' | 'empty',
+            data: grails,
+            errorMessage: null,
+          }
+        : {
+            state: 'success' as const,
+            data: buildScopedDashboard(mainItems, 100),
+            errorMessage: null,
+          }
+    ),
+    ...overrides,
+  });
+}
+
+async function openCollectionPicker() {
+  await act(async () => {
+    fireEvent.press(screen.getByTestId('collection-search-row-collection'));
+  });
+  await screen.findByTestId('collection-picker-sheet');
 }
 
 describe('PortfolioScreen', () => {
@@ -217,6 +318,212 @@ describe('PortfolioScreen', () => {
     });
   });
 
+  describe('collection scope', () => {
+    it('shows the value of the collection you switched to, not the one you left', async () => {
+      renderPortfolioScreen({ repository: createCollectionScopedRepository() });
+
+      await screen.findByTestId('portfolio-summary-value');
+      await waitFor(() => {
+        expect(screen.getByTestId('portfolio-summary-value')).toHaveTextContent('$100.00');
+      });
+
+      await openCollectionPicker();
+      await act(async () => {
+        fireEvent.press(
+          screen.getByTestId(`collection-picker-sheet-row-${GRAILS_COLLECTION.id}`),
+        );
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('portfolio-summary-value')).toHaveTextContent('$42.00');
+      });
+      // The name and the money have to agree — that is the whole complaint.
+      expect(screen.getByText('Grails')).toBeTruthy();
+    });
+
+    it('drops the old collection\'s money the moment you switch, not when the refetch lands', async () => {
+      // The scoped read takes seconds against a real backend. For all of that
+      // time the header used to keep showing the collection you just left, under
+      // the name of the one you picked — which is the bug as the owner sees it,
+      // whatever the eventual value turns out to be.
+      let resolveGrails: (value: {
+        state: 'success';
+        data: PortfolioDashboard;
+        errorMessage: null;
+      }) => void = () => {};
+      const mainItems = [buildInventoryEntry({ id: 'main-1', name: 'Main Card', marketPrice: 100 })];
+      const repository = createTestSpotlightRepository({
+        listCollections: async () => COLLECTIONS_SNAPSHOT,
+        loadInventoryEntries: async (query?: { collectionID?: string | null }) => (
+          query?.collectionID === GRAILS_COLLECTION.id
+            ? new Promise(() => {})
+            : { state: 'success' as const, data: mainItems, errorMessage: null }
+        ),
+        loadPortfolioDashboard: async (options?: { collectionID?: string | null }) => (
+          options?.collectionID === GRAILS_COLLECTION.id
+            ? new Promise((resolve) => {
+                resolveGrails = resolve;
+              })
+            : { state: 'success' as const, data: buildScopedDashboard(mainItems, 100), errorMessage: null }
+        ),
+      });
+
+      renderPortfolioScreen({ repository });
+      await waitFor(() => {
+        expect(screen.getByTestId('portfolio-summary-value')).toHaveTextContent('$100.00');
+      });
+
+      await openCollectionPicker();
+      await act(async () => {
+        fireEvent.press(
+          screen.getByTestId(`collection-picker-sheet-row-${GRAILS_COLLECTION.id}`),
+        );
+      });
+
+      // Still loading Grails: the balance may be empty, but it may NOT be the
+      // other collection's.
+      await waitFor(() => {
+        expect(screen.getByTestId('portfolio-summary-value')).not.toHaveTextContent('$100.00');
+      });
+      expect(screen.getByTestId('portfolio-chart-skeleton')).toBeTruthy();
+
+      await act(async () => {
+        resolveGrails({
+          state: 'success',
+          data: buildScopedDashboard(
+            [buildInventoryEntry({ id: 'grail-1', name: 'Grail Card', marketPrice: 42 })],
+            42,
+          ),
+          errorMessage: null,
+        });
+      });
+      await waitFor(() => {
+        expect(screen.getByTestId('portfolio-summary-value')).toHaveTextContent('$42.00');
+      });
+    });
+
+    it('does not keep the previous balance when the collection switched to is empty', async () => {
+      // A brand-new collection reads back empty, and an empty read used to be
+      // rejected as a transient backend blip — so the previous collection's
+      // money stayed on screen under the new collection's name, permanently.
+      const emptyGrails = buildScopedDashboard([], 0);
+      renderPortfolioScreen({
+        repository: createCollectionScopedRepository({ grailsDashboard: emptyGrails }),
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('portfolio-summary-value')).toHaveTextContent('$100.00');
+      });
+
+      await openCollectionPicker();
+      await act(async () => {
+        fireEvent.press(
+          screen.getByTestId(`collection-picker-sheet-row-${GRAILS_COLLECTION.id}`),
+        );
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('portfolio-summary-value')).toHaveTextContent('$0.00');
+      });
+      // And the cards go with the money: the previous collection's rows must not
+      // be left behind either.
+      expect(screen.queryByTestId('collection-masonry-grid-tile-main-1')).not.toBeOnTheScreen();
+    });
+
+    it('confirms before deleting a collection, and deletes nothing until you do', async () => {
+      const deleteCollection = jest.fn(async () => ({ deletedEntryCount: 1 }));
+      renderPortfolioScreen({
+        repository: createCollectionScopedRepository({ deleteCollection }),
+      });
+      await screen.findByTestId('portfolio-summary-value');
+
+      await openCollectionPicker();
+      await act(async () => {
+        fireEvent.press(
+          screen.getByTestId(`collection-picker-sheet-row-${GRAILS_COLLECTION.id}-delete`),
+        );
+      });
+
+      // The confirm is a second bottom sheet, so the picker has to be out of the
+      // way first — two overFullScreen modals collide on iOS and the confirm
+      // never appears, which is how the trash icon came to look inert.
+      await waitFor(() => {
+        expect(screen.queryByTestId('collection-picker-sheet')).not.toBeOnTheScreen();
+      });
+      const confirm = await screen.findByTestId('collection-delete-confirm');
+      // Deleting takes the collection's cards with it, so the copy says so.
+      expect(within(confirm).getByText(/1 card/)).toBeTruthy();
+      expect(deleteCollection).not.toHaveBeenCalled();
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('collection-delete-confirm-confirm'));
+      });
+      await waitFor(() => {
+        expect(deleteCollection).toHaveBeenCalledWith(GRAILS_COLLECTION.id);
+      });
+    });
+
+    it('cancelling the delete confirm leaves the collection alone', async () => {
+      const deleteCollection = jest.fn(async () => ({ deletedEntryCount: 1 }));
+      renderPortfolioScreen({
+        repository: createCollectionScopedRepository({ deleteCollection }),
+      });
+      await screen.findByTestId('portfolio-summary-value');
+
+      await openCollectionPicker();
+      await act(async () => {
+        fireEvent.press(
+          screen.getByTestId(`collection-picker-sheet-row-${GRAILS_COLLECTION.id}-delete`),
+        );
+      });
+      await screen.findByTestId('collection-delete-confirm');
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('collection-delete-confirm-cancel'));
+      });
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('collection-delete-confirm')).not.toBeOnTheScreen();
+      });
+      expect(deleteCollection).not.toHaveBeenCalled();
+    });
+
+    it('keeps the page scrollable after opening the add-collection form and backing out', async () => {
+      renderPortfolioScreen({ repository: createCollectionScopedRepository() });
+      await screen.findByTestId('portfolio-summary-value');
+
+      const list = screen.getByTestId('portfolio-scroll-view');
+      expect(list.props.scrollEnabled).not.toBe(false);
+      // The list adjusts itself around ITS keyboard...
+      expect(list.props.automaticallyAdjustKeyboardInsets).toBe(true);
+
+      await openCollectionPicker();
+      // ...but not around the naming field's, which lives in a modal on top of
+      // it: that subscription is a raw keyboard-frame hook on the native scroll
+      // view and it re-insets and scrolls this list for a keyboard the user
+      // cannot even see it behind.
+      expect(
+        screen.getByTestId('portfolio-scroll-view').props.automaticallyAdjustKeyboardInsets,
+      ).toBe(false);
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('collection-picker-sheet-add'));
+      });
+      expect(screen.getByTestId('collection-picker-sheet-name-input')).toBeTruthy();
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('collection-picker-sheet-backdrop'));
+      });
+      await waitFor(() => {
+        expect(screen.queryByTestId('collection-picker-sheet')).not.toBeOnTheScreen();
+      });
+
+      const after = screen.getByTestId('portfolio-scroll-view');
+      expect(after.props.scrollEnabled).not.toBe(false);
+      expect(after.props.automaticallyAdjustKeyboardInsets).toBe(true);
+    });
+  });
+
   it('masks the collection total too when the balance is hidden', async () => {
     renderPortfolioScreen();
 
@@ -289,6 +596,33 @@ describe('PortfolioScreen', () => {
       expect(within(summaryDelta).queryAllByText('*****').length).toBe(0);
       expect(screen.queryAllByText('*****').length).toBe(0);
     });
+  });
+
+  it('keeps the balance hidden across a remount, and writes the choice to storage', async () => {
+    const setItem = jest.spyOn(AsyncStorage, 'setItem');
+    const view = renderPortfolioScreen();
+
+    await screen.findByTestId('portfolio-summary-value');
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('portfolio-summary-visibility-toggle'));
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('portfolio-summary-value')).toHaveTextContent('*****');
+    });
+
+    // Hiding is a choice about privacy, so it has to outlive the screen — and
+    // reach disk, or it dies with the process.
+    expect(setItem).toHaveBeenCalledWith(PORTFOLIO_SUMMARY_HIDDEN_STORAGE_KEY, '1');
+
+    view.unmount();
+    renderPortfolioScreen();
+
+    const value = await screen.findByTestId('portfolio-summary-value');
+    expect(value).toHaveTextContent('*****');
+    expect(
+      screen.getByTestId('portfolio-summary-visibility-toggle').props.accessibilityLabel,
+    ).toBe('Show portfolio value');
+    setItem.mockRestore();
   });
 
   it('renders cached inventory and the screen-level summary while the dashboard load is pending', async () => {

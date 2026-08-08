@@ -39,3 +39,45 @@ export function isMissingColumnError(
   const message = (error.message ?? '').toLowerCase();
   return message.includes('does not exist') && message.includes('column');
 }
+
+/**
+ * Does this error mean "your role may not write that"?
+ *
+ * Postgres raises `42501` / `permission denied for table <t>` when a statement
+ * touches a column the caller has no INSERT/UPDATE privilege on. That is a
+ * TABLE-level message even when the cause is a single column, so it can only be
+ * attributed by knowing which columns the statement actually carried.
+ *
+ * This matters here because `user_profiles` is fenced by COLUMN grants, not by
+ * a table grant (social_08 revokes table-level insert/update from
+ * `authenticated` and re-grants column by column). A column added by a later
+ * migration therefore starts with NO write privilege until it is granted
+ * explicitly — the column exists and reads fine, and only writes are refused.
+ */
+export function isInsufficientPrivilegeError(
+  error: PostgrestErrorLike | null | undefined,
+): boolean {
+  if (!error) {
+    return false;
+  }
+  if ((error.code ?? '') === '42501') {
+    return true;
+  }
+  return (error.message ?? '').toLowerCase().includes('permission denied');
+}
+
+/**
+ * Does this WRITE error mean "the database will not accept that column"?
+ *
+ * Two distinct causes with one remedy — retry without the column:
+ *   * it does not exist yet (the migration has not been applied), or
+ *   * it exists but carries no write grant for the caller's role.
+ *
+ * PostgREST fails the ENTIRE statement either way, so a single unwritable
+ * column otherwise takes down every other field in the same patch.
+ */
+export function isColumnWriteRejectedError(
+  error: PostgrestErrorLike | null | undefined,
+): boolean {
+  return isMissingColumnError(error) || isInsufficientPrivilegeError(error);
+}

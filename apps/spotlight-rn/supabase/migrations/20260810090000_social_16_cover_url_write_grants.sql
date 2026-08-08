@@ -1,0 +1,82 @@
+-- Social layer — part 16: grant WRITE on `user_profiles.cover_url`.
+--
+-- NOT YET APPLIED anywhere. Apply to staging first, then production.
+--
+-- ===========================================================================
+-- THE BUG
+-- ===========================================================================
+-- social_15 added `user_profiles.cover_url` and put it on the public view. It
+-- did not grant anything, because on an ordinary table it would not have needed
+-- to — a role holding table-level INSERT/UPDATE automatically covers columns
+-- added later.
+--
+-- `user_profiles` is not an ordinary table. social_08 does:
+--
+--     revoke insert, update on public.user_profiles from authenticated;
+--     grant insert (user_id, display_name, avatar_url, handle, bio, location,
+--                   social_link) on public.user_profiles to authenticated;
+--     grant update (...same seven...) on public.user_profiles to authenticated;
+--
+-- i.e. writes are fenced COLUMN BY COLUMN, precisely so `admin_enabled`,
+-- `status`, `is_shadowbanned`, `is_verified`, `reputation` and the counters
+-- cannot be self-set with the anon key that ships in the app bundle. The
+-- consequence — and this is the part social_15 missed — is that EVERY column
+-- added to this table from social_08 onward starts with NO write privilege for
+-- `authenticated` and stays that way until it is granted here by name.
+--
+-- SELECT was never revoked, so it is still table-level and picked `cover_url` up
+-- automatically. That asymmetry is what made this hard to see: the column reads
+-- back fine everywhere, and only writes are refused.
+--
+-- ===========================================================================
+-- WHAT THE USER SAW
+-- ===========================================================================
+-- Edit Profile sends the whole form as ONE PostgREST upsert. Postgres rejects a
+-- statement that touches an ungranted column with 42501 ("permission denied for
+-- table user_profiles"), and PostgREST fails the WHOLE statement — so once a
+-- user had picked a cover photo, their bio, location, social link and avatar
+-- stopped saving as well. The cover photo itself uploaded fine (it goes to the
+-- backend's public GCS bucket, not to Supabase); only persisting its URL failed.
+--
+-- The client is now resilient to this (auth-service `updateProfile` retries
+-- without `cover_url`), so the rest of the form saves either way. But the cover
+-- cannot persist until this grant lands.
+--
+-- ===========================================================================
+-- RULE FOR FUTURE MIGRATIONS
+-- ===========================================================================
+-- Any new client-writable column on `public.user_profiles` MUST come with its
+-- own `grant insert (col), update (col) ... to authenticated`. Adding the column
+-- alone makes it readable but silently unwritable. Columns that are NOT meant to
+-- be client-writable (moderation state, capability flags, denormalized counters)
+-- are correct to leave ungranted — that is the whole point of the fence.
+--
+-- SAFETY: two grants, nothing else. No column changes, no policy changes, no
+-- data changes. Idempotent — re-granting an existing privilege is a no-op.
+-- Row ownership is still enforced by `user_profiles_self_insert` /
+-- `user_profiles_self_update` (social_08); this only widens WHICH COLUMN may be
+-- written, never WHOSE ROW.
+
+begin;
+
+grant insert (cover_url) on public.user_profiles to authenticated;
+grant update (cover_url) on public.user_profiles to authenticated;
+
+commit;
+
+-- Verify after applying (both must return true):
+--
+--   select has_column_privilege('authenticated', 'public.user_profiles', 'cover_url', 'INSERT');
+--   select has_column_privilege('authenticated', 'public.user_profiles', 'cover_url', 'UPDATE');
+--
+-- And the same check across the whole client-writable set, which should list
+-- exactly: user_id, display_name, avatar_url, handle, bio, location,
+-- social_link, cover_url —
+--
+--   select column_name
+--     from information_schema.column_privileges
+--    where table_schema = 'public'
+--      and table_name = 'user_profiles'
+--      and grantee = 'authenticated'
+--      and privilege_type = 'UPDATE'
+--    order by column_name;

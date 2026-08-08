@@ -256,12 +256,50 @@ export function usePortfolioScreenModel() {
   // the two is exactly the "switched, refetch in flight" window.
   const displayedCollectionIDRef = useRef(activeCollectionID);
   const loadedRangesRef = useRef<Set<PortfolioHistoryRange>>(new Set<PortfolioHistoryRange>(['1W']));
+  // The shared caches are keyed by owner AND collection, so after a switch this
+  // is already the NEW collection's cache (null the first time it is opened).
+  // Read through a ref so the reset effect below doesn't re-run every time a
+  // load writes to the cache.
+  const portfolioDashboardCacheRef = useRef(portfolioDashboardCache);
+  portfolioDashboardCacheRef.current = portfolioDashboardCache;
+  const previousCollectionIDRef = useRef(activeCollectionID);
   const [chartMode, setChartMode] = useState<ChartMode>('portfolio');
   const [inventoryExpanded, setInventoryExpanded] = useState(true);
   const [recentSalesExpanded, setRecentSalesExpanded] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
   const [editingSalePriceText, setEditingSalePriceText] = useState('');
+
+  // A dashboard belongs to the collection it was read for. `dashboard` is local
+  // state that nothing re-scopes, so switching collections used to leave the
+  // PREVIOUS collection's balance, chart and cards on screen under the new
+  // collection's name for the whole 5-10s the refetch takes — and, when the new
+  // collection was empty, the 'empty' result was rejected as suspicious and the
+  // old value stayed for good. Drop it the moment the scope changes: show this
+  // collection's cache if we have one, otherwise nothing (with the loading
+  // states set, so the chart shows its skeleton rather than a bogus flat line).
+  useEffect(() => {
+    if (previousCollectionIDRef.current === activeCollectionID) {
+      return;
+    }
+    previousCollectionIDRef.current = activeCollectionID;
+
+    const cached = portfolioDashboardCacheRef.current;
+    const next = cached ?? emptyPortfolioDashboard;
+    setDashboard(next);
+    // The loaders read this ref, and they can land before React re-renders.
+    dashboardRef.current = next;
+    displayedCollectionIDRef.current = activeCollectionID;
+    hasUsableDashboardRef.current = cached !== null;
+    loadedRangesRef.current = new Set<PortfolioHistoryRange>([selectedRangeRef.current]);
+    setHasLoadedDashboard(cached !== null);
+    setHasLoadedInventory(cached !== null);
+    setIsLoadingDashboard(cached === null);
+    setIsLoadingInventory(cached === null);
+    setIsDashboardStale(false);
+    setLastUpdatedAt(null);
+    setLoadError(null);
+  }, [activeCollectionID]);
 
   const loadInventory = useCallback(async () => {
     setIsLoadingInventory(true);
