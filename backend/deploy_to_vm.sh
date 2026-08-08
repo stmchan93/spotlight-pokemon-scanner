@@ -254,6 +254,7 @@ HEALTH_MONITOR_LOG_FILE="$LOG_DIR/health_monitor.log"
 RESOURCE_MONITOR_LOG_FILE="$LOG_DIR/resource_monitor.log"
 PPT_POPULATION_LOG_FILE="$LOG_DIR/ppt_population.log"
 SOCIAL_MODERATION_LOG_FILE="$LOG_DIR/social_moderation.log"
+POST_MEDIA_PURGE_LOG_FILE="$LOG_DIR/post_media_purge.log"
 TORCH_CPU_INDEX_URL="${SPOTLIGHT_VM_TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}"
 TORCH_PACKAGE_SPEC="${SPOTLIGHT_VM_TORCH_PACKAGE_SPEC:-torch==2.11.0+cpu}"
 SYNC_CRON_SCHEDULE="${SPOTLIGHT_VM_SYNC_CRON:-0 18 * * *}"
@@ -373,7 +374,8 @@ chmod +x \
   "$SCRIPT_DIR/run_sync_vm_scheduled.sh" \
   "$SCRIPT_DIR/run_vm_health_check.sh" \
   "$SCRIPT_DIR/run_vm_resource_snapshot.sh" \
-  "$SCRIPT_DIR/run_social_moderation_vm.sh"
+  "$SCRIPT_DIR/run_social_moderation_vm.sh" \
+  "$SCRIPT_DIR/run_post_media_purge_vm.sh"
 
 sudo tee "$SERVICE_PATH" >/dev/null <<EOF
 [Unit]
@@ -448,6 +450,15 @@ PPT_POPULATION_LINE="30 6 * * * cd $REPO_ROOT && $SCRIPT_DIR/run_ppt_population_
 # Two minutes is a latency choice, not a throughput one: the worker batches, so
 # the interval only sets how long a new image waits to become visible to others.
 SOCIAL_MODERATION_LINE="*/2 * * * * cd $REPO_ROOT && $SCRIPT_DIR/run_social_moderation_vm.sh >> $SOCIAL_MODERATION_LOG_FILE 2>&1"
+# Retention purge for post images. Daily at 08:15 UTC (~1:15am PT): clear of the
+# Scrydex sync (01:00-02:00 UTC), the PPT population refresh (06:30 UTC) and the
+# 3am-PT disk snapshot. Daily is right — the window is 30 DAYS, so a day of
+# latency is irrelevant, and a run that hits its cap just continues tomorrow.
+#
+# Ships in DRY RUN. The runner only deletes when SPOTLIGHT_POST_MEDIA_PURGE_APPLY
+# is explicitly truthy, so scheduling it here arms nothing: read a few days of
+# post_media_purge.log first, then set the flag.
+POST_MEDIA_PURGE_LINE="15 8 * * * cd $REPO_ROOT && $SCRIPT_DIR/run_post_media_purge_vm.sh >> $POST_MEDIA_PURGE_LOG_FILE 2>&1"
 
 CURRENT_CRONTAB="$(mktemp "${TMPDIR:-/tmp}/spotlight-crontab.XXXXXX")"
 trap 'rm -f "$CURRENT_CRONTAB"' EXIT
@@ -489,6 +500,7 @@ PY
   echo "$HEALTH_LINE"
   echo "$RESOURCE_LINE"
   echo "$SOCIAL_MODERATION_LINE"
+  echo "$POST_MEDIA_PURGE_LINE"
   echo "$CRON_END"
 } | crontab -
 

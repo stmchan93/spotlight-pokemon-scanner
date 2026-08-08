@@ -146,9 +146,10 @@ def compose_share_card(
         draw.text((48, quote_y), line, font=quote_font, fill=TEXT_PRIMARY)
         quote_y += 58
 
-    # Wordmark, bottom.
+    # Wordmark, bottom. The BRAND name — "Spotlight" is the repo/codename, and a
+    # shared card is the most public surface the app has.
     wordmark_font = _load_font(40)
-    draw.text((48, CARD_HEIGHT - 88), "Spotlight", font=wordmark_font, fill=TEXT_MUTED)
+    draw.text((48, CARD_HEIGHT - 88), "Ekalight", font=wordmark_font, fill=TEXT_MUTED)
 
     output = io.BytesIO()
     canvas.save(output, format="PNG")

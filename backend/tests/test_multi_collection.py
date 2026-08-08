@@ -183,6 +183,83 @@ class MultiCollectionTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.service.create_collection({"name": "   "})
 
+    def test_rename_collection(self) -> None:
+        with self.service.request_identity_context(self._identity("user-a")):
+            created = self.service.create_collection({"name": "Grails"})["collection"]
+            self.service.update_collection({"collectionID": created["id"], "name": "  Vault  "})
+            names = [c["name"] for c in self.service.list_collections()["collections"]]
+
+        self.assertIn("Vault", names)
+        self.assertNotIn("Grails", names)
+
+    def test_hidden_collections_drop_out_of_the_unscoped_total_but_stay_readable(self) -> None:
+        self._insert_card(card_id="tst-1", name="Pikachu", number="1/1")
+        self._insert_card(card_id="tst-2", name="Gengar", number="2/2")
+        self._add_card(user_id="user-a", card_id="tst-1")
+
+        with self.service.request_identity_context(self._identity("user-a")):
+            grails_id = self.service.create_collection({"name": "Grails"})["collection"]["id"]
+            self._add_card_inline(user_id="user-a", card_id="tst-2", collection_id=grails_id)
+
+            before = self.service.list_collections()
+            self.service.update_collection({"collectionID": grails_id, "hidden": True})
+            after = self.service.list_collections()
+            still_readable = self.service.deck_entries(limit=10, collection_id=grails_id)
+
+        self.assertEqual(before["all"]["cardCount"], 2)
+        # Hiding removes it from the aggregate...
+        self.assertEqual(after["all"]["cardCount"], 1)
+        hidden_row = next(c for c in after["collections"] if c["id"] == grails_id)
+        self.assertTrue(hidden_row["hidden"])
+        # ...but the collection itself still lists its cards, so it can be unhidden.
+        self.assertEqual([e["card"]["id"] for e in still_readable["entries"]], ["tst-2"])
+
+    def test_delete_collection_removes_its_cards(self) -> None:
+        self._insert_card(card_id="tst-1", name="Pikachu", number="1/1")
+        self._insert_card(card_id="tst-2", name="Gengar", number="2/2")
+        self._add_card(user_id="user-a", card_id="tst-1")
+
+        with self.service.request_identity_context(self._identity("user-a")):
+            grails_id = self.service.create_collection({"name": "Grails"})["collection"]["id"]
+            self._add_card_inline(user_id="user-a", card_id="tst-2", collection_id=grails_id)
+
+            result = self.service.delete_collection({"collectionID": grails_id})
+            remaining = self.service.list_collections()
+            everything = self.service.deck_entries(limit=10)
+
+        self.assertEqual(result["deletedEntryCount"], 1)
+        self.assertEqual([c["name"] for c in remaining["collections"]], ["Main Collection"])
+        # The deleted collection's card goes with it; the other one is untouched.
+        self.assertEqual([e["card"]["id"] for e in everything["entries"]], ["tst-1"])
+
+    def test_cannot_delete_your_only_collection(self) -> None:
+        """One tap in a picker must not be able to wipe an entire portfolio."""
+        self._insert_card(card_id="tst-1", name="Pikachu", number="1/1")
+        self._add_card(user_id="user-a", card_id="tst-1")
+
+        with self.service.request_identity_context(self._identity("user-a")):
+            only_id = self.service.list_collections()["defaultCollectionID"]
+            with self.assertRaises(ValueError):
+                self.service.delete_collection({"collectionID": only_id})
+            survivors = self.service.deck_entries(limit=10)
+
+        self.assertEqual([e["card"]["id"] for e in survivors["entries"]], ["tst-1"])
+
+    def test_cannot_mutate_another_accounts_collection(self) -> None:
+        with self.service.request_identity_context(self._identity("user-b")):
+            victim_id = self.service.create_collection({"name": "Victim"})["collection"]["id"]
+
+        with self.service.request_identity_context(self._identity("user-a")):
+            self.service.create_collection({"name": "Mine"})
+            with self.assertRaises(FileNotFoundError):
+                self.service.update_collection({"collectionID": victim_id, "name": "Pwned"})
+            with self.assertRaises(FileNotFoundError):
+                self.service.delete_collection({"collectionID": victim_id})
+
+        with self.service.request_identity_context(self._identity("user-b")):
+            names = [c["name"] for c in self.service.list_collections()["collections"]]
+        self.assertIn("Victim", names)
+
 
 if __name__ == "__main__":
     unittest.main()

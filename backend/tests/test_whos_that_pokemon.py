@@ -20,7 +20,7 @@ REPO_ROOT = BACKEND_ROOT.parent
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from PIL import Image  # noqa: E402
+from PIL import Image, ImageDraw  # noqa: E402
 
 import anthropic_adapter  # noqa: E402
 import whos_that_share_card  # noqa: E402
@@ -457,12 +457,27 @@ class PersonCutoutTests(unittest.TestCase):
         fake_method = SpotlightScanService.identify_pokemon_selfie
         return fake, fake_method
 
+    def _cutout_result(
+        self,
+        png: bytes | None = None,
+        person_bounds: dict[str, float] | None = None,
+        head_box: dict[str, float] | None = None,
+    ):
+        from person_cutout import PersonCutout
+
+        return PersonCutout(
+            png_bytes=png if png is not None else _small_png(),
+            person_bounds=person_bounds,
+            head_box=head_box,
+        )
+
     def test_identify_response_includes_cutout_when_available(self) -> None:
         fake, method = self._service_with_stubbed_decode()
         cutout = _small_png()
         with patch("server.identify_pokemon_lookalike", return_value=_VALID_MATCHES):
-            with patch("server.extract_person_cutout_png", return_value=cutout):
-                payload = method(fake, {"image": {"jpegBase64": "ignored"}})
+            with patch("server.extract_person_cutout", return_value=self._cutout_result(cutout)):
+                with patch("server._species_outline_for_match", return_value=None):
+                    payload = method(fake, {"image": {"jpegBase64": "ignored"}})
 
         self.assertEqual(payload["matches"], _VALID_MATCHES)
         self.assertEqual(base64.b64decode(payload["personCutoutPngBase64"]), cutout)
@@ -472,11 +487,79 @@ class PersonCutoutTests(unittest.TestCase):
         # field or disturb the matches (app falls back to the plain crossfade).
         fake, method = self._service_with_stubbed_decode()
         with patch("server.identify_pokemon_lookalike", return_value=_VALID_MATCHES):
-            with patch("server.extract_person_cutout_png", return_value=None):
-                payload = method(fake, {"image": {"jpegBase64": "ignored"}})
+            with patch("server.extract_person_cutout", return_value=None):
+                with patch("server._species_outline_for_match", return_value=None):
+                    payload = method(fake, {"image": {"jpegBase64": "ignored"}})
 
         self.assertEqual(payload["matches"], _VALID_MATCHES)
         self.assertNotIn("personCutoutPngBase64", payload)
+
+    def test_identify_response_includes_normalized_geometry(self) -> None:
+        fake, method = self._service_with_stubbed_decode()
+        person_bounds = {"x": 0.2, "y": 0.05, "width": 0.6, "height": 0.9}
+        head_box = {"x": 0.35, "y": 0.05, "width": 0.3, "height": 0.25}
+        result = self._cutout_result(person_bounds=person_bounds, head_box=head_box)
+        with patch("server.identify_pokemon_lookalike", return_value=_VALID_MATCHES):
+            with patch("server.extract_person_cutout", return_value=result):
+                with patch("server._species_outline_for_match", return_value=None):
+                    payload = method(fake, {"image": {"jpegBase64": "ignored"}})
+
+        self.assertEqual(payload["personBounds"], person_bounds)
+        self.assertEqual(payload["headBox"], head_box)
+
+    def test_identify_response_omits_geometry_when_segmentation_fails(self) -> None:
+        # Model unavailable (the gitignored u2netp dir on a fresh box) → the
+        # geometry fields must simply not be there. No error, no nulls-with-NaN.
+        fake, method = self._service_with_stubbed_decode()
+        with patch("server.identify_pokemon_lookalike", return_value=_VALID_MATCHES):
+            with patch("server.extract_person_cutout", return_value=None):
+                with patch("server._species_outline_for_match", return_value=None):
+                    payload = method(fake, {"image": {"jpegBase64": "ignored"}})
+
+        self.assertNotIn("personBounds", payload)
+        self.assertNotIn("headBox", payload)
+
+    def test_identify_response_omits_geometry_when_mask_is_degenerate(self) -> None:
+        # Cutout pixels are fine but the matte was too noisy to place a body.
+        fake, method = self._service_with_stubbed_decode()
+        result = self._cutout_result(person_bounds=None, head_box=None)
+        with patch("server.identify_pokemon_lookalike", return_value=_VALID_MATCHES):
+            with patch("server.extract_person_cutout", return_value=result):
+                with patch("server._species_outline_for_match", return_value=None):
+                    payload = method(fake, {"image": {"jpegBase64": "ignored"}})
+
+        self.assertIn("personCutoutPngBase64", payload)
+        self.assertNotIn("personBounds", payload)
+        self.assertNotIn("headBox", payload)
+
+    def test_identify_response_includes_species_outline(self) -> None:
+        fake, method = self._service_with_stubbed_decode()
+        outline = [{"x": 0.5, "y": 0.1}, {"x": 0.9, "y": 0.5}]
+        with patch("server.identify_pokemon_lookalike", return_value=_VALID_MATCHES):
+            with patch("server.extract_person_cutout", return_value=None):
+                with patch("server.species_outline", return_value=outline) as mocked:
+                    payload = method(fake, {"image": {"jpegBase64": "ignored"}})
+
+        # Outline is requested for the TOP match's species, not all three.
+        self.assertEqual(mocked.call_args.args[0], 25)
+        self.assertEqual(payload["speciesOutline"], outline)
+
+    def test_identify_response_omits_species_outline_when_unavailable(self) -> None:
+        fake, method = self._service_with_stubbed_decode()
+        with patch("server.identify_pokemon_lookalike", return_value=_VALID_MATCHES):
+            with patch("server.extract_person_cutout", return_value=None):
+                with patch("server.species_outline", return_value=None):
+                    payload = method(fake, {"image": {"jpegBase64": "ignored"}})
+
+        self.assertNotIn("speciesOutline", payload)
+
+    def test_species_outline_for_match_tolerates_garbage_matches(self) -> None:
+        import server
+
+        with patch("server.species_outline") as mocked:
+            for bad in (None, "Pikachu", {}, {"pokedexId": None}, {"pokedexId": True}, {"pokedexId": "nope"}):
+                self.assertIsNone(server._species_outline_for_match(bad))
+        mocked.assert_not_called()
 
     def test_extract_person_cutout_png_builds_alpha_matte(self) -> None:
         # Exercise the real pre/post pipeline against a stubbed onnx session:
@@ -511,6 +594,243 @@ class PersonCutoutTests(unittest.TestCase):
 
         with patch.object(person_cutout, "_get_session", return_value=None):
             self.assertIsNone(person_cutout.extract_person_cutout_png(_small_jpeg()))
+
+    def test_extract_person_cutout_carries_geometry_through_the_pipeline(self) -> None:
+        # Same stubbed session as the matte test: a centered square occupying
+        # the middle half of the frame must come back as bounds ~ (.25,.25,.5,.5)
+        # in NORMALIZED ORIGINAL-IMAGE space, with the head box inside them.
+        import numpy as np
+
+        import person_cutout
+
+        prediction = np.zeros((1, 1, 320, 320), dtype=np.float32)
+        prediction[0, 0, 80:240, 80:240] = 1.0
+        session = Mock()
+        model_input = Mock()
+        model_input.name = "input.1"
+        session.get_inputs.return_value = [model_input]
+        session.run.return_value = [prediction]
+
+        with patch.object(person_cutout, "_get_session", return_value=session):
+            result = person_cutout.extract_person_cutout(_small_jpeg(400, 400))
+
+        self.assertIsNotNone(result)
+        self.assertTrue(result.png_bytes)
+        bounds = result.person_bounds
+        self.assertAlmostEqual(bounds["x"], 0.25, delta=0.03)
+        self.assertAlmostEqual(bounds["y"], 0.25, delta=0.03)
+        self.assertAlmostEqual(bounds["width"], 0.5, delta=0.05)
+        self.assertAlmostEqual(bounds["height"], 0.5, delta=0.05)
+        head = result.head_box
+        self.assertGreaterEqual(head["x"], bounds["x"])
+        self.assertLessEqual(head["x"] + head["width"], bounds["x"] + bounds["width"] + 1e-6)
+        self.assertLessEqual(head["y"] + head["height"], bounds["y"] + bounds["height"] + 1e-6)
+
+
+class PersonGeometryTests(unittest.TestCase):
+    """person_geometry_from_mask: MASK space in, normalized 0..1 out."""
+
+    def _person_mask(self):
+        # 200 rows x 100 cols. Head: rows 20..59, cols 40..59 (20 wide).
+        # Torso: rows 60..159, cols 20..79 (60 wide) — a 3x shoulder step.
+        import numpy as np
+
+        mask = np.zeros((200, 100), dtype=np.uint8)
+        mask[20:60, 40:60] = 255
+        mask[60:160, 20:80] = 255
+        return mask
+
+    def test_person_bounds_are_tight_and_normalized(self) -> None:
+        from person_cutout import person_geometry_from_mask
+
+        bounds, _ = person_geometry_from_mask(self._person_mask(), 1000, 2000)
+        # cols 20..79 of 100 -> x .20 width .60; rows 20..159 of 200 -> y .10 h .70
+        self.assertEqual(bounds, {"x": 0.2, "y": 0.1, "width": 0.6, "height": 0.7})
+
+    def test_head_box_stops_at_the_shoulder_step_and_sits_inside_person(self) -> None:
+        from person_cutout import person_geometry_from_mask
+
+        bounds, head = person_geometry_from_mask(self._person_mask(), 1000, 2000)
+        # Head band: rows 20..59 -> y .10 h .20; cols 40..59 -> x .40 w .20
+        self.assertEqual(head, {"x": 0.4, "y": 0.1, "width": 0.2, "height": 0.2})
+        self.assertGreaterEqual(head["x"], bounds["x"])
+        self.assertGreaterEqual(head["y"], bounds["y"])
+        self.assertLessEqual(head["x"] + head["width"], bounds["x"] + bounds["width"])
+        self.assertLessEqual(head["y"] + head["height"], bounds["y"] + bounds["height"])
+
+    def test_head_box_falls_back_to_head_aspect_without_shoulders(self) -> None:
+        # No widening anywhere (tight head-and-hair crop): height comes from the
+        # measured width x the anthropometric head aspect.
+        import numpy as np
+
+        from person_cutout import person_geometry_from_mask
+
+        mask = np.zeros((200, 100), dtype=np.uint8)
+        mask[10:190, 30:70] = 255  # 40 cols wide, constant
+        _, head = person_geometry_from_mask(mask, 1000, 1000)
+        # width .40 * (1000/1000) * 1.35 = .54 of the frame height.
+        self.assertAlmostEqual(head["height"], 0.54, delta=0.01)
+
+    def test_head_aspect_fallback_respects_original_image_aspect(self) -> None:
+        # THE subtle one: the mask is a square resize of the frame, so turning a
+        # measured WIDTH into a HEIGHT must go through the ORIGINAL pixel aspect.
+        # Same mask, a 2:1-tall original -> half the normalized head height.
+        import numpy as np
+
+        from person_cutout import person_geometry_from_mask
+
+        mask = np.zeros((200, 100), dtype=np.uint8)
+        mask[10:190, 30:70] = 255
+        _, square = person_geometry_from_mask(mask, 1000, 1000)
+        _, portrait = person_geometry_from_mask(mask, 1000, 2000)
+        self.assertAlmostEqual(portrait["height"], square["height"] / 2.0, delta=0.01)
+
+    def test_speckle_rows_do_not_blow_out_the_bounds(self) -> None:
+        import numpy as np
+
+        from person_cutout import person_geometry_from_mask
+
+        mask = self._person_mask()
+        mask[2, 3] = 255  # lone hot pixel in the corner
+        mask[197, 96] = 255
+        bounds, _ = person_geometry_from_mask(mask, 1000, 2000)
+        self.assertEqual(bounds, {"x": 0.2, "y": 0.1, "width": 0.6, "height": 0.7})
+
+    def test_empty_and_degenerate_masks_return_none_without_dividing_by_zero(self) -> None:
+        import numpy as np
+
+        from person_cutout import person_geometry_from_mask
+
+        empty = np.zeros((200, 100), dtype=np.uint8)
+        self.assertEqual(person_geometry_from_mask(empty, 1000, 2000), (None, None))
+
+        speck = np.zeros((200, 100), dtype=np.uint8)
+        speck[5, 5] = 255  # below the minimum coverage
+        self.assertEqual(person_geometry_from_mask(speck, 1000, 2000), (None, None))
+
+        self.assertEqual(person_geometry_from_mask(np.zeros((0, 0)), 1000, 2000), (None, None))
+        self.assertEqual(person_geometry_from_mask(np.zeros(10), 1000, 2000), (None, None))
+        # Zero-sized original image must not divide by zero.
+        self.assertEqual(person_geometry_from_mask(self._person_mask(), 0, 0), (None, None))
+
+    def test_full_frame_mask_stays_inside_the_unit_square(self) -> None:
+        import numpy as np
+
+        from person_cutout import person_geometry_from_mask
+
+        bounds, head = person_geometry_from_mask(np.full((64, 64), 255, dtype=np.uint8), 640, 640)
+        for box in (bounds, head):
+            self.assertGreaterEqual(box["x"], 0.0)
+            self.assertGreaterEqual(box["y"], 0.0)
+            self.assertLessEqual(box["x"] + box["width"], 1.0)
+            self.assertLessEqual(box["y"] + box["height"], 1.0)
+
+
+def _artwork_png(size: int = 120, radius: int = 40, *, mode: str = "RGBA") -> bytes:
+    """A filled circle on transparency — stand-in for official artwork."""
+    image = Image.new(mode, (size, size), (0, 0, 0, 0) if mode == "RGBA" else (255, 255, 255))
+    draw = ImageDraw.Draw(image)
+    box = (size // 2 - radius, size // 2 - radius, size // 2 + radius, size // 2 + radius)
+    draw.ellipse(box, fill=(255, 60, 60, 255) if mode == "RGBA" else (255, 60, 60))
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+class SpeciesOutlineTests(unittest.TestCase):
+    def setUp(self) -> None:
+        import species_outline
+
+        self.module = species_outline
+        self.module._memo.clear()
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.dataset_root = Path(self.tempdir.name)
+
+    def tearDown(self) -> None:
+        self.module._memo.clear()
+        self.tempdir.cleanup()
+
+    def test_outline_points_are_normalized_ordered_and_plausible(self) -> None:
+        import math
+
+        import numpy as np
+
+        with Image.open(io.BytesIO(_artwork_png())) as artwork:
+            alpha = np.asarray(artwork.getchannel("A"))
+        points = self.module.outline_points_from_alpha(alpha)
+
+        self.assertEqual(len(points), self.module.OUTLINE_POINT_COUNT)
+        for point in points:
+            self.assertGreaterEqual(point["x"], 0.0)
+            self.assertLessEqual(point["x"], 1.0)
+            self.assertGreaterEqual(point["y"], 0.0)
+            self.assertLessEqual(point["y"], 1.0)
+
+        # Angularly ordered around the centroid (clockwise on screen), and for a
+        # circle every point should sit ~radius/size away from the centre.
+        angles = [
+            math.atan2(point["y"] - 0.5, point["x"] - 0.5) % (2.0 * math.pi) for point in points
+        ]
+        self.assertEqual(angles, sorted(angles))
+        for point in points:
+            radius = math.hypot(point["x"] - 0.5, point["y"] - 0.5)
+            self.assertAlmostEqual(radius, 40.0 / 120.0, delta=0.03)
+
+    def test_outline_points_reject_empty_and_speck_masks(self) -> None:
+        import numpy as np
+
+        self.assertIsNone(self.module.outline_points_from_alpha(np.zeros((64, 64), dtype=np.uint8)))
+        speck = np.zeros((64, 64), dtype=np.uint8)
+        speck[1, 1] = 255
+        self.assertIsNone(self.module.outline_points_from_alpha(speck))
+        self.assertIsNone(self.module.outline_points_from_alpha(np.zeros(10)))
+
+    def test_species_outline_caches_in_process_and_on_disk(self) -> None:
+        artwork = _artwork_png()
+        with patch.object(self.module, "fetch_official_artwork", return_value=artwork) as fetch:
+            first = self.module.species_outline(25, dataset_root=self.dataset_root)
+        fetch.assert_called_once()
+        self.assertTrue(first)
+
+        # Warm process: memo hit, no fetch at all.
+        with patch.object(self.module, "fetch_official_artwork") as fetch_again:
+            second = self.module.species_outline(25, dataset_root=self.dataset_root)
+        fetch_again.assert_not_called()
+        self.assertEqual(second, first)
+
+        # Cold process, warm disk: the JSON cache beside the artwork is used.
+        cache_path = self.dataset_root / "pokeapi_artwork" / "25.outline.json"
+        self.assertTrue(cache_path.exists())
+        self.module._memo.clear()
+        with patch.object(self.module, "fetch_official_artwork") as fetch_cold:
+            third = self.module.species_outline(25, dataset_root=self.dataset_root)
+        fetch_cold.assert_not_called()
+        self.assertEqual(third, first)
+
+    def test_species_outline_returns_none_when_artwork_fetch_fails(self) -> None:
+        from urllib.error import URLError
+
+        with patch.object(
+            self.module, "fetch_official_artwork", side_effect=URLError("offline")
+        ) as fetch:
+            self.assertIsNone(self.module.species_outline(25, dataset_root=self.dataset_root))
+        fetch.assert_called_once()
+
+        # The negative result is memoized: a dead species is not re-fetched.
+        with patch.object(self.module, "fetch_official_artwork") as fetch_again:
+            self.assertIsNone(self.module.species_outline(25, dataset_root=self.dataset_root))
+        fetch_again.assert_not_called()
+
+    def test_species_outline_returns_none_for_artwork_without_alpha(self) -> None:
+        opaque = _artwork_png(mode="RGB")
+        with patch.object(self.module, "fetch_official_artwork", return_value=opaque):
+            self.assertIsNone(self.module.species_outline(25, dataset_root=self.dataset_root))
+
+    def test_species_outline_rejects_bad_ids_without_fetching(self) -> None:
+        with patch.object(self.module, "fetch_official_artwork") as fetch:
+            self.assertIsNone(self.module.species_outline(0, dataset_root=self.dataset_root))
+            self.assertIsNone(self.module.species_outline("nope", dataset_root=self.dataset_root))
+        fetch.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -35,6 +35,7 @@ TEST_MODULES=(
   backend.tests.test_profile_avatar_upload
   backend.tests.test_post_media_serving
   backend.tests.test_post_media_upload
+  backend.tests.test_post_media_purge
   backend.tests.test_social_moderation_worker
   backend.tests.test_scrydex_tool_scripts
   backend.tests.test_request_auth
