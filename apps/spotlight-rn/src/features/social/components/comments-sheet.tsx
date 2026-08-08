@@ -14,7 +14,6 @@ import {
   type TextInput,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChatBubbleEmpty, SendDiagonal, ThumbsUp, Xmark } from 'iconoir-react-native';
 
 import { Avatar, Text, TextField, useSpotlightTheme } from '@spotlight/design-system';
@@ -72,6 +71,9 @@ const SHEET_HEIGHT_RESTING = SCREEN_HEIGHT * 0.6;
 const SHEET_HEIGHT_EXPANDED = SCREEN_HEIGHT * 0.9;
 /** Gap between the composer's bottom edge and the top of the keyboard. */
 const KEYBOARD_GAP = 8;
+
+/** Gap under the composer when the keyboard is down. */
+const COMPOSER_BOTTOM_GAP = 16;
 /** Drag distance past which releasing the sheet dismisses it instead of springing back. */
 const DISMISS_DRAG_DISTANCE = 80;
 /** Flick velocity that dismisses even on a short drag. */
@@ -216,7 +218,6 @@ export function CommentsSheet({
   testID = 'comments-sheet',
 }: CommentsSheetProps) {
   const theme = useSpotlightTheme();
-  const insets = useSafeAreaInsets();
 
   const { currentUser } = useAuth();
   const [isRendered, setIsRendered] = useState(visible);
@@ -643,8 +644,14 @@ export function CommentsSheet({
               // Lift the composer clear of the keyboard. The sheet grew by the
               // same amount, so the thread keeps its height instead of paying
               // for the composer.
+              //
+              // Keyboard down: a flat 16, NOT max(insets.bottom, …). The safe
+              // inset is 34 on a notched iPhone, which left the composer
+              // floating well above the sheet's edge. 16 is the design spec and
+              // still clears the home indicator, since the sheet's own rounded
+              // bottom is inset from the screen edge anyway.
               paddingBottom:
-                keyboardHeight > 0 ? keyboardHeight + KEYBOARD_GAP : Math.max(insets.bottom, 12),
+                keyboardHeight > 0 ? keyboardHeight + KEYBOARD_GAP : COMPOSER_BOTTOM_GAP,
               transform: [{ translateY }],
             },
           ]}
