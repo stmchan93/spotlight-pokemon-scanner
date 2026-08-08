@@ -11,10 +11,11 @@ straight toward production.
 - [ ] Store listing (copy below — paste + tweak)
 - [ ] Graphics: 512×512 icon + 1024×500 feature graphic (generate from new logo)
 - [ ] ≥2 phone screenshots (from a build)
-- [ ] Data Safety form (answers below)
+- [ ] Data Safety form (answers below — rewritten 2026-08-08)
 - [ ] Content rating (IARC) — guidance below
 - [ ] **App access**: reviewer demo login (critical — app is auth-gated)
-- [ ] Privacy policy URL (host on Framer)
+- [x] Privacy policy URL — https://stmchan93.github.io/ekalight-legal/
+- [x] Account deletion URL — https://stmchan93.github.io/ekalight-legal/delete-account/ (Play requires it)
 - [ ] Google Play **service-account JSON** for `eas submit` (steps below)
 - [ ] Build AAB → upload → submit for review
 
@@ -61,28 +62,58 @@ The build/graphics steps wait on the new logo. Everything else can be done now.
 
 ## 2. Data Safety form (how to answer)
 
-Answer honestly; these reflect the current app. "Collected" = leaves the device;
-data handled by Supabase/PostHog/your backend as processors is **collected**, and
-generally **not** "shared" (they act on your instructions, not for their own use).
+> Rewritten 2026-08-08. The original draft predated avatars, cover photos,
+> posts/comments/DMs and Who's That Pokemon — it under-declared, which is a
+> rejection risk. Answer from THIS table.
 
-- **Does the app collect/share user data?** Yes
-- **Encrypted in transit?** Yes (HTTPS)
-- **Users can request data deletion?** Yes — provide an in-app account-deletion path
-  or a deletion request URL (Play now requires this; confirm the app has it).
+"Collected" = leaves the device. Data handled by Supabase / Google Cloud /
+PostHog as processors is **collected** but generally **not** "shared" — they act
+on our instructions, not for their own purposes.
 
-| Data type | Collected | Purpose | Shared? |
-|---|---|---|---|
-| Email address | Yes | Account management, sign-in (Supabase) | No |
-| Photos (card scans) | Yes | App functionality — card ID + pricing (+ model training) | No |
-| App interactions / in-app activity | Yes | Analytics (PostHog) | No |
-| Device or other IDs | Yes | Analytics (PostHog) | No |
+- **Does the app collect or share user data?** Yes
+- **Is data encrypted in transit?** Yes (HTTPS)
+- **Can users request data deletion?** Yes — BOTH:
+  - in-app: Menu -> Account Settings -> Delete account (`account-screen.tsx`,
+    `POST /api/v1/account/delete`, which erases the stored OBJECTS as well as
+    the rows)
+  - web: https://stmchan93.github.io/ekalight-legal/delete-account/
+    (paste this into the Data deletion URL field — Play requires it for any app
+    that allows account creation)
 
-- **Precise location:** No. (PostHog derives coarse geo from IP server-side; the app
-  does not request GPS.) Declare no location collection.
-- Note the scan-photo declaration is important — be explicit that scan images are
-  uploaded for identification.
+| Data type | Collected | Purpose | Shared | Optional? |
+|---|---|---|---|---|
+| Email address | Yes | Account management, sign-in (Supabase) | No | Required |
+| Name / display name | Yes | Account management, public profile | No | Required |
+| Photos — card scans | Yes | App functionality (card ID + pricing); also model improvement | No | Required |
+| Photos — profile avatar | Yes | App functionality (public profile) | No | Optional |
+| Photos — profile cover | Yes | App functionality (public profile) | No | Optional |
+| Photos — post images | Yes | App functionality (social feed) | No | Optional |
+| Messages — DMs | Yes | App functionality (direct messages) | No | Optional |
+| Other UGC — posts, comments | Yes | App functionality (social feed) | No | Optional |
+| App interactions | Yes | Analytics (PostHog) | No | Required |
+| Device or other IDs | Yes | Analytics (PostHog) | No | Required |
+| Crash logs / diagnostics | Yes | Crash reporting, app stability | No | Required |
+| Purchase history | Yes | App functionality (portfolio transactions the user logs) | No | Optional |
 
----
+**Precise location: No.** The app never requests GPS. PostHog derives coarse
+geo from IP server-side; declare no location collection.
+
+**Selfies (Who's That Pokemon) — declare only if the feature ships.** Tick
+Photos, and tick **"Data is processed ephemerally"**, which is literally true
+and verifiable in the code: `server.py` (`identify_pokemon_selfie`) and
+`anthropic_adapter.py` both carry a HARD PRIVACY RULE — the selfie exists in
+memory for the lifetime of the request, is never written to any store or DB,
+and is never logged. The person-cutout runs on our own VM.
+
+**Security practices to tick:**
+- Data is encrypted in transit — yes
+- Users can request data deletion — yes (both routes above)
+- Committed to Play Families Policy — N/A (not directed at children; see s4)
+- Independent security review — no
+
+**Keep this consistent with Apple.** The App Privacy answers in App Store
+Connect must describe the same collection, or the two listings contradict each
+other and either may be flagged.
 
 ## 3. Content rating (IARC questionnaire)
 - Category: Utility / Reference / Shopping (not a game).
