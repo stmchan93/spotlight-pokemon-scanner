@@ -670,6 +670,104 @@ export async function createPost(input: { body?: string | null; cardId?: string 
 }
 
 // ---------------------------------------------------------------------------
+// Deleting your own content
+// ---------------------------------------------------------------------------
+// Authorization is NOT done here. `posts_delete` / `comments_delete` (social_01)
+// already scope deletes to `author_id = auth.uid() or public.is_admin()`, so this
+// module deliberately does NOT add an `author_id = me` filter: that would both
+// duplicate the policy and break an admin moderation delete, which is a legitimate
+// delete of someone else's row.
+//
+// The catch is that RLS refuses SILENTLY. A `delete().eq('id', id)` on a row you
+// may not delete matches zero rows and comes back 204/no-error — indistinguishable
+// from a successful delete. So every mutation here asks for the affected rows back
+// with `.select('id')` (PostgREST `Prefer: return=representation`, the same trick
+// `addComment` / `createPost` use on insert) and treats an empty array as failure.
+// Without that, this function would report success while deleting nothing and the
+// caller's optimistic row removal would silently lie to the user.
+
+/**
+ * Hard delete (`delete from`) vs soft delete (`content_status`/`deleted_at`).
+ *
+ * ASSUMED: HARD delete. It is what the shipped policies already allow, and the
+ * FK cascades do the cleanup for free — `post_media`, `comments`,
+ * `post_likes`/`comment_likes` and the `notifications` rows all cascade off
+ * `posts.id` / `comments.id`, and the `post_count` / `comment_count` triggers fire
+ * on DELETE (not on an UPDATE that sets `deleted_at`), so counters stay correct.
+ *
+ * Flip this ONE constant if the migration lands on soft delete instead. Two things
+ * the migration must then also provide, or the switch silently breaks:
+ *   1. `posts_select` / `comments_select` both start with `deleted_at is null`.
+ *      Postgres applies the SELECT policy to an UPDATE's RETURNING rows, so the
+ *      soft-delete write would fail its own `.select('id')` — the author must be
+ *      allowed to see their own soft-deleted rows.
+ *   2. The `post_count` / `comment_count` triggers must learn to decrement on a
+ *      visible -> deleted transition.
+ * `'deleted'` is the sentinel the reads in this file already filter on
+ * (`.neq('content_status', 'deleted')`), not the `removed` in social_01's column
+ * comment, so keep the migration's value in step with those reads.
+ */
+const USE_SOFT_DELETE: boolean = false;
+
+/** Tables this module is allowed to delete from. */
+type DeletableTable = typeof POSTS_TABLE | typeof COMMENTS_TABLE;
+
+/**
+ * Delete one row by id and report whether a row was ACTUALLY removed. Returns
+ * false for every failure mode — no Supabase client, unauthenticated, blank id, a
+ * rejected query, and (the one that matters) an RLS-refused delete that affected
+ * zero rows. Never throws.
+ */
+async function deleteOwnedRow(table: DeletableTable, id: string): Promise<boolean> {
+  const me = await currentUserId();
+  const trimmed = (id ?? '').trim();
+  if (!supabase || !me || !trimmed) {
+    return false;
+  }
+  try {
+    // Cast for the same reason as `PostFilter` above: threading PostgREST's
+    // builder generics through a table-name union trips tsc's instantiation
+    // depth. The runtime shape is checked below.
+    const from = supabase.from(table) as any;
+    const mutation = USE_SOFT_DELETE
+      ? from
+          .update({ content_status: 'deleted', deleted_at: new Date().toISOString() })
+          .eq('id', trimmed)
+      : from.delete().eq('id', trimmed);
+
+    const { data, error } = (await mutation.select('id')) as {
+      data: { id: string }[] | null;
+      error: unknown;
+    };
+    if (error) {
+      return false;
+    }
+    // Zero rows back = RLS refused (or the row is already gone). Either way the
+    // caller must not treat it as a delete it can render optimistically.
+    return Array.isArray(data) && data.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Delete one of your own posts. True only when a row was really removed; false
+ * when RLS refused (not the author), the row was already gone, or the query failed.
+ */
+export async function deletePost(postId: string): Promise<boolean> {
+  return deleteOwnedRow(POSTS_TABLE, postId);
+}
+
+/**
+ * Delete one of your own comments. Same contract as `deletePost`. Replies cascade
+ * off `comments.parent_comment_id`, and the `comment_count` trigger decrements the
+ * parent post.
+ */
+export async function deleteComment(commentId: string): Promise<boolean> {
+  return deleteOwnedRow(COMMENTS_TABLE, commentId);
+}
+
+// ---------------------------------------------------------------------------
 // Notifications
 // ---------------------------------------------------------------------------
 // Rows are written server-side by the `social_11` triggers (a like/comment/follow

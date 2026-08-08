@@ -8,7 +8,19 @@ type QueryResult = { data: unknown; error: unknown };
  */
 function makeBuilder(result: QueryResult) {
   const builder: Record<string, unknown> = {};
-  for (const method of ['select', 'is', 'neq', 'in', 'eq', 'lt', 'order', 'limit', 'upsert', 'delete']) {
+  for (const method of [
+    'select',
+    'is',
+    'neq',
+    'in',
+    'eq',
+    'lt',
+    'order',
+    'limit',
+    'upsert',
+    'update',
+    'delete',
+  ]) {
     builder[method] = jest.fn(() => builder);
   }
   builder.then = (resolve: (value: QueryResult) => unknown) => Promise.resolve(result).then(resolve);
@@ -25,6 +37,7 @@ type Results = {
   follows?: QueryResult | QueryResult[];
   blocks?: QueryResult | QueryResult[];
   reports?: QueryResult | QueryResult[];
+  comments?: QueryResult | QueryResult[];
 };
 
 const TABLE_TO_KEY: Record<string, keyof Results> = {
@@ -34,6 +47,7 @@ const TABLE_TO_KEY: Record<string, keyof Results> = {
   follows: 'follows',
   blocks: 'blocks',
   reports: 'reports',
+  comments: 'comments',
 };
 
 function makeSupabase(results: Results, userId: string | null = 'me') {
@@ -378,6 +392,97 @@ describe('social-service blocking and reporting', () => {
     await expect(unblockUser('them')).resolves.toBe(false);
     await expect(fetchBlockedUserIds()).resolves.toEqual(new Set());
     await expect(reportContent({ reportedUserId: 'them', reason: 'abuse' })).resolves.toBe(false);
+    expect(supabase.from).not.toHaveBeenCalled();
+  });
+});
+
+// Deleting is the one write in this file where "no error" does NOT mean "it
+// worked": RLS refuses a delete by matching zero rows, not by raising, so a naive
+// delete reports success while removing nothing and the caller's optimistic row
+// removal lies to the user. Every case below is really testing that distinction.
+describe('social-service deleting your own content', () => {
+  afterEach(() => {
+    jest.resetModules();
+  });
+
+  it('deletes a post and asks for the affected rows back, so a no-op cannot pass as success', async () => {
+    const supabase = makeSupabase({ posts: { data: [{ id: 'post-1' }], error: null } });
+    const { deletePost } = loadService(supabase);
+
+    await expect(deletePost('post-1')).resolves.toBe(true);
+
+    expect(supabase.builders.posts.delete).toHaveBeenCalled();
+    expect(supabase.builders.posts.eq).toHaveBeenCalledWith('id', 'post-1');
+    // The `.select()` is what turns a silent 204 into a countable row set.
+    expect(supabase.builders.posts.select).toHaveBeenCalledWith('id');
+    // Authorization is RLS's job (`posts_delete` allows author OR admin), so the
+    // client must NOT narrow by author_id — that would break a moderation delete.
+    expect(supabase.builders.posts.eq).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns false when RLS silently refuses the delete (zero rows, no error)', async () => {
+    const supabase = makeSupabase({ posts: { data: [], error: null } });
+    const { deletePost } = loadService(supabase);
+
+    await expect(deletePost('someone-elses-post')).resolves.toBe(false);
+  });
+
+  it('returns false when a delete resolves with no representation at all', async () => {
+    // Belt-and-braces: a plain 204 (no `.select()` honored) is not proof of a delete.
+    const supabase = makeSupabase({ posts: { data: null, error: null } });
+    const { deletePost } = loadService(supabase);
+
+    await expect(deletePost('post-1')).resolves.toBe(false);
+  });
+
+  it('returns false when the delete query errors', async () => {
+    const supabase = makeSupabase({ posts: { data: null, error: { message: 'network down' } } });
+    const { deletePost } = loadService(supabase);
+
+    await expect(deletePost('post-1')).resolves.toBe(false);
+  });
+
+  it('deletes a comment from the comments table', async () => {
+    const supabase = makeSupabase({ comments: { data: [{ id: 'comment-1' }], error: null } });
+    const { deleteComment } = loadService(supabase);
+
+    await expect(deleteComment('comment-1')).resolves.toBe(true);
+
+    expect(supabase.from).toHaveBeenCalledWith('comments');
+    expect(supabase.builders.comments.delete).toHaveBeenCalled();
+    expect(supabase.builders.comments.eq).toHaveBeenCalledWith('id', 'comment-1');
+    expect(supabase.builders.comments.select).toHaveBeenCalledWith('id');
+  });
+
+  it('returns false when RLS refuses a comment delete', async () => {
+    const supabase = makeSupabase({ comments: { data: [], error: null } });
+    const { deleteComment } = loadService(supabase);
+
+    await expect(deleteComment('someone-elses-comment')).resolves.toBe(false);
+  });
+
+  it('returns false when Supabase is unavailable, never throwing', async () => {
+    const { deletePost, deleteComment } = loadService(null);
+
+    await expect(deletePost('post-1')).resolves.toBe(false);
+    await expect(deleteComment('comment-1')).resolves.toBe(false);
+  });
+
+  it('returns false when unauthenticated, without issuing a query', async () => {
+    const supabase = makeSupabase({}, null);
+    const { deletePost, deleteComment } = loadService(supabase);
+
+    await expect(deletePost('post-1')).resolves.toBe(false);
+    await expect(deleteComment('comment-1')).resolves.toBe(false);
+    expect(supabase.from).not.toHaveBeenCalled();
+  });
+
+  it('does not issue a delete for a blank id', async () => {
+    const supabase = makeSupabase({});
+    const { deletePost, deleteComment } = loadService(supabase);
+
+    await expect(deletePost('   ')).resolves.toBe(false);
+    await expect(deleteComment('')).resolves.toBe(false);
     expect(supabase.from).not.toHaveBeenCalled();
   });
 });

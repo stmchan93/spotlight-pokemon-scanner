@@ -82,6 +82,7 @@ import {
   fetchAuthorPosts,
   fetchUnreadNotificationCount,
 } from '@/features/social/social-service';
+import { usePostDeletion } from '@/features/social/use-post-deletion';
 import { consumeFeedRefreshSignal } from '@/features/social/screens/new-post-screen';
 import { ProfileHeader } from '@/features/profile/components/profile-header';
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
@@ -972,6 +973,13 @@ export function PortfolioScreen({
     [router],
   );
 
+  // Activity holds its own copy of the owner's posts (the feed holds another), so
+  // deletion is wired per-list through the shared hook rather than a shared store.
+  const { requestDelete: requestPostDelete, confirmSheet: postDeleteSheet } = usePostDeletion(
+    setActivityPosts,
+    { testID: 'portfolio-activity-delete-confirm' },
+  );
+
   const renderItem = useCallback(
     ({ item }: { item: CollectionRow }) => {
       if (item.kind === 'post') {
@@ -982,6 +990,7 @@ export function PortfolioScreen({
             accessToken={accessToken}
             apiBaseUrl={apiBaseUrl}
             onPressCard={handleOpenPostCard}
+            onRequestDelete={requestPostDelete}
             post={item.post}
             testID="portfolio-activity-post"
           />
@@ -1034,6 +1043,7 @@ export function PortfolioScreen({
       handleLongPressEntry,
       handleOpenPostCard,
       handlePressEntry,
+      requestPostDelete,
       selectedIds,
     ],
   );
@@ -1525,6 +1535,8 @@ export function PortfolioScreen({
         testID="portfolio-single-delete-sheet"
         visible={singleDeleteEntry != null}
       />
+
+      {postDeleteSheet}
 
       <SalePriceEditSheet
         canConfirm={model.canConfirmSalePriceEdit}

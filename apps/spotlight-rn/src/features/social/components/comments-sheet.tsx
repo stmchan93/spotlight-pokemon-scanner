@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Dimensions,
   Easing,
@@ -20,6 +21,7 @@ import { Avatar, Text, TextField, useSpotlightTheme } from '@spotlight/design-sy
 
 import {
   addComment,
+  deleteComment,
   fetchComments,
   fetchLikedCommentIds,
   likeComment,
@@ -74,6 +76,12 @@ const KEYBOARD_GAP = 8;
 
 /** Gap under the composer when the keyboard is down. */
 const COMPOSER_BOTTOM_GAP = 16;
+/**
+ * Long-press duration that opens a comment's destructive action. Matches
+ * `CARD_LONG_PRESS_MS` in `portfolio-screen.tsx` so every "press and hold for the
+ * context action" in the app has the same feel.
+ */
+const COMMENT_LONG_PRESS_MS = 500;
 /** Drag distance past which releasing the sheet dismisses it instead of springing back. */
 const DISMISS_DRAG_DISTANCE = 80;
 /** Flick velocity that dismisses even on a short drag. */
@@ -195,6 +203,41 @@ function buildCommentThreads(comments: PostComment[]): CommentThread[] {
 }
 
 /**
+ * Every comment below `rootId` in the reply tree, at any depth (`rootId` itself is
+ * NOT included). `comments.parent_comment_id` is `on delete cascade`, so deleting
+ * a comment takes its whole subtree with it — this is what the delete confirmation
+ * counts and what the sheet removes locally, so the UI matches the DB.
+ */
+export function collectDescendantIds(comments: PostComment[], rootId: string): string[] {
+  const childIdsByParent = new Map<string, string[]>();
+  for (const comment of comments) {
+    if (!comment.parentCommentId) {
+      continue;
+    }
+    const siblings = childIdsByParent.get(comment.parentCommentId) ?? [];
+    siblings.push(comment.id);
+    childIdsByParent.set(comment.parentCommentId, siblings);
+  }
+
+  const descendants: string[] = [];
+  const seen = new Set<string>([rootId]);
+  const queue: string[] = [rootId];
+  while (queue.length > 0) {
+    const id = queue.shift() as string;
+    for (const childId of childIdsByParent.get(id) ?? []) {
+      // `seen` also guards a cyclic parent chain from spinning forever.
+      if (seen.has(childId)) {
+        continue;
+      }
+      seen.add(childId);
+      descendants.push(childId);
+      queue.push(childId);
+    }
+  }
+  return descendants;
+}
+
+/**
  * Bottom-sheet comment thread (Phase 3b). Loads `fetchComments(postId)`, renders it
  * oldest-first with one level of reply nesting behind a per-comment "N replies"
  * toggle, and lets the viewer like a comment (optimistic) or add a comment / reply
@@ -243,6 +286,17 @@ export function CommentsSheet({
   const [likedCommentIds, setLikedCommentIds] = useState<Set<string>>(new Set());
   const [likeCountOverrides, setLikeCountOverrides] = useState<Record<string, number>>({});
   const likePendingRef = useRef<Set<string>>(new Set());
+  // Deletes in flight, so a second long-press on the same row can't fire a
+  // second request (or a second rollback).
+  const deletePendingRef = useRef<Set<string>>(new Set());
+  // Latest thread, readable from a callback without putting `comments` in its
+  // deps. The delete flow needs the CURRENT list twice — once to snapshot what it
+  // removed, once to put it back on failure — and a stale closure there would
+  // resurrect the wrong rows.
+  const commentsRef = useRef<PostComment[]>([]);
+  useEffect(() => {
+    commentsRef.current = comments;
+  }, [comments]);
   // Live keyboard height. The sheet is bottom-anchored, so wrapping it in a
   // KeyboardAvoidingView padded the WHOLE sheet upward — header, thread and all —
   // which left a tall dead gap above the composer. Instead we take the keyboard
@@ -486,6 +540,89 @@ export function CommentsSheet({
     [likeCountOverrides, likedCommentIds],
   );
 
+  /**
+   * Optimistically drop a comment (and, per the FK cascade, its whole reply
+   * subtree), then reconcile: on failure put every removed row back where it was
+   * and say so. Same shape as the DM composer's send — apply locally, reconcile on
+   * the response, surface the failure rather than silently losing the write.
+   */
+  const runDelete = useCallback(
+    (comment: PostComment, descendantIds: string[]) => {
+      deletePendingRef.current.add(comment.id);
+      const removedIds = new Set<string>([comment.id, ...descendantIds]);
+      const before = commentsRef.current;
+      const after = before.filter((entry) => !removedIds.has(entry.id));
+
+      setComments(after);
+      // The card renders `posts.comment_count`; the DB trigger decrements it once
+      // per deleted row (cascaded replies included), so the local thread length is
+      // exactly what the post will read as.
+      onCommentCountResolved?.(after.length);
+      setReplyTo((current) => (current && removedIds.has(current.id) ? null : current));
+      setExpandedIds((current) => {
+        const next = new Set(current);
+        for (const id of removedIds) {
+          next.delete(id);
+        }
+        return next;
+      });
+
+      void (async () => {
+        const ok = await deleteComment(comment.id);
+        if (!ok) {
+          // Restore in the original order, keeping anything posted while the
+          // delete was in flight instead of clobbering it with the snapshot.
+          const current = commentsRef.current;
+          const currentIds = new Set(current.map((entry) => entry.id));
+          const beforeIds = new Set(before.map((entry) => entry.id));
+          const restored = [
+            ...before.filter((entry) => currentIds.has(entry.id) || removedIds.has(entry.id)),
+            ...current.filter((entry) => !beforeIds.has(entry.id)),
+          ];
+          setComments(restored);
+          onCommentCountResolved?.(restored.length);
+          Alert.alert("Couldn't delete", 'That comment is still there. Please try again.');
+        }
+        deletePendingRef.current.delete(comment.id);
+      })();
+    },
+    [onCommentCountResolved],
+  );
+
+  /**
+   * Confirm before deleting. A plain `Alert` on purpose: this sheet is itself a
+   * `Modal`, and `ConfirmDeleteSheet` is another `Modal` — stacking them is
+   * unreliable on iOS (the second sheet can present behind this one, and its copy
+   * is Collection-specific anyway). `Alert` is OS-level, so it always renders
+   * above the sheet, and it is already this app's confirmation idiom.
+   */
+  const handleRequestDelete = useCallback(
+    (comment: PostComment) => {
+      if (deletePendingRef.current.has(comment.id)) {
+        return;
+      }
+      const descendantIds = collectDescendantIds(commentsRef.current, comment.id);
+      const replyCount = descendantIds.length;
+      Alert.alert(
+        comment.parentCommentId ? 'Delete reply?' : 'Delete comment?',
+        replyCount > 0
+          ? // Honest about the cascade: the replies go too, including other
+            // people's. Better to say it than to orphan them.
+            `This also deletes the ${replyCount} ${replyCount === 1 ? 'reply' : 'replies'} underneath it. This can't be undone.`
+          : "This can't be undone.",
+        [
+          { style: 'cancel', text: 'Cancel' },
+          {
+            onPress: () => runDelete(comment, descendantIds),
+            style: 'destructive',
+            text: 'Delete',
+          },
+        ],
+      );
+    },
+    [runDelete],
+  );
+
   const handleSend = useCallback(() => {
     const text = draft.trim();
     if (sending || text.length === 0 || !postId) {
@@ -531,15 +668,21 @@ export function CommentsSheet({
   }, [currentUser, draft, onCommentAdded, postId, replyTo, sending]);
 
   // Renders one comment (top-level or reply): avatar + name/time + body (with an
-  // optional inline blue @mention on replies) + the thumbs-up like and Reply action.
+  // optional inline blue @mention on replies) + the thumbs-up like and Reply
+  // action. Your OWN row is additionally long-pressable to delete it.
   const renderComment = useCallback(
     (comment: PostComment, options: { isReply: boolean; mentionHandle?: string | null }) => {
       const liked = likedCommentIds.has(comment.id);
       const likeCount = likeCountOverrides[comment.id] ?? comment.likeCount;
       const mention = options.mentionHandle?.trim();
+      const viewerId = currentUser?.id;
+      // Courtesy only — `comments_delete` RLS (author_id = auth.uid()) is what
+      // actually stops you deleting someone else's comment.
+      const isMine = Boolean(viewerId) && comment.authorId === viewerId;
+      const rowTestID = `${testID}-comment-${comment.id}`;
 
-      return (
-        <View style={styles.commentRow} testID={`${testID}-comment-${comment.id}`}>
+      const rowContent = (
+        <>
           <Avatar
             initials={commentInitials(comment.author?.displayName ?? null, comment.author?.handle ?? null)}
             size={AVATAR_SIZE}
@@ -604,10 +747,51 @@ export function CommentsSheet({
               </Pressable>
             </View>
           </View>
-        </View>
+        </>
+      );
+
+      // Delete is a long-press on your own row, not an inline control. The row is
+      // a 24px avatar next to a two-action strip (like + Reply); a third action
+      // would crowd Reply, and anything in the meta line would push the
+      // name/timestamp around. Press-and-hold is already the app's context-action
+      // idiom (portfolio-screen's `CARD_LONG_PRESS_MS`), and it costs the row no
+      // layout at all.
+      if (!isMine) {
+        return (
+          <View style={styles.commentRow} testID={rowTestID}>
+            {rowContent}
+          </View>
+        );
+      }
+      return (
+        <Pressable
+          // A long press is invisible to VoiceOver, so also publish it as a
+          // rotor action — otherwise a screen-reader user has no way to delete.
+          accessibilityActions={[{ label: 'Delete comment', name: 'longpress' }]}
+          accessibilityHint="Press and hold to delete your comment"
+          delayLongPress={COMMENT_LONG_PRESS_MS}
+          onAccessibilityAction={(event) => {
+            if (event.nativeEvent.actionName === 'longpress') {
+              handleRequestDelete(comment);
+            }
+          }}
+          onLongPress={() => handleRequestDelete(comment)}
+          style={styles.commentRow}
+          testID={rowTestID}
+        >
+          {rowContent}
+        </Pressable>
       );
     },
-    [handleToggleCommentLike, likeCountOverrides, likedCommentIds, testID, theme],
+    [
+      currentUser?.id,
+      handleRequestDelete,
+      handleToggleCommentLike,
+      likeCountOverrides,
+      likedCommentIds,
+      testID,
+      theme,
+    ],
   );
 
   if (!isRendered) {

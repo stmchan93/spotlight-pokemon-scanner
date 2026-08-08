@@ -1,6 +1,6 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import { useRouter } from 'expo-router';
-import { Text } from 'react-native';
+import { Alert, Text } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { MockSpotlightRepository } from '@spotlight/api-client';
@@ -19,6 +19,7 @@ import {
 } from '@/features/portfolio/use-portfolio-summary-visibility';
 import { __resetPortfolioViewModeForTests } from '@/features/portfolio/hooks/use-portfolio-view-mode';
 import { __resetTrendWindowForTests } from '@/features/portfolio/hooks/use-trend-window';
+import { deletePost, fetchAuthorPosts } from '@/features/social/social-service';
 
 import * as mockApiClient from '../mock-api-client';
 import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
@@ -27,6 +28,16 @@ jest.mock('expo-router', () => ({
   useRouter: jest.fn(),
   // Focus effect runs the composer-refresh consumer; no-op in tests.
   useFocusEffect: jest.fn(),
+}));
+
+// Only the network-touching reads the Activity tab makes are stubbed; the rest of
+// the social module stays real so nothing else in the tree changes behaviour.
+jest.mock('@/features/social/social-service', () => ({
+  ...jest.requireActual('@/features/social/social-service'),
+  deletePost: jest.fn(async () => true),
+  fetchAuthorPosts: jest.fn(async () => []),
+  fetchLikedPostIds: jest.fn(async () => new Set()),
+  fetchUnreadNotificationCount: jest.fn(async () => 0),
 }));
 
 // RollingNumberText is a slot-machine display (each digit is a column rendering
@@ -1303,6 +1314,56 @@ describe('PortfolioScreen', () => {
     });
 
     expect(push).toHaveBeenCalledWith('/catalog/search');
+  });
+
+  // Activity holds its OWN copy of the owner's posts (the feed holds another), so
+  // the delete path is verified here too rather than assumed from the feed.
+  it('deletes an own post from the Activity tab, and restores it when the write fails', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    (fetchAuthorPosts as jest.Mock).mockResolvedValue([
+      {
+        id: 'activity-post-1',
+        // The id AuthProvider signs in as under NODE_ENV=test.
+        authorId: '00000000-0000-0000-0000-000000000001',
+        author: { displayName: 'UI Test User', handle: null, avatarUrl: null, isVerified: false },
+        body: 'My activity post',
+        cardId: null,
+        likeCount: 0,
+        commentCount: 0,
+        createdAt: '2026-05-01T00:00:00.000Z',
+        media: [],
+      },
+    ]);
+    (deletePost as jest.Mock).mockResolvedValue(false);
+
+    renderPortfolioScreen();
+    await screen.findByTestId('portfolio-header-title');
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('portfolio-profile-tabs-tab-activity'));
+    });
+    await screen.findByText('My activity post');
+
+    // Confirm first — the ⋯ alone must not delete anything.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('portfolio-activity-post-more-button'));
+    });
+    await screen.findByTestId('portfolio-activity-delete-confirm');
+    expect(deletePost).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('portfolio-activity-delete-confirm-confirm'));
+    });
+
+    expect(deletePost).toHaveBeenCalledWith('activity-post-1');
+    // The write returned false → the post comes back and the user is told.
+    await waitFor(() => expect(screen.getByText('My activity post')).toBeTruthy());
+    expect(alertSpy).toHaveBeenCalledWith(
+      "Couldn't delete post",
+      expect.stringContaining('still there'),
+    );
+
+    alertSpy.mockRestore();
   });
 
   it('shows a + on the Activity tab that opens the New Post composer', async () => {

@@ -20,6 +20,7 @@ import {
   likePost,
   unlikePost,
 } from '@/features/social/social-service';
+import { useAuth } from '@/providers/auth-provider';
 
 type PostCardProps = {
   post: FeedPost;
@@ -35,6 +36,13 @@ type PostCardProps = {
    * props. Pass it when the caller already batch-fetched liked ids.
    */
   initialLiked?: boolean;
+  /**
+   * Ask the owning list to delete this post. Passing it is what turns on the ⋯
+   * affordance — and only ever on the viewer's OWN post. Screens that hold the
+   * post list (the feed, Portfolio → Activity) pass `usePostDeletion`'s
+   * `requestDelete`; read-only surfaces simply omit it and get no menu.
+   */
+  onRequestDelete?: (post: FeedPost) => void;
   testID?: string;
 };
 
@@ -119,13 +127,21 @@ export function PostCard({
   accessToken,
   onPressCard,
   initialLiked,
+  onRequestDelete,
   testID = 'post-card',
 }: PostCardProps) {
   const theme = useSpotlightTheme();
+  const { currentUser } = useAuth();
 
   const author = post.author;
   const displayName = author?.displayName?.trim() || (author?.handle ? `@${author.handle}` : 'Collector');
   const postDate = useMemo(() => formatPostDate(post.createdAt), [post.createdAt]);
+
+  // The ⋯ menu exists only on your OWN post, and only where the list can act on
+  // a delete. A signed-out/guest viewer has no id, so `undefined === undefined`
+  // can never make a stray post look self-authored.
+  const viewerId = currentUser?.id ?? null;
+  const canDeletePost = Boolean(onRequestDelete) && viewerId != null && post.authorId === viewerId;
 
   const canShowImages = Boolean(apiBaseUrl) && Boolean(accessToken) && post.media.length > 0;
   const trimmedBase = apiBaseUrl ? apiBaseUrl.replace(/\/+$/, '') : '';
@@ -237,15 +253,26 @@ export function PostCard({
             </Text>
           ) : null}
         </View>
-        <Pressable
-          accessibilityLabel="Post options"
-          accessibilityRole="button"
-          hitSlop={8}
-          style={styles.moreButton}
-          testID={`${testID}-more-button`}
-        >
-          <MoreHoriz color={theme.colors.gray700} height={20} width={20} />
-        </Pressable>
+        {/*
+          Delete is currently the ONLY post option, so ⋯ opens the confirmation
+          straight away instead of a one-row action sheet (CardActionsSheet's
+          Edit/Duplicate/Wishlist list has no meaning for a post). When a second
+          option lands, put CardActionsSheet in between here. The button is not
+          rendered at all for anyone but the author — it had no handler before,
+          so a non-author loses nothing but a dead target.
+        */}
+        {canDeletePost ? (
+          <Pressable
+            accessibilityLabel="Post options"
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => onRequestDelete?.(post)}
+            style={styles.moreButton}
+            testID={`${testID}-more-button`}
+          >
+            <MoreHoriz color={theme.colors.gray700} height={20} width={20} />
+          </Pressable>
+        ) : null}
       </View>
 
       {post.body ? (

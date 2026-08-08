@@ -23,6 +23,7 @@ import {
   fetchFollowingFeed,
   fetchGlobalFeed,
 } from '@/features/social/social-service';
+import { usePostDeletion } from '@/features/social/use-post-deletion';
 import { resolveRepositoryBaseUrl } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
 
@@ -61,6 +62,13 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const loadingMoreRef = useRef(false);
+
+  // Delete-your-own-post: confirm → optimistic removal from THIS list → restore
+  // + alert if the write fails. The sheet is rendered below the list, not by the
+  // row, so the confirmed delete can unmount the row safely.
+  const { requestDelete, confirmSheet: deleteConfirmSheet } = usePostDeletion(setPosts, {
+    testID: `${testID}-delete-confirm`,
+  });
 
   // Load (or reload) the active segment from the top. A per-load token guards
   // against a slower earlier segment's response landing after a faster switch.
@@ -283,12 +291,14 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
             accessToken={accessToken}
             apiBaseUrl={apiBaseUrl}
             onPressCard={handleOpenCard}
+            onRequestDelete={requestDelete}
             post={item}
             testID={`${testID}-post`}
           />
         )}
         testID={`${testID}-list`}
       />
+      {deleteConfirmSheet}
     </SafeAreaView>
   );
 }

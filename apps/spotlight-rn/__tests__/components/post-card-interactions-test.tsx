@@ -68,8 +68,11 @@ function buildPost(overrides: Partial<FeedPost> = {}): FeedPost {
   };
 }
 
-async function renderCard(post: FeedPost = buildPost()) {
-  render(<PostCard post={post} />, { wrapper: Wrapper });
+async function renderCard(
+  post: FeedPost = buildPost(),
+  props: { onRequestDelete?: (post: FeedPost) => void } = {},
+) {
+  render(<PostCard post={post} {...props} />, { wrapper: Wrapper });
   // Flush the on-mount liked-state read so later state updates are settled.
   await waitFor(() => expect(fetchLikedPostIds as jest.Mock).toHaveBeenCalledWith([post.id]));
 }
@@ -119,6 +122,40 @@ describe('PostCard likes', () => {
     // Success → no rollback: stays liked at 3, thumbs-up stays accent-tinted.
     expect(likeCountText()).toBe(3);
     expect(likeIconColor()).toBe(ACCENT);
+  });
+});
+
+// The mocked auth context above signs in as `me`; `buildPost` defaults to
+// `author-1`, i.e. somebody else's post.
+describe('PostCard delete affordance', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (fetchLikedPostIds as jest.Mock).mockResolvedValue(new Set());
+  });
+
+  it('never renders the ⋯ menu on someone else’s post', async () => {
+    const onRequestDelete = jest.fn();
+    await renderCard(buildPost({ authorId: 'author-1' }), { onRequestDelete });
+
+    expect(screen.queryByTestId('post-card-more-button')).toBeNull();
+    expect(onRequestDelete).not.toHaveBeenCalled();
+  });
+
+  it('renders the ⋯ menu on your own post and asks the list to delete it', async () => {
+    const onRequestDelete = jest.fn();
+    const post = buildPost({ authorId: 'me' });
+    await renderCard(post, { onRequestDelete });
+
+    fireEvent.press(screen.getByTestId('post-card-more-button'));
+
+    // The card only REQUESTS the delete; confirming and removing is the list's job.
+    expect(onRequestDelete).toHaveBeenCalledWith(post);
+  });
+
+  it('hides the ⋯ menu on your own post when the surface cannot delete', async () => {
+    await renderCard(buildPost({ authorId: 'me' }));
+
+    expect(screen.queryByTestId('post-card-more-button')).toBeNull();
   });
 });
 

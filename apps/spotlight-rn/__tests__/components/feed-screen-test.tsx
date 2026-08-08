@@ -1,7 +1,8 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 
-import { fetchFollowingFeed, fetchGlobalFeed } from '@/features/social/social-service';
+import { deletePost, fetchFollowingFeed, fetchGlobalFeed } from '@/features/social/social-service';
 import { FeedScreen } from '@/features/social/screens/feed-screen';
 
 import { renderWithProviders } from '../test-utils';
@@ -12,6 +13,7 @@ jest.mock('expo-router', () => ({
 }));
 
 jest.mock('@/features/social/social-service', () => ({
+  deletePost: jest.fn(async () => true),
   fetchFollowingFeed: jest.fn(),
   fetchGlobalFeed: jest.fn(),
   fetchLikedPostIds: jest.fn(async () => new Set()),
@@ -22,6 +24,9 @@ jest.mock('@/features/social/social-service', () => ({
   likeComment: jest.fn(async () => true),
   unlikeComment: jest.fn(async () => true),
 }));
+
+/** The id `AuthProvider` signs in as under NODE_ENV=test. */
+const MY_USER_ID = '00000000-0000-0000-0000-000000000001';
 
 function buildPost(overrides: { id: string } & Record<string, unknown>) {
   return {
@@ -99,6 +104,95 @@ describe('FeedScreen', () => {
 
     fireEvent.press(screen.getByTestId('feed-composer-row'));
     expect(push).toHaveBeenCalledWith('/new-post');
+  });
+
+  // Deleting your own post: the ⋯ affordance is on the card, but the confirm +
+  // optimistic removal + rollback live on the screen that owns the list.
+  describe('deleting your own post', () => {
+    const myPost = () => buildPost({ id: 'mine', authorId: MY_USER_ID, body: 'My own post' });
+
+    beforeEach(() => {
+      (deletePost as jest.Mock).mockResolvedValue(true);
+      (fetchFollowingFeed as jest.Mock).mockResolvedValue([
+        myPost(),
+        buildPost({ id: 'theirs', body: 'Someone else post' }),
+      ]);
+    });
+
+    it('only offers the ⋯ menu on the post you wrote', async () => {
+      renderWithProviders(<FeedScreen />);
+      await waitFor(() => expect(screen.getByText('My own post')).toBeTruthy());
+
+      // One ⋯ for two posts: yours.
+      expect(screen.getAllByTestId('feed-post-more-button')).toHaveLength(1);
+    });
+
+    it('asks for confirmation before deleting anything', async () => {
+      renderWithProviders(<FeedScreen />);
+      await waitFor(() => expect(screen.getByText('My own post')).toBeTruthy());
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('feed-post-more-button'));
+      });
+
+      expect(await screen.findByTestId('feed-delete-confirm')).toBeTruthy();
+      // Still on screen, and nothing has been written.
+      expect(screen.getByText('My own post')).toBeTruthy();
+      expect(deletePost).not.toHaveBeenCalled();
+
+      // Backing out leaves the post alone.
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('feed-delete-confirm-cancel'));
+      });
+      expect(deletePost).not.toHaveBeenCalled();
+      expect(screen.getByText('My own post')).toBeTruthy();
+    });
+
+    it('removes the post optimistically on confirm and leaves the rest of the feed alone', async () => {
+      renderWithProviders(<FeedScreen />);
+      await waitFor(() => expect(screen.getByText('My own post')).toBeTruthy());
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('feed-post-more-button'));
+      });
+      await screen.findByTestId('feed-delete-confirm');
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('feed-delete-confirm-confirm'));
+      });
+
+      await waitFor(() => expect(screen.queryByText('My own post')).not.toBeOnTheScreen());
+      expect(deletePost).toHaveBeenCalledWith('mine');
+      expect(screen.getByText('Someone else post')).toBeTruthy();
+    });
+
+    it('puts the post back and tells the user when the delete fails', async () => {
+      const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      (deletePost as jest.Mock).mockResolvedValue(false);
+
+      renderWithProviders(<FeedScreen />);
+      await waitFor(() => expect(screen.getByText('My own post')).toBeTruthy());
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('feed-post-more-button'));
+      });
+      await screen.findByTestId('feed-delete-confirm');
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('feed-delete-confirm-confirm'));
+      });
+
+      // A failed delete must never leave the row gone: the post is restored...
+      await waitFor(() => expect(screen.getByText('My own post')).toBeTruthy());
+      // ...in its original position, above the other post.
+      const bodies = screen.getAllByTestId('feed-post-body').map((node) => node.props.children);
+      expect(bodies).toEqual(['My own post', 'Someone else post']);
+      // ...and the user is told rather than left believing it worked.
+      expect(alertSpy).toHaveBeenCalledWith(
+        "Couldn't delete post",
+        expect.stringContaining('still there'),
+      );
+
+      alertSpy.mockRestore();
+    });
   });
 
   it('renders a card chip for a post anchored to a card', async () => {

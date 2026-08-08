@@ -1,12 +1,18 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import type { PropsWithChildren } from 'react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import type { ComponentProps, PropsWithChildren } from 'react';
+import { Alert } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { SpotlightThemeProvider } from '@spotlight/design-system';
 
-import { CommentsSheet, shouldDismissOnDrag } from '@/features/social/components/comments-sheet';
+import {
+  CommentsSheet,
+  collectDescendantIds,
+  shouldDismissOnDrag,
+} from '@/features/social/components/comments-sheet';
 import {
   addComment,
+  deleteComment,
   fetchComments,
   fetchLikedCommentIds,
   likeComment,
@@ -18,6 +24,7 @@ jest.mock('@/features/social/social-service', () => ({
   fetchComments: jest.fn(async () => []),
   fetchLikedCommentIds: jest.fn(async () => new Set()),
   addComment: jest.fn(async () => null),
+  deleteComment: jest.fn(async () => true),
   likeComment: jest.fn(async () => true),
   unlikeComment: jest.fn(async () => true),
 }));
@@ -64,11 +71,28 @@ function buildComment(overrides: Partial<PostComment> = {}): PostComment {
   };
 }
 
-function renderSheet() {
+function renderSheet(props: Partial<ComponentProps<typeof CommentsSheet>> = {}) {
   return render(
-    <CommentsSheet onClose={jest.fn()} postId="post-1" testID="comments-sheet" visible />,
+    <CommentsSheet onClose={jest.fn()} postId="post-1" testID="comments-sheet" visible {...props} />,
     { wrapper: Wrapper },
   );
+}
+
+type AlertButton = { text?: string; style?: string; onPress?: () => void };
+
+/** The buttons on the most recent `Alert.alert`. */
+function lastAlertButtons(): AlertButton[] {
+  const calls = (Alert.alert as unknown as jest.Mock).mock.calls;
+  return (calls[calls.length - 1]?.[2] ?? []) as AlertButton[];
+}
+
+/** Tap the destructive button on the confirmation alert. */
+async function confirmDestructive() {
+  const button = lastAlertButtons().find((entry) => entry.style === 'destructive');
+  expect(button).toBeDefined();
+  await act(async () => {
+    button?.onPress?.();
+  });
 }
 
 describe('CommentsSheet', () => {
@@ -77,8 +101,14 @@ describe('CommentsSheet', () => {
     (fetchComments as jest.Mock).mockResolvedValue([]);
     (fetchLikedCommentIds as jest.Mock).mockResolvedValue(new Set());
     (addComment as jest.Mock).mockResolvedValue(null);
+    (deleteComment as jest.Mock).mockResolvedValue(true);
     (likeComment as jest.Mock).mockResolvedValue(true);
     (unlikeComment as jest.Mock).mockResolvedValue(true);
+    jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   it('loads and renders the thread', async () => {
@@ -233,5 +263,128 @@ describe('CommentsSheet', () => {
     expect(shouldDismissOnDrag(120, 0)).toBe(true);
     expect(shouldDismissOnDrag(20, 1.2)).toBe(true);
     expect(shouldDismissOnDrag(20, 0.1)).toBe(false);
+  });
+
+  describe('deleting your own comment', () => {
+    const mine = () => buildComment({ authorId: 'me', body: 'My take' });
+    const theirs = () => buildComment({ id: 'c2', authorId: 'a1', body: 'Their take' });
+
+    it('offers no delete affordance on someone else’s comment', async () => {
+      (fetchComments as jest.Mock).mockResolvedValue([theirs()]);
+      renderSheet();
+      const row = await screen.findByTestId('comments-sheet-comment-c2');
+
+      expect(row.props.accessibilityHint).toBeUndefined();
+
+      // Even if a long press reaches the row, nothing confirms and nothing deletes.
+      fireEvent(row, 'longPress');
+      expect(Alert.alert as unknown as jest.Mock).not.toHaveBeenCalled();
+      expect(deleteComment as jest.Mock).not.toHaveBeenCalled();
+    });
+
+    it('long-presses your own comment into a confirmation, and only then deletes', async () => {
+      (fetchComments as jest.Mock).mockResolvedValue([mine()]);
+      renderSheet();
+      const row = await screen.findByTestId('comments-sheet-comment-c1');
+
+      expect(row.props.accessibilityHint).toBe('Press and hold to delete your comment');
+
+      fireEvent(row, 'longPress');
+
+      const [title, message] = (Alert.alert as unknown as jest.Mock).mock.calls[0];
+      expect(title).toBe('Delete comment?');
+      expect(message).toBe("This can't be undone.");
+      // Confirmation first — the long press alone must not delete anything.
+      expect(deleteComment as jest.Mock).not.toHaveBeenCalled();
+      expect(screen.getByText('My take')).toBeTruthy();
+
+      await confirmDestructive();
+      expect(deleteComment as jest.Mock).toHaveBeenCalledWith('c1');
+    });
+
+    it('removes the comment optimistically and updates the post count', async () => {
+      (fetchComments as jest.Mock).mockResolvedValue([mine(), theirs()]);
+      // Never resolves: proves the row leaves the thread BEFORE the write returns.
+      (deleteComment as jest.Mock).mockReturnValue(new Promise(() => {}));
+      const onCommentCountResolved = jest.fn();
+      renderSheet({ onCommentCountResolved });
+
+      await waitFor(() => expect(onCommentCountResolved).toHaveBeenCalledWith(2));
+      fireEvent(screen.getByTestId('comments-sheet-comment-c1'), 'longPress');
+      await confirmDestructive();
+
+      expect(screen.queryByText('My take')).toBeNull();
+      expect(screen.getByText('Their take')).toBeTruthy();
+      // The card's comment_count follows the thread down, matching the DB trigger.
+      expect(onCommentCountResolved).toHaveBeenLastCalledWith(1);
+    });
+
+    it('restores the comment and the count, and says so, when the delete fails', async () => {
+      (fetchComments as jest.Mock).mockResolvedValue([mine(), theirs()]);
+      (deleteComment as jest.Mock).mockResolvedValue(false);
+      const onCommentCountResolved = jest.fn();
+      renderSheet({ onCommentCountResolved });
+
+      await waitFor(() => expect(onCommentCountResolved).toHaveBeenCalledWith(2));
+      fireEvent(screen.getByTestId('comments-sheet-comment-c1'), 'longPress');
+      await confirmDestructive();
+
+      expect(await screen.findByText('My take')).toBeTruthy();
+      expect(onCommentCountResolved).toHaveBeenLastCalledWith(2);
+      // Restoring silently would read as "the delete worked, then didn't".
+      expect(Alert.alert as unknown as jest.Mock).toHaveBeenLastCalledWith(
+        "Couldn't delete",
+        'That comment is still there. Please try again.',
+      );
+    });
+
+    it('warns that deleting a parent takes its replies with it, and removes them too', async () => {
+      (fetchComments as jest.Mock).mockResolvedValue([
+        buildComment({ authorId: 'me', body: 'Parent' }),
+        buildComment({ id: 'r1', authorId: 'a1', body: 'A reply', parentCommentId: 'c1' }),
+        buildComment({ id: 'r2', authorId: 'a1', body: 'Reply to the reply', parentCommentId: 'r1' }),
+      ]);
+      const onCommentCountResolved = jest.fn();
+      renderSheet({ onCommentCountResolved });
+
+      await waitFor(() => expect(onCommentCountResolved).toHaveBeenCalledWith(3));
+      fireEvent(screen.getByTestId('comments-sheet-comment-c1'), 'longPress');
+
+      // `parent_comment_id` is ON DELETE CASCADE, so say so instead of orphaning them.
+      const [, message] = (Alert.alert as unknown as jest.Mock).mock.calls[0];
+      expect(message).toBe("This also deletes the 2 replies underneath it. This can't be undone.");
+
+      await confirmDestructive();
+      expect(screen.queryByText('Parent')).toBeNull();
+      expect(screen.queryByTestId('comments-sheet-comment-c1-replies-toggle')).toBeNull();
+      // One request; the DB cascade removes the subtree and the trigger decrements
+      // the post count once per removed row.
+      expect(deleteComment as jest.Mock).toHaveBeenCalledTimes(1);
+      expect(onCommentCountResolved).toHaveBeenLastCalledWith(0);
+    });
+
+    it('titles the confirmation for a reply when the row is a reply', async () => {
+      (fetchComments as jest.Mock).mockResolvedValue([
+        theirs(),
+        buildComment({ id: 'r1', authorId: 'me', body: 'My reply', parentCommentId: 'c2' }),
+      ]);
+      renderSheet();
+      fireEvent.press(await screen.findByTestId('comments-sheet-comment-c2-replies-toggle'));
+
+      fireEvent(await screen.findByTestId('comments-sheet-comment-r1'), 'longPress');
+      expect((Alert.alert as unknown as jest.Mock).mock.calls[0][0]).toBe('Delete reply?');
+    });
+
+    it('collects every descendant of a comment, at any depth', () => {
+      const comments = [
+        buildComment({ id: 'c1' }),
+        buildComment({ id: 'r1', parentCommentId: 'c1' }),
+        buildComment({ id: 'r2', parentCommentId: 'r1' }),
+        buildComment({ id: 'other' }),
+      ];
+      expect(collectDescendantIds(comments, 'c1').sort()).toEqual(['r1', 'r2']);
+      expect(collectDescendantIds(comments, 'r1')).toEqual(['r2']);
+      expect(collectDescendantIds(comments, 'other')).toEqual([]);
+    });
   });
 });
