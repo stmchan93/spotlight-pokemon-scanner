@@ -429,7 +429,6 @@ export function WhosThatPokemonScreen() {
           selfieUri={selfie?.uri ?? null}
           sourceHeight={selfie?.height ?? 0}
           sourceWidth={selfie?.width ?? 0}
-          speciesOutline={speciesOutline}
           washColor={washColor}
         />
       ) : null}

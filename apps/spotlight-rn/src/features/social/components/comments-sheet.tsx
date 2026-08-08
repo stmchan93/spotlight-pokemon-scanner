@@ -141,6 +141,43 @@ function authorDisplayName(comment: PostComment): string {
 }
 
 /**
+ * Delete is SOFT: a comment that still has replies stays in the thread as a
+ * TOMBSTONE so the replies underneath it remain readable, and the service marks
+ * it with a boolean rather than sending the body. The flag is declared here as an
+ * OPTIONAL widening of `PostComment` for two reasons: this file compiles whether
+ * or not `social-service.ts` has published the field yet, and the one name the two
+ * files have to agree on lives in exactly one place. If the service lands on a
+ * different name, `isDeleted` changes here and nowhere else.
+ */
+type MaybeTombstoned = PostComment & { isDeleted?: boolean };
+
+/** Whether this row is a tombstone: present in the thread, but its body is gone. */
+export function isTombstone(comment: PostComment): boolean {
+  return (comment as MaybeTombstoned).isDeleted === true;
+}
+
+/**
+ * The local shape of a just-soft-deleted comment. Mirrors what the server will
+ * send back on the next read: the row and its ownership survive, the body and the
+ * author hydration do not. Dropping `author` here means no render path can leak
+ * the name of someone whose words are gone, even one added later.
+ */
+function toTombstone(comment: PostComment): PostComment {
+  const tombstoned: MaybeTombstoned = { ...comment, author: null, body: null, isDeleted: true };
+  return tombstoned;
+}
+
+/**
+ * How many comments the post should be credited with. A tombstone is a structural
+ * anchor for other people's replies, not something anyone wrote, so it does not
+ * count — which is also what makes a delete drop the post's count by exactly one
+ * whether the row vanished or turned into a tombstone.
+ */
+export function visibleCommentCount(comments: PostComment[]): number {
+  return comments.filter((comment) => !isTombstone(comment)).length;
+}
+
+/**
  * One top-level comment plus its (flattened) replies. Replies-of-replies are
  * attributed to their TOP-LEVEL ancestor by walking the parent chain, so the
  * thread never indents past a single level. Each reply also carries the handle of
@@ -174,9 +211,12 @@ function buildCommentThreads(comments: PostComment[]): CommentThread[] {
   };
 
   // The handle to @mention on a reply = the author of its DIRECT parent comment.
+  // A tombstoned parent mentions nobody: printing "@misty" directly above a row
+  // that says the comment was deleted would hand back the exact attribution the
+  // tombstone exists to withhold.
   const mentionHandleOf = (comment: PostComment): string | null => {
     const parent = comment.parentCommentId ? byId.get(comment.parentCommentId) : undefined;
-    if (!parent) {
+    if (!parent || isTombstone(parent)) {
       return null;
     }
     return parent.author?.handle?.trim() || parent.author?.displayName?.trim() || null;
@@ -204,9 +244,9 @@ function buildCommentThreads(comments: PostComment[]): CommentThread[] {
 
 /**
  * Every comment below `rootId` in the reply tree, at any depth (`rootId` itself is
- * NOT included). `comments.parent_comment_id` is `on delete cascade`, so deleting
- * a comment takes its whole subtree with it — this is what the delete confirmation
- * counts and what the sheet removes locally, so the UI matches the DB.
+ * NOT included). Deleting a comment no longer touches these — they are exactly the
+ * replies that SURVIVE underneath the tombstone, which is what the delete
+ * confirmation now counts so the copy matches what the user will see afterwards.
  */
 export function collectDescendantIds(comments: PostComment[], rootId: string): string[] {
   const childIdsByParent = new Map<string, string[]>();
@@ -459,10 +499,14 @@ export function CommentsSheet({
         // Report the thread's real size. `posts.comment_count` is maintained by
         // a DB trigger; when that count is stale the card would otherwise keep
         // showing it (a post you just commented on reads as 0 comments).
-        onCommentCountResolved?.(loaded.length);
+        // Tombstones are excluded — see `visibleCommentCount`.
+        onCommentCountResolved?.(visibleCommentCount(loaded));
         // Restore which of these comments the viewer already liked, so an
         // already-liked comment shows filled instead of inviting a second like.
-        const likedIds = await fetchLikedCommentIds(loaded.map((comment) => comment.id));
+        // Tombstones carry no like affordance, so don't ask about them.
+        const likedIds = await fetchLikedCommentIds(
+          loaded.filter((comment) => !isTombstone(comment)).map((comment) => comment.id),
+        );
         if (!cancelled) {
           setLikedCommentIds(likedIds);
         }
@@ -541,28 +585,42 @@ export function CommentsSheet({
   );
 
   /**
-   * Optimistically drop a comment (and, per the FK cascade, its whole reply
-   * subtree), then reconcile: on failure put every removed row back where it was
-   * and say so. Same shape as the DM composer's send — apply locally, reconcile on
-   * the response, surface the failure rather than silently losing the write.
+   * Optimistically apply a SOFT delete, then reconcile: on failure put the row
+   * back exactly as it was and say so. Same shape as the DM composer's send —
+   * apply locally, reconcile on the response, surface the failure rather than
+   * silently losing the write.
+   *
+   * Two local outcomes, mirroring the server:
+   *   - the comment has replies → it becomes a TOMBSTONE IN PLACE. The row has to
+   *     survive or the replies underneath it lose their anchor and disappear with
+   *     it, which is the bug this replaced: deleting your own comment destroyed
+   *     other people's.
+   *   - the comment has none → the row goes, as before, since nothing depends on it.
+   *
+   * Either way the post's comment count drops by exactly ONE, because a tombstone
+   * is not counted (`visibleCommentCount`).
    */
   const runDelete = useCallback(
-    (comment: PostComment, descendantIds: string[]) => {
+    (comment: PostComment, keepAsTombstone: boolean) => {
       deletePendingRef.current.add(comment.id);
-      const removedIds = new Set<string>([comment.id, ...descendantIds]);
       const before = commentsRef.current;
-      const after = before.filter((entry) => !removedIds.has(entry.id));
+      const after = keepAsTombstone
+        ? before.map((entry) => (entry.id === comment.id ? toTombstone(entry) : entry))
+        : before.filter((entry) => entry.id !== comment.id);
 
       setComments(after);
-      // The card renders `posts.comment_count`; the DB trigger decrements it once
-      // per deleted row (cascaded replies included), so the local thread length is
-      // exactly what the post will read as.
-      onCommentCountResolved?.(after.length);
-      setReplyTo((current) => (current && removedIds.has(current.id) ? null : current));
+      onCommentCountResolved?.(visibleCommentCount(after));
+      // You can't reply to something that is no longer there to be replied to.
+      setReplyTo((current) => (current && current.id === comment.id ? null : current));
       setExpandedIds((current) => {
         const next = new Set(current);
-        for (const id of removedIds) {
-          next.delete(id);
+        if (keepAsTombstone) {
+          // Show the replies immediately: the confirmation just promised they
+          // would stay, so the thread should prove it rather than collapse them
+          // behind a toggle.
+          next.add(comment.id);
+        } else {
+          next.delete(comment.id);
         }
         return next;
       });
@@ -570,17 +628,23 @@ export function CommentsSheet({
       void (async () => {
         const ok = await deleteComment(comment.id);
         if (!ok) {
-          // Restore in the original order, keeping anything posted while the
-          // delete was in flight instead of clobbering it with the snapshot.
           const current = commentsRef.current;
-          const currentIds = new Set(current.map((entry) => entry.id));
+          const currentById = new Map(current.map((entry) => [entry.id, entry]));
           const beforeIds = new Set(before.map((entry) => entry.id));
           const restored = [
-            ...before.filter((entry) => currentIds.has(entry.id) || removedIds.has(entry.id)),
+            // Originals, in their original order. Only the row this delete
+            // touched comes from the snapshot — that is what puts the body back
+            // under a tombstone, or the whole row back if it was removed. Every
+            // other row is taken from the CURRENT list so a concurrent change
+            // isn't clobbered, and is dropped if something else removed it.
+            ...before
+              .map((entry) => (entry.id === comment.id ? entry : currentById.get(entry.id)))
+              .filter((entry): entry is PostComment => Boolean(entry)),
+            // Anything posted while the delete was in flight.
             ...current.filter((entry) => !beforeIds.has(entry.id)),
           ];
           setComments(restored);
-          onCommentCountResolved?.(restored.length);
+          onCommentCountResolved?.(visibleCommentCount(restored));
           Alert.alert("Couldn't delete", 'That comment is still there. Please try again.');
         }
         deletePendingRef.current.delete(comment.id);
@@ -601,19 +665,23 @@ export function CommentsSheet({
       if (deletePendingRef.current.has(comment.id)) {
         return;
       }
-      const descendantIds = collectDescendantIds(commentsRef.current, comment.id);
-      const replyCount = descendantIds.length;
+      const current = commentsRef.current;
+      // Direct children decide the tombstone; descendants (children of children
+      // included) are what the copy counts, because the thread flattens every
+      // depth under the same top-level comment — so they all stay visible.
+      const hasReplies = current.some((entry) => entry.parentCommentId === comment.id);
+      const replyCount = collectDescendantIds(current, comment.id).length;
       Alert.alert(
         comment.parentCommentId ? 'Delete reply?' : 'Delete comment?',
-        replyCount > 0
-          ? // Honest about the cascade: the replies go too, including other
-            // people's. Better to say it than to orphan them.
-            `This also deletes the ${replyCount} ${replyCount === 1 ? 'reply' : 'replies'} underneath it. This can't be undone.`
+        hasReplies
+          ? // Say what actually happens now: your words go, the thread does not.
+            // The old copy warned that the replies went too — they no longer do.
+            `Your words are removed, but the ${replyCount} ${replyCount === 1 ? 'reply' : 'replies'} underneath stay, under a “comment was deleted” line. This can't be undone.`
           : "This can't be undone.",
         [
           { style: 'cancel', text: 'Cancel' },
           {
-            onPress: () => runDelete(comment, descendantIds),
+            onPress: () => runDelete(comment, hasReplies),
             style: 'destructive',
             text: 'Delete',
           },
@@ -669,9 +737,36 @@ export function CommentsSheet({
 
   // Renders one comment (top-level or reply): avatar + name/time + body (with an
   // optional inline blue @mention on replies) + the thumbs-up like and Reply
-  // action. Your OWN row is additionally long-pressable to delete it.
+  // action. Your OWN row is additionally long-pressable to delete it. A tombstone
+  // takes an early return and renders none of that.
   const renderComment = useCallback(
     (comment: PostComment, options: { isReply: boolean; mentionHandle?: string | null }) => {
+      const rowTestIDForComment = `${testID}-comment-${comment.id}`;
+
+      // A tombstone: the row survives only so the replies underneath it keep an
+      // anchor. It shows NO author, NO avatar and NO timestamp — deliberately.
+      // The body is what was withdrawn; leaving the name and face attached would
+      // still tell the thread that this specific person said something here and
+      // then took it back, which is most of what deleting was meant to undo. The
+      // one other place this app has removed content (DM moderation) surfaces
+      // nothing at all and "neither invents a placeholder"; the only reason this
+      // one prints a line is that the replies need something to hang from.
+      //
+      // No affordances either: nothing to like, nobody to reply to, and no
+      // long-press — a tombstone is already deleted.
+      if (isTombstone(comment)) {
+        return (
+          <View style={styles.commentRow} testID={rowTestIDForComment}>
+            <Text
+              style={[theme.typography.body, styles.tombstone, { color: theme.colors.gray400 }]}
+              testID={`${rowTestIDForComment}-tombstone`}
+            >
+              This comment was deleted
+            </Text>
+          </View>
+        );
+      }
+
       const liked = likedCommentIds.has(comment.id);
       const likeCount = likeCountOverrides[comment.id] ?? comment.likeCount;
       const mention = options.mentionHandle?.trim();
@@ -679,7 +774,7 @@ export function CommentsSheet({
       // Courtesy only — `comments_delete` RLS (author_id = auth.uid()) is what
       // actually stops you deleting someone else's comment.
       const isMine = Boolean(viewerId) && comment.authorId === viewerId;
-      const rowTestID = `${testID}-comment-${comment.id}`;
+      const rowTestID = rowTestIDForComment;
 
       const rowContent = (
         <>
@@ -1107,6 +1202,11 @@ const styles = StyleSheet.create({
   },
   thread: {
     width: '100%',
+  },
+  tombstone: {
+    // No avatar next to it, so the line takes the row's full width and sits
+    // flush left — visibly not shaped like somebody's comment.
+    flex: 1,
   },
   title: {
     paddingBottom: 4,

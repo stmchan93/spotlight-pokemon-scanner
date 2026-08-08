@@ -1,14 +1,16 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import type { ComponentProps, PropsWithChildren } from 'react';
-import { Alert } from 'react-native';
+import { Alert, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { SpotlightThemeProvider } from '@spotlight/design-system';
+import { SpotlightThemeProvider, colors } from '@spotlight/design-system';
 
 import {
   CommentsSheet,
   collectDescendantIds,
+  isTombstone,
   shouldDismissOnDrag,
+  visibleCommentCount,
 } from '@/features/social/components/comments-sheet';
 import {
   addComment,
@@ -57,7 +59,15 @@ function Wrapper({ children }: PropsWithChildren) {
   );
 }
 
-function buildComment(overrides: Partial<PostComment> = {}): PostComment {
+/**
+ * `isDeleted` is written as an explicit widening rather than assumed present on
+ * `PostComment`: the flag is added by `social-service.ts`, and typing it here
+ * keeps these tests compiling on either side of that landing (and keeps the name
+ * they depend on to a single line).
+ */
+type CommentOverrides = Partial<PostComment> & { isDeleted?: boolean };
+
+function buildComment(overrides: CommentOverrides = {}): PostComment {
   return {
     id: 'c1',
     postId: 'post-1',
@@ -68,7 +78,12 @@ function buildComment(overrides: Partial<PostComment> = {}): PostComment {
     likeCount: 0,
     createdAt: '2026-05-01T00:00:00.000Z',
     ...overrides,
-  };
+  } as PostComment;
+}
+
+/** A comment as the server sends it once it has been soft-deleted: no body, no author. */
+function buildTombstone(overrides: CommentOverrides = {}): PostComment {
+  return buildComment({ author: null, body: null, isDeleted: true, ...overrides });
 }
 
 function renderSheet(props: Partial<ComponentProps<typeof CommentsSheet>> = {}) {
@@ -265,6 +280,89 @@ describe('CommentsSheet', () => {
     expect(shouldDismissOnDrag(20, 0.1)).toBe(false);
   });
 
+  describe('tombstones (soft-deleted comments that still hold replies)', () => {
+    /** A soft-deleted parent whose reply survived it — the whole reason the row exists. */
+    const tombstonedThread = () => [
+      buildTombstone({ authorId: 'a1' }),
+      buildComment({
+        id: 'r1',
+        author: { displayName: 'Brock', handle: 'brock', avatarUrl: null, isVerified: false },
+        authorId: 'a2',
+        body: 'Still here',
+        parentCommentId: 'c1',
+      }),
+    ];
+
+    it('renders a muted "deleted" line with no author, avatar or timestamp', async () => {
+      (fetchComments as jest.Mock).mockResolvedValue(tombstonedThread());
+      renderSheet();
+
+      const line = await screen.findByTestId('comments-sheet-comment-c1-tombstone');
+      expect(line).toHaveTextContent('This comment was deleted');
+      // Muted, not body-coloured: it is an absence, not something to read.
+      expect(StyleSheet.flatten(line.props.style)).toMatchObject({ color: colors.gray400 });
+      expect(StyleSheet.flatten(line.props.style).color).not.toBe(colors.gray700);
+
+      // Anonymised on purpose. A name attached to a withdrawn comment still tells
+      // the thread who said something and took it back.
+      expect(screen.queryByText('Misty')).toBeNull();
+      expect(screen.queryByText('@misty')).toBeNull();
+      // No initials fallback avatar either — the row carries no identity at all.
+      expect(screen.queryByText('M')).toBeNull();
+      expect(screen.queryByText('C')).toBeNull();
+    });
+
+    it('offers no like, no reply and no long-press delete', async () => {
+      // Authored by the signed-in user, so the delete affordance would appear if
+      // tombstones weren't suppressed.
+      (fetchComments as jest.Mock).mockResolvedValue([
+        buildTombstone({ authorId: 'me' }),
+        buildComment({ id: 'r1', authorId: 'a2', body: 'Still here', parentCommentId: 'c1' }),
+      ]);
+      renderSheet();
+
+      const row = await screen.findByTestId('comments-sheet-comment-c1');
+      expect(screen.queryByTestId('comments-sheet-comment-c1-like')).toBeNull();
+      expect(screen.queryByTestId('comments-sheet-comment-c1-reply')).toBeNull();
+      expect(row.props.accessibilityHint).toBeUndefined();
+
+      fireEvent(row, 'longPress');
+      expect(Alert.alert as unknown as jest.Mock).not.toHaveBeenCalled();
+      expect(deleteComment as jest.Mock).not.toHaveBeenCalled();
+    });
+
+    it('keeps the replies reachable and drops the @mention back to the deleted author', async () => {
+      (fetchComments as jest.Mock).mockResolvedValue(tombstonedThread());
+      renderSheet();
+
+      // The replies toggle is thread navigation, not an action on the comment, so
+      // it survives — without it the replies would be unreachable.
+      fireEvent.press(await screen.findByTestId('comments-sheet-comment-c1-replies-toggle'));
+
+      expect(await screen.findByText('Still here')).toBeTruthy();
+      // No "@misty" handing back the attribution the tombstone withholds.
+      expect(screen.queryByText('@misty')).toBeNull();
+    });
+
+    it('does not count tombstones toward the post comment count', async () => {
+      (fetchComments as jest.Mock).mockResolvedValue(tombstonedThread());
+      const onCommentCountResolved = jest.fn();
+      renderSheet({ onCommentCountResolved });
+
+      // Two rows load, but only one of them is a comment somebody wrote.
+      await waitFor(() => expect(onCommentCountResolved).toHaveBeenCalledWith(1));
+      // Nor is a tombstone asked about for likes.
+      expect(fetchLikedCommentIds as jest.Mock).toHaveBeenCalledWith(['r1']);
+    });
+
+    it('identifies tombstones and counts only real comments', () => {
+      const rows = [buildComment(), buildTombstone({ id: 'c2' }), buildComment({ id: 'c3' })];
+      expect(rows.map(isTombstone)).toEqual([false, true, false]);
+      expect(visibleCommentCount(rows)).toBe(2);
+      expect(visibleCommentCount([])).toBe(0);
+    });
+  });
+
   describe('deleting your own comment', () => {
     const mine = () => buildComment({ authorId: 'me', body: 'My take' });
     const theirs = () => buildComment({ id: 'c2', authorId: 'a1', body: 'Their take' });
@@ -302,7 +400,7 @@ describe('CommentsSheet', () => {
       expect(deleteComment as jest.Mock).toHaveBeenCalledWith('c1');
     });
 
-    it('removes the comment optimistically and updates the post count', async () => {
+    it('removes a childless comment optimistically and updates the post count', async () => {
       (fetchComments as jest.Mock).mockResolvedValue([mine(), theirs()]);
       // Never resolves: proves the row leaves the thread BEFORE the write returns.
       (deleteComment as jest.Mock).mockReturnValue(new Promise(() => {}));
@@ -315,6 +413,8 @@ describe('CommentsSheet', () => {
 
       expect(screen.queryByText('My take')).toBeNull();
       expect(screen.getByText('Their take')).toBeTruthy();
+      // Nothing depended on the row, so it leaves no tombstone behind.
+      expect(screen.queryByTestId('comments-sheet-comment-c1')).toBeNull();
       // The card's comment_count follows the thread down, matching the DB trigger.
       expect(onCommentCountResolved).toHaveBeenLastCalledWith(1);
     });
@@ -338,29 +438,98 @@ describe('CommentsSheet', () => {
       );
     });
 
-    it('warns that deleting a parent takes its replies with it, and removes them too', async () => {
-      (fetchComments as jest.Mock).mockResolvedValue([
-        buildComment({ authorId: 'me', body: 'Parent' }),
-        buildComment({ id: 'r1', authorId: 'a1', body: 'A reply', parentCommentId: 'c1' }),
-        buildComment({ id: 'r2', authorId: 'a1', body: 'Reply to the reply', parentCommentId: 'r1' }),
-      ]);
+    /** A comment of mine with two other people's replies hanging off it. */
+    const parentWithReplies = () => [
+      buildComment({ authorId: 'me', body: 'Parent' }),
+      buildComment({
+        id: 'r1',
+        author: { displayName: 'Brock', handle: 'brock', avatarUrl: null, isVerified: false },
+        authorId: 'a1',
+        body: 'A reply',
+        parentCommentId: 'c1',
+      }),
+      buildComment({
+        id: 'r2',
+        author: { displayName: 'Erika', handle: 'erika', avatarUrl: null, isVerified: false },
+        authorId: 'a2',
+        body: 'Reply to the reply',
+        parentCommentId: 'r1',
+      }),
+    ];
+
+    it('promises the replies survive, instead of warning that they go too', async () => {
+      (fetchComments as jest.Mock).mockResolvedValue(parentWithReplies());
+      renderSheet();
+
+      fireEvent(await screen.findByTestId('comments-sheet-comment-c1'), 'longPress');
+
+      const [, message] = (Alert.alert as unknown as jest.Mock).mock.calls[0];
+      // The old copy ("This also deletes the 2 replies underneath it") described
+      // a cascade that no longer happens.
+      expect(message).not.toMatch(/also deletes/);
+      expect(message).toBe(
+        'Your words are removed, but the 2 replies underneath stay, under a “comment was deleted” line. This can\'t be undone.',
+      );
+    });
+
+    it('leaves a tombstone in place of a parent, keeping other people’s replies readable', async () => {
+      (fetchComments as jest.Mock).mockResolvedValue(parentWithReplies());
       const onCommentCountResolved = jest.fn();
       renderSheet({ onCommentCountResolved });
 
       await waitFor(() => expect(onCommentCountResolved).toHaveBeenCalledWith(3));
       fireEvent(screen.getByTestId('comments-sheet-comment-c1'), 'longPress');
-
-      // `parent_comment_id` is ON DELETE CASCADE, so say so instead of orphaning them.
-      const [, message] = (Alert.alert as unknown as jest.Mock).mock.calls[0];
-      expect(message).toBe("This also deletes the 2 replies underneath it. This can't be undone.");
-
       await confirmDestructive();
+
+      // The body is gone…
       expect(screen.queryByText('Parent')).toBeNull();
-      expect(screen.queryByTestId('comments-sheet-comment-c1-replies-toggle')).toBeNull();
-      // One request; the DB cascade removes the subtree and the trigger decrements
-      // the post count once per removed row.
+      // …but the row is still there, holding the thread up.
+      expect(screen.getByTestId('comments-sheet-comment-c1')).toBeTruthy();
+      expect(screen.getByTestId('comments-sheet-comment-c1-tombstone')).toBeTruthy();
+      // The whole point of the change: nobody else's reply was destroyed, and
+      // they are shown straight away rather than collapsed behind the toggle.
+      // (Asserted on the rows, not the strings — a deeper reply's body renders
+      // alongside an inline @mention in the same Text.)
+      expect(screen.getByTestId('comments-sheet-comment-r1')).toHaveTextContent(/A reply/);
+      expect(screen.getByTestId('comments-sheet-comment-r2')).toHaveTextContent(
+        /Reply to the reply/,
+      );
       expect(deleteComment as jest.Mock).toHaveBeenCalledTimes(1);
-      expect(onCommentCountResolved).toHaveBeenLastCalledWith(0);
+    });
+
+    it('drops the post count by exactly one, not by the size of the subtree', async () => {
+      (fetchComments as jest.Mock).mockResolvedValue(parentWithReplies());
+      const onCommentCountResolved = jest.fn();
+      renderSheet({ onCommentCountResolved });
+
+      await waitFor(() => expect(onCommentCountResolved).toHaveBeenCalledWith(3));
+      fireEvent(screen.getByTestId('comments-sheet-comment-c1'), 'longPress');
+      await confirmDestructive();
+
+      // 3 → 2: the two replies still count, and the tombstone counts for nothing.
+      // The old cascade behaviour reported 0 here.
+      expect(onCommentCountResolved).toHaveBeenLastCalledWith(2);
+    });
+
+    it('puts the body back under a restored tombstone when the delete fails', async () => {
+      (fetchComments as jest.Mock).mockResolvedValue(parentWithReplies());
+      (deleteComment as jest.Mock).mockResolvedValue(false);
+      const onCommentCountResolved = jest.fn();
+      renderSheet({ onCommentCountResolved });
+
+      await waitFor(() => expect(onCommentCountResolved).toHaveBeenCalledWith(3));
+      fireEvent(screen.getByTestId('comments-sheet-comment-c1'), 'longPress');
+      await confirmDestructive();
+
+      // Restoring a tombstone means the body — and the author — come back.
+      expect(await screen.findByText('Parent')).toBeTruthy();
+      expect(screen.queryByTestId('comments-sheet-comment-c1-tombstone')).toBeNull();
+      expect(screen.getByText('Misty')).toBeTruthy();
+      expect(onCommentCountResolved).toHaveBeenLastCalledWith(3);
+      expect(Alert.alert as unknown as jest.Mock).toHaveBeenLastCalledWith(
+        "Couldn't delete",
+        'That comment is still there. Please try again.',
+      );
     });
 
     it('titles the confirmation for a reply when the row is a reply', async () => {

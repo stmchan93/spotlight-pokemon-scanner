@@ -106,53 +106,57 @@ describe('FaceLockOn', () => {
     washColor: '#112233',
   };
 
+  /** Top-left corner of the head bracket, in screen coordinates. */
+  function bracketOrigin(): { x: number; y: number } {
+    const path = get('wtp-lockon-head-frame-path').props.d as string;
+    const [, x, y] = /^M ([\d.-]+) ([\d.-]+)/.exec(path) ?? [];
+    return { x: Number(x), y: Number(y) };
+  }
+
   it('measures against the backend head box when one is provided', async () => {
     renderWithProviders(
       <FaceLockOn
         {...baseProps}
         headBox={{ x: 0.06, y: 0.05, width: 0.24, height: 0.18 }}
         onDone={jest.fn()}
-        speciesOutline={circleOutline(48)}
       />,
     );
 
     expect(await screen.findByTestId('wtp-lockon')).toBeTruthy();
     expect(get('wtp-lockon-caption').props.children).toBe('Face geometry locked');
-    // One dot per landmark, all mounted before they travel.
-    expect(get(`wtp-lockon-dot-${FACE_LANDMARKS.length - 1}`)).toBeTruthy();
     expect(get('wtp-lockon-head-frame')).toBeTruthy();
   });
 
-  it('draws points and the lock-on bracket, never a wireframe over the face', async () => {
+  it('never draws landmark dots or caliper readouts over the face', async () => {
+    // These were removed on purpose: the backend gives a head BOX, not a face
+    // mesh, so every dot was a template projected into that box and every
+    // readout ("JAW 87°") was derived from the template rather than the person.
+    // The bracket stays — it reflects data we actually have.
     renderWithProviders(
       <FaceLockOn
         {...baseProps}
         headBox={{ x: 0.06, y: 0.05, width: 0.24, height: 0.18 }}
         onDone={jest.fn()}
-        speciesOutline={circleOutline(48)}
       />,
     );
 
     await screen.findByTestId('wtp-lockon');
-    // The points measure the face; the bracket says where the face is. The mesh
-    // that used to connect the points is gone and must not come back.
-    expect(get('wtp-lockon-dot-0')).toBeTruthy();
-    expect(get('wtp-lockon-head-frame')).toBeTruthy();
-    expect(get('wtp-lockon-readouts')).toBeTruthy();
+    expect(query('wtp-lockon-dot-0')).toBeNull();
+    expect(query('wtp-lockon-readouts')).toBeNull();
     expect(query('wtp-lockon-mesh-0')).toBeNull();
+    expect(get('wtp-lockon-head-frame')).toBeTruthy();
   });
 
-  it('places the landmarks where the head box says — the box really drives it', async () => {
+  it('places the bracket where the head box says — the box really drives it', async () => {
     const first = renderWithProviders(
       <FaceLockOn
         {...baseProps}
         headBox={{ x: 0.05, y: 0.05, width: 0.2, height: 0.16 }}
         onDone={jest.fn()}
-        speciesOutline={null}
       />,
     );
     await screen.findByTestId('wtp-lockon');
-    const nearTopLeft = dotOffset('wtp-lockon-dot-0');
+    const nearTopLeft = bracketOrigin();
     first.unmount();
 
     renderWithProviders(
@@ -160,11 +164,10 @@ describe('FaceLockOn', () => {
         {...baseProps}
         headBox={{ x: 0.7, y: 0.4, width: 0.2, height: 0.16 }}
         onDone={jest.fn()}
-        speciesOutline={null}
       />,
     );
     await screen.findByTestId('wtp-lockon');
-    const nearBottomRight = dotOffset('wtp-lockon-dot-0');
+    const nearBottomRight = bracketOrigin();
 
     // The selfie is mirrored for display, so a box on the RIGHT of the original
     // lands on the LEFT of the screen — and lower down either way.
@@ -176,38 +179,22 @@ describe('FaceLockOn', () => {
     renderWithProviders(<FaceLockOn {...baseProps} headBox={null} onDone={jest.fn()} />);
 
     expect(await screen.findByTestId('wtp-lockon')).toBeTruthy();
+    // Says "estimating" rather than claiming a lock it does not have.
     expect(get('wtp-lockon-caption').props.children).toBe('Estimating your frame');
-    // Still a full point cloud and a silhouette — the beat must never look broken.
-    expect(get('wtp-lockon-dot-0')).toBeTruthy();
     expect(get('wtp-lockon-head-frame')).toBeTruthy();
     expect(get('wtp-lockon-silhouette')).toBeTruthy();
   });
 
-  it('lands the fallback landmarks inside the frame, horizontally centred', async () => {
-    renderWithProviders(<FaceLockOn {...baseProps} headBox={undefined} onDone={jest.fn()} />);
-    await screen.findByTestId('wtp-lockon');
-
-    // Landmarks 14 (hairline centre) and 26 (nose tip) share the template's
-    // vertical midline, so the guess must land them centred and in order.
-    const hairline = dotOffset('wtp-lockon-dot-14');
-    const noseTip = dotOffset('wtp-lockon-dot-26');
-    expect(hairline.x).toBeCloseTo(Dimensions.get('window').width / 2, 3);
-    expect(noseTip.x).toBeCloseTo(hairline.x, 3);
-    expect(noseTip.y).toBeGreaterThan(hairline.y);
-  });
-
-  it('still hands off to the reveal when neither the head box nor the outline exist', async () => {
+  it('still hands off to the reveal when there is no head box', async () => {
     const onDone = jest.fn();
-    renderWithProviders(
-      <FaceLockOn {...baseProps} headBox={null} onDone={onDone} speciesOutline={null} />,
-    );
+    renderWithProviders(<FaceLockOn {...baseProps} headBox={null} onDone={onDone} />);
 
     await waitFor(() => {
       expect(onDone).toHaveBeenCalledTimes(1);
     });
   });
 
-  it('collapses straight to the silhouette under reduce motion — no point travel', async () => {
+  it('collapses straight to the silhouette under reduce motion', async () => {
     enableReduceMotion();
     const onDone = jest.fn();
 
@@ -216,15 +203,12 @@ describe('FaceLockOn', () => {
         {...baseProps}
         headBox={{ x: 0.06, y: 0.05, width: 0.24, height: 0.18 }}
         onDone={onDone}
-        speciesOutline={circleOutline(48)}
       />,
     );
 
     await waitFor(() => {
-      expect(query('wtp-lockon-dot-0')).not.toBeOnTheScreen();
+      expect(query('wtp-lockon-head-frame')).not.toBeOnTheScreen();
     });
-    expect(query('wtp-lockon-readouts')).toBeNull();
-    expect(query('wtp-lockon-head-frame')).toBeNull();
     // The silhouette — the thing the reveal takes over — is still there.
     expect(get('wtp-lockon-silhouette')).toBeTruthy();
 

@@ -16,18 +16,10 @@ import { AppText, colors, spacing, textStyles } from '@spotlight/design-system';
 import { CachedImage } from '@/components/cached-image';
 
 import {
-  assignOutlineTargets,
-  describeFaceMeasurements,
-  projectLandmarks,
-  projectSpeciesOutline,
-  rectCenter,
-  resolveArtworkRect,
   resolveHeadRect,
   REVEAL_ARTWORK_HEIGHT_PCT,
   REVEAL_ARTWORK_WIDTH_PCT,
-  scatterTargets,
   type NormalizedBox,
-  type Point,
 } from '../face-geometry';
 import { useReduceMotion } from '../use-reduce-motion';
 import { SelfieImage } from './selfie-image';
@@ -40,30 +32,19 @@ const isTestEnv = process.env.NODE_ENV === 'test';
 const TIME_SCALE = isTestEnv ? 0.012 : 1;
 const ms = (value: number) => Math.max(1, Math.round(value * TIME_SCALE));
 
-// Beat 1 — landmark points bloom in, staggered.
+// Beat 1 — the bracket finds your face.
 const BLOOM_MS = 900;
-// Beat 2 — the points hold on the face while the bracket and readouts land.
-// Nothing is drawn BETWEEN the points: they read as measurements taken, not as
-// a mesh laid over your face.
+// Beat 2 — it holds there.
 const HOLD_MS = 1000;
-// Beat 3 — the SAME points fly out and settle onto the species outline.
+// Beat 3 — the species silhouette rises and we hand off to the reveal.
 const TRAVEL_AT_MS = BLOOM_MS + HOLD_MS;
 const TRAVEL_MS = 1100;
-// Beat 4 — the outline fills to a silhouette and we hand off to the reveal.
-// Long enough for the LAST point to land (travel stagger) and then melt away.
 const SETTLE_MS = 700;
 const DONE_MS = ms(TRAVEL_AT_MS + TRAVEL_MS + SETTLE_MS);
 const REDUCED_DONE_MS = ms(900);
 
-const DOT_SIZE = 5;
-/** Head bracket + caliper readouts fading back out as the points depart. */
+/** Head bracket fading back out as the silhouette takes over. */
 const CHROME_OUT_MS = 320;
-/** Spread between the first and last point leaving the face. */
-const TRAVEL_STAGGER_MS = 420;
-const TRAVEL_DURATION_MS = TRAVEL_MS * 0.82;
-// Rough footprint of a two-line caliper readout, used only to keep it on screen.
-const READOUT_WIDTH = 96;
-const READOUT_HEIGHT = 44;
 
 type FaceLockOnProps = {
   /** Local uri of the captured selfie the analysis plays over. */
@@ -79,11 +60,6 @@ type FaceLockOnProps = {
   sourceHeight: number;
   /** Official artwork of the matched species — the silhouette target. */
   artworkUrl: string;
-  /**
-   * Species outline points, normalized 0..1 against the ARTWORK image. Null
-   * until the backend ships it; the points then scatter and fade instead.
-   */
-  speciesOutline?: Point[] | null;
   /** Top selfie palette swatch — paints the silhouette, as in `morph-loop`. */
   washColor: string;
   /** Fired once the silhouette has settled and the reveal should take over. */
@@ -91,100 +67,16 @@ type FaceLockOnProps = {
   testID?: string;
 };
 
-type DotProps = {
-  from: Point;
-  to: Point;
-  bloomDelay: number;
-  travelDelay: number;
-  travelDuration: number;
-  fadeDelay: number;
-  fadeDuration: number;
-  color: string;
-  easingIndex: number;
-  testID: string;
-};
-
-// Three arrival curves so the points do not land as one slab. The first
-// overshoots slightly past its target and settles back, which is what sells
-// "travelled" over "slid".
-const TRAVEL_EASINGS = [
-  Easing.bezier(0.34, 1.4, 0.64, 1),
-  Easing.out(Easing.cubic),
-  Easing.inOut(Easing.quad),
-] as const;
-
-function LandmarkDot({
-  from,
-  to,
-  bloomDelay,
-  travelDelay,
-  travelDuration,
-  fadeDelay,
-  fadeDuration,
-  color,
-  easingIndex,
-  testID,
-}: DotProps) {
-  const bloom = useSharedValue(0);
-  const travel = useSharedValue(0);
-  const fade = useSharedValue(1);
-
-  useEffect(() => {
-    bloom.value = withDelay(
-      bloomDelay,
-      withTiming(1, { duration: ms(260), easing: Easing.out(Easing.back(1.6)) }),
-    );
-    travel.value = withDelay(
-      travelDelay,
-      withTiming(1, {
-        duration: travelDuration,
-        easing: TRAVEL_EASINGS[easingIndex % TRAVEL_EASINGS.length],
-      }),
-    );
-    fade.value = withDelay(fadeDelay, withTiming(0, { duration: fadeDuration }));
-    return () => {
-      cancelAnimation(bloom);
-      cancelAnimation(travel);
-      cancelAnimation(fade);
-    };
-    // Plays once per mount; the parent re-keys the overlay to replay it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const fromX = from.x;
-  const fromY = from.y;
-  const deltaX = to.x - from.x;
-  const deltaY = to.y - from.y;
-
-  const style = useAnimatedStyle(() => {
-    const t = travel.value;
-    return {
-      opacity: bloom.value * fade.value,
-      transform: [
-        { translateX: fromX + deltaX * t },
-        { translateY: fromY + deltaY * t },
-        { scale: 0.3 + bloom.value * 0.7 },
-      ],
-    };
-  });
-
-  return (
-    <Animated.View
-      pointerEvents="none"
-      style={[styles.dot, { backgroundColor: color }, style]}
-      testID={testID}
-    />
-  );
-}
-
 /**
- * The lock-on: the app measures your face, then the SAME landmark points it
- * measured fly outward and settle into the matched species' outline, which
- * fills to a silhouette and hands off to the classic reveal.
+ * The lock-on: a bracket finds your face, holds, then the matched species'
+ * silhouette rises out of it and hands off to the classic reveal.
  *
- * Nothing here claims more precision than we have. The backend gives us a head
- * BOX, not a mesh, so the landmarks are a template projected into that box —
- * and when the box itself is missing we say "estimating" instead of pretending.
+ * This used to scatter landmark dots over the face with caliper readouts
+ * ("JAW 87°", "EYE SPAN 0.42w"). They were removed because they were theatre:
+ * the backend gives us a head BOX, not a face mesh, so every dot was a template
+ * projected into that box and every number was derived from the template rather
+ * than from the person. Whatever it added in sci-fi flavour it took back in
+ * claiming precision we do not have.
  */
 export function FaceLockOn({
   selfieUri,
@@ -192,7 +84,6 @@ export function FaceLockOn({
   sourceWidth,
   sourceHeight,
   artworkUrl,
-  speciesOutline = null,
   washColor,
   onDone,
   testID = 'wtp-lockon',
@@ -226,23 +117,8 @@ export function FaceLockOn({
       containerWidth,
       containerHeight,
     });
-    const facePoints = projectLandmarks(head.rect);
-    const faceCenter = rectCenter(head.rect);
-    const artworkRect = resolveArtworkRect(containerWidth, containerHeight);
-    const outlinePoints = projectSpeciesOutline(speciesOutline, artworkRect);
-    const hasOutline = outlinePoints.length > 0;
-    const targets = hasOutline
-      ? assignOutlineTargets(facePoints, faceCenter, outlinePoints)
-      : scatterTargets(facePoints, faceCenter);
-    return {
-      headRect: head.rect,
-      isMeasured: head.isMeasured,
-      facePoints,
-      targets,
-      hasOutline,
-      measurements: describeFaceMeasurements(facePoints),
-    };
-  }, [containerHeight, containerWidth, headBox, sourceHeight, sourceWidth, speciesOutline]);
+    return { headRect: head.rect, isMeasured: head.isMeasured };
+  }, [containerHeight, containerWidth, headBox, sourceHeight, sourceWidth]);
 
   const onDoneRef = useRef(onDone);
   useEffect(() => {
@@ -277,15 +153,14 @@ export function FaceLockOn({
       ms(TRAVEL_AT_MS),
       withTiming(0.9, { duration: ms(620), easing: Easing.out(Easing.cubic) }),
     );
-    // Head bracket + readouts: in behind the blooming points, out when the
-    // points depart.
+    // Head bracket + caption: in as the bracket finds the face, out as the
+    // silhouette takes over.
     chromeOpacity.value = withSequence(
       withDelay(ms(180), withTiming(1, { duration: ms(420) })),
       withDelay(ms(TRAVEL_AT_MS - 600), withTiming(0, { duration: ms(CHROME_OUT_MS) })),
     );
-    // The silhouette rises UNDER the arriving points — it must still be filling
-    // in while they land, or the points look like they landed on a finished
-    // picture instead of forming it.
+    // The silhouette rises as the selfie fades, so the two cross over rather
+    // than one cutting to the other.
     silhouetteProgress.value = withDelay(
       ms(TRAVEL_AT_MS + TRAVEL_MS * 0.62),
       withTiming(1, { duration: ms(800), easing: Easing.out(Easing.cubic) }),
@@ -311,8 +186,7 @@ export function FaceLockOn({
     transform: [{ scale: 0.94 + silhouetteProgress.value * 0.06 }],
   }));
 
-  const { headRect, facePoints, targets, hasOutline, isMeasured, measurements } = geometry;
-  const pointCount = facePoints.length;
+  const { headRect, isMeasured } = geometry;
 
   return (
     <View onLayout={handleLayout} style={styles.root} testID={testID}>
@@ -360,65 +234,16 @@ export function FaceLockOn({
                 stroke={colors.scannerTextPrimary}
                 strokeOpacity={0.75}
                 strokeWidth={1.5}
+                testID={`${testID}-head-frame-path`}
               />
             </Svg>
           </Animated.View>
 
-          {facePoints.map((point, index) => {
-            // Deterministic, evenly spread departure order (13 is coprime with
-            // the landmark count, so consecutive indices never leave together).
-            const slot = (index * 13) % pointCount;
-            const departAt = TRAVEL_AT_MS + (slot / pointCount) * TRAVEL_STAGGER_MS;
-            // With an outline each point holds its landing spot and then melts
-            // into the silhouette; without one it fades on the way out.
-            const fadeAt = hasOutline
-              ? departAt + TRAVEL_DURATION_MS
-              : departAt + TRAVEL_DURATION_MS * 0.2;
-            return (
-              <LandmarkDot
-                bloomDelay={ms((index / pointCount) * BLOOM_MS * 0.8)}
-                color={colors.scannerTextPrimary}
-                easingIndex={index}
-                fadeDelay={ms(fadeAt)}
-                fadeDuration={ms(hasOutline ? 420 : 620)}
-                from={point}
-                key={`dot-${index}`}
-                testID={`${testID}-dot-${index}`}
-                to={targets[index] ?? point}
-                travelDelay={ms(departAt)}
-                travelDuration={ms(TRAVEL_DURATION_MS)}
-              />
-            );
-          })}
-
           <Animated.View
             pointerEvents="none"
             style={[StyleSheet.absoluteFillObject, chromeStyle]}
-            testID={`${testID}-readouts`}
+            testID={`${testID}-caption-layer`}
           >
-            {measurements.map((measurement, index) => (
-              <View
-                key={measurement.label}
-                style={[
-                  styles.readout,
-                  {
-                    // Offset off the anchor, then clamped so a face near the
-                    // frame edge never pushes a readout off screen.
-                    left: Math.min(
-                      Math.max(spacing.xs, measurement.anchor.x + (index === 0 ? 96 : 72)),
-                      Math.max(spacing.xs, containerWidth - READOUT_WIDTH),
-                    ),
-                    top: Math.min(
-                      Math.max(spacing.xs, measurement.anchor.y - 8),
-                      Math.max(spacing.xs, containerHeight - READOUT_HEIGHT),
-                    ),
-                  },
-                ]}
-              >
-                <AppText style={styles.readoutLabel}>{measurement.label}</AppText>
-                <AppText style={styles.readoutValue}>{measurement.value}</AppText>
-              </View>
-            ))}
             <AppText style={styles.caption} testID={`${testID}-caption`}>
               {isMeasured ? 'Face geometry locked' : 'Estimating your frame'}
             </AppText>
@@ -460,27 +285,6 @@ const styles = StyleSheet.create({
   artwork: {
     height: REVEAL_ARTWORK_HEIGHT_PCT,
     width: REVEAL_ARTWORK_WIDTH_PCT,
-  },
-  dot: {
-    borderRadius: DOT_SIZE / 2,
-    height: DOT_SIZE,
-    left: 0,
-    marginLeft: -DOT_SIZE / 2,
-    marginTop: -DOT_SIZE / 2,
-    position: 'absolute',
-    top: 0,
-    width: DOT_SIZE,
-  },
-  readout: {
-    position: 'absolute',
-  },
-  readoutLabel: {
-    ...textStyles.captionMedium,
-    color: colors.scannerTextMuted,
-  },
-  readoutValue: {
-    ...textStyles.captionMedium,
-    color: colors.scannerTextPrimary,
   },
   caption: {
     ...textStyles.captionMedium,

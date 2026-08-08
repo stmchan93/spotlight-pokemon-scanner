@@ -397,21 +397,35 @@ describe('social-service blocking and reporting', () => {
 });
 
 // Deleting is the one write in this file where "no error" does NOT mean "it
-// worked": RLS refuses a delete by matching zero rows, not by raising, so a naive
-// delete reports success while removing nothing and the caller's optimistic row
-// removal lies to the user. Every case below is really testing that distinction.
+// worked": RLS refuses by matching zero rows, not by raising, so a naive write
+// reports success while changing nothing and the caller's optimistic row removal
+// lies to the user. Every case below is really testing that distinction.
+//
+// The shape is SOFT delete — an UPDATE that stamps `deleted_at` and
+// `content_status = 'deleted'` — so "did the write land" is exactly as invisible
+// as it was for a hard delete, and the `.select('id')` is what makes it legible.
 describe('social-service deleting your own content', () => {
   afterEach(() => {
     jest.resetModules();
   });
 
-  it('deletes a post and asks for the affected rows back, so a no-op cannot pass as success', async () => {
+  it('soft-deletes a post with an UPDATE, never a DELETE, and asks for the affected rows back', async () => {
     const supabase = makeSupabase({ posts: { data: [{ id: 'post-1' }], error: null } });
     const { deletePost } = loadService(supabase);
 
     await expect(deletePost('post-1')).resolves.toBe(true);
 
-    expect(supabase.builders.posts.delete).toHaveBeenCalled();
+    // The row survives — hard delete would destroy the evidence behind an open
+    // report and cascade away notifications people have already read.
+    expect(supabase.builders.posts.delete).not.toHaveBeenCalled();
+    expect(supabase.builders.posts.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        // `'deleted'`, matching the sentinel this file's reads filter on — NOT
+        // the `'removed'` the moderation worker writes.
+        content_status: 'deleted',
+        deleted_at: expect.any(String),
+      }),
+    );
     expect(supabase.builders.posts.eq).toHaveBeenCalledWith('id', 'post-1');
     // The `.select()` is what turns a silent 204 into a countable row set.
     expect(supabase.builders.posts.select).toHaveBeenCalledWith('id');
@@ -420,14 +434,16 @@ describe('social-service deleting your own content', () => {
     expect(supabase.builders.posts.eq).toHaveBeenCalledTimes(1);
   });
 
-  it('returns false when RLS silently refuses the delete (zero rows, no error)', async () => {
+  it('returns false when RLS silently refuses the soft delete (zero rows, no error)', async () => {
+    // The same empty RETURNING also appears if the SELECT policy forgets to let
+    // an author read their own tombstone — reporting false is right either way.
     const supabase = makeSupabase({ posts: { data: [], error: null } });
     const { deletePost } = loadService(supabase);
 
     await expect(deletePost('someone-elses-post')).resolves.toBe(false);
   });
 
-  it('returns false when a delete resolves with no representation at all', async () => {
+  it('returns false when the write resolves with no representation at all', async () => {
     // Belt-and-braces: a plain 204 (no `.select()` honored) is not proof of a delete.
     const supabase = makeSupabase({ posts: { data: null, error: null } });
     const { deletePost } = loadService(supabase);
@@ -442,14 +458,17 @@ describe('social-service deleting your own content', () => {
     await expect(deletePost('post-1')).resolves.toBe(false);
   });
 
-  it('deletes a comment from the comments table', async () => {
+  it('soft-deletes a comment from the comments table', async () => {
     const supabase = makeSupabase({ comments: { data: [{ id: 'comment-1' }], error: null } });
     const { deleteComment } = loadService(supabase);
 
     await expect(deleteComment('comment-1')).resolves.toBe(true);
 
     expect(supabase.from).toHaveBeenCalledWith('comments');
-    expect(supabase.builders.comments.delete).toHaveBeenCalled();
+    expect(supabase.builders.comments.delete).not.toHaveBeenCalled();
+    expect(supabase.builders.comments.update).toHaveBeenCalledWith(
+      expect.objectContaining({ content_status: 'deleted', deleted_at: expect.any(String) }),
+    );
     expect(supabase.builders.comments.eq).toHaveBeenCalledWith('id', 'comment-1');
     expect(supabase.builders.comments.select).toHaveBeenCalledWith('id');
   });
@@ -484,5 +503,149 @@ describe('social-service deleting your own content', () => {
     await expect(deletePost('   ')).resolves.toBe(false);
     await expect(deleteComment('')).resolves.toBe(false);
     expect(supabase.from).not.toHaveBeenCalled();
+  });
+});
+
+// Soft delete splits comments into two outcomes, and the split is what these
+// tests are for: a deleted comment WITH replies has to survive as a body-less
+// tombstone (the sheet promotes a reply whose parent is missing to top level, so
+// dropping the parent would orphan the thread), while a deleted comment with NO
+// replies has to vanish. Posts have no such concept.
+describe('social-service comment tombstones', () => {
+  afterEach(() => {
+    jest.resetModules();
+  });
+
+  const commentRow = (overrides: Partial<Record<string, unknown>> = {}) => ({
+    id: 'comment-1',
+    post_id: 'post-1',
+    author_id: 'author-1',
+    parent_comment_id: null,
+    body: 'A comment',
+    like_count: 0,
+    created_at: '2026-05-01T00:00:00.000Z',
+    content_status: 'visible',
+    deleted_at: null,
+    ...overrides,
+  });
+
+  const deletedRow = (overrides: Partial<Record<string, unknown>> = {}) =>
+    commentRow({
+      content_status: 'deleted',
+      deleted_at: '2026-05-02T00:00:00.000Z',
+      ...overrides,
+    });
+
+  it('does not ask Postgres to hide deleted rows — a filtered-out tombstone could never come back', async () => {
+    const supabase = makeSupabase({ comments: { data: [commentRow()], error: null } });
+    const { fetchComments } = loadService(supabase);
+
+    await fetchComments('post-1');
+
+    expect(supabase.builders.comments.eq).toHaveBeenCalledWith('post_id', 'post-1');
+    // The two filters the old hard-delete read carried. Either one hides EVERY
+    // tombstone, which orphans the replies underneath it.
+    expect(supabase.builders.comments.is).not.toHaveBeenCalledWith('deleted_at', null);
+    expect(supabase.builders.comments.neq).not.toHaveBeenCalledWith('content_status', 'deleted');
+  });
+
+  it('keeps a deleted comment that still has replies, and never exposes its body', async () => {
+    const supabase = makeSupabase({
+      comments: {
+        data: [
+          deletedRow({ id: 'parent', body: 'the deleted text' }),
+          commentRow({ id: 'reply', parent_comment_id: 'parent', body: 'still here' }),
+        ],
+        error: null,
+      },
+      authors: { data: [], error: null },
+    });
+    const { fetchComments } = loadService(supabase);
+
+    const comments = await fetchComments('post-1');
+
+    expect(comments.map((comment) => comment.id)).toEqual(['parent', 'reply']);
+    const [parent, reply] = comments;
+    expect(parent.isDeleted).toBe(true);
+    // The row still carries the text over the wire (nothing masks the column
+    // server-side); this mapping is the boundary that stops it reaching the UI.
+    expect(parent.body).toBeNull();
+    expect(reply.isDeleted).toBe(false);
+    expect(reply.body).toBe('still here');
+  });
+
+  it('hides a deleted comment with no replies entirely', async () => {
+    const supabase = makeSupabase({
+      comments: {
+        data: [commentRow({ id: 'alive' }), deletedRow({ id: 'gone', body: 'the deleted text' })],
+        error: null,
+      },
+      authors: { data: [], error: null },
+    });
+    const { fetchComments } = loadService(supabase);
+
+    const comments = await fetchComments('post-1');
+
+    expect(comments.map((comment) => comment.id)).toEqual(['alive']);
+    // An author can always read their OWN tombstone (that RLS branch is what
+    // makes the soft-delete write's RETURNING work), so the client prune — not
+    // the policy — is what keeps a childless tombstone out of their own thread.
+    expect(JSON.stringify(comments)).not.toContain('the deleted text');
+  });
+
+  it('drops a tombstone whose only reply was itself a childless tombstone', async () => {
+    // One pass is not enough: removing the childless reply leaves the parent
+    // childless too, so the prune has to run to a fixed point.
+    const supabase = makeSupabase({
+      comments: {
+        data: [
+          deletedRow({ id: 'parent' }),
+          deletedRow({ id: 'reply', parent_comment_id: 'parent' }),
+          commentRow({ id: 'alive' }),
+        ],
+        error: null,
+      },
+      authors: { data: [], error: null },
+    });
+    const { fetchComments } = loadService(supabase);
+
+    const comments = await fetchComments('post-1');
+
+    expect(comments.map((comment) => comment.id)).toEqual(['alive']);
+  });
+
+  it('still treats a row as deleted when the moderation worker clobbered the sentinel', async () => {
+    // `content_status` is advisory — the async worker writes `'removed'` as
+    // service_role and can land on a row the author just deleted. `deleted_at`
+    // is the authoritative signal, so this row must still be a tombstone.
+    const supabase = makeSupabase({
+      comments: {
+        data: [
+          deletedRow({ id: 'parent', content_status: 'removed', body: 'the deleted text' }),
+          commentRow({ id: 'reply', parent_comment_id: 'parent' }),
+        ],
+        error: null,
+      },
+      authors: { data: [], error: null },
+    });
+    const { fetchComments } = loadService(supabase);
+
+    const [parent] = await fetchComments('post-1');
+
+    expect(parent.isDeleted).toBe(true);
+    expect(parent.body).toBeNull();
+  });
+
+  it('marks ordinary comments as not deleted', async () => {
+    const supabase = makeSupabase({
+      comments: { data: [commentRow()], error: null },
+      authors: { data: [], error: null },
+    });
+    const { fetchComments } = loadService(supabase);
+
+    const [comment] = await fetchComments('post-1');
+
+    expect(comment.isDeleted).toBe(false);
+    expect(comment.body).toBe('A comment');
   });
 });

@@ -269,7 +269,11 @@ async function fetchPosts(
     let query = supabase!
       .from(POSTS_TABLE)
       .select(select)
-      // Belt-and-braces on top of RLS: never surface a soft-deleted post.
+      // Posts have NO tombstone concept — a soft-deleted post just disappears,
+      // so both filters stay. They are load-bearing rather than belt-and-braces
+      // now: `posts_select` lets an author read their own soft-deleted rows (so
+      // the soft-delete write's RETURNING works), and without these the author
+      // would keep seeing their own deleted post in their Activity tab.
       .is('deleted_at', null)
       .neq('content_status', 'deleted');
 
@@ -542,16 +546,109 @@ export type PostComment = {
   authorId: string;
   /** Null when the author isn't publicly visible. */
   author: FeedPostAuthor | null;
+  /**
+   * Always null for a tombstone (`isDeleted`) — the deleted text is never mapped
+   * onto the client model, so no renderer can leak what was written.
+   */
   body: string | null;
   parentCommentId: string | null;
   likeCount: number;
   createdAt: string;
+  /**
+   * True when this row is a TOMBSTONE: the comment was deleted but is still in
+   * the thread because it has surviving replies hanging off it. The sheet renders
+   * "[deleted]" in place of the body and keeps the replies nested underneath.
+   *
+   * `fetchComments` always sets this explicitly. It is optional only so a caller
+   * building an optimistic comment locally (a comment it just posted — never a
+   * tombstone) doesn't have to spell out `isDeleted: false`. Consumers must
+   * therefore test `comment.isDeleted === true`, not truthiness of a required flag.
+   */
+  isDeleted?: boolean;
 };
+
+/**
+ * Is this row deleted (author soft delete)?
+ *
+ * `deleted_at` is the authoritative signal and `content_status` is advisory: the
+ * async moderation worker writes `content_status = 'removed'` as service_role and
+ * can land on a row the author just deleted, clobbering the `'deleted'` sentinel.
+ * Either one alone is enough to treat the row as gone.
+ */
+function isDeletedCommentRow(row: CommentRow): boolean {
+  return row.deleted_at != null || row.content_status === 'deleted';
+}
+
+/**
+ * Drop deleted comments that nothing hangs off, keep the ones that still hold a
+ * subtree up.
+ *
+ * A deleted comment with surviving replies must stay in the result as a
+ * tombstone: `comments-sheet.tsx` treats a comment whose parent is absent from
+ * the fetched set as a ROOT, so removing a parent would PROMOTE its replies to
+ * top level, stripped of the context that made them legible. A deleted comment
+ * with no replies has no such job and disappears entirely.
+ *
+ * Run to a fixed point rather than in one pass: dropping a childless tombstone
+ * can leave ITS parent (also a tombstone) childless, and that one has to go too.
+ * Each round strictly shrinks the set, so this terminates in at most depth rounds.
+ *
+ * Note the pagination edge: "has replies" means "has a reply IN THIS PAGE". A
+ * tombstone whose only reply falls past `limit` is dropped — which is the same
+ * page boundary that would have hidden the reply anyway.
+ */
+function pruneChildlessTombstones(rows: CommentRow[]): CommentRow[] {
+  if (!rows.some(isDeletedCommentRow)) {
+    return rows;
+  }
+  let kept = rows;
+  for (;;) {
+    const keptIds = new Set(kept.map((row) => row.id));
+    const parentsWithReplies = new Set<string>();
+    for (const row of kept) {
+      const parentId = row.parent_comment_id;
+      if (parentId && keptIds.has(parentId)) {
+        parentsWithReplies.add(parentId);
+      }
+    }
+    const next = kept.filter(
+      (row) => !isDeletedCommentRow(row) || parentsWithReplies.has(row.id),
+    );
+    if (next.length === kept.length) {
+      return next;
+    }
+    kept = next;
+  }
+}
 
 /**
  * Comments for one post, oldest-first (chat order), author-hydrated via
  * `public_profiles`. Threading is carried by `parentCommentId` — the caller nests.
- * Returns `[]` on any failure. Soft-deleted rows are excluded.
+ * Returns `[]` on any failure.
+ *
+ * DELETED ROWS, and why this query no longer filters them out.
+ *
+ * Soft delete (see `USE_SOFT_DELETE` below) makes a deleted comment with replies
+ * survive as a TOMBSTONE — body hidden, replies still attached — while a deleted
+ * comment with no replies vanishes. The old
+ * `.is('deleted_at', null).neq('content_status', 'deleted')` pair cannot express
+ * that: it hides EVERY tombstone, which orphans the replies underneath (the sheet
+ * promotes a reply whose parent is missing to top level). So the query asks for
+ * the whole thread and the tombstone rule is applied to the returned rows.
+ *
+ * ASSUMED: the RLS SELECT policy is authoritative for who may see a tombstone —
+ * it has to be, since a non-author can only ever receive a deleted row if the
+ * policy hands it over. `pruneChildlessTombstones` is written to be correct
+ * either way:
+ *   * If the policy already drops childless tombstones, the prune is a no-op for
+ *     other people's rows.
+ *   * It is NOT redundant even then. `comments_select` lets an author read their
+ *     OWN deleted rows unconditionally (that branch is what makes the
+ *     soft-delete write's `.select('id')` RETURNING work at all), so without this
+ *     pass an author would see their own childless tombstone come back in their
+ *     own thread. The prune is what hides it.
+ * Only `deleted_at` / `content_status` are read for this decision; the tombstone's
+ * `body` is dropped in the mapping below and never reaches a `PostComment`.
  */
 export async function fetchComments(postId: string, limit = 100): Promise<PostComment[]> {
   const trimmed = (postId ?? '').trim();
@@ -563,15 +660,13 @@ export async function fetchComments(postId: string, limit = 100): Promise<PostCo
       .from(COMMENTS_TABLE)
       .select(commentSelect)
       .eq('post_id', trimmed)
-      .is('deleted_at', null)
-      .neq('content_status', 'deleted')
       .order('created_at', { ascending: true })
       .limit(limit);
     if (error || !data) {
       return [];
     }
 
-    const rows = data as CommentRow[];
+    const rows = pruneChildlessTombstones(data as CommentRow[]);
     const authorIds = Array.from(new Set(rows.map((row) => row.author_id).filter(Boolean)));
     const authorsById = new Map<string, FeedPostAuthor>();
     if (authorIds.length > 0) {
@@ -586,16 +681,23 @@ export async function fetchComments(postId: string, limit = 100): Promise<PostCo
       }
     }
 
-    return rows.map((row) => ({
-      id: row.id,
-      postId: row.post_id,
-      authorId: row.author_id,
-      author: authorsById.get(row.author_id) ?? null,
-      body: row.body ?? null,
-      parentCommentId: row.parent_comment_id ?? null,
-      likeCount: row.like_count ?? 0,
-      createdAt: row.created_at,
-    }));
+    return rows.map((row) => {
+      const deleted = isDeletedCommentRow(row);
+      return {
+        id: row.id,
+        postId: row.post_id,
+        authorId: row.author_id,
+        author: authorsById.get(row.author_id) ?? null,
+        // A tombstone NEVER carries its body forward. Postgres still returns the
+        // text (nothing masks the column server-side), so this mapping is the
+        // boundary that stops deleted content from reaching any renderer.
+        body: deleted ? null : row.body ?? null,
+        parentCommentId: row.parent_comment_id ?? null,
+        likeCount: row.like_count ?? 0,
+        createdAt: row.created_at,
+        isDeleted: deleted,
+      };
+    });
   } catch {
     return [];
   }
@@ -678,45 +780,64 @@ export async function createPost(input: { body?: string | null; cardId?: string 
 // duplicate the policy and break an admin moderation delete, which is a legitimate
 // delete of someone else's row.
 //
-// The catch is that RLS refuses SILENTLY. A `delete().eq('id', id)` on a row you
-// may not delete matches zero rows and comes back 204/no-error — indistinguishable
+// The catch is that RLS refuses SILENTLY, and it does so identically for the
+// UPDATE that soft delete really is: an `update(...).eq('id', id)` on a row you
+// may not touch matches zero rows and comes back 204/no-error — indistinguishable
 // from a successful delete. So every mutation here asks for the affected rows back
 // with `.select('id')` (PostgREST `Prefer: return=representation`, the same trick
 // `addComment` / `createPost` use on insert) and treats an empty array as failure.
-// Without that, this function would report success while deleting nothing and the
+// Without that, this function would report success while changing nothing and the
 // caller's optimistic row removal would silently lie to the user.
 
 /**
  * Hard delete (`delete from`) vs soft delete (`content_status`/`deleted_at`).
  *
- * ASSUMED: HARD delete. It is what the shipped policies already allow, and the
- * FK cascades do the cleanup for free — `post_media`, `comments`,
- * `post_likes`/`comment_likes` and the `notifications` rows all cascade off
- * `posts.id` / `comments.id`, and the `post_count` / `comment_count` triggers fire
- * on DELETE (not on an UPDATE that sets `deleted_at`), so counters stay correct.
+ * DECIDED: SOFT delete. The write is an UPDATE that sets
+ * `deleted_at = now()` and `content_status = 'deleted'`; the row stays in the
+ * table, addressable by an open report's `reports.target_id` (a bare uuid with no
+ * FK, so a hard delete would leave a moderator a report they cannot judge), and
+ * the `notifications` rows other people have already received and read are left
+ * intact instead of being cascaded away underneath them.
  *
- * Flip this ONE constant if the migration lands on soft delete instead. Two things
- * the migration must then also provide, or the switch silently breaks:
- *   1. `posts_select` / `comments_select` both start with `deleted_at is null`.
- *      Postgres applies the SELECT policy to an UPDATE's RETURNING rows, so the
- *      soft-delete write would fail its own `.select('id')` — the author must be
- *      allowed to see their own soft-deleted rows.
- *   2. The `post_count` / `comment_count` triggers must learn to decrement on a
- *      visible -> deleted transition.
- * `'deleted'` is the sentinel the reads in this file already filter on
- * (`.neq('content_status', 'deleted')`), not the `removed` in social_01's column
- * comment, so keep the migration's value in step with those reads.
+ * `'deleted'` is the sentinel, NOT the `'removed'` in social_01's column comment.
+ * `'removed'` belongs to the async moderation worker
+ * (`backend/social_moderation_worker.py`, writing as service_role), and it is the
+ * value this file's reads have always filtered on. Because the worker can land on
+ * a row the author just deleted and overwrite the sentinel, `deleted_at` — not
+ * `content_status` — is the authoritative "this is gone" signal everywhere in
+ * this module (see `isDeletedCommentRow`).
+ *
+ * Three things the migration must provide, or this silently breaks:
+ *   1. `posts_select` / `comments_select` must let the AUTHOR read their own
+ *      soft-deleted rows. Postgres applies the SELECT policy to an UPDATE's
+ *      RETURNING rows, so with `deleted_at is null` as an unconditional conjunct
+ *      the soft-delete write fails its own `.select('id')` and a delete that
+ *      actually succeeded reports failure — the UI then un-hides the row.
+ *   2. The `post_count` / `comment_count` triggers must decrement on the
+ *      visible -> deleted UPDATE (they were INSERT/DELETE-only), and must not
+ *      decrement twice when an already soft-deleted row is later hard-deleted.
+ *   3. Tombstone visibility for OTHER readers: a deleted comment that still has
+ *      replies has to remain selectable by non-authors, or its replies get
+ *      promoted to top level in the sheet. See `fetchComments` — the client
+ *      prunes childless tombstones either way, but it cannot conjure a row the
+ *      policy refuses to return.
  */
-const USE_SOFT_DELETE: boolean = false;
+const USE_SOFT_DELETE: boolean = true;
 
 /** Tables this module is allowed to delete from. */
 type DeletableTable = typeof POSTS_TABLE | typeof COMMENTS_TABLE;
 
 /**
- * Delete one row by id and report whether a row was ACTUALLY removed. Returns
+ * Delete one row by id and report whether a row was ACTUALLY affected. Returns
  * false for every failure mode — no Supabase client, unauthenticated, blank id, a
- * rejected query, and (the one that matters) an RLS-refused delete that affected
+ * rejected query, and (the one that matters) an RLS-refused write that affected
  * zero rows. Never throws.
+ *
+ * The soft-delete UPDATE is deliberately NOT scoped to `deleted_at is null`.
+ * Deleting an already-deleted row rewrites the timestamp and reports true, which
+ * is the right answer to "is this gone" — and the counter trigger only fires on a
+ * real null -> not-null transition, so it cannot double-decrement. Adding the
+ * guard would instead make a double tap look like a failed delete.
  */
 async function deleteOwnedRow(table: DeletableTable, id: string): Promise<boolean> {
   const me = await currentUserId();
@@ -743,7 +864,10 @@ async function deleteOwnedRow(table: DeletableTable, id: string): Promise<boolea
       return false;
     }
     // Zero rows back = RLS refused (or the row is already gone). Either way the
-    // caller must not treat it as a delete it can render optimistically.
+    // caller must not treat it as a delete it can render optimistically. Under
+    // soft delete this is also what catches a policy that forgot to let the
+    // author read their own tombstone: the UPDATE lands, the RETURNING comes back
+    // empty, and this reports false rather than a phantom success.
     return Array.isArray(data) && data.length > 0;
   } catch {
     return false;
@@ -751,17 +875,23 @@ async function deleteOwnedRow(table: DeletableTable, id: string): Promise<boolea
 }
 
 /**
- * Delete one of your own posts. True only when a row was really removed; false
- * when RLS refused (not the author), the row was already gone, or the query failed.
+ * Delete one of your own posts. True only when a row was really affected; false
+ * when RLS refused (not the author) or the query failed.
+ *
+ * A soft-deleted post simply disappears — there is no tombstone for posts. Its
+ * comments are deliberately NOT cascaded: nothing can reach them once the post is
+ * invisible, and keeping the subtree is the moderation history soft delete exists
+ * for.
  */
 export async function deletePost(postId: string): Promise<boolean> {
   return deleteOwnedRow(POSTS_TABLE, postId);
 }
 
 /**
- * Delete one of your own comments. Same contract as `deletePost`. Replies cascade
- * off `comments.parent_comment_id`, and the `comment_count` trigger decrements the
- * parent post.
+ * Delete one of your own comments. Same contract as `deletePost`, with one
+ * difference the UI has to render: a comment that still has replies survives as a
+ * TOMBSTONE (`isDeleted`, body dropped) so its replies stay nested; a comment with
+ * no replies disappears. `fetchComments` owns that distinction.
  */
 export async function deleteComment(commentId: string): Promise<boolean> {
   return deleteOwnedRow(COMMENTS_TABLE, commentId);
