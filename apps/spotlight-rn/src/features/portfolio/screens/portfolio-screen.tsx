@@ -1043,6 +1043,7 @@ export function PortfolioScreen({
       onOpenAdd={handleTopAddPress}
       onOpenMenu={openDrawer}
       onOpenNotifications={() => router.push('/notifications' as never)}
+      floating
       onOpenSearch={handleTopSearchPress}
       testID="portfolio-header"
       unreadCount={unreadNotifications}
@@ -1056,13 +1057,6 @@ export function PortfolioScreen({
   // background — page content scrolls UNDER them.
   const pagerHeader = (
     <View style={[styles.pinnedBlock, { backgroundColor: theme.colors.gray0 }]}>
-      {/*
-        FIRST in the collapsing block, so the bar scrolls away with the profile
-        rather than hovering over it. It used to render after the pager as an
-        absolutely-positioned layer; that read as chrome stuck to the glass, and
-        its rule now marks the top of the page instead.
-      */}
-      {homeHeader}
       <ProfileHeader
         avatarUrl={currentUser?.avatarURL}
         bio={currentUser?.bio}
@@ -1466,6 +1460,15 @@ export function PortfolioScreen({
         testID="portfolio-page-tab-pager"
         value={activeProfileTab}
       />
+
+      {/*
+        OUTSIDE the pager, floating. It briefly lived at the top of the pager's
+        collapsing block so it would scroll away like Home's — but that block is
+        already a pinned chrome LAYER (profile + tab bar, absolutely positioned
+        and translated on scroll), so a second in-flow bar inside it fought the
+        pinning and left the profile tab bar drawn across the status bar.
+      */}
+      {homeHeader}
 
       <ScrollToTopFab
         onPress={scrollToTop}

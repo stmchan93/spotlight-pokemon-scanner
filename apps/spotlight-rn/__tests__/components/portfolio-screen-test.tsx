@@ -1480,20 +1480,18 @@ describe('PortfolioScreen', () => {
     expect(push).toHaveBeenLastCalledWith('/catalog/search');
   });
 
-  // The bar is part of the page here too: it sits at the top of the pager's
-  // COLLAPSING block, so it scrolls away with the profile instead of hovering
-  // over it, and it carries the rule that marks the top of the page. It spent a
-  // while as an absolutely-positioned layer with a pill that faded on scroll;
-  // every control now stays live at any scroll depth because the whole bar
-  // simply leaves with the content.
-  it('scrolls the top bar away with the profile instead of floating it', async () => {
+  // Collection FLOATS its bar, unlike Home. The pager already owns a pinned
+  // chrome layer (profile block + tab bar, absolutely positioned and translated
+  // on scroll); a second in-flow bar inside that layer fought the pinning and
+  // left the profile tab bar drawn across the status bar. The rule goes with it
+  // — floating chrome has nothing to rule off.
+  it('floats the top bar over the pager, without a rule', async () => {
     renderPortfolioScreen();
     await screen.findByTestId('portfolio-header-title');
 
     const bar = screen.getByTestId('portfolio-header');
-    expect(StyleSheet.flatten(bar.props.style).position).toBeUndefined();
-    // Figma 3505:14520 — the rule under the bar.
-    expect(screen.getByTestId('portfolio-header-rule')).toBeTruthy();
+    expect(StyleSheet.flatten(bar.props.style).position).toBe('absolute');
+    expect(screen.queryByTestId('portfolio-header-rule')).toBeNull();
 
     await act(async () => {
       fireEvent.scroll(screen.getByTestId('portfolio-scroll-view'), {

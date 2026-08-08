@@ -21,6 +21,15 @@ type HomeHeaderProps = {
   /** Tapping the pill opens the full-screen card search. */
   onOpenSearch: () => void;
   /**
+   * FLOATING mode: absolutely positioned chrome over scrolling content, with no
+   * rule. Collection needs it — its pager owns a pinned chrome layer of its own
+   * (profile block + tab bar), and putting a second in-flow bar inside that
+   * layer made the two fight for the same space, which is how the profile tab
+   * bar ended up drawn over the status bar. Home has no such layer, so its bar
+   * is a real list row that scrolls away and carries the rule.
+   */
+  floating?: boolean;
+  /**
    * Space above the control row, for the status bar.
    *
    * Explicit because it depends on what the bar is mounted INSIDE, and getting
@@ -83,6 +92,7 @@ export function HomeHeader({
   onOpenAdd,
   onOpenMenu,
   onOpenNotifications,
+  floating = false,
   onOpenSearch,
   topInset,
   unreadCount,
@@ -93,7 +103,14 @@ export function HomeHeader({
 
   return (
     <View
-      style={{ paddingTop: topInset ?? insets.top, backgroundColor: theme.colors.gray0 }}
+      pointerEvents={floating ? 'box-none' : 'auto'}
+      style={[
+        floating ? styles.floating : null,
+        {
+          paddingTop: topInset ?? insets.top,
+          backgroundColor: floating ? 'transparent' : theme.colors.gray0,
+        },
+      ]}
       testID={testID}
     >
       <View
@@ -178,18 +195,29 @@ export function HomeHeader({
         divider — it runs edge to edge while the controls above it keep the page
         gutter.
       */}
-      <View
-        style={[
-          styles.rule,
-          { backgroundColor: theme.colors.gray200, marginTop: RULE_GAP },
-        ]}
-        testID={`${testID}-rule`}
-      />
+      {floating ? null : (
+        <View
+          style={[
+            styles.rule,
+            { backgroundColor: theme.colors.gray200, marginTop: RULE_GAP },
+          ]}
+          testID={`${testID}-rule`}
+        />
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  floating: {
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    // Above the pager's own chrome layer (profile block + tab bar), which sets
+    // zIndex 2 and would otherwise draw over the bubbles once the bar pins.
+    zIndex: 5,
+  },
   row: {
     alignItems: 'center',
     flexDirection: 'row',

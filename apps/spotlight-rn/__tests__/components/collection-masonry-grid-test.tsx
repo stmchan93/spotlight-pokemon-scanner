@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 
 import { SpotlightThemeProvider } from '@spotlight/design-system';
 import type { InventoryCardEntry } from '@spotlight/api-client';
@@ -57,6 +58,22 @@ describe('CollectionMasonryGrid', () => {
     expect(screen.getByTestId('collection-masonry-grid-row-0')).toBeTruthy();
     expect(screen.getByTestId('collection-masonry-grid-row-1')).toBeTruthy();
     expect(screen.queryByTestId('collection-masonry-grid-row-2')).toBeNull();
+  });
+
+  // An odd card count leaves the last row half-full. The centre rule used to be
+  // drawn only when the second cell HAD a card, so that row lost its divider and
+  // the grid's centre line visibly broke on the final row.
+  it('keeps the centre divider on a half-full last row', () => {
+    renderGrid([...entries, makeEntry({ id: 'e' })]);
+
+    const lastRow = screen.getByTestId('collection-masonry-grid-row-2');
+    const dividers = lastRow.props.children
+      .filter(Boolean)
+      .map((cell: { props?: { style?: unknown } }) => StyleSheet.flatten(cell?.props?.style))
+      .filter((style: { borderLeftWidth?: number } | undefined) => (style?.borderLeftWidth ?? 0) > 0);
+
+    // The second cell rules against the first, empty or not.
+    expect(dividers).toHaveLength(1);
   });
 
   it('renders a tile testID for every entry', () => {

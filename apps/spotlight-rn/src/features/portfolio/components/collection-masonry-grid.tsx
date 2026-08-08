@@ -150,8 +150,12 @@ export function CollectionGridRow({
             key={entry?.id ?? `row-${rowIndex}-col-${colIndex}`}
             style={[
               styles.cell,
-              // Middle vertical divider between the two columns.
-              colIndex === 1 && entry
+              // Middle vertical divider between the two columns. NOT gated on
+              // the cell having an entry: an odd card count leaves the last
+              // row's second cell empty, and skipping the rule there dropped
+              // the grid's centre line for that row only — a visible break in a
+              // line every other row draws.
+              colIndex === 1
                 ? { borderLeftColor: theme.colors.gray400, borderLeftWidth: borderWidths.rule }
                 : null,
             ]}

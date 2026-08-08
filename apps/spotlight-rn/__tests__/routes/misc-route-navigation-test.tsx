@@ -26,6 +26,21 @@ const mockSaveInventoryPreview: jest.Mock<string, [InventoryCardEntry]> = jest.f
   (_entry: InventoryCardEntry) => 'inventory-preview-id',
 );
 
+// `(sheet)` nests its own SafeAreaProvider (it presents as a fullScreenModal, so
+// it has to measure against the modal's own view). A real provider renders
+// nothing until it measures, and jest never lays out, so seed it with metrics or
+// the stack under it never mounts.
+jest.mock('react-native-safe-area-context', () => {
+  const actual = jest.requireActual('react-native-safe-area-context');
+  return {
+    ...actual,
+    initialWindowMetrics: {
+      frame: { x: 0, y: 0, width: 393, height: 852 },
+      insets: { top: 59, left: 0, right: 0, bottom: 34 },
+    },
+  };
+});
+
 // Drives the tabs layout's `hidden` decision (the bar is hidden on /scan).
 const mockPathname = jest.fn(() => '/');
 // The You tab's icon. Null = no photo rasterised yet, which is the SF-symbol
