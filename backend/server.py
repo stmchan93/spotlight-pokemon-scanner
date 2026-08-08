@@ -191,7 +191,7 @@ from post_media_store import (
 )
 from request_auth import RequestAuthError, RequestIdentity, SupabaseRequestAuthenticator
 from person_cutout import extract_person_cutout
-from species_outline import species_outline
+from species_outline import outline_points_from_alpha, species_outline
 from whos_that_share_card import compose_share_card
 
 _OMIT_STRUCTURED_LOG_VALUE = object()
@@ -694,6 +694,51 @@ def _species_outline_for_match(match: Any) -> list[dict[str, float]] | None:
     except (TypeError, ValueError):
         return None
     return species_outline(pokedex_id, dataset_root=_default_dataset_root())
+
+
+def _person_outline_from_cutout(cutout_png: bytes | None) -> list[dict[str, float]] | None:
+    """YOUR silhouette outline, traced from the person cutout's alpha channel.
+
+    Deliberately the SAME tracer the species outline uses. That is the whole
+    point: both sides of the morph come back as the same number of points, in
+    the same angular order (clockwise from 3 o'clock, evenly spaced by angle),
+    each normalized 0..1 against its own image. Index i therefore means the
+    same bearing on both shapes, so the client can interpolate point-for-point
+    and get an outline that genuinely DEFORMS into the creature instead of
+    crossfading between two pictures.
+
+    Best-effort, exactly like the species outline: a failed segmentation or a
+    degenerate mask just means the client morphs without your real shape.
+    Never raises into the request path.
+
+    The cutout bytes are the in-memory PNG from `extract_person_cutout`; no
+    selfie-derived pixels are persisted here.
+    """
+    if not cutout_png:
+        return None
+    try:
+        alpha = _alpha_from_cutout(cutout_png)
+        if alpha is None:
+            return None
+        return outline_points_from_alpha(alpha)
+    except Exception:  # noqa: BLE001 — outlines are garnish, never fatal
+        traceback.print_exc()
+        return None
+
+
+def _alpha_from_cutout(cutout_png: bytes) -> Any | None:
+    """Alpha channel of the person cutout as a 2D array, or None without one."""
+    import io  # noqa: PLC0415
+
+    import numpy as np  # noqa: PLC0415
+    from PIL import Image  # noqa: PLC0415
+
+    with Image.open(io.BytesIO(cutout_png)) as decoded:
+        if "A" not in decoded.getbands() and not (
+            decoded.mode == "P" and "transparency" in decoded.info
+        ):
+            return None
+        return np.asarray(decoded.convert("RGBA").getchannel("A"))
 
 
 def _default_raw_visual_train_root() -> Path:
@@ -13590,6 +13635,10 @@ class SpotlightScanService:
         # is a dict lookup on every request after the first for that Pokemon.
         outline_started = perf_counter()
         outline = _species_outline_for_match(matches[0] if matches else None)
+        # YOUR outline, traced from the cutout we just made with the SAME tracer.
+        # Same point count and same angular order as `outline`, which is what
+        # lets the client interpolate the two shapes point-for-point.
+        person_outline = _person_outline_from_cutout(cutout_png)
         outline_ms = round((perf_counter() - outline_started) * 1000.0, 1)
 
         self._emit_structured_log(
@@ -13604,6 +13653,7 @@ class SpotlightScanService:
                 "boundsPresent": bool(person_bounds and head_box),
                 "outlineMs": outline_ms,
                 "outlinePoints": len(outline) if outline else 0,
+                "personOutlinePoints": len(person_outline) if person_outline else 0,
                 "matchCount": len(matches),
             }
         )
@@ -13620,6 +13670,11 @@ class SpotlightScanService:
         # different coordinate space from personBounds/headBox.
         if outline:
             payload_out["speciesOutline"] = outline
+        # Normalized 0..1 against the CUTOUT PNG above — same convention as
+        # speciesOutline is to the artwork, and the same tracer, so the two
+        # arrays are index-comparable and the client can morph between them.
+        if person_outline:
+            payload_out["personOutline"] = person_outline
         return payload_out
 
     def compose_pokemon_share_card(self, payload: dict[str, Any]) -> dict[str, Any]:

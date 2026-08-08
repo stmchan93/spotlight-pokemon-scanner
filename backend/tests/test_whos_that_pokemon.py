@@ -26,6 +26,7 @@ import anthropic_adapter  # noqa: E402
 import whos_that_share_card  # noqa: E402
 from anthropic_adapter import AnthropicResponseError, identify_pokemon_lookalike  # noqa: E402
 from request_auth import RequestAuthError, RequestIdentity  # noqa: E402
+import server as server_module  # noqa: E402
 from server import SpotlightRequestHandler  # noqa: E402
 
 
@@ -831,6 +832,82 @@ class SpeciesOutlineTests(unittest.TestCase):
             self.assertIsNone(self.module.species_outline(0, dataset_root=self.dataset_root))
             self.assertIsNone(self.module.species_outline("nope", dataset_root=self.dataset_root))
         fetch.assert_not_called()
+
+
+def _person_cutout_png(width: int = 400, height: int = 600) -> bytes:
+    """A head-and-shoulders alpha matte standing in for a real person cutout."""
+    image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    draw.ellipse([150, 60, 250, 180], fill=(20, 20, 20, 255))
+    draw.rounded_rectangle([110, 175, 290, 520], radius=60, fill=(20, 20, 20, 255))
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+class PersonOutlineTests(unittest.TestCase):
+    """YOUR outline, traced from the cutout with the species tracer.
+
+    The morph interpolates `personOutline[i]` toward `speciesOutline[i]`, so the
+    contract that actually matters is that both arrays come back the same length
+    in the same angular order. These tests pin that, not the pixel values.
+    """
+
+    def test_person_outline_matches_the_species_outline_contract(self) -> None:
+        import math
+
+        import species_outline
+
+        points = server_module._person_outline_from_cutout(_person_cutout_png())
+
+        # Same count as the species side — index-comparable, which is the whole
+        # reason the morph can interpolate point-for-point.
+        self.assertEqual(len(points), species_outline.OUTLINE_POINT_COUNT)
+        for point in points:
+            self.assertGreaterEqual(point["x"], 0.0)
+            self.assertLessEqual(point["x"], 1.0)
+            self.assertGreaterEqual(point["y"], 0.0)
+            self.assertLessEqual(point["y"], 1.0)
+
+        # Same angular order as the species outline: monotonic clockwise about
+        # the shape's centre. Measured from the mean of the points rather than
+        # the tracer's alpha centroid, the run can START mid-circle, so the
+        # invariant is "sorted with exactly one wrap past 2pi" — not "sorted".
+        # If this ever grows a second wrap the outline is self-crossing and the
+        # morph will visibly twist.
+        centre_x = sum(point["x"] for point in points) / len(points)
+        centre_y = sum(point["y"] for point in points) / len(points)
+        angles = [
+            math.atan2(point["y"] - centre_y, point["x"] - centre_x) % (2.0 * math.pi)
+            for point in points
+        ]
+        descents = sum(
+            1 for index in range(len(angles) - 1) if angles[index + 1] < angles[index]
+        )
+        self.assertLessEqual(descents, 1, f"outline is not angularly ordered: {angles}")
+
+    def test_person_outline_traces_the_figure_not_the_frame(self) -> None:
+        points = server_module._person_outline_from_cutout(_person_cutout_png())
+        xs = [point["x"] for point in points]
+        ys = [point["y"] for point in points]
+        # The torso spans roughly the middle half of a 400px-wide frame; a mask
+        # that ray-cast to the frame rectangle instead would reach 0..1.
+        self.assertGreater(min(xs), 0.15)
+        self.assertLess(max(xs), 0.85)
+        # Head crown near the top, feet-end of the torso well down the frame.
+        self.assertLess(min(ys), 0.2)
+        self.assertGreater(max(ys), 0.8)
+
+    def test_person_outline_is_best_effort_and_never_raises(self) -> None:
+        opaque = io.BytesIO()
+        Image.new("RGB", (32, 32), (1, 2, 3)).save(opaque, format="PNG")
+
+        self.assertIsNone(server_module._person_outline_from_cutout(None))
+        self.assertIsNone(server_module._person_outline_from_cutout(b""))
+        # Undecodable bytes are swallowed, not propagated into the request path.
+        self.assertIsNone(server_module._person_outline_from_cutout(b"not-a-png"))
+        # An image with no alpha would ray-cast to the frame; omit it instead.
+        self.assertIsNone(server_module._person_outline_from_cutout(opaque.getvalue()))
 
 
 if __name__ == "__main__":
