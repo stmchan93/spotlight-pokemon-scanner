@@ -17,10 +17,8 @@ import {
   type RarityFilterBucket,
 } from '@spotlight/api-client';
 import {
-  Avatar,
   PillButton,
   SearchField,
-  SegmentedControl,
   StateCard,
   Text,
   colors,
@@ -29,36 +27,23 @@ import {
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { ChromeBackButton } from '@/components/chrome-back-button';
-import type { UserProfile } from '@/features/auth/auth-models';
 import { ExpansionCell } from '@/features/catalog/components/expansion-cell';
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
-import { searchUsers } from '@/features/profile/profile-service';
 import { useAppServices } from '@/providers/app-providers';
 
-// Cards vs. People search tabs. Cards is the default; People is a discovery lane
-// that prefix-matches @handles and display names.
-type SearchTab = 'cards' | 'people';
+/*
+  CARDS ONLY. This screen used to carry a second "People" lane behind a
+  Cards/People `SegmentedControl` that appeared once you typed — prefix-matching
+  @handles and display names via `searchUsers`, and routing to `/u/[handle]`.
+  It is gone deliberately: this is the destination of a pill that says "Search
+  Cards", and a segment that silently re-points the same query at collectors
+  made the one thing the surface promises ambiguous.
 
-const SEARCH_TAB_ITEMS: readonly { label: string; value: SearchTab }[] = [
-  { label: 'Cards', value: 'cards' },
-  { label: 'People', value: 'people' },
-];
-
-// People search is text-only (no rarity-chip lane), so it needs a real query
-// before the segment and its results are meaningful.
-const PEOPLE_MIN_QUERY_LENGTH = 2;
-
-// Initials for the avatar fallback of a profile we only know from search — no
-// auth user, so no email fallback. Mirrors `getUserInitials` for display names.
-function personInitials(displayName: string | null | undefined): string {
-  const words = (displayName ?? '')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2);
-  const letters = words.map((word) => word[0]?.toUpperCase() ?? '').filter(Boolean);
-  return letters.length > 0 ? letters.join('') : 'C';
-}
+  `searchUsers` itself is untouched and still live — the DM inbox is where you
+  look someone up, and post authors in the feed still link to their profiles. If
+  people-search ever comes back it belongs on its own surface, not folded into
+  this one.
+*/
 
 // Results load a page at a time as the user scrolls (infinite scroll), so an
 // artist search surfaces ALL of a prolific illustrator's cards, not just the
@@ -71,12 +56,6 @@ type CatalogSearchScreenProps = {
   game?: string;
   onClose: () => void;
   onOpenCard: (result: CatalogSearchResult) => void;
-  /**
-   * Tap handler for a person in the People search tab. When provided, the
-   * search surface adds a Cards/People segment so users can discover other
-   * collectors; the callback routes to that person's public profile.
-   */
-  onOpenPerson?: (person: UserProfile) => void;
   /**
    * Tap handler for a set in the browse grid. When provided, the empty state
    * shows every expansion (logo + name) so users can drill into one and search
@@ -237,74 +216,11 @@ function SearchResultRow({
   );
 }
 
-function PersonResultRow({
-  person,
-  onPress,
-}: {
-  person: UserProfile;
-  onPress: () => void;
-}) {
-  const theme = useSpotlightTheme();
-  const displayName = person.displayName?.trim() || 'Collector';
-  const handleLabel = person.handle?.trim() ? `@${person.handle.trim()}` : null;
-
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => ({ opacity: pressed ? 0.94 : 1 })}
-      testID={`people-result-${person.userID}`}
-    >
-      <View
-        style={[
-          styles.personRow,
-          {
-            backgroundColor: theme.colors.surface,
-            borderColor: theme.colors.outlineSubtle,
-          },
-        ]}
-      >
-        <Avatar
-          initials={personInitials(person.displayName)}
-          size={48}
-          testID={`people-avatar-${person.userID}`}
-          uri={person.avatarURL}
-        />
-
-        <View style={styles.personCopy}>
-          <View style={styles.personNameRow}>
-            <Text numberOfLines={1} style={[styles.personName, { color: theme.colors.textPrimary }]}>
-              {displayName}
-            </Text>
-            {person.isVerified ? (
-              <Text
-                style={[styles.personVerified, { color: theme.colors.brand }]}
-                testID={`people-verified-${person.userID}`}
-              >
-                ✓
-              </Text>
-            ) : null}
-          </View>
-
-          {handleLabel ? (
-            <Text numberOfLines={1} style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
-              {handleLabel}
-            </Text>
-          ) : null}
-        </View>
-
-        <Text style={[styles.resultChevron, { color: theme.colors.textSecondary }]}>›</Text>
-      </View>
-    </Pressable>
-  );
-}
-
 export function CatalogSearchScreen({
   initialQuery = '',
   game = 'pokemon',
   onClose,
   onOpenCard,
-  onOpenPerson,
   onSelectExpansion,
 }: CatalogSearchScreenProps) {
   const theme = useSpotlightTheme();
@@ -326,16 +242,6 @@ export function CatalogSearchScreen({
   // response from a previous query being appended after the query changed.
   const activeQueryRef = useRef('');
   const openingResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // People discovery lane. Only surfaced when a tap handler is wired.
-  const peopleEnabled = Boolean(onOpenPerson);
-  const [searchTab, setSearchTab] = useState<SearchTab>('cards');
-  const [peopleResults, setPeopleResults] = useState<UserProfile[]>([]);
-  const [isLoadingPeople, setIsLoadingPeople] = useState(false);
-  const [hasSearchedPeople, setHasSearchedPeople] = useState(false);
-  // Monotonic request id: a slow searchUsers() response is dropped when a newer
-  // query has already been issued, so it can never overwrite fresher results.
-  const peopleRequestRef = useRef(0);
 
   // Browse grid: every expansion, shown when the search box is empty so users
   // can drill into a set. Only fetched when a tap handler is wired.
@@ -449,59 +355,9 @@ export function CatalogSearchScreen({
     };
   }, [activeRarity, query, searchRevision, spotlightRepository]);
 
-  // People search: independent debounced lane, only runs while the People tab is
-  // active and there's a real text query. searchUsers() never throws (resolves to
-  // []), and the monotonic request id + effect-cleanup guard drop any stale
-  // response so a slow query can't clobber a newer one. Mirrors the card lane's
-  // 275ms debounce and cancellation.
-  useEffect(() => {
-    const trimmed = query.trim();
-    if (!peopleEnabled || searchTab !== 'people' || trimmed.length < PEOPLE_MIN_QUERY_LENGTH) {
-      setPeopleResults([]);
-      setIsLoadingPeople(false);
-      setHasSearchedPeople(false);
-      return;
-    }
-
-    let isCancelled = false;
-    const requestId = peopleRequestRef.current + 1;
-    peopleRequestRef.current = requestId;
-
-    const timeout = setTimeout(() => {
-      setIsLoadingPeople(true);
-      void searchUsers(trimmed)
-        .then((users) => {
-          // Drop the response if the query changed while it was in flight.
-          if (isCancelled || peopleRequestRef.current !== requestId) {
-            return;
-          }
-          setPeopleResults(users);
-          setHasSearchedPeople(true);
-          setIsLoadingPeople(false);
-        })
-        .catch(() => {
-          if (isCancelled || peopleRequestRef.current !== requestId) {
-            return;
-          }
-          setPeopleResults([]);
-          setHasSearchedPeople(true);
-          setIsLoadingPeople(false);
-        });
-    }, 275);
-
-    return () => {
-      isCancelled = true;
-      clearTimeout(timeout);
-    };
-  }, [peopleEnabled, query, searchTab]);
-
   const trimmedQuery = query.trim();
   const hasActiveQuery = trimmedQuery.length >= 2 || activeRarity != null;
   const hasVisibleResults = hasActiveQuery && !errorMessage && results.length > 0;
-  // The Cards/People segment appears once there's a text query — the point at
-  // which both lanes are meaningful (people search is text-only).
-  const showSearchTabs = peopleEnabled && trimmedQuery.length >= PEOPLE_MIN_QUERY_LENGTH;
-  const showPeopleBody = showSearchTabs && searchTab === 'people';
 
   const openResult = (result: CatalogSearchResult) => {
     if (openingResetTimerRef.current) {
@@ -513,10 +369,6 @@ export function CatalogSearchScreen({
       setOpeningResultId((current) => (current === result.id ? null : current));
       openingResetTimerRef.current = null;
     }, 350);
-  };
-
-  const openPerson = (person: UserProfile) => {
-    onOpenPerson?.(person);
   };
 
   const loadMore = useCallback(() => {
@@ -555,58 +407,7 @@ export function CatalogSearchScreen({
       });
   }, [query, activeRarity, isLoading, isLoadingMore, hasMore, results.length, spotlightRepository]);
 
-  const renderPeopleBody = () => {
-    if (isLoadingPeople && peopleResults.length === 0) {
-      return (
-        <View style={styles.bodyStateWrap}>
-          <StateCard
-            centered
-            loading
-            message="Searching collectors by name and @handle."
-            style={styles.stateCard}
-            title="Searching people"
-          />
-        </View>
-      );
-    }
-    if (hasSearchedPeople && peopleResults.length === 0) {
-      return (
-        <View style={styles.bodyStateWrap}>
-          <StateCard
-            centered
-            message="Try a different name or @handle."
-            style={styles.stateCard}
-            title="No matching people"
-          />
-        </View>
-      );
-    }
-    if (peopleResults.length > 0) {
-      return (
-        <FlatList
-          contentContainerStyle={styles.resultsListContent}
-          data={peopleResults}
-          key="people"
-          keyExtractor={(item) => item.userID}
-          keyboardShouldPersistTaps="handled"
-          testID="people-results-list"
-          renderItem={({ item }) => (
-            <PersonResultRow onPress={() => openPerson(item)} person={item} />
-          )}
-          showsVerticalScrollIndicator={false}
-          style={styles.body}
-        />
-      );
-    }
-    return null;
-  };
-
   const renderBody = () => {
-    // People tab: its own independent lane, unaffected by card/rarity state.
-    if (showPeopleBody) {
-      return renderPeopleBody();
-    }
-
     // Search mode: the box has a real query, so show card matches / states.
     if (hasActiveQuery) {
       if (isLoading && results.length === 0) {
@@ -759,40 +560,28 @@ export function CatalogSearchScreen({
           value={query}
         />
 
-        {/* Cards/People tabs appear once there's a text query. People is a
-            discovery lane (prefix match on display name or @handle). */}
-        {showSearchTabs ? (
-          <SegmentedControl
-            items={SEARCH_TAB_ITEMS}
-            onChange={setSearchTab}
-            testID="catalog-search-tabs"
-            value={searchTab}
-          />
-        ) : null}
-
         {/* Rarity chips (same PillButton tone="filter" pattern as the
             Collection filter row). Single-select; tapping the active chip
             clears it. A chip alone searches with no text (browse-by-rarity).
-            Hidden on the People tab, where rarity has no meaning. */}
-        {showPeopleBody ? null : (
-          <ScrollView
-            contentContainerStyle={styles.rarityChipRow}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            testID="catalog-rarity-chip-row"
-          >
-            {RARITY_FILTER_BUCKETS.map((key) => (
-              <PillButton
-                key={key}
-                label={RARITY_BUCKET_LABELS[key]}
-                onPress={() => setActiveRarity((current) => (current === key ? null : key))}
-                selected={activeRarity === key}
-                testID={`catalog-rarity-chip-${key}`}
-                tone="filter"
-              />
-            ))}
-          </ScrollView>
-        )}
+            They used to be hidden whenever the People tab was showing; with
+            that tab gone they are simply always present. */}
+        <ScrollView
+          contentContainerStyle={styles.rarityChipRow}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          testID="catalog-rarity-chip-row"
+        >
+          {RARITY_FILTER_BUCKETS.map((key) => (
+            <PillButton
+              key={key}
+              label={RARITY_BUCKET_LABELS[key]}
+              onPress={() => setActiveRarity((current) => (current === key ? null : key))}
+              selected={activeRarity === key}
+              testID={`catalog-rarity-chip-${key}`}
+              tone="filter"
+            />
+          ))}
+        </ScrollView>
       </View>
 
       {renderBody()}
@@ -827,35 +616,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minHeight: 24,
     paddingHorizontal: 10,
-  },
-  personCopy: {
-    flex: 1,
-    gap: 4,
-    justifyContent: 'center',
-  },
-  personName: {
-    flexShrink: 1,
-    fontSize: 17,
-    fontWeight: '600',
-    lineHeight: 22,
-  },
-  personNameRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 6,
-  },
-  personRow: {
-    alignItems: 'center',
-    borderRadius: 20,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 12,
-    padding: 12,
-  },
-  personVerified: {
-    fontSize: 15,
-    fontWeight: '700',
-    lineHeight: 18,
   },
   resultActivity: {
     paddingTop: 4,

@@ -43,25 +43,45 @@ const MARK_HEIGHT = 19;
 /** Figma 3505:14521 pads the bar 10pt above the row; the safe area adds the rest. */
 const BAR_PADDING_TOP = 10;
 const BAR_PADDING_BOTTOM = 10;
+/**
+ * Height of the bar BELOW the safe-area inset — the 36pt control row plus its
+ * padding. `GlassNavBubble` at `compact` and `SearchEntryPill` are both 36, so
+ * the row is 36 whichever is tallest.
+ *
+ * Exported because the bar is absolutely positioned and therefore contributes
+ * nothing to layout: a screen that floats content under it has to reserve the
+ * space itself as `insets.top + HOME_HEADER_BAR_HEIGHT` of `paddingTop`. Reading
+ * it from here is what keeps that reservation and the bar from drifting apart.
+ */
+export const HOME_HEADER_BAR_HEIGHT = BAR_PADDING_TOP + 36 + BAR_PADDING_BOTTOM;
 
 /**
  * Home's top bar (Figma 3505:14521): menu, a tap-to-search pill carrying the
  * Ekalight mark, notifications, and a `+`.
  *
- * Same bar as `FeedHeader` and the same `SearchEntryPill`, with two differences
- * that come from Home floating its chrome over scrolling content rather than
- * sitting above it:
+ * THE ONE TOP BAR. Home (the feed) and Collection both draw this. The feed
+ * briefly had its own `FeedHeader` — same controls, but solid `IconButton`s in a
+ * bar that sat ABOVE the list — and that divergence is the bug this file's
+ * existence prevents: the buttons read as flat chrome instead of glass, and the
+ * bar occupied layout instead of floating.
+ *
+ * Two properties define it, and both come from floating chrome over scrolling
+ * content rather than sitting above it:
  *
  *  - the four buttons are `GlassNavBubble`s, not solid `IconButton`s, because
- *    the collection scrolls UNDERNEATH them — this bar has no background of its
- *    own, and `box-none` lets every touch that misses a control fall through to
- *    the list;
- *  - the pill fades out as the page scrolls while the bubbles stay put, which is
- *    the behaviour Collection already had when search was itself a bubble.
+ *    content scrolls UNDERNEATH them — this bar has no background of its own,
+ *    and `box-none` lets every touch that misses a control fall through to the
+ *    list;
+ *  - the pill fades out as the page scrolls while the bubbles stay put. The
+ *    bubbles do NOT move or fade: they are the persistent way back to the menu,
+ *    notifications and `+` at any scroll depth.
  *
  * The bar is positioned absolutely by this component (top-left-right), so the
  * screen renders it as a plain sibling AFTER its scroller and it paints on top
- * by tree order.
+ * by tree order. Rendering it after the scroller is load-bearing for a second
+ * reason on tab screens: UIKit finds the scroll view to track for
+ * minimize-on-scroll by walking `subviews[0]`, so the scroller has to be the
+ * first child or the native tab bar stops collapsing.
  */
 export function HomeHeader({
   addAccessibilityLabel,

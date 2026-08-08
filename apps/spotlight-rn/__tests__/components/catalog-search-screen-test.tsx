@@ -109,6 +109,26 @@ describe('CatalogSearchScreen', () => {
     expect(onSelectExpansion).toHaveBeenCalledWith(expect.objectContaining({ id: 'sv1' }));
   });
 
+  it('searches cards only — no People segment and no collector results, however long the query', async () => {
+    jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage')
+      .mockResolvedValue({ cards: ownedCatalogResults, hasMore: false });
+
+    renderWithProviders(
+      <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />,
+    );
+
+    // The Cards/People `SegmentedControl` used to appear at exactly this point:
+    // a text query of 2+ characters. Typing must now only ever search cards.
+    fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'tree');
+    await advanceDebounce();
+
+    expect(screen.queryByTestId('catalog-search-tabs')).toBeNull();
+    expect(screen.queryByTestId('people-results-list')).toBeNull();
+    expect(await screen.findByTestId('catalog-results-list')).toBeTruthy();
+    // The rarity chips are no longer conditional on which lane is showing.
+    expect(screen.getByTestId('catalog-rarity-chip-row')).toBeTruthy();
+  });
+
   it('hydrates and searches from an initial query', async () => {
     jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage')
       .mockResolvedValue({ cards: ownedCatalogResults, hasMore: false });

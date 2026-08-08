@@ -1,5 +1,5 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
-import { Alert } from 'react-native';
+import { Alert, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 
 import { deletePost, fetchFollowingFeed, fetchGlobalFeed } from '@/features/social/social-service';
@@ -106,7 +106,11 @@ describe('FeedScreen', () => {
       expect(screen.getByTestId('feed-empty')).toBeTruthy();
     });
 
-    fireEvent.press(screen.getByTestId('feed-header-compose'));
+    // `-add`, not `-compose`: the feed draws the SHARED `HomeHeader` now, whose
+    // `+` is the generic add affordance. The feed's own `FeedHeader` is gone —
+    // it had solid IconButtons in a bar that occupied layout, where this one is
+    // glass bubbles floating over the list.
+    fireEvent.press(screen.getByTestId('feed-header-add'));
     expect(push).toHaveBeenCalledWith('/new-post');
 
     fireEvent.press(screen.getByTestId('feed-header-search'));
@@ -114,6 +118,29 @@ describe('FeedScreen', () => {
 
     fireEvent.press(screen.getByTestId('feed-header-notifications'));
     expect(push).toHaveBeenCalledWith('/notifications');
+  });
+
+  // The feed's bar regressed to solid IconButtons sitting ABOVE the list once
+  // already. Both halves of the fix are asserted here because both are invisible
+  // to a normal render assertion:
+  //   - the list is the FIRST child, which is what lets content scroll behind
+  //     the bar AND what lets UIKit find the scroll view to minimize the tab bar
+  //     on (it walks `subviews[0]`);
+  //   - the bar is absolutely positioned, i.e. it floats rather than occupying
+  //     layout above the list.
+  it('floats the top bar over the list instead of stacking it above', async () => {
+    renderWithProviders(<FeedScreen />);
+    await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
+
+    const root = screen.getByTestId('feed');
+    const childTestIDs = root.props.children
+      .map((child: { props?: { testID?: string } }) => child?.props?.testID)
+      .filter(Boolean);
+    expect(childTestIDs.indexOf('feed-list')).toBeLessThan(childTestIDs.indexOf('feed-header'));
+
+    const barStyle = StyleSheet.flatten(screen.getByTestId('feed-header').props.style);
+    expect(barStyle.position).toBe('absolute');
+    expect(barStyle.top).toBe(0);
   });
 
   it('opens the app drawer from the header menu', async () => {

@@ -44,7 +44,7 @@ import {
 import { SalePriceEditSheet } from '@/features/portfolio/components/sale-price-edit-sheet';
 import { CollectionPickerSheet } from '@/features/portfolio/components/collection-picker-sheet';
 import { CollectionSearchRow } from '@/features/portfolio/components/collection-search-row';
-import { HomeHeader } from '@/features/portfolio/components/home-header';
+import { HomeHeader } from '@/components/home-header';
 import {
   CollectionFilterChipRow,
   type CollectionFilterKey,
@@ -81,8 +81,8 @@ import {
   type FeedPost,
   type FeedPostAuthor,
   fetchAuthorPosts,
-  fetchUnreadNotificationCount,
 } from '@/features/social/social-service';
+import { useUnreadNotificationCount } from '@/features/social/use-unread-notification-count';
 import { usePostDeletion } from '@/features/social/use-post-deletion';
 import { consumeFeedRefreshSignal } from '@/features/social/screens/new-post-screen';
 import { ProfileHeader } from '@/features/profile/components/profile-header';
@@ -662,28 +662,9 @@ export function PortfolioScreen({
     }, []),
   );
 
-  // Unread badge on the bell. Refreshed on FOCUS rather than on an interval:
-  // returning from the notifications list (which marks everything read) is the
-  // moment the badge must clear, and focus is exactly that moment. It also means
-  // no timer runs while the user is elsewhere in the app.
-  //
-  // This is a client-direct Supabase count, not a backend call — it never touches
-  // the VM, so polling it costs nothing on the resource that actually constrains
-  // this app. `cancelled` guards the async set against a fast unmount.
-  const [unreadNotifications, setUnreadNotifications] = useState(0);
-  useFocusEffect(
-    useCallback(() => {
-      let cancelled = false;
-      void fetchUnreadNotificationCount().then((count) => {
-        if (!cancelled) {
-          setUnreadNotifications(count);
-        }
-      });
-      return () => {
-        cancelled = true;
-      };
-    }, []),
-  );
+  // Unread badge on the bell. Shared with Home, which draws the same bar — see
+  // the hook for why it refreshes on focus rather than on a timer.
+  const unreadNotifications = useUnreadNotificationCount();
 
   // Mirror edit mode into the tabs pager so it hides the bottom tab bar + locks
   // the horizontal swipe, and always release the lock on unmount.

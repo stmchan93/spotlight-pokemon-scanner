@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, ActivityIndicator, RefreshControl, StyleSheet, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -8,19 +8,30 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
-import { FeedHeader } from '@/features/social/components/feed-header';
+import { AnimatedFlatList } from '@/components/page-tab-pager';
+import { HOME_HEADER_BAR_HEIGHT, HomeHeader } from '@/components/home-header';
 import { PostCard } from '@/features/social/components/post-card';
 import { consumeFeedRefreshSignal } from '@/features/social/screens/new-post-screen';
 import {
   type FeedPost,
   fetchGlobalFeed,
 } from '@/features/social/social-service';
+import { useUnreadNotificationCount } from '@/features/social/use-unread-notification-count';
 import { usePostDeletion } from '@/features/social/use-post-deletion';
 import { resolveRepositoryBaseUrl } from '@/providers/app-providers';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAuth } from '@/providers/auth-provider';
 
 const PAGE_SIZE = 20;
+
+/**
+ * How far the feed scrolls before the top bar's "Search Cards" pill has faded
+ * out completely. Same distance Collection uses, so the two surfaces lose their
+ * pill at the same point in the gesture — roughly the pill's own height plus the
+ * bar's padding, i.e. by the time the first post has reached the bar. The glass
+ * bubbles beside it never move.
+ */
+const SEARCH_FADE_DISTANCE = 56;
 
 type FeedStatus = 'loading' | 'ready' | 'error';
 
@@ -58,6 +69,39 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const loadingMoreRef = useRef(false);
+  const unreadCount = useUnreadNotificationCount();
+
+  // The list's scroll offset, written by an `Animated.event` on the UI thread so
+  // the pill fade tracks the finger instead of running a JS frame behind it.
+  // This is the same shape Collection uses; it just owns the value directly
+  // rather than reading it off a pager.
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const searchOpacity = useMemo(
+    () =>
+      scrollY.interpolate({
+        inputRange: [0, SEARCH_FADE_DISTANCE],
+        outputRange: [1, 0],
+        extrapolate: 'clamp',
+      }),
+    [scrollY],
+  );
+  // `pointerEvents` is not animatable, so the faded-out pill has to be disarmed
+  // from JS or it stays an invisible tap target over the first post.
+  const [isSearchPillHidden, setIsSearchPillHidden] = useState(false);
+  const handleScroll = useMemo(
+    () =>
+      Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
+        useNativeDriver: true,
+        // The listener rides ON the animated event rather than replacing it —
+        // wrapping `onScroll` in an arrow function would silently drop the
+        // native driver, because the animated component recognises the event by
+        // identity.
+        listener: (event: { nativeEvent: { contentOffset: { y: number } } }) => {
+          setIsSearchPillHidden(event.nativeEvent.contentOffset.y >= SEARCH_FADE_DISTANCE);
+        },
+      }),
+    [scrollY],
+  );
 
   // Delete-your-own-post: confirm → optimistic removal from THIS list → restore
   // + alert if the write fails. The sheet is rendered below the list, not by the
@@ -222,23 +266,23 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
 
   return (
     <SafeAreaView
-      edges={['top', 'left', 'right']}
+      // NOT 'top': the bar floats over the list and applies the top inset
+      // itself, and the list has to start at y=0 so its content can scroll up
+      // BEHIND the glass bubbles rather than stopping below the notch.
+      edges={['left', 'right']}
       style={[styles.safeArea, { backgroundColor: theme.colors.gray0 }]}
       testID={testID}
     >
       {/*
-        The bar is pinned rather than carried as a list header: it is the
-        screen's chrome in Figma (fixed at the top of the frame), and pinning it
-        keeps search / notifications / compose reachable mid-scroll.
+        THE LIST COMES FIRST, the bar after it. Two reasons, and both break
+        silently if the order is flipped:
+          - the bar has no background, so it must PAINT over the list, and with
+            no zIndex fight that is simply tree order;
+          - UIKit finds the scroll view for minimize-on-scroll by walking
+            `subviews[0]` down from the tab screen, so the list has to be the
+            first child or the native tab bar stops collapsing.
       */}
-      <FeedHeader
-        onOpenComposer={openComposer}
-        onOpenMenu={openDrawer}
-        onOpenNotifications={openNotifications}
-        onOpenSearch={openSearch}
-        testID={`${testID}-header`}
-      />
-      <FlatList
+      <AnimatedFlatList
         // This screen became the Home TAB, so a tab bar now sits over its
         // bottom edge. `automatic` puts the list on UIKit's own inset
         // behaviour — the same prop the Collection list uses — so the last post
@@ -246,6 +290,10 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         // the native bar's height from a token sized for the retired JS one.
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={{
+          // The bar is absolutely positioned and contributes nothing to layout,
+          // so the first post would start underneath it. Reserve exactly its
+          // height; the constant lives with the bar so the two cannot drift.
+          paddingTop: insets.top + HOME_HEADER_BAR_HEIGHT,
           paddingBottom: insets.bottom + 24,
           // No horizontal padding and no inter-item gap: post cards are
           // full-bleed and carry their own 16pt top inset, which is exactly the
@@ -253,20 +301,24 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
           // avatar. State cards re-inset themselves below.
         }}
         data={posts}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item: FeedPost) => item.id}
         ListEmptyComponent={listEmpty}
         ListFooterComponent={listFooter}
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.5}
+        onScroll={handleScroll}
         refreshControl={
           <RefreshControl
             onRefresh={handleRefresh}
+            // Drop the spinner below the floating bar rather than letting it
+            // spin up behind the glass bubbles.
+            progressViewOffset={insets.top + HOME_HEADER_BAR_HEIGHT}
             refreshing={refreshing}
             testID={`${testID}-refresh`}
             tintColor={theme.colors.gray400}
           />
         }
-        renderItem={({ item }) => (
+        renderItem={({ item }: { item: FeedPost }) => (
           <PostCard
             accessToken={accessToken}
             apiBaseUrl={apiBaseUrl}
@@ -276,7 +328,19 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
             testID={`${testID}-post`}
           />
         )}
+        scrollEventThrottle={16}
         testID={`${testID}-list`}
+      />
+      <HomeHeader
+        addAccessibilityLabel="New post"
+        onOpenAdd={openComposer}
+        onOpenMenu={openDrawer}
+        onOpenNotifications={openNotifications}
+        onOpenSearch={openSearch}
+        searchInteractive={!isSearchPillHidden}
+        searchOpacity={searchOpacity}
+        testID={`${testID}-header`}
+        unreadCount={unreadCount}
       />
       {deleteConfirmSheet}
     </SafeAreaView>
