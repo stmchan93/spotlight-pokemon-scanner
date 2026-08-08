@@ -462,8 +462,11 @@ describe('PortfolioScreen', () => {
         expect(screen.queryByTestId('collection-picker-sheet')).not.toBeOnTheScreen();
       });
       const confirm = await screen.findByTestId('collection-delete-confirm');
-      // Deleting takes the collection's cards with it, so the copy says so.
-      expect(within(confirm).getByText(/1 card/)).toBeTruthy();
+      // Deleting takes the collection's cards with it, so the copy says so —
+      // by name, without making the user parse a count.
+      expect(
+        within(confirm).getByText(/will be deleted along with all of its cards/),
+      ).toBeTruthy();
       expect(deleteCollection).not.toHaveBeenCalled();
 
       await act(async () => {
@@ -1026,8 +1029,11 @@ describe('PortfolioScreen', () => {
         fireEvent.press(screen.getByTestId('collection-empty-scan-to-add'));
       });
 
-      // Scan always PUSHES so Back returns to the Collection tab.
-      expect(push).toHaveBeenCalledWith({ pathname: '/', params: { page: 'scanner' } });
+      // `/scan` is a real route now. This asserted the retired pager's
+      // addressing (`/` plus a `page` param), which with native tabs resolves to
+      // the Collection tab — so the button navigated to the screen the user was
+      // already on and looked dead.
+      expect(push).toHaveBeenCalledWith('/scan');
     });
 
     it('keeps the "no cards match this filter" state when the collection has cards but the filter matches none', async () => {

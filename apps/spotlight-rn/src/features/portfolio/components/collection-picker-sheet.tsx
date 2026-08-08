@@ -27,6 +27,8 @@ import {
 } from 'iconoir-react-native';
 
 import { ALL_COLLECTIONS_ID, type Collection } from '@spotlight/api-client';
+
+import { HIDDEN_VALUE_MASK } from '@/features/portfolio/components/portfolio-formatting';
 import { Text, TextField, colors, textStyles } from '@spotlight/design-system';
 
 /** Figma 3377:3089 — every collection row is 57pt with a 0.5pt rule beneath. */
@@ -361,7 +363,6 @@ export function CollectionPickerSheet({
     trailingIcon?: React.ReactNode;
     isFirst?: boolean;
     /** Hidden collections read back but don't count — show them muted. */
-    dimmed?: boolean;
     testID: string;
   }) => (
     <Pressable
@@ -378,7 +379,7 @@ export function CollectionPickerSheet({
     >
       <View style={styles.rowLeading}>
         {options.leadingIcon ?? <View style={styles.rowIconSpacer} />}
-        <View style={[styles.rowCopy, options.dimmed ? styles.rowCopyDimmed : null]}>
+        <View style={styles.rowCopy}>
           <Text numberOfLines={1} style={styles.rowTitle}>
             {options.title}
           </Text>
@@ -513,9 +514,17 @@ export function CollectionPickerSheet({
                     renderRow({
                       key: collection.id,
                       title: collection.name,
-                      valueLabel: formatValue(collection.totalValue),
+                      // A hidden collection MASKS its value rather than dimming
+                      // the row. Dimming said "this row is inactive", which is
+                      // wrong — a hidden collection still lists, still opens, and
+                      // is still yours; it just doesn't count toward the total.
+                      // Masking says the one true thing: the number is withheld.
+                      // Same mask the balance header uses, so hiding reads
+                      // identically wherever a value can be hidden.
+                      valueLabel: collection.hidden
+                        ? HIDDEN_VALUE_MASK
+                        : formatValue(collection.totalValue),
                       onPress: () => handleSelect(collection.id),
-                      dimmed: collection.hidden,
                       // Figma 3357:9013 — eye / edit-pencil / trash at 20pt on a
                       // 12pt gap. The active row shows a check in front of them
                       // so you can still tell what you are looking at.
@@ -700,11 +709,6 @@ const styles = StyleSheet.create({
   rowCopy: {
     flexShrink: 1,
     gap: 4,
-  },
-  rowCopyDimmed: {
-    // Hidden collections still list and still open — they just don't count, so
-    // they read muted rather than disappearing.
-    opacity: 0.45,
   },
   rowFirst: {
     borderTopColor: colors.gray300,

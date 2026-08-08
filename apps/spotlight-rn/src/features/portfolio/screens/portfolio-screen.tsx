@@ -927,11 +927,15 @@ export function PortfolioScreen({
     router.push('/catalog/search' as never);
   }, [router]);
 
-  // Empty-collection "Scan to add" chip. Mirrors the bottom tab bar's Scan
-  // handler: scanning always PUSHES (never dismisses to the tabs root) so Back
-  // returns to the screen the user scanned from — see app-bottom-tab-bar.tsx.
+  // Empty-collection "Scan to add" chip.
+  //
+  // This pushed `{ pathname: '/', params: { page: 'scanner' } }` — the retired
+  // TopTabsPager's addressing, where a `page` param chose which of two mounted
+  // slots to show. With native tabs `/` IS the Collection tab and the param is
+  // inert, so the button navigated to the screen you were already on and looked
+  // dead. Scan is its own route now.
   const handleScanToAddPress = useCallback(() => {
-    router.push({ pathname: '/', params: { page: 'scanner' } } as never);
+    router.push('/scan' as never);
   }, [router]);
 
   // The whole screen is one virtualized FlatList: the balance/chart/search/
@@ -1569,15 +1573,11 @@ export function PortfolioScreen({
         confirmPending={isDeletingCollection}
         message={
           collectionPendingDelete
-            ? collectionPendingDelete.cardCount > 0
-              ? `"${collectionPendingDelete.name}" and its ${collectionPendingDelete.cardCount} ${
-                  collectionPendingDelete.cardCount === 1 ? 'card' : 'cards'
-                } will be permanently deleted. This can't be undone.${
-                  collectionDeleteError ? `\n\n${collectionDeleteError}` : ''
-                }`
-              : `"${collectionPendingDelete.name}" will be permanently deleted.${
-                  collectionDeleteError ? `\n\n${collectionDeleteError}` : ''
-                }`
+            ? `${
+                collectionPendingDelete.cardCount > 0
+                  ? `"${collectionPendingDelete.name}" will be deleted along with all of its cards. Are you sure you want to continue?`
+                  : `"${collectionPendingDelete.name}" will be deleted. Are you sure you want to continue?`
+              }${collectionDeleteError ? `\n\n${collectionDeleteError}` : ''}`
             : undefined
         }
         onClose={() => setCollectionPendingDelete(null)}
