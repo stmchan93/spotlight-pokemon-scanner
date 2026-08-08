@@ -17,6 +17,7 @@ import {
   ListPaginationFooter,
   PillButton,
   ScreenHeader,
+  SearchEntryPill,
   SearchField,
   SegmentedControl,
   SectionHeader,
@@ -54,6 +55,7 @@ export function DesignSystemCatalogScreen({
       { key: 'titleCompact', label: 'Title Compact', style: theme.typography.titleCompact, sample: 'Compact Title' },
       { key: 'headline', label: 'Headline', style: theme.typography.headline, sample: 'Headline Sample' },
       { key: 'body', label: 'Body', style: theme.typography.body, sample: 'Body copy for supporting information.' },
+      { key: 'bodySmall', label: 'Body Small', style: theme.typography.bodySmall, sample: 'Figma "Body" — 14/400 long-form copy.' },
       { key: 'bodyStrong', label: 'Body Strong', style: theme.typography.bodyStrong, sample: 'Strong supporting copy.' },
       { key: 'control', label: 'Control', style: theme.typography.control, sample: 'Interactive Label' },
       { key: 'caption', label: 'Caption', style: theme.typography.caption, sample: 'Secondary caption style.' },
@@ -212,6 +214,14 @@ export function DesignSystemCatalogScreen({
               placeholder="Search by name, set, or number"
               testID="catalog-search-field"
               value=""
+            />
+
+            {/* Looks like a field, behaves like a button — the top-bar entry
+                point into a search screen. */}
+            <SearchEntryPill
+              label="Search Cards"
+              onPress={() => {}}
+              testID="catalog-search-entry-pill"
             />
 
             <TextField

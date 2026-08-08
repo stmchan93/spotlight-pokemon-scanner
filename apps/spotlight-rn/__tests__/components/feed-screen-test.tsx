@@ -12,6 +12,17 @@ jest.mock('expo-router', () => ({
   useFocusEffect: jest.fn(),
 }));
 
+// The header's hamburger opens the shared app drawer. Keep the real provider
+// (test-utils mounts it) and only swap the hook so the call is observable.
+const mockOpenDrawer = jest.fn();
+jest.mock('@/providers/app-drawer-provider', () => {
+  const actual = jest.requireActual('@/providers/app-drawer-provider');
+  return {
+    ...actual,
+    useAppDrawer: () => ({ ...actual.useAppDrawer(), openDrawer: mockOpenDrawer }),
+  };
+});
+
 jest.mock('@/features/social/social-service', () => ({
   deletePost: jest.fn(async () => true),
   fetchFollowingFeed: jest.fn(),
@@ -73,7 +84,7 @@ describe('FeedScreen', () => {
       expect(screen.getByText('Following post')).toBeTruthy();
     });
 
-    fireEvent.press(screen.getByTestId('feed-segment-global'));
+    fireEvent.press(screen.getByTestId('feed-segment-tab-global'));
 
     await waitFor(() => {
       expect(screen.getByText('Global post')).toBeTruthy();
@@ -92,7 +103,10 @@ describe('FeedScreen', () => {
     expect(screen.getByText('Follow collectors to see their posts here.')).toBeTruthy();
   });
 
-  it('shows the composer entry row even when there are no posts, and opens the composer', async () => {
+  // The top bar is the feed's chrome (Figma 3505:14521) and is pinned above the
+  // list, so every one of its destinations stays reachable with an EMPTY feed —
+  // the case the old in-list composer row was there to cover.
+  it('keeps the header actions reachable when there are no posts', async () => {
     (fetchFollowingFeed as jest.Mock).mockResolvedValue([]);
 
     renderWithProviders(<FeedScreen />);
@@ -100,10 +114,26 @@ describe('FeedScreen', () => {
     await waitFor(() => {
       expect(screen.getByTestId('feed-empty')).toBeTruthy();
     });
-    expect(screen.getByText('What’s on your mind?')).toBeTruthy();
 
-    fireEvent.press(screen.getByTestId('feed-composer-row'));
+    fireEvent.press(screen.getByTestId('feed-header-compose'));
     expect(push).toHaveBeenCalledWith('/new-post');
+
+    fireEvent.press(screen.getByTestId('feed-header-search'));
+    expect(push).toHaveBeenCalledWith('/catalog/search');
+
+    fireEvent.press(screen.getByTestId('feed-header-notifications'));
+    expect(push).toHaveBeenCalledWith('/notifications');
+  });
+
+  it('opens the app drawer from the header menu', async () => {
+    renderWithProviders(<FeedScreen />);
+    await waitFor(() => expect(screen.getByText('Following post')).toBeTruthy());
+
+    fireEvent.press(screen.getByTestId('feed-header-menu'));
+
+    // The drawer is context state, not navigation.
+    expect(mockOpenDrawer).toHaveBeenCalledTimes(1);
+    expect(push).not.toHaveBeenCalled();
   });
 
   // Deleting your own post: the ⋯ affordance is on the card, but the confirm +

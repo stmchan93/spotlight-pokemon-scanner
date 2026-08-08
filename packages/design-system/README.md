@@ -150,6 +150,22 @@ Current API concepts:
 - optional custom leading node
 - RN `TextInput` props passthrough
 
+### SearchEntryPill
+
+File: `src/components/search-entry-pill.tsx`
+
+Use for a top-bar search *entry point* — a pill that looks like a search field
+but behaves as a button, opening a real search surface elsewhere. `SearchField`
+stays the primitive for anything you actually type into.
+
+Current API concepts:
+
+- 36pt tall `gray50` pill with a `borderWidths.rule` `gray200` hairline at
+  `radii.pill`, sized to match the 36pt `IconButton`s beside it (Figma 3505:14526)
+- label role: `typography.label` in `gray500`, centered in the FULL pill
+- `leading?: ReactNode` — optional badge pinned to the left edge (the app mark in
+  the feed top bar). Absolutely positioned, so it never shifts the centered label
+
 ### TextField
 
 File: `src/components/text-field.tsx`

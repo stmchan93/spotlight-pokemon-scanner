@@ -266,6 +266,17 @@ export const textStyles = {
     lineHeight: 21,
     color: colors.gray900,
   } satisfies TextStyle,
+  // Figma "Body" — 14/400/150% gray-900. The regular-weight sibling of
+  // `bodyMedium`, and a genuinely different role from `body` (15/400): Figma
+  // uses it for long-form copy that sits UNDER a 14/500 label, e.g. the social
+  // post body under the author name (Figma 3505:14436).
+  bodySmall: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyRegular,
+    fontSize: 14,
+    lineHeight: 21,
+    color: colors.gray900,
+  } satisfies TextStyle,
   // Figma "Caption-medium" — 12/500/140% gray-600
   captionMedium: {
     ...numericFontVariant,

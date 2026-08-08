@@ -1,21 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { EditPencil } from 'iconoir-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
-  IconButton,
-  ScreenHeader,
-  SegmentedControl,
-  type SegmentedControlItem,
+  PageTabs,
+  type PageTab,
   StateCard,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
-import { ChromeBackButton } from '@/components/chrome-back-button';
-import { getUserInitials } from '@/features/auth/auth-models';
-import { FeedComposerRow } from '@/features/social/components/feed-composer-row';
+import { FeedHeader } from '@/features/social/components/feed-header';
 import { PostCard } from '@/features/social/components/post-card';
 import { consumeFeedRefreshSignal } from '@/features/social/screens/new-post-screen';
 import {
@@ -25,12 +20,13 @@ import {
 } from '@/features/social/social-service';
 import { usePostDeletion } from '@/features/social/use-post-deletion';
 import { resolveRepositoryBaseUrl } from '@/providers/app-providers';
+import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAuth } from '@/providers/auth-provider';
 
 const PAGE_SIZE = 20;
 
 type FeedSegment = 'following' | 'global';
-const SEGMENTS: readonly SegmentedControlItem<FeedSegment>[] = [
+const SEGMENTS: readonly PageTab<FeedSegment>[] = [
   { value: 'following', label: 'Following' },
   { value: 'global', label: 'Global' },
 ];
@@ -44,15 +40,25 @@ function readFeed(segment: FeedSegment, before?: string): Promise<FeedPost[]> {
 }
 
 /**
- * Social feed (Phase 3a — read-only). A Following / Global segment over the two
- * feed reads, each a FlatList of read-only PostCards with infinite scroll and
- * pull-to-refresh. No composing or engagement yet.
+ * Social feed (Figma 3505:14426). A pinned top bar — menu, tap-to-search pill,
+ * notifications, new post — over a full-bleed list of `PostCard`s, each closed
+ * by an edge-to-edge hairline.
+ *
+ * Two deliberate departures from that frame:
+ *
+ * - The Following / Global switch is not drawn in Figma, but it selects between
+ *   two different reads and has no replacement in the design, so it stays. It is
+ *   rendered as `PageTabs`, whose full-bleed `gray200` rail IS the hairline the
+ *   frame puts under the header — the tabs cost no extra rule.
+ * - The tab bar in the frame does not match shipped navigation and is ignored
+ *   here; this screen renders its body only.
  */
 export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { accessToken, currentUser } = useAuth();
+  const { openDrawer } = useAppDrawer();
+  const { accessToken } = useAuth();
   const apiBaseUrl = resolveRepositoryBaseUrl();
 
   const [segment, setSegment] = useState<FeedSegment>('following');
@@ -183,40 +189,13 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     router.push('/new-post' as never);
   }, [router]);
 
-  const listHeader = (
-    <View style={styles.headerStack}>
-      <View style={styles.chrome}>
-        <ScreenHeader
-          leftAccessory={
-            <ChromeBackButton onPress={() => router.back()} testID={`${testID}-back`} />
-          }
-          rightAccessory={
-            <IconButton
-              accessibilityLabel="New post"
-              onPress={openComposer}
-              testID={`${testID}-compose`}
-              variant="subtle"
-            >
-              <EditPencil color={theme.colors.textPrimary} height={20} width={20} />
-            </IconButton>
-          }
-          title="Feed"
-        />
-        <SegmentedControl
-          items={SEGMENTS}
-          onChange={setSegment}
-          testID={`${testID}-segment`}
-          value={segment}
-        />
-      </View>
-      <FeedComposerRow
-        avatarUrl={currentUser?.avatarURL}
-        initials={currentUser ? getUserInitials(currentUser) : 'C'}
-        onPress={openComposer}
-        testID={`${testID}-composer-row`}
-      />
-    </View>
-  );
+  const openSearch = useCallback(() => {
+    router.push('/catalog/search' as never);
+  }, [router]);
+
+  const openNotifications = useCallback(() => {
+    router.push('/notifications' as never);
+  }, [router]);
 
   const listEmpty =
     status === 'error' ? (
@@ -263,19 +242,36 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
       style={[styles.safeArea, { backgroundColor: theme.colors.gray0 }]}
       testID={testID}
     >
+      {/*
+        The bar is pinned rather than carried as a list header: it is the
+        screen's chrome in Figma (fixed at the top of the frame), and pinning it
+        keeps search / notifications / compose reachable mid-scroll.
+      */}
+      <FeedHeader
+        onOpenComposer={openComposer}
+        onOpenMenu={openDrawer}
+        onOpenNotifications={openNotifications}
+        onOpenSearch={openSearch}
+        testID={`${testID}-header`}
+      />
+      <PageTabs
+        onChange={setSegment}
+        tabs={SEGMENTS}
+        testID={`${testID}-segment`}
+        value={segment}
+      />
       <FlatList
         contentContainerStyle={{
-          gap: 12,
           paddingBottom: insets.bottom + 24,
-          // No horizontal padding: post cards are full-bleed (edge-to-edge image,
-          // Figma 2903-7128). The header + state cards carry their own 16px inset.
+          // No horizontal padding and no inter-item gap: post cards are
+          // full-bleed and carry their own 16pt top inset, which is exactly the
+          // gap Figma leaves between a card's closing hairline and the next
+          // avatar. State cards re-inset themselves below.
         }}
         data={posts}
         keyExtractor={(item) => item.id}
         ListEmptyComponent={listEmpty}
         ListFooterComponent={listFooter}
-        ListHeaderComponent={listHeader}
-        ListHeaderComponentStyle={styles.headerSpacing}
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.5}
         refreshControl={
@@ -304,27 +300,14 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
 }
 
 const styles = StyleSheet.create({
-  chrome: {
-    gap: 16,
-    // The list is edge-to-edge for full-bleed post cards; re-inset the header.
-    paddingHorizontal: 16,
-  },
   footerSpinner: {
     paddingVertical: 20,
-  },
-  headerSpacing: {
-    marginBottom: 12,
-  },
-  headerStack: {
-    // The composer row is full-bleed (its divider runs edge to edge), so the
-    // 16px inset lives on `chrome` rather than on this wrapper.
-    gap: 16,
   },
   safeArea: {
     flex: 1,
   },
   stateCard: {
-    marginTop: 12,
+    marginTop: 16,
     // Re-inset state cards since the list itself has no horizontal padding.
     marginHorizontal: 16,
   },

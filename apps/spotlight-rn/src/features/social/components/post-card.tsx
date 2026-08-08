@@ -47,9 +47,15 @@ type PostCardProps = {
 };
 
 const AVATAR_SIZE = 40;
-/** Portrait image frame per Figma 2903-7128 (3:4). */
-const IMAGE_ASPECT_RATIO = 3 / 4;
+/**
+ * Portrait image frame. Figma 3505:14439 draws it 393 × 491 on a 393pt frame —
+ * exactly 4:5. (The layer is still NAMED "3x4" from an earlier revision; the
+ * measured geometry is what ships.)
+ */
+const IMAGE_ASPECT_RATIO = 4 / 5;
 const METRIC_ICON_SIZE = 18;
+/** The ⋯ options glyph, per Figma 315:2992. */
+const MORE_ICON_SIZE = 24;
 // The comment icon and its count are two separate targets 4px apart, so their
 // hit slops are trimmed on the facing edges instead of overlapping.
 const COMMENT_ICON_HIT_SLOP = { top: 8, bottom: 8, left: 8, right: 2 } as const;
@@ -80,7 +86,7 @@ function formatPostDate(createdAt: string): string {
  * A single authed post image, streamed from `${apiBaseUrl}/api/v1/post-media/<id>`
  * with a bearer header (the bytes are private until moderation approves them, so
  * they're never a plain public URL). Uses the media blurhash as the placeholder.
- * Rendered full-bleed at a fixed 3:4 portrait frame.
+ * Rendered full-bleed at a fixed 4:5 portrait frame.
  */
 function PostImage({
   media,
@@ -112,7 +118,7 @@ function PostImage({
 }
 
 /**
- * Post card (Figma 2903-7128, Activity feed): a full-bleed card — header row
+ * Post card (Figma 3505:14460, home feed): a full-bleed card — header row
  * (avatar + name/date + a ⋯ options button), body text, an optional card chip,
  * full-bleed 3:4 image(s), and a metrics row (thumbs-up like + comment on the
  * left, share on the right) closed by a hairline divider. Interactions are
@@ -120,6 +126,10 @@ function PostImage({
  * tints to the accent color when liked) and the card chip opens the anchored
  * card's PDP. Both comment targets — the chat icon and the count — open the full
  * thread sheet; the icon additionally focuses its composer.
+ *
+ * The Figma reaction row also carries a repeat/reshare control. It is NOT built:
+ * nothing in the Supabase social schema backs a reshare, so the button could
+ * only ever be inert. Add it here when a `post_reshares` table exists.
  */
 export function PostCard({
   post,
@@ -216,7 +226,7 @@ export function PostCard({
 
   return (
     <View
-      style={[styles.card, { backgroundColor: theme.colors.canvasElevated }]}
+      style={[styles.card, { backgroundColor: theme.colors.gray0 }]}
       testID={`${testID}-${post.id}`}
     >
       <View style={styles.headerRow}>
@@ -270,14 +280,18 @@ export function PostCard({
             style={styles.moreButton}
             testID={`${testID}-more-button`}
           >
-            <MoreHoriz color={theme.colors.gray700} height={20} width={20} />
+            <MoreHoriz
+              color={theme.colors.gray700}
+              height={MORE_ICON_SIZE}
+              width={MORE_ICON_SIZE}
+            />
           </Pressable>
         ) : null}
       </View>
 
       {post.body ? (
         <Text
-          style={[styles.bodyText, theme.typography.body, { color: theme.colors.gray800 }]}
+          style={[styles.bodyText, theme.typography.bodySmall, { color: theme.colors.gray800 }]}
           testID={`${testID}-body`}
         >
           {post.body}
@@ -384,12 +398,17 @@ export function PostCard({
       </View>
 
       {/*
-        Figma 2903:7528 — the rule between posts is #D4D4D4 (= gray300) at 0.5.
+        Figma 3505:14450 — the rule between posts is #D4D4D4 (= gray300) at 0.5.
         It was `outlineSubtle`, i.e. rgba(0,0,0,0.08), which composites to about
         #EBEBEB on white and read as washed out next to the design. gray300 is
         the same value the Figma stroke uses, so this is the token, not a nudge.
       */}
-      <View style={[styles.divider, { backgroundColor: theme.colors.gray300 }]} />
+      <View
+        style={[
+          styles.divider,
+          { backgroundColor: theme.colors.gray300, height: theme.borderWidths.rule },
+        ]}
+      />
 
       <CommentsSheet
         autoFocusComposer={focusComposerOnOpen}
@@ -409,9 +428,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   card: {
-    // Figma 2903-7128 stacks the whole card on an 8px rhythm (header→body 8,
+    // Figma 3505:14460 stacks the whole card on an 8px rhythm (header→body 8,
     // body→image 8, image→metrics 8) and separates cards by 16 after the
-    // hairline divider.
+    // hairline divider — which is what this top inset provides, so the list
+    // itself carries no inter-item gap.
     gap: 8,
     paddingTop: 16,
   },
@@ -425,7 +445,6 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   divider: {
-    height: 0.5,
     width: '100%',
   },
   headerRow: {
@@ -452,10 +471,13 @@ const styles = StyleSheet.create({
   metricsLeft: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 16,
+    // Figma 3505:14441 — 12 between reaction groups, 4 inside one.
+    gap: 12,
   },
   metricsRow: {
-    alignItems: 'center',
+    // Figma 3505:14440 baselines the row on its bottom edge, so the 18pt share
+    // glyph lines up with the reaction glyphs rather than floating above them.
+    alignItems: 'flex-end',
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingBottom: 8,
