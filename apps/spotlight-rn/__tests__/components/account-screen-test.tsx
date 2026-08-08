@@ -1,4 +1,6 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import * as Clipboard from 'expo-clipboard';
+import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
 import { Alert, StyleSheet } from 'react-native';
 
@@ -10,6 +12,21 @@ import { createTestSpotlightRepository, renderWithProviders } from '../test-util
 jest.mock('expo-router', () => ({
   useRouter: jest.fn(),
 }));
+
+jest.mock('expo-linking', () => ({
+  canOpenURL: jest.fn(async () => true),
+  openURL: jest.fn(async () => true),
+}));
+
+jest.mock('expo-clipboard', () => ({
+  setStringAsync: jest.fn(async () => true),
+}));
+
+const mockCanOpenURL = Linking.canOpenURL as jest.MockedFunction<typeof Linking.canOpenURL>;
+const mockOpenURL = Linking.openURL as jest.MockedFunction<typeof Linking.openURL>;
+const mockSetStringAsync = Clipboard.setStringAsync as jest.MockedFunction<
+  typeof Clipboard.setStringAsync
+>;
 
 jest.mock('@/providers/auth-provider', () => ({
   useAuth: jest.fn(),
@@ -71,6 +88,79 @@ describe('AccountScreen', () => {
       lineHeight: 20,
     });
     expect(screen.queryByTestId('account-label-session')).toBeNull();
+  });
+
+  // App Store Guideline 1.2: a UGC app has to publish a contact method for
+  // objectionable-content reports. These three tests are the guardrail on that
+  // row — it must render, it must open mail, and it must never dead-end.
+  it('renders the contact & support row', () => {
+    renderWithProviders(<AccountScreen />);
+
+    expect(screen.getByTestId('account-contact-support')).toBeTruthy();
+    expect(screen.getByText('Contact & support')).toBeTruthy();
+    expect(screen.getByText('Contact support')).toBeTruthy();
+    // The raw address stays hidden until we know mail can't be opened.
+    expect(screen.queryByTestId('account-support-email')).not.toBeOnTheScreen();
+  });
+
+  it('opens a prefilled support mailto when a mail client exists', async () => {
+    mockCanOpenURL.mockResolvedValue(true);
+
+    renderWithProviders(<AccountScreen />);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('account-contact-support'));
+    });
+
+    // Subject carries app name + version so triage has context; body stays
+    // empty because it would otherwise ship user PII to our inbox.
+    const expectedUrl = `mailto:team@ekalight.com?subject=${encodeURIComponent(
+      'Spotlight 1.0.0 — Support',
+    )}`;
+    await waitFor(() => {
+      expect(mockOpenURL).toHaveBeenCalledWith(expectedUrl);
+    });
+    expect(screen.queryByTestId('account-support-email')).not.toBeOnTheScreen();
+  });
+
+  it('reveals a copyable address when no mail client can handle the mailto', async () => {
+    mockCanOpenURL.mockResolvedValue(false);
+
+    renderWithProviders(<AccountScreen />);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('account-contact-support'));
+    });
+
+    // The whole point of the fallback: the address is still reachable.
+    const address = await screen.findByTestId('account-support-email');
+    expect(address).toHaveTextContent('team@ekalight.com');
+    expect(address.props.selectable).toBe(true);
+    expect(mockOpenURL).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('account-support-copy'));
+    });
+
+    await waitFor(() => {
+      expect(mockSetStringAsync).toHaveBeenCalledWith('team@ekalight.com');
+    });
+    expect(await screen.findByText('Copied')).toBeTruthy();
+  });
+
+  it('reveals the address when opening the mailto throws', async () => {
+    mockCanOpenURL.mockResolvedValue(true);
+    mockOpenURL.mockRejectedValue(new Error('no handler'));
+
+    renderWithProviders(<AccountScreen />);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('account-contact-support'));
+    });
+
+    expect(await screen.findByTestId('account-support-email')).toHaveTextContent(
+      'team@ekalight.com',
+    );
   });
 
   it('uses the shared left-aligned back button chrome', () => {

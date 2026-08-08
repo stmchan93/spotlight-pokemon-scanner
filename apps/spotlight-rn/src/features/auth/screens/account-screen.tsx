@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
+import * as Clipboard from 'expo-clipboard';
+import Constants from 'expo-constants';
+import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -22,6 +25,19 @@ import { useAppServices } from '@/providers/app-providers';
 
 const ADMIN_EMAIL = 'stmchan8953@gmail.com';
 
+// App Store Guideline 1.2 (user-generated content) requires a published contact
+// method so anyone can reach us about objectionable content. This is also the
+// human escape hatch when the automated filter misses something.
+const SUPPORT_EMAIL = 'team@ekalight.com';
+
+function buildSupportMailtoUrl() {
+  const appName = Constants.expoConfig?.name ?? 'Ekalight';
+  const appVersion = Constants.expoConfig?.version ?? '';
+  // Subject only — never put user PII in the prefilled body.
+  const subject = appVersion ? `${appName} ${appVersion} — Support` : `${appName} — Support`;
+  return `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}`;
+}
+
 export function AccountScreen() {
   const router = useRouter();
   const theme = useSpotlightTheme();
@@ -39,6 +55,8 @@ export function AccountScreen() {
 
   const [isDeleting, setIsDeleting] = useState(false);
   const [collectionDataBusy, setCollectionDataBusy] = useState(false);
+  const [supportEmailRevealed, setSupportEmailRevealed] = useState(false);
+  const [supportEmailCopied, setSupportEmailCopied] = useState(false);
 
   const isAdmin = auth.currentUser?.email === ADMIN_EMAIL;
   const [showModeActive, setShowModeActive] = useState(false);
@@ -169,6 +187,34 @@ export function AccountScreen() {
     );
   }, [confirmDeleteAccount]);
 
+  // `mailto:` rejects on simulators and on devices with no mail account set up.
+  // This row is the contact-of-record for objectionable-content reports, so a
+  // silent no-op is the one outcome we can't ship: fall back to showing the
+  // address inline as selectable/copyable text.
+  const handleContactSupport = useCallback(async () => {
+    const url = buildSupportMailtoUrl();
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (!canOpen) {
+        setSupportEmailRevealed(true);
+        return;
+      }
+      await Linking.openURL(url);
+    } catch {
+      setSupportEmailRevealed(true);
+    }
+  }, []);
+
+  const handleCopySupportEmail = useCallback(async () => {
+    try {
+      await Clipboard.setStringAsync(SUPPORT_EMAIL);
+      setSupportEmailCopied(true);
+    } catch {
+      // The address is already on screen and selectable, so a failed clipboard
+      // write is not a dead end — leave the label alone.
+    }
+  }, []);
+
   const handleExportCollection = useCallback(async () => {
     if (collectionDataBusy) {
       return;
@@ -268,6 +314,54 @@ export function AccountScreen() {
                 testID="account-export-csv"
                 variant="outline"
               />
+            </View>
+          </View>
+        </SurfaceCard>
+
+        <SurfaceCard padding={20} radius={28}>
+          <View style={styles.collectionDataCard}>
+            <View style={styles.showModeCopy}>
+              <Text style={[theme.typography.titleCompact, { color: theme.colors.textPrimary }]}>
+                Contact & support
+              </Text>
+              <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>
+                Email us to report content or get help.
+              </Text>
+            </View>
+            <View style={styles.collectionDataButtons}>
+              <Button
+                label="Contact support"
+                onPress={() => {
+                  void handleContactSupport();
+                }}
+                size="lg"
+                testID="account-contact-support"
+                variant="outline"
+              />
+
+              {supportEmailRevealed ? (
+                <View style={styles.supportFallback}>
+                  <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>
+                    No mail app is set up on this device. Email us at:
+                  </Text>
+                  <Text
+                    selectable
+                    style={[theme.typography.titleCompact, { color: theme.colors.textPrimary }]}
+                    testID="account-support-email"
+                  >
+                    {SUPPORT_EMAIL}
+                  </Text>
+                  <Button
+                    label={supportEmailCopied ? 'Copied' : 'Copy email address'}
+                    onPress={() => {
+                      void handleCopySupportEmail();
+                    }}
+                    size="md"
+                    testID="account-support-copy"
+                    variant="outline"
+                  />
+                </View>
+              ) : null}
             </View>
           </View>
         </SurfaceCard>
@@ -462,6 +556,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: 14,
+  },
+  supportFallback: {
+    gap: 8,
   },
   whitelistCard: {
     gap: 16,
