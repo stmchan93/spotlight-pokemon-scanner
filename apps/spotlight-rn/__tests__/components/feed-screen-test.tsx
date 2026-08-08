@@ -144,6 +144,18 @@ describe('FeedScreen', () => {
     expect(screen.getByTestId('feed-header-rule')).toBeTruthy();
   });
 
+  // The gap under the search bar was a full status bar of dead space, because
+  // the top inset was applied TWICE: once by the screen's SafeAreaView and again
+  // by the bar, which took it from `useSafeAreaInsets()` regardless of what it
+  // was mounted inside. Only the SafeAreaView applies it now.
+  it('applies the status-bar inset once, not twice, above the search bar', async () => {
+    renderWithProviders(<FeedScreen />);
+    await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
+
+    const barStyle = StyleSheet.flatten(screen.getByTestId('feed-header').props.style);
+    expect(barStyle.paddingTop).toBe(0);
+  });
+
   it('opens the app drawer from the header menu', async () => {
     renderWithProviders(<FeedScreen />);
     await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());

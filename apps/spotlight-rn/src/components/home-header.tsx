@@ -20,6 +20,17 @@ type HomeHeaderProps = {
   onOpenNotifications: () => void;
   /** Tapping the pill opens the full-screen card search. */
   onOpenSearch: () => void;
+  /**
+   * Space above the control row, for the status bar.
+   *
+   * Explicit because it depends on what the bar is mounted INSIDE, and getting
+   * it from `useSafeAreaInsets()` unconditionally double-counted: on Home the
+   * bar is a row of a list whose enclosing `SafeAreaView` has already consumed
+   * the top inset, so adding it again pushed the first post a full status bar
+   * further down. Collection mounts it at the very top of the screen and passes
+   * the real inset. Defaults to the safe-area inset for that case.
+   */
+  topInset?: number;
   unreadCount: number;
   testID?: string;
 };
@@ -73,6 +84,7 @@ export function HomeHeader({
   onOpenMenu,
   onOpenNotifications,
   onOpenSearch,
+  topInset,
   unreadCount,
   testID = 'portfolio-header',
 }: HomeHeaderProps) {
@@ -81,9 +93,7 @@ export function HomeHeader({
 
   return (
     <View
-      // Owns the top inset itself rather than leaving it to a SafeAreaView, so
-      // the page beneath can still scroll up under the status bar.
-      style={{ paddingTop: insets.top, backgroundColor: theme.colors.gray0 }}
+      style={{ paddingTop: topInset ?? insets.top, backgroundColor: theme.colors.gray0 }}
       testID={testID}
     >
       <View

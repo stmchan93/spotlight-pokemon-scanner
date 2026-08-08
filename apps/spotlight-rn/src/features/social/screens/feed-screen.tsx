@@ -226,10 +226,10 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
 
   return (
     <SafeAreaView
-      // NOT 'top': the bar is the list's own header and applies the top inset
-      // itself, so the list starts at y=0 and its content scrolls up under the
-      // status bar instead of stopping below the notch.
-      edges={['left', 'right']}
+      // 'top' is consumed HERE, once. The bar is a row of the list below, so if
+      // it also added the inset itself the first post sat a whole status bar too
+      // far down — which is exactly what it did.
+      edges={['top', 'left', 'right']}
       style={[styles.safeArea, { backgroundColor: theme.colors.gray0 }]}
       testID={testID}
     >
@@ -263,6 +263,9 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
             onOpenMenu={openDrawer}
             onOpenNotifications={openNotifications}
             onOpenSearch={openSearch}
+            // Already inside the SafeAreaView above; adding it again is the
+            // double-count that opened the gap under the search bar.
+            topInset={0}
             testID={`${testID}-header`}
             unreadCount={unreadCount}
           />
