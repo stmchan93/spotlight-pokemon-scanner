@@ -20,7 +20,8 @@ supabase/
 │  ├─ 20260726090000_social_09_engagement_counter_triggers_security_definer.sql
 │  ├─ 20260806090000_social_10_public_users_mirror.sql      # NOT applied yet
 │  ├─ …                                                    # social_11 … social_17
-│  └─ 20260812090000_social_18_moderation_wordlist_word_boundary.sql   # NOT applied yet
+│  ├─ 20260812090000_social_18_moderation_wordlist_word_boundary.sql   # NOT applied yet
+│  └─ 20260813090000_social_19_block_enforcement_profiles_follows_dms.sql  # NOT applied yet
 ├─ manual/
 │  └─ user_profiles_rls_REVIEW_BEFORE_APPLY.sql   # superseded by social_08 (kept for history)
 └─ email_exists.sql                 # pre-existing RPC, applied by hand; social_10 promotes it into migrations
@@ -33,11 +34,11 @@ this file said nothing had been applied — that was stale; it is fixed here.) T
 applied migration as **immutable history**: never edit one, always add the next file in
 sequence.
 
-`social_11` through `social_18` were added after this section was last revised, so do not
+`social_11` through `social_19` were added after this section was last revised, so do not
 read "social_10 is the only unapplied file" off it. **`supabase migration list` is the only
 trustworthy answer** to what is actually applied where — run it against staging and against
 production separately, since [the two are separate projects](#staging-first-always).
-`social_18` is new in this pass and is applied nowhere.
+`social_18` and `social_19` are new in this pass and are applied nowhere.
 
 The migrations are **additive only** — brand-new tables + additive columns on
 `user_profiles`. RLS on the pre-existing `user_profiles` table was promoted out of
@@ -187,6 +188,75 @@ proof, a metacharacter-escaping check, a **false-positive sweep of the whole lis
 real TCG vocabulary that must return zero rows**, the per-severity counts, and end-to-end
 inserts proving hard→`removed` and soft→`pending`. Run at least the sweep and the counts.
 
+### Applying `social_19` (finish enforcing blocks)
+
+**On the critical path for the App Store submission.** Apple's reviewers exercise block and
+report on UGC apps, and blocking was only enforced on some surfaces. This closes the rest.
+Apply **staging first**, run the migration footer's verification block there with two real
+accounts, then production.
+
+`social_13` had already stopped a blocked user from *sending* a DM. What was still open:
+
+| surface | before | after |
+| --- | --- | --- |
+| `messages` UPDATE | `sender_id = auth.uid()` only — a blocked user could **edit an existing message**, pushed live to the victim via Realtime (`social_12`) | participation **and** block gated; a blocked thread is frozen for both sides |
+| `public_profiles` | filtered `status` / `is_shadowbanned` only | blocked users have no public profile, **either direction** |
+| `follows` | block never touched the edges; `select using (true)` | block **deletes** the edges both ways (counters follow); SELECT filters third-party edges |
+| `comments` / `comment_likes` INSERT | no block check (`post_likes` had one since `social_01`) | blocked users can't comment on, reply under, or like content they can't read |
+| `notifications` | a blocked user could still ring your bell | writes suppressed at the trigger; pre-block rows filtered on read, **not deleted** |
+
+Decisions worth knowing before you apply:
+
+- **DM history stays readable.** `messages_select` is deliberately untouched. `reports` is
+  polymorphic over `target_type = 'message'`, so a victim must be able to open the thread and
+  report it — hiding it would destroy the evidence and let a harasser erase their own history
+  by blocking first. The thread goes silent and immutable, not invisible. Both sides see the
+  same thing, so nothing leaks from the difference.
+- **Blocking deletes the follow edges** (both directions) rather than filtering them. Filtering
+  alone would leave the denormalized `user_profiles.follower_count` reading one higher than the
+  list underneath it, permanently — the same silent-drift class `social_07`/`social_09` exist to
+  prevent. The delete fires `tg_follows_counts`, so count and list agree by construction.
+  **Unblocking does not restore the follow**, by design.
+- **New RPC `public.blocked_profiles()`** is the *only* way to read a blocked user's name. It
+  takes no argument and is pinned to `auth.uid()` internally, so it is an unblock list, not a
+  lookup tool. Hiding the profile also hides the name, and a user who can block must be able to
+  unblock.
+- **Nothing is deleted except follow edges.** Notifications, messages, likes and reports all
+  survive a block.
+
+One data-changing statement: a backfill that deletes follow edges for pairs that are *already*
+blocked. See the blast radius before you apply — expected `0` today:
+
+```sql
+select count(*) from public.follows f
+  join public.blocks b
+    on (f.follower_id = b.blocker_id and f.followee_id = b.blocked_id)
+    or (f.follower_id = b.blocked_id and f.followee_id = b.blocker_id);
+```
+
+**Run it as `postgres`** (SQL editor or `supabase db push`) — replacing the `public_profiles`
+view requires the owner role.
+
+**Verify after applying.** The migration footer carries a full impersonation script (`set local
+role authenticated; set local request.jwt.claims = '{"sub":"<uid>",…}'`) proving that a blocked
+user cannot message, edit, be seen in a follower list, or read the blocker's profile — plus a
+**control section proving an unblocked pair is completely unaffected**. Run at least §3 (profile),
+§4 (follows), §5 (DM edit) and §7 (the control).
+
+Client follow-ups this migration enables but does not perform (they live in `src/`, not here):
+
+1. A **Blocked accounts** screen backed by `blocked_profiles()`, with unblock. Expected by App
+   Review, and now the only place a blocked user's name is available.
+2. `hydrateDmUsers` (`dm-service.ts`) should fall back to `blocked_profiles()` so a frozen thread
+   you are meant to report keeps its title.
+3. The block/report comment block in `social-service.ts` (~line 1061) is stale — `social_13`
+   already closed the DM send path, and this file closes the rest.
+
+Deliberately **not** closed, and written out at length in the migration header: the
+`tg_content_prefilter` trigger on `messages` is `BEFORE INSERT` only (so an edit skips the
+wordlist — a moderation fix that belongs with `social_18`), group conversations over-block,
+`dm_key` squatting, and `avatars` staying a public bucket.
+
 ### Adding or removing blocked terms later (no migration needed)
 
 `blocked_terms` is admin-only (RLS `public.is_admin()`), so this is a SQL-editor / admin
@@ -233,6 +303,10 @@ Four rules, all learned the hard way and written out at length in the migration 
   until the worker sets `approved`.
 - B cannot select a `messages` row of a conversation it isn't a participant in.
 - 3 distinct users report one post → it flips to `pending` (auto-hidden).
+- A blocks B (`social_19` applied) → B's follow of A is gone and both follower counts moved;
+  B gets a not-found on A's profile and cannot find A in People search; B cannot send **or edit**
+  a message in their shared thread, though both still read its history; B cannot comment on or
+  like A's content. A still sees B via `select * from public.blocked_profiles()` and can unblock.
 - Run `social_moderation_worker.py --once` → `moderation_checked_at` fills in and
   pending media resolves.
 
