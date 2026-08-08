@@ -17,7 +17,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from time import monotonic, perf_counter
-from typing import Any, Literal
+from typing import Any, Iterable, Literal
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
 from zoneinfo import ZoneInfo
 
@@ -207,6 +207,25 @@ AUTH_FALLBACK_USER_ID_ENV = "SPOTLIGHT_AUTH_FALLBACK_USER_ID"
 REVIEWER_USER_IDS_ENV = "SPOTLIGHT_REVIEWER_USER_IDS"
 REVIEWER_EMAILS_ENV = "SPOTLIGHT_REVIEWER_EMAILS"
 REVIEW_QUEUE_DEFAULT_LIMIT = 30
+# Admin moderation queue (the HUMAN half of App Store Guideline 1.2). Reports
+# live in Supabase `public.reports` (social_04); these bound one page of them.
+MODERATION_QUEUE_DEFAULT_LIMIT = 50
+MODERATION_QUEUE_MAX_LIMIT = 200
+# Report statuses `public.reports.status` may hold, per social_04.
+MODERATION_REPORT_STATUSES = ("open", "actioned", "dismissed")
+# The target kinds that have reviewable CONTENT behind them. `reports` also
+# accepts `message` and `profile`; those still show up in the queue, they just
+# carry no body to render and no content_status to flip.
+MODERATION_CONTENT_TABLES = {"post": "posts", "comment": "comments"}
+# A moderation verb -> (content_status to write or None, resolved report status,
+# moderation_actions.action to log). `keep` and `dismiss` both leave the report
+# NOT upheld ("dismissed"); they differ in whether the content is republished,
+# and the moderation_actions row records which one the human actually chose.
+MODERATION_ACTIONS: dict[str, tuple[str | None, str, str]] = {
+    "remove": ("removed", "actioned", "remove"),
+    "keep": ("visible", "dismissed", "approve"),
+    "dismiss": (None, "dismissed", "dismiss"),
+}
 # A live, DB-backed review queue: instead of a frozen file, serve every raw scan
 # that still needs a label from REVIEW_DYNAMIC_SINCE onward, oldest first, and
 # keep auto-feeding new scans as they come in. The /review page points at this id.
@@ -18061,6 +18080,399 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         except Exception:  # noqa: BLE001 - rollback is best-effort
             pass
 
+    # ------------------------------------------------------------------
+    # Admin moderation queue — the HUMAN half of App Store Guideline 1.2.
+    #
+    # Community reports land in Supabase `public.reports` (social_04). Two
+    # automated things already read them: `tg_reports_threshold()` parks a
+    # target at `pending` once K distinct people report it, and
+    # backend/social_moderation_worker.py runs the AI pass. That worker
+    # deliberately REFUSES to release a `pending` row while an open report
+    # exists (`_has_open_report`) because it is waiting for a person to decide.
+    # This is that person's surface: without it, reported content is hidden
+    # forever and nobody ever looks at it.
+    #
+    # Same posture as the post_media helpers above: the rows live in Supabase,
+    # but the AUTHORIZATION decision is made HERE, in Python, by
+    # `_require_reviewer` against the VERIFIED request identity. Everything
+    # below runs with the SERVICE-ROLE key, which BYPASSES RLS — so nothing the
+    # browser sends is ever treated as permission.
+    # ------------------------------------------------------------------
+
+    def _supabase_rest_patch(
+        self, table: str, params: dict[str, str], payload: dict[str, Any]
+    ) -> list[dict[str, Any]] | None:
+        """Privileged PostgREST PATCH (RLS bypassed — authorize BEFORE calling).
+
+        Returns the updated rows (possibly empty when the filter matched
+        nothing), or ``None`` when the write could not be completed at all.
+        Callers must treat ``None`` as "did not happen".
+        """
+        config = self._supabase_rest_config()
+        if config is None:
+            return None
+        supabase_url, service_role_key = config
+
+        from urllib.request import Request, urlopen
+
+        request = Request(
+            f"{supabase_url}/rest/v1/{table}?{urlencode(params)}",
+            data=json.dumps(payload).encode("utf-8"),
+            method="PATCH",
+            headers={
+                "apikey": service_role_key,
+                "Authorization": f"Bearer {service_role_key}",
+                "Content-Type": "application/json",
+                "Prefer": "return=representation",
+                "Accept": "application/json",
+            },
+        )
+        try:
+            with urlopen(request, timeout=10) as response:
+                raw = response.read()
+        except Exception:  # noqa: BLE001 - any failure means "not written"
+            return None
+        try:
+            parsed = json.loads(raw.decode("utf-8"))
+        except Exception:  # noqa: BLE001
+            return None
+        if not isinstance(parsed, list):
+            return None
+        return [row for row in parsed if isinstance(row, dict)]
+
+    def _supabase_rest_insert(
+        self, table: str, payload: dict[str, Any]
+    ) -> list[dict[str, Any]] | None:
+        """Privileged PostgREST INSERT (RLS bypassed — authorize BEFORE calling)."""
+        config = self._supabase_rest_config()
+        if config is None:
+            return None
+        supabase_url, service_role_key = config
+
+        from urllib.request import Request, urlopen
+
+        request = Request(
+            f"{supabase_url}/rest/v1/{table}",
+            data=json.dumps(payload).encode("utf-8"),
+            method="POST",
+            headers={
+                "apikey": service_role_key,
+                "Authorization": f"Bearer {service_role_key}",
+                "Content-Type": "application/json",
+                "Prefer": "return=representation",
+                "Accept": "application/json",
+            },
+        )
+        try:
+            with urlopen(request, timeout=10) as response:
+                raw = response.read()
+        except Exception:  # noqa: BLE001
+            return None
+        try:
+            parsed = json.loads(raw.decode("utf-8"))
+        except Exception:  # noqa: BLE001
+            return None
+        if isinstance(parsed, dict):
+            return [parsed]
+        if not isinstance(parsed, list):
+            return None
+        return [row for row in parsed if isinstance(row, dict)]
+
+    @staticmethod
+    def _moderation_uuid_in_filter(values: Iterable[str]) -> str | None:
+        """A PostgREST ``in.(...)`` filter over UUID-shaped ids, or ``None``.
+
+        Every id is re-validated as a UUID before it is spliced into the query
+        string, so a malformed row in the reports table can never widen or
+        reshape the follow-up query.
+        """
+        safe = sorted({v for v in (str(x or "").strip() for x in values) if is_plausible_user_id(v)})
+        if not safe:
+            return None
+        return "in.(" + ",".join(safe) + ")"
+
+    def _moderation_fetch_rows_by_id(
+        self, table: str, ids: Iterable[str], select: str
+    ) -> dict[str, dict[str, Any]]:
+        """``{id: row}`` for one batched read. Unreadable/missing → ``{}``."""
+        id_filter = self._moderation_uuid_in_filter(ids)
+        if id_filter is None:
+            return {}
+        rows = self._supabase_rest_select(
+            table, {"id": id_filter, "select": select, "limit": str(MODERATION_QUEUE_MAX_LIMIT)}
+        )
+        if not rows:
+            return {}
+        return {str(row.get("id") or ""): row for row in rows if row.get("id")}
+
+    def _moderation_queue_payload(self, *, status: str, limit: int) -> dict[str, Any]:
+        """One page of reports plus the context a human needs to decide.
+
+        Batched: one read for the reports, then at most one read each for
+        posts, comments, authors, media, and the open-report tally — never one
+        read per row.
+        """
+        reports = self._supabase_rest_select(
+            "reports",
+            {
+                "status": f"eq.{status}",
+                "select": "id,reporter_id,target_type,target_id,reason,status,reviewed_by,reviewed_at,created_at",
+                "order": "created_at.desc",
+                "limit": str(limit),
+            },
+        )
+        if reports is None:
+            raise RuntimeError("Supabase is not configured or could not be read")
+        if not reports:
+            return {"status": status, "limit": limit, "count": 0, "items": []}
+
+        post_ids = [r.get("target_id") for r in reports if r.get("target_type") == "post"]
+        comment_ids = [r.get("target_id") for r in reports if r.get("target_type") == "comment"]
+
+        posts = self._moderation_fetch_rows_by_id(
+            "posts",
+            post_ids,
+            "id,author_id,body,card_id,content_status,moderation_checked_at,created_at,deleted_at",
+        )
+        comments = self._moderation_fetch_rows_by_id(
+            "comments",
+            comment_ids,
+            "id,post_id,author_id,body,content_status,moderation_checked_at,created_at,deleted_at",
+        )
+
+        # Media hangs off the POST, so it is fetched by post_id (both directly
+        # reported posts and the parent post of any reported comment).
+        media_post_ids = list(posts.keys()) + [
+            str(row.get("post_id") or "") for row in comments.values()
+        ]
+        media_by_post: dict[str, list[dict[str, Any]]] = {}
+        media_filter = self._moderation_uuid_in_filter(media_post_ids)
+        if media_filter is not None:
+            media_rows = self._supabase_rest_select(
+                "post_media",
+                {
+                    "post_id": media_filter,
+                    "select": "id,post_id,storage_path,moderation_status,position,created_at",
+                    "order": "position.asc",
+                    "limit": str(MODERATION_QUEUE_MAX_LIMIT * 4),
+                },
+            ) or []
+            for row in media_rows:
+                media_by_post.setdefault(str(row.get("post_id") or ""), []).append(
+                    {
+                        "id": row.get("id"),
+                        "moderation_status": row.get("moderation_status"),
+                        "storage_path": row.get("storage_path"),
+                        "position": row.get("position"),
+                        # Reviewer-gated proxy. NOT /api/v1/post-media/{id}:
+                        # that one authorizes as a normal reader, so a moderator
+                        # who is not the author (and not `admin_enabled`) would
+                        # 404 on exactly the pending/rejected images they were
+                        # asked to look at. Bytes stay private either way.
+                        "url": f"/api/v1/moderation/media/{row.get('id')}",
+                    }
+                )
+
+        # Author identity for every piece of content in the page, plus the
+        # reporters, in one read.
+        author_ids = [str(row.get("author_id") or "") for row in posts.values()]
+        author_ids += [str(row.get("author_id") or "") for row in comments.values()]
+        author_ids += [str(r.get("reporter_id") or "") for r in reports]
+        profiles: dict[str, dict[str, Any]] = {}
+        profile_filter = self._moderation_uuid_in_filter(author_ids)
+        if profile_filter is not None:
+            profile_rows = self._supabase_rest_select(
+                "user_profiles",
+                {
+                    "user_id": profile_filter,
+                    "select": "user_id,handle,display_name",
+                    "limit": str(MODERATION_QUEUE_MAX_LIMIT * 3),
+                },
+            ) or []
+            profiles = {
+                str(row.get("user_id") or ""): row for row in profile_rows if row.get("user_id")
+            }
+
+        def _identity(user_id: Any) -> dict[str, Any]:
+            key = str(user_id or "").strip()
+            profile = profiles.get(key) or {}
+            return {
+                "user_id": key or None,
+                "handle": profile.get("handle"),
+                "display_name": profile.get("display_name"),
+            }
+
+        # How many DISTINCT people have an open report against each target —
+        # the same count tg_reports_threshold() auto-hides on, so the reviewer
+        # sees whether this is one grudge or a pile-on.
+        open_counts: dict[tuple[str, str], set[str]] = {}
+        target_filter = self._moderation_uuid_in_filter(
+            [r.get("target_id") for r in reports]
+        )
+        if target_filter is not None:
+            open_rows = self._supabase_rest_select(
+                "reports",
+                {
+                    "target_id": target_filter,
+                    "status": "eq.open",
+                    "select": "target_type,target_id,reporter_id",
+                    "limit": str(MODERATION_QUEUE_MAX_LIMIT * 10),
+                },
+            ) or []
+            for row in open_rows:
+                key = (str(row.get("target_type") or ""), str(row.get("target_id") or ""))
+                open_counts.setdefault(key, set()).add(str(row.get("reporter_id") or ""))
+
+        items: list[dict[str, Any]] = []
+        for report in reports:
+            target_type = str(report.get("target_type") or "")
+            target_id = str(report.get("target_id") or "")
+            target: dict[str, Any] | None = None
+            if target_type == "post":
+                row = posts.get(target_id)
+                if row is not None:
+                    target = {
+                        "kind": "post",
+                        "id": row.get("id"),
+                        "body": row.get("body"),
+                        "card_id": row.get("card_id"),
+                        "content_status": row.get("content_status"),
+                        "moderation_checked_at": row.get("moderation_checked_at"),
+                        "created_at": row.get("created_at"),
+                        "deleted_at": row.get("deleted_at"),
+                        "author": _identity(row.get("author_id")),
+                        "media": media_by_post.get(target_id, []),
+                    }
+            elif target_type == "comment":
+                row = comments.get(target_id)
+                if row is not None:
+                    parent_post_id = str(row.get("post_id") or "")
+                    target = {
+                        "kind": "comment",
+                        "id": row.get("id"),
+                        "post_id": row.get("post_id"),
+                        "body": row.get("body"),
+                        "content_status": row.get("content_status"),
+                        "moderation_checked_at": row.get("moderation_checked_at"),
+                        "created_at": row.get("created_at"),
+                        "deleted_at": row.get("deleted_at"),
+                        "author": _identity(row.get("author_id")),
+                        "media": media_by_post.get(parent_post_id, []),
+                    }
+            items.append(
+                {
+                    "report_id": report.get("id"),
+                    "status": report.get("status"),
+                    "reason": report.get("reason"),
+                    "created_at": report.get("created_at"),
+                    "reviewed_by": report.get("reviewed_by"),
+                    "reviewed_at": report.get("reviewed_at"),
+                    "reporter": _identity(report.get("reporter_id")),
+                    "target_type": target_type,
+                    "target_id": target_id,
+                    # A missing target means the row was hard-deleted (or the
+                    # type has no content table, e.g. message/profile). Say so
+                    # instead of dropping the report off the queue.
+                    "target": target,
+                    "target_missing": target is None,
+                    "open_report_count": len(open_counts.get((target_type, target_id), set())),
+                }
+            )
+
+        return {"status": status, "limit": limit, "count": len(items), "items": items}
+
+    def _apply_moderation_action(
+        self,
+        *,
+        action: str,
+        target_type: str,
+        target_id: str,
+        reviewer_user_id: str,
+        report_id: str | None = None,
+        note: str | None = None,
+    ) -> dict[str, Any]:
+        """Apply one reviewer decision. Raises ``ValueError`` on bad input.
+
+        Writes, in order:
+          1. the content row's ``content_status`` (``remove``/``keep`` only),
+          2. every matching OPEN report -> resolved, stamped with the reviewer,
+          3. one ``moderation_actions`` audit row.
+
+        Content is written FIRST so a failure can never leave a report marked
+        resolved while the content it was about is still in the wrong state.
+        """
+        content_status, report_status, logged_action = MODERATION_ACTIONS[action]
+        result: dict[str, Any] = {
+            "action": action,
+            "target_type": target_type,
+            "target_id": target_id,
+            "content_status": None,
+            "reports_resolved": 0,
+        }
+
+        if content_status is not None:
+            table = MODERATION_CONTENT_TABLES.get(target_type)
+            if table is None:
+                raise ValueError(
+                    f"'{action}' needs content to act on; {target_type} reports can only be dismissed"
+                )
+            updated = self._supabase_rest_patch(
+                table, {"id": f"eq.{target_id}"}, {"content_status": content_status}
+            )
+            if updated is None:
+                raise RuntimeError(f"Could not update {table} {target_id}")
+            if not updated:
+                raise ValueError(f"No {target_type} with id {target_id}")
+            result["content_status"] = content_status
+
+            # Removing a post also pulls its images: the media proxy authorizes
+            # off `moderation_status`, so leaving them `approved` would keep the
+            # bytes reachable for anyone who already has the media id.
+            if content_status == "removed" and target_type == "post":
+                rejected = self._supabase_rest_patch(
+                    "post_media",
+                    {"post_id": f"eq.{target_id}"},
+                    {"moderation_status": "rejected"},
+                )
+                result["media_rejected"] = len(rejected or [])
+
+        report_filter = {
+            "target_type": f"eq.{target_type}",
+            "target_id": f"eq.{target_id}",
+            "status": "eq.open",
+        }
+        if report_id:
+            # Scope to one report when the reviewer acted on a specific row.
+            report_filter = {"id": f"eq.{report_id}", "status": "eq.open"}
+        resolution: dict[str, Any] = {
+            "status": report_status,
+            "reviewed_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if is_plausible_user_id(reviewer_user_id):
+            # reports.reviewed_by is an FK to auth.users; only a real Supabase
+            # user id may be written (a fallback/dev identity is left null
+            # rather than failing the whole action).
+            resolution["reviewed_by"] = reviewer_user_id
+        resolved = self._supabase_rest_patch("reports", report_filter, resolution)
+        if resolved is None:
+            raise RuntimeError("Could not resolve the reports for this target")
+        result["reports_resolved"] = len(resolved)
+        result["report_status"] = report_status
+
+        audit = self._supabase_rest_insert(
+            "moderation_actions",
+            {
+                "moderator_id": reviewer_user_id if is_plausible_user_id(reviewer_user_id) else None,
+                "target_type": target_type,
+                "target_id": target_id,
+                "action": logged_action,
+                "note": note,
+            },
+        )
+        result["logged_action"] = logged_action
+        result["audit_logged"] = bool(audit)
+        return result
+
     def _write_html(self, status: HTTPStatus, html: str) -> None:
         body = html.encode("utf-8")
         self.send_response(status.value)
@@ -18130,6 +18542,107 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 )
                 return
             self._write_html(HTTPStatus.OK, html)
+            return
+
+        # --- Reviewer-gated admin MODERATION queue (community reports) ---
+        if parsed.path == "/moderation":
+            moderation_html_path = (
+                Path(__file__).resolve().parent / "review_web" / "moderation.html"
+            )
+            try:
+                html = moderation_html_path.read_text(encoding="utf-8")
+            except OSError:
+                self._write_json(
+                    HTTPStatus.NOT_FOUND,
+                    {"error": "Moderation surface is not available."},
+                )
+                return
+            self._write_html(HTTPStatus.OK, html)
+            return
+
+        if parsed.path == "/api/v1/moderation/queue":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            if not self._require_reviewer(identity):
+                return
+            status = (query.get("status", ["open"])[0] or "open").strip().lower()
+            if status not in MODERATION_REPORT_STATUSES:
+                self._write_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {
+                        "error": "status must be one of "
+                        + ", ".join(MODERATION_REPORT_STATUSES)
+                    },
+                )
+                return
+            try:
+                limit = int(query.get("limit", [str(MODERATION_QUEUE_DEFAULT_LIMIT)])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "limit must be an integer"})
+                return
+            limit = max(1, min(limit, MODERATION_QUEUE_MAX_LIMIT))
+            try:
+                payload = self._moderation_queue_payload(status=status, limit=limit)
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"Moderation queue load failed: {error}"},
+                )
+                return
+            self._write_json(HTTPStatus.OK, payload)
+            return
+
+        if parsed.path.startswith("/api/v1/moderation/media/"):
+            # Reviewer-gated read of a reported image. The normal
+            # /api/v1/post-media/{id} proxy authorizes as a READER, which would
+            # hide the pending/rejected media a moderator is here to judge; the
+            # gate here is `_require_reviewer`, decided in Python, and the bytes
+            # still never leave this authenticated proxy.
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            if not self._require_reviewer(identity):
+                return
+            media_id = unquote(
+                parsed.path.removeprefix("/api/v1/moderation/media/").strip("/")
+            )
+            if not is_plausible_user_id(media_id):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "mediaId must be a valid id"})
+                return
+            post_media_store = self.service.post_media_store
+            if post_media_store is None:
+                self._write_json(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {"error": "post_media_storage_unconfigured"},
+                )
+                return
+            rows = self._supabase_rest_select(
+                "post_media",
+                {"id": f"eq.{media_id}", "select": "storage_path", "limit": "1"},
+            )
+            storage_path = str((rows or [{}])[0].get("storage_path") or "").strip()
+            if not storage_path:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Post media not found"})
+                return
+            try:
+                image_bytes = post_media_store.read_bytes(storage_path)
+            except PostMediaStoreError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except Exception as error:  # noqa: BLE001 - storage/object failure
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.NOT_FOUND, {"error": f"Post media load failed: {error}"}
+                )
+                return
+            if not image_bytes:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Post media not found"})
+                return
+            self._write_post_media_image(
+                image_bytes, content_type=content_type_for_path(storage_path)
+            )
             return
 
         if parsed.path == "/api/v1/review/queue":
@@ -19651,6 +20164,61 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 )
                 return
             self._write_json(HTTPStatus.OK, label_payload)
+            return
+
+        if parsed.path == "/api/v1/moderation/action":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            if not self._require_reviewer(identity):
+                return
+            action = str(payload.get("action") or "").strip().lower()
+            if action not in MODERATION_ACTIONS:
+                self._write_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {
+                        "error": "action must be one of "
+                        + ", ".join(sorted(MODERATION_ACTIONS))
+                    },
+                )
+                return
+            target_type = str(payload.get("targetType") or "").strip().lower()
+            target_id = str(payload.get("targetId") or "").strip()
+            if not target_type:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "targetType is required"})
+                return
+            if not is_plausible_user_id(target_id):
+                self._write_json(
+                    HTTPStatus.BAD_REQUEST, {"error": "targetId must be a valid id"}
+                )
+                return
+            report_id = str(payload.get("reportId") or "").strip()
+            if report_id and not is_plausible_user_id(report_id):
+                self._write_json(
+                    HTTPStatus.BAD_REQUEST, {"error": "reportId must be a valid id"}
+                )
+                return
+            note = payload.get("note")
+            try:
+                action_payload = self._apply_moderation_action(
+                    action=action,
+                    target_type=target_type,
+                    target_id=target_id,
+                    reviewer_user_id=str(getattr(identity, "user_id", "") or ""),
+                    report_id=report_id or None,
+                    note=str(note).strip() if note is not None else None,
+                )
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"Moderation action failed: {error}"},
+                )
+                return
+            self._write_json(HTTPStatus.OK, action_payload)
             return
 
         if parsed.path == "/api/v1/labeling-sessions":
