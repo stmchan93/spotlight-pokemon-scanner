@@ -104,19 +104,20 @@ The first image only becomes purge-eligible 30 days after the first real user
 deletes a post with a photo. Pre-launch, with a handful of testers, that is
 nobody.
 
-The forcing function is the **Aug 27 show**, which is when real users start
+The forcing function is the **Aug 22 show**, which is when real users start
 posting and deleting in volume. Working backwards:
 
-- **Before Aug 27** — nothing required. The job could not do anything yet even
+- **Before Aug 22** — nothing required. The job could not do anything yet even
   if it existed.
-- **Sept, any time before ~Sept 26** — the real deadline. Content deleted on
-  launch day becomes purge-eligible 30 days later. Miss it and nothing breaks;
-  the bucket just keeps growing until the job lands.
+- **By ~Sept 21** — the real deadline. Content deleted on launch day becomes
+  purge-eligible 30 days later. Miss it and nothing breaks; the bucket just
+  keeps growing until the job lands.
 - **Class 2 (never-attached uploads) is leaking right now**, but slowly, and it
   is the same job — no reason to do it separately.
 
-**Recommendation: build it in early September**, after the show has settled and
-before the first purge window opens. It wants a focused session with the dry-run
+**Recommendation: build it in the first week of September**, after the show has
+settled and before the Sept 21 window opens. That leaves roughly two weeks of
+slack rather than a deadline to hit. It wants a focused session with the dry-run
 and the faked-clock tests, not to be appended to a batch of UI fixes — this is
 the only job in the system with delete authority over users' photos.
 
