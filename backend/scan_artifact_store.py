@@ -21,6 +21,63 @@ ARTIFACTS_JSON_BASENAME = "artifacts.json"
 
 _SAFE_PATH_SEGMENT_PATTERN = re.compile(r"[^A-Za-z0-9._-]+")
 
+# Object keys are only ever BUILT here (from a scan id + date), but they are READ
+# back from SQLite rows, so anything that addresses an object by a stored path
+# re-validates it. Same shape as ``post_media_store._sanitize_object_path``: a
+# relative, non-empty, traversal-free key.
+_STORED_PATH_SEGMENT_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+class ScanArtifactStoreError(RuntimeError):
+    pass
+
+
+def sanitize_stored_object_path(object_path: str) -> str:
+    """Validate a store-relative object key read back from a row.
+
+    Raises :class:`ScanArtifactStoreError` for empty, absolute, backslashed, or
+    traversal-bearing keys so a malformed/hostile stored value can never address
+    an object outside the intended key space (or, for the filesystem store, a
+    file outside the artifact root).
+    """
+    normalized = str(object_path or "").strip()
+    if not normalized:
+        raise ScanArtifactStoreError("scan artifact object path is empty")
+    if normalized.startswith("/") or normalized.startswith("\\"):
+        raise ScanArtifactStoreError("scan artifact object path must be relative")
+    if "\\" in normalized:
+        raise ScanArtifactStoreError(
+            "scan artifact object path must use forward slashes"
+        )
+    for segment in normalized.split("/"):
+        if (
+            not segment
+            or segment in {".", ".."}
+            or not _STORED_PATH_SEGMENT_PATTERN.match(segment)
+        ):
+            raise ScanArtifactStoreError(
+                f"scan artifact object path has an invalid segment: {segment!r}"
+            )
+    return normalized
+
+
+def is_missing_object_error(error: BaseException) -> bool:
+    """True when a storage call failed only because the object was already gone.
+
+    Checked STRUCTURALLY rather than by importing ``google.api_core``, which is
+    an optional dependency here: the store modules must stay importable (and
+    testable) in an environment without the GCS client installed.
+
+    Shared by the avatar and post-media stores too. Deleting an object that is
+    already absent has to be a no-op everywhere — account deletion is retried by
+    real users, and the second attempt must not look like a failure — so the
+    "already gone" test is defined ONCE rather than drifting per store.
+    """
+    for attribute in ("code", "status_code"):
+        if getattr(error, attribute, None) == 404:
+            return True
+    return type(error).__name__ == "NotFound"
+
 
 @dataclass(frozen=True)
 class StoredScanArtifacts:
@@ -102,6 +159,9 @@ class ScanArtifactStore(Protocol):
         month: str,
         day: str,
     ) -> dict[str, Any] | None:
+        ...
+
+    def delete_object(self, object_path: str) -> bool:
         ...
 
 
@@ -255,6 +315,38 @@ class FilesystemScanArtifactStore:
         except OSError:
             return None
 
+    def delete_object(self, object_path: str) -> bool:
+        """Delete one stored artifact. Returns False when it was already absent.
+
+        IDEMPOTENT by contract: a second account-deletion attempt (users retry)
+        must not look like a failure. Only a real I/O error raises.
+        """
+        relative_path = Path(sanitize_stored_object_path(object_path))
+        absolute_path = self.root / relative_path
+        try:
+            absolute_path.unlink()
+        except FileNotFoundError:
+            return False
+        self._prune_empty_parents(relative_path.parent)
+        return True
+
+    def _prune_empty_parents(self, relative_directory: Path) -> None:
+        """Remove now-empty artifact directories, up to (never including) the root.
+
+        The directory names carry scan/transaction ids, so leaving empty shells
+        behind would leave an identifiable trace of a deleted account. Best
+        effort: any error just stops the walk.
+        """
+        current = relative_directory
+        while current != Path("") and current != Path("."):
+            absolute = self.root / current
+            try:
+                absolute.rmdir()
+            except OSError:
+                # Not empty, missing, or not permitted — stop climbing.
+                return
+            current = current.parent
+
     def write_artifacts_json(
         self,
         *,
@@ -370,6 +462,27 @@ class GoogleCloudScanArtifactStore:
         if isinstance(raw, bytes):
             return raw
         return None
+
+    def delete_object(self, object_path: str) -> bool:
+        """Delete one stored artifact. Returns False when it was already absent.
+
+        ``object_path`` is a fully-qualified object name (the same absolute
+        ``scans/...`` value persisted on the row), matching
+        :meth:`read_object_bytes`; the caller owns any prefix.
+
+        IDEMPOTENT by contract — an already-missing object is a no-op, not an
+        error, because account deletion is retried by real users. Anything else
+        (permissions, outage) propagates so the caller can report the orphan.
+        """
+        normalized = sanitize_stored_object_path(object_path)
+        blob = self.bucket.blob(normalized)
+        try:
+            blob.delete()
+        except Exception as error:  # noqa: BLE001 - re-raised unless it's a 404
+            if is_missing_object_error(error):
+                return False
+            raise
+        return True
 
     def store(
         self,

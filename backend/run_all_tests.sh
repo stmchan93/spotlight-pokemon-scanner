@@ -46,6 +46,7 @@ TEST_MODULES=(
   backend.tests.test_sale_lifecycle
   backend.tests.test_card_transactions
   backend.tests.test_user_isolation
+  backend.tests.test_account_deletion_storage
   backend.tests.test_public_profile_reads
   backend.tests.test_show_summary
   backend.tests.test_raw_pricing_matrix

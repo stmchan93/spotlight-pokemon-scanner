@@ -8,6 +8,11 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     gcs_storage = None
 
+# One shared "was it already gone?" test across all three object stores. See
+# ``scan_artifact_store.is_missing_object_error`` for why it lives in one
+# place instead of being re-implemented per store.
+from scan_artifact_store import is_missing_object_error
+
 
 # The bucket that holds public profile avatars. This is DELIBERATELY separate
 # from the scan-artifacts bucket: scan artifacts are private per the repo
@@ -59,6 +64,9 @@ class AvatarStore(Protocol):
     def store_cover(self, *, user_id: str, jpeg_bytes: bytes) -> str:
         ...
 
+    def delete_object(self, object_path: str) -> bool:
+        ...
+
 
 def _owner_object_path(prefix: str, user_id: str) -> str:
     normalized = str(user_id or "").strip()
@@ -73,6 +81,18 @@ def _avatar_object_path(user_id: str) -> str:
 
 def _cover_object_path(user_id: str) -> str:
     return _owner_object_path(COVER_OBJECT_PREFIX, user_id)
+
+
+def owner_object_paths(user_id: str) -> tuple[str, ...]:
+    """Every object ``user_id`` can own in the avatars bucket.
+
+    The paths are DETERMINISTIC (``avatars/<id>.jpg`` / ``covers/<id>.jpg``), so
+    account deletion never needs a listing or a database lookup to find them —
+    it just deletes both and treats "absent" as success. Raises
+    ``AvatarStoreError`` when the id is not user-id shaped, the same guard the
+    upload path uses.
+    """
+    return (_avatar_object_path(user_id), _cover_object_path(user_id))
 
 
 class GoogleCloudAvatarStore:
@@ -148,6 +168,27 @@ class GoogleCloudAvatarStore:
         different prefix so avatar and cover replace independently.
         """
         return self._upload_public_image(_cover_object_path(user_id), jpeg_bytes)
+
+    def delete_object(self, object_path: str) -> bool:
+        """Delete one avatars-bucket object. False when it was already absent.
+
+        Used by account deletion (GDPR/CCPA erasure covers the image, not just
+        the row that points at it). IDEMPOTENT: a user who never set an avatar,
+        or who retries the delete, hits the missing-object path, which is a
+        no-op rather than an error. Real failures propagate so the caller can
+        report the orphan.
+        """
+        normalized = str(object_path or "").strip()
+        if not normalized:
+            raise AvatarStoreError("avatar object path is empty")
+        blob = self.bucket.blob(normalized)
+        try:
+            blob.delete()
+        except Exception as error:  # noqa: BLE001 - re-raised unless it's a 404
+            if is_missing_object_error(error):
+                return False
+            raise
+        return True
 
 
 def build_avatar_store(

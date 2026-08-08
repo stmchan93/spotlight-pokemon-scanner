@@ -8,6 +8,11 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     gcs_storage = None
 
+# One shared "was it already gone?" test across all three object stores. See
+# ``scan_artifact_store.is_missing_object_error`` for why it lives in one
+# place instead of being re-implemented per store.
+from scan_artifact_store import is_missing_object_error
+
 
 # The bucket that holds user-generated POST MEDIA images. Unlike the avatars
 # bucket (public-read), this bucket is PRIVATE: post media must stay hidden
@@ -41,6 +46,9 @@ class PostMediaStore(Protocol):
     def store_bytes(
         self, *, storage_path: str, image_bytes: bytes, content_type: str
     ) -> None:
+        ...
+
+    def delete_object(self, storage_path: str) -> bool:
         ...
 
 
@@ -152,6 +160,28 @@ class GoogleCloudPostMediaStore:
         resolved_content_type = str(content_type or "").strip() or _DEFAULT_CONTENT_TYPE
         blob = self.bucket.blob(object_path)
         blob.upload_from_string(image_bytes, content_type=resolved_content_type)
+
+    def delete_object(self, storage_path: str) -> bool:
+        """Delete one post-media object. False when it was already absent.
+
+        Goes through the SAME ``_sanitize_object_path`` guard as read and write,
+        so a malformed ``post_media.storage_path`` can never aim a delete outside
+        the intended key space.
+
+        IDEMPOTENT: a rolled-back upload (row written, bytes never stored) or a
+        retried account deletion hits the already-missing path, which is a no-op
+        rather than an error. Anything else propagates so the caller can report
+        the orphan.
+        """
+        object_path = _sanitize_object_path(storage_path)
+        blob = self.bucket.blob(object_path)
+        try:
+            blob.delete()
+        except Exception as error:  # noqa: BLE001 - re-raised unless it's a 404
+            if is_missing_object_error(error):
+                return False
+            raise
+        return True
 
 
 def build_post_media_store(

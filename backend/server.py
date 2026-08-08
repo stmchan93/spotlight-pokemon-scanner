@@ -16,7 +16,7 @@ from datetime import date, datetime, timedelta, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from time import perf_counter
+from time import monotonic, perf_counter
 from typing import Any, Literal
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
 from zoneinfo import ZoneInfo
@@ -171,6 +171,7 @@ from scrydex_adapter import (
 from slab_cert_resolver import resolve_psa_cert_from_scan_cache
 from slab_set_aliases import resolve_slab_set_aliases
 from scan_artifact_store import (
+    ARTIFACTS_JSON_BASENAME,
     SCAN_ARTIFACTS_GCS_BUCKET_ENV,
     SCAN_ARTIFACTS_STORAGE_ENV,
     SCAN_ARTIFACTS_ROOT_ENV,
@@ -180,6 +181,7 @@ from avatar_store import (
     AVATARS_GCS_BUCKET_ENV,
     AvatarStoreError,
     build_avatar_store,
+    owner_object_paths as avatar_owner_object_paths,
 )
 from post_media_store import (
     POST_MEDIA_GCS_BUCKET_ENV,
@@ -1449,6 +1451,27 @@ class PendingVisualScan:
     visual_debug: dict[str, Any]
     requested_top_k: int
     visual_match_ms: float
+
+
+# The three object stores account deletion has to sweep. Named rather than
+# passed around as store instances so a target can be collected while a store is
+# unconfigured (and then reported as an orphan) instead of being silently lost.
+AVATAR_STORE_NAME = "avatars"
+POST_MEDIA_STORE_NAME = "post-media"
+SCAN_ARTIFACT_STORE_NAME = "scan-artifacts"
+
+
+@dataclass(frozen=True)
+class AccountStorageTarget:
+    """One user-owned object to erase, and which store owns it."""
+
+    store: str
+    object_path: str
+
+    @property
+    def label(self) -> str:
+        """``store:path`` — the form used in reports and cleanup logs."""
+        return f"{self.store}:{self.object_path}"
 
 
 class SpotlightScanService:
@@ -6425,19 +6448,95 @@ class SpotlightScanService:
         "portfolio_import_jobs",
     )
 
-    def delete_account(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Permanently delete every owner-scoped row for the calling user, then
-        best-effort delete their Supabase auth user.
+    # ------------------------------------------------------------------
+    # Bounds on the storage sweep below.
+    #
+    # A heavy scanner user can own thousands of artifacts, and every object is
+    # ONE network round-trip to GCS. Unbounded, that turns a user-facing DELETE
+    # into a multi-minute request that a client gives up on — after which the
+    # account is still not deleted, which is the outcome that actually matters.
+    # So the sweep is bounded twice: by object count AND by wall clock, whichever
+    # comes first. Whatever is left is REPORTED and LOGGED for manual cleanup
+    # rather than silently skipped.
+    # ------------------------------------------------------------------
+    _ACCOUNT_DELETION_MAX_STORAGE_OBJECTS: int = 2000
+    _ACCOUNT_DELETION_STORAGE_TIME_BUDGET_SECONDS: float = 20.0
+    # How many unresolved object labels ride along in the HTTP response. The log
+    # carries the FULL list; the response carries enough to see what happened.
+    _ACCOUNT_DELETION_UNRESOLVED_SAMPLE: int = 25
+    # Unresolved objects are logged in chunks so one account never emits a single
+    # unbounded log line.
+    _ACCOUNT_DELETION_UNRESOLVED_LOG_CHUNK: int = 100
+    _ACCOUNT_DELETION_POST_MEDIA_PAGE_SIZE: int = 500
 
-        Required for App Store guideline 5.1.1(v) (in-app account deletion).
-        Local data deletion runs in one transaction. The Supabase admin delete
-        is best-effort: if the service-role key is missing or the call fails we
-        log an ERROR (so a misconfigured deploy is visible — leaving the auth user
-        alive re-triggers a 5.1.1(v) rejection) and still report success, because
-        the user's app data is already gone and the auth user can be reconciled.
+    def delete_account(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Permanently delete the calling user's rows AND their stored objects,
+        then best-effort delete their Supabase auth user.
+
+        Required for App Store guideline 5.1.1(v) (in-app account deletion) and
+        for GDPR/CCPA erasure, which covers the IMAGE, not merely the row that
+        points at it.
+
+        ORDER (deliberate, each step depends on the one before):
+
+          1. COLLECT every object path the user owns, while the pointers to them
+             still exist. ``post_media.storage_path`` lives in Supabase and is
+             cascaded away by step 4 (``auth.users`` -> ``posts`` ->
+             ``post_media``); ``scan_artifacts`` / ``card_transactions`` paths
+             live in the local rows step 3 deletes. After either, the objects are
+             unreachable forever. Nothing is destroyed in this step.
+          2. DELETE THE BYTES, bounded and best-effort. Objects go BEFORE rows
+             for the same reason ``post_media_purge`` does it that way: if the
+             process dies mid-sweep, the pointers survive and a retry finishes
+             the job; reversed, the files are stranded with nothing pointing at
+             them — exactly the bug this closes.
+          3. DELETE THE LOCAL ROWS, in one transaction.
+          4. DELETE THE SUPABASE AUTH USER, which cascades the social rows.
+
+        A storage failure NEVER fails this request. Erasure of the account is the
+        legally important part, and a user who cannot delete their account
+        because a bucket blipped is strictly worse off than one whose deletion
+        left a reported orphan. Steps 3 and 4 run regardless; what could not be
+        erased comes back in ``storage`` and is logged in full.
         """
         owner_user_id = self._current_owner_user_id()
 
+        # ---- 1 & 2. collect, then delete the bytes ----------------------
+        # Belt and braces around BOTH steps: every known storage failure is
+        # already handled and reported inside, and this outer guard exists only
+        # so that an UNANTICIPATED one still cannot stop a user from deleting
+        # their account. The orphan is reported; the erasure proceeds.
+        try:
+            targets, problems = self._collect_account_storage_targets(owner_user_id)
+            storage_report = self._delete_account_storage_objects(
+                owner_user_id,
+                targets,
+                collection_problems=problems,
+            )
+        except Exception as error:  # noqa: BLE001 - never block account deletion
+            self._emit_structured_log(
+                {
+                    "severity": "ERROR",
+                    "event": "account_deletion_storage_sweep_aborted",
+                    "ownerUserID": owner_user_id,
+                    "error": f"{type(error).__name__}: {error}",
+                }
+            )
+            storage_report = {
+                "complete": False,
+                "consideredObjects": 0,
+                "deletedObjects": 0,
+                "alreadyMissingObjects": 0,
+                "failedObjects": 0,
+                "deferredObjects": 0,
+                "stoppedReason": "sweep_aborted",
+                "failureReasons": [f"{type(error).__name__}: {error}"],
+                "problems": [{"store": "all", "reason": "sweep_aborted"}],
+                "unresolvedObjects": [],
+                "unresolvedObjectsTruncated": False,
+            }
+
+        # ---- 3. delete the local rows ------------------------------------
         try:
             for table_name in self._ACCOUNT_DELETION_TABLES:
                 self.connection.execute(
@@ -6449,9 +6548,399 @@ class SpotlightScanService:
             self.connection.rollback()
             raise
 
+        # ---- 4. delete the auth user (cascades the Supabase social rows) --
         auth_user_deleted = self._delete_supabase_auth_user(owner_user_id)
 
-        return {"deleted": True, "authUserDeleted": auth_user_deleted}
+        return {
+            "deleted": True,
+            "authUserDeleted": auth_user_deleted,
+            "storage": storage_report,
+        }
+
+    # ------------------------------------------------------------------
+    # Step 1 — collecting the user's objects
+    # ------------------------------------------------------------------
+    def _collect_account_storage_targets(
+        self, owner_user_id: str
+    ) -> tuple[list[AccountStorageTarget], list[dict[str, Any]]]:
+        """Every object ``owner_user_id`` owns, across all three stores.
+
+        Returns ``(targets, problems)``. A "problem" is a store whose objects
+        could not be enumerated or cannot be deleted at all (unconfigured store,
+        failed listing) — it is not fatal, but it means bytes may survive, so it
+        is carried into the response and the log rather than dropped.
+
+        Purely READ-ONLY: this runs before anything is deleted, on purpose.
+        """
+        targets: list[AccountStorageTarget] = []
+        problems: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+
+        def _add(store_name: str, object_path: Any) -> None:
+            path = str(object_path or "").strip()
+            if not path or (store_name, path) in seen:
+                return
+            seen.add((store_name, path))
+            targets.append(AccountStorageTarget(store=store_name, object_path=path))
+
+        # --- avatars: deterministic paths, no lookup needed ---------------
+        if self.avatar_store is None:
+            problems.append(
+                {"store": AVATAR_STORE_NAME, "reason": "store_unconfigured"}
+            )
+        else:
+            try:
+                for object_path in avatar_owner_object_paths(owner_user_id):
+                    _add(AVATAR_STORE_NAME, object_path)
+            except Exception as error:  # noqa: BLE001 - e.g. a non-UUID owner id
+                problems.append(
+                    {
+                        "store": AVATAR_STORE_NAME,
+                        "reason": "paths_unavailable",
+                        "detail": str(error),
+                    }
+                )
+
+        # --- post media: the Supabase read that MUST precede the cascade ---
+        if self.post_media_store is None:
+            problems.append(
+                {"store": POST_MEDIA_STORE_NAME, "reason": "store_unconfigured"}
+            )
+        else:
+            media_paths, listing_complete = self._owned_post_media_storage_paths(
+                owner_user_id
+            )
+            for object_path in media_paths:
+                _add(POST_MEDIA_STORE_NAME, object_path)
+            if not listing_complete:
+                # We cannot prove we saw every row, and after step 4 nobody can
+                # ever look again. Say so loudly.
+                problems.append(
+                    {
+                        "store": POST_MEDIA_STORE_NAME,
+                        "reason": "listing_incomplete",
+                        "detail": (
+                            "post_media rows could not be fully enumerated; any "
+                            "unlisted objects are orphaned by the auth-user cascade"
+                        ),
+                    }
+                )
+
+        # --- scan artifacts + transaction photos: local rows --------------
+        if self.artifact_store is None:  # pragma: no cover - always built today
+            problems.append(
+                {"store": SCAN_ARTIFACT_STORE_NAME, "reason": "store_unconfigured"}
+            )
+            return targets, problems
+
+        artifact_directories: set[str] = set()
+        try:
+            artifact_rows = self.connection.execute(
+                "SELECT source_object_path, normalized_object_path "
+                "FROM scan_artifacts WHERE owner_user_id = ?",
+                (owner_user_id,),
+            ).fetchall()
+        except sqlite3.Error as error:
+            artifact_rows = []
+            problems.append(
+                {
+                    "store": SCAN_ARTIFACT_STORE_NAME,
+                    "reason": "listing_failed",
+                    "detail": f"scan_artifacts: {error}",
+                }
+            )
+        for row in artifact_rows:
+            for column in ("source_object_path", "normalized_object_path"):
+                object_path = str(row[column] or "").strip()
+                if not object_path:
+                    continue
+                _add(SCAN_ARTIFACT_STORE_NAME, object_path)
+                if "/" in object_path:
+                    artifact_directories.add(object_path.rsplit("/", 1)[0])
+
+        # The per-scan artifacts.json sits beside the images and holds the scan's
+        # metadata, but no row records its path — it is derived from the same
+        # directory. Deleting one that was never written is a no-op, so deriving
+        # it is safe and it is the only way to reach it.
+        for directory in sorted(artifact_directories):
+            _add(SCAN_ARTIFACT_STORE_NAME, f"{directory}/{ARTIFACTS_JSON_BASENAME}")
+
+        try:
+            photo_rows = self.connection.execute(
+                "SELECT photo_object_path FROM card_transactions "
+                "WHERE owner_user_id = ? AND photo_object_path IS NOT NULL",
+                (owner_user_id,),
+            ).fetchall()
+        except sqlite3.Error as error:
+            photo_rows = []
+            problems.append(
+                {
+                    "store": SCAN_ARTIFACT_STORE_NAME,
+                    "reason": "listing_failed",
+                    "detail": f"card_transactions: {error}",
+                }
+            )
+        for row in photo_rows:
+            _add(SCAN_ARTIFACT_STORE_NAME, row["photo_object_path"])
+
+        return targets, problems
+
+    def _owned_post_media_storage_paths(
+        self, owner_user_id: str
+    ) -> tuple[list[str], bool]:
+        """Object keys for every ``post_media`` row authored by ``owner_user_id``.
+
+        THE ORDERING CRUX. These paths exist ONLY in Supabase, and
+        ``_delete_supabase_auth_user`` cascades them away
+        (``auth.users`` -> ``posts`` -> ``post_media``). Read after that call and
+        the bytes are unrecoverable — nothing in any system points at them. So
+        this read happens first, always.
+
+        Returns ``(paths, complete)``. ``complete=False`` means the listing could
+        not be trusted (Supabase unconfigured, transport/parse failure, or the
+        object cap was reached), so the caller reports possible orphans.
+
+        Uses the service-role key, which BYPASSES RLS — so the query is scoped by
+        ``posts.author_id`` to the VERIFIED caller id, never to client input.
+        """
+        supabase_url, service_role_key = self._supabase_service_role_env()
+        if not supabase_url or not service_role_key:
+            self._emit_structured_log(
+                {
+                    "severity": "ERROR",
+                    "event": "account_deletion_post_media_listing_skipped",
+                    "ownerUserID": owner_user_id,
+                    "reason": "supabase_not_configured",
+                }
+            )
+            return [], False
+
+        from urllib.request import Request, urlopen
+
+        paths: list[str] = []
+        offset = 0
+        page_size = max(1, int(self._ACCOUNT_DELETION_POST_MEDIA_PAGE_SIZE))
+        while True:
+            params = {
+                # posts!inner(...) makes the embed a real INNER JOIN, so the
+                # author filter restricts the post_media rows themselves rather
+                # than merely nulling out the embed.
+                "select": "storage_path,posts!inner(author_id)",
+                "posts.author_id": f"eq.{owner_user_id}",
+                "order": "id.asc",
+                "limit": str(page_size),
+                "offset": str(offset),
+            }
+            request = Request(
+                f"{supabase_url}/rest/v1/post_media?{urlencode(params)}",
+                headers={
+                    "apikey": service_role_key,
+                    "Authorization": f"Bearer {service_role_key}",
+                    "Accept": "application/json",
+                },
+            )
+            try:
+                with urlopen(request, timeout=15) as response:
+                    parsed = json.loads(response.read().decode("utf-8"))
+            except Exception as error:  # noqa: BLE001 - never block the deletion
+                self._emit_structured_log(
+                    {
+                        "severity": "ERROR",
+                        "event": "account_deletion_post_media_listing_failed",
+                        "ownerUserID": owner_user_id,
+                        "offset": offset,
+                        "listedSoFar": len(paths),
+                        "error": str(error),
+                    }
+                )
+                return paths, False
+            if not isinstance(parsed, list):
+                # PostgREST errors are JSON objects; never mistake one for rows.
+                self._emit_structured_log(
+                    {
+                        "severity": "ERROR",
+                        "event": "account_deletion_post_media_listing_failed",
+                        "ownerUserID": owner_user_id,
+                        "offset": offset,
+                        "listedSoFar": len(paths),
+                        "error": "unexpected_response_body",
+                    }
+                )
+                return paths, False
+
+            rows = [row for row in parsed if isinstance(row, dict)]
+            for row in rows:
+                storage_path = str(row.get("storage_path") or "").strip()
+                if storage_path:
+                    paths.append(storage_path)
+            if len(rows) < page_size:
+                return paths, True
+            offset += len(rows)
+            if len(paths) >= self._ACCOUNT_DELETION_MAX_STORAGE_OBJECTS:
+                # More rows exist than one request can ever delete; stop paging
+                # and let the caller report the shortfall.
+                return paths, False
+
+    # ------------------------------------------------------------------
+    # Step 2 — deleting the bytes
+    # ------------------------------------------------------------------
+    def _delete_account_storage_objects(
+        self,
+        owner_user_id: str,
+        targets: list[AccountStorageTarget],
+        *,
+        collection_problems: list[dict[str, Any]] | None = None,
+        max_objects: int | None = None,
+        time_budget_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        """Erase ``targets``. NEVER raises — a storage problem is reported, not
+        thrown, so it can never block the account deletion that follows.
+
+        Bounded by object count and wall clock (see the constants above);
+        whatever is not reached is reported as ``deferred``. Every object that is
+        not confirmed gone is logged with its full path so it can be cleaned up
+        by hand.
+        """
+        problems = list(collection_problems or [])
+        stores: dict[str, Any] = {
+            AVATAR_STORE_NAME: self.avatar_store,
+            POST_MEDIA_STORE_NAME: self.post_media_store,
+            SCAN_ARTIFACT_STORE_NAME: self.artifact_store,
+        }
+        cap = int(
+            self._ACCOUNT_DELETION_MAX_STORAGE_OBJECTS
+            if max_objects is None
+            else max_objects
+        )
+        budget = float(
+            self._ACCOUNT_DELETION_STORAGE_TIME_BUDGET_SECONDS
+            if time_budget_seconds is None
+            else time_budget_seconds
+        )
+        deadline = monotonic() + max(0.0, budget)
+
+        deleted = 0
+        already_missing = 0
+        unresolved: list[str] = []
+        failure_reasons: list[str] = []
+        deferred: list[str] = []
+        stopped_reason: str | None = None
+
+        for index, target in enumerate(targets):
+            if index >= cap:
+                stopped_reason = "object_cap"
+            elif monotonic() >= deadline:
+                stopped_reason = "time_budget"
+            if stopped_reason is not None:
+                deferred = [remaining.label for remaining in targets[index:]]
+                break
+
+            store = stores.get(target.store)
+            delete_object = (
+                getattr(store, "delete_object", None) if store is not None else None
+            )
+            if not callable(delete_object):
+                # Unconfigured store, or one without delete support. Already
+                # captured in `problems`; record the object so the orphan is
+                # nameable.
+                unresolved.append(target.label)
+                continue
+
+            try:
+                existed = bool(delete_object(target.object_path))
+            except Exception as error:  # noqa: BLE001 - one bad object, keep going
+                unresolved.append(target.label)
+                reason = f"{type(error).__name__}: {error}"
+                if reason not in failure_reasons and len(failure_reasons) < 5:
+                    failure_reasons.append(reason)
+                continue
+
+            if existed:
+                deleted += 1
+            else:
+                # Already gone. Idempotent by design: users retry this endpoint.
+                already_missing += 1
+
+        report = {
+            "consideredObjects": len(targets),
+            "deletedObjects": deleted,
+            "alreadyMissingObjects": already_missing,
+            "failedObjects": len(unresolved),
+            "deferredObjects": len(deferred),
+            "stoppedReason": stopped_reason,
+            "failureReasons": failure_reasons,
+            "problems": problems,
+        }
+        outstanding = unresolved + deferred
+        report["complete"] = not outstanding and not problems
+        report["unresolvedObjects"] = outstanding[
+            : self._ACCOUNT_DELETION_UNRESOLVED_SAMPLE
+        ]
+        report["unresolvedObjectsTruncated"] = (
+            len(outstanding) > self._ACCOUNT_DELETION_UNRESOLVED_SAMPLE
+        )
+
+        # `complete=False` is reported to the caller for ANY shortfall, including
+        # a store that simply is not configured in this deploy (no bucket => no
+        # objects to lose). That alone is not worth an ERROR — crying wolf on
+        # every deletion is how a real orphan gets ignored — so the log escalates
+        # only when bytes may actually have survived.
+        actionable = bool(outstanding) or any(
+            problem.get("reason") != "store_unconfigured" for problem in problems
+        )
+        self._emit_structured_log(
+            {
+                "severity": "ERROR" if actionable else "INFO",
+                "event": "account_deletion_storage_sweep",
+                "ownerUserID": owner_user_id,
+                "consideredObjects": report["consideredObjects"],
+                "deletedObjects": deleted,
+                "alreadyMissingObjects": already_missing,
+                "failedObjects": len(unresolved),
+                "deferredObjects": len(deferred),
+                "unresolvedObjectCount": len(outstanding),
+                "stoppedReason": stopped_reason,
+                "failureReasons": failure_reasons,
+                "problems": problems,
+                "complete": report["complete"],
+            }
+        )
+        # The full list, chunked, is the manual-cleanup record: "which bytes
+        # survived this erasure" has to stay answerable from the logs alone,
+        # because after step 3/4 nothing in any database points at them.
+        chunk_size = max(1, int(self._ACCOUNT_DELETION_UNRESOLVED_LOG_CHUNK))
+        for start in range(0, len(outstanding), chunk_size):
+            self._emit_structured_log(
+                {
+                    "severity": "ERROR",
+                    "event": "account_deletion_orphaned_objects",
+                    "ownerUserID": owner_user_id,
+                    "chunkStart": start,
+                    "totalOrphaned": len(outstanding),
+                    "objects": outstanding[start : start + chunk_size],
+                }
+            )
+        return report
+
+    @staticmethod
+    def _supabase_service_role_env() -> tuple[str, str]:
+        """``(supabase_url, service_role_key)``, either possibly empty.
+
+        Shared by the privileged Supabase calls on this class so they read the
+        same env in the same order. Callers decide what an empty value means.
+        """
+        supabase_url = str(
+            os.environ.get(SUPABASE_URL_ENV)
+            or os.environ.get("EXPO_PUBLIC_SPOTLIGHT_SUPABASE_URL")
+            or os.environ.get("SPOTLIGHT_SUPABASE_URL")
+            or ""
+        ).strip().rstrip("/")
+        service_role_key = str(
+            os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+            or os.environ.get("SPOTLIGHT_SUPABASE_SERVICE_ROLE_KEY")
+            or ""
+        ).strip()
+        return supabase_url, service_role_key
 
     def _delete_supabase_auth_user(self, owner_user_id: str) -> bool:
         """Best-effort deletion of the Supabase auth user via the Admin API.
@@ -6459,18 +6948,12 @@ class SpotlightScanService:
         Returns True only when the auth user was deleted. Never raises: a
         missing service-role key or a failed call logs an ERROR and returns
         False so account deletion still succeeds.
+
+        CASCADES the user's social rows (posts, comments, messages, post_media)
+        via ``ON DELETE CASCADE`` foreign keys to ``auth.users``. That is why the
+        post-media object listing above has to run BEFORE this call.
         """
-        supabase_url = str(
-            os.environ.get(SUPABASE_URL_ENV)
-            or os.environ.get("EXPO_PUBLIC_SPOTLIGHT_SUPABASE_URL")
-            or os.environ.get("SPOTLIGHT_SUPABASE_URL")
-            or ""
-        ).strip()
-        service_role_key = str(
-            os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-            or os.environ.get("SPOTLIGHT_SUPABASE_SERVICE_ROLE_KEY")
-            or ""
-        ).strip()
+        supabase_url, service_role_key = self._supabase_service_role_env()
 
         if not service_role_key or not supabase_url:
             self._emit_structured_log(
