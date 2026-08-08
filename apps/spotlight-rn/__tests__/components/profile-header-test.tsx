@@ -1,12 +1,26 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { AccessibilityInfo, StyleSheet } from 'react-native';
 
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+
 import { SpotlightThemeProvider, colors } from '@spotlight/design-system';
 
 import { ProfileHeader } from '../../src/features/profile/components/profile-header';
 
 function renderHeader(node: React.ReactElement) {
-  return render(<SpotlightThemeProvider>{node}</SpotlightThemeProvider>);
+  // SafeAreaProvider is required: the cover bleeds under the status bar by
+  // -insets.top, so the header reads real insets now. `initialMetrics` keeps
+  // them deterministic instead of waiting on an onLayout that never fires here.
+  return render(
+    <SafeAreaProvider
+      initialMetrics={{
+        frame: { x: 0, y: 0, width: 393, height: 852 },
+        insets: { top: 59, left: 0, right: 0, bottom: 34 },
+      }}
+    >
+      <SpotlightThemeProvider>{node}</SpotlightThemeProvider>
+    </SafeAreaProvider>,
+  );
 }
 
 /**
@@ -166,14 +180,24 @@ describe('ProfileHeader', () => {
     });
     expect(screen.queryByTestId('profile-header-cover-skeleton')).toBeNull();
 
+    // Same provider stack as the initial render — `rerender` replaces the whole
+    // tree, so dropping SafeAreaProvider here would strip the insets the cover
+    // bleed depends on.
     rerender(
-      <SpotlightThemeProvider>
-        <ProfileHeader
-          coverUrl="https://cdn.test/covers/user-1.jpg?t=2"
-          displayName="Ash Ketchum"
-          initials="AK"
-        />
-      </SpotlightThemeProvider>,
+      <SafeAreaProvider
+        initialMetrics={{
+          frame: { x: 0, y: 0, width: 393, height: 852 },
+          insets: { top: 59, left: 0, right: 0, bottom: 34 },
+        }}
+      >
+        <SpotlightThemeProvider>
+          <ProfileHeader
+            coverUrl="https://cdn.test/covers/user-1.jpg?t=2"
+            displayName="Ash Ketchum"
+            initials="AK"
+          />
+        </SpotlightThemeProvider>
+      </SafeAreaProvider>,
     );
 
     expect(screen.getByTestId('profile-header-cover-skeleton')).toBeTruthy();

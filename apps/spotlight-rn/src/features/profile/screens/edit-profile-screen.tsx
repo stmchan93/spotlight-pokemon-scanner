@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import {
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -168,6 +169,9 @@ export function EditProfileScreen() {
   const [bio, setBio] = useState(user?.bio ?? '');
   const [avatarUrl, setAvatarUrl] = useState(user?.avatarURL ?? null);
   const [coverUrl, setCoverUrl] = useState(user?.coverURL ?? null);
+  // Resize + upload takes seconds on a real photo. Without this the banner sat
+  // unchanged the whole time and the tap read as "nothing happened".
+  const [isCoverUploading, setIsCoverUploading] = useState(false);
   // Only a cover the user picked in THIS session goes into the save patch —
   // `updateProfile` writes every key it is handed, and `cover_url` is the newest
   // column, so an untouched cover must not be part of an ordinary name/bio save.
@@ -277,7 +281,9 @@ export function EditProfileScreen() {
   }, [pickAndUploadImage, spotlightRepository]);
 
   const handlePickCover = useCallback(async () => {
-    const uploadedUrl = await pickAndUploadImage({
+    setIsCoverUploading(true);
+    try {
+      const uploadedUrl = await pickAndUploadImage({
       // No `allowsEditing` for the banner: expo-image-picker's `aspect` is
       // Android-only, and iOS's built-in editor forces a SQUARE crop — the user
       // would frame a square that the 2.2:1 banner then crops again. Taking the
@@ -301,7 +307,11 @@ export function EditProfileScreen() {
       // navigate back the bytes are already local. Fire-and-forget: a failed
       // prefetch costs a slower paint, never a failed save.
       void prefetchImageUrls([uploadedUrl], 'memory-disk').catch(() => undefined);
+      }
+    } finally {
+      setIsCoverUploading(false);
     }
+
   }, [pickAndUploadImage, spotlightRepository]);
 
   const handleVerifyPage = useCallback(() => {
@@ -378,6 +388,14 @@ export function EditProfileScreen() {
                 style={StyleSheet.absoluteFill}
                 testID="edit-profile-cover-image"
               />
+            ) : null}
+            {isCoverUploading ? (
+              // Dim + spinner over the banner. The upload is the slow part the
+              // user was seeing as an unexplained 3-4s pause; the profile
+              // header's own skeleton only covers the later remote FETCH.
+              <View style={[StyleSheet.absoluteFill, styles.coverUploading]}>
+                <ActivityIndicator color={theme.colors.gray0} />
+              </View>
             ) : null}
             <SafeAreaView edges={['top']} style={styles.coverBar}>
               <Pressable
@@ -641,6 +659,13 @@ const styles = StyleSheet.create({
     height: 36,
     justifyContent: 'center',
     width: 36,
+  },
+  coverUploading: {
+    alignItems: 'center',
+    // Dark scrim so the white spinner reads over any photo, including a bright
+    // one the user just picked.
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center',
   },
   cover: {
     height: COVER_HEIGHT,

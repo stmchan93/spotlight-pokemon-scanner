@@ -9,6 +9,7 @@ import Animated, {
   withRepeat,
   withTiming,
 } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Avatar, SkeletonBlock, Text, useSpotlightTheme } from '@spotlight/design-system';
 
@@ -81,6 +82,7 @@ export function ProfileHeader({
 }: ProfileHeaderProps) {
   const theme = useSpotlightTheme();
 
+  const insets = useSafeAreaInsets();
   // Which cover URL has finished loading (or failed). Storing the URL rather
   // than a boolean means a newly uploaded cover re-enters the loading state on
   // its own, with no reset effect and no one-frame flash of the loaded photo.
@@ -103,7 +105,20 @@ export function ProfileHeader({
         // slot is never transparent mid-load and never changes height when the
         // bytes land — the image fills the frame absolutely.
         <View
-          style={[styles.cover, { backgroundColor: theme.colors.gray100 }]}
+          style={[
+            styles.cover,
+            {
+              backgroundColor: theme.colors.gray100,
+              // Bleed under the status bar. The list this sits in uses
+              // `contentInsetAdjustmentBehavior="automatic"`, which insets the
+              // scroll content by the safe area — so without pulling back up by
+              // exactly that amount the banner starts below the notch and leaves
+              // a white strip above it. Height grows by the same amount, so the
+              // visible band below the status bar is unchanged.
+              height: COVER_HEIGHT + insets.top,
+              marginTop: -insets.top,
+            },
+          ]}
           testID={`${testID}-cover-frame`}
         >
           <Image
