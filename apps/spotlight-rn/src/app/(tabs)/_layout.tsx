@@ -1,3 +1,4 @@
+import { usePathname } from 'expo-router';
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
 
 import { colors } from '@spotlight/design-system';
@@ -15,7 +16,8 @@ const { Icon, Label } = Trigger;
  *  - the left-edge drag that opened the hamburger drawer, which lived inside
  *    the pager's pan responder — the drawer BUTTON still works
  *  - hiding the bar during Collection edit mode; UIKit owns this bar and
- *    `hidden` hides a TAB, not the BAR
+ *    `hidden` on a TRIGGER hides a tab; `hidden` on <NativeTabs> hides the bar,
+ *    which is how the Scanner gets a full screen (see below)
  *
  * Scan is a real tab because a native bar cannot host a push-button:
  * NativeBottomTabsNavigator emits `tabPress` then dispatches JUMP_TO without
@@ -69,8 +71,26 @@ const { Icon, Label } = Trigger;
  * Re-test after a screens upgrade past 4.23.0, not before.
  */
 export default function TabsLayout() {
+  // Hide the BAR ITSELF on the Scanner. `hidden` on <NativeTabs> maps to
+  // react-native-screens' `tabBarHidden` (NativeTabsView.js) — note this is NOT
+  // the `hidden` on a Trigger, which removes a TAB from the bar entirely.
+  //
+  // This is what finally makes Scan work as a normal tab. Four earlier attempts
+  // tried to keep the camera off the tab bar by making Scan a LAUNCHER that
+  // pushed a full-screen route, and every one of them stranded the user on the
+  // blank launcher after backing out: pushing from a tab means something has to
+  // move the tab selection afterwards, and nothing reliably does while the tabs
+  // are covered. Hiding the bar removes the entire problem — there is no push,
+  // so there is nothing to come back from.
+  const pathname = usePathname();
+  const isScanner = pathname === '/scan';
+
   return (
-    <NativeTabs minimizeBehavior="onScrollDown" tintColor={colors.gray900}>
+    <NativeTabs
+      hidden={isScanner}
+      minimizeBehavior="onScrollDown"
+      tintColor={colors.gray900}
+    >
       <Trigger name="index">
         <Icon sf={{ default: 'square.grid.2x2', selected: 'square.grid.2x2.fill' }} />
         <Label>Collection</Label>

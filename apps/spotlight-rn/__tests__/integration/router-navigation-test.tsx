@@ -4,8 +4,8 @@ import { Text } from 'react-native';
 
 import { renderAppRouter } from '../test-utils';
 
-function ScanCameraStub() {
-  return <Text testID="scan-camera-stub">camera</Text>;
+function ScanTabStub() {
+  return <Text testID="scan-tab-stub">scanner</Text>;
 }
 
 function WishlistTabStub() {
@@ -13,8 +13,8 @@ function WishlistTabStub() {
 }
 
 describe('mobile app routing', () => {
-  it('boots into collection, and the Scan tab launches the pushed camera', async () => {
-    const app = renderAppRouter('/', { 'scan-camera': ScanCameraStub });
+  it('boots into collection and navigates to the Scanner tab', async () => {
+    const app = renderAppRouter('/', { '(tabs)/scan': ScanTabStub });
 
     await waitFor(() => {
       expect(screen.getByTestId('portfolio-header-menu')).toBeTruthy();
@@ -28,14 +28,15 @@ describe('mobile app routing', () => {
       router.push('/scan');
     });
 
-    // The Scan TAB is a launcher, not a screen — focusing it pushes the camera
-    // over the tabs, which is what hides the native tab bar and keeps the
-    // viewfinder full-bleed. Landing on /scan itself would mean the bar is
-    // still up and the reticle is being inset.
+    // Scan is an ordinary TAB again. It was briefly a launcher that pushed a
+    // full-screen /scan-camera route to keep the bar off the viewfinder; that
+    // stranded users on a blank screen every time they backed out. The bar is
+    // now hidden on this route instead (`hidden` on <NativeTabs>), so the
+    // camera stays full-screen without anything being pushed.
     await waitFor(() => {
-      expect(app.getPathname()).toBe('/scan-camera');
+      expect(app.getPathname()).toBe('/scan');
     });
-    expect(screen.getByTestId('scan-camera-stub')).toBeTruthy();
+    expect(screen.getByTestId('scan-tab-stub')).toBeTruthy();
   });
 
   it('reaches Wishlist as a tab route', async () => {

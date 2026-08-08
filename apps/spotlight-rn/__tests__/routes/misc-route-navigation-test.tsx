@@ -26,6 +26,9 @@ const mockSaveInventoryPreview: jest.Mock<string, [InventoryCardEntry]> = jest.f
   (_entry: InventoryCardEntry) => 'inventory-preview-id',
 );
 
+// Drives the tabs layout's `hidden` decision (the bar is hidden on /scan).
+const mockPathname = jest.fn(() => '/');
+
 jest.mock('expo-router/unstable-native-tabs', () => {
   const { Text, View } = require('react-native');
   const Trigger = Object.assign(
@@ -34,8 +37,9 @@ jest.mock('expo-router/unstable-native-tabs', () => {
   );
   return {
     NativeTabs: Object.assign(
-      ({ children, minimizeBehavior }: { children?: React.ReactNode; minimizeBehavior?: string }) => (
+      ({ children, hidden, minimizeBehavior }: { children?: React.ReactNode; hidden?: boolean; minimizeBehavior?: string }) => (
         <View>
+          <Text testID="native-tabs-hidden">{String(hidden)}</Text>
           <Text testID="native-tabs-minimize">{String(minimizeBehavior)}</Text>
           {children}
         </View>
@@ -47,6 +51,7 @@ jest.mock('expo-router/unstable-native-tabs', () => {
 
 jest.mock('expo-router', () => ({
   Redirect: (props: { href: unknown }) => mockRedirect(props),
+  usePathname: () => mockPathname(),
   Slot: () => {
     const { Text } = require('react-native');
     return <Text testID="slot-screen">slot</Text>;
@@ -272,11 +277,22 @@ describe('misc route wrappers', () => {
     browse.unmount();
 
     // The tabs layout is Apple's native tab bar now, not a Slot.
-    render(<TabsLayout />);
+    mockPathname.mockReturnValue('/');
+    const tabs = render(<TabsLayout />);
     expect(screen.getByTestId('native-tabs-minimize').props.children).toBe('onScrollDown');
     expect(screen.getByTestId('native-tab-index')).toBeTruthy();
     expect(screen.getByTestId('native-tab-scan')).toBeTruthy();
     expect(screen.getByTestId('native-tab-wishlist')).toBeTruthy();
+    expect(screen.getByTestId('native-tabs-hidden').props.children).toBe('false');
+
+    // On the Scanner the BAR is hidden so the camera keeps the full screen —
+    // this is what replaced the launcher-and-push design that stranded users on
+    // a black screen. Regression guard: if this flips back to 'false', the
+    // reticle silently shrinks again.
+    tabs.unmount();
+    mockPathname.mockReturnValue('/scan');
+    render(<TabsLayout />);
+    expect(screen.getByTestId('native-tabs-hidden').props.children).toBe('true');
   });
 
   it('registers New Post on the ROOT stack so its formSheet actually presents', () => {
