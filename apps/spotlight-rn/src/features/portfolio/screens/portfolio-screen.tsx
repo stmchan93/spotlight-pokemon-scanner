@@ -359,6 +359,10 @@ export function PortfolioScreen({
   const [collectionsSnapshot, setCollectionsSnapshot] = useState<CollectionsSnapshot | null>(null);
   const [isLoadingCollections, setIsLoadingCollections] = useState(false);
   const [collectionPendingDelete, setCollectionPendingDelete] = useState<Collection | null>(null);
+  // An action to run only AFTER the collection picker's modal has fully gone —
+  // same rule as the card actions menu below: a second overFullScreen modal
+  // cannot present while the first is still up.
+  const pendingPickerDismissActionRef = useRef<(() => void) | null>(null);
   const [isDeletingCollection, setIsDeletingCollection] = useState(false);
   const [collectionDeleteError, setCollectionDeleteError] = useState<string | null>(null);
   const { isHidden: isSummaryHidden, toggle: toggleSummaryHidden } = usePortfolioSummaryVisibility();
@@ -528,6 +532,26 @@ export function PortfolioScreen({
     },
     [loadCollections, refreshData, spotlightRepository],
   );
+
+  /**
+   * Trash on a picker row. The confirm is its own bottom sheet, and a bottom
+   * sheet is an `overFullScreen` modal: presenting it while the picker's modal
+   * is still up collides at the view-controller layer on iOS, so the confirm
+   * never appears — the delete silently did nothing. Close the picker and let
+   * its dismissal open the confirm, exactly as `handleMenuDelete` does for the
+   * card actions menu.
+   */
+  const handleRequestDeleteCollection = useCallback((collection: Collection) => {
+    setCollectionDeleteError(null);
+    pendingPickerDismissActionRef.current = () => setCollectionPendingDelete(collection);
+    setIsCollectionPickerVisible(false);
+  }, []);
+
+  const handleCollectionPickerDismissed = useCallback(() => {
+    const run = pendingPickerDismissActionRef.current;
+    pendingPickerDismissActionRef.current = null;
+    run?.();
+  }, []);
 
   const handleConfirmDeleteCollection = useCallback(() => {
     const target = collectionPendingDelete;
@@ -1267,6 +1291,19 @@ export function PortfolioScreen({
   );
 
   return (
+    /*
+      Left-edge drag opens the hamburger drawer. This lived in TopTabsPager's pan
+      responder and was lost with it — the drawer BUTTON kept working, the drag
+      did not.
+
+      WRAPPER, not an edge overlay. As a sibling strip it depended on touches
+      hit-testing to it, and the collection list swallowed them first, so the
+      gesture never fired. Wrapping means the recogniser sits above everything in
+      the tree and sees every touch through the CAPTURE phase — exactly what the
+      pager did (`onMoveShouldSetPanResponderCapture`) and for exactly this
+      reason. It still never claims the gesture, so scrolling is untouched.
+    */
+    <DrawerEdgeSwipe>
     <SafeAreaView
       edges={['left', 'right']}
       style={[styles.safeArea, { backgroundColor: theme.colors.gray0 }]}
@@ -1290,7 +1327,18 @@ export function PortfolioScreen({
           // offset valid so the list no longer snaps/jumps as results shrink
           // while typing. Swipe-to-dismiss + persist-taps let you reach a result
           // (open the card) without an extra tap to drop the keyboard first.
-          automaticallyAdjustKeyboardInsets
+          //
+          // ...but ONLY while this list is the thing the keyboard belongs to.
+          // The prop is a raw keyboard-frame subscription on the native scroll
+          // view (RCTScrollViewComponentView._keyboardWillChangeFrame): ANY
+          // keyboard rewrites this list's contentInset and scrolls it, with no
+          // check for which window raised it. The collection picker's "New
+          // Collection" field is in a modal on top, so its keyboard was
+          // reaching down here and moving a list the user could not even see —
+          // which is how naming a collection and backing out left the page
+          // stuck. While a sheet is up the search field cannot be focused, so
+          // there is nothing to adjust for.
+          automaticallyAdjustKeyboardInsets={!isCollectionPickerVisible}
           // Keeps this list on UIKit's `automatic` inset behaviour instead of
           // React Native's `never` default, which is what lets the content sit
           // correctly under the native tab bar.
@@ -1349,17 +1397,6 @@ export function PortfolioScreen({
           testID="portfolio-scroll-view"
         />
       </View>
-
-      {/*
-        Left-edge drag to open the hamburger drawer. This gesture used to live in
-        TopTabsPager's pan responder and was lost when the native tab bar
-        replaced it; the drawer BUTTON kept working, the drag did not.
-
-        Order is load-bearing: after the list so the strip paints above it, but
-        BEFORE `headerBubbles` so it stays under the floating controls —
-        otherwise it clips the left edge of the menu button it exists to open.
-      */}
-      <DrawerEdgeSwipe />
 
       {headerBubbles}
 
@@ -1472,11 +1509,9 @@ export function PortfolioScreen({
         loading={isLoadingCollections}
         onClose={() => setIsCollectionPickerVisible(false)}
         onCreateCollection={handleCreateCollection}
+        onDismissed={handleCollectionPickerDismissed}
         onRenameCollection={handleRenameCollection}
-        onRequestDelete={(collection) => {
-          setCollectionDeleteError(null);
-          setCollectionPendingDelete(collection);
-        }}
+        onRequestDelete={handleRequestDeleteCollection}
         onSelectCollection={setActiveCollectionID}
         onToggleHidden={handleToggleCollectionHidden}
         visible={isCollectionPickerVisible}
@@ -1506,6 +1541,7 @@ export function PortfolioScreen({
         visible={collectionPendingDelete !== null}
       />
     </SafeAreaView>
+    </DrawerEdgeSwipe>
   );
 }
 
