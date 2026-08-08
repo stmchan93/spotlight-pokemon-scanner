@@ -249,6 +249,7 @@ DATABASE_PATH="$DATA_DIR/spotlight_scanner.sqlite"
 RUNTIME_CONFIG_FILE="$SCRIPT_DIR/.vm-runtime.conf"
 FLOCK_BIN="$(command -v flock)"
 SYNC_LOCK_FILE="$DATA_DIR/scrydex-sync.lock"
+SOCIAL_MODERATION_LOCK_FILE="$DATA_DIR/social-moderation.lock"
 SYNC_LOG_FILE="$LOG_DIR/scrydex_sync.log"
 HEALTH_MONITOR_LOG_FILE="$LOG_DIR/health_monitor.log"
 RESOURCE_MONITOR_LOG_FILE="$LOG_DIR/resource_monitor.log"
@@ -263,6 +264,7 @@ BACKEND_HOST="${SPOTLIGHT_VM_BACKEND_HOST:-127.0.0.1}"
 PUBLIC_BASE_URL="${SPOTLIGHT_VM_PUBLIC_BASE_URL:-}"
 HEALTH_CRON_SCHEDULE="${SPOTLIGHT_VM_HEALTH_CRON:-*/5 * * * *}"
 RESOURCE_CRON_SCHEDULE="${SPOTLIGHT_VM_RESOURCE_CRON:-*/15 * * * *}"
+MODERATION_CRON_SCHEDULE="${SPOTLIGHT_VM_MODERATION_CRON:-*/2 * * * *}"
 VISUAL_INDEX_NPZ_PATH="$(normalize_vm_repo_path "$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_VISUAL_INDEX_NPZ_PATH")")"
 VISUAL_INDEX_MANIFEST_PATH="$(normalize_vm_repo_path "$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_VISUAL_INDEX_MANIFEST_PATH")")"
 VISUAL_ADAPTER_CHECKPOINT_PATH="$(normalize_vm_repo_path "$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_VISUAL_ADAPTER_CHECKPOINT_PATH")")"
@@ -301,7 +303,7 @@ if [[ "$PUBLIC_BASE_URL" == *$'\n'* ]]; then
   exit 1
 fi
 
-for schedule_var in SYNC_CRON_SCHEDULE HEALTH_CRON_SCHEDULE RESOURCE_CRON_SCHEDULE; do
+for schedule_var in SYNC_CRON_SCHEDULE HEALTH_CRON_SCHEDULE RESOURCE_CRON_SCHEDULE MODERATION_CRON_SCHEDULE; do
   schedule_value="${!schedule_var}"
   if [ -z "$schedule_value" ] || [[ "$schedule_value" == *$'\n'* ]]; then
     echo "$schedule_var must be a single non-empty cron schedule line." >&2
@@ -364,6 +366,11 @@ write_runtime_override "SPOTLIGHT_VM_SYNC_CRON" "$SYNC_CRON_SCHEDULE"
 write_runtime_override "SPOTLIGHT_VM_SYNC_CRON_TZ" "$SYNC_CRON_TIMEZONE"
 write_runtime_override "SPOTLIGHT_SYNC_LOCK_FILE" "$SYNC_LOCK_FILE"
 write_runtime_override "SPOTLIGHT_SYNC_LOG_FILE" "$SYNC_LOG_FILE"
+# Recorded for observability only — crontab owns the moderation cadence, so
+# editing this on the box changes nothing. The lock path below IS read, by
+# run_social_moderation_vm.sh.
+write_runtime_override "SPOTLIGHT_VM_MODERATION_CRON" "$MODERATION_CRON_SCHEDULE"
+write_runtime_override "SPOTLIGHT_SOCIAL_MODERATION_LOCK_FILE" "$SOCIAL_MODERATION_LOCK_FILE"
 
 chmod 600 "$RUNTIME_CONFIG_FILE"
 chmod +x \
@@ -442,14 +449,24 @@ RESOURCE_LINE="$RESOURCE_CRON_SCHEDULE cd $REPO_ROOT && $SCRIPT_DIR/run_vm_resou
 # unsupported by Ubuntu's vixie cron, so we anchor in UTC). Enrichment-only; no-ops
 # if PPT_API_KEY is absent from the secrets file.
 PPT_POPULATION_LINE="30 6 * * * cd $REPO_ROOT && $SCRIPT_DIR/run_ppt_population_vm.sh >> $PPT_POPULATION_LOG_FILE 2>&1"
-# Social moderation — every 2 minutes, on BOTH environments. Unlike the Scrydex
-# and PPT jobs above this burns no credits: OpenAI's omni-moderation endpoint is
-# free for text and images, so the only cost is GCS egress reading each image
-# once. It has to run on staging precisely because that is where the users are —
-# post images stay hidden by RLS until this approves them.
+# Social moderation — every 2 minutes by default, on BOTH environments. Unlike
+# the Scrydex and PPT jobs above this burns no credits: OpenAI's omni-moderation
+# endpoint is free for text and images, so the only cost is GCS egress reading
+# each image once. It has to run on staging precisely because that is where the
+# users are — post images stay hidden by RLS until this approves them.
 # Two minutes is a latency choice, not a throughput one: the worker batches, so
 # the interval only sets how long a new image waits to become visible to others.
-SOCIAL_MODERATION_LINE="*/2 * * * * cd $REPO_ROOT && $SCRIPT_DIR/run_social_moderation_vm.sh >> $SOCIAL_MODERATION_LOG_FILE 2>&1"
+# Override with SPOTLIGHT_VM_MODERATION_CRON (validated as a single line above).
+#
+# The runner takes an exclusive flock (SPOTLIGHT_SOCIAL_MODERATION_LOCK_FILE) and
+# exits immediately if a previous tick still holds it. That guard is load-bearing,
+# not belt-and-braces: a tick that drains a full backlog batch can outlast the
+# 2-minute interval, and the worker's own poll filters ("unchecked" / "pending")
+# do NOT deduplicate overlapping runs — a row stays selectable until its verdict
+# is written, so a second concurrent tick would re-moderate the same rows and
+# double the OpenAI calls and GCS egress. flock availability is verified near the
+# top of this script, so the cron entry can rely on it existing.
+SOCIAL_MODERATION_LINE="$MODERATION_CRON_SCHEDULE cd $REPO_ROOT && $SCRIPT_DIR/run_social_moderation_vm.sh >> $SOCIAL_MODERATION_LOG_FILE 2>&1"
 # Retention purge for post images. Daily at 08:15 UTC (~1:15am PT): clear of the
 # Scrydex sync (01:00-02:00 UTC), the PPT population refresh (06:30 UTC) and the
 # 3am-PT disk snapshot. Daily is right — the window is 30 DAYS, so a day of
@@ -546,9 +563,16 @@ echo "  Backend log: $LOG_DIR/backend.log"
 echo "  Sync log: $SYNC_LOG_FILE"
 echo "  Health monitor log: $HEALTH_MONITOR_LOG_FILE"
 echo "  Resource monitor log: $RESOURCE_MONITOR_LOG_FILE"
+echo "  Social moderation log: $SOCIAL_MODERATION_LOG_FILE"
+echo "  Post media purge log: $POST_MEDIA_PURGE_LOG_FILE"
 echo "  Sync schedule: $SYNC_CRON_SCHEDULE timezone=$SYNC_CRON_TIMEZONE (minute scheduler wrapper)"
 echo "  Health cron: $HEALTH_CRON_SCHEDULE"
 echo "  Resource cron: $RESOURCE_CRON_SCHEDULE"
+echo "  Social moderation cron: $MODERATION_CRON_SCHEDULE (lock: $SOCIAL_MODERATION_LOCK_FILE)"
+# Post images are hidden by RLS until this worker approves them, so a silently
+# disabled moderation pass reads to users as "image posting is broken". Point the
+# operator at the one grep that distinguishes the two.
+echo "  Social moderation status: grep 'moderation disabled' $SOCIAL_MODERATION_LOG_FILE"
 echo "  Backend bind: $BACKEND_HOST:8788"
 echo "  Backend service: $SERVICE_NAME"
 echo "  Public base URL: ${PUBLIC_BASE_URL:-<unset>}"

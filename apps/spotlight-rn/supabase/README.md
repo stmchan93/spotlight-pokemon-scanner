@@ -18,7 +18,9 @@ supabase/
 │  ├─ 20260723090000_social_07_public_profiles_view_counter_triggers.sql
 │  ├─ 20260724090000_social_08_user_profiles_rls_hardening.sql
 │  ├─ 20260726090000_social_09_engagement_counter_triggers_security_definer.sql
-│  └─ 20260806090000_social_10_public_users_mirror.sql      # NOT applied yet
+│  ├─ 20260806090000_social_10_public_users_mirror.sql      # NOT applied yet
+│  ├─ …                                                    # social_11 … social_17
+│  └─ 20260812090000_social_18_moderation_wordlist_word_boundary.sql   # NOT applied yet
 ├─ manual/
 │  └─ user_profiles_rls_REVIEW_BEFORE_APPLY.sql   # superseded by social_08 (kept for history)
 └─ email_exists.sql                 # pre-existing RPC, applied by hand; social_10 promotes it into migrations
@@ -31,7 +33,11 @@ this file said nothing had been applied — that was stale; it is fixed here.) T
 applied migration as **immutable history**: never edit one, always add the next file in
 sequence.
 
-`social_10` is the only file in this directory that has **not** been applied yet.
+`social_11` through `social_18` were added after this section was last revised, so do not
+read "social_10 is the only unapplied file" off it. **`supabase migration list` is the only
+trustworthy answer** to what is actually applied where — run it against staging and against
+production separately, since [the two are separate projects](#staging-first-always).
+`social_18` is new in this pass and is applied nowhere.
 
 The migrations are **additive only** — brand-new tables + additive columns on
 `user_profiles`. RLS on the pre-existing `user_profiles` table was promoted out of
@@ -77,6 +83,30 @@ supabase db reset        # applies every migration from scratch — proves they'
 **B. A preview branch / throwaway project** (no Docker): create a scratch Supabase
 project, `supabase link` to it, `supabase db push`, and smoke-test.
 
+## Staging first, always
+
+Since commit `c655471` there are **two Supabase projects**, not one:
+
+| env | project | ref |
+| --- | --- | --- |
+| development + staging | `looty-staging` | `mphjenaaorntwkyivqtm` |
+| production | original project (holds real accounts) | `lvnjshymwvagwadqeofm` |
+
+Every migration goes to **staging first**, gets smoke-tested there, and only then to
+production. `supabase link` rebinds the CLI to whichever project you last named, so it is
+easy to push to the wrong one — re-link and re-check before every push:
+
+```bash
+cd apps/spotlight-rn
+supabase link --project-ref mphjenaaorntwkyivqtm   # staging
+supabase migration list                            # confirm WHICH project + what's pending
+supabase db push
+```
+
+Production repeats the same three commands with `lvnjshymwvagwadqeofm`, and only after the
+staging smoke test passes. The repo-wide production gate in [`AGENTS.md`](../../../AGENTS.md)
+applies here too: a production push needs explicit approval, never "deploy everything".
+
 ## Apply to your project
 
 ```bash
@@ -116,13 +146,82 @@ Rollback is `drop trigger auth_users_mirror_insert on auth.users; drop trigger
 auth_users_mirror_delete on auth.users; drop table public.users;` — safe as long as nothing
 has started FK'ing the mirror yet.
 
+### Applying `social_18` (word-boundary pre-filter + the real wordlist)
+
+**Staging first — this one changes what gets auto-deleted.** It does two things in one
+transaction, in this order, and the order is the point:
+
+1. Replaces `tg_content_prefilter()` so `blocked_terms` matches on **word boundaries**
+   (`\y…\y`) instead of a bare substring. Under the old rule a hard term `ass` removed
+   every post about **Grass** Energy, `fag` hid **Cofagrigus**, `coon` hid **Zigzagoon**.
+   Terms are regex-escaped before interpolation, so a term containing `.` or `(` matches
+   literally and a malformed one cannot raise inside a BEFORE INSERT trigger.
+2. Seeds the real list — **19 `hard`, 116 `soft`** — replacing "one test term".
+
+Nothing about the rate limit, the `hard`→`removed` / `soft`→`pending` semantics, or the
+`moderation_checked_at` handling changes. No table, column, policy or trigger is created
+or altered; only two function bodies and table rows.
+
+**Run it as `postgres`** (SQL editor or `supabase db push`). `blocked_terms` has RLS with
+an admin-only policy; the owner role bypasses it, `authenticated` does not.
+
+**Before production, know the `pending` trap.** `soft` hides a row until the AI pass
+clears it — but `backend/social_moderation_worker.py` is not on a cron, and even when it
+runs it only stamps `moderation_checked_at`; it never puts a cleared row back to
+`visible`. So today a soft hit is a **permanent** hide. Either fix the worker first, or
+apply the migration and hold the soft tier back until it is on a cron:
+
+```sql
+delete from public.blocked_terms where severity = 'soft';   -- keep the hard tier only
+```
+
+Re-running the seed block from the migration file restores it. Anything already stuck:
+
+```sql
+update public.posts set content_status = 'visible'
+ where content_status = 'pending' and moderation_checked_at is not null;
+```
+
+**Verify after applying.** The migration's footer carries the queries: the Grass/`ass`
+proof, a metacharacter-escaping check, a **false-positive sweep of the whole list against
+real TCG vocabulary that must return zero rows**, the per-severity counts, and end-to-end
+inserts proving hard→`removed` and soft→`pending`. Run at least the sweep and the counts.
+
+### Adding or removing blocked terms later (no migration needed)
+
+`blocked_terms` is admin-only (RLS `public.is_admin()`), so this is a SQL-editor / admin
+task, not a schema change:
+
+```sql
+insert into public.blocked_terms (term, severity) values ('newterm', 'soft')
+  on conflict (term) do update set severity = excluded.severity;
+update public.blocked_terms set severity = 'soft' where term = 'toonoisy';
+delete from public.blocked_terms where term = 'oops';
+```
+
+Four rules, all learned the hard way and written out at length in the migration header:
+
+- **Always pass `severity` explicitly.** The column defaults to `hard`, and `hard` deletes
+  with no human in the loop and no signal to the author.
+- **`hard` is for unambiguous hate speech only.** If you can write one realistic sentence a
+  collector would post that contains the word innocently, it belongs in `soft`.
+- **One row per inflection.** Matching is whole-word: `fuck` does not cover `fucking`, and
+  `nigger` does not cover `sandnigger`.
+- **Run the false-positive sweep with your candidate added** before you commit to it. That
+  is how `jap` (Japanese cards), `ho` (Ho-Oh), `trap` (Trap Cards), `sex` (Pokémon gender),
+  `1488` (a card number and a price) and `kkk` (Brazilian laughter) were kept out.
+
 ## After applying
 
-1. **Seed the wordlist.** `blocked_terms` ships with one harmless test term
-   (`zzblockedtest`, severity `hard`). Add your real hard/soft terms (admin-only table).
+1. **Seed the wordlist.** Done by `social_18` — see above. Before it is applied,
+   `blocked_terms` holds only the test term `zzblockedtest` (`hard`).
 2. **Deploy the moderation worker** (the AI pass) — `backend/social_moderation_worker.py`.
    It is NOT wired to anything yet. Set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
    `OPENAI_API_KEY`, then run `--once` to verify, later install as a 1–2 min cron.
+   It also needs a one-line fix before the `soft` tier is usable in production: on a row
+   the classifier does **not** flag, `_moderate_text_table()` writes only
+   `moderation_checked_at`, so a `pending` row it cleared stays hidden forever. It must
+   also set `content_status = 'visible'` when the current status is `pending`.
 3. **Grant yourself admin** for the review queue: set `user_profiles.admin_enabled = true`
    for your `user_id`.
 

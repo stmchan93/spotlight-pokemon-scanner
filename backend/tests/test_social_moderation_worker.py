@@ -12,6 +12,7 @@ The worker used to mint a Supabase Storage signed URL for each pending
 from __future__ import annotations
 
 import base64
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -327,6 +328,95 @@ class MediaStoreNotConfiguredTests(_WorkerTestCase):
         self.assertEqual(polled, ["posts", "comments"])
 
 
+# --- releasing content the prefilter parked at `pending` -----------------------
+
+
+class SoftHitReleaseTests(_WorkerTestCase):
+    """`soft` wordlist hits must be able to come back.
+
+    tg_content_prefilter parks a soft-term match at `pending` with
+    moderation_checked_at NULL and leaves the verdict to this pass. Before this
+    behaviour existed the pass only stamped the timestamp, so anything the AI
+    cleared stayed hidden forever — `soft` was a one-way delete with extra steps.
+
+    The counterweight: tg_reports_threshold() ALSO parks at `pending` once K
+    users report a target. Releasing those would silently overturn community
+    moderation, so an open report holds the row.
+    """
+
+    pending_rows: list[dict] = [{"id": 7, "body": "hello", "content_status": "pending"}]
+    open_reports: list[dict] = []
+
+    def rows_for(self, table: str) -> list[dict]:
+        if table in {"posts", "comments"}:
+            return list(self.pending_rows)
+        if table == "reports":
+            return list(self.open_reports)
+        return []
+
+    def test_cleared_pending_row_is_released_to_visible(self) -> None:
+        worker._moderate_text_table("posts")
+
+        self.assertEqual(
+            self.patched[0][2],
+            {"moderation_checked_at": "now()", "content_status": "visible"},
+        )
+
+    def test_reported_pending_row_is_held_even_when_clean(self) -> None:
+        self.open_reports = [{"id": "r1"}]
+        self.addCleanup(setattr, self, "open_reports", [])
+
+        worker._moderate_text_table("posts")
+
+        # Stamped as checked, but content_status is untouched — still hidden.
+        self.assertEqual(self.patched[0][2], {"moderation_checked_at": "now()"})
+
+    def test_report_lookup_uses_the_singular_target_type(self) -> None:
+        # reports.target_type is "post"/"comment"; the poll tables are plural.
+        # Getting this wrong returns "no reports" for everything and silently
+        # republishes reported content.
+        worker._moderate_text_table("comments")
+        report_queries = [q for t, q in self.fetched if t == "reports"]
+        self.assertTrue(report_queries)
+        self.assertIn("target_type=eq.comment", report_queries[0])
+        self.assertIn("status=eq.open", report_queries[0])
+
+    def test_flagged_pending_row_is_removed_not_released(self) -> None:
+        self.flagged = True
+
+        worker._moderate_text_table("posts")
+
+        self.assertEqual(self.patched[0][2]["content_status"], "removed")
+
+    def test_report_lookup_failure_holds_the_row(self) -> None:
+        # Fails closed: a blip must never republish content.
+        with patch.object(worker, "_fetch", side_effect=_only_reports_fail(self)):
+            worker._moderate_text_table("posts")
+
+        self.assertEqual(self.patched[0][2], {"moderation_checked_at": "now()"})
+
+    def test_visible_row_is_only_stamped(self) -> None:
+        # A row that was never parked keeps the original contract: stamp only.
+        self.pending_rows = [{"id": 7, "body": "hi", "content_status": "visible"}]
+        self.addCleanup(
+            setattr, self, "pending_rows", [{"id": 7, "body": "hello", "content_status": "pending"}]
+        )
+
+        worker._moderate_text_table("posts")
+
+        self.assertEqual(self.patched[0][2], {"moderation_checked_at": "now()"})
+
+
+def _only_reports_fail(case: "SoftHitReleaseTests"):
+    def _fetch(table: str, query: str):
+        case.fetched.append((table, query))
+        if table == "reports":
+            raise RuntimeError("postgrest unavailable")
+        return case.rows_for(table)
+
+    return _fetch
+
+
 # --- unchanged Supabase contract ---------------------------------------------
 
 
@@ -363,6 +453,82 @@ class UnchangedWorkerContractTests(_WorkerTestCase):
         self.assertFalse(hasattr(worker, "STORAGE_BUCKET"))
         source = (BACKEND_ROOT / "social_moderation_worker.py").read_text()
         self.assertNotIn("/storage/v1/object/sign/", source)
+
+
+class BatchLimitTests(_WorkerTestCase):
+    """The per-pass row cap that bounds how long one cron tick runs.
+
+    This matters most on the first run after the cron is installed: every image
+    posted since the feature shipped is still 'pending', so tick one meets the
+    entire backlog at once.
+    """
+
+    def _limit_with(self, value: str | None) -> int:
+        env = {} if value is None else {worker.BATCH_ENV: value}
+        with patch.dict("os.environ", env, clear=False):
+            if value is None:
+                os.environ.pop(worker.BATCH_ENV, None)
+            return worker._batch_limit()
+
+    def test_defaults_to_fifty(self) -> None:
+        self.assertEqual(self._limit_with(None), worker.DEFAULT_BATCH)
+        self.assertEqual(worker.DEFAULT_BATCH, 50)
+
+    def test_env_override_is_honoured(self) -> None:
+        self.assertEqual(self._limit_with("10"), 10)
+
+    def test_oversized_value_is_clamped(self) -> None:
+        with self.assertLogs(worker.log, level="WARNING"):
+            self.assertEqual(self._limit_with("100000"), worker.MAX_BATCH)
+
+    def test_zero_and_negative_fall_back_to_one(self) -> None:
+        # A limit of 0 would silently stall the queue forever.
+        with self.assertLogs(worker.log, level="WARNING"):
+            self.assertEqual(self._limit_with("0"), 1)
+        with self.assertLogs(worker.log, level="WARNING"):
+            self.assertEqual(self._limit_with("-5"), 1)
+
+    def test_garbage_falls_back_to_the_default(self) -> None:
+        with self.assertLogs(worker.log, level="WARNING"):
+            self.assertEqual(self._limit_with("plenty"), worker.DEFAULT_BATCH)
+
+    def test_media_poll_applies_the_limit(self) -> None:
+        self.media_rows = []
+        store = Mock()
+        worker._media_store = store
+
+        with patch.dict("os.environ", {worker.BATCH_ENV: "7"}, clear=False):
+            worker._moderate_media()
+
+        _, query = self.fetched[0]
+        self.assertIn("limit=7", query)
+
+    def test_text_poll_applies_the_limit(self) -> None:
+        with patch.dict("os.environ", {worker.BATCH_ENV: "7"}, clear=False):
+            worker._moderate_text_table("posts")
+
+        _, query = self.fetched[0]
+        self.assertIn("limit=7", query)
+
+
+class MissingEnvMessageTests(unittest.TestCase):
+    def test_missing_env_uses_the_shared_greppable_wording(self) -> None:
+        # run_social_moderation_vm.sh emits the same "moderation disabled:
+        # missing X" phrasing, so one grep over the log covers both layers.
+        with patch.multiple(
+            worker, SUPABASE_URL="", SERVICE_ROLE_KEY="key", OPENAI_API_KEY=""
+        ):
+            with self.assertRaises(SystemExit) as caught:
+                worker._require_env()
+
+        self.assertEqual(
+            str(caught.exception),
+            "moderation disabled: missing SUPABASE_URL, OPENAI_API_KEY",
+        )
+
+    def test_runner_and_worker_agree_on_the_marker(self) -> None:
+        runner = (BACKEND_ROOT / "run_social_moderation_vm.sh").read_text()
+        self.assertIn("moderation disabled: missing", runner)
 
 
 if __name__ == "__main__":

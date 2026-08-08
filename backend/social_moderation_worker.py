@@ -28,7 +28,12 @@ WHERE THE IMAGE BYTES LIVE
   moderation request as a `data:` URL rather than handed over as a signed URL —
   see ``_image_data_url`` for why.
 
-DEPLOYMENT (LATER — NOT wired to cron yet; nothing uses the social tables today)
+DEPLOYMENT
+  Scheduled from the managed crontab block in deploy_to_vm.sh, on BOTH
+  environments, every 2 minutes by default (SPOTLIGHT_VM_MODERATION_CRON), via
+  run_social_moderation_vm.sh --once under an exclusive flock. Cron owns the
+  cadence rather than --loop: an unsupervised loop that dies stays dead until the
+  next deploy, whereas a missed tick costs one batch of latency.
   Env required (text pass):
     SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, OPENAI_API_KEY
   Env required (image pass, on top of the above):
@@ -36,9 +41,12 @@ DEPLOYMENT (LATER — NOT wired to cron yet; nothing uses the social tables toda
     with read access to that bucket. When it is unset the image pass is SKIPPED
     (rows stay 'pending', which RLS already treats as hidden) — the worker still
     runs the text pass instead of crashing.
+  Anything missing is logged as "moderation disabled: missing <VAR>", so
+    grep 'moderation disabled' ~/spotlight/logs/social_moderation.log
+  distinguishes "not configured" from "nothing to do".
   One-shot (safe to run repeatedly):
     python3 backend/social_moderation_worker.py --once
-  Continuous (simple loop; or install as a cron / systemd timer every 1-2 min):
+  Continuous (kept for manual backfills; cron uses --once):
     python3 backend/social_moderation_worker.py --loop --interval 60
 
 CSAM NOTE
@@ -82,14 +90,59 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 
 OPENAI_MODERATION_URL = "https://api.openai.com/v1/moderations"
 MODERATION_MODEL = "omni-moderation-latest"
-BATCH = 50
 HTTP_TIMEOUT = 30
+
+# Rows pulled per table per invocation. This is the knob that bounds how long a
+# single cron tick runs, which matters on the FIRST run against a backlog: every
+# image posted since the feature shipped is still 'pending', so tick one faces
+# the whole queue at once.
+#
+# Why 50 is safe rather than merely small:
+#   - Rate limit: the calls are sequential, one item per request, so the peak
+#     rate is ~1 request per round trip (a few per second at best). Nowhere near
+#     the moderation endpoint's limits, and the endpoint is free, so a backlog
+#     costs nothing but time and GCS egress.
+#   - Cron interval: 3 passes x 50 rows is the worst-case tick. Images dominate
+#     (GCS read + base64 + upload), so a full tick can exceed the 2-minute
+#     interval on a real backlog. That is expected and handled — the runner's
+#     flock makes the next tick a no-op instead of piling on, and the queue
+#     drains at up to 50 images per tick until it is empty.
+# Lower it (SPOTLIGHT_MODERATION_BATCH) if ticks need to stay inside a shorter
+# interval; there is no correctness reason to raise it.
+DEFAULT_BATCH = 50
+MAX_BATCH = 200
+BATCH_ENV = "SPOTLIGHT_MODERATION_BATCH"
 
 # Defensive ceiling on the bytes we will base64 into a moderation request.
 # The upload endpoint already caps a post image at 12 MB (server.py's
 # DEFAULT_JSON_BODY_LIMIT_BYTES), and OpenAI accepts images up to 20 MB, so this
 # only fires for an object that got into the bucket by some other route.
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
+
+
+def _batch_limit() -> int:
+    """Rows to pull per table per pass, clamped to a sane range.
+
+    Read at call time rather than import time so the operator can retune it in
+    the runtime env file without touching code, and so a garbage value degrades
+    to the default instead of putting an unbounded (or zero) ``limit=`` on the
+    PostgREST query.
+    """
+    raw = str(os.environ.get(BATCH_ENV) or "").strip()
+    if not raw:
+        return DEFAULT_BATCH
+    try:
+        value = int(raw)
+    except ValueError:
+        log.warning("%s=%r is not an integer; using %s", BATCH_ENV, raw, DEFAULT_BATCH)
+        return DEFAULT_BATCH
+    if value < 1:
+        log.warning("%s=%s is below 1; using 1", BATCH_ENV, value)
+        return 1
+    if value > MAX_BATCH:
+        log.warning("%s=%s exceeds %s; clamping", BATCH_ENV, value, MAX_BATCH)
+        return MAX_BATCH
+    return value
 
 
 def _rest_headers() -> dict[str, str]:
@@ -111,7 +164,10 @@ def _require_env() -> None:
         if not val
     ]
     if missing:
-        raise SystemExit(f"Missing required env: {', '.join(missing)}")
+        # Same wording as run_social_moderation_vm.sh so one grep over the log
+        # ("moderation disabled") finds every reason the pass is not running,
+        # whichever layer noticed first.
+        raise SystemExit(f"moderation disabled: missing {', '.join(missing)}")
 
 
 # --------------------------------------------------------------------------- #
@@ -163,7 +219,7 @@ def _build_media_store() -> Any | None:
     bucket = str(os.environ.get(POST_MEDIA_GCS_BUCKET_ENV) or "").strip()
     if not bucket:
         log.warning(
-            "%s is unset — image moderation is disabled; post_media rows stay "
+            "image moderation disabled: missing %s — post_media rows stay "
             "'pending' (hidden by RLS) until the bucket is configured.",
             POST_MEDIA_GCS_BUCKET_ENV,
         )
@@ -236,16 +292,71 @@ def _patch(table: str, match: str, payload: dict[str, Any]) -> None:
 # --------------------------------------------------------------------------- #
 # Passes
 # --------------------------------------------------------------------------- #
+# `reports.target_type` is singular ("post" / "comment"); the poll tables are
+# plural. Mapping it wrong would silently return "no reports" for everything and
+# quietly re-publish content the community had hidden, so it is explicit.
+_REPORT_TARGET_TYPES = {"posts": "post", "comments": "comment"}
+
+
+def _has_open_report(table: str, row_id: str) -> bool:
+    """True when the community has an unresolved report against this row.
+
+    Used only to decide whether a `pending` row the AI cleared may go back to
+    `visible`. Fails CLOSED: an unknown table or a failed lookup reports True, so
+    a blip leaves content hidden rather than republishing something reported.
+    """
+    target_type = _REPORT_TARGET_TYPES.get(table)
+    if target_type is None:
+        return True
+    try:
+        # Matches idx_reports_target, which is partial on status = 'open'.
+        return bool(
+            _fetch(
+                "reports",
+                f"target_type=eq.{target_type}&target_id=eq.{row_id}"
+                "&status=eq.open&select=id&limit=1",
+            )
+        )
+    except Exception:  # noqa: BLE001 — never republish on a lookup failure
+        log.exception("open-report lookup failed for %s %s; holding", table, row_id)
+        return True
+
+
 def _moderate_text_table(table: str) -> int:
-    rows = _fetch(table, f"moderation_checked_at=is.null&select=id,body&limit={BATCH}")
+    rows = _fetch(
+        table,
+        "moderation_checked_at=is.null"
+        f"&select=id,body,content_status&limit={_batch_limit()}",
+    )
     for row in rows:
         try:
             flagged = _moderate_text(row.get("body"))
             payload: dict[str, Any] = {"moderation_checked_at": "now()"}
             if flagged:
                 payload["content_status"] = "removed"
+                outcome = "removed"
+            elif row.get("content_status") == "pending":
+                # The synchronous prefilter (tg_content_prefilter) parks anything
+                # matching a `soft` wordlist term at `pending` and leaves
+                # moderation_checked_at NULL so THIS pass decides. If we only
+                # stamped the timestamp, a soft hit the AI cleared would stay
+                # hidden forever — `soft` would be a one-way delete with extra
+                # steps, which is the opposite of what the tier is for.
+                #
+                # But `pending` has a second author: tg_reports_threshold() hides
+                # a target once K distinct users report it. Blindly promoting
+                # every clean `pending` row would silently overturn community
+                # moderation, so only rows with no open report are released. That
+                # check is why this cannot live in a DB trigger.
+                if _has_open_report(table, row["id"]):
+                    outcome = "held (open report)"
+                else:
+                    payload["content_status"] = "visible"
+                    outcome = "released"
+            else:
+                outcome = "ok"
             _patch(table, f"id=eq.{row['id']}", payload)
-            log.info("%s %s -> %s", table, row["id"], "removed" if flagged else "ok")
+            log.info("%s %s -> %s", table, row["id"], outcome)
         except Exception:  # noqa: BLE001 — keep the worker alive on a single bad row
             log.exception("failed moderating %s %s", table, row.get("id"))
     return len(rows)
@@ -263,7 +374,10 @@ def _moderate_media() -> int:
         # already logged once; rows stay 'pending' and therefore stay hidden.
         return 0
 
-    rows = _fetch("post_media", f"moderation_status=eq.pending&select=id,storage_path&limit={BATCH}")
+    rows = _fetch(
+        "post_media",
+        f"moderation_status=eq.pending&select=id,storage_path&limit={_batch_limit()}",
+    )
     for row in rows:
         media_id = row.get("id")
         try:
