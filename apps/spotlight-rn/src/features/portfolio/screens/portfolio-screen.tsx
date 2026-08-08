@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Animated,
   FlatList,
   type LayoutChangeEvent,
   Linking,
@@ -130,13 +129,6 @@ function triggerSelectionHaptic() {
 // land directly underneath). This small gap keeps it off the very top edge.
 const SEARCH_FOCUS_TOP_GAP = 12;
 
-/**
- * How far the page scrolls before the top bar's "Search Cards" pill has faded
- * out completely. Roughly the pill's own height plus the bar's padding, so it is
- * gone by the time the first row of the collection has reached the bar — the
- * glass bubbles beside it stay put for the whole scroll.
- */
-const SEARCH_FADE_DISTANCE = 56;
 // Figma 2724:1757 — 24px total between the profile tab bar and the Portfolio
 // balance. This used to be 8 because the shared header wrapper contributed a
 // 16px inter-child gap on top of it; the tab bar now lives in the pinned chrome
@@ -294,24 +286,6 @@ export function PortfolioScreen({
   // The floating top bar rests just below the safe-area inset and hovers OVER
   // the profile cover hero, which is full-bleed to the very top (under the
   // status bar) — so the scroll content starts at 0.
-  //
-  // The pager writes its scroll offset into this value; the screen only reads it
-  // (see `searchOpacity`). Owning it here rather than letting the pager keep it
-  // private is what lets the pill fade on the UI thread instead of a JS frame
-  // behind the finger.
-  const pagerScrollY = useRef(new Animated.Value(0)).current;
-  const searchOpacity = useMemo(
-    () =>
-      pagerScrollY.interpolate({
-        inputRange: [0, SEARCH_FADE_DISTANCE],
-        outputRange: [1, 0],
-        extrapolate: 'clamp',
-      }),
-    [pagerScrollY],
-  );
-  // `pointerEvents` is not animatable, so the faded-out pill has to be disarmed
-  // from JS or it stays an invisible tap target over the collection.
-  const [isSearchPillHidden, setIsSearchPillHidden] = useState(false);
   // NOTE: no guest on-mount redirect here. This screen is mounted *alongside*
   // the scanner in the tabs pager (both pages live at once), so a redirect would
   // fire the instant a guest lands on the scanner and bounce them to login.
@@ -1070,8 +1044,6 @@ export function PortfolioScreen({
       onOpenMenu={openDrawer}
       onOpenNotifications={() => router.push('/notifications' as never)}
       onOpenSearch={handleTopSearchPress}
-      searchInteractive={!isSearchPillHidden}
-      searchOpacity={searchOpacity}
       testID="portfolio-header"
       unreadCount={unreadNotifications}
     />
@@ -1084,6 +1056,13 @@ export function PortfolioScreen({
   // background — page content scrolls UNDER them.
   const pagerHeader = (
     <View style={[styles.pinnedBlock, { backgroundColor: theme.colors.gray0 }]}>
+      {/*
+        FIRST in the collapsing block, so the bar scrolls away with the profile
+        rather than hovering over it. It used to render after the pager as an
+        absolutely-positioned layer; that read as chrome stuck to the glass, and
+        its rule now marks the top of the page instead.
+      */}
+      {homeHeader}
       <ProfileHeader
         avatarUrl={currentUser?.avatarURL}
         bio={currentUser?.bio}
@@ -1403,6 +1382,14 @@ export function PortfolioScreen({
           contentContainerStyle={[
             page.contentContainerStyle,
             { paddingBottom: bottomNavClearance },
+            // The pager floors every page at a full screen PLUS the header's
+            // collapse distance, so switching to a short tab can't spring the
+            // collapsed header back open. On an EMPTY collection that floor is
+            // all you see: a screenful of blank under "Let's build your
+            // collection". Drop it for that one case — there is nothing to
+            // scroll, so there is no collapse to preserve, and the prompt sits
+            // directly under the chips where it belongs.
+            listData.length === 0 ? { minHeight: 0 } : null,
           ]}
           data={listData}
           keyExtractor={(item) => item.key}
@@ -1438,13 +1425,6 @@ export function PortfolioScreen({
     if (tab === 'collection') {
       handleScroll(event);
     }
-    // The FADE itself is native-driven off `pagerScrollY`; this only flips the
-    // pill's tap target off once it is invisible. Runs on every page so the
-    // state cannot go stale when a swipe lands on a tab parked further down.
-    // The equality guard means React only re-renders on the crossing, not per
-    // scroll frame.
-    const hidden = event.nativeEvent.contentOffset.y >= SEARCH_FADE_DISTANCE;
-    setIsSearchPillHidden((previous) => (previous === hidden ? previous : hidden));
   };
 
   return (
@@ -1481,14 +1461,11 @@ export function PortfolioScreen({
         order={PROFILE_TAB_ORDER}
         pageRefs={pageScrollRefs}
         renderPage={renderProfilePage}
-        scrollY={pagerScrollY}
         shouldStandDown={isSearchFieldFocused}
         tabBar={pagerTabBar}
         testID="portfolio-page-tab-pager"
         value={activeProfileTab}
       />
-
-      {homeHeader}
 
       <ScrollToTopFab
         onPress={scrollToTop}

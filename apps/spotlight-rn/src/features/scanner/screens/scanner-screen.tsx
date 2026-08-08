@@ -21,7 +21,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView, initialWindowMetrics, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Reanimated, {
   Easing,
@@ -852,7 +852,34 @@ export function ScannerScreen({
     }
   }, []);
 
-  const trayBottomInset = insets.bottom + 14;
+  /*
+    THE WINDOW's bottom inset, not this screen's — and that difference is the
+    whole "blink" when you tap Scan.
+
+    This screen sits inside the native tab controller, and UIKit inflates a tab
+    child's safe area by the tab bar's height. The bar is hidden here, but it is
+    hidden by a JS prop (`hidden` in `(tabs)/_layout.tsx`, derived from
+    `usePathname()`), which cannot possibly run until AFTER UIKit has already
+    swapped this screen in. So the sequence was:
+
+      1. UIKit shows the scanner, bar still up  -> insets.bottom ~= 83
+         (home indicator + 49pt bar)
+      2. JS catches up, bar is cut away         -> `safeAreaInsetsDidChange`
+      3. that notification reaches JS           -> insets.bottom ~= 34
+
+    …and the tray, sized off this number, visibly dropped ~49pt on arrival.
+
+    `initialWindowMetrics` is read from native constants at startup and describes
+    the WINDOW: the home indicator alone, never a tab bar, and it never changes
+    while the scanner is up (this screen is portrait-locked). The tray therefore
+    lays out once, in its final place. Every render site of this screen is a
+    full-bleed scanner with no bottom bar of its own, so the window inset is the
+    correct number in all of them.
+
+    Falls back to the hook when the constant is unavailable (web, and the test
+    renderer, where the inset is mocked anyway).
+  */
+  const trayBottomInset = (initialWindowMetrics?.insets.bottom ?? insets.bottom) + 14;
   const collapsedTrayReservedHeight = getRawScannerCollapsedTrayReservedHeight({
     bottomInset: trayBottomInset,
   });

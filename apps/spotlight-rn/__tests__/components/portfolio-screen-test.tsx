@@ -1,6 +1,6 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import { useRouter } from 'expo-router';
-import { Alert, Text } from 'react-native';
+import { Alert, StyleSheet, Text } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { MockSpotlightRepository } from '@spotlight/api-client';
@@ -1480,9 +1480,20 @@ describe('PortfolioScreen', () => {
     expect(push).toHaveBeenLastCalledWith('/catalog/search');
   });
 
-  it('stops the faded-out search pill taking taps, while the glass buttons keep working', async () => {
+  // The bar is part of the page here too: it sits at the top of the pager's
+  // COLLAPSING block, so it scrolls away with the profile instead of hovering
+  // over it, and it carries the rule that marks the top of the page. It spent a
+  // while as an absolutely-positioned layer with a pill that faded on scroll;
+  // every control now stays live at any scroll depth because the whole bar
+  // simply leaves with the content.
+  it('scrolls the top bar away with the profile instead of floating it', async () => {
     renderPortfolioScreen();
     await screen.findByTestId('portfolio-header-title');
+
+    const bar = screen.getByTestId('portfolio-header');
+    expect(StyleSheet.flatten(bar.props.style).position).toBeUndefined();
+    // Figma 3505:14520 — the rule under the bar.
+    expect(screen.getByTestId('portfolio-header-rule')).toBeTruthy();
 
     await act(async () => {
       fireEvent.scroll(screen.getByTestId('portfolio-scroll-view'), {
@@ -1494,16 +1505,14 @@ describe('PortfolioScreen', () => {
       });
     });
 
-    // The fade itself is a native-driven opacity we cannot read here. What must
-    // hold either way is that an invisible pill is not still a tap target
-    // sitting over the collection — `pointerEvents` is switched off with it.
+    // Scrolled down, every control is still a real control — there is no
+    // invisible-but-tappable pill left behind, because nothing fades any more.
     push.mockClear();
     await act(async () => {
       fireEvent.press(screen.getByTestId('portfolio-header-search'));
     });
-    expect(push).not.toHaveBeenCalled();
+    expect(push).toHaveBeenLastCalledWith('/catalog/search');
 
-    // The bubbles beside it do NOT fade — that is the whole point of the design.
     await act(async () => {
       fireEvent.press(screen.getByTestId('portfolio-header-notifications'));
     });

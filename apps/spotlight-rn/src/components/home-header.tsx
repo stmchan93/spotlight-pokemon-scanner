@@ -1,11 +1,12 @@
 import { Bell, Menu, Plus } from 'iconoir-react-native';
-import { Animated, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   GlassNavBubble,
   SearchEntryPill,
   Text,
+  borderWidths,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
@@ -19,17 +20,6 @@ type HomeHeaderProps = {
   onOpenNotifications: () => void;
   /** Tapping the pill opens the full-screen card search. */
   onOpenSearch: () => void;
-  /**
-   * 1 → 0 as the page scrolls. Driven natively off the pager's scroll offset, so
-   * the fade runs on the UI thread rather than a JS frame behind the finger.
-   */
-  searchOpacity: Animated.AnimatedInterpolation<number>;
-  /**
-   * False once the pill has faded out. Opacity alone would leave an invisible
-   * but still tappable pill sitting over the collection, so the taps have to be
-   * turned off separately — `pointerEvents` is not animatable.
-   */
-  searchInteractive: boolean;
   unreadCount: number;
   testID?: string;
 };
@@ -42,18 +32,11 @@ const MARK_WIDTH = 21;
 const MARK_HEIGHT = 19;
 /** Figma 3505:14521 pads the bar 10pt above the row; the safe area adds the rest. */
 const BAR_PADDING_TOP = 10;
-const BAR_PADDING_BOTTOM = 10;
 /**
- * Height of the bar BELOW the safe-area inset — the 36pt control row plus its
- * padding. `GlassNavBubble` at `compact` and `SearchEntryPill` are both 36, so
- * the row is 36 whichever is tallest.
- *
- * Exported because the bar is absolutely positioned and therefore contributes
- * nothing to layout: a screen that floats content under it has to reserve the
- * space itself as `insets.top + HOME_HEADER_BAR_HEIGHT` of `paddingTop`. Reading
- * it from here is what keeps that reservation and the bar from drifting apart.
+ * Gap between the control row and the rule below it — Figma 3505:14520 puts the
+ * rule at y=120 against controls ending at y=104.
  */
-export const HOME_HEADER_BAR_HEIGHT = BAR_PADDING_TOP + 36 + BAR_PADDING_BOTTOM;
+const RULE_GAP = 16;
 
 /**
  * Home's top bar (Figma 3505:14521): menu, a tap-to-search pill carrying the
@@ -65,23 +48,24 @@ export const HOME_HEADER_BAR_HEIGHT = BAR_PADDING_TOP + 36 + BAR_PADDING_BOTTOM;
  * existence prevents: the buttons read as flat chrome instead of glass, and the
  * bar occupied layout instead of floating.
  *
- * Two properties define it, and both come from floating chrome over scrolling
- * content rather than sitting above it:
+ * IT IS PART OF THE PAGE, NOT CHROME OVER IT. The bar sits in normal flow at the
+ * top of the scrolling content and scrolls away with it — Home puts it in the
+ * list's `ListHeaderComponent`, Collection puts it at the top of the pager's
+ * collapsing header. It briefly floated absolutely with the search pill fading
+ * out on scroll; that read as chrome stuck to the glass rather than as the top
+ * of the page, so the whole fade apparatus (and the `Animated` plumbing each
+ * screen needed to drive it) is gone.
  *
- *  - the four buttons are `GlassNavBubble`s, not solid `IconButton`s, because
- *    content scrolls UNDERNEATH them — this bar has no background of its own,
- *    and `box-none` lets every touch that misses a control fall through to the
- *    list;
- *  - the pill fades out as the page scrolls while the bubbles stay put. The
- *    bubbles do NOT move or fade: they are the persistent way back to the menu,
- *    notifications and `+` at any scroll depth.
+ * The buttons stay `GlassNavBubble`s rather than solid `IconButton`s. They are
+ * the app's nav shape, and glass over an opaque page background simply reads as
+ * a soft-tinted circle.
  *
- * The bar is positioned absolutely by this component (top-left-right), so the
- * screen renders it as a plain sibling AFTER its scroller and it paints on top
- * by tree order. Rendering it after the scroller is load-bearing for a second
- * reason on tab screens: UIKit finds the scroll view to track for
- * minimize-on-scroll by walking `subviews[0]`, so the scroller has to be the
- * first child or the native tab bar stops collapsing.
+ * THE RULE UNDERNEATH IS THE POINT. Figma 3505:14520 puts a hairline 16pt below
+ * the 36pt control row (controls end at y=104, rule at y=120) and starts content
+ * 16pt below that. It is what makes the bar look like the page's masthead
+ * instead of something hovering over it. It previously came for free from
+ * `PageTabs`' full-bleed rail under the Following/Global switch and vanished
+ * with those tabs, which is why it is drawn explicitly here now.
  */
 export function HomeHeader({
   addAccessibilityLabel,
@@ -89,8 +73,6 @@ export function HomeHeader({
   onOpenMenu,
   onOpenNotifications,
   onOpenSearch,
-  searchOpacity,
-  searchInteractive,
   unreadCount,
   testID = 'portfolio-header',
 }: HomeHeaderProps) {
@@ -99,18 +81,20 @@ export function HomeHeader({
 
   return (
     <View
-      // The bar only occupies the strip its controls need; `box-none` keeps the
-      // container itself from swallowing touches meant for the list below.
-      pointerEvents="box-none"
-      style={[
-        styles.bar,
-        {
-          paddingHorizontal: theme.layout.pageGutter,
-          paddingTop: insets.top + BAR_PADDING_TOP,
-        },
-      ]}
+      // Owns the top inset itself rather than leaving it to a SafeAreaView, so
+      // the page beneath can still scroll up under the status bar.
+      style={{ paddingTop: insets.top, backgroundColor: theme.colors.gray0 }}
       testID={testID}
     >
+      <View
+        style={[
+          styles.row,
+          {
+            paddingHorizontal: theme.layout.pageGutter,
+            paddingTop: BAR_PADDING_TOP,
+          },
+        ]}
+      >
       <GlassNavBubble
         accessibilityLabel="Open menu"
         onPress={onOpenMenu}
@@ -120,10 +104,7 @@ export function HomeHeader({
         <Menu color={theme.colors.gray900} height={BUTTON_ICON_SIZE} width={BUTTON_ICON_SIZE} />
       </GlassNavBubble>
 
-      <Animated.View
-        pointerEvents={searchInteractive ? 'auto' : 'none'}
-        style={[styles.searchPill, { opacity: searchOpacity }]}
-      >
+      <View style={styles.searchPill}>
         <SearchEntryPill
           label="Search Cards"
           leading={
@@ -147,7 +128,7 @@ export function HomeHeader({
           onPress={onOpenSearch}
           testID={`${testID}-search`}
         />
-      </Animated.View>
+      </View>
 
       <GlassNavBubble
         accessibilityLabel={
@@ -180,24 +161,33 @@ export function HomeHeader({
       >
         <Plus color={theme.colors.gray900} height={BUTTON_ICON_SIZE} width={BUTTON_ICON_SIZE} />
       </GlassNavBubble>
+      </View>
+
+      {/*
+        Full-bleed, so it reads as the page's own rule rather than a boxed
+        divider — it runs edge to edge while the controls above it keep the page
+        gutter.
+      */}
+      <View
+        style={[
+          styles.rule,
+          { backgroundColor: theme.colors.gray200, marginTop: RULE_GAP },
+        ]}
+        testID={`${testID}-rule`}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  bar: {
+  row: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: 8,
-    left: 0,
-    paddingBottom: BAR_PADDING_BOTTOM,
-    position: 'absolute',
-    right: 0,
-    top: 0,
-    // Above the pager's own chrome layer (the profile block + tab bar), which
-    // sets `zIndex: 2` and would otherwise draw over the bubbles once the tab
-    // bar pins to the top.
-    zIndex: 5,
+  },
+  rule: {
+    height: borderWidths.rule,
+    width: '100%',
   },
   markBadge: {
     alignItems: 'center',

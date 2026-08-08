@@ -120,27 +120,28 @@ describe('FeedScreen', () => {
     expect(push).toHaveBeenCalledWith('/notifications');
   });
 
-  // The feed's bar regressed to solid IconButtons sitting ABOVE the list once
-  // already. Both halves of the fix are asserted here because both are invisible
-  // to a normal render assertion:
-  //   - the list is the FIRST child, which is what lets content scroll behind
-  //     the bar AND what lets UIKit find the scroll view to minimize the tab bar
-  //     on (it walks `subviews[0]`);
-  //   - the bar is absolutely positioned, i.e. it floats rather than occupying
-  //     layout above the list.
-  it('floats the top bar over the list instead of stacking it above', async () => {
+  // The bar is PART OF THE PAGE: it is the list's own header row, so it scrolls
+  // away with the posts, and it carries the rule that marks the top of the page.
+  // Neither is visible to an ordinary render assertion, and the bar has already
+  // been wrong twice — solid buttons stacked above the list, then floating
+  // chrome with a fading pill.
+  it('makes the top bar a scrolling list row, not chrome pinned over the list', async () => {
     renderWithProviders(<FeedScreen />);
     await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
-    const root = screen.getByTestId('feed');
-    const childTestIDs = root.props.children
-      .map((child: { props?: { testID?: string } }) => child?.props?.testID)
+    // Not a sibling of the list any more — if it were, it would stay put.
+    const rootChildTestIDs = screen
+      .getByTestId('feed')
+      .props.children.map((child: { props?: { testID?: string } }) => child?.props?.testID)
       .filter(Boolean);
-    expect(childTestIDs.indexOf('feed-list')).toBeLessThan(childTestIDs.indexOf('feed-header'));
+    expect(rootChildTestIDs).not.toContain('feed-header');
 
-    const barStyle = StyleSheet.flatten(screen.getByTestId('feed-header').props.style);
-    expect(barStyle.position).toBe('absolute');
-    expect(barStyle.top).toBe(0);
+    // ...it lives inside the scroller, and it is not absolutely positioned.
+    const bar = screen.getByTestId('feed-header');
+    expect(StyleSheet.flatten(bar.props.style).position).toBeUndefined();
+
+    // Figma 3505:14520 — the rule under the bar.
+    expect(screen.getByTestId('feed-header-rule')).toBeTruthy();
   });
 
   it('opens the app drawer from the header menu', async () => {
