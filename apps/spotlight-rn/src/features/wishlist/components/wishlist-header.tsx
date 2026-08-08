@@ -2,7 +2,7 @@ import { EditPencil, NavArrowLeft } from 'iconoir-react-native';
 import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { AppText, IconButton, useSpotlightTheme } from '@spotlight/design-system';
+import { AppText, GlassNavBubble, useSpotlightTheme } from '@spotlight/design-system';
 
 import { EditDoneButton } from '@/components/edit-done-button';
 
@@ -15,10 +15,14 @@ type WishlistHeaderProps = {
   testID?: string;
 };
 
-// Lean top bar for the Wishlist screen: a circular back button (Figma 1263:3328
-// — gray/50 chip), centred "Wishlist" title, and an edit slot. Wishlist is
-// reached by pushing in from the drawer, so it carries a back button rather than
-// the hamburger (that lives on the root Collection screen).
+// Lean top bar for the Wishlist screen: a circular back button, centred
+// "Wishlist" title, and an edit slot. Wishlist is reached by pushing in from the
+// drawer, so it carries a back button rather than the hamburger (that lives on
+// the root Collection screen).
+//
+// The two circular actions use the shared `GlassNavBubble` so this bar reads as
+// the same chrome as Collection's floating corner bubbles (it replaced a
+// gray/50 `IconButton` chip from Figma 1263:3328).
 export function WishlistHeader({
   onBack,
   editMode = false,
@@ -30,15 +34,14 @@ export function WishlistHeader({
 
   return (
     <View style={[styles.header, { paddingTop: insets.top + 8 }]} testID={testID}>
-      <IconButton
+      <GlassNavBubble
         accessibilityLabel="Back"
         onPress={onBack}
-        size={36}
+        surface="onLight"
         testID="wishlist-header-back"
-        variant="subtle"
       >
         <NavArrowLeft color={theme.colors.gray900} height={24} width={24} />
-      </IconButton>
+      </GlassNavBubble>
       <AppText
         color="textPrimary"
         numberOfLines={1}
@@ -51,15 +54,14 @@ export function WishlistHeader({
       {onToggleEditMode && editMode ? (
         <EditDoneButton onPress={onToggleEditMode} testID="wishlist-header-done" />
       ) : onToggleEditMode ? (
-        <IconButton
+        <GlassNavBubble
           accessibilityLabel="Edit wishlist"
           onPress={onToggleEditMode}
-          size={36}
+          surface="onLight"
           testID="wishlist-header-edit"
-          variant="subtle"
         >
           <EditPencil color={theme.colors.gray900} height={20} width={20} />
-        </IconButton>
+        </GlassNavBubble>
       ) : null}
     </View>
   );

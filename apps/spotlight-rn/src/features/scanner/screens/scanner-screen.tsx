@@ -46,6 +46,7 @@ import {
 } from '@spotlight/api-client';
 import {
   Button,
+  GlassNavBubble,
   Text,
   colors,
   fontFamilies,
@@ -2809,26 +2810,24 @@ export function ScannerScreen({
             },
           ]}
         >
-          <Pressable
+          <GlassNavBubble
             accessibilityLabel="Exit scanner"
-            accessibilityRole="button"
-            hitSlop={8}
             onPress={gate(handleExitScanner)}
-            style={styles.scannerBackButton}
+            size="small"
+            surface="onDark"
             testID="scanner-back-button"
           >
             <IconChevronLeft color={colors.gray0} size={20} strokeWidth={1.5} />
-          </Pressable>
-          <Pressable
+          </GlassNavBubble>
+          <GlassNavBubble
             accessibilityLabel="Search cards"
-            accessibilityRole="button"
-            hitSlop={8}
             onPress={gate(handleOpenCatalogSearch)}
-            style={styles.scannerSearchButton}
+            size="small"
+            surface="onDark"
             testID="scanner-search-button"
           >
             <IconSearch color={colors.gray0} size={16} strokeWidth={2} />
-          </Pressable>
+          </GlassNavBubble>
         </View>
 
         {scannerSmokeEnabled ? (
@@ -3196,26 +3195,6 @@ export function ScannerScreen({
 }
 
 const styles = StyleSheet.create({
-  scannerBackButton: {
-    alignItems: 'center',
-    backgroundColor: 'transparent',
-    borderColor: colors.gray0,
-    borderRadius: 999,
-    borderWidth: 1,
-    height: 32,
-    justifyContent: 'center',
-    width: 32,
-  },
-  scannerSearchButton: {
-    alignItems: 'center',
-    backgroundColor: 'transparent',
-    borderColor: colors.gray0,
-    borderRadius: 999,
-    borderWidth: 1,
-    height: 32,
-    justifyContent: 'center',
-    width: 32,
-  },
   captureFlash: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#FFFFFF',

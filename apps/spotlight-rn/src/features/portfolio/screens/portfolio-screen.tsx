@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   type LayoutChangeEvent,
@@ -7,10 +7,8 @@ import {
   RefreshControl,
   Share,
   StyleSheet,
-  type StyleProp,
   type TextInput,
   View,
-  type ViewStyle,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -30,13 +28,13 @@ import type { Collection, CollectionsSnapshot, InventoryCardEntry } from '@spotl
 import {
   Avatar,
   EmptyStatePrompt,
-  GlassSurface,
+  GlassNavBubble,
   InlineLoader,
   PageTabs,
   type PageTab,
   StateCard,
   Text,
-  isLiquidGlassAvailable,
+  glassNavBubbleSizes,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
@@ -127,68 +125,14 @@ function triggerSelectionHaptic() {
 const SEARCH_FOCUS_TOP_GAP = 12;
 
 // Diameter of the floating glass nav bubbles (menu / edit) that sit in the top
-// corners over the scrolling content — the iOS 26 Liquid Glass chrome shape.
-const BUBBLE_SIZE = 44;
+// corners over the scrolling content — the shared `GlassNavBubble` chrome shape.
+const BUBBLE_SIZE = glassNavBubbleSizes.medium;
 /** Spacing between adjacent bubbles in the same top corner. */
 const BUBBLE_GAP = 8;
 // Figma 2724:1757 — 24px total between the profile tab bar and the Portfolio
 // balance. The chrome wrapper already contributes a 16px inter-child gap, so this
 // marginTop adds only the remaining 8px (16 + 8 = 24).
 const TABS_TO_BALANCE_GAP = 8;
-
-/**
- * A floating circular Liquid Glass button. Real iOS 26 glass over a solid base
- * (which is also the non-glass fallback + what the shadow casts from); content
- * refracts under it as the list scrolls.
- */
-function GlassNavBubble({
-  accessibilityLabel,
-  children,
-  onPress,
-  style,
-  testID,
-}: {
-  accessibilityLabel: string;
-  children: ReactNode;
-  onPress: () => void;
-  style?: StyleProp<ViewStyle>;
-  testID?: string;
-}) {
-  const theme = useSpotlightTheme();
-  // `regular` + the system colour scheme, matching the NATIVE tab bar exactly —
-  // that bar is UIKit's own UIGlassEffect and we do not get to configure it, so
-  // the chrome has to meet it rather than the other way round. This was `clear`
-  // + a forced light scheme, which read noticeably more transparent than the bar
-  // sitting directly beneath it.
-  const hasGlass = isLiquidGlassAvailable();
-  return (
-    <View
-      style={[
-        styles.bubble,
-        hasGlass ? null : [theme.shadows.card, { backgroundColor: theme.colors.canvasElevated }],
-        style,
-      ]}
-    >
-      <GlassSurface
-        fallbackColor={theme.colors.canvasElevated}
-        glassColorScheme="auto"
-        glassEffectStyle="regular"
-        pointerEvents="none"
-        style={styles.bubbleGlass}
-      />
-      <Pressable
-        accessibilityLabel={accessibilityLabel}
-        accessibilityRole="button"
-        hitSlop={8}
-        onPress={onPress}
-        style={styles.bubblePress}
-        testID={testID}
-      >
-        {children}
-      </Pressable>
-    </View>
-  );
-}
 
 type PortfolioScreenProps = {
   onOpenInventoryEntry?: (entry: InventoryCardEntry) => void;
@@ -1065,7 +1009,7 @@ export function PortfolioScreen({
       <GlassNavBubble
         accessibilityLabel="Open menu"
         onPress={openDrawer}
-        style={{ left: theme.layout.pageGutter, top: bubbleTop }}
+        style={[styles.bubble, { left: theme.layout.pageGutter, top: bubbleTop }]}
         testID="portfolio-header-menu"
       >
         <MenuIcon color={theme.colors.gray900} height={22} width={22} />
@@ -1074,7 +1018,7 @@ export function PortfolioScreen({
         <GlassNavBubble
           accessibilityLabel="Search cards"
           onPress={handleTopSearchPress}
-          style={{ right: bubbleRight(2), top: bubbleTop }}
+          style={[styles.bubble, { right: bubbleRight(2), top: bubbleTop }]}
           testID="portfolio-header-search"
         >
           <SearchIcon color={theme.colors.gray900} height={20} width={20} />
@@ -1084,7 +1028,7 @@ export function PortfolioScreen({
         <GlassNavBubble
           accessibilityLabel="New post"
           onPress={() => router.push('/new-post' as never)}
-          style={{ right: bubbleRight(2), top: bubbleTop }}
+          style={[styles.bubble, { right: bubbleRight(2), top: bubbleTop }]}
           testID="portfolio-header-new-post"
         >
           <Plus color={theme.colors.gray900} height={22} width={22} />
@@ -1105,7 +1049,7 @@ export function PortfolioScreen({
             : 'Notifications'
         }
         onPress={() => router.push('/notifications' as never)}
-        style={{ right: bubbleRight(1), top: bubbleTop }}
+        style={[styles.bubble, { right: bubbleRight(1), top: bubbleTop }]}
         testID="portfolio-header-notifications"
       >
         <Bell color={theme.colors.gray900} height={20} width={20} />
@@ -1125,7 +1069,7 @@ export function PortfolioScreen({
       <GlassNavBubble
         accessibilityLabel="Edit profile"
         onPress={() => router.push('/edit-profile' as never)}
-        style={{ right: bubbleRight(0), top: bubbleTop }}
+        style={[styles.bubble, { right: bubbleRight(0), top: bubbleTop }]}
         testID="portfolio-header-edit"
       >
         <EditPencil color={theme.colors.gray900} height={20} width={20} />
@@ -1632,14 +1576,10 @@ const styles = StyleSheet.create({
   staleHint: {
     paddingHorizontal: 16,
   },
+  // Only positioning — the circle, glass and fallback all live in the shared
+  // `GlassNavBubble` primitive.
   bubble: {
-    alignItems: 'center',
-    borderRadius: BUBBLE_SIZE / 2,
-    height: BUBBLE_SIZE,
-    justifyContent: 'center',
-    overflow: 'visible',
     position: 'absolute',
-    width: BUBBLE_SIZE,
     zIndex: 5,
   },
   // Sits on the bell's top-right corner. The parent bubble is
@@ -1654,20 +1594,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 4,
     top: 4,
-  },
-  bubbleGlass: {
-    borderRadius: BUBBLE_SIZE / 2,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
-    right: 0,
-    top: 0,
-  },
-  bubblePress: {
-    alignItems: 'center',
-    height: '100%',
-    justifyContent: 'center',
-    width: '100%',
   },
   editBar: {
     alignItems: 'center',

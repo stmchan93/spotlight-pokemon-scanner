@@ -285,6 +285,28 @@ Current API concepts:
 - optional action button
 - optional centered layout
 
+### EmptyStatePrompt
+
+File: `src/components/empty-state-prompt.tsx`
+
+Use for a first-run / nothing-here-yet state that is an **invitation** rather
+than a reported outcome: centered art, one line of copy, and a low-emphasis
+`PillButton` (`soft` tone) into the action that fills the surface. No card, no
+title, no solid button.
+
+Pick `StateCard` instead when the state is a RESULT the user reads or retries
+(error, unavailable, "no cards match this filter") — that one wants a bordered
+surface, a title, and a real Button.
+
+Current API concepts:
+
+- message (one short centered line)
+- optional `illustration?: ReactNode` — brand mark or art above the copy
+- optional actionLabel + onActionPress (renders the soft chip)
+- optional `actionIcon?: ReactNode` — glyph before the chip label
+- illustration and icon are caller-owned so app-specific art stays out of the
+  design system
+
 ### InlineLoader
 
 File: `src/components/inline-loader.tsx`
@@ -496,10 +518,11 @@ Use for compact single-action chips and option toggles.
 
 Current label role:
 
-- `typography.control` (`default` tone) / `typography.label` (`filter` tone)
+- `typography.control` (`default` tone) / `typography.label` (`filter` tone) / `typography.bodyMedium` (`soft` tone)
 - tones:
   - `default` — brand-yellow pill (chart range pills, filter modal)
   - `filter` — Collection/Insights chip row: white when inactive, solid gray900 with white label when selected
+  - `soft` — borderless gray-50 chip at radius 8 used inside `EmptyStatePrompt` ("Scan to add"); a suggestion, not a toggle, so it ignores `selected`
 - `leading?: ReactNode` — optional icon before the label (e.g. the Insights Likes heart / Price arrows); caller owns the icon color so it can follow `selected`
 
 ### SegmentedControl
@@ -566,6 +589,46 @@ Current behavior:
   base is fully transparent on real glass so the material isn't backed by a
   solid fill)
 - glass only appears via a fresh native build, never OTA
+
+### GlassNavBubble
+
+File: `src/components/glass-nav-bubble.tsx`
+
+The shared floating circular nav button used by the Collection corner chrome, the
+scanner viewfinder, and the Wishlist header. Built on `GlassSurface`, so real
+iOS 26 Liquid Glass (`regular` material) sits behind the glyph and everything
+else gets a solid, honest fallback — never a blur/rgba imitation.
+
+Props:
+
+- `accessibilityLabel` (required), `children` (the glyph), `onPress`
+- `size`: `'small'` (32pt — dense chrome over a live surface, e.g. the scanner)
+  or `'medium'` (44pt, default — the standard nav bubble)
+- `surface`: describes what is UNDERNEATH, not the glass material —
+  `'onLight'` (default) or `'onDark'`
+- `disabled`, `style` (positioning is caller-owned), `testID`
+- `glassNavBubbleSizes` is exported so screens can lay bubbles out from the token
+  (Collection offsets each corner bubble by `diameter + gap`)
+
+Why `surface` instead of a raw `glassColorScheme`:
+
+- `glassColorScheme="auto"` follows the SYSTEM light/dark setting, which says
+  nothing about the backdrop. On the scanner the system can be in light mode
+  while the camera feed is near-black, and a light material washes out into an
+  opaque white puck.
+- `onDark` therefore pins the material to `dark`; `onLight` keeps `auto`, because
+  those bubbles sit beside UIKit's own native tab bar (system-driven glass we do
+  not get to configure, so our chrome has to meet it).
+
+Non-glass fallbacks (Android, iOS < 26, glass disabled for accessibility):
+
+- `onLight` → solid `canvasElevated` circle with the `shadows.card` lift
+- `onDark` → transparent fill with a 1pt `gray0` hairline ring and no shadow. A
+  solid light circle would punch a bright hole in the viewfinder and hide the
+  frame the user is aiming; there is also no lit surface for a shadow to fall on.
+
+Icon color is never forced — the glyph is `children`, so callers pass `gray900`
+on light surfaces and `gray0` on the scanner.
 
 ## Design-System Editing Rules
 
