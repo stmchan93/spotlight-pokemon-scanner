@@ -275,14 +275,13 @@ describe('AppDrawer', () => {
         jest.advanceTimersByTime(500);
       });
 
-      // Pop the stack down to the tabs root with the portfolio page selected.
-      // `replace('/portfolio')` would leave both the tabs root AND the
-      // redirected entry in the stack (both render Collection visually),
-      // causing the "Collections Collections Collections" swipe-back bug.
-      expect(dismissTo).toHaveBeenCalledWith({
-        pathname: '/',
-        params: { page: 'portfolio' },
-      });
+      // Pop the stack down to the tabs and select Collection, which is the
+      // `/you` TAB — not `/`, which is the Home feed now. `replace('/portfolio')`
+      // would leave both the tabs entry AND the redirected one in the stack
+      // (both render Collection visually), causing the "Collections Collections
+      // Collections" swipe-back bug. The `page: 'portfolio'` param that used to
+      // ride along was the retired pager's addressing and is read by nothing.
+      expect(dismissTo).toHaveBeenCalledWith('/you');
       expect(replace).not.toHaveBeenCalled();
     } finally {
       jest.useRealTimers();

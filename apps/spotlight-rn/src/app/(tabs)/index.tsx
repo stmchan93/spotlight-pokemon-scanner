@@ -1,34 +1,29 @@
-import { Redirect, useRouter } from 'expo-router';
+import { Redirect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 
 import { NativeTabsPageBridge } from '@/components/native-tabs-page-bridge';
-import {
-  cardDetailPreviewFromInventoryEntry,
-  saveCardDetailPreviewFromInventoryEntry,
-} from '@/features/cards/card-detail-preview-session';
-import {
-  defaultLaneFromPreview,
-  prefetchCardDetail,
-} from '@/features/cards/card-detail-prefetch';
-import { PortfolioScreen } from '@/features/portfolio/screens/portfolio-screen';
-import { useAppServices } from '@/providers/app-providers';
+import { FeedScreen } from '@/features/social/screens/feed-screen';
 import { useAuth } from '@/providers/auth-provider';
 
 /**
- * Collection — the landing tab after login.
+ * Home — the social feed, and the landing tab after login.
  *
- * `<StatusBar>` is owned per-screen now. The pager used to keep exactly one and
- * flip it with the active page; with real tabs each screen has to declare its
- * own, or the scanner's "light" style survives onto this light surface and the
- * time/battery/Wi-Fi icons go white-on-white.
+ * Collection used to be this route; it moved to `(tabs)/you` unchanged. The feed
+ * itself was already built (71d58fd) but was only reachable at `/feed`, a pushed
+ * stack route that nothing in the app linked to. Promoting it to the tabs root
+ * is the whole change here — the screen is untouched.
+ *
+ * Bridged as 'portfolio', not because this screen is the portfolio, but because
+ * `activePage` only distinguishes "the scanner is live" from "it isn't", and
+ * here it isn't. Passing 'scanner' would mount the camera from the Home tab.
+ * Wishlist is bridged the same way for the same reason.
  */
-export default function TabsRoot() {
-  const router = useRouter();
-  const { spotlightRepository } = useAppServices();
+export default function HomeRoute() {
+  // Guests land on the scanner, which is the whole of the guest experience: the
+  // feed reads are scoped to `auth.uid()` by RLS, so a guest would get an empty
+  // list rather than a first-launch surface worth seeing. This redirect used to
+  // live on the Collection screen that occupied this route.
   const { isGuest } = useAuth();
-
-  // Guests land on the scanner (first-launch experience) — the behaviour the
-  // pager got from `initialPage`. Collection is gated for them anyway.
   if (isGuest) {
     return <Redirect href={'/scan' as never} />;
   }
@@ -36,25 +31,7 @@ export default function TabsRoot() {
   return (
     <NativeTabsPageBridge page="portfolio">
       <StatusBar style="dark" />
-      <PortfolioScreen
-        onOpenInventoryEntry={(entry) => {
-          const preview = cardDetailPreviewFromInventoryEntry(entry);
-          prefetchCardDetail(
-            spotlightRepository,
-            entry.cardId,
-            defaultLaneFromPreview(preview),
-            preview.largeImageUrl ?? preview.imageUrl,
-          );
-          router.push({
-            pathname: '/cards/[cardId]',
-            params: {
-              cardId: entry.cardId,
-              entryId: entry.id,
-              previewId: saveCardDetailPreviewFromInventoryEntry(entry),
-            },
-          });
-        }}
-      />
+      <FeedScreen />
     </NativeTabsPageBridge>
   );
 }

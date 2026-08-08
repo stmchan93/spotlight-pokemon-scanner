@@ -4,11 +4,26 @@ import { useEffect, useRef } from 'react';
 import { capturePostHogScreen } from './posthog';
 
 function resolveScreenName(pathname: string) {
-  if (pathname === '/' || pathname === '/index' || pathname === '/scan' || pathname.startsWith('/scan/')) {
+  if (pathname === '/scan' || pathname.startsWith('/scan/')) {
     return 'scan';
   }
 
-  if (pathname === '/portfolio' || pathname.startsWith('/portfolio/')) {
+  // `/` used to be the tabs root that landed on the scanner, which is why it
+  // reported as 'scan'. It is the FEED now, so leaving it mapped that way would
+  // quietly inflate scanner screen-views with every app open. New name — expect
+  // a step change in the split, not a continuous series.
+  if (pathname === '/' || pathname === '/index') {
+    return 'feed';
+  }
+
+  // Collection lives at `/you` since Home took the tabs root. `/portfolio` is a
+  // redirect to it and may still be seen briefly, so both map to the same name
+  // and the existing series stays continuous.
+  if (
+    pathname === '/you'
+    || pathname === '/portfolio'
+    || pathname.startsWith('/portfolio/')
+  ) {
     return 'portfolio';
   }
 

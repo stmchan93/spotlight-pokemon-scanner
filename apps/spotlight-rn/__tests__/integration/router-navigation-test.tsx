@@ -13,12 +13,16 @@ function WishlistTabStub() {
 }
 
 describe('mobile app routing', () => {
-  it('boots into collection and navigates to the Scanner tab', async () => {
+  it('boots into the Home feed and navigates to the Scanner tab', async () => {
+    // `/` is the FEED now. Collection held this route until Home took it, which
+    // is the one assertion here worth being explicit about: booting the app
+    // must land on the feed, not the collection.
     const app = renderAppRouter('/', { '(tabs)/scan': ScanTabStub });
 
     await waitFor(() => {
-      expect(screen.getByTestId('portfolio-header-menu')).toBeTruthy();
+      expect(screen.getByTestId('feed-header')).toBeTruthy();
     });
+    expect(screen.queryByTestId('portfolio-header-menu')).toBeNull();
 
     // The pager is gone: Collection and Scan are separate ROUTES now, not two
     // slots mounted side-by-side behind a translate.
@@ -65,15 +69,25 @@ describe('mobile app routing', () => {
     expect(await screen.findByText('All Transactions')).toBeTruthy();
   });
 
-  it('redirects the legacy /portfolio route onto the Collection tab', async () => {
+  it('redirects the legacy /portfolio route onto the You tab', async () => {
     const app = renderAppRouter('/portfolio');
 
     await waitFor(() => {
       expect(screen.getByTestId('portfolio-header-menu')).toBeTruthy();
     });
     // Selected-tab state is UIKit's now, so the assertion that survives is
-    // that the legacy path still lands on Collection.
-    expect(app.getPathname()).toBe('/');
+    // that the legacy path still lands on Collection — which is `/you` since
+    // Home took the tabs root, NOT `/`.
+    expect(app.getPathname()).toBe('/you');
+  });
+
+  it('serves Collection from the You tab', async () => {
+    const app = renderAppRouter('/you');
+
+    await waitFor(() => {
+      expect(screen.getByTestId('portfolio-header-menu')).toBeTruthy();
+    });
+    expect(app.getPathname()).toBe('/you');
   });
 
   it('renders the labeler session route directly', async () => {

@@ -20,10 +20,13 @@ describe('PostHogScreenTracker', () => {
   });
 
   it('maps tracked routes to normalized screen names', async () => {
+    // `/` is the Home FEED now. It reported as 'scan' for as long as the tabs
+    // root landed on the scanner; keeping that would have counted every app
+    // open as a scanner view.
     const view = render(<PostHogScreenTracker />);
 
     await waitFor(() => {
-      expect(mockCapturePostHogScreen).toHaveBeenCalledWith('scan');
+      expect(mockCapturePostHogScreen).toHaveBeenCalledWith('feed');
     });
 
     mockedPathname = '/account/import';
@@ -39,7 +42,26 @@ describe('PostHogScreenTracker', () => {
     });
   });
 
+  it('reports Collection as portfolio from both of its paths', async () => {
+    // Collection moved to `/you`; `/portfolio` is a redirect to it that can
+    // still be observed in passing. Both must report the same name or the
+    // series splits in two at the migration.
+    mockedPathname = '/you';
+    const view = render(<PostHogScreenTracker />);
+
+    await waitFor(() => {
+      expect(mockCapturePostHogScreen).toHaveBeenCalledWith('portfolio');
+    });
+
+    mockedPathname = '/portfolio';
+    view.rerender(<PostHogScreenTracker />);
+    await waitFor(() => {
+      expect(mockCapturePostHogScreen).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('deduplicates repeated screen names and skips untracked routes', async () => {
+    mockedPathname = '/scan';
     const view = render(<PostHogScreenTracker />);
 
     await waitFor(() => {

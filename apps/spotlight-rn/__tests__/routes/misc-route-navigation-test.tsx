@@ -276,13 +276,19 @@ describe('misc route wrappers', () => {
     expect(screen.getByTestId('stack-screen-options').props.children).toContain('"backgroundColor":"transparent"');
     browse.unmount();
 
-    // The tabs layout is Apple's native tab bar now, not a Slot.
+    // The tabs layout is Apple's native tab bar now, not a Slot. Four tabs:
+    // Home / Scan / Wishlist / You, and the ORDER is part of the contract —
+    // `index` is the feed and Collection sits last as `you`.
     mockPathname.mockReturnValue('/');
     const tabs = render(<TabsLayout />);
     expect(screen.getByTestId('native-tabs-minimize').props.children).toBe('onScrollDown');
     expect(screen.getByTestId('native-tab-index')).toBeTruthy();
     expect(screen.getByTestId('native-tab-scan')).toBeTruthy();
     expect(screen.getByTestId('native-tab-wishlist')).toBeTruthy();
+    expect(screen.getByTestId('native-tab-you')).toBeTruthy();
+    expect(
+      screen.getAllByTestId(/^native-tab-/).map((node) => node.props.children),
+    ).toEqual(['index', 'scan', 'wishlist', 'you']);
     expect(screen.getByTestId('native-tabs-hidden').props.children).toBe('false');
 
     // On the Scanner the BAR is hidden so the camera keeps the full screen —
@@ -293,6 +299,43 @@ describe('misc route wrappers', () => {
     mockPathname.mockReturnValue('/scan');
     render(<TabsLayout />);
     expect(screen.getByTestId('native-tabs-hidden').props.children).toBe('true');
+  });
+
+  // A structural assertion, for the same reason the New Post one below is:
+  // "there is no horizontal swipe between these screens" is the ABSENCE of a
+  // behaviour, and absence is invisible to a render test. The native tab bar
+  // gives it for free (UITabBarController has no swipe-between-tabs gesture),
+  // so the only way it can come back is a JS recogniser hand-added to a tab
+  // screen — which is exactly what `ScannerExitSwipe` was until it was deleted.
+  //
+  // This does NOT apply to pushed stack screens. They keep UIKit's interactive
+  // back-swipe, which is deliberately the app's only horizontal nav gesture.
+  it('keeps every tab screen free of a horizontal swipe-to-navigate gesture', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fs = require('node:fs');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const path = require('node:path');
+    const tabsDir = path.join(__dirname, '..', '..', 'src', 'app', '(tabs)');
+
+    // The recogniser itself is gone, not merely unused.
+    expect(
+      fs.existsSync(path.join(__dirname, '..', '..', 'src', 'components', 'scanner-exit-swipe.tsx')),
+    ).toBe(false);
+
+    const tabRoutes = fs.readdirSync(tabsDir).filter((name: string) => name.endsWith('.tsx'));
+    // Home / Scan / Wishlist / You, plus the layout and the /portfolio alias.
+    expect(tabRoutes).toHaveLength(6);
+
+    for (const name of tabRoutes) {
+      const source: string = fs.readFileSync(path.join(tabsDir, name), 'utf8');
+      // Comments are allowed to name the deleted component (scan.tsx explains
+      // why it went); an IMPORT of a swipe recogniser is what must not reappear.
+      const imports = source
+        .split('\n')
+        .filter((line) => line.trimStart().startsWith('import'))
+        .join('\n');
+      expect(imports).not.toMatch(/ExitSwipe|EdgeSwipe|Pager|Swipeable/);
+    }
   });
 
   it('registers New Post on the ROOT stack so its formSheet actually presents', () => {
@@ -375,12 +418,16 @@ describe('misc route wrappers', () => {
     expect(mockBack).toHaveBeenCalledTimes(1);
   });
 
-  it('redirects /portfolio to the Collection tab', () => {
+  it('redirects /portfolio to the You tab, not the tabs root', () => {
     // `page` params are gone with the pager: Collection and Scan are real tab
-    // routes now, so /portfolio is a plain alias for / and /scan is a SCREEN,
-    // not a redirect (which is why it is no longer asserted here).
+    // routes now, so /portfolio is a plain alias and /scan is a SCREEN, not a
+    // redirect (which is why it is no longer asserted here).
+    //
+    // The target is `/you`. It was `/` right up until Home (the feed) took the
+    // tabs root — this asserts the alias followed Collection to its new route
+    // instead of silently pointing every old portfolio link at the feed.
     render(<PortfolioRedirect />);
-    expect(screen.getByTestId('redirect-target').props.children).toBe(JSON.stringify('/'));
+    expect(screen.getByTestId('redirect-target').props.children).toBe(JSON.stringify('/you'));
   });
 
   it('wires inventory back and card detail navigation', () => {

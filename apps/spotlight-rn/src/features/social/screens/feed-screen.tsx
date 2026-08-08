@@ -4,8 +4,6 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
-  PageTabs,
-  type PageTab,
   StateCard,
   useSpotlightTheme,
 } from '@spotlight/design-system';
@@ -15,7 +13,6 @@ import { PostCard } from '@/features/social/components/post-card';
 import { consumeFeedRefreshSignal } from '@/features/social/screens/new-post-screen';
 import {
   type FeedPost,
-  fetchFollowingFeed,
   fetchGlobalFeed,
 } from '@/features/social/social-service';
 import { usePostDeletion } from '@/features/social/use-post-deletion';
@@ -25,18 +22,10 @@ import { useAuth } from '@/providers/auth-provider';
 
 const PAGE_SIZE = 20;
 
-type FeedSegment = 'following' | 'global';
-const SEGMENTS: readonly PageTab<FeedSegment>[] = [
-  { value: 'following', label: 'Following' },
-  { value: 'global', label: 'Global' },
-];
-
 type FeedStatus = 'loading' | 'ready' | 'error';
 
-function readFeed(segment: FeedSegment, before?: string): Promise<FeedPost[]> {
-  return segment === 'following'
-    ? fetchFollowingFeed(PAGE_SIZE, before)
-    : fetchGlobalFeed(PAGE_SIZE, before);
+function readFeed(before?: string): Promise<FeedPost[]> {
+  return fetchGlobalFeed(PAGE_SIZE, before);
 }
 
 /**
@@ -44,14 +33,16 @@ function readFeed(segment: FeedSegment, before?: string): Promise<FeedPost[]> {
  * notifications, new post — over a full-bleed list of `PostCard`s, each closed
  * by an edge-to-edge hairline.
  *
- * Two deliberate departures from that frame:
+ * This is the HOME tab (`(tabs)/index`), so the frame's own Home/Scan/Wishlist/
+ * You bar is drawn by the real tab bar around it and this screen still renders
+ * its body only.
  *
- * - The Following / Global switch is not drawn in Figma, but it selects between
- *   two different reads and has no replacement in the design, so it stays. It is
- *   rendered as `PageTabs`, whose full-bleed `gray200` rail IS the hairline the
- *   frame puts under the header — the tabs cost no extra rule.
- * - The tab bar in the frame does not match shipped navigation and is ignored
- *   here; this screen renders its body only.
+ * ONE FEED, NEWEST FIRST. It used to carry a Following / Global switch, which is
+ * not in the frame; Home is specified as "all the posts, time first", so the
+ * screen reads `fetchGlobalFeed` (visible posts, `created_at` descending) and
+ * nothing else. `fetchFollowingFeed` is still exported by the service and still
+ * tested — it simply has no caller now, which is the cheap half of putting a
+ * follow filter back if one is wanted.
  */
 export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   const theme = useSpotlightTheme();
@@ -61,7 +52,6 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   const { accessToken } = useAuth();
   const apiBaseUrl = resolveRepositoryBaseUrl();
 
-  const [segment, setSegment] = useState<FeedSegment>('following');
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [status, setStatus] = useState<FeedStatus>('loading');
   const [refreshing, setRefreshing] = useState(false);
@@ -76,51 +66,49 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     testID: `${testID}-delete-confirm`,
   });
 
-  // Load (or reload) the active segment from the top. A per-load token guards
-  // against a slower earlier segment's response landing after a faster switch.
+  // Load (or reload) the feed from the top. A per-load token guards against a
+  // slower earlier response landing after a faster one (a refresh racing the
+  // initial load, or either racing a post-compose reload).
   const loadTokenRef = useRef(0);
 
-  const loadSegment = useCallback(
-    (nextSegment: FeedSegment) => {
-      const token = ++loadTokenRef.current;
-      setStatus('loading');
-      setPosts([]);
-      setHasMore(false);
-      loadingMoreRef.current = false;
+  const loadFeed = useCallback(() => {
+    const token = ++loadTokenRef.current;
+    setStatus('loading');
+    setPosts([]);
+    setHasMore(false);
+    loadingMoreRef.current = false;
 
-      void (async () => {
-        try {
-          const page = await readFeed(nextSegment);
-          if (token !== loadTokenRef.current) {
-            return;
-          }
-          setPosts(page);
-          setHasMore(page.length >= PAGE_SIZE);
-          setStatus('ready');
-        } catch {
-          if (token !== loadTokenRef.current) {
-            return;
-          }
-          setStatus('error');
+    void (async () => {
+      try {
+        const page = await readFeed();
+        if (token !== loadTokenRef.current) {
+          return;
         }
-      })();
-    },
-    [],
-  );
+        setPosts(page);
+        setHasMore(page.length >= PAGE_SIZE);
+        setStatus('ready');
+      } catch {
+        if (token !== loadTokenRef.current) {
+          return;
+        }
+        setStatus('error');
+      }
+    })();
+  }, []);
 
   useEffect(() => {
-    loadSegment(segment);
-  }, [loadSegment, segment]);
+    loadFeed();
+  }, [loadFeed]);
 
-  // After composing a post, the composer flips a one-shot flag; reload the active
-  // segment when the feed regains focus so the new post appears at the top.
-  // Returning from anywhere else (e.g. a PDP) leaves the flag clear → no refetch.
+  // After composing a post, the composer flips a one-shot flag; reload when the
+  // feed regains focus so the new post appears at the top. Returning from
+  // anywhere else (e.g. a PDP) leaves the flag clear → no refetch.
   useFocusEffect(
     useCallback(() => {
       if (consumeFeedRefreshSignal()) {
-        loadSegment(segment);
+        loadFeed();
       }
-    }, [loadSegment, segment]),
+    }, [loadFeed]),
   );
 
   const handleRefresh = useCallback(() => {
@@ -129,7 +117,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     loadingMoreRef.current = false;
     void (async () => {
       try {
-        const page = await readFeed(segment);
+        const page = await readFeed();
         if (token !== loadTokenRef.current) {
           return;
         }
@@ -146,7 +134,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         }
       }
     })();
-  }, [segment]);
+  }, []);
 
   const handleLoadMore = useCallback(() => {
     if (!hasMore || loadingMoreRef.current || status !== 'ready' || posts.length === 0) {
@@ -162,7 +150,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
 
     void (async () => {
       try {
-        const page = await readFeed(segment, cursor);
+        const page = await readFeed(cursor);
         if (token !== loadTokenRef.current) {
           return;
         }
@@ -176,7 +164,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         setIsLoadingMore(false);
       }
     })();
-  }, [hasMore, posts, segment, status]);
+  }, [hasMore, posts, status]);
 
   const handleOpenCard = useCallback(
     (cardId: string) => {
@@ -218,11 +206,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
       />
     ) : (
       <StateCard
-        message={
-          segment === 'following'
-            ? 'Follow collectors to see their posts here.'
-            : 'No posts yet. Check back soon.'
-        }
+        message="No posts yet. Check back soon."
         style={styles.stateCard}
         testID={`${testID}-empty`}
         title="Nothing here yet"
@@ -254,13 +238,13 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         onOpenSearch={openSearch}
         testID={`${testID}-header`}
       />
-      <PageTabs
-        onChange={setSegment}
-        tabs={SEGMENTS}
-        testID={`${testID}-segment`}
-        value={segment}
-      />
       <FlatList
+        // This screen became the Home TAB, so a tab bar now sits over its
+        // bottom edge. `automatic` puts the list on UIKit's own inset
+        // behaviour — the same prop the Collection list uses — so the last post
+        // clears the bar instead of hiding behind it, rather than us guessing
+        // the native bar's height from a token sized for the retired JS one.
+        contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={{
           paddingBottom: insets.bottom + 24,
           // No horizontal padding and no inter-item gap: post cards are

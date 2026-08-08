@@ -59,55 +59,46 @@ describe('FeedScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (useRouter as jest.Mock).mockReturnValue({ push, back: jest.fn() });
-    (fetchFollowingFeed as jest.Mock).mockResolvedValue([
-      buildPost({ id: '1', body: 'Following post' }),
-    ]);
     (fetchGlobalFeed as jest.Mock).mockResolvedValue([
-      buildPost({ id: '2', body: 'Global post' }),
+      buildPost({ id: '1', body: 'Feed post' }),
     ]);
   });
 
-  it('renders the following feed on first load', async () => {
+  // Home is ONE feed: every visible post, newest first. The screen carried a
+  // Following / Global switch until it became the Home tab; this asserts the
+  // remaining read is the global one and that the follow graph no longer gates
+  // what you see, which is the whole behavioural change.
+  it('reads the global feed, and only the global feed, on first load', async () => {
     renderWithProviders(<FeedScreen />);
 
     await waitFor(() => {
-      expect(screen.getByText('Following post')).toBeTruthy();
-    });
-    expect(fetchFollowingFeed).toHaveBeenCalled();
-    expect(fetchGlobalFeed).not.toHaveBeenCalled();
-  });
-
-  it('switches to the global feed when the Global segment is pressed', async () => {
-    renderWithProviders(<FeedScreen />);
-
-    await waitFor(() => {
-      expect(screen.getByText('Following post')).toBeTruthy();
-    });
-
-    fireEvent.press(screen.getByTestId('feed-segment-tab-global'));
-
-    await waitFor(() => {
-      expect(screen.getByText('Global post')).toBeTruthy();
+      expect(screen.getByText('Feed post')).toBeTruthy();
     });
     expect(fetchGlobalFeed).toHaveBeenCalled();
+    expect(fetchFollowingFeed).not.toHaveBeenCalled();
+    // No switch to press any more.
+    expect(screen.queryByTestId('feed-segment-tab-global')).toBeNull();
+    expect(screen.queryByTestId('feed-segment-tab-following')).toBeNull();
   });
 
-  it('shows an empty state when the following feed is empty', async () => {
-    (fetchFollowingFeed as jest.Mock).mockResolvedValue([]);
+  it('shows an empty state when there are no posts', async () => {
+    (fetchGlobalFeed as jest.Mock).mockResolvedValue([]);
 
     renderWithProviders(<FeedScreen />);
 
     await waitFor(() => {
       expect(screen.getByTestId('feed-empty')).toBeTruthy();
     });
-    expect(screen.getByText('Follow collectors to see their posts here.')).toBeTruthy();
+    // One message now: the "follow collectors" copy only made sense while an
+    // empty feed could mean "you follow nobody" rather than "there is nothing".
+    expect(screen.getByText('No posts yet. Check back soon.')).toBeTruthy();
   });
 
   // The top bar is the feed's chrome (Figma 3505:14521) and is pinned above the
   // list, so every one of its destinations stays reachable with an EMPTY feed —
   // the case the old in-list composer row was there to cover.
   it('keeps the header actions reachable when there are no posts', async () => {
-    (fetchFollowingFeed as jest.Mock).mockResolvedValue([]);
+    (fetchGlobalFeed as jest.Mock).mockResolvedValue([]);
 
     renderWithProviders(<FeedScreen />);
 
@@ -127,7 +118,7 @@ describe('FeedScreen', () => {
 
   it('opens the app drawer from the header menu', async () => {
     renderWithProviders(<FeedScreen />);
-    await waitFor(() => expect(screen.getByText('Following post')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
     fireEvent.press(screen.getByTestId('feed-header-menu'));
 
@@ -143,7 +134,7 @@ describe('FeedScreen', () => {
 
     beforeEach(() => {
       (deletePost as jest.Mock).mockResolvedValue(true);
-      (fetchFollowingFeed as jest.Mock).mockResolvedValue([
+      (fetchGlobalFeed as jest.Mock).mockResolvedValue([
         myPost(),
         buildPost({ id: 'theirs', body: 'Someone else post' }),
       ]);
@@ -226,7 +217,7 @@ describe('FeedScreen', () => {
   });
 
   it('renders a card chip for a post anchored to a card', async () => {
-    (fetchFollowingFeed as jest.Mock).mockResolvedValue([
+    (fetchGlobalFeed as jest.Mock).mockResolvedValue([
       buildPost({ id: '1', body: 'Card post', cardId: 'card-xyz' }),
     ]);
 

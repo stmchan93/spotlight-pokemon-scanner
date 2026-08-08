@@ -67,23 +67,28 @@ export function AppBottomTabBar({
     navigate();
   }, []);
 
+  // `/you`, not `/`. Collection moved off the tabs root when Home (the feed)
+  // took it; `/` would now land this bar's Portfolio button on the feed.
   const goToPortfolio = onPressPortfolio
     ?? (() => runGuardedNav('portfolio', dismissToTabs
-      ? () => router.dismissTo('/' as never)
-      : () => router.push('/' as never)));
+      ? () => router.dismissTo('/you' as never)
+      : () => router.push('/you' as never)));
   // Scan, Collection and Wishlist are now TABS, not pager pages, so these
   // navigate to real routes rather than passing `page` params into the tabs
   // root. This bar only survives on pushed stack screens (insights); the tabs
   // themselves are drawn by UIKit.
   //
-  // Straight to `/scan-camera`, NOT the `/scan` tab. `(tabs)/scan` is only a
-  // launcher that pushes the camera and immediately hands the tab selection back
-  // to Collection; routing through it from a pushed screen would first stack a
-  // second `(tabs)` instance underneath. `/scan-camera` is a ROOT route, so it
-  // pushes over whatever is on screen and Back returns here — which is the
-  // documented intent of Scan being the push exception.
+  // `/scan`, the tab. This pointed at `/scan-camera` for as long as Scan was a
+  // launcher that pushed a root camera route; 45fbd16 deleted that route and
+  // made Scan an ordinary tab whose BAR is hidden, and this call site was left
+  // behind pushing a path that no longer resolves — so Scan on the Insights bar
+  // navigated nowhere. It gets the same dismissTo/push treatment as its two
+  // neighbours: from a pushed screen, popping to the tabs and selecting Scan
+  // beats stacking a second `(tabs)` instance on the one already underneath.
   const goToScan = onPressScan
-    ?? (() => runGuardedNav('scan', () => router.push('/scan-camera' as never)));
+    ?? (() => runGuardedNav('scan', dismissToTabs
+      ? () => router.dismissTo('/scan' as never)
+      : () => router.push('/scan' as never)));
   // Wishlist is a TAB now (it used to be a pushed stack screen, which is why
   // this branch used to `replace`). From a pushed screen, `replace` would swap
   // the pushed entry for a SECOND `(tabs)` instance stacked on the one already

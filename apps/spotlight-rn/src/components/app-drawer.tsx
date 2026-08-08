@@ -131,9 +131,17 @@ export function AppDrawer() {
   // Derive the active nav key from the current route so the yellow indicator
   // dot updates when the user navigates between drawer destinations.
   const normalizedPathname = pathname ?? '';
-  let activeKey: 'collection' | 'insights' | 'wishlist' | 'scan' | null;
-  if (normalizedPathname === '/' || normalizedPathname.startsWith('/portfolio')) {
+  let activeKey: 'collection' | 'home' | 'insights' | 'wishlist' | 'scan' | null;
+  // `/` is the FEED now, not the collection — Home took the tabs root and
+  // Collection moved to `/you`. Matching `/` as 'collection' would light the
+  // Portfolio dot while the user is looking at the feed, and would make the
+  // Portfolio item a no-op from Home (see the early return in
+  // `navigateToCollection`). 'home' has no drawer item of its own; it exists so
+  // the tab root is not mistaken for a pushed screen below.
+  if (normalizedPathname === '/you' || normalizedPathname.startsWith('/portfolio')) {
     activeKey = 'collection';
+  } else if (normalizedPathname === '/') {
+    activeKey = 'home';
   } else if (normalizedPathname.startsWith('/insights')) {
     activeKey = 'insights';
   } else if (normalizedPathname.startsWith('/wishlist')) {
@@ -146,8 +154,11 @@ export function AppDrawer() {
 
   // True when we're currently sitting on a stack route (sales/insights/
   // wishlist/scan) — i.e. there is at least one entry above the tabs root
-  // in the back stack.
-  const isOnStackRoute = activeKey != null && activeKey !== 'collection';
+  // in the back stack. Home is a tab root like Collection, so it is excluded
+  // for the same reason: there is nothing above it to replace.
+  const isOnStackRoute = activeKey != null
+    && activeKey !== 'collection'
+    && activeKey !== 'home';
 
   const goTo = (path: string) => {
     closeDrawer();
@@ -171,14 +182,18 @@ export function AppDrawer() {
     if (activeKey === 'collection') {
       return;
     }
-    // From a stack route back to Collection. `/portfolio` is a Redirect to
-    // `/?page=portfolio`, so `router.replace('/portfolio')` would leave the
-    // back-stack with BOTH the tabs root (`/`) AND the redirected entry —
+    // From a stack route back to Collection, which is the `/you` TAB now.
+    // `/portfolio` is a Redirect to it, so `router.replace('/portfolio')` would
+    // leave the back-stack with BOTH the tabs entry AND the redirected one —
     // both render Collection visually, producing the "Collections then
-    // Collections again" swipe-back bug. Pop the stack down to the tabs
-    // root instead so there's a single Collection entry.
+    // Collections again" swipe-back bug. Pop the stack down to the tabs and
+    // select the tab instead, so there is a single Collection entry.
+    //
+    // The `page: 'portfolio'` param that used to ride along was the retired
+    // pager's addressing (it chose which of two mounted pages to show) and is
+    // read by nothing now that each page is a real route.
     setTimeout(() => {
-      router.dismissTo({ pathname: '/', params: { page: 'portfolio' } } as never);
+      router.dismissTo('/you' as never);
     }, ANIM_DURATION_MS / 2);
   };
 

@@ -3,7 +3,6 @@ import { useNavigation } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 
 import { NativeTabsPageBridge } from '@/components/native-tabs-page-bridge';
-import { ScannerExitSwipe } from '@/components/scanner-exit-swipe';
 import { ScannerScreen } from '@/features/scanner/screens/scanner-screen';
 
 /**
@@ -14,7 +13,20 @@ import { ScannerScreen } from '@/features/scanner/screens/scanner-screen';
  * keeps its original size. Nothing is pushed and nothing is covered.
  *
  * ===========================================================================
- * WHY THIS IS NOT A LAUNCHER ANY MORE
+ * NO HORIZONTAL SWIPE OUT OF HERE
+ * ===========================================================================
+ * This screen used to wrap itself in `ScannerExitSwipe`, a hand-rolled
+ * left-edge drag that switched tabs. It is gone, and the component with it: no
+ * screen that belongs to the tab bar may be entered or left by a horizontal
+ * swipe. The exit BUTTON is the single way out, which is also what the four
+ * native tabs already do — UITabBarController has no swipe-between-tabs gesture
+ * either, so the scanner was the one place the rule was broken.
+ *
+ * This does not touch pushed stack screens. They keep UIKit's interactive
+ * back-swipe, which is the app's only horizontal navigation gesture now.
+ *
+ * ===========================================================================
+ * WHY THIS IS NOT A LAUNCHER
  * ===========================================================================
  * Four attempts tried to keep the bar off the camera by making Scan a launcher
  * that pushed a full-screen `/scan-camera` route. Every one stranded the user on
@@ -30,15 +42,21 @@ import { ScannerScreen } from '@/features/scanner/screens/scanner-screen';
  *      change while it was covered by the pushed screen
  *
  * Hiding the bar deletes the problem instead of managing it. There is no push,
- * so there is no return, so there is nothing to strand anyone on.
+ * so there is no return, so there is nothing to strand anyone on. This is also
+ * why the camera does not slide up from the bottom: a modal presentation needs
+ * a push, and `NativeBottomTabsNavigator` emits `tabPress` and then dispatches
+ * JUMP_TO without reading `defaultPrevented`, so a native tab cannot be
+ * intercepted to present one.
  */
 export default function ScanRoute() {
   const navigation = useNavigation();
 
-  // Back out to Collection. This is a TAB switch, not a pop — `useNavigation()`
-  // inside a native tab screen already returns the (tabs) navigator, so this
-  // dispatches to the right place (calling `getParent()` here was bug #2 above).
-  const goToCollection = useCallback(() => {
+  // Leaving the camera goes HOME, not to the collection: Home is the landing tab
+  // now, so it is where "out of here" means. This is a TAB switch, not a pop —
+  // `useNavigation()` inside a native tab screen already returns the (tabs)
+  // navigator, so it dispatches to the right place (calling `getParent()` here
+  // was bug #2 above).
+  const goHome = useCallback(() => {
     navigation.navigate('index' as never);
   }, [navigation]);
 
@@ -46,13 +64,7 @@ export default function ScanRoute() {
     <NativeTabsPageBridge page="scanner">
       {/* Dark viewfinder needs light status-bar icons. */}
       <StatusBar style="light" />
-      {/* A pushed camera route used to give a back-swipe for free; a tab does
-          not. This puts the left-edge drag back, wired to the same destination
-          as the back button so there is exactly one way out with two ways to
-          ask for it. */}
-      <ScannerExitSwipe onExit={goToCollection}>
-        <ScannerScreen onExitToPortfolio={goToCollection} />
-      </ScannerExitSwipe>
+      <ScannerScreen onExitToPortfolio={goHome} />
     </NativeTabsPageBridge>
   );
 }

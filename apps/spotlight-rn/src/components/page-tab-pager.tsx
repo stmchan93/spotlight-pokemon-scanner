@@ -62,8 +62,8 @@ const CLAIM_DRAG = 14;
 
 /**
  * How much more horizontal than vertical a drag must be to count. Same 1.35 the
- * drawer and scanner-exit recognisers use, so "a horizontal swipe" means the
- * same shape everywhere in the app.
+ * drawer recogniser uses, so "a horizontal swipe" means the same shape
+ * everywhere in the app.
  */
 const HORIZONTAL_BIAS = 1.35;
 
@@ -243,7 +243,7 @@ type CollapsibleTabPagerProps<V extends string> = {
  * file is core-RN `Animated` + `PanResponder` only: it ships over OTA.
  *
  * WHY PanResponder AND NOT react-native-gesture-handler
- * Same reasoning as `DrawerEdgeSwipe` and `ScannerExitSwipe`, and the same
+ * Same reasoning as `DrawerEdgeSwipe` (and the deleted `ScannerExitSwipe`), and the same
  * reasoning the retired `TopTabsPager` used when it drove this exact animation:
  * this is gesture NEGOTIATION against a scroll view, which PanResponder states
  * natively (decline with `false`, take over with `true`). The gesture-handler

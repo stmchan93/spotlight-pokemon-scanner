@@ -12,7 +12,11 @@ const { Icon, Label } = Trigger;
  *
  * REPLACED `TopTabsPager`. What that cost, so nobody re-derives it:
  *  - the horizontal Portfolio <-> Scanner swipe (UITabBarController has no
- *    swipe-between-tabs gesture; absent from TabsHost and expo-router alike)
+ *    swipe-between-tabs gesture; absent from TabsHost and expo-router alike).
+ *    THIS IS NOW THE INTENDED BEHAVIOUR, not a gap to close: no screen that
+ *    draws this bar may be reached or left by a horizontal swipe. The scanner's
+ *    hand-rolled left-edge exit swipe was deleted for the same reason. Pushed
+ *    stack screens keep UIKit's back-swipe — that rule is only about the tabs.
  *  - the left-edge drag that opened the hamburger drawer, which lived inside
  *    the pager's pan responder — the drawer BUTTON still works
  *  - hiding the bar during Collection edit mode; UIKit owns this bar and
@@ -101,9 +105,16 @@ export default function TabsLayout() {
       minimizeBehavior="onScrollDown"
       tintColor={colors.gray900}
     >
+      {/*
+        Home / Scan / Wishlist / You, in that order.
+
+        `index` is the FEED now, not Collection — the app's landing surface is
+        social. Collection moved to `you` and kept its screen unchanged; the
+        legacy `/portfolio` path redirects there so old links still resolve.
+      */}
       <Trigger name="index">
-        <Icon sf={{ default: 'square.grid.2x2', selected: 'square.grid.2x2.fill' }} />
-        <Label>Collection</Label>
+        <Icon sf={{ default: 'house', selected: 'house.fill' }} />
+        <Label>Home</Label>
       </Trigger>
       <Trigger name="scan">
         <Icon sf={{ default: 'viewfinder', selected: 'viewfinder' }} />
@@ -112,6 +123,10 @@ export default function TabsLayout() {
       <Trigger name="wishlist">
         <Icon sf={{ default: 'bookmark', selected: 'bookmark.fill' }} />
         <Label>Wishlist</Label>
+      </Trigger>
+      <Trigger name="you">
+        <Icon sf={{ default: 'person.crop.circle', selected: 'person.crop.circle.fill' }} />
+        <Label>You</Label>
       </Trigger>
     </NativeTabs>
   );
