@@ -43,6 +43,29 @@ describe('ProfileHeader', () => {
     jest.restoreAllMocks();
   });
 
+  it('bleeds the cover under the status bar with AND without a photo', () => {
+    // These two branches drifted: the photo branch bled, the fallback did not,
+    // so a profile with no cover showed a white strip above the grey band and
+    // everything below it sat insets.top too low. Assert both, together, so they
+    // cannot diverge again.
+    const withPhoto = renderHeader(
+      <ProfileHeader coverUrl="https://cdn.test/c.jpg" displayName="Ash" initials="AK" />,
+    );
+    const photoFrame = StyleSheet.flatten(
+      screen.getByTestId('profile-header-cover-frame').props.style,
+    );
+    expect(photoFrame.marginTop).toBe(-59);
+    expect(photoFrame.height).toBe(176 + 59);
+    withPhoto.unmount();
+
+    renderHeader(<ProfileHeader displayName="Ash" initials="AK" />);
+    const placeholder = StyleSheet.flatten(
+      screen.getByTestId('profile-header-cover-placeholder').props.style,
+    );
+    expect(placeholder.marginTop).toBe(-59);
+    expect(placeholder.height).toBe(176 + 59);
+  });
+
   it('renders the display name', () => {
     renderHeader(<ProfileHeader displayName="Ash Ketchum" initials="AK" />);
 

@@ -150,7 +150,19 @@ export function ProfileHeader({
           // A very light neutral, not the tinted `surfaceMuted` and not black —
           // the glass nav bubbles float over this band, and a dark backdrop
           // makes their refraction read as smudges.
-          style={[styles.cover, { backgroundColor: theme.colors.gray100 }]}
+          style={[
+            styles.cover,
+            {
+              backgroundColor: theme.colors.gray100,
+              // Bleeds under the status bar exactly like the photo branch. It
+              // did not, which left a white strip above the grey band for every
+              // profile WITHOUT a cover — and, because the band then started
+              // insets.top lower, pushed the avatar and everything under it down
+              // by the same amount. One missing pair of lines, two symptoms.
+              height: COVER_HEIGHT + insets.top,
+              marginTop: -insets.top,
+            },
+          ]}
           testID={`${testID}-cover-placeholder`}
         />
       )}
