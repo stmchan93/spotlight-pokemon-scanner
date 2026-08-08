@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Animated,
   FlatList,
   type LayoutChangeEvent,
   Linking,
@@ -43,7 +44,7 @@ import {
 import { SalePriceEditSheet } from '@/features/portfolio/components/sale-price-edit-sheet';
 import { CollectionPickerSheet } from '@/features/portfolio/components/collection-picker-sheet';
 import { CollectionSearchRow } from '@/features/portfolio/components/collection-search-row';
-import { HomeHeader } from '@/components/home-header';
+import { HomeHeader, HomeHeaderPinnedPill } from '@/components/home-header';
 import {
   CollectionFilterChipRow,
   type CollectionFilterKey,
@@ -384,6 +385,23 @@ export function PortfolioScreen({
   // Abbreviated total on the collection summary line (Figma 2749:4753). It
   // honours the balance-visibility toggle — otherwise hiding the big balance
   // would leak the same number one row further down.
+  // The pager writes its scroll offset here; this screen only READS it. Driving
+  // the bubbles natively off the same value the header collapse runs on is what
+  // keeps them glued to the page instead of a JS frame behind the finger.
+  const pagerScrollY = useRef(new Animated.Value(0)).current;
+  // Bubbles travel up 1:1 with the page and stop once they have cleared their
+  // own row, so they leave rather than sliding under the pinned tab bar. The
+  // PILL does not move — it is a separate layer (see HomeHeaderPinnedPill).
+  const bubbleTranslateY = useMemo(
+    () =>
+      pagerScrollY.interpolate({
+        inputRange: [0, BUBBLE_TRAVEL],
+        outputRange: [0, -BUBBLE_TRAVEL],
+        extrapolate: 'clamp',
+      }),
+    [pagerScrollY],
+  );
+
   const collectionTotalLabel = isSummaryHidden
     ? HIDDEN_VALUE_MASK
     : formatAbbreviatedCurrency(summary.currentValue);
@@ -1045,6 +1063,7 @@ export function PortfolioScreen({
       onOpenNotifications={() => router.push('/notifications' as never)}
       floating
       onOpenSearch={handleTopSearchPress}
+      pillPinnedSeparately
       testID="portfolio-header"
       unreadCount={unreadNotifications}
     />
@@ -1455,6 +1474,7 @@ export function PortfolioScreen({
         order={PROFILE_TAB_ORDER}
         pageRefs={pageScrollRefs}
         renderPage={renderProfilePage}
+        scrollY={pagerScrollY}
         shouldStandDown={isSearchFieldFocused}
         tabBar={pagerTabBar}
         testID="portfolio-page-tab-pager"
@@ -1468,7 +1488,16 @@ export function PortfolioScreen({
         and translated on scroll), so a second in-flow bar inside it fought the
         pinning and left the profile tab bar drawn across the status bar.
       */}
-      {homeHeader}
+      <Animated.View
+        pointerEvents="box-none"
+        style={[styles.bubbleLayer, { transform: [{ translateY: bubbleTranslateY }] }]}
+      >
+        {homeHeader}
+      </Animated.View>
+      <HomeHeaderPinnedPill
+        onOpenSearch={handleTopSearchPress}
+        testID="portfolio-header"
+      />
 
       <ScrollToTopFab
         onPress={scrollToTop}
@@ -1613,7 +1642,19 @@ export function PortfolioScreen({
   );
 }
 
+/** How far the bubbles travel before they have fully cleared their own row. */
+const BUBBLE_TRAVEL = 56;
+
 const styles = StyleSheet.create({
+  // Its own layer so the bubbles can translate without dragging the pinned pill
+  // (a sibling) with them.
+  bubbleLayer: {
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    zIndex: 5,
+  },
   chartWrap: {
     // Gap from the % change line down to the time filter (7D/1M/…) is tuned to
     // 32px per feedback. The chrome wrapper already adds a 16px inter-child gap,

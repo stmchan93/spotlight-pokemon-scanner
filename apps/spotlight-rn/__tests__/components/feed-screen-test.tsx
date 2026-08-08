@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import { Alert, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 
@@ -120,28 +120,29 @@ describe('FeedScreen', () => {
     expect(push).toHaveBeenCalledWith('/notifications');
   });
 
-  // The bar is PART OF THE PAGE: it is the list's own header row, so it scrolls
-  // away with the posts, and it carries the rule that marks the top of the page.
-  // Neither is visible to an ordinary render assertion, and the bar has already
-  // been wrong twice — solid buttons stacked above the list, then floating
-  // chrome with a fading pill.
-  it('makes the top bar a scrolling list row, not chrome pinned over the list', async () => {
+  // The bar is SPLIT, because its two halves move differently: the glass
+  // bubbles are an ordinary list row and scroll away with the posts, while the
+  // search pill is pinned in its own layer over the list and holds still. It
+  // has been wrong three times — solid buttons stacked above the list, floating
+  // chrome with a fading pill, then one bar that scrolled away whole — so both
+  // halves are pinned here.
+  it('scrolls the bubbles away as a list row while the pill stays pinned', async () => {
     renderWithProviders(<FeedScreen />);
     await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
-    // Not a sibling of the list any more — if it were, it would stay put.
-    const rootChildTestIDs = screen
-      .getByTestId('feed')
-      .props.children.map((child: { props?: { testID?: string } }) => child?.props?.testID)
-      .filter(Boolean);
-    expect(rootChildTestIDs).not.toContain('feed-header');
-
-    // ...it lives inside the scroller, and it is not absolutely positioned.
+    // The bubble row rides in the list, so it is not absolutely positioned...
     const bar = screen.getByTestId('feed-header');
     expect(StyleSheet.flatten(bar.props.style).position).toBeUndefined();
+    // ...and it leaves the pill's slot empty rather than drawing one inline.
+    expect(within(bar).queryByTestId('feed-header-search')).toBeNull();
 
-    // Figma 3505:14520 — the rule under the bar.
-    expect(screen.getByTestId('feed-header-rule')).toBeTruthy();
+    // The pill lives in a pinned layer instead.
+    const pinned = screen.getByTestId('feed-header-search-layer');
+    expect(StyleSheet.flatten(pinned.props.style).position).toBe('absolute');
+    expect(within(pinned).getByTestId('feed-header-search')).toBeTruthy();
+
+    // Figma 3505:14520 — the rule still travels with the scrolling half.
+    expect(within(bar).getByTestId('feed-header-rule')).toBeTruthy();
   });
 
   // The gap under the search bar was a full status bar of dead space, because
@@ -165,6 +166,17 @@ describe('FeedScreen', () => {
     // The drawer is context state, not navigation.
     expect(mockOpenDrawer).toHaveBeenCalledTimes(1);
     expect(push).not.toHaveBeenCalled();
+  });
+
+  it('also opens the drawer by dragging in from the left edge, not only from the button', async () => {
+    renderWithProviders(<FeedScreen />);
+    await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
+
+    // The gesture followed Collection to the You tab when the feed took over
+    // Home, which left the app's LANDING screen with a hamburger you could only
+    // tap. `drawer-edge-swipe-test` drives the recogniser itself; all this has to
+    // hold is that the feed is still wrapped in one.
+    expect(screen.getByTestId('drawer-edge-swipe')).toBeTruthy();
   });
 
   // Deleting your own post: the ⋯ affordance is on the card, but the confirm +
