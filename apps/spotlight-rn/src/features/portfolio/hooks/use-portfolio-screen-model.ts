@@ -522,11 +522,31 @@ export function usePortfolioScreenModel() {
   const { activePage } = useTabsPage();
   const isPortfolioActive = activePage === 'portfolio';
 
+  // ...but the gate is on the AUTO-REFRESH, not on ever loading at all, and for
+  // one collection-load's worth of requests that distinction is the difference
+  // between a full grid and an empty one.
+  //
+  // It used not to matter: Collection WAS the landing tab, so it was focused at
+  // launch and its first load always ran. Home took that slot, so Collection is
+  // now a tab you arrive at later, and `isPortfolioActive` is false until
+  // `useIsFocused()` reports the switch — a JS signal driven by a native
+  // UITabBarController. Miss that one edge and nothing re-triggers the effect
+  // (the loaders are stable and `activeCollectionID`/`dataVersion` have not
+  // changed), so the collection stays empty until a pull-to-refresh or a
+  // collection switch — exactly "no cards the first time I open it".
+  //
+  // So the first load is unconditional and only REFRESHES are gated. That keeps
+  // the thundering herd off the scanner's SQLite connection, which is what the
+  // gate was for: the storm is repeated 13-request dashboard fans while a scan
+  // is in flight, not one load of the screen the user just opened.
+  const hasRunInitialLoad = useRef(false);
+
   // `activeCollectionID` is a dependency so switching collections refetches. The
   // loaders read it from a ref, so the callbacks stay stable and this effect is
   // the ONLY thing the switch re-triggers.
   useEffect(() => {
-    if (!isPortfolioActive) return;
+    if (!isPortfolioActive && hasRunInitialLoad.current) return;
+    hasRunInitialLoad.current = true;
     void loadInventory();
     void loadDashboard();
   }, [activeCollectionID, dataVersion, isPortfolioActive, loadDashboard, loadInventory]);
