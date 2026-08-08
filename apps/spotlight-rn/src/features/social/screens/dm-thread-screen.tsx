@@ -109,7 +109,27 @@ export function DmThreadScreen({
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const listRef = useRef<FlatList<ThreadMessage>>(null);
+  /**
+   * Pin the view to the newest message.
+   *
+   * `onContentSizeChange` already does this when the content HEIGHT changes, but
+   * that misses the two cases people actually notice: opening the keyboard (the
+   * list gets shorter, the content does not change) and sending while scrolled
+   * up. Guarded on a non-empty list because scrollToEnd on an empty FlatList
+   * warns.
+   */
+  const hasMessagesRef = useRef(false);
+  const scrollToLatest = useCallback((animated: boolean) => {
+    if (!hasMessagesRef.current) {
+      return;
+    }
+    listRef.current?.scrollToEnd({ animated });
+  }, []);
   const localIdRef = useRef(0);
+
+  // Mirrored into a ref so `scrollToLatest` stays identity-stable — it is passed
+  // to onFocus and used inside handleSend, both of which would otherwise churn.
+  hasMessagesRef.current = messages.length > 0;
 
   const myUserId = currentUser?.id ?? null;
   const canSend = draft.trim().length > 0 && conversationId.length > 0;
@@ -255,8 +275,11 @@ export function DmThreadScreen({
     // be the one that clears it. `clear()` drops the marked text at the native
     // layer, which is the only thing that ends the composition session.
     composerRef.current?.clear();
+    // Sending while scrolled up left the new bubble off-screen: the content grew
+    // but the viewport stayed where it was.
+    requestAnimationFrame(() => scrollToLatest(true));
     void deliver(localId, text);
-  }, [conversationId, deliver, draft, myUserId]);
+  }, [conversationId, deliver, draft, myUserId, scrollToLatest]);
 
   /** Re-send a failed entry in place — same local id, so it reconciles normally. */
   const handleRetry = useCallback(
@@ -379,11 +402,7 @@ export function DmThreadScreen({
           }
           // Newest sits at the bottom, so every content-height change (first
           // load, a sent message, a refresh) has to pin the view there.
-          onContentSizeChange={() => {
-            if (messages.length > 0) {
-              listRef.current?.scrollToEnd({ animated: false });
-            }
-          }}
+          onContentSizeChange={() => scrollToLatest(false)}
           ref={listRef}
           refreshControl={<RefreshControl onRefresh={handleRefresh} refreshing={isRefreshing} />}
           renderItem={renderItem}
@@ -394,6 +413,10 @@ export function DmThreadScreen({
           <View style={styles.composerField}>
             <TextField
               onChangeText={setDraft}
+              // The keyboard shortens the list without changing its content, so
+              // onContentSizeChange never fires and the newest message ends up
+              // hidden behind the keyboard.
+              onFocus={() => requestAnimationFrame(() => scrollToLatest(true))}
               ref={composerRef}
               onSubmitEditing={handleSend}
               placeholder="Message…"
@@ -473,8 +496,12 @@ const styles = StyleSheet.create({
   },
   listContent: {
     gap: 8,
+    // Bottom is deliberately larger than top: at 12 the newest bubble sat almost
+    // flush against the composer's top border once scrolled to the end, which
+    // read as the message being part of the input.
+    paddingBottom: 20,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingTop: 12,
   },
   row: {
     // A bubble never spans the full width — the free edge is what makes the
