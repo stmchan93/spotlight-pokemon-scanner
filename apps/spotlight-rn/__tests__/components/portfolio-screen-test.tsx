@@ -413,6 +413,78 @@ describe('PortfolioScreen', () => {
       });
     });
 
+    it('discards a slow read for the collection you left instead of painting it over the one you switched to', async () => {
+      // Switching re-fires the refetch, but it CANNOT cancel the read already in
+      // flight for the collection you left. That read takes 5-10s against a real
+      // backend, so it routinely lands after the switch — and nothing scoped it,
+      // so it wrote the previous collection's cards and balance straight into the
+      // collection now on screen. Same complaint as the tests above ("switching
+      // collections shows the old value"), different mechanism: a late response
+      // rather than a stale starting state, which is why the reset-on-switch fix
+      // did not cover it.
+      const mainItems = [buildInventoryEntry({ id: 'main-1', name: 'Main Card', marketPrice: 100 })];
+      const grailItems = [buildInventoryEntry({ id: 'grail-1', name: 'Grail Card', marketPrice: 42 })];
+
+      type InventoryResult = { state: 'success'; data: InventoryCardEntry[]; errorMessage: null };
+      type DashboardResult = { state: 'success'; data: PortfolioDashboard; errorMessage: null };
+      let resolveMainInventory: (value: InventoryResult) => void = () => {};
+      let resolveMainDashboard: (value: DashboardResult) => void = () => {};
+
+      const repository = createTestSpotlightRepository({
+        listCollections: async () => COLLECTIONS_SNAPSHOT,
+        loadInventoryEntries: async (query?: { collectionID?: string | null }) => (
+          query?.collectionID === GRAILS_COLLECTION.id
+            ? { state: 'success' as const, data: grailItems, errorMessage: null }
+            : new Promise<InventoryResult>((resolve) => {
+                resolveMainInventory = resolve;
+              })
+        ),
+        loadPortfolioDashboard: async (options?: { collectionID?: string | null }) => (
+          options?.collectionID === GRAILS_COLLECTION.id
+            ? {
+                state: 'success' as const,
+                data: buildScopedDashboard(grailItems, 42),
+                errorMessage: null,
+              }
+            : new Promise<DashboardResult>((resolve) => {
+                resolveMainDashboard = resolve;
+              })
+        ),
+      });
+
+      renderPortfolioScreen({ repository });
+      await screen.findByTestId('collection-search-row-collection');
+
+      // Switch away while the first collection's reads are still outstanding.
+      await openCollectionPicker();
+      await act(async () => {
+        fireEvent.press(
+          screen.getByTestId(`collection-picker-sheet-row-${GRAILS_COLLECTION.id}`),
+        );
+      });
+      await waitFor(() => {
+        expect(screen.getByTestId('portfolio-summary-value')).toHaveTextContent('$42.00');
+      });
+
+      // The collection you left finally answers.
+      await act(async () => {
+        resolveMainInventory({ state: 'success', data: mainItems, errorMessage: null });
+        resolveMainDashboard({
+          state: 'success',
+          data: buildScopedDashboard(mainItems, 100),
+          errorMessage: null,
+        });
+      });
+
+      // Its money must not reappear under the name of the collection you picked.
+      expect(screen.getByText('Grails')).toBeTruthy();
+      expect(screen.getByTestId('portfolio-summary-value')).toHaveTextContent('$42.00');
+      // Its cards must not either — the late read merged them in even when the
+      // headline number happened to survive.
+      expect(screen.queryByTestId('collection-masonry-grid-tile-main-1')).not.toBeOnTheScreen();
+      expect(screen.getByTestId('collection-masonry-grid-tile-grail-1')).toBeOnTheScreen();
+    });
+
     it('does not keep the previous balance when the collection switched to is empty', async () => {
       // A brand-new collection reads back empty, and an empty read used to be
       // rejected as a transient backend blip — so the previous collection's

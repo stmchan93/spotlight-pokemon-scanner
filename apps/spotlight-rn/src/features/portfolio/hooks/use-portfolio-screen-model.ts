@@ -247,10 +247,13 @@ export function usePortfolioScreenModel() {
   }, [selectedRange]);
   // Same reason as the range ref: `loadDashboard` must not be re-created when the
   // collection changes, or the auto-refresh effect re-fires on every switch.
+  // Assigned during RENDER, not in an effect: the loaders below also use it to
+  // decide whether a response that just landed still belongs to the collection
+  // on screen, and a promise can settle before React flushes passive effects. An
+  // effect-assigned ref would still read the collection the user just left at
+  // that moment, and the guard would wave the stale response through.
   const activeCollectionIDRef = useRef(activeCollectionID);
-  useEffect(() => {
-    activeCollectionIDRef.current = activeCollectionID;
-  }, [activeCollectionID]);
+  activeCollectionIDRef.current = activeCollectionID;
   // Which collection the dashboard currently ON SCREEN belongs to. Distinct from
   // `activeCollectionIDRef` (what the next load will ask for) — the gap between
   // the two is exactly the "switched, refetch in flight" window.
@@ -302,10 +305,23 @@ export function usePortfolioScreenModel() {
   }, [activeCollectionID]);
 
   const loadInventory = useCallback(async () => {
+    const requestedCollectionID = activeCollectionIDRef.current;
     setIsLoadingInventory(true);
     const loadResult = await spotlightRepository.loadInventoryEntries({
-      collectionID: activeCollectionIDRef.current,
+      collectionID: requestedCollectionID,
     });
+
+    // A response belongs to the collection it was REQUESTED for. Switching
+    // collections re-fires the load effect but cannot cancel the read already in
+    // flight, so the read for the collection you just left routinely lands after
+    // the switch — and this writes straight into `dashboard`, which is now the
+    // new collection's. That put the previous collection's cards (and, with no
+    // hydrated series yet, its value) back on screen under the new collection's
+    // name. Drop it: the load for the collection actually on screen is already in
+    // flight and owns the loading state, so we deliberately leave that alone.
+    if (requestedCollectionID !== activeCollectionIDRef.current) {
+      return;
+    }
 
     if (loadResult.data && loadResult.state !== 'error') {
       const inventoryItems = loadResult.data;
@@ -336,7 +352,15 @@ export function usePortfolioScreenModel() {
     let cancelled = false;
     void (async () => {
       const persisted = await readPersistedDashboard(sessionOwnerKey, activeCollectionID);
-      if (cancelled || hasUsableDashboardRef.current || !persisted) {
+      // Scoped for the same reason as the loaders: this snapshot is only valid
+      // for the collection it was read for, and the user can switch while the
+      // disk read is in flight.
+      if (
+        cancelled
+        || activeCollectionIDRef.current !== activeCollectionID
+        || hasUsableDashboardRef.current
+        || !persisted
+      ) {
         return;
       }
       setDashboard(persisted.dashboard);
@@ -355,6 +379,7 @@ export function usePortfolioScreenModel() {
   }, []);
 
   const loadDashboard = useCallback(async () => {
+    const requestedCollectionID = activeCollectionIDRef.current;
     setIsLoadingDashboard(true);
     // Compute only the open range; the rest are fetched on demand. Read it from a
     // ref so this callback isn't re-created on every range switch (which would
@@ -362,8 +387,19 @@ export function usePortfolioScreenModel() {
     const openRange = selectedRangeRef.current;
     const loadResult = await spotlightRepository.loadPortfolioDashboard({
       range: openRange,
-      collectionID: activeCollectionIDRef.current,
+      collectionID: requestedCollectionID,
     });
+
+    // Same scope guard as `loadInventory`, and this is the one the user actually
+    // saw: this read takes 5-10s, so switching collections mid-flight is normal,
+    // and the answer for the collection you LEFT would then be applied verbatim
+    // as the new collection's summary/chart — cached and persisted under the new
+    // collection's id, and (when the new collection was empty) locked in for
+    // good, because the suspicious-empty guard below then rejected the new
+    // collection's own legitimate empty result in favour of it.
+    if (requestedCollectionID !== activeCollectionIDRef.current) {
+      return;
+    }
 
     // The backend returns state 'empty' only when it sees NO inventory AND NO
     // sales. For someone who already has a portfolio that's never legitimate — a
@@ -379,7 +415,11 @@ export function usePortfolioScreenModel() {
     // collection's name. So the guard applies only when this load is for the same
     // collection the displayed dashboard came from.
     const current = dashboardRef.current;
-    const loadedCollectionID = activeCollectionIDRef.current;
+    // The collection this result is FOR, not whatever is active by the time it
+    // landed — re-reading the ref here relabelled a late response as the current
+    // collection's, which is what let it be cached and persisted under the wrong
+    // collection.
+    const loadedCollectionID = requestedCollectionID;
     const isSameCollectionAsDisplayed = displayedCollectionIDRef.current === loadedCollectionID;
     const currentlyHasValue = current.inventoryCount > 0 || current.summary.currentValue > 0;
     const isSuspiciousEmpty =
