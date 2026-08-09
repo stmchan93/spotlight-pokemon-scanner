@@ -163,6 +163,11 @@ export function FollowListScreen({
         ListEmptyComponent={listEmpty}
         ListHeaderComponent={
           <ScreenHeader
+            // Back button on its own row above the title, matching Search Cards
+            // — they are the same kind of screen and were laid out two
+            // different ways.
+            accessoryTestID={`${testID}-back-row`}
+            layout="stacked"
             leftAccessory={
               onBack ? (
                 <ChromeBackButton onPress={onBack} testID={`${testID}-back`} />

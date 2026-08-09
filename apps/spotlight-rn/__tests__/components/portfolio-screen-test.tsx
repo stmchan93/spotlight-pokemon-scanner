@@ -1489,26 +1489,36 @@ describe('PortfolioScreen', () => {
     alertSpy.mockRestore();
   });
 
-  it('follows the active tab with the top bar +: catalog search, then the composer', async () => {
+  /*
+    The + COMPOSES, on every tab.
+
+    It used to push the card search from Collection and For Sale and only
+    compose from Activity. But the search pill sits beside it in the same bar
+    and already opens the card search, so two of the four controls did the same
+    thing while composing — the one thing you cannot otherwise start here — had
+    no entry point on two tabs out of three.
+  */
+  it('opens the composer from the top bar + whichever tab is active', async () => {
     renderPortfolioScreen();
     await screen.findByTestId('portfolio-header-title');
 
-    // The + is a permanent slot in the bar now (Figma 3505:14539), not a
-    // per-tab bubble that appears and disappears — only its destination moves.
-    const add = screen.getByTestId('portfolio-header-add');
+    // The + is a permanent slot in the bar (Figma 3505:14539), not a per-tab
+    // bubble that appears and disappears.
     await act(async () => {
-      fireEvent.press(add);
+      fireEvent.press(screen.getByTestId('portfolio-header-add'));
     });
-    expect(push).toHaveBeenLastCalledWith('/catalog/search');
+    expect(push).toHaveBeenLastCalledWith('/new-post');
 
     await act(async () => {
       fireEvent.press(screen.getByTestId('portfolio-profile-tabs-tab-activity'));
     });
 
+    push.mockClear();
     await act(async () => {
       fireEvent.press(screen.getByTestId('portfolio-header-add'));
     });
     expect(push).toHaveBeenLastCalledWith('/new-post');
+    expect(push).not.toHaveBeenCalledWith('/catalog/search');
   });
 
   it('opens the full-screen card search from the top bar pill', async () => {

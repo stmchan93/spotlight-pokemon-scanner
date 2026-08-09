@@ -18,6 +18,7 @@ import {
 } from '@spotlight/api-client';
 import {
   PillButton,
+  ScreenHeader,
   SearchField,
   StateCard,
   Text,
@@ -533,17 +534,25 @@ export function CatalogSearchScreen({
       style={[styles.searchScreen, { backgroundColor: colors.gray0 }]}
     >
       <View style={styles.fixedHeader}>
-        <View style={styles.searchHeader} testID="catalog-header">
-          <View style={styles.searchHeaderBackRow} testID="catalog-header-back-row">
+        {/*
+          This layout used to be hand-rolled here, and the follow lists drew the
+          same kind of header a different way (`ScreenHeader`, back button
+          inline beside the title). Both come from the primitive now, so they
+          cannot drift apart again.
+        */}
+        <ScreenHeader
+          accessoryTestID="catalog-header-back-row"
+          layout="stacked"
+          leftAccessory={
             <ChromeBackButton
               onPress={onClose}
               style={styles.closeButton}
               testID="catalog-close"
             />
-          </View>
-
-          <Text style={theme.typography.display}>Search Cards</Text>
-        </View>
+          }
+          testID="catalog-header"
+          title="Search Cards"
+        />
 
         <SearchField
           autoCapitalize="none"
@@ -697,13 +706,6 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   searchField: {
-  },
-  searchHeader: {
-    alignItems: 'flex-start',
-    gap: 18,
-  },
-  searchHeaderBackRow: {
-    alignSelf: 'flex-start',
   },
   searchScreen: {
     flex: 1,

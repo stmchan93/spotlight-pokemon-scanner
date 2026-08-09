@@ -197,6 +197,12 @@ Current API concepts:
 - optional subtitle
 - optional eyebrow
 - optional left and right accessories
+- `layout`: `inline` (default) puts the accessories and title on one row;
+  `stacked` gives the accessories a row of their own above a full-width title
+  (Search Cards, the follower/following lists). Prefer `stacked` wherever the
+  title can be long — inline splits the row three ways, so a long title wraps
+  early against the accessories.
+- optional `testID`, and `accessoryTestID` for the stacked accessory row
 
 ### SectionHeader
 

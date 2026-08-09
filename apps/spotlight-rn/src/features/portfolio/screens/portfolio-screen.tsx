@@ -900,13 +900,19 @@ export function PortfolioScreen({
 
   // The top bar's `+`, which follows the tab you are on: composing a post on
   // Activity, adding a card anywhere else.
+  /*
+    `+` COMPOSES A POST, on every tab of this screen.
+
+    It used to push the card search from Collection and For Sale, and only
+    compose from Activity — but the search pill sitting right beside it in the
+    same bar already goes to the card search, so two of the four controls did
+    the same thing and the one thing you cannot otherwise start from here had no
+    entry point on two tabs out of three. Adding a card is still the scanner, or
+    the search pill.
+  */
   const handleTopAddPress = useCallback(() => {
-    if (activeProfileTab === 'activity') {
-      router.push('/new-post' as never);
-      return;
-    }
-    router.push('/catalog/search' as never);
-  }, [activeProfileTab, router]);
+    router.push('/new-post' as never);
+  }, [router]);
 
   const handleEditProfilePress = useCallback(() => {
     router.push('/edit-profile' as never);
@@ -1055,7 +1061,7 @@ export function PortfolioScreen({
   */
   const homeHeader = (
     <HomeHeader
-      addAccessibilityLabel={activeProfileTab === 'activity' ? 'New post' : 'Add a card'}
+      addAccessibilityLabel="New post"
       onOpenAdd={handleTopAddPress}
       onOpenMenu={openDrawer}
       onOpenNotifications={() => router.push('/notifications' as never)}

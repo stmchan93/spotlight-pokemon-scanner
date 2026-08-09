@@ -1,4 +1,5 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 
 import type { UserProfile } from '@/features/auth/auth-models';
@@ -59,6 +60,25 @@ describe('FollowListScreen', () => {
     expect(screen.getByText('@ash')).toBeTruthy();
     expect(screen.getByText('Misty')).toBeTruthy();
     expect(screen.getByText('@misty')).toBeTruthy();
+  });
+
+  /*
+    SAME HEADER SHAPE AS SEARCH CARDS: back button alone on a row that hugs it,
+    title on its own line below. This screen used to draw `ScreenHeader`'s inline
+    layout — back button and title side by side — so two screens of the same kind
+    looked different. The assertion mirrors the one in
+    `catalog-search-screen-test`, which is what makes "uniform" checkable rather
+    than a coincidence of two hand-tuned headers.
+  */
+  it('stacks the back button above the title', async () => {
+    (fetchFollowers as jest.Mock).mockResolvedValue([]);
+
+    renderWithProviders(<FollowListScreen mode="followers" onBack={jest.fn()} userID="owner" />);
+
+    await screen.findByText('Followers');
+    expect(
+      StyleSheet.flatten(screen.getByTestId('follow-list-back-row').props.style),
+    ).toMatchObject({ alignSelf: 'flex-start' });
   });
 
   it('reads the following graph in following mode', async () => {
