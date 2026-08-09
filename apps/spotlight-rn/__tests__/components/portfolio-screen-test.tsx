@@ -1078,6 +1078,26 @@ describe('PortfolioScreen', () => {
       return renderPortfolioScreen({ repository });
     }
 
+    /*
+      THE PAGE ENDS 16pt UNDER "Scan to add".
+
+      Two reservations sized for a list of cards are dead white without one, and
+      between them they left a screenful of scrollable blank below the prompt:
+      the pager's `screenHeight + collapseDistance` floor, and the bottom-nav
+      clearance. Both are dropped for an empty list. Asserted as numbers because
+      this spacing has been wrong in three different ways.
+    */
+    it('ends the page just below the prompt instead of reserving list-sized space', async () => {
+      renderEmptyCollection();
+      await screen.findByTestId('collection-empty-prompt');
+
+      const style = StyleSheet.flatten(
+        screen.getByTestId('portfolio-scroll-view').props.contentContainerStyle,
+      );
+      expect(style.minHeight).toBe(0);
+      expect(style.paddingBottom).toBe(16);
+    });
+
     it('shows the Figma onboarding prompt (mark + copy + Scan to add) when there are no cards at all', async () => {
       renderEmptyCollection();
 

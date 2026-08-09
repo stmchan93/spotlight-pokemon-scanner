@@ -1239,17 +1239,13 @@ export function PortfolioScreen({
       style={[
         { paddingHorizontal: theme.layout.pageGutter },
         /*
-          The empty prompt ENDS 16pt under its button and the page ends with it.
-
-          It used to `flexGrow` into the leftover space and centre itself, back
-          when every page was floored at `screenHeight + collapseDistance` and
-          the alternative was a thousand points of dead white below the prompt.
-          That floor is now dropped outright for an empty list (`minHeight: 0`
-          below), so the growth had nothing left to justify it and was itself
-          the dead space — a screenful of blank you could scroll down into,
-          under a prompt stranded in the middle of it.
+          Nothing here stretches. The prompt used to `flexGrow` into the leftover
+          space and centre itself, back when every page was floored at
+          `screenHeight + collapseDistance` and the alternative was a thousand
+          points of dead white below it. An empty list drops that floor outright
+          now (`styles.emptyListContent`), so the growth had nothing left to
+          justify it and was itself the dead space.
         */
-        model.hasInventoryEntries ? null : styles.emptyPromptEnd,
       ]}
     >
       {model.hasInventoryEntries ? (
@@ -1412,14 +1408,14 @@ export function PortfolioScreen({
           contentContainerStyle={[
             page.contentContainerStyle,
             { paddingBottom: bottomNavClearance },
-            // The pager floors every page at a full screen PLUS the header's
-            // collapse distance, so switching to a short tab can't spring the
-            // collapsed header back open. On an EMPTY collection that floor is
-            // all you see: a screenful of blank under "Let's build your
-            // collection". Drop it for that one case — there is nothing to
-            // scroll, so there is no collapse to preserve, and the prompt sits
-            // directly under the chips where it belongs.
-            listData.length === 0 ? { minHeight: 0 } : null,
+            // AN EMPTY PAGE ENDS WHERE ITS CONTENT ENDS. Two reservations that
+            // earn their place under a list of cards are pure dead white
+            // without one, and they were the "ton of whitespace" below "Scan to
+            // add": the pager's `screenHeight + collapseDistance` floor (there
+            // is no collapse to preserve when there is nothing to scroll), and
+            // the bottom-nav clearance (nothing to clear — the prompt stops
+            // well short of the floating nav).
+            listData.length === 0 ? styles.emptyListContent : null,
           ]}
           data={listData}
           keyExtractor={(item) => item.key}
@@ -1701,8 +1697,11 @@ const styles = StyleSheet.create({
   // child of the list's content container alongside the header, so it must be
   // allowed to GROW into the slack without also being told it may shrink to
   // nothing when the header is tall.
-  emptyPromptEnd: {
-    // Closes the page 16pt under "Scan to add" rather than running on.
+  emptyListContent: {
+    minHeight: 0,
+    // Closes the page 16pt under "Scan to add" rather than running on for a
+    // screenful. Overrides `bottomNavClearance` above — it comes later in the
+    // style array on purpose.
     paddingBottom: 16,
   },
   emptyStateCard: {
