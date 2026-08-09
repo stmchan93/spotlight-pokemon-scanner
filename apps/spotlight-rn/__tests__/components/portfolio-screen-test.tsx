@@ -642,7 +642,12 @@ describe('PortfolioScreen', () => {
     // Edit Profile is NOT in the bar: Figma 3505:14521 spends its four slots on
     // menu / search / bell / +, so edit moved down onto the profile block.
     expect(screen.queryByTestId('portfolio-header-edit')).toBeNull();
-    expect(screen.getByTestId('portfolio-header-title-edit')).toBeTruthy();
+    // ICON ONLY, beside the name it edits. It was a labelled "Edit" chip pushed
+    // out to the far right of the name row, which read as a button bolted onto
+    // the profile; the label is gone and only the pencil remains.
+    const editControl = screen.getByTestId('portfolio-header-title-edit');
+    expect(editControl.props.accessibilityLabel).toBe('Edit profile');
+    expect(within(editControl).queryByText('Edit')).not.toBeOnTheScreen();
 
     await act(async () => {
       fireEvent.press(bell);

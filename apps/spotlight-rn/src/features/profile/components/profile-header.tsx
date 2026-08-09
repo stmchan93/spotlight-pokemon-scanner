@@ -11,7 +11,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Avatar, PillButton, SkeletonBlock, Text, useSpotlightTheme } from '@spotlight/design-system';
+import { Avatar, IconButton, SkeletonBlock, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 type ProfileHeaderProps = {
   displayName: string;
@@ -193,21 +193,39 @@ export function ProfileHeader({
         <View style={styles.identityRow}>
           <View style={styles.identity}>
             <View style={styles.nameRow}>
-              <Text
-                style={[theme.typography.titleMedium, { lineHeight: 22 }]}
-                testID={`${testID}-name`}
-              >
-                {displayName}
-              </Text>
-              {isVerified ? (
-                <View style={styles.verifiedRow} testID={`${testID}-verified`}>
-                  <CheckCircle color={theme.colors.purple500} height={14} width={14} />
-                  <Text
-                    style={[theme.typography.captionMedium, { color: theme.colors.purple500 }]}
-                  >
-                    Verified
-                  </Text>
-                </View>
+              <View style={styles.nameAndBadge}>
+                <Text
+                  style={[theme.typography.titleMedium, { lineHeight: 22 }]}
+                  testID={`${testID}-name`}
+                >
+                  {displayName}
+                </Text>
+                {isVerified ? (
+                  <View style={styles.verifiedRow} testID={`${testID}-verified`}>
+                    <CheckCircle color={theme.colors.purple500} height={14} width={14} />
+                    <Text
+                      style={[theme.typography.captionMedium, { color: theme.colors.purple500 }]}
+                    >
+                      Verified
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+
+              {onEditPress ? (
+                <IconButton
+                  accessibilityLabel="Edit profile"
+                  onPress={onEditPress}
+                  // `ghost` and sized to hug the glyph, so the 16pt gap above is
+                  // the gap you SEE. A padded button would put its own inset on
+                  // top of that and read as ~26. The tap target is still 36pt —
+                  // `IconButton` carries `hitSlop={8}`.
+                  size={20}
+                  testID={`${testID}-edit`}
+                  variant="ghost"
+                >
+                  <EditPencil color={theme.colors.gray900} height={18} width={18} />
+                </IconButton>
               ) : null}
             </View>
 
@@ -221,18 +239,6 @@ export function ProfileHeader({
             ) : null}
           </View>
 
-          {onEditPress ? (
-            <PillButton
-              label="Edit"
-              leading={<EditPencil color={theme.colors.gray900} height={14} width={14} />}
-              onPress={onEditPress}
-              testID={`${testID}-edit`}
-              // Same gray-50 / radius-8 chip as the Followers / Following / Fame
-              // pills directly below, so the block reads as one set of controls
-              // rather than a button bolted onto a profile.
-              tone="soft"
-            />
-          ) : null}
         </View>
 
         {socialLink ? (
@@ -441,17 +447,26 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 2,
   },
-  // Name / handle on the left, the owner-only Edit chip on the right. The
-  // identity column takes the slack so a long display name wraps instead of
-  // pushing the chip off the gutter.
   identityRow: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: 8,
   },
+  // Name (+ verified badge) and the owner-only edit pencil, 16pt apart. The
+  // pencil used to be a labelled "Edit" chip pushed out to the far right of the
+  // row, which read as a button bolted onto the profile rather than an
+  // affordance on the name it edits.
   nameRow: {
     alignItems: 'center',
     flexDirection: 'row',
+    gap: 16,
+  },
+  // Shrinks so a long display name wraps INSIDE this block rather than pushing
+  // the pencil off the gutter.
+  nameAndBadge: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexShrink: 1,
     gap: 6,
   },
   socialRow: {
