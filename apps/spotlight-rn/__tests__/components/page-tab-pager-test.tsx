@@ -189,6 +189,7 @@ function renderPager({
   chartScrubbing = false,
   collectionEditing = false,
   disabled = false,
+  contentInsetTop,
   onChange = jest.fn(),
   pinnedTopInset,
   shouldStandDown,
@@ -198,6 +199,7 @@ function renderPager({
   chartScrubbing?: boolean;
   collectionEditing?: boolean;
   disabled?: boolean;
+  contentInsetTop?: number;
   onChange?: (next: Tab) => void;
   pinnedTopInset?: number;
   shouldStandDown?: () => boolean;
@@ -232,6 +234,7 @@ function renderPager({
       }}
     >
       <CollapsibleTabPager
+        contentInsetTop={contentInsetTop}
         disabled={disabled}
         header={<View testID="pager-header" />}
         onChange={onChange}
@@ -281,6 +284,47 @@ describe('CollapsibleTabPager', () => {
           paddingTop: expect.any(Number),
         }),
       );
+    });
+  });
+
+  /*
+    WHAT EACH PAGE RESERVES FOR THE CHROME.
+
+    The chrome is measured from y=0, so it spans the status bar. A page running
+    `contentInsetAdjustmentBehavior="automatic"` is ALREADY inset by that same
+    strip by UIKit, and reserving it again opened a second status bar of white
+    between the tab bar and the first row of the page.
+  */
+  describe('contentInsetTop', () => {
+    function chromePaddingAfterLayout(contentInsetTop?: number) {
+      renderPager({ contentInsetTop });
+
+      const headerWrapper = screen.getByTestId('pager-header').parent;
+      const tabBarWrapper = screen.getByTestId('pager-tab-bar').parent;
+      act(() => {
+        fireEvent(headerWrapper as never, 'layout', {
+          nativeEvent: { layout: { height: 300, width: 393, x: 0, y: 0 } },
+        });
+        fireEvent(tabBarWrapper as never, 'layout', {
+          nativeEvent: { layout: { height: 50, width: 393, x: 0, y: 0 } },
+        });
+      });
+
+      return screen.getByTestId('page-collection').props.contentContainerStyle.paddingTop;
+    }
+
+    it('reserves the whole chrome when the page is not inset from outside', () => {
+      expect(chromePaddingAfterLayout()).toBe(350);
+    });
+
+    it('reserves only what the outside inset does not already cover', () => {
+      expect(chromePaddingAfterLayout(59)).toBe(291);
+    });
+
+    it('never reserves a negative amount before the chrome has been measured', () => {
+      renderPager({ contentInsetTop: 59 });
+
+      expect(screen.getByTestId('page-collection').props.contentContainerStyle.paddingTop).toBe(0);
     });
   });
 

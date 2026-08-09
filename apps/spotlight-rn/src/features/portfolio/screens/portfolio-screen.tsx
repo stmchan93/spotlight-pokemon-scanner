@@ -7,6 +7,7 @@ import {
   Pressable,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
+  Platform,
   RefreshControl,
   type ScrollView,
   Share,
@@ -1487,6 +1488,11 @@ export function PortfolioScreen({
         the `subviews[0]` walk still reaches the Collection list.
       */}
       <CollapsibleTabPager
+        // Every page runs `contentInsetAdjustmentBehavior="automatic"`, so UIKit
+        // already insets it by the top safe area; without this the chrome
+        // padding reserved the same status bar again and opened a second one of
+        // white between the tab bar and the Portfolio balance.
+        contentInsetTop={Platform.OS === 'ios' ? insets.top : 0}
         disabled={editMode}
         header={pagerHeader}
         onChange={setActiveProfileTab}

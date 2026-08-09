@@ -197,6 +197,18 @@ type CollapsibleTabPagerProps<V extends string> = {
    */
   pinnedTopInset?: number;
   /**
+   * Points the PAGES are already inset by from outside, which the chrome's
+   * padding must not reserve a second time. Defaults to 0.
+   *
+   * A page running `contentInsetAdjustmentBehavior="automatic"` is inset by the
+   * top safe area by UIKit itself, while the chrome this padding reserves for is
+   * measured from y=0 — so it spans that same status-bar strip and the two get
+   * added together. On Portfolio that opened a whole status bar of white between
+   * the tab bar and the first row of the page. iOS only: the prop is a no-op in
+   * the Android ScrollView, so there is nothing there to double-count.
+   */
+  contentInsetTop?: number;
+  /**
    * Extra stand-down check, evaluated at the moment of decision rather than at
    * render, for state the pager cannot see (e.g. "the collection search field
    * currently has focus", which is only knowable from the input's own
@@ -309,6 +321,7 @@ type CollapsibleTabPagerProps<V extends string> = {
  *   - the horizontal filter chip row: wrap it in `PageSwipeGuard` (see above).
  */
 export function CollapsibleTabPager<V extends string>({
+  contentInsetTop = 0,
   disabled = false,
   edgeGuardWidth = DRAWER_EDGE_WIDTH,
   header,
@@ -642,6 +655,12 @@ export function CollapsibleTabPager<V extends string>({
   }, [order, scrollY]);
 
   const chromeHeight = headerHeight + tabBarHeight;
+  /**
+   * What each page actually has to reserve: the chrome, less whatever the page
+   * is already inset by from outside (see `contentInsetTop`). Clamped, so an
+   * inset larger than a not-yet-measured chrome cannot go negative.
+   */
+  const chromePadding = Math.max(chromeHeight - contentInsetTop, 0);
   const headerTranslate = useMemo(() => {
     // `interpolate` needs a non-degenerate range; before the first layout there
     // is nothing to collapse anyway.
@@ -661,15 +680,18 @@ export function CollapsibleTabPager<V extends string>({
           // Every page must be able to absorb the full collapse, or switching to
           // a short one (an empty Activity) would spring the header back open.
           minHeight: (containerHeight || height) + collapseDistance,
-          paddingTop: chromeHeight,
+          paddingTop: chromePadding,
         },
         onScroll: scrollHandlers[page],
-        progressViewOffset: chromeHeight,
+        // The spinner is positioned against the INSET content origin, so it
+        // takes the same reduced padding — otherwise it drops a status bar too
+        // low, below the tab bar it is meant to clear.
+        progressViewOffset: chromePadding,
         scrollEventThrottle: 16,
       };
     });
     return props;
-  }, [chromeHeight, collapseDistance, containerHeight, height, order, scrollHandlers]);
+  }, [chromePadding, collapseDistance, containerHeight, height, order, scrollHandlers]);
 
   return (
     <PageSwipeGuardContext.Provider value={guardApi}>
