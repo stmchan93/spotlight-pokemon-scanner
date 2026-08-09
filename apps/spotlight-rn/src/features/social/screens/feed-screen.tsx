@@ -9,7 +9,7 @@ import {
 } from '@spotlight/design-system';
 
 import { AnimatedFlatList } from '@/components/page-tab-pager';
-import { HOME_HEADER_BAR_HEIGHT, HomeHeader } from '@/components/home-header';
+import { HOME_HEADER_BAR_HEIGHT, HomeHeader, HomeHeaderRule } from '@/components/home-header';
 import { PostCard } from '@/features/social/components/post-card';
 import { consumeFeedRefreshSignal } from '@/features/social/screens/new-post-screen';
 import {
@@ -288,6 +288,11 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         keyExtractor={(item: FeedPost) => item.id}
         ListEmptyComponent={listEmpty}
         ListFooterComponent={listFooter}
+        // The hairline from Figma 3505:14283. It is a ROW of the feed, not part
+        // of the floating bar: the `paddingTop` above already reserves the 16pt
+        // gap under the control row, so it lands where the frame puts it and
+        // then scrolls away with the posts while the bubbles stay pinned.
+        ListHeaderComponent={<HomeHeaderRule testID={`${testID}-header-rule`} />}
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.5}
         onScroll={handleScroll}

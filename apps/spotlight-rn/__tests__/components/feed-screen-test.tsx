@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import { Alert, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 
@@ -143,6 +143,18 @@ describe('FeedScreen', () => {
 
     fireEvent.press(screen.getByTestId('feed-header-notifications'));
     expect(push).toHaveBeenLastCalledWith('/notifications');
+  });
+
+  // Figma 3505:14283. The hairline belongs to the FEED, not to the floating bar
+  // — pinned, it would be a grey line hovering over posts with nothing above it
+  // to rule off, so it has to sit outside the bar and travel with the content.
+  it('draws the rule as a row of the list rather than inside the pinned bar', async () => {
+    renderWithProviders(<FeedScreen />);
+    await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
+
+    expect(screen.getByTestId('feed-header-rule')).toBeTruthy();
+    expect(within(screen.getByTestId('feed-header')).queryByTestId('feed-header-rule')).toBeNull();
+    expect(within(screen.getByTestId('feed-list')).getByTestId('feed-header-rule')).toBeTruthy();
   });
 
   it('opens the app drawer from the header menu', async () => {

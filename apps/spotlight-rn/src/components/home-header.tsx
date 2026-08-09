@@ -87,13 +87,12 @@ export const HOME_HEADER_BAR_HEIGHT = BAR_PADDING_TOP + 36 + RULE_GAP;
  * existence prevents: the buttons read as flat chrome instead of glass, and the
  * bar occupied layout instead of floating.
  *
- * IT IS PART OF THE PAGE, NOT CHROME OVER IT. The bar sits in normal flow at the
- * top of the scrolling content and scrolls away with it — Home puts it in the
- * list's `ListHeaderComponent`, Collection puts it at the top of the pager's
- * collapsing header. It briefly floated absolutely with the search pill fading
- * out on scroll; that read as chrome stuck to the glass rather than as the top
- * of the page, so the whole fade apparatus (and the `Animated` plumbing each
- * screen needed to drive it) is gone.
+ * THE BUBBLES PIN, THE PILL LEAVES. Home and Collection both mount it
+ * `floating`: the bar is absolute chrome, the bubbles hold their place at the
+ * top of the screen for the whole scroll, and only the search pill fades out
+ * from between them. It briefly went the other way — the whole bar in normal
+ * flow, scrolling away as one piece — and that took the nav buttons off screen
+ * with it, which is the regression this note exists to stop being re-introduced.
  *
  * The buttons stay `GlassNavBubble`s rather than solid `IconButton`s. They are
  * the app's nav shape, and glass over an opaque page background simply reads as
@@ -215,6 +214,11 @@ export function HomeHeader({
         Full-bleed, so it reads as the page's own rule rather than a boxed
         divider — it runs edge to edge while the controls above it keep the page
         gutter.
+
+        Only in the IN-FLOW bar. A floating bar draws no rule of its own, because
+        a hairline pinned over scrolling content is a line hanging in mid-air;
+        those screens render `HomeHeaderRule` as the first row of their content
+        instead, which puts it in the same place at rest and lets it scroll away.
       */}
       {floating ? null : (
         <View
@@ -226,6 +230,27 @@ export function HomeHeader({
         />
       )}
     </View>
+  );
+}
+
+/**
+ * The hairline under the bar (Figma 3505:14283), for screens whose bar FLOATS.
+ *
+ * It belongs to the page, not to the chrome. The bar reserves `RULE_GAP` at the
+ * bottom of `HOME_HEADER_BAR_HEIGHT`, so dropping this in as the first row of
+ * the scrolling content lands it exactly where the frame puts it — 16pt under
+ * the control row, 16pt above the first post — and then lets it travel up with
+ * the content while the bubbles above stay put. Pinning it instead would leave a
+ * grey line floating over posts with nothing above it to rule off.
+ */
+export function HomeHeaderRule({ testID }: { testID?: string }) {
+  const theme = useSpotlightTheme();
+
+  return (
+    <View
+      style={[styles.rule, { backgroundColor: theme.colors.gray200 }]}
+      testID={testID}
+    />
   );
 }
 
