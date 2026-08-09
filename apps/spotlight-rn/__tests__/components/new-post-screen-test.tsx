@@ -121,6 +121,11 @@ describe('NewPostScreen', () => {
     await waitFor(() => expect(ImagePicker.requestCameraPermissionsAsync).toHaveBeenCalled());
     await screen.findByTestId('new-post-image-preview');
 
+    // The preview is the photo and a remove button — nothing else. It used to
+    // carry a moderation note under it, which spent a line of the composer
+    // explaining a review step the author cannot act on.
+    expect(screen.queryByText(/reviewed before others can see it/i)).toBeNull();
+
     fireEvent.press(screen.getByTestId('new-post-submit'));
 
     await waitFor(() => expect(createPost).toHaveBeenCalledWith({ body: 'Live from the show', cardId: null }));

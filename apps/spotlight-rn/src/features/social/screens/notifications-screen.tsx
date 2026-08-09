@@ -3,9 +3,13 @@ import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-nat
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Image as ExpoImage } from 'expo-image';
+
 import { Avatar, StateCard, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
+import { resolveRepositoryBaseUrl } from '@/providers/app-providers';
+import { useAuth } from '@/providers/auth-provider';
 import {
   fetchNotifications,
   markAllNotificationsRead,
@@ -27,6 +31,10 @@ import {
 export function NotificationsScreen({ testID = 'notifications' }: { testID?: string }) {
   const theme = useSpotlightTheme();
   const router = useRouter();
+  const { accessToken, currentUser } = useAuth();
+  const apiBaseUrl = resolveRepositoryBaseUrl();
+  // Your handle is what a reply @mentions — see the body renderer.
+  const myHandle = currentUser?.handle ?? null;
 
   const [items, setItems] = useState<AppNotification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -73,17 +81,30 @@ export function NotificationsScreen({ testID = 'notifications' }: { testID?: str
 
   const renderItem = useCallback(
     ({ item }: { item: AppNotification }) => {
-      const name = item.actor?.displayName ?? item.actor?.handle ?? 'Someone';
+      const name = personLabel(item.actor) ?? 'Someone';
+      /*
+        Say WHERE it happened, not just what. A reply arrives on someone else's
+        post as often as on your own, and "replied to you" left you opening the
+        thread to find out whose conversation you were in.
+
+        `postAuthor` is null for your own post (the service only resolves a name
+        when the owner isn't you), which is what makes the two phrasings fall out
+        of one expression instead of a flag.
+      */
+      const postWhere = personLabel(item.postAuthor)
+        ? `${personLabel(item.postAuthor)}'s post`
+        : 'your post';
+
       const action =
         item.type === 'follow'
           ? 'started following you'
           : item.type === 'like'
             ? item.commentId
               ? 'liked your comment'
-              : 'liked your post'
-            : item.commentId
-              ? 'replied to you'
-              : 'commented on your post';
+              : `liked ${postWhere}`
+            : item.isReply
+              ? `replied to your comment on ${postWhere}:`
+              : `commented on ${postWhere}:`;
 
       const onPress = openTarget(item);
       const baseStyle = [
@@ -127,14 +148,55 @@ export function NotificationsScreen({ testID = 'notifications' }: { testID?: str
             <Text style={[theme.typography.bodyMedium, { color: theme.colors.gray900 }]}>
               {name} <Text style={{ color: theme.colors.gray700 }}>{action}</Text>
             </Text>
+            {item.commentBody ? (
+              <Text
+                // Two lines: enough to answer "do I need to reply to this?" from
+                // the list, short enough that one long comment can't push every
+                // other notification off the screen.
+                numberOfLines={2}
+                style={[theme.typography.body, { color: theme.colors.gray900 }]}
+                testID={`${testID}-row-${item.id}-body`}
+              >
+                {/*
+                  A reply is addressed to YOU, and the thread renders that as a
+                  blue @mention of the parent's author. Reproduce it here from
+                  your own handle rather than reading it out of the body — bodies
+                  do not contain the mention, the thread composes it.
+                */}
+                {item.isReply && myHandle ? (
+                  <Text style={{ color: theme.colors.blue400 }}>{`@${myHandle} `}</Text>
+                ) : null}
+                {item.commentBody}
+              </Text>
+            ) : null}
             <Text style={[theme.typography.label, { color: theme.colors.gray600 }]}>
               {formatRelativeTime(item.createdAt)}
             </Text>
           </View>
+
+          {/*
+            The post it happened on, so a row is identifiable at a glance when
+            several land on different posts. Same authenticated proxy the feed
+            uses — post images are private until moderation approves them, so
+            there is no public URL to point at.
+          */}
+          {item.postMediaId && apiBaseUrl && accessToken ? (
+            <ExpoImage
+              accessibilityIgnoresInvertColors
+              cachePolicy="memory-disk"
+              contentFit="cover"
+              source={{
+                uri: `${apiBaseUrl.replace(/\/+$/, '')}/api/v1/post-media/${item.postMediaId}`,
+                headers: { Authorization: `Bearer ${accessToken}` },
+              }}
+              style={[styles.thumbnail, { backgroundColor: theme.colors.gray100 }]}
+              testID={`${testID}-row-${item.id}-thumbnail`}
+            />
+          ) : null}
         </Row>
       );
     },
-    [openTarget, testID, theme],
+    [accessToken, apiBaseUrl, myHandle, openTarget, testID, theme],
   );
 
   return (
@@ -169,6 +231,23 @@ export function NotificationsScreen({ testID = 'notifications' }: { testID?: str
       />
     </SafeAreaView>
   );
+}
+
+/**
+ * How a person is named in a notification sentence: their HANDLE when they have
+ * one, their display name otherwise, and null when they have neither.
+ *
+ * Handle first, not display name first. A handle is the identity people
+ * recognise and it is unique; display names are free text, so two collectors can
+ * share one and "Steve replied to your comment on Steve's post" is unreadable.
+ *
+ * No leading `@` — that belongs to a MENTION, which is a different thing and is
+ * why the comment body below still renders one. Here the name is the subject of
+ * a sentence, and Instagram's own rows read "sarahkim_ replied…", not "@sarahkim_
+ * replied…".
+ */
+function personLabel(person: AppNotification['actor']): string | null {
+  return person?.handle?.trim() || person?.displayName?.trim() || null;
 }
 
 /** Compact relative time — "now", "3m", "5h", "2d", then a date. */
@@ -214,12 +293,20 @@ const styles = StyleSheet.create({
     width: 36,
   },
   row: {
-    alignItems: 'center',
+    // `flex-start`, not `center`: a row can now be three lines tall (action,
+    // comment body, timestamp), and centring floated the avatar and thumbnail
+    // into the middle of that block instead of aligning them to the first line.
+    alignItems: 'flex-start',
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
     gap: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
+  },
+  thumbnail: {
+    borderRadius: 6,
+    height: 44,
+    width: 44,
   },
   safeArea: {
     flex: 1,

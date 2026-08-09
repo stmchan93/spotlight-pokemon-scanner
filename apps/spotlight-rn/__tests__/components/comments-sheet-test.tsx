@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import type { ComponentProps, PropsWithChildren } from 'react';
-import { Alert, StyleSheet } from 'react-native';
+import { Alert, Keyboard, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { SpotlightThemeProvider, colors } from '@spotlight/design-system';
@@ -166,6 +166,72 @@ describe('CommentsSheet', () => {
     expect(screen.queryByText('Collector')).toBeNull();
     expect(addComment as jest.Mock).toHaveBeenCalledWith('post-1', 'My first comment', null);
     await waitFor(() => expect(onCommentAdded).toHaveBeenCalled());
+  });
+
+  it('posts once when send is pressed twice before the write lands', async () => {
+    // The composer used to blur on submit, which collapsed the sheet over a
+    // comment that had actually posted — so pressing send again was the natural
+    // response, and `sending` being state meant both presses got through.
+    let resolveAdd: ((id: string | null) => void) | null = null;
+    (addComment as jest.Mock).mockImplementation(
+      () => new Promise((resolve) => {
+        resolveAdd = resolve;
+      }),
+    );
+    renderSheet();
+    await screen.findByTestId('comments-sheet-empty');
+
+    fireEvent.changeText(screen.getByTestId('comments-sheet-input'), 'Only once');
+    fireEvent.press(screen.getByTestId('comments-sheet-send'));
+    fireEvent.press(screen.getByTestId('comments-sheet-send'));
+
+    expect(addComment as jest.Mock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveAdd?.('c-new');
+    });
+    expect(await screen.findByText('Only once')).toBeTruthy();
+    expect(screen.queryAllByText('Only once')).toHaveLength(1);
+  });
+
+  it('sends first and puts the keyboard away second, and does neither when the write fails', async () => {
+    const dismiss = jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => undefined);
+
+    // Failed write: the keyboard stays up and the text stays in the composer,
+    // because "try again" needs both. The old order blurred on the way IN, so a
+    // failure collapsed the sheet over a draft that had gone nowhere — which is
+    // exactly what "it just closes the keyboard but keeps my text" looked like.
+    (addComment as jest.Mock).mockResolvedValue(null);
+    renderSheet();
+    await screen.findByTestId('comments-sheet-empty');
+
+    fireEvent.changeText(screen.getByTestId('comments-sheet-input'), 'Does not land');
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('comments-sheet-send'));
+    });
+    expect(dismiss).not.toHaveBeenCalled();
+    expect(screen.getByTestId('comments-sheet-input').props.value).toBe('Does not land');
+
+    // Successful write: the comment is in the thread AND the keyboard goes away.
+    (addComment as jest.Mock).mockResolvedValue('c-new');
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('comments-sheet-send'));
+    });
+    expect(await screen.findByText('Does not land')).toBeTruthy();
+    expect(dismiss).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('comments-sheet-input').props.value).toBe('');
+  });
+
+  it('keeps the keyboard up when the return key posts, so the sheet cannot collapse over the comment', async () => {
+    renderSheet();
+    await screen.findByTestId('comments-sheet-empty');
+
+    // The return key is labelled "Send", so it is the obvious way to post.
+    // `blurAndSubmit` (the single-line default) is what dropped the keyboard and
+    // shrank the sheet from 0.9 to 0.6 of the screen.
+    const input = screen.getByTestId('comments-sheet-input');
+    expect(input.props.submitBehavior).toBe('submit');
+    expect(input.props.returnKeyType).toBe('send');
   });
 
   it('reports the loaded thread size so a stale post comment_count can be corrected', async () => {

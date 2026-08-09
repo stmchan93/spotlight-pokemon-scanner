@@ -924,6 +924,21 @@ export type AppNotification = {
   commentId: string | null;
   createdAt: string;
   readAt: string | null;
+  /**
+   * What was actually said. A notification that only reports that someone
+   * commented makes you open the thread to find out whether it needs an answer;
+   * carrying the words means the list is readable on its own.
+   */
+  commentBody: string | null;
+  /** The comment is a REPLY (it has a parent) rather than a top-level comment. */
+  isReply: boolean;
+  /**
+   * Who owns the post this points at, for "on <handle>'s post". Null when the
+   * post is the recipient's own — the copy then says "your post" instead.
+   */
+  postAuthor: FeedPostAuthor | null;
+  /** First image on that post, for the row's thumbnail. Null on text posts. */
+  postMediaId: string | null;
 };
 
 type NotificationRow = {
@@ -993,31 +1008,100 @@ export async function fetchNotifications(limit = 50): Promise<AppNotification[]>
       return [];
     }
 
-    const actorIds = Array.from(
-      new Set(rows.map((row) => row.actor_id).filter((id): id is string => Boolean(id))),
+    /*
+      Hydrate the context the row needs, BATCHED — three `in(...)` reads for the
+      whole page, never per row:
+
+        comments -> the words that were said, and whether it was a reply
+        posts    -> who owns the post, and its first image for the thumbnail
+        profiles -> display identity for actors AND post owners, in ONE query
+
+      Every one of these is allowed to come back empty. A notification is a real
+      event regardless of whether its context resolves, so a failed hydration
+      degrades the row to the plain "X commented on your post" it was before
+      rather than dropping it.
+    */
+    const commentIds = Array.from(
+      new Set(rows.map((row) => row.comment_id).filter((id): id is string => Boolean(id))),
     );
+    const commentsById = new Map<string, { postId: string | null; parentId: string | null; body: string | null }>();
+    if (commentIds.length > 0) {
+      const { data: comments } = await supabase
+        .from(COMMENTS_TABLE)
+        .select('id, post_id, parent_comment_id, body, deleted_at')
+        .in('id', commentIds);
+      for (const row of (comments ?? []) as (CommentRow & { deleted_at: string | null })[]) {
+        commentsById.set(row.id, {
+          postId: row.post_id ?? null,
+          parentId: row.parent_comment_id ?? null,
+          // A deleted comment keeps its notification but must not keep showing
+          // its words — the tombstone rule from the thread applies here too.
+          body: row.deleted_at ? null : row.body,
+        });
+      }
+    }
+
+    // A comment notification carries `comment_id`; the post it belongs to comes
+    // from the comment, so both sources feed the post lookup.
+    const postIds = Array.from(
+      new Set(
+        rows
+          .map((row) => row.post_id ?? commentsById.get(row.comment_id ?? '')?.postId ?? null)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
+    const postsById = new Map<string, { authorId: string; mediaId: string | null }>();
+    if (postIds.length > 0) {
+      const { data: posts } = await supabase
+        .from(POSTS_TABLE)
+        .select(`id, author_id, ${POST_MEDIA_TABLE}(id, position)`)
+        .in('id', postIds);
+      for (const row of (posts ?? []) as PostRow[]) {
+        const media = [...(row.post_media ?? [])].sort(
+          (left, right) => (left.position ?? 0) - (right.position ?? 0),
+        );
+        postsById.set(row.id, { authorId: row.author_id, mediaId: media[0]?.id ?? null });
+      }
+    }
+
+    const actorIds = rows.map((row) => row.actor_id).filter((id): id is string => Boolean(id));
+    const postAuthorIds = Array.from(postsById.values()).map((post) => post.authorId);
+    const profileIds = Array.from(new Set([...actorIds, ...postAuthorIds]));
     const actorsById = new Map<string, FeedPostAuthor>();
-    if (actorIds.length > 0) {
+    if (profileIds.length > 0) {
       const { data: profiles } = await supabase
         .from(PUBLIC_PROFILES_VIEW)
         .select(postAuthorSelect)
-        .in('user_id', actorIds);
+        .in('user_id', profileIds);
       for (const profile of (profiles ?? []) as PostAuthorRow[]) {
         actorsById.set(profile.user_id, mapAuthor(profile));
       }
     }
 
-    return rows.map((row) => ({
-      id: row.id,
-      type: row.type as NotificationType,
-      // An actor whose account was deleted leaves a null FK — the notification
-      // is still real, so render it rather than dropping it.
-      actor: row.actor_id ? actorsById.get(row.actor_id) ?? null : null,
-      postId: row.post_id,
-      commentId: row.comment_id,
-      createdAt: row.created_at,
-      readAt: row.read_at,
-    }));
+    return rows.map((row) => {
+      const comment = row.comment_id ? commentsById.get(row.comment_id) ?? null : null;
+      const postId = row.post_id ?? comment?.postId ?? null;
+      const post = postId ? postsById.get(postId) ?? null : null;
+      // Your own post says "your post", so there is no name to resolve.
+      const postAuthor =
+        post && post.authorId !== me ? actorsById.get(post.authorId) ?? null : null;
+
+      return {
+        id: row.id,
+        type: row.type as NotificationType,
+        // An actor whose account was deleted leaves a null FK — the notification
+        // is still real, so render it rather than dropping it.
+        actor: row.actor_id ? actorsById.get(row.actor_id) ?? null : null,
+        postId,
+        commentId: row.comment_id,
+        createdAt: row.created_at,
+        readAt: row.read_at,
+        commentBody: comment?.body ?? null,
+        isReply: Boolean(comment?.parentId),
+        postAuthor,
+        postMediaId: post?.mediaId ?? null,
+      };
+    });
   } catch {
     return [];
   }

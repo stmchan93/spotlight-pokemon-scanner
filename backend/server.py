@@ -5101,12 +5101,18 @@ class SpotlightScanService:
         percent = round((amount / float(yesterday_price)) * 100.0, 4)
         return amount, percent
 
-    def _portfolio_history_entry_rows(self, owner_user_id: str) -> list[sqlite3.Row]:
+    def _portfolio_history_entry_rows(
+        self, owner_user_id: str, collection_id: str | None = None
+    ) -> list[sqlite3.Row]:
         """Owner's deck entries for portfolio-history math. Single SQL source so
         the standalone path and the consolidated shared-inputs loader stay in
-        lockstep."""
-        return self.connection.execute(
-            """
+        lockstep.
+
+        ``collection_id`` scopes the rows to one collection. Without it the whole
+        dashboard reported the ACCOUNT's value under whichever collection was
+        selected — the card list was scoped and the balance was not, so a
+        brand-new empty collection opened showing the previous one's money."""
+        sql = """
             SELECT
                 id,
                 item_kind,
@@ -5122,16 +5128,34 @@ class SpotlightScanService:
                 added_at
             FROM deck_entries
             WHERE owner_user_id = ?
-            ORDER BY added_at ASC, id ASC
-            """,
-            (owner_user_id,),
-        ).fetchall()
+        """
+        params: list[Any] = [owner_user_id]
+        if collection_id:
+            sql += " AND collection_id = ?"
+            params.append(collection_id)
+        sql += " ORDER BY added_at ASC, id ASC"
+        return self.connection.execute(sql, tuple(params)).fetchall()
 
-    def _portfolio_history_event_rows(self, owner_user_id: str) -> list[sqlite3.Row]:
+    def _portfolio_history_event_rows(
+        self, owner_user_id: str, collection_id: str | None = None
+    ) -> list[sqlite3.Row]:
         """Owner's deck-entry events (with sale cost basis) for portfolio-history
-        math. Single SQL source shared by the standalone and consolidated paths."""
-        return self.connection.execute(
-            """
+        math. Single SQL source shared by the standalone and consolidated paths.
+
+        ``collection_id`` restricts the stream to events belonging to entries in
+        that collection. `deck_entry_events` carries no collection of its own, so
+        the scope is inherited through `deck_entry_id` — which is why this is a
+        subquery and not a column filter.
+
+        KNOWN LIMIT of v1 collection scoping: an entry that has since been
+        DELETED (e.g. sold out completely) has no `deck_entries` row left to
+        inherit a collection from, so its events drop out of a scoped read. Its
+        history is therefore missing from the per-collection chart while
+        remaining correct in the account-wide one, which is the unscoped path and
+        is byte-for-byte unchanged. Fixing that properly means stamping
+        `collection_id` onto `deck_entry_events` at write time and backfilling.
+        """
+        sql = """
             SELECT
                 deck_entry_events.id,
                 deck_entry_events.deck_entry_id,
@@ -5156,10 +5180,18 @@ class SpotlightScanService:
             LEFT JOIN sale_events
                 ON sale_events.id = deck_entry_events.sale_id
             WHERE deck_entry_events.owner_user_id = ?
-            ORDER BY deck_entry_events.created_at ASC, deck_entry_events.id ASC
-            """,
-            (owner_user_id,),
-        ).fetchall()
+        """
+        params: list[Any] = [owner_user_id]
+        if collection_id:
+            sql += """
+              AND deck_entry_events.deck_entry_id IN (
+                SELECT id FROM deck_entries
+                WHERE owner_user_id = ? AND collection_id = ?
+              )
+            """
+            params.extend([owner_user_id, collection_id])
+        sql += " ORDER BY deck_entry_events.created_at ASC, deck_entry_events.id ASC"
+        return self.connection.execute(sql, tuple(params)).fetchall()
 
     def _range_scoped_cells_by_card_date(
         self,
@@ -5254,7 +5286,11 @@ class SpotlightScanService:
         return window_start
 
     def _load_portfolio_history_shared_inputs(
-        self, *, time_zone_name: str | None = None, range_labels: list[str] | None = None
+        self,
+        *,
+        time_zone_name: str | None = None,
+        range_labels: list[str] | None = None,
+        collection_id: str | None = None,
     ) -> dict[str, Any]:
         """Fetch the range-independent inputs deck_history needs (entries, events,
         and the daily price-history rows) ONCE so the dashboard can compute the
@@ -5272,8 +5308,8 @@ class SpotlightScanService:
         window_start = self._portfolio_history_window_start(
             range_labels, time_zone_name=time_zone_name
         )
-        entry_rows = self._portfolio_history_entry_rows(owner_user_id)
-        event_rows = self._portfolio_history_event_rows(owner_user_id)
+        entry_rows = self._portfolio_history_entry_rows(owner_user_id, collection_id)
+        event_rows = self._portfolio_history_event_rows(owner_user_id, collection_id)
         # Pricing mode mirrors _portfolio_history_price_row_from_history_row: slab
         # entries resolve against graded_contexts_json, everything else against
         # raw_contexts_json. Only load the blob side(s) the portfolio can use so a
@@ -5307,6 +5343,7 @@ class SpotlightScanService:
         range_label: str | None = None,
         time_zone_name: str | None = None,
         shared_inputs: dict[str, Any] | None = None,
+        collection_id: str | None = None,
     ) -> dict[str, Any]:
         owner_user_id = self._current_owner_user_id()
         normalized_range = self._normalize_portfolio_range_label(range_label)
@@ -5331,7 +5368,7 @@ class SpotlightScanService:
         entry_rows = (
             shared_inputs["entry_rows"]
             if shared_inputs is not None
-            else self._portfolio_history_entry_rows(owner_user_id)
+            else self._portfolio_history_entry_rows(owner_user_id, collection_id)
         )
         if not entry_rows:
             return {
@@ -5378,7 +5415,7 @@ class SpotlightScanService:
         event_rows = (
             shared_inputs["event_rows"]
             if shared_inputs is not None
-            else self._portfolio_history_event_rows(owner_user_id)
+            else self._portfolio_history_event_rows(owner_user_id, collection_id)
         )
 
         seen_event_entries: set[str] = set()
@@ -15777,10 +15814,21 @@ class SpotlightScanService:
                 sections[label] = f"error: {error}"
                 return None
 
-        # Only the holdings sections are collection-scoped in v1. History, ledger
-        # and insights stay account-wide: they are built from sale/event streams
-        # that carry no collection, so scoping them would silently report a
-        # partial history as if it were the whole story.
+        # Holdings AND history are collection-scoped; ledger and insights stay
+        # account-wide.
+        #
+        # History used to be account-wide too, on the reasoning that the sale and
+        # event streams carry no collection. They do not carry one directly, but
+        # every event hangs off a `deck_entry_id`, and deck entries DO carry a
+        # collection — so the scope is inheritable, and leaving it off was not
+        # conservative, it was wrong: the client reads the Collection balance
+        # from `history1w.summary.currentValue`, so every collection displayed
+        # the whole ACCOUNT's money under its own name. Opening a collection you
+        # had just made showed the previous one's balance over an empty card
+        # list.
+        #
+        # Ledger and insights genuinely have no per-entry anchor to inherit from
+        # and stay account-wide deliberately.
         inventory = _section(
             "inventory",
             lambda: self.deck_entries(limit=200, offset=0, collection_id=collection_id),
@@ -15814,7 +15862,9 @@ class SpotlightScanService:
         # (shared_inputs=None), so correctness is preserved either way.
         try:
             history_shared_inputs = self._load_portfolio_history_shared_inputs(
-                time_zone_name=resolved_tz, range_labels=computed_labels
+                time_zone_name=resolved_tz,
+                range_labels=computed_labels,
+                collection_id=collection_id,
             )
         except Exception:  # noqa: BLE001 - fall back to per-call fetching
             traceback.print_exc()
@@ -15830,6 +15880,7 @@ class SpotlightScanService:
                     range_label=label,
                     time_zone_name=resolved_tz,
                     shared_inputs=history_shared_inputs,
+                    collection_id=collection_id,
                 ),
             )
             ledger = _section(

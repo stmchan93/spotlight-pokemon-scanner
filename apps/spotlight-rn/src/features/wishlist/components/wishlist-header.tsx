@@ -21,8 +21,17 @@ type WishlistHeaderProps = {
 // the root Collection screen).
 //
 // The two circular actions use the shared `GlassNavBubble` so this bar reads as
-// the same chrome as Collection's floating corner bubbles (it replaced a
-// gray/50 `IconButton` chip from Figma 1263:3328).
+// the same chrome as the Home / You top bars (it replaced a gray/50 `IconButton`
+// chip from Figma 1263:3328).
+//
+// SIZE — `compact` (36pt), matching those bars rather than the old 44pt default.
+// 44 was the odd one out twice over: every other bar in the app is a 36pt row
+// (Figma 3505:14521), and this header already sat a 44pt bubble directly beside
+// a 36pt `EditDoneButton`, so the two right-hand controls changed height as you
+// entered edit mode. 36 makes the bar internally consistent and consistent with
+// everywhere else. The 8pt `hitSlop` inside the primitive keeps the touch target
+// over the 44pt minimum.
+const BUTTON_ICON_SIZE = 20;
 export function WishlistHeader({
   onBack,
   editMode = false,
@@ -37,10 +46,13 @@ export function WishlistHeader({
       <GlassNavBubble
         accessibilityLabel="Back"
         onPress={onBack}
+        size="compact"
         surface="onLight"
         testID="wishlist-header-back"
       >
-        <NavArrowLeft color={theme.colors.gray900} height={24} width={24} />
+        {/* 20, not 24 — a 24pt glyph in a 36pt circle leaves a 6pt ring and
+            reads as a chevron in a box. 20 is what the Home bar's glyphs use. */}
+        <NavArrowLeft color={theme.colors.gray900} height={BUTTON_ICON_SIZE} width={BUTTON_ICON_SIZE} />
       </GlassNavBubble>
       <AppText
         color="textPrimary"
@@ -57,10 +69,11 @@ export function WishlistHeader({
         <GlassNavBubble
           accessibilityLabel="Edit wishlist"
           onPress={onToggleEditMode}
+          size="compact"
           surface="onLight"
           testID="wishlist-header-edit"
         >
-          <EditPencil color={theme.colors.gray900} height={20} width={20} />
+          <EditPencil color={theme.colors.gray900} height={BUTTON_ICON_SIZE} width={BUTTON_ICON_SIZE} />
         </GlassNavBubble>
       ) : null}
     </View>

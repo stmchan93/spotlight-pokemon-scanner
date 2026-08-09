@@ -1,6 +1,7 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -157,6 +158,60 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
   const [body, setBody] = useState('');
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  /*
+    Lift the footer (Public / Photo / Camera + POST) clear of the keyboard.
+
+    This is measured rather than assumed, and that is the point. The composer is
+    a `formSheet` whose top edge sits ~65pt down the screen, so a
+    `KeyboardAvoidingView` with `behavior="padding"` over-pads by exactly that
+    offset and throws the POST button off the top of the sheet — which is why iOS
+    was opted out of the KAV entirely and left the controls under the keyboard.
+    Both of those are the same mistake from opposite ends: guessing how much of
+    the footer the keyboard actually covers.
+
+    So: ask. On every keyboard frame, measure where the footer's bottom edge
+    really is and pad by the SHORTFALL only. Whatever UIKit already does to the
+    sheet is baked into that measurement, so there is nothing to double-count —
+    if the sheet is already clear, the overlap is 0 and this adds nothing.
+
+    `did`-phase events on purpose (not `will`): the sheet may itself move during
+    the keyboard animation, and measuring mid-flight would read a position that
+    no longer holds when it settles.
+  */
+  const footerRef = useRef<View | null>(null);
+  const keyboardTopRef = useRef<number | null>(null);
+  const [keyboardOverlap, setKeyboardOverlap] = useState(0);
+
+  const syncKeyboardOverlap = useCallback(() => {
+    const keyboardTop = keyboardTopRef.current;
+    const node = footerRef.current;
+    if (keyboardTop == null || !node) {
+      return;
+    }
+    node.measureInWindow((_x, y, _width, height) => {
+      const covered = Math.max(0, y + height - keyboardTop);
+      // The measurement already reflects the padding in force, so the shortfall
+      // ADDS to it. One pass converges: applying it moves the footer up by
+      // exactly `covered`, which is what was still covered.
+      setKeyboardOverlap((current) => current + covered);
+    });
+  }, []);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
+      keyboardTopRef.current = event.endCoordinates?.screenY ?? null;
+      syncKeyboardOverlap();
+    });
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      keyboardTopRef.current = null;
+      setKeyboardOverlap(0);
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [syncKeyboardOverlap]);
 
   const trimmedBody = body.trim();
   const canPost = !isSubmitting && trimmedBody.length > 0;
@@ -390,18 +445,22 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
               >
                 <Xmark color={theme.colors.gray0} height={16} width={16} />
               </Pressable>
-              <Text style={[theme.typography.caption, styles.moderationNote, { color: theme.colors.textSecondary }]}>
-                Your photo is reviewed before others can see it — it shows on your post right away.
-              </Text>
             </View>
           ) : null}
         </ScrollView>
 
         <View
+          onLayout={syncKeyboardOverlap}
+          ref={footerRef}
           style={[
             styles.footer,
-            { backgroundColor: theme.colors.canvasElevated, borderTopColor: theme.colors.gray100 },
+            {
+              backgroundColor: theme.colors.canvasElevated,
+              borderTopColor: theme.colors.gray100,
+              marginBottom: keyboardOverlap,
+            },
           ]}
+          testID={`${testID}-footer`}
         >
           {/* Character counter sits bottom-right, directly above the control chips. */}
           <View style={styles.counterRow}>
@@ -528,9 +587,6 @@ const styles = StyleSheet.create({
     right: 8,
     top: 8,
     width: 28,
-  },
-  moderationNote: {
-    marginTop: 2,
   },
   postButton: {
     width: '100%',

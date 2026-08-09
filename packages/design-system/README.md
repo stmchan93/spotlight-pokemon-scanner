@@ -619,9 +619,14 @@ Props:
 
 - `accessibilityLabel` (required), `children` (the glyph), `onPress`
 - `size`: `'small'` (32pt — dense chrome over a live surface, e.g. the scanner),
-  `'compact'` (36pt — sharing a top bar with a 36pt `SearchEntryPill`, e.g. the
-  Home header; the 8pt `hitSlop` carries it back over the 44pt touch minimum), or
-  `'medium'` (44pt, default — the standard standalone nav bubble)
+  `'compact'` (36pt — a bubble sharing a top bar with other controls: Home, You
+  and Wishlist all use this, and the 8pt `hitSlop` carries it back over the 44pt
+  touch minimum), or `'medium'` (44pt, still the default — a bubble floating on
+  its own with nothing to line up against)
+  - **Pass `size="compact"` for anything in a bar.** `medium` currently has no
+    callers: every bar in the app is a 36pt row (Figma 3505:14521), so taking the
+    default gets you a bubble 8pt taller than everything beside it — which is
+    exactly what the Wishlist header did next to its own 36pt `EditDoneButton`.
 - `surface`: describes what is UNDERNEATH, not the glass material —
   `'onLight'` (default) or `'onDark'`
 - `disabled`, `style` (positioning is caller-owned), `testID`

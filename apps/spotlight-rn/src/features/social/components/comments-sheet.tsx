@@ -73,6 +73,12 @@ const SHEET_HEIGHT_RESTING = SCREEN_HEIGHT * 0.6;
 const SHEET_HEIGHT_EXPANDED = SCREEN_HEIGHT * 0.9;
 /** Gap between the composer's bottom edge and the top of the keyboard. */
 const KEYBOARD_GAP = 8;
+/**
+ * How long the sheet takes to grow/shrink between its resting and keyboard-up
+ * heights. Shared by the animation and by the post-send scroll, which must not
+ * run until the sheet has stopped moving under it.
+ */
+const SHEET_RESIZE_MS = 250;
 
 /** Gap under the composer when the keyboard is down. */
 const COMPOSER_BOTTOM_GAP = 16;
@@ -313,11 +319,36 @@ export function CommentsSheet({
   // events.
   const hiddenOffsetRef = useRef(SHEET_HEIGHT_RESTING);
   const inputRef = useRef<TextInput | null>(null);
+  const listRef = useRef<ScrollView | null>(null);
+  /**
+   * Pin the thread to its newest row on the next layout that can honour it.
+   *
+   * A flag rather than an unconditional `onContentSizeChange` handler (which is
+   * what the DM thread does) because this list is not a chat log: it also grows
+   * whenever a "N replies" toggle expands, and yanking the reader to the bottom
+   * there would be the app fighting them. It is deliberately NOT armed while
+   * typing either — scrolling away mid-draft is allowed to stick.
+   */
+  const pendingScrollToEndRef = useRef(false);
+  /**
+   * Same job, but for the moment AFTER a post, when the keyboard is on its way
+   * down. Separate from the flag above because it cannot be serviced by a
+   * content-size change: putting the keyboard away shrinks the sheet from 0.9 to
+   * 0.6 of the screen, so a scroll issued while it is still tall lands in the
+   * wrong place by the time it settles. This one waits for the resize.
+   */
+  const scrollAfterCollapseRef = useRef(false);
+
+  const scrollToLatest = useCallback((animated: boolean) => {
+    listRef.current?.scrollToEnd({ animated });
+  }, []);
 
   const [comments, setComments] = useState<PostComment[]>([]);
   const [status, setStatus] = useState<LoadStatus>('loading');
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  /** Synchronous mirror of `sending` — see `handleSend` for why state isn't enough. */
+  const sendingRef = useRef(false);
   const [replyTo, setReplyTo] = useState<PostComment | null>(null);
   // Which top-level comments have their replies revealed (tap "N replies" to toggle).
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -381,13 +412,27 @@ export function CommentsSheet({
     hiddenOffsetRef.current = keyboardHeight > 0 ? SHEET_HEIGHT_EXPANDED : SHEET_HEIGHT_RESTING;
     const animation = Animated.timing(sheetHeight, {
       toValue: keyboardHeight > 0 ? SHEET_HEIGHT_EXPANDED : SHEET_HEIGHT_RESTING,
-      duration: 250,
+      duration: SHEET_RESIZE_MS,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: false,
     });
     animation.start();
     return () => animation.stop();
   }, [keyboardHeight, sheetHeight]);
+
+  // The second half of "send, then collapse": once the keyboard is gone and the
+  // sheet has finished settling back to its resting height, put the thread on
+  // the comment that was just posted. Waiting for the resize is the whole point
+  // — scrolling to the end of a 0.9-height sheet leaves you short once it is
+  // 0.6.
+  useEffect(() => {
+    if (keyboardHeight > 0 || !scrollAfterCollapseRef.current) {
+      return;
+    }
+    scrollAfterCollapseRef.current = false;
+    const timer = setTimeout(() => scrollToLatest(true), SHEET_RESIZE_MS);
+    return () => clearTimeout(timer);
+  }, [keyboardHeight, scrollToLatest]);
 
   // Slide the sheet in on open, out on close, with the scrim fading in alongside
   // it. Two things used to make this read as a hard pop rather than a transition:
@@ -488,6 +533,22 @@ export function CommentsSheet({
     setExpandedIds(new Set());
     setLikedCommentIds(new Set());
     setLikeCountOverrides({});
+    scrollAfterCollapseRef.current = false;
+    /*
+      Land on the NEWEST comment when the sheet opens to write one.
+
+      Entering via the card's chat icon raises the keyboard immediately, which
+      leaves the thread as a short strip between the header and the composer —
+      and a thread taller than that strip opens showing its middle, clipped at
+      both ends, with the comment you are about to reply under sitting off the
+      bottom. Arriving at the end instead puts the most recent comments directly
+      above the composer, which is what you are answering.
+
+      Only when the composer is auto-focused: opening the sheet to READ (tapping
+      the comment count) should start at the top of the thread, like every other
+      comment list.
+    */
+    pendingScrollToEndRef.current = autoFocusComposer;
     void (async () => {
       try {
         const loaded = await fetchComments(postId);
@@ -693,10 +754,16 @@ export function CommentsSheet({
 
   const handleSend = useCallback(() => {
     const text = draft.trim();
-    if (sending || text.length === 0 || !postId) {
+    // `sending` is STATE, so two taps inside one frame both read it as false and
+    // post the comment twice. That was reachable in practice: the composer used
+    // to blur on submit, which collapsed the sheet and hid the posted comment,
+    // so the natural response was to press send again. The ref closes the window
+    // synchronously; `sending` stays for the disabled/greyed button.
+    if (sendingRef.current || sending || text.length === 0 || !postId) {
       return;
     }
     const parent = replyTo;
+    sendingRef.current = true;
     setSending(true);
 
     void (async () => {
@@ -730,7 +797,20 @@ export function CommentsSheet({
         setDraft('');
         setReplyTo(null);
         onCommentAdded?.(optimistic);
+        // SEND, THEN put the keyboard away — in that order, and only once the
+        // write has actually come back with an id. The old behaviour was the
+        // reverse and it was why posting read as broken: the return key blurred
+        // on the way in, so the keyboard dropped whether or not anything had
+        // been sent, and a failed write left the sheet collapsed over a composer
+        // that still held your text. A failure now keeps the keyboard up with
+        // the draft intact, which is what "try again" needs.
+        Keyboard.dismiss();
+        // Your comment goes on the END of the thread, which on a scrolled or
+        // long thread is off-screen. The scroll waits for the sheet to finish
+        // shrinking back down — see the flag's own note.
+        scrollAfterCollapseRef.current = true;
       }
+      sendingRef.current = false;
       setSending(false);
     })();
   }, [currentUser, draft, onCommentAdded, postId, replyTo, sending]);
@@ -955,6 +1035,17 @@ export function CommentsSheet({
           <ScrollView
             contentContainerStyle={styles.listContent}
             keyboardShouldPersistTaps="handled"
+            // Only ever acts on a scroll this component armed (a just-posted
+            // comment). Every other growth — first load, expanding replies —
+            // leaves the reader where they are.
+            onContentSizeChange={() => {
+              if (!pendingScrollToEndRef.current) {
+                return;
+              }
+              pendingScrollToEndRef.current = false;
+              scrollToLatest(true);
+            }}
+            ref={listRef}
             style={styles.list}
             testID={`${testID}-list`}
           >
@@ -1037,10 +1128,27 @@ export function CommentsSheet({
             <View style={styles.composerField}>
               <TextField
                 onChangeText={setDraft}
+                // Starting to type should put you at the end of the thread, so
+                // you can see what you are replying to and watch your own
+                // comment arrive under it. rAF so the scroll runs after the
+                // keyboard-up relayout has shortened the list, not before it.
+                onFocus={() => requestAnimationFrame(() => scrollToLatest(true))}
                 onSubmitEditing={handleSend}
                 placeholder={replyTo ? 'Add a reply…' : 'Add a comment…'}
                 ref={inputRef}
                 returnKeyType="send"
+                /*
+                  Keep the keyboard up after the return key posts.
+
+                  A single-line TextInput defaults to `blurAndSubmit`, and the
+                  return key here is LABELLED "Send" — so the obvious way to post
+                  also blurred, which dropped `keyboardHeight` to 0 and shrank the
+                  sheet from 0.9 to 0.6 of the screen. The comment really had
+                  posted, but the thread collapsed and never scrolled to it, so it
+                  read as "the button just closed the comments" and invited a
+                  second press (see the send guard in `handleSend`).
+                */
+                submitBehavior="submit"
                 testID={`${testID}-input`}
                 value={draft}
               />

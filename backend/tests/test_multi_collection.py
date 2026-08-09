@@ -117,6 +117,57 @@ class MultiCollectionTests(unittest.TestCase):
             ["tst-1", "tst-2"],
         )
 
+    def test_dashboard_history_is_scoped_to_the_collection(self) -> None:
+        """The BALANCE has to move with the card list.
+
+        The client reads the Collection balance from
+        `ranges['1W'].history.summary.currentValue`, and history used to be
+        computed account-wide while only the entry list was scoped. So every
+        collection showed the whole account's money under its own name, and a
+        collection you had just created — holding nothing — opened showing the
+        previous one's balance.
+        """
+        self._insert_card(card_id="tst-1", name="Pikachu", number="1/1")
+        self._add_card(user_id="user-a", card_id="tst-1")
+
+        with self.service.request_identity_context(self._identity("user-a")):
+            main_id = self.service.list_collections()["defaultCollectionID"]
+            empty_id = self.service.create_collection({"name": "Grails"})["collection"]["id"]
+
+            account_wide = self.service.portfolio_dashboard(range_key="1W")
+            main_scoped = self.service.portfolio_dashboard(range_key="1W", collection_id=main_id)
+            empty_scoped = self.service.portfolio_dashboard(range_key="1W", collection_id=empty_id)
+
+        def entry_ids(payload: dict) -> list[str]:
+            return [entry["card"]["id"] for entry in payload["inventory"]["entries"]]
+
+        # The collection holding the card reports it; the new one reports nothing.
+        self.assertEqual(entry_ids(main_scoped), ["tst-1"])
+        self.assertEqual(entry_ids(empty_scoped), [])
+
+        # `points` is the discriminator, and it needs no seeded prices to be
+        # meaningful: `deck_history` early-returns an empty series ONLY when it
+        # sees no entry rows at all. A card with no price still plots (at $0), so
+        # a non-empty series here means the read genuinely found holdings.
+        #
+        # That is exactly what the bug was. Before the scope reached
+        # `_portfolio_history_entry_rows`, the empty collection was handed the
+        # ACCOUNT's entries and produced a full series — the account's balance,
+        # under a collection holding nothing.
+        self.assertNotEqual(account_wide["ranges"]["1W"]["history"]["points"], [])
+        self.assertNotEqual(main_scoped["ranges"]["1W"]["history"]["points"], [])
+
+        empty_history = empty_scoped["ranges"]["1W"]["history"]
+        self.assertEqual(empty_history["points"], [])
+        self.assertEqual(empty_history["summary"]["currentValue"], 0.0)
+
+        # The account-wide read is untouched, and the collection that actually
+        # holds the card still agrees with it.
+        self.assertEqual(
+            main_scoped["ranges"]["1W"]["history"]["summary"]["currentValue"],
+            account_wide["ranges"]["1W"]["history"]["summary"]["currentValue"],
+        )
+
     def _add_card_inline(self, *, user_id: str, card_id: str, collection_id: str) -> None:
         """Add while already inside a request-identity context."""
         self.service.create_deck_entry(
