@@ -1503,14 +1503,21 @@ describe('PortfolioScreen', () => {
       });
     });
 
-    // Scrolled down, every control is still a real control — there is no
-    // invisible-but-tappable pill left behind, because nothing fades any more.
+    // Scrolled past the hide distance the pill has LEFT THE ROW, so it must not
+    // answer a press: it is clipped out of sight but its box is still in the
+    // tree, and an invisible live tap target sitting over the collection is
+    // precisely what `searchInteractive` exists to prevent.
+    //
+    // This assertion used to say the opposite — that the pill still navigated
+    // after a 240pt scroll — which passed only because the bar accepted the
+    // fade props and never applied them.
     push.mockClear();
     await act(async () => {
       fireEvent.press(screen.getByTestId('portfolio-header-search'));
     });
-    expect(push).toHaveBeenLastCalledWith('/catalog/search');
+    expect(push).not.toHaveBeenCalled();
 
+    // The bubbles are pinned and stay live for the whole scroll.
     await act(async () => {
       fireEvent.press(screen.getByTestId('portfolio-header-notifications'));
     });

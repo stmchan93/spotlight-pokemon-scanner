@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, ActivityIndicator, RefreshControl, StyleSheet, View } from 'react-native';
+import { Animated, ActivityIndicator, Platform, RefreshControl, StyleSheet, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -9,7 +9,12 @@ import {
 } from '@spotlight/design-system';
 
 import { AnimatedFlatList } from '@/components/page-tab-pager';
-import { HOME_HEADER_BAR_HEIGHT, HomeHeader, HomeHeaderRule } from '@/components/home-header';
+import {
+  HOME_HEADER_BAR_HEIGHT,
+  HomeHeader,
+  HomeHeaderRule,
+  SEARCH_PILL_HIDE_DISTANCE,
+} from '@/components/home-header';
 import { PostCard } from '@/features/social/components/post-card';
 import { consumeFeedRefreshSignal } from '@/features/social/screens/new-post-screen';
 import {
@@ -23,9 +28,6 @@ import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAuth } from '@/providers/auth-provider';
 
 const PAGE_SIZE = 20;
-
-/** How far the feed scrolls before the search pill has faded out completely. */
-const SEARCH_FADE_DISTANCE = 56;
 
 
 type FeedStatus = 'loading' | 'ready' | 'error';
@@ -66,20 +68,13 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   const loadingMoreRef = useRef(false);
   const unreadCount = useUnreadNotificationCount();
 
-  // The bar FLOATS again: the bubbles stay pinned at the top while the pill
-  // fades out from under them, so the list scrolls beneath the whole thing.
+  // The bar FLOATS: the bubbles stay pinned at the top while the pill slides up
+  // out of the row, so the list scrolls beneath the whole thing. The offset is
+  // handed to `HomeHeader` raw — the bar owns the motion, this screen only
+  // measures the scroll.
   const scrollY = useRef(new Animated.Value(0)).current;
-  const searchOpacity = useMemo(
-    () =>
-      scrollY.interpolate({
-        inputRange: [0, SEARCH_FADE_DISTANCE],
-        outputRange: [1, 0],
-        extrapolate: 'clamp',
-      }),
-    [scrollY],
-  );
-  // `pointerEvents` is not animatable, so the faded pill is disarmed from JS or
-  // it stays an invisible tap target over the first post.
+  // `pointerEvents` is not animatable, so the departed pill is disarmed from JS
+  // or it stays an invisible tap target over the first post.
   const [isSearchPillHidden, setIsSearchPillHidden] = useState(false);
   const handleScroll = useMemo(
     () =>
@@ -88,7 +83,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         // The listener rides ON the animated event; wrapping `onScroll` in an
         // arrow function would silently drop the native driver.
         listener: (event: { nativeEvent: { contentOffset: { y: number } } }) => {
-          const hidden = event.nativeEvent.contentOffset.y >= SEARCH_FADE_DISTANCE;
+          const hidden = event.nativeEvent.contentOffset.y >= SEARCH_PILL_HIDE_DISTANCE;
           setIsSearchPillHidden((previous) => (previous === hidden ? previous : hidden));
         },
       }),
@@ -274,9 +269,26 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         // the native bar's height from a token sized for the retired JS one.
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={{
-          // The bar floats and contributes nothing to layout, so reserve its
-          // height or the first post starts underneath it.
-          paddingTop: insets.top + HOME_HEADER_BAR_HEIGHT,
+          /*
+            Reserve the floating bar's height, and NOT the status bar on top of
+            it — that was a whole status bar of dead white between the bar and
+            the first post.
+
+            `contentInsetAdjustmentBehavior="automatic"` above already insets
+            this scroll view by the top safe area; adding `insets.top` here
+            counted it a second time. What is left to reserve is only the bar
+            itself, whose constant already carries the 16pt gap that lands the
+            rule under it (`HOME_HEADER_BAR_HEIGHT` = padding + 36pt row + gap).
+
+            ANDROID keeps the explicit inset: `contentInsetAdjustmentBehavior`
+            is an iOS-only prop (a no-op in the Android ScrollView), so there is
+            nothing there to double-count and dropping it would slide the first
+            post under the status bar.
+          */
+          paddingTop:
+            Platform.OS === 'ios'
+              ? HOME_HEADER_BAR_HEIGHT
+              : insets.top + HOME_HEADER_BAR_HEIGHT,
           paddingBottom: insets.bottom + 24,
           // No horizontal padding and no inter-item gap: post cards are
           // full-bleed and carry their own 16pt top inset, which is exactly the
@@ -328,8 +340,8 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         onOpenMenu={openDrawer}
         onOpenNotifications={openNotifications}
         onOpenSearch={openSearch}
+        scrollY={scrollY}
         searchInteractive={!isSearchPillHidden}
-        searchOpacity={searchOpacity}
         testID={`${testID}-header`}
         unreadCount={unreadCount}
       />

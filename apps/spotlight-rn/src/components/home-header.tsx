@@ -1,4 +1,5 @@
 import { Bell, Menu, Plus } from 'iconoir-react-native';
+import { useMemo } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -30,11 +31,20 @@ type HomeHeaderProps = {
    */
   floating?: boolean;
   /**
-   * 1 → 0 as the page scrolls, so the pill gets out of the way while the
-   * bubbles beside it stay put. Native-driven by the screen, so it tracks the
-   * finger instead of running a JS frame behind it. Omit to keep it solid.
+   * The page's scroll offset. Drives the pill sliding up out of the row while
+   * the bubbles beside it stay put; omit to keep the pill solid and static.
+   *
+   * The RAW offset, not a finished interpolation. This prop used to be a
+   * `searchOpacity` that each screen interpolated for itself — and the bar then
+   * never applied it, so both screens spent months computing a fade that was
+   * dropped on the floor here. Taking the offset keeps the motion in ONE place
+   * where it is either wired up or visibly not.
+   *
+   * Must be a native-driven `Animated.Value` (the screens feed it from
+   * `Animated.event` / the pager) so the pill tracks the finger rather than
+   * running a JS frame behind it.
    */
-  searchOpacity?: Animated.AnimatedInterpolation<number>;
+  scrollY?: Animated.Value;
   /**
    * False once the pill has faded out. Opacity alone leaves an invisible but
    * still tappable pill sitting over the content — `pointerEvents` is not
@@ -76,6 +86,20 @@ const RULE_GAP = 16;
  * Reading it from here keeps the reservation and the bar from drifting apart.
  */
 export const HOME_HEADER_BAR_HEIGHT = BAR_PADDING_TOP + 36 + RULE_GAP;
+/**
+ * How far the page scrolls before the search pill has fully left the row.
+ *
+ * Exported because the screens need the SAME number to switch the pill's tap
+ * target off: `pointerEvents` is not animatable, so the disarm is a separate JS
+ * decision from the animation, and if the two numbers drift the pill is either
+ * dead while still visible or invisible while still tappable.
+ */
+export const SEARCH_PILL_HIDE_DISTANCE = 56;
+/**
+ * How far the pill travels to clear the row: its own height plus the padding
+ * above it, so it is entirely past the clip's top edge at the end.
+ */
+const SEARCH_PILL_TRAVEL = BAR_PADDING_TOP + 36;
 
 /**
  * Home's top bar (Figma 3505:14521): menu, a tap-to-search pill carrying the
@@ -89,8 +113,10 @@ export const HOME_HEADER_BAR_HEIGHT = BAR_PADDING_TOP + 36 + RULE_GAP;
  *
  * THE BUBBLES PIN, THE PILL LEAVES. Home and Collection both mount it
  * `floating`: the bar is absolute chrome, the bubbles hold their place at the
- * top of the screen for the whole scroll, and only the search pill fades out
- * from between them. It briefly went the other way — the whole bar in normal
+ * top of the screen for the whole scroll, and only the search pill leaves — it
+ * TRAVELS, sliding up out of the row and clipping away, rather than dissolving
+ * where it stands. A pill that merely faded still read as stuck to the top of
+ * the screen. It briefly went the other way — the whole bar in normal
  * flow, scrolling away as one piece — and that took the nav buttons off screen
  * with it, which is the regression this note exists to stop being re-introduced.
  *
@@ -112,14 +138,39 @@ export function HomeHeader({
   onOpenNotifications,
   floating = false,
   onOpenSearch,
+  scrollY,
   searchInteractive = true,
-  searchOpacity,
   topInset,
   unreadCount,
   testID = 'portfolio-header',
 }: HomeHeaderProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
+
+  // The pill RIDES UP OUT of the row and is clipped away; the bubbles either
+  // side of it never move. Both interpolations run off the same offset over the
+  // same distance, so the slide and the fade finish together.
+  const searchMotion = useMemo(() => {
+    if (!scrollY) {
+      return null;
+    }
+    return {
+      opacity: scrollY.interpolate({
+        inputRange: [0, SEARCH_PILL_HIDE_DISTANCE],
+        outputRange: [1, 0],
+        extrapolate: 'clamp',
+      }),
+      transform: [
+        {
+          translateY: scrollY.interpolate({
+            inputRange: [0, SEARCH_PILL_HIDE_DISTANCE],
+            outputRange: [0, -SEARCH_PILL_TRAVEL],
+            extrapolate: 'clamp',
+          }),
+        },
+      ],
+    };
+  }, [scrollY]);
 
   return (
     <View
@@ -151,7 +202,18 @@ export function HomeHeader({
         <Menu color={theme.colors.gray900} height={BUTTON_ICON_SIZE} width={BUTTON_ICON_SIZE} />
       </GlassNavBubble>
 
-      <View style={styles.searchPill}>
+      {/*
+        The clip is on the PILL'S OWN wrapper and must stay there. Put
+        `overflow: 'hidden'` any further up and it shaves the bell's unread
+        badge, which hangs outside its bubble at `top: -2, right: -2`.
+      */}
+      <View style={styles.searchPillClip} testID={`${testID}-search-clip`}>
+      <Animated.View
+        // Not animatable, so the faded pill has to be disarmed from JS —
+        // otherwise it stays an invisible tap target over the first post.
+        pointerEvents={searchInteractive ? 'auto' : 'none'}
+        style={searchMotion}
+      >
         <SearchEntryPill
           label="Search Cards"
           leading={
@@ -175,6 +237,7 @@ export function HomeHeader({
           onPress={onOpenSearch}
           testID={`${testID}-search`}
         />
+      </Animated.View>
       </View>
 
       <GlassNavBubble
@@ -292,8 +355,12 @@ const styles = StyleSheet.create({
     right: -2,
     top: -2,
   },
-  searchPill: {
+  searchPillClip: {
     flex: 1,
+    // What actually removes the pill: it translates up and this cuts it off at
+    // the top of the row, so it reads as sliding under the status bar rather
+    // than dissolving in place.
+    overflow: 'hidden',
   },
 });
 

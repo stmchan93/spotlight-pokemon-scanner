@@ -44,7 +44,7 @@ import {
 import { SalePriceEditSheet } from '@/features/portfolio/components/sale-price-edit-sheet';
 import { CollectionPickerSheet } from '@/features/portfolio/components/collection-picker-sheet';
 import { CollectionSearchRow } from '@/features/portfolio/components/collection-search-row';
-import { HomeHeader } from '@/components/home-header';
+import { HomeHeader, SEARCH_PILL_HIDE_DISTANCE } from '@/components/home-header';
 import {
   CollectionFilterChipRow,
   type CollectionFilterKey,
@@ -88,9 +88,6 @@ import { consumeFeedRefreshSignal } from '@/features/social/screens/new-post-scr
 import { ProfileHeader } from '@/features/profile/components/profile-header';
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
 import { useAuth } from '@/providers/auth-provider';
-
-/** How far the page scrolls before the search pill has faded out completely. */
-const SEARCH_FADE_DISTANCE = 56;
 
 const GRID_TEST_ID = 'collection-masonry-grid';
 
@@ -389,21 +386,13 @@ export function PortfolioScreen({
   // honours the balance-visibility toggle — otherwise hiding the big balance
   // would leak the same number one row further down.
 
-  // The pager writes its scroll offset here; this screen only READS it. Driving
-  // the fade off the same value the header collapse runs on keeps the pill glued
-  // to the page rather than a JS frame behind the finger.
+  // The pager writes its scroll offset here; this screen only READS it, and
+  // hands it to `HomeHeader` raw so the bar can slide the pill out. Driving that
+  // off the same value the header collapse runs on keeps the pill glued to the
+  // page rather than a JS frame behind the finger.
   const pagerScrollY = useRef(new Animated.Value(0)).current;
-  const searchOpacity = useMemo(
-    () =>
-      pagerScrollY.interpolate({
-        inputRange: [0, SEARCH_FADE_DISTANCE],
-        outputRange: [1, 0],
-        extrapolate: 'clamp',
-      }),
-    [pagerScrollY],
-  );
-  // `pointerEvents` is not animatable, so the faded pill is disarmed from JS or
-  // it stays an invisible tap target over the collection.
+  // `pointerEvents` is not animatable, so the departed pill is disarmed from JS
+  // or it stays an invisible tap target over the collection.
   const [isSearchPillHidden, setIsSearchPillHidden] = useState(false);
 
   const collectionTotalLabel = isSummaryHidden
@@ -1067,8 +1056,8 @@ export function PortfolioScreen({
       onOpenNotifications={() => router.push('/notifications' as never)}
       floating
       onOpenSearch={handleTopSearchPress}
+      scrollY={pagerScrollY}
       searchInteractive={!isSearchPillHidden}
-      searchOpacity={searchOpacity}
       testID="portfolio-header"
       unreadCount={unreadNotifications}
     />
@@ -1462,11 +1451,12 @@ export function PortfolioScreen({
     if (tab === 'collection') {
       handleScroll(event);
     }
-    // The FADE is native-driven off `pagerScrollY`; this only flips the pill's
-    // tap target off once it is invisible. Runs on every page so the state
-    // cannot go stale when a swipe lands on a tab parked further down, and the
-    // equality guard means React re-renders on the crossing, not per frame.
-    const hidden = event.nativeEvent.contentOffset.y >= SEARCH_FADE_DISTANCE;
+    // The SLIDE is native-driven off `pagerScrollY` inside the bar; this only
+    // flips the pill's tap target off once it has gone. Runs on every page so
+    // the state cannot go stale when a swipe lands on a tab parked further
+    // down, and the equality guard means React re-renders on the crossing, not
+    // per frame.
+    const hidden = event.nativeEvent.contentOffset.y >= SEARCH_PILL_HIDE_DISTANCE;
     setIsSearchPillHidden((previous) => (previous === hidden ? previous : hidden));
   };
 
