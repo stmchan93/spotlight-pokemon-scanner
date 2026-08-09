@@ -1284,6 +1284,12 @@ export function PortfolioScreen({
       return (
         <AnimatedScrollView
           ref={forSaleScrollRef}
+          // Same inset behaviour as the Collection list, and NOT optional: the
+          // pager reserves chrome height less `contentInsetTop` on the
+          // assumption every page is inset by UIKit. A page left on RN's
+          // `never` default gets no such inset, so its content came up a whole
+          // status bar and hid under the tab bar.
+          contentInsetAdjustmentBehavior="automatic"
           contentContainerStyle={page.contentContainerStyle}
           onScroll={page.onScroll}
           scrollEventThrottle={page.scrollEventThrottle}
@@ -1309,6 +1315,9 @@ export function PortfolioScreen({
       return (
         <AnimatedFlatList
           ref={activityScrollRef}
+          // See the For Sale page: every page in the pager has to be inset the
+          // same way, because the chrome padding is computed once for all three.
+          contentInsetAdjustmentBehavior="automatic"
           contentContainerStyle={[
             page.contentContainerStyle,
             { paddingBottom: bottomNavClearance },
@@ -1691,7 +1700,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     paddingHorizontal: 16,
-    paddingVertical: 4,
+    // 16 above, because the page's content starts flush against the tab bar's
+    // rule — this padding is the ONLY thing between that line and the avatar,
+    // and at 4 the two were nearly touching. It matches the 16 a `PostCard`
+    // carries at its own top, so an empty Activity and a populated one begin at
+    // the same distance below the tabs.
+    paddingTop: 16,
+    paddingBottom: 4,
   },
   emptyPrompt: {
     // Same top offset as the filter-miss StateCard so both empty states sit at

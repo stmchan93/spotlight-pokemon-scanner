@@ -1065,6 +1065,27 @@ describe('PortfolioScreen', () => {
     expect(screen.getByTestId('collection-masonry-grid-tile-slab-1')).toBeTruthy();
   });
 
+  /*
+    ALL THREE PAGES MUST BE INSET THE SAME WAY.
+
+    The pager reserves `chromeHeight - contentInsetTop` once, for every page, on
+    the assumption that UIKit insets each of them by the top safe area. A page
+    left on React Native's `never` default gets no such inset, so it comes up a
+    whole status bar short and its content hides under the tab bar — which is
+    exactly what happened to For Sale and Activity when only the Collection list
+    carried the prop.
+  */
+  it('runs every page on the same content-inset behaviour', async () => {
+    renderPortfolioScreen();
+    await screen.findByTestId('portfolio-header-title');
+
+    ['portfolio-scroll-view', 'portfolio-forsale-page', 'portfolio-activity-page'].forEach(
+      (testID) => {
+        expect(screen.getByTestId(testID).props.contentInsetAdjustmentBehavior).toBe('automatic');
+      },
+    );
+  });
+
   describe('empty collection', () => {
     function renderEmptyCollection() {
       const repository = createTestSpotlightRepository({

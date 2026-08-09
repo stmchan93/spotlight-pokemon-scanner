@@ -200,6 +200,10 @@ type CollapsibleTabPagerProps<V extends string> = {
    * Points the PAGES are already inset by from outside, which the chrome's
    * padding must not reserve a second time. Defaults to 0.
    *
+   * It is computed ONCE for all pages, so it has to be true of EVERY page. Miss
+   * one — leave a sibling on React Native's `never` default — and that page
+   * alone comes up short by this much and slides under the tab bar.
+   *
    * A page running `contentInsetAdjustmentBehavior="automatic"` is inset by the
    * top safe area by UIKit itself, while the chrome this padding reserves for is
    * measured from y=0 — so it spans that same status-bar strip and the two get
