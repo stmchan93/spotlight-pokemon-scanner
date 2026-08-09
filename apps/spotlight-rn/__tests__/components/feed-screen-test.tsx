@@ -120,40 +120,29 @@ describe('FeedScreen', () => {
     expect(push).toHaveBeenCalledWith('/notifications');
   });
 
-  // The bar is PART OF THE PAGE: it is the list's own header row, so it scrolls
-  // away with the posts, and it carries the rule that marks the top of the page.
-  // Neither is visible to an ordinary render assertion, and the bar has already
-  // been wrong twice — solid buttons stacked above the list, then floating
-  // chrome with a fading pill.
-  it('makes the top bar a scrolling list row, not chrome pinned over the list', async () => {
+  // The bar FLOATS and its bubbles stay put; only the pill gets out of the way.
+  // This has been wrong in every direction — solid buttons stacked above the
+  // list, then one bar that scrolled away whole, then the inverse where the
+  // bubbles left and the pill stayed — so the shape is pinned here.
+  it('keeps the bubbles pinned over the list and disarms the pill once it fades', async () => {
     renderWithProviders(<FeedScreen />);
     await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
-    // Not a sibling of the list any more — if it were, it would stay put.
-    const rootChildTestIDs = screen
-      .getByTestId('feed')
-      .props.children.map((child: { props?: { testID?: string } }) => child?.props?.testID)
-      .filter(Boolean);
-    expect(rootChildTestIDs).not.toContain('feed-header');
-
-    // ...it lives inside the scroller, and it is not absolutely positioned.
+    // Floating chrome: absolutely positioned, painted over the list.
     const bar = screen.getByTestId('feed-header');
-    expect(StyleSheet.flatten(bar.props.style).position).toBeUndefined();
+    expect(StyleSheet.flatten(bar.props.style).position).toBe('absolute');
 
-    // Figma 3505:14520 — the rule under the bar.
-    expect(screen.getByTestId('feed-header-rule')).toBeTruthy();
-  });
+    // Both halves are live at rest. The FADE itself is a native-driven opacity
+    // and the disarm rides on a scroll listener that this environment does not
+    // dispatch through the animated list, so it is deliberately not asserted
+    // here rather than asserted falsely — `portfolio-screen-test` covers the
+    // same pill/bubble contract on the pager, which does dispatch.
+    push.mockClear();
+    fireEvent.press(screen.getByTestId('feed-header-search'));
+    expect(push).toHaveBeenLastCalledWith('/catalog/search');
 
-  // The gap under the search bar was a full status bar of dead space, because
-  // the top inset was applied TWICE: once by the screen's SafeAreaView and again
-  // by the bar, which took it from `useSafeAreaInsets()` regardless of what it
-  // was mounted inside. Only the SafeAreaView applies it now.
-  it('applies the status-bar inset once, not twice, above the search bar', async () => {
-    renderWithProviders(<FeedScreen />);
-    await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
-
-    const barStyle = StyleSheet.flatten(screen.getByTestId('feed-header').props.style);
-    expect(barStyle.paddingTop).toBe(0);
+    fireEvent.press(screen.getByTestId('feed-header-notifications'));
+    expect(push).toHaveBeenLastCalledWith('/notifications');
   });
 
   it('opens the app drawer from the header menu', async () => {

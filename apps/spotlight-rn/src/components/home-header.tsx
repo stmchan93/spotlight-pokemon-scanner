@@ -1,5 +1,5 @@
 import { Bell, Menu, Plus } from 'iconoir-react-native';
-import { StyleSheet, View } from 'react-native';
+import { Animated, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
@@ -30,6 +30,18 @@ type HomeHeaderProps = {
    */
   floating?: boolean;
   /**
+   * 1 → 0 as the page scrolls, so the pill gets out of the way while the
+   * bubbles beside it stay put. Native-driven by the screen, so it tracks the
+   * finger instead of running a JS frame behind it. Omit to keep it solid.
+   */
+  searchOpacity?: Animated.AnimatedInterpolation<number>;
+  /**
+   * False once the pill has faded out. Opacity alone leaves an invisible but
+   * still tappable pill sitting over the content — `pointerEvents` is not
+   * animatable, so it has to be switched off separately.
+   */
+  searchInteractive?: boolean;
+  /**
    * Space above the control row, for the status bar.
    *
    * Explicit because it depends on what the bar is mounted INSIDE, and getting
@@ -57,6 +69,13 @@ const BAR_PADDING_TOP = 10;
  * rule at y=120 against controls ending at y=104.
  */
 const RULE_GAP = 16;
+/**
+ * Height of the bar below the safe-area inset — the 36pt control row plus its
+ * padding. Exported because a FLOATING bar contributes nothing to layout, so the
+ * screen under it has to reserve `insets.top + HOME_HEADER_BAR_HEIGHT` itself.
+ * Reading it from here keeps the reservation and the bar from drifting apart.
+ */
+export const HOME_HEADER_BAR_HEIGHT = BAR_PADDING_TOP + 36 + RULE_GAP;
 
 /**
  * Home's top bar (Figma 3505:14521): menu, a tap-to-search pill carrying the
@@ -94,6 +113,8 @@ export function HomeHeader({
   onOpenNotifications,
   floating = false,
   onOpenSearch,
+  searchInteractive = true,
+  searchOpacity,
   topInset,
   unreadCount,
   testID = 'portfolio-header',
