@@ -123,7 +123,12 @@ export function ResultPanel({
               {selfieUri ? (
                 <SelfieImage
                   cachePolicy="memory-disk"
-                  contentFit="cover"
+                  // `contain` for the same reason as the morph box: this thumb
+                  // is square and the capture is 9:16, so `cover` cut 44% of
+                  // its height. It also sits directly beside the artwork cell,
+                  // which uses `contain` — cropping only YOUR side made the
+                  // before/after comparison lie.
+                  contentFit="contain"
                   style={styles.compareThumb}
                   uri={selfieUri}
                 />

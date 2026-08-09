@@ -435,4 +435,16 @@ describe('MorphLoop', () => {
     // The cutout is a silhouette SOURCE only, never drawn as a photo.
     expect(query('wtp-morph-loop-cutout')).toBeNull();
   });
+
+  it('shows the whole selfie, because this box is square and the capture is not', async () => {
+    renderWithProviders(<MorphLoop {...baseProps} />);
+
+    await screen.findByTestId('wtp-morph-loop');
+    layout('wtp-morph-loop', 320, 320);
+
+    // `cover` in a 1:1 box crops a 9:16 capture by 44% of its HEIGHT — head and
+    // legs gone from the full-body shot the capture screen asks for, which is
+    // what made the result read as "that isn't the photo I took".
+    expect(get('wtp-morph-loop-selfie').props.contentFit).toBe('contain');
+  });
 });

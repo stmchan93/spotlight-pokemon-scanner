@@ -251,8 +251,18 @@ export function MorphLoop({
         <Animated.View style={[StyleSheet.absoluteFillObject, selfieStyle]}>
           <SelfieImage
             cachePolicy="memory-disk"
-            contentFit="cover"
+            /*
+              `contain`, NOT `cover`. This box is square (`root.aspectRatio: 1`)
+              and the capture is 9:16, so `cover` cropped 44% of the photo's
+              HEIGHT — 22% off the top and 22% off the bottom. On the full-body
+              shot the capture screen explicitly asks for, that removes your
+              head and your legs and reads as "that isn't the photo I took".
+              Pillarboxing against the dark stage is the honest framing, and it
+              matches the artwork cells, which have always used `contain`.
+            */
+            contentFit="contain"
             style={StyleSheet.absoluteFillObject}
+            testID={`${testID}-selfie`}
             uri={selfieUri}
           />
         </Animated.View>
