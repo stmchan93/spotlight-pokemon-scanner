@@ -8,7 +8,7 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
-import { HomeHeader, HomeHeaderPinnedPill } from '@/components/home-header';
+import { HomeHeader } from '@/components/home-header';
 import { PostCard } from '@/features/social/components/post-card';
 import { consumeFeedRefreshSignal } from '@/features/social/screens/new-post-screen';
 import {
@@ -18,7 +18,6 @@ import {
 import { useUnreadNotificationCount } from '@/features/social/use-unread-notification-count';
 import { usePostDeletion } from '@/features/social/use-post-deletion';
 import { resolveRepositoryBaseUrl } from '@/providers/app-providers';
-import { DrawerEdgeSwipe } from '@/components/drawer-edge-swipe';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAuth } from '@/providers/auth-provider';
 
@@ -226,22 +225,6 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   ) : null;
 
   return (
-    /*
-      Left-edge drag opens the hamburger drawer — the same gesture Collection has
-      always had, which followed Collection to the You tab when the feed took
-      over Home. The hamburger BUTTON was here from the start; only the drag was
-      missing, so on the app's landing screen the gesture looked deleted.
-
-      WRAPPER, not an overlay strip, for the reason the component documents: as
-      an ancestor it sees every touch through the capture phase while the list
-      keeps receiving them normally, and it is the only mode that can cancel the
-      post underneath once the drag is unambiguously a drawer swipe. It is also
-      safe to put above the list here — `(tabs)/_layout.tsx` notes that its
-      PanResponder handlers set `ViewEvents` bits, which force a real stacking
-      context, so the `subviews[0]` walk that drives tab-bar minimize still
-      reaches the FlatList.
-    */
-    <DrawerEdgeSwipe>
     <SafeAreaView
       // 'top' is consumed HERE, once. The bar is a row of the list below, so if
       // it also added the inset itself the first post sat a whole status bar too
@@ -280,9 +263,6 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
             onOpenMenu={openDrawer}
             onOpenNotifications={openNotifications}
             onOpenSearch={openSearch}
-            // The pill pins in its own layer below; this row keeps the hole so
-            // the bubbles do not shift when it leaves.
-            pillPinnedSeparately
             // Already inside the SafeAreaView above; adding it again is the
             // double-count that opened the gap under the search bar.
             topInset={0}
@@ -312,19 +292,8 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         )}
         testID={`${testID}-list`}
       />
-      {/*
-        Pinned OVER the list, so it holds still while the bubbles beside it
-        scroll away as an ordinary list row. After the list, because tree order
-        is what puts it on top.
-      */}
-      <HomeHeaderPinnedPill
-        onOpenSearch={openSearch}
-        testID={`${testID}-header`}
-        topInset={0}
-      />
       {deleteConfirmSheet}
     </SafeAreaView>
-    </DrawerEdgeSwipe>
   );
 }
 

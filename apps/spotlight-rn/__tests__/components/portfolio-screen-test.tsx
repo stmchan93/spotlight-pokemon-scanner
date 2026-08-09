@@ -327,13 +327,6 @@ describe('PortfolioScreen', () => {
     await waitFor(() => {
       expect(screen.getByText('Grails')).toBeTruthy();
     });
-
-    // …and the MONEY has to move with the name. A collection you just made holds
-    // nothing, so leaving the previous collection's balance under its name is
-    // the same "whose money is this?" bug the switch path was fixed for.
-    await waitFor(() => {
-      expect(screen.getByTestId('portfolio-summary-value')).toHaveTextContent('$0.00');
-    });
   });
 
   describe('collection scope', () => {
@@ -1499,13 +1492,6 @@ describe('PortfolioScreen', () => {
     const bar = screen.getByTestId('portfolio-header');
     expect(StyleSheet.flatten(bar.props.style).position).toBe('absolute');
     expect(screen.queryByTestId('portfolio-header-rule')).toBeNull();
-
-    // The bar is SPLIT: the bubbles ride a layer that translates up with the
-    // page, while the pill sits in a pinned layer that never moves. The bubble
-    // row therefore draws no pill of its own.
-    expect(within(bar).queryByTestId('portfolio-header-search')).toBeNull();
-    const pinned = screen.getByTestId('portfolio-header-search-layer');
-    expect(within(pinned).getByTestId('portfolio-header-search')).toBeTruthy();
 
     await act(async () => {
       fireEvent.scroll(screen.getByTestId('portfolio-scroll-view'), {

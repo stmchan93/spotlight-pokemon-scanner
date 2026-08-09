@@ -30,14 +30,6 @@ type HomeHeaderProps = {
    */
   floating?: boolean;
   /**
-   * Render the search pill in a SEPARATE pinned layer instead of inline, leaving
-   * a same-sized hole where it sat. The two halves of the bar move differently —
-   * the bubbles scroll away with the page, the pill stays put — so they cannot
-   * be one view. The screen renders `<HomeHeaderPinnedPill>` itself, because
-   * only it knows which of its layers the pill belongs in.
-   */
-  pillPinnedSeparately?: boolean;
-  /**
    * Space above the control row, for the status bar.
    *
    * Explicit because it depends on what the bar is mounted INSIDE, and getting
@@ -60,9 +52,6 @@ const MARK_WIDTH = 21;
 const MARK_HEIGHT = 19;
 /** Figma 3505:14521 pads the bar 10pt above the row; the safe area adds the rest. */
 const BAR_PADDING_TOP = 10;
-/** `GlassNavBubble` at `compact`, and the row gap — see `HomeHeaderPinnedPill`. */
-const BUBBLE_SIZE = 36;
-const ROW_GAP = 8;
 /**
  * Gap between the control row and the rule below it — Figma 3505:14520 puts the
  * rule at y=120 against controls ending at y=104.
@@ -105,7 +94,6 @@ export function HomeHeader({
   onOpenNotifications,
   floating = false,
   onOpenSearch,
-  pillPinnedSeparately = false,
   topInset,
   unreadCount,
   testID = 'portfolio-header',
@@ -143,8 +131,7 @@ export function HomeHeader({
         <Menu color={theme.colors.gray900} height={BUTTON_ICON_SIZE} width={BUTTON_ICON_SIZE} />
       </GlassNavBubble>
 
-      <View pointerEvents={pillPinnedSeparately ? 'none' : 'auto'} style={styles.searchPill}>
-        {pillPinnedSeparately ? null : (
+      <View style={styles.searchPill}>
         <SearchEntryPill
           label="Search Cards"
           leading={
@@ -168,7 +155,6 @@ export function HomeHeader({
           onPress={onOpenSearch}
           testID={`${testID}-search`}
         />
-        )}
       </View>
 
       <GlassNavBubble
@@ -222,67 +208,7 @@ export function HomeHeader({
   );
 }
 
-/**
- * The search pill, pinned, as its own layer — so it holds still while the
- * bubbles beside it scroll away. `left`/`right` reproduce the hole the bubbles
- * leave: gutter + one bubble + one gap on the left, gutter + two bubbles + two
- * gaps on the right. Keep them in step with the row or the pill misaligns.
- */
-export function HomeHeaderPinnedPill({
-  onOpenSearch,
-  topInset,
-  testID = 'portfolio-header',
-}: {
-  onOpenSearch: () => void;
-  topInset?: number;
-  testID?: string;
-}) {
-  const theme = useSpotlightTheme();
-  const insets = useSafeAreaInsets();
-  const gutter = theme.layout.pageGutter;
-
-  return (
-    <View
-      pointerEvents="box-none"
-      style={[
-        styles.pinnedPill,
-        {
-          left: gutter + BUBBLE_SIZE + ROW_GAP,
-          right: gutter + BUBBLE_SIZE * 2 + ROW_GAP * 2,
-          top: (topInset ?? insets.top) + BAR_PADDING_TOP,
-        },
-      ]}
-      testID={`${testID}-search-layer`}
-    >
-      <SearchEntryPill
-        label="Search Cards"
-        leading={
-          <View
-            style={[
-              styles.markBadge,
-              { backgroundColor: theme.colors.purple500, borderRadius: MARK_BADGE_SIZE / 2 },
-            ]}
-          >
-            <EkalightMark
-              color={theme.colors.gray0}
-              height={MARK_HEIGHT}
-              testID={`${testID}-mark`}
-              width={MARK_WIDTH}
-            />
-          </View>
-        }
-        onPress={onOpenSearch}
-        testID={`${testID}-search`}
-      />
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  pinnedPill: {
-    position: 'absolute',
-    zIndex: 6,
-  },
   floating: {
     left: 0,
     position: 'absolute',
@@ -295,7 +221,7 @@ const styles = StyleSheet.create({
   row: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: ROW_GAP,
+    gap: 8,
   },
   rule: {
     height: borderWidths.rule,

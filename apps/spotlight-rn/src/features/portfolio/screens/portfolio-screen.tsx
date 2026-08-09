@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Animated,
   FlatList,
   type LayoutChangeEvent,
   Linking,
@@ -44,7 +43,7 @@ import {
 import { SalePriceEditSheet } from '@/features/portfolio/components/sale-price-edit-sheet';
 import { CollectionPickerSheet } from '@/features/portfolio/components/collection-picker-sheet';
 import { CollectionSearchRow } from '@/features/portfolio/components/collection-search-row';
-import { HomeHeader, HomeHeaderPinnedPill } from '@/components/home-header';
+import { HomeHeader } from '@/components/home-header';
 import {
   CollectionFilterChipRow,
   type CollectionFilterKey,
@@ -385,22 +384,6 @@ export function PortfolioScreen({
   // Abbreviated total on the collection summary line (Figma 2749:4753). It
   // honours the balance-visibility toggle — otherwise hiding the big balance
   // would leak the same number one row further down.
-  // The pager writes its scroll offset here; this screen only READS it. Driving
-  // the bubbles natively off the same value the header collapse runs on is what
-  // keeps them glued to the page instead of a JS frame behind the finger.
-  const pagerScrollY = useRef(new Animated.Value(0)).current;
-  // Bubbles travel up 1:1 with the page and stop once they have cleared their
-  // own row, so they leave rather than sliding under the pinned tab bar. The
-  // PILL does not move — it is a separate layer (see HomeHeaderPinnedPill).
-  const bubbleTranslateY = useMemo(
-    () =>
-      pagerScrollY.interpolate({
-        inputRange: [0, BUBBLE_TRAVEL],
-        outputRange: [0, -BUBBLE_TRAVEL],
-        extrapolate: 'clamp',
-      }),
-    [pagerScrollY],
-  );
 
   const collectionTotalLabel = isSummaryHidden
     ? HIDDEN_VALUE_MASK
@@ -1063,7 +1046,6 @@ export function PortfolioScreen({
       onOpenNotifications={() => router.push('/notifications' as never)}
       floating
       onOpenSearch={handleTopSearchPress}
-      pillPinnedSeparately
       testID="portfolio-header"
       unreadCount={unreadNotifications}
     />
@@ -1234,7 +1216,26 @@ export function PortfolioScreen({
   // it gets the Figma onboarding prompt (3370:4175): the Ekalight mark, one
   // encouraging line, and a soft chip straight into the scanner.
   const listEmpty = shouldShowInitialError ? null : (
-    <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
+    <View
+      style={[
+        { paddingHorizontal: theme.layout.pageGutter },
+        /*
+          A truly-empty collection CENTRES its prompt; a filter that matched
+          nothing does not.
+
+          Every page carries `minHeight: screenHeight + collapseDistance` so it
+          can absorb the profile-header collapse (see `page-tab-pager`). With no
+          cards that leaves a ~200pt prompt at the top of a ~1250pt container and
+          about a thousand points of dead white under it. Taking the leftover
+          space and centring in it turns that into framing.
+
+          The filter miss keeps its top alignment on purpose: it is a RESULT for
+          a query you just typed, and it belongs directly under the chips that
+          produced it, not floating in the middle of the screen.
+        */
+        model.hasInventoryEntries ? null : styles.emptyPromptFill,
+      ]}
+    >
       {model.hasInventoryEntries ? (
         <StateCard
           message="Add cards from the scanner or tap the + button to start your portfolio."
@@ -1474,7 +1475,6 @@ export function PortfolioScreen({
         order={PROFILE_TAB_ORDER}
         pageRefs={pageScrollRefs}
         renderPage={renderProfilePage}
-        scrollY={pagerScrollY}
         shouldStandDown={isSearchFieldFocused}
         tabBar={pagerTabBar}
         testID="portfolio-page-tab-pager"
@@ -1488,16 +1488,7 @@ export function PortfolioScreen({
         and translated on scroll), so a second in-flow bar inside it fought the
         pinning and left the profile tab bar drawn across the status bar.
       */}
-      <Animated.View
-        pointerEvents="box-none"
-        style={[styles.bubbleLayer, { transform: [{ translateY: bubbleTranslateY }] }]}
-      >
-        {homeHeader}
-      </Animated.View>
-      <HomeHeaderPinnedPill
-        onOpenSearch={handleTopSearchPress}
-        testID="portfolio-header"
-      />
+      {homeHeader}
 
       <ScrollToTopFab
         onPress={scrollToTop}
@@ -1642,19 +1633,7 @@ export function PortfolioScreen({
   );
 }
 
-/** How far the bubbles travel before they have fully cleared their own row. */
-const BUBBLE_TRAVEL = 56;
-
 const styles = StyleSheet.create({
-  // Its own layer so the bubbles can translate without dragging the pinned pill
-  // (a sibling) with them.
-  bubbleLayer: {
-    left: 0,
-    position: 'absolute',
-    right: 0,
-    top: 0,
-    zIndex: 5,
-  },
   chartWrap: {
     // Gap from the % change line down to the time filter (7D/1M/…) is tuned to
     // 32px per feedback. The chrome wrapper already adds a 16px inter-child gap,
@@ -1689,6 +1668,18 @@ const styles = StyleSheet.create({
     // Same top offset as the filter-miss StateCard so both empty states sit at
     // the same distance below the filter chips.
     marginTop: 12,
+  },
+  // Claim the page's leftover height and centre the prompt in it — see the note
+  // on `listEmpty`. `flexGrow` rather than `flex: 1`: the empty component is a
+  // child of the list's content container alongside the header, so it must be
+  // allowed to GROW into the slack without also being told it may shrink to
+  // nothing when the header is tall.
+  emptyPromptFill: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    // The prompt's own 12pt top offset is for sitting under the chips; centred,
+    // it would just bias the block downward.
+    marginTop: -12,
   },
   emptyStateCard: {
     marginTop: 12,
