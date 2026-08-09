@@ -331,12 +331,11 @@ export function CommentsSheet({
    * way the DM thread has. Scrolling only ever happens at moments the user
    * caused: focusing the composer, and posting.
    *
-   * It cannot be serviced by a
-   * content-size change: putting the keyboard away shrinks the sheet from 0.9 to
-   * 0.6 of the screen, so a scroll issued while it is still tall lands in the
-   * wrong place by the time it settles. This one waits for the resize.
+   * Set by a successful send and consumed by the list's `onContentSizeChange`,
+   * which is the one moment the just-posted row is laid out and the end position
+   * is final. The flag is what keeps that handler from being unconditional.
    */
-  const scrollAfterCollapseRef = useRef(false);
+  const scrollAfterSendRef = useRef(false);
 
   const scrollToLatest = useCallback((animated: boolean) => {
     listRef.current?.scrollToEnd({ animated });
@@ -408,20 +407,6 @@ export function CommentsSheet({
     animation.start();
     return () => animation.stop();
   }, [keyboardHeight, sheetHeight]);
-
-  // The second half of "send, then collapse": once the keyboard is gone and the
-  // sheet has finished settling back to its resting height, put the thread on
-  // the comment that was just posted. Waiting for the resize is the whole point
-  // — scrolling to the end of a 0.9-height sheet leaves you short once it is
-  // 0.6.
-  useEffect(() => {
-    if (keyboardHeight > 0 || !scrollAfterCollapseRef.current) {
-      return;
-    }
-    scrollAfterCollapseRef.current = false;
-    const timer = setTimeout(() => scrollToLatest(true), SHEET_RESIZE_MS);
-    return () => clearTimeout(timer);
-  }, [keyboardHeight, scrollToLatest]);
 
   // Slide the sheet in on open, out on close, with the scrim fading in alongside
   // it. Two things used to make this read as a hard pop rather than a transition:
@@ -522,7 +507,7 @@ export function CommentsSheet({
     setExpandedIds(new Set());
     setLikedCommentIds(new Set());
     setLikeCountOverrides({});
-    scrollAfterCollapseRef.current = false;
+    scrollAfterSendRef.current = false;
     /*
       Opening the sheet starts at the TOP of the thread, like every other comment
       list — no scroll on open at all.
@@ -784,18 +769,21 @@ export function CommentsSheet({
         setDraft('');
         setReplyTo(null);
         onCommentAdded?.(optimistic);
-        // SEND, THEN put the keyboard away — in that order, and only once the
-        // write has actually come back with an id. The old behaviour was the
-        // reverse and it was why posting read as broken: the return key blurred
-        // on the way in, so the keyboard dropped whether or not anything had
-        // been sent, and a failed write left the sheet collapsed over a composer
-        // that still held your text. A failure now keeps the keyboard up with
-        // the draft intact, which is what "try again" needs.
-        Keyboard.dismiss();
-        // Your comment goes on the END of the thread, which on a scrolled or
-        // long thread is off-screen. The scroll waits for the sheet to finish
-        // shrinking back down — see the flag's own note.
-        scrollAfterCollapseRef.current = true;
+        /*
+          THE KEYBOARD STAYS UP, and the thread scrolls to what you just wrote.
+
+          Sending used to `Keyboard.dismiss()` and then chase the resulting sheet
+          collapse with a timed scroll. From the outside that is indistinguishable
+          from the send doing nothing: the keyboard drops, the sheet shrinks, and
+          your comment is at the end of a thread you are not looking at. The
+          collapse was also the only thing that made the write visible, so when
+          the timed scroll lost its race there was no feedback at all.
+
+          Leaving the keyboard where it is means the sheet keeps its full height,
+          your comment lands directly above the composer, and you can write
+          another without tapping back in.
+        */
+        scrollAfterSendRef.current = true;
       }
       sendingRef.current = false;
       setSending(false);
@@ -1029,6 +1017,17 @@ export function CommentsSheet({
           <ScrollView
             contentContainerStyle={styles.listContent}
             keyboardShouldPersistTaps="handled"
+            // The ONLY reliable moment to scroll to a just-posted comment: the
+            // content has grown by exactly that row, so the end position is
+            // final. Scheduling it off the send instead — a frame, a timeout —
+            // races the layout and lands short on a long thread.
+            onContentSizeChange={() => {
+              if (!scrollAfterSendRef.current) {
+                return;
+              }
+              scrollAfterSendRef.current = false;
+              scrollToLatest(true);
+            }}
             ref={listRef}
             style={styles.list}
             testID={`${testID}-list`}
@@ -1213,7 +1212,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     paddingHorizontal: 16,
-    paddingTop: 12,
+    // 8 here + 8 under the last comment = 16 from the thread to the field, with
+    // the divider centred in it. It was 12 + 16 = 28, which read as a gap of its
+    // own rather than as the thread ending.
+    paddingTop: 8,
   },
   composerField: {
     flex: 1,
@@ -1242,7 +1244,8 @@ const styles = StyleSheet.create({
     // 20 between threads so a thread's own 12px body→actions→replies rhythm
     // stays visibly tighter than the gap to the next comment.
     gap: 20,
-    paddingBottom: 16,
+    // Half of the 16 to the composer; the composer's `paddingTop` is the rest.
+    paddingBottom: 8,
     paddingHorizontal: 16,
     paddingTop: 12,
   },

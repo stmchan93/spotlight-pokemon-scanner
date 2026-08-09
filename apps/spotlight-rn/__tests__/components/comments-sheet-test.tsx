@@ -194,13 +194,20 @@ describe('CommentsSheet', () => {
     expect(screen.queryAllByText('Only once')).toHaveLength(1);
   });
 
-  it('sends first and puts the keyboard away second, and does neither when the write fails', async () => {
+  /*
+    SENDING NEVER TOUCHES THE KEYBOARD.
+
+    It used to dismiss on success and then chase the resulting sheet collapse
+    with a timed scroll. From the outside that is indistinguishable from the send
+    doing nothing — the keyboard drops, the sheet shrinks, and the comment is at
+    the end of a thread you are no longer looking at. Leaving the keyboard alone
+    keeps the sheet at full height, so the new comment lands directly above the
+    composer where you can see it.
+  */
+  it('posts without dismissing the keyboard, and keeps the draft when the write fails', async () => {
     const dismiss = jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => undefined);
 
-    // Failed write: the keyboard stays up and the text stays in the composer,
-    // because "try again" needs both. The old order blurred on the way IN, so a
-    // failure collapsed the sheet over a draft that had gone nowhere — which is
-    // exactly what "it just closes the keyboard but keeps my text" looked like.
+    // Failed write: the text stays in the composer, because "try again" needs it.
     (addComment as jest.Mock).mockResolvedValue(null);
     renderSheet();
     await screen.findByTestId('comments-sheet-empty');
@@ -209,17 +216,35 @@ describe('CommentsSheet', () => {
     await act(async () => {
       fireEvent.press(screen.getByTestId('comments-sheet-send'));
     });
-    expect(dismiss).not.toHaveBeenCalled();
     expect(screen.getByTestId('comments-sheet-input').props.value).toBe('Does not land');
 
-    // Successful write: the comment is in the thread AND the keyboard goes away.
+    // Successful write: the comment is in the thread and the composer is empty.
     (addComment as jest.Mock).mockResolvedValue('c-new');
     await act(async () => {
       fireEvent.press(screen.getByTestId('comments-sheet-send'));
     });
     expect(await screen.findByText('Does not land')).toBeTruthy();
-    expect(dismiss).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId('comments-sheet-input').props.value).toBe('');
+
+    // Not on either path.
+    expect(dismiss).not.toHaveBeenCalled();
+  });
+
+  // The just-posted comment is the LAST row, which on a long thread is below the
+  // fold. The scroll rides the list's content-size change rather than a timer off
+  // the send, because that is the one moment the new row is laid out and the end
+  // position is final.
+  it('drives the post-send scroll from the list growing, not from a timer', async () => {
+    renderSheet();
+    await screen.findByTestId('comments-sheet-empty');
+
+    // The mechanism, not the pixels: jest lays nothing out, so a `scrollToEnd`
+    // spy here would only prove the handler was called with a content size of
+    // zero. What must not regress is WHERE the scroll is hung — off the send
+    // with a timeout, it raced the layout and landed short on a long thread.
+    expect(
+      typeof screen.getByTestId('comments-sheet-list').props.onContentSizeChange,
+    ).toBe('function');
   });
 
   it('keeps the keyboard up when the return key posts, so the sheet cannot collapse over the comment', async () => {

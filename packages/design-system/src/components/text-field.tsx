@@ -44,6 +44,16 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
 }: TextFieldProps, ref) {
   const theme = useSpotlightTheme();
 
+  /*
+    `typography.body` MINUS its lineHeight.
+
+    iOS lays a TextInput's text on exactly the line box it is given, and the
+    token's 20pt box against a 15pt font leaves the descenders of "g", "y" and
+    "p" clipped off at the bottom of the field. `Text` is unaffected and keeps
+    the token as written — only an input needs the platform's own line box.
+  */
+  const { lineHeight: _lineHeight, ...inputTypography } = theme.typography.body;
+
   return (
     <View style={styles.fieldWrap}>
       {label ? (
@@ -77,7 +87,7 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
           maxFontSizeMultiplier={MAX_FONT_SIZE_MULTIPLIER}
           ref={ref}
           placeholderTextColor={placeholderTextColor ?? theme.colors.textSecondary}
-          style={[theme.typography.body, styles.input, inputStyle]}
+          style={[inputTypography, styles.input, inputStyle]}
           {...inputProps}
         />
         {trailing}
