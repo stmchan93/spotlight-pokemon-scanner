@@ -31,6 +31,19 @@ type HomeHeaderProps = {
    */
   floating?: boolean;
   /**
+   * Fade an opaque backdrop in behind the bar as the page scrolls, so content
+   * passing underneath does not show through beside the status-bar clock.
+   *
+   * Needed wherever something PINS directly below this bar. On Collection the
+   * page-tab bar stops at the bottom of the bubbles, which leaves the tail of
+   * the profile block parked in the strip above it — the backdrop is what hides
+   * it. At rest the backdrop is fully transparent, so the cover photo still
+   * bleeds edge to edge under the glass.
+   *
+   * Requires `scrollY`; without it there is nothing to fade against.
+   */
+  pinnedBackdrop?: boolean;
+  /**
    * The page's scroll offset. Drives the pill sliding up out of the row while
    * the bubbles beside it stay put; omit to keep the pill solid and static.
    *
@@ -87,6 +100,14 @@ const RULE_GAP = 16;
  */
 export const HOME_HEADER_BAR_HEIGHT = BAR_PADDING_TOP + 36 + RULE_GAP;
 /**
+ * Height of just the control row, below the safe-area inset — no rule gap.
+ *
+ * This is the BOTTOM EDGE OF THE BUBBLES, which is where anything that pins
+ * under a floating bar has to stop. Collection's page-tab bar uses it: pinning
+ * at 0 slid "Collection / For Sale / Activity" under the status bar clock.
+ */
+export const HOME_HEADER_ROW_HEIGHT = BAR_PADDING_TOP + 36;
+/**
  * How far the page scrolls before the search pill has fully left the row.
  *
  * Exported because the screens need the SAME number to switch the pill's tap
@@ -138,6 +159,7 @@ export function HomeHeader({
   onOpenNotifications,
   floating = false,
   onOpenSearch,
+  pinnedBackdrop = false,
   scrollY,
   searchInteractive = true,
   topInset,
@@ -172,6 +194,20 @@ export function HomeHeader({
     };
   }, [scrollY]);
 
+  // Reaches full opacity over the same distance the pill takes to leave, which
+  // is far shorter than the profile block's collapse — so by the time anything
+  // is parked behind the bar, the backdrop is already solid.
+  const backdropOpacity = useMemo(() => {
+    if (!pinnedBackdrop || !scrollY) {
+      return null;
+    }
+    return scrollY.interpolate({
+      inputRange: [0, SEARCH_PILL_HIDE_DISTANCE],
+      outputRange: [0, 1],
+      extrapolate: 'clamp',
+    });
+  }, [pinnedBackdrop, scrollY]);
+
   return (
     <View
       pointerEvents={floating ? 'box-none' : 'auto'}
@@ -184,6 +220,17 @@ export function HomeHeader({
       ]}
       testID={testID}
     >
+      {backdropOpacity ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            { backgroundColor: theme.colors.gray0, opacity: backdropOpacity },
+          ]}
+          testID={`${testID}-backdrop`}
+        />
+      ) : null}
+
       <View
         style={[
           styles.row,

@@ -1,7 +1,7 @@
 import { Animated, StyleSheet } from 'react-native';
 import { screen } from '@testing-library/react-native';
 
-import { HomeHeader } from '@/components/home-header';
+import { HomeHeader, SEARCH_PILL_HIDE_DISTANCE } from '@/components/home-header';
 
 import { renderWithProviders } from '../test-utils';
 
@@ -87,6 +87,59 @@ describe('HomeHeader', () => {
     );
 
     expect(pillWrapper().props.pointerEvents).toBe('none');
+  });
+
+  /*
+    The backdrop is what makes it safe for something else to PIN under this bar.
+    Collection's page-tab bar rests at the bottom of the bubbles, which parks the
+    tail of the profile block in the strip behind the clock; an opaque backdrop
+    is the only thing covering it. It must stay transparent at rest, though, or
+    the cover photo stops bleeding edge to edge.
+  */
+  describe('pinned backdrop', () => {
+    it('is absent unless the screen asks for it', () => {
+      renderHeader({ floating: true, scrollY: new Animated.Value(0) });
+
+      expect(screen.queryByTestId('home-header-backdrop')).not.toBeOnTheScreen();
+    });
+
+    it('fills the bar and fades with the scroll offset when asked for', () => {
+      renderHeader({
+        floating: true,
+        pinnedBackdrop: true,
+        scrollY: new Animated.Value(0),
+      });
+
+      const backdrop = screen.getByTestId('home-header-backdrop');
+      const style = StyleSheet.flatten(backdrop.props.style);
+
+      // Covers the whole bar — inset, control row and all.
+      expect(style.position).toBe('absolute');
+      expect(style.backgroundColor).toBeTruthy();
+      // FULLY TRANSPARENT AT REST. A flat opaque bar would cut the top off the
+      // cover photo, which is drawn deliberately tall to bleed under the status
+      // bar (`profile-header` offsets it by `-insets.top`).
+      expect(style.opacity).toBe(0);
+      // Never eats a tap meant for the list underneath.
+      expect(backdrop.props.pointerEvents).toBe('none');
+    });
+
+    it('is solid by the time the pill has gone', () => {
+      renderHeader({
+        floating: true,
+        pinnedBackdrop: true,
+        scrollY: new Animated.Value(SEARCH_PILL_HIDE_DISTANCE),
+      });
+
+      const style = StyleSheet.flatten(screen.getByTestId('home-header-backdrop').props.style);
+      expect(style.opacity).toBe(1);
+    });
+
+    it('needs a scroll offset to fade against', () => {
+      renderHeader({ floating: true, pinnedBackdrop: true });
+
+      expect(screen.queryByTestId('home-header-backdrop')).not.toBeOnTheScreen();
+    });
   });
 
   // The clip is what actually removes the pill, and it has to stay on the

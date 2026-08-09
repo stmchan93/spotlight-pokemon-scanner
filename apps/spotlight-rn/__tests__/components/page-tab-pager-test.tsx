@@ -1,5 +1,5 @@
-import { act, screen } from '@testing-library/react-native';
-import { ScrollView, Text, View, type GestureResponderEvent } from 'react-native';
+import { act, fireEvent, screen } from '@testing-library/react-native';
+import { Dimensions, ScrollView, Text, View, type GestureResponderEvent } from 'react-native';
 
 import {
   CollapsibleTabPager,
@@ -190,6 +190,7 @@ function renderPager({
   collectionEditing = false,
   disabled = false,
   onChange = jest.fn(),
+  pinnedTopInset,
   shouldStandDown,
   value = 'collection' as Tab,
   withGuard = false,
@@ -198,6 +199,7 @@ function renderPager({
   collectionEditing?: boolean;
   disabled?: boolean;
   onChange?: (next: Tab) => void;
+  pinnedTopInset?: number;
   shouldStandDown?: () => boolean;
   value?: Tab;
   withGuard?: boolean;
@@ -234,6 +236,7 @@ function renderPager({
         header={<View testID="pager-header" />}
         onChange={onChange}
         order={TABS}
+        pinnedTopInset={pinnedTopInset}
         renderPage={renderPage}
         shouldStandDown={shouldStandDown}
         tabBar={<View testID="pager-tab-bar" />}
@@ -278,6 +281,52 @@ describe('CollapsibleTabPager', () => {
           paddingTop: expect.any(Number),
         }),
       );
+    });
+  });
+
+  /*
+    WHERE THE TAB BAR COMES TO REST.
+
+    The bar's resting top is `headerHeight + translate`, and the translate is
+    clamped at `-collapseDistance` — so the collapse distance IS the pin
+    position, inverted. Left at the full header height the bar parks at 0, which
+    on Portfolio put "Collection / For Sale / Activity" behind the status-bar
+    clock, under the floating glass bubbles.
+
+    `collapseDistance` is not readable from the outside, but every page's
+    `minHeight` is `screenHeight + collapseDistance`, so the pin position is
+    asserted through that.
+  */
+  describe('pinnedTopInset', () => {
+    function collapseDistanceAfterHeaderLayout(pinnedTopInset?: number) {
+      renderPager({ pinnedTopInset });
+
+      const headerWrapper = screen.getByTestId('pager-header').parent;
+      act(() => {
+        fireEvent(headerWrapper as never, 'layout', {
+          nativeEvent: { layout: { height: 300, width: 393, x: 0, y: 0 } },
+        });
+      });
+
+      const { minHeight } = screen.getByTestId('page-collection').props.contentContainerStyle;
+      const screenHeight = Dimensions.get('window').height;
+      return minHeight - screenHeight;
+    }
+
+    it('collapses the full header height when nothing floats above the pager', () => {
+      expect(collapseDistanceAfterHeaderLayout()).toBe(300);
+    });
+
+    it('stops the collapse short so the tab bar parks below the floating chrome', () => {
+      // 300pt header, 100pt of chrome above it → the header only travels 200,
+      // leaving the tab bar resting at 100 rather than at 0.
+      expect(collapseDistanceAfterHeaderLayout(100)).toBe(200);
+    });
+
+    it('never collapses past zero when the chrome is taller than the header', () => {
+      // Guards the interpolation: a negative distance would invert the
+      // translate and drive the header DOWN the screen as you scroll.
+      expect(collapseDistanceAfterHeaderLayout(400)).toBe(0);
     });
   });
 

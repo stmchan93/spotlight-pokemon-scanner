@@ -183,6 +183,20 @@ type CollapsibleTabPagerProps<V extends string> = {
    */
   scrollY?: Animated.Value;
   /**
+   * How far below the pager's top edge the tab bar comes to rest, in points.
+   *
+   * Defaults to 0 — flush with the top — which is only correct when nothing is
+   * floating above the pager. It is NOT correct on Portfolio: a status bar and a
+   * row of glass bubbles sit over the top of the screen there, so a bar pinned
+   * at 0 ends up drawn behind the clock. Passing the bottom edge of that chrome
+   * stops the collapse early enough to park the tab bar just beneath it.
+   *
+   * Whatever floats above is then responsible for being OPAQUE by the time the
+   * collapse finishes: the header's last `pinnedTopInset` points stay parked in
+   * the strip behind it (see `HomeHeader`'s `pinnedBackdrop`).
+   */
+  pinnedTopInset?: number;
+  /**
    * Extra stand-down check, evaluated at the moment of decision rather than at
    * render, for state the pager cannot see (e.g. "the collection search field
    * currently has focus", which is only knowable from the input's own
@@ -302,6 +316,7 @@ export function CollapsibleTabPager<V extends string>({
   onPageScroll,
   order,
   pageRefs,
+  pinnedTopInset = 0,
   renderPage,
   scrollY: scrollYProp,
   shouldStandDown,
@@ -326,8 +341,15 @@ export function CollapsibleTabPager<V extends string>({
   const translateX = useRef(new Animated.Value(0)).current;
 
   const activeIndex = Math.max(0, order.indexOf(value));
-  /** How far the chrome travels before the tab bar is pinned. */
-  const collapseDistance = headerHeight;
+  /**
+   * How far the chrome travels before the tab bar is pinned.
+   *
+   * The header does NOT scroll fully away when something floats above the pager:
+   * stopping `pinnedTopInset` short leaves the tab bar resting at exactly that
+   * offset (its top is `headerHeight + translate`), instead of at 0 where it
+   * would sit behind the status bar.
+   */
+  const collapseDistance = Math.max(headerHeight - pinnedTopInset, 0);
 
   const latest = useRef({
     chartScrubLockRef,

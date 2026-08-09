@@ -44,7 +44,11 @@ import {
 import { SalePriceEditSheet } from '@/features/portfolio/components/sale-price-edit-sheet';
 import { CollectionPickerSheet } from '@/features/portfolio/components/collection-picker-sheet';
 import { CollectionSearchRow } from '@/features/portfolio/components/collection-search-row';
-import { HomeHeader, SEARCH_PILL_HIDE_DISTANCE } from '@/components/home-header';
+import {
+  HOME_HEADER_ROW_HEIGHT,
+  HomeHeader,
+  SEARCH_PILL_HIDE_DISTANCE,
+} from '@/components/home-header';
 import {
   CollectionFilterChipRow,
   type CollectionFilterKey,
@@ -1056,6 +1060,9 @@ export function PortfolioScreen({
       onOpenNotifications={() => router.push('/notifications' as never)}
       floating
       onOpenSearch={handleTopSearchPress}
+      // The page-tab bar pins directly under this bar, so it has to go opaque —
+      // otherwise the tail of the profile block sits parked behind the clock.
+      pinnedBackdrop
       scrollY={pagerScrollY}
       searchInteractive={!isSearchPillHidden}
       testID="portfolio-header"
@@ -1232,20 +1239,17 @@ export function PortfolioScreen({
       style={[
         { paddingHorizontal: theme.layout.pageGutter },
         /*
-          A truly-empty collection CENTRES its prompt; a filter that matched
-          nothing does not.
+          The empty prompt ENDS 16pt under its button and the page ends with it.
 
-          Every page carries `minHeight: screenHeight + collapseDistance` so it
-          can absorb the profile-header collapse (see `page-tab-pager`). With no
-          cards that leaves a ~200pt prompt at the top of a ~1250pt container and
-          about a thousand points of dead white under it. Taking the leftover
-          space and centring in it turns that into framing.
-
-          The filter miss keeps its top alignment on purpose: it is a RESULT for
-          a query you just typed, and it belongs directly under the chips that
-          produced it, not floating in the middle of the screen.
+          It used to `flexGrow` into the leftover space and centre itself, back
+          when every page was floored at `screenHeight + collapseDistance` and
+          the alternative was a thousand points of dead white below the prompt.
+          That floor is now dropped outright for an empty list (`minHeight: 0`
+          below), so the growth had nothing left to justify it and was itself
+          the dead space — a screenful of blank you could scroll down into,
+          under a prompt stranded in the middle of it.
         */
-        model.hasInventoryEntries ? null : styles.emptyPromptFill,
+        model.hasInventoryEntries ? null : styles.emptyPromptEnd,
       ]}
     >
       {model.hasInventoryEntries ? (
@@ -1493,6 +1497,9 @@ export function PortfolioScreen({
         onPageScroll={handlePageScroll}
         order={PROFILE_TAB_ORDER}
         pageRefs={pageScrollRefs}
+        // Park the tab bar under the floating bubbles instead of at y=0, where
+        // "Collection / For Sale / Activity" ended up drawn behind the clock.
+        pinnedTopInset={insets.top + HOME_HEADER_ROW_HEIGHT}
         renderPage={renderProfilePage}
         scrollY={pagerScrollY}
         shouldStandDown={isSearchFieldFocused}
@@ -1694,12 +1701,9 @@ const styles = StyleSheet.create({
   // child of the list's content container alongside the header, so it must be
   // allowed to GROW into the slack without also being told it may shrink to
   // nothing when the header is tall.
-  emptyPromptFill: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    // The prompt's own 12pt top offset is for sitting under the chips; centred,
-    // it would just bias the block downward.
-    marginTop: -12,
+  emptyPromptEnd: {
+    // Closes the page 16pt under "Scan to add" rather than running on.
+    paddingBottom: 16,
   },
   emptyStateCard: {
     marginTop: 12,
