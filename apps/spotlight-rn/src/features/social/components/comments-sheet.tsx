@@ -34,11 +34,15 @@ import { useAuth } from '@/providers/auth-provider';
 type CommentsSheetProps = {
   visible: boolean;
   onClose: () => void;
-  /**
-   * Open with the keyboard already up on the composer — how the card's chat icon
-   * enters ("add a comment"), while still showing the thread behind it.
-   */
-  autoFocusComposer?: boolean;
+  /*
+    NO auto-focus prop, deliberately. The sheet used to open with the keyboard
+    already up when it was entered from the card's chat icon, which meant reading
+    a thread started with two thirds of it covered and the newest comments
+    squeezed into a strip. Opening comments is a READ; the keyboard belongs to
+    the moment you tap the composer, which is what `onFocus` is for. This mirrors
+    the New Post composer, which deliberately opens keyboard-down for the same
+    reason.
+  */
   /** The post whose thread this sheet shows. */
   postId: string;
   /** Fired after a comment is optimistically appended, so the card can bump its count. */
@@ -300,7 +304,6 @@ export function collectDescendantIds(comments: PostComment[], rootId: string): s
 export function CommentsSheet({
   visible,
   onClose,
-  autoFocusComposer = false,
   postId,
   onCommentAdded,
   onCommentCountResolved,
@@ -321,18 +324,14 @@ export function CommentsSheet({
   const inputRef = useRef<TextInput | null>(null);
   const listRef = useRef<ScrollView | null>(null);
   /**
-   * Pin the thread to its newest row on the next layout that can honour it.
+   * Pin the thread to its newest row once the keyboard is down after a post.
    *
-   * A flag rather than an unconditional `onContentSizeChange` handler (which is
-   * what the DM thread does) because this list is not a chat log: it also grows
-   * whenever a "N replies" toggle expands, and yanking the reader to the bottom
-   * there would be the app fighting them. It is deliberately NOT armed while
-   * typing either — scrolling away mid-draft is allowed to stick.
-   */
-  const pendingScrollToEndRef = useRef(false);
-  /**
-   * Same job, but for the moment AFTER a post, when the keyboard is on its way
-   * down. Separate from the flag above because it cannot be serviced by a
+   * The list is not a chat log — it also grows when a "N replies" toggle expands
+   * — so there is deliberately no unconditional `onContentSizeChange` scroll the
+   * way the DM thread has. Scrolling only ever happens at moments the user
+   * caused: focusing the composer, and posting.
+   *
+   * It cannot be serviced by a
    * content-size change: putting the keyboard away shrinks the sheet from 0.9 to
    * 0.6 of the screen, so a scroll issued while it is still tall lands in the
    * wrong place by the time it settles. This one waits for the resize.
@@ -394,16 +393,6 @@ export function CommentsSheet({
       hideSub.remove();
     };
   }, [visible]);
-
-  // Entering via the card's chat icon means "add a comment": open the keyboard on
-  // the composer once the sheet has slid in. The thread is still there behind it.
-  useEffect(() => {
-    if (!visible || !autoFocusComposer) {
-      return;
-    }
-    const timer = setTimeout(() => inputRef.current?.focus(), 300);
-    return () => clearTimeout(timer);
-  }, [autoFocusComposer, visible]);
 
   // Grow the sheet toward full screen while the keyboard is up, and settle back
   // when it goes down. Same 250ms/ease-out shape as the iOS keyboard curve, so
@@ -535,20 +524,18 @@ export function CommentsSheet({
     setLikeCountOverrides({});
     scrollAfterCollapseRef.current = false;
     /*
-      Land on the NEWEST comment when the sheet opens to write one.
+      Opening the sheet starts at the TOP of the thread, like every other comment
+      list — no scroll on open at all.
 
-      Entering via the card's chat icon raises the keyboard immediately, which
-      leaves the thread as a short strip between the header and the composer —
-      and a thread taller than that strip opens showing its middle, clipped at
-      both ends, with the comment you are about to reply under sitting off the
-      bottom. Arriving at the end instead puts the most recent comments directly
-      above the composer, which is what you are answering.
-
-      Only when the composer is auto-focused: opening the sheet to READ (tapping
-      the comment count) should start at the top of the thread, like every other
-      comment list.
+      It used to jump to the newest comment when the sheet was entered from the
+      chat icon, which only made sense because that entry ALSO raised the
+      keyboard: the thread was a short strip above the composer, so landing
+      anywhere else showed its middle. With the keyboard no longer opening on
+      entry the whole thread is visible from the top, and yanking a reader to the
+      bottom of someone else's conversation would be the app deciding what they
+      came to read. Tapping the composer still scrolls to the end (`onFocus`),
+      and so does posting — both are moments the user asked for.
     */
-    pendingScrollToEndRef.current = autoFocusComposer;
     void (async () => {
       try {
         const loaded = await fetchComments(postId);
@@ -871,7 +858,14 @@ export function CommentsSheet({
               >
                 {authorDisplayName(comment)}
               </Text>
-              <Text style={[theme.typography.bodyMedium, { color: theme.colors.gray400 }]}>
+              {/*
+                `caption` (12), not `bodyMedium` (14). At 14 Medium the
+                timestamp was the same size AND weight as the author's name
+                beside it, just greyer — so the meta line read as two names. 12
+                matches the post card's date, which is the same piece of
+                information one screen away.
+              */}
+              <Text style={[theme.typography.caption, { color: theme.colors.gray400 }]}>
                 {formatRelativeTime(comment.createdAt)}
               </Text>
             </View>
@@ -1035,16 +1029,6 @@ export function CommentsSheet({
           <ScrollView
             contentContainerStyle={styles.listContent}
             keyboardShouldPersistTaps="handled"
-            // Only ever acts on a scroll this component armed (a just-posted
-            // comment). Every other growth — first load, expanding replies —
-            // leaves the reader where they are.
-            onContentSizeChange={() => {
-              if (!pendingScrollToEndRef.current) {
-                return;
-              }
-              pendingScrollToEndRef.current = false;
-              scrollToLatest(true);
-            }}
             ref={listRef}
             style={styles.list}
             testID={`${testID}-list`}

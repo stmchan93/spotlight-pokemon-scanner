@@ -6,7 +6,7 @@ import { deletePost, type FeedPost } from '@/features/social/social-service';
 
 const CONFIRM_TITLE = 'Delete post';
 const CONFIRM_MESSAGE =
-  "This post — and its likes and comments — will be removed for everyone. This can't be undone.";
+  'This post and all of its likes and comments will be removed. Are you sure you want to continue?';
 const FAILURE_TITLE = "Couldn't delete post";
 const FAILURE_MESSAGE = 'Your post is still there. Please try again in a moment.';
 

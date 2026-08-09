@@ -1,3 +1,4 @@
+import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { supabase } from '@/lib/supabase';
 
 /**
@@ -310,6 +311,44 @@ async function fetchPosts(
 }
 
 /**
+ * One post by id, hydrated exactly like a feed row so the same `PostCard`
+ * renders it. Null when it is gone, deleted, or not visible to this viewer —
+ * which a notification can outlive, so the caller has to handle it.
+ *
+ * Same media-embed fallback as the feed reads: one round trip when PostgREST can
+ * resolve the relationship, two when it cannot.
+ */
+export async function fetchPostById(postId: string): Promise<FeedPost | null> {
+  if (!supabase || !postId) {
+    return null;
+  }
+  const runQuery = (select: string) =>
+    supabase!
+      .from(POSTS_TABLE)
+      .select(select)
+      .eq('id', postId)
+      .is('deleted_at', null)
+      .neq('content_status', 'deleted')
+      .limit(1);
+
+  try {
+    let { data, error } = await runQuery(postSelectWithMedia);
+    let mediaEmbedded = true;
+    if (error) {
+      mediaEmbedded = false;
+      ({ data, error } = await runQuery(postSelect));
+    }
+    if (error || !data || data.length === 0) {
+      return null;
+    }
+    const posts = await hydratePosts(data as unknown as PostRow[], { mediaEmbedded });
+    return posts[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Posts by the authors the signed-in user follows, newest first. Empty until the
  * viewer follows someone (or when unauthenticated). Two reads: the followee ids
  * from `follows`, then their posts.
@@ -409,6 +448,21 @@ export async function fetchLikedPostIds(postIds: string[]): Promise<Set<string>>
   const me = await currentUserId();
   const ids = Array.from(new Set(postIds.filter(Boolean)));
   if (!supabase || !me || ids.length === 0) {
+    /*
+      An empty set here is INDISTINGUISHABLE from "you have liked nothing", and
+      that is the whole problem with this function: every failure mode — no
+      session, a permissions error, a network blip — renders as an unliked
+      thumb inviting you to like something you already liked. Reported as
+      "my likes don't persist", and unreadable from the code because the
+      evidence was being thrown away.
+
+      So say when the read did not actually happen. Only the shape of the
+      failure is reported (was there a session? how many ids?) — never a post
+      id or anything about its content.
+    */
+    if (supabase && !me && ids.length > 0) {
+      capturePostHogEvent('social_like_read_skipped', { reason: 'no_session', idCount: ids.length });
+    }
     return new Set();
   }
   try {
@@ -418,10 +472,18 @@ export async function fetchLikedPostIds(postIds: string[]): Promise<Set<string>>
       .eq('user_id', me)
       .in('post_id', ids);
     if (error || !data) {
+      capturePostHogEvent('social_like_read_failed', {
+        reason: error?.message ?? 'no_data',
+        idCount: ids.length,
+      });
       return new Set();
     }
     return new Set((data as { post_id: string }[]).map((row) => row.post_id));
-  } catch {
+  } catch (error) {
+    capturePostHogEvent('social_like_read_failed', {
+      reason: error instanceof Error ? error.message : 'threw',
+      idCount: ids.length,
+    });
     return new Set();
   }
 }
@@ -457,14 +519,26 @@ export async function fetchLikedCommentIds(commentIds: string[]): Promise<Set<st
 export async function likePost(postId: string): Promise<boolean> {
   const me = await currentUserId();
   if (!supabase || !me || !postId) {
+    // Reported the same way as the read above, so the two halves of "my likes
+    // don't persist" can be told apart: a write that never ran versus a read
+    // that never ran.
+    if (supabase && !me && postId) {
+      capturePostHogEvent('social_like_write_skipped', { reason: 'no_session' });
+    }
     return false;
   }
   try {
     const { error } = await supabase
       .from(POST_LIKES_TABLE)
       .upsert({ post_id: postId, user_id: me }, { onConflict: 'post_id,user_id', ignoreDuplicates: true });
+    if (error) {
+      capturePostHogEvent('social_like_write_failed', { reason: error.message });
+    }
     return !error;
-  } catch {
+  } catch (error) {
+    capturePostHogEvent('social_like_write_failed', {
+      reason: error instanceof Error ? error.message : 'threw',
+    });
     return false;
   }
 }

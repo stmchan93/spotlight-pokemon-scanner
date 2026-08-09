@@ -59,22 +59,28 @@ export function NotificationsScreen({ testID = 'notifications' }: { testID?: str
   /**
    * Where a row leads, or null when it leads nowhere.
    *
-   * Only follows are navigable today. A like/comment notification wants to open
-   * the post it refers to, and THERE IS NO PER-POST ROUTE — `/feed` renders the
-   * following feed with no way to target a post id. Rather than push a route
-   * that doesn't exist or dump the user in a generic feed, those rows render
-   * non-interactive until a `/post/[postId]` screen exists; `openTarget` is what
-   * to wire up when it does.
+   * Every kind is navigable now. Likes and comments used to be inert because
+   * there was no per-post route to send them to; `/post/[postId]` exists, so a
+   * like opens the post and anything about a comment opens the post with its
+   * thread already up (`?comments=1`).
+   *
+   * A row still goes nowhere when it has nothing to point AT: a follow from
+   * someone with no handle has no public profile URL, and a like on a post that
+   * has since been deleted arrives with no `postId`.
    */
   const openTarget = useCallback(
     (item: AppNotification): (() => void) | null => {
       if (item.type === 'follow') {
-        // A handle-less actor has no public profile URL, so there is nothing to
-        // open — treat it the same as no destination.
         const handle = item.actor?.handle;
         return handle ? () => router.push(`/u/${handle}` as never) : null;
       }
-      return null;
+      if (!item.postId) {
+        return null;
+      }
+      const postId = item.postId;
+      const comments = item.commentId ? '1' : '0';
+      return () =>
+        router.push({ pathname: '/post/[postId]', params: { postId, comments } } as never);
     },
     [router],
   );
@@ -99,9 +105,11 @@ export function NotificationsScreen({ testID = 'notifications' }: { testID?: str
         item.type === 'follow'
           ? 'started following you'
           : item.type === 'like'
-            ? item.commentId
+            ? // A like notification is always about something of YOURS — you are
+              // the recipient — so it never needs the owner's name.
+              item.commentId
               ? 'liked your comment'
-              : `liked ${postWhere}`
+              : 'liked your post'
             : item.isReply
               ? `replied to your comment on ${postWhere}:`
               : `commented on ${postWhere}:`;
@@ -145,32 +153,42 @@ export function NotificationsScreen({ testID = 'notifications' }: { testID?: str
             uri={item.actor?.avatarUrl ?? undefined}
           />
           <View style={styles.copy}>
-            <Text style={[theme.typography.bodyMedium, { color: theme.colors.gray900 }]}>
-              {name} <Text style={{ color: theme.colors.gray700 }}>{action}</Text>
-            </Text>
-            {item.commentBody ? (
-              <Text
-                // Two lines: enough to answer "do I need to reply to this?" from
-                // the list, short enough that one long comment can't push every
-                // other notification off the screen.
-                numberOfLines={2}
-                style={[theme.typography.body, { color: theme.colors.gray900 }]}
-                testID={`${testID}-row-${item.id}-body`}
-              >
-                {/*
-                  A reply is addressed to YOU, and the thread renders that as a
-                  blue @mention of the parent's author. Reproduce it here from
-                  your own handle rather than reading it out of the body — bodies
-                  do not contain the mention, the thread composes it.
-                */}
-                {item.isReply && myHandle ? (
-                  <Text style={{ color: theme.colors.blue400 }}>{`@${myHandle} `}</Text>
-                ) : null}
-                {item.commentBody}
+            {/*
+              ONE wrapping paragraph — name, what they did, what they said, when.
+              Not a stack of Texts.
+
+              Stacked blocks put a hard line break after "…'s post:" and another
+              before the date, which reads as three separate facts and wastes two
+              rows of height per notification. As one paragraph it wraps
+              naturally and the whole thing scans as a sentence, which is what
+              the reference design does.
+            */}
+            <Text
+              // Four lines caps a long comment so one notification cannot push
+              // every other one off the screen. Everything before the body is
+              // short, so this is effectively "about two lines of comment".
+              numberOfLines={4}
+              style={[theme.typography.bodyMedium, { color: theme.colors.gray900 }]}
+            >
+              {name}
+              <Text style={{ color: theme.colors.gray700 }}>{` ${action}`}</Text>
+              {item.commentBody ? (
+                <Text testID={`${testID}-row-${item.id}-body`}>
+                  {/*
+                    A reply is addressed to YOU, and the thread renders that as a
+                    blue @mention of the parent's author. Reproduce it here from
+                    your own handle rather than reading it out of the body —
+                    bodies do not contain the mention, the thread composes it.
+                  */}
+                  {item.isReply && myHandle ? (
+                    <Text style={{ color: theme.colors.blue400 }}>{` @${myHandle}`}</Text>
+                  ) : null}
+                  <Text style={{ color: theme.colors.gray900 }}>{` ${item.commentBody}`}</Text>
+                </Text>
+              ) : null}
+              <Text style={{ color: theme.colors.gray500 }}>
+                {` ${formatNotificationDate(item.createdAt)}`}
               </Text>
-            ) : null}
-            <Text style={[theme.typography.label, { color: theme.colors.gray600 }]}>
-              {formatRelativeTime(item.createdAt)}
             </Text>
           </View>
 
@@ -250,26 +268,24 @@ function personLabel(person: AppNotification['actor']): string | null {
   return person?.handle?.trim() || person?.displayName?.trim() || null;
 }
 
-/** Compact relative time — "now", "3m", "5h", "2d", then a date. */
-function formatRelativeTime(iso: string): string {
+/**
+ * Calendar date only — "Aug 8".
+ *
+ * Not the "3m / 5h / 2d" relative clock this used to show. Notifications are
+ * read in a batch days apart, and a column of "2d, 3d, 6d" makes you do the
+ * arithmetic to place any of them; a date is the same length and just says
+ * when. It also sits INLINE at the end of the line here rather than on its own
+ * row, which is only legible because it is short and fixed-width-ish.
+ *
+ * No year: the list is capped at the most recent 50 notifications, so a row old
+ * enough for the year to matter is not reachable in practice.
+ */
+function formatNotificationDate(iso: string): string {
   const then = Date.parse(iso);
   if (Number.isNaN(then)) {
     return '';
   }
-  const seconds = Math.max(0, Math.floor((Date.now() - then) / 1000));
-  if (seconds < 60) {
-    return 'now';
-  }
-  if (seconds < 3600) {
-    return `${Math.floor(seconds / 60)}m`;
-  }
-  if (seconds < 86400) {
-    return `${Math.floor(seconds / 3600)}h`;
-  }
-  if (seconds < 604800) {
-    return `${Math.floor(seconds / 86400)}d`;
-  }
-  return new Date(then).toLocaleDateString();
+  return new Date(then).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 const styles = StyleSheet.create({

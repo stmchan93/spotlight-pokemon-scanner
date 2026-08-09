@@ -43,6 +43,12 @@ type PostCardProps = {
    * `requestDelete`; read-only surfaces simply omit it and get no menu.
    */
   onRequestDelete?: (post: FeedPost) => void;
+  /**
+   * Open the comment thread as soon as the card mounts. Set by the post-detail
+   * screen when a notification about a comment opened it, so the tap lands on
+   * the conversation it was telling you about instead of on a shut thread.
+   */
+  autoOpenComments?: boolean;
   testID?: string;
 };
 
@@ -138,6 +144,7 @@ export function PostCard({
   onPressCard,
   initialLiked,
   onRequestDelete,
+  autoOpenComments = false,
   testID = 'post-card',
 }: PostCardProps) {
   const theme = useSpotlightTheme();
@@ -167,8 +174,10 @@ export function PostCard({
   // pixels apart, and having the icon pop a composer-only sheet made whether you
   // saw the existing comments feel random. The icon just also focuses the
   // composer so you can type straight away.
-  const [commentsVisible, setCommentsVisible] = useState(false);
-  const [focusComposerOnOpen, setFocusComposerOnOpen] = useState(false);
+  // Seeded, not driven by an effect: the sheet should be open on the FIRST
+  // frame when a notification opened this post, so the thread does not appear to
+  // pop up a moment after the screen settles.
+  const [commentsVisible, setCommentsVisible] = useState(autoOpenComments);
 
   // Keep the optimistic counters in sync when a fresh copy of the post arrives
   // (e.g. a feed refresh). The optimistic writes above win only until then.
@@ -256,7 +265,12 @@ export function PostCard({
           </View>
           {postDate ? (
             <Text
-              style={[theme.typography.cardMeta, { color: theme.colors.gray600 }]}
+              // `caption` (12), not `cardMeta` (11). 11 is the floor of the
+              // whole scale — it is what badges use — and a post's date was
+              // sitting there while Instagram gives the same line 12. Swapped by
+              // USAGE rather than by raising `cardMeta`, because that token also
+              // sizes the collection grid tiles and has no business growing here.
+              style={[theme.typography.caption, { color: theme.colors.gray600 }]}
               testID={`${testID}-date`}
             >
               {postDate}
@@ -291,7 +305,12 @@ export function PostCard({
 
       {post.body ? (
         <Text
-          style={[styles.bodyText, theme.typography.bodySmall, { color: theme.colors.gray800 }]}
+          // `body` (15), not `bodySmall` (14). A post used to render SMALLER
+          // than the comments replying to it, which is what made the feed read
+          // undersized — the comparison was right there on screen. 15 is also
+          // what X and Threads use for a post, and it makes one reading size
+          // across the app instead of two a point apart.
+          style={[styles.bodyText, theme.typography.body, { color: theme.colors.gray800 }]}
           testID={`${testID}-body`}
         >
           {post.body}
@@ -359,10 +378,7 @@ export function PostCard({
               accessibilityLabel="Add a comment"
               accessibilityRole="button"
               hitSlop={COMMENT_ICON_HIT_SLOP}
-              onPress={() => {
-                setFocusComposerOnOpen(true);
-                setCommentsVisible(true);
-              }}
+              onPress={() => setCommentsVisible(true)}
               testID={`${testID}-comment-button`}
             >
               <ChatBubbleEmpty color={theme.colors.gray700} height={METRIC_ICON_SIZE} width={METRIC_ICON_SIZE} />
@@ -371,10 +387,7 @@ export function PostCard({
               accessibilityLabel="View comments"
               accessibilityRole="button"
               hitSlop={COMMENT_COUNT_HIT_SLOP}
-              onPress={() => {
-                setFocusComposerOnOpen(false);
-                setCommentsVisible(true);
-              }}
+              onPress={() => setCommentsVisible(true)}
               testID={`${testID}-comment-count-button`}
             >
               <Text
@@ -411,7 +424,6 @@ export function PostCard({
       />
 
       <CommentsSheet
-        autoFocusComposer={focusComposerOnOpen}
         onClose={() => setCommentsVisible(false)}
         onCommentAdded={() => setCommentCount((count) => count + 1)}
         onCommentCountResolved={setCommentCount}

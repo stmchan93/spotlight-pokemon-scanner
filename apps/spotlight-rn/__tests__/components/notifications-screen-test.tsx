@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react-native';
+import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { useRouter } from 'expo-router';
 
 import { NotificationsScreen } from '@/features/social/screens/notifications-screen';
@@ -78,17 +78,24 @@ describe('NotificationsScreen', () => {
 
     await waitFor(() => expect(screen.getByTestId('notifications-row-n-1')).toBeTruthy());
 
-    // "…on metamorphosis_amp's post:" — a reply arrives on someone else's post
-    // as often as your own, and the row used to say only "replied to you".
+    // ONE paragraph: who, what they did, whose post, the comment, the date —
+    // no hard line breaks between them.
     expect(
-      screen.getByText("replied to your comment on metamorphosis_amp's post:"),
+      screen.getByText(/replied to your comment on metamorphosis_amp's post:/),
     ).toBeTruthy();
-    // The comment itself, so the list answers "do I need to reply?" on its own,
-    // addressed to you the way the thread addresses a reply.
-    // The row's body composes a blue @you in front of the comment, so match the
-    // whole line rather than either fragment.
     expect(screen.getByTestId('notifications-row-n-1-body')).toBeTruthy();
-    expect(screen.getByText('@schan93_ ur down to go to Florida??')).toBeTruthy();
+    expect(screen.getByText(/ur down to go to Florida\?\?/)).toBeTruthy();
+    // Addressed to you, the way the thread addresses a reply.
+    expect(screen.getByText(/@schan93_/)).toBeTruthy();
+    // Calendar date, inline — not a "2d" relative clock on its own line. Derived
+    // rather than hardcoded: "Aug 1" in UTC is "Jul 31" in US Pacific, and the
+    // point being pinned is the FORMAT, not this machine's timezone.
+    const expectedDate = new Date('2026-08-01T00:00:00.000Z').toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+    });
+    expect(screen.getByText(new RegExp(`${expectedDate}\\s*$`))).toBeTruthy();
+    expect(screen.queryByText(/\b\d+[mhd]\b/)).toBeNull();
     expect(screen.getByTestId('notifications-row-n-1-thumbnail')).toBeTruthy();
   });
 
@@ -109,7 +116,7 @@ describe('NotificationsScreen', () => {
     // Handle for the actor, display name for the handle-less post owner — and no
     // leading "@" on either: that belongs to the mention in the body, not here.
     expect(screen.getByText(/^sarahkim_/)).toBeTruthy();
-    expect(screen.getByText("replied to your comment on Metamorphosis's post:")).toBeTruthy();
+    expect(screen.getByText(/replied to your comment on Metamorphosis's post:/)).toBeTruthy();
     expect(screen.queryByText(/@sarahkim_/)).toBeNull();
   });
 
@@ -121,7 +128,7 @@ describe('NotificationsScreen', () => {
     renderWithProviders(<NotificationsScreen />);
 
     await waitFor(() => expect(screen.getByTestId('notifications-row-n-2')).toBeTruthy());
-    expect(screen.getByText('commented on your post:')).toBeTruthy();
+    expect(screen.getByText(/commented on your post:/)).toBeTruthy();
   });
 
   it('renders a row whose context never resolved, instead of dropping the event', async () => {
@@ -154,8 +161,53 @@ describe('NotificationsScreen', () => {
     renderWithProviders(<NotificationsScreen />);
 
     await waitFor(() => expect(screen.getByTestId('notifications-row-n-4')).toBeTruthy());
-    expect(screen.getByText('started following you')).toBeTruthy();
-    expect(screen.getByText("liked metamorphosis_amp's post")).toBeTruthy();
+    expect(screen.getByText(/started following you/)).toBeTruthy();
+    // A like is always about something of YOURS, so it never names an owner.
+    expect(screen.getByText(/liked your post/)).toBeTruthy();
     expect(screen.queryByTestId('notifications-row-n-4-body')).toBeNull();
+  });
+
+  it('opens the post, with its thread up when the notification is about a comment', async () => {
+    const push = jest.fn();
+    (useRouter as jest.Mock).mockReturnValue({ push, back: jest.fn() });
+    (fetchNotifications as jest.Mock).mockResolvedValue([
+      buildNotification({ id: 'n-comment' }),
+      buildNotification({ id: 'n-like', type: 'like', commentId: null, commentBody: null, isReply: false }),
+    ]);
+
+    renderWithProviders(<NotificationsScreen />);
+    await waitFor(() => expect(screen.getByTestId('notifications-row-n-comment')).toBeTruthy());
+
+    // Comment rows used to be inert — there was no per-post route to send them
+    // to, so a notification could tell you about a reply and then refuse to show
+    // it to you.
+    fireEvent.press(screen.getByTestId('notifications-row-n-comment'));
+    expect(push).toHaveBeenLastCalledWith({
+      pathname: '/post/[postId]',
+      params: { postId: 'post-1', comments: '1' },
+    });
+
+    // A like on the post itself opens the post with the thread shut.
+    fireEvent.press(screen.getByTestId('notifications-row-n-like'));
+    expect(push).toHaveBeenLastCalledWith({
+      pathname: '/post/[postId]',
+      params: { postId: 'post-1', comments: '0' },
+    });
+  });
+
+  it('leads nowhere when the post it points at is gone', async () => {
+    const push = jest.fn();
+    (useRouter as jest.Mock).mockReturnValue({ push, back: jest.fn() });
+    (fetchNotifications as jest.Mock).mockResolvedValue([
+      buildNotification({ id: 'n-orphan', postId: null, postMediaId: null, postAuthor: null }),
+    ]);
+
+    renderWithProviders(<NotificationsScreen />);
+    await waitFor(() => expect(screen.getByTestId('notifications-row-n-orphan')).toBeTruthy());
+
+    // No destination → a plain View, not a Pressable promising something will
+    // happen. Pressing it must not navigate anywhere.
+    fireEvent.press(screen.getByTestId('notifications-row-n-orphan'));
+    expect(push).not.toHaveBeenCalled();
   });
 });

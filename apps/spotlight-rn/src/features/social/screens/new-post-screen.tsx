@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
+  Dimensions,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -12,7 +13,7 @@ import {
 } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Camera, Globe, MediaImage, NavArrowDown, Xmark } from 'iconoir-react-native';
 
 import { Avatar, Button, IconButton, SheetHeader, Text, useSpotlightTheme } from '@spotlight/design-system';
@@ -154,6 +155,9 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
   const router = useRouter();
   const { spotlightRepository } = useAppServices();
   const { currentUser } = useAuth();
+  // The sheet's own SafeAreaView already holds the footer this far off the
+  // screen's bottom edge, so it is that much of the keyboard we do NOT re-pay.
+  const insets = useSafeAreaInsets();
 
   const [body, setBody] = useState('');
   const [imageUri, setImageUri] = useState<string | null>(null);
@@ -162,56 +166,58 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
   /*
     Lift the footer (Public / Photo / Camera + POST) clear of the keyboard.
 
-    This is measured rather than assumed, and that is the point. The composer is
-    a `formSheet` whose top edge sits ~65pt down the screen, so a
-    `KeyboardAvoidingView` with `behavior="padding"` over-pads by exactly that
-    offset and throws the POST button off the top of the sheet — which is why iOS
-    was opted out of the KAV entirely and left the controls under the keyboard.
-    Both of those are the same mistake from opposite ends: guessing how much of
-    the footer the keyboard actually covers.
+    HOW THIS IS COMPUTED, AND WHY IT IS NOT MEASURED.
 
-    So: ask. On every keyboard frame, measure where the footer's bottom edge
-    really is and pad by the SHORTFALL only. Whatever UIKit already does to the
-    sheet is baked into that measurement, so there is nothing to double-count —
-    if the sheet is already clear, the overlap is 0 and this adds nothing.
+    The previous attempt measured the footer's window position on each keyboard
+    event and padded by the SHORTFALL, feeding its own output back in. That
+    lifted the chips clear but left the POST button under the keyboard: a
+    self-correcting loop only converges if every input is settled when it is
+    read, and here they are not — `keyboardDidShow` can land before the sheet's
+    final layout, and the QuickType suggestion bar changes the keyboard's height
+    afterwards WITHOUT firing another `keyboardDidShow`. Each stale reading was
+    silently absorbed as "already clear".
 
-    `did`-phase events on purpose (not `will`): the sheet may itself move during
-    the keyboard animation, and measuring mid-flight would read a position that
-    no longer holds when it settles.
+    So compute it instead. The footer is the bottom-most thing in a sheet that
+    reaches the screen's bottom edge, and `SafeAreaView` already pads it clear of
+    the home indicator, so clearing a keyboard of height K needs exactly
+    `K - insets.bottom`. No feedback loop, nothing to converge, and it is right
+    on the first frame.
+
+    This assumes UIKit does NOT lift the sheet for the keyboard. It does not:
+    the whole reason this bug exists is that the form sheet stays put and the
+    keyboard covers its bottom. (An earlier note claimed the opposite and used it
+    to justify opting iOS out of `KeyboardAvoidingView` entirely — that claim was
+    what left the controls buried in the first place.)
+
+    `keyboardWillChangeFrame` carries every height change, including the ones
+    `keyboardDidShow` misses, and its `will` phase means the footer travels with
+    the keyboard's own animation instead of snapping after it.
   */
-  const footerRef = useRef<View | null>(null);
-  const keyboardTopRef = useRef<number | null>(null);
-  const [keyboardOverlap, setKeyboardOverlap] = useState(0);
-
-  const syncKeyboardOverlap = useCallback(() => {
-    const keyboardTop = keyboardTopRef.current;
-    const node = footerRef.current;
-    if (keyboardTop == null || !node) {
-      return;
-    }
-    node.measureInWindow((_x, y, _width, height) => {
-      const covered = Math.max(0, y + height - keyboardTop);
-      // The measurement already reflects the padding in force, so the shortfall
-      // ADDS to it. One pass converges: applying it moves the footer up by
-      // exactly `covered`, which is what was still covered.
-      setKeyboardOverlap((current) => current + covered);
-    });
-  }, []);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   useEffect(() => {
-    const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
-      keyboardTopRef.current = event.endCoordinates?.screenY ?? null;
-      syncKeyboardOverlap();
+    // iOS-only: on Android the window itself resizes (adjustResize), which the
+    // `KeyboardAvoidingView` below already handles — adding this there would
+    // lift the footer a second keyboard's worth.
+    if (Platform.OS !== 'ios') {
+      return;
+    }
+    const changeSub = Keyboard.addListener('keyboardWillChangeFrame', (event) => {
+      const screenHeight = Dimensions.get('window').height;
+      const top = event.endCoordinates?.screenY ?? screenHeight;
+      // Derived from the keyboard's TOP rather than read from `height`: a
+      // dismissing keyboard reports its full height with a top that is already
+      // off-screen, which would keep the footer floating after it left.
+      setKeyboardHeight(Math.max(0, screenHeight - top));
     });
-    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
-      keyboardTopRef.current = null;
-      setKeyboardOverlap(0);
-    });
+    const hideSub = Keyboard.addListener('keyboardWillHide', () => setKeyboardHeight(0));
     return () => {
-      showSub.remove();
+      changeSub.remove();
       hideSub.remove();
     };
-  }, [syncKeyboardOverlap]);
+  }, []);
+
+  const keyboardOverlap = Math.max(0, keyboardHeight - insets.bottom);
 
   const trimmedBody = body.trim();
   const canPost = !isSubmitting && trimmedBody.length > 0;
@@ -421,7 +427,12 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
             placeholder="What's on your mind?"
             placeholderTextColor={theme.colors.gray600}
             // Body copy is regular 14 / gray-800 (Figma 3147:10825).
-            style={[styles.bodyInput, theme.typography.body, { fontSize: 14, lineHeight: 20, color: theme.colors.gray800 }]}
+            // `body` straight through, with NO fontSize override. It carried
+            // `fontSize: 14` on top of the token, so you composed at 14 and the
+            // post then published at 15 — what you typed was never the size of
+            // what you got. The literal was also exactly the kind of one-off the
+            // design-system rule exists to keep out of screens.
+            style={[styles.bodyInput, theme.typography.body, { color: theme.colors.gray800 }]}
             testID={`${testID}-body-input`}
             textAlignVertical="top"
             value={body}
@@ -450,8 +461,6 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
         </ScrollView>
 
         <View
-          onLayout={syncKeyboardOverlap}
-          ref={footerRef}
           style={[
             styles.footer,
             {
