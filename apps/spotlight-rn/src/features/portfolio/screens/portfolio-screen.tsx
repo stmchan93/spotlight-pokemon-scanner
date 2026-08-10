@@ -30,6 +30,7 @@ import {
   type PageTab,
   StateCard,
   Text,
+  Toast,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
@@ -91,6 +92,7 @@ import { useUnreadNotificationCount } from '@/features/social/use-unread-notific
 import { usePostDeletion } from '@/features/social/use-post-deletion';
 import { consumeFeedRefreshSignal } from '@/features/social/screens/new-post-screen';
 import { ProfileHeader } from '@/features/profile/components/profile-header';
+import { FOR_SALE_TAB_ENABLED } from '@/features/profile/for-sale-tab';
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
 import { useAuth } from '@/providers/auth-provider';
 
@@ -106,11 +108,17 @@ const SCAN_GLYPH_SIZE = 22;
 // The public "Portfolio" profile tabs. Only Collection is wired for now; For Sale
 // renders a gated "Coming soon" state until its roadmap phase ships; Activity is live (Phase 3a).
 type ProfileTab = 'collection' | 'forsale' | 'activity';
-const PROFILE_TABS: readonly PageTab<ProfileTab>[] = [
+const ALL_PROFILE_TABS: readonly PageTab<ProfileTab>[] = [
   { value: 'collection', label: 'Collection' },
   { value: 'forsale', label: 'For Sale' },
   { value: 'activity', label: 'Activity' },
 ];
+// For Sale is hidden until the feature exists — see `FOR_SALE_TAB_ENABLED` for
+// why this is a filter rather than a deleted line. Every For Sale render path
+// below stays live and type-checked.
+const PROFILE_TABS = ALL_PROFILE_TABS.filter(
+  (tab) => tab.value !== 'forsale' || FOR_SALE_TAB_ENABLED,
+);
 // Left→right order the horizontal page swipe walks. Derived from PROFILE_TABS so
 // the two can never disagree about which tab is "next".
 const PROFILE_TAB_ORDER = PROFILE_TABS.map((tab) => tab.value);
@@ -344,6 +352,11 @@ export function PortfolioScreen({
   // modal is still tearing down freezes the screen. Fired from <CardActionsSheet
   // onDismiss>.
   const pendingDismissActionRef = useRef<(() => void) | null>(null);
+  // Transient feedback for the actions-menu Wishlist toggle. The Collection rows
+  // carry no favorite affordance of their own, so without this the action was
+  // literally invisible: a successful toggle looked identical to a write that
+  // failed, which is exactly how "tapping Wishlist does nothing" reads.
+  const [wishlistToast, setWishlistToast] = useState<string | null>(null);
   const [singleDeleteEntry, setSingleDeleteEntry] = useState<InventoryCardEntry | null>(null);
   const [isSingleDeleting, setIsSingleDeleting] = useState(false);
   // One scroller per page tab. The pager keeps their vertical offsets in step
@@ -724,12 +737,18 @@ export function PortfolioScreen({
       });
   }, [isDeleting, refreshData, removeOptimisticInventoryEntries, selectedIds, spotlightRepository]);
 
+  // The Collection page runs `contentInsetAdjustmentBehavior="automatic"`, so it
+  // RESTS at `-insets.top` rather than at 0 — the same origin the pager is given
+  // as `contentInsetTop` below. Without this the FAB scrolled to 0, a status bar
+  // short of the real top, and appeared a status bar later than it should.
+  // Negative, and iOS-only, to match that prop exactly.
+  const pageTopOffset = Platform.OS === 'ios' ? -insets.top : 0;
   const {
     isVisible: showScrollTop,
     handleScroll,
     handleLayout,
     scrollToTop,
-  } = useScrollToTop(scrollRef, handleTabBarScroll);
+  } = useScrollToTop(scrollRef, handleTabBarScroll, pageTopOffset);
 
   const handlePressEntry = useCallback(
     (entry: InventoryCardEntry) => {
@@ -793,40 +812,35 @@ export function PortfolioScreen({
     run?.();
   }, []);
 
+  // Wishlist ("favorite" internally — see the wishlist naming rule) writes to the
+  // same owner-scoped card_favorites store the Wishlist tab reads, and the
+  // refreshData() bump is what re-fires that tab's load. The write used to end in
+  // `.catch(() => undefined)`, so a 401/404/timeout produced no error, no retry,
+  // and no visible change anywhere — indistinguishable from success. Surface both
+  // outcomes, and take the *server's* answer for the message rather than the row's
+  // local isFavorite, so a stale row can't mislabel what actually happened.
   const handleMenuWishlist = useCallback(() => {
     const entry = actionMenuEntry;
     setActionMenuEntry(null);
     if (!entry) {
       return;
     }
+    const nextIsFavorite = !entry.isFavorite;
     void spotlightRepository
-      .setCardFavorite(entry.cardId, !entry.isFavorite)
-      .then(() => refreshData())
-      .catch(() => undefined);
-  }, [actionMenuEntry, refreshData, spotlightRepository]);
-
-  const handleMenuDuplicate = useCallback(() => {
-    const entry = actionMenuEntry;
-    setActionMenuEntry(null);
-    if (!entry) {
-      return;
-    }
-    void spotlightRepository
-      .createInventoryEntry({
-        cardID: entry.cardId,
-        slabContext: entry.slabContext ?? null,
-        variantName: entry.kind === 'raw' ? entry.variantName ?? null : null,
-        condition: entry.kind === 'raw' ? entry.conditionCode ?? null : null,
-        quantity: 1,
-        sourceScanID: null,
-        addedAt: new Date().toISOString(),
-        costBasisPerUnit: entry.costBasisPerUnit ?? null,
-        // Duplicating a card keeps it in the collection you are viewing.
-        collectionID: activeCollectionID,
+      .setCardFavorite(entry.cardId, nextIsFavorite)
+      .then((record) => {
+        const savedIsFavorite = record?.isFavorite ?? nextIsFavorite;
+        setWishlistToast(savedIsFavorite ? 'Added to Wishlist' : 'Removed from Wishlist');
+        refreshData();
       })
-      .then(() => refreshData())
-      .catch(() => undefined);
-  }, [actionMenuEntry, activeCollectionID, refreshData, spotlightRepository]);
+      .catch(() => {
+        setWishlistToast(
+          nextIsFavorite
+            ? "Couldn't add that card to your Wishlist. Please try again."
+            : "Couldn't remove that card from your Wishlist. Please try again.",
+        );
+      });
+  }, [actionMenuEntry, refreshData, spotlightRepository]);
 
   // Delete from the menu: queue the confirm sheet on the actions sheet's
   // deterministic dismissal (same pattern as Share) instead of a timed guess.
@@ -1067,9 +1081,19 @@ export function PortfolioScreen({
       onOpenNotifications={() => router.push('/notifications' as never)}
       floating
       onOpenSearch={handleTopSearchPress}
-      // The page-tab bar pins directly under this bar, so it has to go opaque —
-      // otherwise the tail of the profile block sits parked behind the clock.
-      pinnedBackdrop
+      /*
+        NO `pinnedBackdrop`. It made this bar opaque so the tail of the profile
+        block could not park behind the clock — but the opaque strip it painted
+        between the menu button and the bell is exactly what read as "a weird
+        white bar", and Home (same component, no backdrop) is the behaviour
+        that was asked for: the buttons float, content scrolls under them, and
+        the search pill fades out on its own.
+
+        Chosen with both on screen side by side. If the parked-content artifact
+        comes back, give the PINNED TAB BAR its own backdrop rather than
+        re-opaquing the whole header — the buttons are not the part that needs
+        to hide it.
+      */
       scrollY={pagerScrollY}
       searchInteractive={!isSearchPillHidden}
       testID="portfolio-header"
@@ -1299,6 +1323,13 @@ export function PortfolioScreen({
           contentContainerStyle={page.contentContainerStyle}
           onScroll={page.onScroll}
           scrollEventThrottle={page.scrollEventThrottle}
+          // RN clamps a NEGATIVE scrollTo target to 0 unless this is set
+          // (RCTScrollViewComponentView.mm), and it clamps against
+          // `contentInset` — which is empty here, because
+          // `contentInsetAdjustmentBehavior="automatic"` puts the safe area
+          // in `adjustedContentInset` instead. Without it every "go to the
+          // top" the pager or the FAB performs lands `insets.top` short.
+          scrollToOverflowEnabled={page.scrollToOverflowEnabled}
           testID="portfolio-forsale-page"
         >
           <View
@@ -1334,6 +1365,13 @@ export function PortfolioScreen({
           onScroll={page.onScroll}
           renderItem={renderItem}
           scrollEventThrottle={page.scrollEventThrottle}
+          // RN clamps a NEGATIVE scrollTo target to 0 unless this is set
+          // (RCTScrollViewComponentView.mm), and it clamps against
+          // `contentInset` — which is empty here, because
+          // `contentInsetAdjustmentBehavior="automatic"` puts the safe area
+          // in `adjustedContentInset` instead. Without it every "go to the
+          // top" the pager or the FAB performs lands `insets.top` short.
+          scrollToOverflowEnabled={page.scrollToOverflowEnabled}
           testID="portfolio-activity-page"
         />
       );
@@ -1454,6 +1492,13 @@ export function PortfolioScreen({
           renderItem={renderItem}
           scrollEnabled={!isChartScrubbing}
           scrollEventThrottle={page.scrollEventThrottle}
+          // RN clamps a NEGATIVE scrollTo target to 0 unless this is set
+          // (RCTScrollViewComponentView.mm), and it clamps against
+          // `contentInset` — which is empty here, because
+          // `contentInsetAdjustmentBehavior="automatic"` puts the safe area
+          // in `adjustedContentInset` instead. Without it every "go to the
+          // top" the pager or the FAB performs lands `insets.top` short.
+          scrollToOverflowEnabled={page.scrollToOverflowEnabled}
           testID="portfolio-scroll-view"
         />
       </View>
@@ -1608,7 +1653,6 @@ export function PortfolioScreen({
         onClose={closeActionMenu}
         onDismiss={handleActionMenuDismissed}
         onDelete={handleMenuDelete}
-        onDuplicate={handleMenuDuplicate}
         onEdit={handleMenuEdit}
         onShare={handleMenuShare}
         onWishlist={handleMenuWishlist}
@@ -1671,6 +1715,26 @@ export function PortfolioScreen({
         testID="collection-delete-confirm"
         title="Delete collection"
         visible={collectionPendingDelete !== null}
+      />
+
+      {/* One-off action feedback for the actions-menu Wishlist toggle — a
+          transient Toast (same treatment as the public profile's failed DM)
+          rather than an inline StateCard, since the Collection stays usable and
+          nothing has to be dismissed to keep browsing. */}
+      <Toast
+        message={wishlistToast ?? ''}
+        onDismiss={() => setWishlistToast(null)}
+        style={[
+          styles.wishlistToast,
+          {
+            bottom: bottomNavClearance + theme.spacing.lg,
+            left: theme.layout.pageGutter,
+            right: theme.layout.pageGutter,
+          },
+        ]}
+        testID="collection-wishlist-toast"
+        tone="dark"
+        visible={wishlistToast !== null}
       />
     </SafeAreaView>
     </DrawerEdgeSwipe>
@@ -1777,5 +1841,9 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
+  },
+  wishlistToast: {
+    position: 'absolute',
+    zIndex: 5,
   },
 });
