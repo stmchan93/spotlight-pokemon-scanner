@@ -227,7 +227,22 @@ function AuthenticatedRoot() {
               <Stack.Screen
                 name="new-post"
                 options={{
-                  gestureEnabled: true,
+                  /*
+                    Swipe-to-dismiss is iOS-only here.
+
+                    On Android the formSheet drag is armed across the WHOLE
+                    sheet, including the text field — holding a finger on
+                    "What's on your mind?" and moving down closed the composer.
+                    That is not a sheet you can type in. Android keeps Cancel
+                    and the hardware back button, which is the platform's own
+                    convention anyway.
+
+                    `usePreventRemove` in `new-post-screen` still guards every
+                    exit path, so neither platform can silently bin a written
+                    post — this is about the gesture being unusable, not about
+                    losing work.
+                  */
+                  gestureEnabled: Platform.OS === 'ios',
                   presentation: 'formSheet',
                   sheetAllowedDetents: [0.92],
                   sheetCornerRadius: 16,

@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
+import { useNavigation, usePreventRemove } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Camera, Globe, MediaImage, NavArrowDown, Xmark } from 'iconoir-react-native';
@@ -159,6 +160,7 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
   // screen's bottom edge, so it is that much of the keyboard we do NOT re-pay.
   const insets = useSafeAreaInsets();
 
+  const navigation = useNavigation();
   const [body, setBody] = useState('');
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -193,6 +195,37 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
     `keyboardDidShow` misses, and its `will` phase means the footer travels with
     the keyboard's own animation instead of snapping after it.
   */
+  /*
+    An accidental flick must not destroy a written post.
+
+    The composer is a `formSheet` with `gestureEnabled`, and on Android a small
+    downward drag — the kind you make scrolling right after attaching a photo —
+    was enough to dismiss it, taking the text and the image with it. There is no
+    draft persistence behind this screen, so that content is simply gone.
+
+    `usePreventRemove` intercepts EVERY removal, not just the swipe: hardware
+    back, the Cancel button and the gesture all land here, so there is one
+    answer to "am I about to lose something" instead of three.
+
+    Only armed while there is something to lose, so an empty composer still
+    closes instantly — a confirm on an empty sheet is its own kind of annoying.
+  */
+  const hasUnsavedPost = body.trim().length > 0 || imageUri != null;
+  usePreventRemove(hasUnsavedPost && !isSubmitting, ({ data }) => {
+    Alert.alert(
+      'Discard this post?',
+      'You have not posted this yet. Closing now loses what you wrote and any photo you attached.',
+      [
+        { text: 'Keep editing', style: 'cancel' },
+        {
+          text: 'Discard',
+          style: 'destructive',
+          onPress: () => navigation.dispatch(data.action),
+        },
+      ],
+    );
+  });
+
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   useEffect(() => {

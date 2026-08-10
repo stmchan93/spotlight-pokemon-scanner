@@ -7,6 +7,24 @@ import { NewPostScreen } from '@/features/social/screens/new-post-screen';
 
 import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
 
+/*
+  The composer guards against losing an unwritten post via `usePreventRemove`,
+  which needs a real navigator. Mocking the two hooks keeps these tests free of
+  a NavigationContainer AND makes the guard directly assertable: `preventRemove`
+  records whether it was armed on each render.
+*/
+const mockPreventRemove = jest.fn();
+const mockDispatch = jest.fn();
+jest.mock('@react-navigation/native', () => ({
+  // Spread the real module: expo-router's testing-library needs
+  // `createNavigatorFactory` from it, and a wholesale replacement breaks the
+  // suite's router harness.
+  ...jest.requireActual('@react-navigation/native'),
+  useNavigation: () => ({ dispatch: mockDispatch }),
+  usePreventRemove: (enabled: boolean, callback: unknown) =>
+    mockPreventRemove(enabled, callback),
+}));
+
 jest.mock('expo-router', () => ({
   useRouter: jest.fn(),
   useNavigation: jest.fn(),
@@ -175,5 +193,46 @@ describe('NewPostScreen', () => {
 
     alertSpy.mockRestore();
     global.fetch = originalFetch;
+  });
+  /*
+    A downward swipe anywhere on the sheet dismisses it — including over the
+    text area — and there is no draft persistence behind this screen, so an
+    accidental flick after attaching a photo simply destroyed the post.
+  */
+  describe('guarding an unfinished post', () => {
+    /** Whether the remove-guard is armed on the most recent render. */
+    function guardArmed(): boolean {
+      const calls = mockPreventRemove.mock.calls;
+      return Boolean(calls[calls.length - 1]?.[0]);
+    }
+
+    it('stays out of the way while there is nothing to lose', async () => {
+      renderWithProviders(<NewPostScreen />);
+      await screen.findByTestId('new-post-body-input');
+
+      // An empty composer must still close on the first swipe; a confirm over
+      // nothing is its own kind of annoying.
+      expect(guardArmed()).toBe(false);
+    });
+
+    it('arms once something has been typed', async () => {
+      renderWithProviders(<NewPostScreen />);
+      const input = await screen.findByTestId('new-post-body-input');
+
+      fireEvent.changeText(input, 'Just pulled a Charizard');
+
+      expect(guardArmed()).toBe(true);
+    });
+
+    it('disarms again when the text is cleared back to whitespace', async () => {
+      renderWithProviders(<NewPostScreen />);
+      const input = await screen.findByTestId('new-post-body-input');
+
+      fireEvent.changeText(input, 'oops');
+      expect(guardArmed()).toBe(true);
+      fireEvent.changeText(input, '   ');
+
+      expect(guardArmed()).toBe(false);
+    });
   });
 });

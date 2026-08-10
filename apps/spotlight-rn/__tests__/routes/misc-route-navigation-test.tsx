@@ -433,7 +433,11 @@ describe('misc route wrappers', () => {
     // Figma 3147:10814 — 787pt of an 852pt screen.
     expect(rootLayout).toContain('sheetAllowedDetents: [0.92]');
     // Drag-down needs the gesture; tap-outside comes with formSheet itself.
-    expect(rootLayout).toContain('gestureEnabled: true');
+    // iOS ONLY: on Android the drag is armed across the whole sheet, including
+    // the text field, so holding a finger on the body and moving down closed
+    // the composer. Android keeps Cancel and the hardware back button.
+    expect(rootLayout).toContain("gestureEnabled: Platform.OS === 'ios'");
+    expect(rootLayout).not.toContain('gestureEnabled: true');
     // The composer draws its own grabber, so iOS must not add a second one.
     expect(rootLayout).toContain('sheetGrabberVisible: false');
   });
