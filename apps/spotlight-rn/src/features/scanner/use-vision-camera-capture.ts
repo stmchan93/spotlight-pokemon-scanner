@@ -18,6 +18,19 @@ export type VisionCameraCaptureResult = {
   base64?: string;
   width: number;
   height: number;
+  /**
+   * How the saved pixels sit relative to upright, straight from the capture.
+   *
+   * vision-camera applies this "lazily via EXIF flags" rather than rotating the
+   * buffer, so `width`/`height` above are the RAW sensor dims — landscape for a
+   * portrait-held phone — and anything that decodes the file without honouring
+   * EXIF sees it sideways. Callers that need genuinely upright pixels must rotate by
+   * this themselves; see `bakeCaptureOrientation` in the Who's That screen.
+   *
+   */
+  orientation?: 'up' | 'right' | 'down' | 'left';
+  /** True when the saved pixels are flipped horizontally (front camera). */
+  isMirrored?: boolean;
 };
 
 export type VisionCameraCaptureOptions = {
@@ -105,6 +118,8 @@ export function useVisionCameraCapture({
           base64,
           width: photo.width,
           height: photo.height,
+          orientation: photo.orientation,
+          isMirrored: photo.isMirrored,
         };
       } finally {
         photo.dispose();

@@ -53,11 +53,11 @@ const RESOLVE_MS = 460;
 /** Handoff settle when the lock-on already left your silhouette on screen. */
 const HANDOFF_MS = 160;
 /** The morph itself. */
-const MORPH_MS = 1240;
+const MORPH_MS = 2200;
 /** The species colours in out of the silhouette. */
-const COLOR_MS = 460;
+const COLOR_MS = 640;
 /** Tail after the colour lands, before the result panel takes over. */
-const SETTLE_MS = 260;
+const SETTLE_MS = 360;
 
 // Without YOUR outline there is nothing to deform FROM, so the sequence
 // collapses to the honest version of itself: dark stage → the species

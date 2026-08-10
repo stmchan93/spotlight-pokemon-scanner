@@ -116,13 +116,20 @@ function loadImageManipulator(): ImageManipulatorModule | null {
  * user is looking at, and the morph deforms a sideways human — which is exactly
  * the "the morphing isn't really there anymore" report.
  *
- * The fix is one pass through the image manipulator, whose FIRST transformer is
- * always `ImageFixOrientationTransformer` ("Guarantees that the original pixel
- * data matches the displayed orientation") on iOS, with Glide applying EXIF on
- * decode on Android — a shared code path, no platform branch needed. After it,
- * raw pixels == displayed pixels and no coordinate translation is needed
- * anywhere: backend, display and `sourceWidth`/`sourceHeight` all describe the
- * same upright image.
+ * The fix is a pass through the image manipulator. On iOS its FIRST transformer
+ * is always `ImageFixOrientationTransformer` ("Guarantees that the original
+ * pixel data matches the displayed orientation"), so one no-op pass is enough.
+ *
+ * ANDROID DOES NOT DO THAT, and assuming it did shipped a regression: the bake
+ * stripped the EXIF tag WITHOUT rotating the pixels, so `expo-image` lost the
+ * only thing that had been making the selfie upright and it rendered sideways.
+ * Hence the second, corrective pass below — gated on measured dimensions rather
+ * than `Platform.OS`, so it self-corrects wherever the module is lazy and stays
+ * a no-op where it is not.
+ *
+ * After it, raw pixels == displayed pixels and no coordinate translation is
+ * needed anywhere: backend, display and `sourceWidth`/`sourceHeight` all
+ * describe the same upright image.
  *
  * The base64 MUST come from this rotated file, not from the original read, or
  * the backend keeps segmenting the landscape frame and nothing improves.
@@ -134,25 +141,102 @@ function loadImageManipulator(): ImageManipulatorModule | null {
  * NOT done inside `use-vision-camera-capture` on purpose: that hook is shared
  * with the scanner, whose capture latency is a tracked product metric.
  */
+type CaptureOrientation = 'up' | 'right' | 'down' | 'left';
+
+/**
+ * Degrees to rotate the saved pixels by to bring them upright, clockwise.
+ *
+ * `orientation` describes where the content's TOP currently sits: `'right'`
+ * means "whatever was top is now on the right", so it has to come back
+ * counter-clockwise.
+ */
+export function uprightRotationDegrees(orientation: CaptureOrientation | undefined): number {
+  switch (orientation) {
+    case 'right':
+      return -90;
+    case 'left':
+      return 90;
+    case 'down':
+      return 180;
+    default:
+      return 0;
+  }
+}
+
+/** The dimensions the capture SHOULD have once it is upright. */
+export function uprightDimensions(
+  capture: { width: number; height: number },
+  orientation: CaptureOrientation | undefined,
+): { width: number; height: number } {
+  const quarterTurned = orientation === 'left' || orientation === 'right';
+  return quarterTurned
+    ? { width: capture.height, height: capture.width }
+    : { width: capture.width, height: capture.height };
+}
+
 async function bakeCaptureOrientation(
-  capture: { uri: string; base64?: string; width: number; height: number },
+  capture: {
+    uri: string;
+    base64?: string;
+    width: number;
+    height: number;
+    orientation?: CaptureOrientation;
+  },
 ): Promise<SelfieCapture | null> {
   const ImageManipulator = loadImageManipulator();
   if (!ImageManipulator?.manipulateAsync) {
     return null;
   }
+  const format = ImageManipulator.SaveFormat?.JPEG ?? 'jpeg';
+  const options = { base64: true, compress: 0.9, format } as const;
+  const expected = uprightDimensions(capture, capture.orientation);
   try {
-    const baked = await ImageManipulator.manipulateAsync(capture.uri, [], {
-      base64: true,
-      compress: 0.9,
-      format: ImageManipulator.SaveFormat?.JPEG ?? 'jpeg',
-    });
+    /*
+      PASS 1 — no operations, relying on the module to apply EXIF itself.
+
+      iOS does: `ImageManipulatorModule.swift` unconditionally pushes
+      `ImageFixOrientationTransformer` first. ANDROID DOES NOT, and that is a
+      shipped regression, not a theory: baking on Android stripped the EXIF tag
+      WITHOUT rotating the pixels, so `expo-image` lost the only thing that had
+      been making the selfie upright and it rendered sideways.
+    */
+    let baked = await ImageManipulator.manipulateAsync(capture.uri, [], options);
     if (!baked?.uri || !baked.base64) {
+      return null;
+    }
+
+    /*
+      PASS 2 — only when pass 1 demonstrably did not rotate.
+
+      Checked against measured dimensions rather than `Platform.OS`, so this
+      self-corrects on whichever platform is (or becomes) lazy, and is a no-op
+      where pass 1 already did the work. A quarter turn always swaps width and
+      height, so the comparison is unambiguous.
+    */
+    const rotation = uprightRotationDegrees(capture.orientation);
+    const alreadyUpright = baked.width === expected.width && baked.height === expected.height;
+    if (!alreadyUpright && rotation !== 0) {
+      const rotated = await ImageManipulator.manipulateAsync(
+        capture.uri,
+        [{ rotate: rotation }],
+        options,
+      );
+      if (rotated?.uri && rotated.base64) {
+        // Pass 1's output is now dead weight in the cache dir.
+        deleteTempFile(baked.uri);
+        baked = rotated;
+      }
+    }
+
+    // Re-read after the possible pass-2 swap: `baked` is reassignable, so the
+    // narrowing from the pass-1 guard no longer holds here.
+    const jpegBase64 = baked.base64;
+    if (!jpegBase64) {
       return null;
     }
     return {
       uri: baked.uri,
-      jpegBase64: baked.base64,
+      jpegBase64,
       width: baked.width,
       height: baked.height,
     };

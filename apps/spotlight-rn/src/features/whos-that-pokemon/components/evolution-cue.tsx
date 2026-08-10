@@ -24,11 +24,11 @@ const ms = (value: number) => Math.max(1, Math.round(value * TIME_SCALE));
 
 // Three words, three beats — the pause between them IS the joke.
 const LEAD_AT_MS = 0;
-const NAME_AT_MS = 420;
-const TAIL_AT_MS = 900;
-const WORD_IN_MS = 260;
+const NAME_AT_MS = 620;
+const TAIL_AT_MS = 1280;
+const WORD_IN_MS = 340;
 /** Time the finished line holds before the morph takes over. */
-const HOLD_MS = 900;
+const HOLD_MS = 1150;
 const DONE_MS = ms(TAIL_AT_MS + WORD_IN_MS + HOLD_MS);
 /** Reduce motion: the copy is the point, so it still shows — it just lands whole. */
 const REDUCED_DONE_MS = ms(1100);
