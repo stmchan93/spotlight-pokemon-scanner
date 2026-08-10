@@ -1,6 +1,8 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
-import { AccessibilityInfo } from 'react-native';
+import { AccessibilityInfo, Dimensions, StyleSheet } from 'react-native';
 
+import { resolveArtworkRect } from '@/features/whos-that-pokemon/face-geometry';
+import type { EvolutionHapticBeat } from '@/features/whos-that-pokemon/evolution-haptics';
 import { EvolutionCue } from '@/features/whos-that-pokemon/components/evolution-cue';
 import { FaceLockOn } from '@/features/whos-that-pokemon/components/face-lock-on';
 import { MorphLoop } from '@/features/whos-that-pokemon/components/morph-loop';
@@ -17,6 +19,32 @@ import { renderWithProviders } from '../test-utils';
 
 const PALETTE = ['#112233', '#445566', '#778899', '#AABBCC'];
 const ARTWORK = 'https://example.test/artwork/25.png';
+
+/**
+ * The evolution beat's rhythm is played on the taptic engine (there is no audio
+ * — a native audio dependency would cost an EAS build). Intercepting the
+ * SCHEDULER rather than the platform calls keeps these assertions about the
+ * score the component asked for, which is the part that has to be right; the
+ * score's own shape is covered in `evolution-haptics-test`.
+ */
+const mockScheduleEvolutionHaptics = jest.fn();
+jest.mock('@/features/whos-that-pokemon/evolution-haptics', () => {
+  const actual = jest.requireActual('@/features/whos-that-pokemon/evolution-haptics');
+  return {
+    ...actual,
+    scheduleEvolutionHaptics: (...args: unknown[]) => {
+      mockScheduleEvolutionHaptics(...args);
+      return () => {};
+    },
+  };
+});
+
+/** Every haptic beat the component under test asked to have played. */
+function scheduledBeats(): EvolutionHapticBeat[] {
+  return mockScheduleEvolutionHaptics.mock.calls.flatMap(
+    (call) => call[0] as EvolutionHapticBeat[],
+  );
+}
 
 // Under the reanimated jest mock every layer renders at its INITIAL animated
 // value, which for a beat that fades in means `opacity: 0`. RNTL treats that as
@@ -54,6 +82,11 @@ function layout(testID: string, width: number, height: number) {
   });
 }
 
+/** Resolved style of a rendered layer, with the array/registry flattened out. */
+function flatStyle(testID: string): Record<string, unknown> {
+  return (StyleSheet.flatten(get(testID).props.style) ?? {}) as Record<string, unknown>;
+}
+
 /** The `d` string currently on an animated SVG path. */
 function pathD(testID: string): string {
   const node = get(testID);
@@ -71,6 +104,10 @@ const reduceMotionMock = AccessibilityInfo.isReduceMotionEnabled as jest.Mock;
 function enableReduceMotion() {
   reduceMotionMock.mockResolvedValue(true);
 }
+
+beforeEach(() => {
+  mockScheduleEvolutionHaptics.mockClear();
+});
 
 afterEach(() => {
   reduceMotionMock.mockResolvedValue(false);
@@ -120,13 +157,6 @@ describe('FaceLockOn', () => {
     washColor: '#112233',
   };
 
-  /** Top-left corner of the head bracket, in screen coordinates. */
-  function bracketOrigin(): { x: number; y: number } {
-    const path = get('wtp-lockon-head-frame-path').props.d as string;
-    const [, x, y] = /^M ([\d.-]+) ([\d.-]+)/.exec(path) ?? [];
-    return { x: Number(x), y: Number(y) };
-  }
-
   it('measures against the backend head box when one is provided', async () => {
     renderWithProviders(
       <FaceLockOn
@@ -137,15 +167,18 @@ describe('FaceLockOn', () => {
     );
 
     expect(await screen.findByTestId('wtp-lockon')).toBeTruthy();
+    // The caption is the whole readout now: the bracket that used to draw the
+    // head box was removed because a box that is off — or estimated — puts a
+    // rectangle visibly wrong on your face and advertises the miss.
     expect(get('wtp-lockon-caption').props.children).toBe('Face geometry locked');
-    expect(get('wtp-lockon-head-frame')).toBeTruthy();
+    expect(query('wtp-lockon-head-frame')).toBeNull();
   });
 
   it('never draws landmark dots or caliper readouts over the face', async () => {
     // These were removed on purpose: the backend gives a head BOX, not a face
     // mesh, so every dot was a template projected into that box and every
     // readout ("JAW 87°") was derived from the template rather than the person.
-    // The bracket stays — it reflects data we actually have.
+    // The head bracket has since gone the same way, for the same reason.
     renderWithProviders(
       <FaceLockOn
         {...baseProps}
@@ -158,35 +191,7 @@ describe('FaceLockOn', () => {
     expect(query('wtp-lockon-dot-0')).toBeNull();
     expect(query('wtp-lockon-readouts')).toBeNull();
     expect(query('wtp-lockon-mesh-0')).toBeNull();
-    expect(get('wtp-lockon-head-frame')).toBeTruthy();
-  });
-
-  it('places the bracket where the head box says — the box really drives it', async () => {
-    const first = renderWithProviders(
-      <FaceLockOn
-        {...baseProps}
-        headBox={{ x: 0.05, y: 0.05, width: 0.2, height: 0.16 }}
-        onDone={jest.fn()}
-      />,
-    );
-    await screen.findByTestId('wtp-lockon');
-    const nearTopLeft = bracketOrigin();
-    first.unmount();
-
-    renderWithProviders(
-      <FaceLockOn
-        {...baseProps}
-        headBox={{ x: 0.7, y: 0.4, width: 0.2, height: 0.16 }}
-        onDone={jest.fn()}
-      />,
-    );
-    await screen.findByTestId('wtp-lockon');
-    const nearBottomRight = bracketOrigin();
-
-    // The selfie is mirrored for display, so a box on the RIGHT of the original
-    // lands on the LEFT of the screen — and lower down either way.
-    expect(nearBottomRight.x).toBeLessThan(nearTopLeft.x);
-    expect(nearBottomRight.y).toBeGreaterThan(nearTopLeft.y);
+    expect(query('wtp-lockon-head-frame')).toBeNull();
   });
 
   it('falls back to an estimated frame when the backend sent no head box', async () => {
@@ -195,7 +200,6 @@ describe('FaceLockOn', () => {
     expect(await screen.findByTestId('wtp-lockon')).toBeTruthy();
     // Says "estimating" rather than claiming a lock it does not have.
     expect(get('wtp-lockon-caption').props.children).toBe('Estimating your frame');
-    expect(get('wtp-lockon-head-frame')).toBeTruthy();
     expect(get('wtp-lockon-silhouette')).toBeTruthy();
   });
 
@@ -283,6 +287,57 @@ describe('EvolutionCue', () => {
     });
   });
 
+  it('sits UNDER the silhouette, anchored to it', async () => {
+    renderWithProviders(<EvolutionCue name="STEPHEN" onDone={jest.fn()} />);
+
+    await screen.findByTestId('wtp-evolving');
+    const { height, width } = Dimensions.get('window');
+    // The SAME helper that places the silhouette, so this asserts the real
+    // relationship rather than a magic number.
+    const silhouette = resolveArtworkRect(width, height);
+    const silhouetteBottom = silhouette.y + silhouette.height;
+    const top = flatStyle('wtp-evolving-copy').top as number;
+
+    // Below the shape — never drawn across it.
+    expect(top).toBeGreaterThanOrEqual(silhouetteBottom);
+    // …but hugging it. It used to hang off the bottom EDGE
+    // (`justifyContent: 'flex-end'`), where the hero line of the beat read as a
+    // system caption instead of as part of the creature.
+    expect(top - silhouetteBottom).toBeLessThanOrEqual(32);
+    expect(top).toBeLessThan(height * 0.85);
+  });
+
+  it('needs no scrim, now that it is off the silhouette', async () => {
+    // The radial scrim existed for exactly one reason: white display type
+    // centred ON a shape filled with a colour sampled from the user's own
+    // selfie. Under the shape, the copy sits on the lock-on's dark stage, so
+    // dimming the creature during its own evolution would be a cost with no
+    // benefit left to pay for.
+    renderWithProviders(<EvolutionCue name="STEPHEN" onDone={jest.fn()} />);
+
+    await screen.findByTestId('wtp-evolving');
+    expect(query('wtp-evolving-scrim')).toBeNull();
+  });
+
+  it('opens the rhythm with one tap per word, the name hitting hardest', async () => {
+    renderWithProviders(<EvolutionCue name="STEPHEN" onDone={jest.fn()} />);
+
+    await screen.findByTestId('wtp-evolving');
+    // The rhythm waits for the OS Reduce Motion answer, which is a promise —
+    // nothing is played into someone's hand on a guess.
+    await waitFor(() => {
+      expect(mockScheduleEvolutionHaptics).toHaveBeenCalled();
+    });
+    const beats = scheduledBeats();
+    expect(beats.map((beat) => beat.kind)).toEqual(['tick', 'build', 'tick']);
+    // Deliberately slow and widely spaced — everything after this gets faster,
+    // and it can only read as faster if it starts here.
+    const gaps = beats.slice(1).map((beat, index) => beat.atMs - beats[index].atMs);
+    gaps.forEach((gap) => {
+      expect(gap).toBeGreaterThan(500);
+    });
+  });
+
   it('reads as a sentence on the no-name fallback, never "null is evolving!"', async () => {
     renderWithProviders(<EvolutionCue name={EVOLVING_FALLBACK_NAME} onDone={jest.fn()} />);
 
@@ -306,6 +361,11 @@ describe('EvolutionCue', () => {
 
     await screen.findByTestId('wtp-evolving');
     expect(get('wtp-evolving-name').props.children).toBe('STEPHEN');
+    // …and still parked under the silhouette, since placement is not motion.
+    expect(get('wtp-evolving-copy')).toBeTruthy();
+    // …and no rhythm is played into someone who opted out of the effect.
+    expect(scheduledBeats()).toEqual([]);
+
     await waitFor(() => {
       expect(onDone).toHaveBeenCalledTimes(1);
     });
@@ -342,15 +402,73 @@ describe('RevealMorph', () => {
     expect(pathD('wtp-reveal-shape-path').startsWith('M ')).toBe(true);
     // …and the species colours in out of it.
     expect(get('wtp-reveal-artwork')).toBeTruthy();
-
-    // The full-white flash is gone for good. It never revealed anything — it
-    // existed to hide a 40ms swap. What is left is a soft palette bloom.
-    expect(query('wtp-reveal-flash')).toBeNull();
     expect(get('wtp-reveal-bloom')).toBeTruthy();
 
     await waitFor(() => {
       expect(onDone).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('glows white along the SAME outline it is deforming', async () => {
+    renderWithProviders(
+      <RevealMorph
+        {...baseProps}
+        onDone={jest.fn()}
+        personOutline={PERSON_OUTLINE}
+        speciesOutline={SPECIES_OUTLINE}
+      />,
+    );
+
+    await screen.findByTestId('wtp-reveal');
+    // The pulse is a second pass over ONE derived path, not a separate drawing —
+    // if it were its own shape the glow would drift off the silhouette it is
+    // supposed to be burning through.
+    expect(get('wtp-reveal-pulse')).toBeTruthy();
+    expect(pathD('wtp-reveal-pulse-path')).toBe(pathD('wtp-reveal-shape-path'));
+  });
+
+  it('lands exactly one flash, on top of a deformation that really happened', async () => {
+    // The white-out that used to live here was a cover story: the selfie swapped
+    // for the artwork in 40ms at the peak of it, and nothing morphed. The flash
+    // is back because the morph is now real and 4.2s long — it punctuates a
+    // transformation the user has already watched, rather than replacing one.
+    // ONE brief transition, never a repeat: a strobe is a photosensitivity risk.
+    renderWithProviders(
+      <RevealMorph
+        {...baseProps}
+        onDone={jest.fn()}
+        personOutline={PERSON_OUTLINE}
+        speciesOutline={SPECIES_OUTLINE}
+      />,
+    );
+
+    await screen.findByTestId('wtp-reveal');
+    expect(screen.getAllByTestId('wtp-reveal-flash', DEEP)).toHaveLength(1);
+    expect(get('wtp-reveal-shape')).toBeTruthy();
+    expect(pathD('wtp-reveal-shape-path').startsWith('M ')).toBe(true);
+  });
+
+  it('plays the build as an accelerating rhythm that breaks on the flash', async () => {
+    renderWithProviders(
+      <RevealMorph
+        {...baseProps}
+        onDone={jest.fn()}
+        personOutline={PERSON_OUTLINE}
+        speciesOutline={SPECIES_OUTLINE}
+      />,
+    );
+
+    await screen.findByTestId('wtp-reveal');
+    await waitFor(() => {
+      expect(mockScheduleEvolutionHaptics).toHaveBeenCalled();
+    });
+    const kinds = scheduledBeats().map((beat) => beat.kind);
+    expect(kinds).toContain('climax');
+    expect(kinds[kinds.length - 1]).toBe('land');
+    // Five pulses + a run-up: the beat has room to breathe, and it uses that
+    // room to speed up rather than to sit still.
+    expect(kinds.filter((kind) => kind === 'tick' || kind === 'build')).toHaveLength(5);
+    expect(kinds.filter((kind) => kind === 'roll')).toHaveLength(3);
   });
 
   it('opens on the exact shape the lock-on left on screen, so the handoff has no seam', async () => {
@@ -401,8 +519,6 @@ describe('RevealMorph', () => {
     expect(query('wtp-reveal-shape')).toBeNull();
     expect(get('wtp-reveal-silhouette')).toBeTruthy();
     expect(get('wtp-reveal-artwork')).toBeTruthy();
-    // …and emphatically still no flash to paper over the difference.
-    expect(query('wtp-reveal-flash')).toBeNull();
 
     await waitFor(() => {
       expect(onDone).toHaveBeenCalledTimes(1);
@@ -422,7 +538,10 @@ describe('RevealMorph', () => {
     });
   });
 
-  it('still completes under reduce motion', async () => {
+  it('drops the pulse, the flash and the rhythm under reduce motion', async () => {
+    // A calm cross-fade at a sensible length — NOT a stretched-out version of an
+    // effect someone asked not to see. Nothing pulses, nothing flashes, and the
+    // soundtrack collapses to a single acknowledgement of the payoff.
     enableReduceMotion();
     const onDone = jest.fn();
 
@@ -436,6 +555,14 @@ describe('RevealMorph', () => {
     );
 
     await screen.findByTestId('wtp-reveal');
+    await waitFor(() => {
+      expect(query('wtp-reveal-pulse')).not.toBeOnTheScreen();
+    });
+    expect(query('wtp-reveal-flash')).not.toBeOnTheScreen();
+    expect(scheduledBeats().map((beat) => beat.kind)).toEqual(['land']);
+
+    // …and the creature still arrives.
+    expect(get('wtp-reveal-artwork')).toBeTruthy();
     await waitFor(() => {
       expect(onDone).toHaveBeenCalledTimes(1);
     });
@@ -471,6 +598,11 @@ describe('MorphLoop', () => {
     expect(query('wtp-morph-loop-species-shape')).toBeNull();
     // The palette glow behind the subject stays.
     expect(get('wtp-morph-loop-glow')).toBeTruthy();
+    // …and the white glow echoes the reveal's, so the card reads as a replay of
+    // the beat rather than as a different animation of the same two pictures.
+    // ONE peak per direction of a ~5.7s loop — a pulse TRAIN on something that
+    // never stops would be the repeated flashing the reveal avoids.
+    expect(get('wtp-morph-loop-pulse')).toBeTruthy();
   });
 
   it('keeps the silhouette crossfade when the backend traced no outlines', async () => {

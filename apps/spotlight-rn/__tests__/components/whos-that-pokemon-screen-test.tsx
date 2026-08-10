@@ -85,13 +85,18 @@ describe('WhosThatPokemonScreen', () => {
     });
   });
 
-  it('opens on the capture phase with the privacy caption and shutter', async () => {
+  it('opens on the capture phase with the plain-language hint and shutter', async () => {
     renderScreen();
 
     expect(await screen.findByTestId('wtp-shutter')).toBeTruthy();
-    expect(screen.getByTestId('wtp-privacy-caption').props.children).toBe(
-      'Analyzed in the moment. Never stored.',
+    // One line, and it says what the feature DOES rather than art-directing the
+    // shot. The old copy ("Step back for a full-body shot…") and the privacy
+    // caption under it are both gone; the selfie is still never persisted, which
+    // is documented where the behaviour actually lives.
+    expect(screen.getByTestId('wtp-capture-hint').props.children).toBe(
+      'Take a picture of yourself to find out which Pokémon you look like!',
     );
+    expect(screen.queryByTestId('wtp-privacy-caption')).toBeNull();
     // No result/theater UI yet.
     expect(screen.queryByTestId('wtp-theater')).toBeNull();
     expect(screen.queryByTestId('wtp-result')).toBeNull();
@@ -130,17 +135,19 @@ describe('WhosThatPokemonScreen', () => {
     expect(screen.getByTestId('wtp-result-alternate-1')).toBeTruthy();
     expect(screen.getByTestId('wtp-result-alternate-2')).toBeTruthy();
 
-    // The backend returned a person cutout → the morph renders the shape arc:
-    // the dark stage, the palette glow, and BOTH silhouettes (yours and the
-    // species') that the transformation crossfades between.
-    expect(screen.getByTestId('wtp-result-morph-backdrop')).toBeTruthy();
-    expect(screen.getByTestId('wtp-result-morph-glow')).toBeTruthy();
-    expect(screen.getByTestId('wtp-result-morph-person-shape')).toBeTruthy();
-    expect(screen.getByTestId('wtp-result-morph-species-shape')).toBeTruthy();
-
-    // The cutout is a silhouette SOURCE only — it must never be drawn as a
-    // photo, which is what made the morph look like two copies of the user.
-    expect(screen.queryByTestId('wtp-result-morph-cutout')).toBeNull();
+    /*
+      The result HOLDS STILL. It used to replay the whole transformation on an
+      endless loop; you have already watched the evolution once at full size on
+      the way here, and a card that never stops moving is noise the moment you
+      have read it. The before/after row below still carries the comparison the
+      loop was really for, and it does not move.
+    */
+    expect(screen.getByTestId('wtp-result-hero-artwork')).toBeTruthy();
+    expect(screen.queryByTestId('wtp-result-morph-backdrop')).toBeNull();
+    expect(screen.queryByTestId('wtp-result-morph-person-shape')).toBeNull();
+    expect(screen.queryByTestId('wtp-result-morph-species-shape')).toBeNull();
+    // The still comparison stays.
+    expect(screen.getByTestId('wtp-result-compare')).toBeTruthy();
   });
 
   it('walks the same phases when the backend attaches segmentation geometry', async () => {

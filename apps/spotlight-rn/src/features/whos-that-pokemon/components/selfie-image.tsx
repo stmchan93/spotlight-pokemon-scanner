@@ -1,25 +1,25 @@
 import { type ComponentProps } from 'react';
-import { StyleSheet } from 'react-native';
-
 import { CachedImage } from '@/components/cached-image';
 
 type SelfieImageProps = ComponentProps<typeof CachedImage>;
 
 /**
- * The front camera saves its still un-mirrored (its true orientation), which
- * reads "reversed" next to the live mirror preview the user posed against.
- * SelfieImage flips it horizontally for DISPLAY only — the match/share payload
- * (`jpegBase64`) is a separate read of the original file and is left untouched.
+ * The captured selfie, shown in its TRUE orientation.
  *
- * Use it everywhere a captured selfie — or its backend person-cutout, so the
- * morph stays consistent — is shown to the user.
+ * This used to flip horizontally on the theory that the front camera saves
+ * un-mirrored and that reads "reversed" against the live preview. In practice
+ * the flip is what reads as wrong — reported as "the photo is mirrored, it
+ * should not be" — and it also put the displayed photo out of step with the
+ * silhouette traced from it, so your outline did not match your body.
+ *
+ * The mirror is now gone on BOTH sides: here, and `mirrorPerson` in
+ * `outline-morph`. They have to move together — mirroring one and not the
+ * other is exactly the mismatch being fixed — so if this ever comes back,
+ * change both.
+ *
+ * Kept as a named component rather than inlined so "where is the selfie
+ * drawn" stays answerable, and so the two sides keep one obvious pairing.
  */
 export function SelfieImage({ style, ...props }: SelfieImageProps) {
-  return <CachedImage style={[style, styles.mirror]} {...props} />;
+  return <CachedImage style={style} {...props} />;
 }
-
-const styles = StyleSheet.create({
-  mirror: {
-    transform: [{ scaleX: -1 }],
-  },
-});

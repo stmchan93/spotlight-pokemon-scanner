@@ -16,7 +16,6 @@ import { CachedImage } from '@/components/cached-image';
 
 import { officialArtworkUrl } from '../artwork';
 import { buildEvolvedLead, EVOLVING_FALLBACK_NAME } from '../evolution-copy';
-import { MorphLoop } from './morph-loop';
 import { SelfieFill } from './selfie-fill';
 
 type ResultPanelProps = {
@@ -114,16 +113,24 @@ export function ResultPanel({
     <View style={styles.root} testID={testID}>
       <SurfaceCard padding={spacing.md} radius={radii.xl} testID={`${testID}-hero`}>
         <View style={styles.heroContent}>
-          {/* The transformation replays on a loop so you can watch how you
-              morphed into the Pokémon. */}
-          <MorphLoop
-            artworkUrl={heroArtworkUrl}
-            cutoutUri={personCutoutUri}
-            personOutline={personOutline}
-            selfieUri={selfieUri}
-            speciesOutline={speciesOutline}
-            testID={`${testID}-morph`}
-            washColor={washColor}
+          {/*
+            THE RESULT IS A RESULT, not a loop.
+
+            This replayed the whole transformation forever so you could watch
+            how you morphed. In practice a card that never stops moving is
+            noise the moment you have read it — you already watched the
+            evolution once, at full size, on the way here. The reveal is the
+            performance; this is the answer.
+
+            The before/after row below still shows you → species, which is the
+            comparison the loop was really there for, and it holds still.
+          */}
+          <CachedImage
+            cachePolicy="disk"
+            contentFit="contain"
+            style={styles.heroArtwork}
+            testID={`${testID}-hero-artwork`}
+            uri={heroArtworkUrl}
           />
 
           {/* Side-by-side before → after, always visible for comparison. */}
@@ -261,6 +268,12 @@ const styles = StyleSheet.create({
   heroContent: {
     alignItems: 'center',
     gap: spacing.xxs,
+  },
+  heroArtwork: {
+    // Same square box the morph card occupied, so the panel's rhythm does not
+    // change now that it holds a still image.
+    aspectRatio: 1,
+    width: '100%',
   },
   compareRow: {
     alignItems: 'center',

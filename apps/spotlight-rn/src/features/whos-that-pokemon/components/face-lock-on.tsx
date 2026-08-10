@@ -218,7 +218,9 @@ export function FaceLockOn({
     transform: [{ scale: 0.94 + silhouetteProgress.value * 0.06 }],
   }));
 
-  const { headRect, isMeasured } = geometry;
+  // `headRect` went with the bracket — only the measured/estimated caption
+  // still reads from the geometry.
+  const { isMeasured } = geometry;
 
   return (
     <View onLayout={handleLayout} style={styles.root} testID={testID}>
@@ -266,24 +268,14 @@ export function FaceLockOn({
 
       {reduceMotion ? null : (
         <>
-          {/* Head bracket — where the analysis says your face is. */}
-          <Animated.View
-            pointerEvents="none"
-            style={[StyleSheet.absoluteFillObject, chromeStyle]}
-            testID={`${testID}-head-frame`}
-          >
-            <Svg height={containerHeight} width={containerWidth}>
-              <Path
-                d={headBracketPath(headRect)}
-                fill="none"
-                stroke={colors.scannerTextPrimary}
-                strokeOpacity={0.75}
-                strokeWidth={1.5}
-                testID={`${testID}-head-frame-path`}
-              />
-            </Svg>
-          </Animated.View>
-
+          {/*
+            NO HEAD BRACKET. It drew where the backend's `headBox` says your
+            face is, and when that box is off — or absent, where it fell back to
+            a proportional guess — the rectangle sits visibly wrong on your face
+            and advertises the miss. The caption below already says whether the
+            frame was measured or estimated, which is the honest version of the
+            same information without claiming a position it may not have.
+          */}
           <Animated.View
             pointerEvents="none"
             style={[StyleSheet.absoluteFillObject, chromeStyle]}
@@ -299,20 +291,6 @@ export function FaceLockOn({
   );
 }
 
-/** Four corner brackets around the head box (no full rectangle — less "CCTV"). */
-function headBracketPath(rect: { x: number; y: number; width: number; height: number }): string {
-  const arm = Math.max(10, Math.min(rect.width, rect.height) * 0.22);
-  const left = rect.x;
-  const top = rect.y;
-  const right = rect.x + rect.width;
-  const bottom = rect.y + rect.height;
-  return [
-    `M ${left} ${top + arm} L ${left} ${top} L ${left + arm} ${top}`,
-    `M ${right - arm} ${top} L ${right} ${top} L ${right} ${top + arm}`,
-    `M ${right} ${bottom - arm} L ${right} ${bottom} L ${right - arm} ${bottom}`,
-    `M ${left + arm} ${bottom} L ${left} ${bottom} L ${left} ${bottom - arm}`,
-  ].join(' ');
-}
 
 const styles = StyleSheet.create({
   root: {

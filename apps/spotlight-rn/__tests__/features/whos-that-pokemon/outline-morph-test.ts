@@ -266,7 +266,7 @@ describe('buildMorphOutlines', () => {
       return { x: 0.5 + Math.cos(angle) * radius, y: 0.5 + Math.sin(angle) * radius };
     });
 
-    const mirrored = buildMorphOutlines({
+    const byDefault = buildMorphOutlines({
       personOutline: lumpy,
       speciesOutline: species,
       artworkRect: RECT,
@@ -277,7 +277,18 @@ describe('buildMorphOutlines', () => {
       artworkRect: RECT,
       mirrorPerson: false,
     });
+    const mirrored = buildMorphOutlines({
+      personOutline: lumpy,
+      speciesOutline: species,
+      artworkRect: RECT,
+      mirrorPerson: true,
+    });
 
+    // The DEFAULT is now as-captured. `SelfieImage` stopped flipping the photo,
+    // and these two have to agree — mirroring the outline but not the picture
+    // is what put your silhouette on the wrong side of your body.
+    expect(outlinePathD(byDefault.from)).toBe(outlinePathD(asCaptured.from));
+    // The flip is still reachable, and still actually does something.
     expect(outlinePathD(mirrored.from)).not.toBe(outlinePathD(asCaptured.from));
   });
 

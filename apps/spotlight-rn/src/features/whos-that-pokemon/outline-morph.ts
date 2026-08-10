@@ -311,7 +311,10 @@ export function buildMorphOutlines(options: {
     personOutline,
     speciesOutline,
     artworkRect,
-    mirrorPerson = true,
+    // Matches `SelfieImage`, which no longer flips the photo either. These two
+    // must agree or the traced outline lands on the mirror image of the body it
+    // came from — reported as "the outline of me does not match my silhouette".
+    mirrorPerson = false,
     count = MORPH_POINT_COUNT,
   } = options;
 
