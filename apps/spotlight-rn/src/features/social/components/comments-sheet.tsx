@@ -15,20 +15,26 @@ import {
   type TextInput,
   View,
 } from 'react-native';
-import { ChatBubbleEmpty, SendDiagonal, ThumbsUp, Xmark } from 'iconoir-react-native';
+import { useRouter } from 'expo-router';
+import { ChatBubbleEmpty, MoreHoriz, SendDiagonal, ThumbsUp, Xmark } from 'iconoir-react-native';
 
 import { Avatar, Text, TextField, useSpotlightTheme } from '@spotlight/design-system';
 
+import { ConfirmDeleteSheet } from '@/features/cards/components/confirm-delete-sheet';
+import { OptionsSheet } from '@/features/social/components/options-sheet';
 import {
   addComment,
+  blockUser,
   deleteComment,
   fetchComments,
   fetchLikedCommentIds,
   likeComment,
   type PostComment,
+  reportContent,
   unlikeComment,
 } from '@/features/social/social-service';
 import { getResolvedDisplayName } from '@/features/auth/auth-models';
+import { profileRouteSlug } from '@/features/social/profile-link';
 import { useAuth } from '@/providers/auth-provider';
 
 type CommentsSheetProps = {
@@ -65,6 +71,18 @@ const ROW_GAP = 6;
 const REPLY_INDENT = AVATAR_SIZE + ROW_GAP;
 /** Comment like icon, 18px per Figma 2903-7970. */
 const COMMENT_ICON_SIZE = 18;
+/**
+ * The ⋯ options glyph (Figma 315:2992), same icon and role as the post card's
+ * "Post options". Drawn at the comment row's own 18px icon size rather than the
+ * card's 24: a comment row is built around a 24px avatar, so a 24px glyph beside
+ * it would be as tall as the author's face and out-weigh the like it sits above.
+ */
+const COMMENT_MORE_ICON_SIZE = COMMENT_ICON_SIZE;
+/**
+ * The ⋯ button's own box. Explicit so the button can never be compressed to
+ * nothing by the `flex: 1` comment body beside it — see `styles.moreButton`.
+ */
+const MORE_BUTTON_SIZE = 24;
 /** Resting sheet height with the keyboard down. */
 const SHEET_HEIGHT_RESTING = SCREEN_HEIGHT * 0.6;
 /**
@@ -164,6 +182,21 @@ type MaybeTombstoned = PostComment & { isDeleted?: boolean };
 /** Whether this row is a tombstone: present in the thread, but its body is gone. */
 export function isTombstone(comment: PostComment): boolean {
   return (comment as MaybeTombstoned).isDeleted === true;
+}
+
+/**
+ * The right noun for a row. A comment with a parent is a REPLY, and a user
+ * reported the mismatch: the confirmation asked "Delete reply?" and the row it
+ * left behind then said "This comment was deleted". Every string that has to name
+ * the thing comes from here, so the two cannot drift apart again.
+ */
+function commentNoun(isReply: boolean): 'comment' | 'reply' {
+  return isReply ? 'reply' : 'comment';
+}
+
+/** The line a tombstone shows in place of the body it no longer has. */
+export function tombstoneLabel(isReply: boolean): string {
+  return `This ${commentNoun(isReply)} was deleted`;
 }
 
 /**
@@ -288,6 +321,57 @@ export function collectDescendantIds(comments: PostComment[], rootId: string): s
 }
 
 /**
+ * Drop tombstones that nothing hangs off any more.
+ *
+ * A tombstone exists ONLY to hold surviving replies up, so one with no replies
+ * left is an empty "was deleted" line sitting over nothing. `fetchComments`
+ * already applies this rule to a freshly loaded thread (`pruneChildlessTombstones`
+ * in `social-service.ts`), but LOCAL state can strand one after the fact: delete a
+ * comment, which stays as a tombstone because it has a reply, then delete that
+ * reply — the tombstone is now childless and would sit there until the next
+ * fetch. Depth-agnostic, so a stranded tombstone REPLY goes the same way as a
+ * stranded top-level one.
+ *
+ * Run to a fixed point rather than in one pass: dropping one tombstone can strand
+ * its (also tombstoned) parent. Each round strictly shrinks the set, so this
+ * terminates in at most depth rounds.
+ */
+export function pruneOrphanedTombstones(comments: PostComment[]): PostComment[] {
+  if (!comments.some(isTombstone)) {
+    return comments;
+  }
+  let kept = comments;
+  for (;;) {
+    const keptIds = new Set(kept.map((entry) => entry.id));
+    const parentsWithReplies = new Set<string>();
+    for (const entry of kept) {
+      const parentId = entry.parentCommentId;
+      if (parentId && keptIds.has(parentId)) {
+        parentsWithReplies.add(parentId);
+      }
+    }
+    const next = kept.filter((entry) => !isTombstone(entry) || parentsWithReplies.has(entry.id));
+    if (next.length === kept.length) {
+      return next;
+    }
+    kept = next;
+  }
+}
+
+/**
+ * The one overlay the sheet can be showing over its thread: a delete
+ * confirmation, the Report/Block menu, or the block confirmation.
+ *
+ * One slot rather than three booleans because only one is ever up, and because
+ * the copy on each is derived from the comment it was opened for — which has to
+ * survive the close so the sheet keeps its words while it slides away.
+ */
+type CommentPrompt =
+  | { kind: 'delete'; comment: PostComment; keepAsTombstone: boolean; replyCount: number }
+  | { kind: 'options'; comment: PostComment }
+  | { kind: 'block'; comment: PostComment };
+
+/**
  * Bottom-sheet comment thread (Phase 3b). Loads `fetchComments(postId)`, renders it
  * oldest-first with one level of reply nesting behind a per-comment "N replies"
  * toggle, and lets the viewer like a comment (optimistic) or add a comment / reply
@@ -310,6 +394,7 @@ export function CommentsSheet({
   testID = 'comments-sheet',
 }: CommentsSheetProps) {
   const theme = useSpotlightTheme();
+  const router = useRouter();
 
   const { currentUser } = useAuth();
   const [isRendered, setIsRendered] = useState(visible);
@@ -358,6 +443,17 @@ export function CommentsSheet({
   // Deletes in flight, so a second long-press on the same row can't fire a
   // second request (or a second rollback).
   const deletePendingRef = useRef<Set<string>>(new Set());
+  // Reports in flight, so a second tap on ⋯ can't file (and acknowledge) twice.
+  const reportPendingRef = useRef<Set<string>>(new Set());
+  /*
+    The overlay currently over the thread, and whether it is open.
+
+    Two pieces of state, not one: the prompt is RETAINED after it closes so the
+    sheet still has its title and body copy to render while it slides back down.
+    Nulling it on close would blank the words mid-dismissal.
+  */
+  const [prompt, setPrompt] = useState<CommentPrompt | null>(null);
+  const [promptOpen, setPromptOpen] = useState(false);
   // Latest thread, readable from a callback without putting `comments` in its
   // deps. The delete flow needs the CURRENT list twice — once to snapshot what it
   // removed, once to put it back on failure — and a stale closure there would
@@ -507,6 +603,7 @@ export function CommentsSheet({
     setExpandedIds(new Set());
     setLikedCommentIds(new Set());
     setLikeCountOverrides({});
+    setPromptOpen(false);
     scrollAfterSendRef.current = false;
     /*
       Opening the sheet starts at the TOP of the thread, like every other comment
@@ -637,9 +734,19 @@ export function CommentsSheet({
     (comment: PostComment, keepAsTombstone: boolean) => {
       deletePendingRef.current.add(comment.id);
       const before = commentsRef.current;
-      const after = keepAsTombstone
+      const applied = keepAsTombstone
         ? before.map((entry) => (entry.id === comment.id ? toTombstone(entry) : entry))
         : before.filter((entry) => entry.id !== comment.id);
+      // Removing the last reply under an OLDER tombstone leaves that tombstone
+      // holding nothing up, so it goes too — and so does its parent, if that was
+      // a tombstone as well.
+      const after = pruneOrphanedTombstones(applied);
+      const afterIds = new Set(after.map((entry) => entry.id));
+      // Rows this delete swept away as a side effect. The rollback has to take
+      // them from the snapshot, because the current list no longer has them.
+      const strandedIds = new Set(
+        applied.filter((entry) => !afterIds.has(entry.id)).map((entry) => entry.id),
+      );
 
       setComments(after);
       onCommentCountResolved?.(visibleCommentCount(after));
@@ -665,13 +772,18 @@ export function CommentsSheet({
           const currentById = new Map(current.map((entry) => [entry.id, entry]));
           const beforeIds = new Set(before.map((entry) => entry.id));
           const restored = [
-            // Originals, in their original order. Only the row this delete
-            // touched comes from the snapshot — that is what puts the body back
-            // under a tombstone, or the whole row back if it was removed. Every
-            // other row is taken from the CURRENT list so a concurrent change
-            // isn't clobbered, and is dropped if something else removed it.
+            // Originals, in their original order. Only the rows this delete
+            // touched come from the snapshot — the row itself (which is what puts
+            // the body back under a tombstone, or the whole row back if it was
+            // removed) plus any tombstone the prune stranded on its way out.
+            // Every other row is taken from the CURRENT list so a concurrent
+            // change isn't clobbered, and is dropped if something else removed it.
             ...before
-              .map((entry) => (entry.id === comment.id ? entry : currentById.get(entry.id)))
+              .map((entry) =>
+                entry.id === comment.id || strandedIds.has(entry.id)
+                  ? entry
+                  : currentById.get(entry.id),
+              )
               .filter((entry): entry is PostComment => Boolean(entry)),
             // Anything posted while the delete was in flight.
             ...current.filter((entry) => !beforeIds.has(entry.id)),
@@ -686,13 +798,34 @@ export function CommentsSheet({
     [onCommentCountResolved],
   );
 
-  /**
-   * Confirm before deleting. A plain `Alert` on purpose: this sheet is itself a
-   * `Modal`, and `ConfirmDeleteSheet` is another `Modal` — stacking them is
-   * unreliable on iOS (the second sheet can present behind this one, and its copy
-   * is Collection-specific anyway). `Alert` is OS-level, so it always renders
-   * above the sheet, and it is already this app's confirmation idiom.
-   */
+  /*
+    OPENING A PROMPT, and why these are sheets rather than `Alert`s now.
+
+    They used to be `Alert`s because this sheet is itself a `Modal` and
+    `ConfirmDeleteSheet` was another `Modal`, and stacking two native modals is
+    unreliable on iOS — the second can present BEHIND the first, which reads as
+    the button doing nothing. That constraint was about the MODAL, not about the
+    component: `ConfirmDeleteSheet` now takes `presentation="inline"` and renders
+    its scrim + sheet inside whatever view tree it is given. Rendered as the last
+    child of this sheet's own Modal, there is no second view controller and
+    therefore nothing to collide with, so the delete confirmation is now literally
+    the same component the post delete uses (`use-post-deletion.tsx`).
+
+    The keyboard goes away first: every one of these is bottom-anchored, and a
+    confirmation behind the keyboard is the same invisible-button failure by
+    another route.
+  */
+  const openPrompt = useCallback((next: CommentPrompt) => {
+    Keyboard.dismiss();
+    setPrompt(next);
+    setPromptOpen(true);
+  }, []);
+
+  const closePrompt = useCallback(() => {
+    setPromptOpen(false);
+  }, []);
+
+  /** Confirm before deleting — Cancel, or a red Delete, exactly like a post. */
   const handleRequestDelete = useCallback(
     (comment: PostComment) => {
       if (deletePendingRef.current.has(comment.id)) {
@@ -702,29 +835,132 @@ export function CommentsSheet({
       // Direct children decide the tombstone; descendants (children of children
       // included) are what the copy counts, because the thread flattens every
       // depth under the same top-level comment — so they all stay visible.
-      const hasReplies = current.some((entry) => entry.parentCommentId === comment.id);
-      const replyCount = collectDescendantIds(current, comment.id).length;
-      Alert.alert(
-        comment.parentCommentId ? 'Delete reply?' : 'Delete comment?',
-        hasReplies
-          ? // Say what actually happens now: your words go, the thread does not.
-            // The old copy warned that the replies went too — they no longer do.
-            `Your words are removed, but the ${replyCount} ${replyCount === 1 ? 'reply' : 'replies'} underneath stay, under a “comment was deleted” line. This can't be undone.`
-          : "This can't be undone.",
-        [
-          { style: 'cancel', text: 'Cancel' },
-          {
-            onPress: () => runDelete(comment, hasReplies),
-            style: 'destructive',
-            text: 'Delete',
-          },
-        ],
-      );
+      openPrompt({
+        kind: 'delete',
+        comment,
+        keepAsTombstone: current.some((entry) => entry.parentCommentId === comment.id),
+        replyCount: collectDescendantIds(current, comment.id).length,
+      });
     },
-    [runDelete],
+    [openPrompt],
   );
 
-  const handleSend = useCallback(() => {
+  /**
+   * File the report. Nothing is hidden locally as a result: social_04 only hides a
+   * comment once THREE distinct people report it, so pretending otherwise here
+   * would promise an outcome the server does not deliver. The only feedback is the
+   * acknowledgement, which is also why the failure case has to say so — a silent
+   * no-op would read as "reported" to someone who reported nothing.
+   */
+  const runReport = useCallback((comment: PostComment) => {
+    reportPendingRef.current.add(comment.id);
+    void (async () => {
+      const ok = await reportContent({
+        reportedUserId: comment.authorId,
+        commentId: comment.id,
+        // `reports.reason` is nullable and there is no reason picker on this
+        // surface — a second sheet to choose one would be the very Modal stacking
+        // `handleRequestDelete` avoids. An empty string is stored as null rather
+        // than as an invented category the moderator would have to distrust.
+        reason: '',
+      });
+      reportPendingRef.current.delete(comment.id);
+      if (ok) {
+        // Deliberately the same copy whether or not this reporter had already
+        // reported this comment: the write is idempotent, and telling someone
+        // "you already reported this" only invites them to try to report harder.
+        //
+        // Short on purpose. Earlier drafts also promised anonymity and warned
+        // that reporting hides nothing until three distinct people report the
+        // same target — both true, both cut on request. Word-for-word identical
+        // to the post card's acknowledgement: reporting is one action, and it
+        // should not sound like two different features depending on what you
+        // reported.
+        Alert.alert(
+          'Report sent',
+          "Thanks for reporting this. We've received your report and will take a look at this as soon as possible.",
+        );
+        return;
+      }
+      Alert.alert("Couldn't report", 'That report did not go through. Please try again.');
+    })();
+  }, []);
+
+  /**
+   * Block this comment's author. Reached only from the block confirmation, which
+   * is not optional: this is the one action here that changes what a whole other
+   * account can see.
+   *
+   * The confirmation copy promises no undo on purpose: `unblockUser` exists in the
+   * service but nothing in the app calls it yet, so there is no unblock surface to
+   * point at. Same wording as the post card's block confirmation — one action
+   * against one person should not read as two different things depending on where
+   * you tapped.
+   */
+  const runBlock = useCallback((comment: PostComment) => {
+    if (reportPendingRef.current.has(comment.id)) {
+      return;
+    }
+    const displayName = authorDisplayName(comment);
+    reportPendingRef.current.add(comment.id);
+    void (async () => {
+      const ok = await blockUser(comment.authorId);
+      reportPendingRef.current.delete(comment.id);
+      if (ok) {
+        // The thread is not re-fetched here: `is_blocked` is enforced in the RLS
+        // select policy, so the block takes effect on the next read. Saying so is
+        // better than silently leaving their words on screen and letting the
+        // viewer think the block failed.
+        //
+        // An `Alert` and not a sheet, here and in the other outcome messages
+        // below: these are ACKNOWLEDGEMENTS, not confirmations. There is nothing
+        // to choose, the post card says the same things the same way, and an
+        // OS alert over a Modal is the one stacking that has never been in doubt.
+        Alert.alert(
+          `${displayName} is blocked`,
+          'You will stop seeing them the next time this thread loads.',
+        );
+      } else {
+        Alert.alert(
+          "Couldn't block",
+          `${displayName} has not been blocked. Please try again in a moment.`,
+        );
+      }
+    })();
+  }, []);
+
+  /**
+   * The safety menu for someone else's comment: Report and Block together.
+   *
+   * Block is here because `reportContent`'s own contract says it must be —
+   * reporting hides nothing until THREE distinct people report the same target,
+   * so a report-only menu leaves the viewer still reading the thing they just
+   * reported. The tempting argument against ("block is an action against a
+   * person, so it belongs on their post or profile") fails on the ordinary case:
+   * someone commenting on YOUR post may have no post anywhere in your feed, so
+   * this row is the only place you can reach them at all.
+   *
+   * Shaped exactly like the post card's ⋯ — menu, then a confirmation only for
+   * Block. Report needs none: it is idempotent server-side (social_04's unique
+   * constraint) and hides nothing, so a confirm step would only add friction to
+   * the safer of the two actions.
+   */
+  const handleRequestReport = useCallback(
+    (comment: PostComment) => {
+      if (reportPendingRef.current.has(comment.id)) {
+        return;
+      }
+      openPrompt({ kind: 'options', comment });
+    },
+    [openPrompt],
+  );
+
+  /**
+   * Post the draft. Returns whether it actually STARTED a send, which is what
+   * lets the button fire on touch-down without risking a double post — see the
+   * send button below.
+   */
+  const handleSend = useCallback((): boolean => {
     const text = draft.trim();
     // `sending` is STATE, so two taps inside one frame both read it as false and
     // post the comment twice. That was reachable in practice: the composer used
@@ -732,17 +968,17 @@ export function CommentsSheet({
     // so the natural response was to press send again. The ref closes the window
     // synchronously; `sending` stays for the disabled/greyed button.
     if (sendingRef.current || sending || text.length === 0 || !postId) {
-      return;
+      return false;
     }
     const parent = replyTo;
     sendingRef.current = true;
     setSending(true);
 
     void (async () => {
-      const newId = await addComment(postId, text, parent?.id ?? null);
-      if (newId) {
+      const result = await addComment(postId, text, parent?.id ?? null);
+      if (result.ok) {
         const optimistic: PostComment = {
-          id: newId,
+          id: result.id,
           postId,
           // The author is the signed-in user, whose profile we already hold.
           // Leaving these empty made a just-posted comment render as the
@@ -770,30 +1006,83 @@ export function CommentsSheet({
         setReplyTo(null);
         onCommentAdded?.(optimistic);
         /*
-          THE KEYBOARD STAYS UP, and the thread scrolls to what you just wrote.
+          POST, then put the keyboard away — in that order, and only once the
+          write has come back with an id. This is what was asked for: send,
+          dismiss, clear.
 
-          Sending used to `Keyboard.dismiss()` and then chase the resulting sheet
-          collapse with a timed scroll. From the outside that is indistinguishable
-          from the send doing nothing: the keyboard drops, the sheet shrinks, and
-          your comment is at the end of a thread you are not looking at. The
-          collapse was also the only thing that made the write visible, so when
-          the timed scroll lost its race there was no feedback at all.
+          An earlier revision removed the dismiss because it was paired with a
+          TIMED scroll that chased the sheet's collapse and regularly lost the
+          race, leaving your comment at the end of a thread you were no longer
+          looking at — indistinguishable from the send doing nothing. That was
+          the timer's fault, not the dismissal's: the scroll is driven by the
+          list's own content-size change now (see `onContentSizeChange`), which
+          cannot fire before the row exists. Both can be true at once.
 
-          Leaving the keyboard where it is means the sheet keeps its full height,
-          your comment lands directly above the composer, and you can write
-          another without tapping back in.
+          A FAILED write keeps the keyboard up and the draft intact, because that
+          is what trying again needs.
         */
         scrollAfterSendRef.current = true;
+        Keyboard.dismiss();
+      } else {
+        /*
+          SAY SO. A failed write used to do nothing at all: the draft stayed, no
+          comment appeared, and nothing was reported — which on the phone is
+          exactly what a dead send button looks like. That silence is why this
+          bug survived five fixes aimed at the button, the gesture and the
+          keyboard while the write was the thing failing.
+
+          `reason` is the database's own message, not a generic apology, so a
+          policy rejection or a missing migration names itself instead of having
+          to be guessed at from the outside.
+        */
+        Alert.alert("Couldn't post comment", result.reason);
       }
       sendingRef.current = false;
       setSending(false);
     })();
+    return true;
   }, [currentUser, draft, onCommentAdded, postId, replyTo, sending]);
+
+  /*
+    SEND ON TOUCH-DOWN, not on release.
+
+    Third attempt at "send just dismisses the keyboard and keeps my text". The
+    first two assumed the press was reaching `onPress` and something afterwards
+    was wrong — the return key's blur, then the post-send scroll. It was neither:
+    the tap itself never arrives. A tap next to a focused `TextInput`, inside a
+    `Modal` whose sheet is resizing to the keyboard, gets consumed before the
+    finger lifts, so `onPress` — which only fires on RELEASE — never runs. That
+    is exactly the shape of the report: keyboard goes away, nothing posted, draft
+    still there.
+
+    `onPressIn` fires on touch-DOWN, before anything can eat the gesture, which
+    is why this cannot be beaten by whatever is consuming it.
+
+    `onPress` STAYS, because VoiceOver activation only ever fires that one, and
+    dropping it would make the button unusable with a screen reader. The guard is
+    what keeps the two from posting twice: `handleSend` reports whether it
+    actually started a send, and the flag is reset at the top of each touch-down,
+    so `onPress` only acts when the touch-down path did nothing (i.e. VoiceOver,
+    where no `onPressIn` ran).
+  */
+  const sentOnPressInRef = useRef(false);
+  const handleSendPressIn = useCallback(() => {
+    sentOnPressInRef.current = handleSend();
+  }, [handleSend]);
+  const handleSendPress = useCallback(() => {
+    if (sentOnPressInRef.current) {
+      sentOnPressInRef.current = false;
+      return;
+    }
+    handleSend();
+  }, [handleSend]);
 
   // Renders one comment (top-level or reply): avatar + name/time + body (with an
   // optional inline blue @mention on replies) + the thumbs-up like and Reply
-  // action. Your OWN row is additionally long-pressable to delete it. A tombstone
-  // takes an early return and renders none of that.
+  // action, and a ⋯ options button whose single option depends on whose comment it
+  // is — Delete on yours (which is additionally long-pressable, as it always was),
+  // Report on anyone else's. A tombstone takes an early return and renders none of
+  // that, including the ⋯: there is nothing left to delete or to report.
   const renderComment = useCallback(
     (comment: PostComment, options: { isReply: boolean; mentionHandle?: string | null }) => {
       const rowTestIDForComment = `${testID}-comment-${comment.id}`;
@@ -807,8 +1096,9 @@ export function CommentsSheet({
       // nothing at all and "neither invents a placeholder"; the only reason this
       // one prints a line is that the replies need something to hang from.
       //
-      // No affordances either: nothing to like, nobody to reply to, and no
-      // long-press — a tombstone is already deleted.
+      // No affordances either: nothing to like, nobody to reply to, no ⋯ and no
+      // long-press — a tombstone is already deleted, and there is no author left
+      // on the row to report.
       if (isTombstone(comment)) {
         return (
           <View style={styles.commentRow} testID={rowTestIDForComment}>
@@ -816,7 +1106,14 @@ export function CommentsSheet({
               style={[theme.typography.body, styles.tombstone, { color: theme.colors.gray400 }]}
               testID={`${rowTestIDForComment}-tombstone`}
             >
-              This comment was deleted
+              {/*
+                "reply", not "comment", when the row IS a reply — taken from where
+                the row is actually rendered in the thread, which is the same
+                thing the delete confirmation asked about. Calling a reply a
+                comment here was reported by a user who had just been asked
+                "Delete reply?".
+              */}
+              {tombstoneLabel(options.isReply)}
             </Text>
           </View>
         );
@@ -831,21 +1128,60 @@ export function CommentsSheet({
       const isMine = Boolean(viewerId) && comment.authorId === viewerId;
       const rowTestID = rowTestIDForComment;
 
+      // Same rule as the post card: the face and the name open the profile,
+      // nothing else in the row does. Null for an author with neither a handle
+      // nor an id, which is every TOMBSTONE — those return above this line, but
+      // the guard keeps a deleted account from rendering a dead button.
+      const authorLink = profileRouteSlug(comment.author?.handle, comment.authorId);
+      const openAuthorProfile = () => {
+        // Closing FIRST in both branches: this sheet is a `Modal`, and routing
+        // underneath one leaves it presented over wherever you just landed.
+        // Tapping YOURSELF goes to the You tab rather than a read-only public
+        // copy of your own profile — same rule as the post card.
+        if (currentUser?.id && comment.authorId === currentUser.id) {
+          onClose();
+          router.navigate('/you' as never);
+          return;
+        }
+        if (authorLink) {
+          onClose();
+          router.push(`/u/${authorLink}` as never);
+        }
+      };
+
       const rowContent = (
         <>
-          <Avatar
-            initials={commentInitials(comment.author?.displayName ?? null, comment.author?.handle ?? null)}
-            size={AVATAR_SIZE}
-            uri={comment.author?.avatarUrl}
-          />
+          <Pressable
+            accessibilityLabel={authorLink ? `View ${authorDisplayName(comment)}'s profile` : undefined}
+            accessibilityRole={authorLink ? 'button' : undefined}
+            disabled={!authorLink}
+            onPress={openAuthorProfile}
+            testID={`${rowTestIDForComment}-avatar-button`}
+          >
+            <Avatar
+              initials={commentInitials(comment.author?.displayName ?? null, comment.author?.handle ?? null)}
+              size={AVATAR_SIZE}
+              uri={comment.author?.avatarUrl}
+            />
+          </Pressable>
           <View style={styles.commentBody}>
             <View style={styles.commentMeta}>
-              <Text
-                numberOfLines={1}
-                style={[theme.typography.bodyMedium, styles.commentName, { color: theme.colors.gray900 }]}
+              <Pressable
+                accessibilityLabel={authorLink ? `View ${authorDisplayName(comment)}'s profile` : undefined}
+                accessibilityRole={authorLink ? 'button' : undefined}
+                disabled={!authorLink}
+                hitSlop={6}
+                onPress={openAuthorProfile}
+                style={styles.commentName}
+                testID={`${rowTestIDForComment}-name-button`}
               >
-                {authorDisplayName(comment)}
-              </Text>
+                <Text
+                  numberOfLines={1}
+                  style={[theme.typography.bodyMedium, { color: theme.colors.gray900 }]}
+                >
+                  {authorDisplayName(comment)}
+                </Text>
+              </Pressable>
               {/*
                 `caption` (12), not `bodyMedium` (14). At 14 Medium the
                 timestamp was the same size AND weight as the author's name
@@ -904,15 +1240,42 @@ export function CommentsSheet({
               </Pressable>
             </View>
           </View>
+          {/*
+            The VISIBLE way in. Delete had only ever been a long press, which is
+            invisible — the report that prompted this was "there's no UI I can see
+            to delete the comment" — and reporting someone else's comment had no
+            entry point at all.
+
+            Same ⋯ as the post card's "Post options", and the same shape: your own
+            comment has exactly one option (Delete), so the button opens that
+            confirmation directly rather than an action sheet with a single row in
+            it; someone else's opens the Report/Block safety menu. It sits OUTSIDE
+            the meta line, at the end of the row, so the name and timestamp keep
+            their positions.
+          */}
+          <Pressable
+            accessibilityLabel="Comment options"
+            accessibilityRole="button"
+            // 24 + 10 either side = a 44pt target, the iOS minimum, without the
+            // button itself having to be 44 wide and eat the reply column.
+            hitSlop={10}
+            onPress={() => (isMine ? handleRequestDelete(comment) : handleRequestReport(comment))}
+            style={styles.moreButton}
+            testID={`${rowTestIDForComment}-more-button`}
+          >
+            <MoreHoriz
+              color={theme.colors.gray500}
+              height={COMMENT_MORE_ICON_SIZE}
+              width={COMMENT_MORE_ICON_SIZE}
+            />
+          </Pressable>
         </>
       );
 
-      // Delete is a long-press on your own row, not an inline control. The row is
-      // a 24px avatar next to a two-action strip (like + Reply); a third action
-      // would crowd Reply, and anything in the meta line would push the
-      // name/timestamp around. Press-and-hold is already the app's context-action
-      // idiom (portfolio-screen's `CARD_LONG_PRESS_MS`), and it costs the row no
-      // layout at all.
+      // The long press STAYS on your own row, on top of the ⋯ above. It is the
+      // app's context-action idiom (portfolio-screen's `CARD_LONG_PRESS_MS`), it
+      // costs the row no layout, and people who already learned it should not lose
+      // it just because the same action finally became visible.
       if (!isMine) {
         return (
           <View style={styles.commentRow} testID={rowTestID}>
@@ -943,9 +1306,12 @@ export function CommentsSheet({
     [
       currentUser?.id,
       handleRequestDelete,
+      handleRequestReport,
       handleToggleCommentLike,
       likeCountOverrides,
       likedCommentIds,
+      onClose,
+      router,
       testID,
       theme,
     ],
@@ -956,6 +1322,14 @@ export function CommentsSheet({
   }
 
   const canSend = draft.trim().length > 0 && !sending;
+
+  // Copy shared by all three prompts, derived from the comment each was opened
+  // for. `prompt` outlives its own close, so these stay stable while it slides
+  // away — see the state declaration.
+  const promptComment = prompt?.comment ?? null;
+  const promptIsReply = Boolean(promptComment?.parentCommentId);
+  const promptNoun = commentNoun(promptIsReply);
+  const promptAuthor = promptComment ? authorDisplayName(promptComment) : '';
 
   return (
     <Modal
@@ -1084,6 +1458,20 @@ export function CommentsSheet({
             )}
           </ScrollView>
 
+          {/*
+            A LABEL, not a control. It says who you are replying to for exactly
+            as long as you are replying to them, and it goes away when you leave
+            the composer (`onBlur` below).
+
+            It used to carry an X to cancel the reply, which was wrong twice
+            over. Mechanically: the X sits next to a focused `TextInput` inside
+            this Modal, so the first tap on it got eaten the same way the send
+            button's did — the keyboard dropped, `onPress` never ran, and the
+            banner stayed up still claiming you were replying. And in principle:
+            "am I writing a reply or a comment?" is answered by whether the
+            composer is focused on a reply, so it does not need a second,
+            separate way to say no — leaving the composer already means that.
+          */}
           {replyTo ? (
             <View
               style={[styles.replyBanner, { backgroundColor: theme.colors.gray50 }]}
@@ -1095,15 +1483,6 @@ export function CommentsSheet({
               >
                 {`Replying to ${authorDisplayName(replyTo)}`}
               </Text>
-              <Pressable
-                accessibilityLabel="Cancel reply"
-                accessibilityRole="button"
-                hitSlop={12}
-                onPress={() => setReplyTo(null)}
-                testID={`${testID}-reply-cancel`}
-              >
-                <Xmark color={theme.colors.gray600} height={16} width={16} />
-              </Pressable>
             </View>
           ) : null}
 
@@ -1115,6 +1494,13 @@ export function CommentsSheet({
                 // you can see what you are replying to and watch your own
                 // comment arrive under it. rAF so the scroll runs after the
                 // keyboard-up relayout has shortened the list, not before it.
+                // Leaving the composer ends the reply. This is what replaced the
+                // banner's X: "replying to X" is true while you are writing that
+                // reply and false the moment you stop, so it needs no separate
+                // control. Safe against the send path, which captures `replyTo`
+                // synchronously on touch-down — a blur that follows can never
+                // turn a reply into a top-level comment.
+                onBlur={() => setReplyTo(null)}
                 onFocus={() => requestAnimationFrame(() => scrollToLatest(true))}
                 onSubmitEditing={handleSend}
                 placeholder={replyTo ? 'Add a reply…' : 'Add a comment…'}
@@ -1141,7 +1527,8 @@ export function CommentsSheet({
               accessibilityRole="button"
               disabled={!canSend}
               hitSlop={8}
-              onPress={handleSend}
+              onPress={handleSendPress}
+              onPressIn={handleSendPressIn}
               style={[
                 styles.sendButton,
                 {
@@ -1155,6 +1542,98 @@ export function CommentsSheet({
             </Pressable>
           </View>
         </Animated.View>
+
+        {/*
+          The prompts, LAST inside this sheet's own Modal and outside the sheet
+          itself — they cover the whole modal (thread, composer and scrim), and
+          being the last children they paint over it. Each is mounted only while
+          it is the active prompt and driven by `promptOpen`, which is what lets
+          it animate out with its copy intact before it unmounts.
+        */}
+        {prompt?.kind === 'delete' ? (
+          <ConfirmDeleteSheet
+            confirmLabel="Delete"
+            message={
+              prompt.keepAsTombstone
+                ? // Say what actually happens: your words go, the thread does not.
+                  // Deliberately plain and countless — an earlier draft quoted the
+                  // exact reply count and the tombstone's own wording back at the
+                  // user, which is precision nobody asked for at the moment they
+                  // are deciding whether to delete something.
+                  `Your ${promptNoun} will be removed but the replies will remain. `
+                  + 'Are you sure you want to continue?'
+                : "This can't be undone."
+            }
+            onClose={closePrompt}
+            onConfirm={() => {
+              const { comment, keepAsTombstone } = prompt;
+              closePrompt();
+              runDelete(comment, keepAsTombstone);
+            }}
+            presentation="inline"
+            testID={`${testID}-delete-confirm`}
+            title={promptIsReply ? 'Delete reply?' : 'Delete comment?'}
+            visible={promptOpen}
+          />
+        ) : null}
+
+        {prompt?.kind === 'options' ? (
+          <OptionsSheet
+            actions={[
+              {
+                key: 'report',
+                label: `Report ${promptNoun}`,
+                // Not the same red as Block: a report is idempotent, hides
+                // nothing on its own and is read by a human before anything
+                // happens, while a block is immediate and has no undo in the app.
+                tone: 'caution',
+                onPress: () => {
+                  const { comment } = prompt;
+                  closePrompt();
+                  runReport(comment);
+                },
+              },
+              {
+                key: 'block',
+                label: `Block ${promptAuthor}`,
+                tone: 'destructive',
+                // Straight into the confirmation, replacing this menu. Both are
+                // plain views, so there is no dismiss to wait on.
+                onPress: () => openPrompt({ kind: 'block', comment: prompt.comment }),
+              },
+            ]}
+            /*
+              NO title and NO subtitle: the two rows say what they are, and
+              "Comment options" over them was a label for a thing the user is
+              already looking at. The reassurance that used to sit here — that
+              the author is never told who reported or blocked them — did not go
+              away with it: the block half is in the block confirmation
+              (`Block <name>?`, below), and the report half is in the report
+              acknowledgement (`runReport`), which is the moment it is actually
+              wanted rather than one more line to read past.
+            */
+            onClose={closePrompt}
+            testID={`${testID}-options`}
+            visible={promptOpen}
+          />
+        ) : null}
+
+        {prompt?.kind === 'block' ? (
+          <ConfirmDeleteSheet
+            confirmLabel="Block"
+            message="Their posts and comments disappear from your feed, and yours disappear from theirs. They are not told that you blocked them."
+            onClose={closePrompt}
+            onConfirm={() => {
+              const { comment } = prompt;
+              closePrompt();
+              runBlock(comment);
+            }}
+            presentation="inline"
+            testID={`${testID}-block-confirm`}
+            title={`Block ${promptAuthor}?`}
+            visible={promptOpen}
+          />
+        ) : null}
       </View>
     </Modal>
   );
@@ -1248,6 +1727,27 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     paddingHorizontal: 16,
     paddingTop: 12,
+  },
+  moreButton: {
+    alignItems: 'center',
+    // Level with the author's name, not floating beside the middle of the body:
+    // the row's height is the body's, and a centred glyph would drift down the
+    // longer the comment is.
+    alignSelf: 'flex-start',
+    /*
+      A DETERMINISTIC footprint, because this button had none.
+
+      It is a flex sibling of `commentBody`, which is `flex: 1` AND
+      `flexShrink: 1`. With no width and no `flexShrink: 0` of its own, the ⋯ was
+      whatever space the body left it — so a long comment, a narrow screen, or a
+      reply (indented by REPLY_INDENT, which has the least room of all) could
+      squeeze it toward zero and the button the user is meant to tap simply is
+      not there. Sized and unshrinkable, it always occupies exactly this box.
+    */
+    flexShrink: 0,
+    height: MORE_BUTTON_SIZE,
+    justifyContent: 'center',
+    width: MORE_BUTTON_SIZE,
   },
   repliesDash: {
     borderRadius: 1,

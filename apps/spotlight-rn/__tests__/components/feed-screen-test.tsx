@@ -31,7 +31,7 @@ jest.mock('@/features/social/social-service', () => ({
   likePost: jest.fn(async () => true),
   unlikePost: jest.fn(async () => true),
   fetchComments: jest.fn(async () => []),
-  addComment: jest.fn(async () => null),
+  addComment: jest.fn(async () => ({ ok: false, reason: 'nope' })),
   likeComment: jest.fn(async () => true),
   unlikeComment: jest.fn(async () => true),
 }));
@@ -168,6 +168,19 @@ describe('FeedScreen', () => {
     expect(push).not.toHaveBeenCalled();
   });
 
+  // This gesture has been dropped TWICE by rewrites of this screen, so it is
+  // pinned here. The drawer is the only route to Insights, Messages and Account,
+  // and Home is the landing screen — losing the drag leaves it working on You
+  // and nowhere else, which reads as broken rather than absent.
+  // `drawer-edge-swipe-test` drives the recogniser's own thresholds; all this
+  // asserts is that the feed is still wrapped in one.
+  it('also opens the drawer by dragging in from the left edge, not only from the button', async () => {
+    renderWithProviders(<FeedScreen />);
+    await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
+
+    expect(screen.getByTestId('drawer-edge-swipe')).toBeTruthy();
+  });
+
   // Deleting your own post: the ⋯ affordance is on the card, but the confirm +
   // optimistic removal + rollback live on the screen that owns the list.
   describe('deleting your own post', () => {
@@ -181,12 +194,31 @@ describe('FeedScreen', () => {
       ]);
     });
 
-    it('only offers the ⋯ menu on the post you wrote', async () => {
+    // Every post carries a ⋯ now — someone else's holds Report/Block — so what
+    // this pins is that only YOUR ⋯ can reach the delete confirmation.
+    it('only offers delete on the post you wrote', async () => {
+      const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
       renderWithProviders(<FeedScreen />);
       await waitFor(() => expect(screen.getByText('My own post')).toBeTruthy());
 
-      // One ⋯ for two posts: yours.
-      expect(screen.getAllByTestId('feed-post-more-button')).toHaveLength(1);
+      expect(screen.getAllByTestId('feed-post-more-button')).toHaveLength(2);
+
+      await act(async () => {
+        fireEvent.press(
+          within(screen.getByTestId('feed-post-theirs')).getByTestId('feed-post-more-button'),
+        );
+      });
+
+      // Their ⋯ opens the safety menu, never the delete sheet. The menu is the
+      // same `OptionsSheet` a comment row opens — a bare Report / Block /
+      // Cancel list, not an OS alert.
+      expect(screen.queryByTestId('feed-delete-confirm')).toBeNull();
+      expect(alertSpy).not.toHaveBeenCalled();
+      expect(screen.getByTestId('feed-post-options')).toBeTruthy();
+      expect(screen.getByText('Report post')).toBeTruthy();
+      expect(screen.getByText('Block Collector theirs')).toBeTruthy();
+      expect(screen.getByTestId('feed-post-options-cancel')).toBeTruthy();
+      alertSpy.mockRestore();
     });
 
     it('asks for confirmation before deleting anything', async () => {
@@ -194,7 +226,9 @@ describe('FeedScreen', () => {
       await waitFor(() => expect(screen.getByText('My own post')).toBeTruthy());
 
       await act(async () => {
-        fireEvent.press(screen.getByTestId('feed-post-more-button'));
+        fireEvent.press(
+          within(screen.getByTestId('feed-post-mine')).getByTestId('feed-post-more-button'),
+        );
       });
 
       expect(await screen.findByTestId('feed-delete-confirm')).toBeTruthy();
@@ -215,7 +249,9 @@ describe('FeedScreen', () => {
       await waitFor(() => expect(screen.getByText('My own post')).toBeTruthy());
 
       await act(async () => {
-        fireEvent.press(screen.getByTestId('feed-post-more-button'));
+        fireEvent.press(
+          within(screen.getByTestId('feed-post-mine')).getByTestId('feed-post-more-button'),
+        );
       });
       await screen.findByTestId('feed-delete-confirm');
       await act(async () => {
@@ -235,7 +271,9 @@ describe('FeedScreen', () => {
       await waitFor(() => expect(screen.getByText('My own post')).toBeTruthy());
 
       await act(async () => {
-        fireEvent.press(screen.getByTestId('feed-post-more-button'));
+        fireEvent.press(
+          within(screen.getByTestId('feed-post-mine')).getByTestId('feed-post-more-button'),
+        );
       });
       await screen.findByTestId('feed-delete-confirm');
       await act(async () => {

@@ -1,4 +1,5 @@
 import { capturePostHogEvent } from '@/lib/observability/posthog';
+import { isMissingFunctionError } from '@/lib/postgrest-errors';
 import { supabase } from '@/lib/supabase';
 
 /**
@@ -782,15 +783,37 @@ export async function fetchComments(postId: string, limit = 100): Promise<PostCo
  * comment id, or null on failure. The in-DB moderation trigger (blocked_terms +
  * rate limit) runs on insert; a rejected insert resolves to null.
  */
+/**
+ * The outcome of a comment write, INCLUDING why it failed.
+ *
+ * This used to be `Promise<string | null>`, and that null was the single
+ * longest-lived bug in this feature. An RLS rejection, a raising trigger, a
+ * dropped connection, an unapplied migration and a signed-out session all
+ * collapsed into the same value, and the sheet's only possible response was to
+ * keep the draft and do nothing — which is indistinguishable, on the phone, from
+ * the send button not working at all. Five rounds of fixes went into the button,
+ * the gesture and the keyboard because the write could not be seen to be
+ * failing.
+ */
+export type AddCommentResult =
+  | { ok: true; id: string }
+  | { ok: false; reason: string };
+
 export async function addComment(
   postId: string,
   body: string,
   parentCommentId?: string | null,
-): Promise<string | null> {
-  const me = await currentUserId();
+): Promise<AddCommentResult> {
   const text = (body ?? '').trim();
-  if (!supabase || !me || !postId || text.length === 0) {
-    return null;
+  if (!supabase) {
+    return { ok: false, reason: 'Not connected. Check your connection and try again.' };
+  }
+  const me = await currentUserId();
+  if (!me) {
+    return { ok: false, reason: 'You are signed out. Sign in to comment.' };
+  }
+  if (!postId || text.length === 0) {
+    return { ok: false, reason: 'Nothing to post.' };
   }
   try {
     const { data, error } = await supabase
@@ -803,12 +826,24 @@ export async function addComment(
       })
       .select('id')
       .single();
-    if (error || !data) {
-      return null;
+    if (error) {
+      // The REAL message, not a generic one. A Postgres error here names its
+      // own cause ("new row violates row-level security policy for table
+      // comments", "function public.is_admin() does not exist", …), and that
+      // string is the difference between fixing this and guessing at it again.
+      return { ok: false, reason: error.message || 'The comment could not be saved.' };
     }
-    return (data as { id: string }).id;
-  } catch {
-    return null;
+    if (!data) {
+      // Insert accepted, row not returned: `.select()` reads back through the
+      // SELECT policy, so this is the shape a policy mismatch takes.
+      return { ok: false, reason: 'Saved, but could not be read back. Pull to refresh.' };
+    }
+    return { ok: true, id: (data as { id: string }).id };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: error instanceof Error ? error.message : 'The comment could not be saved.',
+    };
   }
 }
 
@@ -1225,13 +1260,21 @@ export async function markAllNotificationsRead(): Promise<boolean> {
 //   removes feed posts, post images, and comment threads for BOTH parties, with
 //   no client-side filtering needed — the rows never leave Postgres.
 //
-//   It does NOT cover `messages` / `conversations` / `conversation_participants`
-//   (social_02 policies check participation only), the `public_profiles` view
-//   (social_07 filters on `status` / `is_shadowbanned`, not blocks), or
-//   `follows` SELECT (`using (true)`). A blocked user can therefore still open a
-//   DM thread and still be listed in a follower list. Closing those gaps is a
-//   migration, not a client change; until then `fetchBlockedUserIds` is how a
-//   surface that reads those tables filters for itself.
+//   DMs are PARTLY covered, and the split matters: social_13 added
+//   `conversation_has_block` to `messages_insert` (and social_19 to
+//   `messages_update`), so a blocked thread is FROZEN — neither party can send,
+//   because the gate is either-direction. But `messages_select`,
+//   `conversations_select` and `conv_participants_select` are deliberately
+//   untouched: the history stays readable so a victim can still open the thread
+//   and report what was said. The conversation therefore stays in both inboxes.
+//
+//   It does NOT cover `conversations` / `conversation_participants` SELECT (see
+//   above). `public_profiles` and `follows` SELECT are covered ON STAGING, where
+//   social_19 IS applied (staging is at social_20 as of 2026-08-09 — verified by
+//   `supabase db push --dry-run --linked`, NOT by any prose). Production was not
+//   re-checked and may still predate it, in which case those two are unfiltered
+//   there. Where RLS does not filter for you, `fetchBlockedUserIds` is how a
+//   surface filters for itself.
 
 const BLOCKS_TABLE = 'blocks';
 const REPORTS_TABLE = 'reports';
@@ -1339,6 +1382,131 @@ export async function fetchBlockedUserIds(): Promise<Set<string>> {
   }
 }
 
+/** One row of the "Blocked accounts" list: enough to recognise a person. */
+export type BlockedProfile = {
+  userID: string;
+  displayName: string | null;
+  handle: string | null;
+  avatarURL: string | null;
+};
+
+/** SECURITY DEFINER escape hatch added by social_19. Takes no argument. */
+const BLOCKED_PROFILES_RPC = 'blocked_profiles';
+
+type BlockedProfileRow = {
+  user_id: string;
+  display_name: string | null;
+  handle: string | null;
+  avatar_url: string | null;
+};
+
+function mapBlockedProfile(row: BlockedProfileRow): BlockedProfile {
+  return {
+    userID: row.user_id,
+    displayName: row.display_name,
+    handle: row.handle ?? null,
+    avatarURL: row.avatar_url ?? null,
+  };
+}
+
+/**
+ * The people the signed-in user has blocked, newest block first — the read
+ * behind the unblock list. Ids alone are useless in a UI, so this resolves each
+ * one to a name/handle/avatar.
+ *
+ * TWO LANES, because the right one depends on which migration the environment
+ * has run, and the wrong one leaves the user staring at a screen of UUIDs:
+ *
+ *   1. `blocked_profiles()` (social_19). THIS IS THE LIVE LANE on staging, which
+ *      is at social_20. social_19 makes `public_profiles` filter on
+ *      `is_blocked(auth.uid(), user_id)` — which is EITHER-direction — so the
+ *      blocker can no longer read their own blocked users through the view. The
+ *      RPC is the only lane that still can. It is not a lookup tool: it takes no
+ *      argument, pins the caller to `auth.uid()` internally, and returns strictly
+ *      rows where the CALLER is the blocker.
+ *
+ *   2. `blocks` + `public_profiles` hydration, for an environment still behind
+ *      social_19 — production, which was not re-checked on 2026-08-09. There the
+ *      view still returns blocked users, so this resolves names fine. A strict
+ *      fallback, taken ONLY on `PGRST202`/`42883` — any other RPC failure means
+ *      the function is there and a second read would be wrong.
+ *
+ *   Do not re-derive which lane is live from a migration header or README: those
+ *   have been stale three separate times in this schema's history. Run
+ *   `supabase db push --dry-run --linked`.
+ *
+ * A block whose profile cannot be resolved on either lane is still RETURNED,
+ * with a null `displayName`. Dropping it would be the worse bug: the row would
+ * vanish from the only screen that can lift it, and the block would be
+ * permanent. The screen renders those as "Blocked account" and the Unblock
+ * button still works, because unblocking only needs the id.
+ *
+ * Never throws — resolves to `[]` on any failure, like every read in this file.
+ */
+export async function fetchBlockedProfiles(): Promise<BlockedProfile[]> {
+  const me = await currentUserId();
+  if (!supabase || !me) {
+    return [];
+  }
+
+  if (typeof supabase.rpc === 'function') {
+    let missingRpc = false;
+    try {
+      const { data, error } = await supabase.rpc(BLOCKED_PROFILES_RPC);
+      if (!error && Array.isArray(data)) {
+        return (data as BlockedProfileRow[])
+          .filter((row) => Boolean(row?.user_id))
+          .map(mapBlockedProfile);
+      }
+      missingRpc = isMissingFunctionError(error);
+    } catch {
+      return [];
+    }
+    if (!missingRpc) {
+      return [];
+    }
+  }
+
+  // Fallback lane: read the block edges in order, then hydrate what the view
+  // will still give us.
+  try {
+    const { data, error } = await supabase
+      .from(BLOCKS_TABLE)
+      .select('blocked_id, created_at')
+      .eq('blocker_id', me)
+      .order('created_at', { ascending: false });
+    if (error || !data) {
+      return [];
+    }
+
+    const ids = (data as { blocked_id: string | null }[])
+      .map((row) => row.blocked_id)
+      .filter((id): id is string => Boolean(id));
+    if (ids.length === 0) {
+      return [];
+    }
+
+    const profiles = new Map<string, BlockedProfile>();
+    const { data: profileRows, error: profileError } = await supabase
+      .from(PUBLIC_PROFILES_VIEW)
+      .select('user_id, display_name, handle, avatar_url')
+      .in('user_id', ids);
+    if (!profileError && profileRows) {
+      for (const row of profileRows as BlockedProfileRow[]) {
+        profiles.set(row.user_id, mapBlockedProfile(row));
+      }
+    }
+
+    // Block order wins; the hydration is only there to put a name on each row.
+    return ids.map(
+      (userID) =>
+        profiles.get(userID) ?? { userID, displayName: null, handle: null, avatarURL: null },
+    );
+  } catch {
+    return [];
+  }
+}
+
 /**
  * File a report against a user or one piece of their content.
  *
@@ -1385,19 +1553,52 @@ export async function reportContent(input: ReportContentInput): Promise<boolean>
   }
 
   try {
-    const { error } = await supabase.from(REPORTS_TABLE).upsert(
-      {
-        reporter_id: me,
-        target_type: targetType,
-        target_id: targetId,
-        // `reason` is nullable in social_04; an empty box stays null rather than
-        // filling the moderator queue with blank strings.
-        reason: reason.length > 0 ? reason : null,
-      },
-      { onConflict: 'reporter_id,target_type,target_id', ignoreDuplicates: true },
+    // A PLAIN INSERT, not an upsert — and the difference is load-bearing.
+    //
+    // This used to be `.upsert(..., { ignoreDuplicates: true })`, on the
+    // reasoning that it compiles to `on conflict do nothing` and so needs only
+    // the INSERT privilege. In practice every report failed with "Couldn't send
+    // report": PostgREST's upsert path also requires UPDATE on the table, and
+    // social_04 grants non-admins INSERT ONLY (`reports_insert`), keeping
+    // `reports_admin_update` and `reports_admin_select` admin-gated so a
+    // reporter can never read or rewrite the moderator queue. The upsert was
+    // therefore asking for a privilege the threat model deliberately withholds.
+    //
+    // `blocks` hid this: social_00's `blocks_all` is a `for all` policy, so the
+    // identical upsert shape works there. Two tables, one pattern, and only the
+    // one with the tighter policy broke.
+    //
+    // So: insert, and treat the unique violation as success. Re-reporting the
+    // same target is a no-op either way — social_04's
+    // `unique (reporter_id, target_type, target_id)` is what makes the
+    // three-distinct-reporter threshold mean three PEOPLE — and telling someone
+    // "you already reported this" only invites them to report harder.
+    const { error } = await supabase.from(REPORTS_TABLE).insert({
+      reporter_id: me,
+      target_type: targetType,
+      target_id: targetId,
+      // `reason` is nullable in social_04; an empty box stays null rather than
+      // filling the moderator queue with blank strings.
+      reason: reason.length > 0 ? reason : null,
+    });
+
+    if (!error) {
+      return true;
+    }
+    // 23505 = unique_violation: already reported by this user. Idempotent success.
+    if (error.code === '23505') {
+      return true;
+    }
+    // Anything else is a real failure, and it must not vanish. Swallowing the
+    // PostgREST error is what made the bug above invisible: the UI said "please
+    // try again in a moment" for a permission error that no amount of retrying
+    // could fix, and there was nothing anywhere to say so.
+    console.warn(
+      `[social] report failed target_type=${targetType} code=${error.code ?? 'none'} message=${error.message}`,
     );
-    return !error;
-  } catch {
+    return false;
+  } catch (error) {
+    console.warn('[social] report threw', error);
     return false;
   }
 }
