@@ -165,7 +165,24 @@ export default function TabsLayout() {
         <Icon md="home" sf={{ default: 'house', selected: 'house.fill' }} />
         <Label>Home</Label>
       </Trigger>
-      <Trigger name="scan">
+      {/*
+        NO BOTTOM INSET ON THE SCANNER.
+
+        On Android expo-router wraps every tab's content in
+        `<SafeAreaView edges={{ bottom: true }}>` unless this is set
+        (`NativeTabsView.js`). The scanner HIDES the bar (`hidden={isScanner}`
+        above), so that inset reserves room for chrome that is not drawn —
+        shifting the whole viewfinder up and pushing the EN/JP toggle down onto
+        the reticle.
+
+        Worth being precise, because the note above says this needs
+        react-native-screens 4.25+ and we are on 4.23: that applies to
+        `overrideScrollViewContentInsetAdjustmentBehavior`, the NATIVE
+        scroll-view half of the same prop. The Android wrapper above is plain
+        JS in the version already installed, which is the half that moves the
+        reticle — so this ships by OTA, no native build.
+      */}
+      <Trigger disableAutomaticContentInsets name="scan">
         <Icon md="qr_code_scanner" sf={{ default: 'viewfinder', selected: 'viewfinder' }} />
         <Label>Scan</Label>
       </Trigger>
