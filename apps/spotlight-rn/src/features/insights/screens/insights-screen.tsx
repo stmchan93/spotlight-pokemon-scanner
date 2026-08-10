@@ -15,10 +15,8 @@ import { Filter, NavArrowLeft, ShareIos } from 'iconoir-react-native';
 import type { PortfolioPerformance, PortfolioPerformanceRow } from '@spotlight/api-client';
 import { IconButton, SearchField, Text, colors, textStyles, useSpotlightTheme } from '@spotlight/design-system';
 
-import { useTabBarScrollHandler } from '@/contexts/tab-bar-chrome-context';
 import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { useAppServices } from '@/providers/app-providers';
-import { AppBottomTabBar } from '@/components/app-bottom-tab-bar';
 import { ScrollToTopFab, useScrollToTop } from '@/components/scroll-to-top-fab';
 import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
 import { prefetchCardDetail } from '@/features/cards/card-detail-prefetch';
@@ -131,7 +129,10 @@ export function InsightsScreen() {
   useEffect(() => {
     if (isGuest) openLogin();
   }, [isGuest, openLogin]);
-  const handleTabBarScroll = useTabBarScrollHandler();
+  // Deliberately NOT wired to `useTabBarScrollHandler()`. That handler drives
+  // the SHARED tab-bar collapse state, and this screen has no tab bar to
+  // collapse — scrolling the table here would minimise the real bar behind the
+  // stack and leave it that way after you navigate back.
   const {
     spotlightRepository,
     dataVersion,
@@ -154,7 +155,6 @@ export function InsightsScreen() {
   const listRef = useRef<FlatList<PortfolioPerformanceRow>>(null);
   const { isVisible: showScrollTop, handleScroll, handleLayout, scrollToTop } = useScrollToTop(
     listRef,
-    handleTabBarScroll,
   );
 
   const load = useCallback(async () => {
@@ -217,10 +217,12 @@ export function InsightsScreen() {
     [performance?.currencyCode, router, spotlightRepository],
   );
 
-  const bottomNavClearance =
-    theme.layout.bottomNavHeight
-    + theme.layout.bottomNavBottomInset
-    + Math.max(insets.bottom - 8, 0);
+  // Insights is a PUSHED screen (app/(stack)/insights), so it has no bottom bar
+  // of its own — it used to draw the standalone `AppBottomTabBar`, which is the
+  // pre-tabs chrome and looked nothing like the real tab bar the rest of the app
+  // now shows. Nothing sits over the content here, so the table only has to
+  // clear the home indicator.
+  const bottomNavClearance = Math.max(insets.bottom, 0);
 
   const rows = useMemo(
     () =>
@@ -405,8 +407,6 @@ export function InsightsScreen() {
 
       <ScrollToTopFab onPress={scrollToTop} testID="insights-scroll-to-top" visible={showScrollTop} />
       <CollectionAddFab />
-
-      <AppBottomTabBar activeKey="portfolio" dismissToTabs />
     </SafeAreaView>
   );
 }

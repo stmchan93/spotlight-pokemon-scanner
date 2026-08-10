@@ -84,10 +84,18 @@ function renderInsights() {
 }
 
 describe('InsightsScreen — performance tracker', () => {
-  it('highlights the Collection tab in the bottom nav', async () => {
+  it('draws no bottom tab bar of its own, because it is a pushed screen', async () => {
     renderInsights();
-    const tab = await screen.findByTestId('bottom-nav-portfolio');
-    expect(tab.props.accessibilityState?.selected).toBe(true);
+    // Wait for the real content so this cannot pass by asserting on an
+    // unmounted tree.
+    await screen.findByTestId('insights-header-title');
+
+    // Insights lives in app/(stack), not app/(tabs). It used to render the
+    // standalone `AppBottomTabBar` — the pre-tabs chrome — which shipped a
+    // second, stale-looking bar under the app's real one.
+    expect(screen.queryByTestId('bottom-nav-portfolio')).toBeNull();
+    expect(screen.queryByTestId('bottom-nav-wishlist')).toBeNull();
+    expect(screen.queryByTestId('bottom-nav-scan')).toBeNull();
   });
 
   it('renders the category header, count, and per-card rows', async () => {
