@@ -159,28 +159,38 @@ describe('DmThreadScreen', () => {
   // The scroll now waits for `onContentSizeChange`, the first moment the row is
   // measurable.
   it('scrolls to the newest message only once the list has measured it', async () => {
-    const scrollToEnd = jest
-      .spyOn(FlatList.prototype, 'scrollToEnd')
+    const scrollToOffset = jest
+      .spyOn(FlatList.prototype, 'scrollToOffset')
       .mockImplementation(() => {});
     (sendMessage as jest.Mock).mockResolvedValue(null);
     renderWithProviders(<DmThreadScreen conversationId="c-1" />);
     await waitFor(() => expect(fetchMessages).toHaveBeenCalled());
 
-    scrollToEnd.mockClear();
+    scrollToOffset.mockClear();
     fireEvent.changeText(screen.getByTestId('dm-thread-input'), 'gm');
     fireEvent.press(screen.getByTestId('dm-thread-send'));
 
     // Nothing yet: the row is in state but the list has not measured it, which
     // is exactly the frame the old single-rAF scroll fired on and stopped short.
-    expect(scrollToEnd).not.toHaveBeenCalled();
+    expect(scrollToOffset).not.toHaveBeenCalled();
 
     await act(async () => {
       fireEvent(screen.getByTestId('dm-thread-list'), 'contentSizeChange', 393, 2000);
     });
 
-    // Animated, because this is YOUR send — everything else jumps.
-    expect(scrollToEnd).toHaveBeenCalledWith({ animated: true });
-    scrollToEnd.mockRestore();
+    /*
+      Aimed at the MEASURED content height, not at `scrollToEnd`'s estimate.
+
+      `scrollToEnd` derives its offset from what the list currently believes the
+      content measures, and with variable-height rows that belief can be stale
+      by exactly the row just added — so it stops a bubble short and the message
+      you just sent stays under the composer. Over-scrolling is clamped by the
+      scroll view, so aiming at the true height can only be right.
+
+      Animated, because this is YOUR send — everything else jumps.
+    */
+    expect(scrollToOffset).toHaveBeenCalledWith({ animated: true, offset: 2000 });
+    scrollToOffset.mockRestore();
   });
 
   it('appends optimistically, then reconciles the temp entry with the server row', async () => {
@@ -407,6 +417,86 @@ describe('DmThreadScreen', () => {
       // A submit that was already on its way finds a screen that refuses it.
       fireEvent(input, 'submitEditing');
       expect(sendMessage).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('realtime subscription', () => {
+    /**
+     * Stand-in for `RealtimeClient`, reproducing the one behaviour that caused a
+     * production crash: `channel(topic)` returns an EXISTING channel when one
+     * with the same topic is still registered, and `.on('postgres_changes')` on
+     * an already-subscribed channel throws.
+     *
+     * `removeChannel` resolves asynchronously and — as in the real client —
+     * deliberately does NOT deregister synchronously, which is exactly the
+     * window the crash lived in.
+     */
+    function fakeRealtimeClient() {
+      const channels = new Map<string, { subscribed: boolean }>();
+      const topics: string[] = [];
+
+      function channel(topic: string) {
+        const realtimeTopic = `realtime:${topic}`;
+        const existing = channels.get(realtimeTopic);
+        const entry = existing ?? { subscribed: false };
+        if (!existing) {
+          channels.set(realtimeTopic, entry);
+          topics.push(topic);
+        }
+        const handle = {
+          on(...__args: unknown[]) {
+            if (entry.subscribed) {
+              throw new Error(
+                `cannot add \`postgres_changes\` callbacks for ${realtimeTopic} after \`subscribe()\`.`,
+              );
+            }
+            return handle;
+          },
+          subscribe() {
+            entry.subscribed = true;
+            return handle;
+          },
+        };
+        return handle;
+      }
+
+      // Never removes synchronously — the real one is a promise over the socket.
+      const removeChannel = jest.fn(async () => 'ok');
+      return { channel, removeChannel, topics };
+    }
+
+    it('takes a fresh channel topic each time, so re-opening a thread cannot throw', async () => {
+      const client = fakeRealtimeClient();
+      jest.isolateModules(() => {});
+      const supabaseModule = require('@/lib/supabase') as { supabase: unknown };
+      const original = supabaseModule.supabase;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabaseModule as any).supabase = client;
+
+      try {
+        const first = renderWithProviders(<DmThreadScreen conversationId="c-1" />);
+        await waitFor(() => expect(fetchMessages).toHaveBeenCalled());
+        // Unmount fires `removeChannel`, which does NOT deregister synchronously.
+        first.unmount();
+
+        // Re-entering the SAME conversation before that lands is the crash case:
+        // with a fixed topic this second mount would be handed the already
+        // subscribed channel and `.on(...)` would throw into the error boundary.
+        expect(() => {
+          renderWithProviders(<DmThreadScreen conversationId="c-1" />);
+        }).not.toThrow();
+
+        expect(client.removeChannel).toHaveBeenCalled();
+        // Same conversation, distinct topics — that is what makes it safe.
+        expect(client.topics).toHaveLength(2);
+        expect(client.topics[0]).not.toBe(client.topics[1]);
+        for (const topic of client.topics) {
+          expect(topic.startsWith('dm:c-1:')).toBe(true);
+        }
+      } finally {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (supabaseModule as any).supabase = original;
+      }
     });
   });
 });

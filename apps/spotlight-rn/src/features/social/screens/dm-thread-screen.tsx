@@ -49,6 +49,13 @@ type ThreadMessage = DmMessage & {
  */
 const LOCAL_ID_PREFIX = 'local-';
 
+/**
+ * Monotonic suffix for realtime channel topics — see the long note at the
+ * subscription. A module-level counter rather than a random id so the topic is
+ * deterministic and reproducible in tests.
+ */
+let dmChannelSequence = 0;
+
 /** Oldest at top, newest at bottom: the usual chat order. */
 function compareMessages(a: ThreadMessage, b: ThreadMessage): number {
   const byTime = Date.parse(a.createdAt) - Date.parse(b.createdAt);
@@ -154,11 +161,32 @@ export function DmThreadScreen({
    * warns.
    */
   const hasMessagesRef = useRef(false);
+  /**
+   * The last content height the list reported, so a pin can target the TRUE
+   * bottom rather than an estimate.
+   *
+   * `scrollToEnd` derives its offset from what the list currently believes the
+   * content measures, and with variable-height rows — one-word bubbles next to
+   * wrapped ones — that belief can be stale by exactly the row just added. The
+   * result is a scroll that stops a bubble short, which is what "I sent a
+   * message and it's still under the keyboard" looks like. The height handed to
+   * `onContentSizeChange` is measured, not estimated; over-scrolling is clamped
+   * by the scroll view, so aiming at it can only be right.
+   */
+  const contentHeightRef = useRef(0);
   const scrollToLatest = useCallback((animated: boolean) => {
     if (!hasMessagesRef.current) {
       return;
     }
-    listRef.current?.scrollToEnd({ animated });
+    const list = listRef.current;
+    if (!list) {
+      return;
+    }
+    if (contentHeightRef.current > 0) {
+      list.scrollToOffset({ animated, offset: contentHeightRef.current });
+      return;
+    }
+    list.scrollToEnd({ animated });
   }, []);
   /**
    * Set by a send, cleared by the layout that honours it.
@@ -225,8 +253,33 @@ export function DmThreadScreen({
       return;
     }
 
+    /*
+      UNIQUE TOPIC PER SUBSCRIPTION, and it has to be.
+
+      `RealtimeClient.channel(topic)` does NOT always hand back a fresh channel:
+
+        const exists = this.getChannels().find((c) => c.topic === realtimeTopic)
+        if (!exists) { ...new RealtimeChannel... } else { return exists }
+
+      and `removeChannel()` is async — the cleanup below can only fire it, not
+      await it. So re-entering the same thread before the previous unsubscribe
+      lands returns the OLD, already-subscribed channel, and `.on(
+      'postgres_changes', ...)` on a joined channel THROWS:
+
+        cannot add `postgres_changes` callbacks for realtime:dm:<id>
+        after `subscribe()`
+
+      which is an uncaught render-time throw straight into the error boundary —
+      "the app hit an unexpected error". Seen in the wild opening a DM twice.
+
+      A per-subscription suffix means the lookup above can never match a live
+      channel, so this always gets a clean one. Two channels briefly overlapping
+      on the same conversation is harmless: the filter is server-side and
+      `mergeMessages` dedupes by id.
+    */
+    dmChannelSequence += 1;
     const channel = client
-      .channel(`dm:${conversationId}`)
+      .channel(`dm:${conversationId}:${dmChannelSequence}`)
       .on(
         'postgres_changes',
         {
@@ -577,7 +630,9 @@ export function DmThreadScreen({
           // load, a sent message, a refresh) has to pin the view there. This is
           // also the earliest moment a just-sent row can be scrolled to, because
           // it is the first point at which the list has measured it.
-          onContentSizeChange={() => {
+          onContentSizeChange={(_width, height) => {
+            // Record BEFORE pinning: this is the measurement the pin aims at.
+            contentHeightRef.current = height;
             const animated = pinAfterSendRef.current;
             pinAfterSendRef.current = false;
             // Animated only for your OWN send, where the motion reads as "your
