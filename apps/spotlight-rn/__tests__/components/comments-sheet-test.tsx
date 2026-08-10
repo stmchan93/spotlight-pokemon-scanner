@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import type { ComponentProps, PropsWithChildren } from 'react';
-import { Alert, Keyboard, StyleSheet } from 'react-native';
+import { Alert, Keyboard, ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { SpotlightThemeProvider, colors } from '@spotlight/design-system';
@@ -12,6 +12,7 @@ import {
   pruneOrphanedTombstones,
   shouldDismissOnDrag,
   tombstoneLabel,
+  topLevelAncestorId,
   visibleCommentCount,
 } from '@/features/social/components/comments-sheet';
 import {
@@ -231,6 +232,247 @@ describe('CommentsSheet', () => {
   });
 
   /*
+    THE SEVENTH REPORT — AND THE ONE THE PREVIOUS SIX ALL MISSED.
+
+    Confirmed with the user: the first tap on send with the keyboard up posts
+    nothing and just drops the keyboard; tapping a SECOND time posts. That is
+    React Native's `ScrollView` behaving exactly as documented in its own source
+    — `_handleStartShouldSetResponderCapture` returns true, taking the touch
+    away from every descendant, whenever `keyboardShouldPersistTaps` is unset or
+    `'never'`, a `TextInput` is focused, and the target is not itself an input.
+    Its comment there says it outright: "the first tap should be sent to the
+    scroll view and dismiss the keyboard, then the second tap goes to the actual
+    interior view."
+
+    The scroller that does it is NOT in this component. Capture is dispatched
+    root → target, so an ancestor is asked first, and this sheet is a `Modal`
+    mounted by `PostCard` inside the host screen's list. Nothing rendered inside
+    the Modal can outrank that — which is why six fixes aimed at this button
+    changed nothing.
+
+    WHAT THESE TESTS CAN AND CANNOT DO
+    Jest cannot reproduce the interception itself: there is no responder
+    negotiation here, no focused native input, and no ancestor list in the tree.
+    So they do NOT prove the fix works on the phone. What they DO pin is the
+    thing the fix rests on — that the send button posts from the RAW touch pair,
+    which React Native dispatches through a separate event plugin that responder
+    theft cannot suppress — and that adding those paths did not give one tap two
+    ways to post. The device check is: one tap, keyboard up, one comment.
+  */
+  describe('the first tap while the keyboard is up', () => {
+    /*
+      The repro. An ancestor scroller took the responder on touch-down, so
+      `onPressIn` and `onPress` — both responder-driven — never run. The raw
+      touch pair is all that survives, and it has to be enough.
+    */
+    it('posts from the raw touch pair alone, when the responder was taken away', async () => {
+      (addComment as jest.Mock).mockResolvedValue({ ok: true, id: 'c-new' });
+      renderSheet();
+      await screen.findByTestId('comments-sheet-empty');
+
+      fireEvent.changeText(screen.getByTestId('comments-sheet-input'), 'First tap counts');
+      // Deliberately NO pressIn and NO press: that is what being stolen from
+      // looks like from inside this component.
+      await act(async () => {
+        fireEvent(screen.getByTestId('comments-sheet-send'), 'touchStart');
+        fireEvent(screen.getByTestId('comments-sheet-send'), 'touchEnd');
+      });
+
+      expect(addComment as jest.Mock).toHaveBeenCalledTimes(1);
+      expect(addComment as jest.Mock).toHaveBeenCalledWith('post-1', 'First tap counts', null);
+      expect(await screen.findByText('First tap counts')).toBeTruthy();
+      expect(screen.getByTestId('comments-sheet-input').props.value).toBe('');
+    });
+
+    /*
+      The other half of the same change, and the one that would bite hardest if
+      it were wrong: a tap that is NOT stolen now runs four handlers, and the
+      user has already produced duplicate rows on this screen once today.
+    */
+    it('posts exactly once for a whole tap, through all four handlers', async () => {
+      (addComment as jest.Mock).mockResolvedValue({ ok: true, id: 'c-new' });
+      renderSheet();
+      await screen.findByTestId('comments-sheet-empty');
+
+      fireEvent.changeText(screen.getByTestId('comments-sheet-input'), 'Only one row');
+      // The full sequence the runtime delivers when the button DOES win the
+      // responder, in order.
+      await act(async () => {
+        fireEvent(screen.getByTestId('comments-sheet-send'), 'touchStart');
+        fireEvent(screen.getByTestId('comments-sheet-send'), 'pressIn');
+        fireEvent.press(screen.getByTestId('comments-sheet-send'));
+        fireEvent(screen.getByTestId('comments-sheet-send'), 'touchEnd');
+      });
+
+      expect(addComment as jest.Mock).toHaveBeenCalledTimes(1);
+      expect(screen.queryAllByText('Only one row')).toHaveLength(1);
+    });
+
+    /*
+      VoiceOver activates through a bare `onPress` with no touch events around
+      it. The per-gesture guard therefore has to be cleared at the END of a
+      gesture rather than when a handler consumes it — clear it too early and
+      `onTouchEnd` posts a second row; never clear it and the button goes deaf
+      to a screen reader after the first tap of the session.
+    */
+    it('still posts for a bare press after a completed tap, so VoiceOver keeps working', async () => {
+      (addComment as jest.Mock).mockResolvedValue({ ok: true, id: 'c-new' });
+      renderSheet();
+      await screen.findByTestId('comments-sheet-empty');
+
+      fireEvent.changeText(screen.getByTestId('comments-sheet-input'), 'By touch');
+      await act(async () => {
+        fireEvent(screen.getByTestId('comments-sheet-send'), 'touchStart');
+        fireEvent(screen.getByTestId('comments-sheet-send'), 'touchEnd');
+      });
+
+      /*
+        The focus is not decoration. A successful send arms
+        `ignoreNextDraftChangeRef`, which swallows the NEXT change event
+        whatever it carries, and only `onFocus` disarms it. On iOS that is
+        harmless because `Keyboard.dismiss()` resigns the field, so coming back
+        to the composer always fires focus first — which is what this models.
+        It is NOT harmless on Android, where dismissing the keyboard need not
+        blur: with no focus event to disarm it, the guard eats the first
+        character of the next comment. Left alone here (it is not this bug), but
+        it is real, and this line is where it shows.
+      */
+      await act(async () => {
+        fireEvent(screen.getByTestId('comments-sheet-input'), 'focus');
+      });
+      fireEvent.changeText(screen.getByTestId('comments-sheet-input'), 'By rotor');
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('comments-sheet-send'));
+      });
+
+      expect(addComment as jest.Mock).toHaveBeenCalledTimes(2);
+      expect(addComment as jest.Mock).toHaveBeenLastCalledWith('post-1', 'By rotor', null);
+    });
+
+    /*
+      Why this sheet's OWN `keyboardShouldPersistTaps` was never going to fix
+      it. The prop only governs touches inside the scroller that carries it, and
+      the composer is a SIBLING of the thread list, not a descendant — so the
+      button's taps were never in its scope. Pinned because the obvious "fix" is
+      to set that prop and declare victory, and this asserts why that is empty.
+    */
+    it('leaves the send button outside the scroller that persists taps', async () => {
+      renderSheet();
+      await screen.findByTestId('comments-sheet-empty');
+
+      const list = screen.getByTestId('comments-sheet-list');
+      expect(list.props.keyboardShouldPersistTaps).toBe('handled');
+      // The button the user taps is not in that subtree, so the prop above
+      // cannot speak for it.
+      expect(within(list).queryByTestId('comments-sheet-send')).toBeNull();
+      expect(screen.getByTestId('comments-sheet-send')).toBeTruthy();
+    });
+  });
+
+  // The composer empties on the PRESS, not when the write comes back. A field
+  // that still holds your sentence for the length of a round trip is a field
+  // that looks like it ignored you — which is exactly what invites the second
+  // press this sheet has spent five fixes trying to stop.
+  it('empties the composer on the press, before the write has come back', async () => {
+    let settle: (value: { ok: true; id: string }) => void = () => undefined;
+    (addComment as jest.Mock).mockReturnValue(
+      new Promise<{ ok: true; id: string }>((resolve) => {
+        settle = resolve;
+      }),
+    );
+    renderSheet();
+    await screen.findByTestId('comments-sheet-empty');
+
+    fireEvent.changeText(screen.getByTestId('comments-sheet-input'), 'In flight');
+    await act(async () => {
+      fireEvent(screen.getByTestId('comments-sheet-send'), 'pressIn');
+    });
+
+    // The write has NOT resolved yet.
+    expect(screen.getByTestId('comments-sheet-input').props.value).toBe('');
+
+    await act(async () => {
+      settle({ ok: true, id: 'c-new' });
+    });
+    expect(screen.getByTestId('comments-sheet-input').props.value).toBe('');
+  });
+
+  /*
+    THE SIXTH REPORT, AND THE ACTUAL MECHANISM.
+
+    "I press send, the keyboard goes away, and my text is still in the box." The
+    row really was written every time — the staging table has the proof, including
+    pairs fifteen seconds apart where the same sentence was sent twice by someone
+    who had no way of knowing the first one landed. The text came BACK afterwards.
+
+    iOS commits a pending autocorrect/predictive suggestion when the field resigns
+    first responder, and RN reports that commit as an ordinary text change:
+    `RCTBackedTextInputDelegateAdapter.textFieldDidEndEditing` fires
+    `textInputDidChange` if the field's string differs from the last one it told
+    JS about. The post-send `Keyboard.dismiss()` is what triggers the resign — so
+    the sheet's own success path summoned the change event that refilled the
+    composer with the comment it had just posted.
+
+    Note the committed string here is NOT the string that was typed: autocorrect
+    is what makes this fire at all, so a guard that only recognised an exact echo
+    of the draft would let the corrected form straight through.
+  */
+  it('stays empty when the keyboard dismissal echoes the committed text back', async () => {
+    (addComment as jest.Mock).mockResolvedValue({ ok: true, id: 'c-new' });
+    renderSheet();
+    await screen.findByTestId('comments-sheet-empty');
+
+    fireEvent.changeText(screen.getByTestId('comments-sheet-input'), 'teh cards are great');
+    await act(async () => {
+      fireEvent(screen.getByTestId('comments-sheet-send'), 'pressIn');
+      fireEvent.press(screen.getByTestId('comments-sheet-send'));
+    });
+    expect(addComment as jest.Mock).toHaveBeenCalledWith('post-1', 'teh cards are great', null);
+
+    // The field resigning first responder, as RN delivers it: the autocorrected
+    // sentence arriving as a change event after the send has already finished.
+    await act(async () => {
+      fireEvent.changeText(screen.getByTestId('comments-sheet-input'), 'the cards are great');
+    });
+
+    expect(screen.getByTestId('comments-sheet-input').props.value).toBe('');
+
+    // One-shot, and only for that echo: coming back to write again is ordinary
+    // typing and must land in the field.
+    await act(async () => {
+      fireEvent(screen.getByTestId('comments-sheet-input'), 'focus');
+    });
+    fireEvent.changeText(screen.getByTestId('comments-sheet-input'), 'a second one');
+    expect(screen.getByTestId('comments-sheet-input').props.value).toBe('a second one');
+  });
+
+  // The echo is also how the same comment got posted twice: it put a full draft
+  // back under a live send button, so the next press — by someone who thought
+  // nothing had happened, or by a stray tap — had something to send.
+  it('leaves nothing for a second press to post after the dismissal echo', async () => {
+    (addComment as jest.Mock).mockResolvedValue({ ok: true, id: 'c-new' });
+    renderSheet();
+    await screen.findByTestId('comments-sheet-empty');
+
+    fireEvent.changeText(screen.getByTestId('comments-sheet-input'), 'Sent once');
+    await act(async () => {
+      fireEvent(screen.getByTestId('comments-sheet-send'), 'pressIn');
+      fireEvent.press(screen.getByTestId('comments-sheet-send'));
+    });
+    await act(async () => {
+      fireEvent.changeText(screen.getByTestId('comments-sheet-input'), 'Sent once');
+    });
+
+    await act(async () => {
+      fireEvent(screen.getByTestId('comments-sheet-send'), 'pressIn');
+      fireEvent.press(screen.getByTestId('comments-sheet-send'));
+    });
+
+    expect(addComment as jest.Mock).toHaveBeenCalledTimes(1);
+    expect(screen.queryAllByText('Sent once')).toHaveLength(1);
+  });
+
+  /*
     A FAILED WRITE HAS TO SAY SO.
 
     This is the bug that outlived five fixes. `addComment` collapsed every
@@ -329,21 +571,269 @@ describe('CommentsSheet', () => {
     expect(dismiss).toHaveBeenCalledTimes(1);
   });
 
-  // The just-posted comment is the LAST row, which on a long thread is below the
-  // fold. The scroll rides the list's content-size change rather than a timer off
-  // the send, because that is the one moment the new row is laid out and the end
-  // position is final.
-  it('drives the post-send scroll from the list growing, not from a timer', async () => {
+  // The post-send scroll is hung off MEASUREMENTS, never off a timer: a timed
+  // scroll raced the sheet's own resize and landed short on a long thread (or at
+  // the top of a short one). Where it is hung is the thing that must not
+  // regress; where it lands is asserted below, in "where the thread sits".
+  it('drives the post-send scroll from measurements, not from a timer', async () => {
     renderSheet();
     await screen.findByTestId('comments-sheet-empty');
 
-    // The mechanism, not the pixels: jest lays nothing out, so a `scrollToEnd`
-    // spy here would only prove the handler was called with a content size of
-    // zero. What must not regress is WHERE the scroll is hung — off the send
-    // with a timeout, it raced the layout and landed short on a long thread.
-    expect(
-      typeof screen.getByTestId('comments-sheet-list').props.onContentSizeChange,
-    ).toBe('function');
+    const list = screen.getByTestId('comments-sheet-list');
+    expect(typeof list.props.onContentSizeChange).toBe('function');
+    // The list's own height is half of the target arithmetic, so it has to be
+    // measured rather than assumed.
+    expect(typeof list.props.onLayout).toBe('function');
+  });
+
+  /*
+    ─────────────────────────────────────────────────────────────────────────
+    WHERE THE THREAD SITS, AND WHEN IT IS ALLOWED TO MOVE
+    ─────────────────────────────────────────────────────────────────────────
+    Three reports from one session, all of them this sheet's scroll/keyboard
+    behaviour, and all three interacting:
+
+      1. ~150pt of dead white between the last comment and the composer with
+         the keyboard up. The sheet GROWS from 0.6 to 0.9 of the screen when
+         the keyboard arrives, and a top-anchored short thread leaves the whole
+         remainder as white.
+      2. "when u post it should scroll down to the bottom so u can see ur
+         comment; it should not scroll to the top after u post."
+      3. "with lots of comments, for some reason it scrolls to like the middle
+         of the comment page" on focusing the composer — being yanked away from
+         the comment you scrolled up to in order to reply to it.
+
+    (1) is why (2) looked like a scroll to the TOP: the offset was computed
+    against a viewport that was still resizing, and on a short thread the clamp
+    puts that at 0. And (3) was partly masking (2), so it cannot be removed
+    without (2) being fixed properly.
+  */
+  describe('where the thread sits, and when it is allowed to move', () => {
+    let scrollTo: jest.SpyInstance;
+    let scrollToEnd: jest.SpyInstance;
+
+    beforeEach(() => {
+      // The RN jest mock hangs both on `ScrollView.prototype`, so a ref-less
+      // test can still see exactly where the list was told to go.
+      scrollTo = jest.spyOn(ScrollView.prototype, 'scrollTo').mockImplementation(() => undefined);
+      scrollToEnd = jest
+        .spyOn(ScrollView.prototype, 'scrollToEnd')
+        .mockImplementation(() => undefined);
+    });
+
+    /** The runtime reporting a measured box, which is what releases the scroll. */
+    function layout(elementTestID: string, box: { height: number; y?: number }) {
+      fireEvent(screen.getByTestId(elementTestID), 'layout', {
+        nativeEvent: { layout: { height: box.height, width: 361, x: 0, y: box.y ?? 0 } },
+      });
+    }
+
+    // (1) The screenshot: three short comments, then a tall band of white, then
+    // the composer. The thread has to sit ON the composer instead.
+    it('bottom-anchors a short thread so it rests on the composer, 16 above it', async () => {
+      (fetchComments as jest.Mock).mockResolvedValue([buildComment()]);
+      renderSheet();
+      await screen.findByText('Great card!');
+
+      const content = StyleSheet.flatten(
+        screen.getByTestId('comments-sheet-list').props.contentContainerStyle,
+      );
+      // `flexGrow` alone makes the container the viewport's height and leaves
+      // the comments at the top of it — which IS the dead space. Anchoring to
+      // the end is what puts a short thread against the composer, and a thread
+      // taller than the viewport has no free space to distribute so it scrolls
+      // exactly as before.
+      expect(content.flexGrow).toBe(1);
+      expect(content.justifyContent).toBe('flex-end');
+
+      // And the gap it rests at is the 16 that was asked for: half under the
+      // last comment, half above the field, divider centred in it.
+      const composer = StyleSheet.flatten(
+        screen.getByTestId('comments-sheet-composer').props.style,
+      );
+      expect(content.paddingBottom + composer.paddingTop).toBe(16);
+    });
+
+    // The other half of bottom-anchoring: an EMPTY thread must not end up with
+    // its prompt shoved down onto the composer.
+    it('still centres the empty state rather than pinning it to the composer', async () => {
+      renderSheet();
+      const empty = await screen.findByTestId('comments-sheet-empty');
+
+      // `flex: 1` absorbs the free space `justifyContent: flex-end` would
+      // otherwise push down, so the prompt keeps the middle of the sheet.
+      expect(StyleSheet.flatten(empty.props.style)).toMatchObject({
+        flex: 1,
+        justifyContent: 'center',
+      });
+    });
+
+    /*
+      (2) The scroll is aimed at a MEASURED box, and only once the sheet has
+      stopped moving under it.
+
+      `Keyboard.dismiss()` on a successful send drops the composer's padding
+      from `keyboardHeight + 8` to 16 immediately while the sheet's height eases
+      from 0.9 to 0.6 of the screen over 250ms — so for a quarter of a second
+      the list viewport is a third of a screen taller than it is about to be.
+      The old scroll fired inside that window from `onContentSizeChange` alone
+      and stopped short; on a short thread it was clamped back to 0, which is
+      the reported "it scrolls to the top after you post".
+    */
+    it('scrolls to the comment you just posted, once its block has been measured', async () => {
+      (addComment as jest.Mock).mockResolvedValue({ ok: true, id: 'c-new' });
+      (fetchComments as jest.Mock).mockResolvedValue([buildComment({ id: 'c1', body: 'One' })]);
+      renderSheet();
+      await screen.findByText('One');
+
+      layout('comments-sheet-list', { height: 400 });
+      layout('comments-sheet-thread-c1', { height: 480, y: 12 });
+
+      fireEvent.changeText(screen.getByTestId('comments-sheet-input'), 'Mine');
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('comments-sheet-send'));
+      });
+      expect(await screen.findByText('Mine')).toBeTruthy();
+
+      // The row is in state, but nothing has measured it — the exact frame the
+      // old timed scroll fired on.
+      expect(scrollTo).not.toHaveBeenCalled();
+
+      layout('comments-sheet-thread-c-new', { height: 90, y: 500 });
+
+      // 500 (top of the new block) + 90 (its height) + 8 (the list's own bottom
+      // padding) - 400 of viewport: its bottom edge, at the bottom of the list.
+      expect(scrollTo).toHaveBeenCalledWith({ animated: true, y: 198 });
+    });
+
+    /*
+      (2), the case "scroll to the bottom" gets WRONG.
+
+      A reply is inserted under its parent, not appended to the thread — so the
+      end of the list is not where it went. Scrolling there would carry you away
+      from the reply you just wrote, which is the same "where did my comment go"
+      the bug is about, one row over.
+    */
+    it('lands on a REPLY under its parent, not at the end of a thread it is not in', async () => {
+      (addComment as jest.Mock).mockResolvedValue({ ok: true, id: 'r-new' });
+      (fetchComments as jest.Mock).mockResolvedValue([
+        buildComment({ id: 'c1', body: 'Reply to me' }),
+        buildComment({ id: 'c2', body: 'Last word' }),
+      ]);
+      renderSheet();
+      await screen.findByText('Reply to me');
+
+      layout('comments-sheet-list', { height: 400 });
+      layout('comments-sheet-thread-c1', { height: 300, y: 12 });
+      layout('comments-sheet-thread-c2', { height: 100, y: 332 });
+
+      fireEvent.press(screen.getByTestId('comments-sheet-comment-c1-reply'));
+      fireEvent.changeText(screen.getByTestId('comments-sheet-input'), 'Under yours');
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('comments-sheet-send'));
+      });
+      expect(addComment as jest.Mock).toHaveBeenCalledWith('post-1', 'Under yours', 'c1');
+
+      /*
+        The content-size change arrives from the same layout pass as the block's
+        own measurement, in an order this component does not choose — so it is
+        fired FIRST here, before c1 has been re-measured. It must not be allowed
+        to release the scroll: c1's box is still the one from before the reply
+        existed, and an offset computed from it lands above the reply (and on a
+        short thread is clamped to 0, which is the "it scrolled to the top"
+        report). The old code's answer to it was `scrollToEnd`.
+      */
+      await act(async () => {
+        fireEvent(screen.getByTestId('comments-sheet-list'), 'contentSizeChange', 361, 500);
+      });
+      // c2 is the end of the thread and has nothing to do with what was posted,
+      // so nothing has moved yet in either direction.
+      expect(scrollToEnd).not.toHaveBeenCalled();
+      expect(scrollTo).not.toHaveBeenCalled();
+
+      // c1's block grew by the reply that was just added to it.
+      layout('comments-sheet-thread-c1', { height: 400, y: 12 });
+
+      // 12 + 400 + 8 - 400: the bottom of the block that now holds the reply.
+      expect(scrollTo).toHaveBeenCalledWith({ animated: true, y: 20 });
+      expect(scrollToEnd).not.toHaveBeenCalled();
+    });
+
+    /*
+      (3) Focusing the composer moves NOTHING.
+
+      The old `onFocus` scrolled to the end of the thread on the argument that
+      you would want to see what you are replying to. That is backwards for how
+      Reply is used: you scroll up to a specific comment, tap Reply, and the
+      thread throws you back down to the conversation you deliberately left.
+    */
+    it('does not move the thread when the composer is focused', async () => {
+      (fetchComments as jest.Mock).mockResolvedValue([buildComment({ id: 'c1', body: 'One' })]);
+      renderSheet();
+      await screen.findByText('One');
+
+      await act(async () => {
+        fireEvent(screen.getByTestId('comments-sheet-input'), 'focus');
+        // The scroll this replaced was hung on a `requestAnimationFrame`, which
+        // jest polyfills as `setTimeout(…, 0)` — so let one turn run before
+        // concluding that nothing happened.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(scrollTo).not.toHaveBeenCalled();
+      expect(scrollToEnd).not.toHaveBeenCalled();
+    });
+
+    /*
+      The interaction the focus change could have broken. Reply focuses the
+      composer, and `onBlur` ends the reply — so if focus were ever to cost the
+      field its focus (or the banner its state) the reply would silently become
+      a top-level comment posted at the bottom of the thread.
+    */
+    it('keeps "replying to" through the focus that Reply asks for, and posts under the parent', async () => {
+      (addComment as jest.Mock).mockResolvedValue({ ok: true, id: 'r-new' });
+      (fetchComments as jest.Mock).mockResolvedValue([
+        buildComment({ id: 'c1', body: 'Way up top' }),
+      ]);
+      renderSheet();
+      await screen.findByText('Way up top');
+
+      fireEvent.press(screen.getByTestId('comments-sheet-comment-c1-reply'));
+      await act(async () => {
+        fireEvent(screen.getByTestId('comments-sheet-input'), 'focus');
+      });
+
+      expect(screen.getByTestId('comments-sheet-reply-banner')).toHaveTextContent(
+        'Replying to Misty',
+      );
+      expect(screen.getByTestId('comments-sheet-input').props.placeholder).toBe('Add a reply…');
+
+      fireEvent.changeText(screen.getByTestId('comments-sheet-input'), 'Right here');
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('comments-sheet-send'));
+      });
+
+      expect(addComment as jest.Mock).toHaveBeenCalledWith('post-1', 'Right here', 'c1');
+      // Under its parent and revealed, not hidden behind the replies toggle.
+      // A regex, not the exact string: a reply's body renders alongside the
+      // inline blue @mention in the same `Text`.
+      expect(await screen.findByTestId('comments-sheet-comment-r-new')).toHaveTextContent(
+        /Right here/,
+      );
+    });
+
+    it('attributes a reply of any depth to the block it is drawn in', () => {
+      const comments = [
+        buildComment({ id: 'c1' }),
+        buildComment({ id: 'r1', parentCommentId: 'c1' }),
+        buildComment({ id: 'r2', parentCommentId: 'r1' }),
+      ];
+      expect(topLevelAncestorId(comments, 'r2')).toBe('c1');
+      expect(topLevelAncestorId(comments, 'c1')).toBe('c1');
+      // A row the thread has never heard of — which is what a just-posted
+      // top-level comment is — answers for itself.
+      expect(topLevelAncestorId(comments, 'brand-new')).toBe('brand-new');
+    });
   });
 
   it('keeps the keyboard up when the return key posts, so the sheet cannot collapse over the comment', async () => {
@@ -914,5 +1404,100 @@ describe('CommentsSheet', () => {
       expect(collectDescendantIds(comments, 'r1')).toEqual(['r2']);
       expect(collectDescendantIds(comments, 'other')).toEqual([]);
     });
+  });
+});
+
+/*
+  Opening the composer should move the thread to where you are about to write.
+
+  This is NOT the old focus-scroll that was removed for landing "in the middle
+  of the comment page". That one fired inside `onFocus`, while the keyboard was
+  still travelling and the sheet still growing, so it aimed at a viewport that
+  no longer existed a frame later. These arm a target on focus and spend it once
+  the sheet's resize has completed — the same settled beat the post-send scroll
+  waits for.
+*/
+describe('CommentsSheet — where the composer opens', () => {
+  let scrollTo: jest.SpyInstance;
+  let scrollToEnd: jest.SpyInstance;
+  /**
+   * The sheet subscribes with `Keyboard.addListener`, and RN's jest Keyboard has
+   * no `emit`. Capturing the handler it registers is how the keyboard is raised
+   * here — and it also pins that the sheet really does subscribe.
+   */
+  const keyboardHandlers = new Map<string, (event: unknown) => void>();
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (fetchComments as jest.Mock).mockResolvedValue([]);
+    keyboardHandlers.clear();
+    jest
+      .spyOn(Keyboard, 'addListener')
+      .mockImplementation((event: string, handler: (payload: never) => void) => {
+        keyboardHandlers.set(event, handler as (payload: unknown) => void);
+        return { remove: () => keyboardHandlers.delete(event) } as never;
+      });
+    scrollTo = jest.spyOn(ScrollView.prototype, 'scrollTo').mockImplementation(() => undefined);
+    scrollToEnd = jest
+      .spyOn(ScrollView.prototype, 'scrollToEnd')
+      .mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  function layout(elementTestID: string, box: { height: number; y?: number }) {
+    fireEvent(screen.getByTestId(elementTestID), 'layout', {
+      nativeEvent: { layout: { height: box.height, width: 361, x: 0, y: box.y ?? 0 } },
+    });
+  }
+
+  /** The keyboard coming up, on whichever event this platform listens for. */
+  async function raiseKeyboard() {
+    const show = Array.from(keyboardHandlers.entries()).find(([event]) =>
+      event.toLowerCase().includes('show'),
+    );
+    expect(show).toBeDefined();
+    await act(async () => {
+      show?.[1]({ endCoordinates: { height: 300 } });
+    });
+  }
+
+  it('scrolls to the end of the thread when you tap "Add a comment…"', async () => {
+    (fetchComments as jest.Mock).mockResolvedValue([buildComment({ id: 'c1', body: 'One' })]);
+    renderSheet();
+    await screen.findByText('One');
+
+    layout('comments-sheet-list', { height: 400 });
+    layout('comments-sheet-thread-c1', { height: 480, y: 12 });
+
+    fireEvent(screen.getByTestId('comments-sheet-input'), 'focus');
+    // Nothing yet — the sheet has not started growing, let alone finished.
+    expect(scrollToEnd).not.toHaveBeenCalled();
+
+    await raiseKeyboard();
+
+    await waitFor(() => expect(scrollToEnd).toHaveBeenCalled());
+  });
+
+  it('puts the comment you tapped Reply on right above the composer', async () => {
+    (fetchComments as jest.Mock).mockResolvedValue([buildComment({ id: 'c1', body: 'One' })]);
+    renderSheet();
+    await screen.findByText('One');
+
+    layout('comments-sheet-list', { height: 400 });
+    layout('comments-sheet-thread-c1', { height: 90, y: 500 });
+
+    fireEvent.press(screen.getByTestId('comments-sheet-comment-c1-reply'));
+    await raiseKeyboard();
+
+    // 500 (top of that block) + 90 (its height) + 8 (the list's bottom padding)
+    // - 400 of viewport: the block's bottom edge sits at the bottom of the
+    // list, i.e. directly above the composer that just opened.
+    await waitFor(() => expect(scrollTo).toHaveBeenCalledWith({ animated: true, y: 198 }));
+    // Reply must NOT fall through to the generic "scroll to the end" — the
+    // field's own onFocus runs too, and would otherwise overwrite the target.
+    expect(scrollToEnd).not.toHaveBeenCalled();
   });
 });

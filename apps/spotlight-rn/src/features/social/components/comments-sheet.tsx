@@ -6,6 +6,7 @@ import {
   Dimensions,
   Easing,
   Keyboard,
+  type LayoutChangeEvent,
   Modal,
   PanResponder,
   Platform,
@@ -16,7 +17,7 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { ChatBubbleEmpty, MoreHoriz, SendDiagonal, ThumbsUp, Xmark } from 'iconoir-react-native';
+import { ChatBubbleEmpty, MoreHoriz, SendDiagonal, ThumbsUp } from 'iconoir-react-native';
 
 import { Avatar, Text, TextField, useSpotlightTheme } from '@spotlight/design-system';
 
@@ -45,9 +46,8 @@ type CommentsSheetProps = {
     already up when it was entered from the card's chat icon, which meant reading
     a thread started with two thirds of it covered and the newest comments
     squeezed into a strip. Opening comments is a READ; the keyboard belongs to
-    the moment you tap the composer, which is what `onFocus` is for. This mirrors
-    the New Post composer, which deliberately opens keyboard-down for the same
-    reason.
+    the moment you tap the composer. This mirrors the New Post composer, which
+    deliberately opens keyboard-down for the same reason.
   */
   /** The post whose thread this sheet shows. */
   postId: string;
@@ -104,6 +104,19 @@ const SHEET_RESIZE_MS = 250;
 
 /** Gap under the composer when the keyboard is down. */
 const COMPOSER_BOTTOM_GAP = 16;
+/**
+ * The gap between the last comment and the composer, split evenly between the
+ * list's own bottom padding and the composer's top padding so the divider ends
+ * up centred in it.
+ *
+ * It only reads as this number because the thread is bottom-anchored — see
+ * `styles.listContent`. Top-anchored, a short thread left the whole remainder of
+ * the viewport here instead, which with the keyboard up was around 150pt of
+ * white between the last comment and the field.
+ */
+const THREAD_TO_COMPOSER_GAP = 16;
+/** The list's share of that gap; the composer's `paddingTop` is the other half. */
+const LIST_BOTTOM_PADDING = THREAD_TO_COMPOSER_GAP / 2;
 /**
  * Long-press duration that opens a comment's destructive action. Matches
  * `CARD_LONG_PRESS_MS` in `portfolio-screen.tsx` so every "press and hold for the
@@ -236,22 +249,39 @@ type CommentThread = {
  * its descendant replies (also oldest-first) attributed to its top-level ancestor.
  * A reply's `mentionHandle` is the handle of the comment it directly replies to.
  */
+/**
+ * Walk a comment up to its top-level ancestor. `seen` also guards a cyclic
+ * parent chain from spinning forever.
+ */
+function rootIdOf(byId: Map<string, PostComment>, comment: PostComment): string {
+  let current = comment;
+  const seen = new Set<string>();
+  while (current.parentCommentId && byId.has(current.parentCommentId) && !seen.has(current.id)) {
+    seen.add(current.id);
+    current = byId.get(current.parentCommentId) as PostComment;
+  }
+  return current.id;
+}
+
+/**
+ * The top-level comment whose BLOCK a row is rendered inside. The thread never
+ * indents past one level, so a reply of any depth is drawn under its top-level
+ * ancestor — which makes this the block that has to be brought into view when a
+ * reply is posted, rather than the end of the thread the reply is not at.
+ * Unknown ids answer for themselves, which is what a just-posted top-level
+ * comment is.
+ */
+export function topLevelAncestorId(comments: PostComment[], commentId: string): string {
+  const byId = new Map(comments.map((entry) => [entry.id, entry]));
+  const comment = byId.get(commentId);
+  return comment ? rootIdOf(byId, comment) : commentId;
+}
+
 function buildCommentThreads(comments: PostComment[]): CommentThread[] {
   const byId = new Map<string, PostComment>();
   for (const comment of comments) {
     byId.set(comment.id, comment);
   }
-
-  // Resolve each comment to the id of its top-level ancestor.
-  const rootIdOf = (comment: PostComment): string => {
-    let current = comment;
-    const seen = new Set<string>();
-    while (current.parentCommentId && byId.has(current.parentCommentId) && !seen.has(current.id)) {
-      seen.add(current.id);
-      current = byId.get(current.parentCommentId) as PostComment;
-    }
-    return current.id;
-  };
 
   // The handle to @mention on a reply = the author of its DIRECT parent comment.
   // A tombstoned parent mentions nobody: printing "@misty" directly above a row
@@ -271,7 +301,7 @@ function buildCommentThreads(comments: PostComment[]): CommentThread[] {
   const repliesByRoot = new Map<string, CommentThread['replies']>();
   for (const comment of comments) {
     if (comment.parentCommentId && byId.has(comment.parentCommentId)) {
-      const root = rootIdOf(comment);
+      const root = rootIdOf(byId, comment);
       const list = repliesByRoot.get(root) ?? [];
       list.push({ comment, mentionHandle: mentionHandleOf(comment) });
       repliesByRoot.set(root, list);
@@ -408,23 +438,168 @@ export function CommentsSheet({
   const hiddenOffsetRef = useRef(SHEET_HEIGHT_RESTING);
   const inputRef = useRef<TextInput | null>(null);
   const listRef = useRef<ScrollView | null>(null);
-  /**
-   * Pin the thread to its newest row once the keyboard is down after a post.
-   *
-   * The list is not a chat log — it also grows when a "N replies" toggle expands
-   * — so there is deliberately no unconditional `onContentSizeChange` scroll the
-   * way the DM thread has. Scrolling only ever happens at moments the user
-   * caused: focusing the composer, and posting.
-   *
-   * Set by a successful send and consumed by the list's `onContentSizeChange`,
-   * which is the one moment the just-posted row is laid out and the end position
-   * is final. The flag is what keeps that handler from being unconditional.
-   */
-  const scrollAfterSendRef = useRef(false);
+  /*
+    ───────────────────────────────────────────────────────────────────────────
+    THE ONE SCROLL THIS SHEET EVER PERFORMS
+    ───────────────────────────────────────────────────────────────────────────
+    The list is not a chat log — it also grows when a "N replies" toggle expands
+    — so there is no unconditional scroll. Exactly one thing moves the thread:
+    POSTING. Opening does not (you came to read), and neither does focusing the
+    composer any more (reported: scrolling up to a comment, tapping Reply, and
+    being thrown into the middle of the thread is the opposite of what Reply
+    means).
 
-  const scrollToLatest = useCallback((animated: boolean) => {
-    listRef.current?.scrollToEnd({ animated });
+    WHERE it goes is the row that was just added, NOT the end of the thread. A
+    top-level comment is appended and those coincide; a REPLY is inserted under
+    its parent, which can be anywhere, so "scroll to the bottom" would carry you
+    away from the very thing you wrote. Both cases are therefore expressed the
+    same way: put the bottom of the top-level BLOCK that now contains the new row
+    at the bottom of the viewport.
+
+    WHEN is the part that was actually broken. The scroll used to fire from
+    `onContentSizeChange` alone, which lands in the middle of the sheet's own
+    keyboard-down resize: `Keyboard.dismiss()` drops `paddingBottom` from
+    `keyboardHeight + 8` to 16 IMMEDIATELY while the sheet's height eases from
+    0.9 to 0.6 of the screen over `SHEET_RESIZE_MS`, so at that instant the list
+    viewport is a third of a screen TALLER than it is about to be. An offset
+    computed against it stops short on a long thread, and on a short one is
+    clamped straight back to 0 — which is exactly the reported "it scrolls to the
+    top after you post".
+
+    So the target is held as a pending intent and applied on whichever
+    measurement lands once the sheet has stopped moving under it. No timer: the
+    triggers are the block's own `onLayout`, the list's `onLayout`, the content
+    size change, and the resize animation's completion callback.
+  */
+  /**
+   * The post-send scroll that has not landed yet: the top-level thread block
+   * holding the just-posted row, and whether that block has been re-measured
+   * SINCE the row was added.
+   *
+   * `measured` is not bookkeeping. A stale box is worse than no box: adding a
+   * reply to a block measured before the reply existed resolves to an offset
+   * above where the reply now is, which on a short thread clamps to 0 — the
+   * "it scrolled to the top" report, reproduced exactly. The layout pass emits
+   * the content-size change and the block's own layout in an order this
+   * component does not get to choose, so the trigger cannot be trusted; only a
+   * measurement of the target block itself can release the scroll.
+   */
+  const pendingScrollRef = useRef<{ rootId: string; measured: boolean } | null>(null);
+  /** Measured box of each top-level thread block, in the list's scroll coordinates. */
+  const threadLayoutsRef = useRef(new Map<string, { y: number; height: number }>());
+  /** The list's own measured height — the viewport the target is computed against. */
+  const listViewportHeightRef = useRef(0);
+  /** Readable-from-a-callback mirror of `keyboardHeight`. */
+  const keyboardHeightRef = useRef(0);
+  /** True while the sheet is easing between its resting and keyboard-up heights. */
+  const sheetResizingRef = useRef(false);
+  /** The height the sheet is currently heading for, so a no-op pass is recognisable. */
+  const sheetHeightTargetRef = useRef(SHEET_HEIGHT_RESTING);
+
+  /**
+   * Apply the pending post-send scroll if everything it needs is settled and
+   * measured. Cheap and idempotent, so every trigger can simply call it.
+   */
+  const runPendingScroll = useCallback(() => {
+    const pending = pendingScrollRef.current;
+    if (!pending || !pending.measured) {
+      return;
+    }
+    // Not while the keyboard is still on its way out and not while the sheet is
+    // still growing or shrinking: the viewport the offset would be computed
+    // against is not the one it will be measured against a moment later.
+    if (keyboardHeightRef.current > 0 || sheetResizingRef.current) {
+      return;
+    }
+    const viewport = listViewportHeightRef.current;
+    const box = threadLayoutsRef.current.get(pending.rootId);
+    if (!box || viewport <= 0) {
+      return;
+    }
+    pendingScrollRef.current = null;
+    // Over-scroll is clamped by the scroll view, so aiming at the true bottom of
+    // the block can only be right; a short thread resolves to 0 and stays put.
+    const target = Math.max(0, box.y + box.height + LIST_BOTTOM_PADDING - viewport);
+    listRef.current?.scrollTo({ animated: true, y: target });
   }, []);
+
+  /**
+   * Where the thread should land once the keyboard is up and the sheet has
+   * finished growing. Armed by opening the composer, spent by the resize.
+   *
+   *  - `end`    — tapping "Add a comment…". You are about to add to the end of
+   *               the thread, so the end is what you want to see.
+   *  - `thread` — tapping "Reply" on a comment. Puts the BOTTOM of that
+   *               comment's block at the bottom of the viewport, i.e. the
+   *               composer opens directly under the Reply button you pressed,
+   *               with what you are replying to right above it.
+   *
+   * Neither can be done inside `onFocus`: the keyboard is still travelling, the
+   * sheet is mid-grow, and the viewport an offset would be computed against is
+   * not the one it will be measured against a moment later. That is precisely
+   * why the earlier focus-scroll landed "in the middle of the comment page" and
+   * was removed. Focus only ARMS this; the sheet's own resize-completion
+   * callback spends it — the same settled beat `runPendingScroll` waits for.
+   */
+  const pendingFocusScrollRef = useRef<{ kind: 'end' } | { kind: 'thread'; rootId: string } | null>(
+    null,
+  );
+
+  /**
+   * Apply the pending focus scroll once everything it needs has settled.
+   * Idempotent, so every trigger can simply call it.
+   */
+  const runPendingFocusScroll = useCallback(() => {
+    const pending = pendingFocusScrollRef.current;
+    if (!pending) {
+      return;
+    }
+    // The mirror image of `runPendingScroll`'s guard: this one is only ever
+    // wanted with the keyboard UP, and never mid-resize.
+    if (keyboardHeightRef.current <= 0 || sheetResizingRef.current) {
+      return;
+    }
+    if (pending.kind === 'end') {
+      pendingFocusScrollRef.current = null;
+      listRef.current?.scrollToEnd({ animated: true });
+      return;
+    }
+    const viewport = listViewportHeightRef.current;
+    const box = threadLayoutsRef.current.get(pending.rootId);
+    if (!box || viewport <= 0) {
+      // Not measured yet — `handleThreadLayout` will call back.
+      return;
+    }
+    pendingFocusScrollRef.current = null;
+    // Over-scroll is clamped by the scroll view, so aiming at the true bottom of
+    // the block can only be right; a short thread resolves to 0 and stays put.
+    const target = Math.max(0, box.y + box.height + LIST_BOTTOM_PADDING - viewport);
+    listRef.current?.scrollTo({ animated: true, y: target });
+  }, []);
+
+  const handleListLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      listViewportHeightRef.current = event.nativeEvent.layout.height;
+      runPendingScroll();
+    },
+    [runPendingScroll],
+  );
+
+  const handleThreadLayout = useCallback(
+    (rootId: string, event: LayoutChangeEvent) => {
+      const { height, y } = event.nativeEvent.layout;
+      threadLayoutsRef.current.set(rootId, { height, y });
+      const pending = pendingScrollRef.current;
+      if (pending && pending.rootId === rootId) {
+        pending.measured = true;
+      }
+      runPendingScroll();
+      // A reply target can be armed before its block has ever been measured
+      // (expanding the replies grows it), so this is the other release point.
+      runPendingFocusScroll();
+    },
+    [runPendingFocusScroll, runPendingScroll],
+  );
 
   const [comments, setComments] = useState<PostComment[]>([]);
   const [status, setStatus] = useState<LoadStatus>('loading');
@@ -432,6 +607,30 @@ export function CommentsSheet({
   const [sending, setSending] = useState(false);
   /** Synchronous mirror of `sending` — see `handleSend` for why state isn't enough. */
   const sendingRef = useRef(false);
+  /*
+    Swallow the ONE change event the field emits as it gives up first responder.
+
+    This is the actual mechanism behind "send just dismisses the keyboard and my
+    text is still there", and it is why five fixes aimed at the button, the
+    gesture and the keyboard all missed: nothing was wrong with the press, and
+    the row really was written — the text came BACK afterwards.
+
+    iOS commits any pending autocorrect/predictive suggestion when the field
+    resigns, and RN reports that commit as an ordinary text change:
+    `RCTBackedTextInputDelegateAdapter.textFieldDidEndEditing` compares the
+    field's string against the last one it told JS about and, if they differ,
+    fires `textInputDidChange` BEFORE `textInputDidEndEditing`. So the sequence
+    on a successful send is: clear the draft, dismiss the keyboard, and then
+    `onChangeText` arrives carrying the sentence we just posted and puts it
+    straight back into `draft` — at which point React's value and the native
+    text agree, so nothing ever clears it again.
+
+    Armed immediately before the post-send `Keyboard.dismiss()` and consumed by
+    the next change event. That window can hold nothing else: the keyboard is on
+    its way out, so no keystroke can arrive, and re-focusing the composer to type
+    again disarms it (`onFocus`) before any character can be typed.
+  */
+  const ignoreNextDraftChangeRef = useRef(false);
   const [replyTo, setReplyTo] = useState<PostComment | null>(null);
   // Which top-level comments have their replies revealed (tap "N replies" to toggle).
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -472,6 +671,7 @@ export function CommentsSheet({
 
   useEffect(() => {
     if (!visible) {
+      keyboardHeightRef.current = 0;
       setKeyboardHeight(0);
       return;
     }
@@ -480,9 +680,14 @@ export function CommentsSheet({
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
     const showSub = Keyboard.addListener(showEvent, (event) => {
-      setKeyboardHeight(event.endCoordinates?.height ?? 0);
+      const height = event.endCoordinates?.height ?? 0;
+      keyboardHeightRef.current = height;
+      setKeyboardHeight(height);
     });
-    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      keyboardHeightRef.current = 0;
+      setKeyboardHeight(0);
+    });
     return () => {
       showSub.remove();
       hideSub.remove();
@@ -493,16 +698,39 @@ export function CommentsSheet({
   // when it goes down. Same 250ms/ease-out shape as the iOS keyboard curve, so
   // the top edge rises with the keyboard instead of after it.
   useEffect(() => {
-    hiddenOffsetRef.current = keyboardHeight > 0 ? SHEET_HEIGHT_EXPANDED : SHEET_HEIGHT_RESTING;
+    const toValue = keyboardHeight > 0 ? SHEET_HEIGHT_EXPANDED : SHEET_HEIGHT_RESTING;
+    hiddenOffsetRef.current = toValue;
+    // Only a CHANGE of target actually moves the sheet. Marking every run as a
+    // resize would leave the flag set by the mount pass — where the sheet is
+    // already at its resting height — and a pending post-send scroll would then
+    // wait for a completion callback that has nothing to complete.
+    const willMove = toValue !== sheetHeightTargetRef.current;
+    sheetHeightTargetRef.current = toValue;
+    if (willMove) {
+      sheetResizingRef.current = true;
+    }
     const animation = Animated.timing(sheetHeight, {
-      toValue: keyboardHeight > 0 ? SHEET_HEIGHT_EXPANDED : SHEET_HEIGHT_RESTING,
+      toValue,
       duration: SHEET_RESIZE_MS,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: false,
     });
-    animation.start();
+    animation.start(({ finished }) => {
+      if (!finished) {
+        return;
+      }
+      sheetResizingRef.current = false;
+      // The sheet has stopped moving, so the list's viewport is final and a
+      // post-send scroll can finally aim at something that will still be true
+      // one frame later. This is the beat the old content-size-only scroll
+      // fired well before, and why it landed short (or was clamped to the top).
+      runPendingScroll();
+      // Same settled beat, opposite direction: the composer just opened and the
+      // sheet has finished growing, so the focus scroll can aim truly.
+      runPendingFocusScroll();
+    });
     return () => animation.stop();
-  }, [keyboardHeight, sheetHeight]);
+  }, [keyboardHeight, runPendingFocusScroll, runPendingScroll, sheetHeight]);
 
   // Slide the sheet in on open, out on close, with the scrim fading in alongside
   // it. Two things used to make this read as a hard pop rather than a transition:
@@ -604,7 +832,12 @@ export function CommentsSheet({
     setLikedCommentIds(new Set());
     setLikeCountOverrides({});
     setPromptOpen(false);
-    scrollAfterSendRef.current = false;
+    pendingScrollRef.current = null;
+    // A target armed against the PREVIOUS post's thread must not survive into
+    // this one — the ids would not match, and an `end` target would scroll a
+    // freshly-opened sheet that is meant to start at the top.
+    pendingFocusScrollRef.current = null;
+    threadLayoutsRef.current.clear();
     /*
       Opening the sheet starts at the TOP of the thread, like every other comment
       list — no scroll on open at all.
@@ -615,8 +848,7 @@ export function CommentsSheet({
       anywhere else showed its middle. With the keyboard no longer opening on
       entry the whole thread is visible from the top, and yanking a reader to the
       bottom of someone else's conversation would be the app deciding what they
-      came to read. Tapping the composer still scrolls to the end (`onFocus`),
-      and so does posting — both are moments the user asked for.
+      came to read. POSTING is the only thing that moves the thread now.
     */
     void (async () => {
       try {
@@ -956,6 +1188,18 @@ export function CommentsSheet({
   );
 
   /**
+   * Every keystroke in the composer, minus the one the keyboard's own dismissal
+   * echoes back — see `ignoreNextDraftChangeRef`.
+   */
+  const handleDraftChange = useCallback((next: string) => {
+    if (ignoreNextDraftChangeRef.current) {
+      ignoreNextDraftChangeRef.current = false;
+      return;
+    }
+    setDraft(next);
+  }, []);
+
+  /**
    * Post the draft. Returns whether it actually STARTED a send, which is what
    * lets the button fire on touch-down without risking a double post — see the
    * send button below.
@@ -971,8 +1215,29 @@ export function CommentsSheet({
       return false;
     }
     const parent = replyTo;
+    const submitted = draft;
     sendingRef.current = true;
     setSending(true);
+
+    /*
+      EMPTY THE FIELD NOW, on touch-down, not when the write comes back.
+
+      Two reasons, and the first is the one the user actually sees: a composer
+      that still holds your sentence for the length of a round trip is a
+      composer that looks like it ignored you, which is what invites the second
+      press. The DM composer has always cleared on this beat.
+
+      The second is the native layer. `setDraft('')` alone asks React to push an
+      empty value down; `clear()` issues the same `setTextAndSelection` command
+      imperatively, at the moment of the press, so the field lets go of any
+      in-progress autocorrect composition instead of holding it until the
+      keyboard resigns. `TextField` forwards its ref to the underlying
+      `TextInput`, so this reaches the real node.
+
+      A failed write puts the text back below.
+    */
+    setDraft('');
+    inputRef.current?.clear();
 
     void (async () => {
       const result = await addComment(postId, text, parent?.id ?? null);
@@ -1002,7 +1267,6 @@ export function CommentsSheet({
         if (parent) {
           setExpandedIds((current) => new Set(current).add(parent.id));
         }
-        setDraft('');
         setReplyTo(null);
         onCommentAdded?.(optimistic);
         /*
@@ -1014,14 +1278,39 @@ export function CommentsSheet({
           TIMED scroll that chased the sheet's collapse and regularly lost the
           race, leaving your comment at the end of a thread you were no longer
           looking at — indistinguishable from the send doing nothing. That was
-          the timer's fault, not the dismissal's: the scroll is driven by the
-          list's own content-size change now (see `onContentSizeChange`), which
-          cannot fire before the row exists. Both can be true at once.
+          the timer's fault, not the dismissal's: the scroll is a measured target
+          applied once the sheet has settled (see `runPendingScroll`), which
+          cannot fire before the row exists or while the sheet is still moving.
+          Both can be true at once.
 
           A FAILED write keeps the keyboard up and the draft intact, because that
           is what trying again needs.
         */
-        scrollAfterSendRef.current = true;
+        // The BLOCK the new row is drawn in: its own, for a top-level comment;
+        // its parent's top-level ancestor, for a reply. `commentsRef` is still
+        // the pre-append list, which is exactly where the parent chain lives.
+        pendingScrollRef.current = {
+          measured: false,
+          rootId: parent ? topLevelAncestorId(commentsRef.current, parent.id) : result.id,
+        };
+        // Armed on this exact beat: the dismissal is what makes the field commit
+        // its pending autocorrect, and that commit arrives as a change event
+        // carrying the sentence we just posted. See `ignoreNextDraftChangeRef`.
+        //
+        // iOS ONLY, and that restriction is load-bearing. The guard is disarmed
+        // by `onFocus`, and on iOS `Keyboard.dismiss()` always blurs, so focus
+        // is guaranteed to intervene before the next comment is typed. On
+        // ANDROID dismissing need not blur — so the flag can survive all the way
+        // to the next keystroke and swallow the first character of the next
+        // comment. A test caught it doing exactly that.
+        //
+        // The mechanism it guards against (`textFieldDidEndEditing` committing a
+        // pending suggestion) is an iOS-only behaviour anyway. It also remains
+        // UNCONFIRMED on a real device: it was added as the diagnosis for the
+        // two-tap send bug, and the real cause turned out to be a `ScrollView`
+        // stealing the first touch. If the field clears cleanly on one tap now,
+        // this guard is guarding nothing and should be deleted outright.
+        ignoreNextDraftChangeRef.current = Platform.OS === 'ios';
         Keyboard.dismiss();
       } else {
         /*
@@ -1034,7 +1323,14 @@ export function CommentsSheet({
           `reason` is the database's own message, not a generic apology, so a
           policy rejection or a missing migration names itself instead of having
           to be guessed at from the outside.
+
+          PUT THE TEXT BACK, too. It was cleared on touch-down, which is right
+          for the case that succeeds, but trying again needs the sentence — and
+          retyping it is not something to ask of someone whose comment just
+          bounced. Only if the composer is still empty: if they started writing
+          something else while the write was in flight, that is theirs.
         */
+        setDraft((current) => (current.length === 0 ? submitted : current));
         Alert.alert("Couldn't post comment", result.reason);
       }
       sendingRef.current = false;
@@ -1044,38 +1340,126 @@ export function CommentsSheet({
   }, [currentUser, draft, onCommentAdded, postId, replyTo, sending]);
 
   /*
-    SEND ON TOUCH-DOWN, not on release.
+    ───────────────────────────────────────────────────────────────────────────
+    WHY THE FIRST TAP ON SEND NEVER ARRIVES WHILE THE KEYBOARD IS UP
+    ───────────────────────────────────────────────────────────────────────────
+    Confirmed with the user: the first tap does nothing but drop the keyboard,
+    and a SECOND tap posts. That is not a race, a stale draft, or an autocorrect
+    echo — it is React Native's `ScrollView` doing precisely what it is written
+    to do, and its own source says so word for word:
 
-    Third attempt at "send just dismisses the keyboard and keeps my text". The
-    first two assumed the press was reaching `onPress` and something afterwards
-    was wrong — the return key's blur, then the post-send scroll. It was neither:
-    the tap itself never arrives. A tap next to a focused `TextInput`, inside a
-    `Modal` whose sheet is resizing to the keyboard, gets consumed before the
-    finger lifts, so `onPress` — which only fires on RELEASE — never runs. That
-    is exactly the shape of the report: keyboard goes away, nothing posted, draft
-    still there.
+      // * the keyboard is up, keyboardShouldPersistTaps is 'never' (the default),
+      // and a new touch starts with a non-textinput target (in which case the
+      // first tap should be sent to the scroll view and dismiss the keyboard,
+      // then the second tap goes to the actual interior view)
+        — ScrollView.js, `_handleStartShouldSetResponderCapture`
 
-    `onPressIn` fires on touch-DOWN, before anything can eat the gesture, which
-    is why this cannot be beaten by whatever is consuming it.
+    That handler is wired as `onStartShouldSetResponderCapture`. Capture is
+    dispatched ROOT → TARGET, so every ScrollView ABOVE this button in the React
+    tree is asked before the button is, and the first one to return true takes
+    the touch outright. The one that answers is not in this file: the sheet is a
+    `Modal` mounted by `PostCard`, `Modal` keeps its children in the same fiber
+    tree, and the screens that host a `PostCard` (feed, post detail, public
+    profile) render it inside a list that leaves `keyboardShouldPersistTaps`
+    unset — i.e. `'never'`. Its `onResponderRelease` then blurs the focused
+    input, which is the keyboard dropping. Six fixes aimed at this button missed
+    because the thief is an ancestor OUTSIDE the sheet.
 
-    `onPress` STAYS, because VoiceOver activation only ever fires that one, and
-    dropping it would make the button unusable with a screen reader. The guard is
-    what keeps the two from posting twice: `handleSend` reports whether it
-    actually started a send, and the flag is reset at the top of each touch-down,
-    so `onPress` only acts when the touch-down path did nothing (i.e. VoiceOver,
-    where no `onPressIn` ran).
+    This sheet's own `keyboardShouldPersistTaps="handled"` (on the thread list
+    below) cannot help either: the composer is a SIBLING of that list, not a
+    descendant, so the prop never governs these taps.
+
+    ───────────────────────────────────────────────────────────────────────────
+    WHY `onTouchEnd`, AND WHY IT CANNOT BE BEATEN
+    ───────────────────────────────────────────────────────────────────────────
+    Nothing inside the `Modal` can outrank an ancestor's capture handler — by
+    construction, capture reaches the ancestor first. So the button stops relying
+    on the responder system for its liveness.
+
+    Raw touch events do not participate in responder negotiation at all. React
+    Native runs TWO event plugins over every touch, in order and without
+    short-circuiting — `ResponderEventPlugin` (which is what an ancestor wins)
+    and `ReactNativeBridgeEventPlugin`, which dispatches `topTouchStart` /
+    `topTouchEnd` two-phase through the fiber tree as the ordinary bubbling
+    `onTouchStart` / `onTouchEnd` props. They fire on this button whether or not
+    something above it stole the responder, so this is a guarantee rather than a
+    race won.
+
+    It is also robust to the one thing not proven from source: exactly WHICH
+    ancestor scroller claims the touch. `onTouchEnd` does not care who took it.
+
+    ───────────────────────────────────────────────────────────────────────────
+    ONE TAP POSTS EXACTLY ONE COMMENT
+    ───────────────────────────────────────────────────────────────────────────
+    Four handlers can now report the same tap. In the order the runtime delivers
+    them:
+
+      onTouchStart  a gesture began — always
+      onPressIn     touch-down, ONLY if this button won the responder
+      onPress       release, ONLY if it won the responder — and VoiceOver, which
+                    fires it with no touch events anywhere around it
+      onTouchEnd    always — this is the one that survives the theft
+
+    Two guards, because the two pairs need different rules and collapsing them
+    into one flag breaks whichever case the flag was not written for.
+
+    `sentOnPressInRef` is unchanged: `onPressIn` records whether it started a
+    send and `onPress` CONSUMES that, so the responder pair posts once and a
+    later screen-reader activation — which arrives as `onPress` alone — still
+    posts. It has to be consumed rather than left set, or a VoiceOver user gets
+    exactly one working tap per session.
+
+    `gestureSentRef` is scoped to a physical gesture and is only ever read by
+    `onTouchEnd`, which asks one question: did anything already post during this
+    touch? If the responder pair ran, yes, and the touch path stays quiet. If an
+    ancestor took the responder, nothing ran, and the touch path is what posts.
+    Both flags are cleared at the END of the gesture — `onTouchEnd` /
+    `onTouchCancel` — so no state leaks into the next tap.
+
+    `handleSend`'s own `sendingRef` remains the backstop underneath all of it:
+    it closes the window synchronously, so even a duplicate that somehow got
+    past both flags could not produce a second row.
   */
   const sentOnPressInRef = useRef(false);
+  /** Whether a send has already been started during the touch now in progress. */
+  const gestureSentRef = useRef(false);
+  /** Whether a raw touch is in progress at all — false for a VoiceOver press. */
+  const gestureActiveRef = useRef(false);
+
   const handleSendPressIn = useCallback(() => {
-    sentOnPressInRef.current = handleSend();
+    const started = handleSend();
+    sentOnPressInRef.current = started;
+    if (started) {
+      gestureSentRef.current = true;
+    }
   }, [handleSend]);
   const handleSendPress = useCallback(() => {
     if (sentOnPressInRef.current) {
       sentOnPressInRef.current = false;
       return;
     }
-    handleSend();
+    if (handleSend()) {
+      gestureSentRef.current = true;
+    }
   }, [handleSend]);
+
+  const handleSendTouchStart = useCallback(() => {
+    gestureActiveRef.current = true;
+    gestureSentRef.current = false;
+  }, []);
+  const endGesture = useCallback(() => {
+    gestureActiveRef.current = false;
+    gestureSentRef.current = false;
+    sentOnPressInRef.current = false;
+  }, []);
+  const handleSendTouchEnd = useCallback(() => {
+    // Only when the responder pair never got the chance — i.e. the tap this fix
+    // exists for.
+    if (gestureActiveRef.current && !gestureSentRef.current) {
+      handleSend();
+    }
+    endGesture();
+  }, [endGesture, handleSend]);
 
   // Renders one comment (top-level or reply): avatar + name/time + body (with an
   // optional inline blue @mention on replies) + the thumbs-up like and Reply
@@ -1227,6 +1611,15 @@ export function CommentsSheet({
                 hitSlop={8}
                 onPress={() => {
                   setReplyTo(comment);
+                  // Land the composer directly under THIS comment's Reply
+                  // button, with the comment you are answering still on screen
+                  // above it. Armed before `focus()` so the field's own
+                  // `onFocus` sees a target and does not overwrite it with the
+                  // generic "scroll to the end".
+                  pendingFocusScrollRef.current = {
+                    kind: 'thread',
+                    rootId: topLevelAncestorId(commentsRef.current, comment.id),
+                  };
                   // Otherwise "Reply" only swaps the placeholder — the composer
                   // is off at the bottom of the sheet with no keyboard up.
                   inputRef.current?.focus();
@@ -1391,17 +1784,12 @@ export function CommentsSheet({
           <ScrollView
             contentContainerStyle={styles.listContent}
             keyboardShouldPersistTaps="handled"
-            // The ONLY reliable moment to scroll to a just-posted comment: the
-            // content has grown by exactly that row, so the end position is
-            // final. Scheduling it off the send instead — a frame, a timeout —
-            // races the layout and lands short on a long thread.
-            onContentSizeChange={() => {
-              if (!scrollAfterSendRef.current) {
-                return;
-              }
-              scrollAfterSendRef.current = false;
-              scrollToLatest(true);
-            }}
+            // Three of the four triggers for a pending post-send scroll (the
+            // fourth is the sheet-resize animation finishing). Each is a moment
+            // a measurement changed; `runPendingScroll` decides whether enough
+            // of them have landed to aim at something final.
+            onContentSizeChange={runPendingScroll}
+            onLayout={handleListLayout}
             ref={listRef}
             style={styles.list}
             testID={`${testID}-list`}
@@ -1427,7 +1815,14 @@ export function CommentsSheet({
               threads.map(({ comment, replies }) => {
                 const expanded = expandedIds.has(comment.id);
                 return (
-                  <View key={comment.id} style={styles.thread}>
+                  <View
+                    key={comment.id}
+                    // The block's measured box is the post-send scroll target —
+                    // a reply lands inside it, wherever in the thread it is.
+                    onLayout={(event) => handleThreadLayout(comment.id, event)}
+                    style={styles.thread}
+                    testID={`${testID}-thread-${comment.id}`}
+                  >
                     {renderComment(comment, { isReply: false })}
                     {replies.length > 0 ? (
                       <Pressable
@@ -1486,14 +1881,13 @@ export function CommentsSheet({
             </View>
           ) : null}
 
-          <View style={[styles.composer, { borderTopColor: theme.colors.outlineSubtle }]}>
+          <View
+            style={[styles.composer, { borderTopColor: theme.colors.outlineSubtle }]}
+            testID={`${testID}-composer`}
+          >
             <View style={styles.composerField}>
               <TextField
-                onChangeText={setDraft}
-                // Starting to type should put you at the end of the thread, so
-                // you can see what you are replying to and watch your own
-                // comment arrive under it. rAF so the scroll runs after the
-                // keyboard-up relayout has shortened the list, not before it.
+                onChangeText={handleDraftChange}
                 // Leaving the composer ends the reply. This is what replaced the
                 // banner's X: "replying to X" is true while you are writing that
                 // reply and false the moment you stop, so it needs no separate
@@ -1501,7 +1895,33 @@ export function CommentsSheet({
                 // synchronously on touch-down — a blur that follows can never
                 // turn a reply into a top-level comment.
                 onBlur={() => setReplyTo(null)}
-                onFocus={() => requestAnimationFrame(() => scrollToLatest(true))}
+                /*
+                  FOCUS MOVES NOTHING. It used to scroll to the end of the thread
+                  on the argument that you would want to see what you are replying
+                  to — which is precisely backwards for the way Reply is actually
+                  used: you scroll UP to a specific comment, tap Reply, and the
+                  thread threw you back down to a conversation you had deliberately
+                  left. Reported as "it scrolls to like the middle of the comment
+                  page"; the ask is that the keyboard come up wherever you are.
+
+                  The post-send scroll is what keeps this safe. That used to be
+                  partly masked by this one — with the target now measured and
+                  applied after the sheet settles (`runPendingScroll`), posting
+                  still brings your own row into view without focus having to.
+                */
+                onFocus={() => {
+                  // Coming back to write again disarms the post-send change
+                  // guard, so the first character of the NEXT comment is never
+                  // mistaken for the last one's dismissal echo.
+                  ignoreNextDraftChangeRef.current = false;
+                  // Tapping the field itself means "add to the end". Reply
+                  // focuses this same field, but arms a THREAD target first —
+                  // so never clobber a target that is already set.
+                  if (!pendingFocusScrollRef.current) {
+                    pendingFocusScrollRef.current = { kind: 'end' };
+                  }
+                  runPendingFocusScroll();
+                }}
                 onSubmitEditing={handleSend}
                 placeholder={replyTo ? 'Add a reply…' : 'Add a comment…'}
                 ref={inputRef}
@@ -1529,6 +1949,19 @@ export function CommentsSheet({
               hitSlop={8}
               onPress={handleSendPress}
               onPressIn={handleSendPressIn}
+              /*
+                The raw touch pair is what makes the FIRST tap work while the
+                keyboard is up — see the note above `gestureSentRef`. `Pressable`
+                passes both straight through to its underlying `View` (they are
+                not among the props it destructures, and the handlers it does
+                install are responder ones), so they reach the real node and
+                cannot be shadowed. They also fire while `disabled` is true,
+                which is harmless: `handleSend` re-checks the draft and the
+                in-flight guard itself rather than trusting the prop.
+              */
+              onTouchCancel={endGesture}
+              onTouchEnd={handleSendTouchEnd}
+              onTouchStart={handleSendTouchStart}
               style={[
                 styles.sendButton,
                 {
@@ -1691,10 +2124,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     paddingHorizontal: 16,
-    // 8 here + 8 under the last comment = 16 from the thread to the field, with
-    // the divider centred in it. It was 12 + 16 = 28, which read as a gap of its
-    // own rather than as the thread ending.
-    paddingTop: 8,
+    // The other half of THREAD_TO_COMPOSER_GAP: 8 here + 8 under the last
+    // comment = 16 from the thread to the field, with the divider centred in it.
+    // It was 12 + 16 = 28, which read as a gap of its own rather than as the
+    // thread ending.
+    paddingTop: THREAD_TO_COMPOSER_GAP - LIST_BOTTOM_PADDING,
   },
   composerField: {
     flex: 1,
@@ -1723,8 +2157,24 @@ const styles = StyleSheet.create({
     // 20 between threads so a thread's own 12px body→actions→replies rhythm
     // stays visibly tighter than the gap to the next comment.
     gap: 20,
-    // Half of the 16 to the composer; the composer's `paddingTop` is the rest.
-    paddingBottom: 8,
+    /*
+      BOTTOM-ANCHOR A SHORT THREAD.
+
+      With `flexGrow` alone the content container is the viewport's height and
+      the comments sit at the TOP of it, so everything the thread does not fill
+      is dead white between the last comment and the composer — around 150pt of
+      it with three short comments and the keyboard up, because the sheet grows
+      to 0.9 of the screen exactly then. Anchored to the end, a short thread
+      rests ON the composer at the intended 16, and a thread taller than the
+      viewport is unaffected: there is no free space left to distribute, so it
+      scrolls exactly as before.
+
+      The empty/loading/error states are unaffected too — each is `flex: 1`, so
+      it absorbs the free space this would otherwise push down and keeps
+      centring itself in the sheet.
+    */
+    justifyContent: 'flex-end',
+    paddingBottom: LIST_BOTTOM_PADDING,
     paddingHorizontal: 16,
     paddingTop: 12,
   },
