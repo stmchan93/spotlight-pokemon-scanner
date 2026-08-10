@@ -196,21 +196,40 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   useEffect(() => {
-    // iOS-only: on Android the window itself resizes (adjustResize), which the
-    // `KeyboardAvoidingView` below already handles — adding this there would
-    // lift the footer a second keyboard's worth.
-    if (Platform.OS !== 'ios') {
-      return;
-    }
-    const changeSub = Keyboard.addListener('keyboardWillChangeFrame', (event) => {
+    /*
+      BOTH platforms, because the keyboard overlays the app on both.
+
+      Android looked like the exception — `softwareKeyboardLayoutMode` is unset,
+      so Expo asks for `adjustResize` — but under EDGE-TO-EDGE (default in Expo
+      SDK 55 / RN 0.83, enforced by Android 15) the window is not resized at
+      all: the app draws behind the IME and consumes the inset itself. Leaving
+      this iOS-only meant nothing lifted the footer on Android and the keyboard
+      simply covered Post / Public / photo / camera.
+
+      `KeyboardAvoidingView` is deliberately NOT doing this job. Driving the
+      footer from the measured height is what makes it travel WITH the
+      keyboard's own animation, and it is one mechanism to reason about instead
+      of two that can disagree.
+    */
+    const isIOS = Platform.OS === 'ios';
+    // `keyboardWillChangeFrame` carries every height change and animates in the
+    // `will` phase, but is iOS-only; Android gets the `did` pair.
+    const showEvent = isIOS ? 'keyboardWillChangeFrame' : 'keyboardDidShow';
+    const hideEvent = isIOS ? 'keyboardWillHide' : 'keyboardDidHide';
+    const changeSub = Keyboard.addListener(showEvent, (event) => {
       const screenHeight = Dimensions.get('window').height;
-      const top = event.endCoordinates?.screenY ?? screenHeight;
-      // Derived from the keyboard's TOP rather than read from `height`: a
-      // dismissing keyboard reports its full height with a top that is already
-      // off-screen, which would keep the footer floating after it left.
-      setKeyboardHeight(Math.max(0, screenHeight - top));
+      const endCoordinates = event?.endCoordinates;
+      if (isIOS) {
+        const top = endCoordinates?.screenY ?? screenHeight;
+        // Derived from the keyboard's TOP rather than read from `height`: a
+        // dismissing keyboard reports its full height with a top that is already
+        // off-screen, which would keep the footer floating after it left.
+        setKeyboardHeight(Math.max(0, screenHeight - top));
+        return;
+      }
+      setKeyboardHeight(Math.max(0, endCoordinates?.height ?? 0));
     });
-    const hideSub = Keyboard.addListener('keyboardWillHide', () => setKeyboardHeight(0));
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
     return () => {
       changeSub.remove();
       hideSub.remove();

@@ -64,20 +64,25 @@ type CommentsSheetProps = {
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 
 /*
-  Does the keyboard cover the app, or does the window shrink under it?
+  The keyboard OVERLAYS the app on both platforms, so the composer has to be
+  lifted by its height on both.
 
-  iOS: the keyboard is drawn OVER the window, so the composer has to be lifted
-  by its height. Android: `softwareKeyboardLayoutMode` is unset, which Expo
-  defaults to `adjustResize` — the window itself shrinks, so the composer is
-  ALREADY clear and adding the same lift again compensates twice.
+  It is worth writing down why Android is not the exception it looks like.
+  `softwareKeyboardLayoutMode` is unset, so Expo asks for `adjustResize` — but
+  under EDGE-TO-EDGE, which Expo SDK 55 / RN 0.83 enable by default and Android
+  15 enforces regardless, the window is NOT resized: the app draws behind the
+  system bars and the IME, and is expected to consume the inset itself. So
+  `adjustResize` is inert here and the keyboard covers the composer exactly as
+  it does on iOS.
 
-  That double-count is why the sheet misbehaved on Android: `SCREEN_HEIGHT` is
-  measured once at module load, i.e. BEFORE any resize, so a sheet sized from it
-  is taller than the shrunken window — and the extra bottom padding then pushed
-  the composer out of what was left, which is the "the bar is covering the add
-  a comment input" report.
+  Assuming the resize was real is what buried the input on Android — the lift
+  was removed, and nothing took its place.
+
+  The earlier "large white space" was a DIFFERENT bug in the same area: the
+  sheet grew by a flat 0.3 x SCREEN while padding by the measured keyboard
+  height. That is fixed in `sheetHeightForKeyboard`, not here.
 */
-const KEYBOARD_OVERLAYS_CONTENT = Platform.OS === 'ios';
+const KEYBOARD_OVERLAYS_CONTENT = true;
 // 24px avatar (Figma 2903-7590) — the reply column is indented by the avatar
 // width + row gap so a reply's avatar sits under the parent's body text.
 const AVATAR_SIZE = 24;
