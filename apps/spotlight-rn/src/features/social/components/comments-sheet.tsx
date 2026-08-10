@@ -62,6 +62,22 @@ type CommentsSheetProps = {
 };
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
+
+/*
+  Does the keyboard cover the app, or does the window shrink under it?
+
+  iOS: the keyboard is drawn OVER the window, so the composer has to be lifted
+  by its height. Android: `softwareKeyboardLayoutMode` is unset, which Expo
+  defaults to `adjustResize` — the window itself shrinks, so the composer is
+  ALREADY clear and adding the same lift again compensates twice.
+
+  That double-count is why the sheet misbehaved on Android: `SCREEN_HEIGHT` is
+  measured once at module load, i.e. BEFORE any resize, so a sheet sized from it
+  is taller than the shrunken window — and the extra bottom padding then pushed
+  the composer out of what was left, which is the "the bar is covering the add
+  a comment input" report.
+*/
+const KEYBOARD_OVERLAYS_CONTENT = Platform.OS === 'ios';
 // 24px avatar (Figma 2903-7590) — the reply column is indented by the avatar
 // width + row gap so a reply's avatar sits under the parent's body text.
 const AVATAR_SIZE = 24;
@@ -148,8 +164,18 @@ const COMMENT_LONG_PRESS_MS = 500;
  * sheet stops at 0.9 and the thread pays the remainder — the alternative is a
  * sheet taller than the screen.
  */
-export function sheetHeightForKeyboard(keyboardHeight: number): number {
-  if (keyboardHeight <= 0) {
+export function sheetHeightForKeyboard(
+  keyboardHeight: number,
+  // Injectable so the Android branch is testable without re-importing the
+  // module under a patched `Platform.OS` — doing that resets the module
+  // registry and takes every other test in the file with it.
+  keyboardOverlaysContent: boolean = KEYBOARD_OVERLAYS_CONTENT,
+): number {
+  if (keyboardHeight <= 0 || !keyboardOverlaysContent) {
+    // Android resizes the WINDOW instead of overlaying (see
+    // `KEYBOARD_OVERLAYS_CONTENT`), so the composer is already clear of the
+    // keyboard and there is nothing for extra height to pay for. Growing here
+    // would make the sheet taller than the window it now lives in.
     return SHEET_HEIGHT_RESTING;
   }
   const composerLift = keyboardHeight + KEYBOARD_GAP - COMPOSER_BOTTOM_GAP;
@@ -1865,7 +1891,9 @@ export function CommentsSheet({
               // still clears the home indicator, since the sheet's own rounded
               // bottom is inset from the screen edge anyway.
               paddingBottom:
-                keyboardHeight > 0 ? keyboardHeight + KEYBOARD_GAP : COMPOSER_BOTTOM_GAP,
+                keyboardHeight > 0 && KEYBOARD_OVERLAYS_CONTENT
+                  ? keyboardHeight + KEYBOARD_GAP
+                  : COMPOSER_BOTTOM_GAP,
               transform: [{ translateY }],
             },
           ]}

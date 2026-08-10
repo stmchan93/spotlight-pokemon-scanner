@@ -893,6 +893,22 @@ describe('CommentsSheet', () => {
         // white-space direction.
         expect(threadHeight(SCREEN_HEIGHT)).toBeLessThan(threadHeight(0));
       });
+
+      it('does not grow at all on Android, where the WINDOW shrinks instead', () => {
+        /*
+          `softwareKeyboardLayoutMode` is unset, so Expo gives Android
+          `adjustResize`: the window shrinks and the keyboard never covers the
+          app. Growing the sheet AND padding by the keyboard height there
+          compensates twice — and since SCREEN_HEIGHT is measured once at module
+          load, before any resize, the result is a sheet taller than the window
+          it now lives in, with the composer pushed out of what is left.
+        */
+        const overlays = false;
+        expect(sheetHeightForKeyboard(336, overlays)).toBe(RESTING);
+        expect(sheetHeightForKeyboard(120, overlays)).toBe(RESTING);
+        // iOS is unaffected: there the keyboard really is drawn over the app.
+        expect(sheetHeightForKeyboard(120, true)).toBeGreaterThan(RESTING);
+      });
     });
 
     it('attributes a reply of any depth to the block it is drawn in', () => {

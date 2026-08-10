@@ -138,6 +138,15 @@ export default function TabsLayout() {
       // The Material pill behind the selected icon. Left to Material You this
       // was `secondaryContainer` — a wallpaper-derived accent.
       indicatorColor={colors.gray100}
+      /*
+        Material's default is LABEL_VISIBILITY_AUTO, which shows labels only
+        while there are THREE OR FEWER tabs and drops them at four or more.
+        We have exactly four (Home/Scan/Wishlist/You), so Android silently
+        landed on the wrong side of that threshold and showed bare icons while
+        iOS showed labels. Pin it rather than sit one tab away from a
+        behaviour change.
+      */
+      labelVisibilityMode="labeled"
       minimizeBehavior="onScrollDown"
       rippleColor={colors.gray200}
       tintColor={colors.gray900}

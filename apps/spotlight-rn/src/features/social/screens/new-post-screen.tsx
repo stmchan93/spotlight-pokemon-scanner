@@ -375,11 +375,21 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
       testID={testID}
     >
       <KeyboardAvoidingView
-        // iOS moves a form sheet up for the keyboard by itself. Adding
-        // `padding` on top of that double-counts the keyboard height and lifts
-        // the POST button off the sheet, so iOS opts out here and only Android
-        // (where the window resizes instead) gets explicit handling.
-        behavior={Platform.OS === 'android' ? 'height' : undefined}
+        /*
+          NEITHER platform gets a behavior, for opposite reasons.
+
+          iOS moves a form sheet up for the keyboard by itself; adding `padding`
+          on top double-counts and lifts the POST button off the sheet.
+
+          Android was on `height`, described here as "the window resizes
+          instead" — but that is precisely why it must not be set. Expo leaves
+          `softwareKeyboardLayoutMode` unset, so the window is already resized
+          by `adjustResize`, and `height` then shrinks the inner view by the
+          keyboard AGAIN. React Native's own docs say KeyboardAvoidingView is
+          unnecessary under adjustResize. With no behavior this is a plain
+          passthrough View and the resized window does the work.
+        */
+        behavior={undefined}
         style={styles.flex}
       >
         <SheetHeader
