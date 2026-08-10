@@ -470,7 +470,6 @@ describe('DmThreadScreen', () => {
       jest.isolateModules(() => {});
       const supabaseModule = require('@/lib/supabase') as { supabase: unknown };
       const original = supabaseModule.supabase;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (supabaseModule as any).supabase = client;
 
       try {
@@ -494,7 +493,6 @@ describe('DmThreadScreen', () => {
           expect(topic.startsWith('dm:c-1:')).toBe(true);
         }
       } finally {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (supabaseModule as any).supabase = original;
       }
     });
