@@ -27,6 +27,27 @@ const SEARCH_DEBOUNCE_MS = 250;
  * `last_message_at` server-side, with never-written threads sorted last. Sorting
  * again here would only hide a data-layer regression, so the list renders the
  * service's order verbatim.
+ *
+ * BLOCKED THREADS ARE NOT MARKED OR HIDDEN HERE — a deliberate decision, not an
+ * omission:
+ *
+ *   * Hiding them is wrong for the same reason `messages_select` is not
+ *     block-gated (social_13): the history has to stay reachable so it can be
+ *     reported, and a thread that disappears on block lets a harasser erase
+ *     themselves from the victim's device by blocking first.
+ *   * Marking them would need a per-row answer, and the only either-direction
+ *     source is `conversation_has_block(conversation, user)` — one RPC PER ROW,
+ *     the exact fan-out `unread_dm_counts` and `last_message_preview` exist to
+ *     kill. Doing it in one round trip needs a set-returning RPC this schema does
+ *     not have.
+ *   * `fetchBlockedUserIds()` would answer for free, but only for blocks I
+ *     created. A badge that appears when I blocked them and not when they blocked
+ *     me is both a half-fix and a direction leak — it would tell someone they had
+ *     been blocked by its own absence.
+ *
+ * The thread already stops demanding attention without any of that:
+ * `unread_dm_counts()` excludes blocked conversations, so the badge sits at zero
+ * and stays there, and the thread itself explains the silence when opened.
  */
 export function DmInboxScreen({ testID = 'dm-inbox' }: { testID?: string }) {
   const theme = useSpotlightTheme();
@@ -128,6 +149,11 @@ export function DmInboxScreen({ testID = 'dm-inbox' }: { testID?: string }) {
             params: {
               conversationId,
               name: person.displayName ?? person.handle ?? '',
+              // Carried so the thread header can show — and link to — the
+              // person you are talking to. The inbox already has all of it.
+              avatar: person.avatarURL ?? '',
+              handle: person.handle ?? '',
+              userId: person.userID ?? '',
             },
           } as never);
         })
@@ -166,7 +192,13 @@ export function DmInboxScreen({ testID = 'dm-inbox' }: { testID?: string }) {
             // generated file. Drop it once the map has been regenerated.
             router.push({
               pathname: '/messages/[conversationId]',
-              params: { conversationId: item.id, name },
+              params: {
+                conversationId: item.id,
+                name,
+                avatar: item.otherUser?.avatarUrl ?? '',
+                handle: item.otherUser?.handle ?? '',
+                userId: item.otherUserId ?? '',
+              },
             } as never);
           }}
           style={({ pressed }) => [

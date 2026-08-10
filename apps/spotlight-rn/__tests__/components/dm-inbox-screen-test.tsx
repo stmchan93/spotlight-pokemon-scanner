@@ -197,11 +197,18 @@ describe('DmInboxScreen', () => {
 
     fireEvent.press(screen.getByTestId('dm-inbox-row-c-42'));
 
-    // The resolved name rides along so the thread header doesn't need a
-    // fetch-one-conversation read the data layer doesn't have.
+    // The resolved IDENTITY rides along — name, @handle, photo and user id — so
+    // the thread header can show who you are talking to, and link to them,
+    // without a fetch-one-conversation read the data layer does not have.
     expect(push).toHaveBeenCalledWith({
       pathname: '/messages/[conversationId]',
-      params: { conversationId: 'c-42', name: 'Ash Ketchum' },
+      params: {
+        conversationId: 'c-42',
+        name: 'Ash Ketchum',
+        avatar: '',
+        handle: 'ash',
+        userId: 'other-c-42',
+      },
     });
   });
 
@@ -254,7 +261,13 @@ describe('DmInboxScreen', () => {
       await waitFor(() =>
         expect(push).toHaveBeenCalledWith({
           pathname: '/messages/[conversationId]',
-          params: { conversationId: 'conv-99', name: 'trogdor85' },
+          params: {
+            conversationId: 'conv-99',
+            name: 'trogdor85',
+            avatar: '',
+            handle: '',
+            userId: 'user-trogdor',
+          },
         }),
       );
     });

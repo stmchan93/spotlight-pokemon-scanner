@@ -13,11 +13,13 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SendDiagonal } from 'iconoir-react-native';
 
-import { Text, TextField, useSpotlightTheme } from '@spotlight/design-system';
+import { Avatar, Text, TextField, useSpotlightTheme } from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
+import { profileRouteSlug } from '@/features/social/profile-link';
 import {
   type DmMessage,
+  fetchConversationBlocked,
   fetchMessages,
   markConversationRead,
   sendMessage,
@@ -90,10 +92,23 @@ function mergeMessages(current: ThreadMessage[], incoming: DmMessage[]): ThreadM
  */
 export function DmThreadScreen({
   conversationId,
+  otherUser,
   testID = 'dm-thread',
   title,
 }: {
   conversationId: string;
+  /**
+   * Who you are talking to, handed over by the inbox alongside `title` and for
+   * the same reason. Every field is optional and independently degradable: no
+   * avatar falls back to initials, and no handle OR id simply makes the header
+   * and the message avatars non-navigable instead of dead links.
+   */
+  otherUser?: {
+    avatarUrl?: string | null;
+    displayName?: string | null;
+    handle?: string | null;
+    userId?: string | null;
+  };
   testID?: string;
   title?: string;
 }) {
@@ -107,6 +122,26 @@ export function DmThreadScreen({
   const composerRef = useRef<RNTextInput>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  /**
+   * The thread is frozen by a block, in a direction this screen deliberately
+   * cannot see — see `fetchConversationBlocked`.
+   *
+   * Mirrored into a ref because the state alone is one render too slow for the
+   * guards that matter: a block discovered by a failed send has to stop the
+   * NEXT delivery attempt synchronously, including one already queued behind a
+   * retry tap.
+   */
+  const [isBlocked, setIsBlocked] = useState(false);
+  const isBlockedRef = useRef(false);
+  const applyBlocked = useCallback((blocked: boolean | null) => {
+    // Null is "no answer", not "not blocked". Ignoring it is what keeps a
+    // dropped request from unlocking a composer the server will keep rejecting.
+    if (blocked === null) {
+      return;
+    }
+    isBlockedRef.current = blocked;
+    setIsBlocked(blocked);
+  }, []);
 
   const listRef = useRef<FlatList<ThreadMessage>>(null);
   /**
@@ -125,6 +160,17 @@ export function DmThreadScreen({
     }
     listRef.current?.scrollToEnd({ animated });
   }, []);
+  /**
+   * Set by a send, cleared by the layout that honours it.
+   *
+   * Sending used to scroll inside a single `requestAnimationFrame`, which is one
+   * frame too early: the row is in state and React has re-rendered, but the list
+   * has not MEASURED it yet, so `scrollToEnd` computes from the old content
+   * height and stops just short — leaving the message you just sent below the
+   * fold. This defers the scroll to `onContentSizeChange`, which by definition
+   * cannot fire until the new row has been measured.
+   */
+  const pinAfterSendRef = useRef(false);
   const localIdRef = useRef(0);
 
   // Mirrored into a ref so `scrollToLatest` stays identity-stable — it is passed
@@ -132,13 +178,28 @@ export function DmThreadScreen({
   hasMessagesRef.current = messages.length > 0;
 
   const myUserId = currentUser?.id ?? null;
-  const canSend = draft.trim().length > 0 && conversationId.length > 0;
+  const canSend = !isBlocked && draft.trim().length > 0 && conversationId.length > 0;
 
+  /**
+   * Messages AND block state, in parallel, on every load.
+   *
+   * Both because they answer different halves of the same screen, and in
+   * parallel because the block check must never delay the thread rendering —
+   * reading a blocked thread is the whole reason its history stays selectable
+   * under RLS (so it can be reported), and a slow RPC must not get in the way of
+   * that. Riding on `load` also means pull-to-refresh re-asks, which is how a
+   * block placed while the thread is open gets picked up without a second
+   * subscription.
+   */
   const load = useCallback(async () => {
-    const rows = await fetchMessages(conversationId);
+    const [rows, blocked] = await Promise.all([
+      fetchMessages(conversationId),
+      fetchConversationBlocked(conversationId),
+    ]);
+    applyBlocked(blocked);
     setMessages((current) => mergeMessages(current, rows));
     setIsLoading(false);
-  }, [conversationId]);
+  }, [applyBlocked, conversationId]);
 
   useEffect(() => {
     void load();
@@ -224,8 +285,24 @@ export function DmThreadScreen({
    * also carries the authoritative `created_at`; the local clock is not
    * authoritative and would sort wrongly against messages from the other side.
    */
+  const markFailed = useCallback((localId: string) => {
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === localId ? { ...message, failed: true, pending: false } : message,
+      ),
+    );
+  }, []);
+
   const deliver = useCallback(
     async (localId: string, text: string) => {
+      // The ref, not the state: a send already queued when the block was
+      // discovered would otherwise read the pre-render value and go out anyway.
+      // The server would reject it regardless — this just stops the round trip
+      // and the pending bubble that goes with it.
+      if (isBlockedRef.current) {
+        markFailed(localId);
+        return;
+      }
       const saved = await sendMessage(conversationId, text);
       if (saved) {
         setMessages((current) =>
@@ -236,18 +313,25 @@ export function DmThreadScreen({
         );
         return;
       }
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === localId ? { ...message, failed: true, pending: false } : message,
-        ),
-      );
+      markFailed(localId);
+      // A send can fail because the thread was blocked WHILE it was open — the
+      // other side blocking is invisible until something is attempted, and
+      // `sendMessage` cannot tell an RLS rejection from a dropped connection.
+      // Re-ask the server directly: if the answer is yes, the composer closes
+      // and the retry affordance goes with it, instead of offering a tap that
+      // can never succeed. A null answer changes nothing, so an ordinary network
+      // failure keeps its retry.
+      applyBlocked(await fetchConversationBlocked(conversationId));
     },
-    [conversationId],
+    [applyBlocked, conversationId, markFailed],
   );
 
   const handleSend = useCallback(() => {
     const text = draft.trim();
-    if (text.length === 0 || conversationId.length === 0) {
+    // `isBlockedRef` covers the paths a disabled button does not: `returnKeyType`
+    // submit from a field that is mid-teardown, and any send racing the moment
+    // the block was discovered.
+    if (text.length === 0 || conversationId.length === 0 || isBlockedRef.current) {
       return;
     }
 
@@ -276,15 +360,19 @@ export function DmThreadScreen({
     // layer, which is the only thing that ends the composition session.
     composerRef.current?.clear();
     // Sending while scrolled up left the new bubble off-screen: the content grew
-    // but the viewport stayed where it was.
-    requestAnimationFrame(() => scrollToLatest(true));
+    // but the viewport stayed where it was. Armed rather than scrolled here —
+    // see `pinAfterSendRef` for why one frame is not enough.
+    pinAfterSendRef.current = true;
     void deliver(localId, text);
-  }, [conversationId, deliver, draft, myUserId, scrollToLatest]);
+  }, [conversationId, deliver, draft, myUserId]);
 
   /** Re-send a failed entry in place — same local id, so it reconciles normally. */
   const handleRetry = useCallback(
     (message: ThreadMessage) => {
-      if (!message.failed) {
+      // Nothing can be retried into a blocked thread, so a retry must not even
+      // flip the bubble back to `pending` — that would read as progress toward
+      // an outcome that cannot happen.
+      if (!message.failed || isBlockedRef.current) {
         return;
       }
       setMessages((current) =>
@@ -297,11 +385,33 @@ export function DmThreadScreen({
     [deliver],
   );
 
+  const headerName = otherUser?.displayName?.trim() || title?.trim() || 'Message';
+  /**
+   * Where the counterparty's photo and name lead, or null when neither a handle
+   * nor an id came through — in which case nothing is made to look tappable.
+   */
+  const openProfile = useMemo(() => {
+    const slug = profileRouteSlug(otherUser?.handle, otherUser?.userId);
+    if (!slug) {
+      return null;
+    }
+    return () => {
+      router.push({
+        pathname: '/u/[handle]',
+        params: { handle: slug, userId: otherUser?.userId ?? '' },
+      } as never);
+    };
+  }, [otherUser?.handle, otherUser?.userId, router]);
+
   const renderItem = useCallback(
     ({ item }: { item: ThreadMessage }) => {
       // A locally-created entry is always mine, which keeps the optimistic bubble
       // on the right even before auth has resolved a user id.
       const isMine = item.id.startsWith(LOCAL_ID_PREFIX) || (myUserId !== null && item.senderId === myUserId);
+      // A blocked thread takes the retry away rather than leaving a permanent
+      // "tap to try again" on a send that can never land. The bubble itself
+      // stays — the words someone typed are still theirs to see.
+      const canRetry = item.failed === true && !isBlocked;
       const bubbleColor = item.failed
         ? theme.colors.red50
         : isMine
@@ -318,10 +428,30 @@ export function DmThreadScreen({
           style={[styles.row, isMine ? styles.rowMine : styles.rowTheirs]}
           testID={`${testID}-row-${item.id}`}
         >
+          {/*
+            THEIR photo, on the left of THEIR bubble, and a second way through to
+            their profile. Only on incoming messages: your own face beside every
+            line you sent is noise, and there is nowhere useful for it to lead.
+          */}
+          {isMine ? null : (
+            <Pressable
+              accessibilityLabel={openProfile ? `View ${headerName}'s profile` : undefined}
+              accessibilityRole={openProfile ? 'button' : undefined}
+              disabled={!openProfile}
+              onPress={openProfile ?? undefined}
+              testID={`${testID}-row-${item.id}-avatar`}
+            >
+              <Avatar
+                initials={(headerName[0] ?? '?').toUpperCase()}
+                size={28}
+                uri={otherUser?.avatarUrl ?? undefined}
+              />
+            </Pressable>
+          )}
           <Pressable
-            accessibilityLabel={item.failed ? 'Retry sending' : undefined}
-            accessibilityRole={item.failed ? 'button' : undefined}
-            disabled={!item.failed}
+            accessibilityLabel={canRetry ? 'Retry sending' : undefined}
+            accessibilityRole={canRetry ? 'button' : undefined}
+            disabled={!canRetry}
             onPress={() => handleRetry(item)}
             style={[
               styles.bubble,
@@ -340,14 +470,23 @@ export function DmThreadScreen({
                 style={[theme.typography.micro, { color: theme.colors.dangerStrong }]}
                 testID={`${testID}-failed-${item.id}`}
               >
-                Not sent — tap to try again
+                {canRetry ? 'Not sent — tap to try again' : 'Not sent'}
               </Text>
             ) : null}
           </Pressable>
         </View>
       );
     },
-    [handleRetry, myUserId, testID, theme],
+    [
+      handleRetry,
+      headerName,
+      isBlocked,
+      myUserId,
+      openProfile,
+      otherUser?.avatarUrl,
+      testID,
+      theme,
+    ],
   );
 
   const contentStyle = useMemo(
@@ -363,9 +502,43 @@ export function DmThreadScreen({
     >
       <View style={[styles.header, { borderBottomColor: theme.colors.gray200 }]}>
         <ChromeBackButton onPress={() => router.back()} testID={`${testID}-back`} />
-        <Text numberOfLines={1} style={[theme.typography.titleXsmall, styles.title]}>
-          {title?.trim() || 'Message'}
-        </Text>
+        {/*
+          WHO YOU ARE TALKING TO, and a way through to them. The header was a
+          bare name string, which made the thread the one social surface in the
+          app where a person's name was dead text.
+
+          The whole block is one target — photo and name together — because they
+          name the same person; splitting them into two adjacent taps that go to
+          the same place only makes each one smaller.
+        */}
+        <Pressable
+          accessibilityLabel={openProfile ? `View ${headerName}'s profile` : undefined}
+          accessibilityRole={openProfile ? 'button' : undefined}
+          disabled={!openProfile}
+          onPress={openProfile ?? undefined}
+          style={({ pressed }) => [styles.headerIdentity, { opacity: pressed ? 0.7 : 1 }]}
+          testID={`${testID}-header-identity`}
+        >
+          <Avatar
+            initials={(headerName[0] ?? '?').toUpperCase()}
+            size={32}
+            testID={`${testID}-header-avatar`}
+            uri={otherUser?.avatarUrl ?? undefined}
+          />
+          <View style={styles.headerCopy}>
+            <Text numberOfLines={1} style={theme.typography.titleXsmall}>
+              {headerName}
+            </Text>
+            {otherUser?.handle ? (
+              <Text
+                numberOfLines={1}
+                style={[theme.typography.caption, { color: theme.colors.gray500 }]}
+              >
+                @{otherUser.handle}
+              </Text>
+            ) : null}
+          </View>
+        </Pressable>
         <View style={styles.headerSpacer} />
       </View>
 
@@ -401,54 +574,112 @@ export function DmThreadScreen({
             )
           }
           // Newest sits at the bottom, so every content-height change (first
-          // load, a sent message, a refresh) has to pin the view there.
-          onContentSizeChange={() => scrollToLatest(false)}
+          // load, a sent message, a refresh) has to pin the view there. This is
+          // also the earliest moment a just-sent row can be scrolled to, because
+          // it is the first point at which the list has measured it.
+          onContentSizeChange={() => {
+            const animated = pinAfterSendRef.current;
+            pinAfterSendRef.current = false;
+            // Animated only for your OWN send, where the motion reads as "your
+            // message went there". Everything else (first load, a refresh, an
+            // incoming message) jumps, so the thread never appears to drift on
+            // its own.
+            scrollToLatest(animated);
+          }}
+          // The VIEWPORT changing has to re-pin too, and it does not touch
+          // content size: the keyboard opening or closing makes the list shorter
+          // or taller, which silently moves the bottom out from under the newest
+          // message. `onContentSizeChange` cannot see that.
+          onLayout={() => scrollToLatest(false)}
           ref={listRef}
           refreshControl={<RefreshControl onRefresh={handleRefresh} refreshing={isRefreshing} />}
           renderItem={renderItem}
           testID={`${testID}-list`}
         />
 
-        <View style={[styles.composer, { borderTopColor: theme.colors.outlineSubtle }]}>
-          <View style={styles.composerField}>
-            <TextField
-              onChangeText={setDraft}
-              // The keyboard shortens the list without changing its content, so
-              // onContentSizeChange never fires and the newest message ends up
-              // hidden behind the keyboard.
-              onFocus={() => requestAnimationFrame(() => scrollToLatest(true))}
-              ref={composerRef}
-              onSubmitEditing={handleSend}
-              placeholder="Message…"
-              returnKeyType="send"
-              testID={`${testID}-input`}
-              value={draft}
-            />
-          </View>
-          <Pressable
-            accessibilityLabel="Send message"
-            accessibilityRole="button"
-            disabled={!canSend}
-            hitSlop={8}
-            onPress={handleSend}
-            style={[
-              styles.sendButton,
-              {
-                backgroundColor: canSend ? theme.colors.purple500 : theme.colors.gray200,
-                borderRadius: theme.radii.pill,
-              },
-            ]}
-            testID={`${testID}-send`}
+        {isBlocked ? (
+          /*
+            The composer is REPLACED, not disabled in place. A greyed-out field
+            with a dead send button invites tapping it to find out why; one line
+            where the field was answers the question before it is asked.
+
+            Plain centred text rather than a StateCard, matching the empty-thread
+            prompt above — a card would frame this as a failure to load.
+
+            The wording is direction-blind ON PURPOSE. It reads identically
+            whether you blocked them or they blocked you, because the schema
+            hides the second case from the client deliberately (`blocks_all` is
+            scoped to `blocker_id = auth.uid()`), and a message that let someone
+            infer they had been blocked is exactly the retaliation trigger that
+            scoping exists to prevent. No explanation of who, and no advice.
+
+            The thread above stays mounted, scrollable and refreshable — reading
+            and reporting the history is the reason a block freezes a DM instead
+            of hiding it.
+          */
+          <View
+            style={[styles.blockedNotice, { borderTopColor: theme.colors.outlineSubtle }]}
+            testID={`${testID}-blocked`}
           >
-            <SendDiagonal color={theme.colors.gray0} height={18} width={18} />
-          </Pressable>
-        </View>
+            <Text
+              style={[theme.typography.label, styles.blockedText, { color: theme.colors.gray600 }]}
+            >
+              You can&apos;t reply to this conversation.
+            </Text>
+          </View>
+        ) : (
+          <View style={[styles.composer, { borderTopColor: theme.colors.outlineSubtle }]}>
+            <View style={styles.composerField}>
+              <TextField
+                onChangeText={setDraft}
+                // The keyboard shortens the list without changing its content, so
+                // onContentSizeChange never fires and the newest message ends up
+                // hidden behind the keyboard.
+                onFocus={() => requestAnimationFrame(() => scrollToLatest(true))}
+                ref={composerRef}
+                onSubmitEditing={handleSend}
+                placeholder="Message…"
+                returnKeyType="send"
+                testID={`${testID}-input`}
+                value={draft}
+              />
+            </View>
+            <Pressable
+              accessibilityLabel="Send message"
+              accessibilityRole="button"
+              disabled={!canSend}
+              hitSlop={8}
+              onPress={handleSend}
+              style={[
+                styles.sendButton,
+                {
+                  backgroundColor: canSend ? theme.colors.purple500 : theme.colors.gray200,
+                  borderRadius: theme.radii.pill,
+                },
+              ]}
+              testID={`${testID}-send`}
+            >
+              <SendDiagonal color={theme.colors.gray0} height={18} width={18} />
+            </Pressable>
+          </View>
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  // Stands in for the composer, so it carries the composer's top rule and its
+  // horizontal gutter. Vertical padding is larger because there is no 36pt
+  // control inside to give the strip its height.
+  blockedNotice: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  blockedText: {
+    textAlign: 'center',
+  },
   bubble: {
     gap: 2,
     paddingHorizontal: 12,
@@ -504,16 +735,20 @@ const styles = StyleSheet.create({
     paddingTop: 12,
   },
   row: {
+    // Bottom-aligned so the avatar sits beside the LAST line of a multi-line
+    // bubble, the way every messaging app draws it — top-aligned it floats away
+    // from the text it belongs to.
+    alignItems: 'flex-end',
+    flexDirection: 'row',
+    gap: 8,
     // A bubble never spans the full width — the free edge is what makes the
     // left/right split readable at a glance.
     maxWidth: '80%',
   },
   rowMine: {
-    alignItems: 'flex-end',
     alignSelf: 'flex-end',
   },
   rowTheirs: {
-    alignItems: 'flex-start',
     alignSelf: 'flex-start',
   },
   safeArea: {
@@ -525,8 +760,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: 36,
   },
-  title: {
+  // Takes the slack between the back button and its mirror spacer, so a long
+  // name truncates instead of pushing the row apart.
+  headerCopy: {
+    flexShrink: 1,
+  },
+  headerIdentity: {
+    alignItems: 'center',
     flex: 1,
-    textAlign: 'center',
+    flexDirection: 'row',
+    gap: 8,
   },
 });
