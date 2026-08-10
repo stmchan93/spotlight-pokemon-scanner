@@ -1,4 +1,5 @@
 import { usePathname } from 'expo-router';
+import { Platform } from 'react-native';
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
 
 import { colors } from '@spotlight/design-system';
@@ -185,7 +186,18 @@ export default function TabsLayout() {
           glyph is the fallback for a guest, an account with no photo, and the
           frame or two before the raster lands.
         */}
-        {avatarIcon ? (
+        {/*
+          ANDROID GETS THE GLYPH, NOT THE PHOTO.
+
+          `renderingMode="original"` is a UIKit concept (UIImage.RenderingMode)
+          and has no Android counterpart. Android treats a tab icon as a
+          drawable and applies the icon tint — which is `tintColor`, gray900 —
+          so the avatar PNG was flattened to a solid dark silhouette: a black
+          square where the photo should be. There is no supported prop to opt a
+          `src` icon out of tinting on Android, so it takes `account_circle`
+          rather than a black blob. iOS keeps the real portrait.
+        */}
+        {avatarIcon && Platform.OS === 'ios' ? (
           <Icon renderingMode="original" src={avatarIcon} />
         ) : (
           <Icon md="account_circle" sf={{ default: 'person.crop.circle', selected: 'person.crop.circle.fill' }} />
