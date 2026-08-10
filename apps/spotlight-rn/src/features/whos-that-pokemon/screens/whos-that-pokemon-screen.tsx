@@ -25,12 +25,15 @@ import {
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import { useVisionCameraCapture } from '@/features/scanner/use-vision-camera-capture';
 import { useAppServices } from '@/providers/app-providers';
+import { useAuth } from '@/providers/auth-provider';
 
 import { officialArtworkUrl } from '../artwork';
+import { EvolutionCue } from '../components/evolution-cue';
 import { FaceLockOn } from '../components/face-lock-on';
 import { RevealMorph } from '../components/reveal-morph';
 import { ScanningTheater } from '../components/scanning-theater';
 import { ResultPanel } from '../components/result-panel';
+import { resolveEvolvingName } from '../evolution-copy';
 import { extractSelfiePalette, fallbackSelfiePalette } from '../palette';
 
 const isTestEnv = process.env.NODE_ENV === 'test';
@@ -44,7 +47,7 @@ const MIN_THEATER_MS = isTestEnv ? 40 : 2400;
 
 const SHARE_FILE_NAME = 'whos-that-pokemon.png';
 
-type Phase = 'capture' | 'scanning' | 'lockon' | 'reveal' | 'result';
+type Phase = 'capture' | 'scanning' | 'lockon' | 'evolving' | 'reveal' | 'result';
 
 type SelfieCapture = {
   uri: string;
@@ -72,6 +75,99 @@ function loadSharingModule(): SharingModule | null {
   }
 }
 
+// expo-image-manipulator is a NATIVE module that can be missing from the binary
+// an OTA'd JS bundle is running on — same lazy-require guard the composer and
+// Edit Profile use. See `bakeCaptureOrientation` for what happens when it is.
+type ImageManipulatorModule = {
+  manipulateAsync: (
+    uri: string,
+    actions?: unknown[],
+    saveOptions?: { base64?: boolean; compress?: number; format?: string },
+  ) => Promise<{ uri: string; width: number; height: number; base64?: string }>;
+  SaveFormat: { JPEG: string };
+};
+function loadImageManipulator(): ImageManipulatorModule | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require('expo-image-manipulator') as ImageManipulatorModule;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Bake the capture's EXIF orientation into its PIXELS.
+ *
+ * THE BUG THIS FIXES. vision-camera saves the still in the sensor's native
+ * orientation — landscape, e.g. 3840x2160 — and records how to turn it upright
+ * as an EXIF flag (`Photo.orientation`: "applied lazily via EXIF flags"). That
+ * leaves the three consumers of this photo disagreeing about which way is up:
+ *
+ *   - `expo-image` (SDWebImage / Glide) APPLIES the flag, so on screen it is
+ *     portrait;
+ *   - the backend decodes with PIL, which does NOT apply it (`person_cutout.py`
+ *     says so outright: "No EXIF transpose is applied anywhere in this module"),
+ *     so `personOutline` / `personBounds` / `headBox` are normalized against the
+ *     LANDSCAPE frame;
+ *   - `photo.width` / `photo.height`, which we forward as `sourceWidth` /
+ *     `sourceHeight`, are the landscape buffer dims.
+ *
+ * So the traced outline is effectively rotated 90 degrees against the photo the
+ * user is looking at, and the morph deforms a sideways human — which is exactly
+ * the "the morphing isn't really there anymore" report.
+ *
+ * The fix is one pass through the image manipulator, whose FIRST transformer is
+ * always `ImageFixOrientationTransformer` ("Guarantees that the original pixel
+ * data matches the displayed orientation") on iOS, with Glide applying EXIF on
+ * decode on Android — a shared code path, no platform branch needed. After it,
+ * raw pixels == displayed pixels and no coordinate translation is needed
+ * anywhere: backend, display and `sourceWidth`/`sourceHeight` all describe the
+ * same upright image.
+ *
+ * The base64 MUST come from this rotated file, not from the original read, or
+ * the backend keeps segmenting the landscape frame and nothing improves.
+ *
+ * DEGRADES GRACEFULLY: a missing native module, a rejected promise, or a result
+ * without base64 all return null, and the caller keeps the original capture.
+ * A selfie that morphs oddly beats a feature that refuses to run.
+ *
+ * NOT done inside `use-vision-camera-capture` on purpose: that hook is shared
+ * with the scanner, whose capture latency is a tracked product metric.
+ */
+async function bakeCaptureOrientation(
+  capture: { uri: string; base64?: string; width: number; height: number },
+): Promise<SelfieCapture | null> {
+  const ImageManipulator = loadImageManipulator();
+  if (!ImageManipulator?.manipulateAsync) {
+    return null;
+  }
+  try {
+    const baked = await ImageManipulator.manipulateAsync(capture.uri, [], {
+      base64: true,
+      compress: 0.9,
+      format: ImageManipulator.SaveFormat?.JPEG ?? 'jpeg',
+    });
+    if (!baked?.uri || !baked.base64) {
+      return null;
+    }
+    return {
+      uri: baked.uri,
+      jpegBase64: baked.base64,
+      width: baked.width,
+      height: baked.height,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Best-effort temp-file delete — the OS clears the cache dir eventually anyway. */
+function deleteTempFile(uri: string | null) {
+  if (uri) {
+    void deleteAsync(uri, { idempotent: true }).catch(() => {});
+  }
+}
+
 function delay(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
@@ -91,6 +187,7 @@ export function WhosThatPokemonScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { spotlightRepository } = useAppServices();
+  const { currentUser } = useAuth();
   const {
     device,
     Camera,
@@ -134,10 +231,7 @@ export function WhosThatPokemonScreen() {
   const deleteSelfieFile = useCallback(() => {
     const uri = selfieUriRef.current;
     selfieUriRef.current = null;
-    if (uri) {
-      // Best-effort: the OS clears the cache dir eventually anyway.
-      void deleteAsync(uri, { idempotent: true }).catch(() => {});
-    }
+    deleteTempFile(uri);
   }, []);
 
   useEffect(() => {
@@ -222,15 +316,35 @@ export function WhosThatPokemonScreen() {
         Alert.alert('Capture failed', 'Could not read the photo. Please try again.');
         return;
       }
-      // A retake replaces the previous selfie — drop its temp file first.
-      deleteSelfieFile();
-      selfieUriRef.current = result.uri;
-      const nextSelfie: SelfieCapture = {
+
+      // Before ANYTHING reads this photo: bake the EXIF rotation into the
+      // pixels, so the backend's outline, the on-screen selfie and the
+      // `sourceWidth`/`sourceHeight` we forward all describe one upright image.
+      const baked = await bakeCaptureOrientation(result);
+      if (!mountedRef.current) {
+        // Left mid-bake — leave neither file behind.
+        deleteTempFile(result.uri);
+        if (baked) {
+          deleteTempFile(baked.uri);
+        }
+        return;
+      }
+      const nextSelfie: SelfieCapture = baked ?? {
         uri: result.uri,
         jpegBase64: result.base64,
         width: result.width,
         height: result.height,
       };
+      if (baked) {
+        // The manipulator wrote a new file; the original sideways capture is
+        // dead weight (and, being a selfie, is not something to leave lying
+        // around in the cache dir).
+        deleteTempFile(result.uri);
+      }
+
+      // A retake replaces the previous selfie — drop its temp file first.
+      deleteSelfieFile();
+      selfieUriRef.current = nextSelfie.uri;
       setSelfie(nextSelfie);
       void runMatch(nextSelfie);
     } catch {
@@ -338,6 +452,9 @@ export function WhosThatPokemonScreen() {
 
   const activeMatch = matches[activeMatchIndex] ?? null;
   const washColor = palette[0] ?? colors.brand;
+  // "What? STEPHEN is evolving!" — resolved once here so the lead-in beat and
+  // the result payoff can never disagree about your name.
+  const evolvingName = resolveEvolvingName(currentUser);
   // The backend traces the outline of the TOP match only, so promoting an
   // alternate must drop it — otherwise the morph would deform into the wrong
   // creature's shape and then colour in as a different one.
@@ -428,20 +545,31 @@ export function WhosThatPokemonScreen() {
     <View style={styles.root} testID="whos-that-pokemon-screen">
       {phase === 'capture' ? renderCapturePhase() : null}
       {phase === 'scanning' ? renderScanningPhase() : null}
-      {phase === 'lockon' && activeMatch ? (
+      {/* The lock-on stays mounted through the evolving beat. It ends holding
+          YOUR silhouette on a dark stage and the reveal opens on that exact
+          shape, so the "…is evolving!" copy is drawn OVER that frame rather
+          than replacing it with a card — otherwise the beat would insert a seam
+          into the one handoff both components go out of their way to hide. */}
+      {(phase === 'lockon' || phase === 'evolving') && activeMatch ? (
         <FaceLockOn
           artworkUrl={officialArtworkUrl(activeMatch.pokedexId)}
           headBox={headBox}
-          onDone={() => {
-            setRevealFromSilhouette(true);
-            setPhase('reveal');
-          }}
+          onDone={() => setPhase('evolving')}
           personOutline={personOutline}
           selfieUri={selfie?.uri ?? null}
           sourceHeight={selfie?.height ?? 0}
           sourceWidth={selfie?.width ?? 0}
           speciesOutline={activeSpeciesOutline}
           washColor={washColor}
+        />
+      ) : null}
+      {phase === 'evolving' && activeMatch ? (
+        <EvolutionCue
+          name={evolvingName}
+          onDone={() => {
+            setRevealFromSilhouette(true);
+            setPhase('reveal');
+          }}
         />
       ) : null}
       {phase === 'reveal' && activeMatch ? (
@@ -467,6 +595,7 @@ export function WhosThatPokemonScreen() {
         >
           <ResultPanel
             activeIndex={activeMatchIndex}
+            evolvingName={evolvingName}
             isSharing={isSharing}
             matches={matches}
             personCutoutUri={personCutoutUri}

@@ -49,6 +49,27 @@ const mockMatches: WhosThatPokemonResult = {
 
 const mockShareCard: WhosThatShareCardResult = { pngBase64: 'cG5nLWJ5dGVz' };
 
+// The raw vision-camera capture: sensor-native orientation, EXIF flag not yet
+// applied to the pixels. `expo-file-system/legacy`'s mock hands this back.
+const RAW_CAPTURE_URI = 'file:///mock-scan.jpg';
+const RAW_CAPTURE_BASE64 = 'bW9jay1zY2FuLWJhc2U2NA==';
+// What comes back out of expo-image-manipulator — the upright, orientation-baked
+// copy, which is the ONLY version the backend and the display may ever see.
+const UPRIGHT_BASE64 = 'bm9ybWFsaXplZC1zY2FuLWJhc2U2NA==';
+
+function imageManipulatorMock() {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require('expo-image-manipulator') as { manipulateAsync: jest.Mock };
+}
+
+function legacyFileSystemMock() {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require('expo-file-system/legacy') as {
+    deleteAsync: jest.Mock;
+    writeAsStringAsync: jest.Mock;
+  };
+}
+
 function renderScreen(repository?: ReturnType<typeof createTestSpotlightRepository>) {
   return renderWithProviders(<WhosThatPokemonScreen />, { spotlightRepository: repository });
 }
@@ -95,11 +116,11 @@ describe('WhosThatPokemonScreen', () => {
       { timeout: 4000 },
     );
 
-    // The selfie traveled inline as base64 (from the mocked capture pipeline)
-    // with the extracted palette.
+    // The selfie traveled inline as base64 (from the mocked capture pipeline,
+    // after the orientation bake) with the extracted palette.
     expect(whosThatPokemon).toHaveBeenCalledTimes(1);
     const payload = whosThatPokemon.mock.calls[0][0];
-    expect(payload.jpegBase64).toBe('bW9jay1zY2FuLWJhc2U2NA==');
+    expect(payload.jpegBase64).toBe(UPRIGHT_BASE64);
     expect(payload.width).toBeGreaterThan(0);
     expect(payload.height).toBeGreaterThan(0);
     expect(Array.isArray(payload.palette)).toBe(true);
@@ -216,7 +237,7 @@ describe('WhosThatPokemonScreen', () => {
     });
     expect(whosThatShareCard).toHaveBeenCalledWith(
       expect.objectContaining({
-        jpegBase64: 'bW9jay1zY2FuLWJhc2U2NA==',
+        jpegBase64: UPRIGHT_BASE64,
         species: 'Pikachu',
         pokedexId: 25,
         confidence: 0.92,
@@ -236,6 +257,112 @@ describe('WhosThatPokemonScreen', () => {
     await waitFor(() => {
       expect(mockShareAsync).toHaveBeenCalled();
     });
+  });
+
+  it('bakes the capture orientation in and sends THAT photo to the backend', async () => {
+    // THE ORIENTATION BUG. vision-camera saves the still sensor-native
+    // (landscape) with the rotation recorded as an EXIF flag. expo-image applies
+    // that flag when it draws the photo; the backend's PIL decode does not, so
+    // `personOutline` / `headBox` come back normalized against the SIDEWAYS
+    // frame and the morph deforms a rotated human. Baking the rotation into the
+    // pixels before anything reads the file is the fix — and it only works if
+    // the base64 that travels comes from the ROTATED file.
+    const whosThatPokemon = jest.fn(async (_payload: WhosThatPokemonPayload) => mockMatches);
+    const repository = createTestSpotlightRepository({ whosThatPokemon });
+
+    renderScreen(repository);
+
+    await act(async () => {
+      fireEvent.press(await screen.findByTestId('wtp-shutter'));
+    });
+
+    await waitFor(
+      () => {
+        expect(whosThatPokemon).toHaveBeenCalledTimes(1);
+      },
+      { timeout: 4000 },
+    );
+
+    // The raw capture went through the manipulator, asking for base64 back so
+    // there is no second read of the original file.
+    const { manipulateAsync } = imageManipulatorMock();
+    expect(manipulateAsync).toHaveBeenCalledTimes(1);
+    expect(manipulateAsync.mock.calls[0][0]).toBe(RAW_CAPTURE_URI);
+    expect(manipulateAsync.mock.calls[0][2]).toEqual(
+      expect.objectContaining({ base64: true }),
+    );
+
+    // …and the payload carries the ROTATED bytes and the ROTATED dimensions,
+    // not the raw capture's. (The vision-camera mock reports the photo as
+    // 1080x1620; the manipulator mock resolves the saved file at 1920x888.)
+    const payload = whosThatPokemon.mock.calls[0][0];
+    expect(payload.jpegBase64).toBe(UPRIGHT_BASE64);
+    expect(payload.jpegBase64).not.toBe(RAW_CAPTURE_BASE64);
+    expect(payload.width).toBe(1920);
+    expect(payload.height).toBe(888);
+
+    // The sideways original is a selfie sitting in the cache dir with no
+    // remaining consumer — it gets dropped.
+    expect(legacyFileSystemMock().deleteAsync).toHaveBeenCalledWith(
+      RAW_CAPTURE_URI,
+      expect.objectContaining({ idempotent: true }),
+    );
+  });
+
+  it('falls back to the original capture when the image manipulator is unavailable', async () => {
+    // expo-image-manipulator is a native module that can be missing from the
+    // binary an OTA'd bundle is running on. A rotated selfie beats no feature.
+    imageManipulatorMock().manipulateAsync.mockRejectedValueOnce(
+      new Error('native module unavailable'),
+    );
+    const whosThatPokemon = jest.fn(async (_payload: WhosThatPokemonPayload) => mockMatches);
+    const repository = createTestSpotlightRepository({ whosThatPokemon });
+
+    renderScreen(repository);
+
+    await act(async () => {
+      fireEvent.press(await screen.findByTestId('wtp-shutter'));
+    });
+
+    await waitFor(
+      () => {
+        expect(screen.getByTestId('wtp-result-hero-name').props.children).toBe('Pikachu');
+      },
+      { timeout: 4000 },
+    );
+
+    const payload = whosThatPokemon.mock.calls[0][0];
+    expect(payload.jpegBase64).toBe(RAW_CAPTURE_BASE64);
+    expect(payload.width).toBe(1080);
+    expect(payload.height).toBe(1620);
+    // Nothing was deleted out from under the surviving capture.
+    expect(legacyFileSystemMock().deleteAsync).not.toHaveBeenCalledWith(
+      RAW_CAPTURE_URI,
+      expect.anything(),
+    );
+  });
+
+  it('pays off the evolution beat by name on the result panel', async () => {
+    const whosThatPokemon = jest.fn(async () => mockMatches);
+    const repository = createTestSpotlightRepository({ whosThatPokemon });
+
+    renderScreen(repository);
+
+    await act(async () => {
+      fireEvent.press(await screen.findByTestId('wtp-shutter'));
+    });
+
+    // The test-bypass auth user is "UI Test User", so the shouting name is its
+    // first token. The point of the assertion is that a REAL name reaches the
+    // copy — `evolution-copy-test` covers the null-display-name accounts.
+    await waitFor(
+      () => {
+        expect(screen.getByTestId('wtp-result-evolved-lead').props.children).toBe(
+          'UI evolved into…',
+        );
+      },
+      { timeout: 4000 },
+    );
   });
 
   it('resets back to the capture phase from Try again', async () => {

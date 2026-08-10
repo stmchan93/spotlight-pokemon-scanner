@@ -1,10 +1,16 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { AccessibilityInfo } from 'react-native';
 
+import { EvolutionCue } from '@/features/whos-that-pokemon/components/evolution-cue';
 import { FaceLockOn } from '@/features/whos-that-pokemon/components/face-lock-on';
 import { MorphLoop } from '@/features/whos-that-pokemon/components/morph-loop';
 import { RevealMorph } from '@/features/whos-that-pokemon/components/reveal-morph';
 import { ScanningTheater } from '@/features/whos-that-pokemon/components/scanning-theater';
+import {
+  EVOLVING_FALLBACK_NAME,
+  EVOLVING_LEAD,
+  EVOLVING_TAIL,
+} from '@/features/whos-that-pokemon/evolution-copy';
 import type { Point } from '@/features/whos-that-pokemon/face-geometry';
 
 import { renderWithProviders } from '../test-utils';
@@ -262,6 +268,50 @@ describe('FaceLockOn', () => {
   });
 });
 
+describe('EvolutionCue', () => {
+  it('plays "What? <NAME> is evolving!" and hands off to the reveal', async () => {
+    const onDone = jest.fn();
+    renderWithProviders(<EvolutionCue name="STEPHEN" onDone={onDone} />);
+
+    await screen.findByTestId('wtp-evolving');
+    expect(get('wtp-evolving-lead').props.children).toBe(EVOLVING_LEAD);
+    expect(get('wtp-evolving-name').props.children).toBe('STEPHEN');
+    expect(get('wtp-evolving-tail').props.children).toBe(EVOLVING_TAIL);
+
+    await waitFor(() => {
+      expect(onDone).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('reads as a sentence on the no-name fallback, never "null is evolving!"', async () => {
+    renderWithProviders(<EvolutionCue name={EVOLVING_FALLBACK_NAME} onDone={jest.fn()} />);
+
+    await screen.findByTestId('wtp-evolving');
+    const line = [
+      get('wtp-evolving-lead').props.children,
+      get('wtp-evolving-name').props.children,
+      get('wtp-evolving-tail').props.children,
+    ].join(' ');
+    expect(line).toBe('What? SOMEONE is evolving!');
+    expect(line.toLowerCase()).not.toContain('null');
+  });
+
+  it('still shows the copy and still completes under reduce motion', async () => {
+    // The gag IS the copy, so unlike the sweeps and bursts it is not dropped —
+    // it just lands whole instead of word by word.
+    enableReduceMotion();
+    const onDone = jest.fn();
+
+    renderWithProviders(<EvolutionCue name="STEPHEN" onDone={onDone} />);
+
+    await screen.findByTestId('wtp-evolving');
+    expect(get('wtp-evolving-name').props.children).toBe('STEPHEN');
+    await waitFor(() => {
+      expect(onDone).toHaveBeenCalledTimes(1);
+    });
+  });
+});
+
 describe('RevealMorph', () => {
   const baseProps = {
     artworkUrl: ARTWORK,
@@ -446,5 +496,19 @@ describe('MorphLoop', () => {
     // legs gone from the full-body shot the capture screen asks for, which is
     // what made the result read as "that isn't the photo I took".
     expect(get('wtp-morph-loop-selfie').props.contentFit).toBe('contain');
+  });
+
+  it('fills the pillarbox with a blurred copy of the selfie, not black', async () => {
+    renderWithProviders(<MorphLoop {...baseProps} />);
+
+    await screen.findByTestId('wtp-morph-loop');
+    layout('wtp-morph-loop', 320, 320);
+
+    // `contain` alone left dead black down both sides ("black space between the
+    // sides"). The backdrop is the SAME photo, `cover`-scaled and blurred, so
+    // nothing is cropped away and nothing is dead black.
+    const backdrop = get('wtp-morph-loop-selfie-backdrop');
+    expect(backdrop.props.contentFit).toBe('cover');
+    expect(backdrop.props.source).toEqual({ uri: baseProps.selfieUri });
   });
 });

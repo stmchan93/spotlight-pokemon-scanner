@@ -15,8 +15,9 @@ import {
 import { CachedImage } from '@/components/cached-image';
 
 import { officialArtworkUrl } from '../artwork';
+import { buildEvolvedLead, EVOLVING_FALLBACK_NAME } from '../evolution-copy';
 import { MorphLoop } from './morph-loop';
-import { SelfieImage } from './selfie-image';
+import { SelfieFill } from './selfie-fill';
 
 type ResultPanelProps = {
   /** Top-3 matches, best first. */
@@ -36,6 +37,13 @@ type ResultPanelProps = {
   speciesOutline?: NormalizedPoint[] | null;
   /** Top selfie palette swatch — tints the morph dissolve wash. */
   washColor: string;
+  /**
+   * The signed-in user's shouting name, as resolved by `resolveEvolvingName`.
+   * Pays off the "<NAME> is evolving!" beat the reveal opened with. Defaults to
+   * the same graceful fallback that beat uses, so a null display name can never
+   * surface here either.
+   */
+  evolvingName?: string;
   /** Tap on an alternate row → re-runs the reveal morph to that artwork. */
   onSelectMatch: (index: number) => void;
   onShare: () => void;
@@ -88,6 +96,7 @@ export function ResultPanel({
   personOutline = null,
   speciesOutline = null,
   washColor,
+  evolvingName = EVOLVING_FALLBACK_NAME,
   onSelectMatch,
   onShare,
   onTryAgain,
@@ -121,14 +130,15 @@ export function ResultPanel({
           <View style={styles.compareRow} testID={`${testID}-compare`}>
             <View style={styles.compareCell}>
               {selfieUri ? (
-                <SelfieImage
+                // `contain` for the same reason as the morph box: this thumb is
+                // square and the capture is not, so `cover` cut 44% of its
+                // height, and it sits directly beside a `contain` artwork cell —
+                // cropping only YOUR side made the before/after comparison lie.
+                // `SelfieFill` adds the blurred `cover` backdrop so `contain`
+                // does not leave black bars down both edges of a 64pt tile.
+                <SelfieFill
+                  blurIntensity={28}
                   cachePolicy="memory-disk"
-                  // `contain` for the same reason as the morph box: this thumb
-                  // is square and the capture is 9:16, so `cover` cut 44% of
-                  // its height. It also sits directly beside the artwork cell,
-                  // which uses `contain` — cropping only YOUR side made the
-                  // before/after comparison lie.
-                  contentFit="contain"
                   style={styles.compareThumb}
                   uri={selfieUri}
                 />
@@ -158,7 +168,9 @@ export function ResultPanel({
             </View>
           </View>
 
-          <AppText style={theme.typography.captionMedium}>You are basically…</AppText>
+          <AppText style={theme.typography.captionMedium} testID={`${testID}-evolved-lead`}>
+            {buildEvolvedLead(evolvingName)}
+          </AppText>
           <AppText style={theme.typography.titleLarge} testID={`${testID}-hero-name`}>
             {hero.species}
           </AppText>

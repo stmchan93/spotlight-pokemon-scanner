@@ -21,6 +21,7 @@ import { CachedImage } from '@/components/cached-image';
 import { resolveArtworkRect } from '../face-geometry';
 import { buildMorphOutlines, morphPathD, outlinePathD } from '../outline-morph';
 import { useReduceMotion } from '../use-reduce-motion';
+import { SelfieFill } from './selfie-fill';
 import { SelfieImage } from './selfie-image';
 
 const isTestEnv = process.env.NODE_ENV === 'test';
@@ -249,18 +250,18 @@ export function MorphLoop({
     <View onLayout={handleLayout} style={styles.root} testID={testID}>
       {selfieUri ? (
         <Animated.View style={[StyleSheet.absoluteFillObject, selfieStyle]}>
-          <SelfieImage
+          {/*
+            `contain`, NOT `cover`. This box is square (`root.aspectRatio: 1`)
+            and the capture is not, so `cover` cropped 44% of the photo's
+            HEIGHT — 22% off the top and 22% off the bottom. On the full-body
+            shot the capture screen explicitly asks for, that removes your head
+            and your legs and reads as "that isn't the photo I took". `contain`
+            alone left pillarbox bars, so `SelfieFill` puts a blurred `cover`
+            copy of the same photo behind it: whole subject, no dead black, and
+            still the same box the artwork cells are `contain`-fitted into.
+          */}
+          <SelfieFill
             cachePolicy="memory-disk"
-            /*
-              `contain`, NOT `cover`. This box is square (`root.aspectRatio: 1`)
-              and the capture is 9:16, so `cover` cropped 44% of the photo's
-              HEIGHT — 22% off the top and 22% off the bottom. On the full-body
-              shot the capture screen explicitly asks for, that removes your
-              head and your legs and reads as "that isn't the photo I took".
-              Pillarboxing against the dark stage is the honest framing, and it
-              matches the artwork cells, which have always used `contain`.
-            */
-            contentFit="contain"
             style={StyleSheet.absoluteFillObject}
             testID={`${testID}-selfie`}
             uri={selfieUri}
