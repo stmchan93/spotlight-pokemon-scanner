@@ -52,12 +52,46 @@ def serialize_dotenv(values: dict[str, str]) -> str:
 
 
 def load_eas_profile(root: Path, profile: str) -> dict[str, Any]:
+    """One EAS build profile with its `extends` chain flattened.
+
+    EAS resolves `extends` itself, so a profile that inherits everything — as
+    `preview` does from `staging` — is perfectly valid on their side while
+    looking EMPTY here. Reading the raw dict therefore produced an env file with
+    no `EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL` and no real `environment`, and the
+    release gate refused the build with "Missing required value". Resolve the
+    chain the same way EAS does: the child wins, the parent fills the gaps.
+    """
     eas_config = json.loads((app_dir(root) / "eas.json").read_text(encoding="utf-8"))
     build_profiles = eas_config.get("build") or {}
-    profile_config = build_profiles.get(profile)
-    if not isinstance(profile_config, dict):
-        raise RuntimeError(f"Missing EAS build profile: {profile}")
-    return profile_config
+
+    chain: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    name: str | None = profile
+    while name:
+        if name in seen:
+            raise RuntimeError(f"Cyclic EAS profile `extends` chain at: {name}")
+        seen.add(name)
+        profile_config = build_profiles.get(name)
+        if not isinstance(profile_config, dict):
+            raise RuntimeError(f"Missing EAS build profile: {name}")
+        chain.append(profile_config)
+        parent = profile_config.get("extends")
+        name = parent.strip() if isinstance(parent, str) and parent.strip() else None
+
+    # Walk parents-first so each child overwrites what it inherited. `env` is
+    # merged key-by-key rather than replaced wholesale, which is what EAS does
+    # and what lets `preview` add only `channel` + `android.buildType`.
+    resolved: dict[str, Any] = {}
+    merged_env: dict[str, Any] = {}
+    for profile_config in reversed(chain):
+        resolved.update(profile_config)
+        env = profile_config.get("env")
+        if isinstance(env, dict):
+            merged_env.update(env)
+    if merged_env:
+        resolved["env"] = merged_env
+    resolved.pop("extends", None)
+    return resolved
 
 
 def extract_project_id(root: Path, values: dict[str, str]) -> str:
