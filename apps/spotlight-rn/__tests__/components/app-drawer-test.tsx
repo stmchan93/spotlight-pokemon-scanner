@@ -409,4 +409,62 @@ describe('AppDrawer', () => {
       jest.useRealTimers();
     }
   });
+  /*
+    Reaching Insights from the drawer must leave a back stack behind it.
+
+    `goTo` may only `replace` when the current route was PUSHED. Wishlist and
+    Scan are tabs, so replacing from them swaps the whole `(tabs)` entry out of
+    the root stack and Insights ends up with nothing behind it — the back
+    button then does nothing. Insights itself IS pushed, so hopping straight
+    from it must still replace, or the stack grows one entry per drawer visit.
+  */
+  describe('reaching Insights from the drawer', () => {
+    function openInsightsFrom(pathname: string) {
+      (usePathname as jest.Mock).mockReturnValue(pathname);
+
+      renderWithProviders(
+        <>
+          <DrawerController />
+          <AppDrawer />
+        </>,
+      );
+
+      act(() => {
+        drawerHandleRef.current?.open();
+      });
+
+      fireEvent.press(screen.getByTestId('app-drawer-nav-insights'));
+
+      act(() => {
+        jest.advanceTimersByTime(500);
+      });
+    }
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it.each([
+      ['the Wishlist tab', '/wishlist'],
+      ['the Scan tab', '/scan'],
+      ['the Home feed', '/'],
+      ['the Collection tab', '/you'],
+    ])('pushes from %s, so back returns to it', (_label, pathname) => {
+      openInsightsFrom(pathname);
+
+      expect(push).toHaveBeenCalledWith('/insights');
+      expect(replace).not.toHaveBeenCalled();
+    });
+
+    it('replaces when hopping from Insights itself, so the stack cannot grow', () => {
+      openInsightsFrom('/insights');
+
+      expect(replace).toHaveBeenCalledWith('/insights');
+      expect(push).not.toHaveBeenCalled();
+    });
+  });
 });

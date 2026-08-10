@@ -152,13 +152,26 @@ export function AppDrawer() {
     activeKey = null;
   }
 
-  // True when we're currently sitting on a stack route (sales/insights/
-  // wishlist/scan) — i.e. there is at least one entry above the tabs root
-  // in the back stack. Home is a tab root like Collection, so it is excluded
-  // for the same reason: there is nothing above it to replace.
-  const isOnStackRoute = activeKey != null
-    && activeKey !== 'collection'
-    && activeKey !== 'home';
+  /*
+    True only when we are sitting on a real PUSHED route — something above the
+    tabs entry in the root stack — so that `goTo` may safely `replace` it.
+
+    Every key below lives in `app/(tabs)`: Home (`/`), Collection (`/you`),
+    Wishlist and Scan. Navigating away from ANY of them must push, because
+    `replace` on a tab root swaps the whole `(tabs)` entry out of the root
+    stack — leaving the destination with nothing behind it, and a back button
+    that does nothing.
+
+    This used to be "anything that is not Collection or Home", which was true
+    when Wishlist and Scan were pushed screens. They became tabs, the predicate
+    did not, and reaching Insights from the drawer while on the Wishlist or
+    Scan tab replaced the tab root and stranded the user there.
+
+    Keep this in sync with `app/(tabs)/` — a new tab added here without its key
+    reintroduces exactly that bug.
+  */
+  const TAB_ROOT_KEYS: readonly (typeof activeKey)[] = ['collection', 'home', 'wishlist', 'scan'];
+  const isOnStackRoute = activeKey != null && !TAB_ROOT_KEYS.includes(activeKey);
 
   const goTo = (path: string) => {
     closeDrawer();
