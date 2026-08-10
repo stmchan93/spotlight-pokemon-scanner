@@ -86,13 +86,10 @@ const MORE_BUTTON_SIZE = 24;
 /** Resting sheet height with the keyboard down. */
 const SHEET_HEIGHT_RESTING = SCREEN_HEIGHT * 0.6;
 /**
- * Keyboard-up height. The sheet GROWS toward full screen rather than letting the
- * thread be squeezed by the keyboard (the Instagram comment sheet): the sheet's
- * bottom `keyboardHeight` sits behind the keyboard, so the readable strip above
- * the composer stays about half the screen and the thread keeps scrolling while
- * you type.
+ * The tallest the sheet is ever allowed to get. A ceiling, not a target — see
+ * `sheetHeightForKeyboard`.
  */
-const SHEET_HEIGHT_EXPANDED = SCREEN_HEIGHT * 0.9;
+const SHEET_HEIGHT_MAX = SCREEN_HEIGHT * 0.9;
 /** Gap between the composer's bottom edge and the top of the keyboard. */
 const KEYBOARD_GAP = 8;
 /**
@@ -123,6 +120,42 @@ const LIST_BOTTOM_PADDING = THREAD_TO_COMPOSER_GAP / 2;
  * context action" in the app has the same feel.
  */
 const COMMENT_LONG_PRESS_MS = 500;
+/**
+ * How tall the sheet should be for a given keyboard height.
+ *
+ * The sheet GROWS while the keyboard is up rather than letting the thread be
+ * squeezed by it (the Instagram comment sheet): the sheet's bottom
+ * `keyboardHeight` sits behind the keyboard, so the readable strip above the
+ * composer stays about half the screen and the thread keeps scrolling as you
+ * type.
+ *
+ * IT HAS TO GROW BY EXACTLY WHAT THE COMPOSER'S PADDING COSTS, and that is why
+ * this is arithmetic and not a constant. The keyboard-up height used to be a flat
+ * `SCREEN_HEIGHT * 0.9` while the same view padded its bottom by the MEASURED
+ * `keyboardHeight + KEYBOARD_GAP` — two independent numbers that only agreed by
+ * accident. The difference between them landed in the thread: a keyboard smaller
+ * than the fixed growth left the list taller than it needs to be, which on a
+ * short (bottom-anchored) thread is dead white space, and a keyboard larger than
+ * it silently shortened the thread instead.
+ *
+ * So: the padding under the composer goes from `COMPOSER_BOTTOM_GAP` to
+ * `keyboardHeight + KEYBOARD_GAP`, and the sheet grows by that difference. The
+ * list — which takes whatever the header, composer and padding leave — then keeps
+ * EXACTLY the height it had with the keyboard down.
+ *
+ * `SHEET_HEIGHT_MAX` is a ceiling on that, not the target. A full-size phone
+ * keyboard is taller than the 0.3 of the screen there is to grow into, so the
+ * sheet stops at 0.9 and the thread pays the remainder — the alternative is a
+ * sheet taller than the screen.
+ */
+export function sheetHeightForKeyboard(keyboardHeight: number): number {
+  if (keyboardHeight <= 0) {
+    return SHEET_HEIGHT_RESTING;
+  }
+  const composerLift = keyboardHeight + KEYBOARD_GAP - COMPOSER_BOTTOM_GAP;
+  return Math.min(SHEET_HEIGHT_MAX, SHEET_HEIGHT_RESTING + composerLift);
+}
+
 /** Drag distance past which releasing the sheet dismisses it instead of springing back. */
 const DISMISS_DRAG_DISTANCE = 80;
 /** Flick velocity that dismisses even on a short drag. */
@@ -182,9 +215,10 @@ function authorDisplayName(comment: PostComment): string {
 }
 
 /**
- * Delete is SOFT: a comment that still has replies stays in the thread as a
- * TOMBSTONE so the replies underneath it remain readable, and the service marks
- * it with a boolean rather than sending the body. The flag is declared here as an
+ * Delete is SOFT: a deleted comment stays in the thread as a TOMBSTONE — always,
+ * whether or not anything hangs off it — so the thread says the same thing about
+ * every comment that has been deleted, and the service marks it with a boolean
+ * rather than sending the body. The flag is declared here as an
  * OPTIONAL widening of `PostComment` for two reasons: this file compiles whether
  * or not `social-service.ts` has published the field yet, and the one name the two
  * files have to agree on lives in exactly one place. If the service lands on a
@@ -224,10 +258,17 @@ function toTombstone(comment: PostComment): PostComment {
 }
 
 /**
- * How many comments the post should be credited with. A tombstone is a structural
- * anchor for other people's replies, not something anyone wrote, so it does not
- * count — which is also what makes a delete drop the post's count by exactly one
- * whether the row vanished or turned into a tombstone.
+ * How many comments the post should be credited with.
+ *
+ * A tombstone is NOT one. The count answers "how many comments are there to
+ * read", and a "This comment was deleted" line is the absence of one — so a
+ * delete always drops the post's count by exactly one even though the row it
+ * leaves behind is still on screen.
+ *
+ * This is not a free choice either: `posts.comment_count` is maintained by a DB
+ * trigger that decrements on the `deleted_at` transition and "asks nothing about
+ * replies" (social_17 §4). Counting tombstones here would put the sheet
+ * permanently one ahead of the number the card shows from the server.
  */
 export function visibleCommentCount(comments: PostComment[]): number {
   return comments.filter((comment) => !isTombstone(comment)).length;
@@ -350,43 +391,31 @@ export function collectDescendantIds(comments: PostComment[], rootId: string): s
   return descendants;
 }
 
-/**
- * Drop tombstones that nothing hangs off any more.
- *
- * A tombstone exists ONLY to hold surviving replies up, so one with no replies
- * left is an empty "was deleted" line sitting over nothing. `fetchComments`
- * already applies this rule to a freshly loaded thread (`pruneChildlessTombstones`
- * in `social-service.ts`), but LOCAL state can strand one after the fact: delete a
- * comment, which stays as a tombstone because it has a reply, then delete that
- * reply — the tombstone is now childless and would sit there until the next
- * fetch. Depth-agnostic, so a stranded tombstone REPLY goes the same way as a
- * stranded top-level one.
- *
- * Run to a fixed point rather than in one pass: dropping one tombstone can strand
- * its (also tombstoned) parent. Each round strictly shrinks the set, so this
- * terminates in at most depth rounds.
- */
-export function pruneOrphanedTombstones(comments: PostComment[]): PostComment[] {
-  if (!comments.some(isTombstone)) {
-    return comments;
-  }
-  let kept = comments;
-  for (;;) {
-    const keptIds = new Set(kept.map((entry) => entry.id));
-    const parentsWithReplies = new Set<string>();
-    for (const entry of kept) {
-      const parentId = entry.parentCommentId;
-      if (parentId && keptIds.has(parentId)) {
-        parentsWithReplies.add(parentId);
-      }
-    }
-    const next = kept.filter((entry) => !isTombstone(entry) || parentsWithReplies.has(entry.id));
-    if (next.length === kept.length) {
-      return next;
-    }
-    kept = next;
-  }
-}
+/*
+  THERE IS NO TOMBSTONE PRUNE ANY MORE, and its absence is the feature.
+
+  This file used to export `pruneOrphanedTombstones`, the local mirror of
+  `pruneChildlessTombstones` in `social-service.ts`: a tombstone existed ONLY to
+  hold surviving replies up, so one with nothing under it was swept away and the
+  row simply vanished. That was working as designed, and the design is what the
+  user asked to change — because it made the thread inconsistent in the one way a
+  reader can actually see. Delete a comment somebody had replied to and the thread
+  says "This comment was deleted"; delete the one next to it that nobody answered
+  and the row is gone without a word. The reported symptom was "only the FIRST
+  deleted comment says it was deleted", and the difference between them was never
+  visible from the outside.
+
+  So a delete now always leaves a tombstone, at every depth, replies or not, and
+  nothing sweeps one away afterwards. The cost is stated plainly: a thread whose
+  author deletes everything they wrote becomes a column of "This comment was
+  deleted" lines. That is the user's explicit call — one rule, said the same way
+  every time — and it is why the count stays honest (`visibleCommentCount`) even
+  though the rows do not disappear.
+
+  The fetch side had to change with it or the fix would have been worse than the
+  bug: a tombstone that appears on delete and vanishes on the next load is a
+  third behaviour, not a fix. See `fetchComments` in `social-service.ts`.
+*/
 
 /**
  * The one overlay the sheet can be showing over its thread: a delete
@@ -397,7 +426,7 @@ export function pruneOrphanedTombstones(comments: PostComment[]): PostComment[] 
  * survive the close so the sheet keeps its words while it slides away.
  */
 type CommentPrompt =
-  | { kind: 'delete'; comment: PostComment; keepAsTombstone: boolean; replyCount: number }
+  | { kind: 'delete'; comment: PostComment; replyCount: number }
   | { kind: 'options'; comment: PostComment }
   | { kind: 'block'; comment: PostComment };
 
@@ -472,9 +501,9 @@ export function CommentsSheet({
     size change, and the resize animation's completion callback.
   */
   /**
-   * The post-send scroll that has not landed yet: the top-level thread block
-   * holding the just-posted row, and whether that block has been re-measured
-   * SINCE the row was added.
+   * The post-send scroll that has not landed yet: the top-level thread block the
+   * just-posted row is drawn in, the row ITSELF when that row is a reply, and
+   * whether the thing being aimed at has been measured SINCE the row was added.
    *
    * `measured` is not bookkeeping. A stale box is worse than no box: adding a
    * reply to a block measured before the reply existed resolves to an offset
@@ -482,19 +511,57 @@ export function CommentsSheet({
    * "it scrolled to the top" report, reproduced exactly. The layout pass emits
    * the content-size change and the block's own layout in an order this
    * component does not get to choose, so the trigger cannot be trusted; only a
-   * measurement of the target block itself can release the scroll.
+   * measurement of the target itself can release the scroll.
    */
-  const pendingScrollRef = useRef<{ rootId: string; measured: boolean } | null>(null);
+  const pendingScrollRef = useRef<{
+    rootId: string;
+    replyId: string | null;
+    measured: boolean;
+  } | null>(null);
   /** Measured box of each top-level thread block, in the list's scroll coordinates. */
   const threadLayoutsRef = useRef(new Map<string, { y: number; height: number }>());
+  /**
+   * Measured box of each REPLY row, in its own thread block's coordinates (the
+   * row is a child of the block, so `onLayout` reports it relative to that).
+   * Kept apart from `threadLayoutsRef` for exactly that reason — the two maps are
+   * in different coordinate spaces and adding them is the whole point.
+   */
+  const replyLayoutsRef = useRef(new Map<string, { y: number; height: number }>());
   /** The list's own measured height — the viewport the target is computed against. */
   const listViewportHeightRef = useRef(0);
   /** Readable-from-a-callback mirror of `keyboardHeight`. */
   const keyboardHeightRef = useRef(0);
-  /** True while the sheet is easing between its resting and keyboard-up heights. */
+  /**
+   * True while the sheet's height is changing — or is certain to start changing
+   * in a moment, which is the same thing to anything trying to measure against it.
+   */
   const sheetResizingRef = useRef(false);
   /** The height the sheet is currently heading for, so a no-op pass is recognisable. */
   const sheetHeightTargetRef = useRef(SHEET_HEIGHT_RESTING);
+
+  /**
+   * Where the list has to be scrolled to put the bottom of one row at the bottom
+   * of the viewport, with `LIST_BOTTOM_PADDING` of air under it. Null while
+   * anything it needs is unmeasured.
+   *
+   * `replyId` is what makes a reply land on ITSELF rather than on the bottom of
+   * the block it happens to sit in: the thread flattens every depth under one
+   * top-level block, so "the block" is only the right answer while the row is the
+   * last thing in it. Falls back to the block's own bottom when the row has not
+   * been measured — that is the older behaviour, and it is a floor, not a guess.
+   */
+  const scrollTargetFor = useCallback((rootId: string, replyId: string | null): number | null => {
+    const viewport = listViewportHeightRef.current;
+    const block = threadLayoutsRef.current.get(rootId);
+    if (!block || viewport <= 0) {
+      return null;
+    }
+    const reply = replyId ? replyLayoutsRef.current.get(replyId) : undefined;
+    const bottom = reply ? block.y + reply.y + reply.height : block.y + block.height;
+    // Over-scroll is clamped by the scroll view, so aiming at the true bottom can
+    // only be right; a short thread resolves to 0 and stays put.
+    return Math.max(0, bottom + LIST_BOTTOM_PADDING - viewport);
+  }, []);
 
   /**
    * Apply the pending post-send scroll if everything it needs is settled and
@@ -505,23 +572,28 @@ export function CommentsSheet({
     if (!pending || !pending.measured) {
       return;
     }
-    // Not while the keyboard is still on its way out and not while the sheet is
-    // still growing or shrinking: the viewport the offset would be computed
-    // against is not the one it will be measured against a moment later.
-    if (keyboardHeightRef.current > 0 || sheetResizingRef.current) {
+    /*
+      NOT WHILE THE VIEWPORT IS STILL CHANGING — and that is all this asks.
+
+      It used to also refuse whenever `keyboardHeightRef.current > 0`, which was
+      shorthand for the same thing back when the only way to reach here was a send
+      that had just called `Keyboard.dismiss()`: keyboard still up meant the hide
+      had not landed yet. As a standing rule it is wrong, and it silently
+      ABANDONED scrolls — a target armed by a send, then measured after the
+      composer was reopened, sat there forever because the keyboard was up again.
+      `sheetResizingRef` is the real signal, and the send path sets it itself
+      before dismissing (see `handleSend`) so the pre-hide window is still covered.
+    */
+    if (sheetResizingRef.current) {
       return;
     }
-    const viewport = listViewportHeightRef.current;
-    const box = threadLayoutsRef.current.get(pending.rootId);
-    if (!box || viewport <= 0) {
+    const target = scrollTargetFor(pending.rootId, pending.replyId);
+    if (target === null) {
       return;
     }
     pendingScrollRef.current = null;
-    // Over-scroll is clamped by the scroll view, so aiming at the true bottom of
-    // the block can only be right; a short thread resolves to 0 and stays put.
-    const target = Math.max(0, box.y + box.height + LIST_BOTTOM_PADDING - viewport);
     listRef.current?.scrollTo({ animated: true, y: target });
-  }, []);
+  }, [scrollTargetFor]);
 
   /**
    * Where the thread should land once the keyboard is up and the sheet has
@@ -564,18 +636,17 @@ export function CommentsSheet({
       listRef.current?.scrollToEnd({ animated: true });
       return;
     }
-    const viewport = listViewportHeightRef.current;
-    const box = threadLayoutsRef.current.get(pending.rootId);
-    if (!box || viewport <= 0) {
+    // Deliberately the BLOCK, not the row inside it that Reply was tapped on:
+    // what you are answering should be on screen above the composer, and that is
+    // the block, replies and all.
+    const target = scrollTargetFor(pending.rootId, null);
+    if (target === null) {
       // Not measured yet — `handleThreadLayout` will call back.
       return;
     }
     pendingFocusScrollRef.current = null;
-    // Over-scroll is clamped by the scroll view, so aiming at the true bottom of
-    // the block can only be right; a short thread resolves to 0 and stays put.
-    const target = Math.max(0, box.y + box.height + LIST_BOTTOM_PADDING - viewport);
     listRef.current?.scrollTo({ animated: true, y: target });
-  }, []);
+  }, [scrollTargetFor]);
 
   const handleListLayout = useCallback(
     (event: LayoutChangeEvent) => {
@@ -590,7 +661,10 @@ export function CommentsSheet({
       const { height, y } = event.nativeEvent.layout;
       threadLayoutsRef.current.set(rootId, { height, y });
       const pending = pendingScrollRef.current;
-      if (pending && pending.rootId === rootId) {
+      // Only for a target that IS this block. A reply target waits for the reply
+      // row's own box (`handleReplyLayout`) — releasing it here would aim at the
+      // block's bottom, which is the approximation this stopped making.
+      if (pending && pending.replyId === null && pending.rootId === rootId) {
         pending.measured = true;
       }
       runPendingScroll();
@@ -599,6 +673,25 @@ export function CommentsSheet({
       runPendingFocusScroll();
     },
     [runPendingFocusScroll, runPendingScroll],
+  );
+
+  /**
+   * A reply row reporting its box inside its block. Its own measurement is what
+   * releases a post-send scroll aimed at that reply — the block's would do so a
+   * frame early, and against a height the reply is not necessarily at the bottom
+   * of.
+   */
+  const handleReplyLayout = useCallback(
+    (replyId: string, event: LayoutChangeEvent) => {
+      const { height, y } = event.nativeEvent.layout;
+      replyLayoutsRef.current.set(replyId, { height, y });
+      const pending = pendingScrollRef.current;
+      if (pending && pending.replyId === replyId) {
+        pending.measured = true;
+      }
+      runPendingScroll();
+    },
+    [runPendingScroll],
   );
 
   const [comments, setComments] = useState<PostComment[]>([]);
@@ -665,8 +758,8 @@ export function CommentsSheet({
   // KeyboardAvoidingView padded the WHOLE sheet upward — header, thread and all —
   // which left a tall dead gap above the composer. Instead we take the keyboard
   // height ourselves: the composer is padded clear of the keyboard, and the sheet
-  // grows to `SHEET_HEIGHT_EXPANDED` so that padding comes out of new height
-  // rather than out of the thread.
+  // grows by exactly that padding (`sheetHeightForKeyboard`) so it comes out of
+  // new height rather than out of the thread.
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   useEffect(() => {
@@ -694,16 +787,21 @@ export function CommentsSheet({
     };
   }, [visible]);
 
-  // Grow the sheet toward full screen while the keyboard is up, and settle back
+  // Grow the sheet by whatever the keyboard costs the composer, and settle back
   // when it goes down. Same 250ms/ease-out shape as the iOS keyboard curve, so
   // the top edge rises with the keyboard instead of after it.
   useEffect(() => {
-    const toValue = keyboardHeight > 0 ? SHEET_HEIGHT_EXPANDED : SHEET_HEIGHT_RESTING;
+    const toValue = sheetHeightForKeyboard(keyboardHeight);
     hiddenOffsetRef.current = toValue;
     // Only a CHANGE of target actually moves the sheet. Marking every run as a
     // resize would leave the flag set by the mount pass — where the sheet is
     // already at its resting height — and a pending post-send scroll would then
     // wait for a completion callback that has nothing to complete.
+    //
+    // Still a plain number comparison now that the target is computed rather than
+    // one of two constants: the same keyboard height always resolves to the same
+    // height, so a keyboard event that changes nothing (an accessory bar
+    // re-reporting the same size) is still recognised as a no-op.
     const willMove = toValue !== sheetHeightTargetRef.current;
     sheetHeightTargetRef.current = toValue;
     if (willMove) {
@@ -838,6 +936,7 @@ export function CommentsSheet({
     // freshly-opened sheet that is meant to start at the top.
     pendingFocusScrollRef.current = null;
     threadLayoutsRef.current.clear();
+    replyLayoutsRef.current.clear();
     /*
       Opening the sheet starts at the TOP of the thread, like every other comment
       list — no scroll on open at all.
@@ -952,50 +1051,35 @@ export function CommentsSheet({
    * apply locally, reconcile on the response, surface the failure rather than
    * silently losing the write.
    *
-   * Two local outcomes, mirroring the server:
-   *   - the comment has replies → it becomes a TOMBSTONE IN PLACE. The row has to
-   *     survive or the replies underneath it lose their anchor and disappear with
-   *     it, which is the bug this replaced: deleting your own comment destroyed
-   *     other people's.
-   *   - the comment has none → the row goes, as before, since nothing depends on it.
+   * ONE local outcome, at every depth and whether or not anything hangs off the
+   * row: it becomes a TOMBSTONE IN PLACE. Nothing is ever removed from the list
+   * by a delete, so nothing can be stranded by one either.
    *
-   * Either way the post's comment count drops by exactly ONE, because a tombstone
+   *   - with replies, the row has to survive or the replies underneath it lose
+   *     their anchor and disappear with it — the bug this replaced, where deleting
+   *     your own comment destroyed other people's.
+   *   - with none, it survives because the thread should say the same thing about
+   *     every comment that has been deleted. See the note above `visibleCommentCount`.
+   *
+   * The post's comment count drops by exactly ONE either way, because a tombstone
    * is not counted (`visibleCommentCount`).
    */
   const runDelete = useCallback(
-    (comment: PostComment, keepAsTombstone: boolean) => {
+    (comment: PostComment) => {
       deletePendingRef.current.add(comment.id);
       const before = commentsRef.current;
-      const applied = keepAsTombstone
-        ? before.map((entry) => (entry.id === comment.id ? toTombstone(entry) : entry))
-        : before.filter((entry) => entry.id !== comment.id);
-      // Removing the last reply under an OLDER tombstone leaves that tombstone
-      // holding nothing up, so it goes too — and so does its parent, if that was
-      // a tombstone as well.
-      const after = pruneOrphanedTombstones(applied);
-      const afterIds = new Set(after.map((entry) => entry.id));
-      // Rows this delete swept away as a side effect. The rollback has to take
-      // them from the snapshot, because the current list no longer has them.
-      const strandedIds = new Set(
-        applied.filter((entry) => !afterIds.has(entry.id)).map((entry) => entry.id),
+      const after = before.map((entry) =>
+        entry.id === comment.id ? toTombstone(entry) : entry,
       );
 
       setComments(after);
       onCommentCountResolved?.(visibleCommentCount(after));
       // You can't reply to something that is no longer there to be replied to.
       setReplyTo((current) => (current && current.id === comment.id ? null : current));
-      setExpandedIds((current) => {
-        const next = new Set(current);
-        if (keepAsTombstone) {
-          // Show the replies immediately: the confirmation just promised they
-          // would stay, so the thread should prove it rather than collapse them
-          // behind a toggle.
-          next.add(comment.id);
-        } else {
-          next.delete(comment.id);
-        }
-        return next;
-      });
+      // Show the replies immediately: the confirmation just promised they would
+      // stay, so the thread should prove it rather than collapse them behind a
+      // toggle. A no-op for a comment that has none.
+      setExpandedIds((current) => new Set(current).add(comment.id));
 
       void (async () => {
         const ok = await deleteComment(comment.id);
@@ -1004,18 +1088,13 @@ export function CommentsSheet({
           const currentById = new Map(current.map((entry) => [entry.id, entry]));
           const beforeIds = new Set(before.map((entry) => entry.id));
           const restored = [
-            // Originals, in their original order. Only the rows this delete
-            // touched come from the snapshot — the row itself (which is what puts
-            // the body back under a tombstone, or the whole row back if it was
-            // removed) plus any tombstone the prune stranded on its way out.
-            // Every other row is taken from the CURRENT list so a concurrent
-            // change isn't clobbered, and is dropped if something else removed it.
+            // Originals, in their original order. Only the row this delete
+            // touched comes from the snapshot — which is what puts the body and
+            // the author back under the tombstone. Every other row is taken from
+            // the CURRENT list so a concurrent change isn't clobbered, and is
+            // dropped if something else removed it.
             ...before
-              .map((entry) =>
-                entry.id === comment.id || strandedIds.has(entry.id)
-                  ? entry
-                  : currentById.get(entry.id),
-              )
+              .map((entry) => (entry.id === comment.id ? entry : currentById.get(entry.id)))
               .filter((entry): entry is PostComment => Boolean(entry)),
             // Anything posted while the delete was in flight.
             ...current.filter((entry) => !beforeIds.has(entry.id)),
@@ -1064,13 +1143,13 @@ export function CommentsSheet({
         return;
       }
       const current = commentsRef.current;
-      // Direct children decide the tombstone; descendants (children of children
-      // included) are what the copy counts, because the thread flattens every
-      // depth under the same top-level comment — so they all stay visible.
+      // Nothing here decides WHETHER a tombstone is left — it always is. The
+      // descendant count (children of children included, because the thread
+      // flattens every depth under the same top-level comment, so they all stay
+      // visible) only decides whether the copy has replies to promise about.
       openPrompt({
         kind: 'delete',
         comment,
-        keepAsTombstone: current.some((entry) => entry.parentCommentId === comment.id),
         replyCount: collectDescendantIds(current, comment.id).length,
       });
     },
@@ -1286,13 +1365,38 @@ export function CommentsSheet({
           A FAILED write keeps the keyboard up and the draft intact, because that
           is what trying again needs.
         */
-        // The BLOCK the new row is drawn in: its own, for a top-level comment;
-        // its parent's top-level ancestor, for a reply. `commentsRef` is still
-        // the pre-append list, which is exactly where the parent chain lives.
+        /*
+          WHERE THE THREAD GOES NEXT.
+
+          A top-level comment is appended, so the block it makes IS the end of the
+          thread and putting that block's bottom at the bottom of the viewport is
+          the "scroll down so I can see my comment" that was asked for.
+
+          A REPLY is inserted under its parent, anywhere in the thread, so it gets
+          two coordinates: the top-level BLOCK it is drawn in (the thread never
+          indents past one level, so a reply of any depth lands in its top-level
+          ancestor's block) and the reply ROW itself. The row is what the viewport
+          is aimed at — the block is only the same answer while the reply happens
+          to be the last thing in it.
+
+          `commentsRef` is still the pre-append list, which is exactly where the
+          parent chain lives.
+        */
         pendingScrollRef.current = {
           measured: false,
+          replyId: parent ? result.id : null,
           rootId: parent ? topLevelAncestorId(commentsRef.current, parent.id) : result.id,
         };
+        // The dismissal below shrinks the sheet, and the list's viewport with it.
+        // Claim the resize NOW rather than when the keyboard event lands: between
+        // the two, a layout pass can measure the just-posted row against a
+        // viewport a third of a screen taller than the one it is about to have,
+        // and a scroll computed there stops short (or, on a short thread, clamps
+        // to 0 — "it scrolled to the top after I posted"). The resize effect
+        // clears it when the sheet actually stops moving.
+        if (keyboardHeightRef.current > 0) {
+          sheetResizingRef.current = true;
+        }
         // Armed on this exact beat: the dismissal is what makes the field commit
         // its pending autocorrect, and that commit arrives as a change event
         // carrying the sentence we just posted. See `ignoreNextDraftChangeRef`.
@@ -1749,9 +1853,11 @@ export function CommentsSheet({
             {
               backgroundColor: theme.colors.gray0,
               height: sheetHeight,
-              // Lift the composer clear of the keyboard. The sheet grew by the
-              // same amount, so the thread keeps its height instead of paying
-              // for the composer.
+              // Lift the composer clear of the keyboard. `sheetHeightForKeyboard`
+              // grows the sheet by exactly this increase (16 → keyboardHeight +
+              // 8), so the thread keeps its height instead of paying for the
+              // composer — up to `SHEET_HEIGHT_MAX`, past which there is no more
+              // screen to grow into and the thread does pay the remainder.
               //
               // Keyboard down: a flat 16, NOT max(insets.bottom, …). The safe
               // inset is 34 on a notched iPhone, which left the composer
@@ -1842,7 +1948,15 @@ export function CommentsSheet({
                     ) : null}
                     {expanded
                       ? replies.map(({ comment: reply, mentionHandle }) => (
-                          <View key={reply.id} style={styles.replyRow}>
+                          <View
+                            key={reply.id}
+                            // Measured inside its block, so a just-posted reply
+                            // can be brought to the bottom of the viewport as
+                            // ITSELF rather than as whatever the block ends at.
+                            onLayout={(event) => handleReplyLayout(reply.id, event)}
+                            style={styles.replyRow}
+                            testID={`${testID}-reply-row-${reply.id}`}
+                          >
                             {renderComment(reply, { isReply: true, mentionHandle })}
                           </View>
                         ))
@@ -1987,7 +2101,7 @@ export function CommentsSheet({
           <ConfirmDeleteSheet
             confirmLabel="Delete"
             message={
-              prompt.keepAsTombstone
+              prompt.replyCount > 0
                 ? // Say what actually happens: your words go, the thread does not.
                   // Deliberately plain and countless — an earlier draft quoted the
                   // exact reply count and the tombstone's own wording back at the
@@ -1995,13 +2109,18 @@ export function CommentsSheet({
                   // are deciding whether to delete something.
                   `Your ${promptNoun} will be removed but the replies will remain. `
                   + 'Are you sure you want to continue?'
-                : "This can't be undone."
+                : // No replies to promise about, but the row does NOT vanish any
+                  // more — it stays as a "was deleted" line. Saying so is the
+                  // difference between a confirmation and a surprise. Still no
+                  // quoting of the tombstone's own wording back at the user.
+                  `Your ${promptNoun} will be removed and the thread will show it was `
+                  + "deleted. This can't be undone."
             }
             onClose={closePrompt}
             onConfirm={() => {
-              const { comment, keepAsTombstone } = prompt;
+              const { comment } = prompt;
               closePrompt();
-              runDelete(comment, keepAsTombstone);
+              runDelete(comment);
             }}
             presentation="inline"
             testID={`${testID}-delete-confirm`}

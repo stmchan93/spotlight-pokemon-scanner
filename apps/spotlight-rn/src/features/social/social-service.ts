@@ -631,8 +631,8 @@ export type PostComment = {
   createdAt: string;
   /**
    * True when this row is a TOMBSTONE: the comment was deleted but is still in
-   * the thread because it has surviving replies hanging off it. The sheet renders
-   * "[deleted]" in place of the body and keeps the replies nested underneath.
+   * the thread. The sheet renders "This comment was deleted" in place of the body
+   * and keeps any replies nested underneath.
    *
    * `fetchComments` always sets this explicitly. It is optional only so a caller
    * building an optimistic comment locally (a comment it just posted — never a
@@ -654,76 +654,56 @@ function isDeletedCommentRow(row: CommentRow): boolean {
   return row.deleted_at != null || row.content_status === 'deleted';
 }
 
-/**
- * Drop deleted comments that nothing hangs off, keep the ones that still hold a
- * subtree up.
- *
- * A deleted comment with surviving replies must stay in the result as a
- * tombstone: `comments-sheet.tsx` treats a comment whose parent is absent from
- * the fetched set as a ROOT, so removing a parent would PROMOTE its replies to
- * top level, stripped of the context that made them legible. A deleted comment
- * with no replies has no such job and disappears entirely.
- *
- * Run to a fixed point rather than in one pass: dropping a childless tombstone
- * can leave ITS parent (also a tombstone) childless, and that one has to go too.
- * Each round strictly shrinks the set, so this terminates in at most depth rounds.
- *
- * Note the pagination edge: "has replies" means "has a reply IN THIS PAGE". A
- * tombstone whose only reply falls past `limit` is dropped — which is the same
- * page boundary that would have hidden the reply anyway.
- */
-function pruneChildlessTombstones(rows: CommentRow[]): CommentRow[] {
-  if (!rows.some(isDeletedCommentRow)) {
-    return rows;
-  }
-  let kept = rows;
-  for (;;) {
-    const keptIds = new Set(kept.map((row) => row.id));
-    const parentsWithReplies = new Set<string>();
-    for (const row of kept) {
-      const parentId = row.parent_comment_id;
-      if (parentId && keptIds.has(parentId)) {
-        parentsWithReplies.add(parentId);
-      }
-    }
-    const next = kept.filter(
-      (row) => !isDeletedCommentRow(row) || parentsWithReplies.has(row.id),
-    );
-    if (next.length === kept.length) {
-      return next;
-    }
-    kept = next;
-  }
-}
+/*
+  WHY THERE IS NO LONGER A CHILDLESS-TOMBSTONE PRUNE HERE.
+
+  This module used to run `pruneChildlessTombstones` over the fetched rows: a
+  deleted comment survived the read only while it still held a live reply up, and
+  one with nothing under it was dropped so the reader saw the row simply vanish.
+  Two rules, one thread, and which one you got depended on whether somebody had
+  happened to answer you. The user's report was "only the first deleted comment
+  says 'This comment was deleted'", and that was it — working exactly as
+  specified, and specified wrong.
+
+  The rule now is one line: a deleted comment reads as deleted. `comments-sheet.tsx`
+  leaves a tombstone for every delete, and this read hands every tombstone it is
+  given straight through, so the row a delete leaves behind is still there on the
+  next load instead of quietly disappearing under the reader. A tombstone that
+  appears on delete and vanishes on reload would be a third behaviour, not a fix.
+
+  WHAT THIS CANNOT DO, and it has to be said plainly: RLS is the ceiling.
+  `comments_select` (social_17 §7) returns a deleted row to a NON-author only when
+  `comment_has_live_reply(id)` holds. So dropping the client prune makes every
+  tombstone visible to its AUTHOR — which is whose thread the report was about,
+  and who could otherwise see their own row disappear — while another reader still
+  sees a childless deleted comment as absent. Closing that gap means widening the
+  policy branch in a migration; no query can retrieve a row the policy refuses.
+
+  Counting is unaffected either way: a tombstone is not a comment anybody wrote,
+  the `comment_count` trigger decrements on the `deleted_at` transition regardless
+  of replies (social_17 §4), and `visibleCommentCount` in the sheet agrees.
+*/
 
 /**
  * Comments for one post, oldest-first (chat order), author-hydrated via
  * `public_profiles`. Threading is carried by `parentCommentId` — the caller nests.
  * Returns `[]` on any failure.
  *
- * DELETED ROWS, and why this query no longer filters them out.
+ * DELETED ROWS, and why this query does not filter them out.
  *
- * Soft delete (see `USE_SOFT_DELETE` below) makes a deleted comment with replies
- * survive as a TOMBSTONE — body hidden, replies still attached — while a deleted
- * comment with no replies vanishes. The old
+ * Soft delete (see `USE_SOFT_DELETE` below) makes a deleted comment survive as a
+ * TOMBSTONE — body hidden, replies still attached. The old
  * `.is('deleted_at', null).neq('content_status', 'deleted')` pair cannot express
  * that: it hides EVERY tombstone, which orphans the replies underneath (the sheet
  * promotes a reply whose parent is missing to top level). So the query asks for
- * the whole thread and the tombstone rule is applied to the returned rows.
+ * the whole thread and every row the policy returns is mapped, tombstones
+ * included — see the note above on why nothing is pruned here any more.
  *
- * ASSUMED: the RLS SELECT policy is authoritative for who may see a tombstone —
- * it has to be, since a non-author can only ever receive a deleted row if the
- * policy hands it over. `pruneChildlessTombstones` is written to be correct
- * either way:
- *   * If the policy already drops childless tombstones, the prune is a no-op for
- *     other people's rows.
- *   * It is NOT redundant even then. `comments_select` lets an author read their
- *     OWN deleted rows unconditionally (that branch is what makes the
- *     soft-delete write's `.select('id')` RETURNING work at all), so without this
- *     pass an author would see their own childless tombstone come back in their
- *     own thread. The prune is what hides it.
- * Only `deleted_at` / `content_status` are read for this decision; the tombstone's
- * `body` is dropped in the mapping below and never reaches a `PostComment`.
+ * The RLS SELECT policy is authoritative for WHO may see a tombstone: a
+ * non-author can only ever receive a deleted row if the policy hands it over.
+ * Only `deleted_at` / `content_status` are read to decide that a row IS a
+ * tombstone; its `body` is dropped in the mapping below and never reaches a
+ * `PostComment`.
  */
 export async function fetchComments(postId: string, limit = 100): Promise<PostComment[]> {
   const trimmed = (postId ?? '').trim();
@@ -741,7 +721,7 @@ export async function fetchComments(postId: string, limit = 100): Promise<PostCo
       return [];
     }
 
-    const rows = pruneChildlessTombstones(data as CommentRow[]);
+    const rows = data as CommentRow[];
     const authorIds = Array.from(new Set(rows.map((row) => row.author_id).filter(Boolean)));
     const authorsById = new Map<string, FeedPostAuthor>();
     if (authorIds.length > 0) {
@@ -998,9 +978,10 @@ export async function deletePost(postId: string): Promise<boolean> {
 
 /**
  * Delete one of your own comments. Same contract as `deletePost`, with one
- * difference the UI has to render: a comment that still has replies survives as a
- * TOMBSTONE (`isDeleted`, body dropped) so its replies stay nested; a comment with
- * no replies disappears. `fetchComments` owns that distinction.
+ * difference the UI has to render: the comment survives as a TOMBSTONE
+ * (`isDeleted`, body dropped) so its replies stay nested and the thread says the
+ * same thing about every deleted comment. `fetchComments` hands every tombstone
+ * the policy returns through; RLS decides which readers get one.
  */
 export async function deleteComment(commentId: string): Promise<boolean> {
   return deleteOwnedRow(COMMENTS_TABLE, commentId);

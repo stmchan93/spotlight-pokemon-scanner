@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import type { ComponentProps, PropsWithChildren } from 'react';
-import { Alert, Keyboard, ScrollView, StyleSheet } from 'react-native';
+import { Alert, Dimensions, Keyboard, ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { SpotlightThemeProvider, colors } from '@spotlight/design-system';
@@ -9,7 +9,7 @@ import {
   CommentsSheet,
   collectDescendantIds,
   isTombstone,
-  pruneOrphanedTombstones,
+  sheetHeightForKeyboard,
   shouldDismissOnDrag,
   tombstoneLabel,
   topLevelAncestorId,
@@ -707,14 +707,23 @@ describe('CommentsSheet', () => {
     });
 
     /*
-      (2), the case "scroll to the bottom" gets WRONG.
+      (2), the case "scroll to the bottom" gets WRONG — and (4), the case the
+      BLOCK gets wrong.
 
-      A reply is inserted under its parent, not appended to the thread — so the
-      end of the list is not where it went. Scrolling there would carry you away
-      from the reply you just wrote, which is the same "where did my comment go"
-      the bug is about, one row over.
+      A reply is inserted under its parent, not appended to the thread, so the end
+      of the list is not where it went: scrolling there would carry you away from
+      the reply you just wrote. But the block that parent sits in is not the
+      answer either. The thread flattens every depth under one top-level block, so
+      the block's bottom is only the reply's bottom while the reply happens to be
+      the last row in it — and what was asked for is the REPLY at the bottom of
+      the viewport with the list's own padding above the composer.
+
+      So the reply row is measured in its own right, inside its block, and the two
+      coordinates are added. The numbers here pull them apart on purpose: the
+      block ends at 612 and the reply at 492, and the target has to come from the
+      reply.
     */
-    it('lands on a REPLY under its parent, not at the end of a thread it is not in', async () => {
+    it('lands on the REPLY itself, not on the end of the thread or the end of its block', async () => {
       (addComment as jest.Mock).mockResolvedValue({ ok: true, id: 'r-new' });
       (fetchComments as jest.Mock).mockResolvedValue([
         buildComment({ id: 'c1', body: 'Reply to me' }),
@@ -735,9 +744,9 @@ describe('CommentsSheet', () => {
       expect(addComment as jest.Mock).toHaveBeenCalledWith('post-1', 'Under yours', 'c1');
 
       /*
-        The content-size change arrives from the same layout pass as the block's
-        own measurement, in an order this component does not choose — so it is
-        fired FIRST here, before c1 has been re-measured. It must not be allowed
+        The content-size change arrives from the same layout pass as the row's own
+        measurement, in an order this component does not choose — so it is fired
+        FIRST here, before anything has been re-measured. It must not be allowed
         to release the scroll: c1's box is still the one from before the reply
         existed, and an offset computed from it lands above the reply (and on a
         short thread is clamped to 0, which is the "it scrolled to the top"
@@ -751,11 +760,21 @@ describe('CommentsSheet', () => {
       expect(scrollToEnd).not.toHaveBeenCalled();
       expect(scrollTo).not.toHaveBeenCalled();
 
-      // c1's block grew by the reply that was just added to it.
-      layout('comments-sheet-thread-c1', { height: 400, y: 12 });
+      // c1's block grew by the reply that was just added to it. On its own that
+      // is NOT enough any more — the block's bottom is 12 + 600 = 612, which is
+      // not where the reply is.
+      layout('comments-sheet-thread-c1', { height: 600, y: 12 });
+      expect(scrollTo).not.toHaveBeenCalled();
 
-      // 12 + 400 + 8 - 400: the bottom of the block that now holds the reply.
-      expect(scrollTo).toHaveBeenCalledWith({ animated: true, y: 20 });
+      // The reply row's own box, reported inside its block.
+      layout('comments-sheet-reply-row-r-new', { height: 80, y: 400 });
+
+      // 12 (block) + 400 (row within it) + 80 (its height) + 8 (the list's own
+      // bottom padding) - 400 of viewport: the REPLY's bottom edge at the bottom
+      // of the list, with the padding as breathing room above the composer.
+      // The block's bottom would have said 220.
+      expect(scrollTo).toHaveBeenCalledWith({ animated: true, y: 100 });
+      expect(scrollTo).toHaveBeenCalledTimes(1);
       expect(scrollToEnd).not.toHaveBeenCalled();
     });
 
@@ -820,6 +839,60 @@ describe('CommentsSheet', () => {
       expect(await screen.findByTestId('comments-sheet-comment-r-new')).toHaveTextContent(
         /Right here/,
       );
+    });
+
+    /*
+      (1), and the reason it was never actually fixed: the sheet's keyboard-up
+      height and the composer's keyboard-up padding were two INDEPENDENT numbers.
+
+      The height was a flat `SCREEN_HEIGHT * 0.9` — a growth of 0.3 of the screen,
+      whatever the keyboard turned out to be — while the same view padded its
+      bottom by the measured `keyboardHeight + 8`. The comment beside the padding
+      claimed "the sheet grew by the same amount, so the thread keeps its height";
+      it only did when those two happened to agree. Where they disagreed the
+      difference landed in the list: a keyboard shorter than the fixed growth left
+      the thread taller than it needs to be, which bottom-anchored is dead white
+      space, and a taller one quietly shortened the thread instead.
+
+      So the growth is now derived from the padding it is paying for, and the
+      claim is testable: the list's height is the sheet minus its bottom padding
+      (minus the header and composer, which do not change), and that has to come
+      out the same with the keyboard up as with it down.
+    */
+    describe('how tall the sheet gets for the keyboard', () => {
+      const SCREEN_HEIGHT = Dimensions.get('window').height;
+      const RESTING = SCREEN_HEIGHT * 0.6;
+      const MAX = SCREEN_HEIGHT * 0.9;
+      /** Everything the thread does NOT get: the sheet's own bottom padding. */
+      const composerPadding = (keyboardHeight: number) =>
+        keyboardHeight > 0 ? keyboardHeight + 8 : 16;
+      /** What the list is left with, up to the fixed header/composer chrome. */
+      const threadHeight = (keyboardHeight: number) =>
+        sheetHeightForKeyboard(keyboardHeight) - composerPadding(keyboardHeight);
+
+      it('rests at 0.6 of the screen with the keyboard down', () => {
+        expect(sheetHeightForKeyboard(0)).toBe(RESTING);
+        expect(sheetHeightForKeyboard(-1)).toBe(RESTING);
+      });
+
+      it('grows by exactly what the composer pays, so the thread keeps its height', () => {
+        // Small enough to fit inside the 0.3-of-the-screen headroom, which is
+        // where the old fixed height overshot and left white space.
+        const keyboard = 120;
+        expect(sheetHeightForKeyboard(keyboard)).toBe(RESTING + keyboard + 8 - 16);
+        // The claim in the comment beside `paddingBottom`, stated as arithmetic.
+        expect(threadHeight(keyboard)).toBeCloseTo(threadHeight(0), 5);
+        expect(threadHeight(200)).toBeCloseTo(threadHeight(0), 5);
+      });
+
+      it('stops at 0.9 of the screen, and says so by shortening the thread instead', () => {
+        // A full-size phone keyboard is taller than there is room to grow into.
+        expect(sheetHeightForKeyboard(SCREEN_HEIGHT)).toBe(MAX);
+        // Past the cap the thread does pay the remainder — the alternative is a
+        // sheet taller than the screen. It must never GAIN height, which is the
+        // white-space direction.
+        expect(threadHeight(SCREEN_HEIGHT)).toBeLessThan(threadHeight(0));
+      });
     });
 
     it('attributes a reply of any depth to the block it is drawn in', () => {
@@ -1111,7 +1184,13 @@ describe('CommentsSheet', () => {
       // a red Delete — NOT an OS alert.
       expect(screen.getByTestId(DELETE_CONFIRM)).toBeTruthy();
       expect(screen.getByText('Delete comment?')).toBeTruthy();
-      expect(screen.getByText("This can't be undone.")).toBeTruthy();
+      // No replies to promise about — but the row does not disappear either, and
+      // the confirmation has to say so now that it leaves a tombstone.
+      expect(
+        screen.getByText(
+          "Your comment will be removed and the thread will show it was deleted. This can't be undone.",
+        ),
+      ).toBeTruthy();
       expect(screen.getByTestId(`${DELETE_CONFIRM}-cancel`)).toBeTruthy();
       expect(Alert.alert as unknown as jest.Mock).not.toHaveBeenCalled();
       // Confirmation first — the long press alone must not delete anything.
@@ -1135,9 +1214,19 @@ describe('CommentsSheet', () => {
       expect(screen.getByText('My take')).toBeTruthy();
     });
 
-    it('removes a childless comment optimistically and updates the post count', async () => {
+    /*
+      EVERY DELETE SAYS SO, INCLUDING THE ONE NOBODY REPLIED TO.
+
+      Reported as "only the first deleted comment says 'This comment was
+      deleted'". Nothing was broken: a tombstone survived only while it had
+      replies to hold up, so the one comment that had been answered left a line
+      and the rest were removed outright. The user's call is that the thread says
+      the same thing about every comment that has been deleted, so a childless
+      delete leaves a tombstone too.
+    */
+    it('leaves a tombstone for a childless comment, and still drops the post count by one', async () => {
       (fetchComments as jest.Mock).mockResolvedValue([mine(), theirs()]);
-      // Never resolves: proves the row leaves the thread BEFORE the write returns.
+      // Never resolves: proves the row is soft-deleted BEFORE the write returns.
       (deleteComment as jest.Mock).mockReturnValue(new Promise(() => {}));
       const onCommentCountResolved = jest.fn();
       renderSheet({ onCommentCountResolved });
@@ -1146,11 +1235,36 @@ describe('CommentsSheet', () => {
       fireEvent(screen.getByTestId('comments-sheet-comment-c1'), 'longPress');
       await confirmDelete();
 
+      // The body is gone…
       expect(screen.queryByText('My take')).toBeNull();
       expect(screen.getByText('Their take')).toBeTruthy();
-      // Nothing depended on the row, so it leaves no tombstone behind.
-      expect(screen.queryByTestId('comments-sheet-comment-c1')).toBeNull();
-      // The card's comment_count follows the thread down, matching the DB trigger.
+      // …and the row says so, with nothing hanging off it at all.
+      expect(screen.getByTestId('comments-sheet-comment-c1-tombstone')).toHaveTextContent(
+        'This comment was deleted',
+      );
+      // The count is unmoved by that: a tombstone is not a comment anybody wrote,
+      // and the DB's own comment_count trigger decrements regardless of replies.
+      expect(onCommentCountResolved).toHaveBeenLastCalledWith(1);
+    });
+
+    // The same rule one level down. A tombstoned REPLY is where "the thread
+    // flattens every depth" could most easily have grown a second behaviour.
+    it('leaves a tombstone for a childless REPLY too', async () => {
+      (fetchComments as jest.Mock).mockResolvedValue([
+        theirs(),
+        buildComment({ id: 'r1', authorId: 'me', body: 'My reply', parentCommentId: 'c2' }),
+      ]);
+      const onCommentCountResolved = jest.fn();
+      renderSheet({ onCommentCountResolved });
+
+      fireEvent.press(await screen.findByTestId('comments-sheet-comment-c2-replies-toggle'));
+      fireEvent(screen.getByTestId('comments-sheet-comment-r1'), 'longPress');
+      await confirmDelete();
+
+      expect(screen.queryByText('My reply')).toBeNull();
+      expect(screen.getByTestId('comments-sheet-comment-r1-tombstone')).toHaveTextContent(
+        'This reply was deleted',
+      );
       expect(onCommentCountResolved).toHaveBeenLastCalledWith(1);
     });
 
@@ -1321,16 +1435,17 @@ describe('CommentsSheet', () => {
     });
 
     /*
-      A tombstone only earns its place while something still hangs off it.
+      DELETING EVERYTHING LEAVES A WALL OF TOMBSTONES, AND THAT IS THE POINT.
 
-      social_17's client rule (`pruneChildlessTombstones` in `social-service.ts`)
-      applies that to a FETCHED thread. Local state could still strand one after
-      the fact: tombstone a comment because it has a reply, then delete that
-      reply, and the "was deleted" line sat there over nothing until the next
-      fetch. Holds at every depth — the stranded row here is a top-level
-      tombstone, and the nested case is covered by the unit test below.
+      This used to unwind: the parent stayed only because it had a reply, so
+      deleting that reply stranded it and it was swept away, taking the whole
+      chain with it. Two rules — "it says it was deleted" and "it silently
+      disappears" — separated by whether somebody had answered you. Now the thread
+      keeps both rows and keeps saying the same thing. The cost is real and
+      accepted: a thread whose author deletes all of it reads as a column of
+      "was deleted" lines.
     */
-    it('takes a stranded tombstone with the last reply underneath it', async () => {
+    it('keeps every tombstone when a whole branch is deleted, at both depths', async () => {
       (fetchComments as jest.Mock).mockResolvedValue([
         buildComment({ authorId: 'me', body: 'Parent' }),
         buildComment({ id: 'r1', authorId: 'me', body: 'My own reply', parentCommentId: 'c1' }),
@@ -1338,23 +1453,28 @@ describe('CommentsSheet', () => {
       const onCommentCountResolved = jest.fn();
       renderSheet({ onCommentCountResolved });
 
-      // Delete the parent → it stays as a tombstone, holding the reply up.
       fireEvent(await screen.findByTestId('comments-sheet-comment-c1'), 'longPress');
       await confirmDelete();
       expect(screen.getByTestId('comments-sheet-comment-c1-tombstone')).toBeTruthy();
 
-      // Delete the reply → nothing hangs off the tombstone any more, so it goes.
+      // Delete the reply too. Nothing hangs off the parent tombstone any more,
+      // and it stays anyway.
       fireEvent(screen.getByTestId('comments-sheet-comment-r1'), 'longPress');
       await confirmDelete();
 
-      expect(screen.queryByTestId('comments-sheet-comment-c1-tombstone')).toBeNull();
-      expect(screen.queryByTestId('comments-sheet-comment-c1')).toBeNull();
-      expect(screen.queryByTestId('comments-sheet-comment-r1')).toBeNull();
+      expect(screen.getByTestId('comments-sheet-comment-c1-tombstone')).toHaveTextContent(
+        'This comment was deleted',
+      );
+      expect(screen.getByTestId('comments-sheet-comment-r1-tombstone')).toHaveTextContent(
+        'This reply was deleted',
+      );
+      // Nothing left to READ, though — which is what the count means, and why the
+      // thread is not the empty state even at zero.
       expect(onCommentCountResolved).toHaveBeenLastCalledWith(0);
-      expect(screen.getByTestId('comments-sheet-empty')).toBeTruthy();
+      expect(screen.queryByTestId('comments-sheet-empty')).toBeNull();
     });
 
-    it('puts a stranded tombstone back when the delete that stranded it fails', async () => {
+    it('restores the reply under an existing tombstone when its delete fails', async () => {
       (fetchComments as jest.Mock).mockResolvedValue([
         buildTombstone({ authorId: 'me' }),
         buildComment({ id: 'r1', authorId: 'me', body: 'My own reply', parentCommentId: 'c1' }),
@@ -1366,31 +1486,10 @@ describe('CommentsSheet', () => {
       fireEvent(screen.getByTestId('comments-sheet-comment-r1'), 'longPress');
       await confirmDelete();
 
-      // The rollback restores BOTH the reply and the tombstone the prune swept
-      // out with it — anything less would leave the thread short a row that the
-      // server still has.
-      expect(await screen.findByTestId('comments-sheet-comment-r1')).toBeTruthy();
+      // The reply's body comes back, and the older tombstone above it — which a
+      // delete no longer touches at all — is still exactly where it was.
+      expect(await screen.findByText('My own reply')).toBeTruthy();
       expect(screen.getByTestId('comments-sheet-comment-c1-tombstone')).toBeTruthy();
-    });
-
-    it('prunes tombstones nothing hangs off, to a fixed point and at any depth', () => {
-      const live = buildComment({ id: 'live' });
-      const rootTomb = buildTombstone({ id: 't-root' });
-      const nestedTomb = buildTombstone({ id: 't-nested', parentCommentId: 't-root' });
-      const survivor = buildComment({ id: 'survivor', parentCommentId: 't-nested' });
-
-      // The nested tombstone still holds a real reply, so the chain above it stays.
-      expect(pruneOrphanedTombstones([live, rootTomb, nestedTomb, survivor])).toEqual([
-        live,
-        rootTomb,
-        nestedTomb,
-        survivor,
-      ]);
-      // Drop the survivor and the whole chain unwinds in one call.
-      expect(pruneOrphanedTombstones([live, rootTomb, nestedTomb])).toEqual([live]);
-      // A thread with no tombstones is returned untouched.
-      const plain = [live, buildComment({ id: 'c2' })];
-      expect(pruneOrphanedTombstones(plain)).toBe(plain);
     });
 
     it('collects every descendant of a comment, at any depth', () => {
@@ -1499,5 +1598,51 @@ describe('CommentsSheet — where the composer opens', () => {
     // Reply must NOT fall through to the generic "scroll to the end" — the
     // field's own onFocus runs too, and would otherwise overwrite the target.
     expect(scrollToEnd).not.toHaveBeenCalled();
+  });
+
+  /*
+    THE POST-SEND SCROLL WAITS FOR THE VIEWPORT, NOT FOR THE KEYBOARD.
+
+    Its guard used to read `keyboardHeightRef.current > 0 || sheetResizingRef.current`,
+    and the first half was only ever shorthand for the second: the one way to get
+    here was a send that had just called `Keyboard.dismiss()`, so "keyboard still
+    up" meant "the hide has not landed yet". As a standing rule it silently
+    ABANDONS scrolls. Post a comment, tap the composer again before the new row's
+    block has been measured, and the measurement arrives with the keyboard back
+    up — the target then sat there forever and the thread never moved to what you
+    wrote.
+
+    `sheetResizingRef` is the real signal, and the send path claims it itself
+    before dismissing, so the window this guard was actually written for is still
+    covered.
+  */
+  it('lands a post-send scroll measured after the keyboard came back up', async () => {
+    (addComment as jest.Mock).mockResolvedValue({ ok: true, id: 'c-new' });
+    (fetchComments as jest.Mock).mockResolvedValue([buildComment({ id: 'c1', body: 'One' })]);
+    renderSheet();
+    await screen.findByText('One');
+
+    layout('comments-sheet-list', { height: 400 });
+    layout('comments-sheet-thread-c1', { height: 480, y: 12 });
+
+    // Posted with the keyboard already down, so no resize is owed on the way out
+    // and the only thing the pending scroll is still waiting for is a box.
+    fireEvent.changeText(screen.getByTestId('comments-sheet-input'), 'Mine');
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('comments-sheet-send'));
+    });
+    await screen.findByText('Mine');
+    expect(scrollTo).not.toHaveBeenCalled();
+
+    // Back into the composer before the new block has ever been measured.
+    fireEvent(screen.getByTestId('comments-sheet-input'), 'focus');
+    await raiseKeyboard();
+    // The sheet has finished growing (the focus scroll is what proves it).
+    await waitFor(() => expect(scrollToEnd).toHaveBeenCalled());
+
+    layout('comments-sheet-thread-c-new', { height: 90, y: 500 });
+
+    // 500 + 90 + 8 - 400. Under the old guard this never ran at all.
+    expect(scrollTo).toHaveBeenCalledWith({ animated: true, y: 198 });
   });
 });

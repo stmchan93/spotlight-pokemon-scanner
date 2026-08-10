@@ -18,6 +18,7 @@ function makeBuilder(result: QueryResult) {
     'order',
     'limit',
     'upsert',
+    'insert',
     'update',
     'delete',
   ]) {
@@ -50,7 +51,19 @@ const TABLE_TO_KEY: Record<string, keyof Results> = {
   comments: 'comments',
 };
 
-function makeSupabase(results: Results, userId: string | null = 'me') {
+// Every environment that has NOT run social_19 answers `blocked_profiles()` with
+// PostgREST's "function not in the schema cache". That is the default here so a
+// test has to opt IN to the RPC lane, which is the rarer of the two today.
+const MISSING_RPC: QueryResult = {
+  data: null,
+  error: { code: 'PGRST202', message: 'Could not find the function public.blocked_profiles' },
+};
+
+function makeSupabase(
+  results: Results,
+  userId: string | null = 'me',
+  rpcResult: QueryResult = MISSING_RPC,
+) {
   const empty: QueryResult = { data: [], error: null };
   const builders: Record<string, ReturnType<typeof makeBuilder>> = {};
   const queues: Partial<Record<keyof Results, QueryResult[]>> = {};
@@ -77,6 +90,7 @@ function makeSupabase(results: Results, userId: string | null = 'me') {
       getUser: jest.fn(async () => ({ data: { user: userId ? { id: userId } : null } })),
     },
     from,
+    rpc: jest.fn(async () => rpcResult),
     // The last builder handed out per table, so a test can assert on the exact
     // payload a write sent (upsert conflict target, delete scoping).
     builders,
@@ -325,6 +339,85 @@ describe('social-service blocking and reporting', () => {
     await expect(fetchBlockedUserIds()).resolves.toEqual(new Set());
   });
 
+  // The unblock list. Ids alone are useless on a screen, and after social_19 the
+  // blocker cannot read a blocked user through `public_profiles` at all — hence
+  // two lanes, and hence the rule that an unresolved block is still LISTED.
+  it('prefers the blocked_profiles() RPC, which needs no argument', async () => {
+    const supabase = makeSupabase({}, 'me', {
+      data: [
+        { user_id: 'them', display_name: 'Ash', handle: 'ash', avatar_url: 'https://a/1.png' },
+      ],
+      error: null,
+    });
+    const { fetchBlockedProfiles } = loadService(supabase);
+
+    await expect(fetchBlockedProfiles()).resolves.toEqual([
+      { userID: 'them', displayName: 'Ash', handle: 'ash', avatarURL: 'https://a/1.png' },
+    ]);
+    // No argument: the RPC pins the caller to auth.uid() itself, so it can never
+    // be aimed at someone else's block list.
+    expect(supabase.rpc).toHaveBeenCalledWith('blocked_profiles');
+    expect(supabase.from).not.toHaveBeenCalled();
+  });
+
+  it('falls back to blocks + public_profiles when the RPC is not deployed yet', async () => {
+    const supabase = makeSupabase({
+      blocks: {
+        data: [
+          { blocked_id: 'them', created_at: '2026-08-02T00:00:00.000Z' },
+          { blocked_id: 'other', created_at: '2026-08-01T00:00:00.000Z' },
+        ],
+        error: null,
+      },
+      authors: {
+        data: [
+          { user_id: 'them', display_name: 'Ash', handle: 'ash', avatar_url: null },
+          { user_id: 'other', display_name: 'Misty', handle: null, avatar_url: null },
+        ],
+        error: null,
+      },
+    });
+    const { fetchBlockedProfiles } = loadService(supabase);
+
+    // Block order wins over whatever order the hydration came back in.
+    await expect(fetchBlockedProfiles()).resolves.toEqual([
+      { userID: 'them', displayName: 'Ash', handle: 'ash', avatarURL: null },
+      { userID: 'other', displayName: 'Misty', handle: null, avatarURL: null },
+    ]);
+    expect(supabase.builders.blocks.eq).toHaveBeenCalledWith('blocker_id', 'me');
+  });
+
+  it('still lists a block whose profile could not be resolved', async () => {
+    // The social_19 shape: the RPC is missing AND `public_profiles` now hides the
+    // blocked user from the blocker. Dropping the row would make the block
+    // permanent, so it comes back nameless instead.
+    const supabase = makeSupabase({
+      blocks: { data: [{ blocked_id: 'them', created_at: '2026-08-02T00:00:00.000Z' }], error: null },
+      authors: { data: [], error: null },
+    });
+    const { fetchBlockedProfiles } = loadService(supabase);
+
+    await expect(fetchBlockedProfiles()).resolves.toEqual([
+      { userID: 'them', displayName: null, handle: null, avatarURL: null },
+    ]);
+  });
+
+  it('does not fall back when the RPC exists and fails for another reason', async () => {
+    const supabase = makeSupabase({}, 'me', { data: null, error: { message: 'rls' } });
+    const { fetchBlockedProfiles } = loadService(supabase);
+
+    await expect(fetchBlockedProfiles()).resolves.toEqual([]);
+    expect(supabase.from).not.toHaveBeenCalled();
+  });
+
+  it('resolves to an empty list when signed out', async () => {
+    const supabase = makeSupabase({}, null);
+    const { fetchBlockedProfiles } = loadService(supabase);
+
+    await expect(fetchBlockedProfiles()).resolves.toEqual([]);
+    expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+
   it('reports the most specific target: message beats comment beats post beats profile', async () => {
     const supabase = makeSupabase({ reports: { data: null, error: null } });
     const { reportContent } = loadService(supabase);
@@ -332,28 +425,49 @@ describe('social-service blocking and reporting', () => {
     await expect(
       reportContent({ reportedUserId: 'them', postId: 'p1', commentId: 'c1', messageId: 'm1', reason: 'abuse' }),
     ).resolves.toBe(true);
-    expect(supabase.builders.reports.upsert).toHaveBeenLastCalledWith(
+    // A PLAIN INSERT, and asserted as one. An upsert also requires UPDATE on the
+    // table, and social_04 grants non-admins INSERT only — which is why every
+    // report failed with "Couldn't send report" until this changed.
+    expect(supabase.builders.reports.insert).toHaveBeenLastCalledWith(
       { reporter_id: 'me', target_type: 'message', target_id: 'm1', reason: 'abuse' },
-      { onConflict: 'reporter_id,target_type,target_id', ignoreDuplicates: true },
     );
+    expect(supabase.builders.reports.upsert).not.toHaveBeenCalled();
 
     await reportContent({ reportedUserId: 'them', postId: 'p1', commentId: 'c1', reason: 'abuse' });
-    expect(supabase.builders.reports.upsert).toHaveBeenLastCalledWith(
+    expect(supabase.builders.reports.insert).toHaveBeenLastCalledWith(
       expect.objectContaining({ target_type: 'comment', target_id: 'c1' }),
-      expect.anything(),
     );
 
     await reportContent({ reportedUserId: 'them', postId: 'p1', reason: 'abuse' });
-    expect(supabase.builders.reports.upsert).toHaveBeenLastCalledWith(
+    expect(supabase.builders.reports.insert).toHaveBeenLastCalledWith(
       expect.objectContaining({ target_type: 'post', target_id: 'p1' }),
-      expect.anything(),
     );
 
     await reportContent({ reportedUserId: 'them', reason: 'abuse' });
-    expect(supabase.builders.reports.upsert).toHaveBeenLastCalledWith(
+    expect(supabase.builders.reports.insert).toHaveBeenLastCalledWith(
       expect.objectContaining({ target_type: 'profile', target_id: 'them' }),
-      expect.anything(),
     );
+  });
+
+  it('treats a duplicate report as success, so re-reporting is idempotent', async () => {
+    // 23505 = unique_violation on (reporter_id, target_type, target_id). That
+    // constraint is what makes the 3-distinct-reporter threshold mean three
+    // PEOPLE, so hitting it is the constraint working, not a failure.
+    const supabase = makeSupabase({
+      reports: { data: null, error: { code: '23505', message: 'duplicate key value' } },
+    });
+    const { reportContent } = loadService(supabase);
+
+    await expect(reportContent({ reportedUserId: 'them', postId: 'p1', reason: '' })).resolves.toBe(true);
+  });
+
+  it('fails loudly on a permission error instead of reporting success', async () => {
+    const supabase = makeSupabase({
+      reports: { data: null, error: { code: '42501', message: 'new row violates row-level security policy' } },
+    });
+    const { reportContent } = loadService(supabase);
+
+    await expect(reportContent({ reportedUserId: 'them', postId: 'p1', reason: '' })).resolves.toBe(false);
   });
 
   it('sends a blank reason as null rather than an empty string', async () => {
@@ -361,9 +475,8 @@ describe('social-service blocking and reporting', () => {
     const { reportContent } = loadService(supabase);
 
     await expect(reportContent({ reportedUserId: 'them', reason: '   ' })).resolves.toBe(true);
-    expect(supabase.builders.reports.upsert).toHaveBeenCalledWith(
+    expect(supabase.builders.reports.insert).toHaveBeenCalledWith(
       expect.objectContaining({ reason: null }),
-      expect.anything(),
     );
   });
 
@@ -376,11 +489,13 @@ describe('social-service blocking and reporting', () => {
   });
 
   it('returns safe empty values when Supabase is unavailable, never throwing', async () => {
-    const { blockUser, unblockUser, fetchBlockedUserIds, reportContent } = loadService(null);
+    const { blockUser, unblockUser, fetchBlockedUserIds, fetchBlockedProfiles, reportContent } =
+      loadService(null);
 
     await expect(blockUser('them')).resolves.toBe(false);
     await expect(unblockUser('them')).resolves.toBe(false);
     await expect(fetchBlockedUserIds()).resolves.toEqual(new Set());
+    await expect(fetchBlockedProfiles()).resolves.toEqual([]);
     await expect(reportContent({ reportedUserId: 'them', reason: 'abuse' })).resolves.toBe(false);
   });
 
@@ -574,7 +689,17 @@ describe('social-service comment tombstones', () => {
     expect(reply.body).toBe('still here');
   });
 
-  it('hides a deleted comment with no replies entirely', async () => {
+  /*
+    THE FETCH SIDE OF "EVERY DELETED COMMENT SAYS SO".
+
+    This read used to prune childless tombstones (`pruneChildlessTombstones`), so
+    a deleted comment survived the reload only while something still hung off it.
+    That is what made the thread say "This comment was deleted" for one row and
+    silently drop the next — the reported bug. Now every tombstone the policy
+    hands over is mapped, and the row the sheet leaves behind on delete is still
+    there on the next load rather than vanishing under the reader.
+  */
+  it('keeps a deleted comment with no replies, so a delete does not vanish on reload', async () => {
     const supabase = makeSupabase({
       comments: {
         data: [commentRow({ id: 'alive' }), deletedRow({ id: 'gone', body: 'the deleted text' })],
@@ -586,16 +711,18 @@ describe('social-service comment tombstones', () => {
 
     const comments = await fetchComments('post-1');
 
-    expect(comments.map((comment) => comment.id)).toEqual(['alive']);
-    // An author can always read their OWN tombstone (that RLS branch is what
-    // makes the soft-delete write's RETURNING work), so the client prune — not
-    // the policy — is what keeps a childless tombstone out of their own thread.
+    expect(comments.map((comment) => comment.id)).toEqual(['alive', 'gone']);
+    expect(comments[1].isDeleted).toBe(true);
+    // Still a tombstone, so still bodiless: keeping the row must not start
+    // leaking what it used to say.
+    expect(comments[1].body).toBeNull();
     expect(JSON.stringify(comments)).not.toContain('the deleted text');
   });
 
-  it('drops a tombstone whose only reply was itself a childless tombstone', async () => {
-    // One pass is not enough: removing the childless reply leaves the parent
-    // childless too, so the prune has to run to a fixed point.
+  it('keeps a chain of tombstones with nothing under it, rather than unwinding it', async () => {
+    // The old prune ran to a fixed point: dropping the childless reply left the
+    // parent childless, and the whole chain unwound. Both rows stay now — one
+    // rule, said the same way at every depth.
     const supabase = makeSupabase({
       comments: {
         data: [
@@ -611,7 +738,8 @@ describe('social-service comment tombstones', () => {
 
     const comments = await fetchComments('post-1');
 
-    expect(comments.map((comment) => comment.id)).toEqual(['alive']);
+    expect(comments.map((comment) => comment.id)).toEqual(['parent', 'reply', 'alive']);
+    expect(comments.map((comment) => comment.isDeleted)).toEqual([true, true, false]);
   });
 
   it('still treats a row as deleted when the moderation worker clobbered the sentinel', async () => {
