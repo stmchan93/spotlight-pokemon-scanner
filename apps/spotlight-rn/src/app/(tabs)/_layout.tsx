@@ -4,6 +4,7 @@ import { NativeTabs } from 'expo-router/unstable-native-tabs';
 import { colors } from '@spotlight/design-system';
 
 import { useCircularTabAvatar } from '@/components/circular-tab-avatar';
+import { rememberActiveTab } from '@/lib/last-active-tab';
 
 const { Trigger } = NativeTabs;
 const { Icon, Label } = Trigger;
@@ -100,14 +101,45 @@ export default function TabsLayout() {
   // so there is nothing to come back from.
   const pathname = usePathname();
   const isScanner = pathname === '/scan';
+  // Remember where the user was so leaving the Scanner can put them back. This
+  // is the only place that sees every tab change, and `rememberActiveTab`
+  // ignores `/scan` itself — otherwise opening the Scanner would immediately
+  // overwrite the very answer we are storing. Recorded during render rather than
+  // in an effect: it is a plain assignment to module scope with no subscribers,
+  // so there is nothing to schedule or clean up.
+  rememberActiveTab(pathname);
   // Null until the user's photo has been rasterised into a circle — see
   // `circular-tab-avatar.tsx` for why a tab icon cannot just be a remote URL.
   const avatarIcon = useCircularTabAvatar();
 
   return (
+    /*
+      ANDROID GETS ITS OWN APPEARANCE, EXPLICITLY.
+
+      Everything else on this component is iOS: `minimizeBehavior` is iOS 26,
+      `sf` icons are SF Symbols, and `tintColor` drives the Liquid Glass
+      selection glow. Left at that, expo-router fell through to its Material 3
+      defaults (`NativeTabsView.js`), whose background is
+      `Color.android.dynamic.surfaceContainer` — Material You, derived from the
+      user's WALLPAPER. So the bar was not merely the wrong colour, it was a
+      different colour on every Android device, and with no icons at all (see
+      `md` below) it read as a tall white slab.
+
+      This is the same rule `GlassSurface` already follows for our own chrome:
+      real glass where the platform has it, an honest solid token everywhere
+      else — never a blur knockoff. The bar the OS owns just has to be told in
+      its own API rather than through a `fallbackColor` prop.
+
+      Every colour below is Android-only; iOS ignores them and keeps its glass.
+    */
     <NativeTabs
+      backgroundColor={colors.canvasElevated}
       hidden={isScanner}
+      // The Material pill behind the selected icon. Left to Material You this
+      // was `secondaryContainer` — a wallpaper-derived accent.
+      indicatorColor={colors.gray100}
       minimizeBehavior="onScrollDown"
+      rippleColor={colors.gray200}
       tintColor={colors.gray900}
     >
       {/*
@@ -118,15 +150,17 @@ export default function TabsLayout() {
         legacy `/portfolio` path redirects there so old links still resolve.
       */}
       <Trigger name="index">
-        <Icon sf={{ default: 'house', selected: 'house.fill' }} />
+        {/* `sf` is iOS-only; `md` is the Android half of the same icon. Without
+            it Android renders a labels-only bar. */}
+        <Icon md="home" sf={{ default: 'house', selected: 'house.fill' }} />
         <Label>Home</Label>
       </Trigger>
       <Trigger name="scan">
-        <Icon sf={{ default: 'viewfinder', selected: 'viewfinder' }} />
+        <Icon md="qr_code_scanner" sf={{ default: 'viewfinder', selected: 'viewfinder' }} />
         <Label>Scan</Label>
       </Trigger>
       <Trigger name="wishlist">
-        <Icon sf={{ default: 'bookmark', selected: 'bookmark.fill' }} />
+        <Icon md="bookmark" sf={{ default: 'bookmark', selected: 'bookmark.fill' }} />
         <Label>Wishlist</Label>
       </Trigger>
       <Trigger name="you">
@@ -145,7 +179,7 @@ export default function TabsLayout() {
         {avatarIcon ? (
           <Icon renderingMode="original" src={avatarIcon} />
         ) : (
-          <Icon sf={{ default: 'person.crop.circle', selected: 'person.crop.circle.fill' }} />
+          <Icon md="account_circle" sf={{ default: 'person.crop.circle', selected: 'person.crop.circle.fill' }} />
         )}
         <Label>You</Label>
       </Trigger>
