@@ -49,8 +49,8 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "android": {
-            "image": "./assets/images/splash-icon.png",
-            "imageWidth": 200
+            "image": "./assets/images/splash-icon-android.png",
+            "imageWidth": 180
           }
         }
       ],

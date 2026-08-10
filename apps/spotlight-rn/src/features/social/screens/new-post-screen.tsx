@@ -494,7 +494,15 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
             // post then published at 15 — what you typed was never the size of
             // what you got. The literal was also exactly the kind of one-off the
             // design-system rule exists to keep out of screens.
-            style={[styles.bodyInput, theme.typography.body, { color: theme.colors.gray800 }]}
+            style={[
+              styles.bodyInput,
+              // With a photo attached the field stops reserving its full empty
+              // height, so the preview sits right under what you typed instead
+              // of under a 96pt box with one line in it.
+              imageUri ? styles.bodyInputWithImage : null,
+              theme.typography.body,
+              { color: theme.colors.gray800 },
+            ]}
             testID={`${testID}-body-input`}
             textAlignVertical="top"
             value={body}
@@ -601,7 +609,13 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   bodyInput: {
+    // Comfortable target for an empty composer — this is what you tap into.
     minHeight: 96,
+  },
+  bodyInputWithImage: {
+    // Once there is a preview below, the tall empty field is just a gap. One
+    // line's worth keeps the caret stable while the photo moves up to meet it.
+    minHeight: 24,
   },
   controlChip: {
     alignItems: 'center',
@@ -647,7 +661,8 @@ const styles = StyleSheet.create({
   },
   imagePreviewWrap: {
     gap: 8,
-    marginTop: 12,
+    // 16 below the text you typed, not below the field's reserved height.
+    marginTop: 16,
   },
   imageRemove: {
     alignItems: 'center',
