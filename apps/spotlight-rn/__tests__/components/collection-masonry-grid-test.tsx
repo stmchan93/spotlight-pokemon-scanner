@@ -76,6 +76,58 @@ describe('CollectionMasonryGrid', () => {
     expect(dividers).toHaveLength(1);
   });
 
+  function ruleOf(rowIndex: number) {
+    return StyleSheet.flatten(
+      screen.getByTestId(`collection-masonry-grid-row-${rowIndex}`).props.style,
+    ) as { borderTopWidth?: number; borderBottomWidth?: number };
+  }
+
+  /*
+    Figma 3670:47296 hangs the 0.5pt rule off the TOP of every card, not the
+    bottom of every row — which is what stops an interior boundary being drawn
+    twice, once by the row above and once by the row below.
+
+    INTERIOR rows therefore have no bottom rule. The LAST one does, because
+    there is no next row to draw that edge; see the next test for why the grid
+    has to close at all.
+  */
+  it('rules interior rows on top only, so no boundary is drawn twice', () => {
+    renderGrid(entries);
+
+    expect(ruleOf(0).borderTopWidth).toBe(0.5);
+    expect(ruleOf(0).borderBottomWidth ?? 0).toBe(0);
+    expect(ruleOf(1).borderTopWidth).toBe(0.5);
+  });
+
+  /*
+    THE REPORTED BUG. A wishlist of three cards leaves the last row half-full,
+    and the centre divider is drawn there whether or not the second cell has a
+    card (see the test above — skipping it broke the grid's centre line). With
+    no closing rule that vertical hairline ran down beside blank space and
+    terminated in mid-air, so the grid looked torn off rather than finished.
+
+    The card component in Figma cannot specify this: a card knows its own
+    strokes, not whether it is the last one on the screen.
+  */
+  it('closes the grid under the final row', () => {
+    renderGrid([...entries, makeEntry({ id: 'e' })]);
+
+    expect(screen.getByTestId('collection-masonry-grid-row-2')).toBeTruthy();
+    expect(ruleOf(2).borderBottomWidth).toBe(0.5);
+    // …and only the final row. An interior bottom rule would double up with the
+    // next row's top rule, which is the bug the top-only scheme exists to fix.
+    expect(ruleOf(0).borderBottomWidth ?? 0).toBe(0);
+    expect(ruleOf(1).borderBottomWidth ?? 0).toBe(0);
+  });
+
+  // A single full row is both the first and the last, so it carries both rules.
+  it('closes a grid that is only one row tall', () => {
+    renderGrid([makeEntry({ id: 'a' }), makeEntry({ id: 'b' })]);
+
+    expect(ruleOf(0).borderTopWidth).toBe(0.5);
+    expect(ruleOf(0).borderBottomWidth).toBe(0.5);
+  });
+
   it('renders a tile testID for every entry', () => {
     renderGrid(entries);
 

@@ -1,4 +1,5 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 
 import type { InventoryCardEntry } from '@spotlight/api-client';
 
@@ -278,6 +279,47 @@ describe('PublicProfileScreen', () => {
         expect(screen.getByTestId('public-profile-wishlist-grid-tile-want-1')).toBeTruthy();
       });
       expect(screen.getByTestId('public-profile-collection-grid-tile-entry-1')).toBeTruthy();
+    });
+
+    /*
+      THE GRID HAS TO CLOSE — reported from a three-card wishlist.
+
+      This screen chunks its own rows rather than using `CollectionMasonryGrid`,
+      so that component's coverage does not reach it. With an odd count the last
+      row is half-full, and its centre divider is drawn whether or not the second
+      cell holds a card; with no closing rule that hairline ran down beside blank
+      space and ended in mid-air, so the grid read as torn off rather than
+      finished.
+    */
+    it('closes the wishlist grid under its final row', async () => {
+      renderPublicProfile(
+        {},
+        {
+          getProfileWishlistEntries: async () => [
+            buildEntry({ id: 'want-1', name: 'Umbreon VMAX' }),
+            buildEntry({ id: 'want-2', name: 'Moonbreon' }),
+            buildEntry({ id: 'want-3', name: 'Mega Starmie ex' }),
+          ],
+        },
+      );
+
+      await waitFor(() => expect(screen.getByTestId('public-profile-tabs')).toBeTruthy());
+      fireEvent.press(screen.getByTestId('public-profile-tabs-tab-wishlist'));
+      await waitFor(() =>
+        expect(screen.getByTestId('public-profile-wishlist-grid-tile-want-3')).toBeTruthy(),
+      );
+
+      const rule = (rowIndex: number) =>
+        StyleSheet.flatten(
+          screen.getByTestId(`public-profile-wishlist-grid-row-${rowIndex}`).props.style,
+        ) as { borderTopWidth?: number; borderBottomWidth?: number };
+
+      // Three cards → two rows, the second holding one card and one empty cell.
+      expect(rule(1).borderBottomWidth).toBe(0.5);
+      // Still no doubled interior boundary — that is what the top-only scheme
+      // exists to prevent.
+      expect(rule(0).borderBottomWidth ?? 0).toBe(0);
+      expect(rule(0).borderTopWidth).toBe(0.5);
     });
 
     it('does not refetch when the tab is re-selected', async () => {

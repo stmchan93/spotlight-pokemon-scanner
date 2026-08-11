@@ -99,7 +99,14 @@ type FollowState = 'following' | 'not-following' | null;
 // One virtualized row of the visitor-facing card grid (two tiles per ruled row,
 // or a single boxed tile when the portfolio holds exactly one card).
 type PublicCollectionRow =
-  | { kind: 'grid'; key: string; rowEntries: InventoryCardEntry[]; rowIndex: number }
+  | {
+      kind: 'grid';
+      key: string;
+      rowEntries: InventoryCardEntry[];
+      rowIndex: number;
+      /** Closes the grid's bottom edge — only the final row carries it. */
+      isLastRow: boolean;
+    }
   | { kind: 'grid-single'; key: string; entry: InventoryCardEntry }
   /** `repostedAt` set = this collector passed the post on rather than wrote it. */
   | { kind: 'post'; key: string; post: FeedPost; repostedAt: string | null };
@@ -604,11 +611,13 @@ export function PublicProfileScreen({
     if (entries.length === 1) {
       return [{ kind: 'grid-single', key: entries[0].id, entry: entries[0] }];
     }
-    return chunkCollectionGridRows(entries).map((rowEntries, rowIndex) => ({
+    const rows = chunkCollectionGridRows(entries);
+    return rows.map((rowEntries, rowIndex) => ({
       kind: 'grid',
       key: rowEntries[0]?.id ?? `grid-row-${rowIndex}`,
       rowEntries,
       rowIndex,
+      isLastRow: rowIndex === rows.length - 1,
     }));
   }, [entries]);
 
@@ -619,11 +628,13 @@ export function PublicProfileScreen({
     if (wishlistEntries.length === 1) {
       return [{ kind: 'grid-single', key: wishlistEntries[0].id, entry: wishlistEntries[0] }];
     }
-    return chunkCollectionGridRows(wishlistEntries).map((rowEntries, rowIndex) => ({
+    const rows = chunkCollectionGridRows(wishlistEntries);
+    return rows.map((rowEntries, rowIndex) => ({
       kind: 'grid',
       key: rowEntries[0]?.id ?? `wishlist-row-${rowIndex}`,
       rowEntries,
       rowIndex,
+      isLastRow: rowIndex === rows.length - 1,
     }));
   }, [wishlistEntries]);
 
@@ -688,6 +699,7 @@ export function PublicProfileScreen({
       }
       return (
         <CollectionGridRow
+          isLastRow={item.isLastRow}
           onPressEntry={handlePressEntry}
           rowEntries={item.rowEntries}
           rowIndex={item.rowIndex}

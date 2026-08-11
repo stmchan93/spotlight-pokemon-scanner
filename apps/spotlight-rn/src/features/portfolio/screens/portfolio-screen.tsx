@@ -171,7 +171,14 @@ type PortfolioScreenProps = {
 // when the collection has exactly one card).
 type CollectionRow =
   | { kind: 'list'; key: string; entry: InventoryCardEntry; firstInSection: boolean }
-  | { kind: 'grid'; key: string; rowEntries: InventoryCardEntry[]; rowIndex: number }
+  | {
+      kind: 'grid';
+      key: string;
+      rowEntries: InventoryCardEntry[];
+      rowIndex: number;
+      /** Closes the grid's bottom edge — only the final row carries it. */
+      isLastRow: boolean;
+    }
   | { kind: 'grid-single'; key: string; entry: InventoryCardEntry }
   /** `repostedAt` set = the owner passed the post on rather than wrote it. */
   | { kind: 'post'; key: string; post: FeedPost; repostedAt: string | null };
@@ -1025,11 +1032,13 @@ export function PortfolioScreen({
     if (visibleInventory.length === 1) {
       return [{ kind: 'grid-single', key: visibleInventory[0].id, entry: visibleInventory[0] }];
     }
-    return chunkCollectionGridRows(visibleInventory).map((rowEntries, rowIndex) => ({
+    const rows = chunkCollectionGridRows(visibleInventory);
+    return rows.map((rowEntries, rowIndex) => ({
       kind: 'grid',
       key: rowEntries[0]?.id ?? `grid-row-${rowIndex}`,
       rowEntries,
       rowIndex,
+      isLastRow: rowIndex === rows.length - 1,
     }));
   }, [shouldShowInitialError, viewMode, visibleInventory]);
 
@@ -1135,6 +1144,7 @@ export function PortfolioScreen({
       return (
         <CollectionGridRow
           delayLongPress={CARD_LONG_PRESS_MS}
+          isLastRow={item.isLastRow}
           onLongPressEntry={handleLongPressEntry}
           onPressEntry={handlePressEntry}
           rowEntries={item.rowEntries}
@@ -1792,7 +1802,22 @@ export function PortfolioScreen({
       {profileShareBody ? (
         <SharePostSheet
           onClose={() => setProfileShareSheetOpen(false)}
-          payload={{ kind: 'text', body: profileShareBody }}
+          /*
+            A REFERENCE when we know who we are, so the recipient gets the
+            preview card instead of a URL in the body. Falls back to text for an
+            identity-less session, which is also the form that still works
+            against a project behind on social_24.
+          */
+          payload={
+            currentUser?.id
+              ? {
+                  fallbackBody: profileShareBody,
+                  kind: 'profile',
+                  tab: 'collection',
+                  userId: currentUser.id,
+                }
+              : { kind: 'text', body: profileShareBody }
+          }
           testID="portfolio-share-profile-sheet"
           title="Send profile to"
           visible={profileShareSheetOpen}

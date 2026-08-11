@@ -40,11 +40,11 @@ export function chunkCollectionGridRows(entries: InventoryCardEntry[]): Inventor
 }
 
 /**
- * Collection "card view" grid (Figma node 2489:6459): two fixed columns of
- * plain tiles. The grid is full-bleed — no horizontal page gutter and no
- * inter-cell gaps — so each row's gray400 0.5pt rules run edge to edge across
- * the whole app width. Tiles render "plain" (no per-card shell border/fill);
- * the row draws the dividers.
+ * Collection "card view" grid (Figma node 3670:47296 "Card Container"): two
+ * fixed columns of plain tiles. The grid is full-bleed — no horizontal page
+ * gutter and no inter-cell gaps — so each row's gray400 0.5pt rules run edge to
+ * edge across the whole app width. Tiles render "plain" (no per-card shell
+ * border/fill); the row draws the dividers.
  */
 export function CollectionMasonryGrid({
   entries,
@@ -83,8 +83,8 @@ export function CollectionMasonryGrid({
       {rows.map((rowEntries, rowIndex) => (
         <CollectionGridRow
           key={rowEntries[0]?.id ?? `row-${rowIndex}`}
-          isFirstRow={rowIndex === 0}
           delayLongPress={delayLongPress}
+          isLastRow={rowIndex === rows.length - 1}
           onLongPressEntry={onLongPressEntry}
           onPressEntry={onPressEntry}
           rowEntries={rowEntries}
@@ -102,7 +102,12 @@ export function CollectionMasonryGrid({
 type CollectionGridRowProps = {
   rowEntries: InventoryCardEntry[];
   rowIndex: number;
-  isFirstRow: boolean;
+  /**
+   * Close the grid under this row. See the note on {@link CollectionGridRow} —
+   * only the LAST row gets it, and it is not the per-row bottom rule that used
+   * to double every interior line.
+   */
+  isLastRow?: boolean;
   onPressEntry: (entry: InventoryCardEntry) => void;
   onLongPressEntry?: (entry: InventoryCardEntry) => void;
   /** Long-press delay in ms (press-and-hold to open the card actions menu). */
@@ -114,14 +119,29 @@ type CollectionGridRowProps = {
 };
 
 /**
- * One full-bleed ruled row of up to {@link COLLECTION_GRID_COLUMNS} tiles. Only
- * the first row draws a top hairline; every row draws its bottom hairline, so
- * adjacent rows share one 1px line instead of stacking two.
+ * One full-bleed ruled row of up to {@link COLLECTION_GRID_COLUMNS} tiles.
+ *
+ * Figma (3670:47297 / 3670:47310) hangs the rules off each Card: every card
+ * draws a 0.5pt top stroke and the left column draws the centre stroke on its
+ * right edge. So the row draws its hairline on TOP, not the bottom — which is
+ * what stops adjacent rows drawing two hairlines on the same boundary.
+ *
+ * THE LAST ROW ALSO CLOSES THE GRID, and that is not a return of the per-row
+ * bottom rule this replaced. Interior boundaries still get exactly one line
+ * (the next row's top stroke); only the final edge, which has no next row to
+ * draw it, gets one here.
+ *
+ * It is load-bearing rather than decorative because of the CENTRE divider: it
+ * is drawn even where the last row's second cell is empty (see below), so with
+ * an odd card count and no closing rule that vertical hairline ran down beside
+ * blank space and terminated in mid-air. Reported from a wishlist with three
+ * cards. The card component in Figma cannot specify this — a card knows its own
+ * strokes, not whether it is the last one.
  */
 export function CollectionGridRow({
   rowEntries,
   rowIndex,
-  isFirstRow,
+  isLastRow = false,
   onPressEntry,
   onLongPressEntry,
   delayLongPress,
@@ -136,9 +156,9 @@ export function CollectionGridRow({
     <View
       style={[
         styles.row,
-        { borderBottomColor: theme.colors.gray400 },
-        isFirstRow
-          ? { borderTopColor: theme.colors.gray400, borderTopWidth: borderWidths.rule }
+        { borderTopColor: theme.colors.gray400 },
+        isLastRow
+          ? { borderBottomColor: theme.colors.gray400, borderBottomWidth: borderWidths.rule }
           : null,
       ]}
       testID={`${testID}-row-${rowIndex}`}
@@ -150,11 +170,13 @@ export function CollectionGridRow({
             key={entry?.id ?? `row-${rowIndex}-col-${colIndex}`}
             style={[
               styles.cell,
-              // Middle vertical divider between the two columns. NOT gated on
-              // the cell having an entry: an odd card count leaves the last
-              // row's second cell empty, and skipping the rule there dropped
-              // the grid's centre line for that row only — a visible break in a
-              // line every other row draws.
+              // Middle vertical divider between the two columns. Figma draws it
+              // as the LEFT card's right stroke; as the right cell's left
+              // stroke it lands on the same pixel column. NOT gated on the cell
+              // having an entry: an odd card count leaves the last row's second
+              // cell empty, and skipping the rule there dropped the grid's
+              // centre line for that row only — a visible break in a line every
+              // other row draws.
               colIndex === 1
                 ? { borderLeftColor: theme.colors.gray400, borderLeftWidth: borderWidths.rule }
                 : null,
@@ -298,7 +320,7 @@ const styles = StyleSheet.create({
   },
   row: {
     alignItems: 'stretch',
-    borderBottomWidth: borderWidths.rule,
+    borderTopWidth: borderWidths.rule,
     flexDirection: 'row',
   },
   cell: {
