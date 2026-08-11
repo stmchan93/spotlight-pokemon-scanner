@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Avatar, SearchField, StateCard, Text, useSpotlightTheme } from '@spotlight/design-system';
@@ -82,9 +82,22 @@ export function DmInboxScreen({ testID = 'dm-inbox' }: { testID?: string }) {
     setIsLoading(false);
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  /*
+    ON FOCUS, not on mount.
+
+    Opening a thread marks it read (`markConversationRead`), but that writes to
+    the SERVER — this screen held whatever counts it fetched when it first
+    mounted, so coming back still showed the old badge. A message you had just
+    read lingered as a new one until the app was restarted or pulled to refresh.
+
+    `useFocusEffect` also covers the first mount, so it replaces the mount
+    effect rather than adding to it.
+  */
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
 
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true);
@@ -174,11 +187,20 @@ export function DmInboxScreen({ testID = 'dm-inbox' }: { testID?: string }) {
       // avatar (see the render below).
       const preview = item.lastMessagePreview ?? '';
       const isUnread = item.unreadCount > 0;
+      const relativeTime = formatRelativeTime(item.lastMessageAt);
 
       return (
         <Pressable
           accessibilityRole="button"
           onPress={() => {
+            setItems((current) =>
+              current.map((row) => (row.id === item.id ? { ...row, unreadCount: 0 } : row)),
+            );
+            // Zero it locally the moment you open the thread. The focus refetch
+            // above is the source of truth, but it only lands after you come
+            // BACK — without this the badge is still sitting there during the
+            // navigation, which is the thing that read as "it didn't clear".
+
             // The thread screen has no way to look up who it is talking to —
             // there is no fetch-one-conversation read, and running the whole
             // inbox query again just to title a header would cost a request per
@@ -248,9 +270,18 @@ export function DmInboxScreen({ testID = 'dm-inbox' }: { testID?: string }) {
           </View>
 
           <View style={styles.meta}>
-            <Text style={[theme.typography.label, { color: theme.colors.gray600 }]}>
-              {formatRelativeTime(item.lastMessageAt)}
-            </Text>
+            {/*
+              Only when there IS a time — same reason the preview above is
+              conditional. `formatRelativeTime` returns '' for a null or
+              unparseable timestamp, and an empty Text still occupies a full
+              line, which pushed the unread badge to the BOTTOM of the row
+              instead of centring it against the name.
+            */}
+            {relativeTime ? (
+              <Text style={[theme.typography.label, { color: theme.colors.gray600 }]}>
+                {relativeTime}
+              </Text>
+            ) : null}
             {isUnread ? (
               <View
                 style={[

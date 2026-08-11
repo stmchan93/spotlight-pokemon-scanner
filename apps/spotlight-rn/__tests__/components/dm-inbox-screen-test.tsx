@@ -14,6 +14,14 @@ import { renderWithProviders } from '../test-utils';
 
 jest.mock('expo-router', () => ({
   useRouter: jest.fn(),
+  /*
+    The inbox loads on FOCUS, not on mount, so that a thread you just read stops
+    showing as unread when you come back. There is no navigator in these tests,
+    so stand it in with a plain effect — the screen only needs the callback to
+    run once per mount, which is what focus does here anyway.
+  */
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  useFocusEffect: (callback: () => void) => require('react').useEffect(callback, [callback]),
 }));
 
 jest.mock('@/features/social/dm-service', () => ({
@@ -295,6 +303,56 @@ describe('DmInboxScreen', () => {
       fireEvent.changeText(screen.getByTestId('dm-inbox-search'), 'nobody');
 
       await waitFor(() => expect(screen.getByTestId('dm-inbox-search-empty')).toBeTruthy());
+    });
+  });
+  /*
+    Two things a friend hit on the real inbox: the unread badge sat at the
+    BOTTOM of the row instead of level with the name, and a thread stayed
+    badged after it had been read.
+  */
+  describe('the unread badge', () => {
+    it('does not reserve a timestamp line when there is no timestamp', async () => {
+      /*
+        The meta column stacks time above badge. `formatRelativeTime` returns ''
+        for a null timestamp, and an empty Text STILL occupies a full line — so
+        the badge was pushed down off the name's centre line. A never-messaged
+        thread is exactly the case that has no timestamp.
+      */
+      (fetchConversations as jest.Mock).mockResolvedValue([
+        buildConversation({ id: 'c-1', lastMessageAt: null, unreadCount: 2 }),
+      ]);
+
+      renderWithProviders(<DmInboxScreen />);
+
+      const badge = await screen.findByTestId('dm-inbox-unread-c-1');
+      expect(badge).toBeTruthy();
+      // Nothing but the badge in the meta column, so it centres on the row.
+      expect(screen.queryByText('')).toBeNull();
+    });
+
+    it('clears the moment you open the thread, without waiting for a refetch', async () => {
+      /*
+        Opening a thread marks it read on the SERVER. The screen used to hold
+        whatever counts it fetched on mount, so the badge sat there through the
+        navigation and was still there on the way back — read as "it never
+        cleared". The focus refetch is the source of truth; this is what makes
+        it feel immediate.
+      */
+      (fetchConversations as jest.Mock).mockResolvedValue([
+        buildConversation({ id: 'c-1', unreadCount: 4 }),
+      ]);
+
+      renderWithProviders(<DmInboxScreen />);
+
+      expect(await screen.findByTestId('dm-inbox-unread-c-1')).toBeTruthy();
+
+      fireEvent.press(screen.getByTestId('dm-inbox-row-c-1'));
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('dm-inbox-unread-c-1')).not.toBeOnTheScreen();
+      });
+      // It still opened the thread — clearing the badge is not instead of that.
+      expect(push).toHaveBeenCalled();
     });
   });
 });
