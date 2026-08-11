@@ -561,6 +561,7 @@ export function DmThreadScreen({
       myUserId,
       openProfile,
       otherUser?.avatarUrl,
+      router,
       testID,
       theme,
     ],
