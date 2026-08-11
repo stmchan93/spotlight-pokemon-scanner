@@ -32,6 +32,20 @@ const PILL_HEIGHT = 40;
  * button: pressing it opens a real search surface elsewhere. Use it in top bars
  * where search is a destination, not an inline filter (`SearchField` is the
  * primitive for actually typing into).
+ *
+ * ───────────────────────────────────────────────────────────────────────────
+ * ITS EDGE IS A SHADOW, NOT A STROKE — that is what the frame draws.
+ * ───────────────────────────────────────────────────────────────────────────
+ * This shipped as a 0.5pt `gray200` hairline with no shadow, which is 1.23:1
+ * against the white bar it sits on; the fill is 1.07:1. Nothing defined the
+ * shape, and testers reported search as "hard to find". `shadows.searchPill`
+ * carries the frame's `0 8 40 rgba(0,0,0,.12)` instead, and the stroke is gone
+ * because the frame has none.
+ *
+ * The label is `bodySmall` in `gray600` for the same reason: the frame
+ * specifies 14pt Regular `#717171`, which is exactly `bodySmall` — despite the
+ * name, it is the 14pt REGULAR role (`body` is 15pt). The `label`/`gray500` it
+ * drifted to measured 2.44:1, under WCAG AA. The design was already right.
  */
 export function SearchEntryPill({
   label,
@@ -50,11 +64,10 @@ export function SearchEntryPill({
       onPress={onPress}
       style={({ pressed }) => [
         styles.pill,
+        theme.shadows.searchPill,
         {
           backgroundColor: theme.colors.gray50,
-          borderColor: theme.colors.gray200,
           borderRadius: theme.radii.pill,
-          borderWidth: theme.borderWidths.rule,
           opacity: pressed ? 0.84 : 1,
         },
         style,
@@ -64,7 +77,7 @@ export function SearchEntryPill({
       {leading ? <View style={styles.leading}>{leading}</View> : null}
       <Text
         numberOfLines={1}
-        style={[theme.typography.label, styles.label, { color: theme.colors.gray500 }]}
+        style={[theme.typography.bodySmall, styles.label, { color: theme.colors.gray600 }]}
       >
         {label}
       </Text>
