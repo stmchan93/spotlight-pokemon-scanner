@@ -56,11 +56,57 @@ type ThreadMessage = DmMessage & {
 const LOCAL_ID_PREFIX = 'local-';
 
 /**
+ * The read-receipt avatar under your newest seen message.
+ *
+ * 16 rather than 14: at 14 it read as a smudge beside a 240pt card rather than
+ * as a face, and the point of an avatar receipt over the word "Seen" is that you
+ * recognise WHO without reading. Still well under the 28pt sender avatars beside
+ * incoming messages, so it stays a footnote rather than competing with them.
+ */
+const SEEN_RECEIPT_SIZE = 16;
+/**
+ * Breathing room between a message and its receipt. Shared by the receipt and
+ * the sent-time text so the two swap without the thread twitching.
+ */
+const SEEN_ROW_GAP = 4;
+
+/**
  * Monotonic suffix for realtime channel topics — see the long note at the
  * subscription. A module-level counter rather than a random id so the topic is
  * deterministic and reproducible in tests.
  */
 let dmChannelSequence = 0;
+
+/**
+ * "Sent 2h ago" for the delivery footer. The thread deliberately renders no
+ * per-message timestamps, so this is the only clock in the screen — phrased as
+ * prose ("just now", "2h ago") because it reads as a status, not a log line.
+ * No ticking timer: the label refreshes on any re-render, which this screen
+ * does on every send, refresh, and realtime event.
+ */
+function formatSentAgo(iso: string): string {
+  const timestamp = Date.parse(iso);
+  if (Number.isNaN(timestamp)) {
+    return 'Sent';
+  }
+  const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+  if (seconds < 60) {
+    return 'Sent just now';
+  }
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) {
+    return `Sent ${minutes}m ago`;
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return `Sent ${hours}h ago`;
+  }
+  const days = Math.floor(hours / 24);
+  if (days < 7) {
+    return `Sent ${days}d ago`;
+  }
+  return `Sent ${new Date(timestamp).toLocaleDateString()}`;
+}
 
 /** Oldest at top, newest at bottom: the usual chat order. */
 function compareMessages(a: ThreadMessage, b: ThreadMessage): number {
@@ -563,7 +609,9 @@ export function DmThreadScreen({
   }, [otherUser?.handle, otherUser?.userId, router]);
 
   /*
-    ONE "Seen", under your NEWEST outgoing message — the Instagram shape.
+    ONE status line, under your NEWEST outgoing message — the Messenger shape.
+    Delivered-but-unread shows "Sent 2h ago"; once their cursor passes it, the
+    text is replaced by a tiny avatar of the reader.
 
     Per-bubble receipts turn a thread into a column of status text, and they say
     nothing extra: read state is a CURSOR, so if your last message is seen,
@@ -571,23 +619,27 @@ export function DmThreadScreen({
     down as you send rather than accumulating.
 
     `pending`/`failed` rows are excluded: an unsent message cannot have been
-    read, and "Seen" next to "Not sent" is a contradiction.
+    read, and a delivery footer next to "Not sent" is a contradiction.
+
+    `seen` is false — not absent — when the read state is unavailable (groups,
+    half-created threads): delivery is still a fact worth confirming even where
+    "seen" has no single answer.
   */
-  const seenMessageId = useMemo(() => {
-    if (!otherLastReadAt || myUserId === null) {
+  const deliveryStatus = useMemo(() => {
+    if (myUserId === null) {
       return null;
     }
-    const readAt = Date.parse(otherLastReadAt);
-    if (Number.isNaN(readAt)) {
-      return null;
-    }
+    const readAt = otherLastReadAt === null ? Number.NaN : Date.parse(otherLastReadAt);
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const message = messages[index];
       if (message.senderId !== myUserId || message.pending || message.failed) {
         continue;
       }
       const sentAt = Date.parse(message.createdAt);
-      return !Number.isNaN(sentAt) && readAt >= sentAt ? message.id : null;
+      return {
+        messageId: message.id,
+        seen: !Number.isNaN(readAt) && !Number.isNaN(sentAt) && readAt >= sentAt,
+      };
     }
     return null;
   }, [messages, myUserId, otherLastReadAt]);
@@ -620,132 +672,158 @@ export function DmThreadScreen({
       const hasAttachment = Boolean(item.sharedPostId || item.sharedProfileUserId);
 
       return (
+        /*
+          Column wrapper so the delivery footer sits UNDER the bubble rather
+          than beside it — the row inside is horizontal for the avatar, so a
+          footer sibling there would land at the bubble's right edge.
+        */
         <View
-          style={[styles.row, isMine ? styles.rowMine : styles.rowTheirs]}
+          style={[styles.block, isMine ? styles.blockMine : styles.blockTheirs]}
           testID={`${testID}-row-${item.id}`}
         >
-          {/*
-            THEIR photo, on the left of THEIR bubble, and a second way through to
-            their profile. Only on incoming messages: your own face beside every
-            line you sent is noise, and there is nowhere useful for it to lead.
-          */}
-          {isMine ? null : (
-            <Pressable
-              accessibilityLabel={openProfile ? `View ${headerName}'s profile` : undefined}
-              accessibilityRole={openProfile ? 'button' : undefined}
-              disabled={!openProfile}
-              onPress={openProfile ?? undefined}
-              testID={`${testID}-row-${item.id}-avatar`}
-            >
-              <Avatar
-                initials={(headerName[0] ?? '?').toUpperCase()}
-                size={28}
-                uri={otherUser?.avatarUrl ?? undefined}
-              />
-            </Pressable>
-          )}
-          <Pressable
-            accessibilityLabel={canRetry ? 'Retry sending' : undefined}
-            accessibilityRole={canRetry ? 'button' : undefined}
-            disabled={!canRetry}
-            onPress={() => handleRetry(item)}
-            testID={`${testID}-bubble-${item.id}`}
-            style={[
-              /*
-                NO BUBBLE CHROME AROUND EITHER ATTACHMENT. The card draws its own
-                surface, and wrapping it in the sender tint painted a solid
-                purple slab around someone else's photo — it read as a
-                strangely-shaped message rather than as a post. A shared post or
-                list is not a thing you said, it is a thing you pointed at, so it
-                looks the same on both sides of the thread. Text that came WITH
-                the attachment still gets its bubble, below the card.
-
-                This tested `item.sharedPostId` alone, so the shared-PROFILE card
-                shipped with a thick purple frame around it — the same mistake in
-                a second place, one layer out from the invisible-link one.
-              */
-              hasAttachment
-                ? styles.attachment
-                : [styles.bubble, { backgroundColor: bubbleColor, borderRadius: theme.radii.lg }],
-              {
-                // A pending bubble is dimmed rather than replaced by a spinner:
-                // the text stays readable and the row doesn't reflow when it lands.
-                opacity: item.pending ? 0.6 : 1,
-              },
-            ]}
-          >
+          <View style={styles.row}>
             {/*
-              A shared post renders as a preview instead of text. The message
-              stores only an id — the preview is hydrated on every render, so a
-              post removed, deleted or blocked since it was sent stops
-              resolving on its own (social_22).
+              THEIR photo, on the left of THEIR bubble, and a second way through to
+              their profile. Only on incoming messages: your own face beside every
+              line you sent is noise, and there is nowhere useful for it to lead.
             */}
-            {item.sharedProfileUserId && item.sharedProfileTab ? (
-              <SharedProfileBubble
-                onOpen={(ownerId, sharedTab) =>
-                  router.push(
-                    `/u/${ownerId}${sharedTab === 'wishlist' ? '?tab=wishlist' : ''}` as never,
-                  )
-                }
-                repository={spotlightRepository}
-                tab={item.sharedProfileTab}
-                testID={`dm-thread-shared-profile-${item.id}`}
-                userId={item.sharedProfileUserId}
-              />
-            ) : null}
-            {item.sharedPostId ? (
-              <SharedPostBubble
-                accessToken={accessToken}
-                apiBaseUrl={apiBaseUrl}
-                onOpen={(postId) => router.push(`/post/${postId}` as never)}
-                postId={item.sharedPostId}
-                testID={`dm-thread-shared-${item.id}`}
-                viewerUserId={myUserId}
-              />
-            ) : null}
-            {item.body ? (
-              // Shared profile/wishlist links in the body are tappable — that is
-              // the whole point of sending one to a DM.
-              <MessageBodyText
-                body={item.body}
-                /*
-                  Follows the SURFACE, not the sender. Your own bubble is
-                  `purple500`, so a purple link on it is invisible — which is
-                  exactly how "sharing a wishlist just sends text" was reported.
-                  With a shared-post card above, the caption sits on a neutral
-                  surface again and purple is right.
-                */
-                linkColor={!hasAttachment && isMine ? theme.colors.gray0 : theme.colors.purple500}
-                style={[
-                  theme.typography.body,
-                  // With a card above it the text is a caption on a neutral
-                  // surface, so it must not use the bubble's on-tint color.
-                  { color: hasAttachment ? theme.colors.gray900 : bodyColor },
-                  hasAttachment ? styles.attachmentCaption : null,
-                ]}
-                testID={`dm-thread-body-${item.id}`}
-              />
-            ) : null}
-            {item.failed ? (
-              <Text
-                style={[
-                  theme.typography.micro,
-                  styles.failedNote,
-                  { color: theme.colors.dangerStrong },
-                ]}
-                testID={`${testID}-failed-${item.id}`}
+            {isMine ? null : (
+              <Pressable
+                accessibilityLabel={openProfile ? `View ${headerName}'s profile` : undefined}
+                accessibilityRole={openProfile ? 'button' : undefined}
+                disabled={!openProfile}
+                onPress={openProfile ?? undefined}
+                testID={`${testID}-row-${item.id}-avatar`}
               >
-                {canRetry ? 'Not sent — tap to try again' : 'Not sent'}
-              </Text>
-            ) : null}
-          </Pressable>
-          {item.id === seenMessageId ? (
-            <Text
-              style={[theme.typography.micro, styles.seenNote, { color: theme.colors.gray600 }]}
-              testID={`${testID}-seen-${item.id}`}
+                <Avatar
+                  initials={(headerName[0] ?? '?').toUpperCase()}
+                  size={28}
+                  uri={otherUser?.avatarUrl ?? undefined}
+                />
+              </Pressable>
+            )}
+            <Pressable
+              accessibilityLabel={canRetry ? 'Retry sending' : undefined}
+              accessibilityRole={canRetry ? 'button' : undefined}
+              disabled={!canRetry}
+              onPress={() => handleRetry(item)}
+              testID={`${testID}-bubble-${item.id}`}
+              style={[
+                /*
+                  NO BUBBLE CHROME AROUND EITHER ATTACHMENT. The card draws its own
+                  surface, and wrapping it in the sender tint painted a solid
+                  purple slab around someone else's photo — it read as a
+                  strangely-shaped message rather than as a post. A shared post or
+                  list is not a thing you said, it is a thing you pointed at, so it
+                  looks the same on both sides of the thread. Text that came WITH
+                  the attachment still gets its bubble, below the card.
+  
+                  This tested `item.sharedPostId` alone, so the shared-PROFILE card
+                  shipped with a thick purple frame around it — the same mistake in
+                  a second place, one layer out from the invisible-link one.
+                */
+                hasAttachment
+                  ? styles.attachment
+                  : [styles.bubble, { backgroundColor: bubbleColor, borderRadius: theme.radii.lg }],
+                {
+                  // A pending bubble is dimmed rather than replaced by a spinner:
+                  // the text stays readable and the row doesn't reflow when it lands.
+                  opacity: item.pending ? 0.6 : 1,
+                },
+              ]}
             >
-              Seen
-            </Text>
+              {/*
+                A shared post renders as a preview instead of text. The message
+                stores only an id — the preview is hydrated on every render, so a
+                post removed, deleted or blocked since it was sent stops
+                resolving on its own (social_22).
+              */}
+              {item.sharedProfileUserId && item.sharedProfileTab ? (
+                <SharedProfileBubble
+                  onOpen={(ownerId, sharedTab) =>
+                    router.push(
+                      `/u/${ownerId}${sharedTab === 'wishlist' ? '?tab=wishlist' : ''}` as never,
+                    )
+                  }
+                  repository={spotlightRepository}
+                  tab={item.sharedProfileTab}
+                  testID={`dm-thread-shared-profile-${item.id}`}
+                  userId={item.sharedProfileUserId}
+                />
+              ) : null}
+              {item.sharedPostId ? (
+                <SharedPostBubble
+                  accessToken={accessToken}
+                  apiBaseUrl={apiBaseUrl}
+                  onOpen={(postId) => router.push(`/post/${postId}` as never)}
+                  postId={item.sharedPostId}
+                  testID={`dm-thread-shared-${item.id}`}
+                  viewerUserId={myUserId}
+                />
+              ) : null}
+              {item.body ? (
+                // Shared profile/wishlist links in the body are tappable — that is
+                // the whole point of sending one to a DM.
+                <MessageBodyText
+                  body={item.body}
+                  /*
+                    Follows the SURFACE, not the sender. Your own bubble is
+                    `purple500`, so a purple link on it is invisible — which is
+                    exactly how "sharing a wishlist just sends text" was reported.
+                    With a shared-post card above, the caption sits on a neutral
+                    surface again and purple is right.
+                  */
+                  linkColor={!hasAttachment && isMine ? theme.colors.gray0 : theme.colors.purple500}
+                  style={[
+                    theme.typography.body,
+                    // With a card above it the text is a caption on a neutral
+                    // surface, so it must not use the bubble's on-tint color.
+                    { color: hasAttachment ? theme.colors.gray900 : bodyColor },
+                    hasAttachment ? styles.attachmentCaption : null,
+                  ]}
+                  testID={`dm-thread-body-${item.id}`}
+                />
+              ) : null}
+              {item.failed ? (
+                <Text
+                  style={[
+                    theme.typography.micro,
+                    styles.failedNote,
+                    { color: theme.colors.dangerStrong },
+                  ]}
+                  testID={`${testID}-failed-${item.id}`}
+                >
+                  {canRetry ? 'Not sent — tap to try again' : 'Not sent'}
+                </Text>
+              ) : null}
+            </Pressable>
+          </View>
+          {deliveryStatus && item.id === deliveryStatus.messageId ? (
+            deliveryStatus.seen ? (
+              /*
+                Their face, tiny, where the "Seen" text used to be — the
+                Messenger read receipt. The avatar answers WHO saw it without a
+                word, and the accessibility label restores the word for readers.
+              */
+              <View
+                accessibilityLabel={`Seen by ${headerName}`}
+                style={styles.seenReceipt}
+                testID={`${testID}-seen-${item.id}`}
+              >
+                <Avatar
+                  initials={(headerName[0] ?? '?').toUpperCase()}
+                  size={SEEN_RECEIPT_SIZE}
+                  uri={otherUser?.avatarUrl ?? undefined}
+                />
+              </View>
+            ) : (
+              <Text
+                style={[theme.typography.micro, styles.seenNote, { color: theme.colors.gray600 }]}
+                testID={`${testID}-sent-${item.id}`}
+              >
+                {formatSentAgo(item.createdAt)}
+              </Text>
+            )
           ) : null}
         </View>
       );
@@ -753,6 +831,7 @@ export function DmThreadScreen({
     [
       accessToken,
       apiBaseUrl,
+      deliveryStatus,
       handleRetry,
       headerName,
       isBlocked,
@@ -760,7 +839,6 @@ export function DmThreadScreen({
       openProfile,
       otherUser?.avatarUrl,
       router,
-      seenMessageId,
       testID,
       theme,
     ],
@@ -1010,10 +1088,17 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   seenNote: {
-    // Under the bubble and on its side of the thread — the row is `alignItems:
-    // 'flex-end'` for your own messages, so this follows without a rule here.
+    // Under the bubble and on its side of the thread — the block wrapper's
+    // `alignItems` puts it on the message's edge without a rule here.
     paddingHorizontal: 2,
-    paddingTop: 2,
+    paddingTop: SEEN_ROW_GAP,
+  },
+  // Same footprint as the text footer it replaces, so seen ⇄ sent swaps
+  // without the thread shifting. Both carry `SEEN_ROW_GAP` for that reason —
+  // changing one alone makes the thread twitch on every receipt.
+  seenReceipt: {
+    paddingHorizontal: 2,
+    paddingTop: SEEN_ROW_GAP,
   },
   failedNote: {
     paddingHorizontal: 2,
@@ -1067,6 +1152,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 12,
   },
+  // Message = a column of [avatar+bubble row, delivery footer]. The wrapper
+  // owns the side of the thread; `alignItems` keeps the footer hugging the
+  // bubble's outer edge, the way Messenger draws its receipt.
+  block: {
+    // A bubble never spans the full width — the free edge is what makes the
+    // left/right split readable at a glance. Lives on the wrapper because a
+    // percentage resolves against the list, not a content-sized parent.
+    maxWidth: '80%',
+  },
+  blockMine: {
+    alignItems: 'flex-end',
+    alignSelf: 'flex-end',
+  },
+  blockTheirs: {
+    alignItems: 'flex-start',
+    alignSelf: 'flex-start',
+  },
   row: {
     // Bottom-aligned so the avatar sits beside the LAST line of a multi-line
     // bubble, the way every messaging app draws it — top-aligned it floats away
@@ -1074,15 +1176,6 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     flexDirection: 'row',
     gap: 8,
-    // A bubble never spans the full width — the free edge is what makes the
-    // left/right split readable at a glance.
-    maxWidth: '80%',
-  },
-  rowMine: {
-    alignSelf: 'flex-end',
-  },
-  rowTheirs: {
-    alignSelf: 'flex-start',
   },
   safeArea: {
     flex: 1,
