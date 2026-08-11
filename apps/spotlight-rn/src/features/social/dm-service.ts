@@ -39,7 +39,8 @@ const participantSelect = 'conversation_id, user_id, last_read_at';
 // `content_status` is read so a moderation-removed message can be dropped
 // client-side as a belt-and-braces guard; it never reaches the normalized
 // `DmMessage`. RLS already excludes `deleted_at is not null`.
-const messageSelect = 'id, conversation_id, sender_id, body, created_at, content_status';
+const messageSelect =
+  'id, conversation_id, sender_id, body, created_at, content_status, shared_post_id';
 // The same identity columns the feed reads — a DM row renders exactly what a
 // post header renders.
 const dmUserSelect = 'user_id, display_name, avatar_url, handle, is_verified';
@@ -66,6 +67,7 @@ type MessageRow = {
   body: string | null;
   created_at: string;
   content_status: string | null;
+  shared_post_id: string | null;
 };
 
 type DmUserRow = {
@@ -113,6 +115,15 @@ export type DmMessage = {
   senderId: string;
   body: string;
   createdAt: string;
+  /**
+   * A post shared into the thread (social_22), or null for a plain message.
+   *
+   * Only the ID travels. The preview is hydrated from `posts` on every read, so
+   * `posts_select` decides afresh each time whether the reader may still see it
+   * — which is how a removed, soft-deleted or newly-blocked post stops
+   * resolving without anything here knowing about moderation.
+   */
+  sharedPostId: string | null;
 };
 
 /**
@@ -516,6 +527,7 @@ function toDmMessage(row: MessageRow): DmMessage {
     senderId: row.sender_id,
     body: row.body ?? '',
     createdAt: row.created_at,
+    sharedPostId: row.shared_post_id ?? null,
   };
 }
 
@@ -561,6 +573,77 @@ export async function fetchMessages(
 }
 
 /**
+ * social_13's DM gate, exposed as an RPC. See `fetchConversationBlocked`.
+ */
+const CONVERSATION_HAS_BLOCK_RPC = 'conversation_has_block';
+
+/**
+ * Is this thread frozen by a block — in EITHER direction?
+ *
+ * `true` blocked, `false` not blocked, `null` when the answer could not be
+ * obtained. The three-way return is the point: callers must be able to tell "the
+ * server says you are not blocked" from "nobody answered", because those two
+ * warrant opposite UI. Every other read in this file collapses failure into an
+ * empty value; this one cannot, or a dropped request would silently unlock a
+ * composer the server will keep rejecting.
+ *
+ * WHY THIS RPC AND NOT `fetchBlockedUserIds()`
+ * -------------------------------------------
+ * `blocks_all` (social_00) is `using (blocker_id = auth.uid())`, so a direct read
+ * of `blocks` only ever returns blocks YOU created. "They blocked me" is
+ * invisible to a table read, by design — a block the blocked party can detect is
+ * an invitation to retaliate from a second account. So a client that only reads
+ * `blocks` handles exactly the half of the problem where the user already knows
+ * why sending stopped, and misses the half where they have no idea.
+ *
+ * `conversation_has_block(conversation, user)` is the other half. It is
+ * SECURITY DEFINER, so it reads `blocks` past that policy, and it wraps
+ * `is_blocked`, which is EITHER-direction — so one call covers both cases and
+ * distinguishes neither. That symmetry is a feature, not a limitation: the caller
+ * learns the thread is frozen and learns nothing about who froze it.
+ *
+ * social_13 grants EXECUTE on it to `authenticated` (it is granted alongside
+ * `unread_dm_counts`), which is what makes it reachable over PostgREST at all.
+ *
+ * It is also the EXACT predicate the server enforces: `messages_insert`
+ * (social_13) and `messages_update` (social_19) both gate on
+ * `not conversation_has_block(conversation_id, auth.uid())`. The client is not
+ * approximating the rule, it is asking the rule.
+ *
+ * ON A SCHEMA THAT PREDATES social_13 the RPC is missing and this returns null —
+ * which is correct rather than merely safe: the gate and the function ship in the
+ * SAME migration, so where the function does not exist, neither does the RLS
+ * check, and a send there cannot fail because of a block. "Unknown" and "not
+ * blocked" genuinely coincide in that environment.
+ *
+ * `p_user` is pinned to the caller's own id. The function would happily answer
+ * for someone else, and must never be asked to.
+ */
+export async function fetchConversationBlocked(conversationId: string): Promise<boolean | null> {
+  const trimmed = (conversationId ?? '').trim();
+  if (!supabase || !trimmed || typeof supabase.rpc !== 'function') {
+    return null;
+  }
+  const me = await currentUserId();
+  if (!me) {
+    return null;
+  }
+  try {
+    const { data, error } = await supabase.rpc(CONVERSATION_HAS_BLOCK_RPC, {
+      p_conversation: trimmed,
+      p_user: me,
+    });
+    if (error) {
+      return null;
+    }
+    // Strict `=== true`: a null/undefined body is "no answer", not "not blocked".
+    return data === true ? true : data === false ? false : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Send a message, returning the stored row so the caller can swap its optimistic
  * entry for the real one (server id and server timestamp — the local clock is not
  * authoritative and would sort wrongly against messages from the other side).
@@ -572,18 +655,41 @@ export async function fetchMessages(
  * Returns null when the moderation prefilter marks the message `removed` — it
  * will not survive the next read, so reporting success would leave a message on
  * screen that quietly vanishes on refresh.
+ *
+ * Also null when `messages_insert` rejects the row outright, which is what a
+ * BLOCKED thread does (social_13). That failure is indistinguishable here from a
+ * dropped connection, so the caller does not try to read it out of the error —
+ * it re-asks `fetchConversationBlocked`, which answers the question directly.
  */
-export async function sendMessage(conversationId: string, body: string): Promise<DmMessage | null> {
+export async function sendMessage(
+  conversationId: string,
+  body: string,
+  options: { sharedPostId?: string | null } = {},
+): Promise<DmMessage | null> {
   const me = await currentUserId();
   const trimmedId = (conversationId ?? '').trim();
   const text = (body ?? '').trim();
-  if (!supabase || !me || !trimmedId || text.length === 0) {
+  const sharedPostId = (options.sharedPostId ?? '').trim() || null;
+  /*
+    A message must SAY something — but a shared post counts. This guard used to
+    be `text.length === 0` alone, which silently swallowed every attachment-only
+    share before it reached Supabase. Mirrors the `messages_have_content` check
+    social_22 puts on the table.
+  */
+  if (!supabase || !me || !trimmedId || (text.length === 0 && !sharedPostId)) {
     return null;
   }
   try {
     const { data, error } = await supabase
       .from(MESSAGES_TABLE)
-      .insert({ conversation_id: trimmedId, sender_id: me, body: text })
+      // `body` is NOT NULL, so a caption-less share sends '' rather than null —
+      // nothing downstream has to handle a null body.
+      .insert({
+        conversation_id: trimmedId,
+        sender_id: me,
+        body: text,
+        shared_post_id: sharedPostId,
+      })
       .select(messageSelect)
       .single();
     if (error || !data) {

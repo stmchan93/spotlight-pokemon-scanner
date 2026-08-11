@@ -50,6 +50,8 @@ type Results = {
   profiles?: QueryResult | QueryResult[];
   /** Response from the `unread_dm_counts` RPC (social_13). */
   unreadRpc?: { data: unknown; error: unknown };
+  /** Response from the `conversation_has_block` RPC (social_13). */
+  blockRpc?: { data: unknown; error: unknown };
 };
 
 const TABLE_TO_KEY: Record<string, keyof Results> = {
@@ -75,12 +77,15 @@ function makeSupabase(results: Results, userId: string | null = 'me') {
     }
     return makeBuilder(table, result, calls);
   });
-  // `unread_dm_counts` is an RPC (social_13), not a table read, so it needs its
-  // own stub rather than going through the table builder.
-  const rpc = jest.fn(async (name: string) => {
-    calls.push({ table: `rpc:${name}`, method: 'rpc', args: [] });
-    const configured = results.unreadRpc;
-    return configured ?? { data: [], error: null };
+  // `unread_dm_counts` and `conversation_has_block` are RPCs (social_13), not
+  // table reads, so they need their own stub rather than going through the table
+  // builder. Routed by name, because a single thread screen calls both lanes.
+  const rpc = jest.fn(async (name: string, args?: unknown) => {
+    calls.push({ table: `rpc:${name}`, method: 'rpc', args: args === undefined ? [] : [args] });
+    if (name === 'conversation_has_block') {
+      return results.blockRpc ?? { data: false, error: null };
+    }
+    return results.unreadRpc ?? { data: [], error: null };
   });
   return {
     auth: {
@@ -130,6 +135,7 @@ const messageRow = {
   body: 'hey',
   created_at: '2026-05-02T00:00:00.000Z',
   content_status: 'visible',
+  shared_post_id: null,
 };
 
 describe('dm-service', () => {
@@ -444,6 +450,7 @@ describe('dm-service', () => {
         senderId: 'you',
         body: 'hey',
         createdAt: '2026-05-02T00:00:00.000Z',
+        sharedPostId: null,
       });
     });
 
@@ -483,6 +490,7 @@ describe('dm-service', () => {
         conversation_id: 'conv-1',
         sender_id: 'me',
         body: 'hey',
+        shared_post_id: null,
       });
       expect(message).toEqual({
         id: 'msg-1',
@@ -490,7 +498,44 @@ describe('dm-service', () => {
         senderId: 'me',
         body: 'hey',
         createdAt: '2026-05-02T00:00:00.000Z',
+        sharedPostId: null,
       });
+    });
+
+    it('sends a shared post with no caption — the empty-body guard must not eat it', async () => {
+      /*
+        `sendMessage` used to bail on `text.length === 0` alone, which silently
+        swallowed every attachment-only share before it reached Supabase. The
+        guard is now "no text AND no attachment", mirroring the
+        `messages_have_content` check social_22 puts on the table.
+      */
+      const supabase = makeSupabase({
+        messages: {
+          data: { ...messageRow, sender_id: 'me', body: '', shared_post_id: 'post-9' },
+          error: null,
+        },
+      });
+      const { sendMessage } = loadService(supabase);
+
+      const message = await sendMessage('conv-1', '', { sharedPostId: 'post-9' });
+
+      // `body` is NOT NULL, so a caption-less share sends '' rather than null.
+      expect(writesTo(supabase.calls, 'messages', 'insert')[0].args[0]).toEqual({
+        conversation_id: 'conv-1',
+        sender_id: 'me',
+        body: '',
+        shared_post_id: 'post-9',
+      });
+      expect(message?.sharedPostId).toBe('post-9');
+    });
+
+    it('still refuses a message that says nothing at all', async () => {
+      const supabase = makeSupabase({ messages: { data: null, error: null } });
+      const { sendMessage } = loadService(supabase);
+
+      // No text and no attachment is a blank bubble; the table rejects it too.
+      expect(await sendMessage('conv-1', '   ')).toBeNull();
+      expect(writesTo(supabase.calls, 'messages', 'insert')).toHaveLength(0);
     });
 
     it('returns null when the moderation prefilter removed the message', async () => {
@@ -515,6 +560,70 @@ describe('dm-service', () => {
       const { sendMessage } = loadService(supabase);
 
       await expect(sendMessage('conv-1', 'hey')).resolves.toBeNull();
+    });
+  });
+
+  // The RPC is the ONLY either-direction signal available to the client:
+  // `blocks_all` (social_00) scopes a direct table read to `blocker_id =
+  // auth.uid()`, so "they blocked me" is invisible to `fetchBlockedUserIds`.
+  // `conversation_has_block` is SECURITY DEFINER over the either-direction
+  // `is_blocked`, and social_13 grants EXECUTE on it to `authenticated`.
+  describe('fetchConversationBlocked', () => {
+    it('asks the same predicate messages_insert enforces, pinned to my own id', async () => {
+      const supabase = makeSupabase({ blockRpc: { data: true, error: null } });
+      const { fetchConversationBlocked } = loadService(supabase);
+
+      await expect(fetchConversationBlocked('  conv-1  ')).resolves.toBe(true);
+      expect(supabase.rpc).toHaveBeenCalledWith('conversation_has_block', {
+        p_conversation: 'conv-1',
+        // Never anyone else's: the function would happily answer for another
+        // user, and must not be asked to.
+        p_user: 'me',
+      });
+    });
+
+    it('reports an unblocked thread as false', async () => {
+      const supabase = makeSupabase({ blockRpc: { data: false, error: null } });
+      const { fetchConversationBlocked } = loadService(supabase);
+
+      await expect(fetchConversationBlocked('conv-1')).resolves.toBe(false);
+    });
+
+    // Null, NOT false. A caller has to be able to tell "the server says you are
+    // not blocked" from "nobody answered" — collapsing them would let a dropped
+    // request re-open a composer the server will keep rejecting.
+    it('returns null when the rpc errors', async () => {
+      const supabase = makeSupabase({ blockRpc: { data: null, error: { message: 'boom' } } });
+      const { fetchConversationBlocked } = loadService(supabase);
+
+      await expect(fetchConversationBlocked('conv-1')).resolves.toBeNull();
+    });
+
+    // A schema predating social_13 has neither the function nor the RLS gate it
+    // backs, so "unknown" and "not blocked" genuinely coincide there — but the
+    // client still must not claim to know.
+    it('returns null when the rpc is missing', async () => {
+      const supabase = makeSupabase({
+        blockRpc: { data: null, error: { code: 'PGRST202', message: 'not found' } },
+      });
+      const { fetchConversationBlocked } = loadService(supabase);
+
+      await expect(fetchConversationBlocked('conv-1')).resolves.toBeNull();
+    });
+
+    it('returns null for a non-boolean payload', async () => {
+      const supabase = makeSupabase({ blockRpc: { data: null, error: null } });
+      const { fetchConversationBlocked } = loadService(supabase);
+
+      await expect(fetchConversationBlocked('conv-1')).resolves.toBeNull();
+    });
+
+    it('does not call out for a blank conversation id', async () => {
+      const supabase = makeSupabase({});
+      const { fetchConversationBlocked } = loadService(supabase);
+
+      await expect(fetchConversationBlocked('   ')).resolves.toBeNull();
+      expect(supabase.rpc).not.toHaveBeenCalled();
     });
   });
 
@@ -553,6 +662,7 @@ describe('dm-service', () => {
       await expect(service.fetchMessages('conv-1')).resolves.toEqual([]);
       await expect(service.sendMessage('conv-1', 'hey')).resolves.toBeNull();
       await expect(service.markConversationRead('conv-1')).resolves.toBe(false);
+      await expect(service.fetchConversationBlocked('conv-1')).resolves.toBeNull();
     });
 
     it('never throws when the user is signed out', async () => {
@@ -562,6 +672,7 @@ describe('dm-service', () => {
       await expect(service.fetchConversations()).resolves.toEqual([]);
       await expect(service.sendMessage('conv-1', 'hey')).resolves.toBeNull();
       await expect(service.markConversationRead('conv-1')).resolves.toBe(false);
+      await expect(service.fetchConversationBlocked('conv-1')).resolves.toBeNull();
     });
   });
 });

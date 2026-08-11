@@ -37,6 +37,8 @@ function buildMessage(overrides: Partial<DmMessage> & Pick<DmMessage, 'id'>): Dm
     senderId: 'them',
     body: 'hello',
     createdAt: '2026-07-28T12:00:00.000Z',
+    // Plain text by default; a shared post is the exception, not the norm.
+    sharedPostId: null,
     ...overrides,
   };
 }

@@ -306,6 +306,11 @@ export function DmThreadScreen({
             senderId: String(row.sender_id ?? ''),
             body: String(row.body ?? ''),
             createdAt: String(row.created_at ?? new Date().toISOString()),
+            // Realtime carries the reference; the PREVIEW is hydrated from
+            // `posts` when the bubble renders, so a post that has since been
+            // removed or blocked never resolves even though the row arrived.
+            sharedPostId:
+              typeof row.shared_post_id === 'string' ? row.shared_post_id : null,
           };
           setMessages((current) => mergeMessages(current, [incoming]));
         },
@@ -397,6 +402,9 @@ export function DmThreadScreen({
         {
           id: localId,
           conversationId,
+          // Optimistic rows are always plain text — the share flow sends from
+          // the post card, not from this composer.
+          sharedPostId: null,
           senderId: myUserId ?? '',
           body: text,
           createdAt: new Date().toISOString(),
