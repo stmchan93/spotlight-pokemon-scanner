@@ -190,34 +190,43 @@ export default function TabsLayout() {
         legacy `/portfolio` path redirects there so old links still resolve.
 
         ─────────────────────────────────────────────────────────────────────
-        THE GLYPHS ARE PLATFORM SYMBOLS, NOT THE FIGMA VECTORS. DECIDED.
+        THE FIGMA VECTORS ARE THE SOURCE OF TRUTH FOR THESE GLYPHS.
         ─────────────────────────────────────────────────────────────────────
-        Checked against Figma 3670:48082 (Home), 3670:48086 (Scan) and
-        3670:48091 (Wishlist) on 2026-08-10. Scan and Wishlist already match
-        their frames exactly — `viewfinder` and `bookmark` ARE the drawn glyphs.
-        Home is the one that differs: the frame draws iconoir's `HomeSimple`
-        (a house with a slot) where iOS renders SF `house`.
+        Figma 3670:48082 (Home), 3670:48086 (Scan), 3670:48091 (Wishlist). The
+        frames do not draw invented artwork — they draw glyphs the app already
+        owns, which is what makes matching them cheap:
 
-        It stays SF `house` on purpose. This is a NATIVE bar: icons are SF
-        Symbol names on iOS and Material names on Android, and an arbitrary
-        vector can only reach it as a rasterized image — the PNG-data-URI route
-        `circular-tab-avatar.tsx` had to build. That was worth it for a
-        PHOTOGRAPH, which no symbol can stand in for. Spending it on a house
-        outline would buy an exact silhouette and give up `house.fill` for the
-        selected state plus the iOS 26 Liquid Glass symbol treatment, and leave
-        a second rasterizer to maintain.
+          Home      iconoir `HomeSimple`  — the house plus its `M9 17H15` slot
+          Wishlist  iconoir `Bookmark`    — ink is exactly 14x18 in a 24 box,
+                                            which is the size Figma reports
+          Scan      Apple's SF `viewfinder`
 
-        The labels are the system font for the same reason, not an oversight:
-        the frame specifies Plus Jakarta Sans SemiBold 10/12, and on iOS 26 the
-        label is part of what the OS renders into the glass.
+        A NATIVE bar takes a platform symbol name or a raster image, never a
+        React component — and iconoir only ships components. So the two iconoir
+        glyphs are rasterized from the INSTALLED PACKAGE by
+        `tools/generate_tab_icons.py` (not from a Figma export, which expires
+        and drifts from the icons the rest of the app draws) and land here as
+        `src` images. Regenerate after an iconoir upgrade.
 
-        So: do not "fix" these to match the frame pixel-for-pixel without
-        re-taking that trade.
+        No `renderingMode` on them, deliberately — the opposite of the avatar
+        below. Left to default, `tintColor` makes them TEMPLATE images, so the
+        OS tints them for selection on both platforms. That is also why the
+        source PNGs are plain black: only their alpha survives.
+
+        SCAN IS THE EXCEPTION, AND FOR A LICENSING REASON. Its frame draws
+        Apple's own `viewfinder`, which iOS renders natively — nothing to
+        rasterize. It is NOT rasterized for Android either: the SF Symbols
+        license does not permit shipping Apple's artwork on other platforms, so
+        Android keeps a Material glyph. That is the one place the two platforms
+        differ from each other by design.
+
+        The labels stay the system font. The frame specifies Plus Jakarta Sans
+        SemiBold 10/12, but the label belongs to the OS here — on iOS 26 it is
+        part of what gets rendered into the glass.
       */}
       <Trigger name="index">
-        {/* `sf` is iOS-only; `md` is the Android half of the same icon. Without
-            it Android renders a labels-only bar. */}
-        <Icon md="home" sf={{ default: 'house', selected: 'house.fill' }} />
+        {/* One image for both platforms — see the note above. */}
+        <Icon src={require('../../../assets/images/tab-icons/home.png')} />
         <Label>Home</Label>
       </Trigger>
       {/*
@@ -264,7 +273,7 @@ export default function TabsLayout() {
         <Label>Scan</Label>
       </Trigger>
       <Trigger name="wishlist">
-        <Icon md="bookmark" sf={{ default: 'bookmark', selected: 'bookmark.fill' }} />
+        <Icon src={require('../../../assets/images/tab-icons/wishlist.png')} />
         <Label>Wishlist</Label>
       </Trigger>
       <Trigger name="you">

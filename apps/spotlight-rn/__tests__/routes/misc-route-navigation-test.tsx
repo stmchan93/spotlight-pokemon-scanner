@@ -367,9 +367,54 @@ describe('misc route wrappers', () => {
     expect(asPhoto.sf).toBeNull();
     expect(asPhoto.renderingMode).toBe('original');
 
-    // The other three tabs stay on symbols either way.
-    expect(JSON.parse(screen.getAllByTestId('tab-icon')[0].props.children).src).toBeNull();
+    // The avatar reaches ONLY the You tab — the assertion that matters here,
+    // since every other tab now carries an image too.
+    const others = [0, 1, 2].map((i) =>
+      JSON.parse(screen.getAllByTestId('tab-icon')[i].props.children),
+    );
+    for (const icon of others) {
+      expect(icon.src).not.toEqual(mockTabAvatar);
+    }
     mockTabAvatar = null;
+  });
+
+  /*
+    THE FIGMA GLYPHS, WHICH ARE IMAGES RATHER THAN SYMBOLS.
+
+    Home (Figma 3670:48082) and Wishlist (3670:48091) draw iconoir's HomeSimple
+    and Bookmark, which a native bar cannot take as components — they are
+    rasterized from the installed package by `tools/generate_tab_icons.py`.
+
+    `renderingMode` MUST stay unset on them, and that is the whole point of this
+    test. It is the exact inverse of the You avatar above: a photograph needs
+    `original` or the tint flattens it to a silhouette, while these need the
+    DEFAULT (template) or `tintColor` never reaches them and the selected tab
+    stops looking selected. Both failures are silent.
+  */
+  it('draws Home and Wishlist from the Figma vectors, tintable', () => {
+    mockPathname.mockReturnValue('/');
+    render(<TabsLayout />);
+
+    const [home, scan, wishlist] = [0, 1, 2].map((i) =>
+      JSON.parse(screen.getAllByTestId('tab-icon')[i].props.children),
+    );
+
+    expect(home.src).toBeTruthy();
+    expect(home.sf).toBeNull();
+    expect(home.renderingMode ?? null).toBeNull();
+
+    expect(wishlist.src).toBeTruthy();
+    expect(wishlist.sf).toBeNull();
+    expect(wishlist.renderingMode ?? null).toBeNull();
+
+    /*
+      Scan is deliberately NOT one of them. Its frame draws Apple's own
+      `viewfinder`, so iOS renders it natively — and Apple's SF Symbols license
+      does not allow shipping that artwork as an image on Android, which is why
+      it must never be "fixed" to match the other two.
+    */
+    expect(scan.sf).not.toBeNull();
+    expect(scan.src).toBeNull();
   });
 
   // A structural assertion, for the same reason the New Post one below is:
@@ -409,14 +454,14 @@ describe('misc route wrappers', () => {
     }
   });
 
-  it('registers New Post on the ROOT stack so its formSheet actually presents', () => {
+  it('registers New Post on the ROOT stack as an ungesturable full-page modal', () => {
     // This is a structural assertion on purpose. react-native-screens ignores
     // `stackPresentation` on a stack's BOTTOM-MOST screen, and pushing
     // /new-post from the tabs used to mount the `(stack)` navigator with
-    // new-post as its only route — so the sheet was silently a no-op and the
-    // composer rendered full-screen with its close button under the status bar.
-    // Nothing about that is visible to a render test; only the route's PLACEMENT
-    // prevents it, so that placement is what gets pinned.
+    // new-post as its only route — so the presentation was silently a no-op and
+    // the composer rendered as a plain push with its close button under the
+    // status bar. Nothing about that is visible to a render test; only the
+    // route's PLACEMENT prevents it, so that placement is what gets pinned.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const fs = require('node:fs');
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -429,17 +474,39 @@ describe('misc route wrappers', () => {
 
     const rootLayout: string = fs.readFileSync(path.join(appDir, '_layout.tsx'), 'utf8');
     expect(rootLayout).toContain('name="new-post"');
-    expect(rootLayout).toContain("presentation: 'formSheet'");
-    // Figma 3147:10814 — 787pt of an 852pt screen.
-    expect(rootLayout).toContain('sheetAllowedDetents: [0.92]');
-    // Drag-down needs the gesture; tap-outside comes with formSheet itself.
-    // iOS ONLY: on Android the drag is armed across the whole sheet, including
-    // the text field, so holding a finger on the body and moving down closed
-    // the composer. Android keeps Cancel and the hardware back button.
-    expect(rootLayout).toContain("gestureEnabled: Platform.OS === 'ios'");
+    // Full page, not a sheet: the composer wants the whole screen for the image
+    // and the body, and it is the only surface you can't gesture out of.
+    expect(rootLayout).toContain("presentation: 'fullScreenModal'");
+
+    // THE HIGHEST-VALUE ASSERTION HERE, because the bug it catches is invisible
+    // on the platform most of this is developed on. `slide_from_bottom` is a
+    // documented no-op on iOS (RNSScreen.mm's setStackAnimation only touches
+    // modalTransitionStyle for fade/flip, so fullScreenModal keeps UIKit's
+    // default coverVertical). On Android `fullScreenModal` is a plain MODAL
+    // fragment whose default transition is an X-translate — drop this line and
+    // the composer slides in from the RIGHT there, and nothing on iOS changes
+    // to tell you.
+    expect(rootLayout).toContain("animation: 'slide_from_bottom'");
+
+    // No dismiss gesture on EITHER platform: exit is the X button or a posted
+    // post. The old iOS-only opt-in is gone with it.
+    expect(rootLayout).toContain('gestureEnabled: false');
     expect(rootLayout).not.toContain('gestureEnabled: true');
-    // The composer draws its own grabber, so iOS must not add a second one.
-    expect(rootLayout).toContain('sheetGrabberVisible: false');
+    expect(rootLayout).not.toContain("gestureEnabled: Platform.OS === 'ios'");
+
+    // The sheet-only options must all be gone — a stray `sheetAllowedDetents`
+    // next to `fullScreenModal` reads as an intent that isn't happening.
+    // SCOPED to the new-post block on purpose: file-wide, this would be a
+    // landmine for the next screen that legitimately wants a sheet.
+    const newPostStart = rootLayout.indexOf('name="new-post"');
+    expect(newPostStart).toBeGreaterThan(-1);
+    const newPostBlock = rootLayout.slice(
+      newPostStart,
+      rootLayout.indexOf('/>', newPostStart),
+    );
+    expect(newPostBlock).not.toMatch(
+      /sheetAllowedDetents|sheetCornerRadius|sheetExpandsWhenScrolledToEdge|sheetGrabberVisible/,
+    );
   });
 
   it('renders the account route screen', () => {
