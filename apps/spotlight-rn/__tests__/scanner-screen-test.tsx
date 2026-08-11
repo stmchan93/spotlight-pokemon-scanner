@@ -3,6 +3,8 @@ import Constants from 'expo-constants';
 import type { ComponentProps } from 'react';
 import { AppState, Keyboard, LayoutAnimation, StyleSheet } from 'react-native';
 
+import { colors } from '@spotlight/design-system';
+
 import { TabsPageContext } from '@/contexts/tabs-page-context';
 import { rawScannerTrayEmptyPeekHeight } from '@/features/scanner/raw-scanner-capture-surface';
 import { ScannerScreen } from '@/features/scanner/screens/scanner-screen';
@@ -1164,6 +1166,41 @@ describe('ScannerScreen', () => {
     });
     expect(screen.queryByTestId('scanner-target-pill')).toBeNull();
     expect(screen.queryByTestId('scanner-zoom-control')).toBeNull();
+  });
+
+  it('draws every chrome surface in the scrim when Liquid Glass is unavailable', async () => {
+    /*
+      All of this chrome renders through `GlassSurface`: real Liquid Glass on
+      iOS 26, and `scannerChromeFill` everywhere else. `jest.setup` forces glass
+      OFF, so this is the Android / iOS < 26 path — the one almost every device
+      actually draws, and the one nobody sees while developing on an iOS 26
+      simulator. Pinning it is what stops the scrim rotting silently.
+    */
+    renderScannerScreen();
+
+    const fillOf = (testID: string) =>
+      (
+        StyleSheet.flatten(screen.getByTestId(testID).props.style as never) as Record<
+          string,
+          unknown
+        >
+      )?.backgroundColor;
+
+    expect(fillOf('scanner-target-pill-surface')).toBe(colors.scannerChromeFill);
+    // Only the SELECTED zoom factor has a surface; the others are bare labels.
+    expect(fillOf('scanner-zoom-1x-surface')).toBe(colors.scannerChromeFill);
+    expect(screen.queryByTestId('scanner-zoom-2x-surface')).toBeNull();
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    });
+
+    // The tray's SCAN/TOTAL chips used to be an opaque gray900 — the one
+    // surface here that read as a different material from the rest.
+    expect(fillOf('scanner-recent-title-surface')).toBe(colors.scannerChromeFill);
+    expect(fillOf('scanner-value-pill-surface')).toBe(colors.scannerChromeFill);
   });
 
   it('adds a scanned card into inventory from the tray', async () => {

@@ -47,6 +47,7 @@ import {
 import {
   Button,
   GlassNavBubble,
+  GlassSurface,
   Text,
   colors,
   fontFamilies,
@@ -2917,12 +2918,30 @@ export function ScannerScreen({
                     hitSlop={6}
                     key={factor}
                     onPress={gate(() => setZoomFactor(factor))}
-                    style={[styles.zoomPill, selected ? styles.zoomPillSelected : null]}
+                    style={styles.zoomPill}
                     testID={`scanner-zoom-${factor}x`}
                   >
-                    <Text style={[styles.zoomPillLabel, selected ? styles.zoomPillLabelSelected : null]}>
-                      {`${factor}x`}
-                    </Text>
+                    {/*
+                      Only the SELECTED factor has a surface; the others are bare
+                      labels, as in Figma 1041-4238. Glass on iOS 26, the same
+                      dark scrim as before everywhere else — see `ScanTargetPill`
+                      for why the scheme is pinned `dark` rather than `auto`.
+                    */}
+                    {selected ? (
+                      <GlassSurface
+                        fallbackColor={colors.scannerChromeFill}
+                        glassColorScheme="dark"
+                        glassEffectStyle="clear"
+                        style={styles.zoomPillSurface}
+                        testID={`scanner-zoom-${factor}x-surface`}
+                      >
+                        <Text style={[styles.zoomPillLabel, styles.zoomPillLabelSelected]}>
+                          {`${factor}x`}
+                        </Text>
+                      </GlassSurface>
+                    ) : (
+                      <Text style={styles.zoomPillLabel}>{`${factor}x`}</Text>
+                    )}
                   </Pressable>
                 );
               })}
@@ -2981,11 +3000,22 @@ export function ScannerScreen({
             </View>
             <View style={styles.recentScansRow}>
               <View style={styles.trayInfoLeftGroup}>
-                <View style={styles.trayInfoPill}>
+                {/*
+                  Was an opaque gray900 chip — the one surface on this screen
+                  that read as a different material from everything else over
+                  the camera. Glass on iOS 26, the same scrim elsewhere.
+                */}
+                <GlassSurface
+                  fallbackColor={colors.scannerChromeFill}
+                  glassColorScheme="dark"
+                  glassEffectStyle="clear"
+                  style={styles.trayInfoPill}
+                  testID="scanner-recent-title-surface"
+                >
                   <Text style={styles.trayInfoPillLabel} testID="scanner-recent-title">
                     {`SCAN: ${recentCaptures.length}`}
                   </Text>
-                </View>
+                </GlassSurface>
                 {/* ADD ALL shows in BOTH tray states — collapsed too, so a
                     burst scanner can bulk-add without first swiping the tray
                     up. The dropdown flips above its anchor near the screen
@@ -3010,11 +3040,17 @@ export function ScannerScreen({
                   </Pressable>
                 ) : null}
               </View>
-              <View style={styles.trayInfoPill}>
+              <GlassSurface
+                fallbackColor={colors.scannerChromeFill}
+                glassColorScheme="dark"
+                glassEffectStyle="clear"
+                style={styles.trayInfoPill}
+                testID="scanner-value-pill-surface"
+              >
                 <Text style={styles.trayInfoPillLabel} testID="scanner-value-pill-text">
                   {`TOTAL: ${formatTrayTotal(trayPriceSummary)}`}
                 </Text>
-              </View>
+              </GlassSurface>
             </View>
           </Pressable>
 
@@ -3274,8 +3310,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: 36,
   },
-  zoomPillSelected: {
-    backgroundColor: 'rgba(0, 0, 0, 0.35)',
+  // The glass fills the whole 36pt circle, so the material clips the label
+  // rather than sitting behind it.
+  zoomPillSurface: {
+    alignItems: 'center',
+    borderRadius: 999,
+    height: 36,
+    justifyContent: 'center',
+    overflow: 'hidden',
+    width: 36,
   },
   zoomPillLabel: {
     // 13px / Medium / white per Figma 1390-1662/1665/1668 (the `control` role's
@@ -3437,14 +3480,18 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   trayInfoPill: {
-    backgroundColor: colors.gray900,
     borderRadius: radii.pill,
+    // Clips the glass to the pill shape.
+    overflow: 'hidden',
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
   trayInfoPillLabel: {
+    // White per Figma 1041-4238. `gray400` was legible against the old opaque
+    // gray900 chip; over glass or the scrim it has the camera behind it and
+    // needs the same contrast as every other label on this screen.
     ...textStyles.labelStrong,
-    color: colors.gray400,
+    color: colors.gray0,
   },
   trayAddAllRow: {
     alignItems: 'center',

@@ -105,6 +105,19 @@ export const colors = {
   scannerSurfaceStrong: 'rgba(255, 255, 255, 0.08)',
   scannerOutline: 'rgba(255, 255, 255, 0.08)',
   scannerOutlineSubtle: 'rgba(255, 255, 255, 0.05)',
+  /**
+   * Fill for chrome floating over the live viewfinder — the EN/JP pill, the
+   * selected zoom pill, the SCAN/TOTAL labels.
+   *
+   * Also the `fallbackColor` those surfaces hand to `GlassSurface`: iOS 26 gets
+   * real Liquid Glass, and everything else (iOS < 26, Android) gets THIS, which
+   * is byte-identical to what shipped before glass existed. A translucent dark
+   * scrim is the native treatment for camera chrome on Android, so the fallback
+   * is the right answer there rather than a downgrade.
+   *
+   * Previously three hard-coded `rgba(0, 0, 0, 0.35)` literals in two files.
+   */
+  scannerChromeFill: 'rgba(0, 0, 0, 0.35)',
   scannerTextPrimary: '#FFFFFF',
   scannerTextSecondary: 'rgba(255, 255, 255, 0.72)',
   scannerTextMuted: 'rgba(255, 255, 255, 0.58)',
