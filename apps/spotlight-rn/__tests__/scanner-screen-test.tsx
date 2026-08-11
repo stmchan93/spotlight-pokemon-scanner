@@ -1201,6 +1201,36 @@ describe('ScannerScreen', () => {
     // surface here that read as a different material from the rest.
     expect(fillOf('scanner-recent-title-surface')).toBe(colors.scannerChromeFill);
     expect(fillOf('scanner-value-pill-surface')).toBe(colors.scannerChromeFill);
+
+    /*
+      The TRAY keeps its BlurView on this path rather than degrading to a flat
+      scrim. It sits over a live viewfinder and the blur is doing real work
+      there, so glass-or-nothing would have been a downgrade on every Android
+      device. Real Liquid Glass replaces it only on iOS 26.
+    */
+    expect(screen.queryByTestId('scanner-tray-glass')).toBeNull();
+  });
+
+  it('replaces the search bubble with a labelled search field', async () => {
+    renderScannerScreen();
+
+    // A magnifier icon reads as "some action"; the frame (3686:56583) gives
+    // search the whole width beside the back button so it reads as a field.
+    expect(screen.getByTestId('scanner-search-button')).toBeTruthy();
+    expect(screen.getByText('Search Cards')).toBeTruthy();
+  });
+
+  it('floats the toolbar over the camera with no dark strip behind it', async () => {
+    renderScannerScreen();
+
+    /*
+      The header used to carry a full-width `rgba(0, 0, 0, 0.25)` scrim. The
+      frame has the glass controls straight over the viewfinder — each carries
+      its own contrast, which is the point of the material.
+    */
+    await waitForScannerReady();
+    expect(screen.getByTestId('scanner-back-button')).toBeTruthy();
+    expect(screen.queryByTestId('scanner-top-chrome-backdrop')).toBeNull();
   });
 
   it('adds a scanned card into inventory from the tray', async () => {

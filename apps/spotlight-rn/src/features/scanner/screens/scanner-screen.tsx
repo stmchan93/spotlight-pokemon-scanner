@@ -48,6 +48,7 @@ import {
   Button,
   GlassNavBubble,
   GlassSurface,
+  isLiquidGlassAvailable,
   Text,
   colors,
   fontFamilies,
@@ -105,6 +106,7 @@ import { AddAllMenu, type AddAllMenuAction } from '@/features/scanner/components
 import { ScanBulkConfirmSheet } from '@/features/scanner/components/scan-bulk-confirm-sheet';
 import { ScanTargetPill } from '@/features/scanner/components/scan-target-pill';
 import { ScannerLanguageTooltip } from '@/features/scanner/components/scanner-language-tooltip';
+import { ScannerSearchPill } from '@/features/scanner/components/scanner-search-pill';
 import { ScanningForSheet } from '@/features/scanner/components/scanning-for-sheet';
 import {
   cardLanguageForCardType,
@@ -2821,13 +2823,19 @@ export function ScannerScreen({
           />
         ) : null}
 
-        <View
-          pointerEvents="none"
-          style={[
-            styles.topChromeBackdrop,
-            { height: captureSurfaceLayout.headerHeight },
-          ]}
-        />
+        {/*
+          NO DARK STRIP behind the toolbar. It was `rgba(0, 0, 0, 0.25)` across
+          the full header height; the frame (3686:56583) has the glass controls
+          floating straight over the camera with nothing behind them, which is
+          the whole point of making them glass. Each control carries its own
+          contrast now.
+
+          The cost, stated: the status-bar clock no longer has a scrim under it,
+          so on a very bright card it sits on whatever the camera sees. If that
+          reads badly in practice, bring back a much shorter, much lighter strip
+          behind the STATUS BAR only — not the full header, which is what made
+          the old one read as chrome.
+        */}
         <View
           style={[
             styles.topChromeRow,
@@ -2841,21 +2849,24 @@ export function ScannerScreen({
           <GlassNavBubble
             accessibilityLabel="Exit scanner"
             onPress={gate(handleExitScanner)}
-            size="small"
+            // 40, level with the search pill beside it (Figma 3686:55168).
+            // `small` (32) was sized for a row of bare icons.
+            size="compact"
             surface="onDark"
             testID="scanner-back-button"
           >
             <IconChevronLeft color={colors.gray0} size={20} strokeWidth={1.5} />
           </GlassNavBubble>
-          <GlassNavBubble
-            accessibilityLabel="Search cards"
+          {/*
+            A full search FIELD, not a magnifier bubble (Figma 3686:56583). A
+            32pt icon reads as "some action"; a full-width field reads as
+            "search, and this is where you would type" — which is what it does.
+            It takes the rest of the row for that reason.
+          */}
+          <ScannerSearchPill
             onPress={gate(handleOpenCatalogSearch)}
-            size="small"
-            surface="onDark"
             testID="scanner-search-button"
-          >
-            <IconSearch color={colors.gray0} size={16} strokeWidth={2} />
-          </GlassNavBubble>
+          />
         </View>
 
         {scannerSmokeEnabled ? (
@@ -2972,17 +2983,44 @@ export function ScannerScreen({
 
         <GestureDetector gesture={trayPanGesture}>
         <View style={styles.trayShell} testID="scanner-tray">
-          <BlurView
-            // Android needs the dimezisBlurView method or BlurView is a silent
-            // no-op (frosted tray rendered flat vs iOS). Matches the card-detail
-            // panels, which already opt in. iOS ignores the prop.
-            experimentalBlurMethod="dimezisBlurView"
-            intensity={isTrayExpanded ? 80 : 24}
-            pointerEvents="none"
-            style={styles.trayBackdropBlur}
-            tint="dark"
-          />
-          <View pointerEvents="none" style={styles.trayBackdropOverlay} />
+          {/*
+            THE TRAY IS THE MATERIAL, not a dark panel (Figma 3686:56861 — the
+            camera reads straight through it).
+
+            Two paths on purpose. iOS 26 gets real Liquid Glass, which is the
+            frame. Everywhere else keeps the BlurView it already had, because
+            that blur is doing real work here: this sits over a live viewfinder,
+            and a flat scrim in its place would be a downgrade on every Android
+            device rather than a fallback.
+
+            This is a branch at the CALL SITE, not inside `GlassSurface` — the
+            primitive's no-blur rule is about not faking glass where there is
+            none, and the blur below is the treatment that already shipped.
+          */}
+          {isLiquidGlassAvailable() ? (
+            <GlassSurface
+              fallbackColor="transparent"
+              glassColorScheme="dark"
+              glassEffectStyle="clear"
+              pointerEvents="none"
+              style={styles.trayBackdropBlur}
+              testID="scanner-tray-glass"
+            />
+          ) : (
+            <>
+              <BlurView
+                // Android needs the dimezisBlurView method or BlurView is a silent
+                // no-op (frosted tray rendered flat vs iOS). Matches the card-detail
+                // panels, which already opt in. iOS ignores the prop.
+                experimentalBlurMethod="dimezisBlurView"
+                intensity={isTrayExpanded ? 80 : 24}
+                pointerEvents="none"
+                style={styles.trayBackdropBlur}
+                tint="dark"
+              />
+              <View pointerEvents="none" style={styles.trayBackdropOverlay} />
+            </>
+          )}
           <Pressable
             accessibilityLabel={isTrayExpanded ? 'Collapse recent scans' : 'Expand recent scans'}
             accessibilityRole="button"
@@ -3262,17 +3300,12 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#FFFFFF',
   },
-  topChromeBackdrop: {
-    backgroundColor: 'rgba(0, 0, 0, 0.25)',
-    left: 0,
-    position: 'absolute',
-    right: 0,
-    top: 0,
-  },
   topChromeRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 16,
+    // 8, matching the frame's spacers — the search pill takes the remaining
+    // width, so `justifyContent` no longer decides anything here.
+    gap: 8,
     justifyContent: 'space-between',
     position: 'absolute',
     zIndex: 5,
