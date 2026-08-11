@@ -1,5 +1,6 @@
 import { sha256 } from 'js-sha256';
 
+import { isMissingColumnError } from '@/lib/postgrest-errors';
 import { supabase } from '@/lib/supabase';
 
 /**
@@ -25,8 +26,15 @@ const PUBLIC_PROFILES_VIEW = 'public_profiles';
 
 /** Inbox page size. The inbox is a navigation target, not a feed — one page is plenty. */
 const DEFAULT_CONVERSATION_LIMIT = 50;
-/** Thread page size: the newest N messages, which is what a freshly opened thread renders. */
-const DEFAULT_MESSAGE_LIMIT = 50;
+/**
+ * Thread page size: the newest N messages, which is what a freshly opened thread
+ * renders.
+ *
+ * Exported because the thread's list has to render this many rows in its FIRST
+ * pass — see `initialNumToRender` in `dm-thread-screen`. The two numbers being
+ * the same is what makes the scroll-to-bottom land on the first try.
+ */
+export const DEFAULT_MESSAGE_LIMIT = 50;
 
 // `last_message_preview` is denormalized onto `conversations` by
 // `tg_messages_touch_conversation` (social_13), the same trigger that already
@@ -40,7 +48,7 @@ const participantSelect = 'conversation_id, user_id, last_read_at';
 // client-side as a belt-and-braces guard; it never reaches the normalized
 // `DmMessage`. RLS already excludes `deleted_at is not null`.
 const messageSelect =
-  'id, conversation_id, sender_id, body, created_at, content_status, shared_post_id';
+  'id, conversation_id, sender_id, body, created_at, content_status, shared_post_id, shared_profile_user_id, shared_profile_tab';
 // The same identity columns the feed reads — a DM row renders exactly what a
 // post header renders.
 const dmUserSelect = 'user_id, display_name, avatar_url, handle, is_verified';
@@ -68,6 +76,8 @@ type MessageRow = {
   created_at: string;
   content_status: string | null;
   shared_post_id: string | null;
+  shared_profile_user_id: string | null;
+  shared_profile_tab: string | null;
 };
 
 type DmUserRow = {
@@ -124,6 +134,18 @@ export type DmMessage = {
    * resolving without anything here knowing about moderation.
    */
   sharedPostId: string | null;
+  /**
+   * A profile whose collection/wishlist was shared into the thread (social_24),
+   * or null for a plain message.
+   *
+   * Like {@link sharedPostId}, only the reference travels. The preview is read
+   * from the PUBLIC profile each time it renders, so a block created after the
+   * send stops the card resolving — where a `spotlight://u/<id>` string in the
+   * body would keep working forever.
+   */
+  sharedProfileUserId: string | null;
+  /** Which public page the share points at. Null whenever the id is null. */
+  sharedProfileTab: 'collection' | 'wishlist' | null;
 };
 
 /**
@@ -528,6 +550,14 @@ function toDmMessage(row: MessageRow): DmMessage {
     body: row.body ?? '',
     createdAt: row.created_at,
     sharedPostId: row.shared_post_id ?? null,
+    sharedProfileUserId: row.shared_profile_user_id ?? null,
+    // Anything the client does not recognise is dropped to null rather than
+    // passed through: an unknown tab has no page to open, and rendering a card
+    // that cannot be tapped is worse than rendering none.
+    sharedProfileTab:
+      row.shared_profile_tab === 'collection' || row.shared_profile_tab === 'wishlist'
+        ? row.shared_profile_tab
+        : null,
   };
 }
 
@@ -664,19 +694,43 @@ export async function fetchConversationBlocked(conversationId: string): Promise<
 export async function sendMessage(
   conversationId: string,
   body: string,
-  options: { sharedPostId?: string | null } = {},
+  options: {
+    sharedPostId?: string | null;
+    sharedProfileUserId?: string | null;
+    sharedProfileTab?: 'collection' | 'wishlist' | null;
+    /**
+     * What to send instead if the project has not applied social_24. Without it
+     * a shared-profile send simply fails on such a project, which is how
+     * shipping this card would have broken sharing everywhere behind on
+     * migrations.
+     */
+    sharedProfileFallbackBody?: string | null;
+  } = {},
 ): Promise<DmMessage | null> {
   const me = await currentUserId();
   const trimmedId = (conversationId ?? '').trim();
   const text = (body ?? '').trim();
   const sharedPostId = (options.sharedPostId ?? '').trim() || null;
+  const sharedProfileUserId = (options.sharedProfileUserId ?? '').trim() || null;
   /*
-    A message must SAY something — but a shared post counts. This guard used to
+    Both halves or neither, matching `messages_shared_profile_complete`. Sending
+    a tab without a subject would be rejected by the table anyway; dropping it
+    here means the caller gets a clean null instead of a constraint error it
+    cannot read.
+  */
+  const sharedProfileTab = sharedProfileUserId ? (options.sharedProfileTab ?? 'collection') : null;
+  /*
+    A message must SAY something — but an attachment counts. This guard used to
     be `text.length === 0` alone, which silently swallowed every attachment-only
     share before it reached Supabase. Mirrors the `messages_have_content` check
-    social_22 puts on the table.
+    social_22 puts on the table, extended by social_24 for shared profiles.
   */
-  if (!supabase || !me || !trimmedId || (text.length === 0 && !sharedPostId)) {
+  if (
+    !supabase ||
+    !me ||
+    !trimmedId ||
+    (text.length === 0 && !sharedPostId && !sharedProfileUserId)
+  ) {
     return null;
   }
   try {
@@ -689,9 +743,32 @@ export async function sendMessage(
         sender_id: me,
         body: text,
         shared_post_id: sharedPostId,
+        shared_profile_user_id: sharedProfileUserId,
+        shared_profile_tab: sharedProfileTab,
       })
       .select(messageSelect)
       .single();
+    /*
+      ───────────────────────────────────────────────────────────────────────
+      THE PROJECT MAY NOT HAVE social_24 YET
+      ───────────────────────────────────────────────────────────────────────
+      Migrations land per environment, and this app talks to projects at
+      different points in the chain. Without this, shipping the shared-profile
+      card would BREAK sharing outright everywhere the migration has not run —
+      the insert names two columns that do not exist, PostgREST rejects the whole
+      row, and the user gets silence.
+
+      So a missing column degrades to the form that has always worked: a plain
+      text message carrying the `spotlight://` link. The caller supplies that
+      text, because only it knows what the share was meant to say.
+    */
+    if (error && sharedProfileUserId && isMissingColumnError(error)) {
+      const fallback = (options.sharedProfileFallbackBody ?? '').trim();
+      if (!fallback) {
+        return null;
+      }
+      return await sendMessage(conversationId, fallback);
+    }
     if (error || !data) {
       return null;
     }

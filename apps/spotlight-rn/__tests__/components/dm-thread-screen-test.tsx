@@ -3,6 +3,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-
 import { useRouter } from 'expo-router';
 
 import {
+  DEFAULT_MESSAGE_LIMIT,
   type DmMessage,
   fetchConversationBlocked,
   fetchMessages,
@@ -18,6 +19,11 @@ jest.mock('expo-router', () => ({
 }));
 
 jest.mock('@/features/social/dm-service', () => ({
+  // Mirrors the real constant. Not `requireActual`, which would pull the whole
+  // module — and its Supabase client — into a file that mocks it precisely to
+  // avoid that. A literal here is safe because the thread reads the SAME export,
+  // so the assertion below still fails the moment the list stops using it.
+  DEFAULT_MESSAGE_LIMIT: 50,
   fetchConversationBlocked: jest.fn(),
   fetchMessages: jest.fn(),
   markConversationRead: jest.fn(),
@@ -26,6 +32,25 @@ jest.mock('@/features/social/dm-service', () => ({
 
 // The thread decides which side a bubble sits on from the signed-in user's id.
 // `requireActual` keeps the real `AuthProvider` defined for the test harness.
+/*
+  The shared-profile card is STUBBED so this file controls when it reports ready.
+  The real one resolves instantly here (no profile -> unavailable -> ready), which
+  makes the pending state — the whole point of the thread's wait — unobservable.
+*/
+const mockSharedProfileReadyCallbacks: (() => void)[] = [];
+jest.mock('@/features/social/components/shared-profile-bubble', () => {
+  const { View } = jest.requireActual('react-native');
+  const ReactActual = jest.requireActual('react');
+  return {
+    SharedProfileBubble: ({ onReady, testID }: { onReady?: () => void; testID?: string }) => {
+      if (onReady && !mockSharedProfileReadyCallbacks.includes(onReady)) {
+        mockSharedProfileReadyCallbacks.push(onReady);
+      }
+      return ReactActual.createElement(View, { testID });
+    },
+  };
+});
+
 jest.mock('@/providers/auth-provider', () => ({
   ...jest.requireActual('@/providers/auth-provider'),
   useAuth: () => ({ accessToken: null, currentUser: { id: 'me' } }),
@@ -37,8 +62,10 @@ function buildMessage(overrides: Partial<DmMessage> & Pick<DmMessage, 'id'>): Dm
     senderId: 'them',
     body: 'hello',
     createdAt: '2026-07-28T12:00:00.000Z',
-    // Plain text by default; a shared post is the exception, not the norm.
+    // Plain text by default; an attachment is the exception, not the norm.
     sharedPostId: null,
+    sharedProfileTab: null,
+    sharedProfileUserId: null,
     ...overrides,
   };
 }
@@ -53,6 +80,7 @@ const push = jest.fn();
 
 describe('DmThreadScreen', () => {
   beforeEach(() => {
+    mockSharedProfileReadyCallbacks.length = 0;
     jest.clearAllMocks();
     (useRouter as jest.Mock).mockReturnValue({ back, push });
     (fetchMessages as jest.Mock).mockResolvedValue([]);
@@ -430,6 +458,185 @@ describe('DmThreadScreen', () => {
     strangely-shaped message rather than as a post — the thing you pointed at,
     not the thing you said. So it looks identical on both sides of the thread.
   */
+  /*
+    ─────────────────────────────────────────────────────────────────────────
+    NO FRAME MAY SHOW THE THREAD UN-PINNED
+    ─────────────────────────────────────────────────────────────────────────
+    This list is top-anchored and scrolled to the bottom afterwards, in
+    `onLayout` / `onContentSizeChange` — both of which run after a frame has been
+    drawn. Opening a thread therefore rendered the OLDEST messages and snapped to
+    the newest, reported as "a weird flicker when opening my messages".
+
+    Pinned as visibility rather than as scroll offset because the offset was
+    never wrong; it was just applied a frame late, and a test on the offset would
+    have passed throughout.
+  */
+  describe('opening a thread', () => {
+    it('does not show the list until it has been pinned to the bottom', async () => {
+      (fetchMessages as jest.Mock).mockResolvedValue([
+        buildMessage({ id: 'm-1', body: 'oldest' }),
+        buildMessage({ id: 'm-2', body: 'newest', createdAt: '2026-07-28T12:05:00.000Z' }),
+      ]);
+
+      renderWithProviders(<DmThreadScreen conversationId="c-1" />);
+      await waitFor(() => expect(screen.getByTestId('dm-thread-row-m-1')).toBeTruthy());
+
+      const opacityOf = () =>
+        StyleSheet.flatten(screen.getByTestId('dm-thread-list').props.style)?.opacity;
+
+      // The pin runs off layout/content-size, neither of which fires in this
+      // environment on its own — so at this point the list is deliberately
+      // invisible rather than showing the top of the thread.
+      expect(opacityOf()).toBe(0);
+
+      await act(async () => {
+        fireEvent(screen.getByTestId('dm-thread-list'), 'contentSizeChange', 361, 900);
+      });
+      expect(opacityOf()).toBe(1);
+    });
+
+    /*
+      THE THREAD DOES NOT WAIT FOR ITS SHARED CARDS. This is the assertion, not
+      an omission.
+
+      It did wait, so the conversation could appear as one piece — and that
+      turned a thread which visibly loaded into one that sat blank for up to 1.5s
+      and then snapped in. Worse, the wait was uneven: it counted only shared
+      PROFILES, and a profile card reports ready instantly once its cache is
+      warm, so on a second open the gate lifted while the shared POST card was
+      still a placeholder that then grew ~155pt under the reader. Reported as
+      "the messages flicker when I open them a second time".
+
+      Waiting was the wrong tool. Each card now reserves its final height while
+      it loads, so nothing changes size and there is nothing to hide.
+    */
+    it('reveals as soon as it pins, without any card reporting ready', async () => {
+      (fetchMessages as jest.Mock).mockResolvedValue([
+        buildMessage({ id: 'm-1', body: 'hello' }),
+        buildMessage({
+          id: 'm-2',
+          body: '',
+          sharedProfileUserId: 'owner-1',
+          sharedProfileTab: 'wishlist',
+          createdAt: '2026-07-28T12:05:00.000Z',
+        }),
+        buildMessage({
+          id: 'm-3',
+          body: '',
+          sharedPostId: 'post-9',
+          createdAt: '2026-07-28T12:06:00.000Z',
+        }),
+      ]);
+
+      renderWithProviders(<DmThreadScreen conversationId="c-1" />);
+      await waitFor(() => expect(screen.getByTestId('dm-thread-row-m-1')).toBeTruthy());
+
+      await act(async () => {
+        fireEvent(screen.getByTestId('dm-thread-list'), 'contentSizeChange', 361, 900);
+      });
+
+      // Visible with BOTH attachment kinds still unresolved — nobody called
+      // `onReady`, and the thread no longer asks anyone to.
+      expect(StyleSheet.flatten(screen.getByTestId('dm-thread-list').props.style)?.opacity).toBe(1);
+      expect(mockSharedProfileReadyCallbacks).toHaveLength(0);
+    });
+
+    /*
+      An empty thread has nothing to pin, so gating on the pin would hide its
+      empty state forever — the failure mode this exception exists to stop.
+    */
+    it('shows an empty thread immediately, since there is nothing to pin', async () => {
+      (fetchMessages as jest.Mock).mockResolvedValue([]);
+
+      renderWithProviders(<DmThreadScreen conversationId="c-1" />);
+
+      // One effect tick, not one frame: the reveal LATCHES in an effect so it can
+      // never be recomputed back to hidden by a later batch of messages.
+      await waitFor(() => {
+        expect(StyleSheet.flatten(screen.getByTestId('dm-thread-list').props.style)?.opacity).toBe(
+          1,
+        );
+      });
+    });
+
+    /*
+      ───────────────────────────────────────────────────────────────────────
+      AND ONCE SHOWN, IT IS NEVER TAKEN AWAY
+      ───────────────────────────────────────────────────────────────────────
+      Reported as "it appears for a sec, then flickers, then appears again". The
+      gate was recomputed every render and `attachmentCount` derives from
+      `messages`, so a second batch arriving pushed the count up while only the
+      first card had reported — and the thread hid itself again mid-read.
+    */
+    it('stays visible when a later message adds another card', async () => {
+      (fetchMessages as jest.Mock).mockResolvedValue([
+        buildMessage({ id: 'm-1', body: 'hello' }),
+        buildMessage({
+          id: 'm-2',
+          body: '',
+          sharedProfileUserId: 'owner-1',
+          sharedProfileTab: 'wishlist',
+          createdAt: '2026-07-28T12:05:00.000Z',
+        }),
+      ]);
+
+      renderWithProviders(<DmThreadScreen conversationId="c-1" />);
+      await waitFor(() => expect(screen.getByTestId('dm-thread-row-m-1')).toBeTruthy());
+
+      const opacityOf = () =>
+        StyleSheet.flatten(screen.getByTestId('dm-thread-list').props.style)?.opacity;
+
+      await act(async () => {
+        fireEvent(screen.getByTestId('dm-thread-list'), 'contentSizeChange', 361, 900);
+        mockSharedProfileReadyCallbacks.forEach((report) => report());
+      });
+      expect(opacityOf()).toBe(1);
+
+      // A refresh delivers a SECOND card. The count rises past what has reported,
+      // which used to re-close the gate.
+      (fetchMessages as jest.Mock).mockResolvedValue([
+        buildMessage({
+          id: 'm-3',
+          body: '',
+          sharedProfileUserId: 'owner-2',
+          sharedProfileTab: 'collection',
+          createdAt: '2026-07-28T12:09:00.000Z',
+        }),
+      ]);
+      await act(async () => {
+        fireEvent(screen.getByTestId('dm-thread-list'), 'refresh');
+      });
+
+      expect(opacityOf()).toBe(1);
+    });
+
+    /*
+      ───────────────────────────────────────────────────────────────────────
+      THE WHOLE PAGE RENDERS IN THE FIRST PASS
+      ───────────────────────────────────────────────────────────────────────
+      Reported as "it loads the text messages first, and then all of a sudden
+      the shared ones appear" — which was virtualization, not loading.
+
+      The list is TOP-ANCHORED and corrected by a scroll. At RN's default
+      `initialNumToRender` of 10, the first pass drew the ten OLDEST rows,
+      `onContentSizeChange` measured a height counting only those, and the pin
+      aimed at it. FlatList then rendered the rest in batches, each one growing
+      the content height and firing another pin. The newest messages — where a
+      shared card usually is — are in those later batches, and a card is ~390pt,
+      so every batch shoved the thread under the reader.
+
+      The two numbers have to stay equal, and nothing else forces that: raising
+      the fetch limit without raising this would quietly bring the stutter back
+      for anyone whose thread is longer than the initial window.
+    */
+    it('renders a full page of messages up front, so the pin lands once', () => {
+      renderWithProviders(<DmThreadScreen conversationId="c-1" />);
+
+      const list = screen.getByTestId('dm-thread-list');
+      expect(list.props.initialNumToRender).toBe(DEFAULT_MESSAGE_LIMIT);
+    });
+  });
+
   describe('shared posts', () => {
     const PURPLE = '#A54BFA';
 
@@ -459,6 +666,46 @@ describe('DmThreadScreen', () => {
 
       // No chrome at all — not a purple slab, not a grey one. The card is the
       // only surface, and it is the same on both sides.
+      expect(backgroundOf('dm-thread-bubble-m-1')).toBeUndefined();
+      expect(backgroundOf('dm-thread-bubble-m-2')).toBeUndefined();
+      expect(backgroundOf('dm-thread-bubble-m-1')).not.toBe(PURPLE);
+    });
+
+    /*
+      THE SAME RULE, FOR THE OTHER ATTACHMENT.
+
+      The chrome test above passed while the shared-PROFILE card shipped inside a
+      thick purple frame, because the condition it pins read `item.sharedPostId`
+      alone. One test per attachment type is not duplication — it is the only
+      thing that catches the next attachment being added to a check that names a
+      specific one.
+    */
+    it('never paints the sender tint behind a shared profile either', async () => {
+      (fetchMessages as jest.Mock).mockResolvedValue([
+        buildMessage({
+          id: 'm-1',
+          senderId: 'me',
+          body: '',
+          sharedProfileUserId: 'owner-1',
+          sharedProfileTab: 'wishlist',
+        }),
+        buildMessage({
+          id: 'm-2',
+          senderId: 'them',
+          body: '',
+          sharedProfileUserId: 'owner-1',
+          sharedProfileTab: 'collection',
+          createdAt: '2026-07-28T12:05:00.000Z',
+        }),
+      ]);
+
+      renderWithProviders(<DmThreadScreen conversationId="c-1" />);
+
+      await waitFor(() => expect(screen.getByTestId('dm-thread-row-m-1')).toBeTruthy());
+
+      expect(alignSelfOf('dm-thread-row-m-1')).toBe('flex-end');
+      expect(alignSelfOf('dm-thread-row-m-2')).toBe('flex-start');
+
       expect(backgroundOf('dm-thread-bubble-m-1')).toBeUndefined();
       expect(backgroundOf('dm-thread-bubble-m-2')).toBeUndefined();
       expect(backgroundOf('dm-thread-bubble-m-1')).not.toBe(PURPLE);

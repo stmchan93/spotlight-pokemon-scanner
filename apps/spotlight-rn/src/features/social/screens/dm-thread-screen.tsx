@@ -17,8 +17,11 @@ import { Avatar, Text, TextField, useSpotlightTheme } from '@spotlight/design-sy
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import { profileRouteSlug } from '@/features/social/profile-link';
+import { MessageBodyText } from '@/features/social/components/message-body-text';
 import { SharedPostBubble } from '@/features/social/components/shared-post-bubble';
+import { SharedProfileBubble } from '@/features/social/components/shared-profile-bubble';
 import {
+  DEFAULT_MESSAGE_LIMIT,
   type DmMessage,
   fetchConversationBlocked,
   fetchMessages,
@@ -26,7 +29,7 @@ import {
   sendMessage,
 } from '@/features/social/dm-service';
 import { supabase } from '@/lib/supabase';
-import { resolveRepositoryBaseUrl } from '@/providers/app-providers';
+import { resolveRepositoryBaseUrl, useAppServices } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
 
 /**
@@ -124,6 +127,7 @@ export function DmThreadScreen({
   const theme = useSpotlightTheme();
   const router = useRouter();
   const { currentUser, accessToken } = useAuth();
+  const { spotlightRepository } = useAppServices();
   // A shared post's photo streams from the authenticated media proxy, same as
   // in the feed — the bytes are private until moderation approves them.
   const apiBaseUrl = resolveRepositoryBaseUrl();
@@ -179,6 +183,51 @@ export function DmThreadScreen({
    * by the scroll view, so aiming at it can only be right.
    */
   const contentHeightRef = useRef(0);
+  /**
+   * Has the thread been pinned to the bottom at least once?
+   *
+   * ─────────────────────────────────────────────────────────────────────────
+   * WHY THE LIST IS HIDDEN UNTIL IT HAS
+   * ─────────────────────────────────────────────────────────────────────────
+   * This list is TOP-ANCHORED and scrolled to the bottom after the fact — the
+   * pin happens in `onLayout` / `onContentSizeChange`, both of which run after a
+   * frame has already been drawn. So opening a thread rendered the OLDEST
+   * messages, then snapped to the newest: reported as "a weird flicker when
+   * opening my messages", and visible on every thread long enough to scroll.
+   *
+   * The proper fix is an `inverted` list, where the bottom IS the origin and no
+   * corrective scroll exists to be seen — but that reverses every scroll
+   * offset, gesture direction and pin in this screen, which is a lot of
+   * carefully-worked machinery to turn upside down for a visual bug. Hiding the
+   * intermediate frames costs one boolean and leaves that machinery untouched.
+   */
+  const [isPinned, setIsPinned] = useState(false);
+  const [hasRevealed, setHasRevealed] = useState(false);
+  /*
+    `!isLoading &&` is load-bearing. Without it the empty-list exception is true
+    on the FIRST render — before anything has been fetched — so the latch closed
+    immediately and the gate never gated anything. An empty thread only counts as
+    empty once the fetch has actually come back saying so.
+
+    NOTE what this DOES NOT wait for: the attachment cards. It did briefly, so
+    the conversation could appear as one piece, and that is what turned a thread
+    that visibly loaded into one that sat blank for up to 1.5s and then snapped
+    in. Worse, the wait was uneven — it counted only shared PROFILES, and a
+    profile card reports ready instantly once its cache is warm, so on a second
+    open the gate lifted while the shared POST card was still a grey box, which
+    then grew ~155pt underneath the reader.
+
+    Waiting is the wrong tool anyway. Each attachment card now reserves its final
+    height while it loads (see `shared-post-bubble`), so nothing changes size and
+    there is nothing to hide. The gate is back to its original, narrow job: hide
+    the corrective scroll, nothing else.
+  */
+  const isReadyToReveal = (!isLoading && messages.length === 0) || isPinned;
+  useEffect(() => {
+    if (isReadyToReveal) {
+      setHasRevealed(true);
+    }
+  }, [isReadyToReveal]);
   const scrollToLatest = useCallback((animated: boolean) => {
     if (!hasMessagesRef.current) {
       return;
@@ -189,9 +238,11 @@ export function DmThreadScreen({
     }
     if (contentHeightRef.current > 0) {
       list.scrollToOffset({ animated, offset: contentHeightRef.current });
-      return;
+    } else {
+      list.scrollToEnd({ animated });
     }
-    list.scrollToEnd({ animated });
+    // Idempotent by React's own bail-out once true, so this costs one render.
+    setIsPinned(true);
   }, []);
   /**
    * Set by a send, cleared by the layout that honours it.
@@ -316,6 +367,14 @@ export function DmThreadScreen({
             // removed or blocked never resolves even though the row arrived.
             sharedPostId:
               typeof row.shared_post_id === 'string' ? row.shared_post_id : null,
+            sharedProfileUserId:
+              typeof row.shared_profile_user_id === 'string' ? row.shared_profile_user_id : null,
+            // Same narrowing the fetch path applies: an unrecognised tab has no
+            // page to open, so it is dropped rather than passed through.
+            sharedProfileTab:
+              row.shared_profile_tab === 'collection' || row.shared_profile_tab === 'wishlist'
+                ? row.shared_profile_tab
+                : null,
           };
           setMessages((current) => mergeMessages(current, [incoming]));
         },
@@ -408,8 +467,10 @@ export function DmThreadScreen({
           id: localId,
           conversationId,
           // Optimistic rows are always plain text — the share flow sends from
-          // the post card, not from this composer.
+          // the post card or the share sheet, not from this composer.
           sharedPostId: null,
+          sharedProfileTab: null,
+          sharedProfileUserId: null,
           senderId: myUserId ?? '',
           body: text,
           createdAt: new Date().toISOString(),
@@ -488,6 +549,13 @@ export function DmThreadScreen({
         : isMine
           ? theme.colors.gray0
           : theme.colors.gray900;
+      /*
+        Either attachment card draws its own neutral surface, so any body text
+        below it is a caption on white — not on the sender's purple tint. Both
+        the text colour AND the link colour follow the SURFACE, which is the
+        distinction that made a shared link invisible on an own-message bubble.
+      */
+      const hasAttachment = Boolean(item.sharedPostId || item.sharedProfileUserId);
 
       return (
         <View
@@ -522,15 +590,19 @@ export function DmThreadScreen({
             testID={`${testID}-bubble-${item.id}`}
             style={[
               /*
-                NO BUBBLE CHROME AROUND A SHARED POST. The card draws its own
+                NO BUBBLE CHROME AROUND EITHER ATTACHMENT. The card draws its own
                 surface, and wrapping it in the sender tint painted a solid
                 purple slab around someone else's photo — it read as a
-                strangely-shaped message rather than as a post. A shared post is
-                not a thing you said, it is a thing you pointed at, so it looks
-                the same on both sides of the thread. Text that came WITH the
-                post still gets its bubble, below the card.
+                strangely-shaped message rather than as a post. A shared post or
+                list is not a thing you said, it is a thing you pointed at, so it
+                looks the same on both sides of the thread. Text that came WITH
+                the attachment still gets its bubble, below the card.
+
+                This tested `item.sharedPostId` alone, so the shared-PROFILE card
+                shipped with a thick purple frame around it — the same mistake in
+                a second place, one layer out from the invisible-link one.
               */
-              item.sharedPostId
+              hasAttachment
                 ? styles.attachment
                 : [styles.bubble, { backgroundColor: bubbleColor, borderRadius: theme.radii.lg }],
               {
@@ -546,6 +618,19 @@ export function DmThreadScreen({
               post removed, deleted or blocked since it was sent stops
               resolving on its own (social_22).
             */}
+            {item.sharedProfileUserId && item.sharedProfileTab ? (
+              <SharedProfileBubble
+                onOpen={(ownerId, sharedTab) =>
+                  router.push(
+                    `/u/${ownerId}${sharedTab === 'wishlist' ? '?tab=wishlist' : ''}` as never,
+                  )
+                }
+                repository={spotlightRepository}
+                tab={item.sharedProfileTab}
+                testID={`dm-thread-shared-profile-${item.id}`}
+                userId={item.sharedProfileUserId}
+              />
+            ) : null}
             {item.sharedPostId ? (
               <SharedPostBubble
                 accessToken={accessToken}
@@ -557,17 +642,27 @@ export function DmThreadScreen({
               />
             ) : null}
             {item.body ? (
-              <Text
+              // Shared profile/wishlist links in the body are tappable — that is
+              // the whole point of sending one to a DM.
+              <MessageBodyText
+                body={item.body}
+                /*
+                  Follows the SURFACE, not the sender. Your own bubble is
+                  `purple500`, so a purple link on it is invisible — which is
+                  exactly how "sharing a wishlist just sends text" was reported.
+                  With a shared-post card above, the caption sits on a neutral
+                  surface again and purple is right.
+                */
+                linkColor={!hasAttachment && isMine ? theme.colors.gray0 : theme.colors.purple500}
                 style={[
                   theme.typography.body,
                   // With a card above it the text is a caption on a neutral
                   // surface, so it must not use the bubble's on-tint color.
-                  { color: item.sharedPostId ? theme.colors.gray900 : bodyColor },
-                  item.sharedPostId ? styles.attachmentCaption : null,
+                  { color: hasAttachment ? theme.colors.gray900 : bodyColor },
+                  hasAttachment ? styles.attachmentCaption : null,
                 ]}
-              >
-                {item.body}
-              </Text>
+                testID={`dm-thread-body-${item.id}`}
+              />
             ) : null}
             {item.failed ? (
               <Text
@@ -664,6 +759,32 @@ export function DmThreadScreen({
         <FlatList
           contentContainerStyle={contentStyle}
           data={messages}
+          /*
+            ─────────────────────────────────────────────────────────────────
+            THE WHOLE PAGE IN THE FIRST PASS. THIS IS NOT A PERF TWEAK.
+            ─────────────────────────────────────────────────────────────────
+            Reported as "it loads the text messages first, and then all of a
+            sudden the shared ones appear".
+
+            That is virtualization, not loading. This list is TOP-ANCHORED and
+            corrected by a scroll, and RN's default `initialNumToRender` is 10 —
+            so the first pass rendered the ten OLDEST rows, `onContentSizeChange`
+            measured a height that only counted those ten, and the pin aimed at
+            it. FlatList then rendered the remaining batches, each one growing
+            the content height and firing another pin. The newest messages —
+            which is where a shared card usually is — are in those later batches.
+
+            With text-only rows the batches are short and it settles invisibly.
+            A shared card is ~390pt, so each one arriving moved the thread under
+            the reader. Rendering the full page up front makes the first
+            measurement final: one pin, no later growth, nothing to watch.
+
+            Affordable precisely because a thread is BOUNDED — `fetchMessages`
+            takes the newest `DEFAULT_MESSAGE_LIMIT` and this screen does not
+            paginate, so "the whole page" is at most 50 rows and never grows.
+            If older-message pagination is ever added, this stops being safe.
+          */
+          initialNumToRender={DEFAULT_MESSAGE_LIMIT}
           keyExtractor={(item) => item.id}
           ListEmptyComponent={
             isLoading ? null : (
@@ -705,6 +826,17 @@ export function DmThreadScreen({
           // message. `onContentSizeChange` cannot see that.
           onLayout={() => scrollToLatest(false)}
           ref={listRef}
+          /*
+            Hidden until the first pin lands — see `isPinned`. An empty thread is
+            shown immediately, because there is nothing to pin and its empty
+            state would otherwise never appear.
+
+            Opacity rather than not mounting the list: it still has to lay out
+            and measure to BE pinned, and a list that isn't mounted can do
+            neither. This hides the corrective scroll, it does not defer it.
+          */
+          // Latched — see `hasRevealed`. Never recomputed back to hidden.
+          style={{ opacity: hasRevealed ? 1 : 0 }}
           refreshControl={<RefreshControl onRefresh={handleRefresh} refreshing={isRefreshing} />}
           renderItem={renderItem}
           testID={`${testID}-list`}

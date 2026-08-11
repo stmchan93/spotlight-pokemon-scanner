@@ -451,6 +451,8 @@ describe('dm-service', () => {
         body: 'hey',
         createdAt: '2026-05-02T00:00:00.000Z',
         sharedPostId: null,
+        sharedProfileTab: null,
+        sharedProfileUserId: null,
       });
     });
 
@@ -491,6 +493,8 @@ describe('dm-service', () => {
         sender_id: 'me',
         body: 'hey',
         shared_post_id: null,
+        shared_profile_tab: null,
+        shared_profile_user_id: null,
       });
       expect(message).toEqual({
         id: 'msg-1',
@@ -499,6 +503,8 @@ describe('dm-service', () => {
         body: 'hey',
         createdAt: '2026-05-02T00:00:00.000Z',
         sharedPostId: null,
+        sharedProfileTab: null,
+        sharedProfileUserId: null,
       });
     });
 
@@ -525,8 +531,119 @@ describe('dm-service', () => {
         sender_id: 'me',
         body: '',
         shared_post_id: 'post-9',
+        shared_profile_tab: null,
+        shared_profile_user_id: null,
       });
       expect(message?.sharedPostId).toBe('post-9');
+    });
+
+    /*
+      The social_24 sibling of the guard above: a shared PROFILE is also content,
+      so an attachment-only send must survive the empty-body check. Both halves
+      travel or neither — a tab with no subject has nothing to open, and the
+      table's `messages_shared_profile_complete` rejects it anyway.
+    */
+    it('sends a shared profile with no caption, and defaults its tab rather than sending a half row', async () => {
+      const supabase = makeSupabase({
+        messages: {
+          data: {
+            ...messageRow,
+            sender_id: 'me',
+            body: '',
+            shared_profile_user_id: 'owner-1',
+            shared_profile_tab: 'wishlist',
+          },
+          error: null,
+        },
+      });
+      const { sendMessage } = loadService(supabase);
+
+      const message = await sendMessage('conv-1', '', {
+        sharedProfileTab: 'wishlist',
+        sharedProfileUserId: 'owner-1',
+      });
+
+      expect(writesTo(supabase.calls, 'messages', 'insert')[0].args[0]).toEqual({
+        conversation_id: 'conv-1',
+        sender_id: 'me',
+        body: '',
+        shared_post_id: null,
+        shared_profile_tab: 'wishlist',
+        shared_profile_user_id: 'owner-1',
+      });
+      expect(message?.sharedProfileUserId).toBe('owner-1');
+      expect(message?.sharedProfileTab).toBe('wishlist');
+    });
+
+    it('drops a tab that arrives without a profile, so neither half is written alone', async () => {
+      const supabase = makeSupabase({ messages: { data: null, error: null } });
+      const { sendMessage } = loadService(supabase);
+
+      // No body, no post, no profile — nothing to say, so nothing is sent.
+      const message = await sendMessage('conv-1', '', { sharedProfileTab: 'wishlist' });
+
+      expect(message).toBeNull();
+      expect(writesTo(supabase.calls, 'messages', 'insert')).toHaveLength(0);
+    });
+
+    /*
+      ─────────────────────────────────────────────────────────────────────────
+      A PROJECT BEHIND ON social_24 MUST STILL BE ABLE TO SHARE
+      ─────────────────────────────────────────────────────────────────────────
+      Migrations land per environment. Without this fallback, shipping the
+      shared-profile card would have BROKEN sharing everywhere the migration had
+      not run: the insert names two columns that do not exist, PostgREST rejects
+      the whole row, and the user gets silence — the exact failure mode that just
+      cost three rounds of debugging in its invisible-link form.
+    */
+    it('falls back to a text send when the project has no shared-profile columns', async () => {
+      // Two queued results: the migration-less rejection, then the retry.
+      const supabase = makeSupabase({
+        messages: [
+          {
+            data: null,
+            error: {
+              code: 'PGRST204',
+              message: "column 'shared_profile_user_id' does not exist",
+            },
+          },
+          { data: { ...messageRow, sender_id: 'me', body: 'Check out my wishlist' }, error: null },
+        ],
+      });
+      const { sendMessage } = loadService(supabase);
+
+      const message = await sendMessage('conv-1', '', {
+        sharedProfileFallbackBody: 'Check out my wishlist',
+        sharedProfileTab: 'wishlist',
+        sharedProfileUserId: 'owner-1',
+      });
+
+      // Sent, not swallowed — and as plain text the old way.
+      expect(message).not.toBeNull();
+      const inserts = writesTo(supabase.calls, 'messages', 'insert');
+      expect(inserts).toHaveLength(2);
+      expect(inserts[1].args[0]).toMatchObject({
+        body: 'Check out my wishlist',
+        shared_profile_user_id: null,
+      });
+    });
+
+    it('does not retry blindly — a missing column with nothing to fall back to fails', async () => {
+      const supabase = makeSupabase({
+        messages: {
+          data: null,
+          error: { code: 'PGRST204', message: "column 'shared_profile_user_id' does not exist" },
+        },
+      });
+      const { sendMessage } = loadService(supabase);
+
+      const message = await sendMessage('conv-1', '', {
+        sharedProfileTab: 'wishlist',
+        sharedProfileUserId: 'owner-1',
+      });
+
+      expect(message).toBeNull();
+      expect(writesTo(supabase.calls, 'messages', 'insert')).toHaveLength(1);
     });
 
     it('still refuses a message that says nothing at all', async () => {
