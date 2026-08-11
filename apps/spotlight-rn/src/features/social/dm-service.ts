@@ -413,6 +413,27 @@ export async function findOrCreateDm(otherUserId: string): Promise<string | null
 // ---------------------------------------------------------------------------
 
 /**
+ * Total unread messages across every thread — the number on the drawer's
+ * Messages row.
+ *
+ * Reuses the same RPC the inbox already calls rather than adding a count-only
+ * endpoint: it is one round trip either way, it pins itself to `auth.uid()`
+ * internally so it cannot be aimed at anyone else, and a second query would be
+ * a second thing to keep in agreement with the badges inside the inbox.
+ *
+ * 0 on any failure. A missing badge is a far better outcome than a drawer that
+ * refuses to open.
+ */
+export async function fetchTotalUnreadMessageCount(): Promise<number> {
+  const counts = await fetchUnreadCounts();
+  let total = 0;
+  for (const count of counts.values()) {
+    total += count;
+  }
+  return total;
+}
+
+/**
  * Unread counts for EVERY thread, in one round trip.
  *
  * This used to be one count-only request per conversation, fired in parallel —

@@ -11,7 +11,7 @@ import {
   Settings,
   ViewGrid,
 } from 'iconoir-react-native';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -24,8 +24,9 @@ import {
   useWindowDimensions,
 } from 'react-native';
 
-import { colors, fontFamilies, Text, textStyles } from '@spotlight/design-system';
+import { colors, fontFamilies, radii, Text, textStyles } from '@spotlight/design-system';
 
+import { fetchTotalUnreadMessageCount } from '@/features/social/dm-service';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAuth } from '@/providers/auth-provider';
 import { useGuestGate } from '@/features/auth/use-guest-gate';
@@ -40,6 +41,8 @@ type NavItem = {
   label: string;
   icon: typeof ViewGrid;
   selected?: boolean;
+  /** Unread count for this destination. Omitted or 0 draws nothing. */
+  badgeCount?: number;
   onPress: () => void;
 };
 
@@ -59,6 +62,29 @@ function formatMemberSince(isoString: string | null | undefined): string | null 
 
 export function AppDrawer() {
   const { isOpen, closeDrawer } = useAppDrawer();
+  /*
+    Read when the drawer OPENS, not on a timer and not on a subscription.
+
+    The drawer is the only way into the inbox, so the moment it opens is the
+    only moment this number is looked at — polling it in the background would
+    spend requests on a badge nobody is reading. Same posture as the inbox's own
+    focus refetch and the notification bell's.
+  */
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+    let cancelled = false;
+    void fetchTotalUnreadMessageCount().then((count) => {
+      if (!cancelled) {
+        setUnreadMessageCount(count);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const pathname = usePathname();
@@ -253,6 +279,7 @@ export function AppDrawer() {
       // a permanently empty inbox.
       key: 'messages',
       label: 'Messages',
+      badgeCount: unreadMessageCount,
       // Same glyph the feed and comments sheet already use for conversation.
       icon: ChatBubbleEmpty,
       onPress: gate(() => goTo('/messages')),
@@ -370,6 +397,7 @@ export function AppDrawer() {
             {actionItems.map((item) => (
               <DrawerNavItem
                 key={item.key}
+                badgeCount={item.badgeCount}
                 icon={item.icon}
                 label={item.label}
                 onPress={item.onPress}
@@ -429,11 +457,12 @@ type DrawerNavItemProps = {
   icon: typeof MenuIcon;
   label: string;
   selected?: boolean;
+  badgeCount?: number;
   onPress: () => void;
   testID?: string;
 };
 
-function DrawerNavItem({ icon: Icon, label, selected, onPress, testID }: DrawerNavItemProps) {
+function DrawerNavItem({ badgeCount, icon: Icon, label, selected, onPress, testID }: DrawerNavItemProps) {
   return (
     <Pressable
       accessibilityRole="button"
@@ -445,6 +474,19 @@ function DrawerNavItem({ icon: Icon, label, selected, onPress, testID }: DrawerN
     >
       <Icon color={colors.gray900} height={20} width={20} />
       <Text style={styles.navLabel}>{label}</Text>
+      {badgeCount != null && badgeCount > 0 ? (
+        /*
+          The same purple pill the inbox draws on each unread thread, totalled.
+          Deliberately matches that badge rather than the bell's red one: red is
+          this app's danger colour, and unread mail is not a warning.
+        */
+        <View style={styles.navBadge} testID={testID ? `${testID}-badge` : undefined}>
+          <Text style={styles.navBadgeLabel}>
+            {/* Capped so a busy inbox cannot stretch the row's layout. */}
+            {badgeCount > 99 ? '99+' : String(badgeCount)}
+          </Text>
+        </View>
+      ) : null}
       {selected ? <View style={styles.activeDot} testID={testID ? `${testID}-active-dot` : undefined} /> : null}
     </Pressable>
   );
@@ -545,6 +587,21 @@ const styles = StyleSheet.create({
   navLabel: {
     ...textStyles.bodyMedium,
     color: colors.gray900,
+  },
+  navBadge: {
+    alignItems: 'center',
+    backgroundColor: colors.purple500,
+    borderRadius: radii.pill,
+    justifyContent: 'center',
+    // Same footprint as the inbox's per-thread badge, so the total and the rows
+    // it totals read as one family.
+    minWidth: 20,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  navBadgeLabel: {
+    ...textStyles.overline,
+    color: colors.gray0,
   },
   activeDot: {
     backgroundColor: colors.brand,

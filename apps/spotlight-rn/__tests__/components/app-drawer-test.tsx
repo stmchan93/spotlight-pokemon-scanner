@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { Alert, View } from 'react-native';
 
 import { AppDrawer } from '@/components/app-drawer';
+import { fetchTotalUnreadMessageCount } from '@/features/social/dm-service';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAuth } from '@/providers/auth-provider';
 
@@ -12,6 +13,10 @@ import { renderWithProviders } from '../test-utils';
 jest.mock('expo-router', () => ({
   useRouter: jest.fn(),
   usePathname: jest.fn(),
+}));
+
+jest.mock('@/features/social/dm-service', () => ({
+  fetchTotalUnreadMessageCount: jest.fn(async () => 0),
 }));
 
 jest.mock('@/providers/auth-provider', () => ({
@@ -465,6 +470,94 @@ describe('AppDrawer', () => {
 
       expect(replace).toHaveBeenCalledWith('/insights');
       expect(push).not.toHaveBeenCalled();
+    });
+  });
+
+  /*
+    ═══════════════════════════════════════════════════════════════════════════
+    UNREAD MAIL IS VISIBLE FROM THE DRAWER.
+    ═══════════════════════════════════════════════════════════════════════════
+    The drawer is the ONLY way into the inbox — `/messages` is reachable from
+    nowhere else — so without a count here there is no way to learn you have
+    mail short of opening it and looking.
+
+    Purple, matching the inbox's own per-thread badges rather than the bell's
+    red one: red is this app's danger colour, and unread mail is not a warning.
+  */
+  describe('the unread message badge', () => {
+    it('totals unread messages on the Messages row', async () => {
+      (fetchTotalUnreadMessageCount as jest.Mock).mockResolvedValue(4);
+      renderWithProviders(
+        <>
+          <DrawerController />
+          <AppDrawer />
+        </>,
+      );
+
+      await act(async () => {
+        drawerHandleRef.current?.open();
+      });
+
+      const badge = await screen.findByTestId('app-drawer-nav-messages-badge');
+      expect(badge).toBeTruthy();
+      expect(screen.getByText('4')).toBeTruthy();
+    });
+
+    // An empty inbox draws nothing at all — a "0" is noise that reads as a
+    // number worth looking at.
+    it('draws nothing when there is no unread mail', async () => {
+      (fetchTotalUnreadMessageCount as jest.Mock).mockResolvedValue(0);
+      renderWithProviders(
+        <>
+          <DrawerController />
+          <AppDrawer />
+        </>,
+      );
+
+      await act(async () => {
+        drawerHandleRef.current?.open();
+      });
+
+      expect(screen.queryByTestId('app-drawer-nav-messages-badge')).toBeNull();
+    });
+
+    // Capped so a busy inbox cannot stretch the row's layout.
+    it('caps a busy inbox at 99+', async () => {
+      (fetchTotalUnreadMessageCount as jest.Mock).mockResolvedValue(250);
+      renderWithProviders(
+        <>
+          <DrawerController />
+          <AppDrawer />
+        </>,
+      );
+
+      await act(async () => {
+        drawerHandleRef.current?.open();
+      });
+
+      expect(await screen.findByText('99+')).toBeTruthy();
+    });
+
+    /*
+      Read when the drawer OPENS, not on a timer. The drawer is the only door to
+      the inbox, so that is the only moment the number is looked at — polling it
+      would spend requests on a badge nobody is reading.
+    */
+    it('does not read the count until the drawer opens', async () => {
+      renderWithProviders(
+        <>
+          <DrawerController />
+          <AppDrawer />
+        </>,
+      );
+
+      expect(fetchTotalUnreadMessageCount).not.toHaveBeenCalled();
+
+      await act(async () => {
+        drawerHandleRef.current?.open();
+      });
+
+      expect(fetchTotalUnreadMessageCount).toHaveBeenCalledTimes(1);
     });
   });
 });
