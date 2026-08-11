@@ -95,41 +95,6 @@ export type CollapsiblePageProps = {
   /** So a `RefreshControl` spinner drops below the pinned chrome, not under it. */
   progressViewOffset: number;
   scrollEventThrottle: number;
-  /**
-   * WITHOUT THIS THE PAGER CANNOT PUT A PAGE BACK AT ITS OWN TOP. Not optional,
-   * and not a tuning knob — spread it or every "go to the top" this component
-   * performs silently lands `contentInsetTop` points short.
-   *
-   * React Native CLAMPS the target of a programmatic scroll, and it measures the
-   * clamp against the scroll view's `contentInset` — the one set from the
-   * `contentInset` PROP, which is `{0,0,0,0}` here — rather than against
-   * `adjustedContentInset`, which is where
-   * `contentInsetAdjustmentBehavior="automatic"` puts the safe area. So the
-   * lowest reachable offset is computed as `fmin(-contentInset.top, 0)` = 0,
-   * while the page's real top is `-contentInsetTop` (see `pageTop`), and every
-   * negative target is rounded up to 0:
-   *
-   *   RCTScrollViewComponentView.mm  `scrollTo:y:animated:`   (new architecture)
-   *   RCTScrollView.m                `scrollToOffset:animated:`        (old)
-   *
-   * both of which skip the clamp entirely when this prop is set — it is the only
-   * lever React Native exposes for it, and it lives on the page's scroller, not
-   * here, which is why it has to travel out through these props.
-   *
-   * WHAT IT LOOKED LIKE. A sub-tab tap resets every page to `pageTop` and then
-   * tells the chrome the pages are there. Clamped, the pages instead landed a
-   * whole `contentInsetTop` further down — including pages that had been sitting
-   * at their top already, which the reset pushed DOWN — and the chrome, having
-   * asserted the top, went on drawing a fully expanded profile block over
-   * content that had slid up behind the tab strip. "Switch to Activity and the
-   * photo is half under the tabs."
-   *
-   * It is safe to leave on: it only relaxes the clamp on scrolls this component
-   * asks for, and it never asks for anything outside `[pageTop, pageTop +
-   * collapseDistance]` — a band `contentContainerStyle.minHeight` reserves on
-   * every page for exactly this reason. User scrolling is untouched.
-   */
-  scrollToOverflowEnabled: boolean;
 };
 
 type PageSwipeGuardApi = {
@@ -213,15 +178,8 @@ type CollapsibleTabPagerProps<V extends string> = {
    * Optional externally-owned scroll offset, so the SCREEN can drive chrome of
    * its own from the same value the header collapse runs on (Home fades the
    * search pill out of its floating top bar). It is written by the pager's
-   * `Animated.event` (and seeded by it — see `pageTop`), so a consumer must only
-   * ever READ it — interpolate it, never `setValue` it. Omit and the pager keeps
-   * a private value.
-   *
-   * It carries an ABSOLUTE `contentOffset.y`, which on an inset page is NEGATIVE
-   * at the top: a consumer interpolating from 0 gets a `contentInsetTop`-point
-   * dead zone at the start of the scroll. Clamped interpolations degrade
-   * harmlessly to "nothing has happened yet"; anything else has to anchor at
-   * `-contentInsetTop` the way the header collapse does.
+   * `Animated.event`, so a consumer must only ever READ it — interpolate it,
+   * never `setValue` it. Omit and the pager keeps a private value.
    */
   scrollY?: Animated.Value;
   /**
@@ -254,17 +212,6 @@ type CollapsibleTabPagerProps<V extends string> = {
    * the Android ScrollView, so there is nothing there to double-count.
    */
   contentInsetTop?: number;
-  /**
-   * Fade the header out as it collapses, so the pinned chrome settles onto plain
-   * background rather than onto the header's last rows.
-   *
-   * Portfolio needs it: its glass toolbar floats over the header, and for the
-   * whole length of the collapse the Followers / Following / Fame pills slid up
-   * behind those buttons at full opacity — which reads as the buttons sitting on
-   * top of the pills rather than over a page. Off by default; a header with
-   * nothing floating above it has nothing to fade for.
-   */
-  fadeHeaderOnCollapse?: boolean;
   /**
    * Extra stand-down check, evaluated at the moment of decision rather than at
    * render, for state the pager cannot see (e.g. "the collection search field
@@ -380,7 +327,6 @@ type CollapsibleTabPagerProps<V extends string> = {
 export function CollapsibleTabPager<V extends string>({
   contentInsetTop = 0,
   disabled = false,
-  fadeHeaderOnCollapse = false,
   edgeGuardWidth = DRAWER_EDGE_WIDTH,
   header,
   onChange,
@@ -421,22 +367,6 @@ export function CollapsibleTabPager<V extends string>({
    * would sit behind the status bar.
    */
   const collapseDistance = Math.max(headerHeight - pinnedTopInset, 0);
-  /**
-   * The raw `contentOffset.y` a page reports while it is sitting at its TOP.
-   *
-   * IT IS NOT ZERO when the pages run `contentInsetAdjustmentBehavior="automatic"`.
-   * UIKit insets those scroll views by the top safe area, and an inset scroll
-   * view rests at `-adjustedContentInset.top`, not at 0 — which is the same
-   * `contentInsetTop` the chrome padding already subtracts (see that prop).
-   *
-   * Every offset this component compares, clamps or interpolates has to be
-   * measured from HERE. Measuring from 0 instead makes the first
-   * `contentInsetTop` points of every scroll a dead zone: the content slides up
-   * under the tab bar while the header, still reading `scrollY <= 0`, has not
-   * started collapsing — so a page left anywhere in that band shows a fully
-   * expanded profile block with its first row clipped behind the pinned bar.
-   */
-  const pageTop = -contentInsetTop;
 
   const latest = useRef({
     chartScrubLockRef,
@@ -466,8 +396,6 @@ export function CollapsibleTabPager<V extends string>({
   widthRef.current = width;
   const collapseRef = useRef(collapseDistance);
   collapseRef.current = collapseDistance;
-  const pageTopRef = useRef(pageTop);
-  pageTopRef.current = pageTop;
   const activeIndexRef = useRef(activeIndex);
   activeIndexRef.current = activeIndex;
 
@@ -487,25 +415,6 @@ export function CollapsibleTabPager<V extends string>({
   const grantDxRef = useRef(0);
   /** Index the row is settling on / settled at, so the value effect can idle. */
   const settledIndexRef = useRef(activeIndex);
-  /**
-   * The page a completed SWIPE just committed, held until the reconcile effect
-   * below consumes it.
-   *
-   * It is what tells a gesture-driven page change apart from a tapped one, and
-   * it has to be its own signal rather than a read of `settledIndexRef`: the
-   * settle effect above runs FIRST on a tap and writes that ref itself, so by
-   * the time the reconcile effect looked at it a tap would be indistinguishable
-   * from a release.
-   *
-   * Written only where `onChange` is actually called, and cleared by the very
-   * next run of that effect — so the one way it can go stale is a parent that
-   * takes `onChange` and declines to move `value`, which would leave a later tap
-   * BACK to that same page reading as a swipe. Neither caller does that, and the
-   * cost if one did is a missed reset, not a desync.
-   */
-  const gestureCommitRef = useRef<V | null>(null);
-  /** The page the reconcile effect last ran for, so it can spot a real change. */
-  const lastValueRef = useRef(value);
 
   const guardApi = useMemo<PageSwipeGuardApi>(
     () => ({
@@ -551,11 +460,6 @@ export function CollapsibleTabPager<V extends string>({
    * Beyond the collapse distance the header is pinned either way, so the clamp
    * costs nothing visually and saves scrolling short pages somewhere they cannot
    * reach.
-   *
-   * Every offset here is an ABSOLUTE `contentOffset.y`, so the top of a page is
-   * `pageTop` (see it) — never 0. Defaulting an unreported page to 0 instead
-   * parks it `contentInsetTop` points BELOW its own top while the header, which
-   * never moved, stays fully expanded over it.
    */
   const syncPageOffsets = useCallback(() => {
     const state = latest.current;
@@ -563,17 +467,13 @@ export function CollapsibleTabPager<V extends string>({
     if (!refs) {
       return;
     }
-    const top = pageTopRef.current;
-    const target = Math.min(
-      Math.max(offsetsRef.current[state.value] ?? top, top),
-      top + Math.max(collapseRef.current, 0),
-    );
+    const target = Math.min(offsetsRef.current[state.value] ?? 0, Math.max(collapseRef.current, 0));
     state.order.forEach((page) => {
       if (page === state.value) {
         return;
       }
       const node = refs[page]?.current;
-      if (!node || Math.abs((offsetsRef.current[page] ?? top) - target) < 1) {
+      if (!node || Math.abs((offsetsRef.current[page] ?? 0) - target) < 1) {
         return;
       }
       if (node.scrollToOffset) {
@@ -583,102 +483,6 @@ export function CollapsibleTabPager<V extends string>({
       }
     });
   }, []);
-
-  /**
-   * Put EVERY page — the arriving one included — back at its own top, and
-   * forget where they were.
-   *
-   * Clearing `offsetsRef` is half the job. Leaving the old entries would park a
-   * page at the top while the pager still believed it was 400pt down, and the
-   * stale number would resurface at the next pan grant as the offset every
-   * OTHER page gets synced to.
-   *
-   * Returns whether it could actually do it: with no `pageRefs` there is nothing
-   * to move, and claiming the pages are at the top when they are not is how the
-   * chrome ends up describing a position no page is in.
-   */
-  const resetPagesToTop = useCallback(() => {
-    const state = latest.current;
-    const refs = state.pageRefs;
-    if (!refs) {
-      return false;
-    }
-    const top = pageTopRef.current;
-    offsetsRef.current = {};
-    state.order.forEach((page) => {
-      const node = refs[page]?.current;
-      if (!node) {
-        return;
-      }
-      if (node.scrollToOffset) {
-        node.scrollToOffset({ offset: top, animated: false });
-      } else {
-        node.scrollTo?.({ y: top, animated: false });
-      }
-    });
-    return true;
-  }, []);
-
-  /**
-   * Everything that has to happen when the ACTIVE PAGE CHANGES — and nothing
-   * when it merely re-renders.
-   *
-   * ── 1. A SUB-TAB TAP RESETS TO THE TOP ─────────────────────────────────────
-   * Switching sub-tabs is a request for a fresh page, so both pages and the
-   * chrome go back to the top. Carrying the old offsets across instead is what
-   * read as "really jumpy": the chrome had to snap between a collapsed and an
-   * expanded profile block on every tap, in whichever direction the two tabs
-   * happened to disagree.
-   *
-   * This is deliberately NOT a general "reset on focus". Leaving the screen by
-   * the bottom nav and coming back, a stack round trip to a card and back, a
-   * re-measure of the chrome, or the safe-area insets arriving a render late are
-   * none of them sub-tab changes, and every one of them must keep the user's
-   * place. That is why this keys on `value` actually CHANGING rather than on the
-   * effect running.
-   *
-   * ── 2. A SWIPE IS LEFT CONTINUOUS ──────────────────────────────────────────
-   * A completed swipe is a `value` change too, but resetting it cannot be done
-   * without producing the very jump this removes, at every point it could be
-   * hooked:
-   *   - AT PAN GRANT: the page under the finger leaps to its top while the user
-   *     is still touching it — and it would happen on drags that never commit,
-   *     so an abandoned swipe would silently cost the user their scroll;
-   *   - ON RELEASE / mid-settle: both pages are on screen for the whole ~190ms
-   *     slide, so they visibly jump together while the row is still moving;
-   *   - AFTER THE SETTLE: the arriving page jumps once everything already looks
-   *     finished, which is the most jarring of the three.
-   * A swipe is a continuous, finger-tracked gesture, and the grant-time
-   * `syncPageOffsets` already puts both pages on ONE offset before the drag
-   * reveals the neighbour — so the whole gesture, settle included, is coherent
-   * and jump-free exactly as it stands. It is left alone, which is why
-   * `gestureCommitRef` exists.
-   *
-   * ── 3. OTHERWISE, JUST RE-POINT `scrollY` ──────────────────────────────────
-   * `scrollY` is SHARED by every page and last-writer-wins, so on its own it
-   * describes whichever page scrolled most recently rather than the one on
-   * screen. Re-pointing it at the arriving page's own offset is what stops the
-   * chrome describing a page the user has left.
-   *
-   * ON MOUNT this is also the seed. `scrollY` holds an ABSOLUTE
-   * `contentOffset.y` and an inset page rests at a NEGATIVE one, but nothing
-   * reports that until the first scroll event — so `?? pageTop` is the whole
-   * expression, and without it the value would sit at the `Animated.Value`'s own
-   * 0, claim the page was `contentInsetTop` points further down than it is, and
-   * mount the chrome that far up the screen.
-   */
-  useEffect(() => {
-    const changedPage = lastValueRef.current !== value;
-    lastValueRef.current = value;
-    const settledByGesture = gestureCommitRef.current === value;
-    gestureCommitRef.current = null;
-
-    if (changedPage && !settledByGesture && resetPagesToTop()) {
-      scrollY.setValue(pageTop);
-      return;
-    }
-    scrollY.setValue(offsetsRef.current[value] ?? pageTop);
-  }, [pageTop, resetPagesToTop, scrollY, value]);
 
   const panResponder = useMemo(() => {
     const beginTouch = (event: GestureResponderEvent) => {
@@ -797,10 +601,6 @@ export function CollapsibleTabPager<V extends string>({
         // state round trip to start moving.
         settleTo(target);
         if (target !== index) {
-          // Mark the change as GESTURE-driven before handing it over, so the
-          // reconcile effect leaves this one continuous — see it for why a swipe
-          // must not reset the pages the way a tap does.
-          gestureCommitRef.current = state.order[target];
           state.onChange(state.order[target]);
         }
 
@@ -843,12 +643,6 @@ export function CollapsibleTabPager<V extends string>({
    * is ever under the finger, and the inactive ones are only ever moved to an
    * offset that maps to the same clamped header position, so sharing the value
    * cannot make the header jump.
-   *
-   * WHAT THAT INVARIANT DOES NOT COVER: which page the value belongs to. It is
-   * last-writer-wins, so after the active page changes it still describes the
-   * page the user LEFT until something corrects it. Nothing here can — the
-   * reconcile effect above is what re-points it at the arriving page, and it is
-   * why that effect keys on `value` rather than on a gesture.
    */
   const scrollHandlers = useMemo(() => {
     const handlers = {} as Record<V, (event: NativeSyntheticEvent<NativeScrollEvent>) => void>;
@@ -875,40 +669,12 @@ export function CollapsibleTabPager<V extends string>({
     // `interpolate` needs a non-degenerate range; before the first layout there
     // is nothing to collapse anyway.
     const distance = Math.max(collapseDistance, 1);
-    // Anchored at `pageTop`, NOT at 0, so the chrome starts moving on the first
-    // point the page travels from its own top. Anchoring at 0 leaves the header
-    // parked for the first `contentInsetTop` points of every scroll, and the
-    // page content — which moved immediately — spends that whole band clipped
-    // behind the pinned tab bar. Keeping the two anchored together is what makes
-    // the first row of a page sit flush under the bar at every offset, and it is
-    // a no-op wherever `contentInsetTop` is 0.
     return scrollY.interpolate({
-      inputRange: [pageTop, pageTop + distance],
+      inputRange: [0, distance],
       outputRange: [0, -distance],
       extrapolate: 'clamp',
     });
-  }, [collapseDistance, pageTop, scrollY]);
-
-  /**
-   * Fades the header out across the SAME band the collapse travels.
-   *
-   * Sharing `distance` and `pageTop` with `headerTranslate` is the whole design:
-   * the header reaches zero opacity on the frame the tab bar comes to rest, so
-   * the chrome always settles onto plain background instead of onto whatever the
-   * header's last rows happen to be. A shorter hand-tuned constant would drift
-   * from the collapse the first time the header's height changed.
-   */
-  const headerOpacity = useMemo(() => {
-    if (!fadeHeaderOnCollapse) {
-      return null;
-    }
-    const distance = Math.max(collapseDistance, 1);
-    return scrollY.interpolate({
-      inputRange: [pageTop, pageTop + distance],
-      outputRange: [1, 0],
-      extrapolate: 'clamp',
-    });
-  }, [collapseDistance, fadeHeaderOnCollapse, pageTop, scrollY]);
+  }, [collapseDistance, scrollY]);
 
   const pageProps = useMemo(() => {
     const props = {} as Record<V, CollapsiblePageProps>;
@@ -926,11 +692,6 @@ export function CollapsibleTabPager<V extends string>({
         // low, below the tab bar it is meant to clear.
         progressViewOffset: chromePadding,
         scrollEventThrottle: 16,
-        // Always on, never conditional on `contentInsetTop`: a page that is not
-        // inset never receives a negative target in the first place, so the flag
-        // is inert there, and one unconditional value is one fewer thing for a
-        // page to be handed the wrong version of. See the prop.
-        scrollToOverflowEnabled: true,
       };
     });
     return props;
@@ -976,20 +737,7 @@ export function CollapsibleTabPager<V extends string>({
           style={[styles.chrome, { transform: [{ translateY: headerTranslate }] }]}
           testID={`${testID}-chrome`}
         >
-          {/*
-            `onLayout` STAYS on this wrapper. Opacity does not affect layout, so
-            the measurement it feeds — `headerHeight`, and through it
-            `collapseDistance` and every page's `paddingTop` — is unchanged.
-            Moving it onto a new inner view to keep this one "plain" would be the
-            way to break that.
-          */}
-          <Animated.View
-            onLayout={handleHeaderLayout}
-            style={headerOpacity ? { opacity: headerOpacity } : null}
-            testID={`${testID}-header`}
-          >
-            {header}
-          </Animated.View>
+          <View onLayout={handleHeaderLayout}>{header}</View>
           <View onLayout={handleTabBarLayout}>{tabBar}</View>
         </Animated.View>
       </View>
