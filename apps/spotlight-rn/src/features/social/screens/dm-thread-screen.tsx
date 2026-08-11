@@ -1221,8 +1221,20 @@ const styles = StyleSheet.create({
     // Spans the thread and centres, rather than aligning to whichever side sent
     // the next message — it dates the CONVERSATION, not one person's turn.
     alignSelf: 'stretch',
-    paddingBottom: 4,
-    paddingTop: 12,
+    /*
+      SYMMETRIC AT 16, AND THE TWO NUMBERS DIFFER FOR A REASON.
+
+      The stamp shares a row with the message beneath it, so nothing separates
+      the two but this padding — while ABOVE it the list's own `gap: 8` between
+      rows is already doing half the work. Equal padding therefore reads
+      unequal: at 12/4 it measured 20 above and 4 below, and looked glued to the
+      message under it.
+
+      8 + the list's 8 = 16 above, 16 below. Change `listContent.gap` and this
+      has to move with it.
+    */
+    paddingBottom: 16,
+    paddingTop: 8,
     textAlign: 'center',
   },
   seenNote: {
