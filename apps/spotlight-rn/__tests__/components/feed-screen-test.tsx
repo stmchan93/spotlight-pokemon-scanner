@@ -1,9 +1,10 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
-import { Alert, StyleSheet } from 'react-native';
-import { useRouter } from 'expo-router';
+import { Alert, Animated, FlatList, Platform, StyleSheet } from 'react-native';
+import { useFocusEffect, useRouter } from 'expo-router';
 
 import { deletePost, fetchFollowingFeed, fetchGlobalFeed } from '@/features/social/social-service';
 import { FeedScreen } from '@/features/social/screens/feed-screen';
+import { signalFeedNeedsRefresh } from '@/features/social/screens/new-post-screen';
 
 import { renderWithProviders } from '../test-utils';
 
@@ -30,6 +31,9 @@ jest.mock('@/features/social/social-service', () => ({
   fetchLikedPostIds: jest.fn(async () => new Set()),
   likePost: jest.fn(async () => true),
   unlikePost: jest.fn(async () => true),
+  fetchRepostedPostIds: jest.fn(async () => new Set()),
+  repostPost: jest.fn(async () => true),
+  unrepostPost: jest.fn(async () => true),
   fetchComments: jest.fn(async () => []),
   addComment: jest.fn(async () => ({ ok: false, reason: 'nope' })),
   likeComment: jest.fn(async () => true),
@@ -47,6 +51,7 @@ function buildPost(overrides: { id: string } & Record<string, unknown>) {
     cardId: null,
     likeCount: 0,
     commentCount: 0,
+    repostCount: 0,
     createdAt: '2026-05-01T00:00:00.000Z',
     media: [],
     ...overrides,
@@ -118,6 +123,17 @@ describe('FeedScreen', () => {
 
     fireEvent.press(screen.getByTestId('feed-header-notifications'));
     expect(push).toHaveBeenCalledWith('/notifications');
+
+    /*
+      HOME KEEPS THE BELL AND THE `+`. The bar took a `trailing` variant so
+      Collection could draw the profile toolbar's edit/share pair (Figma
+      3670:47454) out of the SAME component, and Collection genuinely lost its
+      bell and `+` in that change — so Home is now the only place either lives.
+      Asserting the profile pair's ABSENCE here is what keeps the variant from
+      leaking across.
+    */
+    expect(screen.queryByTestId('feed-header-edit')).toBeNull();
+    expect(screen.queryByTestId('feed-header-share')).toBeNull();
   });
 
   // The bar FLOATS and its bubbles stay put; only the pill gets out of the way.
@@ -145,16 +161,24 @@ describe('FeedScreen', () => {
     expect(push).toHaveBeenLastCalledWith('/notifications');
   });
 
-  // Figma 3505:14283. The hairline belongs to the FEED, not to the floating bar
-  // — pinned, it would be a grey line hovering over posts with nothing above it
-  // to rule off, so it has to sit outside the bar and travel with the content.
-  it('draws the rule as a row of the list rather than inside the pinned bar', async () => {
+  /*
+    NO RULE AT ALL — deliberately, and this test is inverted rather than deleted
+    so the removal is visible to whoever comes looking for the hairline.
+
+    The feed used to render one as its first list row (`HomeHeaderRule`), on the
+    reading that the hairline belonged to the page rather than to the floating
+    bar. The live frame (Figma "Home" 3523:15499) draws no line under the
+    toolbar: the bar is floating glass that is meant to hover, and the only
+    hairlines on Home are the ones each post card closes with. The bar's own 8pt
+    bottom padding plus a card's 16pt top inset is the whole gap.
+  */
+  it('draws no hairline under the bar — not in the list, not in the bar', async () => {
     renderWithProviders(<FeedScreen />);
     await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
-    expect(screen.getByTestId('feed-header-rule')).toBeTruthy();
+    expect(screen.queryByTestId('feed-header-rule')).toBeNull();
     expect(within(screen.getByTestId('feed-header')).queryByTestId('feed-header-rule')).toBeNull();
-    expect(within(screen.getByTestId('feed-list')).getByTestId('feed-header-rule')).toBeTruthy();
+    expect(within(screen.getByTestId('feed-list')).queryByTestId('feed-header-rule')).toBeNull();
   });
 
   it('opens the app drawer from the header menu', async () => {
@@ -179,6 +203,85 @@ describe('FeedScreen', () => {
     await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
     expect(screen.getByTestId('drawer-edge-swipe')).toBeTruthy();
+  });
+
+  /*
+    Engagement counts (`posts.comment_count`, `like_count`) are read at fetch
+    time and never pushed, so a feed left open goes stale silently. Reported from
+    two accounts side by side: one had written eight comments while the other
+    still showed "1 comment" on the same post, and it only corrected after
+    opening the thread and backing out.
+
+    `useFocusEffect` is mocked to a bare `jest.fn()` in this file, so these drive
+    the effect by invoking the callback it was handed — which is also the only
+    way to control WHEN focus happens relative to the clock.
+  */
+  describe('refetching a stale feed on focus', () => {
+    /** Run the callback the screen most recently passed to `useFocusEffect`. */
+    async function triggerFocus() {
+      const calls = (useFocusEffect as jest.Mock).mock.calls;
+      const effect = calls[calls.length - 1]?.[0] as (() => void) | undefined;
+      await act(async () => {
+        effect?.();
+      });
+    }
+
+    it('refetches when the feed has gone stale, without blanking what is on screen', async () => {
+      const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(0);
+      renderWithProviders(<FeedScreen />);
+      await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
+      expect(fetchGlobalFeed).toHaveBeenCalledTimes(1);
+
+      // Come back well past the staleness window.
+      nowSpy.mockReturnValue(60_000);
+      (fetchGlobalFeed as jest.Mock).mockResolvedValue([
+        buildPost({ id: '1', body: 'Feed post, now with 8 comments' }),
+      ]);
+      await triggerFocus();
+      // RELEASE the clock before waiting. `waitFor` measures its own timeout
+      // against `Date.now()`, so leaving it frozen makes the wait unable to
+      // advance — which showed up as this test passing alone and flaking under
+      // full-suite load. The staleness decision has already been made by now.
+      nowSpy.mockRestore();
+
+      await waitFor(() => expect(fetchGlobalFeed).toHaveBeenCalledTimes(2));
+      // QUIET: the previous page stayed up throughout. If this went through
+      // `loadFeed` the list would have been emptied and a spinner shown, which
+      // is right for a cold open and wrong for coming back to a tab.
+      await waitFor(() =>
+        expect(screen.getByText('Feed post, now with 8 comments')).toBeTruthy(),
+      );
+    });
+
+    it('does not refetch when the feed is still fresh', async () => {
+      const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(0);
+      renderWithProviders(<FeedScreen />);
+      await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
+      expect(fetchGlobalFeed).toHaveBeenCalledTimes(1);
+
+      // Straight back inside the window — a tab bounce, which is the most
+      // common navigation in this app and must not cost a round trip.
+      nowSpy.mockReturnValue(5_000);
+      await triggerFocus();
+      nowSpy.mockRestore();
+
+      expect(fetchGlobalFeed).toHaveBeenCalledTimes(1);
+    });
+
+    it('still reloads immediately after composing, however fresh the feed is', async () => {
+      const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(0);
+      renderWithProviders(<FeedScreen />);
+      await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
+
+      // Your own new post appearing at the top must never wait on a staleness
+      // window — that would read as the post having failed.
+      signalFeedNeedsRefresh();
+      nowSpy.mockReturnValue(1_000);
+      await triggerFocus();
+      nowSpy.mockRestore();
+
+      await waitFor(() => expect(fetchGlobalFeed).toHaveBeenCalledTimes(2));
+    });
   });
 
   // Deleting your own post: the ⋯ affordance is on the card, but the confirm +
@@ -306,5 +409,187 @@ describe('FeedScreen', () => {
       expect(screen.getByTestId('feed-post-card-chip')).toBeTruthy();
     });
     expect(screen.getByText('View card')).toBeTruthy();
+  });
+
+  /*
+    "Back to top" (Figma 3725:59137). Collection, Wishlist and Insights have all
+    carried the FAB for a while; Home never got one.
+
+    Three things make the feed's copy of it different from every other caller,
+    and all three fail SILENTLY, so all three are pinned here.
+
+    1. NATIVE DRIVER. The list's `onScroll` is an `Animated.event` with
+       `useNativeDriver: true` — it is what animates the floating bar. But
+       `useScrollToTop(ref, onScroll)` wraps whatever it is handed in a plain JS
+       `useCallback`, so passing that event in and using the result as `onScroll`
+       is precisely the arrow-function wrap the event's own comment warns about.
+       The hook is therefore given NO handler, and its `handleScroll` is invoked
+       from inside the event's `listener`, beside `setIsSearchPillHidden`.
+
+    2. NEGATIVE REST OFFSET. `contentInsetAdjustmentBehavior="automatic"` means
+       UIKit insets this list, so on iOS it rests at `-insets.top`, not at 0 —
+       the Collection pages' `pageTopOffset` again. That offset has to be used
+       BOTH for the scroll target and for the travel measurement that decides
+       when the button shows. Android takes the explicit-padding branch and
+       rests at 0.
+
+    3. CLAMPING. RN clamps a negative `scrollTo`/`scrollToOffset` target back to
+       0 unless `scrollToOverflowEnabled` is set, so without that prop point 2 is
+       inert and "back to top" lands a status bar short.
+  */
+  describe('the back-to-top button', () => {
+    /** The top inset `renderWithProviders` mounts. The list rests at `-59`. */
+    const TOP_INSET = 59;
+    /** The viewport `handleLayout` is told about, i.e. the reveal threshold. */
+    const VIEWPORT = 800;
+
+    /**
+     * Just past one viewport of TRAVEL from a list resting at -59
+     * (760 + 59 = 819 > 800), but short of it by the raw-offset arithmetic
+     * (760 < 800). The only band where the inset handling is observable.
+     */
+    const PAST_ONE_VIEWPORT = 760;
+
+    function feedList() {
+      return screen.getByTestId('feed-list');
+    }
+
+    /**
+     * The button is always mounted — `ScrollToTopButton` fades and disarms
+     * rather than unmounting — so "visible" is read off the wrapper's
+     * `pointerEvents`, which is also what makes it untappable while hidden.
+     */
+    function fabPointerEvents() {
+      // The `pointerEvents` lives on the primitive's animated wrapper, a few
+      // composite layers above the pressable that carries the testID.
+      let node: ReturnType<typeof screen.getByTestId> | null =
+        screen.getByTestId('feed-scroll-to-top');
+      while (node && node.props?.pointerEvents === undefined) {
+        node = node.parent;
+      }
+      return node?.props?.pointerEvents;
+    }
+
+    async function measureViewport() {
+      await act(async () => {
+        fireEvent(feedList(), 'layout', {
+          nativeEvent: { layout: { height: VIEWPORT, width: 393, x: 0, y: 0 } },
+        });
+      });
+    }
+
+    async function scrollFeed(y: number) {
+      await act(async () => {
+        fireEvent.scroll(feedList(), {
+          nativeEvent: {
+            contentOffset: { y },
+            contentSize: { height: 4000, width: 393 },
+            layoutMeasurement: { height: VIEWPORT, width: 393 },
+          },
+        });
+      });
+    }
+
+    it('keeps the scroll handler natively driven', async () => {
+      renderWithProviders(<FeedScreen />);
+      await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
+
+      // `Animated.event` returns the AnimatedEvent OBJECT when it is native and
+      // a plain handler function when it is not, so this distinguishes the two.
+      // Composing the FAB by passing this handler through `useScrollToTop` would
+      // turn it into a function here and move the bar's motion onto the bridge.
+      const onScroll = screen.UNSAFE_getByType(Animated.FlatList as never).props.onScroll;
+      expect(typeof onScroll).toBe('object');
+      expect(onScroll.__isNative).toBe(true);
+    });
+
+    it('does not appear while the feed is at rest', async () => {
+      renderWithProviders(<FeedScreen />);
+      await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
+      await measureViewport();
+
+      expect(fabPointerEvents()).toBe('none');
+
+      // A short scroll is still not a viewport of travel.
+      await scrollFeed(120 - TOP_INSET);
+      expect(fabPointerEvents()).toBe('none');
+    });
+
+    it('appears once the feed has been scrolled past one viewport', async () => {
+      renderWithProviders(<FeedScreen />);
+      await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
+      await measureViewport();
+
+      await scrollFeed(PAST_ONE_VIEWPORT);
+      expect(fabPointerEvents()).toBe('auto');
+    });
+
+    it('scrolls to the list’s real top, which on iOS is not 0', async () => {
+      const scrollToOffset = jest
+        .spyOn(FlatList.prototype, 'scrollToOffset')
+        .mockImplementation(() => {});
+
+      renderWithProviders(<FeedScreen />);
+      await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
+      await measureViewport();
+      await scrollFeed(PAST_ONE_VIEWPORT);
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('feed-scroll-to-top'));
+      });
+
+      // `-insets.top`, not 0: the list is inset by UIKit and RESTS there.
+      expect(scrollToOffset).toHaveBeenCalledWith({ offset: -TOP_INSET, animated: true });
+      scrollToOffset.mockRestore();
+    });
+
+    // The prop that stops RN clamping that negative target back to 0. It lives
+    // on the list, not on the FAB, so it is asserted separately — without it the
+    // offset above is computed correctly and then thrown away.
+    it('lets the list accept that negative target', async () => {
+      renderWithProviders(<FeedScreen />);
+      await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
+
+      expect(feedList().props.scrollToOverflowEnabled).toBe(true);
+    });
+
+    it('scrolls to 0 on Android, where the list is not inset', async () => {
+      jest.replaceProperty(Platform, 'OS', 'android');
+      const scrollToOffset = jest
+        .spyOn(FlatList.prototype, 'scrollToOffset')
+        .mockImplementation(() => {});
+
+      renderWithProviders(<FeedScreen />);
+      await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
+      await measureViewport();
+      // Android reserves the bar with `paddingTop` instead, so it rests at 0 and
+      // the same 760 is genuinely short of a viewport — the button stays hidden.
+      await scrollFeed(PAST_ONE_VIEWPORT);
+      expect(fabPointerEvents()).toBe('none');
+
+      await scrollFeed(VIEWPORT + 1);
+      expect(fabPointerEvents()).toBe('auto');
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('feed-scroll-to-top'));
+      });
+      expect(scrollToOffset).toHaveBeenCalledWith({ offset: 0, animated: true });
+      scrollToOffset.mockRestore();
+    });
+
+    // Visibility is scroll TRAVEL only, so a feed with nothing in it can never
+    // reveal the button — no extra empty-state guard is needed, and the other
+    // three screens carrying this FAB rely on the same property.
+    it('never appears over an empty feed', async () => {
+      (fetchGlobalFeed as jest.Mock).mockResolvedValue([]);
+      renderWithProviders(<FeedScreen />);
+      await waitFor(() => expect(screen.getByTestId('feed-empty')).toBeTruthy());
+      await measureViewport();
+
+      expect(fabPointerEvents()).toBe('none');
+      // Even a bounce: an empty list can only overscroll ABOVE its own top,
+      // which is negative travel.
+      await scrollFeed(-TOP_INSET - 40);
+      expect(fabPointerEvents()).toBe('none');
+    });
   });
 });

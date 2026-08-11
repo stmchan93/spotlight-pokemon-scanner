@@ -21,6 +21,7 @@ function buildPost(overrides: Record<string, unknown> = {}) {
     media: [],
     likeCount: 0,
     commentCount: 0,
+    repostCount: 0,
     createdAt: '2026-08-01T00:00:00.000Z',
     ...overrides,
   };

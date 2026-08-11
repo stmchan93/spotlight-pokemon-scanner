@@ -31,6 +31,7 @@ import {
   type CollapsibleScrollTarget,
 } from '@/components/page-tab-pager';
 import type { UserProfile } from '@/features/auth/auth-models';
+import { FOR_SALE_TAB_ENABLED } from '@/features/profile/for-sale-tab';
 import {
   CollectionGridRow,
   CollectionGridSingleRow,
@@ -47,25 +48,40 @@ import {
 import { ProfileHeader } from '@/features/profile/components/profile-header';
 import { findOrCreateDm } from '@/features/social/dm-service';
 import { PostCard } from '@/features/social/components/post-card';
-import { type FeedPost, fetchAuthorPosts } from '@/features/social/social-service';
+import { RepostAttribution } from '@/features/social/components/repost-attribution';
+import {
+  type AuthorActivityItem,
+  type FeedPost,
+  fetchAuthorActivity,
+} from '@/features/social/social-service';
 import { resolveRepositoryBaseUrl, useAppServices } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
 
 const GRID_TEST_ID = 'public-profile-collection-grid';
+// The pager mounts every page at once, so the Wishlist grid needs its own
+// testID root — sharing GRID_TEST_ID would emit duplicate tile testIDs.
+const WISHLIST_GRID_TEST_ID = 'public-profile-wishlist-grid';
 
 // Cards fetched per request. The backend clamps `limit` to 1000; 200 keeps the
 // first paint quick and lets onEndReached pull the rest.
 const COLLECTION_PAGE_SIZE = 200;
 
-// Same three tabs the owner sees on their own Portfolio. Only Collection is
-// live; Activity renders this collector's posts (Phase 3a). For Sale is still
-// the gated "Coming soon" state.
-type ProfileTab = 'collection' | 'forsale' | 'activity';
-const PROFILE_TABS: readonly PageTab<ProfileTab>[] = [
+// Collection, Wishlist ("what they're hunting"), and Activity are live; For Sale
+// is still the gated "Coming soon" state. Wishlist is public by the same rule
+// Collection already follows — any signed-in visitor may read it.
+type ProfileTab = 'collection' | 'wishlist' | 'forsale' | 'activity';
+const ALL_PROFILE_TABS: readonly PageTab<ProfileTab>[] = [
   { value: 'collection', label: 'Collection' },
+  { value: 'wishlist', label: 'Wishlist' },
   { value: 'forsale', label: 'For Sale' },
   { value: 'activity', label: 'Activity' },
 ];
+// For Sale is hidden until the feature exists — see `FOR_SALE_TAB_ENABLED` for
+// why this is a filter rather than a deleted line. Every For Sale render path
+// below stays live and type-checked.
+const PROFILE_TABS = ALL_PROFILE_TABS.filter(
+  (tab) => tab.value !== 'forsale' || FOR_SALE_TAB_ENABLED,
+);
 // Left→right order the horizontal page swipe walks. Derived from PROFILE_TABS so
 // the two can never disagree about which tab is "next".
 const PROFILE_TAB_ORDER = PROFILE_TABS.map((tab) => tab.value);
@@ -85,7 +101,8 @@ type FollowState = 'following' | 'not-following' | null;
 type PublicCollectionRow =
   | { kind: 'grid'; key: string; rowEntries: InventoryCardEntry[]; rowIndex: number }
   | { kind: 'grid-single'; key: string; entry: InventoryCardEntry }
-  | { kind: 'post'; key: string; post: FeedPost };
+  /** `repostedAt` set = this collector passed the post on rather than wrote it. */
+  | { kind: 'post'; key: string; post: FeedPost; repostedAt: string | null };
 
 /** Has this profile's Activity posts loaded? */
 type ActivityStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -123,6 +140,11 @@ export type PublicProfileScreenProps = {
   onBack?: () => void;
   /** Tapping one of the visitor-visible cards. */
   onOpenEntry?: (entry: InventoryCardEntry) => void;
+  /**
+   * Tab to open on, from a shared deep link (`?tab=wishlist`). Defaults to
+   * Collection. Only the INITIAL tab — the visitor is free to switch after.
+   */
+  initialTab?: ProfileTab;
   testID?: string;
 };
 
@@ -140,6 +162,7 @@ export function PublicProfileScreen({
   userId,
   onBack,
   onOpenEntry,
+  initialTab,
   testID = 'public-profile',
 }: PublicProfileScreenProps) {
   const theme = useSpotlightTheme();
@@ -154,7 +177,12 @@ export function PublicProfileScreen({
   const accessToken = auth.accessToken;
   const apiBaseUrl = resolveRepositoryBaseUrl();
 
-  const [activeTab, setActiveTab] = useState<ProfileTab>('collection');
+  // A deep link may name the opening tab. Fall back to Collection when it names
+  // one that isn't currently offered — `PROFILE_TABS` filters out gated tabs, and
+  // landing on a page with no tab in the bar would strand the visitor.
+  const [activeTab, setActiveTab] = useState<ProfileTab>(
+    initialTab && PROFILE_TAB_ORDER.includes(initialTab) ? initialTab : 'collection',
+  );
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [profileStatus, setProfileStatus] = useState<ProfileStatus>('loading');
   const [entries, setEntries] = useState<InventoryCardEntry[]>([]);
@@ -176,6 +204,7 @@ export function PublicProfileScreen({
   // One scroller per page tab. The pager keeps their vertical offsets in step so
   // a horizontal swipe can never reveal a page whose header sits somewhere else.
   const collectionScrollRef = useRef<FlatList<PublicCollectionRow>>(null);
+  const wishlistScrollRef = useRef<FlatList<PublicCollectionRow>>(null);
   const forSaleScrollRef = useRef<ScrollView>(null);
   const activityScrollRef = useRef<FlatList<PublicCollectionRow>>(null);
   const pageScrollRefs = useMemo<
@@ -183,6 +212,7 @@ export function PublicProfileScreen({
   >(
     () => ({
       collection: collectionScrollRef,
+      wishlist: wishlistScrollRef,
       forsale: forSaleScrollRef,
       activity: activityScrollRef,
     }),
@@ -193,9 +223,18 @@ export function PublicProfileScreen({
   const [hasMoreEntries, setHasMoreEntries] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const loadingMoreRef = useRef(false);
+  // Wishlist tab: the cards this collector is hunting. Same lazy-on-first-open
+  // contract as Activity below — the read is the same expensive per-owner
+  // inventory computation as Collection, so it is not paid for until asked for.
+  const [wishlistEntries, setWishlistEntries] = useState<InventoryCardEntry[]>([]);
+  const [wishlistStatus, setWishlistStatus] = useState<CollectionStatus>('idle');
+  const [wishlistHasMore, setWishlistHasMore] = useState(false);
+  const [wishlistLoadingMore, setWishlistLoadingMore] = useState(false);
+  const wishlistLoadingMoreRef = useRef(false);
+  const wishlistLoadedRef = useRef<string | null>(null);
   // Activity tab (Phase 3a): this collector's posts. Fetched lazily the first
   // time the tab is opened, then cached for the rest of the visit.
-  const [activityPosts, setActivityPosts] = useState<FeedPost[]>([]);
+  const [activityPosts, setActivityPosts] = useState<AuthorActivityItem[]>([]);
   const [activityStatus, setActivityStatus] = useState<ActivityStatus>('idle');
   // Which user's Activity posts have already been requested this visit, so
   // re-selecting the tab doesn't refetch. Reset when the profile changes.
@@ -218,6 +257,12 @@ export function PublicProfileScreen({
     setFollowPending(false);
     setMessagePending(false);
     setMessageFailed(false);
+    setWishlistEntries([]);
+    setWishlistStatus('idle');
+    setWishlistHasMore(false);
+    setWishlistLoadingMore(false);
+    wishlistLoadedRef.current = null;
+    wishlistLoadingMoreRef.current = false;
     setActivityPosts([]);
     setActivityStatus('idle');
     activityLoadedRef.current = null;
@@ -331,6 +376,77 @@ export function PublicProfileScreen({
     };
   }, [canFollow, targetUserId]);
 
+  // Lazily load this collector's wishlist the first time the Wishlist tab opens.
+  // Same guard shape as Activity: keyed on the profile so switching collectors
+  // refetches, and ref-guarded so re-selecting the tab doesn't re-hit the network.
+  useEffect(() => {
+    if (activeTab !== 'wishlist' || !targetUserId || wishlistLoadedRef.current === targetUserId) {
+      return;
+    }
+
+    wishlistLoadedRef.current = targetUserId;
+    let cancelled = false;
+    setWishlistStatus('loading');
+    void (async () => {
+      try {
+        const loaded = await spotlightRepository.getProfileWishlistEntries(targetUserId, {
+          limit: COLLECTION_PAGE_SIZE,
+          offset: 0,
+        });
+        if (cancelled) {
+          return;
+        }
+        setWishlistEntries(loaded);
+        setWishlistHasMore(loaded.length >= COLLECTION_PAGE_SIZE);
+        setWishlistStatus('ready');
+      } catch {
+        if (!cancelled) {
+          // Allow a retry on the next open rather than pinning the error for
+          // the rest of the visit.
+          wishlistLoadedRef.current = null;
+          setWishlistStatus('error');
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, spotlightRepository, targetUserId]);
+
+  // Page the wishlist for the same reason the collection pages: a capped first
+  // page would quietly under-show a long hunt list.
+  const handleLoadMoreWishlist = useCallback(() => {
+    if (
+      !targetUserId ||
+      !wishlistHasMore ||
+      wishlistLoadingMoreRef.current ||
+      wishlistStatus !== 'ready'
+    ) {
+      return;
+    }
+
+    wishlistLoadingMoreRef.current = true;
+    setWishlistLoadingMore(true);
+
+    void (async () => {
+      try {
+        const nextPage = await spotlightRepository.getProfileWishlistEntries(targetUserId, {
+          limit: COLLECTION_PAGE_SIZE,
+          offset: wishlistEntries.length,
+        });
+        setWishlistEntries((current) => [...current, ...nextPage]);
+        setWishlistHasMore(nextPage.length >= COLLECTION_PAGE_SIZE);
+      } catch {
+        // Keep what's on screen and stop paging rather than blanking the grid.
+        setWishlistHasMore(false);
+      } finally {
+        wishlistLoadingMoreRef.current = false;
+        setWishlistLoadingMore(false);
+      }
+    })();
+  }, [spotlightRepository, targetUserId, wishlistEntries.length, wishlistHasMore, wishlistStatus]);
+
   // Lazily load this collector's posts the first time the Activity tab opens.
   // Keyed on the profile so switching profiles refetches; guarded so re-selecting
   // the tab doesn't re-hit the network.
@@ -343,7 +459,8 @@ export function PublicProfileScreen({
     let cancelled = false;
     setActivityStatus('loading');
     void (async () => {
-      const loaded = await fetchAuthorPosts(targetUserId);
+      // Activity = what they wrote AND what they passed on, newest act first.
+      const loaded = await fetchAuthorActivity(targetUserId);
       if (cancelled) {
         return;
       }
@@ -369,18 +486,32 @@ export function PublicProfileScreen({
 
     setFollowState(nextFollowing ? 'following' : 'not-following');
     setDisplayFollowerCount((count) => count + (nextFollowing ? 1 : -1));
+    /*
+      Move the VIEWER's own following count too, not just the target's follower
+      count sitting above this line.
+
+      The database was always right — the `follows` trigger is SECURITY DEFINER
+      and updates both profiles — but the viewer's number is rendered from
+      `currentUser`, which is read at sign-in and never re-read. So following
+      someone visibly bumped THEIR followers while the viewer's own Following
+      stayed put, which reads as the follow half-working.
+
+      Optimistic and symmetrical with the line above: same trigger, same revert.
+    */
+    auth.applyFollowingDelta(nextFollowing ? 1 : -1);
     setFollowPending(true);
 
     void (async () => {
       const ok = await (nextFollowing ? followUser(targetUserId) : unfollowUser(targetUserId));
       if (!ok) {
-        // Reconcile: the write failed, so undo the optimistic flip + count.
+        // Reconcile: the write failed, so undo the optimistic flip + both counts.
         setFollowState(wasFollowing ? 'following' : 'not-following');
         setDisplayFollowerCount((count) => count + (nextFollowing ? -1 : 1));
+        auth.applyFollowingDelta(nextFollowing ? -1 : 1);
       }
       setFollowPending(false);
     })();
-  }, [followPending, followState, targetUserId]);
+  }, [auth, followPending, followState, targetUserId]);
 
   // Open (or create) the 1:1 thread with this collector, then jump straight into
   // it. The display name rides along as `?name=` because the thread screen titles
@@ -481,8 +612,29 @@ export function PublicProfileScreen({
     }));
   }, [entries]);
 
+  const wishlistData = useMemo<PublicCollectionRow[]>(() => {
+    if (wishlistEntries.length === 0) {
+      return [];
+    }
+    if (wishlistEntries.length === 1) {
+      return [{ kind: 'grid-single', key: wishlistEntries[0].id, entry: wishlistEntries[0] }];
+    }
+    return chunkCollectionGridRows(wishlistEntries).map((rowEntries, rowIndex) => ({
+      kind: 'grid',
+      key: rowEntries[0]?.id ?? `wishlist-row-${rowIndex}`,
+      rowEntries,
+      rowIndex,
+    }));
+  }, [wishlistEntries]);
+
   const activityData = useMemo<PublicCollectionRow[]>(
-    () => activityPosts.map((post) => ({ kind: 'post', key: post.id, post })),
+    () =>
+      activityPosts.map((item) => ({
+        kind: 'post',
+        key: item.post.id,
+        post: item.post,
+        repostedAt: item.repostedAt,
+      })),
     [activityPosts],
   );
 
@@ -493,19 +645,36 @@ export function PublicProfileScreen({
     [router],
   );
 
-  const renderItem = useCallback(
-    ({ item }: { item: PublicCollectionRow }) => {
+  // Shared row renderer. The grid testID is a PARAMETER because the pager mounts
+  // Collection and Wishlist at the same time — one shared root would emit two
+  // tiles per card id.
+  const renderRow = useCallback(
+    (item: PublicCollectionRow, gridTestID: string) => {
       if (item.kind === 'post') {
         // Full-bleed post card (Figma 2903-7128): the card owns its inner padding
         // and its image spans edge-to-edge, so no page-gutter wrapper here.
         return (
-          <PostCard
-            accessToken={accessToken}
-            apiBaseUrl={apiBaseUrl}
-            onPressCard={handleOpenCard}
-            post={item.post}
-            testID={`${testID}-post`}
-          />
+          <>
+            {/*
+              A reposted card carries the ORIGINAL author's name and avatar, so
+              without this line it reads as though this collector posted someone
+              else's photo. It says whose act put the post here, not whose post
+              it is.
+            */}
+            {item.repostedAt ? (
+              <RepostAttribution
+                name={viewerId && viewerId === targetUserId ? null : profile?.displayName}
+                testID={`${testID}-repost-attribution`}
+              />
+            ) : null}
+            <PostCard
+              accessToken={accessToken}
+              apiBaseUrl={apiBaseUrl}
+              onPressCard={handleOpenCard}
+              post={item.post}
+              testID={`${testID}-post`}
+            />
+          </>
         );
       }
       if (item.kind === 'grid-single') {
@@ -513,21 +682,39 @@ export function PublicProfileScreen({
           <CollectionGridSingleRow
             entry={item.entry}
             onPressEntry={handlePressEntry}
-            testID={GRID_TEST_ID}
+            testID={gridTestID}
           />
         );
       }
       return (
         <CollectionGridRow
-          isFirstRow={item.rowIndex === 0}
           onPressEntry={handlePressEntry}
           rowEntries={item.rowEntries}
           rowIndex={item.rowIndex}
-          testID={GRID_TEST_ID}
+          testID={gridTestID}
         />
       );
     },
-    [accessToken, apiBaseUrl, handleOpenCard, handlePressEntry, testID],
+    [
+      accessToken,
+      apiBaseUrl,
+      handleOpenCard,
+      handlePressEntry,
+      profile?.displayName,
+      targetUserId,
+      testID,
+      viewerId,
+    ],
+  );
+
+  const renderItem = useCallback(
+    ({ item }: { item: PublicCollectionRow }) => renderRow(item, GRID_TEST_ID),
+    [renderRow],
+  );
+
+  const renderWishlistItem = useCallback(
+    ({ item }: { item: PublicCollectionRow }) => renderRow(item, WISHLIST_GRID_TEST_ID),
+    [renderRow],
   );
 
   const backButton = onBack ? (
@@ -727,6 +914,34 @@ export function PublicProfileScreen({
       </View>
     );
 
+  const wishlistEmpty =
+    wishlistStatus === 'loading' || wishlistStatus === 'idle' ? (
+      <InlineLoader label="Fetching wishlist" testID={`${testID}-wishlist-empty`} />
+    ) : (
+      <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
+        <StateCard
+          message={
+            wishlistStatus === 'error'
+              ? 'Please try again in a moment.'
+              : "This collector hasn't wishlisted any cards yet."
+          }
+          style={styles.stateCard}
+          testID={`${testID}-wishlist-empty`}
+          title={wishlistStatus === 'error' ? 'Could not load this wishlist' : 'No cards on their wishlist yet'}
+          variant="field"
+        />
+      </View>
+    );
+
+  const wishlistFooter = wishlistLoadingMore ? (
+    <View style={styles.footerSpinner}>
+      <ActivityIndicator
+        color={theme.colors.textSecondary}
+        testID={`${testID}-wishlist-loading-more`}
+      />
+    </View>
+  ) : null;
+
   const collectionFooter = isLoadingMore ? (
     <View style={styles.footerSpinner}>
       <ActivityIndicator
@@ -752,6 +967,17 @@ export function PublicProfileScreen({
           contentContainerStyle={contentContainerStyle}
           onScroll={page.onScroll}
           scrollEventThrottle={page.scrollEventThrottle}
+          // RN clamps a NEGATIVE scrollTo target to 0 unless this is set
+          // (RCTScrollViewComponentView.mm), and it clamps against
+          // `contentInset` — which is empty here, because
+          // `contentInsetAdjustmentBehavior="automatic"` puts the safe area
+          // in `adjustedContentInset` instead. Without it every "go to the
+          // top" the pager or the FAB performs lands `insets.top` short.
+          // `handled` so the comment sheet below gets the FIRST tap while its
+          // keyboard is up. Unset, a ScrollView claims that touch in the capture
+          // phase to dismiss the keyboard, costing send/⋯/like/reply a tap each.
+          keyboardShouldPersistTaps="handled"
+          scrollToOverflowEnabled={page.scrollToOverflowEnabled}
           testID={`${testID}-forsale-page`}
         >
           <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
@@ -766,6 +992,29 @@ export function PublicProfileScreen({
       );
     }
 
+    if (tab === 'wishlist') {
+      return (
+        <AnimatedFlatList
+          ref={wishlistScrollRef}
+          contentContainerStyle={contentContainerStyle}
+          data={wishlistData}
+          keyExtractor={(item) => item.key}
+          ListEmptyComponent={wishlistEmpty}
+          ListFooterComponent={wishlistFooter}
+          onEndReached={handleLoadMoreWishlist}
+          onEndReachedThreshold={0.5}
+          onScroll={page.onScroll}
+          renderItem={renderWishlistItem}
+          scrollEventThrottle={page.scrollEventThrottle}
+          // Same two scroll flags the sibling pages carry — see the Collection
+          // page below for why each is load-bearing.
+          keyboardShouldPersistTaps="handled"
+          scrollToOverflowEnabled={page.scrollToOverflowEnabled}
+          testID={`${testID}-wishlist-page`}
+        />
+      );
+    }
+
     if (tab === 'activity') {
       return (
         <AnimatedFlatList
@@ -777,6 +1026,17 @@ export function PublicProfileScreen({
           onScroll={page.onScroll}
           renderItem={renderItem}
           scrollEventThrottle={page.scrollEventThrottle}
+          // RN clamps a NEGATIVE scrollTo target to 0 unless this is set
+          // (RCTScrollViewComponentView.mm), and it clamps against
+          // `contentInset` — which is empty here, because
+          // `contentInsetAdjustmentBehavior="automatic"` puts the safe area
+          // in `adjustedContentInset` instead. Without it every "go to the
+          // top" the pager or the FAB performs lands `insets.top` short.
+          // `handled` so the comment sheet below gets the FIRST tap while its
+          // keyboard is up. Unset, a ScrollView claims that touch in the capture
+          // phase to dismiss the keyboard, costing send/⋯/like/reply a tap each.
+          keyboardShouldPersistTaps="handled"
+          scrollToOverflowEnabled={page.scrollToOverflowEnabled}
           testID={`${testID}-activity-page`}
         />
       );
@@ -796,6 +1056,17 @@ export function PublicProfileScreen({
         onScroll={page.onScroll}
         renderItem={renderItem}
         scrollEventThrottle={page.scrollEventThrottle}
+          // RN clamps a NEGATIVE scrollTo target to 0 unless this is set
+          // (RCTScrollViewComponentView.mm), and it clamps against
+          // `contentInset` — which is empty here, because
+          // `contentInsetAdjustmentBehavior="automatic"` puts the safe area
+          // in `adjustedContentInset` instead. Without it every "go to the
+          // top" the pager or the FAB performs lands `insets.top` short.
+          // `handled` so the comment sheet below gets the FIRST tap while its
+          // keyboard is up. Unset, a ScrollView claims that touch in the capture
+          // phase to dismiss the keyboard, costing send/⋯/like/reply a tap each.
+          keyboardShouldPersistTaps="handled"
+          scrollToOverflowEnabled={page.scrollToOverflowEnabled}
         testID={`${testID}-scroll-view`}
       />
     );

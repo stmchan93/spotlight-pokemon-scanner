@@ -11,7 +11,7 @@ import {
   unfollowUser,
 } from '@/features/profile/profile-service';
 import { findOrCreateDm } from '@/features/social/dm-service';
-import { fetchAuthorPosts } from '@/features/social/social-service';
+import { fetchAuthorActivity } from '@/features/social/social-service';
 import { PublicProfileScreen } from '@/features/profile/screens/public-profile-screen';
 
 import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
@@ -37,7 +37,10 @@ jest.mock('@/features/profile/profile-service', () => ({
 }));
 
 jest.mock('@/features/social/social-service', () => ({
-  fetchAuthorPosts: jest.fn(),
+  fetchAuthorActivity: jest.fn(),
+  fetchRepostedPostIds: jest.fn(async () => new Set()),
+  repostPost: jest.fn(async () => true),
+  unrepostPost: jest.fn(async () => true),
   fetchLikedPostIds: jest.fn(async () => new Set()),
   likePost: jest.fn(async () => true),
   unlikePost: jest.fn(async () => true),
@@ -47,6 +50,15 @@ jest.mock('@/features/social/social-service', () => ({
   unlikeComment: jest.fn(async () => true),
 }));
 
+/**
+ * Activity rows for posts this collector WROTE. `fetchAuthorActivity` returns
+ * `{ post, repostedAt }` — `repostedAt` is what marks a row as passed-on rather
+ * than authored, so it is null here.
+ */
+function authored(...posts: unknown[]) {
+  return posts.map((post) => ({ post, repostedAt: null }));
+}
+
 function buildPost(overrides: { id: string } & Record<string, unknown>) {
   return {
     authorId: 'user-1',
@@ -55,6 +67,7 @@ function buildPost(overrides: { id: string } & Record<string, unknown>) {
     cardId: null,
     likeCount: 0,
     commentCount: 0,
+    repostCount: 0,
     createdAt: '2026-05-01T00:00:00.000Z',
     media: [],
     ...overrides,
@@ -135,7 +148,7 @@ describe('PublicProfileScreen', () => {
     (isFollowing as jest.Mock).mockResolvedValue(false);
     (followUser as jest.Mock).mockResolvedValue(true);
     (unfollowUser as jest.Mock).mockResolvedValue(true);
-    (fetchAuthorPosts as jest.Mock).mockResolvedValue([]);
+    (fetchAuthorActivity as jest.Mock).mockResolvedValue([]);
     (findOrCreateDm as jest.Mock).mockResolvedValue('conversation-1');
   });
 
@@ -199,24 +212,170 @@ describe('PublicProfileScreen', () => {
     expect(screen.queryByTestId('portfolio-balance-header')).toBeNull();
   });
 
-  it('gates For Sale behind a Coming soon state', async () => {
+  // For Sale used to render a gated "Coming soon" page. A tab that costs a third
+  // of the bar and answers nothing is worse than no tab, so it is hidden until
+  // the feature exists — see `FOR_SALE_TAB_ENABLED`, which keeps every render
+  // path for it alive and type-checked rather than commenting them out.
+  it('does not offer a For Sale tab while the feature is unbuilt', async () => {
     renderPublicProfile();
 
     await waitFor(() => {
       expect(screen.getByTestId('public-profile-tabs')).toBeTruthy();
     });
 
-    fireEvent.press(screen.getByTestId('public-profile-tabs-tab-forsale'));
-    expect(screen.getByText('Coming soon')).toBeTruthy();
-    expect(screen.getByText('For Sale is coming soon.')).toBeTruthy();
+    expect(screen.queryByTestId('public-profile-tabs-tab-forsale')).toBeNull();
+    expect(screen.queryByText('Coming soon')).toBeNull();
+    // The two live tabs are untouched.
+    expect(screen.getByTestId('public-profile-tabs-tab-collection')).toBeTruthy();
+    expect(screen.getByTestId('public-profile-tabs-tab-activity')).toBeTruthy();
+  });
+
+  describe('the Wishlist tab', () => {
+    it('does not read the wishlist until the tab is opened', async () => {
+      const getProfileWishlistEntries = jest.fn(async () => [
+        buildEntry({ id: 'want-1', name: 'Umbreon VMAX' }),
+      ]);
+      renderPublicProfile({}, { getProfileWishlistEntries });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('public-profile-tabs')).toBeTruthy();
+      });
+
+      // The wishlist read is the same expensive per-owner computation as the
+      // collection — it must not be paid for on a visit that never opens the tab.
+      expect(getProfileWishlistEntries).not.toHaveBeenCalled();
+
+      fireEvent.press(screen.getByTestId('public-profile-tabs-tab-wishlist'));
+
+      await waitFor(() => {
+        expect(getProfileWishlistEntries).toHaveBeenCalledTimes(1);
+      });
+      expect(getProfileWishlistEntries).toHaveBeenCalledWith('user-1', {
+        limit: 200,
+        offset: 0,
+      });
+    });
+
+    it('renders the wishlist grid under its own testID root', async () => {
+      renderPublicProfile(
+        {},
+        {
+          getProfileWishlistEntries: async () => [
+            buildEntry({ id: 'want-1', name: 'Umbreon VMAX' }),
+            buildEntry({ id: 'want-2', name: 'Moonbreon' }),
+          ],
+        },
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('public-profile-tabs')).toBeTruthy();
+      });
+      fireEvent.press(screen.getByTestId('public-profile-tabs-tab-wishlist'));
+
+      // Collection and Wishlist are mounted at the SAME time by the pager, so a
+      // shared grid root would make these ids ambiguous.
+      await waitFor(() => {
+        expect(screen.getByTestId('public-profile-wishlist-grid-tile-want-1')).toBeTruthy();
+      });
+      expect(screen.getByTestId('public-profile-collection-grid-tile-entry-1')).toBeTruthy();
+    });
+
+    it('does not refetch when the tab is re-selected', async () => {
+      const getProfileWishlistEntries = jest.fn(async () => [
+        buildEntry({ id: 'want-1', name: 'Umbreon VMAX' }),
+      ]);
+      renderPublicProfile({}, { getProfileWishlistEntries });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('public-profile-tabs')).toBeTruthy();
+      });
+
+      fireEvent.press(screen.getByTestId('public-profile-tabs-tab-wishlist'));
+      await waitFor(() => {
+        expect(getProfileWishlistEntries).toHaveBeenCalledTimes(1);
+      });
+      fireEvent.press(screen.getByTestId('public-profile-tabs-tab-collection'));
+      fireEvent.press(screen.getByTestId('public-profile-tabs-tab-wishlist'));
+
+      expect(getProfileWishlistEntries).toHaveBeenCalledTimes(1);
+    });
+
+    // A shared `?tab=wishlist` link must land ON the wishlist, not on Collection
+    // with the visitor left to find the tab themselves.
+    it('opens directly on the wishlist when a deep link asks for it', async () => {
+      const getProfileWishlistEntries = jest.fn(async () => [
+        buildEntry({ id: 'want-1', name: 'Umbreon VMAX' }),
+      ]);
+      renderPublicProfile({ initialTab: 'wishlist' }, { getProfileWishlistEntries });
+
+      await waitFor(() => {
+        expect(getProfileWishlistEntries).toHaveBeenCalledTimes(1);
+      });
+      await waitFor(() => {
+        expect(screen.getByTestId('public-profile-wishlist-grid-tile-want-1')).toBeTruthy();
+      });
+    });
+
+    // Gated tabs are filtered out of the bar, so honouring a link to one would
+    // strand the visitor on a page with no way back to it.
+    it('falls back to Collection when a link names a tab that is not offered', async () => {
+      const getProfileWishlistEntries = jest.fn(async () => []);
+      renderPublicProfile({ initialTab: 'forsale' }, { getProfileWishlistEntries });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('public-profile-tabs')).toBeTruthy();
+      });
+      expect(screen.getByTestId('public-profile-collection-grid-tile-entry-1')).toBeTruthy();
+      expect(getProfileWishlistEntries).not.toHaveBeenCalled();
+    });
+
+    it('shows a friendly empty state when nothing is wishlisted', async () => {
+      renderPublicProfile({}, { getProfileWishlistEntries: async () => [] });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('public-profile-tabs')).toBeTruthy();
+      });
+      fireEvent.press(screen.getByTestId('public-profile-tabs-tab-wishlist'));
+
+      await waitFor(() => {
+        expect(screen.getByText('No cards on their wishlist yet')).toBeTruthy();
+      });
+    });
+
+    it('keeps the tab usable and allows a retry when the read fails', async () => {
+      const getProfileWishlistEntries = jest
+        .fn()
+        .mockRejectedValueOnce(new Error('offline'))
+        .mockResolvedValueOnce([buildEntry({ id: 'want-1', name: 'Umbreon VMAX' })]);
+      renderPublicProfile({}, { getProfileWishlistEntries });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('public-profile-tabs')).toBeTruthy();
+      });
+      fireEvent.press(screen.getByTestId('public-profile-tabs-tab-wishlist'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Could not load this wishlist')).toBeTruthy();
+      });
+
+      // A failed read must not pin the error for the rest of the visit.
+      fireEvent.press(screen.getByTestId('public-profile-tabs-tab-collection'));
+      fireEvent.press(screen.getByTestId('public-profile-tabs-tab-wishlist'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('public-profile-wishlist-grid-tile-want-1')).toBeTruthy();
+      });
+    });
   });
 
   describe('the Activity tab', () => {
     it('renders the collector\'s posts', async () => {
-      (fetchAuthorPosts as jest.Mock).mockResolvedValue([
-        buildPost({ id: 'post-1', body: 'First scan of the day!' }),
-        buildPost({ id: 'post-2', body: 'Just pulled a Charizard' }),
-      ]);
+      (fetchAuthorActivity as jest.Mock).mockResolvedValue(
+        authored(
+          buildPost({ id: 'post-1', body: 'First scan of the day!' }),
+          buildPost({ id: 'post-2', body: 'Just pulled a Charizard' }),
+        ),
+      );
 
       renderPublicProfile();
 
@@ -229,12 +388,12 @@ describe('PublicProfileScreen', () => {
       await waitFor(() => {
         expect(screen.getByText('First scan of the day!')).toBeTruthy();
       });
-      expect(fetchAuthorPosts).toHaveBeenCalledWith('user-1');
+      expect(fetchAuthorActivity).toHaveBeenCalledWith('user-1');
       expect(screen.getByText('Just pulled a Charizard')).toBeTruthy();
     });
 
     it('shows a friendly empty state when there are no posts', async () => {
-      (fetchAuthorPosts as jest.Mock).mockResolvedValue([]);
+      (fetchAuthorActivity as jest.Mock).mockResolvedValue([]);
 
       renderPublicProfile();
 
@@ -252,9 +411,9 @@ describe('PublicProfileScreen', () => {
     });
 
     it('renders a card chip on a post anchored to a card', async () => {
-      (fetchAuthorPosts as jest.Mock).mockResolvedValue([
-        buildPost({ id: 'post-1', body: 'Look at this one', cardId: 'card-xyz' }),
-      ]);
+      (fetchAuthorActivity as jest.Mock).mockResolvedValue(
+        authored(buildPost({ id: 'post-1', body: 'Look at this one', cardId: 'card-xyz' })),
+      );
 
       renderPublicProfile();
 

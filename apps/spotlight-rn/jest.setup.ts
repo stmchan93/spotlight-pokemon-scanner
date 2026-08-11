@@ -45,7 +45,7 @@ jest.mock('iconoir-react-native', () => {
     return Component;
   };
 
-  return {
+  const icons = {
     Star: make('star'),
     StarSolid: make('star-solid'),
     Bookmark: make('bookmark'),
@@ -105,6 +105,33 @@ jest.mock('iconoir-react-native', () => {
     TriangleSolid: make('triangle-solid'),
     Upload: make('upload'),
   };
+
+  /*
+    A PROXY, not a bare object. The map above is an allowlist, and importing an
+    icon that is not on it yields `undefined` — which React reports as "Element
+    type is invalid … got: undefined" pointing at the RENDERING component, not at
+    the missing mock. Adding one icon to a screen then takes out every test that
+    renders it, with an error naming the wrong file.
+
+    Unknown names are minted on demand instead, so the mock never has to be kept
+    in sync with what the app imports. The explicit entries stay because their
+    testIDs (`iconoir-<kebab-name>`) are asserted on; the fallback derives the
+    same shape from the exported name.
+  */
+  return new Proxy(icons as Record<string, unknown>, {
+    get(target, prop: string) {
+      if (prop in target || typeof prop !== 'string') {
+        return target[prop];
+      }
+      // `__esModule`, `default`, and jest's own probing must not become icons.
+      if (prop.startsWith('__') || prop === 'default' || prop[0] !== prop[0]?.toUpperCase()) {
+        return undefined;
+      }
+      const kebab = prop.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
+      target[prop] = make(kebab);
+      return target[prop];
+    },
+  });
 });
 
 jest.mock('react-native-image-colors', () => ({
@@ -400,8 +427,14 @@ jest.mock('expo-image-manipulator', () => {
 
   return {
     ImageManipulator: {
-      manipulate: jest.fn((uri: string) => {
-        let current = dimensionsByUri.get(uri) ?? { height: 1620, width: 1080 };
+      // Mirrors the real `manipulate(source: string | SharedRef<'image'>)`: the
+      // scanner's normalize path decodes the capture once and feeds that image
+      // ref straight into the crop context, so the mock has to resolve
+      // dimensions from a ref as well as from a uri.
+      manipulate: jest.fn((source: string | { height: number; width: number }) => {
+        let current = typeof source === 'string'
+          ? dimensionsByUri.get(source) ?? { height: 1620, width: 1080 }
+          : { height: source.height, width: source.width };
 
         return {
           crop(rect: { height: number; width: number }) {

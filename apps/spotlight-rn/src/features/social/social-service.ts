@@ -33,7 +33,7 @@ const DEFAULT_LIMIT = 20;
 // we can filter deleted rows out client-side as a belt-and-braces guard on top
 // of RLS; they never reach the normalized `FeedPost`.
 const postSelect =
-  'id, author_id, body, card_id, like_count, comment_count, created_at, content_status, deleted_at';
+  'id, author_id, body, card_id, like_count, comment_count, repost_count, created_at, content_status, deleted_at';
 
 // Media presentational columns ONLY. Deliberately omits `storage_path` and
 // `moderation_status` — the image bytes are served through the authenticated
@@ -58,6 +58,7 @@ type PostRow = {
   card_id: string | null;
   like_count: number | null;
   comment_count: number | null;
+  repost_count: number | null;
   created_at: string;
   content_status: string | null;
   deleted_at: string | null;
@@ -105,6 +106,8 @@ export type FeedPost = {
   cardId: string | null;
   likeCount: number;
   commentCount: number;
+  /** How many people have passed this on. See `post_reposts` (social_23). */
+  repostCount: number;
   createdAt: string;
   media: FeedPostMedia[];
 };
@@ -241,6 +244,7 @@ async function hydratePosts(rows: PostRow[], options: HydrateOptions = {}): Prom
     cardId: row.card_id ?? null,
     likeCount: row.like_count ?? 0,
     commentCount: row.comment_count ?? 0,
+    repostCount: row.repost_count ?? 0,
     createdAt: row.created_at,
     media: mediaByPost.get(row.id) ?? [],
   }));
@@ -428,6 +432,103 @@ export function fetchAuthorPosts(authorId: string, options: AuthorPostsOptions =
   );
 }
 
+/**
+ * One entry in a profile's Activity list: a post, plus WHEN this collector put it
+ * there. `repostedAt` is null for something they wrote and set for something they
+ * passed on — which is the only thing that distinguishes the two.
+ */
+export type AuthorActivityItem = {
+  post: FeedPost;
+  /** When they reposted it. Null when this is their own post. */
+  repostedAt: string | null;
+};
+
+/**
+ * A profile's Activity tab: what this collector wrote AND what they passed on,
+ * newest activity first.
+ *
+ * ORDERED BY THE ACTIVITY TIMESTAMP, not the post's. A post written last year and
+ * reposted this morning belongs at the top — that is what makes this an activity
+ * list rather than a second feed. So an authored row sorts on `created_at` and a
+ * repost sorts on when the repost happened.
+ *
+ * TWO READS MERGED IN JS, deliberately. `fetchPosts` takes a single PostgREST
+ * filter and cannot express a union across `posts` and `post_reposts`, and
+ * widening it is not worth it: its `PostFilter` is already `any` because these
+ * generics trip tsc's instantiation-depth limit. Neither Activity tab paginates
+ * (both call this once, with no cursor), so the merge has nothing to reconcile
+ * against a keyset — the moment either grows infinite scroll, this needs a view
+ * or an RPC instead.
+ *
+ * A repost of a post that has since been deleted, removed, or whose author has
+ * blocked this reader simply does not come back from the hydrating read, so it
+ * drops out of the list with nothing here having to know why.
+ */
+export async function fetchAuthorActivity(
+  authorId: string,
+  options: AuthorPostsOptions = {},
+): Promise<AuthorActivityItem[]> {
+  const trimmed = (authorId ?? '').trim();
+  if (!trimmed) {
+    return [];
+  }
+  const limit = options.limit ?? DEFAULT_LIMIT;
+  const authored = await fetchAuthorPosts(trimmed, options);
+
+  if (!supabase) {
+    return authored.map((post) => ({ post, repostedAt: null }));
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from(POST_REPOSTS_TABLE)
+      .select('post_id, created_at')
+      .eq('user_id', trimmed)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error || !data || data.length === 0) {
+      // No reposts, or the read failed — the Activity tab still shows what they
+      // wrote rather than collapsing to empty.
+      return authored.map((post) => ({ post, repostedAt: null }));
+    }
+
+    const repostedAtById = new Map<string, string>();
+    for (const row of data as { post_id: string; created_at: string }[]) {
+      if (row.post_id && !repostedAtById.has(row.post_id)) {
+        repostedAtById.set(row.post_id, row.created_at);
+      }
+    }
+    const repostedIds = Array.from(repostedAtById.keys());
+    // `fetchPosts` applies the same visibility filters as every other read, so a
+    // repost pointing at something now hidden yields no row here.
+    const repostedPosts = await fetchPosts((query) => query.in('id', repostedIds), repostedIds.length);
+
+    const items: AuthorActivityItem[] = [
+      ...authored.map((post) => ({ post, repostedAt: null })),
+      ...repostedPosts.map((post) => ({ post, repostedAt: repostedAtById.get(post.id) ?? null })),
+    ];
+    // Reposting your OWN post would otherwise list it twice. The repost is the
+    // later act, so it is the one that survives.
+    const byPostId = new Map<string, AuthorActivityItem>();
+    for (const item of items) {
+      const existing = byPostId.get(item.post.id);
+      if (!existing || (item.repostedAt && !existing.repostedAt)) {
+        byPostId.set(item.post.id, item);
+      }
+    }
+
+    return Array.from(byPostId.values())
+      .sort((a, b) => {
+        const aAt = a.repostedAt ?? a.post.createdAt;
+        const bAt = b.repostedAt ?? b.post.createdAt;
+        return bAt.localeCompare(aAt);
+      })
+      .slice(0, limit);
+  } catch {
+    return authored.map((post) => ({ post, repostedAt: null }));
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Likes (Phase 3b)
 // ---------------------------------------------------------------------------
@@ -553,6 +654,112 @@ export async function unlikePost(postId: string): Promise<boolean> {
   try {
     const { error } = await supabase
       .from(POST_LIKES_TABLE)
+      .delete()
+      .eq('post_id', postId)
+      .eq('user_id', me);
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Reposts (social_23)
+// ---------------------------------------------------------------------------
+// Structurally a like: one row per user per post, client-direct under RLS, with
+// a DB trigger keeping `posts.repost_count`. The client never writes the counter.
+//
+// What makes it a REPOST rather than a like is what the app does with the row —
+// the count is shown on the card, the author is notified, and the post is listed
+// on the reposter's profile Activity. Nothing is republished, so no copy of a
+// post can outlive the original.
+
+const POST_REPOSTS_TABLE = 'post_reposts';
+
+/**
+ * Which of `postIds` the signed-in user has already reposted — the repost twin
+ * of `fetchLikedPostIds`, and it exists for the same reason: without it a
+ * scrolled-back feed shows every card as un-reposted, so a post you already
+ * passed on invites you to do it again.
+ *
+ * Returns an empty set on any failure, so a repost-state read never blocks the
+ * feed from rendering.
+ */
+export async function fetchRepostedPostIds(postIds: string[]): Promise<Set<string>> {
+  const me = await currentUserId();
+  const ids = Array.from(new Set(postIds.filter(Boolean)));
+  if (!supabase || !me || ids.length === 0) {
+    // Same reporting split as the like read: an empty set is indistinguishable
+    // from "you have reposted nothing", so say when the read did not happen.
+    // Only the SHAPE of the failure — never a post id.
+    if (supabase && !me && ids.length > 0) {
+      capturePostHogEvent('social_repost_read_skipped', {
+        reason: 'no_session',
+        idCount: ids.length,
+      });
+    }
+    return new Set();
+  }
+  try {
+    const { data, error } = await supabase
+      .from(POST_REPOSTS_TABLE)
+      .select('post_id')
+      .eq('user_id', me)
+      .in('post_id', ids);
+    if (error || !data) {
+      capturePostHogEvent('social_repost_read_failed', {
+        reason: error?.message ?? 'no_data',
+        idCount: ids.length,
+      });
+      return new Set();
+    }
+    return new Set((data as { post_id: string }[]).map((row) => row.post_id));
+  } catch (error) {
+    capturePostHogEvent('social_repost_read_failed', {
+      reason: error instanceof Error ? error.message : 'threw',
+      idCount: ids.length,
+    });
+    return new Set();
+  }
+}
+
+/** Repost a post (idempotent). Returns true when the repost is in place afterward. */
+export async function repostPost(postId: string): Promise<boolean> {
+  const me = await currentUserId();
+  if (!supabase || !me || !postId) {
+    if (supabase && !me && postId) {
+      capturePostHogEvent('social_repost_write_skipped', { reason: 'no_session' });
+    }
+    return false;
+  }
+  try {
+    // Idempotent: a double-tap that beats the optimistic guard must not error.
+    const { error } = await supabase
+      .from(POST_REPOSTS_TABLE)
+      .upsert({ post_id: postId, user_id: me }, { onConflict: 'post_id,user_id', ignoreDuplicates: true });
+    if (error) {
+      // Includes the fail-closed case: the insert policy's `exists` runs under
+      // `posts_select`, so reposting a post you cannot read is rejected here.
+      capturePostHogEvent('social_repost_write_failed', { reason: error.message });
+    }
+    return !error;
+  } catch (error) {
+    capturePostHogEvent('social_repost_write_failed', {
+      reason: error instanceof Error ? error.message : 'threw',
+    });
+    return false;
+  }
+}
+
+/** Undo a repost. Returns true when the row is gone afterward. */
+export async function unrepostPost(postId: string): Promise<boolean> {
+  const me = await currentUserId();
+  if (!supabase || !me || !postId) {
+    return false;
+  }
+  try {
+    const { error } = await supabase
+      .from(POST_REPOSTS_TABLE)
       .delete()
       .eq('post_id', postId)
       .eq('user_id', me);
@@ -1004,7 +1211,7 @@ const NOTIFICATIONS_TABLE = 'notifications';
 
 /** Types the app renders. `mention`/`message` exist in the schema but nothing
  *  produces them yet (no parser, no DMs), so they are not surfaced. */
-export type NotificationType = 'like' | 'comment' | 'follow';
+export type NotificationType = 'like' | 'comment' | 'follow' | 'repost';
 
 export type AppNotification = {
   id: string;
@@ -1041,7 +1248,10 @@ type NotificationRow = {
   read_at: string | null;
 };
 
-const RENDERABLE_NOTIFICATION_TYPES: readonly string[] = ['like', 'comment', 'follow'];
+// BOTH this and `NotificationType` have to list a type. `fetchNotifications`
+// filters on this list, so a type widened only in the union is written by the DB
+// trigger and then silently dropped on the way to the screen.
+const RENDERABLE_NOTIFICATION_TYPES: readonly string[] = ['like', 'comment', 'follow', 'repost'];
 
 /**
  * How many unread notifications the signed-in user has — the number on the bell.

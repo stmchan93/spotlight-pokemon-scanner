@@ -39,6 +39,7 @@ type Results = {
   blocks?: QueryResult | QueryResult[];
   reports?: QueryResult | QueryResult[];
   comments?: QueryResult | QueryResult[];
+  reposts?: QueryResult | QueryResult[];
 };
 
 const TABLE_TO_KEY: Record<string, keyof Results> = {
@@ -49,6 +50,7 @@ const TABLE_TO_KEY: Record<string, keyof Results> = {
   blocks: 'blocks',
   reports: 'reports',
   comments: 'comments',
+  post_reposts: 'reposts',
 };
 
 // Every environment that has NOT run social_19 answers `blocked_profiles()` with
@@ -158,6 +160,10 @@ describe('social-service', () => {
         cardId: 'card-9',
         likeCount: 3,
         commentCount: 1,
+        // Absent from the row fixture below, so this also pins the default: a
+        // post read from a database without social_23 must normalize to 0, not
+        // to undefined, or the card renders a blank count.
+        repostCount: 0,
         createdAt: '2026-05-01T00:00:00.000Z',
         media: [{ id: 'media-1', width: 800, height: 600, blurhash: 'LKO2' }],
       },
@@ -241,6 +247,156 @@ describe('social-service', () => {
     expect(supabase.from).toHaveBeenCalledWith('posts');
     expect(posts).toHaveLength(1);
     expect(posts[0].id).toBe('post-1');
+  });
+
+  /*
+    THE PROFILE ACTIVITY MERGE (social_23).
+
+    Activity is what a collector WROTE plus what they PASSED ON, and the two come
+    from different tables with different timestamps. Everything that can go wrong
+    here is an ordering or attribution bug, which is invisible until someone with
+    both kinds of row looks at their own profile.
+  */
+  describe('the profile Activity list', () => {
+    const otherPostRow = {
+      id: 'post-2',
+      author_id: 'author-2',
+      body: "Someone else's post",
+      card_id: null,
+      like_count: 0,
+      comment_count: 0,
+      repost_count: 1,
+      created_at: '2026-01-01T00:00:00.000Z',
+      content_status: 'visible',
+      deleted_at: null,
+    };
+
+    /*
+      THE CASE THE WHOLE FUNCTION EXISTS FOR. `post-2` is the OLDER post by a
+      year, but it was reposted this morning, so it belongs at the top. Sorting
+      on the post's own `created_at` — the obvious thing, and what every other
+      feed read does — would bury a fresh repost under a year of your own posts
+      and make the feature look broken.
+    */
+    it('orders by when the act happened, not by when the post was written', async () => {
+      const supabase = makeSupabase({
+        posts: [
+          { data: [{ ...postRow, post_media: [] }], error: null },
+          { data: [{ ...otherPostRow, post_media: [] }], error: null },
+        ],
+        reposts: {
+          data: [{ post_id: 'post-2', created_at: '2026-08-10T09:00:00.000Z' }],
+          error: null,
+        },
+        authors: { data: [authorRow], error: null },
+      });
+      const { fetchAuthorActivity } = loadService(supabase);
+
+      const items = await fetchAuthorActivity('me');
+
+      expect(items.map((item) => item.post.id)).toEqual(['post-2', 'post-1']);
+      // `repostedAt` is the ONLY thing marking a row as passed-on rather than
+      // written — the card itself carries the original author either way.
+      expect(items[0].repostedAt).toBe('2026-08-10T09:00:00.000Z');
+      expect(items[1].repostedAt).toBeNull();
+    });
+
+    /*
+      A repost points at a post by id and hydrates it through the same read every
+      other surface uses, so `posts_select` re-answers "may this reader see it?"
+      each time. A post since deleted, removed by moderation, or hidden by a
+      block simply does not come back — and the repost drops out of the list with
+      nothing here having to know which of the three it was.
+    */
+    it('drops a repost whose post is no longer visible, without dropping the rest', async () => {
+      const supabase = makeSupabase({
+        posts: [
+          { data: [{ ...postRow, post_media: [] }], error: null },
+          // The hydrating read returns nothing for the reposted id.
+          { data: [], error: null },
+        ],
+        reposts: {
+          data: [{ post_id: 'post-gone', created_at: '2026-08-10T09:00:00.000Z' }],
+          error: null,
+        },
+        authors: { data: [authorRow], error: null },
+      });
+      const { fetchAuthorActivity } = loadService(supabase);
+
+      const items = await fetchAuthorActivity('me');
+
+      expect(items).toHaveLength(1);
+      expect(items[0].post.id).toBe('post-1');
+    });
+
+    // Reposting your own post is allowed (the DB only skips the NOTIFICATION for
+    // it), and it must not put the post in the list twice.
+    it('lists a post you reposted yourself once, as the repost', async () => {
+      const supabase = makeSupabase({
+        posts: [
+          { data: [{ ...postRow, post_media: [] }], error: null },
+          { data: [{ ...postRow, post_media: [] }], error: null },
+        ],
+        reposts: {
+          data: [{ post_id: 'post-1', created_at: '2026-08-10T09:00:00.000Z' }],
+          error: null,
+        },
+        authors: { data: [authorRow], error: null },
+      });
+      const { fetchAuthorActivity } = loadService(supabase);
+
+      const items = await fetchAuthorActivity('me');
+
+      expect(items).toHaveLength(1);
+      // The repost is the LATER act, so that is the one that survives.
+      expect(items[0].repostedAt).toBe('2026-08-10T09:00:00.000Z');
+    });
+
+    // A failed repost read must not take the posts with it: the tab still shows
+    // what they wrote rather than collapsing to an empty state that reads as
+    // "this collector has posted nothing".
+    it('still lists authored posts when the repost read fails', async () => {
+      const supabase = makeSupabase({
+        posts: { data: [{ ...postRow, post_media: [] }], error: null },
+        reposts: { data: null, error: { message: 'relation does not exist' } },
+        authors: { data: [authorRow], error: null },
+      });
+      const { fetchAuthorActivity } = loadService(supabase);
+
+      const items = await fetchAuthorActivity('me');
+
+      expect(items).toHaveLength(1);
+      expect(items[0].post.id).toBe('post-1');
+      expect(items[0].repostedAt).toBeNull();
+    });
+
+    // `knownAuthor` says "every row is by this person", which is true of the
+    // authored half and FALSE of the reposted half. Applying it to both would
+    // label someone else's post with the profile owner's name.
+    it('never applies knownAuthor to a reposted post', async () => {
+      const supabase = makeSupabase({
+        posts: [
+          { data: [{ ...postRow, post_media: [] }], error: null },
+          { data: [{ ...otherPostRow, post_media: [] }], error: null },
+        ],
+        reposts: {
+          data: [{ post_id: 'post-2', created_at: '2026-08-10T09:00:00.000Z' }],
+          error: null,
+        },
+        authors: {
+          data: [{ ...authorRow, user_id: 'author-2', display_name: 'Misty', handle: 'misty' }],
+          error: null,
+        },
+      });
+      const { fetchAuthorActivity } = loadService(supabase);
+
+      const items = await fetchAuthorActivity('me', {
+        knownAuthor: { displayName: 'Ash', handle: 'ash', avatarUrl: null, isVerified: true },
+      });
+
+      const reposted = items.find((item) => item.post.id === 'post-2');
+      expect(reposted?.post.author?.displayName).toBe('Misty');
+    });
   });
 
   it('does not query for a blank card id or author id', async () => {

@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type Dispatch,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   Animated,
   FlatList,
@@ -75,6 +83,7 @@ import {
 import { EkalightMark } from '@/components/ekalight-mark';
 import { ScanTabIcon } from '@/components/nav-tab-icons';
 import { ScrollToTopFab, useScrollToTop } from '@/components/scroll-to-top-fab';
+import { useFloatingAffordanceBottom } from '@/lib/tab-bar-insets';
 import { usePortfolioScreenModel } from '@/features/portfolio/hooks/use-portfolio-screen-model';
 import { usePortfolioViewMode } from '@/features/portfolio/hooks/use-portfolio-view-mode';
 import { usePortfolioSummaryVisibility } from '@/features/portfolio/use-portfolio-summary-visibility';
@@ -83,15 +92,19 @@ import { useTabsPage } from '@/contexts/tabs-page-context';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { resolveRepositoryBaseUrl, useAppServices } from '@/providers/app-providers';
 import { PostCard } from '@/features/social/components/post-card';
+import { RepostAttribution } from '@/features/social/components/repost-attribution';
 import {
+  type AuthorActivityItem,
   type FeedPost,
   type FeedPostAuthor,
-  fetchAuthorPosts,
+  fetchAuthorActivity,
 } from '@/features/social/social-service';
-import { useUnreadNotificationCount } from '@/features/social/use-unread-notification-count';
 import { usePostDeletion } from '@/features/social/use-post-deletion';
 import { consumeFeedRefreshSignal } from '@/features/social/screens/new-post-screen';
 import { ProfileHeader } from '@/features/profile/components/profile-header';
+import { buildProfileShareMessage } from '@/features/profile/profile-share';
+import { buildProfileDeepLink } from '@/features/profile/profile-link';
+import { SharePostSheet } from '@/features/social/components/share-post-sheet';
 import { FOR_SALE_TAB_ENABLED } from '@/features/profile/for-sale-tab';
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
 import { useAuth } from '@/providers/auth-provider';
@@ -160,7 +173,8 @@ type CollectionRow =
   | { kind: 'list'; key: string; entry: InventoryCardEntry; firstInSection: boolean }
   | { kind: 'grid'; key: string; rowEntries: InventoryCardEntry[]; rowIndex: number }
   | { kind: 'grid-single'; key: string; entry: InventoryCardEntry }
-  | { kind: 'post'; key: string; post: FeedPost };
+  /** `repostedAt` set = the owner passed the post on rather than wrote it. */
+  | { kind: 'post'; key: string; post: FeedPost; repostedAt: string | null };
 
 /** Has the owner's Activity posts loaded? */
 type ActivityStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -253,7 +267,7 @@ export function PortfolioScreen({
   // backend proxy base + bearer the post images stream through.
   const accessToken = auth.accessToken;
   const apiBaseUrl = resolveRepositoryBaseUrl();
-  const [activityPosts, setActivityPosts] = useState<FeedPost[]>([]);
+  const [activityPosts, setActivityPosts] = useState<AuthorActivityItem[]>([]);
   const [activityStatus, setActivityStatus] = useState<ActivityStatus>('idle');
   // Bumped to force an Activity re-fetch (e.g. after composing a post).
   const [activityReloadToken, setActivityReloadToken] = useState(0);
@@ -347,6 +361,8 @@ export function PortfolioScreen({
   // Long-press card actions menu (Figma 1696:8708): the entry whose menu is
   // open, plus the entry pending single-delete confirmation.
   const [actionMenuEntry, setActionMenuEntry] = useState<InventoryCardEntry | null>(null);
+  // "Send profile to…" — the in-app share sheet behind the top bar's share glyph.
+  const [profileShareSheetOpen, setProfileShareSheetOpen] = useState(false);
   // An action to run only AFTER the actions menu's native modal has fully
   // dismissed — used by Share, since presenting the native share sheet while the
   // modal is still tearing down freezes the screen. Fired from <CardActionsSheet
@@ -387,10 +403,16 @@ export function PortfolioScreen({
   // row into view and drop the keyboard open on it.
   const searchInputRef = useRef<TextInput>(null);
 
+  // LIST PADDING ONLY — how far the scrollers close above the bottom of the
+  // page. Still sized off the retired JS nav pill's tokens; it is generous
+  // rather than wrong, and re-deriving a scroller's own bottom inset is a
+  // separate change from placing FLOATING chrome. Anything that floats uses
+  // `useFloatingAffordanceBottom` (see `@/lib/tab-bar-insets`).
   const bottomNavClearance =
     theme.layout.bottomNavHeight
     + theme.layout.bottomNavBottomInset
     + Math.max(insets.bottom - 8, 0);
+  const wishlistToastBottom = useFloatingAffordanceBottom(theme.spacing.lg);
 
   const shouldShowInitialError = !model.hasLoadedDashboard
     && !model.hasLoadedInventory
@@ -635,9 +657,12 @@ export function PortfolioScreen({
     let cancelled = false;
     setActivityStatus('loading');
     void (async () => {
-      // The author of every row is the signed-in user, whose profile we already
-      // hold — passing it skips the `public_profiles` hydration round trip.
-      const loaded = await fetchAuthorPosts(ownerId, { knownAuthor: ownerAuthor });
+      // `knownAuthor` skips the `public_profiles` hydration round trip for rows
+      // the owner WROTE. It is deliberately not applied to reposted rows — those
+      // are by someone else, and labelling them with the owner's name is exactly
+      // the bug the attribution line exists to prevent. `fetchAuthorActivity`
+      // keeps the two halves apart.
+      const loaded = await fetchAuthorActivity(ownerId, { knownAuthor: ownerAuthor });
       if (cancelled) {
         return;
       }
@@ -665,9 +690,13 @@ export function PortfolioScreen({
     }, []),
   );
 
-  // Unread badge on the bell. Shared with Home, which draws the same bar — see
-  // the hook for why it refreshes on focus rather than on a timer.
-  const unreadNotifications = useUnreadNotificationCount();
+  /*
+    NO UNREAD COUNT HERE ANY MORE. This screen used to draw the bell, so it read
+    `useUnreadNotificationCount()` for its badge; the profile toolbar
+    (3670:47454) spends both trailing slots on edit and share, so there is no
+    bell on this screen to badge. Home still calls the hook and still shows the
+    count — the hook itself is untouched.
+  */
 
   // Mirror edit mode into the tabs pager so it hides the bottom tab bar + locks
   // the horizontal swipe, and always release the lock on unmount.
@@ -912,25 +941,53 @@ export function PortfolioScreen({
     router.push('/catalog/search' as never);
   }, [router]);
 
-  // The top bar's `+`, which follows the tab you are on: composing a post on
-  // Activity, adding a card anywhere else.
   /*
-    `+` COMPOSES A POST, on every tab of this screen.
-
-    It used to push the card search from Collection and For Sale, and only
-    compose from Activity — but the search pill sitting right beside it in the
-    same bar already goes to the card search, so two of the four controls did
-    the same thing and the one thing you cannot otherwise start from here had no
-    entry point on two tabs out of three. Adding a card is still the scanner, or
-    the search pill.
+    NO `+` IN THIS BAR ANY MORE. The profile toolbar (3670:47454) spends both
+    trailing slots on edit and share, so the `+` that composed a post from every
+    tab of this screen is gone with the bell. Composing survives in two places:
+    Home's bar keeps its `+`, and the Activity tab's own "What's on your mind?"
+    prompt (further down this file) still pushes `/new-post`.
   */
-  const handleTopAddPress = useCallback(() => {
-    router.push('/new-post' as never);
-  }, [router]);
 
   const handleEditProfilePress = useCallback(() => {
     router.push('/edit-profile' as never);
   }, [router]);
+
+  /*
+    SHARE YOUR PROFILE, from the top bar's second trailing slot (Figma
+    3670:47454).
+
+    Sent IN-APP, to a DM, rather than out through the OS share sheet: the
+    message carries a `spotlight://` link to your public profile, which only
+    resolves for someone who already has the build. A DM is the one channel
+    where that is guaranteed. (`profile-link.ts` is the single place to swap the
+    scheme for an https origin once universal links exist — at which point this
+    can go back out to the OS sheet.)
+
+    Silent when there is no identity to name, the same contract
+    `buildProfileShareMessage` has always had.
+  */
+  const profileShareBody = useMemo(() => {
+    const message = buildProfileShareMessage({
+      displayName: profileName,
+      handle: currentUser?.handle,
+    });
+    if (!message) {
+      return null;
+    }
+    const link = buildProfileDeepLink({
+      handle: currentUser?.handle,
+      userId: currentUser?.id,
+    });
+    return link ? `${message}\n\n${link}` : message;
+  }, [currentUser?.handle, currentUser?.id, profileName]);
+
+  const handleShareProfilePress = useCallback(() => {
+    if (!profileShareBody) {
+      return;
+    }
+    setProfileShareSheetOpen(true);
+  }, [profileShareBody]);
 
   // Empty-collection "Scan to add" chip.
   //
@@ -971,7 +1028,13 @@ export function PortfolioScreen({
   }, [shouldShowInitialError, viewMode, visibleInventory]);
 
   const activityData = useMemo<CollectionRow[]>(
-    () => activityPosts.map((post) => ({ kind: 'post', key: post.id, post })),
+    () =>
+      activityPosts.map((item) => ({
+        kind: 'post',
+        key: item.post.id,
+        post: item.post,
+        repostedAt: item.repostedAt,
+      })),
     [activityPosts],
   );
 
@@ -982,10 +1045,29 @@ export function PortfolioScreen({
     [router],
   );
 
+  /*
+    `usePostDeletion` speaks `FeedPost[]` — it is shared with the feed, which has
+    no notion of reposts. Activity holds `AuthorActivityItem[]`, so this adapts
+    between the two rather than making the hook generic for one caller.
+
+    Rebuilding from the id map is what preserves `repostedAt` across a delete: a
+    failed delete restores the post, and dropping the attribution would silently
+    relabel someone else's post as the owner's. A post the map does not know is
+    one the hook just restored, which can only be one the owner wrote.
+  */
+  const setActivityFeedPosts = useCallback<Dispatch<SetStateAction<FeedPost[]>>>((action) => {
+    setActivityPosts((current) => {
+      const posts = current.map((item) => item.post);
+      const next = typeof action === 'function' ? action(posts) : action;
+      const byId = new Map(current.map((item) => [item.post.id, item]));
+      return next.map((post) => byId.get(post.id) ?? { post, repostedAt: null });
+    });
+  }, []);
+
   // Activity holds its own copy of the owner's posts (the feed holds another), so
   // deletion is wired per-list through the shared hook rather than a shared store.
   const { requestDelete: requestPostDelete, confirmSheet: postDeleteSheet } = usePostDeletion(
-    setActivityPosts,
+    setActivityFeedPosts,
     { testID: 'portfolio-activity-delete-confirm' },
   );
 
@@ -995,14 +1077,27 @@ export function PortfolioScreen({
         // Full-bleed: the post card owns its own 16px inner padding and its image
         // spans edge-to-edge (Figma 2903-7128), so no page-gutter wrapper here.
         return (
-          <PostCard
-            accessToken={accessToken}
-            apiBaseUrl={apiBaseUrl}
-            onPressCard={handleOpenPostCard}
-            onRequestDelete={requestPostDelete}
-            post={item.post}
-            testID="portfolio-activity-post"
-          />
+          <>
+            {/*
+              A reposted card carries the ORIGINAL author's name and avatar, so
+              without this line your own Activity reads as though you posted
+              someone else's photo.
+            */}
+            {item.repostedAt ? (
+              <RepostAttribution testID="portfolio-activity-repost-attribution" />
+            ) : null}
+            <PostCard
+              accessToken={accessToken}
+              apiBaseUrl={apiBaseUrl}
+              onPressCard={handleOpenPostCard}
+              // Only your OWN post is deletable. Un-reposting is the repost
+              // glyph's job, not the ⋯ menu's, and offering Delete on someone
+              // else's post would promise something RLS refuses.
+              onRequestDelete={item.repostedAt ? undefined : requestPostDelete}
+              post={item.post}
+              testID="portfolio-activity-post"
+            />
+          </>
         );
       }
       if (item.kind === 'list') {
@@ -1034,7 +1129,6 @@ export function PortfolioScreen({
       return (
         <CollectionGridRow
           delayLongPress={CARD_LONG_PRESS_MS}
-          isFirstRow={item.rowIndex === 0}
           onLongPressEntry={handleLongPressEntry}
           onPressEntry={handlePressEntry}
           rowEntries={item.rowEntries}
@@ -1058,27 +1152,35 @@ export function PortfolioScreen({
   );
 
   /*
-    Home's floating top bar (Figma 3505:14521) — menu, the "Search Cards" pill,
-    notifications, `+`. It hovers over the scrolling content rather than sitting
-    above it, so the buttons are glass and the bar has no background of its own.
+    The profile toolbar (Figma 3670:47454) — menu, the search pill, then EDIT and
+    SHARE. Same `HomeHeader` Home draws, same geometry down to the point; only
+    the trailing pair differs.
 
-    This replaced four separate corner bubbles. Two of them changed job:
-      - SEARCH is now the pill, which is the whole point of the design: a target
-        the width of the screen instead of a 44pt magnifier, and one that says
-        what it searches. It fades out as you scroll while the bubbles stay.
-      - EDIT PROFILE moved onto the profile block below (`ProfileHeader`'s own
-        edit control), where it belongs with the rest of "you" — the bar has room
-        for four controls and the design spends the fourth on `+`.
-    A Share bubble from Figma 3095:7044 sat here before that, wired to
-    `onPress={() => {}}` — present but inert, because sharing was never built.
-    It can come back when it does something, or move into the drawer.
+    IT HAD THE BELL AND THE `+`, INHERITED FROM HOME. This screen adopted Home's
+    bar wholesale when the two frames were identical, and the profile frame has
+    since diverged: 3670:47454 spends both trailing slots on edit and share, so
+    notifications and compose are gone FROM THIS SCREEN. Both still live one tab
+    away on Home, which keeps the bell (with its unread badge) and the `+`; the
+    drawer has neither, so Home is the route to them now.
+
+    EDIT CAME BACK UP HERE. It spent a while beside the profile name below,
+    because the older bar (3505:14521) had four slots and none of them were this.
+    The current frame gives it one, so the name-adjacent pencil is gone — there
+    is one edit affordance, and it is here.
+
+    SHARE IS FINALLY WIRED. A Share bubble from Figma 3095:7044 sat in this bar
+    once with `onPress={() => {}}` — present but inert, because sharing was never
+    built. It shares text now (`buildProfileShareMessage`); there is still no
+    profile URL to attach, and that file says why.
   */
   const homeHeader = (
     <HomeHeader
-      addAccessibilityLabel="New post"
-      onOpenAdd={handleTopAddPress}
       onOpenMenu={openDrawer}
-      onOpenNotifications={() => router.push('/notifications' as never)}
+      trailing={{
+        kind: 'profile',
+        onEditProfile: handleEditProfilePress,
+        onShareProfile: handleShareProfilePress,
+      }}
       floating
       onOpenSearch={handleTopSearchPress}
       /*
@@ -1094,10 +1196,15 @@ export function PortfolioScreen({
         re-opaquing the whole header — the buttons are not the part that needs
         to hide it.
       */
+      // Every page runs `contentInsetAdjustmentBehavior="automatic"` and so
+      // rests at `-insets.top` on iOS; `pagerScrollY` carries that ABSOLUTE
+      // offset. Without this anchor the pill sat fully open for the first
+      // safe-area inset of every scroll. Same number `pageTopOffset` and the
+      // pager's `contentInsetTop` use.
+      scrollRestOffset={pageTopOffset}
       scrollY={pagerScrollY}
       searchInteractive={!isSearchPillHidden}
       testID="portfolio-header"
-      unreadCount={unreadNotifications}
     />
   );
 
@@ -1120,7 +1227,6 @@ export function PortfolioScreen({
         handle={currentUser?.handle}
         initials={profileInitials}
         isVerified={currentUser?.isVerified}
-        onEditPress={handleEditProfilePress}
         onFollowersPress={handleOpenFollowers}
         onFollowingPress={handleOpenFollowing}
         onSocialLinkPress={handleSocialLinkPress}
@@ -1517,7 +1623,11 @@ export function PortfolioScreen({
     // the state cannot go stale when a swipe lands on a tab parked further
     // down, and the equality guard means React re-renders on the crossing, not
     // per frame.
-    const hidden = event.nativeEvent.contentOffset.y >= SEARCH_PILL_HIDE_DISTANCE;
+    // TRAVEL from the page's own top, not the raw offset — every page rests at
+    // `pageTopOffset` (negative on iOS), so comparing the raw value disarmed
+    // the pill a whole safe-area inset after the bar had faded it out.
+    const travelled = event.nativeEvent.contentOffset.y - pageTopOffset;
+    const hidden = travelled >= SEARCH_PILL_HIDE_DISTANCE;
     setIsSearchPillHidden((previous) => (previous === hidden ? previous : hidden));
   };
 
@@ -1672,6 +1782,17 @@ export function PortfolioScreen({
 
       {postDeleteSheet}
 
+      {/* Only mounted once there is an identity to share (see the memo). */}
+      {profileShareBody ? (
+        <SharePostSheet
+          onClose={() => setProfileShareSheetOpen(false)}
+          payload={{ kind: 'text', body: profileShareBody }}
+          testID="portfolio-share-profile-sheet"
+          title="Send profile to"
+          visible={profileShareSheetOpen}
+        />
+      ) : null}
+
       <SalePriceEditSheet
         canConfirm={model.canConfirmSalePriceEdit}
         onChangePriceText={model.updateEditingSalePriceText}
@@ -1727,7 +1848,11 @@ export function PortfolioScreen({
         style={[
           styles.wishlistToast,
           {
-            bottom: bottomNavClearance + theme.spacing.lg,
+            // The toast FLOATS, so it clears the chrome the same way the FABs do
+            // — not with `bottomNavClearance`, which is list padding sized off the
+            // retired JS nav pill's tokens (`bottomNavHeight` 72). See
+            // `@/lib/tab-bar-insets`.
+            bottom: wishlistToastBottom,
             left: theme.layout.pageGutter,
             right: theme.layout.pageGutter,
           },

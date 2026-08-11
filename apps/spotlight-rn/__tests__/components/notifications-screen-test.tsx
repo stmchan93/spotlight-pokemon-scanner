@@ -167,6 +167,41 @@ describe('NotificationsScreen', () => {
     expect(screen.queryByTestId('notifications-row-n-4-body')).toBeNull();
   });
 
+  /*
+    A repost notification has to be RENDERABLE, not just written. The DB trigger
+    inserts `type: 'repost'` (social_23), but `fetchNotifications` filters on
+    `RENDERABLE_NOTIFICATION_TYPES` — so widening only the `NotificationType`
+    union gets the row written and then silently dropped on the way to this
+    screen, which looks exactly like the trigger not firing.
+  */
+  it('renders a repost row and sends it to the post', async () => {
+    const push = jest.fn();
+    (useRouter as jest.Mock).mockReturnValue({ push, back: jest.fn() });
+    (fetchNotifications as jest.Mock).mockResolvedValue([
+      buildNotification({
+        id: 'n-repost',
+        type: 'repost',
+        commentId: null,
+        commentBody: null,
+        isReply: false,
+      }),
+    ]);
+
+    renderWithProviders(<NotificationsScreen />);
+
+    await waitFor(() => expect(screen.getByTestId('notifications-row-n-repost')).toBeTruthy());
+    // Only posts are repostable, and the trigger skips self-reposts, so this is
+    // always about a post of YOURS — it never names an owner and never quotes a
+    // comment.
+    expect(screen.getByText(/reposted your post/)).toBeTruthy();
+    expect(screen.queryByTestId('notifications-row-n-repost-body')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('notifications-row-n-repost'));
+    expect(push).toHaveBeenCalledWith(
+      expect.objectContaining({ pathname: '/post/[postId]' }),
+    );
+  });
+
   it('opens the post, with its thread up when the notification is about a comment', async () => {
     const push = jest.fn();
     (useRouter as jest.Mock).mockReturnValue({ push, back: jest.fn() });

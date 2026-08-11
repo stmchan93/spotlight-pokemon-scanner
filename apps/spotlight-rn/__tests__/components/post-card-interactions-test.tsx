@@ -12,16 +12,25 @@ import {
   blockUser,
   fetchComments,
   fetchLikedPostIds,
+  fetchRepostedPostIds,
   type FeedPost,
   likePost,
+  repostPost,
   reportContent,
   unlikePost,
+  unrepostPost,
 } from '@/features/social/social-service';
 
 jest.mock('@/features/social/social-service', () => ({
   fetchLikedPostIds: jest.fn(async () => new Set()),
   likePost: jest.fn(async () => true),
   unlikePost: jest.fn(async () => true),
+  // The card self-resolves its reposted state on mount, exactly as it does its
+  // liked state. Omitting these makes them `undefined` at call time, which takes
+  // out every test in the file, not just the repost ones.
+  fetchRepostedPostIds: jest.fn(async () => new Set()),
+  repostPost: jest.fn(async () => true),
+  unrepostPost: jest.fn(async () => true),
   fetchComments: jest.fn(async () => []),
   fetchLikedCommentIds: jest.fn(async () => new Set()),
   addComment: jest.fn(async () => ({ ok: false, reason: 'nope' })),
@@ -90,6 +99,7 @@ function buildPost(overrides: Partial<FeedPost> = {}): FeedPost {
     cardId: null,
     likeCount: 2,
     commentCount: 0,
+    repostCount: 0,
     createdAt: '2026-05-01T00:00:00.000Z',
     media: [],
     ...overrides,
@@ -130,6 +140,11 @@ const likeCountText = () => screen.getByTestId('post-card-like-count').props.chi
 const likeIconColor = () => screen.getByTestId('post-card-like-icon').props.color;
 const ACCENT = '#A54BFA';
 const GRAY700 = '#4A4A4A';
+
+const repostCountText = () => screen.getByTestId('post-card-repost-count').props.children;
+// The repeat glyph tints but is never FILLED — it is an open two-arrow path, so
+// filling it floods the space between the arrows. See PostCard's `repostColor`.
+const repostIconColor = () => screen.getByTestId('post-card-repost-icon').props.color;
 
 describe('PostCard likes', () => {
   beforeEach(() => {
@@ -713,5 +728,118 @@ describe('PostCard share', () => {
 
     await pressById(`${SHARE_SHEET}-recipient-u-2`);
     expect(sendMessage as jest.Mock).toHaveBeenCalledTimes(1);
+  });
+});
+
+/*
+  REPOST IS AN ENDORSEMENT, NOT A SECOND COPY.
+
+  Structurally it is a like — one `post_reposts` row per user per post, optimistic
+  with rollback — and these tests are deliberately the like tests with the nouns
+  changed, because any divergence between the two would be a bug rather than a
+  design.
+
+  What differs is meaning, and that lives elsewhere: the author is notified
+  (a DB trigger), and the post joins the reposter's profile Activity. Nothing is
+  republished, so it CANNOT put a second copy of the post in anyone's feed —
+  Home reads the global feed, where everyone is already looking at the original.
+*/
+describe('PostCard reposts', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (fetchLikedPostIds as jest.Mock).mockResolvedValue(new Set());
+    (fetchRepostedPostIds as jest.Mock).mockResolvedValue(new Set());
+    (repostPost as jest.Mock).mockResolvedValue(true);
+    (unrepostPost as jest.Mock).mockResolvedValue(true);
+  });
+
+  it('optimistically tints the glyph + bumps the count, then rolls both back when the write fails', async () => {
+    (repostPost as jest.Mock).mockResolvedValue(false);
+    await renderCard(buildPost({ repostCount: 4 }));
+
+    expect(repostCountText()).toBe(4);
+    expect(repostIconColor()).toBe(GRAY700);
+
+    fireEvent.press(screen.getByTestId('post-card-repost-button'));
+
+    // Optimistic: tinted and bumped BEFORE the write resolves.
+    expect(repostCountText()).toBe(5);
+    expect(repostIconColor()).toBe(ACCENT);
+
+    /*
+      The write returned false → both roll back. This is the case that matters
+      most for a repost: the insert policy checks the post is still readable
+      through `posts_select`, so reposting something whose author has since
+      blocked you FAILS CLOSED at the database. A count left optimistically
+      bumped would tell you that you had endorsed something you had not.
+    */
+    await waitFor(() => expect(repostCountText()).toBe(4));
+    expect(repostIconColor()).toBe(GRAY700);
+    expect(repostPost as jest.Mock).toHaveBeenCalledWith('post-1');
+  });
+
+  it('keeps the optimistic repost when the write succeeds', async () => {
+    await renderCard(buildPost({ repostCount: 4 }));
+
+    fireEvent.press(screen.getByTestId('post-card-repost-button'));
+    expect(repostCountText()).toBe(5);
+
+    await waitFor(() => expect(repostPost as jest.Mock).toHaveBeenCalledWith('post-1'));
+    expect(repostCountText()).toBe(5);
+    expect(repostIconColor()).toBe(ACCENT);
+  });
+
+  // Seeded from the server, so a scrolled-back feed does not invite you to
+  // repost something you already passed on.
+  it('shows an already-reposted post as reposted, and undoes it on a second tap', async () => {
+    (fetchRepostedPostIds as jest.Mock).mockResolvedValue(new Set(['post-1']));
+    await renderCard(buildPost({ repostCount: 4 }));
+
+    await waitFor(() => expect(repostIconColor()).toBe(ACCENT));
+
+    fireEvent.press(screen.getByTestId('post-card-repost-button'));
+
+    expect(repostCountText()).toBe(3);
+    expect(repostIconColor()).toBe(GRAY700);
+    await waitFor(() => expect(unrepostPost as jest.Mock).toHaveBeenCalledWith('post-1'));
+    expect(repostPost as jest.Mock).not.toHaveBeenCalled();
+  });
+
+  // A second tap while the first write is in flight would send both a repost and
+  // an un-repost, leaving the row in whichever state lost the race.
+  it('ignores a second tap while the write is still in flight', async () => {
+    let resolveWrite: (ok: boolean) => void = () => {};
+    (repostPost as jest.Mock).mockReturnValue(
+      new Promise<boolean>((resolve) => {
+        resolveWrite = resolve;
+      }),
+    );
+    await renderCard(buildPost({ repostCount: 4 }));
+
+    fireEvent.press(screen.getByTestId('post-card-repost-button'));
+    fireEvent.press(screen.getByTestId('post-card-repost-button'));
+
+    expect(repostPost as jest.Mock).toHaveBeenCalledTimes(1);
+    expect(unrepostPost as jest.Mock).not.toHaveBeenCalled();
+    expect(repostCountText()).toBe(5);
+
+    await act(async () => {
+      resolveWrite(true);
+    });
+    expect(repostCountText()).toBe(5);
+  });
+
+  // The like and the repost are separate rows; acting on one must not move the
+  // other. They sit 12pt apart, so a mixed-up handler is easy to ship and easy
+  // to miss.
+  it('does not touch the like when you repost', async () => {
+    await renderCard(buildPost({ likeCount: 2, repostCount: 4 }));
+
+    fireEvent.press(screen.getByTestId('post-card-repost-button'));
+
+    expect(repostCountText()).toBe(5);
+    expect(likeCountText()).toBe(2);
+    expect(likeIconColor()).toBe(GRAY700);
+    expect(likePost as jest.Mock).not.toHaveBeenCalled();
   });
 });

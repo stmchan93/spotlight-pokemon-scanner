@@ -104,15 +104,20 @@ export function NotificationsScreen({ testID = 'notifications' }: { testID?: str
       const action =
         item.type === 'follow'
           ? 'started following you'
-          : item.type === 'like'
-            ? // A like notification is always about something of YOURS — you are
-              // the recipient — so it never needs the owner's name.
-              item.commentId
-              ? 'liked your comment'
-              : 'liked your post'
-            : item.isReply
-              ? `replied to your comment on ${postWhere}:`
-              : `commented on ${postWhere}:`;
+          : item.type === 'repost'
+            ? // Like a like, a repost notification is always about your own post
+              // (the trigger skips self-reposts), so it needs no owner's name.
+              // Only posts are repostable, so there is no comment branch.
+              'reposted your post'
+            : item.type === 'like'
+              ? // A like notification is always about something of YOURS — you are
+                // the recipient — so it never needs the owner's name.
+                item.commentId
+                ? 'liked your comment'
+                : 'liked your post'
+              : item.isReply
+                ? `replied to your comment on ${postWhere}:`
+                : `commented on ${postWhere}:`;
 
       const onPress = openTarget(item);
       const baseStyle = [

@@ -7,6 +7,7 @@ import {
   CheckCircle,
   MediaImage,
   MoreHoriz,
+  Repeat,
   ShareIos,
   ThumbsUp,
 } from 'iconoir-react-native';
@@ -22,9 +23,12 @@ import {
   type FeedPost,
   type FeedPostMedia,
   fetchLikedPostIds,
+  fetchRepostedPostIds,
   likePost,
+  repostPost,
   reportContent,
   unlikePost,
+  unrepostPost,
 } from '@/features/social/social-service';
 import { profileRouteSlug } from '@/features/social/profile-link';
 import { useAuth } from '@/providers/auth-provider';
@@ -43,6 +47,8 @@ type PostCardProps = {
    * props. Pass it when the caller already batch-fetched liked ids.
    */
   initialLiked?: boolean;
+  /** Same contract as `initialLiked`, for the repost glyph. */
+  initialReposted?: boolean;
   /**
    * Ask the owning list to delete this post. Passing it is what turns on the ⋯
    * affordance — and only ever on the viewer's OWN post. Screens that hold the
@@ -222,19 +228,26 @@ export function PostImage({
 /**
  * Post card (Figma 3505:14460, home feed): a full-bleed card — header row
  * (avatar + name/date + a ⋯ options button), body text, an optional card chip,
- * full-bleed 3:4 image(s), and a metrics row (thumbs-up like + comment on the
+ * full-bleed 3:4 image(s), and a metrics row (like + comment + repost on the
  * left, share on the right) closed by a hairline divider. Interactions are
  * preserved: the like keeps its optimistic toggle+rollback (now a thumbs-up that
  * tints to the accent color when liked) and the card chip opens the anchored
  * card's PDP. Both comment targets — the chat icon and the count — open the full
  * thread sheet; the icon additionally focuses its composer.
  *
- * The Figma reaction row also carries a repeat/reshare control. It is NOT built,
- * and that is now a DECISION rather than a gap: sharing here follows Instagram,
- * where a post is SENT to someone rather than republished. Nothing is copied, so
- * nothing can outlive its original — a repost would need moderation inherited
- * from the source, block checks against the ORIGINAL author, and root-pointing
- * to avoid chains. See docs/timeline-reshare-and-wishlist-sharing-plan.
+ * TWO WAYS TO PASS A POST ON, and they are different things:
+ *
+ *  • REPOST (Figma 3523:15548) is public endorsement. It adds a `post_reposts`
+ *    row (social_23) — the count goes up, the author is notified, and the post
+ *    joins your profile's Activity. It does not republish anything, and it does
+ *    not put the post in anyone's feed: Home is `fetchGlobalFeed`, so everyone
+ *    already sees the original.
+ *  • SHARE is private delivery: the post is SENT to someone in DMs, carrying
+ *    only an id so the preview is re-checked against moderation on every read.
+ *
+ * Neither one copies a post, which is what keeps a removed post removed
+ * everywhere. A QUOTE repost — a real new post with this one attached — is the
+ * open extension; see docs/timeline-reshare-and-wishlist-sharing-plan.
  */
 export function PostCard({
   post,
@@ -242,6 +255,7 @@ export function PostCard({
   accessToken,
   onPressCard,
   initialLiked,
+  initialReposted,
   onRequestDelete,
   autoOpenComments = false,
   testID = 'post-card',
@@ -330,6 +344,12 @@ export function PostCard({
   const [likeCount, setLikeCount] = useState(post.likeCount);
   const [likePending, setLikePending] = useState(false);
   const [commentCount, setCommentCount] = useState(post.commentCount);
+  // Repost is the same machinery as the like, deliberately: one row per user per
+  // post, optimistic with rollback. What differs is what it MEANS — see the
+  // repost button below.
+  const [reposted, setReposted] = useState(initialReposted ?? false);
+  const [repostCount, setRepostCount] = useState(post.repostCount);
+  const [repostPending, setRepostPending] = useState(false);
   // Both the chat icon and the count open the SAME thread sheet — they sit a few
   // pixels apart, and having the icon pop a composer-only sheet made whether you
   // saw the existing comments feel random. The icon just also focuses the
@@ -347,6 +367,9 @@ export function PostCard({
   useEffect(() => {
     setCommentCount(post.commentCount);
   }, [post.commentCount]);
+  useEffect(() => {
+    setRepostCount(post.repostCount);
+  }, [post.repostCount]);
 
   // Self-resolve the viewer's liked state on mount so callers need no new props.
   // Skipped when the caller already seeded it. A failed read just leaves it unliked.
@@ -389,6 +412,48 @@ export function PostCard({
       setLikePending(false);
     })();
   }, [liked, likePending, post.id]);
+
+  // Self-resolve the viewer's reposted state, same contract as the liked one:
+  // without it a scrolled-back feed shows every card un-reposted, so something
+  // you already passed on invites you to do it again.
+  useEffect(() => {
+    if (initialReposted !== undefined) {
+      return;
+    }
+    let cancelled = false;
+    void fetchRepostedPostIds([post.id])
+      .then((repostedIds) => {
+        if (!cancelled) {
+          setReposted(repostedIds.has(post.id));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [initialReposted, post.id]);
+
+  // Same optimistic flip + rollback as the like.
+  const handleToggleRepost = useCallback(() => {
+    if (repostPending) {
+      return;
+    }
+    const wasReposted = reposted;
+    const nextReposted = !wasReposted;
+
+    setReposted(nextReposted);
+    setRepostCount((count) => Math.max(0, count + (nextReposted ? 1 : -1)));
+    setRepostPending(true);
+
+    void (async () => {
+      const ok = await (nextReposted ? repostPost(post.id) : unrepostPost(post.id));
+      if (!ok) {
+        setReposted(wasReposted);
+        setRepostCount((count) => Math.max(0, count + (nextReposted ? -1 : 1)));
+      }
+      setRepostPending(false);
+    })();
+  }, [repostPending, reposted, post.id]);
 
   // File the report, then say what it did and did NOT do. Reporting hides
   // nothing on its own — social_04's threshold trigger needs three distinct
@@ -468,6 +533,10 @@ export function PostCard({
 
   // Liked = solid purple thumb (stroke + fill) with a matching count.
   const likeColor = liked ? theme.colors.purple500 : theme.colors.gray700;
+  // Reposted tints stroke + count, but does NOT fill: the repeat glyph is an
+  // open path (two arrows), so filling it floods the space between them into a
+  // purple blob instead of reading as a solid shape the way the thumb does.
+  const repostColor = reposted ? theme.colors.purple500 : theme.colors.gray700;
 
   // Blocked from this card: the post the viewer just acted on leaves the screen
   // straight away. Everything else by this author goes on the next feed read,
@@ -669,6 +738,43 @@ export function PostCard({
               </Text>
             </Pressable>
           </View>
+          {/*
+            REPOST — Figma 3523:15548 (glyph) + 3523:15551 (count).
+
+            An ENDORSEMENT, not a second copy. It adds you to `post_reposts`
+            (social_23): the count here ticks up, the author is notified, and the
+            post joins your profile's Activity as something you passed on.
+            Nothing is republished, so no copy of a post can outlive the
+            original.
+
+            It does NOT push the post into anyone's feed, because it cannot:
+            Home reads `fetchGlobalFeed`, so every reader is already looking at
+            the original and a second copy would just be the same post twice in
+            one list. These rows are exactly what a follow-scoped feed would read
+            later — the endorsement is the cheap half of that.
+          */}
+          <Pressable
+            accessibilityLabel={reposted ? 'Undo repost' : 'Repost'}
+            accessibilityRole="button"
+            accessibilityState={{ selected: reposted }}
+            hitSlop={8}
+            onPress={handleToggleRepost}
+            style={styles.metricItem}
+            testID={`${testID}-repost-button`}
+          >
+            <Repeat
+              color={repostColor}
+              height={METRIC_ICON_SIZE}
+              testID={`${testID}-repost-icon`}
+              width={METRIC_ICON_SIZE}
+            />
+            <Text
+              style={[theme.typography.bodyMedium, { color: repostColor }]}
+              testID={`${testID}-repost-count`}
+            >
+              {repostCount}
+            </Text>
+          </Pressable>
         </View>
         {/*
           Sends the post to someone in DMs — the Instagram shape. NOT a repost:
@@ -734,7 +840,7 @@ export function PostCard({
                 // NOT closed on send: the sheet's own "Sent" row is the
                 // confirmation, and sharing is usually plural. See the sheet.
                 onClose={closePrompt}
-                postId={post.id}
+                payload={{ kind: 'post', postId: post.id }}
                 testID={`${testID}-share-sheet`}
                 visible={promptOpen}
               />

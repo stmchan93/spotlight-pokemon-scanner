@@ -1,6 +1,6 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import { useRouter } from 'expo-router';
-import { Alert, StyleSheet, Text } from 'react-native';
+import { Alert, Share, StyleSheet, Text } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { MockSpotlightRepository } from '@spotlight/api-client';
@@ -19,7 +19,7 @@ import {
 } from '@/features/portfolio/use-portfolio-summary-visibility';
 import { __resetPortfolioViewModeForTests } from '@/features/portfolio/hooks/use-portfolio-view-mode';
 import { __resetTrendWindowForTests } from '@/features/portfolio/hooks/use-trend-window';
-import { deletePost, fetchAuthorPosts } from '@/features/social/social-service';
+import { deletePost, fetchAuthorActivity } from '@/features/social/social-service';
 
 import * as mockApiClient from '../mock-api-client';
 import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
@@ -35,10 +35,31 @@ jest.mock('expo-router', () => ({
 jest.mock('@/features/social/social-service', () => ({
   ...jest.requireActual('@/features/social/social-service'),
   deletePost: jest.fn(async () => true),
-  fetchAuthorPosts: jest.fn(async () => []),
+  fetchAuthorActivity: jest.fn(async () => []),
   fetchLikedPostIds: jest.fn(async () => new Set()),
   fetchUnreadNotificationCount: jest.fn(async () => 0),
 }));
+
+/*
+  A HANDLE ON THE TEST USER. The test-bypass user in `auth-provider` has a
+  display name and no handle, and the profile share message is built from both —
+  so without this the `@handle` half of it is never exercised at the screen
+  level. The real hook still runs and everything else it returns is untouched;
+  only `currentUser.handle` is filled in.
+*/
+jest.mock('@/providers/auth-provider', () => {
+  const actual = jest.requireActual('@/providers/auth-provider');
+  return {
+    ...actual,
+    useAuth: () => {
+      const value = actual.useAuth();
+      return {
+        ...value,
+        currentUser: value.currentUser ? { ...value.currentUser, handle: 'uitester' } : null,
+      };
+    },
+  };
+});
 
 // RollingNumberText is a slot-machine display (each digit is a column rendering
 // 0-9), so its text content isn't the literal value. Swap it for a plain Text so
@@ -628,40 +649,65 @@ describe('PortfolioScreen', () => {
     );
   });
 
-  it('opens notifications from the bell, which replaced the inert share bubble', async () => {
+  /*
+    THE TRAILING PAIR IS EDIT + SHARE (Figma 3670:47454).
+
+    It was the bell and the `+`, inherited wholesale from Home when the two
+    frames were identical. The profile frame has since diverged and spends both
+    slots here, so the assertions that matter are the EXCLUSIONS: notifications
+    and compose are gone from this screen (they stay on Home's bar, which draws
+    the same component with `trailing.kind === 'home'`), and there is exactly ONE
+    edit affordance — the pencil that sat beside the display name is gone with
+    them.
+  */
+  it('puts edit and share in the top bar, and no pencil beside the name', async () => {
     renderPortfolioScreen();
 
-    const bell = await screen.findByTestId('portfolio-header-notifications');
+    const edit = await screen.findByTestId('portfolio-header-edit');
+    expect(screen.getByTestId('portfolio-header-share')).toBeTruthy();
     expect(screen.getByTestId('portfolio-header-search')).toBeTruthy();
 
-    // The Share bubble that used to sit here was wired to `onPress={() => {}}`
-    // — present but doing nothing. The bell took its slot rather than becoming a
-    // fourth bubble, so its absence is the point, not an oversight.
-    expect(screen.queryByTestId('portfolio-header-share')).toBeNull();
+    // Home keeps these; this bar no longer has the slots for them.
+    expect(screen.queryByTestId('portfolio-header-notifications')).toBeNull();
+    expect(screen.queryByTestId('portfolio-header-notifications-badge')).toBeNull();
+    expect(screen.queryByTestId('portfolio-header-add')).toBeNull();
 
-    // Edit Profile is NOT in the bar: Figma 3505:14521 spends its four slots on
-    // menu / search / bell / +, so edit moved down onto the profile block.
-    expect(screen.queryByTestId('portfolio-header-edit')).toBeNull();
-    // ICON ONLY, beside the name it edits. It was a labelled "Edit" chip pushed
-    // out to the far right of the name row, which read as a button bolted onto
-    // the profile; the label is gone and only the pencil remains.
-    const editControl = screen.getByTestId('portfolio-header-title-edit');
-    expect(editControl.props.accessibilityLabel).toBe('Edit profile');
-    expect(within(editControl).queryByText('Edit')).not.toBeOnTheScreen();
+    // ONE edit control, in the bar. `ProfileHeader` used to draw a second one
+    // beside the name it edits, back when the bar had no slot for it.
+    expect(screen.queryByTestId('portfolio-header-title-edit')).toBeNull();
+    expect(edit.props.accessibilityLabel).toBe('Edit profile');
 
     await act(async () => {
-      fireEvent.press(bell);
+      fireEvent.press(edit);
     });
-    expect(push).toHaveBeenCalledWith('/notifications');
+    expect(push).toHaveBeenCalledWith('/edit-profile');
   });
 
-  it('hides the unread badge when there is nothing unread', async () => {
+  /*
+    SHARE GOES TO A DM, NOT THE OS SHARE SHEET.
+
+    The message carries a `spotlight://u/<handle>` link, which resolves only for
+    a recipient who already has the build — so it is sent through the one channel
+    where that is guaranteed. Out through the OS sheet it would be dead,
+    usually-untappable text. `profile-link.ts` is where this flips back to the OS
+    sheet once universal links exist.
+  */
+  it('sends the profile to a DM instead of the OS share sheet', async () => {
+    const shareSpy = jest
+      .spyOn(Share, 'share')
+      .mockResolvedValue({ action: 'sharedAction' } as never);
+
     renderPortfolioScreen();
 
-    await screen.findByTestId('portfolio-header-notifications');
-    // The default mock resolves 0 unread; a badge showing "0" would be worse
-    // than no badge, so it must not render at all.
-    expect(screen.queryByTestId('portfolio-header-notifications-badge')).toBeNull();
+    await act(async () => {
+      fireEvent.press(await screen.findByTestId('portfolio-header-share'));
+    });
+
+    expect(shareSpy).not.toHaveBeenCalled();
+    expect(await screen.findByTestId('portfolio-share-profile-sheet')).toBeTruthy();
+    expect(screen.getByText('Send profile to')).toBeTruthy();
+
+    shareSpy.mockRestore();
   });
 
   it('masks the summary value and delta when the visibility toggle is pressed', async () => {
@@ -980,10 +1026,10 @@ describe('PortfolioScreen', () => {
       fireEvent(tile, 'longPress');
     });
 
-    // Menu opens, titled with the card name, listing all five actions.
+    // Menu opens, titled with the card name, listing the four actions.
     const sheet = await screen.findByTestId('collection-card-actions');
     expect(within(sheet).getByText('Gengar VMAX')).toBeTruthy();
-    ['edit', 'duplicate', 'share', 'wishlist', 'delete'].forEach((key) => {
+    ['edit', 'share', 'wishlist', 'delete'].forEach((key) => {
       expect(screen.getByTestId(`collection-card-actions-${key}`)).toBeTruthy();
     });
 
@@ -991,6 +1037,89 @@ describe('PortfolioScreen', () => {
       fireEvent.press(screen.getByTestId('collection-card-actions-wishlist'));
     });
     expect(setCardFavorite).toHaveBeenCalledWith('card-lp-1', true);
+    // The write is invisible on the Collection row itself, so it has to say so.
+    expect(await screen.findByText('Added to Wishlist')).toBeTruthy();
+  });
+
+  it('omits Duplicate from the card actions menu', async () => {
+    const inventory = [buildInventoryEntry({ id: 'lp-1', name: 'Gengar VMAX', cardId: 'card-lp-1' })];
+    const dashboard = buildDashboardWithInventory(inventory);
+    const repository = createTestSpotlightRepository({
+      loadInventoryEntries: async () => ({ state: 'success', data: inventory, errorMessage: null }),
+      loadPortfolioDashboard: async () => ({ state: 'success', data: dashboard, errorMessage: null }),
+    });
+
+    renderPortfolioScreen({ repository });
+
+    const tile = await screen.findByTestId('collection-masonry-grid-tile-lp-1');
+    await act(async () => {
+      fireEvent(tile, 'longPress');
+    });
+
+    const sheet = await screen.findByTestId('collection-card-actions');
+    expect(screen.queryByTestId('collection-card-actions-duplicate')).toBeNull();
+    expect(within(sheet).queryByText('Duplicate')).toBeNull();
+  });
+
+  it('un-wishlists a card that is already favorited, using the server answer for the message', async () => {
+    const setCardFavorite = jest.fn(async (cardId: string, isFavorite?: boolean | null) => ({
+      cardId,
+      isFavorite: isFavorite ?? false,
+      favoritedAt: null,
+    }));
+    const inventory = [
+      buildInventoryEntry({ id: 'lp-1', name: 'Gengar VMAX', cardId: 'card-lp-1', isFavorite: true }),
+    ];
+    const dashboard = buildDashboardWithInventory(inventory);
+    const repository = createTestSpotlightRepository({
+      loadInventoryEntries: async () => ({ state: 'success', data: inventory, errorMessage: null }),
+      loadPortfolioDashboard: async () => ({ state: 'success', data: dashboard, errorMessage: null }),
+      setCardFavorite,
+    });
+
+    renderPortfolioScreen({ repository });
+
+    const tile = await screen.findByTestId('collection-masonry-grid-tile-lp-1');
+    await act(async () => {
+      fireEvent(tile, 'longPress');
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('collection-card-actions-wishlist'));
+    });
+
+    expect(setCardFavorite).toHaveBeenCalledWith('card-lp-1', false);
+    expect(await screen.findByText('Removed from Wishlist')).toBeTruthy();
+  });
+
+  it('surfaces an error when the wishlist write fails instead of failing silently', async () => {
+    const setCardFavorite = jest.fn(async () => {
+      throw new Error('offline');
+    });
+    const inventory = [
+      buildInventoryEntry({ id: 'lp-1', name: 'Gengar VMAX', cardId: 'card-lp-1', isFavorite: false }),
+    ];
+    const dashboard = buildDashboardWithInventory(inventory);
+    const repository = createTestSpotlightRepository({
+      loadInventoryEntries: async () => ({ state: 'success', data: inventory, errorMessage: null }),
+      loadPortfolioDashboard: async () => ({ state: 'success', data: dashboard, errorMessage: null }),
+      setCardFavorite,
+    });
+
+    renderPortfolioScreen({ repository });
+
+    const tile = await screen.findByTestId('collection-masonry-grid-tile-lp-1');
+    await act(async () => {
+      fireEvent(tile, 'longPress');
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('collection-card-actions-wishlist'));
+    });
+
+    expect(setCardFavorite).toHaveBeenCalledWith('card-lp-1', true);
+    expect(
+      await screen.findByText("Couldn't add that card to your Wishlist. Please try again."),
+    ).toBeTruthy();
+    expect(screen.getByTestId('collection-wishlist-toast')).toBeTruthy();
   });
 
   it('filters out graded entries when the Ungraded chip is tapped', async () => {
@@ -1084,11 +1213,12 @@ describe('PortfolioScreen', () => {
     renderPortfolioScreen();
     await screen.findByTestId('portfolio-header-title');
 
-    ['portfolio-scroll-view', 'portfolio-forsale-page', 'portfolio-activity-page'].forEach(
-      (testID) => {
-        expect(screen.getByTestId(testID).props.contentInsetAdjustmentBehavior).toBe('automatic');
-      },
-    );
+    // For Sale is not among them: the tab is hidden until the feature exists
+    // (`FOR_SALE_TAB_ENABLED`), so the pager never renders that page.
+    ['portfolio-scroll-view', 'portfolio-activity-page'].forEach((testID) => {
+      expect(screen.getByTestId(testID).props.contentInsetAdjustmentBehavior).toBe('automatic');
+    });
+    expect(screen.queryByTestId('portfolio-forsale-page')).toBeNull();
   });
 
   describe('empty collection', () => {
@@ -1448,8 +1578,12 @@ describe('PortfolioScreen', () => {
   // the delete path is verified here too rather than assumed from the feed.
   it('deletes an own post from the Activity tab, and restores it when the write fails', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-    (fetchAuthorPosts as jest.Mock).mockResolvedValue([
+    (fetchAuthorActivity as jest.Mock).mockResolvedValue([
       {
+        // `fetchAuthorActivity` returns `{ post, repostedAt }`; null here means
+        // the owner WROTE this one, which is what makes it deletable.
+        repostedAt: null,
+        post: {
         id: 'activity-post-1',
         // The id AuthProvider signs in as under NODE_ENV=test.
         authorId: '00000000-0000-0000-0000-000000000001',
@@ -1458,8 +1592,10 @@ describe('PortfolioScreen', () => {
         cardId: null,
         likeCount: 0,
         commentCount: 0,
+        repostCount: 0,
         createdAt: '2026-05-01T00:00:00.000Z',
         media: [],
+        },
       },
     ]);
     (deletePost as jest.Mock).mockResolvedValue(false);
@@ -1495,24 +1631,22 @@ describe('PortfolioScreen', () => {
   });
 
   /*
-    The + COMPOSES, on every tab.
+    COMPOSING SURVIVES THE `+`.
 
-    It used to push the card search from Collection and For Sale and only
-    compose from Activity. But the search pill sits beside it in the same bar
-    and already opens the card search, so two of the four controls did the same
-    thing while composing — the one thing you cannot otherwise start here — had
-    no entry point on two tabs out of three.
+    The bar's `+` composed a post from every tab of this screen. The profile
+    toolbar (3670:47454) spends that slot on share, so the `+` is gone — but
+    composing is not: HOME's bar keeps its own `+`, and an empty Activity tab
+    still offers "What's on your mind?". This test is what stops the removal
+    from quietly stranding the composer.
   */
-  it('opens the composer from the top bar + whichever tab is active', async () => {
+  it('still composes from an empty Activity tab now that the bar has no +', async () => {
+    // Explicit, because an earlier test in this file leaves `fetchAuthorActivity`
+    // resolving a post — and the compose prompt is the EMPTY state.
+    (fetchAuthorActivity as jest.Mock).mockResolvedValue([]);
     renderPortfolioScreen();
     await screen.findByTestId('portfolio-header-title');
 
-    // The + is a permanent slot in the bar (Figma 3505:14539), not a per-tab
-    // bubble that appears and disappears.
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('portfolio-header-add'));
-    });
-    expect(push).toHaveBeenLastCalledWith('/new-post');
+    expect(screen.queryByTestId('portfolio-header-add')).toBeNull();
 
     await act(async () => {
       fireEvent.press(screen.getByTestId('portfolio-profile-tabs-tab-activity'));
@@ -1520,10 +1654,9 @@ describe('PortfolioScreen', () => {
 
     push.mockClear();
     await act(async () => {
-      fireEvent.press(screen.getByTestId('portfolio-header-add'));
+      fireEvent.press(await screen.findByTestId('portfolio-activity-empty'));
     });
     expect(push).toHaveBeenLastCalledWith('/new-post');
-    expect(push).not.toHaveBeenCalledWith('/catalog/search');
   });
 
   it('opens the full-screen card search from the top bar pill', async () => {
@@ -1575,8 +1708,8 @@ describe('PortfolioScreen', () => {
 
     // The bubbles are pinned and stay live for the whole scroll.
     await act(async () => {
-      fireEvent.press(screen.getByTestId('portfolio-header-notifications'));
+      fireEvent.press(screen.getByTestId('portfolio-header-edit'));
     });
-    expect(push).toHaveBeenLastCalledWith('/notifications');
+    expect(push).toHaveBeenLastCalledWith('/edit-profile');
   });
 });
