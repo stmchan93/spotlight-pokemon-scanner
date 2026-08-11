@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import { useRouter } from 'expo-router';
 
 import type { CardFavoriteEntry } from '@spotlight/api-client';
@@ -87,6 +87,19 @@ describe('WishlistScreen', () => {
     expect(screen.queryByTestId('bottom-nav-wishlist')).toBeNull();
     expect(screen.queryByTestId('bottom-nav-portfolio')).toBeNull();
     expect(screen.queryByTestId('bottom-nav-scan')).toBeNull();
+  });
+
+  // Wishlist is one of the four TABS now. It carried a back chevron from when it
+  // was pushed in from the drawer, which by then popped you to whatever you had
+  // visited before — or did nothing. A tab is a root: hamburger, like Home and
+  // You, plus the same left-edge drag.
+  it('opens the drawer from the header, and has no back button to press', async () => {
+    renderWishlistScreen();
+    await screen.findByTestId('wishlist-header-title');
+
+    expect(screen.queryByTestId('wishlist-header-back')).toBeNull();
+    expect(screen.getByTestId('wishlist-header-menu')).toBeTruthy();
+    expect(screen.getByTestId('drawer-edge-swipe')).toBeTruthy();
   });
 
   it('renders the whole list view virtualized, with no View More gate', async () => {
@@ -348,8 +361,8 @@ describe('WishlistScreen', () => {
     renderWishlistScreen(repository);
 
     const editButton = await screen.findByTestId('wishlist-header-edit');
-    // The catalog-search FAB is up before edit mode...
-    expect(screen.queryByTestId('collection-add-fab')).toBeTruthy();
+    // The catalog-search button sits beside Edit before edit mode...
+    expect(screen.queryByTestId('wishlist-header-search')).toBeTruthy();
 
     await act(async () => {
       fireEvent.press(editButton);
@@ -357,8 +370,92 @@ describe('WishlistScreen', () => {
 
     expect(screen.getByTestId('wishlist-header-done')).toBeTruthy();
     expect(screen.getByTestId('wishlist-edit-bar')).toBeTruthy();
-    // ...and is hidden while selecting, so it can't overlap the edit bar.
+    // ...and stands down while selecting, leaving Done alone in the right slot.
+    expect(screen.queryByTestId('wishlist-header-search')).toBeNull();
+  });
+
+  // The catalog search used to be a floating magnifier FAB pinned above the tab
+  // bar (`CollectionAddFab`). It is a header button now, sitting beside Edit and
+  // built from the same `GlassNavBubble` — same destination, same label.
+  it('opens the catalog search from a header button, not a floating FAB', async () => {
+    const favorites = [buildFavoriteEntry({ cardId: 'charizard', name: 'Charizard' })];
+    const repository = createTestSpotlightRepository({
+      getCardFavorites: async () => favorites,
+    });
+
+    renderWishlistScreen(repository);
+
+    const searchButton = await screen.findByTestId('wishlist-header-search');
+    expect(searchButton.props.accessibilityLabel).toBe('Search the card catalog');
+    // The floating variant is gone from this screen entirely.
     expect(screen.queryByTestId('collection-add-fab')).toBeNull();
+
+    await act(async () => {
+      fireEvent.press(searchButton);
+    });
+
+    expect(push).toHaveBeenCalledWith('/catalog/search');
+  });
+
+  it('groups add, edit and share into one pill', async () => {
+    const repository = createTestSpotlightRepository({
+      getCardFavorites: async () => [buildFavoriteEntry({ cardId: 'charizard', name: 'Charizard' })],
+    });
+
+    renderWishlistScreen(repository);
+
+    /*
+      Figma 3725:59578 — one glass pill, not three separate bubbles. `within`
+      is what pins the GROUPING; asserting the three testIDs exist would still
+      pass if they drifted back apart into individual circles.
+    */
+    const actions = await screen.findByTestId('wishlist-header-actions');
+    expect(within(actions).getByTestId('wishlist-header-search')).toBeTruthy();
+    expect(within(actions).getByTestId('wishlist-header-edit')).toBeTruthy();
+    expect(within(actions).getByTestId('wishlist-header-share')).toBeTruthy();
+  });
+
+  it('shows share, and share deliberately does nothing yet', async () => {
+    const repository = createTestSpotlightRepository({
+      getCardFavorites: async () => [buildFavoriteEntry({ cardId: 'charizard', name: 'Charizard' })],
+    });
+
+    renderWishlistScreen(repository);
+
+    const share = await screen.findByTestId('wishlist-header-share');
+    expect(share.props.accessibilityLabel).toBe('Share wishlist');
+
+    await act(async () => {
+      fireEvent.press(share);
+    });
+
+    /*
+      A PLACEHOLDER, on purpose: the wishlist is private (the public profile has
+      Collection / For Sale / Activity and no Wishlist tab), so there is no URL
+      to share and no decision yet on text vs image vs a public tab. This test
+      exists so that when the handler gains a body, someone has to come here and
+      say what it now does — rather than it quietly starting to fire something.
+    */
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  // A header button is chrome, not an overlay on the list, so it survives the
+  // case a list-anchored FAB had to special-case: an empty wishlist.
+  it('keeps the header search reachable when the wishlist is empty', async () => {
+    const repository = createTestSpotlightRepository({
+      getCardFavorites: async () => [],
+    });
+
+    renderWishlistScreen(repository);
+
+    await screen.findByTestId('wishlist-empty');
+    const searchButton = screen.getByTestId('wishlist-header-search');
+
+    await act(async () => {
+      fireEvent.press(searchButton);
+    });
+
+    expect(push).toHaveBeenCalledWith('/catalog/search');
   });
 
   it('toggles a row selection (instead of navigating) when tapped in edit mode', async () => {
