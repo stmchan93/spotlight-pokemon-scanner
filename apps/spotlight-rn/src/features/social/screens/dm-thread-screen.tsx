@@ -17,6 +17,7 @@ import { Avatar, Text, TextField, useSpotlightTheme } from '@spotlight/design-sy
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import { profileRouteSlug } from '@/features/social/profile-link';
+import { SharedPostBubble } from '@/features/social/components/shared-post-bubble';
 import {
   type DmMessage,
   fetchConversationBlocked,
@@ -525,7 +526,22 @@ export function DmThreadScreen({
               },
             ]}
           >
-            <Text style={[theme.typography.body, { color: bodyColor }]}>{item.body}</Text>
+            {/*
+              A shared post renders as a preview instead of text. The message
+              stores only an id — the preview is hydrated on every render, so a
+              post removed, deleted or blocked since it was sent stops
+              resolving on its own (social_22).
+            */}
+            {item.sharedPostId ? (
+              <SharedPostBubble
+                onOpen={(postId) => router.push(`/post/${postId}` as never)}
+                postId={item.sharedPostId}
+                testID={`dm-thread-shared-${item.id}`}
+              />
+            ) : null}
+            {item.body ? (
+              <Text style={[theme.typography.body, { color: bodyColor }]}>{item.body}</Text>
+            ) : null}
             {item.failed ? (
               <Text
                 style={[theme.typography.micro, { color: theme.colors.dangerStrong }]}

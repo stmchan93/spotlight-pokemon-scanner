@@ -32,6 +32,22 @@ type ConfirmDeleteSheetProps = {
   /** Destructive CTA label — defaults to "Delete". */
   confirmLabel?: string;
   cancelLabel?: string;
+  /**
+   * How this sheet is presented.
+   *
+   * `modal` (default) wraps it in its own native `Modal`, which is what a screen
+   * wants: the sheet has to sit above the whole app.
+   *
+   * `inline` renders exactly the same scrim + sheet as an absolutely-filled
+   * overlay in the CALLER's view tree, with no `Modal` of its own. That is for a
+   * caller that is ALREADY inside a `Modal` (the comments sheet): presenting a
+   * second native modal over a presented one is unreliable on iOS — the comments
+   * in this file and in `CardActionsSheet` are both scars from that collision —
+   * and an in-tree overlay has no view controller to collide with. Callers using
+   * `inline` are responsible for placing it last in their overlay's children so
+   * it paints above the rest.
+   */
+  presentation?: 'modal' | 'inline';
   testID?: string;
 };
 
@@ -65,6 +81,7 @@ export function ConfirmDeleteSheet({
   quantity = 1,
   confirmLabel = 'Delete',
   cancelLabel = 'Cancel',
+  presentation = 'modal',
   testID = 'confirm-delete-sheet',
 }: ConfirmDeleteSheetProps) {
   const theme = useSpotlightTheme();
@@ -135,6 +152,82 @@ export function ConfirmDeleteSheet({
     return null;
   }
 
+  const overlay = (
+    <View
+      pointerEvents={visible ? 'auto' : 'none'}
+      style={presentation === 'inline' ? [styles.root, styles.inlineRoot] : styles.root}
+    >
+      <Pressable
+        accessibilityLabel="Close"
+        accessibilityRole="button"
+        onPress={onClose}
+        style={styles.backdrop}
+        testID={`${testID}-backdrop`}
+      />
+      <Animated.View
+        style={[
+          styles.sheet,
+          {
+            backgroundColor: theme.colors.gray0,
+            paddingBottom: Math.max(insets.bottom, 16) + 8,
+            transform: [{ translateY }],
+          },
+        ]}
+        testID={testID}
+      >
+        <View style={styles.header} {...dragResponder.panHandlers}>
+          <Pressable
+            accessibilityLabel="Close"
+            accessibilityRole="button"
+            hitSlop={16}
+            onPress={onClose}
+            style={styles.handleHit}
+            testID={`${testID}-handle`}
+          >
+            <View style={[styles.handleBar, { backgroundColor: theme.colors.gray200 }]} />
+          </Pressable>
+          <Text
+            style={[theme.typography.bodyMedium, styles.title, { color: theme.colors.gray900 }]}
+          >
+            {title}
+          </Text>
+        </View>
+
+        <Text style={[theme.typography.body, styles.message, { color: theme.colors.gray900 }]}>
+          {resolvedMessage}
+        </Text>
+
+        <View style={styles.actions}>
+          <Button
+            disabled={confirmPending}
+            label={confirmLabel}
+            labelStyleVariant="label"
+            onPress={onConfirm}
+            shape="rounded"
+            size="md"
+            testID={`${testID}-confirm`}
+            variant="destructive"
+          />
+          <Button
+            disabled={confirmPending}
+            label={cancelLabel}
+            labelStyleVariant="label"
+            onPress={onClose}
+            shape="rounded"
+            size="md"
+            testID={`${testID}-cancel`}
+            variant="outline"
+          />
+        </View>
+      </Animated.View>
+    </View>
+  );
+
+  // In-tree: no `Modal`, so nothing to present and nothing to collide with.
+  if (presentation === 'inline') {
+    return overlay;
+  }
+
   return (
     <Modal
       animationType="none"
@@ -149,71 +242,7 @@ export function ConfirmDeleteSheet({
       // lets the dismiss transition run cleanly.
       visible={visible}
     >
-      <View pointerEvents={visible ? 'auto' : 'none'} style={styles.root}>
-        <Pressable
-          accessibilityLabel="Close"
-          accessibilityRole="button"
-          onPress={onClose}
-          style={styles.backdrop}
-          testID={`${testID}-backdrop`}
-        />
-        <Animated.View
-          style={[
-            styles.sheet,
-            {
-              backgroundColor: theme.colors.gray0,
-              paddingBottom: Math.max(insets.bottom, 16) + 8,
-              transform: [{ translateY }],
-            },
-          ]}
-          testID={testID}
-        >
-          <View style={styles.header} {...dragResponder.panHandlers}>
-            <Pressable
-              accessibilityLabel="Close"
-              accessibilityRole="button"
-              hitSlop={16}
-              onPress={onClose}
-              style={styles.handleHit}
-              testID={`${testID}-handle`}
-            >
-              <View style={[styles.handleBar, { backgroundColor: theme.colors.gray200 }]} />
-            </Pressable>
-            <Text
-              style={[theme.typography.bodyMedium, styles.title, { color: theme.colors.gray900 }]}
-            >
-              {title}
-            </Text>
-          </View>
-
-          <Text style={[theme.typography.body, styles.message, { color: theme.colors.gray900 }]}>
-            {resolvedMessage}
-          </Text>
-
-          <View style={styles.actions}>
-            <Button
-              disabled={confirmPending}
-              label={confirmLabel}
-              labelStyleVariant="label"
-              onPress={onConfirm}
-              shape="rounded"
-              size="md"
-              testID={`${testID}-confirm`}
-              variant="destructive"
-            />
-            <Button
-              disabled={confirmPending}
-              label={cancelLabel}
-              labelStyleVariant="label"
-              onPress={onClose}
-              shape="rounded"
-              size="md"
-              testID={`${testID}-cancel`}
-              variant="outline"
-            />
-          </View>
-        </Animated.View>
-      </View>
+      {overlay}
     </Modal>
   );
 }
@@ -240,6 +269,13 @@ const styles = StyleSheet.create({
   },
   header: {
     width: '100%',
+  },
+  // `inline` only: fill the caller's Modal instead of being a Modal. `zIndex` so
+  // the overlay paints above its siblings on both platforms rather than relying
+  // on child order alone.
+  inlineRoot: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1,
   },
   message: {
     paddingHorizontal: 16,

@@ -6,6 +6,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { SpotlightThemeProvider } from '@spotlight/design-system';
 
 import { PostCard } from '@/features/social/components/post-card';
+import { fetchConversations, sendMessage } from '@/features/social/dm-service';
 import {
   addComment,
   blockUser,
@@ -28,6 +29,18 @@ jest.mock('@/features/social/social-service', () => ({
   unlikeComment: jest.fn(async () => true),
   blockUser: jest.fn(async () => true),
   reportContent: jest.fn(async () => true),
+}));
+
+// The share sheet talks to the DM system: existing threads, then a send. Both
+// are network in real life, so both are mocked here.
+jest.mock('@/features/social/dm-service', () => ({
+  fetchConversations: jest.fn(async () => []),
+  findOrCreateDm: jest.fn(async () => 'conv-new'),
+  sendMessage: jest.fn(async () => ({ id: 'm-1' })),
+}));
+
+jest.mock('@/features/profile/profile-service', () => ({
+  searchUsers: jest.fn(async () => []),
 }));
 
 // The comments sheet the card renders reads the signed-in user so a just-posted
@@ -602,5 +615,103 @@ describe('PostCard author links', () => {
     expect(mockPush).toHaveBeenLastCalledWith('/u/misty');
     // The thread is a Modal — left open, it would sit over the profile.
     await waitFor(() => expect(screen.queryByText('Great card!')).not.toBeOnTheScreen());
+  });
+});
+
+/*
+  SHARING IS SEND-TO-DM, NOT A REPOST.
+
+  Nothing is republished: the message carries the post's id and its preview is
+  hydrated from `posts` on every read (social_22), so a post that is later
+  removed, deleted or hidden by a block stops resolving wherever it was sent.
+  A repost, or a link baked into a message body, would have left a copy behind
+  that outlives its original in a private thread nobody moderates.
+
+  The first test here is a regression in the strictest sense: this button
+  rendered with a label, a hit-slop and a glyph and NO `onPress` at all, so it
+  looked like a feature and did nothing.
+*/
+describe('PostCard share', () => {
+  const SHARE_SHEET = 'post-card-share-sheet';
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (fetchLikedPostIds as jest.Mock).mockResolvedValue(new Set());
+    (fetchConversations as jest.Mock).mockResolvedValue([]);
+    (sendMessage as jest.Mock).mockResolvedValue({ id: 'm-1' });
+  });
+
+  function conversationWith(userId: string, displayName: string) {
+    return {
+      id: `conv-${userId}`,
+      otherUserId: userId,
+      otherUser: { displayName, handle: displayName.toLowerCase(), avatarUrl: null },
+    };
+  }
+
+  it('opens the recipient picker from the share button', async () => {
+    await renderCard();
+
+    expect(screen.queryByTestId(SHARE_SHEET)).toBeNull();
+
+    await pressById('post-card-share-button');
+
+    expect(await screen.findByTestId(SHARE_SHEET)).toBeTruthy();
+  });
+
+  it('sends the post to an existing thread without a caption', async () => {
+    (fetchConversations as jest.Mock).mockResolvedValue([conversationWith('u-2', 'Misty')]);
+    await renderCard();
+
+    await pressById('post-card-share-button');
+    await pressById(`${SHARE_SHEET}-recipient-u-2`);
+
+    // Empty body, post id attached — the whole point of the column.
+    await waitFor(() =>
+      expect(sendMessage as jest.Mock).toHaveBeenCalledWith('conv-u-2', '', {
+        sharedPostId: 'post-1',
+      }),
+    );
+  });
+
+  /*
+    The sheet is the only confirmation there is — with it dismissed, a send and a
+    silently-failed send look exactly the same. It also has to survive the first
+    tap because sharing is plural: you send the same pull to the two people who
+    would care.
+  */
+  it('stays open after a send and marks that recipient Sent', async () => {
+    (fetchConversations as jest.Mock).mockResolvedValue([
+      conversationWith('u-2', 'Misty'),
+      conversationWith('u-3', 'Brock'),
+    ]);
+    await renderCard();
+
+    await pressById('post-card-share-button');
+    await pressById(`${SHARE_SHEET}-recipient-u-2`);
+
+    await waitFor(() =>
+      expect(screen.getByTestId(`${SHARE_SHEET}-state-u-2`).props.children).toBe('Sent'),
+    );
+    expect(screen.getByTestId(`${SHARE_SHEET}-state-u-3`).props.children).toBe('Send');
+    expect(screen.getByTestId(SHARE_SHEET)).toBeTruthy();
+
+    // And the second recipient still works from the same sheet.
+    await pressById(`${SHARE_SHEET}-recipient-u-3`);
+    await waitFor(() => expect(sendMessage as jest.Mock).toHaveBeenCalledTimes(2));
+  });
+
+  // A tapped row is disabled once it says Sent, so an enthusiastic double-tap
+  // cannot put the same post in the same thread twice.
+  it('will not send the same post to the same person twice', async () => {
+    (fetchConversations as jest.Mock).mockResolvedValue([conversationWith('u-2', 'Misty')]);
+    await renderCard();
+
+    await pressById('post-card-share-button');
+    await pressById(`${SHARE_SHEET}-recipient-u-2`);
+    await waitFor(() => expect(sendMessage as jest.Mock).toHaveBeenCalledTimes(1));
+
+    await pressById(`${SHARE_SHEET}-recipient-u-2`);
+    expect(sendMessage as jest.Mock).toHaveBeenCalledTimes(1);
   });
 });
