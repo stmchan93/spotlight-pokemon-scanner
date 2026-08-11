@@ -1,7 +1,7 @@
 import { StyleSheet } from 'react-native';
 import { screen } from '@testing-library/react-native';
 
-import { SearchEntryPill, colors, shadows } from '@spotlight/design-system';
+import { SearchEntryPill, colors, radii } from '@spotlight/design-system';
 
 import { renderWithProviders } from '../test-utils';
 
@@ -24,21 +24,32 @@ describe('SearchEntryPill', () => {
     return StyleSheet.flatten(screen.getByTestId('pill').props.style) as Record<string, unknown>;
   }
 
-  it('draws its edge with the frame’s shadow, not a stroke', () => {
+  /*
+    THE EDGE IS A STROKE, AND IT STAYS ROUNDED.
+
+    The frame draws this edge as a shadow with no stroke, and that was shipped
+    once. It does not survive the platform: RN collapses a shadow to `elevation`
+    on Android, which derives a RECTANGULAR outline, so a rounded pill came out
+    looking boxed — reported the moment it landed.
+
+    A real 1pt stroke is visible on both platforms and identical on both, which
+    a shadow could never be. `searchBorder` #BEBEBE is 1.86:1 against the white
+    bar, against 1.23:1 for the `gray200` hairline this replaced.
+  */
+  it('draws a visible 1pt stroke, and stays fully rounded', () => {
     renderWithProviders(<SearchEntryPill label="Search Cards" testID="pill" />);
 
     const style = pill();
-    // Figma `0 8 40 rgba(0,0,0,.12)`; the blur halves into `shadowRadius`.
-    expect(style.shadowOpacity).toBe(shadows.searchPill.shadowOpacity);
-    expect(style.shadowRadius).toBe(shadows.searchPill.shadowRadius);
-    expect(style.shadowOffset).toEqual(shadows.searchPill.shadowOffset);
-    // Android renders elevation alone — without it the pill has no edge at all
-    // there, since the soft falloff above cannot survive the translation.
-    expect(style.elevation).toBe(shadows.searchPill.elevation);
+    expect(style.borderWidth).toBe(1);
+    expect(style.borderColor).toBe(colors.searchBorder);
+    // The radius is the half of this that a shadow was never at risk of
+    // breaking — and is exactly what the shadow attempt appeared to break.
+    expect(style.borderRadius).toBe(radii.pill);
 
-    // The frame has NO stroke. Re-adding one alongside the shadow muddies the
-    // edge rather than strengthening it.
-    expect(style.borderWidth ?? 0).toBe(0);
+    // No shadow: on Android it is the rectangle, and on iOS it duplicates an
+    // edge the stroke already draws.
+    expect(style.shadowOpacity ?? 0).toBe(0);
+    expect(style.elevation ?? 0).toBe(0);
   });
 
   /*

@@ -198,30 +198,6 @@ export const layout = {
 } as const;
 
 export const shadows = {
-  /**
-   * The top-bar search entry (Figma "Toolbar - Top - iPhone" 3567:22980).
-   *
-   * THE FRAME DEFINES THAT PILL'S EDGE WITH A SHADOW AND NO STROKE. It shipped
-   * the other way round — a 0.5pt near-white hairline and no shadow — which
-   * measures 1.23:1 against the white bar behind it, so the control dissolved
-   * into the chrome and testers could not find search.
-   *
-   * Figma's blur of 40 halves to `shadowRadius` here, the same relationship
-   * `card` below has to its own frame. Android throws all of this away and
-   * renders `elevation` alone, so the soft 40pt falloff cannot survive there —
-   * if the edge stops reading on Android, give it back its hairline rather than
-   * thickening the shadow and diverging from the frame on iOS.
-   */
-  searchPill: {
-    shadowColor: '#000000',
-    shadowOpacity: 0.12,
-    shadowRadius: 20,
-    shadowOffset: {
-      width: 0,
-      height: 8,
-    },
-    elevation: 6,
-  } satisfies ViewStyle,
   card: {
     shadowColor: '#000000',
     shadowOpacity: 0.08,

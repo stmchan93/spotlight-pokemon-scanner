@@ -34,13 +34,21 @@ const PILL_HEIGHT = 40;
  * primitive for actually typing into).
  *
  * ───────────────────────────────────────────────────────────────────────────
- * ITS EDGE IS A SHADOW, NOT A STROKE — that is what the frame draws.
+ * A 1pt `searchBorder` STROKE, NOT A SHADOW. Read this before "fixing" it back.
  * ───────────────────────────────────────────────────────────────────────────
- * This shipped as a 0.5pt `gray200` hairline with no shadow, which is 1.23:1
- * against the white bar it sits on; the fill is 1.07:1. Nothing defined the
- * shape, and testers reported search as "hard to find". `shadows.searchPill`
- * carries the frame's `0 8 40 rgba(0,0,0,.12)` instead, and the stroke is gone
- * because the frame has none.
+ * This shipped as a 0.5pt `gray200` hairline — 1.23:1 against the white bar it
+ * sits on, over a 1.07:1 fill. Nothing described the shape, and testers
+ * reported search as "hard to find".
+ *
+ * The frame (3567:22980) draws the edge as a shadow, `0 8 40 rgba(0,0,0,.12)`,
+ * with no stroke, and that was tried. It does not survive the platform: RN
+ * collapses a shadow to `elevation` on Android, which derives a RECTANGULAR
+ * outline, so a rounded pill came out looking boxed. Reported immediately.
+ *
+ * So the edge is a real stroke instead: `searchBorder` `#BEBEBE` at 1pt, which
+ * is 1.86:1 — visible on both platforms and identical on both, which the
+ * shadow could never be. It is the token the design system already keeps for
+ * exactly this (`SearchField`'s `compact` variant uses it at the same width).
  *
  * The label is `bodySmall` in `gray600` for the same reason: the frame
  * specifies 14pt Regular `#717171`, which is exactly `bodySmall` — despite the
@@ -64,10 +72,11 @@ export function SearchEntryPill({
       onPress={onPress}
       style={({ pressed }) => [
         styles.pill,
-        theme.shadows.searchPill,
         {
           backgroundColor: theme.colors.gray50,
+          borderColor: theme.colors.searchBorder,
           borderRadius: theme.radii.pill,
+          borderWidth: 1,
           opacity: pressed ? 0.84 : 1,
         },
         style,
