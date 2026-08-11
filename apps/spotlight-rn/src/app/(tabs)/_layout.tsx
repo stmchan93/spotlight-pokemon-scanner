@@ -6,9 +6,15 @@ import { colors } from '@spotlight/design-system';
 
 import { useCircularTabAvatar } from '@/components/circular-tab-avatar';
 import { rememberActiveTab } from '@/lib/last-active-tab';
+import { NativeTabScreenProvider } from '@/lib/tab-bar-insets';
 
 const { Trigger } = NativeTabs;
 const { Icon, Label } = Trigger;
+
+// Module scope so the object identity is stable across renders — `contentStyle`
+// ends up in the tab's navigation options, and a fresh object every render would
+// make those options look changed on every pathname update.
+const scannerTabContentStyle = { backgroundColor: colors.scannerCanvas } as const;
 
 /**
  * The app's tab bar: Apple's native iOS 26 tab controller, which is what gives
@@ -100,6 +106,20 @@ export default function TabsLayout() {
   // move the tab selection afterwards, and nothing reliably does while the tabs
   // are covered. Hiding the bar removes the entire problem — there is no push,
   // so there is nothing to come back from.
+  //
+  // THIS WORKS ON ANDROID TOO — checked, because "tabBarHidden is an iOS prop"
+  // is the obvious guess and it is wrong. react-native-screens 4.23.0 documents
+  // it `@platform android, ios` (`src/components/tabs/TabsHost.types.ts`) and
+  // implements it: `TabsHostViewManager.kt` has the `@ReactProp`, and
+  // `TabsHostAppearanceApplicator.kt` does `bottomNavigationView.isVisible =
+  // !tabsHost.tabBarHidden`, i.e. View.GONE.
+  //
+  // And on Android it could never have insetted the content anyway: `TabsHost`
+  // is a FrameLayout that adds the content at MATCH_PARENT and the
+  // BottomNavigationView OVER it at Gravity.BOTTOM (`TabsHost.kt`). Android's
+  // bar floats on a full-bleed screen; UIKit's shrinks one. So if something on
+  // this route ever looks vertically shifted on Android, the bar is not the
+  // suspect — the JS wrapper called out on the Scan trigger below is.
   const pathname = usePathname();
   const isScanner = pathname === '/scan';
   // Remember where the user was so leaving the Scanner can put them back. This
@@ -115,6 +135,16 @@ export default function TabsLayout() {
 
   return (
     /*
+      MARKS EVERY SCREEN BELOW AS "UIKit/Material already inset my container".
+
+      Android-only in effect, and it is not a route check on purpose: native tabs
+      keep every tab screen MOUNTED, so asking `usePathname()` from inside a
+      screen would have an unfocused tab answer for whatever tab IS focused.
+      Provider membership does not move. See `@/lib/tab-bar-insets` for what the
+      two platforms each need and why neither can be a hardcoded bar height.
+    */
+    <NativeTabScreenProvider>
+    {/*
       ANDROID GETS ITS OWN APPEARANCE, EXPLICITLY.
 
       Everything else on this component is iOS: `minimizeBehavior` is iOS 26,
@@ -132,7 +162,7 @@ export default function TabsLayout() {
       its own API rather than through a `fallbackColor` prop.
 
       Every colour below is Android-only; iOS ignores them and keeps its glass.
-    */
+    */}
     <NativeTabs
       backgroundColor={colors.canvasElevated}
       hidden={isScanner}
@@ -158,6 +188,31 @@ export default function TabsLayout() {
         `index` is the FEED now, not Collection — the app's landing surface is
         social. Collection moved to `you` and kept its screen unchanged; the
         legacy `/portfolio` path redirects there so old links still resolve.
+
+        ─────────────────────────────────────────────────────────────────────
+        THE GLYPHS ARE PLATFORM SYMBOLS, NOT THE FIGMA VECTORS. DECIDED.
+        ─────────────────────────────────────────────────────────────────────
+        Checked against Figma 3670:48082 (Home), 3670:48086 (Scan) and
+        3670:48091 (Wishlist) on 2026-08-10. Scan and Wishlist already match
+        their frames exactly — `viewfinder` and `bookmark` ARE the drawn glyphs.
+        Home is the one that differs: the frame draws iconoir's `HomeSimple`
+        (a house with a slot) where iOS renders SF `house`.
+
+        It stays SF `house` on purpose. This is a NATIVE bar: icons are SF
+        Symbol names on iOS and Material names on Android, and an arbitrary
+        vector can only reach it as a rasterized image — the PNG-data-URI route
+        `circular-tab-avatar.tsx` had to build. That was worth it for a
+        PHOTOGRAPH, which no symbol can stand in for. Spending it on a house
+        outline would buy an exact silhouette and give up `house.fill` for the
+        selected state plus the iOS 26 Liquid Glass symbol treatment, and leave
+        a second rasterizer to maintain.
+
+        The labels are the system font for the same reason, not an oversight:
+        the frame specifies Plus Jakarta Sans SemiBold 10/12, and on iOS 26 the
+        label is part of what the OS renders into the glass.
+
+        So: do not "fix" these to match the frame pixel-for-pixel without
+        re-taking that trade.
       */}
       <Trigger name="index">
         {/* `sf` is iOS-only; `md` is the Android half of the same icon. Without
@@ -182,7 +237,29 @@ export default function TabsLayout() {
         JS in the version already installed, which is the half that moves the
         reticle — so this ships by OTA, no native build.
       */}
-      <Trigger disableAutomaticContentInsets name="scan">
+      {/*
+        BLACK CANVAS UNDER THE SCANNER ON ANDROID.
+
+        expo-router paints every tab's content view with the React Navigation
+        theme background before it applies `contentStyle`
+        (`NativeTabsView.js` `Screen()`: `style={[{ backgroundColor:
+        colors.background }, options.contentStyle, …]}`), and this app's theme
+        background is `#FFFFFF` (`src/app/_layout.tsx`). On the three light tabs
+        that is invisible; under a full-bleed viewfinder it is a white sheet the
+        camera has to cover on its very first frame. Naming the canvas removes
+        the whole class rather than relying on the scanner painting first.
+
+        Android-only, because the iOS tree is deliberately left byte-for-byte
+        alone — and NOT the white bar reported on the Galaxy A17. That one is
+        the SYSTEM navigation bar's contrast scrim, which the platform draws on
+        the window decor above every React view and no JS style can reach; see
+        the note in `scan.tsx`.
+      */}
+      <Trigger
+        contentStyle={Platform.OS === 'android' ? scannerTabContentStyle : undefined}
+        disableAutomaticContentInsets
+        name="scan"
+      >
         <Icon md="qr_code_scanner" sf={{ default: 'viewfinder', selected: 'viewfinder' }} />
         <Label>Scan</Label>
       </Trigger>
@@ -204,15 +281,39 @@ export default function TabsLayout() {
           frame or two before the raster lands.
         */}
         {/*
-          ANDROID GETS THE GLYPH, NOT THE PHOTO.
+          ANDROID GETS THE GLYPH, NOT THE PHOTO — AND THIS IS NOT A GATE THAT
+          CAN JUST BE DELETED. Re-checked 2026-08-09 against the installed
+          source; pinned by `__tests__/routes/tabs-layout-you-avatar-test.tsx`.
 
           `renderingMode="original"` is a UIKit concept (UIImage.RenderingMode)
-          and has no Android counterpart. Android treats a tab icon as a
-          drawable and applies the icon tint — which is `tintColor`, gray900 —
-          so the avatar PNG was flattened to a solid dark silhouette: a black
-          square where the photo should be. There is no supported prop to opt a
-          `src` icon out of tinting on Android, so it takes `account_circle`
-          rather than a black blob. iOS keeps the real portrait.
+          with no Android counterpart, and Android's whole icon pipeline here is
+          built on TINTING A WHITE MASK:
+           1. every Android tab icon — ours AND expo-router's own `md` ones —
+              becomes a bitmap. `md` is literally rendered as a WHITE Material
+              symbol (`unstable_getMaterialSymbolSourceAsync(name, 24, 'white')`
+              in expo-router's `materialIconConverter.android.js`) and coloured
+              later by the tint;
+           2. it reaches native as `imageIconResource`, which react-native-screens
+              decodes into a plain `BitmapDrawable` (`TabsImageLoader.kt`) and
+              assigns to `menuItem.icon`;
+           3. `TabsHostAppearanceApplicator.updateSharedAppearance` ALWAYS sets
+              `bottomNavigationView.itemIconTintList` — the props only choose the
+              colour, never whether there is one;
+           4. Material's `NavigationBarItemView.setIcon` wraps, mutates, and
+              calls `Drawable.setTintList(iconTint)` (verified in the
+              material-1.13.0 bytecode). That is SRC_IN: the tint replaces every
+              colour and keeps only the alpha.
+          So a photograph does not come out dark-ish — it comes out as a SOLID
+          gray900 circle. `account_circle` carries strictly more information.
+
+          Upgrading does not unlock it: react-native-screens 4.27.0, the latest,
+          still assigns `itemIconTintList` unconditionally and exposes no
+          per-icon `tinted` opt-out on Android (expo pins us to ~4.23.0 anyway).
+          Enabling this needs a native change — an upstream/patched
+          react-native-screens that wraps image icons in a Drawable which
+          ignores tinting — which is a NEW ANDROID BINARY, not an OTA. It cannot
+          be a blanket "never tint image icons" either, or the white `md` glyphs
+          above go invisible on a light bar.
         */}
         {avatarIcon && Platform.OS === 'ios' ? (
           <Icon renderingMode="original" src={avatarIcon} />
@@ -222,5 +323,6 @@ export default function TabsLayout() {
         <Label>You</Label>
       </Trigger>
     </NativeTabs>
+    </NativeTabScreenProvider>
   );
 }
