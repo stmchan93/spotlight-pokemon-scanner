@@ -28,7 +28,6 @@ import {
   textStyles,
 } from '@spotlight/design-system';
 
-import { chromeBackButtonSize } from '@/components/chrome-back-button';
 import { rawCardReticleAspectRatio } from '@/features/scanner/scanner-normalized-target';
 
 // Cold-start settle window: when the camera session (re)activates, the lens racks
@@ -37,6 +36,21 @@ import { rawCardReticleAspectRatio } from '@/features/scanner/scanner-normalized
 // AF is never disabled; this is just a brief capture gate. Tune on-device. Zero in
 // tests so the suite isn't slowed.
 const SETTLE_MS = process.env.NODE_ENV === 'test' ? 0 : 700;
+
+/**
+ * Height the reticle's geometry treats the top chrome as occupying — FROZEN at
+ * 34, deliberately.
+ *
+ * This used to read `chromeBackButtonSize`, which was 34 at the time. That made
+ * the SCAN WINDOW a function of a button's diameter: `headerHeight` derives from
+ * this and `y = headerHeight + inset` is the reticle's top edge, so restyling
+ * chrome silently moved the reticle and changed the crop sent to matching.
+ *
+ * The scanner does not even render that button (it has its own 32pt bubble). Do
+ * NOT re-point this at a styling token; if the capture window should move, move
+ * it here on purpose and re-check scan accuracy.
+ */
+const SCANNER_TOP_CHROME_HEIGHT = 34;
 
 export const rawVisualCaptureQuality = 0.62;
 export const rawScannerTrayReservedHeight = 168;
@@ -54,6 +68,15 @@ export const slabLabelDividerRatio = 0.28;
 export const slabLabelAnalysisBottomRatio = 0.34;
 export const scannerReticleGuideStrokeWidth = 1.7;
 export const scannerReticleCornerSize = 22;
+/**
+ * Resting reticle corner colour — Figma 2227:22484 "Default frame scan", whose
+ * `Color/purple/300` is exactly this token. Exported so it can be asserted: this
+ * frame has gone purple → white → purple, so it drifts, and a value buried in a
+ * private `StyleSheet.create` is a value nobody can guard.
+ */
+export const reticleRestingCornerColor = colors.purple300;
+/** Capture-pulse corner colour — Figma 2227:22140, the "locked" frame. */
+export const reticleLockedCornerColor = colors.purple500;
 export const scannerReticleCornerStrokeWidth = 3;
 export const slabGuideHorizontalInset = 8;
 
@@ -154,11 +177,11 @@ export function makeRawScannerCaptureLayout({
   // tracks the device, ~card-shaped on a 393pt phone) — the crop sent to matching
   // is decoupled below to keep the true card aspect.
   const inset = 40;
-  const topChromeBottom = safeAreaTop + chromeBackButtonSize + 16;
+  const topChromeBottom = safeAreaTop + SCANNER_TOP_CHROME_HEIGHT + 16;
   // Grey header band (Figma 1041-4241): 121pt tall on a 59pt safe area = the back
   // button (positioned at safeAreaTop+10, 34pt tall) plus 18pt below it. The
   // reticle's top padding is measured from THIS bottom edge.
-  const headerHeight = safeAreaTop + chromeBackButtonSize + 28;
+  const headerHeight = safeAreaTop + SCANNER_TOP_CHROME_HEIGHT + 28;
   const controlsTopSpacing = 10;
   const trayTop = containerHeight - trayReservedHeight;
   // Top edge of the controls row (pill + zoom), which sits a fixed lift above the
@@ -598,7 +621,7 @@ const styles = StyleSheet.create({
     bottom: 0,
   },
   reticleCornerHorizontal: {
-    backgroundColor: colors.scannerTextPrimary,
+    backgroundColor: reticleRestingCornerColor,
     height: scannerReticleCornerStrokeWidth,
     left: 0,
     position: 'absolute',
@@ -607,9 +630,18 @@ const styles = StyleSheet.create({
   reticleCornerLeftEdge: {
     left: 0,
   },
-  // Capture-pulse tint (Figma 2227:22140 — brand purple "locked" frame).
+  /*
+    Capture-pulse tint (Figma 2227:22140 — the "locked" frame).
+
+    Now that the RESTING corners are purple300, the lock is a shift from a light
+    lilac to the saturated brand purple rather than white→purple. That is a
+    quieter signal than it used to be, so the pulse leans harder on the ~4%
+    contraction that rides the same progress value — see `lockShellStyle`. If the
+    lock stops reading on device, deepen THIS colour rather than putting the
+    resting frame back to white; the resting colour is the part Figma specifies.
+  */
   reticleCornerLockedTint: {
-    backgroundColor: colors.purple500,
+    backgroundColor: reticleLockedCornerColor,
   },
   reticleCornerRightEdge: {
     right: 0,
@@ -618,7 +650,7 @@ const styles = StyleSheet.create({
     top: 0,
   },
   reticleCornerVertical: {
-    backgroundColor: colors.scannerTextPrimary,
+    backgroundColor: reticleRestingCornerColor,
     bottom: 0,
     position: 'absolute',
     top: 0,
