@@ -30,7 +30,18 @@ import {
   type MarketHistoryOption,
   type SlabContext,
 } from '@spotlight/api-client';
-import { Button, IconButton, Text, Toast, TrendTriangle, colors, fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
+import {
+  Button,
+  GlassButtonGroup,
+  IconButton,
+  Text,
+  Toast,
+  TrendTriangle,
+  colors,
+  fontFamilies,
+  glassButtonGroupControlSize,
+  useSpotlightTheme,
+} from '@spotlight/design-system';
 import { NavArrowLeft, ShareIos, Trash } from 'iconoir-react-native';
 
 import { useGuestGate } from '@/features/auth/use-guest-gate';
@@ -2176,16 +2187,24 @@ export function CardDetailScreen({
               header center (Figma 1874:13992), regardless of how many icons sit
               on the right (the extra Delete icon used to shove it left). */}
           <View style={styles.headerSide}>
-            <IconButton
-              accessibilityLabel="Go back"
-              onPress={onBack}
-              shape="circle"
-              size={36}
-              testID="detail-back"
-              variant="subtle"
-            >
-              <NavArrowLeft color={theme.colors.gray900} height={24} width={24} />
-            </IconButton>
+            {/*
+              A group of ONE. The trailing pair opposite is a single glass pill,
+              and a leading circle in a different material would read as two
+              unrelated chrome styles across one bar — so back sits in the same
+              surface (Figma 3686:55168, a 40pt glass circle).
+            */}
+            <GlassButtonGroup style={styles.headerBackGroup} testID="detail-back-group">
+              <IconButton
+                accessibilityLabel="Go back"
+                onPress={onBack}
+                shape="circle"
+                size={glassButtonGroupControlSize}
+                testID="detail-back"
+                variant="ghost"
+              >
+                <NavArrowLeft color={theme.colors.gray900} height={24} width={24} />
+              </IconButton>
+            </GlassButtonGroup>
           </View>
           <Text
             numberOfLines={1}
@@ -2195,28 +2214,37 @@ export function CardDetailScreen({
             {displayName}
           </Text>
           <View style={[styles.headerSide, styles.headerSideRight]}>
-            {selectedEntry ? (
+            {/*
+              Delete and share share ONE pill (Figma 3686:55175). They were two
+              separate `subtle` circles, which read as two unrelated buttons
+              that happened to be adjacent rather than one set of actions for
+              this card. The children are `ghost` on purpose — a filled child
+              inside the group puts a circle inside a pill.
+            */}
+            <GlassButtonGroup testID="detail-header-actions">
+              {selectedEntry ? (
+                <IconButton
+                  accessibilityLabel="Delete from collection"
+                  onPress={gate(() => setConfirmDeleteOpen(true))}
+                  shape="circle"
+                  size={glassButtonGroupControlSize}
+                  testID="detail-delete"
+                  variant="ghost"
+                >
+                  <Trash color={theme.colors.gray900} height={20} width={20} />
+                </IconButton>
+              ) : null}
               <IconButton
-                accessibilityLabel="Delete from collection"
-                onPress={gate(() => setConfirmDeleteOpen(true))}
+                accessibilityLabel="Share this card"
+                onPress={gate(handleShare)}
                 shape="circle"
-                size={36}
-                testID="detail-delete"
-                variant="subtle"
+                size={glassButtonGroupControlSize}
+                testID="detail-share"
+                variant="ghost"
               >
-                <Trash color={theme.colors.gray900} height={20} width={20} />
+                <ShareIos color={theme.colors.gray900} height={20} width={20} />
               </IconButton>
-            ) : null}
-            <IconButton
-              accessibilityLabel="Share this card"
-              onPress={gate(handleShare)}
-              shape="circle"
-              size={36}
-              testID="detail-share"
-              variant="subtle"
-            >
-              <ShareIos color={theme.colors.gray900} height={20} width={20} />
-            </IconButton>
+            </GlassButtonGroup>
           </View>
         </View>
       </Animated.View>
@@ -2352,6 +2380,10 @@ const styles = StyleSheet.create({
     // Equal-width flanks → the title between them lands on the true center.
     flex: 1,
     gap: 8,
+  },
+  headerBackGroup: {
+    // A single 40pt circle rather than a pill: no extra inset around one child.
+    paddingHorizontal: 2,
   },
   headerSideRight: {
     justifyContent: 'flex-end',

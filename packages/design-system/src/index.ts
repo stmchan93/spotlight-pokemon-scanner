@@ -7,6 +7,7 @@ export * from './components/card-list-row';
 export * from './components/card-thumbnail';
 export * from './components/empty-state-prompt';
 export * from './components/floating-bottom-nav';
+export * from './components/glass-button-group';
 export * from './components/glass-nav-bubble';
 export * from './components/glass-surface';
 export * from './components/grader-wordmark';

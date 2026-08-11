@@ -11,6 +11,8 @@ import {
   colors,
   EmptyStatePrompt,
   fontFamilies,
+  GlassButtonGroup,
+  glassButtonGroupControlSize,
   GraderWordmark,
   IconButton,
   InventoryCardTile,
@@ -29,6 +31,8 @@ import {
   TextField,
   useSpotlightTheme,
 } from '@spotlight/design-system';
+
+import { ShareIos, Trash } from 'iconoir-react-native';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
 
@@ -265,6 +269,32 @@ export function DesignSystemCatalogScreen({
               subtitle="Shared section header with count, action, and expansion affordance."
               title="Inventory"
             />
+
+            {/*
+              One glass surface carrying two controls — the card-detail
+              delete/share pair. Children are `ghost` so the pill is the only
+              fill; a filled child would put a circle inside a pill.
+            */}
+            <GlassButtonGroup testID="catalog-glass-button-group">
+              <IconButton
+                accessibilityLabel="Delete"
+                onPress={() => {}}
+                shape="circle"
+                size={glassButtonGroupControlSize}
+                variant="ghost"
+              >
+                <Trash color={theme.colors.gray900} height={20} width={20} />
+              </IconButton>
+              <IconButton
+                accessibilityLabel="Share"
+                onPress={() => {}}
+                shape="circle"
+                size={glassButtonGroupControlSize}
+                variant="ghost"
+              >
+                <ShareIos color={theme.colors.gray900} height={20} width={20} />
+              </IconButton>
+            </GlassButtonGroup>
 
             <StateCard
               actionLabel="Retry"

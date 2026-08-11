@@ -81,6 +81,19 @@ describe('CardDetailScreen', () => {
     expect(screen.getByTestId('detail-name').props.children).toBe('Treecko');
     expect(screen.getByTestId('detail-back')).toBeTruthy();
     expect(screen.getByTestId('detail-share')).toBeTruthy();
+    /*
+      Delete and share sit in ONE glass pill (Figma 3686:55175), not two
+      separate circles that happen to be adjacent — and back sits in the same
+      material opposite them, so the bar carries one chrome style rather than
+      two. `within` is what pins the GROUPING; asserting both testIDs exist
+      would still pass if they drifted back apart.
+    */
+    const headerActions = screen.getByTestId('detail-header-actions');
+    expect(within(headerActions).getByTestId('detail-share')).toBeTruthy();
+    expect(screen.getByTestId('detail-back-group')).toBeTruthy();
+    expect(
+      within(screen.getByTestId('detail-back-group')).getByTestId('detail-back'),
+    ).toBeTruthy();
     expect(screen.getByTestId('detail-hero-card')).toBeTruthy();
     expect(screen.getByTestId('detail-hero-card-favorite')).toBeTruthy();
 

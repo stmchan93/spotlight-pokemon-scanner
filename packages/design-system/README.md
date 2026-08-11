@@ -160,11 +160,14 @@ stays the primitive for anything you actually type into.
 
 Current API concepts:
 
-- 36pt tall `gray50` pill with a `borderWidths.rule` `gray200` hairline at
-  `radii.pill`, sized to match the 36pt `IconButton`s beside it (Figma 3505:14526)
-- label role: `typography.label` in `gray500`, centered in the FULL pill
-- `leading?: ReactNode` — optional badge pinned to the left edge (the app mark in
-  the feed top bar). Absolutely positioned, so it never shifts the centered label
+- 40pt tall `gray50` pill with a `borderWidths.rule` `gray200` hairline at
+  `radii.pill`, sized to match the 40pt `GlassNavBubble`s (`size="compact"`)
+  beside it (Figma "Home" 3523:15499, toolbar 3567:22969)
+- label role: `typography.label` in `gray500`, left-aligned
+- `leading?: ReactNode` — optional badge at the leading edge (the app mark in the
+  feed top bar). In flow, not absolute: badge and label are ONE group starting
+  8pt in from the pill's left edge with 4pt between them, which is what the
+  frame draws — the label is not centred in the full pill
 
 ### TextField
 
@@ -229,7 +232,7 @@ Current API concepts:
 - align:
   - `leading`
   - `center`
-- optional handle
+- optional handle (`showHandle`; when rendered it carries `testID="sheet-header-handle"`, so a surface with no dismiss gesture can assert the drag affordance is absent)
 - optional leading accessory
 - optional right accessory
 - optional subtitle
@@ -612,6 +615,31 @@ Current behavior:
   solid fill)
 - glass only appears via a fresh native build, never OTA
 
+### GlassButtonGroup
+
+File: `src/components/glass-button-group.tsx`
+
+Two or more toolbar controls sharing ONE glass surface — the trailing
+delete/share pair on card detail, and edit/share on your profile
+(Figma 3686:55167, 3670:47454). Built on `GlassSurface`, so real iOS 26 Liquid
+Glass, and a solid fallback everywhere else.
+
+The point is that it is one surface, not two. Each control in its own bubble
+reads as unrelated buttons that happen to sit next to each other; a single pill
+reads as one set of actions, which is what they are.
+
+- 40pt tall, `radii.pill`, `paddingHorizontal: 6`, `gap: 6` — level with
+  `glassNavBubbleSizes.compact` and the 40pt search pill
+- children should be 36pt and carry NO fill of their own — pass
+  `IconButton variant="ghost"`. A filled child puts a circle inside a pill,
+  which is the look this exists to remove. `glassButtonGroupControlSize`
+  exports the 36 so callers do not hard-code it
+- also valid with a SINGLE child: that is how a lone back button stays in the
+  same material as the group opposite it, instead of one bar carrying two
+  different chrome styles
+- `fallbackColor` defaults to `gray50`, the fill `IconButton variant="subtle"`
+  already uses and what the design's glass composites to over a white page
+
 ### GlassNavBubble
 
 File: `src/components/glass-nav-bubble.tsx`
@@ -625,14 +653,15 @@ Props:
 
 - `accessibilityLabel` (required), `children` (the glyph), `onPress`
 - `size`: `'small'` (32pt — dense chrome over a live surface, e.g. the scanner),
-  `'compact'` (36pt — a bubble sharing a top bar with other controls: Home, You
+  `'compact'` (40pt — a bubble sharing a top bar with other controls: Home, You
   and Wishlist all use this, and the 8pt `hitSlop` carries it back over the 44pt
   touch minimum), or `'medium'` (44pt, still the default — a bubble floating on
   its own with nothing to line up against)
   - **Pass `size="compact"` for anything in a bar.** `medium` currently has no
-    callers: every bar in the app is a 36pt row (Figma 3505:14521), so taking the
-    default gets you a bubble 8pt taller than everything beside it — which is
-    exactly what the Wishlist header did next to its own 36pt `EditDoneButton`.
+    callers: every bar in the app is a 40pt row (Figma "Home" 3523:15499,
+    toolbar 3567:22969), so taking the default gets you a bubble 4pt taller than
+    everything beside it — which is exactly what the Wishlist header did next to
+    its own `EditDoneButton`.
 - `surface`: describes what is UNDERNEATH, not the glass material —
   `'onLight'` (default) or `'onDark'`
 - `disabled`, `style` (positioning is caller-owned), `testID`
