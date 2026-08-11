@@ -1675,12 +1675,6 @@ export function PortfolioScreen({
         onPageScroll={handlePageScroll}
         order={PROFILE_TAB_ORDER}
         pageRefs={pageScrollRefs}
-        // The glass toolbar floats over this header, so without a fade the
-        // Followers / Following / Fame pills spend the whole collapse sliding up
-        // behind those buttons at full opacity — which reads as the buttons
-        // covering the pills rather than floating over a page. Faded, the bar
-        // settles onto plain background.
-        fadeHeaderOnCollapse
         // Park the tab bar under the floating bubbles instead of at y=0, where
         // "Collection / For Sale / Activity" ended up drawn behind the clock.
         pinnedTopInset={insets.top + HOME_HEADER_ROW_HEIGHT}

@@ -255,17 +255,6 @@ type CollapsibleTabPagerProps<V extends string> = {
    */
   contentInsetTop?: number;
   /**
-   * Fade the header out as it collapses, so the pinned chrome settles onto plain
-   * background rather than onto the header's last rows.
-   *
-   * Portfolio needs it: its glass toolbar floats over the header, and for the
-   * whole length of the collapse the Followers / Following / Fame pills slid up
-   * behind those buttons at full opacity — which reads as the buttons sitting on
-   * top of the pills rather than over a page. Off by default; a header with
-   * nothing floating above it has nothing to fade for.
-   */
-  fadeHeaderOnCollapse?: boolean;
-  /**
    * Extra stand-down check, evaluated at the moment of decision rather than at
    * render, for state the pager cannot see (e.g. "the collection search field
    * currently has focus", which is only knowable from the input's own
@@ -380,7 +369,6 @@ type CollapsibleTabPagerProps<V extends string> = {
 export function CollapsibleTabPager<V extends string>({
   contentInsetTop = 0,
   disabled = false,
-  fadeHeaderOnCollapse = false,
   edgeGuardWidth = DRAWER_EDGE_WIDTH,
   header,
   onChange,
@@ -889,26 +877,6 @@ export function CollapsibleTabPager<V extends string>({
     });
   }, [collapseDistance, pageTop, scrollY]);
 
-  /**
-   * Fades the header out across the SAME band the collapse travels.
-   *
-   * Sharing `distance` and `pageTop` with `headerTranslate` is the whole design:
-   * the header reaches zero opacity on the frame the tab bar comes to rest, so
-   * the chrome always settles onto plain background instead of onto whatever the
-   * header's last rows happen to be. A shorter hand-tuned constant would drift
-   * from the collapse the first time the header's height changed.
-   */
-  const headerOpacity = useMemo(() => {
-    if (!fadeHeaderOnCollapse) {
-      return null;
-    }
-    const distance = Math.max(collapseDistance, 1);
-    return scrollY.interpolate({
-      inputRange: [pageTop, pageTop + distance],
-      outputRange: [1, 0],
-      extrapolate: 'clamp',
-    });
-  }, [collapseDistance, fadeHeaderOnCollapse, pageTop, scrollY]);
 
   const pageProps = useMemo(() => {
     const props = {} as Record<V, CollapsiblePageProps>;
@@ -976,20 +944,7 @@ export function CollapsibleTabPager<V extends string>({
           style={[styles.chrome, { transform: [{ translateY: headerTranslate }] }]}
           testID={`${testID}-chrome`}
         >
-          {/*
-            `onLayout` STAYS on this wrapper. Opacity does not affect layout, so
-            the measurement it feeds — `headerHeight`, and through it
-            `collapseDistance` and every page's `paddingTop` — is unchanged.
-            Moving it onto a new inner view to keep this one "plain" would be the
-            way to break that.
-          */}
-          <Animated.View
-            onLayout={handleHeaderLayout}
-            style={headerOpacity ? { opacity: headerOpacity } : null}
-            testID={`${testID}-header`}
-          >
-            {header}
-          </Animated.View>
+          <View onLayout={handleHeaderLayout} testID={`${testID}-header`}>{header}</View>
           <View onLayout={handleTabBarLayout}>{tabBar}</View>
         </Animated.View>
       </View>

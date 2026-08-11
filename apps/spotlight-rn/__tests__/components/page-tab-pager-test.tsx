@@ -236,7 +236,6 @@ function renderPager({
   collectionEditing = false,
   disabled = false,
   contentInsetTop,
-  fadeHeaderOnCollapse,
   onChange = jest.fn(),
   pageRefs,
   pinnedTopInset,
@@ -249,7 +248,6 @@ function renderPager({
   collectionEditing?: boolean;
   disabled?: boolean;
   contentInsetTop?: number;
-  fadeHeaderOnCollapse?: boolean;
   onChange?: (next: Tab) => void;
   pageRefs?: Partial<Record<Tab, { readonly current: CollapsibleScrollTarget | null }>>;
   pinnedTopInset?: number;
@@ -289,7 +287,6 @@ function renderPager({
       <CollapsibleTabPager
         contentInsetTop={contentInsetTop}
         disabled={disabled}
-        fadeHeaderOnCollapse={fadeHeaderOnCollapse}
         header={<View testID="pager-header" />}
         onChange={onChange}
         order={TABS}
@@ -351,60 +348,6 @@ describe('CollapsibleTabPager', () => {
     strip by UIKit, and reserving it again opened a second status bar of white
     between the tab bar and the first row of the page.
   */
-  /*
-    THE HEADER FADES ACROSS THE COLLAPSE.
-
-    Portfolio's glass toolbar floats over this header, so at full opacity the
-    Followers / Following / Fame pills spend the entire collapse sliding up
-    behind those buttons — which reads as the buttons covering the pills. The
-    fade shares `distance` and `pageTop` with the translate, so the header hits
-    zero on the frame the tab bar comes to rest.
-  */
-  describe('fadeHeaderOnCollapse', () => {
-    /** The header's own wrapper inside the chrome — what carries the opacity. */
-    function headerWrapperStyle(props: Parameters<typeof renderPager>[0]) {
-      renderPager(props);
-      return StyleSheet.flatten(
-        screen.getByTestId('collapsible-tab-pager-header').props.style,
-      );
-    }
-
-    it('leaves the header solid when the screen has nothing floating over it', () => {
-      expect(headerWrapperStyle({})?.opacity).toBeUndefined();
-    });
-
-    it('drives an opacity off the scroll when asked for', () => {
-      // Resolved to a number by the host node: at rest, fully opaque.
-      expect(headerWrapperStyle({ fadeHeaderOnCollapse: true })?.opacity).toBe(1);
-    });
-
-    /*
-      ANCHORED AT `pageTop`, NOT 0 — the failure this file has already been
-      bitten by twice (the search pill's fade and the chrome padding both started
-      a whole status bar late). With the page resting at `-contentInsetTop`, an
-      interpolation from 0 would still read 1 here; anchored correctly it is
-      also 1, so the distinguishing assertion is that the fade is present AND
-      the collapse it shares its band with is the reduced one.
-    */
-    it('fades across the same band the collapse travels', () => {
-      renderPager({ contentInsetTop: 59, fadeHeaderOnCollapse: true, pinnedTopInset: 100 });
-
-      const headerWrapper = screen.getByTestId('pager-header').parent;
-      act(() => {
-        fireEvent(headerWrapper as never, 'layout', {
-          nativeEvent: { layout: { height: 300, width: 393, x: 0, y: 0 } },
-        });
-      });
-
-      // 300pt header less a 100pt pin = 200pt of collapse, and the fade rides it.
-      const { minHeight } = screen.getByTestId('page-collection').props.contentContainerStyle;
-      expect(minHeight - Dimensions.get('window').height).toBe(200);
-      expect(
-        StyleSheet.flatten(screen.getByTestId('collapsible-tab-pager-header').props.style)?.opacity,
-      ).toBe(1);
-    });
-  });
-
   describe('contentInsetTop', () => {
     function chromePaddingAfterLayout(contentInsetTop?: number) {
       renderPager({ contentInsetTop });
