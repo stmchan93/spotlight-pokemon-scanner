@@ -6,6 +6,7 @@ import {
   DEFAULT_MESSAGE_LIMIT,
   type DmMessage,
   fetchConversationBlocked,
+  fetchConversationReadState,
   fetchMessages,
   markConversationRead,
   sendMessage,
@@ -25,6 +26,7 @@ jest.mock('@/features/social/dm-service', () => ({
   // so the assertion below still fails the moment the list stops using it.
   DEFAULT_MESSAGE_LIMIT: 50,
   fetchConversationBlocked: jest.fn(),
+  fetchConversationReadState: jest.fn(),
   fetchMessages: jest.fn(),
   markConversationRead: jest.fn(),
   sendMessage: jest.fn(),
@@ -87,6 +89,8 @@ describe('DmThreadScreen', () => {
     (markConversationRead as jest.Mock).mockResolvedValue(true);
     (sendMessage as jest.Mock).mockResolvedValue(null);
     (fetchConversationBlocked as jest.Mock).mockResolvedValue(false);
+    // Nobody has read anything unless a test says so.
+    (fetchConversationReadState as jest.Mock).mockResolvedValue({ otherLastReadAt: null });
   });
 
   it('shows an empty state for a thread with no messages', async () => {
@@ -634,6 +638,103 @@ describe('DmThreadScreen', () => {
 
       const list = screen.getByTestId('dm-thread-list');
       expect(list.props.initialNumToRender).toBe(DEFAULT_MESSAGE_LIMIT);
+    });
+  });
+
+  /*
+    ═══════════════════════════════════════════════════════════════════════════
+    READ RECEIPTS. No schema, no new subscription — `last_read_at` has been
+    written on every thread open since social_02, and the RLS already lets a
+    participant read their counterpart's row. "Seen" is a comparison.
+    ═══════════════════════════════════════════════════════════════════════════
+  */
+  describe('read receipts', () => {
+    const MINE = {
+      senderId: 'me',
+      createdAt: '2026-07-28T12:00:00.000Z',
+      body: 'you around?',
+    };
+
+    it('marks your newest message seen once their cursor passes it', async () => {
+      (fetchMessages as jest.Mock).mockResolvedValue([buildMessage({ id: 'm-1', ...MINE })]);
+      (fetchConversationReadState as jest.Mock).mockResolvedValue({
+        otherLastReadAt: '2026-07-28T12:00:05.000Z',
+      });
+
+      renderWithProviders(<DmThreadScreen conversationId="c-1" />);
+
+      expect(await screen.findByTestId('dm-thread-seen-m-1')).toBeTruthy();
+      expect(screen.getByText('Seen')).toBeTruthy();
+    });
+
+    it('says nothing when their cursor is older than the message', async () => {
+      (fetchMessages as jest.Mock).mockResolvedValue([buildMessage({ id: 'm-1', ...MINE })]);
+      (fetchConversationReadState as jest.Mock).mockResolvedValue({
+        otherLastReadAt: '2026-07-28T11:59:00.000Z',
+      });
+
+      renderWithProviders(<DmThreadScreen conversationId="c-1" />);
+      await waitFor(() => expect(screen.getByTestId('dm-thread-row-m-1')).toBeTruthy());
+
+      expect(screen.queryByText('Seen')).toBeNull();
+    });
+
+    /*
+      ONE line, under the NEWEST of yours. Read state is a cursor, so if your
+      last message is seen every earlier one is too — repeating it per bubble
+      would turn the thread into a column of status text saying nothing extra.
+    */
+    it('shows one Seen, on the newest of your messages only', async () => {
+      (fetchMessages as jest.Mock).mockResolvedValue([
+        buildMessage({ id: 'm-1', ...MINE }),
+        buildMessage({
+          id: 'm-2',
+          senderId: 'me',
+          body: 'still there?',
+          createdAt: '2026-07-28T12:01:00.000Z',
+        }),
+      ]);
+      (fetchConversationReadState as jest.Mock).mockResolvedValue({
+        otherLastReadAt: '2026-07-28T12:05:00.000Z',
+      });
+
+      renderWithProviders(<DmThreadScreen conversationId="c-1" />);
+
+      expect(await screen.findByTestId('dm-thread-seen-m-2')).toBeTruthy();
+      expect(screen.queryByTestId('dm-thread-seen-m-1')).toBeNull();
+      expect(screen.getAllByText('Seen')).toHaveLength(1);
+    });
+
+    // Their own messages carry no receipt — you reading them is not news to you.
+    it('never marks THEIR message seen', async () => {
+      (fetchMessages as jest.Mock).mockResolvedValue([
+        buildMessage({ id: 'm-1', senderId: 'them', body: 'hey' }),
+      ]);
+      (fetchConversationReadState as jest.Mock).mockResolvedValue({
+        otherLastReadAt: '2026-07-29T00:00:00.000Z',
+      });
+
+      renderWithProviders(<DmThreadScreen conversationId="c-1" />);
+      await waitFor(() => expect(screen.getByTestId('dm-thread-row-m-1')).toBeTruthy());
+
+      expect(screen.queryByText('Seen')).toBeNull();
+    });
+
+    /*
+      GROUPS GET NOTHING, and the service is what enforces it: "seen" in a group
+      means seen by EVERYONE, which is a different rule. Returning the max of
+      several cursors would claim the whole group had read something when one
+      person had, so `fetchConversationReadState` answers null for anything that
+      is not exactly one counterpart.
+    */
+    it('shows nothing when the read state is unavailable, as it is for a group', async () => {
+      (fetchMessages as jest.Mock).mockResolvedValue([buildMessage({ id: 'm-1', ...MINE })]);
+      (fetchConversationReadState as jest.Mock).mockResolvedValue(null);
+
+      renderWithProviders(<DmThreadScreen conversationId="c-1" />);
+      await waitFor(() => expect(screen.getByTestId('dm-thread-row-m-1')).toBeTruthy());
+
+      expect(screen.queryByText('Seen')).toBeNull();
     });
   });
 

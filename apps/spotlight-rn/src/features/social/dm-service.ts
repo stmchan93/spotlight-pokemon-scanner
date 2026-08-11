@@ -780,6 +780,52 @@ export async function sendMessage(
 }
 
 /**
+ * When the OTHER person in a 1:1 thread last read it, or null.
+ *
+ * ───────────────────────────────────────────────────────────────────────────
+ * READ RECEIPTS NEED NO SCHEMA. This is the whole feature's data layer.
+ * ───────────────────────────────────────────────────────────────────────────
+ * `last_read_at` has been written on every thread open since social_02, and
+ * `conv_participants_select` is scoped to the CONVERSATION rather than to the
+ * row's owner — so a participant may already read every participant row of a
+ * thread they are in, their counterpart's cursor included. That permission is
+ * the hard part of read receipts, and it was settled long before anyone asked
+ * for them. A message is seen when this timestamp is at or past it.
+ *
+ * ONE-TO-ONE ONLY, deliberately. In a group "seen" means "seen by everyone",
+ * which is a different rule and a different indicator; returning the max of
+ * several cursors would quietly claim the whole group had read something when
+ * one person had. Groups get null, and the UI shows nothing.
+ */
+export async function fetchConversationReadState(
+  conversationId: string,
+): Promise<{ otherLastReadAt: string | null } | null> {
+  const me = await currentUserId();
+  const trimmed = (conversationId ?? '').trim();
+  if (!supabase || !me || !trimmed) {
+    return null;
+  }
+  try {
+    const { data, error } = await supabase
+      .from(CONVERSATION_PARTICIPANTS_TABLE)
+      .select(participantSelect)
+      .eq('conversation_id', trimmed);
+    if (error || !data) {
+      return null;
+    }
+    const others = (data as ParticipantRow[]).filter((row) => row.user_id !== me);
+    // Exactly one counterpart, or it is not a 1:1 thread. Also covers the
+    // moment before a second participant exists.
+    if (others.length !== 1) {
+      return null;
+    }
+    return { otherLastReadAt: others[0].last_read_at ?? null };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Move this user's read cursor on a thread to now. One UPDATE, no matter how
  * many messages were just read — the whole reason read state is a per-participant
  * timestamp instead of per-message flags.

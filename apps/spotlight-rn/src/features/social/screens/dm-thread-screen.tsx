@@ -24,6 +24,7 @@ import {
   DEFAULT_MESSAGE_LIMIT,
   type DmMessage,
   fetchConversationBlocked,
+  fetchConversationReadState,
   fetchMessages,
   markConversationRead,
   sendMessage,
@@ -201,6 +202,22 @@ export function DmThreadScreen({
    * carefully-worked machinery to turn upside down for a visual bug. Hiding the
    * intermediate frames costs one boolean and leaves that machinery untouched.
    */
+  /*
+    ───────────────────────────────────────────────────────────────────────────
+    READ RECEIPTS, WITH NO SCHEMA AND NO SUBSCRIPTION.
+    ───────────────────────────────────────────────────────────────────────────
+    `conversation_participants.last_read_at` has been written on every thread
+    open since social_02, and the RLS lets a participant read their
+    counterpart's row — so "seen" is just a comparison, not a feature.
+
+    It refreshes on open, on pull-to-refresh, and whenever a realtime message
+    arrives. It deliberately does NOT update live while you both sit in the
+    thread: that would mean re-firing `markConversationRead` per incoming
+    message and publishing this table to realtime, which roughly doubles the
+    realtime traffic of an active chat. The moment they reply — which is the
+    moment you care — a message arrives and this refreshes with it.
+  */
+  const [otherLastReadAt, setOtherLastReadAt] = useState<string | null>(null);
   const [isPinned, setIsPinned] = useState(false);
   const [hasRevealed, setHasRevealed] = useState(false);
   /*
@@ -276,12 +293,15 @@ export function DmThreadScreen({
    * subscription.
    */
   const load = useCallback(async () => {
-    const [rows, blocked] = await Promise.all([
+    const [rows, blocked, readState] = await Promise.all([
       fetchMessages(conversationId),
       fetchConversationBlocked(conversationId),
+      fetchConversationReadState(conversationId),
     ]);
     applyBlocked(blocked);
     setMessages((current) => mergeMessages(current, rows));
+    // Null for a group, or when the read failed — both mean "say nothing".
+    setOtherLastReadAt(readState?.otherLastReadAt ?? null);
     setIsLoading(false);
   }, [applyBlocked, conversationId]);
 
@@ -377,6 +397,18 @@ export function DmThreadScreen({
                 : null,
           };
           setMessages((current) => mergeMessages(current, [incoming]));
+          /*
+            Their reply is the moment "Seen" matters, and it is free here: they
+            cannot have replied without opening the thread, so their read cursor
+            has just moved. Refreshing on this edge is what makes the $0 variant
+            feel live without publishing `conversation_participants` to realtime
+            or re-firing `markConversationRead` per message.
+          */
+          void fetchConversationReadState(conversationId).then((readState) => {
+            if (readState) {
+              setOtherLastReadAt(readState.otherLastReadAt);
+            }
+          });
         },
       )
       .subscribe();
@@ -530,6 +562,36 @@ export function DmThreadScreen({
     };
   }, [otherUser?.handle, otherUser?.userId, router]);
 
+  /*
+    ONE "Seen", under your NEWEST outgoing message — the Instagram shape.
+
+    Per-bubble receipts turn a thread into a column of status text, and they say
+    nothing extra: read state is a CURSOR, so if your last message is seen,
+    every earlier one is too. Anchoring to the newest also means the line moves
+    down as you send rather than accumulating.
+
+    `pending`/`failed` rows are excluded: an unsent message cannot have been
+    read, and "Seen" next to "Not sent" is a contradiction.
+  */
+  const seenMessageId = useMemo(() => {
+    if (!otherLastReadAt || myUserId === null) {
+      return null;
+    }
+    const readAt = Date.parse(otherLastReadAt);
+    if (Number.isNaN(readAt)) {
+      return null;
+    }
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message.senderId !== myUserId || message.pending || message.failed) {
+        continue;
+      }
+      const sentAt = Date.parse(message.createdAt);
+      return !Number.isNaN(sentAt) && readAt >= sentAt ? message.id : null;
+    }
+    return null;
+  }, [messages, myUserId, otherLastReadAt]);
+
   const renderItem = useCallback(
     ({ item }: { item: ThreadMessage }) => {
       // A locally-created entry is always mine, which keeps the optimistic bubble
@@ -677,6 +739,14 @@ export function DmThreadScreen({
               </Text>
             ) : null}
           </Pressable>
+          {item.id === seenMessageId ? (
+            <Text
+              style={[theme.typography.micro, styles.seenNote, { color: theme.colors.gray600 }]}
+              testID={`${testID}-seen-${item.id}`}
+            >
+              Seen
+            </Text>
+          ) : null}
         </View>
       );
     },
@@ -690,6 +760,7 @@ export function DmThreadScreen({
       openProfile,
       otherUser?.avatarUrl,
       router,
+      seenMessageId,
       testID,
       theme,
     ],
@@ -937,6 +1008,12 @@ const styles = StyleSheet.create({
     gap: 2,
     paddingHorizontal: 12,
     paddingVertical: 8,
+  },
+  seenNote: {
+    // Under the bubble and on its side of the thread — the row is `alignItems:
+    // 'flex-end'` for your own messages, so this follows without a rule here.
+    paddingHorizontal: 2,
+    paddingTop: 2,
   },
   failedNote: {
     paddingHorizontal: 2,
