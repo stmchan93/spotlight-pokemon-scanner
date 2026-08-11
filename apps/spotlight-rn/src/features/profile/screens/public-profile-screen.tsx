@@ -45,6 +45,7 @@ import {
   isFollowing,
   unfollowUser,
 } from '@/features/profile/profile-service';
+import { normalizeSocialLink } from '@/features/profile/social-link';
 import { ProfileHeader } from '@/features/profile/components/profile-header';
 import { findOrCreateDm } from '@/features/social/dm-service';
 import { PostCard } from '@/features/social/components/post-card';
@@ -591,7 +592,13 @@ export function PublicProfileScreen({
     if (!link) {
       return;
     }
-    const url = /^https?:\/\//i.test(link) ? link : `https://${link}`;
+    // Normalised here too, not only on save: profiles written before this
+    // validation existed still hold raw text, and this is the call that would
+    // silently no-op on it.
+    const url = normalizeSocialLink(link);
+    if (!url) {
+      return;
+    }
     void Linking.openURL(url).catch(() => {});
   }, [profile?.socialLink]);
 

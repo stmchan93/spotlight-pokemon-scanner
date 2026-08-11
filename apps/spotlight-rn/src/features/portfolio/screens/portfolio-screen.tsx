@@ -101,6 +101,7 @@ import {
 } from '@/features/social/social-service';
 import { usePostDeletion } from '@/features/social/use-post-deletion';
 import { getFeedRefreshVersion } from '@/features/social/screens/new-post-screen';
+import { normalizeSocialLink } from '@/features/profile/social-link';
 import { ProfileHeader } from '@/features/profile/components/profile-header';
 import { buildProfileShareMessage } from '@/features/profile/profile-share';
 import { buildProfileDeepLink } from '@/features/profile/profile-link';
@@ -290,7 +291,13 @@ export function PortfolioScreen({
     if (!link) {
       return;
     }
-    const url = /^https?:\/\//i.test(link) ? link : `https://${link}`;
+    // Normalised here too, not only on save: profiles written before this
+    // validation existed still hold raw text, and this is the call that would
+    // silently no-op on it.
+    const url = normalizeSocialLink(link);
+    if (!url) {
+      return;
+    }
     void Linking.openURL(url).catch(() => {});
   }, [currentUser?.socialLink]);
 
@@ -1200,18 +1207,28 @@ export function PortfolioScreen({
       floating
       onOpenSearch={handleTopSearchPress}
       /*
-        NO `pinnedBackdrop`. It made this bar opaque so the tail of the profile
-        block could not park behind the clock — but the opaque strip it painted
-        between the menu button and the bell is exactly what read as "a weird
-        white bar", and Home (same component, no backdrop) is the behaviour
-        that was asked for: the buttons float, content scrolls under them, and
-        the search pill fades out on its own.
+        `pinnedBackdrop` IS ON, and this was reversed once — read before
+        removing it again.
 
-        Chosen with both on screen side by side. If the parked-content artifact
-        comes back, give the PINNED TAB BAR its own backdrop rather than
-        re-opaquing the whole header — the buttons are not the part that needs
-        to hide it.
+        It was dropped because the opaque strip between the menu button and the
+        trailing ones read as "a weird white bar" next to Home, which floats.
+        That judgement was made on an empty-ish account, side by side, with
+        nothing scrolled under it. A TestFlight tester on a real collection
+        reported the opposite and much louder: with cards and filter chips
+        sliding through the gap, the whole top of the screen reads as broken.
+
+        The bar is transparent from y=0 down to `insets.top` + 48, and the
+        pinned tab bar starts exactly there — so this backdrop and the tab
+        bar's own `gray0` together cover the full strip. It fades in with
+        scroll (opacity 0 at rest), so the floating look survives at the top of
+        the page, which is what the original call was protecting.
+
+        A backdrop on the tab bar alone was the other option this file used to
+        recommend. It does not work: the tab bar lives inside the pager's
+        chrome layer, which TRANSLATES with scroll, so a plate extended upward
+        from it paints over the profile block at rest.
       */
+      pinnedBackdrop
       // Every page runs `contentInsetAdjustmentBehavior="automatic"` and so
       // rests at `-insets.top` on iOS; `pagerScrollY` carries that ABSOLUTE
       // offset. Without this anchor the pill sat fully open for the first
@@ -1387,7 +1404,24 @@ export function PortfolioScreen({
   // keeps the bordered StateCard; a brand-new collection is an INVITATION, so
   // it gets the Figma onboarding prompt (3370:4175): the Ekalight mark, one
   // encouraging line, and a soft chip straight into the scanner.
-  const listEmpty = shouldShowInitialError ? null : (
+  /*
+    ───────────────────────────────────────────────────────────────────────────
+    "STILL LOADING" MUST NOT LOOK LIKE "YOU HAVE NOTHING".
+    ───────────────────────────────────────────────────────────────────────────
+    This is why a transient empty read was reported as "EVERYTHING was gone".
+    The predicate below only ever distinguished a filter miss from a brand-new
+    collection, so a load still in flight — or one that failed while a cached
+    dashboard kept `shouldShowInitialError` false — rendered the onboarding
+    "Let's build your collection / Scan to add" prompt. To someone with 300
+    cards, being shown the new-user invitation IS the report.
+
+    The Activity tab on this same screen already gets this right (see the
+    `InlineLoader` above); Collection just never did.
+  */
+  const isCollectionStillLoading = model.isLoading && !model.hasLoadedInventory;
+  const listEmpty = shouldShowInitialError ? null : isCollectionStillLoading ? (
+    <InlineLoader label="Loading your collection" testID="collection-loading" />
+  ) : (
     <View
       style={[
         { paddingHorizontal: theme.layout.pageGutter },

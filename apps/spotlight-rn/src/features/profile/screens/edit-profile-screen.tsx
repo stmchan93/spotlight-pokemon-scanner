@@ -25,7 +25,12 @@ import {
   type ProfileUpdate,
 } from '@/features/auth/auth-models';
 import { prefetchImageUrls } from '@/lib/card-images';
-import { keyboardClearance } from '@/lib/keyboard-insets';
+import { keyboardClearance, keyboardLift } from '@/lib/keyboard-insets';
+import {
+  describeSocialLinkValidity,
+  normalizeSocialLink,
+  validateSocialLink,
+} from '@/features/profile/social-link';
 import { loadNativeImagePicker } from '@/lib/native-image-picker';
 import { useAppServices } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
@@ -219,22 +224,52 @@ export function EditProfileScreen() {
   */
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
+  /*
+    BOTH PLATFORMS NOW, and that is the fix for "I'm blocked from saving changes
+    by the keypad". This was Android-only because only Android needed the
+    avoider's reserve; the SAVE bar below needs a height on iOS too, or it stays
+    under the keyboard exactly as a tester reported.
+
+    iOS gets the `will` pair so the bar travels with the keyboard rather than
+    snapping after it; Android only fires the `did` pair reliably.
+  */
   useEffect(() => {
-    if (Platform.OS !== 'android') {
-      return;
-    }
-    // Android only fires the `did` pair reliably.
-    const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
-      setKeyboardHeight(Math.max(0, event?.endCoordinates?.height ?? 0));
-    });
-    const hideSub = Keyboard.addListener('keyboardDidHide', () => setKeyboardHeight(0));
+    const isAndroid = Platform.OS === 'android';
+    const showSub = Keyboard.addListener(
+      isAndroid ? 'keyboardDidShow' : 'keyboardWillShow',
+      (event) => {
+        setKeyboardHeight(Math.max(0, event?.endCoordinates?.height ?? 0));
+      },
+    );
+    const hideSub = Keyboard.addListener(
+      isAndroid ? 'keyboardDidHide' : 'keyboardWillHide',
+      () => setKeyboardHeight(0),
+    );
     return () => {
       showSub.remove();
       hideSub.remove();
     };
   }, []);
 
-  const keyboardReserve = keyboardClearance(keyboardHeight, insets.bottom);
+  /*
+    The avoider's reserve is ANDROID-ONLY still: on iOS `behavior="padding"`
+    already sizes it, and adding our own would pay the edge twice — the thing
+    the note above is about.
+  */
+  const keyboardReserve =
+    Platform.OS === 'android' ? keyboardClearance(keyboardHeight, insets.bottom) : 0;
+
+  /*
+    How far the SAVE/CANCEL bar has to rise to clear the keyboard. It pays
+    `insets.bottom + 8` itself, so `keyboardLift` subtracts exactly what is
+    already paid on iOS and nothing on Android, where the reported height
+    excludes the navigation bar. Same helper `new-post-screen` lifts its POST
+    footer with.
+  */
+  const actionsLift = keyboardLift(keyboardHeight, insets.bottom + 8);
+
+  // Null while empty or valid — see the note beside where it renders.
+  const socialLinkProblem = describeSocialLinkValidity(validateSocialLink(socialLink));
 
   /**
    * Shared picker → resize → upload lane for both profile images. The only
@@ -390,7 +425,9 @@ export function EditProfileScreen() {
         bio: bio.trim(),
         displayName: displayName.trim(),
         location: location.trim(),
-        socialLink: socialLink.trim(),
+        // Stored NORMALISED — an absolute https URL — or cleared. Persisting raw
+    // text is what let "hello world" render as a blue link that did nothing.
+    socialLink: normalizeSocialLink(socialLink) ?? '',
         // Same reasoning as `handle` above, for the newest column: send
         // `coverURL` only when the user actually picked one this session.
         ...(coverChanged ? { coverURL: coverUrl } : {}),
@@ -541,6 +578,24 @@ export function EditProfileScreen() {
               valueStyle={styles.fieldInputLink}
               value={socialLink}
             />
+            {/*
+              Shown only once there is something to judge, and never while the
+              field is empty — clearing your link is not an error. Advisory
+              rather than blocking: SAVE stays enabled and an unusable value is
+              stored as empty, which is honest about what the profile will show.
+            */}
+            {socialLinkProblem ? (
+              <Text
+                style={[
+                  theme.typography.caption,
+                  styles.fieldProblem,
+                  { color: theme.colors.dangerStrong },
+                ]}
+                testID="edit-profile-social-problem"
+              >
+                {socialLinkProblem}
+              </Text>
+            ) : null}
 
             <UnderlineField
               label="Location"
@@ -630,6 +685,9 @@ export function EditProfileScreen() {
           {
             backgroundColor: theme.colors.gray0,
             borderTopColor: theme.colors.outlineSubtle,
+            // Lifted so SAVE is reachable while typing. Previously pinned to the
+            // screen's bottom edge and simply covered — see `actionsLift`.
+            bottom: actionsLift,
             paddingBottom: insets.bottom + 8,
           },
         ]}
@@ -764,6 +822,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: 0,
+  },
+  fieldProblem: {
+    paddingTop: 4,
   },
   fieldInputLink: {
     // Social link value: 13px Medium (Figma 3083:9399), not the 14px Regular the

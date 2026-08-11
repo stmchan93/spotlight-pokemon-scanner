@@ -22,7 +22,22 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView, initialWindowMetrics, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+/*
+  `ArenaPressable`: gesture-handler's own Pressable, for tappables that live
+  INSIDE the tray's GestureDetector + Gesture.Native() ScrollView. A plain RN
+  Pressable there resolves its touches through the JS responder system while
+  the wrapping gestures resolve theirs through RNGH's arena — two arbiters, and
+  on Android the arena can cancel the responder before the release, so the tap
+  silently dies. iOS's arbitration happens to let both live, which is why the
+  row ADD pill and CLEAR ALL worked there and did nothing on Android. RNGH's
+  Pressable registers IN the arena, so the pan/scroll/press negotiation happens
+  in one place on both platforms.
+*/
+import {
+  Gesture,
+  GestureDetector,
+  Pressable as ArenaPressable,
+} from 'react-native-gesture-handler';
 import Reanimated, {
   Easing,
   runOnJS,
@@ -394,6 +409,9 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
   selection,
 }: CaptureTrayRowProps) {
   const theme = useSpotlightTheme();
+  // Anchor for the row ADD menu — measured by ref because the arena Pressable's
+  // press event carries no `currentTarget` to measure.
+  const addPillRef = useRef<View>(null);
   const candidate = activeCandidateForCapture(capture);
   const canCycleCandidate = !!candidate && capture.candidates.length > 1;
   // Shared with the tray header TOTAL (`trayPriceSummary`) so the rows and the
@@ -558,7 +576,7 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                 ) : null}
               </View>
             </Pressable>
-            <Pressable
+            <ArenaPressable
               accessibilityLabel={`Add ${candidate.name}`}
               accessibilityRole="button"
               hitSlop={6}
@@ -568,20 +586,14 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                   THE MENU MUST NOT DEPEND ON measureInWindow CALLING BACK
                   ─────────────────────────────────────────────────────────────
                   Opening only inside the measure callback made this button read
-                  as DEAD on Android: when the callback never fires — a known
-                  flake this file already guards against on the ADD ALL trigger
-                  (`typeof node.measureInWindow === 'function'`, plus its
-                  null-anchor fallback) — the tap was silently swallowed.
-
-                  So: try the precise measure first, and if it has not answered
-                  within a beat, open anyway anchored at the TAP POINT, which by
-                  definition lies inside the pill — the dropdown lands within a
-                  few px of where the real box would put it. Read the pooled
-                  event's fields synchronously; they are not safe to touch from
-                  inside async callbacks.
+                  as DEAD when the callback never fires — a flake this file
+                  already guards against on the ADD ALL trigger. Measure via the
+                  REF (gesture-handler's Pressable event carries no
+                  `currentTarget`), and if it has not answered within a beat,
+                  open anyway anchored at the TAP POINT, which lies inside the
+                  pill — the dropdown lands within a few px of the real box.
                 */
                 const { pageX = 0, pageY = 0 } = event.nativeEvent ?? {};
-                const target = event.currentTarget;
                 let opened = false;
                 const open = (anchor: { x: number; y: number; width: number; height: number }) => {
                   if (!opened) {
@@ -589,13 +601,19 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                     onOpenRowMenu(capture.id, anchor);
                   }
                 };
-                if (target && typeof target.measureInWindow === 'function') {
-                  target.measureInWindow((x, y, width, height) => {
+                const node = addPillRef.current as unknown as {
+                  measureInWindow?: (
+                    callback: (x: number, y: number, width: number, height: number) => void,
+                  ) => void;
+                } | null;
+                if (node && typeof node.measureInWindow === 'function') {
+                  node.measureInWindow((x, y, width, height) => {
                     open({ height, width, x, y });
                   });
                 }
                 setTimeout(() => open({ height: 0, width: 0, x: pageX, y: pageY }), 50);
               }}
+              ref={addPillRef}
               style={({ pressed }) => [
                 styles.captureAddPill,
                 pressed ? styles.captureAddPillPressed : null,
@@ -607,7 +625,7 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                   triangle read as a down ARROW. Sized 16 per the newer footer
                   spec (3594:26000). */}
               <IconChevronDown color={colors.gray0} size={16} strokeWidth={2} />
-            </Pressable>
+            </ArenaPressable>
           </View>
         ) : null}
       </View>
@@ -3177,7 +3195,7 @@ export function ScannerScreen({
                   {visibleCaptures.map(renderCaptureRow)}
                   {isTrayExpanded ? (
                     <View style={styles.trayClearSection}>
-                      <Pressable
+                      <ArenaPressable
                         accessibilityRole="button"
                         accessibilityLabel="Clear all scans"
                         hitSlop={8}
@@ -3189,7 +3207,7 @@ export function ScannerScreen({
                         testID="scanner-tray-clear-all"
                       >
                         <Text style={styles.trayClearAllLabel}>CLEAR ALL</Text>
-                      </Pressable>
+                      </ArenaPressable>
                     </View>
                   ) : null}
                 </Reanimated.ScrollView>

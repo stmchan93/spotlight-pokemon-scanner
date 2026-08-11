@@ -19,6 +19,7 @@ import { useTabsPage } from '@/contexts/tabs-page-context';
 import { reflectInventoryCacheIntoDashboard } from '@/features/portfolio/optimistic-inventory';
 import { persistDashboard, readPersistedDashboard } from '@/features/portfolio/persisted-dashboard';
 import { prefetchCardImages } from '@/lib/card-images';
+import { capturePostHogEvent } from '@/lib/observability/posthog';
 import {
   formatEditableSellPrice,
   parseSellPrice,
@@ -258,6 +259,12 @@ export function usePortfolioScreenModel() {
   // `activeCollectionIDRef` (what the next load will ask for) — the gap between
   // the two is exactly the "switched, refetch in flight" window.
   const displayedCollectionIDRef = useRef(activeCollectionID);
+  // The same pair, for the INVENTORY read. Kept separate from the dashboard's
+  // because the two land independently, and the suspicious-empty guard has to
+  // ask "did THIS collection have cards a moment ago?" rather than "did any".
+  const displayedInventoryCollectionIDRef = useRef(activeCollectionID);
+  const inventoryEntriesCacheRef = useRef(inventoryEntriesCache);
+  inventoryEntriesCacheRef.current = inventoryEntriesCache;
   const loadedRangesRef = useRef<Set<PortfolioHistoryRange>>(new Set<PortfolioHistoryRange>(['1W']));
   // The shared caches are keyed by owner AND collection, so after a switch this
   // is already the NEW collection's cache (null the first time it is opened).
@@ -323,10 +330,42 @@ export function usePortfolioScreenModel() {
       return;
     }
 
-    if (loadResult.data && loadResult.state !== 'error') {
+    /*
+      ─────────────────────────────────────────────────────────────────────────
+      A SUDDEN EMPTY IS NOT BELIEVED. Reported as "my collection was EMPTY —
+      everything was gone", then it came back on its own.
+      ─────────────────────────────────────────────────────────────────────────
+      `loadDashboard` below has had this guard for a while; this path never got
+      it, and this is the one that does the damage. An empty inventory is not
+      just an empty grid: it is written to `inventoryEntriesCache`, and
+      `reflectInventoryCacheIntoDashboard` treats that cache as AUTHORITATIVE
+      for membership — so every dashboard row is dropped and the headline
+      balance falls to ~$0. One transient empty read blanks the whole screen.
+
+      And several things upstream can produce a 200-with-zero-rows that is not
+      the truth: the backend skips holdings whose card id the local catalog
+      cannot resolve (mid catalog sync), it caches the computed payload under a
+      version token that does not fingerprint catalog health, a stale persisted
+      collection id scopes the read to a collection that no longer exists, and
+      an empty 200 body is classified as success. None of those are errors, so
+      none of them arrive as `state: 'error'`.
+
+      Same reasoning and the same shape as the dashboard guard: an empty is only
+      suspicious when we already had something FOR THIS COLLECTION. Switching to
+      a genuinely new collection must still be allowed to be empty, or the
+      previous collection's cards linger under the new one's name.
+    */
+    const hadEntriesForThisCollection =
+      (inventoryEntriesCacheRef.current?.length ?? 0) > 0 &&
+      requestedCollectionID === displayedInventoryCollectionIDRef.current;
+    const isSuspiciousEmpty =
+      loadResult.state === 'empty' && loadResult.data?.length === 0 && hadEntriesForThisCollection;
+
+    if (loadResult.data && loadResult.state !== 'error' && !isSuspiciousEmpty) {
       const inventoryItems = loadResult.data;
 
       setInventoryEntriesCache(inventoryItems);
+      displayedInventoryCollectionIDRef.current = requestedCollectionID;
       setHasLoadedInventory(true);
       setDashboard((currentDashboard) => {
         if (dashboardHasHydratedSeries(currentDashboard)) {
@@ -334,6 +373,14 @@ export function usePortfolioScreenModel() {
         }
 
         return buildInventoryFallbackDashboard(inventoryItems);
+      });
+    } else if (isSuspiciousEmpty) {
+      // Keep what is on screen and let the next read revalidate. Deliberately
+      // does NOT set `loadError`: nothing failed as far as the user is
+      // concerned, and an error card over a correct collection is its own lie.
+      capturePostHogEvent('portfolio_inventory_suspicious_empty', {
+        collectionScoped: requestedCollectionID !== null,
+        previousCount: inventoryEntriesCacheRef.current?.length ?? 0,
       });
     } else {
       setLoadError(loadResult.errorMessage);
