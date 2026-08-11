@@ -31,13 +31,71 @@ describe('SharedPostBubble', () => {
     jest.clearAllMocks();
   });
 
-  it('shows the post it points at', async () => {
+  it('shows the post it points at, headed by whose it is', async () => {
     fetchPost.mockResolvedValue(buildPost());
 
     renderWithProviders(<SharedPostBubble onOpen={jest.fn()} postId="post-1" />);
 
     expect(await screen.findByTestId('shared-post-card')).toBeTruthy();
+    // The handle, not the display name: the card is the Instagram shape, and
+    // the thread's own avatar already says who SENT it — this says whose it is.
+    expect(screen.getByText('@misty')).toBeTruthy();
+    expect(screen.getByText('Just pulled a Charizard')).toBeTruthy();
+  });
+
+  // A collector who never claimed a handle still has to be named.
+  it('falls back to the display name when the author has no handle', async () => {
+    fetchPost.mockResolvedValue(
+      buildPost({
+        author: { displayName: 'Misty', handle: null, avatarUrl: null, isVerified: false },
+      }),
+    );
+
+    renderWithProviders(<SharedPostBubble onOpen={jest.fn()} postId="post-1" />);
+
+    await screen.findByTestId('shared-post-card');
     expect(screen.getByText('Misty')).toBeTruthy();
+  });
+
+  /*
+    THE PHOTO IS THE POINT.
+
+    A shared post with its image stripped is a line of text claiming a post
+    exists. But the bytes are PRIVATE — the proxy only serves them behind a
+    bearer header — so the card renders one only when it has both halves of
+    that, and degrades to header + caption rather than to a broken frame when
+    it does not.
+  */
+  it('streams the photo through the authenticated proxy', async () => {
+    fetchPost.mockResolvedValue(
+      buildPost({ media: [{ id: 'm-1', width: 800, height: 1000, blurhash: null }] }),
+    );
+
+    renderWithProviders(
+      <SharedPostBubble
+        accessToken="token-123"
+        apiBaseUrl="https://api.example.com/"
+        onOpen={jest.fn()}
+        postId="post-1"
+      />,
+    );
+
+    const image = await screen.findByTestId('shared-post-image');
+    // Trailing slash on the base must not double up.
+    expect(image.props.source.uri).toBe('https://api.example.com/api/v1/post-media/m-1');
+    expect(image.props.source.headers).toEqual({ Authorization: 'Bearer token-123' });
+  });
+
+  it('shows the card without a photo rather than a broken frame when unauthenticated', async () => {
+    fetchPost.mockResolvedValue(
+      buildPost({ media: [{ id: 'm-1', width: 800, height: 1000, blurhash: null }] }),
+    );
+
+    renderWithProviders(<SharedPostBubble onOpen={jest.fn()} postId="post-1" />);
+
+    await screen.findByTestId('shared-post-card');
+    expect(screen.queryByTestId('shared-post-image')).toBeNull();
+    // The rest of the card still stands.
     expect(screen.getByText('Just pulled a Charizard')).toBeTruthy();
   });
 

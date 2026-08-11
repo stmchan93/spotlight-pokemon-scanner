@@ -26,6 +26,7 @@ import {
   sendMessage,
 } from '@/features/social/dm-service';
 import { supabase } from '@/lib/supabase';
+import { resolveRepositoryBaseUrl } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
 
 /**
@@ -122,7 +123,10 @@ export function DmThreadScreen({
 }) {
   const theme = useSpotlightTheme();
   const router = useRouter();
-  const { currentUser } = useAuth();
+  const { currentUser, accessToken } = useAuth();
+  // A shared post's photo streams from the authenticated media proxy, same as
+  // in the feed — the bytes are private until moderation approves them.
+  const apiBaseUrl = resolveRepositoryBaseUrl();
 
   const [messages, setMessages] = useState<ThreadMessage[]>([]);
   const [draft, setDraft] = useState('');
@@ -515,11 +519,21 @@ export function DmThreadScreen({
             accessibilityRole={canRetry ? 'button' : undefined}
             disabled={!canRetry}
             onPress={() => handleRetry(item)}
+            testID={`${testID}-bubble-${item.id}`}
             style={[
-              styles.bubble,
+              /*
+                NO BUBBLE CHROME AROUND A SHARED POST. The card draws its own
+                surface, and wrapping it in the sender tint painted a solid
+                purple slab around someone else's photo — it read as a
+                strangely-shaped message rather than as a post. A shared post is
+                not a thing you said, it is a thing you pointed at, so it looks
+                the same on both sides of the thread. Text that came WITH the
+                post still gets its bubble, below the card.
+              */
+              item.sharedPostId
+                ? styles.attachment
+                : [styles.bubble, { backgroundColor: bubbleColor, borderRadius: theme.radii.lg }],
               {
-                backgroundColor: bubbleColor,
-                borderRadius: theme.radii.lg,
                 // A pending bubble is dimmed rather than replaced by a spinner:
                 // the text stays readable and the row doesn't reflow when it lands.
                 opacity: item.pending ? 0.6 : 1,
@@ -534,17 +548,34 @@ export function DmThreadScreen({
             */}
             {item.sharedPostId ? (
               <SharedPostBubble
+                accessToken={accessToken}
+                apiBaseUrl={apiBaseUrl}
                 onOpen={(postId) => router.push(`/post/${postId}` as never)}
                 postId={item.sharedPostId}
                 testID={`dm-thread-shared-${item.id}`}
+                viewerUserId={myUserId}
               />
             ) : null}
             {item.body ? (
-              <Text style={[theme.typography.body, { color: bodyColor }]}>{item.body}</Text>
+              <Text
+                style={[
+                  theme.typography.body,
+                  // With a card above it the text is a caption on a neutral
+                  // surface, so it must not use the bubble's on-tint color.
+                  { color: item.sharedPostId ? theme.colors.gray900 : bodyColor },
+                  item.sharedPostId ? styles.attachmentCaption : null,
+                ]}
+              >
+                {item.body}
+              </Text>
             ) : null}
             {item.failed ? (
               <Text
-                style={[theme.typography.micro, { color: theme.colors.dangerStrong }]}
+                style={[
+                  theme.typography.micro,
+                  styles.failedNote,
+                  { color: theme.colors.dangerStrong },
+                ]}
                 testID={`${testID}-failed-${item.id}`}
               >
                 {canRetry ? 'Not sent — tap to try again' : 'Not sent'}
@@ -555,6 +586,8 @@ export function DmThreadScreen({
       );
     },
     [
+      accessToken,
+      apiBaseUrl,
       handleRetry,
       headerName,
       isBlocked,
@@ -760,10 +793,21 @@ const styles = StyleSheet.create({
   blockedText: {
     textAlign: 'center',
   },
+  // A shared post carries no bubble: the card is the surface. Only the gap, so
+  // a caption sent with it does not touch the card's bottom edge.
+  attachment: {
+    gap: 4,
+  },
+  attachmentCaption: {
+    paddingHorizontal: 2,
+  },
   bubble: {
     gap: 2,
     paddingHorizontal: 12,
     paddingVertical: 8,
+  },
+  failedNote: {
+    paddingHorizontal: 2,
   },
   composer: {
     alignItems: 'center',

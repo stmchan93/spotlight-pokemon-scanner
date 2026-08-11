@@ -422,6 +422,61 @@ describe('DmThreadScreen', () => {
     });
   });
 
+  /*
+    A SHARED POST IS NOT A MESSAGE BUBBLE.
+
+    The card draws its own neutral surface. Wrapping it in the sender tint put a
+    solid purple slab around someone else's photo, and it read as a
+    strangely-shaped message rather than as a post — the thing you pointed at,
+    not the thing you said. So it looks identical on both sides of the thread.
+  */
+  describe('shared posts', () => {
+    const PURPLE = '#A54BFA';
+
+    function backgroundOf(testID: string): unknown {
+      return StyleSheet.flatten(screen.getByTestId(testID).props.style)?.backgroundColor;
+    }
+
+    it('never paints the sender tint behind a shared post, on either side', async () => {
+      (fetchMessages as jest.Mock).mockResolvedValue([
+        buildMessage({ id: 'm-1', senderId: 'me', body: '', sharedPostId: 'post-9' }),
+        buildMessage({
+          id: 'm-2',
+          senderId: 'them',
+          body: '',
+          sharedPostId: 'post-9',
+          createdAt: '2026-07-28T12:05:00.000Z',
+        }),
+      ]);
+
+      renderWithProviders(<DmThreadScreen conversationId="c-1" />);
+
+      await waitFor(() => expect(screen.getByTestId('dm-thread-row-m-1')).toBeTruthy());
+
+      // The row still picks its side — only the chrome is gone.
+      expect(alignSelfOf('dm-thread-row-m-1')).toBe('flex-end');
+      expect(alignSelfOf('dm-thread-row-m-2')).toBe('flex-start');
+
+      // No chrome at all — not a purple slab, not a grey one. The card is the
+      // only surface, and it is the same on both sides.
+      expect(backgroundOf('dm-thread-bubble-m-1')).toBeUndefined();
+      expect(backgroundOf('dm-thread-bubble-m-2')).toBeUndefined();
+      expect(backgroundOf('dm-thread-bubble-m-1')).not.toBe(PURPLE);
+    });
+
+    // A plain message is untouched by any of this.
+    it('still bubbles ordinary text in the sender tint', async () => {
+      (fetchMessages as jest.Mock).mockResolvedValue([
+        buildMessage({ id: 'm-1', senderId: 'me', body: 'on my way' }),
+      ]);
+
+      renderWithProviders(<DmThreadScreen conversationId="c-1" />);
+
+      await waitFor(() => expect(screen.getByText('on my way')).toBeTruthy());
+      expect(backgroundOf('dm-thread-bubble-m-1')).toBe(PURPLE);
+    });
+  });
+
   describe('realtime subscription', () => {
     /**
      * Stand-in for `RealtimeClient`, reproducing the one behaviour that caused a

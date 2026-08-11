@@ -142,7 +142,7 @@ function formatPostDate(createdAt: string): string {
  * empty slot, and quietly retry on the schedule above until it resolves. The
  * author gets different copy because for them a failure is never moderation.
  */
-function PostImage({
+export function PostImage({
   media,
   uri,
   accessToken,
