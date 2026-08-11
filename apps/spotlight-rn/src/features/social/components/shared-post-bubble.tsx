@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { Avatar, Text, useSpotlightTheme } from '@spotlight/design-system';
+import { Avatar, SkeletonBlock, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 import { PostImage } from '@/features/social/components/post-card';
-import { type FeedPost, fetchPostById } from '@/features/social/social-service';
+import { loadSharedPost, peekSharedPost } from '@/features/social/shared-post-cache';
+import type { FeedPost } from '@/features/social/social-service';
 
 type LoadState =
   | { status: 'loading' }
@@ -19,6 +20,17 @@ type LoadState =
 
 /** Matches the media frame, so the card does not resize when the photo lands. */
 const CARD_WIDTH = 240;
+/** `PostImage`'s frame, restated so the skeleton reserves the same box. */
+const IMAGE_ASPECT_RATIO = 4 / 5;
+
+/** What the cache already knows about this post, as a render state. */
+function cachedState(postId: string): LoadState {
+  const cached = peekSharedPost(postId);
+  if (!cached) {
+    return { status: 'loading' };
+  }
+  return cached.post ? { status: 'resolved', post: cached.post } : { status: 'unavailable' };
+}
 
 /**
  * A post someone sent into a DM thread (social_22).
@@ -61,12 +73,31 @@ export function SharedPostBubble({
   testID?: string;
 }) {
   const theme = useSpotlightTheme();
-  const [state, setState] = useState<LoadState>({ status: 'loading' });
+  /*
+    SEEDED FROM THE CACHE, so a thread you have opened before paints its cards on
+    the FIRST frame instead of a placeholder that is replaced a moment later.
+    That replacement was the reported flicker.
+  */
+  const [state, setState] = useState<LoadState>(() => cachedState(postId));
 
   useEffect(() => {
     let cancelled = false;
-    setState({ status: 'loading' });
-    void fetchPostById(postId).then((post) => {
+    /*
+      Only blank when there is nothing better to show. Calling this
+      unconditionally is what made the warm path pointless: the cache would seed
+      `resolved` and this would immediately throw it away again.
+    */
+    const seed = cachedState(postId);
+    if (seed.status === 'loading') {
+      setState(seed);
+    }
+    /*
+      The read runs EVERY time regardless — the cache removes the blank frame,
+      it never answers the question. A post removed, deleted or blocked since it
+      was cached has to stop resolving, which is the whole point of storing a
+      reference rather than baked text.
+    */
+    void loadSharedPost(postId).then((post) => {
       if (cancelled) {
         return;
       }
@@ -78,15 +109,46 @@ export function SharedPostBubble({
   }, [postId]);
 
   if (state.status === 'loading') {
+    /*
+      ─────────────────────────────────────────────────────────────────────────
+      THE SKELETON IS THE SAME LAYOUT, NOT A FIXED HEIGHT.
+      ─────────────────────────────────────────────────────────────────────────
+      This was a flat 220pt box against a resolved card of ~395, so every shared
+      post grew ~155pt the moment it loaded. The thread's list has no
+      `getItemLayout` and no `maintainVisibleContentPosition`, and it pins to the
+      bottom on `onContentSizeChange` — so a row that changes height mid-read is
+      a hard, unanimated jump. That is what "the messages flicker when I reopen
+      them" was.
+
+      Rendering the real structure — header, image frame at the same aspect
+      ratio, two caption lines — makes the height right by construction, so the
+      card fills in without moving anything. `shared-profile-bubble.tsx` fixed
+      the same bug the same way; this is that treatment applied to the card that
+      never got it.
+
+      It assumes the common shape (a post with a photo and a caption), because
+      before the read returns there is nothing to know. The cache above is what
+      makes that assumption rarely matter: a thread opened before skips this
+      state entirely.
+    */
     return (
       <View
-        style={[
-          styles.card,
-          styles.placeholder,
-          { backgroundColor: theme.colors.gray0, borderColor: theme.colors.gray200 },
-        ]}
+        accessibilityRole="progressbar"
+        style={[styles.card, { backgroundColor: theme.colors.gray0, borderColor: theme.colors.gray200 }]}
         testID={`${testID}-loading`}
-      />
+      >
+        <View style={styles.header}>
+          <SkeletonBlock height={24} radius={12} width={24} />
+          <SkeletonBlock height={12} width="55%" />
+        </View>
+        {/* Same fill `PostImage` paints behind a photo, so the frame does not
+            read as a hole while the bytes are on their way. */}
+        <View style={[styles.imageFrame, { backgroundColor: theme.colors.surfaceMuted }]} />
+        <View style={styles.captionSkeleton}>
+          <SkeletonBlock height={12} width="90%" />
+          <SkeletonBlock height={12} width="60%" />
+        </View>
+      </View>
     );
   }
 
@@ -189,8 +251,17 @@ const styles = StyleSheet.create({
   headerName: {
     flex: 1,
   },
-  placeholder: {
-    height: 220,
+  captionSkeleton: {
+    // The resolved caption is `bodySmall` (21pt line height) at 2 lines with 10
+    // of bottom padding. Two 12pt bars on a 9pt gap reserve the same box.
+    gap: 9,
+    paddingBottom: 10,
+    paddingHorizontal: 10,
+  },
+  imageFrame: {
+    // Same frame `PostImage` draws, so the photo lands into space already held.
+    aspectRatio: IMAGE_ASPECT_RATIO,
+    width: '100%',
   },
   unavailable: {
     padding: 12,

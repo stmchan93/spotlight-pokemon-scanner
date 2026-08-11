@@ -1,6 +1,8 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 
 import { SharedPostBubble } from '@/features/social/components/shared-post-bubble';
+import { clearSharedPostCache } from '@/features/social/shared-post-cache';
 import { fetchPostById } from '@/features/social/social-service';
 
 import { renderWithProviders } from '../test-utils';
@@ -30,6 +32,11 @@ function buildPost(overrides: Record<string, unknown> = {}) {
 describe('SharedPostBubble', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // The resolved-post cache is MODULE state and outlives a single test.
+    // `jest.clearAllMocks()` does not touch it, so without this a later test
+    // starts warm and its "paints on the first frame" assertion passes for the
+    // wrong reason — or worse, a test asserting the skeleton never sees one.
+    clearSharedPostCache();
   });
 
   it('shows the post it points at, headed by whose it is', async () => {
@@ -163,5 +170,127 @@ describe('SharedPostBubble', () => {
 
     await waitFor(() => expect(screen.getByText('A different post')).toBeTruthy());
     expect(fetchPost).toHaveBeenCalledTimes(2);
+  });
+
+  /*
+    ═══════════════════════════════════════════════════════════════════════════
+    THE FLICKER. Reported as "reopening a thread shows the text messages, then
+    everything jumps as the shared cards appear."
+    ═══════════════════════════════════════════════════════════════════════════
+    Two independent causes, one test each below.
+  */
+
+  /*
+    CAUSE 1 — the loading state was a flat 220pt box against a resolved card of
+    roughly 395, so every shared post grew ~155pt the moment it landed. The DM
+    list has no `getItemLayout` and no `maintainVisibleContentPosition`, and it
+    re-pins to the bottom on `onContentSizeChange`, so a row that changes height
+    mid-read is an unanimated jump.
+
+    Asserted STRUCTURALLY, not as a pixel height: pinning "the placeholder is
+    395 tall" would just re-encode the same brittleness one number along. What
+    has to be true is that the skeleton draws the same boxes the resolved card
+    does, so the height follows from the layout.
+  */
+  it('reserves the resolved card\'s shape while loading, not a fixed box', async () => {
+    let resolvePost: (post: unknown) => void = () => {};
+    fetchPost.mockReturnValue(
+      new Promise((resolve) => {
+        resolvePost = resolve;
+      }),
+    );
+
+    renderWithProviders(
+      <SharedPostBubble
+        accessToken="token-123"
+        apiBaseUrl="https://api.example.com"
+        onOpen={jest.fn()}
+        postId="post-1"
+      />,
+    );
+
+    const skeleton = screen.getByTestId('shared-post-loading');
+    // The same three bands the resolved card renders: header, image, caption.
+    // A bare box would have no children at all — which is what shipped.
+    const bands = skeleton.props.children.filter(Boolean);
+    expect(bands.length).toBeGreaterThanOrEqual(3);
+
+    // The image band holds `PostImage`'s exact frame, so the photo lands into
+    // space that was already reserved rather than pushing the thread down.
+    const frames = skeleton.findAll(
+      (node: { props?: { style?: unknown } }) =>
+        (StyleSheet.flatten(node?.props?.style) as { aspectRatio?: number } | undefined)
+          ?.aspectRatio === 4 / 5,
+    );
+    expect(frames.length).toBeGreaterThan(0);
+
+    await act(async () => {
+      resolvePost(buildPost({ media: [{ id: 'm-1', width: 800, height: 1000, blurhash: null }] }));
+    });
+    expect(screen.getByTestId('shared-post-card')).toBeTruthy();
+  });
+
+  /*
+    CAUSE 2 — every mount refetched from cold, so a thread you had already opened
+    still showed a placeholder first. This is the half that actually removes the
+    flicker on a REOPEN: the second mount paints the card on frame one.
+  */
+  it('paints a post it has already loaded on the first frame, with no skeleton', async () => {
+    fetchPost.mockResolvedValue(buildPost());
+
+    const first = renderWithProviders(<SharedPostBubble onOpen={jest.fn()} postId="post-1" />);
+    await screen.findByTestId('shared-post-card');
+    first.unmount();
+
+    renderWithProviders(<SharedPostBubble onOpen={jest.fn()} postId="post-1" />);
+
+    // Synchronously, before any effect has had a chance to resolve.
+    expect(screen.queryByTestId('shared-post-loading')).toBeNull();
+    expect(screen.getByTestId('shared-post-card')).toBeTruthy();
+    expect(screen.getByText('Just pulled a Charizard')).toBeTruthy();
+  });
+
+  /*
+    …AND THE CACHE MUST NOT BECOME THE ANSWER.
+
+    The message stores an id precisely so visibility is re-checked on every read.
+    A cache that skipped the read would leave a post removed by moderation, or
+    hidden by a block created since, sitting readable in a private thread — the
+    exact failure the reference design exists to prevent. So a warm mount still
+    fetches, and still degrades when the answer has changed.
+  */
+  it('re-reads a cached post and drops it when it is no longer visible', async () => {
+    fetchPost.mockResolvedValue(buildPost());
+    const first = renderWithProviders(<SharedPostBubble onOpen={jest.fn()} postId="post-1" />);
+    await screen.findByTestId('shared-post-card');
+    first.unmount();
+
+    // Removed between the two opens.
+    fetchPost.mockResolvedValue(null);
+    renderWithProviders(<SharedPostBubble onOpen={jest.fn()} postId="post-1" />);
+
+    // Warm, so it starts by showing what it had…
+    expect(screen.getByTestId('shared-post-card')).toBeTruthy();
+    // …then the read comes back and it degrades.
+    expect(await screen.findByTestId('shared-post-unavailable')).toBeTruthy();
+    expect(screen.queryByTestId('shared-post-card')).toBeNull();
+    expect(fetchPost).toHaveBeenCalledTimes(2);
+  });
+
+  // Two cards pointing at the same post — or a row scrolled out and back —
+  // must not each open their own round trip.
+  it('shares one request between simultaneous readers of the same post', async () => {
+    fetchPost.mockResolvedValue(buildPost());
+
+    renderWithProviders(
+      <>
+        <SharedPostBubble onOpen={jest.fn()} postId="post-1" testID="a" />
+        <SharedPostBubble onOpen={jest.fn()} postId="post-1" testID="b" />
+      </>,
+    );
+
+    await screen.findByTestId('a-card');
+    await screen.findByTestId('b-card');
+    expect(fetchPost).toHaveBeenCalledTimes(1);
   });
 });
