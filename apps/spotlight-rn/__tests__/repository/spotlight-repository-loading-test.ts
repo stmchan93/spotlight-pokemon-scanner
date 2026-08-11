@@ -44,6 +44,81 @@ describe('HttpSpotlightRepository', () => {
     await expect(repository.getInventoryEntries()).resolves.toEqual([]);
   });
 
+  /*
+    ═══════════════════════════════════════════════════════════════════════════
+    THE 200-CARD CLIFF. Reported as "my cards are missing".
+    ═══════════════════════════════════════════════════════════════════════════
+    The client used to send no `limit` at all, so the backend's default of 200
+    applied — ordered `added_at DESC`. A collection larger than that returned its
+    200 most recent cards with a 200 OK and no signal at all that the rest
+    existed. The screen filters and sorts client-side over whatever it is handed,
+    so the older cards vanished from the grid, from search and from the count.
+  */
+  function deckEntry(id: string) {
+    return {
+      id,
+      card: { id: `card-${id}`, name: `Card ${id}`, setName: 'Test Set', number: '1/1' },
+      quantity: 1,
+      condition: 'near_mint',
+      added_at: '2026-01-01T00:00:00.000Z',
+    };
+  }
+
+  it('pages through a collection larger than one request, instead of truncating it', async () => {
+    const firstPage = Array.from({ length: 1000 }, (_, index) => deckEntry(`a${index}`));
+    const secondPage = Array.from({ length: 12 }, (_, index) => deckEntry(`b${index}`));
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, { entries: firstPage }))
+      .mockResolvedValueOnce(jsonResponse(200, { entries: secondPage })) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    const loadResult = await repository.loadInventoryEntries();
+
+    expect(loadResult.state).toBe('success');
+    expect(loadResult.data).toHaveLength(1012);
+
+    // Second request asks for the NEXT page, not the same one again.
+    const urls = (global.fetch as jest.Mock).mock.calls.map(([url]) => String(url));
+    expect(urls[0]).toContain('offset=0');
+    expect(urls[1]).toContain('offset=1000');
+    // 1000 is the backend's own ceiling; asking for more is clamped, and a
+    // clamp would read as a short page and stop the loop early.
+    expect(urls[0]).toContain('limit=1000');
+  });
+
+  // The common case must not have become more expensive.
+  it('costs a single request for a collection that fits in one page', async () => {
+    global.fetch = jest
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { entries: [deckEntry('only')] })) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    const loadResult = await repository.loadInventoryEntries();
+
+    expect(loadResult.data).toHaveLength(1);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  /*
+    A later page failing is a FAILED READ, not a short collection. Returning the
+    pages that did arrive would hand back a plausible partial list that the
+    caller then caches as the whole truth — the same silent loss, one layer up.
+  */
+  it('fails the whole read when a later page fails, rather than returning a partial list', async () => {
+    const firstPage = Array.from({ length: 1000 }, (_, index) => deckEntry(`a${index}`));
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, { entries: firstPage }))
+      .mockRejectedValueOnce(new Error('backend offline')) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    const loadResult = await repository.loadInventoryEntries();
+
+    expect(loadResult.state).toBe('error');
+    expect(loadResult.data).toEqual([]);
+  });
+
   it('attaches the bearer token to backend requests when an access token provider is configured', async () => {
     global.fetch = jest.fn().mockResolvedValue(jsonResponse(200, { entries: [] })) as typeof fetch;
     const repository = new HttpSpotlightRepository('http://example.test', {
@@ -1583,7 +1658,10 @@ describe('HttpSpotlightRepository', () => {
 
     await repository.getInventoryEntries();
 
-    expect((global.fetch as jest.Mock).mock.calls[0]?.[0]).toBe('http://192.168.1.146:8788/api/v1/deck/entries');
+    // Carries the paging params now — see the pagination tests above.
+    expect((global.fetch as jest.Mock).mock.calls[0]?.[0]).toBe(
+      'http://192.168.1.146:8788/api/v1/deck/entries?limit=1000&offset=0',
+    );
   });
 
   it('keeps date-only dashboard labels aligned to the actual range endpoints and slices 1Y separately from ALL', async () => {

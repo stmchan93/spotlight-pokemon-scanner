@@ -321,6 +321,18 @@ type JsonRequestResult<T> =
 // endpoints in parallel; on mobile networks / a busy backend, 6s false-failed
 // slow-but-working requests and surfaced a spurious "couldn't refresh" banner.
 const defaultHttpRequestTimeoutMs = 12000;
+
+/**
+ * Inventory page size. Matches the backend's own ceiling
+ * (`safe_limit = max(0, min(int(limit), 1000))`), so asking for more would be
+ * clamped and the short-page check would misread the clamp as the end of the list.
+ */
+const inventoryPageSize = 1000;
+/**
+ * Runaway guard, not a product limit: 20 pages is 20,000 cards. If a real
+ * collection ever reaches it, the cap is the bug to fix, not the symptom.
+ */
+const inventoryMaxPages = 20;
 const scanMatchRequestTimeoutMs = 20000;
 // Raw visual matches return in <1s on a healthy network. Give each raw attempt a short
 // timeout and retry transient transport/timeout/HTTP failures a couple of times, so one
@@ -4768,26 +4780,68 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     return result.data ?? buildEmptyPortfolioDashboard();
   }
 
+  /**
+   * Every holding in the collection, paged.
+   *
+   * ───────────────────────────────────────────────────────────────────────────
+   * IT USED TO SEND NO `limit` AT ALL, AND SILENTLY LOST CARDS.
+   * ───────────────────────────────────────────────────────────────────────────
+   * The backend defaults to `limit=200` ordered `added_at DESC`, so a collection
+   * larger than that returned only its 200 most recent cards — with a 200 OK and
+   * no signal that anything was missing. The screen filters and sorts client-side
+   * over whatever it is given, so the older cards were simply gone from search,
+   * from the grid and from the count. "My cards are missing", and nothing to see
+   * in any log.
+   *
+   * Pages at the backend's own ceiling (`safe_limit = min(limit, 1000)`), so the
+   * overwhelming majority of accounts still cost exactly ONE request — the same
+   * as before — and only genuinely large collections pay a second.
+   */
   async loadInventoryEntries(query?: InventoryEntriesQuery) {
-    const queryParams = buildInventoryEntriesQueryParams(query);
-    const response = await this.requestJsonRead<{ entries?: DeckEntryDTO[] } | DeckEntryDTO[]>(
-      `${this.baseUrl}/api/v1/deck/entries${queryParams.toString() ? `?${queryParams.toString()}` : ''}`,
-    );
+    const baseParams = buildInventoryEntriesQueryParams(query);
+    const entries: InventoryCardEntry[] = [];
+    let offset = 0;
 
-    if (response.kind !== 'success') {
-      return buildLoadResult('error', [], response.error.message);
+    for (let page = 0; page < inventoryMaxPages; page += 1) {
+      const params = new URLSearchParams(baseParams);
+      params.set('limit', String(inventoryPageSize));
+      params.set('offset', String(offset));
+
+      const response = await this.requestJsonRead<{ entries?: DeckEntryDTO[] } | DeckEntryDTO[]>(
+        `${this.baseUrl}/api/v1/deck/entries?${params.toString()}`,
+      );
+
+      if (response.kind !== 'success') {
+        /*
+          A later page failing is still a FAILED READ, not a short collection.
+          Returning what arrived so far would hand the caller a plausible-looking
+          partial list, and the caller caches it as the whole truth — the same
+          class of silent loss this method was written to end.
+        */
+        return buildLoadResult('error', [], response.error.message);
+      }
+
+      const inventoryJson = response.data;
+      const rawEntries = Array.isArray(inventoryJson)
+        ? inventoryJson
+        : Array.isArray(inventoryJson?.entries)
+          ? inventoryJson.entries
+          : [];
+
+      entries.push(
+        ...rawEntries
+          .map((entry: DeckEntryDTO) => mapDeckEntry(entry, this.baseUrl))
+          .filter((entry): entry is InventoryCardEntry => entry !== null),
+      );
+
+      // A short page is the last page. Measured on the RAW rows, not the mapped
+      // ones: `mapDeckEntry` drops rows it cannot resolve, so a full page that
+      // maps to fewer entries would otherwise look like the end of the list.
+      if (rawEntries.length < inventoryPageSize) {
+        break;
+      }
+      offset += inventoryPageSize;
     }
-
-    const inventoryJson = response.data;
-    const rawEntries = Array.isArray(inventoryJson)
-      ? inventoryJson
-      : Array.isArray(inventoryJson?.entries)
-        ? inventoryJson.entries
-        : [];
-
-    const entries = rawEntries
-      .map((entry: DeckEntryDTO) => mapDeckEntry(entry, this.baseUrl))
-      .filter((entry): entry is InventoryCardEntry => entry !== null);
 
     return buildLoadResult(entries.length > 0 ? 'success' : 'empty', entries);
   }

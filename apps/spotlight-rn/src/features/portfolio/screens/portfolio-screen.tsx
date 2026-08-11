@@ -101,6 +101,7 @@ import {
 } from '@/features/social/social-service';
 import { usePostDeletion } from '@/features/social/use-post-deletion';
 import { getFeedRefreshVersion } from '@/features/social/screens/new-post-screen';
+import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { normalizeSocialLink } from '@/features/profile/social-link';
 import { ProfileHeader } from '@/features/profile/components/profile-header';
 import { buildProfileShareMessage } from '@/features/profile/profile-share';
@@ -498,6 +499,42 @@ export function PortfolioScreen({
   useEffect(() => {
     void loadCollections();
   }, [loadCollections]);
+
+  /*
+    ───────────────────────────────────────────────────────────────────────────
+    A COLLECTION THAT NO LONGER EXISTS MUST NOT KEEP SCOPING EVERY READ.
+    ───────────────────────────────────────────────────────────────────────────
+    The active collection id is restored from disk on launch and was never
+    checked against the server's list. Delete that collection — on another
+    device, or before a reinstall restored the old value — and every holdings
+    read is scoped to an id the backend matches nothing for. It answers 200 with
+    zero rows, which is not an error, so the screen showed an empty collection.
+
+    Sticky, too: the id is persisted, so it survived every relaunch, and the
+    picker label falls back to "Main Collection" for an unknown id, so nothing
+    on screen said which collection you were even looking at. The only way out
+    was to open the picker and tap another row.
+
+    This is the top suspect for the "everything was gone" report, and it is the
+    only one of that report's causes that would persist rather than heal.
+
+    Waits for a non-null snapshot on purpose: a FAILED collections read leaves
+    `collectionsSnapshot` null, and resetting the scope on that would throw away
+    a perfectly good selection every time the network hiccuped.
+  */
+  useEffect(() => {
+    const collections = collectionsSnapshot?.collections;
+    if (!collections || activeCollectionID === ALL_COLLECTIONS_ID) {
+      return;
+    }
+    if (collections.some((collection) => collection.id === activeCollectionID)) {
+      return;
+    }
+    capturePostHogEvent('portfolio_active_collection_reset', {
+      knownCollections: collections.length,
+    });
+    setActiveCollectionID(ALL_COLLECTIONS_ID);
+  }, [activeCollectionID, collectionsSnapshot, setActiveCollectionID]);
 
   const handleOpenCollectionPicker = useCallback(() => {
     setIsCollectionPickerVisible(true);
