@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { ChatBubbleEmpty, MoreHoriz, SendDiagonal, ThumbsUp } from 'iconoir-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Avatar, Text, TextField, useSpotlightTheme } from '@spotlight/design-system';
 
@@ -35,6 +36,7 @@ import {
   unlikeComment,
 } from '@/features/social/social-service';
 import { getResolvedDisplayName } from '@/features/auth/auth-models';
+import { keyboardInsetSurcharge } from '@/lib/keyboard-insets';
 import { profileRouteSlug } from '@/features/social/profile-link';
 import { useAuth } from '@/providers/auth-provider';
 
@@ -120,7 +122,12 @@ const KEYBOARD_GAP = 8;
  */
 const SHEET_RESIZE_MS = 250;
 
-/** Gap under the composer when the keyboard is down. */
+/**
+ * The design gap under the composer — the air between the field and whatever is
+ * below it. NOT the whole padding: on Android the system takes a strip of the
+ * screen under this, and `composerBottomPadding` adds it. See
+ * `systemBottomInset`.
+ */
 const COMPOSER_BOTTOM_GAP = 16;
 /**
  * The gap between the last comment and the composer, split evenly between the
@@ -141,6 +148,115 @@ const LIST_BOTTOM_PADDING = THREAD_TO_COMPOSER_GAP / 2;
  * context action" in the app has the same feel.
  */
 const COMMENT_LONG_PRESS_MS = 500;
+/*
+  ─────────────────────────────────────────────────────────────────────────────
+  THE ANDROID NAVIGATION BAR, AND WHY IT BROKE BOTH KEYBOARD STATES AT ONCE
+  ─────────────────────────────────────────────────────────────────────────────
+  Reported on a Galaxy A17, as two bugs:
+
+    1. keyboard DOWN — the ||| / home / back bar covers the composer.
+    2. keyboard UP   — the keyboard covers the composer, so you cannot see what
+                       you are typing.
+
+  They are ONE bug: this sheet never accounted for the navigation bar, and on
+  Android that strip is missing from BOTH of the numbers the composer is
+  positioned by. Traced through the platform rather than guessed:
+
+  • THE WINDOW NEVER RESIZES, so the JS lift is the only mechanism there is.
+    `ReactModalHostView` sets the dialog window to `SOFT_INPUT_ADJUST_RESIZE`
+    (ReactModalHostView.kt) — but the same file's `statusBarTranslucent` /
+    `navigationBarTranslucent` getters return `field || isEdgeToEdgeFeatureFlagOn`,
+    and this app builds with `edgeToEdgeEnabled=true` (android/gradle.properties),
+    so the dialog always takes the `enableEdgeToEdge()` branch —
+    `WindowCompat.setDecorFitsSystemWindows(window, false)`. Under that,
+    `adjustResize` is inert by design: the window stays full-screen, the system
+    bars and the IME are drawn OVER it, and the app is expected to consume the
+    insets itself. So there is no native resize to lean on and nothing to
+    configure our way out of — consuming the inset in JS IS the platform-correct
+    mechanism here, not a workaround for one.
+
+  • THE NAV BAR OVERLAYS THE SHEET. Same reason: the dialog window's bottom edge
+    is the physical bottom of the screen, and the navigation bar is painted on
+    top of it. 16pt of padding puts the composer squarely underneath it. That is
+    symptom (1).
+
+  • THE REPORTED KEYBOARD HEIGHT EXCLUDES THE NAV BAR. This is the part that is
+    easy to get wrong, and it is symptom (2): `keyboardDidShow`'s
+    `endCoordinates.height` is the keyboard's height ABOVE the navigation bar, so
+    the top edge of the keyboard is at `keyboardHeight + navBar` above the
+    window's bottom, not at `keyboardHeight`. Padding by `keyboardHeight + 8`
+    therefore left the composer ~40pt short and the keyboard drew straight over
+    it. The platform citation (`ReactRootView.java:922`) and the matching iOS
+    explanation are NOT repeated here — they live once, in
+    `src/lib/keyboard-insets.ts`, which `systemBottomInset` below is this sheet's
+    alias for. Three surfaces had derived that arithmetic independently before it
+    was extracted.
+
+  • THE INSET IS THE SAME NUMBER IN BOTH STATES. `useSafeAreaInsets().bottom`
+    comes from `react-native-safe-area-context`, whose Android implementation
+    (SafeAreaUtils.kt) asks for `statusBars | displayCutout | navigationBars |
+    captionBar` and deliberately never includes the IME — so it does not move
+    when the keyboard opens, and adding it to both states double-counts nothing.
+
+  iOS is untouched, and that is not caution but arithmetic: `keyboardWillShow`
+  reports the keyboard's frame in SCREEN coordinates, which already reaches the
+  bottom of the display, and the home indicator is an overlay content is allowed
+  to sit under (which is why `COMPOSER_BOTTOM_GAP` was chosen over the 34pt inset
+  in the first place — 34 left the composer visibly floating). `systemBottomInset`
+  therefore returns 0 on iOS and every number below is exactly what it was.
+*/
+
+/**
+ * The strip at the bottom of the screen the SYSTEM has taken and the composer
+ * must not be drawn under — the Android navigation bar (or gesture handle).
+ * Zero on iOS, deliberately: see the note above.
+ *
+ * THIS IS THIS SHEET'S NAME FOR A SHARED FUNCTION. The body used to be here; it
+ * is now `keyboardInsetSurcharge` in `src/lib/keyboard-insets.ts`, which is
+ * where the `ReactRootView.java:922` citation and the iOS screen-coordinate
+ * explanation live, and which `new-post-screen.tsx` and
+ * `edit-profile-screen.tsx` derive their own numbers from. The alias is kept so
+ * every reference in this file — and the geometry tests that import it — still
+ * reads in the sheet's own vocabulary. It is the same function, so `platform`
+ * is still injectable for the same reason `sheetHeightForKeyboard` takes its
+ * flag: re-importing this module under a patched `Platform.OS` resets the module
+ * registry and takes every other test in the file with it.
+ */
+export const systemBottomInset = keyboardInsetSurcharge;
+
+/**
+ * Everything the composer reserves below itself, which is also the sheet's own
+ * `paddingBottom`.
+ *
+ * Two terms, and keeping them separate is what keeps the sheet's geometry
+ * honest:
+ *
+ *  - the SYSTEM's strip (`systemBottomInset`), which is present in BOTH keyboard
+ *    states and identical in each — the nav bar does not move when the keyboard
+ *    opens, and the reported keyboard height does not include it (see above).
+ *  - the gap the composer wants above whatever is beneath it:
+ *    `COMPOSER_BOTTOM_GAP` at rest, `keyboardHeight + KEYBOARD_GAP` while the
+ *    keyboard is up.
+ *
+ * Because the first term is the same in both states it CANCELS out of the
+ * difference between them — which is precisely the quantity
+ * `sheetHeightForKeyboard` grows the sheet by. That is why fixing the Android
+ * navigation bar does not touch `composerLift`, and why it cannot reintroduce
+ * the height/padding mismatch documented there: the two numbers are still
+ * derived from this one function.
+ */
+export function composerBottomPadding(
+  keyboardHeight: number,
+  systemInset: number,
+  keyboardOverlaysContent: boolean = KEYBOARD_OVERLAYS_CONTENT,
+): number {
+  const system = Math.max(0, systemInset);
+  if (keyboardHeight > 0 && keyboardOverlaysContent) {
+    return system + keyboardHeight + KEYBOARD_GAP;
+  }
+  return system + COMPOSER_BOTTOM_GAP;
+}
+
 /**
  * How tall the sheet should be for a given keyboard height.
  *
@@ -164,6 +280,13 @@ const COMMENT_LONG_PRESS_MS = 500;
  * list — which takes whatever the header, composer and padding leave — then keeps
  * EXACTLY the height it had with the keyboard down.
  *
+ * IT TAKES NO SAFE-AREA INSET, and that is a consequence rather than an
+ * oversight. The Android navigation bar is reserved in BOTH keyboard states and
+ * by the same amount (`composerBottomPadding`), so it cancels out of the
+ * DIFFERENCE between them — which is the only thing this function is. Adding it
+ * here as well would grow the sheet by a strip the padding did not gain, and the
+ * surplus would land in the thread as exactly the white space described above.
+ *
  * `SHEET_HEIGHT_MAX` is a ceiling on that, not the target. A full-size phone
  * keyboard is taller than the 0.3 of the screen there is to grow into, so the
  * sheet stops at 0.9 and the thread pays the remainder — the alternative is a
@@ -183,6 +306,10 @@ export function sheetHeightForKeyboard(
     // would make the sheet taller than the window it now lives in.
     return SHEET_HEIGHT_RESTING;
   }
+  // Written out rather than as `composerBottomPadding(k, i) -
+  // composerBottomPadding(0, i)` because the two are the same thing and this
+  // form is the one the comment above explains. The system inset would cancel
+  // either way.
   const composerLift = keyboardHeight + KEYBOARD_GAP - COMPOSER_BOTTOM_GAP;
   return Math.min(SHEET_HEIGHT_MAX, SHEET_HEIGHT_RESTING + composerLift);
 }
@@ -388,6 +515,21 @@ function buildCommentThreads(comments: PostComment[]): CommentThread[] {
 }
 
 /**
+ * The block at the END of the thread — the last top-level comment, replies and
+ * all. Null for an empty thread.
+ *
+ * One definition, because two places need the same answer to "where does this
+ * thread end": the sheet's opening position and the composer-focus scroll. Both
+ * mean the last BLOCK rather than the last row: a reply is drawn inside its
+ * top-level ancestor, so the newest comment in the list is not necessarily the
+ * lowest thing on screen.
+ */
+export function lastThreadBlockId(comments: PostComment[]): string | null {
+  const threads = buildCommentThreads(comments);
+  return threads.length > 0 ? threads[threads.length - 1].comment.id : null;
+}
+
+/**
  * Every comment below `rootId` in the reply tree, at any depth (`rootId` itself is
  * NOT included). Deleting a comment no longer touches these — they are exactly the
  * replies that SURVIVE underneath the tombstone, which is what the delete
@@ -485,6 +627,25 @@ export function CommentsSheet({
 }: CommentsSheetProps) {
   const theme = useSpotlightTheme();
   const router = useRouter();
+  /*
+    REAL VALUES INSIDE THIS `Modal`, and it is worth saying why, because the
+    usual warning about safe-area context not crossing a modal boundary is about
+    a different library shape.
+
+    `useSafeAreaInsets` reads a React CONTEXT, and RN's `Modal` keeps its
+    children in the same fiber tree — so the value here is the one published by
+    the `<SafeAreaProvider>` at the app root (`src/app/_layout.tsx`), which
+    measures the ACTIVITY's root window. That is the right window to measure:
+    the dialog this sheet lives in is edge-to-edge and full-screen (see the note
+    above `systemBottomInset`), so its bottom edge and the activity's are the
+    same physical edge and the navigation bar sits over both.
+
+    The repo already depends on exactly this: `OptionsSheet` and
+    `ConfirmDeleteSheet` are rendered as children of THIS Modal, below, and both
+    pad themselves with `Math.max(insets.bottom, 16) + 8`.
+  */
+  const insets = useSafeAreaInsets();
+  const bottomInset = systemBottomInset(insets.bottom);
 
   const { currentUser } = useAuth();
   const [isRendered, setIsRendered] = useState(visible);
@@ -548,6 +709,33 @@ export function CommentsSheet({
     rootId: string;
     replyId: string | null;
     measured: boolean;
+    /**
+     * Whether the reader should SEE this scroll happen.
+     *
+     * True for everything that answers something they just did — posting,
+     * opening the composer, tapping Reply — because the movement is the
+     * feedback. False for the sheet's OPENING position: arriving already at the
+     * end of the thread is where the thread rests, and animating there would
+     * read as the sheet jumping the moment you looked at it.
+     */
+    animated: boolean;
+    /**
+     * Refuse to scroll PAST the target's own top edge.
+     *
+     * Only the composer's scroll asks for this, and only because its target is
+     * something the reader has to keep LOOKING at while they type. Aiming a
+     * block's bottom above the composer scrolls its top off the screen as soon
+     * as the block is taller than the viewport — which for a top-level comment
+     * means the comment you tapped Reply on, since a block is the comment plus
+     * every reply under it. Reported as replying scrolling the thread down away
+     * from what you are answering.
+     *
+     * The other two targets must NOT clamp: the opening scroll aims at the end
+     * of the last block on purpose, and a post-send scroll aims at the row you
+     * just wrote. Both WANT the bottom, and both are routinely taller than the
+     * viewport, so clamping them would pin the thread to the wrong end.
+     */
+    keepTopVisible: boolean;
   } | null>(null);
   /** Measured box of each top-level thread block, in the list's scroll coordinates. */
   const threadLayoutsRef = useRef(new Map<string, { y: number; height: number }>());
@@ -581,18 +769,29 @@ export function CommentsSheet({
    * last thing in it. Falls back to the block's own bottom when the row has not
    * been measured — that is the older behaviour, and it is a floor, not a guess.
    */
-  const scrollTargetFor = useCallback((rootId: string, replyId: string | null): number | null => {
-    const viewport = listViewportHeightRef.current;
-    const block = threadLayoutsRef.current.get(rootId);
-    if (!block || viewport <= 0) {
-      return null;
-    }
-    const reply = replyId ? replyLayoutsRef.current.get(replyId) : undefined;
-    const bottom = reply ? block.y + reply.y + reply.height : block.y + block.height;
-    // Over-scroll is clamped by the scroll view, so aiming at the true bottom can
-    // only be right; a short thread resolves to 0 and stays put.
-    return Math.max(0, bottom + LIST_BOTTOM_PADDING - viewport);
-  }, []);
+  const scrollTargetFor = useCallback(
+    (rootId: string, replyId: string | null, keepTopVisible = false): number | null => {
+      const viewport = listViewportHeightRef.current;
+      const block = threadLayoutsRef.current.get(rootId);
+      if (!block || viewport <= 0) {
+        return null;
+      }
+      const reply = replyId ? replyLayoutsRef.current.get(replyId) : undefined;
+      const top = reply ? block.y + reply.y : block.y;
+      const bottom = reply ? block.y + reply.y + reply.height : block.y + block.height;
+      // Over-scroll is clamped by the scroll view, so aiming at the true bottom can
+      // only be right; a short thread resolves to 0 and stays put.
+      const atBottom = bottom + LIST_BOTTOM_PADDING - viewport;
+      /*
+        Never scroll past the target's own top when the reader has to keep it in
+        sight (see `keepTopVisible`). For anything shorter than the viewport the
+        two agree — `atBottom` is already at or above `top` — so this only ever
+        binds on the tall block that was the bug.
+      */
+      return Math.max(0, keepTopVisible ? Math.min(atBottom, top) : atBottom);
+    },
+    [],
+  );
 
   /**
    * Apply the pending post-send scroll if everything it needs is settled and
@@ -618,66 +817,154 @@ export function CommentsSheet({
     if (sheetResizingRef.current) {
       return;
     }
-    const target = scrollTargetFor(pending.rootId, pending.replyId);
+    const target = scrollTargetFor(pending.rootId, pending.replyId, pending.keepTopVisible);
     if (target === null) {
       return;
     }
     pendingScrollRef.current = null;
-    listRef.current?.scrollTo({ animated: true, y: target });
+    /*
+      A SHORT THREAD ASKS FOR NOTHING ON OPEN.
+
+      `scrollTargetFor` clamps at 0, and a thread shorter than the viewport
+      resolves there — but a freshly-opened list is already at 0, so issuing the
+      command would be a native round trip that moves nothing. The bottom anchor
+      (`styles.listContent`) is what already has that case right.
+
+      Only the un-animated OPENING scroll may be skipped this way. For the
+      animated ones the list can be anywhere the reader left it, so y = 0 is a
+      real move — back to the top of a thread whose first comment is the one
+      that was just answered — and must still be issued.
+    */
+    if (target === 0 && !pending.animated) {
+      return;
+    }
+    listRef.current?.scrollTo({ animated: pending.animated, y: target });
   }, [scrollTargetFor]);
 
+  /*
+    ───────────────────────────────────────────────────────────────────────────
+    OPENING THE COMPOSER: TWO CASES, AND THEY ARE NOT THE SAME CASE
+    ───────────────────────────────────────────────────────────────────────────
+    Both raise the keyboard through the same `TextInput`, so it is tempting to
+    give them one rule. Two rounds of bug reports say otherwise, one in each
+    direction:
+
+      CASE 1 — tapping the FIELD ("Add a comment…"). SCROLL TO THE BOTTOM.
+        You are about to add to the END of the thread. Leaving a long thread
+        wherever it happened to be reads as broken: reported as "it just opened
+        the keyboard and it feels like it's in the middle because it didn't
+        scroll down to the bottom".
+
+      CASE 2 — tapping REPLY. PUT THAT COMMENT JUST ABOVE THE COMPOSER.
+        Not the end of the thread, and not "stay put" either: "it should scroll
+        to be right under the reply button" — you want to see what you are
+        answering while you type it. Reply focuses this same FIELD, so it arms
+        its own target BEFORE calling `focus()` and case 1 stands down on
+        finding one already in flight.
+
+    Both are the same shape — put the bottom of one measured box at the bottom
+    of the viewport — so both are the same code, and neither is a special
+    scroll. Case 1 aims at the LAST top-level block; case 2 aims at the row you
+    tapped Reply on (its own box when it is a reply, its block when it is a
+    top-level comment, which is also what puts its replies on screen with it).
+
+    ───────────────────────────────────────────────────────────────────────────
+    AND NEITHER OF THEM MAY EVER BE `scrollToEnd`
+    ───────────────────────────────────────────────────────────────────────────
+    Both symptoms this sheet was reported for — the dead white space under a
+    long thread, and the earlier "with lots of comments it scrolls to like the
+    middle of the comment page" — were ONE bug, and it was not that these
+    scrolls should not exist. It was how they were executed: `scrollToEnd()`,
+    which is the obvious way to write "scroll to the bottom" and is the one
+    scroll command React Native does NOT clamp on iOS:
+
+    • `RCTScrollViewComponentView.scrollTo:` (RN 0.83,
+      React/Fabric/.../RCTScrollViewComponentView.mm, ~line 915) builds a
+      `maxRect` from `contentSize - bounds + contentInset` and clamps the
+      requested offset into it. `scrollToEnd:`, twenty lines below at ~942,
+      computes `contentSize.height - bounds.size.height + contentInset.bottom`
+      and applies only `fmax(offsetY, 0)` — there is no upper bound. UIScrollView
+      keeps a programmatic offset past the end of its content, so whatever it
+      overshoots by stays on screen as DEAD WHITE SPACE under the last row until
+      you touch the list.
+
+    • And this sheet is guaranteed to hand it a viewport that is mid-change. The
+      composer's `paddingBottom` jumps to `keyboardHeight + KEYBOARD_GAP` on the
+      keyboard event while the sheet's height EASES to its new value over
+      `SHEET_RESIZE_MS` (see the resize effect), so for that quarter second the
+      list is `SHEET_HEIGHT_RESTING - chrome - (keyboardHeight + 8)` tall — about
+      56pt on an 852pt iPhone against a settled ~312. The bounds a native command
+      reads are the last MOUNTED layout, not the value JS just finished
+      animating, and every point of that lag was a point of dead space.
+
+    • That is why the white gap needed a LONG thread (`fmax(offsetY, 0)` pins
+      anything shorter than the viewport to 0, so it cannot overshoot) and why it
+      never appeared on Android (`ReactScrollViewManager.scrollToEnd` aims at
+      `child.height + paddingBottom`, deliberately past the end, and
+      `ScrollView.scrollTo`/`smoothScrollTo` clamp into the scroll range on the
+      way in).
+
+    So both cases arm the SAME `pendingScrollRef` the post-send scroll uses and
+    are spent by the SAME `runPendingScroll`: a `scrollTo` — the clamped command
+    — at a target computed by `scrollTargetFor`, released only once
+    `sheetResizingRef` says the sheet has stopped moving. One settle signal, one
+    scroll path, three callers. An overshoot is clamped instead of parked, and a
+    target computed against a viewport that is still easing is not issued at all.
+
+    The gap above the composer comes free and is not a new number:
+    `scrollTargetFor` adds `LIST_BOTTOM_PADDING`, which with the composer's own
+    `paddingTop` is the `THREAD_TO_COMPOSER_GAP` the whole sheet is spaced by —
+    so the comment you are answering sits 16pt clear of the field rather than
+    jammed against it.
+
+    `measured: true` is correct on both and is not a shortcut: the flag exists to
+    stop a target aiming at a box measured BEFORE a new row was added to it, and
+    focusing adds nothing. The blocks' boxes are as current as the last layout
+    pass. A target already in flight always wins — a post-send one aims at the
+    row you just wrote, and Reply's aims at the row you tapped; both are more
+    specific answers than "the end of the thread".
+  */
+
   /**
-   * Where the thread should land once the keyboard is up and the sheet has
-   * finished growing. Armed by opening the composer, spent by the resize.
-   *
-   *  - `end`    — tapping "Add a comment…". You are about to add to the end of
-   *               the thread, so the end is what you want to see.
-   *  - `thread` — tapping "Reply" on a comment. Puts the BOTTOM of that
-   *               comment's block at the bottom of the viewport, i.e. the
-   *               composer opens directly under the Reply button you pressed,
-   *               with what you are replying to right above it.
-   *
-   * Neither can be done inside `onFocus`: the keyboard is still travelling, the
-   * sheet is mid-grow, and the viewport an offset would be computed against is
-   * not the one it will be measured against a moment later. That is precisely
-   * why the earlier focus-scroll landed "in the middle of the comment page" and
-   * was removed. Focus only ARMS this; the sheet's own resize-completion
-   * callback spends it — the same settled beat `runPendingScroll` waits for.
+   * Arm the scroll that opening the composer owes, for whichever of the two
+   * cases above asked for it, and let `runPendingScroll` spend it on the settled
+   * beat. See the note above for why this is never `scrollToEnd`.
    */
-  const pendingFocusScrollRef = useRef<{ kind: 'end' } | { kind: 'thread'; rootId: string } | null>(
-    null,
+  const armComposerScroll = useCallback(
+    (rootId: string, replyId: string | null, keepTopVisible = false) => {
+      // Never clobber a target already in flight — see the note above.
+      if (pendingScrollRef.current) {
+        return;
+      }
+      pendingScrollRef.current = {
+        animated: true,
+        /*
+          Only case 2 asks to stay ON its target. Case 1 aims at the END of the
+          thread because that is where the comment you are about to write will
+          go, and clamping it would stop the list at the last block's top.
+        */
+        keepTopVisible,
+        measured: true,
+        replyId,
+        rootId,
+      };
+      /*
+        On a cold focus the keyboard event has not landed yet, so the sheet's
+        resize-completion callback is what spends this — which is exactly the
+        wait that stops the target being computed against a viewport still
+        easing through `SHEET_RESIZE_MS`.
+
+        If the keyboard is ALREADY up (tapping the field again mid-session, or
+        Reply while typing) no keyboard event is coming, so no resize is coming
+        either, and there is nothing to wait for: the viewport is final now.
+        `runPendingScroll` still re-checks `sheetResizingRef` itself.
+      */
+      if (keyboardHeightRef.current > 0) {
+        runPendingScroll();
+      }
+    },
+    [runPendingScroll],
   );
-
-  /**
-   * Apply the pending focus scroll once everything it needs has settled.
-   * Idempotent, so every trigger can simply call it.
-   */
-  const runPendingFocusScroll = useCallback(() => {
-    const pending = pendingFocusScrollRef.current;
-    if (!pending) {
-      return;
-    }
-    // The mirror image of `runPendingScroll`'s guard: this one is only ever
-    // wanted with the keyboard UP, and never mid-resize.
-    if (keyboardHeightRef.current <= 0 || sheetResizingRef.current) {
-      return;
-    }
-    if (pending.kind === 'end') {
-      pendingFocusScrollRef.current = null;
-      listRef.current?.scrollToEnd({ animated: true });
-      return;
-    }
-    // Deliberately the BLOCK, not the row inside it that Reply was tapped on:
-    // what you are answering should be on screen above the composer, and that is
-    // the block, replies and all.
-    const target = scrollTargetFor(pending.rootId, null);
-    if (target === null) {
-      // Not measured yet — `handleThreadLayout` will call back.
-      return;
-    }
-    pendingFocusScrollRef.current = null;
-    listRef.current?.scrollTo({ animated: true, y: target });
-  }, [scrollTargetFor]);
 
   const handleListLayout = useCallback(
     (event: LayoutChangeEvent) => {
@@ -699,11 +986,8 @@ export function CommentsSheet({
         pending.measured = true;
       }
       runPendingScroll();
-      // A reply target can be armed before its block has ever been measured
-      // (expanding the replies grows it), so this is the other release point.
-      runPendingFocusScroll();
     },
-    [runPendingFocusScroll, runPendingScroll],
+    [runPendingScroll],
   );
 
   /**
@@ -803,13 +1087,54 @@ export function CommentsSheet({
     // Android only reliably fires the "did" pair.
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    /*
+      CLAIM THE RESIZE HERE, NOT WHERE IT IS ANIMATED.
+
+      Both listeners write `keyboardHeightRef` synchronously and then ask React
+      for a re-render. The effect below — the one that actually moves the sheet
+      and sets `sheetResizingRef` — does not run until that render COMMITS. In
+      between, the sheet reports a keyboard that is up and a geometry that is
+      settled, and neither is true: it is settled at a size it is about to leave.
+
+      That gap is not theoretical, and it is not narrow. On iOS the keyboard
+      notification is posted from inside `becomeFirstResponder`, so it is
+      delivered BEFORE RN dispatches `onFocus` for the very tap that raised it —
+      which put `armComposerScroll`'s "the keyboard is already up, so nothing is
+      coming" fast path squarely inside the gap. It computed the end of the
+      thread against the keyboard-DOWN viewport and spent the target on it.
+
+      Reported as: post a comment, tap the field again, and the thread does not
+      scroll. Posting leaves the list AT the keyboard-down end of the thread, so
+      the premature target equalled the offset the list was already at — a scroll
+      that moved nothing, and the real one (72pt further down, once the sheet had
+      grown and the list had shrunk) never happened because the target was gone.
+      The FIRST tap looked fine because the list was nowhere near the end, so the
+      same error was a large scroll that merely stopped short.
+
+      Claiming the resize on the event that causes it closes the gap from both
+      sides: whichever of the keyboard event and `onFocus` lands first, the
+      target is now released only by the resize completion. `handleSend` already
+      does exactly this before its `Keyboard.dismiss()`, for the same reason.
+
+      Guarded by the same comparison the effect uses, so a keyboard event that
+      does not change the sheet's height claims nothing — otherwise the flag
+      would be set by an event React bails out of re-rendering for, and nothing
+      would ever clear it.
+    */
+    const claimResizeFor = (height: number) => {
+      if (sheetHeightForKeyboard(height) !== sheetHeightTargetRef.current) {
+        sheetResizingRef.current = true;
+      }
+    };
     const showSub = Keyboard.addListener(showEvent, (event) => {
       const height = event.endCoordinates?.height ?? 0;
       keyboardHeightRef.current = height;
+      claimResizeFor(height);
       setKeyboardHeight(height);
     });
     const hideSub = Keyboard.addListener(hideEvent, () => {
       keyboardHeightRef.current = 0;
+      claimResizeFor(0);
       setKeyboardHeight(0);
     });
     return () => {
@@ -854,12 +1179,9 @@ export function CommentsSheet({
       // one frame later. This is the beat the old content-size-only scroll
       // fired well before, and why it landed short (or was clamped to the top).
       runPendingScroll();
-      // Same settled beat, opposite direction: the composer just opened and the
-      // sheet has finished growing, so the focus scroll can aim truly.
-      runPendingFocusScroll();
     });
     return () => animation.stop();
-  }, [keyboardHeight, runPendingFocusScroll, runPendingScroll, sheetHeight]);
+  }, [keyboardHeight, runPendingScroll, sheetHeight]);
 
   // Slide the sheet in on open, out on close, with the scrim fading in alongside
   // it. Two things used to make this read as a hard pop rather than a transition:
@@ -962,23 +1284,37 @@ export function CommentsSheet({
     setLikeCountOverrides({});
     setPromptOpen(false);
     pendingScrollRef.current = null;
-    // A target armed against the PREVIOUS post's thread must not survive into
-    // this one — the ids would not match, and an `end` target would scroll a
-    // freshly-opened sheet that is meant to start at the top.
-    pendingFocusScrollRef.current = null;
     threadLayoutsRef.current.clear();
     replyLayoutsRef.current.clear();
     /*
-      Opening the sheet starts at the TOP of the thread, like every other comment
-      list — no scroll on open at all.
+      ─────────────────────────────────────────────────────────────────────────
+      A LONG THREAD OPENS AT ITS END
+      ─────────────────────────────────────────────────────────────────────────
+      A comment thread is read newest-last. Opening at comment #1 of forty puts
+      the reader in the archive with nothing to say there is more below, which is
+      also how the composer-focus scroll came to be doing this job by proxy: the
+      only way to reach the conversation was to tap the field, and the report was
+      that the sheet "feels like it's in the middle".
 
-      It used to jump to the newest comment when the sheet was entered from the
-      chat icon, which only made sense because that entry ALSO raised the
-      keyboard: the thread was a short strip above the composer, so landing
-      anywhere else showed its middle. With the keyboard no longer opening on
-      entry the whole thread is visible from the top, and yanking a reader to the
-      bottom of someone else's conversation would be the app deciding what they
-      came to read. POSTING is the only thing that moves the thread now.
+      This spot used to argue the opposite — that jumping to the newest comment
+      "would be the app deciding what they came to read". That argument expired
+      with the thing it was about. It was written when entering from the chat
+      icon ALSO raised the keyboard, which squeezed the thread into a strip above
+      the composer; landing anywhere but the top then showed you its middle, so
+      the top was the only readable answer. The sheet no longer opens the
+      keyboard (see the `CommentsSheetProps` note), the whole viewport is thread,
+      and the end of it is what the reader came for.
+
+      A SHORT thread is untouched: its target clamps to 0 and is dropped
+      (`runPendingScroll`), and the bottom anchor in `styles.listContent` already
+      rests it on the composer.
+
+      Armed here and spent by the same `pendingScrollRef` / `runPendingScroll`
+      machinery as everything else, released by the blocks' own `onLayout` — NOT
+      by a load-time timer, which would be racing the first layout for the right
+      to compute a target against a viewport that has not been measured yet.
+      `animated: false` because this is where the thread RESTS; see the field's
+      own note.
     */
     void (async () => {
       try {
@@ -988,6 +1324,18 @@ export function CommentsSheet({
         }
         setComments(loaded);
         setStatus('ready');
+        const endOfThread = lastThreadBlockId(loaded);
+        if (endOfThread) {
+          pendingScrollRef.current = {
+            animated: false,
+            // The end of the thread is the point; clamping would pin it to the
+            // last block's TOP instead.
+            keepTopVisible: false,
+            measured: true,
+            replyId: null,
+            rootId: endOfThread,
+          };
+        }
         // Report the thread's real size. `posts.comment_count` is maintained by
         // a DB trigger; when that count is stale the card would otherwise keep
         // showing it (a post you just commented on reads as 0 comments).
@@ -1414,6 +1762,9 @@ export function CommentsSheet({
           parent chain lives.
         */
         pendingScrollRef.current = {
+          animated: true,
+          // You want to SEE what you just posted, which is at the bottom.
+          keepTopVisible: false,
           measured: false,
           replyId: parent ? result.id : null,
           rootId: parent ? topLevelAncestorId(commentsRef.current, parent.id) : result.id,
@@ -1746,15 +2097,33 @@ export function CommentsSheet({
                 hitSlop={8}
                 onPress={() => {
                   setReplyTo(comment);
-                  // Land the composer directly under THIS comment's Reply
-                  // button, with the comment you are answering still on screen
-                  // above it. Armed before `focus()` so the field's own
-                  // `onFocus` sees a target and does not overwrite it with the
-                  // generic "scroll to the end".
-                  pendingFocusScrollRef.current = {
-                    kind: 'thread',
-                    rootId: topLevelAncestorId(commentsRef.current, comment.id),
-                  };
+                  /*
+                    CASE 2 (see the note above `armComposerScroll`): land the
+                    composer RIGHT UNDER this comment, so what you are answering
+                    sits immediately above the input while you write.
+
+                    Every row is aimed at as ITSELF — replies were always
+                    measured in their own right (`handleReplyLayout`), and
+                    top-level comment rows now are too. Aiming a top-level
+                    comment at its BLOCK put the input under the block's LAST
+                    reply instead of under the comment that was tapped.
+
+                    When the row's bottom cannot reach the composer (not enough
+                    content below it), the scroll view's own clamp lands the
+                    list at its end — which is exactly the asked-for fallback:
+                    as close as it can get, else the bottom.
+
+                    Armed BEFORE `focus()`, so the field's own `onFocus` finds a
+                    target already in flight and does not overwrite it with case
+                    1's "the end of the thread".
+                  */
+                  armComposerScroll(
+                    topLevelAncestorId(commentsRef.current, comment.id),
+                    comment.id,
+                    // A pathological row taller than the viewport still shows
+                    // its top, not its tail.
+                    true,
+                  );
                   // Otherwise "Reply" only swaps the placeholder — the composer
                   // is off at the bottom of the sheet with no keyboard up.
                   inputRef.current?.focus();
@@ -1804,15 +2173,27 @@ export function CommentsSheet({
       // app's context-action idiom (portfolio-screen's `CARD_LONG_PRESS_MS`), it
       // costs the row no layout, and people who already learned it should not lose
       // it just because the same action finally became visible.
+      /*
+        A TOP-LEVEL row is measured in its own right, exactly like a reply row.
+        Reply's composer scroll aims at the tapped ROW's bottom — without this
+        box, a top-level comment could only be aimed at as its whole block,
+        which lands the input under the block's last reply instead of under the
+        comment itself. Direct child of the block, so the box is block-relative,
+        same coordinate space `handleReplyLayout` already stores.
+      */
+      const measureRow = options.isReply
+        ? undefined
+        : (event: LayoutChangeEvent) => handleReplyLayout(comment.id, event);
       if (!isMine) {
         return (
-          <View style={styles.commentRow} testID={rowTestID}>
+          <View onLayout={measureRow} style={styles.commentRow} testID={rowTestID}>
             {rowContent}
           </View>
         );
       }
       return (
         <Pressable
+          onLayout={measureRow}
           // A long press is invisible to VoiceOver, so also publish it as a
           // rotor action — otherwise a screen-reader user has no way to delete.
           accessibilityActions={[{ label: 'Delete comment', name: 'longpress' }]}
@@ -1832,7 +2213,9 @@ export function CommentsSheet({
       );
     },
     [
+      armComposerScroll,
       currentUser?.id,
+      handleReplyLayout,
       handleRequestDelete,
       handleRequestReport,
       handleToggleCommentLike,
@@ -1884,21 +2267,19 @@ export function CommentsSheet({
             {
               backgroundColor: theme.colors.gray0,
               height: sheetHeight,
-              // Lift the composer clear of the keyboard. `sheetHeightForKeyboard`
-              // grows the sheet by exactly this increase (16 → keyboardHeight +
-              // 8), so the thread keeps its height instead of paying for the
+              // Lift the composer clear of the keyboard, and of the Android
+              // navigation bar underneath it. `sheetHeightForKeyboard` grows the
+              // sheet by exactly the increase between the two keyboard states,
+              // so the thread keeps its height instead of paying for the
               // composer — up to `SHEET_HEIGHT_MAX`, past which there is no more
               // screen to grow into and the thread does pay the remainder.
               //
-              // Keyboard down: a flat 16, NOT max(insets.bottom, …). The safe
-              // inset is 34 on a notched iPhone, which left the composer
-              // floating well above the sheet's edge. 16 is the design spec and
-              // still clears the home indicator, since the sheet's own rounded
-              // bottom is inset from the screen edge anyway.
-              paddingBottom:
-                keyboardHeight > 0 && KEYBOARD_OVERLAYS_CONTENT
-                  ? keyboardHeight + KEYBOARD_GAP
-                  : COMPOSER_BOTTOM_GAP,
+              // On iOS this is still a flat 16 with the keyboard down, NOT
+              // max(insets.bottom, …): the safe inset is 34 on a notched iPhone,
+              // which left the composer floating well above the sheet's edge.
+              // The home indicator is an overlay content may sit under; the
+              // Android nav bar is not. See `composerBottomPadding`.
+              paddingBottom: composerBottomPadding(keyboardHeight, bottomInset),
               transform: [{ translateY }],
             },
           ]}
@@ -2061,13 +2442,30 @@ export function CommentsSheet({
                   // guard, so the first character of the NEXT comment is never
                   // mistaken for the last one's dismissal echo.
                   ignoreNextDraftChangeRef.current = false;
-                  // Tapping the field itself means "add to the end". Reply
-                  // focuses this same field, but arms a THREAD target first —
-                  // so never clobber a target that is already set.
-                  if (!pendingFocusScrollRef.current) {
-                    pendingFocusScrollRef.current = { kind: 'end' };
+                  /*
+                    CASE 1 (see the note above `armComposerScroll`): tapping the
+                    field means "add to the end", so bring the end into view —
+                    aimed at the LAST block, spent once the sheet has stopped
+                    growing, via the clamped `scrollTo`. NEVER `scrollToEnd`:
+                    that is the unclamped command, and against this sheet's
+                    mid-resize viewport it parked the list past the end of its
+                    content as dead white space.
+
+                    NOT DEAD CODE now that the sheet opens at the end. That
+                    covers the first frame only, and the reader moves: this is
+                    what brings the end back after posting, after a "N replies"
+                    toggle has grown a block, and after scrolling up to read and
+                    then tapping the field to write. It is a no-op in the one
+                    case where it has nothing to do, because the target resolves
+                    to where the list already is.
+
+                    Reply reaches this same handler, having already armed its own
+                    target — `armComposerScroll` leaves that one alone.
+                  */
+                  const endOfThread = lastThreadBlockId(commentsRef.current);
+                  if (endOfThread) {
+                    armComposerScroll(endOfThread, null);
                   }
-                  runPendingFocusScroll();
                 }}
                 onSubmitEditing={handleSend}
                 placeholder={replyTo ? 'Add a reply…' : 'Add a comment…'}

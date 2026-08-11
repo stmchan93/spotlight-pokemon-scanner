@@ -26,6 +26,21 @@ function flattenStyle(style: unknown) {
 }
 
 describe('GlassNavBubble', () => {
+  /*
+    THE FIGMA NUMBER, AS A LITERAL. Every other size assertion in this file
+    compares the rendered style against the token that produced it, which is
+    true whatever the token says. `compact` is the one size that has to agree
+    with something OUTSIDE the primitive — the `SearchEntryPill` and the
+    `EditDoneButton` sitting beside it in the same bar — so it is pinned here
+    against the frame instead: Figma "Home" 3523:15499, toolbar 3567:22969,
+    where every control in the row is 40 tall.
+
+    It was 36 for months against a Figma node that had since been deleted.
+  */
+  it('sizes a bar bubble at the frame’s 40pt', () => {
+    expect(glassNavBubbleSizes.compact).toBe(40);
+  });
+
   it('renders a 44pt circle by default and a 32pt circle at size="small"', () => {
     renderBubble(
       <>

@@ -27,6 +27,15 @@ type CardRecentSalesPanelProps = {
   onSubscribePress: () => void;
   /** Fired when "Show more" reveals the rest of the fetched sales (analytics). */
   onShowMorePress?: () => void;
+  /**
+   * Opens an eBay SEARCH for this card. Rendered ONLY when there is nothing to
+   * show — an empty panel is otherwise a dead end, and with no rows on screen
+   * there are no accurate comps for an approximate search to contradict. It is
+   * deliberately absent from the populated panel: a title-derived search cannot
+   * reproduce these specific sold listings, which is why the old always-on
+   * "See all on eBay" footer was removed. Omit to render no footer at all.
+   */
+  onSeeMoreOnEbayPress?: () => void;
   testID?: string;
 };
 
@@ -139,10 +148,37 @@ export function CardRecentSalesPanel({
   isPremium,
   onSubscribePress,
   onShowMorePress,
+  onSeeMoreOnEbayPress,
   testID = 'recent-sales-panel',
 }: CardRecentSalesPanelProps) {
   const theme = useSpotlightTheme();
   const [showAllSales, setShowAllSales] = useState(false);
+
+  // "Nothing found" is reached two ways — the source was unavailable, or it
+  // genuinely returned zero — and both render the same calm line plus the same
+  // way out, so they share one renderer.
+  const renderNothingFound = (branchTestID: string) => (
+    <View style={styles.panel} testID={branchTestID}>
+      <Text style={[theme.typography.label, { color: theme.colors.gray500 }]}>
+        No recent eBay sales found.
+      </Text>
+      {onSeeMoreOnEbayPress ? (
+        <Pressable
+          accessibilityHint="Opens eBay outside the app"
+          accessibilityLabel="See more on eBay"
+          accessibilityRole="link"
+          hitSlop={8}
+          onPress={onSeeMoreOnEbayPress}
+          style={({ pressed }) => [styles.showMore, { opacity: pressed ? 0.6 : 1 }]}
+          testID={`${testID}-see-more`}
+        >
+          <Text style={[theme.typography.labelStrong, { color: theme.colors.gray600 }]}>
+            See more on eBay ↗
+          </Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
 
   if (isLoading) {
     return (
@@ -159,23 +195,11 @@ export function CardRecentSalesPanel({
   // (e.g. staging runs keyless to save credits) or genuinely returned nothing,
   // show the same calm "none found" line — never an alarming "Couldn't load".
   if (!record || (record.status !== 'available' && sales.length === 0)) {
-    return (
-      <View style={styles.panel} testID={`${testID}-error`}>
-        <Text style={[theme.typography.label, { color: theme.colors.gray500 }]}>
-          No recent eBay sales found.
-        </Text>
-      </View>
-    );
+    return renderNothingFound(`${testID}-error`);
   }
 
   if (sales.length === 0) {
-    return (
-      <View style={styles.panel} testID={`${testID}-empty`}>
-        <Text style={[theme.typography.label, { color: theme.colors.gray500 }]}>
-          No recent eBay sales found.
-        </Text>
-      </View>
-    );
+    return renderNothingFound(`${testID}-empty`);
   }
 
   // Free: 1 clear + a blurred preview + Unlock (no Show more — the next step

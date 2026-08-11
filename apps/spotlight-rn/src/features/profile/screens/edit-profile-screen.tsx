@@ -1,9 +1,10 @@
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -24,6 +25,7 @@ import {
   type ProfileUpdate,
 } from '@/features/auth/auth-models';
 import { prefetchImageUrls } from '@/lib/card-images';
+import { keyboardClearance } from '@/lib/keyboard-insets';
 import { loadNativeImagePicker } from '@/lib/native-image-picker';
 import { useAppServices } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
@@ -179,6 +181,60 @@ export function EditProfileScreen() {
   const [isSaving, setIsSaving] = useState(false);
 
   const initials = useMemo(() => (user ? getUserInitials(user) : '?'), [user]);
+
+  /*
+    ───────────────────────────────────────────────────────────────────────────
+    KEYBOARD AVOIDANCE — ONE MECHANISM PER PLATFORM, AND ANDROID HAD NONE
+    ───────────────────────────────────────────────────────────────────────────
+    Reported: "when editing my bio on Android, the keyboard covers the bio
+    field." The `KeyboardAvoidingView` below asks for `behavior={undefined}` off
+    iOS, and that is a literal PASSTHROUGH — the component renders a plain View
+    and avoids nothing. It was survivable while Android resized the window for
+    the IME (`softwareKeyboardLayoutMode` is unset, so Expo asks for
+    `adjustResize`), but this app builds with `edgeToEdgeEnabled=true`
+    (`android/gradle.properties`), under which `adjustResize` is inert BY DESIGN:
+    the window keeps its full height, the system bars and the IME are drawn over
+    it, and the app is expected to consume the insets itself. So nothing at all
+    held the form clear of the keyboard on Android.
+
+    So this screen consumes it, the way the composer and the comments sheet do:
+    subscribe to the keyboard, and shrink the scroll viewport to the top of it.
+    Shrinking the VIEWPORT (rather than padding the scroll CONTENT) is what makes
+    the focused field come back into view for free — Android's own
+    `ScrollView.onSizeChanged` scrolls the focused child into what is left, which
+    matters most for the tall multiline bio at the bottom of the form.
+
+    ANDROID ONLY, deliberately. iOS avoidance already worked and is the platform
+    component's job: `behavior="padding"` measures the avoider's own frame
+    against the keyboard's, which for this layout (a `SafeAreaView` with no
+    'bottom' edge, so the avoider reaches the screen's bottom edge) is the same
+    number `keyboardClearance` computes. Not subscribing on iOS means there is
+    never a second padding to compete with it, rather than two mechanisms that
+    could disagree.
+
+    The number itself — keyboard PLUS the navigation bar under it — is NOT
+    obvious and is not derived here: see `src/lib/keyboard-insets.ts`, which
+    carries the `ReactRootView.java:922` citation for why the reported height
+    excludes a bar the safe-area inset pays separately.
+  */
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') {
+      return;
+    }
+    // Android only fires the `did` pair reliably.
+    const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
+      setKeyboardHeight(Math.max(0, event?.endCoordinates?.height ?? 0));
+    });
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => setKeyboardHeight(0));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  const keyboardReserve = keyboardClearance(keyboardHeight, insets.bottom);
 
   /**
    * Shared picker → resize → upload lane for both profile images. The only
@@ -367,8 +423,13 @@ export function EditProfileScreen() {
       style={[styles.safeArea, { backgroundColor: theme.colors.canvas }]}
     >
       <KeyboardAvoidingView
+        // iOS: the platform component does the avoiding (it already worked).
+        // Android: `undefined` is a passthrough, so `keyboardReserve` — zero on
+        // iOS, because nothing subscribes there — is the whole mechanism. See
+        // the note beside `keyboardReserve`.
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.flex}
+        style={[styles.flex, { paddingBottom: keyboardReserve }]}
+        testID="edit-profile-keyboard-avoider"
       >
         <ScrollView
           contentContainerStyle={styles.scrollContent}
@@ -551,7 +612,18 @@ export function EditProfileScreen() {
       {/* Sticky action bar — same treatment as the PDP's ADD ITEM / SHARE bar:
           absolutely pinned to the bottom OUTSIDE the keyboard avoider, padded by
           the safe-area inset. Keeping it inside KeyboardAvoidingView made it ride
-          up and sit flush on top of the keyboard with no bottom inset. */}
+          up and sit flush on top of the keyboard with no bottom inset.
+
+          IT IS OUTSIDE THE AVOIDER ON PURPOSE, so the Android keyboard reserve
+          added above cannot reach it: this bar pays `insets.bottom` ONCE, here,
+          and `keyboardReserve` is applied to a sibling subtree — no edge is paid
+          twice on either platform. It therefore stays pinned to the screen's
+          bottom edge while typing (the keyboard covers it, exactly as it already
+          does on iOS) and is back the moment the keyboard goes down. Lifting it
+          as well would undo the decision recorded above; the reported bug is the
+          FIELD being covered, and the field is what the avoider now clears.
+          `scrollContent.paddingBottom` still clears this bar with the keyboard
+          down, which is the state it is visible in. */}
       <View
         style={[
           styles.actions,

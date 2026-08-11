@@ -10,7 +10,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NavArrowLeft } from 'iconoir-react-native';
 
-import { Text, fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
+import { EkalightWordmark, useSpotlightTheme } from '@spotlight/design-system';
 
 type AuthScreenLayoutProps = {
   /** Content flows top-down inside the scroll area on the white screen. */
@@ -23,13 +23,18 @@ type AuthScreenLayoutProps = {
 };
 
 const HEADER_BUTTON_SIZE = 36;
+// Figma 3686:58352 renders the lockup at 32pt tall inside the top toolbar.
+const WORDMARK_HEIGHT = 32;
 
 /**
  * Shared presentation for the auth flow (Figma 2161:6847 "Log In" /
  * 2170:7283 "Password Reset"): a white screen with a floating header — a
- * circular gray back button (left) and the centered EKALIGHT title — above a
- * keyboard-aware scroll area, plus an optional bottom-pinned footer. Purely
- * presentational — no nav/auth logic.
+ * circular gray back button (left) and the centered purple Ekalight wordmark
+ * (Figma 3686:58352) — above a keyboard-aware scroll area, plus an optional
+ * bottom-pinned footer. Purely presentational — no nav/auth logic.
+ *
+ * Every auth surface routes through here, so the wordmark lands on log in,
+ * sign up, and change password alike.
  */
 export function AuthScreenLayout({
   children,
@@ -84,12 +89,8 @@ export function AuthScreenLayout({
           <View style={styles.headerButton} />
         )}
 
-        <Text
-          style={[styles.headerTitle, { color: theme.colors.gray900 }]}
-          testID="auth-header-wordmark"
-        >
-          EKALIGHT
-        </Text>
+        {/* Purple lockup, not plain text (Figma 3686:58352). */}
+        <EkalightWordmark height={WORDMARK_HEIGHT} testID="auth-header-wordmark" />
 
         {/* Right spacer keeps the title centered. */}
         <View style={styles.headerButton} />
@@ -132,12 +133,6 @@ const styles = StyleSheet.create({
     height: HEADER_BUTTON_SIZE,
     justifyContent: 'center',
     width: HEADER_BUTTON_SIZE,
-  },
-  headerTitle: {
-    fontFamily: fontFamilies.bodySemiBold,
-    fontSize: 18,
-    lineHeight: 23,
-    textAlign: 'center',
   },
   keyboardShell: {
     flex: 1,

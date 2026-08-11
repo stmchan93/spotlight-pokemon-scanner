@@ -29,6 +29,13 @@ type CardLowestListedPanelProps = {
   onSubscribePress: () => void;
   /** Fired when "Show more" reveals the rest of the fetched listings (analytics). */
   onShowMorePress?: () => void;
+  /**
+   * Opens an eBay SEARCH for this card's live listings, cheapest first.
+   * Rendered ONLY when there is nothing to show — see the twin prop on
+   * `CardRecentSalesPanel` for why it stays off the populated panel. Omit to
+   * render no footer at all.
+   */
+  onSeeMoreOnEbayPress?: () => void;
   testID?: string;
 };
 
@@ -119,10 +126,36 @@ export function CardLowestListedPanel({
   isPremium,
   onSubscribePress,
   onShowMorePress,
+  onSeeMoreOnEbayPress,
   testID = 'lowest-listed-panel',
 }: CardLowestListedPanelProps) {
   const theme = useSpotlightTheme();
   const [showAllListings, setShowAllListings] = useState(false);
+
+  // Unavailable and genuinely-empty render identically — same line, same way
+  // out. See the twin helper in `card-recent-sales-panel.tsx`.
+  const renderNothingFound = (branchTestID: string) => (
+    <View style={styles.panel} testID={branchTestID}>
+      <Text style={[theme.typography.label, { color: theme.colors.gray500 }]}>
+        No active eBay listings found.
+      </Text>
+      {onSeeMoreOnEbayPress ? (
+        <Pressable
+          accessibilityHint="Opens eBay outside the app"
+          accessibilityLabel="See more on eBay"
+          accessibilityRole="link"
+          hitSlop={8}
+          onPress={onSeeMoreOnEbayPress}
+          style={({ pressed }) => [styles.showMore, { opacity: pressed ? 0.6 : 1 }]}
+          testID={`${testID}-see-more`}
+        >
+          <Text style={[theme.typography.labelStrong, { color: theme.colors.gray600 }]}>
+            See more on eBay ↗
+          </Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
 
   if (isLoading) {
     return (
@@ -138,23 +171,11 @@ export function CardLowestListedPanel({
   // auth) or genuinely returned nothing, show the same calm "none found" line —
   // never an alarming "Couldn't load" error. No extra calls either way.
   if (!record || (record.status !== 'available' && listings.length === 0)) {
-    return (
-      <View style={styles.panel} testID={`${testID}-error`}>
-        <Text style={[theme.typography.label, { color: theme.colors.gray500 }]}>
-          No active eBay listings found.
-        </Text>
-      </View>
-    );
+    return renderNothingFound(`${testID}-error`);
   }
 
   if (listings.length === 0) {
-    return (
-      <View style={styles.panel} testID={`${testID}-empty`}>
-        <Text style={[theme.typography.label, { color: theme.colors.gray500 }]}>
-          No active eBay listings found.
-        </Text>
-      </View>
-    );
+    return renderNothingFound(`${testID}-empty`);
   }
 
   const visibleListings = showAllListings ? listings : listings.slice(0, INITIAL_VISIBLE_LISTINGS);

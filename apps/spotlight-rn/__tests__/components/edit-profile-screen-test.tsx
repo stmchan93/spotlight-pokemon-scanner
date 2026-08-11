@@ -1,5 +1,5 @@
-import { Alert } from 'react-native';
-import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { Alert, Keyboard, Platform, StyleSheet } from 'react-native';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { useRouter } from 'expo-router';
 
 import { isHandleAvailable } from '@/features/auth/auth-service';
@@ -282,6 +282,133 @@ describe('EditProfileScreen', () => {
       const patch = updateProfile.mock.calls[0][0];
       expect(patch).not.toHaveProperty('handle');
       expect(back).toHaveBeenCalled();
+    });
+  });
+
+  /*
+    ───────────────────────────────────────────────────────────────────────────
+    THE REPORTED BUG: "the keyboard covers the bio field on Android"
+    ───────────────────────────────────────────────────────────────────────────
+    The form was wrapped in a `KeyboardAvoidingView` with
+    `behavior={Platform.OS === 'ios' ? 'padding' : undefined}`, and
+    `behavior={undefined}` is a literal passthrough — the component renders a
+    plain View and avoids nothing. That was survivable while Android resized the
+    window for the IME, but this app builds with `edgeToEdgeEnabled=true`
+    (android/gradle.properties), under which the window is NEVER resized: the app
+    draws behind the IME and consumes the inset itself. So Android had no
+    keyboard avoidance at all and the keyboard drew straight over the bio field.
+
+    The fix shrinks the scroll viewport to the top of the keyboard, which is also
+    what makes Android's own `ScrollView.onSizeChanged` bring the focused field
+    into the space that is left.
+
+    The number is the thing that gets re-derived wrong, so it is asserted here:
+    the reserved strip is the keyboard PLUS the navigation bar, because
+    `ReactRootView.java:922` computes `imeInsets.bottom - barInsets.bottom` and
+    hands JS a height that excludes the bar the safe-area inset pays separately.
+    See `src/lib/keyboard-insets.ts`.
+  */
+  describe('keyboard avoidance', () => {
+    const keyboardHandlers = new Map<string, (event: unknown) => void>();
+
+    /** The avoider's own bottom padding — what the form reserves for the keyboard. */
+    function avoiderPadding(): number | undefined {
+      return StyleSheet.flatten(
+        screen.getByTestId('edit-profile-keyboard-avoider').props.style,
+      ).paddingBottom;
+    }
+
+    function stubKeyboard() {
+      keyboardHandlers.clear();
+      jest
+        .spyOn(Keyboard, 'addListener')
+        .mockImplementation((event: string, handler: (payload: never) => void) => {
+          keyboardHandlers.set(event, handler as (payload: unknown) => void);
+          return { remove: () => keyboardHandlers.delete(event) } as never;
+        });
+    }
+
+    async function raiseKeyboard(height: number) {
+      const show = Array.from(keyboardHandlers.entries()).find(([event]) =>
+        event.toLowerCase().includes('show'),
+      );
+      expect(show).toBeDefined();
+      await act(async () => {
+        show?.[1]({ endCoordinates: { height } });
+      });
+    }
+
+    async function dropKeyboard() {
+      const hide = Array.from(keyboardHandlers.entries()).find(([event]) =>
+        event.toLowerCase().includes('hide'),
+      );
+      expect(hide).toBeDefined();
+      await act(async () => {
+        hide?.[1]({ endCoordinates: { height: 0 } });
+      });
+    }
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    describe('on Android', () => {
+      beforeEach(() => {
+        jest.replaceProperty(Platform, 'OS', 'android');
+        stubKeyboard();
+      });
+
+      it('reserves the keyboard AND the navigation bar under it', async () => {
+        renderWithProviders(<EditProfileScreen />);
+
+        // Nothing reserved before the keyboard arrives — the sticky action bar
+        // owns the bottom of the screen at rest.
+        expect(avoiderPadding() ?? 0).toBe(0);
+
+        await raiseKeyboard(300);
+
+        // 300 reported + the 34 bottom inset the harness publishes. NOT 300:
+        // the reported height is measured ABOVE the nav bar (ReactRootView.java
+        // :922), so stopping at 300 leaves the field a nav bar short and the
+        // keyboard still over it.
+        expect(avoiderPadding()).toBe(334);
+      });
+
+      it('gives the form back the whole screen when the keyboard goes down', async () => {
+        renderWithProviders(<EditProfileScreen />);
+
+        await raiseKeyboard(300);
+        expect(avoiderPadding()).toBe(334);
+
+        await dropKeyboard();
+        // Back to zero, so the sticky action bar is not left floating above a
+        // strip of nothing.
+        expect(avoiderPadding()).toBe(0);
+      });
+    });
+
+    describe('on iOS', () => {
+      beforeEach(() => {
+        stubKeyboard();
+      });
+
+      it('leaves the lifting to the KeyboardAvoidingView, and pays nothing itself', () => {
+        renderWithProviders(<EditProfileScreen />);
+
+        // iOS avoidance is the platform component's job (`behavior="padding"`)
+        // and already worked. The screen must not start adding a second,
+        // competing padding on top of it — so it does not even subscribe to the
+        // keyboard here, and there is no height for it to apply.
+        expect(screen.getByTestId('edit-profile-keyboard-avoider')).toBeTruthy();
+        // The only subscriptions are the KeyboardAvoidingView's own `will` pair.
+        // The screen's Android-only `did` listeners are absent, so there is no
+        // second height for it to pad with.
+        expect(Array.from(keyboardHandlers.keys()).sort()).toEqual([
+          'keyboardWillHide',
+          'keyboardWillShow',
+        ]);
+        expect(avoiderPadding() ?? 0).toBe(0);
+      });
     });
   });
 });

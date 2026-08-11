@@ -103,6 +103,14 @@ describe('AccountScreen', () => {
     expect(screen.queryByTestId('account-support-email')).not.toBeOnTheScreen();
   });
 
+  it('routes to the blocked-accounts list — the only way to lift a block', () => {
+    renderWithProviders(<AccountScreen />);
+
+    expect(screen.getByText('Safety')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('account-blocked-accounts'));
+    expect(push).toHaveBeenCalledWith('/account/blocked');
+  });
+
   it('opens a prefilled support mailto when a mail client exists', async () => {
     mockCanOpenURL.mockResolvedValue(true);
 

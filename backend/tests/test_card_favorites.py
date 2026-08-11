@@ -181,6 +181,10 @@ class CardFavoritesTests(unittest.TestCase):
             offset=10,
             include_inactive=True,
             favorites_only=True,
+            # None = every collection, which is what a caller that names no
+            # collection gets (same expectation as
+            # `test_deck_entries_is_a_thin_wrapper_over_the_explicit_owner_form`).
+            collection_id=None,
         )
 
     def test_card_favorites_returns_favorited_cards_owned_and_unowned(self) -> None:

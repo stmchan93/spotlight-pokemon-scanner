@@ -385,11 +385,26 @@ describe('misc route wrappers', () => {
     and Bookmark, which a native bar cannot take as components — they are
     rasterized from the installed package by `tools/generate_tab_icons.py`.
 
-    `renderingMode` MUST stay unset on them, and that is the whole point of this
-    test. It is the exact inverse of the You avatar above: a photograph needs
-    `original` or the tint flattens it to a silhouette, while these need the
-    DEFAULT (template) or `tintColor` never reaches them and the selected tab
+    `renderingMode="template"` MUST be set EXPLICITLY on them, and that is the
+    whole point of this test. It is the inverse of the You avatar above: a
+    photograph needs `original` or the tint flattens it to a silhouette, while
+    these need `template` or `tintColor` never reaches them and the selected tab
     stops looking selected. Both failures are silent.
+
+    This assertion used to demand the OPPOSITE — that the prop stay unset — on
+    the belief that the default was `template`. It is not, and Home and Wishlist
+    shipped untinted because of it. expo-router picks the default itself
+    (`native-tabs/utils/icon.js`):
+
+      effectiveRenderingMode = renderingMode ?? (iconColor !== undefined
+        ? 'template' : 'original')
+
+    and `iconColor` there is fed by the `iconColor` PROP, not by `tintColor`,
+    which `appearance.js` maps onto `selectedIconColor` alone. This bar sets
+    `tintColor` and no `iconColor`, so the default resolved to `original`, the
+    PNG reached UIKit as a plain `imageSource`, and an original-mode image
+    ignores the bar's tint and draws its own pixels — pure black, in BOTH
+    states. Do not "simplify" this back to an unset prop.
   */
   it('draws Home and Wishlist from the Figma vectors, tintable', () => {
     mockPathname.mockReturnValue('/');
@@ -401,11 +416,11 @@ describe('misc route wrappers', () => {
 
     expect(home.src).toBeTruthy();
     expect(home.sf).toBeNull();
-    expect(home.renderingMode ?? null).toBeNull();
+    expect(home.renderingMode).toBe('template');
 
     expect(wishlist.src).toBeTruthy();
     expect(wishlist.sf).toBeNull();
-    expect(wishlist.renderingMode ?? null).toBeNull();
+    expect(wishlist.renderingMode).toBe('template');
 
     /*
       Scan is deliberately NOT one of them. Its frame draws Apple's own

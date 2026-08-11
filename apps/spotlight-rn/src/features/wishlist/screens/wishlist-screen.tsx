@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  FlatList,
+  Animated,
   Pressable,
   RefreshControl,
   ScrollView,
-  Share,
   StyleSheet,
   View,
+  type FlatList,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from 'react-native';
 import { ArrowUp, CheckCircle, Trash } from 'iconoir-react-native';
 import { Swipeable } from 'react-native-gesture-handler';
@@ -31,14 +33,22 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
+import { AnimatedFlatList } from '@/components/page-tab-pager';
 import { ScrollToTopFab, useScrollToTop } from '@/components/scroll-to-top-fab';
 import { GridViewIcon, ListViewIcon } from '@/components/view-toggle-icons';
 import { ConfirmDeleteSheet } from '@/features/cards/components/confirm-delete-sheet';
 import { saveCardDetailPreviewFromFavorite } from '@/features/cards/card-detail-preview-session';
 import { prefetchCardDetail } from '@/features/cards/card-detail-prefetch';
 import { formatOptionalCurrency } from '@/features/portfolio/components/portfolio-formatting';
-import { WishlistHeader } from '@/features/wishlist/components/wishlist-header';
+import {
+  WISHLIST_HEADER_BAR_HEIGHT,
+  WISHLIST_TITLE_HIDE_DISTANCE,
+  WishlistHeader,
+} from '@/features/wishlist/components/wishlist-header';
 import { buildWishlistShareMessage } from '@/features/wishlist/wishlist-share';
+import { buildProfileDeepLink } from '@/features/profile/profile-link';
+import { SharePostSheet } from '@/features/social/components/share-post-sheet';
+import { useAuth } from '@/providers/auth-provider';
 import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { DrawerEdgeSwipe } from '@/components/drawer-edge-swipe';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
@@ -76,6 +86,25 @@ const FILTERS: readonly { key: WishlistFilterKey; label: string; hasArrow?: bool
 ];
 
 const GRID_COLUMNS = 2;
+
+/**
+ * The `contentOffset.y` this list RESTS at — the origin every scroll-driven
+ * measurement on this screen (the title's fade, the "Back to top" threshold, the
+ * "Back to top" target) has to be taken from.
+ *
+ * ZERO, on BOTH platforms, and that is a fact about this list rather than a
+ * default nobody checked. Home's feed and every Collection page run
+ * `contentInsetAdjustmentBehavior="automatic"`, so UIKit insets them and they
+ * rest at `-insets.top` on iOS. This list sets no such prop — RN's default is
+ * `"never"` — and the screen's `SafeAreaView` consumes only the left/right
+ * edges, so nothing insets it: it genuinely sits at 0, the floating bar's height
+ * is reserved as ordinary `paddingTop`, and `scrollToOffset({ offset: 0 })`
+ * needs no `scrollToOverflowEnabled` to survive RN's clamp at 0.
+ *
+ * Named rather than inlined so that the day this list goes `"automatic"`, there
+ * is ONE number to change instead of three silently-wrong zeros.
+ */
+const LIST_REST_OFFSET = 0;
 
 const WISHLIST_VIEW_MODE_STORAGE_KEY = '@spotlight/wishlist/view-mode';
 const DEFAULT_VIEW_MODE: WishlistViewMode = 'list';
@@ -134,6 +163,9 @@ export function WishlistScreen() {
     if (isGuest) openLogin();
   }, [isGuest, openLogin]);
   const { spotlightRepository, dataVersion } = useAppServices();
+  // Your own identity, for the `spotlight://` link the share message carries.
+  const { currentUser } = useAuth();
+  const [shareSheetOpen, setShareSheetOpen] = useState(false);
   const [favorites, setFavorites] = useState<CardFavoriteEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -186,12 +218,55 @@ export function WishlistScreen() {
     };
   }, [dataVersion, loadFavorites]);
 
+  /*
+    The bar FLOATS: the bubbles stay pinned at the top while the centred
+    "Wishlist" title slides up out of the row, so the list scrolls beneath the
+    whole thing. The offset is handed to `WishlistHeader` raw — the bar owns the
+    motion, this screen only measures the scroll.
+  */
+  const scrollY = useRef(new Animated.Value(0)).current;
+  // `pointerEvents` is not animatable, so the departed title is disarmed from JS
+  // or it stays an invisible label over the first list row.
+  const [isTitleHidden, setIsTitleHidden] = useState(false);
+
+  /*
+    THE HOOK'S HANDLER IS NOT PASSED AS `onScroll`. `useScrollToTop(ref,
+    onScroll)` wraps whatever it is handed in a plain JS `useCallback`, so
+    handing it the `Animated.event` below and using the result as the list's
+    `onScroll` would silently drop the native driver from `scrollY` and put the
+    floating bar's motion on the bridge. (Worse: an `Animated.event` with
+    `useNativeDriver: true` is an OBJECT, not a function, so anything expecting
+    to call it throws on the first scroll.) The hook is therefore given NO
+    handler, and its `handleScroll` is invoked from INSIDE the listener that
+    already rides on the native event — the same shape `feed-screen` uses.
+  */
   const {
     isVisible: showScrollTop,
-    handleScroll,
+    handleScroll: trackScrollTopVisibility,
     handleLayout,
     scrollToTop,
-  } = useScrollToTop(scrollRef);
+  } = useScrollToTop(scrollRef, undefined, LIST_REST_OFFSET);
+
+  const handleScroll = useMemo(
+    () =>
+      Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
+        useNativeDriver: true,
+        // The listener rides ON the animated event; wrapping `onScroll` in an
+        // arrow function would silently drop the native driver.
+        listener: (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+          // TRAVEL, not the raw offset. Identical here because this list rests
+          // at 0, but written against `LIST_REST_OFFSET` so it stays correct if
+          // the list is ever inset — comparing the raw offset on an inset list
+          // disarms the title a whole safe-area inset after it has faded out.
+          const travelled = event.nativeEvent.contentOffset.y - LIST_REST_OFFSET;
+          const hidden = travelled >= WISHLIST_TITLE_HIDE_DISTANCE;
+          setIsTitleHidden((previous) => (previous === hidden ? previous : hidden));
+          // Plain JS, but still inside the natively-driven handler. See above.
+          trackScrollTopVisibility(event);
+        },
+      }),
+    [scrollY, trackScrollTopVisibility],
+  );
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -229,22 +304,45 @@ export function WishlistScreen() {
 
   /*
     Share the LIST — the macro counterpart to card detail's per-card share.
-    "Here is what I'm hunting", pasted into a group chat or a dealer's DM.
+    "Here is what I'm hunting", sent to another collector.
+
+    Sent IN-APP, to a DM, rather than out through the OS share sheet. The
+    message carries a `spotlight://` link to your public Wishlist tab, and that
+    link only means anything to someone who already has the build — a DM is the
+    one channel where that is guaranteed. (See `profile-link.ts`; the OS sheet
+    becomes the right home for this the day universal links exist.)
 
     Shares `visibleEntries`, so filters and search carry through: sharing the
     whole wishlist while the screen shows six filtered cards would surprise.
 
-    Silent on an empty list — opening the OS share sheet with a header and
-    nothing under it is worse than the button appearing to do nothing, which is
-    why `buildWishlistShareMessage` returns null there.
+    Silent on an empty list — a share sheet offering to send nothing is worse
+    than the button appearing to do nothing, which is why
+    `buildWishlistShareMessage` returns null there.
   */
-  const handleShareWishlist = useCallback(() => {
-    const message = buildWishlistShareMessage(visibleEntries);
+  const shareBody = useMemo(() => {
+    const message = buildWishlistShareMessage(visibleEntries, {
+      displayName: currentUser?.displayName,
+      handle: currentUser?.handle,
+    });
     if (!message) {
+      return null;
+    }
+    const link = buildProfileDeepLink({
+      handle: currentUser?.handle,
+      userId: currentUser?.id,
+      tab: 'wishlist',
+    });
+    // No link when the viewer has neither a handle nor an id — the one-liner is
+    // still worth sending on its own.
+    return link ? `${message}\n\n${link}` : message;
+  }, [currentUser?.displayName, currentUser?.handle, currentUser?.id, visibleEntries]);
+
+  const handleShareWishlist = useCallback(() => {
+    if (!shareBody) {
       return;
     }
-    void Share.share({ message }).catch(() => undefined);
-  }, [visibleEntries]);
+    setShareSheetOpen(true);
+  }, [shareBody]);
 
   const handleOpenDetail = useCallback((entry: CardFavoriteEntry) => {
     // Favorites carry no owned slab → warm the default raw lane + hero image.
@@ -424,8 +522,9 @@ export function WishlistScreen() {
     [editMode, handlePressEntry, handleRemoveEntry, selectedIds, theme],
   );
 
-  // The top bar is pinned (sticky) above the list; only the search + filter
-  // chrome rides along as the scrolling list header.
+  // The top bar FLOATS over the list (its bubbles pin, its title leaves); the
+  // search + filter chrome rides along as the scrolling list header, starting
+  // below the height the list reserves for that bar.
   const listHeader = (
     <View>
       <View style={[styles.controls, { paddingHorizontal: theme.layout.pageGutter }]}>
@@ -527,19 +626,26 @@ export function WishlistScreen() {
       edges={['left', 'right']}
       style={[styles.safeArea, { backgroundColor: colors.gray0 }]}
     >
-      <WishlistHeader
-        editMode={editMode}
-        onOpenMenu={openDrawer}
-        onOpenSearch={handleOpenCatalogSearch}
-        onShare={handleShareWishlist}
-        onToggleEditMode={() => (editMode ? handleExitEditMode() : setEditMode(true))}
-      />
       <View style={styles.listWrap} testID="wishlist-list">
-        <FlatList
+        <AnimatedFlatList
           ref={scrollRef}
           contentContainerStyle={[
-            styles.scrollContent,
-            { paddingBottom: listBottomPadding },
+            {
+              /*
+                Reserve the FLOATING bar's height. It contributes nothing to
+                layout, so without this the search/filter block starts under the
+                bubbles.
+
+                `insets.top` is part of the reservation here, unlike on Home:
+                that list is inset by UIKit
+                (`contentInsetAdjustmentBehavior="automatic"`) and would
+                double-count the status bar. This one is not inset at all (see
+                `LIST_REST_OFFSET`), so the safe area has to be paid for
+                explicitly — on both platforms.
+              */
+              paddingTop: insets.top + WISHLIST_HEADER_BAR_HEIGHT,
+              paddingBottom: listBottomPadding,
+            },
           ]}
           data={listData}
           keyExtractor={(item) => item.key}
@@ -561,6 +667,24 @@ export function WishlistScreen() {
           testID="wishlist-scroll"
         />
       </View>
+
+      {/*
+        AFTER the list, so tree order paints the bar on top of it, and so UIKit's
+        `subviews[0]` walk still reaches the scroller for minimize-on-scroll.
+      */}
+      <WishlistHeader
+        editMode={editMode}
+        floating
+        onOpenMenu={openDrawer}
+        onOpenSearch={handleOpenCatalogSearch}
+        onShare={handleShareWishlist}
+        onToggleEditMode={() => (editMode ? handleExitEditMode() : setEditMode(true))}
+        // This list is not inset, so it rests at 0 and the title's fade starts
+        // the moment the page moves. See `LIST_REST_OFFSET`.
+        scrollRestOffset={LIST_REST_OFFSET}
+        scrollY={scrollY}
+        titleVisible={!isTitleHidden}
+      />
 
       <ScrollToTopFab
         onPress={scrollToTop}
@@ -642,6 +766,35 @@ export function WishlistScreen() {
         title="Remove from Wishlist"
         visible={deleteConfirmOpen}
       />
+
+      {/*
+        Only mounted once there is something to send — `shareBody` is null for an
+        empty list, and the sheet has no meaningful empty state of its own.
+      */}
+      {shareBody ? (
+        <SharePostSheet
+          onClose={() => setShareSheetOpen(false)}
+          /*
+            A REFERENCE when we know who we are, so the recipient gets the
+            preview card. The text form is the fallback for an identity-less
+            session — and it is also what still works against a project that has
+            not applied social_24.
+          */
+          payload={
+            currentUser?.id
+              ? {
+                  fallbackBody: shareBody,
+                  kind: 'profile',
+                  tab: 'wishlist',
+                  userId: currentUser.id,
+                }
+              : { kind: 'text', body: shareBody }
+          }
+          testID="wishlist-share-sheet"
+          title="Send wishlist to"
+          visible={shareSheetOpen}
+        />
+      ) : null}
     </SafeAreaView>
     </DrawerEdgeSwipe>
   );
@@ -882,9 +1035,6 @@ const styles = StyleSheet.create({
   },
   listWrap: {
     flex: 1,
-  },
-  scrollContent: {
-    paddingTop: 0,
   },
   controls: {
     // 16px between the search row and the filter chip row (Figma 1874-21756).

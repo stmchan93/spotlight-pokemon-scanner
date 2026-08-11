@@ -32,20 +32,21 @@ function formatEntryLine(entry: CardFavoriteEntry): string {
  * nothing is a worse outcome than the button appearing to do nothing, and the
  * caller can stay silent instead.
  */
-export function buildWishlistShareMessage(entries: readonly CardFavoriteEntry[]): string | null {
-  const lines = entries.map(formatEntryLine).filter((line) => line.length > 0);
-  if (lines.length === 0) {
+export function buildWishlistShareMessage(
+  entries: readonly CardFavoriteEntry[],
+  identity?: { displayName?: string | null; handle?: string | null },
+): string | null {
+  // Still gated on having something to show: "Check out X's wishlist" pointing
+  // at an empty page is the same bad outcome the card list guarded against.
+  const hasSomethingToShow = entries.some((entry) => formatEntryLine(entry).length > 0);
+  if (!hasSomethingToShow) {
     return null;
   }
 
-  const shown = lines.slice(0, WISHLIST_SHARE_MAX_LINES);
-  const remaining = lines.length - shown.length;
+  const name = (identity?.displayName ?? '').trim();
+  const rawHandle = (identity?.handle ?? '').trim().replace(/^@+/, '');
+  const who = name || (rawHandle ? `@${rawHandle}` : '');
 
-  const header = lines.length === 1 ? "Card I'm looking for:" : "Cards I'm looking for:";
-  const body = shown.join('\n');
-  // Named rather than silently truncated — a list that stops without saying so
-  // reads as the whole list.
-  const tail = remaining > 0 ? `\n…and ${remaining} more` : '';
-
-  return `${header}\n${body}${tail}`;
+  // Nameless but non-empty: still worth sending, just without the possessive.
+  return who ? `Check out ${who}'s wishlist` : 'Check out this wishlist';
 }

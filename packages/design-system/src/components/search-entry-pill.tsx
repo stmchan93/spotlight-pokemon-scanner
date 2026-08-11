@@ -5,25 +5,27 @@ import { Text } from './scaled-text';
 import { useSpotlightTheme } from '../theme';
 
 type SearchEntryPillProps = {
-  /** Placeholder-style copy shown centered in the pill, e.g. "Search Cards". */
+  /** Placeholder-style copy, e.g. "Search Cards". */
   label: string;
   onPress?: () => void;
   /** Defaults to `label`. */
   accessibilityLabel?: string;
   /**
-   * Optional badge pinned to the left edge (the app mark in the feed top bar).
-   * It is absolutely positioned so the label stays centered in the FULL pill
-   * rather than in the space left over beside it — the Figma behaviour.
+   * Optional badge at the leading edge (the app mark in the feed top bar). It
+   * is an in-flow row item, so badge and label read as ONE left-aligned group
+   * — Figma "Home" 3523:15499 starts the mark 8pt in from the pill's left edge
+   * and the label 4pt after it, rather than centring the copy in the full pill.
    */
   leading?: ReactNode;
   style?: StyleProp<ViewStyle>;
   testID?: string;
 };
 
-/** Figma 3505:14526 — 36pt tall, matching the 36pt icon buttons beside it. */
-const PILL_HEIGHT = 36;
-/** Room for the leading badge, mirrored on the right so the label stays centered. */
-const LABEL_INSET = 36;
+/**
+ * Figma "Home" 3523:15499 (toolbar 3567:22969) — 40pt tall, level with the 40pt
+ * `GlassNavBubble`s (`size="compact"`) either side of it.
+ */
+const PILL_HEIGHT = 40;
 
 /**
  * A tappable search ENTRY — a pill that looks like a search field but is a
@@ -59,34 +61,34 @@ export function SearchEntryPill({
       ]}
       testID={testID}
     >
+      {leading ? <View style={styles.leading}>{leading}</View> : null}
       <Text
         numberOfLines={1}
         style={[theme.typography.label, styles.label, { color: theme.colors.gray500 }]}
       >
         {label}
       </Text>
-      {leading ? <View style={styles.leading}>{leading}</View> : null}
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
+  // Shrinks rather than pushing the badge off the leading edge when the pill is
+  // narrow; `numberOfLines={1}` then truncates the copy.
   label: {
     flexShrink: 1,
-    marginHorizontal: LABEL_INSET,
-    textAlign: 'center',
   },
   leading: {
-    bottom: 0,
     justifyContent: 'center',
-    left: 4,
-    position: 'absolute',
-    top: 0,
   },
   pill: {
     alignItems: 'center',
     flexDirection: 'row',
+    // Badge and label are ONE group starting at the leading edge: 8pt inset,
+    // 4pt between them (Figma "Home" 3523:15499). It read as centred copy with
+    // a badge floating beside it before, which is not what the frame draws.
+    gap: 4,
     height: PILL_HEIGHT,
-    justifyContent: 'center',
+    paddingHorizontal: 8,
   },
 });

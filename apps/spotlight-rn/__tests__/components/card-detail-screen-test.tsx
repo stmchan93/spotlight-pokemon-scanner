@@ -679,6 +679,9 @@ describe('CardDetailScreen', () => {
     // The aggregate "See all on eBay" title-search link was removed (it couldn't
     // reproduce the specific sold comps) — only the exact per-row listings remain.
     expect(screen.queryByTestId('detail-recent-sales-see-all')).toBeNull();
+    // Same reasoning pins the new empty-state fallback OFF a populated panel: an
+    // approximate search must never sit under accurate comps.
+    expect(screen.queryByTestId('detail-recent-sales-see-more')).toBeNull();
 
     // Second tap on the row collapses the accordion.
     fireEvent.press(screen.getByTestId('detail-price-trends-row-PSA 10'));
@@ -688,6 +691,72 @@ describe('CardDetailScreen', () => {
     fireEvent.press(screen.getByTestId('detail-price-trends-row-PSA 10'));
     expect(screen.getByTestId('detail-recent-sales')).toBeTruthy();
     expect(getCardRecentSales).toHaveBeenCalledTimes(1);
+  });
+
+  /*
+    EMPTY COMPS ARE A DEAD END WITHOUT THIS.
+
+    When a panel has nothing to show, the only thing on screen is a gray "none
+    found" line. The fallback hands the user off to eBay's own search for the
+    same card — sold comps under Recent Sales, cheapest-first live listings
+    under Lowest Listed.
+  */
+  it('offers an eBay search out of BOTH panels when they come back empty', async () => {
+    const getCardPriceTrends = jest.fn(async (query: { mode: string }) => ({
+      mode: query.mode as 'raw' | 'graded',
+      provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
+      rows: trendRows(query.mode),
+    }));
+    const getCardRecentSales = jest.fn(async () => ({
+      ...recentSalesRecord,
+      saleCount: 0,
+      sales: [],
+    }));
+    const getCardEbayListings = jest.fn(async () => ({
+      status: 'available' as const,
+      listingCount: 0,
+      listings: [],
+    }));
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as never);
+
+    renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />, {
+      spotlightRepository: createTestSpotlightRepository({
+        getCardPriceTrends,
+        getCardRecentSales,
+        getCardEbayListings,
+      }),
+    });
+
+    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA 10'));
+
+    const soldLink = await screen.findByTestId('detail-recent-sales-see-more');
+    fireEvent.press(soldLink);
+
+    // Sold comps: eBay's ended-listings page for this exact grade.
+    const soldUrl = openURL.mock.calls[0][0] as string;
+    expect(soldUrl).toContain('ebay.com/sch/i.html');
+    expect(soldUrl).toContain('LH_Sold=1');
+    // `searchParams` (not decodeURIComponent) — the query encodes spaces as "+".
+    expect(new URL(soldUrl).searchParams.get('_nkw')).toContain('"PSA 10"');
+    expect(capturePostHogEvent).toHaveBeenCalledWith('pricing_link_opened', {
+      marketplace: 'ebay',
+      lane: 'graded',
+      surface: 'pdp_recent_sales_empty',
+    });
+
+    const listedLink = await screen.findByTestId('detail-lowest-listed-see-more');
+    fireEvent.press(listedLink);
+
+    // Live listings: no ended-listing filters, cheapest first.
+    const activeUrl = openURL.mock.calls[1][0] as string;
+    expect(activeUrl).not.toContain('LH_Sold');
+    expect(activeUrl).toContain('_sop=15');
+    expect(capturePostHogEvent).toHaveBeenCalledWith('pricing_link_opened', {
+      marketplace: 'ebay',
+      lane: 'graded',
+      surface: 'pdp_lowest_listed_empty',
+    });
   });
 
   it('premium: 5 clear sales, then "Show more" reveals the rest in place (no extra fetch)', async () => {

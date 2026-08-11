@@ -3,7 +3,6 @@ import {
   Alert,
   Dimensions,
   Keyboard,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
@@ -12,14 +11,15 @@ import {
   View,
 } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
-import { useNavigation, usePreventRemove } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import type { EdgeInsets } from 'react-native-safe-area-context';
+import { initialWindowMetrics, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Camera, Globe, MediaImage, NavArrowDown, Xmark } from 'iconoir-react-native';
 
 import { Avatar, Button, IconButton, SheetHeader, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
+import { keyboardLift } from '@/lib/keyboard-insets';
 import { loadNativeImagePicker } from '@/lib/native-image-picker';
 import { createPost } from '@/features/social/social-service';
 import { useAppServices } from '@/providers/app-providers';
@@ -55,23 +55,110 @@ const POST_IMAGE_WIDTH = 1080;
 // ---------------------------------------------------------------------------
 // Feed refresh signal
 // ---------------------------------------------------------------------------
-// The composer is a pushed stack screen over the still-mounted feed. Rather than
-// reload the feed on every focus (returning from a PDP shouldn't refetch), the
-// composer flips this one-shot flag on a successful post; the feed consumes it
-// on focus and reloads only then.
-let feedNeedsRefresh = false;
+// Screens that show posts stay mounted behind pushed routes and tabs. Rather
+// than reload on every focus (returning from a PDP shouldn't refetch), a write
+// that changes what those lists should contain — publishing a post, reposting —
+// bumps this counter, and each screen reloads on focus when the counter has
+// moved since the last time IT looked.
+//
+// A COUNTER, NOT A READ-AND-CLEAR FLAG. There is more than one consumer (the
+// feed and the owner's Portfolio → Activity), and with a one-shot boolean
+// whichever regained focus first swallowed the signal and the other kept
+// serving its stale list forever. That is precisely the "I reposted but it
+// isn't in my Activity" bug: the repost happened on the feed, so the feed ate
+// the flag. Every consumer now sees every signal.
+let feedRefreshVersion = 0;
 
-/** Mark the feed as needing a reload the next time it regains focus. */
+/** Mark post lists as needing a reload the next time each regains focus. */
 export function signalFeedNeedsRefresh(): void {
-  feedNeedsRefresh = true;
+  feedRefreshVersion += 1;
 }
 
-/** Read-and-clear the feed-refresh flag. Returns true once per signalled post. */
-export function consumeFeedRefreshSignal(): boolean {
-  const pending = feedNeedsRefresh;
-  feedNeedsRefresh = false;
-  return pending;
+/** The current signal version. Consumers compare it against their own last-seen. */
+export function getFeedRefreshVersion(): number {
+  return feedRefreshVersion;
 }
+
+/**
+ * The safe-area insets this screen pays for itself.
+ *
+ * WHY THIS EXISTS INSTEAD OF A `SafeAreaView`.
+ *
+ * The composer used to be wrapped in `react-native-safe-area-context`'s native
+ * `SafeAreaView` with all four `edges`. Inside an iOS `fullScreenModal` that
+ * component pays NOTHING, and the reason is in its source:
+ * `RNCSafeAreaViewComponentView.findNearestProvider` walks the NATIVE
+ * `superview` chain looking for the `RNCSafeAreaProviderComponentView`. A
+ * `fullScreenModal` is a separately presented `UIViewController`
+ * (`RNSScreenStack.mm:576` — `presentViewController:`), so its view is no
+ * longer a native descendant of the root React tree: the walk falls off the end
+ * and returns `self`. What it then reads is observed exactly once, and the only
+ * change notification it subscribes to (`RNCSafeAreaDidChange`) is posted by
+ * providers — never by `self` — so a zero read is permanent.
+ *
+ * `src/app/(sheet)/_layout.tsx` hit the identical bug on the identical
+ * presentation ("Search Cards put its back button on top of the clock despite
+ * asking for `edges: ['top']`") and worked around it with a nested
+ * `SafeAreaProvider`. This screen is a single route with no group layout to
+ * hang one off, and — more usefully — `keyboardLift` below needs to subtract
+ * the very inset the container paid. Applying it here as explicit padding makes
+ * those two the SAME NUMBER instead of an assumption about a native component.
+ *
+ * ANDROID WAS NEVER BROKEN, and this does not change what it computes.
+ * `SafeAreaUtils.kt`'s `getSafeAreaInsets` derives from `view.rootView`'s
+ * `rootWindowInsets` — the WINDOW, reachable whether or not a provider is —
+ * and re-checks it on every `onPreDraw`, so Android both found the right number
+ * and self-corrected. The values below are those same window insets.
+ *
+ * `live` is the root provider's insets (React context crosses the native modal
+ * boundary, so the hook keeps working where the native view does not).
+ * `window` is `initialWindowMetrics` — read from native constants at startup
+ * and describing the WINDOW, so it carries the real notch/home-indicator
+ * regardless of what a presented view controller reports. Taking the larger per
+ * edge means neither source being wrong can under-pad; this is the same
+ * distrust of a live inset as `scanner-screen.tsx`'s `trayBottomInset`.
+ */
+export function resolveComposerInsets(
+  live: EdgeInsets,
+  window: EdgeInsets | null | undefined,
+): EdgeInsets {
+  const resolve = (liveEdge: number, windowEdge: number | undefined) =>
+    Math.max(0, liveEdge, windowEdge ?? 0);
+  return {
+    bottom: resolve(live.bottom, window?.bottom),
+    left: resolve(live.left, window?.left),
+    right: resolve(live.right, window?.right),
+    top: resolve(live.top, window?.top),
+  };
+}
+
+/*
+ * `keyboardLift` USED TO BE DEFINED HERE. It now lives in
+ * `src/lib/keyboard-insets.ts`, unchanged, and is re-exported below so this
+ * remains its import site.
+ *
+ * What it does for this screen is still exactly what it did: how far the footer
+ * (Public / Photo / Camera + POST) must be lifted to clear a keyboard of height
+ * `keyboardHeight`, given `bottomInset` — the bottom padding the composer's own
+ * root View applies, from `resolveComposerInsets` above. THE CONTRACT is that
+ * the footer's bottom edge ends up `bottomInset + lift` above the screen's
+ * bottom edge, and `bottomInset` is the SAME VARIABLE the container pays, not an
+ * inset some other component is assumed to have paid — this used to name a
+ * `SafeAreaView` that turned out to pay nothing inside an iOS modal, so the
+ * footer was lifted `keyboardHeight - 34` when it needed `keyboardHeight` and
+ * POST sat one home-indicator strip inside the keyboard.
+ *
+ * WHY IT MOVED: the per-platform arithmetic (iOS reports a screen-coordinate
+ * frame that already covers the home indicator; Android reports
+ * `imeInsets.bottom - barInsets.bottom`, `ReactRootView.java:922`, which
+ * EXCLUDES the navigation bar the safe-area inset pays separately) had been
+ * derived independently three times — here, as `systemBottomInset` in
+ * `comments-sheet.tsx`, and NOT AT ALL in `edit-profile-screen.tsx`, which
+ * shipped with the keyboard over its bio field. Two of those carried a comment
+ * saying they existed "so there is no third time". The citation, and the
+ * function, are now in one importable place; read it there.
+ */
+export { keyboardLift };
 
 // `uploadPostMedia` is added to the repository by a separate slice. Type it as an
 // optional method so this screen typechecks (and stays non-crashing) whether or
@@ -139,9 +226,11 @@ function ControlChip({
 }
 
 /**
- * New Post composer (Phase 3c). Restyled to match the Figma "New Post" bottom
- * sheet: a drag handle + close + centered title, the author's avatar/name, a
- * multiline body ("What's on your mind?"), a row of three filled "Post Controls"
+ * New Post composer (Phase 3c). A FULL-PAGE modal that comes up from the bottom
+ * and cannot be dismissed by a gesture — the only ways out are the X button and
+ * a completed post. Styled from the Figma "New Post" sheet minus its grabber
+ * (there is nothing to drag): close + centered title, the author's avatar/name,
+ * a multiline body ("What's on your mind?"), a row of three "Post Controls"
  * chips — Public (a static visibility indicator), Photo (library picker) and
  * Camera (device capture) — and a full-width POST button pinned to the bottom
  * that stays gray/disabled until there's text and turns dark once there is.
@@ -156,14 +245,45 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
   const router = useRouter();
   const { spotlightRepository } = useAppServices();
   const { currentUser } = useAuth();
-  // The sheet's own SafeAreaView already holds the footer this far off the
-  // screen's bottom edge, so it is that much of the keyboard we do NOT re-pay.
-  const insets = useSafeAreaInsets();
+  /*
+    THE ONE SOURCE OF TRUTH for this screen's safe area.
 
-  const navigation = useNavigation();
+    `safeArea` is applied as explicit padding on the root View below AND handed
+    to `keyboardLift` — the container's clearance and the footer's lift are
+    computed from the same number, so neither can assume the other paid.
+
+    The native `SafeAreaView` that used to do this silently resolved to ZERO
+    inside an iOS `fullScreenModal`; the full mechanism is on
+    `resolveComposerInsets`.
+  */
+  const insets = useSafeAreaInsets();
+  const safeArea = resolveComposerInsets(insets, initialWindowMetrics?.insets);
+
   const [body, setBody] = useState('');
   const [imageUri, setImageUri] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  /*
+    SUBMIT IS THREE STATES, NOT A BOOLEAN, AND THE THIRD ONE IS A BUG FIX.
+
+    `isSubmitting` used to be flipped back to false in a `finally` the moment
+    the post succeeded — while `body` still held the text, so the discard guard
+    re-armed DURING the ~500ms native dismissal that `router.back()` had just
+    started. That re-render lands on `NativeStackView` with
+    `preventNativeDismiss={true}` mid-animation, so `RNSScreen.mm`'s
+    `viewDidDisappear` takes the PREVENT branch, calls `updateContainer` —
+    RESURRECTING the composer in the JS stack — and re-dispatches a pop, which
+    the freshly-armed guard then intercepts with "Discard this post?". The alert
+    is the symptom; the composer coming back from the dead is the failure.
+
+    `posted` is a TERMINAL state precisely so nothing re-arms behind the
+    animation: the guard is off, POST stays disabled, and the screen is on its
+    way out. It has to be state and not a ref — `usePreventRemove` evaluates its
+    argument during render and reads it at fire time from the last COMMITTED
+    render, so a ref makes the fix depend on React's scheduling winning a race
+    against a native animation. (That was tried and reverted.)
+  */
+  type SubmitState = 'idle' | 'submitting' | 'posted';
+  const [submitState, setSubmitState] = useState<SubmitState>('idle');
 
   /*
     Lift the footer (Public / Photo / Camera + POST) clear of the keyboard.
@@ -179,52 +299,45 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
     afterwards WITHOUT firing another `keyboardDidShow`. Each stale reading was
     silently absorbed as "already clear".
 
-    So compute it instead. The footer is the bottom-most thing in a sheet that
-    reaches the screen's bottom edge, and `SafeAreaView` already pads it clear of
-    the home indicator, so clearing a keyboard of height K needs exactly
-    `K - insets.bottom`. No feedback loop, nothing to converge, and it is right
-    on the first frame.
+    So compute it instead, in `keyboardLift` above — the footer is the
+    bottom-most thing in a modal that reaches the screen's bottom edge, so the
+    lift is a function of the reported keyboard height and the `safeArea.bottom`
+    padding this screen applies to its own root. No feedback loop, nothing to
+    converge, and it is right on the first frame. The per-platform arithmetic
+    (and why Android must NOT subtract the inset) is documented on that
+    function.
 
-    This assumes UIKit does NOT lift the sheet for the keyboard. It does not:
-    the whole reason this bug exists is that the form sheet stays put and the
-    keyboard covers its bottom. (An earlier note claimed the opposite and used it
-    to justify opting iOS out of `KeyboardAvoidingView` entirely — that claim was
-    what left the controls buried in the first place.)
+    Nothing lifts this screen for the keyboard except this. UIKit does not move a
+    full-screen modal for the keyboard, and the `KeyboardAvoidingView` that used
+    to wrap the content had `behavior={undefined}` — a literal passthrough — so
+    it never did either, whatever its comment claimed.
 
     `keyboardWillChangeFrame` carries every height change, including the ones
     `keyboardDidShow` misses, and its `will` phase means the footer travels with
     the keyboard's own animation instead of snapping after it.
   */
   /*
-    An accidental flick must not destroy a written post.
+    NO DISCARD CONFIRMATION — removed deliberately, on request.
 
-    The composer is a `formSheet` with `gestureEnabled`, and on Android a small
-    downward drag — the kind you make scrolling right after attaching a photo —
-    was enough to dismiss it, taking the text and the image with it. There is no
-    draft persistence behind this screen, so that content is simply gone.
+    There used to be a `usePreventRemove` guard here raising "Discard this post?"
+    on every exit. It was added when the composer was a form sheet whose
+    drag-to-dismiss was armed across the whole surface, including directly over
+    the text field: a stray flick could bin a written post, and the confirm was
+    the only thing in its way.
 
-    `usePreventRemove` intercepts EVERY removal, not just the swipe: hardware
-    back, the Cancel button and the gesture all land here, so there is one
-    answer to "am I about to lose something" instead of three.
+    That gesture no longer exists. The composer is a full-page modal with no
+    dismiss gesture on either platform, so the only ways out are the X button and
+    Android's hardware back — both deliberate presses on a specific target. The
+    confirm was guarding an accident that can no longer happen, and it was
+    charging a tap for every intentional close to do it.
 
-    Only armed while there is something to lose, so an empty composer still
-    closes instantly — a confirm on an empty sheet is its own kind of annoying.
+    Worth being clear-eyed about the cost: there is still no draft persistence
+    behind this screen, so closing does lose what was typed. That is now the
+    stated behaviour rather than something a dialog apologised for. If losing
+    drafts turns out to bite, the fix is to KEEP the text (lift it out of this
+    screen's state, or persist it), not to put the dialog back — a confirm makes
+    the loss louder, it does not make it recoverable.
   */
-  const hasUnsavedPost = body.trim().length > 0 || imageUri != null;
-  usePreventRemove(hasUnsavedPost && !isSubmitting, ({ data }) => {
-    Alert.alert(
-      'Discard this post?',
-      'You have not posted this yet. Closing now loses what you wrote and any photo you attached.',
-      [
-        { text: 'Keep editing', style: 'cancel' },
-        {
-          text: 'Discard',
-          style: 'destructive',
-          onPress: () => navigation.dispatch(data.action),
-        },
-      ],
-    );
-  });
 
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
@@ -269,10 +382,10 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
     };
   }, []);
 
-  const keyboardOverlap = Math.max(0, keyboardHeight - insets.bottom);
+  const keyboardOverlap = keyboardLift(keyboardHeight, safeArea.bottom);
 
   const trimmedBody = body.trim();
-  const canPost = !isSubmitting && trimmedBody.length > 0;
+  const canPost = submitState === 'idle' && trimmedBody.length > 0;
 
   const authorName = currentUser ? getResolvedDisplayName(currentUser) : 'Collector';
   const authorInitials = currentUser ? getUserInitials(currentUser) : 'C';
@@ -367,7 +480,7 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
     if (!canPost) {
       return;
     }
-    setIsSubmitting(true);
+    setSubmitState('submitting');
     try {
       const postId = await createPost({
         body: trimmedBody.length > 0 ? trimmedBody : null,
@@ -377,6 +490,9 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
       });
       if (!postId) {
         Alert.alert("Couldn't post", 'Something went wrong. Please try again.');
+        // Back to a usable composer: POST re-enables and the discard guard
+        // re-arms, because the text really is still unsaved.
+        setSubmitState('idle');
         return;
       }
 
@@ -400,9 +516,25 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
       }
 
       signalFeedNeedsRefresh();
+      // BEFORE `router.back()`, and terminal: the dismissal takes ~500ms and
+      // anything that re-arms the discard guard inside that window resurrects
+      // the screen (see the SubmitState note above).
+      setSubmitState('posted');
       router.back();
-    } finally {
-      setIsSubmitting(false);
+    } catch {
+      /*
+        NOT optional, and NOT a swap for the `finally` this replaced.
+
+        A throw out of `createPost` (or the signal/navigate below it) used to
+        escape into the `void handleSubmit()` at the call site and vanish —
+        `finally` was the only thing un-sticking the button, so removing it
+        without catching here would strand `submitState` at 'submitting'
+        forever: POST permanently disabled AND the discard guard permanently
+        disarmed, so the author walks away and loses the post silently. That is
+        strictly worse than the bug this change fixes.
+      */
+      Alert.alert("Couldn't post", 'Something went wrong. Please try again.');
+      setSubmitState('idle');
     }
   }, [canPost, imageUri, router, spotlightRepository, trimmedBody]);
 
@@ -413,37 +545,43 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
   );
 
   return (
-    <SafeAreaView
-      // KEEP the 'top' edge. `SafeAreaView` here is the native
-      // react-native-safe-area-context view, which measures the inset from its
-      // OWN frame rather than the window: presented as a form sheet its top
-      // edge sits ~65pt down, clear of the notch, so the inset resolves to 0 and
-      // costs nothing. Dropping 'top' as "the sheet handles it" is what left the
-      // close button jammed under the status bar when the sheet silently failed
-      // to present — this edge is the fail-safe that keeps the header reachable
-      // even if the composer ever renders full-screen again.
-      edges={['top', 'bottom', 'left', 'right']}
-      style={[styles.safeArea, { backgroundColor: theme.colors.canvasElevated }]}
+    <View
+      /*
+        A plain View paying its own safe area, NOT a `SafeAreaView`.
+
+        This was `<SafeAreaView edges={['top','bottom','left','right']}>`, and
+        as a full-screen modal on iOS every one of those edges resolved to zero:
+        the X button drew over the clock and POST sat inside the keyboard by
+        exactly one home-indicator strip. `resolveComposerInsets` documents why
+        the native component cannot see a provider from inside a presented view
+        controller, and why Android — which reads the window directly — was fine
+        throughout.
+
+        `paddingTop` is what holds the header clear of the notch/Dynamic Island;
+        `paddingBottom` is the clearance `keyboardLift` subtracts from the
+        keyboard height.
+      */
+      style={[
+        styles.safeArea,
+        {
+          backgroundColor: theme.colors.canvasElevated,
+          paddingBottom: safeArea.bottom,
+          paddingLeft: safeArea.left,
+          paddingRight: safeArea.right,
+          paddingTop: safeArea.top,
+        },
+      ]}
       testID={testID}
     >
-      <KeyboardAvoidingView
-        /*
-          NEITHER platform gets a behavior, for opposite reasons.
-
-          iOS moves a form sheet up for the keyboard by itself; adding `padding`
-          on top double-counts and lifts the POST button off the sheet.
-
-          Android was on `height`, described here as "the window resizes
-          instead" — but that is precisely why it must not be set. Expo leaves
-          `softwareKeyboardLayoutMode` unset, so the window is already resized
-          by `adjustResize`, and `height` then shrinks the inner view by the
-          keyboard AGAIN. React Native's own docs say KeyboardAvoidingView is
-          unnecessary under adjustResize. With no behavior this is a plain
-          passthrough View and the resized window does the work.
-        */
-        behavior={undefined}
-        style={styles.flex}
-      >
+      {/*
+        A plain View, deliberately. This was a `KeyboardAvoidingView` with
+        `behavior={undefined}` — which is a literal passthrough, so it never
+        avoided anything — carrying a comment claiming iOS lifts the surface for
+        the keyboard by itself. It does not for a full-screen modal, and the same
+        file said the opposite a few lines up. The footer's `marginBottom` from
+        `keyboardLift` is the ONE mechanism that lifts this screen.
+      */}
+      <View style={styles.flex}>
         <SheetHeader
           align="center"
           leadingAccessory={
@@ -457,7 +595,6 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
               <Xmark color={theme.colors.textPrimary} height={20} width={20} />
             </IconButton>
           }
-          showHandle
           style={styles.header}
           title="New Post"
           // Figma 3147:10838 — compact 14/600 gray-900 sheet title.
@@ -585,7 +722,10 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
 
           <Button
             disabled={!canPost}
-            label={isSubmitting ? 'POSTING…' : 'POST'}
+            // 'POSTING…' covers 'posted' too, so the button stays disabled and
+            // unpressable for the whole dismissal rather than flicking back to
+            // an inviting POST as the screen slides away.
+            label={submitState === 'idle' ? 'POST' : 'POSTING…'}
             onPress={() => {
               void handleSubmit();
             }}
@@ -596,8 +736,8 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
             variant="dark"
           />
         </View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+      </View>
+    </View>
   );
 }
 
@@ -646,14 +786,14 @@ const styles = StyleSheet.create({
     paddingTop: 12,
   },
   header: {
-    // Figma 3147:10814 measured from the SHEET's top edge, not the screen's:
-    // grabber at y=10 (paddingTop), close button at y=16. SheetHeader stacks
-    // paddingTop + the 4pt grabber + `gap`, so 10 + 4 + 2 puts the 36pt button
-    // at 16 and its centre at 34 — level with the "New Post" title's centre at
-    // 35. The default 14pt gap pushed the button 12pt below where it belongs.
-    gap: 2,
+    // A plain token now the grabber is gone. The old 10 was reverse-engineered
+    // from Figma 3147:10814's grabber-at-y=10 stack (paddingTop + a 4pt grabber
+    // + a 2pt gap landed the close button at y=16) — arithmetic that only had a
+    // meaning while there WAS a grabber, and `gap` had nothing left to space.
+    // The header now starts below the real status-bar inset the root View pays
+    // (`safeArea.top`), so it takes standard spacing off it.
     paddingHorizontal: 16,
-    paddingTop: 10,
+    paddingTop: 12,
   },
   imagePreview: {
     aspectRatio: 4 / 3,

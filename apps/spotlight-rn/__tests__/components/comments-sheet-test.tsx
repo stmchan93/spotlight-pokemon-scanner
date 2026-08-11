@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import type { ComponentProps, PropsWithChildren } from 'react';
-import { Alert, Dimensions, Keyboard, ScrollView, StyleSheet } from 'react-native';
+import { Alert, Dimensions, Keyboard, Platform, ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { SpotlightThemeProvider, colors } from '@spotlight/design-system';
@@ -8,8 +8,10 @@ import { SpotlightThemeProvider, colors } from '@spotlight/design-system';
 import {
   CommentsSheet,
   collectDescendantIds,
+  composerBottomPadding,
   isTombstone,
   sheetHeightForKeyboard,
+  systemBottomInset,
   shouldDismissOnDrag,
   tombstoneLabel,
   topLevelAncestorId,
@@ -654,6 +656,68 @@ describe('CommentsSheet', () => {
       expect(content.paddingBottom + composer.paddingTop).toBe(16);
     });
 
+    /*
+      ─────────────────────────────────────────────────────────────────────────
+      A LONG THREAD OPENS AT ITS END
+      ─────────────────────────────────────────────────────────────────────────
+      A comment thread is read newest-last, so opening at comment #1 of forty
+      drops the reader in the archive with nothing to say there is more below.
+      Reported as the sheet "feeling like it's in the middle" — the only way to
+      reach the conversation was to tap the composer, which is the focus scroll
+      doing this job by proxy.
+
+      INSTANT, not animated. This is where the thread RESTS: arriving already at
+      the end reads as its natural position, whereas an animated scroll on the
+      first frame reads as the sheet jumping the moment you look at it. The
+      animated scrolls are the ones that answer something the reader just did.
+
+      And through the same computed `scrollTo` as everything else — a
+      `scrollToEnd` here would put the unclamped command on the FIRST FRAME,
+      which is the worst possible place for the white gap.
+    */
+    it('opens a long thread at its end, instantly', async () => {
+      (fetchComments as jest.Mock).mockResolvedValue([
+        buildComment({ id: 'c1', body: 'One' }),
+        buildComment({ id: 'c2', body: 'Two' }),
+      ]);
+      renderSheet();
+      await screen.findByText('One');
+
+      // Nothing can be aimed at before the list and the blocks have reported
+      // their boxes — which is why this is hung on the measurements and not on a
+      // load-time timer racing the first layout.
+      expect(scrollTo).not.toHaveBeenCalled();
+
+      layout('comments-sheet-list', { height: 300 });
+      layout('comments-sheet-thread-c1', { height: 600, y: 12 });
+      expect(scrollTo).not.toHaveBeenCalled();
+
+      layout('comments-sheet-thread-c2', { height: 600, y: 632 });
+
+      // The LAST block's bottom at the bottom of the list: 632 + 600 + 8 - 300.
+      expect(scrollTo).toHaveBeenCalledWith({ animated: false, y: 940 });
+      expect(scrollTo).toHaveBeenCalledTimes(1);
+      expect(scrollToEnd).not.toHaveBeenCalled();
+    });
+
+    /*
+      And a SHORT thread does not move at all. Its target clamps to 0, which is
+      where a freshly-opened list already is, so no command is issued — the
+      bottom anchor above has that case right on its own and does not need to be
+      helped.
+    */
+    it('does not move a short thread when the sheet opens', async () => {
+      (fetchComments as jest.Mock).mockResolvedValue([buildComment({ id: 'c1', body: 'One' })]);
+      renderSheet();
+      await screen.findByText('One');
+
+      layout('comments-sheet-list', { height: 400 });
+      layout('comments-sheet-thread-c1', { height: 100, y: 12 });
+
+      expect(scrollTo).not.toHaveBeenCalled();
+      expect(scrollToEnd).not.toHaveBeenCalled();
+    });
+
     // The other half of bottom-anchoring: an EMPTY thread must not end up with
     // its prompt shoved down onto the composer.
     it('still centres the empty state rather than pinning it to the composer', async () => {
@@ -688,6 +752,9 @@ describe('CommentsSheet', () => {
 
       layout('comments-sheet-list', { height: 400 });
       layout('comments-sheet-thread-c1', { height: 480, y: 12 });
+      // Also releases the opening scroll to the end of the thread; forget it so
+      // the assertions below are about the post-send scroll under test.
+      scrollTo.mockClear();
 
       fireEvent.changeText(screen.getByTestId('comments-sheet-input'), 'Mine');
       await act(async () => {
@@ -735,6 +802,9 @@ describe('CommentsSheet', () => {
       layout('comments-sheet-list', { height: 400 });
       layout('comments-sheet-thread-c1', { height: 300, y: 12 });
       layout('comments-sheet-thread-c2', { height: 100, y: 332 });
+      // Also releases the opening scroll to the end of the thread; forget it so
+      // the assertions below are about the post-send scroll under test.
+      scrollTo.mockClear();
 
       fireEvent.press(screen.getByTestId('comments-sheet-comment-c1-reply'));
       fireEvent.changeText(screen.getByTestId('comments-sheet-input'), 'Under yours');
@@ -779,14 +849,22 @@ describe('CommentsSheet', () => {
     });
 
     /*
-      (3) Focusing the composer moves NOTHING.
+      (3) Focus ARMS a scroll; it never performs one.
 
-      The old `onFocus` scrolled to the end of the thread on the argument that
-      you would want to see what you are replying to. That is backwards for how
-      Reply is used: you scroll up to a specific comment, tap Reply, and the
-      thread throws you back down to the conversation you deliberately left.
+      Opening the composer does owe the thread a move — the end of it for the
+      field, the comment you tapped for Reply — but not yet and not from here.
+      The composer's `paddingBottom` jumps on the keyboard event while the
+      sheet's height eases over `SHEET_RESIZE_MS`, so an offset computed at focus
+      is computed against a viewport a third of a screen away from the one it
+      will be measured against. Aiming there is what put the thread "in the
+      middle of the comment page" and, through the unclamped `scrollToEnd`, what
+      left dead white space under it.
+
+      So with no keyboard, nothing moves — the target waits for the sheet to
+      settle. Where it lands once it does is pinned in "opening the composer over
+      a live keyboard" below.
     */
-    it('does not move the thread when the composer is focused', async () => {
+    it('performs no scroll at the moment the composer is focused', async () => {
       (fetchComments as jest.Mock).mockResolvedValue([buildComment({ id: 'c1', body: 'One' })]);
       renderSheet();
       await screen.findByText('One');
@@ -1537,7 +1615,7 @@ describe('CommentsSheet', () => {
   the sheet's resize has completed — the same settled beat the post-send scroll
   waits for.
 */
-describe('CommentsSheet — where the composer opens', () => {
+describe('CommentsSheet — opening the composer over a live keyboard', () => {
   let scrollTo: jest.SpyInstance;
   let scrollToEnd: jest.SpyInstance;
   /**
@@ -1584,40 +1662,366 @@ describe('CommentsSheet — where the composer opens', () => {
     });
   }
 
-  it('scrolls to the end of the thread when you tap "Add a comment…"', async () => {
-    (fetchComments as jest.Mock).mockResolvedValue([buildComment({ id: 'c1', body: 'One' })]);
+  /**
+   * The keyboard event WITHOUT letting React commit it — the device ordering.
+   * iOS posts `UIKeyboardWillShowNotification` from inside
+   * `becomeFirstResponder`, so it is delivered before RN's `onFocus` and long
+   * before the resize effect that reacts to it has run. Anything reading the
+   * sheet's geometry in that gap sees a size it is about to leave.
+   */
+  function raiseKeyboardWithoutFlushing(height = 300) {
+    const show = Array.from(keyboardHandlers.entries()).find(([event]) =>
+      event.toLowerCase().includes('show'),
+    );
+    expect(show).toBeDefined();
+    show?.[1]({ endCoordinates: { height } });
+  }
+
+  /** The keyboard going away, on whichever event this platform listens for. */
+  async function lowerKeyboard() {
+    const hide = Array.from(keyboardHandlers.entries()).find(([event]) =>
+      event.toLowerCase().includes('hide'),
+    );
+    expect(hide).toBeDefined();
+    await act(async () => {
+      hide?.[1]({ endCoordinates: { height: 0 } });
+    });
+  }
+
+  /** Past `SHEET_RESIZE_MS`, so the sheet's grow animation has really finished. */
+  async function letTheSheetSettle() {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    });
+  }
+
+  /**
+   * A thread far taller than its viewport: 1232 of content in a 300 viewport.
+   * This is the shape BOTH reported symptoms needed — `scrollToEnd`'s
+   * `fmax(offsetY, 0)` pins anything shorter than the viewport to 0, so a short
+   * thread can neither overshoot nor land in the middle.
+   */
+  function layoutLongThread() {
+    layout('comments-sheet-list', { height: 300 });
+    layout('comments-sheet-thread-c1', { height: 600, y: 12 });
+    layout('comments-sheet-thread-c2', { height: 600, y: 632 });
+    // These measurements are also what releases the sheet's OPENING scroll to
+    // the end of the thread (pinned in "where the thread sits" below). Forget it
+    // here so each assertion is about the scroll actually under test.
+    scrollTo.mockClear();
+  }
+
+  /*
+    ───────────────────────────────────────────────────────────────────────────
+    ONE COMMAND CAUSED BOTH REPORTED SYMPTOMS
+    ───────────────────────────────────────────────────────────────────────────
+    "With lots of comments it scrolls to like the middle of the comment page",
+    and later "I scroll to the top, click the input, and that awkward white
+    space is there". Neither was a request to delete the scroll. Both were the
+    scroll being executed as `scrollToEnd()`.
+
+    `scrollToEnd` is the ONE scroll command React Native does not clamp on iOS.
+    `RCTScrollViewComponentView.scrollTo:` (~line 915) builds a `maxRect` from
+    `contentSize - bounds + contentInset` and clamps into it; `scrollToEnd:` at
+    ~942 computes `contentSize.height - bounds.size.height` and applies only
+    `fmax(offsetY, 0)`. UIScrollView keeps a programmatic offset past the end of
+    its content, so any overshoot stays on screen as empty space under the last
+    row.
+
+    And this sheet handed it a viewport guaranteed to be mid-change: the
+    composer's `paddingBottom` jumps to `keyboardHeight + 8` on the keyboard
+    event while the sheet's height EASES over `SHEET_RESIZE_MS`, so the list is
+    ~56pt tall on an 852pt iPhone against a settled ~312 — and the bounds a
+    native command reads are the last MOUNTED layout, not the value JS just
+    finished animating. Aim at the end against that and you land either past it
+    (white space) or short of it (the middle of the thread).
+
+    It never happened on Android because `ReactScrollViewManager.scrollToEnd`
+    aims at `child.height + paddingBottom`, deliberately past the end, and
+    `ScrollView.scrollTo`/`smoothScrollTo` clamp into the scroll range on the
+    way in.
+
+    So both scrolls survive, and both go through the clamped `scrollTo` with a
+    target computed from a measured box, released only once the sheet has
+    stopped moving. The three tests below are the two cases and the command that
+    must never appear in either.
+  */
+
+  // CASE 1: tapping the field means "add to the end", so bring the end into view.
+  it('scrolls to the bottom of a long thread when you tap the composer field', async () => {
+    (fetchComments as jest.Mock).mockResolvedValue([
+      buildComment({ id: 'c1', body: 'One' }),
+      buildComment({ id: 'c2', body: 'Two' }),
+    ]);
     renderSheet();
     await screen.findByText('One');
-
-    layout('comments-sheet-list', { height: 400 });
-    layout('comments-sheet-thread-c1', { height: 480, y: 12 });
+    layoutLongThread();
 
     fireEvent(screen.getByTestId('comments-sheet-input'), 'focus');
-    // Nothing yet — the sheet has not started growing, let alone finished.
-    expect(scrollToEnd).not.toHaveBeenCalled();
+    // Nothing yet: the sheet has not started growing, let alone finished, and a
+    // target computed here would be computed against a viewport about to change.
+    expect(scrollTo).not.toHaveBeenCalled();
 
     await raiseKeyboard();
+    await letTheSheetSettle();
 
-    await waitFor(() => expect(scrollToEnd).toHaveBeenCalled());
+    // The LAST block's bottom at the bottom of the list: 632 + 600 + 8 - 300.
+    expect(scrollTo).toHaveBeenCalledWith({ animated: true, y: 940 });
+    expect(scrollTo).toHaveBeenCalledTimes(1);
   });
 
-  it('puts the comment you tapped Reply on right above the composer', async () => {
-    (fetchComments as jest.Mock).mockResolvedValue([buildComment({ id: 'c1', body: 'One' })]);
+  /*
+    CASE 2: "the input should be right underneath the reply" — the comment you
+    tapped sits immediately above the composer while you write.
+
+    This target has now been wrong twice in two directions. First it aimed at
+    the BLOCK's bottom (comment + all replies), which scrolled the tapped
+    comment off the top. Then it clamped to the block's TOP, which kept the
+    comment visible but parked it a whole screen away from the input, with the
+    replies in between. The fix is to aim at the tapped comment's OWN ROW —
+    measured in its own right, like reply rows always were — so its bottom edge
+    lands against the composer whenever the thread has enough content below it.
+  */
+  it('lands the composer right under the tapped comment when the scroll can reach it', async () => {
+    (fetchComments as jest.Mock).mockResolvedValue([
+      buildComment({ id: 'c1', body: 'One' }),
+      buildComment({ id: 'c2', body: 'Two' }),
+    ]);
     renderSheet();
     await screen.findByText('One');
+    layoutLongThread();
+    // c2's own row, block-relative — the first 80 of its 600-tall block.
+    layout('comments-sheet-comment-c2', { height: 80, y: 0 });
 
-    layout('comments-sheet-list', { height: 400 });
-    layout('comments-sheet-thread-c1', { height: 90, y: 500 });
+    fireEvent.press(screen.getByTestId('comments-sheet-comment-c2-reply'));
+    await raiseKeyboard();
+    await letTheSheetSettle();
+
+    // Row bottom at the bottom of the list: 632 (block) + 0 + 80 + 8 - 300.
+    // The BLOCK's bottom would have said 940; its top, 632.
+    expect(scrollTo).toHaveBeenCalledWith({ animated: true, y: 420 });
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+  });
+
+  /*
+    And when it CANNOT reach — the tapped comment is in the first viewport of
+    content, so no legal offset puts its bottom against the composer — it gets
+    as close as the clamp allows rather than giving up or overshooting.
+  */
+  it('gets as close as it can when the tapped comment is too near the top', async () => {
+    (fetchComments as jest.Mock).mockResolvedValue([
+      buildComment({ id: 'c1', body: 'One' }),
+      buildComment({ id: 'c2', body: 'Two' }),
+    ]);
+    renderSheet();
+    await screen.findByText('One');
+    layoutLongThread();
+    layout('comments-sheet-comment-c1', { height: 80, y: 0 });
 
     fireEvent.press(screen.getByTestId('comments-sheet-comment-c1-reply'));
     await raiseKeyboard();
+    await letTheSheetSettle();
 
-    // 500 (top of that block) + 90 (its height) + 8 (the list's bottom padding)
-    // - 400 of viewport: the block's bottom edge sits at the bottom of the
-    // list, i.e. directly above the composer that just opened.
-    await waitFor(() => expect(scrollTo).toHaveBeenCalledWith({ animated: true, y: 198 }));
-    // Reply must NOT fall through to the generic "scroll to the end" — the
-    // field's own onFocus runs too, and would otherwise overwrite the target.
+    expect(screen.getByTestId('comments-sheet-reply-banner')).toHaveTextContent(
+      'Replying to Misty',
+    );
+    // 12 + 0 + 80 + 8 - 300 is negative: the row cannot come down to the
+    // composer, so the clamp stops at 0 with the comment as low as it goes.
+    expect(scrollTo).toHaveBeenCalledWith({ animated: true, y: 0 });
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+  });
+
+  /*
+    And the clamp only ever binds when it has to. A block SHORTER than the
+    viewport still gets the original treatment — its bottom brought up to sit
+    just above the composer — because there the two answers agree and the bottom
+    is the one that puts the comment nearest the field you are typing in.
+  */
+  it('still lifts a short block up against the composer', async () => {
+    (fetchComments as jest.Mock).mockResolvedValue([
+      buildComment({ id: 'c1', body: 'One' }),
+      buildComment({ id: 'c2', body: 'Two' }),
+    ]);
+    renderSheet();
+    await screen.findByText('One');
+    layout('comments-sheet-list', { height: 300 });
+    // c1 spans 12..212, comfortably inside a 300 viewport.
+    layout('comments-sheet-thread-c1', { height: 200, y: 12 });
+    layout('comments-sheet-thread-c2', { height: 600, y: 232 });
+    layout('comments-sheet-comment-c1', { height: 180, y: 0 });
+    scrollTo.mockClear();
+
+    fireEvent.press(screen.getByTestId('comments-sheet-comment-c1-reply'));
+    await raiseKeyboard();
+    await letTheSheetSettle();
+
+    /*
+      12 + 0 + 180 + 8 - 300 is negative and clamps to 0. 0 is still ISSUED
+      here, unlike the opening scroll's 0 — the list was left at 540 by the
+      opening scroll, so this is a real move back up to the row being answered
+      (see the `target === 0 && !pending.animated` skip).
+    */
+    expect(scrollTo).toHaveBeenCalledWith({ animated: true, y: 0 });
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+  });
+
+  /*
+    A reply is aimed at as ITSELF, not as the block it is drawn in — the thread
+    flattens every depth under one top-level block, so the block's bottom is only
+    the reply's bottom while the reply happens to be the last row in it. Same
+    two-coordinate arithmetic the post-send scroll uses for a just-posted reply.
+  */
+  it('lands on the reply itself when Reply is tapped on a reply', async () => {
+    (fetchComments as jest.Mock).mockResolvedValue([
+      buildComment({ id: 'c1', body: 'One' }),
+      buildComment({ id: 'r1', body: 'A reply', parentCommentId: 'c1' }),
+    ]);
+    renderSheet();
+    await screen.findByText('One');
+
+    fireEvent.press(screen.getByTestId('comments-sheet-comment-c1-replies-toggle'));
+    await screen.findByText(/A reply/);
+
+    layout('comments-sheet-list', { height: 300 });
+    layout('comments-sheet-thread-c1', { height: 600, y: 12 });
+    layout('comments-sheet-reply-row-r1', { height: 80, y: 400 });
+    // Also releases the opening scroll to the end of the thread; forget it so
+    // the assertions below are about the scroll under test.
+    scrollTo.mockClear();
+
+    fireEvent.press(screen.getByTestId('comments-sheet-comment-r1-reply'));
+    await raiseKeyboard();
+    await letTheSheetSettle();
+
+    // 12 (block) + 400 (row within it) + 80 (its height) + 8 - 300. The block's
+    // bottom would have said 320, which is 200pt past the row.
+    expect(scrollTo).toHaveBeenCalledWith({ animated: true, y: 200 });
+  });
+
+  /*
+    REPORTED FROM A DEVICE: the SECOND time is the one that fails.
+
+    "I clicked the text field and submitted my comment — great. And then after I
+    submitted the comment I tried to make another comment and it did NOT scroll
+    to the bottom."
+
+    Two things this test does that the others do not, because the bug needs both:
+
+    1. THE LIST'S VIEWPORT REALLY CHANGES between keyboard states (384 down, 312
+       up), so a target computed against the wrong one is a DIFFERENT NUMBER and
+       not merely early. That is what makes the failure visible at all: after a
+       post the list is already sitting at the keyboard-DOWN end of the thread,
+       so a target recomputed against that same viewport equals the current
+       offset and nothing moves.
+
+    2. THE KEYBOARD EVENT LANDS BEFORE `onFocus`, and before React commits. iOS
+       posts `UIKeyboardWillShowNotification` from inside `becomeFirstResponder`,
+       so it is delivered between the tap and RN's `onFocus` — hence the raw
+       handler call outside `act` below. The listener writes `keyboardHeightRef`
+       SYNCHRONOUSLY while the resize it implies is only claimed when the effect
+       runs, so for that gap the sheet looks settled at a size it is about to
+       leave.
+  */
+  it('scrolls to the end again when the composer is opened after posting', async () => {
+    (addComment as jest.Mock).mockResolvedValue({ ok: true, id: 'c-new' });
+    (fetchComments as jest.Mock).mockResolvedValue([
+      buildComment({ id: 'c1', body: 'One' }),
+      buildComment({ id: 'c2', body: 'Two' }),
+    ]);
+    renderSheet();
+    await screen.findByText('One');
+
+    // Keyboard-down viewport.
+    layout('comments-sheet-list', { height: 384 });
+    layout('comments-sheet-thread-c1', { height: 600, y: 12 });
+    layout('comments-sheet-thread-c2', { height: 600, y: 632 });
+    scrollTo.mockClear();
+
+    // FIRST focus — the one the user says works.
+    fireEvent(screen.getByTestId('comments-sheet-input'), 'focus');
+    await raiseKeyboard();
+    // The sheet grew, so the list is SHORTER with the keyboard up.
+    layout('comments-sheet-list', { height: 312 });
+    await letTheSheetSettle();
+    expect(scrollTo).toHaveBeenCalledWith({ animated: true, y: 928 });
+
+    // Post it. The send dismisses the keyboard itself; this suite's mocked
+    // listener does not deliver that on its own.
+    fireEvent.changeText(screen.getByTestId('comments-sheet-input'), 'Mine');
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('comments-sheet-send'));
+    });
+    await screen.findByText('Mine');
+    await lowerKeyboard();
+    layout('comments-sheet-list', { height: 384 });
+    layout('comments-sheet-thread-c-new', { height: 90, y: 1240 });
+    await letTheSheetSettle();
+    // Landed on the row just written, against the keyboard-DOWN viewport:
+    // 1240 + 90 + 8 - 384. The list is now AT the end of the thread.
+    expect(scrollTo).toHaveBeenCalledWith({ animated: true, y: 954 });
+
+    scrollTo.mockClear();
+
+    // SECOND focus, in the order the device delivers it: the keyboard
+    // notification first and uncommitted, then `onFocus`.
+    raiseKeyboardWithoutFlushing();
+    fireEvent(screen.getByTestId('comments-sheet-input'), 'focus');
+    layout('comments-sheet-list', { height: 312 });
+
+    // The end of the thread with the keyboard UP: 1240 + 90 + 8 - 312. The list
+    // has to travel the last 72pt, or the comment just written sits under the
+    // composer. Polled rather than timed: the keyboard event above is delivered
+    // WITHOUT `act`, exactly as the device delivers it, so React commits it —
+    // and starts the resize this waits on — on its own schedule.
+    await waitFor(() => expect(scrollTo).toHaveBeenCalledWith({ animated: true, y: 1026 }));
+    // And specifically NOT the keyboard-down answer, which is where the list
+    // already was — issuing that spends the target on a scroll that moves
+    // nothing, and the real one never happens. That is the reported bug.
+    expect(scrollTo).not.toHaveBeenCalledWith({ animated: true, y: 954 });
+    expect(scrollToEnd).not.toHaveBeenCalled();
+  });
+
+  /*
+    THE COMMAND THAT MUST NEVER APPEAR, from any path in this sheet.
+
+    Kept as its own test rather than left implicit in the assertions above,
+    because `scrollToEnd()` is the obvious way to write two of the three things
+    this sheet does with the thread and it is the single call that produced both
+    reported symptoms. If this fails, the white gap is back.
+  */
+  it('never reaches for the one scroll command iOS does not clamp', async () => {
+    (addComment as jest.Mock).mockResolvedValue({ ok: true, id: 'c-new' });
+    (fetchComments as jest.Mock).mockResolvedValue([
+      buildComment({ id: 'c1', body: 'One' }),
+      buildComment({ id: 'c2', body: 'Two' }),
+    ]);
+    renderSheet();
+    await screen.findByText('One');
+    layoutLongThread();
+
+    // A whole session: open the composer (case 1), post (the post-send scroll),
+    // then Reply (case 2) — every path that moves the thread.
+    fireEvent(screen.getByTestId('comments-sheet-input'), 'focus');
+    await raiseKeyboard();
+    await letTheSheetSettle();
+
+    fireEvent.changeText(screen.getByTestId('comments-sheet-input'), 'Mine');
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('comments-sheet-send'));
+    });
+    await screen.findByText('Mine');
+    // The send's own `Keyboard.dismiss()`, which this suite's mocked listener
+    // does not deliver on its own. It is what releases the post-send scroll.
+    await lowerKeyboard();
+    layout('comments-sheet-thread-c-new', { height: 90, y: 1240 });
+    await letTheSheetSettle();
+
+    fireEvent.press(screen.getByTestId('comments-sheet-comment-c1-reply'));
+    await raiseKeyboard();
+    await letTheSheetSettle();
+
+    // Three scrolls, all of them the clamped command.
+    expect(scrollTo).toHaveBeenCalledTimes(3);
     expect(scrollToEnd).not.toHaveBeenCalled();
   });
 
@@ -1645,6 +2049,9 @@ describe('CommentsSheet — where the composer opens', () => {
 
     layout('comments-sheet-list', { height: 400 });
     layout('comments-sheet-thread-c1', { height: 480, y: 12 });
+    // Also releases the opening scroll to the end of the thread; forget it so
+    // the assertions below are about the scroll under test.
+    scrollTo.mockClear();
 
     // Posted with the keyboard already down, so no resize is owed on the way out
     // and the only thing the pending scroll is still waiting for is a box.
@@ -1658,12 +2065,187 @@ describe('CommentsSheet — where the composer opens', () => {
     // Back into the composer before the new block has ever been measured.
     fireEvent(screen.getByTestId('comments-sheet-input'), 'focus');
     await raiseKeyboard();
-    // The sheet has finished growing (the focus scroll is what proves it).
-    await waitFor(() => expect(scrollToEnd).toHaveBeenCalled());
-
     layout('comments-sheet-thread-c-new', { height: 90, y: 500 });
 
-    // 500 + 90 + 8 - 400. Under the old guard this never ran at all.
-    expect(scrollTo).toHaveBeenCalledWith({ animated: true, y: 198 });
+    // 500 + 90 + 8 - 400, once the sheet has stopped growing. Under the old
+    // guard this never ran at all.
+    await waitFor(() => expect(scrollTo).toHaveBeenCalledWith({ animated: true, y: 198 }));
+    // And it is the ONLY thing that moved the thread: re-opening the composer
+    // no longer fires the unclamped `scrollToEnd` that left dead space under a
+    // long thread. This is the "even worse after you post" half of the report —
+    // the same beat now releases one measured, clamped scroll and nothing else.
+    expect(scrollToEnd).not.toHaveBeenCalled();
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+  });
+});
+
+/*
+  ─────────────────────────────────────────────────────────────────────────────
+  THE ANDROID NAVIGATION BAR
+  ─────────────────────────────────────────────────────────────────────────────
+  Reported on a Galaxy A17 as two separate bugs, which are one:
+
+    1. keyboard DOWN — "the comment input is being covered by the ||| and the
+       home and back button white bar underneath".
+    2. keyboard UP   — "when the keyboard pops up it also hides the text field
+       input for the comment too, when I try to type in it".
+
+  The sheet had NO safe-area handling at all, and on Android the navigation bar
+  is missing from BOTH numbers the composer is positioned by:
+
+    - the sheet's `Modal` is an edge-to-edge dialog window (RN sets
+      ADJUST_RESIZE but `enableEdgeToEdge()` makes it inert — see
+      ReactModalHostView.kt and android/gradle.properties `edgeToEdgeEnabled`),
+      so the nav bar is painted OVER the composer. 16pt does not clear it.
+    - `keyboardDidShow`'s height on Android is `imeInsets.bottom -
+      barInsets.bottom` (ReactRootView.checkForKeyboardEvents), i.e. the
+      keyboard MINUS the nav bar — so padding by `keyboardHeight + 8` fell short
+      by the nav bar's height and the keyboard drew over the field.
+
+  The inset is therefore added in BOTH states, which is also what keeps it
+  harmless: it is the same number in each, so it cancels out of the difference
+  and `sheetHeightForKeyboard` is untouched.
+
+  iOS reserves nothing extra and must not start to — the keyboard's reported
+  frame already reaches the bottom of the screen there, and 16 over the home
+  indicator is the design spec (34 was tried and left the composer floating).
+*/
+describe('CommentsSheet — clearing the system bars', () => {
+  /** The bottom inset the wrapper publishes. */
+  const SAFE_BOTTOM = safeAreaMetrics.insets.bottom; // 34
+  const KEYBOARD = 300;
+
+  const keyboardHandlers = new Map<string, (event: unknown) => void>();
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (fetchComments as jest.Mock).mockResolvedValue([]);
+    (fetchLikedCommentIds as jest.Mock).mockResolvedValue(new Set());
+    keyboardHandlers.clear();
+    jest
+      .spyOn(Keyboard, 'addListener')
+      .mockImplementation((event: string, handler: (payload: never) => void) => {
+        keyboardHandlers.set(event, handler as (payload: unknown) => void);
+        return { remove: () => keyboardHandlers.delete(event) } as never;
+      });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  /** The sheet's own bottom padding — what the composer reserves under itself. */
+  function composerPadding(): number {
+    return StyleSheet.flatten(screen.getByTestId('comments-sheet').props.style).paddingBottom;
+  }
+
+  /** Raise the keyboard on whichever event this platform subscribed to. */
+  async function raiseKeyboard(height = KEYBOARD) {
+    const show = Array.from(keyboardHandlers.entries()).find(([event]) =>
+      event.toLowerCase().includes('show'),
+    );
+    expect(show).toBeDefined();
+    await act(async () => {
+      show?.[1]({ endCoordinates: { height } });
+    });
+  }
+
+  describe('the inset itself', () => {
+    it('is the navigation bar on Android and nothing on iOS', () => {
+      expect(systemBottomInset(48, 'android')).toBe(48);
+      // Gesture navigation is a smaller strip, but still a strip.
+      expect(systemBottomInset(24, 'android')).toBe(24);
+      // iOS: the home indicator is an overlay content may sit under, and 34
+      // here was tried and rejected as visibly floating.
+      expect(systemBottomInset(34, 'ios')).toBe(0);
+      // Never negative, whatever a provider reports before it has measured.
+      expect(systemBottomInset(-10, 'android')).toBe(0);
+    });
+  });
+
+  describe('what the composer reserves', () => {
+    it('adds the system strip to BOTH keyboard states', () => {
+      // Keyboard down: the design gap ON TOP OF the nav bar, not instead of it.
+      expect(composerBottomPadding(0, 48)).toBe(48 + 16);
+      // Keyboard up: the nav bar is NOT in the reported keyboard height, so the
+      // top of the keyboard is at keyboardHeight + navBar above the window.
+      expect(composerBottomPadding(KEYBOARD, 48)).toBe(48 + KEYBOARD + 8);
+    });
+
+    it('is exactly what it always was where there is no system strip (iOS)', () => {
+      expect(composerBottomPadding(0, 0)).toBe(16);
+      expect(composerBottomPadding(KEYBOARD, 0)).toBe(KEYBOARD + 8);
+    });
+
+    it('leaves the sheet-growth arithmetic alone, because the strip cancels', () => {
+      // The quantity `sheetHeightForKeyboard` grows the sheet by is the
+      // DIFFERENCE between the two states. The inset is in both, identically,
+      // so it drops out — which is why fixing Android cannot reintroduce the
+      // height/padding mismatch documented on `composerLift`.
+      for (const inset of [0, 24, 48]) {
+        expect(composerBottomPadding(120, inset) - composerBottomPadding(0, inset)).toBe(
+          sheetHeightForKeyboard(120) - sheetHeightForKeyboard(0),
+        );
+      }
+    });
+
+    it('still reserves nothing for a keyboard that resizes the window instead', () => {
+      // Dormant today (`KEYBOARD_OVERLAYS_CONTENT`), but the nav bar is a
+      // property of the window, not of the keyboard, so it stays either way.
+      expect(composerBottomPadding(KEYBOARD, 48, false)).toBe(48 + 16);
+    });
+  });
+
+  describe('on Android', () => {
+    beforeEach(() => {
+      jest.replaceProperty(Platform, 'OS', 'android');
+    });
+
+    // (1) The reported bug.
+    it('clears the navigation bar with the keyboard down', async () => {
+      renderSheet();
+      await screen.findByTestId('comments-sheet-empty');
+      expect(composerPadding()).toBe(SAFE_BOTTOM + 16);
+    });
+
+    // (2) The second report: the keyboard covering the field.
+    it('sits above the keyboard, which is reported without the navigation bar', async () => {
+      renderSheet();
+      await screen.findByTestId('comments-sheet-empty');
+      await raiseKeyboard();
+      expect(composerPadding()).toBe(SAFE_BOTTOM + KEYBOARD + 8);
+    });
+
+    it('goes back to clearing just the navigation bar when the keyboard drops', async () => {
+      renderSheet();
+      await screen.findByTestId('comments-sheet-empty');
+      await raiseKeyboard();
+
+      const hide = Array.from(keyboardHandlers.entries()).find(([event]) =>
+        event.toLowerCase().includes('hide'),
+      );
+      await act(async () => {
+        hide?.[1]({ endCoordinates: { height: 0 } });
+      });
+      expect(composerPadding()).toBe(SAFE_BOTTOM + 16);
+    });
+  });
+
+  describe('on iOS', () => {
+    // iOS is the platform where both states already worked. These pin that
+    // nothing moved by so much as a point.
+    it('still rests at a flat 16, not at the 34pt home-indicator inset', async () => {
+      renderSheet();
+      await screen.findByTestId('comments-sheet-empty');
+      expect(composerPadding()).toBe(16);
+      expect(composerPadding()).not.toBe(SAFE_BOTTOM + 16);
+    });
+
+    it('still lifts by exactly the keyboard it was told about', async () => {
+      renderSheet();
+      await screen.findByTestId('comments-sheet-empty');
+      await raiseKeyboard();
+      expect(composerPadding()).toBe(KEYBOARD + 8);
+    });
   });
 });

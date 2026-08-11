@@ -1,7 +1,19 @@
 import { Animated, StyleSheet } from 'react-native';
-import { screen } from '@testing-library/react-native';
+import { fireEvent, screen } from '@testing-library/react-native';
 
-import { HomeHeader, SEARCH_PILL_HIDE_DISTANCE } from '@/components/home-header';
+import {
+  glassNavBubbleGroupWidth,
+  glassNavBubbleSizes,
+  layout,
+} from '@spotlight/design-system';
+
+import {
+  HOME_HEADER_BAR_HEIGHT,
+  HOME_HEADER_ROW_HEIGHT,
+  HomeHeader,
+  SEARCH_PILL_HIDE_DISTANCE,
+  type HomeHeaderTrailing,
+} from '@/components/home-header';
 
 import { renderWithProviders } from '../test-utils';
 
@@ -20,17 +32,43 @@ import { renderWithProviders } from '../test-utils';
  * real animated style and that the tap target can be switched off. The
  * interpolated VALUES are not asserted — jest runs no native driver, so a
  * `scrollY` that never advances would report the resting style either way.
+ *
+ * The `trailing` variant is the other thing asserted here: ONE component draws
+ * both frames, so the pair of symbols in the capsule is the only difference
+ * between Home's toolbar (3567:22969) and the profile's (3670:47454), and each
+ * variant has to exclude the other's controls rather than merely include its own.
  */
+
+/** Home's trailing pair: the bell (optionally badged) and the `+`. */
+function homeTrailing(unreadCount = 0): HomeHeaderTrailing {
+  return {
+    kind: 'home',
+    addAccessibilityLabel: 'New post',
+    onOpenAdd: jest.fn(),
+    onOpenNotifications: jest.fn(),
+    unreadCount,
+  };
+}
+
+/** Collection's trailing pair: the edit pencil and the share glyph. */
+function profileTrailing(
+  overrides: Partial<Extract<HomeHeaderTrailing, { kind: 'profile' }>> = {},
+): HomeHeaderTrailing {
+  return {
+    kind: 'profile',
+    onEditProfile: jest.fn(),
+    onShareProfile: jest.fn(),
+    ...overrides,
+  };
+}
+
 function renderHeader(props: Partial<Parameters<typeof HomeHeader>[0]> = {}) {
   return renderWithProviders(
     <HomeHeader
-      addAccessibilityLabel="New post"
-      onOpenAdd={jest.fn()}
       onOpenMenu={jest.fn()}
-      onOpenNotifications={jest.fn()}
       onOpenSearch={jest.fn()}
       testID="home-header"
-      unreadCount={0}
+      trailing={homeTrailing()}
       {...props}
     />,
   );
@@ -41,7 +79,209 @@ function pillWrapper() {
   return screen.getByTestId('home-header-search-clip').props.children;
 }
 
+/**
+ * The pill wrapper's HOST node, whose style carries the interpolation already
+ * RESOLVED to numbers (the React element above still holds animated nodes). It
+ * is the only way the fade's origin is observable off-device.
+ */
+function pillMotionStyle() {
+  return StyleSheet.flatten(screen.getByTestId('home-header-search-motion').props.style) as {
+    opacity: number;
+    transform: { translateY: number }[];
+  };
+}
+
 describe('HomeHeader', () => {
+  /*
+    THE NUMBERS, PINNED AS LITERALS. A floating bar contributes nothing to
+    layout, so every screen under it reserves `HOME_HEADER_BAR_HEIGHT` by hand
+    and anything pinning below it stops at `HOME_HEADER_ROW_HEIGHT` — both are
+    derived constants that quietly drifted from the frame (the bar padded 10pt
+    above the row and nothing below it, against a symmetric 8/8) because nothing
+    read them back. Literals, not arithmetic against the same constants that
+    produce them, or the assertion is tautological.
+
+    Figma "Home" 3523:15499, toolbar 3567:22969: 8 + a 40pt control row + 8.
+  */
+  it('reserves the frame’s bar and row heights', () => {
+    expect(HOME_HEADER_BAR_HEIGHT).toBe(56);
+    // The bottom edge of the bubbles — where Collection's page-tab bar pins.
+    expect(HOME_HEADER_ROW_HEIGHT).toBe(48);
+  });
+
+  it('pads the control row symmetrically, 8pt above and below', () => {
+    renderHeader({ floating: true });
+
+    const row = StyleSheet.flatten(screen.getByTestId('home-header-row').props.style);
+    expect(row.paddingTop).toBe(8);
+    // The bar owns the space under its own controls now that no rule follows
+    // them; without this the first post rides up under the bubbles.
+    expect(row.paddingBottom).toBe(8);
+  });
+
+  /*
+    THE TRAILING CONTROL IS ONE CAPSULE. Figma's toolbar puts the bell and the
+    `+` in a single 90×40 `Button Group` (`Trailing → Button Group 1`, two 36pt
+    symbol frames at x=6 and x=48) rather than in two 40pt circles — Apple's
+    iOS 26 grouped-toolbar pattern. It is also the 2pt: the row only closes at
+    393 with a 90pt trailing control, and two circles plus the row's gap measure
+    88.
+  */
+  describe('the trailing capsule', () => {
+    it('renders the bell and the + inside ONE 90pt capsule', () => {
+      renderHeader({ floating: true, trailing: homeTrailing(3) });
+
+      const capsule = StyleSheet.flatten(screen.getByTestId('home-header-trailing').props.style);
+      expect(capsule.width).toBe(90);
+      expect(capsule.height).toBe(glassNavBubbleSizes.compact);
+
+      // Both controls are slots of that capsule, not bubbles of their own.
+      for (const testID of ['home-header-notifications', 'home-header-add']) {
+        const slot = StyleSheet.flatten(screen.getByTestId(testID).props.style);
+        expect(slot.width).toBe(36);
+        expect(slot.backgroundColor).toBeUndefined();
+      }
+    });
+
+    it('leaves the flexed search pill the frame’s 215 at a 393pt width', () => {
+      // 16 + 40 + 8 + pill + 8 + 90 + 16 = 393. Everything but the pill is
+      // fixed, so the pill IS the remainder — spelled out rather than asserted
+      // as a bare literal, so a change to any term shows up as the wrong pill.
+      const fixed =
+        layout.pageGutter * 2 + glassNavBubbleSizes.compact + 8 + 8 + glassNavBubbleGroupWidth(2);
+      expect(393 - fixed).toBe(215);
+    });
+
+    // The badge hangs off the bell at `top: -2, right: -2`. Moving the bell
+    // into a rounded capsule is exactly the change that would have clipped it.
+    it('still lets the unread badge overhang the capsule', () => {
+      renderHeader({ floating: true, trailing: homeTrailing(3) });
+
+      expect(screen.getByTestId('home-header-notifications-badge')).toBeTruthy();
+      expect(screen.getByText('3')).toBeTruthy();
+      expect(
+        StyleSheet.flatten(screen.getByTestId('home-header-trailing').props.style).overflow,
+      ).toBe('visible');
+    });
+
+    /*
+      THE PROFILE VARIANT SWAPS THE PAIR AND NOTHING ELSE. Figma 3670:47454 is
+      Home's toolbar with edit and share where the bell and the `+` were — same
+      40pt menu bubble, same 8pt gaps, same 215pt pill, same 90pt capsule. So the
+      assertion that matters is EXCLUSION: a variant that merely added its own
+      controls beside the existing ones would put four symbols in a 90pt capsule.
+    */
+    it('draws edit and share instead of the bell and the +', () => {
+      renderHeader({ floating: true, trailing: profileTrailing() });
+
+      expect(screen.getByTestId('home-header-edit')).toBeTruthy();
+      expect(screen.getByTestId('home-header-share')).toBeTruthy();
+      // Notifications and compose belong to Home's bar, not this one.
+      expect(screen.queryByTestId('home-header-notifications')).toBeNull();
+      expect(screen.queryByTestId('home-header-add')).toBeNull();
+
+      // Still one 90pt capsule with two 36pt slots — the geometry is shared.
+      const capsule = StyleSheet.flatten(screen.getByTestId('home-header-trailing').props.style);
+      expect(capsule.width).toBe(90);
+      expect(capsule.height).toBe(glassNavBubbleSizes.compact);
+      for (const testID of ['home-header-edit', 'home-header-share']) {
+        expect(StyleSheet.flatten(screen.getByTestId(testID).props.style).width).toBe(36);
+      }
+    });
+
+    it('wires each profile slot to its own action', () => {
+      const onEditProfile = jest.fn();
+      const onShareProfile = jest.fn();
+      renderHeader({ floating: true, trailing: profileTrailing({ onEditProfile, onShareProfile }) });
+
+      const edit = screen.getByTestId('home-header-edit');
+      const share = screen.getByTestId('home-header-share');
+      // Spoken labels, since the slots are glyph-only.
+      expect(edit.props.accessibilityLabel).toBe('Edit profile');
+      expect(share.props.accessibilityLabel).toBe('Share profile');
+
+      fireEvent.press(edit);
+      expect(onEditProfile).toHaveBeenCalledTimes(1);
+      expect(onShareProfile).not.toHaveBeenCalled();
+
+      fireEvent.press(share);
+      expect(onShareProfile).toHaveBeenCalledTimes(1);
+    });
+
+    // The reverse guard: Home must not pick up the profile pair. Both screens
+    // draw ONE component, so this is the assertion that catches a variant
+    // default flipping the wrong way.
+    it('keeps edit and share OFF Home’s bar', () => {
+      renderHeader({ floating: true, trailing: homeTrailing() });
+
+      expect(screen.queryByTestId('home-header-edit')).toBeNull();
+      expect(screen.queryByTestId('home-header-share')).toBeNull();
+    });
+  });
+
+  /*
+    WHERE THE FADE STARTS. `scrollY` carries an ABSOLUTE `contentOffset.y`, and
+    both callers run `contentInsetAdjustmentBehavior="automatic"` on iOS, so
+    their lists REST at `-insets.top` — not 0. Interpolating from 0 left the
+    pill fully open for the first whole safe-area inset of every scroll and only
+    then began its 56pt fade.
+
+    These are the assertions that are invisible unless the test models the
+    negative rest offset, so they use a real device inset (59pt) rather than 0.
+  */
+  describe('the pill’s fade origin', () => {
+    const IOS_REST = -59;
+
+    it('is fully open at an inset list’s rest offset, not a status bar later', () => {
+      renderHeader({
+        floating: true,
+        scrollRestOffset: IOS_REST,
+        scrollY: new Animated.Value(IOS_REST),
+      });
+
+      const style = pillMotionStyle();
+      expect(style.opacity).toBe(1);
+      expect(style.transform[0].translateY).toBe(0);
+    });
+
+    it('has begun fading one point into the scroll', () => {
+      renderHeader({
+        floating: true,
+        scrollRestOffset: IOS_REST,
+        scrollY: new Animated.Value(IOS_REST + 1),
+      });
+
+      // The bug: at this offset the old range was still clamped wide open.
+      expect(pillMotionStyle().opacity).toBeLessThan(1);
+    });
+
+    it('is fully gone after travelling the hide distance, not the inset plus it', () => {
+      renderHeader({
+        floating: true,
+        scrollRestOffset: IOS_REST,
+        scrollY: new Animated.Value(IOS_REST + SEARCH_PILL_HIDE_DISTANCE),
+      });
+
+      const style = pillMotionStyle();
+      expect(style.opacity).toBe(0);
+      // Travelled its own height plus the padding above it — clear of the clip.
+      expect(style.transform[0].translateY).toBe(-HOME_HEADER_ROW_HEIGHT);
+    });
+
+    // ANDROID IS UNCHANGED. It takes the explicit-`paddingTop` branch, genuinely
+    // rests at 0, and passes 0 — so the default has to behave exactly as before.
+    it('still anchors at 0 for a list that rests at 0', () => {
+      renderHeader({ floating: true, scrollY: new Animated.Value(0) });
+
+      expect(pillMotionStyle().opacity).toBe(1);
+
+      screen.unmount();
+      renderHeader({ floating: true, scrollY: new Animated.Value(SEARCH_PILL_HIDE_DISTANCE) });
+
+      expect(pillMotionStyle().opacity).toBe(0);
+    });
+  });
+
   it('turns the scroll offset into a slide AND a fade on the pill', () => {
     const scrollY = new Animated.Value(0);
     renderHeader({ floating: true, scrollY });
@@ -73,16 +313,13 @@ describe('HomeHeader', () => {
 
     rerender(
       <HomeHeader
-        addAccessibilityLabel="New post"
         floating
-        onOpenAdd={jest.fn()}
         onOpenMenu={jest.fn()}
-        onOpenNotifications={jest.fn()}
         onOpenSearch={jest.fn()}
         scrollY={scrollY}
         searchInteractive={false}
         testID="home-header"
-        unreadCount={0}
+        trailing={homeTrailing()}
       />,
     );
 
@@ -146,7 +383,7 @@ describe('HomeHeader', () => {
   // pill's OWN wrapper: the unread badge hangs outside its bubble at
   // `top: -2, right: -2`, so clipping any further up the row would shave it.
   it('clips the pill without clipping the unread badge', () => {
-    renderHeader({ floating: true, scrollY: new Animated.Value(0), unreadCount: 3 });
+    renderHeader({ floating: true, scrollY: new Animated.Value(0), trailing: homeTrailing(3) });
 
     const clip = screen.getByTestId('home-header-search-clip');
     expect(StyleSheet.flatten(clip.props.style).overflow).toBe('hidden');

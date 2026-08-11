@@ -45,6 +45,10 @@ export function SheetHeader({
               backgroundColor: theme.colors.outlineSubtle,
             },
           ]}
+          // Tagged so a screen can assert the ABSENCE of a drag affordance.
+          // A composer that must not be dismissable by dragging has to be able
+          // to prove there is nothing there suggesting you can.
+          testID="sheet-header-handle"
         />
       ) : null}
 

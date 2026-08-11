@@ -172,6 +172,16 @@ export interface SpotlightRepository {
     query?: ProfileDeckEntriesQuery,
   ): Promise<InventoryCardEntry[]>;
   /**
+   * Another user's public WISHLIST, for the public profile's Wishlist tab. Same
+   * shape and the same explicit-`userID` contract as
+   * {@link getProfileDeckEntries} — the backend serves it from the same read,
+   * filtered to the owner's favorited cards.
+   */
+  getProfileWishlistEntries(
+    userID: string,
+    query?: ProfileDeckEntriesQuery,
+  ): Promise<InventoryCardEntry[]>;
+  /**
    * Another user's public portfolio headline (total value + card count). The
    * owner-only dashboard (chart/history/insights) stays off the public path.
    */
@@ -3208,6 +3218,16 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return entries.slice(offset, offset + limit);
   }
 
+  // Mock public wishlist: the favorited slice of those same seeded holdings, so
+  // the Wishlist tab renders a SHORTER list than Collection offline/in tests —
+  // returning the full deck would hide a filter bug behind identical output.
+  async getProfileWishlistEntries(_userID: string, query?: ProfileDeckEntriesQuery) {
+    const entries = this.inventoryEntriesForQuery().filter((entry) => entry.isFavorite === true);
+    const offset = Math.max(0, Math.trunc(query?.offset ?? 0));
+    const limit = query?.limit != null ? Math.max(1, Math.trunc(query.limit)) : entries.length;
+    return entries.slice(offset, offset + limit);
+  }
+
   async getProfilePortfolioSummary(userID: string): Promise<ProfilePortfolioSummary> {
     const entries = this.inventoryEntriesForQuery();
     const totalValue = entries.reduce(
@@ -4786,6 +4806,25 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     const queryParams = buildProfileDeckEntriesQueryParams(query);
     const response = await this.requestJsonOrThrow<{ entries?: DeckEntryDTO[] } | DeckEntryDTO[]>(
       `${this.baseUrl}/api/v1/profiles/${encodedUserID}/deck/entries${queryParams.toString() ? `?${queryParams.toString()}` : ''}`,
+      { method: 'GET' },
+    );
+
+    const rawEntries = Array.isArray(response)
+      ? response
+      : Array.isArray(response?.entries)
+        ? response.entries
+        : [];
+
+    return rawEntries
+      .map((entry: DeckEntryDTO) => mapDeckEntry(entry, this.baseUrl))
+      .filter((entry): entry is InventoryCardEntry => entry !== null);
+  }
+
+  async getProfileWishlistEntries(userID: string, query?: ProfileDeckEntriesQuery) {
+    const encodedUserID = encodeURIComponent(userID);
+    const queryParams = buildProfileDeckEntriesQueryParams(query);
+    const response = await this.requestJsonOrThrow<{ entries?: DeckEntryDTO[] } | DeckEntryDTO[]>(
+      `${this.baseUrl}/api/v1/profiles/${encodedUserID}/wishlist/entries${queryParams.toString() ? `?${queryParams.toString()}` : ''}`,
       { method: 'GET' },
     );
 
@@ -6683,7 +6722,33 @@ export class HttpSpotlightRepository implements SpotlightRepository {
   ): Promise<ScannerArtifactUploadResult | null> {
     const uploadPayload = scanID ? createScanArtifactUploadPayload(payload, scanID) : null;
     if (!uploadPayload) {
-      return null;
+      /*
+        REPORT the skip instead of returning a silent null.
+
+        This branch cost three days of blind training data. Build 9 shipped with
+        no artifact uploads AT ALL — 103 scans, zero uploaded, zero failed — and
+        nothing anywhere said so, because a null return means the screen's
+        `onArtifactUploadComplete` handler bails on `if (!artifactUpload)` before
+        it captures anything. An upload that never runs looked exactly like an
+        upload that was never wanted.
+
+        Reported through the EXISTING `scan_artifact_upload_failed` event rather
+        than a new one: the outcome genuinely is "no artifact was stored", the
+        event already carries `error_kind` to say why, and it fires only when
+        something is wrong — so a healthy build adds no volume at all. A new
+        event name would have been taxonomy for a case that should never happen.
+
+        A fixture scan is the ONE legitimate skip — it has no real capture and
+        never had one — so it stays silent.
+      */
+      if (payload.captureSource === 'smoke_fixture') {
+        return null;
+      }
+      return {
+        status: 'failed',
+        errorKind: scanID ? 'normalized_image_missing' : 'scan_id_missing',
+        reason: 'artifact_payload_unavailable',
+      };
     }
 
     // Retry with backoff. The upload is idempotent (backend upserts by scanID),

@@ -395,6 +395,121 @@ export function fetchGlobalFeed(limit = DEFAULT_LIMIT, before?: string): Promise
   return fetchPosts((query) => query, limit, before);
 }
 
+/**
+ * One row of the feed: a post, plus who put it there if it arrived by repost.
+ *
+ * `activityAt` is the SORT KEY and the pagination cursor — the repost time for a
+ * reposted row, the post's own time otherwise. It is what lets a two-year-old
+ * post reposted a minute ago sit at the top.
+ */
+export type FeedItem = {
+  /** Stable list key. A post and a repost OF that post are different rows. */
+  key: string;
+  post: FeedPost;
+  /** The reposter, or null when this is the post appearing on its own. */
+  repostedBy: FeedPostAuthor | null;
+  repostedAt: string | null;
+  activityAt: string;
+};
+
+function feedItemFromPost(post: FeedPost): FeedItem {
+  return {
+    key: `post:${post.id}`,
+    post,
+    repostedBy: null,
+    repostedAt: null,
+    activityAt: post.createdAt,
+  };
+}
+
+type RepostRow = { post_id: string; user_id: string; created_at: string };
+
+/**
+ * The global feed WITH reposts, newest activity first.
+ *
+ * A repost is its own row (X-style), captioned with who passed it on; the
+ * original keeps its own place in the timeline, so a post you follow from two
+ * directions can legitimately appear twice.
+ *
+ * TWO READS MERGED IN JS, for the same reason `fetchAuthorActivity` does it:
+ * PostgREST cannot express a union across `posts` and `post_reposts` through
+ * `fetchPosts`'s single-filter shape.
+ *
+ * PAGINATION IS ON `activityAt`, NOT `post.createdAt`. Both sub-queries are
+ * filtered by the SAME cursor and each returns its own newest `limit` below it,
+ * so taking the newest `limit` of the union is gap-free: anything dropped from
+ * this page is still older than the cursor the next page starts from.
+ */
+export async function fetchGlobalFeedItems(
+  limit = DEFAULT_LIMIT,
+  before?: string,
+): Promise<FeedItem[]> {
+  const authored = await fetchGlobalFeed(limit, before);
+  if (!supabase) {
+    return authored.map(feedItemFromPost);
+  }
+
+  try {
+    let repostQuery = supabase
+      .from(POST_REPOSTS_TABLE)
+      .select('post_id, user_id, created_at')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (before) {
+      repostQuery = repostQuery.lt('created_at', before);
+    }
+    const { data, error } = await repostQuery;
+    if (error || !data || data.length === 0) {
+      // No reposts, or the read failed — the feed still shows authored posts
+      // rather than collapsing to empty.
+      return authored.map(feedItemFromPost);
+    }
+
+    const repostRows = (data as RepostRow[]).filter((row) => row.post_id && row.user_id);
+    const repostedPostIds = Array.from(new Set(repostRows.map((row) => row.post_id)));
+    const reposterIds = Array.from(new Set(repostRows.map((row) => row.user_id)));
+
+    // `fetchPosts` applies the same visibility filters as every other read, so a
+    // repost pointing at something hidden or deleted simply yields no row.
+    const [repostedPosts, reposterProfiles] = await Promise.all([
+      fetchPosts((query) => query.in('id', repostedPostIds), repostedPostIds.length),
+      supabase.from(PUBLIC_PROFILES_VIEW).select(postAuthorSelect).in('user_id', reposterIds),
+    ]);
+
+    const postsById = new Map(repostedPosts.map((post) => [post.id, post]));
+    const repostersById = new Map<string, FeedPostAuthor>();
+    if (!reposterProfiles.error && reposterProfiles.data) {
+      for (const row of reposterProfiles.data as PostAuthorRow[]) {
+        repostersById.set(row.user_id, mapAuthor(row));
+      }
+    }
+
+    const repostItems: FeedItem[] = [];
+    for (const row of repostRows) {
+      const post = postsById.get(row.post_id);
+      // An unresolvable reposter would render a nameless "reposted" caption, so
+      // the row is dropped instead — the original post is still in the feed.
+      const repostedBy = repostersById.get(row.user_id);
+      if (!post || !repostedBy) {
+        continue;
+      }
+      repostItems.push({
+        key: `repost:${row.post_id}:${row.user_id}`,
+        post,
+        repostedBy,
+        repostedAt: row.created_at,
+        activityAt: row.created_at,
+      });
+    }
+
+    return [...authored.map(feedItemFromPost), ...repostItems]
+      .sort((a, b) => b.activityAt.localeCompare(a.activityAt))
+      .slice(0, limit);
+  } catch {
+    return authored.map(feedItemFromPost);
+  }
+}
+
 /** Posts anchored to one card (`card_id = cardId`), newest first. */
 export function fetchCardPosts(cardId: string, limit = DEFAULT_LIMIT, before?: string): Promise<FeedPost[]> {
   const trimmed = (cardId ?? '').trim();

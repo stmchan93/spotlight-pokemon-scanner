@@ -18,10 +18,10 @@ supabase/
 │  ├─ 20260723090000_social_07_public_profiles_view_counter_triggers.sql
 │  ├─ 20260724090000_social_08_user_profiles_rls_hardening.sql
 │  ├─ 20260726090000_social_09_engagement_counter_triggers_security_definer.sql
-│  ├─ 20260806090000_social_10_public_users_mirror.sql      # NOT applied yet
-│  ├─ …                                                    # social_11 … social_17
-│  ├─ 20260812090000_social_18_moderation_wordlist_word_boundary.sql   # NOT applied yet
-│  └─ 20260813090000_social_19_block_enforcement_profiles_follows_dms.sql  # NOT applied yet
+│  ├─ 20260806090000_social_10_public_users_mirror.sql
+│  ├─ …                                                    # social_11 … social_19
+│  ├─ 20260814090000_social_20_moderation_aware_engagement_counters.sql
+│  └─ 20260815090000_social_21_moderation_aware_notifications.sql   # written, not applied
 ├─ manual/
 │  └─ user_profiles_rls_REVIEW_BEFORE_APPLY.sql   # superseded by social_08 (kept for history)
 └─ email_exists.sql                 # pre-existing RPC, applied by hand; social_10 promotes it into migrations
@@ -29,16 +29,29 @@ supabase/
 
 ## Applied state
 
-**social_00 through social_09 are APPLIED to the live project.** (Earlier revisions of
-this file said nothing had been applied — that was stale; it is fixed here.) Treat every
-applied migration as **immutable history**: never edit one, always add the next file in
-sequence.
+**STAGING (`mphjenaaorntwkyivqtm`) is applied through `social_20`** as of 2026-08-09,
+confirmed by `supabase db push --dry-run --linked` reporting only social_20 pending and
+then `up to date` after it was pushed. `social_21` is written but applied nowhere.
+Treat every applied migration as **immutable history**: never edit one, always add the
+next file in sequence.
 
-`social_11` through `social_19` were added after this section was last revised, so do not
-read "social_10 is the only unapplied file" off it. **`supabase migration list` is the only
-trustworthy answer** to what is actually applied where — run it against staging and against
-production separately, since [the two are separate projects](#staging-first-always).
-`social_18` and `social_19` are new in this pass and are applied nowhere.
+**PRODUCTION (`lvnjshymwvagwadqeofm`) was NOT re-checked on 2026-08-09** — assume it
+still lags staging and verify separately, since
+[the two are separate projects](#staging-first-always).
+
+> ⚠️ **This section has been wrong twice.** It previously carried per-file "NOT applied
+> yet" annotations that were stale by ten migrations; they misled both a human and a
+> migration author into believing block enforcement and the moderation wordlist were
+> unapplied when they had been live for days. **Do not trust any applied-state claim
+> written in a file — including this paragraph.** The only trustworthy answers are:
+>
+> ```bash
+> supabase db push --dry-run --linked   # what would actually be applied
+> supabase migration list --linked      # per-file applied state
+> ```
+>
+> Run them against staging and production separately, and prefer them over any prose,
+> here or in a migration header.
 
 The migrations are **additive only** — brand-new tables + additive columns on
 `user_profiles`. RLS on the pre-existing `user_profiles` table was promoted out of
@@ -257,6 +270,43 @@ Deliberately **not** closed, and written out at length in the migration header: 
 wordlist — a moderation fix that belongs with `social_18`), group conversations over-block,
 `dm_key` squatting, and `avatars` staying a public bucket.
 
+### Applying `social_21` (notifications follow visibility)
+
+Fixes the fourth instance of one bug class: a comment auto-`removed` by
+`tg_content_prefilter` still notified the post's author, and the notification
+rendered **blank** because `comments_select` never returns that comment to the
+recipient. All four notify triggers are audited in the file header;
+`tg_notify_follow` is the only one left unchanged.
+
+Two things to know before you run it:
+
+1. **One data-changing statement** — it DELETES the blank notifications already
+   generated. See the blast radius first:
+
+   ```sql
+   select count(*) from public.notifications n
+     join public.comments c on c.id = n.comment_id
+    where n.type = 'comment'
+      and c.content_status <> 'visible'
+      and n.recipient_id <> c.author_id;
+   ```
+
+   Nothing else is deleted: `like` notifications point at the recipient's own
+   content and still render, and the `deleted_at` axis is deliberately left to
+   social_11's "notifications are never retracted" rule.
+
+2. **The release path is LIVE, not dormant.** A soft-tier comment inserts as
+   `pending` and notifies on `pending → visible`, via a new
+   `comments_notify_transition` trigger shaped like social_20's counter one.
+   `social_moderation_worker.py` already performs that transition — its
+   `_moderate_text_table()` releases a clean `pending` row with no open report —
+   and staging's `~/spotlight/logs/social_moderation.log` shows it working
+   (`comments 69c63357-… -> released`, 2026-08-09).
+
+**Run it as `postgres`** (SQL editor or `supabase db push`). Verify with the
+migration footer — at least §1 (no notification points at an unreadable comment),
+§5 (the release round trip) and §6 (the control: ordinary comments still notify).
+
 ### Adding or removing blocked terms later (no migration needed)
 
 `blocked_terms` is admin-only (RLS `public.is_admin()`), so this is a SQL-editor / admin
@@ -285,13 +335,25 @@ Four rules, all learned the hard way and written out at length in the migration 
 
 1. **Seed the wordlist.** Done by `social_18` — see above. Before it is applied,
    `blocked_terms` holds only the test term `zzblockedtest` (`hard`).
-2. **Deploy the moderation worker** (the AI pass) — `backend/social_moderation_worker.py`.
-   It is NOT wired to anything yet. Set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
-   `OPENAI_API_KEY`, then run `--once` to verify, later install as a 1–2 min cron.
-   It also needs a one-line fix before the `soft` tier is usable in production: on a row
-   the classifier does **not** flag, `_moderate_text_table()` writes only
-   `moderation_checked_at`, so a `pending` row it cleared stays hidden forever. It must
-   also set `content_status = 'visible'` when the current status is `pending`.
+2. **The moderation worker (the AI pass) is DEPLOYED and running** —
+   `backend/social_moderation_worker.py`, installed as a `*/2` cron by
+   `backend/deploy_to_vm.sh` on **both** environments, with the text pass, the
+   image pass, and the `pending → visible` release all live. Verified on staging
+   2026-08-09: `image moderation: enabled`, `post_media … -> approved`,
+   `comments … -> released`, and no `moderation disabled` lines.
+
+   ⚠️ **Older notes in this file and in social_18's header say the worker is not
+   on cron and never un-hides `pending`. Both were true when written and are now
+   false.** They have already misled one migration author. To check the real
+   state, read the worker source or run:
+
+   ```bash
+   gcloud compute ssh spotlight-backend-staging --zone us-central1-a --tunnel-through-iap \
+     --command "crontab -l | grep social_moderation; tail -20 ~/spotlight/logs/social_moderation.log"
+   ```
+
+   `grep 'moderation disabled' ~/spotlight/logs/social_moderation.log` distinguishes
+   "not configured" from "nothing to do".
 3. **Grant yourself admin** for the review queue: set `user_profiles.admin_enabled = true`
    for your `user_id`.
 

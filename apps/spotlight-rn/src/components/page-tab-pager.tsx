@@ -233,11 +233,35 @@ type CollapsibleTabPagerProps<V extends string> = {
    * at 0 ends up drawn behind the clock. Passing the bottom edge of that chrome
    * stops the collapse early enough to park the tab bar just beneath it.
    *
-   * Whatever floats above is then responsible for being OPAQUE by the time the
-   * collapse finishes: the header's last `pinnedTopInset` points stay parked in
-   * the strip behind it (see `HomeHeader`'s `pinnedBackdrop`).
+   * Whatever floats above is then responsible for hiding that parked strip —
+   * either by being OPAQUE (`HomeHeader`'s `pinnedBackdrop`) or by fading the
+   * header out before it gets there (`headerFadeDistance` below).
    */
   pinnedTopInset?: number;
+  /**
+   * Points of collapse over which the header fades to nothing, ENDING exactly
+   * when the collapse does. Omit for no fade, which is what every caller with a
+   * `pinnedTopInset` of 0 wants — a header that scrolls fully away has no
+   * parked strip to hide.
+   *
+   * THIS IS THE SECOND ANSWER TO THE PARKED STRIP, and it exists because the
+   * first one was rejected on sight. `pinnedTopInset` deliberately stops the
+   * collapse short so the tab bar parks under the floating chrome instead of
+   * behind the clock — which leaves the header's last `pinnedTopInset` points
+   * sitting in that same strip. An opaque floating bar covers them, but on
+   * Portfolio that painted a solid band between the menu bubble and the trailing
+   * ones and read as "a weird white bar"; the note on `HomeHeader` in
+   * `portfolio-screen.tsx` records that call. Without it the profile block's
+   * tail — the Followers/Following pills — parked in the gaps BETWEEN the
+   * bubbles, which is worse than either.
+   *
+   * Fading is the third option and the one that matches the rest of the app:
+   * Home's search pill and the Wishlist title both leave the same way.
+   *
+   * Clamped to `collapseDistance`, so a value larger than the available travel
+   * simply fades across the whole of it rather than starting part-faded.
+   */
+  headerFadeDistance?: number;
   /**
    * Points the PAGES are already inset by from outside, which the chrome's
    * padding must not reserve a second time. Defaults to 0.
@@ -371,6 +395,7 @@ export function CollapsibleTabPager<V extends string>({
   disabled = false,
   edgeGuardWidth = DRAWER_EDGE_WIDTH,
   header,
+  headerFadeDistance,
   onChange,
   onPageScroll,
   order,
@@ -877,6 +902,52 @@ export function CollapsibleTabPager<V extends string>({
     });
   }, [collapseDistance, pageTop, scrollY]);
 
+  /**
+   * The end of the collapse, in the same absolute offsets `scrollY` reports.
+   * Both the fade and the pointer-events cutoff below are measured back from
+   * here, so they finish together and neither can drift from the translate.
+   */
+  const collapseEnd = pageTop + collapseDistance;
+  const headerOpacity = useMemo(() => {
+    if (!headerFadeDistance || collapseDistance <= 0) {
+      return undefined;
+    }
+    // Never wider than the travel available, or the header would start the
+    // scroll already part-faded.
+    const distance = Math.min(headerFadeDistance, collapseDistance);
+    return scrollY.interpolate({
+      inputRange: [collapseEnd - distance, collapseEnd],
+      outputRange: [1, 0],
+      extrapolate: 'clamp',
+    });
+  }, [collapseDistance, collapseEnd, headerFadeDistance, scrollY]);
+
+  /*
+    OPACITY ALONE LEAVES A TAPPABLE GHOST. The strip that parks behind the
+    floating chrome is the profile block's tail — the Followers and Following
+    pills — so at zero opacity a tap in the gap BETWEEN two glass bubbles still
+    opened the followers list. `pointerEvents` is not animatable, so the disarm
+    has to be a JS decision.
+
+    This is the one place the pager listens to `scrollY` rather than only
+    interpolating it, and it is deliberately attached ONLY when a fade was asked
+    for: a listener on a natively-driven value costs a JS callback per frame, and
+    no caller without `headerFadeDistance` should pay for it. Portfolio already
+    runs one on this same value for its search pill, so this adds no new class of
+    work to the only screen that opts in.
+  */
+  const [isHeaderFaded, setIsHeaderFaded] = useState(false);
+  useEffect(() => {
+    if (!headerFadeDistance || collapseDistance <= 0) {
+      setIsHeaderFaded(false);
+      return;
+    }
+    const id = scrollY.addListener(({ value }) => {
+      const faded = value >= collapseEnd;
+      setIsHeaderFaded((previous) => (previous === faded ? previous : faded));
+    });
+    return () => scrollY.removeListener(id);
+  }, [collapseDistance, collapseEnd, headerFadeDistance, scrollY]);
 
   const pageProps = useMemo(() => {
     const props = {} as Record<V, CollapsiblePageProps>;
@@ -944,7 +1015,19 @@ export function CollapsibleTabPager<V extends string>({
           style={[styles.chrome, { transform: [{ translateY: headerTranslate }] }]}
           testID={`${testID}-chrome`}
         >
-          <View onLayout={handleHeaderLayout} testID={`${testID}-header`}>{header}</View>
+          {/*
+            `onLayout` stays on this wrapper: opacity does not change layout, so
+            `headerHeight` — which the whole collapse is measured from — is the
+            same number faded or not.
+          */}
+          <Animated.View
+            onLayout={handleHeaderLayout}
+            pointerEvents={isHeaderFaded ? 'none' : 'auto'}
+            style={headerOpacity ? { opacity: headerOpacity } : undefined}
+            testID={`${testID}-header`}
+          >
+            {header}
+          </Animated.View>
           <View onLayout={handleTabBarLayout}>{tabBar}</View>
         </Animated.View>
       </View>

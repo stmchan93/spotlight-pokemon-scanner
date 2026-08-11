@@ -75,6 +75,7 @@ export function PageTabs<V extends string>({
                     backgroundColor: selected ? theme.colors.textPrimary : 'transparent',
                   },
                 ]}
+                testID={testID ? `${testID}-tab-${tab.value}-underline` : undefined}
               />
             </Pressable>
           );
@@ -84,8 +85,22 @@ export function PageTabs<V extends string>({
   );
 }
 
-/** How far the active underline extends past its label, per side. */
-const UNDERLINE_OVERHANG = 4;
+/**
+ * Horizontal padding inside each tab, per side — and therefore how far the
+ * active underline extends past its label.
+ *
+ * Figma 3456:3193 gives every tab a fixed box (Collection 86, For Sale 69,
+ * Activity 66) with the label centred inside it and the underline spanning the
+ * box EDGE TO EDGE. Each box is about 20pt wider than its word, so 10 per side
+ * reproduces the drawing while still tracking each label's own width — which
+ * fixed pixel widths would not survive a longer label, another locale, or
+ * Dynamic Type.
+ *
+ * It was 4, applied as a negative margin on the underline instead of as padding
+ * on the tab. That read as a rule clipped to the word rather than one marking
+ * the tab, which is what "the underline should be this long" was about.
+ */
+const TAB_HORIZONTAL_PADDING = 10;
 
 const styles = StyleSheet.create({
   root: {
@@ -114,6 +129,10 @@ const styles = StyleSheet.create({
     // Bottom-padding-free: the 2px underline IS the tab's bottom edge (Figma
     // 3147:10092 puts it at y26 of a 28px tab), so it lands on the rail.
     paddingTop: 4,
+    // The box the underline fills. The 40pt `gap` sits between these boxes, so
+    // the visible space between two words is the gap plus both paddings —
+    // matching Figma, where the gap is measured box-to-box, not word-to-word.
+    paddingHorizontal: TAB_HORIZONTAL_PADDING,
   },
   label: {
     textAlign: 'center',
@@ -121,11 +140,9 @@ const styles = StyleSheet.create({
   },
   underline: {
     height: 2,
+    // Edge to edge of the tab, exactly as Figma draws it — the tab's own padding
+    // is what makes it wider than the word, so there is no negative margin here
+    // undoing a layout the tab just established.
     alignSelf: 'stretch',
-    // 4pt past the label on each side (8pt wider overall). `stretch` alone hugs
-    // the text exactly, which made the stroke read as clipped to the word rather
-    // than marking the tab. Negative margin rather than a width, so it still
-    // tracks each label's own width instead of being pinned to one number.
-    marginHorizontal: -UNDERLINE_OVERHANG,
   },
 });

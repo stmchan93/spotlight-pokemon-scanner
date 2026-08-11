@@ -1,9 +1,13 @@
-import { Alert } from 'react-native';
+import { Alert, StyleSheet } from 'react-native';
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { useRouter } from 'expo-router';
 
 import { createPost } from '@/features/social/social-service';
-import { NewPostScreen } from '@/features/social/screens/new-post-screen';
+import {
+  NewPostScreen,
+  keyboardLift,
+  resolveComposerInsets,
+} from '@/features/social/screens/new-post-screen';
 
 import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
 
@@ -194,45 +198,260 @@ describe('NewPostScreen', () => {
     alertSpy.mockRestore();
     global.fetch = originalFetch;
   });
+  it('offers no drag affordance, because there is no drag to dismiss', () => {
+    renderWithProviders(<NewPostScreen />);
+
+    // The composer is a full-page modal with `gestureEnabled: false` on both
+    // platforms. A grabber over a surface you cannot drag is a lie about the
+    // controls the screen has.
+    expect(screen.queryByTestId('sheet-header-handle')).toBeNull();
+  });
+
   /*
-    A downward swipe anywhere on the sheet dismisses it — including over the
-    text area — and there is no draft persistence behind this screen, so an
-    accidental flick after attaching a photo simply destroyed the post.
+    There is no draft persistence behind this screen, so every removal has to be
+    intercepted: what is typed and attached only exists here. The gesture that
+    used to make this urgent is gone (full-page modal, no swipe on either
+    platform), which leaves the X button and Android's hardware back — both
+    deliberate, both still unrecoverable if they were a mis-tap.
+
+    The other half of this is the guard NOT firing when it shouldn't: a
+    successful post dismisses the screen while the body is still populated, and
+    re-arming inside that window resurrects the composer (see 'a successful post
+    never re-arms the discard guard').
   */
-  describe('guarding an unfinished post', () => {
-    /** Whether the remove-guard is armed on the most recent render. */
-    function guardArmed(): boolean {
-      const calls = mockPreventRemove.mock.calls;
-      return Boolean(calls[calls.length - 1]?.[0]);
+  describe('closing and posting', () => {
+    /*
+      There is NO discard confirmation any more, deliberately — see the long note
+      in `new-post-screen.tsx` where the guard used to be. It existed to protect
+      against a form sheet's drag-to-dismiss firing over the text field; that
+      gesture is gone, so the only exits left are the X button and hardware back,
+      both deliberate presses.
+
+      `usePreventRemove` is still mocked at the top of this file rather than
+      removed: it asserts the screen never quietly re-registers a guard.
+    */
+    /** Whether the screen registered a remove-guard on any render. */
+    function guardEverArmed(): boolean {
+      return mockPreventRemove.mock.calls.some((call) => Boolean(call[0]));
     }
 
-    it('stays out of the way while there is nothing to lose', async () => {
-      renderWithProviders(<NewPostScreen />);
-      await screen.findByTestId('new-post-body-input');
-
-      // An empty composer must still close on the first swipe; a confirm over
-      // nothing is its own kind of annoying.
-      expect(guardArmed()).toBe(false);
-    });
-
-    it('arms once something has been typed', async () => {
+    it('never registers a remove-guard, however much has been typed', async () => {
       renderWithProviders(<NewPostScreen />);
       const input = await screen.findByTestId('new-post-body-input');
 
       fireEvent.changeText(input, 'Just pulled a Charizard');
 
-      expect(guardArmed()).toBe(true);
+      expect(guardEverArmed()).toBe(false);
     });
 
-    it('disarms again when the text is cleared back to whitespace', async () => {
+    it('posts without raising any confirmation', async () => {
+      /*
+        THE REGRESSION TEST, and it outlived the guard it was written for.
+
+        `isSubmitting` used to be reset in a `finally` the instant the post
+        succeeded — with `body` still populated, so the guard re-armed DURING
+        the ~500ms native dismissal `router.back()` had just started. That
+        re-render reaches `NativeStackView` with `preventNativeDismiss={true}`
+        mid-animation, `RNSScreen.mm`'s `viewDidDisappear` takes the PREVENT
+        branch and calls `updateContainer`, and the composer comes BACK.
+
+        The guard is gone now, but the state machine that keeps `submitState`
+        terminal on success is what stops that re-render — so this still pins
+        the fix, and it also pins that posting is silent.
+      */
+      const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
       renderWithProviders(<NewPostScreen />);
       const input = await screen.findByTestId('new-post-body-input');
 
-      fireEvent.changeText(input, 'oops');
-      expect(guardArmed()).toBe(true);
-      fireEvent.changeText(input, '   ');
+      fireEvent.changeText(input, 'Pulled a Charizard');
+      fireEvent.press(screen.getByTestId('new-post-submit'));
 
-      expect(guardArmed()).toBe(false);
+      await waitFor(() => expect(back).toHaveBeenCalledTimes(1));
+      // Let every remaining microtask (and any state it sets) flush.
+      await waitFor(() => expect(createPost).toHaveBeenCalledTimes(1));
+
+      // No dialog on the way out — not the old discard prompt, not anything.
+      expect(alertSpy).not.toHaveBeenCalled();
+      expect(guardEverArmed()).toBe(false);
+      // POST stays disabled while the screen slides away, instead of flicking
+      // back to an inviting button.
+      expect(screen.getByTestId('new-post-submit')).toBeDisabled();
+
+      alertSpy.mockRestore();
+    });
+
+    it('a failed post leaves the composer usable', async () => {
+      const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      (createPost as jest.Mock).mockResolvedValueOnce(null);
+
+      renderWithProviders(<NewPostScreen />);
+      const input = await screen.findByTestId('new-post-body-input');
+
+      fireEvent.changeText(input, 'Pulled a Charizard');
+      fireEvent.press(screen.getByTestId('new-post-submit'));
+
+      await waitFor(() =>
+        expect(alertSpy).toHaveBeenCalledWith("Couldn't post", expect.any(String)),
+      );
+      // Nothing was published, so nothing may dismiss...
+      expect(back).not.toHaveBeenCalled();
+      // ...and the author can try again.
+      expect(screen.getByTestId('new-post-submit')).toBeEnabled();
+
+      alertSpy.mockRestore();
+    });
+
+    it('a thrown createPost is surfaced, not swallowed', async () => {
+      /*
+        Pins the `catch`. `handleSubmit` is fired as `void handleSubmit()`, so
+        before this a throw vanished into an unhandled rejection and only the
+        `finally` un-stuck the button. With the `finally` gone, an uncaught
+        throw would strand the composer at 'submitting' forever, leaving POST
+        permanently disabled with the author's text trapped behind it.
+      */
+      const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      (createPost as jest.Mock).mockRejectedValueOnce(new Error('network down'));
+
+      renderWithProviders(<NewPostScreen />);
+      const input = await screen.findByTestId('new-post-body-input');
+
+      fireEvent.changeText(input, 'Pulled a Charizard');
+      fireEvent.press(screen.getByTestId('new-post-submit'));
+
+      await waitFor(() =>
+        expect(alertSpy).toHaveBeenCalledWith("Couldn't post", expect.any(String)),
+      );
+      expect(back).not.toHaveBeenCalled();
+      await waitFor(() => expect(screen.getByTestId('new-post-submit')).toBeEnabled());
+
+      alertSpy.mockRestore();
+    });
+  });
+
+  /*
+    THE COMPOSER PAYS ITS OWN SAFE AREA, and these pin that it really does.
+
+    This screen used to be wrapped in `react-native-safe-area-context`'s native
+    `SafeAreaView` with `edges={['top','bottom','left','right']}`. Inside an iOS
+    `fullScreenModal` that view pays NOTHING: `RNCSafeAreaViewComponentView`
+    finds its provider by walking the NATIVE `superview` chain, and a modal is a
+    separately presented `UIViewController`, so the chain never reaches the root
+    `RNCSafeAreaProviderComponentView` and the lookup falls back to `self`. The
+    header landed under the Dynamic Island and the POST button sat one
+    home-indicator strip inside the keyboard, because `keyboardLift` subtracted
+    an inset that nothing had actually paid.
+
+    `src/app/(sheet)/_layout.tsx` hit the identical bug (its back button drew on
+    top of the clock) and worked around it with a nested `SafeAreaProvider`.
+    Here the padding is applied directly instead, so the number the container
+    pays and the number `keyboardLift` subtracts are literally the same
+    variable.
+  */
+  describe('safe-area insets', () => {
+    it('pads its own root view rather than trusting SafeAreaView', () => {
+      renderWithProviders(<NewPostScreen />);
+
+      // The harness mounts a SafeAreaProvider with the iPhone metrics
+      // (top 59 / bottom 34) — those must appear as REAL padding on the
+      // composer's own root, not be delegated to a native view that silently
+      // resolves them to zero inside a modal.
+      const root = StyleSheet.flatten(screen.getByTestId('new-post').props.style);
+      expect(root.paddingTop).toBe(59);
+      expect(root.paddingBottom).toBe(34);
+    });
+
+    it('falls back to the window metrics when the live inset reads zero', () => {
+      // The failure mode this whole change exists for: a presented modal
+      // reporting no inset at all. `initialWindowMetrics` is captured natively
+      // from the WINDOW at startup, so it still carries the notch.
+      expect(
+        resolveComposerInsets(
+          { bottom: 0, left: 0, right: 0, top: 0 },
+          { bottom: 34, left: 0, right: 0, top: 59 },
+        ),
+      ).toEqual({ bottom: 34, left: 0, right: 0, top: 59 });
+    });
+
+    it('keeps the live inset when it is the larger of the two', () => {
+      // Rotation, a taller status bar, a split-view width — the live provider
+      // is still the more current number whenever it has one.
+      expect(
+        resolveComposerInsets(
+          { bottom: 34, left: 21, right: 21, top: 59 },
+          { bottom: 34, left: 0, right: 0, top: 59 },
+        ),
+      ).toEqual({ bottom: 34, left: 21, right: 21, top: 59 });
+    });
+
+    it('tolerates absent window metrics', () => {
+      // `initialWindowMetrics` is null on web and under the test renderer.
+      expect(resolveComposerInsets({ bottom: 34, left: 0, right: 0, top: 59 }, null)).toEqual({
+        bottom: 34,
+        left: 0,
+        right: 0,
+        top: 59,
+      });
+    });
+
+    it('never returns a negative inset', () => {
+      expect(
+        resolveComposerInsets({ bottom: -8, left: 0, right: 0, top: -8 }, null),
+      ).toEqual({ bottom: 0, left: 0, right: 0, top: 0 });
+    });
+  });
+
+  /*
+    The footer's lift is arithmetic over two numbers the two platforms define
+    differently, which is exactly the kind of thing that gets "simplified" back
+    into a bug. See `keyboardLift`'s own comment for the citation.
+  */
+  describe('keyboardLift', () => {
+    it('subtracts the safe-area inset on iOS, which the keyboard frame overlaps', () => {
+      expect(keyboardLift(300, 34, 'ios')).toBe(266);
+    });
+
+    it('does NOT subtract on Android, where the reported height already excludes the nav bar', () => {
+      // ReactRootView.java:922 — `int height = imeInsets.bottom - barInsets.bottom;`
+      // The reported height is measured ABOVE the navigation bar, while
+      // SafeAreaView pays that bar separately. Subtracting here under-lifts by
+      // exactly one nav bar (~24pt gesture, ~48pt three-button) and buries the
+      // POST button.
+      expect(keyboardLift(300, 48, 'android')).toBe(300);
+      expect(keyboardLift(300, 48, 'android')).not.toBe(252);
+    });
+
+    it('lifts nothing when the keyboard is down', () => {
+      expect(keyboardLift(0, 34, 'ios')).toBe(0);
+      expect(keyboardLift(0, 48, 'android')).toBe(0);
+    });
+
+    /*
+      THE CONTRACT, stated as the invariant the screen actually needs.
+
+      `bottomInset` is the padding the composer's own root View applies — it is
+      the same `safeArea.bottom` passed to both, not an inset some other
+      component may or may not have paid. The footer's bottom edge therefore
+      sits `bottomInset + lift` above the screen's bottom edge, and that total
+      is what has to clear the keyboard.
+    */
+    it('lands the footer exactly on the keyboard on iOS', () => {
+      // iOS reports the keyboard in SCREEN coordinates, so it already covers
+      // the home-indicator strip: total clearance == the keyboard height.
+      const bottomInset = 34;
+      expect(bottomInset + keyboardLift(300, bottomInset, 'ios')).toBe(300);
+    });
+
+    it('clears the nav bar AND the keyboard on Android', () => {
+      // ReactRootView.java:922 reports the height ABOVE the nav bar, so the
+      // total is the keyboard PLUS the bar the padding pays separately.
+      const bottomInset = 48;
+      expect(bottomInset + keyboardLift(300, bottomInset, 'android')).toBe(348);
+    });
+
+    it('still holds the footer off the home indicator with the keyboard down', () => {
+      // Lift is zero, so the padding alone is the clearance.
+      const bottomInset = 34;
+      expect(bottomInset + keyboardLift(0, bottomInset, 'ios')).toBe(34);
     });
   });
 });

@@ -1,33 +1,79 @@
-import { Bell, Menu, Plus } from 'iconoir-react-native';
+import { Bell, EditPencil, Menu, Plus, ShareIos } from 'iconoir-react-native';
 import { useMemo } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   GlassNavBubble,
+  GlassNavBubbleGroup,
   SearchEntryPill,
   Text,
-  borderWidths,
+  glassNavBubbleSizes,
   useSpotlightTheme,
+  type GlassNavBubbleGroupItem,
 } from '@spotlight/design-system';
 
 import { EkalightMark } from '@/components/ekalight-mark';
 
+/**
+ * WHICH PAIR OF SYMBOLS THE TRAILING CAPSULE CARRIES — the ONE thing that
+ * differs between the two frames this bar draws. Home's toolbar (3567:22969) is
+ * a bell and a `+`; the profile toolbar (3670:47454) is an edit pencil and a
+ * share glyph. Everything else — the 40pt menu bubble at x=16, the 8pt gaps, the
+ * 215pt pill, the 90pt capsule at x=287 — is identical, which is exactly why
+ * this is a variant on ONE component rather than a second bar.
+ *
+ * A DISCRIMINATED UNION, not a `trailing: ReactNode` render slot and not four
+ * loose optional callbacks:
+ *
+ * - A render slot would push the capsule out to the callers, and the capsule's
+ *   width is load-bearing: the row only closes at 393 because the trailing
+ *   control is exactly 90 (`glassNavBubbleGroupWidth(2)`). Two screens each
+ *   building their own would be two places for that to drift, and nothing would
+ *   stop a third symbol being added and silently stealing 42pt from the pill.
+ * - Loose optionals (`onOpenAdd?`, `onEditProfile?`, …) make every illegal
+ *   combination representable — a bar with a bell and a share glyph, or with
+ *   none at all — and push a runtime "which of these did I get" decision into
+ *   the render. The union makes the two legal shapes the only two shapes, and
+ *   the unread count belongs to the bell so it travels with it.
+ *
+ * The bell's unread badge stays INSIDE this file either way. It hangs outside
+ * its slot at `top: -2, right: -2` and only survives because the capsule and its
+ * slots are `overflow: 'visible'` — a contract between the badge and the
+ * primitive that a caller composing its own children would not know to keep.
+ */
+export type HomeHeaderTrailing =
+  | {
+      kind: 'home';
+      /** Spoken label for the `+`, which changes with the active profile tab. */
+      addAccessibilityLabel: string;
+      onOpenAdd: () => void;
+      onOpenNotifications: () => void;
+      unreadCount: number;
+    }
+  | {
+      kind: 'profile';
+      onEditProfile: () => void;
+      onShareProfile: () => void;
+    };
+
 type HomeHeaderProps = {
-  /** Spoken label for the `+`, which changes with the active profile tab. */
-  addAccessibilityLabel: string;
-  onOpenAdd: () => void;
   onOpenMenu: () => void;
-  onOpenNotifications: () => void;
   /** Tapping the pill opens the full-screen card search. */
   onOpenSearch: () => void;
   /**
-   * FLOATING mode: absolutely positioned chrome over scrolling content, with no
-   * rule. Collection needs it — its pager owns a pinned chrome layer of its own
+   * FLOATING mode: absolutely positioned chrome over scrolling content rather
+   * than a row that takes up layout. BOTH callers (Home and Collection) pass
+   * it; the in-flow branch survives only as the fallback for a bar mounted
+   * somewhere that cannot reserve space for itself.
+   *
+   * Collection needs it — its pager owns a pinned chrome layer of its own
    * (profile block + tab bar), and putting a second in-flow bar inside that
    * layer made the two fight for the same space, which is how the profile tab
-   * bar ended up drawn over the status bar. Home has no such layer, so its bar
-   * is a real list row that scrolls away and carries the rule.
+   * bar ended up drawn over the status bar.
+   *
+   * A floating bar contributes NOTHING to layout, so the screen under it has to
+   * reserve `insets.top + HOME_HEADER_BAR_HEIGHT` itself.
    */
   floating?: boolean;
   /**
@@ -59,6 +105,23 @@ type HomeHeaderProps = {
    */
   scrollY?: Animated.Value;
   /**
+   * The `contentOffset.y` this page RESTS at — the origin every scroll-driven
+   * interpolation here measures travel from. Defaults to 0.
+   *
+   * NEGATIVE on iOS for both callers. Home's list and every Collection page run
+   * `contentInsetAdjustmentBehavior="automatic"`, so UIKit insets them and they
+   * sit at `-insets.top` at the top, not at 0. Interpolating from 0 instead
+   * spent the first whole safe-area inset of every scroll (~59pt on a notched
+   * phone) doing nothing, and only then started the pill's 56pt fade — the
+   * animation was offset by a status bar. Android takes the explicit-
+   * `paddingTop` branch, rests at 0, and must pass 0.
+   *
+   * Same quantity `useScrollToTop`'s `topOffset` and `CollapsibleTabPager`'s
+   * `contentInsetTop` describe; the screens compute it once and hand the same
+   * number to all of them.
+   */
+  scrollRestOffset?: number;
+  /**
    * False once the pill has faded out. Opacity alone leaves an invisible but
    * still tappable pill sitting over the content — `pointerEvents` is not
    * animatable, so it has to be switched off separately.
@@ -75,38 +138,76 @@ type HomeHeaderProps = {
    * the real inset. Defaults to the safe-area inset for that case.
    */
   topInset?: number;
-  unreadCount: number;
+  /** The pair of symbols in the 90×40 trailing capsule. See `HomeHeaderTrailing`. */
+  trailing: HomeHeaderTrailing;
   testID?: string;
 };
 
-/** Figma 3505:14521 — every control in the bar is a 36pt circle. */
+/** Figma "Home" 3523:15499 — every control in the bar is a 40pt circle. */
 const BUTTON_ICON_SIZE = 20;
-/** The app-mark badge inside the search pill (Figma 3505:14529). */
-const MARK_BADGE_SIZE = 28;
-const MARK_WIDTH = 21;
-const MARK_HEIGHT = 19;
-/** Figma 3505:14521 pads the bar 10pt above the row; the safe area adds the rest. */
-const BAR_PADDING_TOP = 10;
 /**
- * Gap between the control row and the rule below it — Figma 3505:14520 puts the
- * rule at y=120 against controls ending at y=104.
- */
-const RULE_GAP = 16;
-/**
- * Height of the bar below the safe-area inset — the 36pt control row plus its
- * padding. Exported because a FLOATING bar contributes nothing to layout, so the
- * screen under it has to reserve `insets.top + HOME_HEADER_BAR_HEIGHT` itself.
- * Reading it from here keeps the reservation and the bar from drifting apart.
- */
-export const HOME_HEADER_BAR_HEIGHT = BAR_PADDING_TOP + 36 + RULE_GAP;
-/**
- * Height of just the control row, below the safe-area inset — no rule gap.
+ * The profile glyphs match Home's 20pt, and the earlier reasoning for making
+ * them smaller was wrong.
  *
- * This is the BOTTOM EDGE OF THE BUBBLES, which is where anything that pins
- * under a floating bar has to stop. Collection's page-tab bar uses it: pinning
- * at 0 slid "Collection / For Sale / Activity" under the status bar clock.
+ * Figma measures the pencil at 18×18 and the share glyph at 16×18 (3670:47454 /
+ * 3670:48047) — but it also measures Home's bell at 16.66×18 and its `+` at
+ * 18×18, and this app has always drawn those at 20. So following the frame
+ * literally on ONE screen while rounding up on the other is precisely what made
+ * the You bar read lighter than Home's, which is how it was reported.
+ *
+ * Internal consistency wins here: every glyph in this bar is optically 20,
+ * whichever screen it is on. The share arrow keeps Figma's non-square ratio
+ * (16:18 scaled to 20 tall ≈ 18 wide) so it does not stretch into a square.
  */
-export const HOME_HEADER_ROW_HEIGHT = BAR_PADDING_TOP + 36;
+const EDIT_ICON_SIZE = BUTTON_ICON_SIZE;
+const SHARE_ICON_WIDTH = 18;
+const SHARE_ICON_HEIGHT = BUTTON_ICON_SIZE;
+/**
+ * The app-mark badge inside the search pill. Sized off the 40pt pill rather than
+ * off the old 36pt one, so the mark stays a badge inside the field instead of
+ * filling it. The Figma logo node is flattened, so only its outer box is
+ * measurable — the mark keeps the badge's existing inner ratio.
+ */
+const MARK_BADGE_SIZE = 22;
+const MARK_WIDTH = 16.5;
+const MARK_HEIGHT = 15;
+/**
+ * Height of the control row itself — the bubbles and the search pill are the
+ * same 40, so the shared token IS the row height. Taken from the token rather
+ * than repeated as a literal: the bar's reserved height is derived from it, and
+ * the two silently disagreeing is exactly how the pill ended up clipping 2pt
+ * short of the top of the row.
+ */
+const CONTROL_ROW_HEIGHT = glassNavBubbleSizes.compact;
+/**
+ * Figma's toolbar (3567:22969) is padded symmetrically, 8pt above the controls
+ * and 8 below. The safe-area inset adds the rest above.
+ */
+const BAR_PADDING_TOP = 8;
+/**
+ * The bar owns the space under its own controls now that no rule follows them.
+ * It used to be 0 here and 16 further down as a gap to a hairline; the hairline
+ * is gone, and without a real bottom pad the first post rides up under the
+ * bubbles.
+ */
+const BAR_PADDING_BOTTOM = 8;
+/**
+ * Height of the bar below the safe-area inset — the control row plus its padding
+ * above and below. Exported because a FLOATING bar contributes nothing to
+ * layout, so the screen under it has to reserve
+ * `insets.top + HOME_HEADER_BAR_HEIGHT` itself. Reading it from here keeps the
+ * reservation and the bar from drifting apart.
+ */
+export const HOME_HEADER_BAR_HEIGHT =
+  BAR_PADDING_TOP + CONTROL_ROW_HEIGHT + BAR_PADDING_BOTTOM;
+/**
+ * Height of the bar down to the BOTTOM EDGE OF THE BUBBLES — no bottom padding.
+ *
+ * That edge is where anything pinning under a floating bar has to stop.
+ * Collection's page-tab bar uses it: pinning at 0 slid "Collection / For Sale /
+ * Activity" under the status bar clock.
+ */
+export const HOME_HEADER_ROW_HEIGHT = BAR_PADDING_TOP + CONTROL_ROW_HEIGHT;
 /**
  * How far the page scrolls before the search pill has fully left the row.
  *
@@ -120,11 +221,13 @@ export const SEARCH_PILL_HIDE_DISTANCE = 56;
  * How far the pill travels to clear the row: its own height plus the padding
  * above it, so it is entirely past the clip's top edge at the end.
  */
-const SEARCH_PILL_TRAVEL = BAR_PADDING_TOP + 36;
+const SEARCH_PILL_TRAVEL = BAR_PADDING_TOP + CONTROL_ROW_HEIGHT;
 
 /**
- * Home's top bar (Figma 3505:14521): menu, a tap-to-search pill carrying the
- * Ekalight mark, notifications, and a `+`.
+ * Home's top bar (Figma "Home" 3523:15499, toolbar 3567:22969): menu, a
+ * tap-to-search pill carrying the Ekalight mark, notifications, and a `+`.
+ * Collection draws the same bar with the profile toolbar's trailing pair
+ * (3670:47454 — edit and share); see `HomeHeaderTrailing`.
  *
  * THE ONE TOP BAR. Home (the feed) and Collection both draw this. The feed
  * briefly had its own `FeedHeader` — same controls, but solid `IconButton`s in a
@@ -145,68 +248,155 @@ const SEARCH_PILL_TRAVEL = BAR_PADDING_TOP + 36;
  * the app's nav shape, and glass over an opaque page background simply reads as
  * a soft-tinted circle.
  *
- * THE RULE UNDERNEATH IS THE POINT. Figma 3505:14520 puts a hairline 16pt below
- * the 36pt control row (controls end at y=104, rule at y=120) and starts content
- * 16pt below that. It is what makes the bar look like the page's masthead
- * instead of something hovering over it. It previously came for free from
- * `PageTabs`' full-bleed rail under the Following/Global switch and vanished
- * with those tabs, which is why it is drawn explicitly here now.
+ * NO RULE UNDERNEATH. There is deliberately no hairline under this bar. It had
+ * one — the bar was drawn as a masthead, with a `gray200` line 16pt below the
+ * controls that the feed rendered as its own first list row so it could scroll
+ * away. The live frame draws no such line: the bar is floating glass that is
+ * MEANT to hover, and a hairline pinned over scrolling content is a line hanging
+ * in mid-air. The bar now reserves 8pt under its own controls and the first
+ * post's 16pt top inset supplies the rest; the only hairlines left on Home are
+ * the ones each post card closes with.
  */
 export function HomeHeader({
-  addAccessibilityLabel,
-  onOpenAdd,
   onOpenMenu,
-  onOpenNotifications,
   floating = false,
   onOpenSearch,
   pinnedBackdrop = false,
+  scrollRestOffset = 0,
   scrollY,
   searchInteractive = true,
   topInset,
-  unreadCount,
+  trailing,
   testID = 'portfolio-header',
 }: HomeHeaderProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
 
-  // The pill RIDES UP OUT of the row and is clipped away; the bubbles either
-  // side of it never move. Both interpolations run off the same offset over the
-  // same distance, so the slide and the fade finish together.
+  /*
+    The pill RIDES UP OUT of the row and is clipped away; the bubbles either
+    side of it never move. Both interpolations run off the same offset over the
+    same distance, so the slide and the fade finish together.
+
+    ANCHORED AT THE LIST'S REST OFFSET, NOT AT 0. `scrollY` carries an ABSOLUTE
+    `contentOffset.y`, which on an inset iOS list starts NEGATIVE — so a range
+    beginning at 0 held the pill fully open for the first safe-area inset of
+    every scroll and only then began the fade. `scrollRestOffset` is where the
+    page actually sits at the top, so the range measures TRAVEL from it (0 on
+    Android, where the page really does rest at 0).
+  */
   const searchMotion = useMemo(() => {
     if (!scrollY) {
       return null;
     }
+    const inputRange = [scrollRestOffset, scrollRestOffset + SEARCH_PILL_HIDE_DISTANCE];
     return {
       opacity: scrollY.interpolate({
-        inputRange: [0, SEARCH_PILL_HIDE_DISTANCE],
+        inputRange,
         outputRange: [1, 0],
         extrapolate: 'clamp',
       }),
       transform: [
         {
           translateY: scrollY.interpolate({
-            inputRange: [0, SEARCH_PILL_HIDE_DISTANCE],
+            inputRange,
             outputRange: [0, -SEARCH_PILL_TRAVEL],
             extrapolate: 'clamp',
           }),
         },
       ],
     };
-  }, [scrollY]);
+  }, [scrollRestOffset, scrollY]);
 
   // Reaches full opacity over the same distance the pill takes to leave, which
   // is far shorter than the profile block's collapse — so by the time anything
-  // is parked behind the bar, the backdrop is already solid.
+  // is parked behind the bar, the backdrop is already solid. Same rest-offset
+  // anchor as the pill, or the two would start at different moments.
   const backdropOpacity = useMemo(() => {
     if (!pinnedBackdrop || !scrollY) {
       return null;
     }
     return scrollY.interpolate({
-      inputRange: [0, SEARCH_PILL_HIDE_DISTANCE],
+      inputRange: [scrollRestOffset, scrollRestOffset + SEARCH_PILL_HIDE_DISTANCE],
       outputRange: [0, 1],
       extrapolate: 'clamp',
     });
-  }, [pinnedBackdrop, scrollY]);
+  }, [pinnedBackdrop, scrollRestOffset, scrollY]);
+
+  /*
+    The capsule's two slots, left to right. EXACTLY TWO in both variants — the
+    row closes at 393 only with a 90pt trailing control, so the count is part of
+    the frame's arithmetic and not a free parameter.
+  */
+  const trailingItems: GlassNavBubbleGroupItem[] =
+    trailing.kind === 'home'
+      ? [
+          {
+            accessibilityLabel:
+              trailing.unreadCount > 0
+                ? `Notifications, ${trailing.unreadCount} unread`
+                : 'Notifications',
+            children: (
+              <>
+                <Bell
+                  color={theme.colors.gray900}
+                  height={BUTTON_ICON_SIZE}
+                  width={BUTTON_ICON_SIZE}
+                />
+                {trailing.unreadCount > 0 ? (
+                  <View
+                    // Count capped at 9+ so the badge stays a circle — a
+                    // 3-digit count would stretch it into a lozenge.
+                    style={[
+                      styles.notificationBadge,
+                      { backgroundColor: theme.colors.dangerStrong },
+                    ]}
+                    testID={`${testID}-notifications-badge`}
+                  >
+                    <Text style={[theme.typography.overline, { color: theme.colors.gray0 }]}>
+                      {trailing.unreadCount > 9 ? '9+' : String(trailing.unreadCount)}
+                    </Text>
+                  </View>
+                ) : null}
+              </>
+            ),
+            onPress: trailing.onOpenNotifications,
+            testID: `${testID}-notifications`,
+          },
+          {
+            accessibilityLabel: trailing.addAccessibilityLabel,
+            children: (
+              <Plus color={theme.colors.gray900} height={BUTTON_ICON_SIZE} width={BUTTON_ICON_SIZE} />
+            ),
+            onPress: trailing.onOpenAdd,
+            testID: `${testID}-add`,
+          },
+        ]
+      : [
+          {
+            accessibilityLabel: 'Edit profile',
+            children: (
+              <EditPencil
+                color={theme.colors.gray900}
+                height={EDIT_ICON_SIZE}
+                width={EDIT_ICON_SIZE}
+              />
+            ),
+            onPress: trailing.onEditProfile,
+            testID: `${testID}-edit`,
+          },
+          {
+            accessibilityLabel: 'Share profile',
+            children: (
+              <ShareIos
+                color={theme.colors.gray900}
+                height={SHARE_ICON_HEIGHT}
+                width={SHARE_ICON_WIDTH}
+              />
+            ),
+            onPress: trailing.onShareProfile,
+            testID: `${testID}-share`,
+          },
+        ];
 
   return (
     <View
@@ -235,10 +425,12 @@ export function HomeHeader({
         style={[
           styles.row,
           {
+            paddingBottom: BAR_PADDING_BOTTOM,
             paddingHorizontal: theme.layout.pageGutter,
             paddingTop: BAR_PADDING_TOP,
           },
         ]}
+        testID={`${testID}-row`}
       >
       <GlassNavBubble
         accessibilityLabel="Open menu"
@@ -252,7 +444,8 @@ export function HomeHeader({
       {/*
         The clip is on the PILL'S OWN wrapper and must stay there. Put
         `overflow: 'hidden'` any further up and it shaves the bell's unread
-        badge, which hangs outside its bubble at `top: -2, right: -2`.
+        badge, which hangs outside its slot in the trailing capsule at
+        `top: -2, right: -2`.
       */}
       <View style={styles.searchPillClip} testID={`${testID}-search-clip`}>
       <Animated.View
@@ -260,6 +453,10 @@ export function HomeHeader({
         // otherwise it stays an invisible tap target over the first post.
         pointerEvents={searchInteractive ? 'auto' : 'none'}
         style={searchMotion}
+        // On the HOST node, so a test reads the RESOLVED interpolation (numbers)
+        // rather than the animated nodes the React element still holds — which
+        // is the only way the fade's origin is visible off-device.
+        testID={`${testID}-search-motion`}
       >
         <SearchEntryPill
           label="Search Cards"
@@ -287,80 +484,16 @@ export function HomeHeader({
       </Animated.View>
       </View>
 
-      <GlassNavBubble
-        accessibilityLabel={
-          unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'
-        }
-        onPress={onOpenNotifications}
-        size="compact"
-        testID={`${testID}-notifications`}
-      >
-        <Bell color={theme.colors.gray900} height={BUTTON_ICON_SIZE} width={BUTTON_ICON_SIZE} />
-        {unreadCount > 0 ? (
-          <View
-            // Count capped at 9+ so the badge stays a circle — a 3-digit count
-            // would stretch it into a lozenge that overhangs the bubble.
-            style={[styles.notificationBadge, { backgroundColor: theme.colors.dangerStrong }]}
-            testID={`${testID}-notifications-badge`}
-          >
-            <Text style={[theme.typography.overline, { color: theme.colors.gray0 }]}>
-              {unreadCount > 9 ? '9+' : String(unreadCount)}
-            </Text>
-          </View>
-        ) : null}
-      </GlassNavBubble>
-
-      <GlassNavBubble
-        accessibilityLabel={addAccessibilityLabel}
-        onPress={onOpenAdd}
-        size="compact"
-        testID={`${testID}-add`}
-      >
-        <Plus color={theme.colors.gray900} height={BUTTON_ICON_SIZE} width={BUTTON_ICON_SIZE} />
-      </GlassNavBubble>
-      </View>
-
       {/*
-        Full-bleed, so it reads as the page's own rule rather than a boxed
-        divider — it runs edge to edge while the controls above it keep the page
-        gutter.
-
-        Only in the IN-FLOW bar. A floating bar draws no rule of its own, because
-        a hairline pinned over scrolling content is a line hanging in mid-air;
-        those screens render `HomeHeaderRule` as the first row of their content
-        instead, which puts it in the same place at rest and lets it scroll away.
+        ONE CAPSULE, NOT TWO CIRCLES. Whichever pair it carries, the two symbols
+        share a single 90×40 glass pill (`Trailing → Button Group 1`), which is
+        also what leaves the flexed search pill its 215:
+        `16 + 40 + 8 + 215 + 8 + 90 + 16 = 393`. Two separate 40pt bubbles with
+        the row's own 8pt gap measure 88 and put the pill 2pt over.
       */}
-      {floating ? null : (
-        <View
-          style={[
-            styles.rule,
-            { backgroundColor: theme.colors.gray200, marginTop: RULE_GAP },
-          ]}
-          testID={`${testID}-rule`}
-        />
-      )}
+      <GlassNavBubbleGroup items={trailingItems} testID={`${testID}-trailing`} />
+      </View>
     </View>
-  );
-}
-
-/**
- * The hairline under the bar (Figma 3505:14283), for screens whose bar FLOATS.
- *
- * It belongs to the page, not to the chrome. The bar reserves `RULE_GAP` at the
- * bottom of `HOME_HEADER_BAR_HEIGHT`, so dropping this in as the first row of
- * the scrolling content lands it exactly where the frame puts it — 16pt under
- * the control row, 16pt above the first post — and then lets it travel up with
- * the content while the bubbles above stay put. Pinning it instead would leave a
- * grey line floating over posts with nothing above it to rule off.
- */
-export function HomeHeaderRule({ testID }: { testID?: string }) {
-  const theme = useSpotlightTheme();
-
-  return (
-    <View
-      style={[styles.rule, { backgroundColor: theme.colors.gray200 }]}
-      testID={testID}
-    />
   );
 }
 
@@ -379,18 +512,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
-  rule: {
-    height: borderWidths.rule,
-    width: '100%',
-  },
   markBadge: {
     alignItems: 'center',
     height: MARK_BADGE_SIZE,
     justifyContent: 'center',
     width: MARK_BADGE_SIZE,
   },
-  // Sits on the bell's top-right corner. The parent bubble is
-  // `overflow: 'visible'`, so the badge can hang past its edge without clipping.
+  // Sits on the bell's top-right corner, hanging past it. Both the capsule and
+  // its 36pt slots are `overflow: 'visible'` (see `GlassNavBubbleGroup`), so
+  // nothing between here and the row shaves it.
   notificationBadge: {
     alignItems: 'center',
     borderRadius: 9,

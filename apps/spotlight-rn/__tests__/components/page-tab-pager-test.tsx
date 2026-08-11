@@ -236,6 +236,7 @@ function renderPager({
   collectionEditing = false,
   disabled = false,
   contentInsetTop,
+  headerFadeDistance,
   onChange = jest.fn(),
   pageRefs,
   pinnedTopInset,
@@ -248,6 +249,7 @@ function renderPager({
   collectionEditing?: boolean;
   disabled?: boolean;
   contentInsetTop?: number;
+  headerFadeDistance?: number;
   onChange?: (next: Tab) => void;
   pageRefs?: Partial<Record<Tab, { readonly current: CollapsibleScrollTarget | null }>>;
   pinnedTopInset?: number;
@@ -288,6 +290,7 @@ function renderPager({
         contentInsetTop={contentInsetTop}
         disabled={disabled}
         header={<View testID="pager-header" />}
+        headerFadeDistance={headerFadeDistance}
         onChange={onChange}
         order={TABS}
         pageRefs={pageRefs}
@@ -424,6 +427,108 @@ describe('CollapsibleTabPager', () => {
       // Guards the interpolation: a negative distance would invert the
       // translate and drive the header DOWN the screen as you scroll.
       expect(collapseDistanceAfterHeaderLayout(400)).toBe(0);
+    });
+  });
+
+  /*
+    THE PARKED STRIP, AND WHY IT HAS TO DISAPPEAR.
+
+    `pinnedTopInset` stops the collapse short on purpose, which leaves the
+    header's last `pinnedTopInset` points sitting in the strip behind whatever
+    floats above the pager. On Portfolio that tail is the Followers/Following
+    row, and the floating chrome there is a row of SEPARATE glass bubbles — so
+    the pills showed through the gaps between them, half-covered.
+
+    Making the bar opaque was tried first and rejected on sight ("a weird white
+    bar"), so the header fades instead, the way Home's search pill and the
+    Wishlist title already do.
+  */
+  describe('headerFadeDistance', () => {
+    // 300pt header parked 100 short → 200 of travel; a 100pt fade therefore
+    // runs across the SECOND half of it, [100, 200].
+    function renderFadingPager(headerFadeDistance?: number) {
+      const scrollY = new Animated.Value(0);
+      renderPager({ headerFadeDistance, pinnedTopInset: 100, scrollY });
+      act(() => {
+        fireEvent(screen.getByTestId('pager-header').parent as never, 'layout', {
+          nativeEvent: { layout: { height: 300, width: 393, x: 0, y: 0 } },
+        });
+      });
+      return scrollY;
+    }
+
+    // The HOST node's style carries the interpolation already resolved to a
+    // number; the React element still holds animated nodes.
+    function headerStyle() {
+      return StyleSheet.flatten(
+        screen.getByTestId('collapsible-tab-pager-header').props.style,
+      ) as { opacity?: number };
+    }
+
+    function headerPointerEvents() {
+      return screen.getByTestId('collapsible-tab-pager-header').props.pointerEvents;
+    }
+
+    it('leaves the header alone when no fade was asked for', () => {
+      const scrollY = renderFadingPager();
+      act(() => scrollY.setValue(200));
+
+      // Not "opacity 1" — no opacity at all, so a pager without a floating bar
+      // above it pays nothing for this.
+      expect(headerStyle()?.opacity).toBeUndefined();
+      expect(headerPointerEvents()).toBe('auto');
+    });
+
+    it('holds the header solid until the fade band begins', () => {
+      const scrollY = renderFadingPager(100);
+
+      expect(headerStyle().opacity).toBe(1);
+      act(() => scrollY.setValue(100));
+      expect(headerStyle().opacity).toBe(1);
+    });
+
+    it('is half faded half way through the band', () => {
+      const scrollY = renderFadingPager(100);
+      act(() => scrollY.setValue(150));
+
+      expect(headerStyle().opacity).toBeCloseTo(0.5, 5);
+    });
+
+    it('finishes exactly when the collapse does, not before or after', () => {
+      const scrollY = renderFadingPager(100);
+      act(() => scrollY.setValue(199));
+      expect(headerStyle().opacity).toBeGreaterThan(0);
+
+      act(() => scrollY.setValue(200));
+      expect(headerStyle().opacity).toBe(0);
+    });
+
+    it('never starts part-faded when the band is wider than the travel', () => {
+      // 400 of fade over 200 of travel would otherwise begin at -200, i.e.
+      // already half gone at the top of the page.
+      const scrollY = renderFadingPager(400);
+
+      expect(headerStyle().opacity).toBe(1);
+      act(() => scrollY.setValue(200));
+      expect(headerStyle().opacity).toBe(0);
+    });
+
+    /*
+      OPACITY ALONE LEAVES A TAPPABLE GHOST. At zero opacity the Followers pill
+      is still a live target sitting between two glass bubbles, so a tap in the
+      gap opens a list the user cannot see. `pointerEvents` is not animatable,
+      which is why this is a separate JS decision rather than part of the style.
+    */
+    it('disarms the invisible header so it cannot swallow a tap', () => {
+      const scrollY = renderFadingPager(100);
+      expect(headerPointerEvents()).toBe('auto');
+
+      act(() => scrollY.setValue(200));
+      expect(headerPointerEvents()).toBe('none');
+
+      // And arms it again on the way back up.
+      act(() => scrollY.setValue(150));
+      expect(headerPointerEvents()).toBe('auto');
     });
   });
 

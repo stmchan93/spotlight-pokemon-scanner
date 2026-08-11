@@ -563,9 +563,38 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
               accessibilityRole="button"
               hitSlop={6}
               onPress={(event) => {
-                event.currentTarget.measureInWindow((x, y, width, height) => {
-                  onOpenRowMenu(capture.id, { height, width, x, y });
-                });
+                /*
+                  ─────────────────────────────────────────────────────────────
+                  THE MENU MUST NOT DEPEND ON measureInWindow CALLING BACK
+                  ─────────────────────────────────────────────────────────────
+                  Opening only inside the measure callback made this button read
+                  as DEAD on Android: when the callback never fires — a known
+                  flake this file already guards against on the ADD ALL trigger
+                  (`typeof node.measureInWindow === 'function'`, plus its
+                  null-anchor fallback) — the tap was silently swallowed.
+
+                  So: try the precise measure first, and if it has not answered
+                  within a beat, open anyway anchored at the TAP POINT, which by
+                  definition lies inside the pill — the dropdown lands within a
+                  few px of where the real box would put it. Read the pooled
+                  event's fields synchronously; they are not safe to touch from
+                  inside async callbacks.
+                */
+                const { pageX = 0, pageY = 0 } = event.nativeEvent ?? {};
+                const target = event.currentTarget;
+                let opened = false;
+                const open = (anchor: { x: number; y: number; width: number; height: number }) => {
+                  if (!opened) {
+                    opened = true;
+                    onOpenRowMenu(capture.id, anchor);
+                  }
+                };
+                if (target && typeof target.measureInWindow === 'function') {
+                  target.measureInWindow((x, y, width, height) => {
+                    open({ height, width, x, y });
+                  });
+                }
+                setTimeout(() => open({ height: 0, width: 0, x: pageX, y: pageY }), 50);
               }}
               style={({ pressed }) => [
                 styles.captureAddPill,
@@ -575,8 +604,9 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
             >
               <Text style={styles.captureAddPillLabel}>ADD</Text>
               {/* Real chevron glyph (Figma 1874:13192) — the old "▾" text
-                  triangle read as a down ARROW. */}
-              <IconChevronDown color={colors.gray0} size={14} strokeWidth={2} />
+                  triangle read as a down ARROW. Sized 16 per the newer footer
+                  spec (3594:26000). */}
+              <IconChevronDown color={colors.gray0} size={16} strokeWidth={2} />
             </Pressable>
           </View>
         ) : null}
@@ -3395,7 +3425,8 @@ const styles = StyleSheet.create({
   capturePriceValueRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 2,
+    // Figma 3594:25994 — 5 between the TCGplayer mark and the price.
+    gap: 5,
   },
   capturePriceWrap: {
     alignItems: 'flex-end',
@@ -3427,8 +3458,11 @@ const styles = StyleSheet.create({
     lineHeight: 17.55,
   },
   captureThumb: {
+    // Figma 3594:25986 — 58x80 at radius 2.695, which is a real card's corner
+    // scaled to thumbnail size, not a UI radius. The old 6 rounded it like a
+    // tile and read as a rounded button rather than a card.
     backgroundColor: colors.scannerSurfaceStrong,
-    borderRadius: 6,
+    borderRadius: 2.695,
     height: 80,
     width: 58,
   },
@@ -3477,8 +3511,10 @@ const styles = StyleSheet.create({
     width: 108,
   },
   captureAddPill: {
-    // Figma "ADD ⌄" pill (1874:13192): filled purple/500 #A54BFA, px-12/py-4,
-    // radius-8, Plus Jakarta Sans SemiBold 13 white label + 14px chevron.
+    // Figma "ADD ⌄" pill: filled purple/500 #A54BFA, radius-8, Plus Jakarta
+    // Sans SemiBold 13 white label + 16px chevron. Horizontal padding is 8 per
+    // the footer spec (3594:25998); the earlier 1874:13192 said 12, and this
+    // node is the later of the two.
     alignItems: 'center',
     backgroundColor: colors.scannerAddPurple,
     borderRadius: radii.sm,
@@ -3486,7 +3522,7 @@ const styles = StyleSheet.create({
     gap: 2,
     justifyContent: 'center',
     minHeight: 26,
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
     paddingVertical: 4,
   },
   captureAddPillPressed: {
@@ -3637,10 +3673,11 @@ const styles = StyleSheet.create({
     opacity: 0.94,
   },
   trayHandle: {
+    // Figma 3594:26001 — 36x4, radius 2, gray/100.
     backgroundColor: colors.gray100,
     borderRadius: 2,
     height: 4,
-    width: 40,
+    width: 36,
   },
   trayHandleWrap: {
     alignItems: 'center',

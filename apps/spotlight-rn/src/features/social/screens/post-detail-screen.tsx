@@ -119,7 +119,14 @@ export function PostDetailScreen({
           />
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          // `handled` so the comment sheet below this screen gets the FIRST tap
+          // while its keyboard is up. Unset, a `ScrollView` claims that touch in
+          // the capture phase to dismiss the keyboard, and send/⋯/like/reply all
+          // need two taps. Tapping the background still dismisses.
+          keyboardShouldPersistTaps="handled"
+        >
           <PostCard
             accessToken={accessToken}
             apiBaseUrl={apiBaseUrl}

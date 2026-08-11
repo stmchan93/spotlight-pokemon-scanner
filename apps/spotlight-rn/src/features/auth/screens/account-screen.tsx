@@ -38,8 +38,50 @@ function buildSupportMailtoUrl() {
   return `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}`;
 }
 
+/**
+ * App version plus the running JS bundle's identity, e.g. `1.2.0 · 019fece6 ·
+ * 10 Aug 03:14`. Falls back to just the version when expo-updates is absent
+ * (Expo Go, a dev client with updates disabled) or when running the bundle that
+ * shipped inside the binary, which has no update id.
+ *
+ * Deliberately NOT a hook and NOT memoised on anything: the values are fixed for
+ * the lifetime of the JS context, because applying an update restarts it.
+ */
+function resolveBuildStamp(): string {
+  const version = Constants.expoConfig?.version ?? '';
+  let updates: typeof import('expo-updates') | null = null;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    updates = require('expo-updates') as typeof import('expo-updates');
+  } catch {
+    updates = null;
+  }
+
+  const parts: string[] = [];
+  if (version) {
+    parts.push(version);
+  }
+  // `updateId` is null on the embedded bundle — that is meaningful, not missing:
+  // it means no OTA has been applied yet.
+  const updateId = updates?.updateId ?? null;
+  parts.push(updateId ? updateId.slice(0, 8) : 'embedded');
+  const createdAt = updates?.createdAt ?? null;
+  if (createdAt) {
+    parts.push(
+      createdAt.toLocaleString(undefined, {
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+    );
+  }
+  return parts.join(' · ');
+}
+
 export function AccountScreen() {
   const router = useRouter();
+  const buildStamp = resolveBuildStamp();
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const auth = useAuth();
@@ -366,6 +408,36 @@ export function AccountScreen() {
           </View>
         </SurfaceCard>
 
+        {/*
+          Safety lives next to Contact & support because they answer the same
+          question ("someone is bothering me"). Blocking used to be a one-way
+          door — nothing in the app called `unblockUser` — so this is the only
+          route back.
+        */}
+        <SurfaceCard padding={20} radius={28}>
+          <View style={styles.collectionDataCard}>
+            <View style={styles.showModeCopy}>
+              <Text style={[theme.typography.titleCompact, { color: theme.colors.textPrimary }]}>
+                Safety
+              </Text>
+              <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>
+                See who you&apos;ve blocked and unblock them.
+              </Text>
+            </View>
+            <View style={styles.collectionDataButtons}>
+              <Button
+                label="Blocked accounts"
+                onPress={() => {
+                  router.push('/account/blocked' as never);
+                }}
+                size="lg"
+                testID="account-blocked-accounts"
+                variant="outline"
+              />
+            </View>
+          </View>
+        </SurfaceCard>
+
         {isAdmin ? (
           <SurfaceCard padding={20} radius={28}>
             <View style={styles.showModeRow}>
@@ -501,6 +573,23 @@ export function AccountScreen() {
           testID="account-delete"
           variant="outline"
         />
+
+        {/*
+          WHICH JS BUNDLE AM I ACTUALLY RUNNING?
+
+          `fallbackToCacheTimeout` is unset, so expo-updates defaults to 0: the
+          app launches from the bundle it already has and fetches the new one in
+          the BACKGROUND, which then applies on the NEXT launch. One cold start
+          after a push therefore still runs the previous bundle — and there was
+          no way to tell from inside the app, so "the fix didn't work" and "the
+          fix hasn't loaded yet" looked identical during testing.
+
+          This line ends that. Read the short id aloud against the OTA output and
+          you know in one second which of the two you are looking at.
+        */}
+        <Text style={[theme.typography.caption, styles.buildStamp, { color: theme.colors.textSecondary }]} testID="account-build-stamp">
+          {buildStamp}
+        </Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -589,5 +678,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minHeight: 54,
     paddingHorizontal: 18,
+  },
+  // Diagnostic, not chrome: centred and quiet at the very bottom, below even the
+  // destructive actions, so it is findable when you need it and invisible when
+  // you do not.
+  buildStamp: {
+    marginTop: 8,
+    textAlign: 'center',
   },
 });

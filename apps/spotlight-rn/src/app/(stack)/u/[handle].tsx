@@ -25,11 +25,17 @@ export default function PublicProfileRoute() {
   const params = useLocalSearchParams<{
     handle?: string | string[];
     userId?: string | string[];
+    tab?: string | string[];
   }>();
 
   const slug = firstParam(params.handle).trim().replace(/^@+/, '');
   const explicitUserId = firstParam(params.userId).trim();
   const slugIsUserId = USER_ID_PATTERN.test(slug);
+  // `?tab=` comes from a shared deep link (`profile-link.ts`). Anything we don't
+  // recognise is IGNORED rather than an error: an old link naming a tab that no
+  // longer exists should still open the profile, just on its default page.
+  const requestedTab = firstParam(params.tab).trim().toLowerCase();
+  const initialTab = requestedTab === 'wishlist' ? 'wishlist' : undefined;
 
   const handle = slugIsUserId || !slug ? undefined : slug;
   const userId = explicitUserId || (slugIsUserId ? slug : undefined);
@@ -42,6 +48,7 @@ export default function PublicProfileRoute() {
     <PublicProfileScreen
       key={`${handle ?? ''}:${userId ?? ''}`}
       handle={handle}
+      initialTab={initialTab}
       onBack={() => router.back()}
       onOpenEntry={(entry) => {
         // Someone else's copy: pass the card + a display preview, but never the

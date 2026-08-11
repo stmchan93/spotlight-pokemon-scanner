@@ -12,8 +12,21 @@ import { Text } from './scaled-text';
 import { useSpotlightTheme } from '../theme';
 
 /**
- * Visible bar height above the safe-area inset. Exported so floating affordances
- * (e.g. the add FAB) can sit a fixed gap above the nav.
+ * Visible height of THIS component's pill, above the safe-area inset.
+ *
+ * NOT THE APP'S TAB BAR. `BottomTabBar` is the retired JS nav: the app draws
+ * `NativeTabs` (`apps/spotlight-rn/src/app/(tabs)/_layout.tsx`), i.e. UIKit's own
+ * `UITabBarController` on iOS and Material's `BottomNavigationView` on Android,
+ * and neither is 44 tall.
+ *
+ * DO NOT USE THIS TO CLEAR THE TAB BAR. Floating affordances that added it sat
+ * ~44pt too high on every screen (and cleared a bar that was not there at all on
+ * pushed stack screens). The bar's real height is never needed — both platforms
+ * already report the room their chrome takes; see
+ * `apps/spotlight-rn/src/lib/tab-bar-insets.tsx` for how, per platform.
+ *
+ * Kept only because this component is still exported. It has no consumer outside
+ * this file.
  */
 export const bottomTabBarHeight = 44;
 

@@ -20,18 +20,40 @@ function styleOf(testID: string): Record<string, unknown> {
 }
 
 describe('GlassButtonGroup', () => {
-  it('falls back to gray50 — the fill the buttons it replaces already used', () => {
+  it('falls back to white, the same fill GlassNavBubble uses', () => {
     renderGroup(
       <GlassButtonGroup testID="group">
         <Text>a</Text>
       </GlassButtonGroup>,
     );
 
-    // Deliberately NOT a new shade: `IconButton variant="subtle"` is gray50, and
-    // the design's glass composites to #f7f7f7 over a white page. Inventing a
-    // different grey here would make the fallback look like a regression on
-    // every device that is not an iOS 26 phone.
-    expect(styleOf('group').backgroundColor).toBe(colors.gray50);
+    /*
+      This asserted `gray50` until 2026-08-11, on the reasoning that
+      `IconButton variant="subtle"` is gray50 and the design's glass composites
+      to #f7f7f7 over a white page. Both true, and both beside the point: this
+      group sits NEXT TO `GlassNavBubble`, which falls back to white. On Android
+      — the platform with no glass to hide the difference — that shipped a white
+      menu bubble beside a grey action pill on the Wishlist bar, and a grey back
+      button and grey delete/share pair on card detail. One material, one
+      fallback.
+    */
+    expect(styleOf('group').backgroundColor).toBe(colors.canvasElevated);
+  });
+
+  /*
+    …AND THE SHADOW THAT MAKES THAT SURVIVABLE. `canvasElevated` IS the page
+    colour, so a white pill with no raised edge is an invisible one. `gray50`
+    never needed this; white does.
+  */
+  it('raises itself off the page when there is no glass to do it', () => {
+    renderGroup(
+      <GlassButtonGroup testID="group">
+        <Text>a</Text>
+      </GlassButtonGroup>,
+    );
+
+    // jest runs the non-glass path, which is the one that needs the shadow.
+    expect(styleOf('group').shadowOpacity).toBeGreaterThan(0);
   });
 
   it('lays its children out as ONE pill, not adjacent circles', () => {

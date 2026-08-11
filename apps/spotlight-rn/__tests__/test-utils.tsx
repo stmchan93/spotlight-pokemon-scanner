@@ -98,6 +98,10 @@ export function createTestSpotlightRepository(
       return overrides.getProfileDeckEntries?.(...args)
         ?? baseRepository.getProfileDeckEntries(...args);
     },
+    getProfileWishlistEntries: (...args) => {
+      return overrides.getProfileWishlistEntries?.(...args)
+        ?? baseRepository.getProfileWishlistEntries(...args);
+    },
     getProfilePortfolioSummary: (...args) => {
       return overrides.getProfilePortfolioSummary?.(...args)
         ?? baseRepository.getProfilePortfolioSummary(...args);

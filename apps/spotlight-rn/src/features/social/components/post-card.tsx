@@ -31,6 +31,7 @@ import {
   unrepostPost,
 } from '@/features/social/social-service';
 import { profileRouteSlug } from '@/features/social/profile-link';
+import { signalFeedNeedsRefresh } from '@/features/social/screens/new-post-screen';
 import { useAuth } from '@/providers/auth-provider';
 
 type PostCardProps = {
@@ -450,6 +451,11 @@ export function PostCard({
       if (!ok) {
         setReposted(wasReposted);
         setRepostCount((count) => Math.max(0, count + (nextReposted ? -1 : 1)));
+      } else {
+        // A repost changes what the feed AND the reposter's Activity should
+        // contain, and both lists are lazy — without this the row only appears
+        // after a cold restart. Signalled on undo too, so the row disappears.
+        signalFeedNeedsRefresh();
       }
       setRepostPending(false);
     })();

@@ -226,6 +226,7 @@ export function MorphLoop({
   );
   const morphPathProps = useAnimatedProps(() => ({ d: morphPath.value }));
   const morphGlowProps = useAnimatedProps(() => ({ d: morphPath.value }));
+  const morphPulseProps = useAnimatedProps(() => ({ d: morphPath.value }));
   // First-frame `d` (t = 0, i.e. you), same pattern as HeartToggle's
   // AnimatedPath — the UI thread takes the prop over from there.
   const openingShapePath = useMemo(() => outlinePathD(morphFrom), [morphFrom]);
@@ -244,6 +245,23 @@ export function MorphLoop({
     const mid = (from + to) / 2;
     const distance = Math.min(1, Math.abs(t.value - mid) / 0.22);
     return { opacity: 0.34 * (1 - distance) };
+  });
+
+  // The same white glow the reveal burns through the silhouette, echoed here so
+  // the card on the result screen reads as a replay of the beat the user just
+  // watched rather than as a different animation of the same two pictures.
+  //
+  // ONE peak per direction of the loop — the loop is ~5.7s long, so this lands
+  // around 0.35Hz. Nowhere near a strobe, and it is why this layer gets a glow
+  // but no pulse train: an accelerating pulse on an INFINITE loop would be
+  // exactly the repeated flashing the reveal is careful not to be. It also
+  // reaches zero at t = 1, which is where reduce-motion parks the loop, so
+  // someone who opted out sees a static creature and no glow at all.
+  const morphGlowFlashStyle = useAnimatedStyle(() => {
+    const [from, to] = MORPH;
+    const mid = (from + to) / 2;
+    const distance = Math.min(1, Math.abs(t.value - mid) / 0.26);
+    return { opacity: 0.5 * (1 - distance) };
   });
 
   return (
@@ -346,6 +364,19 @@ export function MorphLoop({
               testID={`${testID}-shape-path`}
             />
           </Svg>
+          <Animated.View
+            pointerEvents="none"
+            style={[StyleSheet.absoluteFillObject, morphGlowFlashStyle]}
+            testID={`${testID}-pulse`}
+          >
+            <Svg height={measured?.height ?? 0} width={measured?.width ?? 0}>
+              <AnimatedPath
+                animatedProps={morphPulseProps}
+                d={openingShapePath}
+                fill={colors.scannerTextPrimary}
+              />
+            </Svg>
+          </Animated.View>
         </Animated.View>
       ) : (
         <Animated.View

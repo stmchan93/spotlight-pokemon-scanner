@@ -72,6 +72,23 @@ describe('ProfileHeader', () => {
     expect(screen.getByText('Ash Ketchum')).toBeTruthy();
   });
 
+  /*
+    NO EDIT PENCIL BESIDE THE NAME. This block carried an owner-only pencil at
+    `profile-header-edit`, on the argument that the top bar of the day (Figma
+    3505:14521) had four slots and none of them was edit. The profile toolbar
+    (3670:47454) now gives edit a slot of its own, so the screen that owns the
+    bar owns the affordance and this block draws identity only.
+  */
+  it('draws no edit control of its own', () => {
+    renderHeader(<ProfileHeader displayName="Ash Ketchum" handle="ash" initials="AK" />);
+
+    expect(screen.queryByTestId('profile-header-edit')).toBeNull();
+    expect(screen.queryByLabelText('Edit profile')).toBeNull();
+    // The identity it used to sit next to is untouched.
+    expect(screen.getByText('Ash Ketchum')).toBeTruthy();
+    expect(screen.getByText('@ash')).toBeTruthy();
+  });
+
   it('renders the Verified badge when isVerified is set', () => {
     renderHeader(<ProfileHeader displayName="Ash Ketchum" initials="AK" isVerified />);
 

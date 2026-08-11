@@ -21,10 +21,22 @@ Fill ratios:
                           C — 0.78 puts our INK area at 26%, between Notion (26%)
                           and Coinbase (28%), while staying under the grid's 80%
                           circle. 0.62 read as too small and 0.94 as too big.
-  Android foreground 0.58 — Android crops the adaptive foreground to a ~66% mask
-                          and may round it to a circle, so the mark has to stay
-                          inside the safe zone. 0.58 is the same *visual* fill as
-                          the iOS tile, measured against the visible area.
+  Android foreground 0.52 — DERIVED, not chosen: 0.78 * 72/108. Both adaptive
+                          layers are a 108dp canvas, but the launcher masks to
+                          the inner 72dp (the outer 18dp per side is bleed for
+                          parallax), so the fraction that decides how BIG the
+                          mark reads is mark/72, not mark/108. Matching the iOS
+                          tile's 78% of its visible container therefore means
+                          0.78 * 72/108 = 0.52 of the canvas.
+
+                          KEEP 72 AND 66 APART — conflating them is what put this
+                          at 0.58. 72dp is the MASK (the visible area). 66dp is
+                          the SAFE ZONE, the circle no OEM mask can clip. 0.58
+                          cleared the safe zone, so nothing was ever cut off; it
+                          just drew the mark at 87% of the visible width against
+                          iOS's 78%, which read as a noticeably bigger icon on
+                          the home screen. 0.52 puts it at 56.2dp — still inside
+                          the 66dp safe zone, with the same proportion as iOS.
 """
 
 from __future__ import annotations
@@ -42,7 +54,8 @@ ASSETS = REPO_ROOT / 'apps' / 'spotlight-rn' / 'assets'
 TILE_BACKGROUND = (252, 252, 250, 255)
 
 IOS_FILL = 0.78
-ANDROID_FILL = 0.58
+# 0.78 * 72/108 — see the fill-ratio note in the module docstring.
+ANDROID_FILL = 0.52
 
 # (relative path, canvas size, fill ratio, background)
 TARGETS = [

@@ -67,22 +67,6 @@ function needsPortraitRotation({
   return nativeIsLandscape && reportedIsPortrait;
 }
 
-async function loadNativeSourceImageDimensions(sourceImageUri: string): Promise<ScanSourceImageDimensions> {
-  const context = ImageManipulator.manipulate(sourceImageUri);
-  let image: { height: number; release?: () => void; width: number } | null = null;
-
-  try {
-    image = await context.renderAsync();
-    return {
-      height: image.height,
-      width: image.width,
-    };
-  } finally {
-    image?.release?.();
-    context.release?.();
-  }
-}
-
 function roundPositiveInt(value: number) {
   return Math.max(1, Math.round(value));
 }
@@ -190,68 +174,86 @@ export async function buildNormalizedScannerTarget({
   sourceImageDimensions: ScanSourceImageDimensions;
   sourceImageUri: string;
 }): Promise<NormalizedScannerTarget | null> {
-  const nativeSourceImageDimensions = await loadNativeSourceImageDimensions(sourceImageUri);
-  const normalizationRotationDegrees = needsPortraitRotation({
-    nativeSourceImageDimensions,
-    reportedSourceImageDimensions: sourceImageDimensions,
-  })
-    ? 90
-    : 0;
-  const cropBasisDimensions = normalizationRotationDegrees === 0
-    ? nativeSourceImageDimensions
-    : makeOrientationFixedSourceImageDimensions(nativeSourceImageDimensions);
-  const sourceImageCrop = makeReticleSourceImageCrop({
-    previewLayout,
-    reticle,
-    sourceImageDimensions: cropBasisDimensions,
-  });
-  if (!sourceImageCrop) {
-    return null;
-  }
-
-  const context = ImageManipulator.manipulate(sourceImageUri);
-  let normalizedImageRef: { height: number; release?: () => void; saveAsync: (options?: { base64?: boolean; compress?: number; format?: SaveFormat }) => Promise<{ base64?: string; height: number; uri: string; width: number }>; width: number } | null = null;
-  let normalizedImage: { base64?: string; height: number; uri: string; width: number } | null = null;
+  // ONE full-res decode per capture. `manipulate` accepts an already-decoded
+  // native image (SharedRef<'image'>) as its source, so the crop pass below
+  // re-uses this ref instead of re-reading the file. The previous shape decoded
+  // the same JPEG TWICE per shutter tap — once through a throwaway context that
+  // existed only to read the file's true pixel dimensions (the reported camera
+  // dimensions can disagree, which is what `needsPortraitRotation` resolves),
+  // then again to crop it. At FHD, on a burst-scanning session, that second
+  // decode is pure battery burn for a width and a height.
+  const sourceContext = ImageManipulator.manipulate(sourceImageUri);
+  let sourceImage: Awaited<ReturnType<typeof sourceContext.renderAsync>> | null = null;
+  let cropContext: ReturnType<typeof ImageManipulator.manipulate> | null = null;
+  let normalizedImageRef: Awaited<ReturnType<typeof sourceContext.renderAsync>> | null = null;
 
   try {
-    if (normalizationRotationDegrees !== 0) {
-      context.rotate(normalizationRotationDegrees);
+    sourceImage = await sourceContext.renderAsync();
+    const nativeSourceImageDimensions: ScanSourceImageDimensions = {
+      height: sourceImage.height,
+      width: sourceImage.width,
+    };
+    const normalizationRotationDegrees = needsPortraitRotation({
+      nativeSourceImageDimensions,
+      reportedSourceImageDimensions: sourceImageDimensions,
+    })
+      ? 90
+      : 0;
+    const cropBasisDimensions = normalizationRotationDegrees === 0
+      ? nativeSourceImageDimensions
+      : makeOrientationFixedSourceImageDimensions(nativeSourceImageDimensions);
+    const sourceImageCrop = makeReticleSourceImageCrop({
+      previewLayout,
+      reticle,
+      sourceImageDimensions: cropBasisDimensions,
+    });
+    if (!sourceImageCrop) {
+      return null;
     }
-    context.crop({
+
+    cropContext = ImageManipulator.manipulate(sourceImage);
+    if (normalizationRotationDegrees !== 0) {
+      cropContext.rotate(normalizationRotationDegrees);
+    }
+    cropContext.crop({
       originX: sourceImageCrop.x,
       originY: sourceImageCrop.y,
       width: sourceImageCrop.width,
       height: sourceImageCrop.height,
     });
-    context.resize({
+    cropContext.resize({
       width: rawCardNormalizedTargetWidth,
       height: rawCardNormalizedTargetHeight,
     });
 
-    normalizedImageRef = await context.renderAsync();
-    normalizedImage = await normalizedImageRef.saveAsync({
+    normalizedImageRef = await cropContext.renderAsync();
+    const normalizedImage = await normalizedImageRef.saveAsync({
       base64: includeBase64,
       compress: normalizedTargetCompress,
       format: SaveFormat.JPEG,
     });
+
+    if (!normalizedImage?.uri || (includeBase64 && !normalizedImage.base64)) {
+      return null;
+    }
+
+    return {
+      normalizedImageBase64: normalizedImage.base64 ?? null,
+      normalizedImageDimensions: {
+        height: normalizedImage.height,
+        width: normalizedImage.width,
+      },
+      normalizedImageUri: normalizedImage.uri,
+      nativeSourceImageDimensions,
+      normalizationRotationDegrees,
+      sourceImageCrop,
+    };
   } finally {
+    // The source ref has to outlive the crop render (it IS the crop's source),
+    // so every handle is released together here rather than per-stage.
     normalizedImageRef?.release?.();
-    context.release?.();
+    cropContext?.release?.();
+    sourceImage?.release?.();
+    sourceContext.release?.();
   }
-
-  if (!normalizedImage?.uri || (includeBase64 && !normalizedImage.base64)) {
-    return null;
-  }
-
-  return {
-    normalizedImageBase64: normalizedImage.base64 ?? null,
-    normalizedImageDimensions: {
-      height: normalizedImage.height,
-      width: normalizedImage.width,
-    },
-    normalizedImageUri: normalizedImage.uri,
-    nativeSourceImageDimensions,
-    normalizationRotationDegrees,
-    sourceImageCrop,
-  };
 }

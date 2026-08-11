@@ -66,6 +66,32 @@ function recipientFromProfile(profile: UserProfile): Recipient {
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 
 /**
+ * What a send actually puts in the thread.
+ *
+ * A post travels as an ID so the preview stays live (delete the post and the
+ * bubble goes with it). Everything else travels as message TEXT — notably the
+ * `spotlight://` profile/wishlist links, which deliberately need no schema of
+ * their own: `messages.body` has existed since social_02, so a text send works
+ * on every project the app talks to, including ones behind on migrations.
+ */
+export type ShareSheetPayload =
+  | { kind: 'post'; postId: string }
+  /**
+   * A collection or wishlist, as a REFERENCE (social_24) — the recipient gets a
+   * tappable preview card rather than a URL in the body. Needs the migration
+   * applied; `text` remains the form that works against a project behind on
+   * migrations.
+   */
+  | {
+      kind: 'profile';
+      userId: string;
+      tab: 'collection' | 'wishlist';
+      /** Sent instead if the project has not applied social_24. */
+      fallbackBody: string;
+    }
+  | { kind: 'text'; body: string };
+
+/**
  * "Send this post to…" — the in-app half of sharing a post.
  *
  * Deliberately NOT a repost. The post is sent to someone, not republished, so
@@ -86,13 +112,16 @@ const SCREEN_HEIGHT = Dimensions.get('window').height;
  * both live in other sessions' hands. Worth folding together later.)
  */
 export function SharePostSheet({
-  postId,
+  payload,
+  title = 'Send post to',
   visible,
   onClose,
   onSent,
   testID = 'share-post-sheet',
 }: {
-  postId: string;
+  payload: ShareSheetPayload;
+  /** Sheet heading. Names what tapping a recipient will actually send. */
+  title?: string;
   visible: boolean;
   onClose: () => void;
   /** Fired after each successful send, for callers that want to react. */
@@ -221,9 +250,22 @@ export function SharePostSheet({
           if (!conversationId) {
             return;
           }
-          // No caption: `body` is NOT NULL, so this sends '' and the post id
-          // carries the meaning.
-          const sent = await sendMessage(conversationId, '', { sharedPostId: postId });
+          // A post sends no caption: `body` is NOT NULL, so that path sends ''
+          // and the post id carries the meaning. A text payload is the inverse —
+          // the body IS the message and there is no attachment id.
+          // Attachments send no caption: `body` is NOT NULL, so those paths send
+          // '' and the reference carries the meaning. A text payload is the
+          // inverse — the body IS the message and there is no attachment.
+          const sent =
+            payload.kind === 'post'
+              ? await sendMessage(conversationId, '', { sharedPostId: payload.postId })
+              : payload.kind === 'profile'
+                ? await sendMessage(conversationId, '', {
+                    sharedProfileFallbackBody: payload.fallbackBody,
+                    sharedProfileTab: payload.tab,
+                    sharedProfileUserId: payload.userId,
+                  })
+                : await sendMessage(conversationId, payload.body);
           if (!sent) {
             return;
           }
@@ -235,7 +277,7 @@ export function SharePostSheet({
         }
       })();
     },
-    [onSent, postId, sentTo],
+    [onSent, payload, sentTo],
   );
 
   const data = trimmedQuery.length > 0 ? results : threads;
@@ -341,7 +383,7 @@ export function SharePostSheet({
           <Text
             style={[theme.typography.bodyMedium, styles.title, { color: theme.colors.gray900 }]}
           >
-            Send post to
+            {title}
           </Text>
         </View>
 

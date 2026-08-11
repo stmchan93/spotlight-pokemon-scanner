@@ -94,6 +94,24 @@ type AuthContextValue = EmailAuthActions & {
    * out authenticated. The repository calls it per request.
    */
   getAccessToken: () => string | null;
+  /**
+   * Move the signed-in user's OWN `followingCount` by `delta`, locally.
+   *
+   * Following someone writes a `follows` row and a `SECURITY DEFINER` trigger
+   * updates BOTH profiles' counters — verified correct in the database. But the
+   * viewer's own count is rendered from `currentUser`, which is loaded at
+   * sign-in and never re-read, so the number they were just looking at did not
+   * move while the person they followed visibly gained a follower.
+   *
+   * A local delta rather than a refetch, deliberately: the outcome of your own
+   * tap is already known, and a round trip to be told what you just did is both
+   * slower and able to fail. The server remains the source of truth — the next
+   * profile load overwrites this — so a lost race self-corrects rather than
+   * compounding.
+   *
+   * Clamped at 0. Callers MUST revert on a failed write (pass the negated delta).
+   */
+  applyFollowingDelta: (delta: number) => void;
   /** True while the active session is a guest (Supabase anonymous user). */
   isGuest: boolean;
   isBusy: boolean;
@@ -392,6 +410,20 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setState('signedIn');
   }, [setPendingGuest]);
 
+  // See `applyFollowingDelta` on AuthContextValue for why this is a local delta
+  // and not a refetch. Guarded against going negative: a double-tap that fired
+  // two unfollows must not leave the count below zero and then re-render as a
+  // negative number when a real read lands.
+  const applyFollowingDelta = useCallback((delta: number) => {
+    setCurrentUser((previous) => {
+      if (!previous) {
+        return previous;
+      }
+      const next = Math.max(0, (previous.followingCount ?? 0) + delta);
+      return next === previous.followingCount ? previous : { ...previous, followingCount: next };
+    });
+  }, []);
+
   const ensureGuestSession = useCallback(async (): Promise<Session | null> => {
     if (currentSession) {
       return currentSession;
@@ -586,6 +618,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     currentUser,
     ensureGuestSession,
     errorMessage,
+    applyFollowingDelta,
     getAccessToken: getCurrentAccessToken,
     // A guest is a guest whether or not we have paid for their identity yet, so
     // every existing gate keeps working across the deferred mint.
@@ -750,6 +783,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     },
   }), [
     appleSignInAvailable,
+    applyFollowingDelta,
     clearError,
     currentSession,
     currentUser,

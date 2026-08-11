@@ -102,7 +102,45 @@ def parse_args() -> argparse.Namespace:
         default="confirmed_scan",
         help="Value for the rowSource field on emitted entries.",
     )
+    parser.add_argument(
+        "--gcs-bucket",
+        default=None,
+        help=(
+            "Bucket holding the scan artifacts (e.g. looty-staging). Artifacts moved to "
+            "GCS, but `normalized_object_path` still stores a bucket-relative key, so "
+            "joining it onto --artifact-root finds nothing on disk and every confirmed "
+            "scan is rejected as missing_normalized_image. With this set, missing objects "
+            "are downloaded into --artifact-root once and reused."
+        ),
+    )
     return parser.parse_args()
+
+
+def download_from_gcs(bucket_name: str, object_path: str, destination: Path) -> bool:
+    """Fetch one artifact into the local cache. False when it isn't there.
+
+    Deliberately lazy and per-object: only CONFIRMED scans are exported, which is
+    a small fraction of the bucket, so mirroring it wholesale would move orders
+    of magnitude more bytes than the flywheel needs.
+    """
+    try:
+        from google.cloud import storage as gcs_storage
+    except ImportError:
+        raise SystemExit(
+            "--gcs-bucket needs google-cloud-storage. Run this on a VM where the "
+            "backend venv has it (.venv/bin/python), or pip install it."
+        ) from None
+
+    client = gcs_storage.Client()
+    blob = client.bucket(bucket_name).blob(object_path)
+    try:
+        if not blob.exists(client):
+            return False
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        blob.download_to_filename(str(destination))
+        return True
+    except Exception:  # noqa: BLE001 - a single unreachable object must not kill the export
+        return False
 
 
 def main() -> None:
@@ -148,6 +186,7 @@ def main() -> None:
         "holdout_overlap_namenumber": 0,
     }
     accepted: list[dict[str, Any]] = []
+    downloaded_count = 0
 
     for row in rows:
         scan_id = row["scan_id"]
@@ -161,6 +200,11 @@ def main() -> None:
             continue
         normalized_rel = str(row["normalized_object_path"] or "")
         normalized_path = artifact_root / normalized_rel
+        # Pull it down once if it only exists in the bucket. Cached under the
+        # same path the filesystem mode would have used, so a re-run is local.
+        if not normalized_path.exists() and args.gcs_bucket and normalized_rel:
+            if download_from_gcs(args.gcs_bucket, normalized_rel, normalized_path):
+                downloaded_count += 1
         if not normalized_path.exists():
             rejection_counts["missing_normalized_image"] += 1
             continue
@@ -194,6 +238,8 @@ def main() -> None:
 
     unique_pids = sorted({r["providerCardId"] for r in accepted})
     print()
+    if downloaded_count:
+        print(f"fetched {downloaded_count} artifact(s) from gs://{args.gcs_bucket}")
     print(f"accepted: {len(accepted)} confirmed scans across {len(unique_pids)} unique cards")
     print(f"rejections: {rejection_counts}")
     if not accepted:

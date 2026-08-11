@@ -356,6 +356,7 @@ PUBLIC_PROFILE_USER_ID_PATTERN = re.compile(
 
 PUBLIC_PROFILE_PATH_PREFIX = "/api/v1/profiles/"
 PUBLIC_PROFILE_DECK_ENTRIES_SUFFIX = "/deck/entries"
+PUBLIC_PROFILE_WISHLIST_ENTRIES_SUFFIX = "/wishlist/entries"
 PUBLIC_PROFILE_SUMMARY_SUFFIX = "/portfolio/summary"
 
 
@@ -19112,6 +19113,60 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                     {"error": f"Public collection load failed: {error}"},
+                )
+                return
+            finally:
+                _heavy_read_semaphore.release()
+            self._write_json(HTTPStatus.OK, payload)
+            return
+
+        # This collector's WISHLIST, for the public profile's Wishlist tab. Same
+        # read as the public collection above with `favorites_only=True` — the
+        # wishlist IS the owner's favorited subset of their deck rows, which is
+        # exactly what the owner's own `/api/v1/deck/entries?favorites=1` asks
+        # for. Public by the same rule the Collection tab already follows: any
+        # signed-in visitor past the access gate may read it.
+        if parsed.path.startswith(PUBLIC_PROFILE_PATH_PREFIX) and parsed.path.endswith(
+            PUBLIC_PROFILE_WISHLIST_ENTRIES_SUFFIX
+        ):
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            if not self._require_access(identity):
+                return
+            target_user_id = self._public_profile_target_user_id(
+                parsed.path, suffix=PUBLIC_PROFILE_WISHLIST_ENTRIES_SUFFIX
+            )
+            if target_user_id is None:
+                return
+            try:
+                limit = int(query.get("limit", ["200"])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "limit must be an integer"})
+                return
+            try:
+                offset = int(query.get("offset", ["0"])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "offset must be an integer"})
+                return
+            # Same heavy-read semaphore as the collection read: this is the same
+            # expensive per-owner inventory computation, just filtered.
+            if not self._acquire_heavy_read_slot():
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    payload = self.service.deck_entries_for_owner(
+                        target_user_id,
+                        limit=limit,
+                        offset=offset,
+                        include_inactive=False,
+                        favorites_only=True,
+                    )
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"Public wishlist load failed: {error}"},
                 )
                 return
             finally:

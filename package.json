@@ -9,6 +9,7 @@
     "dev:mobile:phone": "zsh tools/start_mobile_phone_dev.sh",
     "test:backend": "bash backend/run_all_tests.sh",
     "test:mobile": "pnpm --filter @spotlight/mobile-app test",
+    "test:db": "pnpm --filter @spotlight/mobile-app test:db",
     "check": "pnpm --filter @spotlight/mobile-app lint && pnpm --filter @spotlight/mobile-app typecheck && pnpm --filter @spotlight/mobile-app test:coverage && bash backend/run_all_tests.sh coverage",
     "backend:deploy:staging": "bash tools/run_staging_release_gate.sh",
     "backend:deploy:production": "bash tools/deploy_backend.sh production",

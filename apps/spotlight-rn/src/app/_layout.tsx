@@ -208,46 +208,57 @@ function AuthenticatedRoot() {
                 is load-bearing. react-native-screens ignores `stackPresentation`
                 on a stack's BOTTOM-MOST screen — there is nothing to present
                 over — and pushing `/new-post` from the tabs mounted the `(stack)`
-                navigator with new-post as its only route. The formSheet was
-                silently a no-op and the composer rendered as a full-screen push
-                with its close button jammed under the status bar.
+                navigator with new-post as its only route. The presentation was
+                silently a no-op and the composer rendered as a plain full-screen
+                push with its close button jammed under the status bar.
 
                 Here it is pushed over `(tabs)`, which is the root stack's
-                initial route, so the sheet presentation actually applies.
-                Figma 3147:10814 sizes it 393x787 on an 852pt screen (top edge at
-                y=65) — the 0.92 detent. `formSheet` is also what buys the two
-                dismissal gestures for free: drag down, or tap the dimmed area.
-
-                `sheetGrabberVisible` stays false because the composer draws its
-                own grabber; letting iOS add its system one would stack two bars.
+                initial route, so the modal presentation actually applies.
 
                 If you ever move this route back under a group, re-check that it
-                is not that group's first screen or the sheet silently dies again.
+                is not that group's first screen or the presentation silently
+                dies again.
+
+                The composer is a FULL-PAGE modal with no dismiss gesture on
+                either platform: it comes up from the bottom, and the only ways
+                out are the X button or a completed post (Twitter's composer).
+                A sheet gave the image and the body less room and put a
+                drag-to-dismiss over the text field; there is no draft
+                persistence behind this screen, so that gesture could only ever
+                lose work.
               */}
               <Stack.Screen
                 name="new-post"
                 options={{
                   /*
-                    Swipe-to-dismiss is iOS-only here.
+                    `slide_from_bottom` is MANDATORY, and it is doing work on
+                    exactly one platform.
 
-                    On Android the formSheet drag is armed across the WHOLE
-                    sheet, including the text field — holding a finger on
-                    "What's on your mind?" and moving down closed the composer.
-                    That is not a sheet you can type in. Android keeps Cancel
-                    and the hardware back button, which is the platform's own
-                    convention anyway.
+                    iOS ignores it: `RNSScreen.mm`'s `setStackAnimation` only
+                    touches `modalTransitionStyle` for fade/flip, so a
+                    `fullScreenModal` keeps `UIModalPresentationFullScreen`'s
+                    default `coverVertical` — which is already the slide-up we
+                    want, for free.
 
-                    `usePreventRemove` in `new-post-screen` still guards every
-                    exit path, so neither platform can silently bin a written
-                    post — this is about the gesture being unusable, not about
-                    losing work.
+                    Android is where it matters: `fullScreenModal` maps to a
+                    plain MODAL fragment whose default transition is an
+                    X-translate, so WITHOUT this the composer slides in from the
+                    RIGHT like an ordinary push. It reads as "a page deeper"
+                    rather than "a thing that came up over the app", and it does
+                    not match iOS.
                   */
-                  gestureEnabled: Platform.OS === 'ios',
-                  presentation: 'formSheet',
-                  sheetAllowedDetents: [0.92],
-                  sheetCornerRadius: 16,
-                  sheetExpandsWhenScrolledToEdge: false,
-                  sheetGrabberVisible: false,
+                  animation: 'slide_from_bottom',
+                  // No dismiss gesture anywhere. Exit is the X button, Android's
+                  // hardware back, or a completed post — all deliberate presses
+                  // on a specific target rather than a stray swipe.
+                  //
+                  // There is no discard confirmation behind them any more: it
+                  // was removed once the gesture it protected against no longer
+                  // existed. Closing DOES lose what was typed (there is no draft
+                  // persistence), which is now stated behaviour rather than
+                  // something a dialog apologised for.
+                  gestureEnabled: false,
+                  presentation: 'fullScreenModal',
                 }}
               />
             </Stack>

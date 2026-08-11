@@ -1,9 +1,6 @@
 import type { CardFavoriteEntry } from '@spotlight/api-client';
 
-import {
-  WISHLIST_SHARE_MAX_LINES,
-  buildWishlistShareMessage,
-} from '@/features/wishlist/wishlist-share';
+import { buildWishlistShareMessage } from '@/features/wishlist/wishlist-share';
 
 function entry(overrides: Partial<CardFavoriteEntry> & Pick<CardFavoriteEntry, 'name'>) {
   return {
@@ -21,61 +18,58 @@ function entry(overrides: Partial<CardFavoriteEntry> & Pick<CardFavoriteEntry, '
   } as CardFavoriteEntry;
 }
 
+/**
+ * The text that accompanies a shared wishlist — now a single line naming whose
+ * list it is, not an enumeration of the cards.
+ *
+ * WHY THE CARD LIST WENT AWAY. It duplicated what the accompanying link already
+ * showed, and it pushed the link so far down the bubble that it was easy to
+ * miss even when it rendered. When the sender's id is known the share now
+ * travels as a reference and the recipient gets a preview card (social_24);
+ * this text is the fallback for an identity-less session, and the form that
+ * still works against a project behind on that migration.
+ */
 describe('buildWishlistShareMessage', () => {
-  it('reads as a hunt list someone can scan', () => {
-    const message = buildWishlistShareMessage([
-      entry({ name: 'Charizard', cardNumber: '#004/102', setName: 'Base Set' }),
-      entry({ name: 'Gengar ex', cardNumber: '#088/091', setName: 'Paldean Fates' }),
-    ]);
+  const cards = [
+    entry({ name: 'Charizard', cardNumber: '#004/102', setName: 'Base Set' }),
+    entry({ name: 'Gengar ex', cardNumber: '#088/091', setName: 'Paldean Fates' }),
+  ];
 
-    expect(message).toBe(
-      "Cards I'm looking for:\n" +
-        'Charizard · #004/102 · Base Set\n' +
-        'Gengar ex · #088/091 · Paldean Fates',
+  it('names whose wishlist it is, and nothing else', () => {
+    expect(buildWishlistShareMessage(cards, { displayName: 'Ash Ketchum' })).toBe(
+      "Check out Ash Ketchum's wishlist",
     );
   });
 
-  it('says "card" when there is only one', () => {
-    const message = buildWishlistShareMessage([entry({ name: 'Charizard' })]);
-
-    expect(message?.startsWith("Card I'm looking for:")).toBe(true);
+  it('does not enumerate the cards — the link is the payload', () => {
+    const message = buildWishlistShareMessage(cards, { displayName: 'Ash Ketchum' }) ?? '';
+    expect(message).not.toContain('Charizard');
+    expect(message).not.toContain('Gengar ex');
+    expect(message.split('\n')).toHaveLength(1);
   });
 
-  it('returns null for an empty list rather than a header with nothing under it', () => {
-    // The caller stays silent on this. Opening the OS share sheet with "here is
-    // my wishlist" and no cards is worse than the button appearing inert.
-    expect(buildWishlistShareMessage([])).toBeNull();
+  it('falls back to the handle when there is no display name', () => {
+    expect(buildWishlistShareMessage(cards, { handle: 'ash' })).toBe("Check out @ash's wishlist");
+    expect(buildWishlistShareMessage(cards, { handle: '@ash' })).toBe("Check out @ash's wishlist");
   });
 
-  it('drops cards with no usable text instead of emitting blank lines', () => {
-    const message = buildWishlistShareMessage([
-      entry({ name: '   ', cardNumber: '  ', setName: '  ' }),
-      entry({ name: 'Pidgey' }),
-    ]);
-
-    expect(message).toBe("Card I'm looking for:\nPidgey · #001/100 · Base Set");
+  it('still sends something when there is no identity at all', () => {
+    // Unlike a profile share, a nameless wishlist is still worth sending: the
+    // link resolves and names its owner on arrival.
+    expect(buildWishlistShareMessage(cards)).toBe('Check out this wishlist');
   });
 
-  it('caps long lists and SAYS it capped them', () => {
-    const many = Array.from({ length: WISHLIST_SHARE_MAX_LINES + 7 }, (_, index) =>
-      entry({ name: `Card ${index}` }),
-    );
-
-    const message = buildWishlistShareMessage(many) ?? '';
-    const lines = message.split('\n');
-
-    // Header + the cap + the "and N more" line.
-    expect(lines).toHaveLength(WISHLIST_SHARE_MAX_LINES + 2);
-    // Truncating silently would read as the whole list — which is the one thing
-    // a hunt list must not do, because the reader acts on it.
-    expect(message.endsWith('…and 7 more')).toBe(true);
+  /*
+    The empty guard survives the rewrite for the same reason it existed: an
+    invitation pointing at an empty page is worse than a button that appears to
+    do nothing.
+  */
+  it('returns null for an empty list', () => {
+    expect(buildWishlistShareMessage([], { displayName: 'Ash Ketchum' })).toBeNull();
   });
 
-  it('omits missing fields without leaving dangling separators', () => {
-    const message = buildWishlistShareMessage([
-      entry({ name: 'Promo Pikachu', cardNumber: '', setName: 'SWSH Promo' }),
-    ]);
-
-    expect(message).toBe("Card I'm looking for:\nPromo Pikachu · SWSH Promo");
+  it('returns null when every entry is blank, not just when the array is', () => {
+    const blank = [entry({ name: '   ', cardNumber: '  ', setName: '' })];
+    expect(buildWishlistShareMessage(blank, { displayName: 'Ash Ketchum' })).toBeNull();
   });
 });

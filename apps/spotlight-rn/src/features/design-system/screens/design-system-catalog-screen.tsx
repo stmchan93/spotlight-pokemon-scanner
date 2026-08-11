@@ -13,6 +13,7 @@ import {
   fontFamilies,
   GlassButtonGroup,
   glassButtonGroupControlSize,
+  GlassNavBubbleGroup,
   GraderWordmark,
   IconButton,
   InventoryCardTile,
@@ -295,6 +296,31 @@ export function DesignSystemCatalogScreen({
                 <ShareIos color={theme.colors.gray900} height={20} width={20} />
               </IconButton>
             </GlassButtonGroup>
+
+            {/*
+              The NAV flavour of the same 90×40 capsule — Home's trailing
+              bell + `+`. Here to be eyeballed beside the one above: on a
+              non-glass build both must read as ONE raised pill, and this one
+              carries the `shadows.card` lift so it matches the `GlassNavBubble`
+              at the other end of the bar rather than the flat `gray50` group.
+            */}
+            <GlassNavBubbleGroup
+              items={[
+                {
+                  accessibilityLabel: 'Delete',
+                  children: <Trash color={theme.colors.gray900} height={20} width={20} />,
+                  onPress: () => {},
+                  testID: 'catalog-glass-nav-bubble-group-first',
+                },
+                {
+                  accessibilityLabel: 'Share',
+                  children: <ShareIos color={theme.colors.gray900} height={20} width={20} />,
+                  onPress: () => {},
+                  testID: 'catalog-glass-nav-bubble-group-second',
+                },
+              ]}
+              testID="catalog-glass-nav-bubble-group"
+            />
 
             <StateCard
               actionLabel="Retry"

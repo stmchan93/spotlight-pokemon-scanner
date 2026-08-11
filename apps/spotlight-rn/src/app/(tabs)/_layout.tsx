@@ -7,6 +7,7 @@ import { colors } from '@spotlight/design-system';
 import { useCircularTabAvatar } from '@/components/circular-tab-avatar';
 import { rememberActiveTab } from '@/lib/last-active-tab';
 import { NativeTabScreenProvider } from '@/lib/tab-bar-insets';
+import { useKeyboardVisible } from '@/lib/use-keyboard-visible';
 
 const { Trigger } = NativeTabs;
 const { Icon, Label } = Trigger;
@@ -132,6 +133,15 @@ export default function TabsLayout() {
   // Null until the user's photo has been rasterised into a circle — see
   // `circular-tab-avatar.tsx` for why a tab icon cannot just be a remote URL.
   const avatarIcon = useCircularTabAvatar();
+  /*
+    ANDROID: THE BAR HIDES WHILE THE KEYBOARD IS UP — reported from the share
+    sheet (portfolio AND wishlist share the component), whose recipient field
+    was buried under keyboard + bar. The why lives in `useKeyboardVisible`,
+    which is its own module because this layout's tests re-require the layout
+    under `jest.resetModules()` and any real hook inline here throws under the
+    second React copy. Always false on iOS.
+  */
+  const keyboardUp = useKeyboardVisible();
 
   return (
     /*
@@ -165,7 +175,7 @@ export default function TabsLayout() {
     */}
     <NativeTabs
       backgroundColor={colors.canvasElevated}
-      hidden={isScanner}
+      hidden={isScanner || keyboardUp}
       // The Material pill behind the selected icon. Left to Material You this
       // was `secondaryContainer` — a wallpaper-derived accent.
       indicatorColor={colors.gray100}
@@ -208,10 +218,31 @@ export default function TabsLayout() {
         and drifts from the icons the rest of the app draws) and land here as
         `src` images. Regenerate after an iconoir upgrade.
 
-        No `renderingMode` on them, deliberately — the opposite of the avatar
-        below. Left to default, `tintColor` makes them TEMPLATE images, so the
-        OS tints them for selection on both platforms. That is also why the
-        source PNGs are plain black: only their alpha survives.
+        `renderingMode="template"` IS LOAD-BEARING ON iOS. It used to be omitted
+        here, on the belief that `tintColor` alone made these template images.
+        It does not, and the tab read as permanently selected because of it:
+
+          expo-router, `native-tabs/utils/icon.js`
+            effectiveRenderingMode = renderingMode ?? (iconColor !== undefined
+              ? 'template' : 'original')
+
+        `iconColor` there is the appearance's per-state icon colour, which comes
+        from the `iconColor` prop and NOT from `tintColor` (`appearance.js` maps
+        `tintColor` onto `selectedIconColor` only). This bar sets `tintColor` and
+        never `iconColor`, so the fallback landed on `'original'`, the PNG went
+        to UIKit as a plain `imageSource`, and an original-mode image ignores the
+        bar's tint entirely — the glyph drew its own pixels, which are pure
+        black, in BOTH states. Selecting Home changed nothing about it.
+
+        Naming the mode makes the alpha the only thing that survives, which is
+        what lets `tintColor` paint the selected glyph gray900 (Figma 3523:15619)
+        and leaves the unselected one the platform's own gray — the behaviour
+        Scan and You already had, being SF Symbols, which are always templates.
+
+        The source PNGs are plain black for the same reason: only their alpha is
+        ever read. Android is unaffected either way — it has no rendering mode
+        (`convertOptionsIconToAndroidPropsIcon` drops it) and tints these bitmaps
+        unconditionally; see the note on the `you` trigger below.
 
         SCAN IS THE EXCEPTION, AND FOR A LICENSING REASON. Its frame draws
         Apple's own `viewfinder`, which iOS renders natively — nothing to
@@ -226,7 +257,7 @@ export default function TabsLayout() {
       */}
       <Trigger name="index">
         {/* One image for both platforms — see the note above. */}
-        <Icon src={require('../../../assets/images/tab-icons/home.png')} />
+        <Icon renderingMode="template" src={require('../../../assets/images/tab-icons/home.png')} />
         <Label>Home</Label>
       </Trigger>
       {/*
@@ -273,7 +304,10 @@ export default function TabsLayout() {
         <Label>Scan</Label>
       </Trigger>
       <Trigger name="wishlist">
-        <Icon src={require('../../../assets/images/tab-icons/wishlist.png')} />
+        <Icon
+          renderingMode="template"
+          src={require('../../../assets/images/tab-icons/wishlist.png')}
+        />
         <Label>Wishlist</Label>
       </Trigger>
       <Trigger name="you">

@@ -350,6 +350,16 @@ export function buildEbaySearchUrl(params: {
   variant?: string | null;
   /** Card language ('english' | 'japanese'); scopes the query for JP cards. */
   language?: string | null;
+  /**
+   * Which side of eBay to land on. Defaults to `'sold'` — the historical
+   * behaviour every existing caller relies on.
+   *
+   * `'active'` is for the "Lowest Listed" surface: live listings sorted
+   * cheapest-first. Note eBay's cheapest-first sort is price + SHIPPING, so a
+   * $0.99 card with $12 postage can outrank a fairly-priced one — that is
+   * eBay's own definition of lowest listed, and it matches what the panel says.
+   */
+  listingType?: 'sold' | 'active';
 }) {
   const graderToken = cleanedMarketplaceToken(params.grader);
   const gradeToken = cleanedMarketplaceToken(params.grade);
@@ -411,14 +421,23 @@ export function buildEbaySearchUrl(params: {
     return null;
   }
 
-  const searchParams = new URLSearchParams({
-    _nkw: query,
-    // Sold + completed listings so the page shows the recent SALES for this card,
-    // sorted most-recent-first (_sop=13 = "ended recently").
-    LH_Sold: '1',
-    LH_Complete: '1',
-    _sop: '13',
-  });
+  const searchParams =
+    params.listingType === 'active'
+      ? new URLSearchParams({
+          _nkw: query,
+          // No LH_Sold/LH_Complete: those two are what restrict the page to
+          // ended listings, so an ACTIVE search simply omits them.
+          // _sop=15 = "price + shipping: lowest first".
+          _sop: '15',
+        })
+      : new URLSearchParams({
+          _nkw: query,
+          // Sold + completed listings so the page shows the recent SALES for this card,
+          // sorted most-recent-first (_sop=13 = "ended recently").
+          LH_Sold: '1',
+          LH_Complete: '1',
+          _sop: '13',
+        });
 
   return `https://www.ebay.com/sch/i.html?${searchParams.toString()}`;
 }

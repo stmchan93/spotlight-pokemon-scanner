@@ -93,6 +93,7 @@ import {
   getScanCandidateReviewSession,
 } from '@/features/scanner/scan-candidate-review-session';
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
+import { keyboardClearance } from '@/lib/keyboard-insets';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useAppServices } from '@/providers/app-providers';
 
@@ -893,6 +894,37 @@ export function CardDetailScreen({
     const [grader, grade] = expandedTrendRowKey.replace(/\|/g, ' ').trim().split(/\s+/);
     const record = recentSalesByRowKey[expandedTrendRowKey] ?? null;
     const listedRecord = lowestListedByRowKey[expandedTrendRowKey] ?? null;
+
+    // Way out of an EMPTY panel: the same title-derived eBay search the provider
+    // logo opens, differing only in which side of eBay it lands on. Built here
+    // because the panels only receive a `record` — they have no card identity.
+    // A null url (nothing to search for) leaves the handler undefined, which is
+    // what stops the panel rendering a footer that would do nothing.
+    const ebayFallbackParams = {
+      name: detail.name,
+      cardNumber: detail.cardNumber,
+      setName: detail.setName,
+      grader,
+      grade,
+      variant: selectedVariantLabel,
+      language: detail.language,
+    };
+    const soldFallbackUrl = buildEbaySearchUrl(ebayFallbackParams);
+    const activeFallbackUrl = buildEbaySearchUrl({
+      ...ebayFallbackParams,
+      listingType: 'active',
+    });
+    const openEbayFallback = (url: string | null, surface: string) => {
+      if (!url) {
+        return;
+      }
+      capturePostHogEvent('pricing_link_opened', {
+        marketplace: 'ebay',
+        lane: 'graded',
+        surface,
+      });
+      void Linking.openURL(url);
+    };
     return (
       <View key={expandedTrendRowKey}>
         {/* Two stacked sections in the dropdown: sold comps (Scrydex) first,
@@ -913,6 +945,11 @@ export function CardDetailScreen({
           onShowMorePress={() => {
             capturePostHogEvent('pdp_recent_sales_show_more', { grader, grade });
           }}
+          onSeeMoreOnEbayPress={
+            soldFallbackUrl
+              ? () => openEbayFallback(soldFallbackUrl, 'pdp_recent_sales_empty')
+              : undefined
+          }
           onSubscribePress={() => {
             capturePostHogEvent('paywall_subscribe_tapped', { surface: 'pdp_recent_sales' });
             // RevenueCat purchase when live; interim free unlock until then.
@@ -943,6 +980,11 @@ export function CardDetailScreen({
           onShowMorePress={() => {
             capturePostHogEvent('pdp_lowest_listed_show_more', { grader, grade });
           }}
+          onSeeMoreOnEbayPress={
+            activeFallbackUrl
+              ? () => openEbayFallback(activeFallbackUrl, 'pdp_lowest_listed_empty')
+              : undefined
+          }
           onSubscribePress={() => {
             capturePostHogEvent('paywall_subscribe_tapped', { surface: 'pdp_lowest_listed' });
             void requestPremiumUnlock();
@@ -1824,20 +1866,34 @@ export function CardDetailScreen({
         return;
       }
       const { y, height } = editSectionRectRef.current;
-      // The footer rides above the keyboard, so the input must clear BOTH. Scroll
-      // so the section's bottom sits just above the lifted footer.
-      const available = windowHeight - keyboardHeight - footerHeight;
+      /*
+        The footer rides above the keyboard, so the input must clear BOTH.
+        `keyboardClearance`, not raw `keyboardHeight`: on this app's Android
+        build (edge-to-edge, so the window never resizes for the IME) the
+        reported height EXCLUDES the navigation bar — see
+        `@/lib/keyboard-insets`, which exists because this exact subtraction
+        was mis-derived three times before. Using the raw height under-reserved
+        by one nav bar and scrolled the Cost Basis input that far UNDER the
+        lifted footer: typed text hidden mid-typing on Android, while iOS —
+        whose reported frame already reaches the screen bottom — was fine.
+      */
+      const available = windowHeight - keyboardClearance(keyboardHeight, insets.bottom) - footerHeight;
       const target = y + height + 12 - available;
       if (target > 0) {
         scrollRef.current?.scrollTo({ y: target, animated: true });
       }
     },
-    [footerHeight, windowHeight],
+    [footerHeight, insets.bottom, windowHeight],
   );
 
   useEffect(() => {
     const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
       keyboardHeightRef.current = event.endCoordinates.height;
+      // The full reported height on BOTH platforms is correct here — this app's
+      // Android window is edge-to-edge and never resizes for the IME, so the
+      // footer really does have the whole keyboard to climb. (An earlier fix
+      // assumed `adjustResize` resized it and skipped the lift on Android,
+      // which would have left footer AND input behind the keyboard.)
       keyboardLift.value = withTiming(event.endCoordinates.height, { duration: 220 });
       scrollEditSectionAboveKeyboard(event.endCoordinates.height);
     });

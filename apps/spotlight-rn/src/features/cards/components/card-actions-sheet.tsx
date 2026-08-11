@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Copy, EditPencil, Heart, ShareIos, Trash } from 'iconoir-react-native';
+import { EditPencil, Heart, ShareIos, Trash } from 'iconoir-react-native';
 
 import { Text, useSpotlightTheme } from '@spotlight/design-system';
 
@@ -26,7 +26,6 @@ type CardActionsSheetProps = {
   /** Card name shown as the centered title. */
   title: string;
   onEdit: () => void;
-  onDuplicate: () => void;
   onShare: () => void;
   onWishlist: () => void;
   onDelete: () => void;
@@ -37,9 +36,13 @@ const SCREEN_HEIGHT = Dimensions.get('window').height;
 
 /**
  * Long-press context menu for a Collection card (Figma 1696:8708): a bottom
- * sheet titled with the card name, listing Edit / Duplicate / Share / Wishlist /
- * Delete (Delete in red). Mirrors ConfirmDeleteSheet's pop-open slide + scrim +
+ * sheet titled with the card name, listing Edit / Share / Wishlist / Delete
+ * (Delete in red). Mirrors ConfirmDeleteSheet's pop-open slide + scrim +
  * drag-to-dismiss so the two read as one system.
+ *
+ * Duplicate was removed by request: silently minting a second copy of a card
+ * from a long-press was more often an accident than an intent, and the Edit
+ * sheet already owns quantity.
  */
 export function CardActionsSheet({
   visible,
@@ -47,7 +50,6 @@ export function CardActionsSheet({
   onDismiss,
   title,
   onEdit,
-  onDuplicate,
   onShare,
   onWishlist,
   onDelete,
@@ -115,12 +117,11 @@ export function CardActionsSheet({
   const actions = useMemo(
     () => [
       { key: 'edit', label: 'Edit', Icon: EditPencil, onPress: onEdit, destructive: false },
-      { key: 'duplicate', label: 'Duplicate', Icon: Copy, onPress: onDuplicate, destructive: false },
       { key: 'share', label: 'Share', Icon: ShareIos, onPress: onShare, destructive: false },
       { key: 'wishlist', label: 'Wishlist', Icon: Heart, onPress: onWishlist, destructive: false },
       { key: 'delete', label: 'Delete', Icon: Trash, onPress: onDelete, destructive: true },
     ],
-    [onDelete, onDuplicate, onEdit, onShare, onWishlist],
+    [onDelete, onEdit, onShare, onWishlist],
   );
 
   if (!isRendered) {

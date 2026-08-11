@@ -31,12 +31,24 @@ STATE_DIR="${TOOLS}/state"
 VISUAL_INDEX_DIR="${REPO_ROOT}/backend/data/visual-index"
 PROMOTE="${TOOLS}/rerank_pool_promote.py"
 
-MODEL_SLUG="clip-vit-base-patch32"
+# Backbone. The SigLIP2 migration (2026-06-08) rebuilt the pool on a new encoder
+# and wired the backend straight at the dated artifact, which left this script
+# building CLIP pools nothing consumed. Slug, model id, and adapter must move
+# together — a pool built in a different space than the query encoder is worse
+# than no pool at all.
+MODEL_SLUG="siglip2-base-patch16-384"
+MODEL_ID="google/siglip2-base-patch16-384"
+ADAPTER_CHECKPOINT="${REPO_ROOT}/backend/data/visual-models/raw_visual_adapter_siglip2-384-v001-candidate.pt"
 ALPHA="0.1"
 THRESHOLD="0.80"
 
 ACTIVE_NPZ="${VISUAL_INDEX_DIR}/visual_index_user_photos_rerank_pool_active_${MODEL_SLUG}.npz"
 ACTIVE_MANIFEST="${VISUAL_INDEX_DIR}/visual_index_user_photos_rerank_pool_active_manifest.json"
+
+# The eval tool still defaults its base index to the CLIP artifact, so the
+# backbone has to be passed explicitly here too.
+BASE_NPZ="${VISUAL_INDEX_DIR}/visual_index_active_${MODEL_SLUG}.npz"
+BASE_MANIFEST="${VISUAL_INDEX_DIR}/visual_index_active_manifest.json"
 
 # --- args -------------------------------------------------------------------
 SINCE=""
@@ -108,6 +120,8 @@ log "importing confirmed scans (tier route + Tier-1 firewall + run batch)"
 log "building curated rerank pool (version ${TODAY})"
 "${PYTHON}" "${TOOLS}/build_user_photo_rerank_pool.py" \
   --artifact-version "${TODAY}" \
+  --model-id "${MODEL_ID}" \
+  --adapter-checkpoint "${ADAPTER_CHECKPOINT}" \
   --review-queue
 
 NEW_NPZ="${VISUAL_INDEX_DIR}/visual_index_user_photos_rerank_pool_${TODAY}_${MODEL_SLUG}.npz"
@@ -124,11 +138,13 @@ HOLDOUT_LOG="${EXPORT_ROOT}/eval_holdout.log"
 log "eval leave_one_out (alpha=${ALPHA}, threshold=${THRESHOLD})"
 "${PYTHON}" "${TOOLS}/eval_rerank_with_user_photos.py" \
   --mode leave_one_out --curate \
+  --base-manifest "${BASE_MANIFEST}" --base-npz "${BASE_NPZ}" --model-id "${MODEL_ID}" \
   --alphas "${ALPHA}" --thresholds "${THRESHOLD}" | tee "${LOO_LOG}"
 
 log "eval holdout (alpha=${ALPHA}, threshold=${THRESHOLD})"
 "${PYTHON}" "${TOOLS}/eval_rerank_with_user_photos.py" \
   --mode holdout --curate \
+  --base-manifest "${BASE_MANIFEST}" --base-npz "${BASE_NPZ}" --model-id "${MODEL_ID}" \
   --alphas "${ALPHA}" --thresholds "${THRESHOLD}" | tee "${HOLDOUT_LOG}"
 
 NEW_LOO_TOP1="$("${PYTHON}" "${PROMOTE}" parse-top1 --alpha "${ALPHA}" --threshold "${THRESHOLD}" --file "${LOO_LOG}")"

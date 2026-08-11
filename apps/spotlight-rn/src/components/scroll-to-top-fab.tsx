@@ -5,9 +5,10 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ScrollToTopButton, bottomTabBarHeight } from '@spotlight/design-system';
+import { ScrollToTopButton } from '@spotlight/design-system';
+
+import { useFloatingAffordanceBottom } from '@/lib/tab-bar-insets';
 
 type ScrollEvent = NativeSyntheticEvent<NativeScrollEvent>;
 
@@ -29,6 +30,21 @@ type ScrollToTopTarget = {
 export function useScrollToTop(
   scrollRef: RefObject<ScrollToTopTarget | null>,
   onScroll?: (event: ScrollEvent) => void,
+  /**
+   * The `contentOffset.y` that means "the top", for a scroller that does not
+   * rest at 0.
+   *
+   * A scroll view running `contentInsetAdjustmentBehavior="automatic"` is inset
+   * by UIKit and rests at `-adjustedContentInset.top` — so on the Portfolio
+   * pager the top is `-insets.top`, not 0. This hook assumed 0 in both places it
+   * uses an offset, which left "Back to top" landing a status bar short of the
+   * actual top and the FAB appearing a status bar late. Same origin confusion
+   * `CollapsibleTabPager`'s `pageTop` fixes; the value is the same number.
+   *
+   * NEGATIVE for an inset scroller, 0 (the default) for an ordinary one, so
+   * every existing caller is byte-for-byte unchanged.
+   */
+  topOffset = 0,
 ) {
   const [isVisible, setIsVisible] = useState(false);
   const viewportHeight = useRef(0);
@@ -40,26 +56,29 @@ export function useScrollToTop(
   const handleScroll = useCallback(
     (event: ScrollEvent) => {
       onScroll?.(event);
-      const offsetY = event.nativeEvent.contentOffset.y;
+      // How far the user has actually TRAVELLED, which is the offset measured
+      // from this scroller's own top — not the raw offset, which already starts
+      // at `topOffset` on an inset page and would show the button late.
+      const travelled = event.nativeEvent.contentOffset.y - topOffset;
       // "Past the initial viewport" = scrolled roughly one screen height down.
       // Fall back to a fixed threshold before onLayout has measured the frame.
       const threshold = viewportHeight.current > 0 ? viewportHeight.current : 600;
       setIsVisible((prev) => {
-        const next = offsetY > threshold;
+        const next = travelled > threshold;
         return prev === next ? prev : next;
       });
     },
-    [onScroll],
+    [onScroll, topOffset],
   );
 
   const scrollToTop = useCallback(() => {
     const target = scrollRef.current;
     if (target?.scrollToOffset) {
-      target.scrollToOffset({ offset: 0, animated: true });
+      target.scrollToOffset({ offset: topOffset, animated: true });
     } else {
-      target?.scrollTo?.({ y: 0, animated: true });
+      target?.scrollTo?.({ y: topOffset, animated: true });
     }
-  }, [scrollRef]);
+  }, [scrollRef, topOffset]);
 
   return { isVisible, handleScroll, handleLayout, scrollToTop };
 }
@@ -77,11 +96,15 @@ type ScrollToTopFabProps = {
  * The bottom-LEFT corner is the Reddit-style collapsed tab circle.
  */
 export function ScrollToTopFab({ visible, onPress, testID }: ScrollToTopFabProps) {
-  const insets = useSafeAreaInsets();
-
-  // Sit exactly where the removed search/add FAB was anchored: 28px above the
-  // bottom nav bar. (No longer stacked above another FAB — there isn't one.)
-  const bottom = Math.max(insets.bottom, 0) + bottomTabBarHeight + 28;
+  // Sit exactly where the removed search/add FAB was anchored: one gap above the
+  // bottom chrome. (No longer stacked above another FAB — there isn't one.)
+  //
+  // This used to add the design system's `bottomTabBarHeight` (44) on top of the
+  // inset. That constant is the RETIRED JS nav pill's height, and the app draws
+  // `NativeTabs` now — so the FAB floated ~44pt too high on every screen, and on
+  // the pushed Insights screen it cleared a bar that is not even there.
+  // `@/lib/tab-bar-insets` is the one place that knows the real arithmetic.
+  const bottom = useFloatingAffordanceBottom();
 
   return (
     <ScrollToTopButton

@@ -1,14 +1,14 @@
 import { useRouter } from 'expo-router';
 import { Search } from 'iconoir-react-native';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   GlassSurface,
-  bottomTabBarHeight,
   isLiquidGlassAvailable,
   useSpotlightTheme,
 } from '@spotlight/design-system';
+
+import { useFloatingAffordanceBottom } from '@/lib/tab-bar-insets';
 
 type CollectionAddFabProps = {
   onPress?: () => void;
@@ -27,7 +27,6 @@ export function CollectionAddFab({
   testID = 'collection-add-fab',
 }: CollectionAddFabProps) {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const theme = useSpotlightTheme();
   const hasGlass = isLiquidGlassAvailable();
 
@@ -39,9 +38,12 @@ export function CollectionAddFab({
     router.push('/catalog/search' as never);
   };
 
-  // Sit 28px above the Collection/Scan/Events nav bar (the bar is
-  // bottomTabBarHeight tall and padded by the bottom safe-area inset).
-  const bottom = Math.max(insets.bottom, 0) + bottomTabBarHeight + 28;
+  // Sit one gap above the bottom chrome. This used to add the design system's
+  // `bottomTabBarHeight` (44) — the RETIRED JS nav pill's height, not the
+  // `NativeTabs` bar the app draws — which floated it ~44pt too high. Insights is
+  // this component's only host and is a PUSHED stack screen with no bar at all,
+  // so it was clearing chrome that does not exist. See `@/lib/tab-bar-insets`.
+  const bottom = useFloatingAffordanceBottom();
 
   return (
     <Pressable

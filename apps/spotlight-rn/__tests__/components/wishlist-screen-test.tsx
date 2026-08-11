@@ -1,16 +1,47 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
-import { Share } from 'react-native';
+import { Animated, FlatList, Share, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 
 import type { CardFavoriteEntry } from '@spotlight/api-client';
 
 import { __resetTrendWindowForTests } from '@/features/portfolio/hooks/use-trend-window';
+import {
+  WISHLIST_HEADER_BAR_HEIGHT,
+  WISHLIST_TITLE_HIDE_DISTANCE,
+} from '@/features/wishlist/components/wishlist-header';
 import { WishlistScreen } from '@/features/wishlist/screens/wishlist-screen';
 
 import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
 
 jest.mock('expo-router', () => ({
   useRouter: jest.fn(),
+}));
+
+// The share sheet is a real DM send. Stub the network edges so the test can
+// assert what actually lands in the thread.
+jest.mock('@/features/social/dm-service', () => ({
+  // An existing thread, so a recipient renders without going through the
+  // debounced people search.
+  fetchConversations: jest.fn(async () => [
+    {
+      id: 'conversation-1',
+      isGroup: false,
+      otherUserId: 'recipient-1',
+      otherUser: {
+        displayName: 'Misty',
+        handle: 'misty',
+        avatarUrl: null,
+        isVerified: false,
+      },
+      lastMessageAt: null,
+      lastMessagePreview: null,
+    },
+  ]),
+  findOrCreateDm: jest.fn(async () => 'conversation-1'),
+  sendMessage: jest.fn(async () => true),
+}));
+jest.mock('@/features/profile/profile-service', () => ({
+  searchUsers: jest.fn(async () => []),
 }));
 
 // The shared jest.setup iconoir mock only stubs a fixed set of icon names and
@@ -416,7 +447,7 @@ describe('WishlistScreen', () => {
     expect(within(actions).getByTestId('wishlist-header-share')).toBeTruthy();
   });
 
-  it('shares the list you are looking at, filters and all', async () => {
+  it('sends the wishlist as a hydrated reference, not a card list or a raw URL', async () => {
     const shareSpy = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' } as never);
     const repository = createTestSpotlightRepository({
       getCardFavorites: async () => [
@@ -435,16 +466,43 @@ describe('WishlistScreen', () => {
     });
 
     /*
-      The MACRO counterpart to card detail's per-card share: the list, as text.
-      No URL — the wishlist is private and the public profile has no Wishlist
-      tab, so a link would 404 for whoever you sent it to.
+      Sent IN-APP now, not out through the OS share sheet: the message carries a
+      `spotlight://` link to the sender's public Wishlist tab, which only
+      resolves for someone who already has the build. A DM is the one channel
+      where that is guaranteed.
     */
-    expect(shareSpy).toHaveBeenCalledTimes(1);
-    const message = (shareSpy.mock.calls[0][0] as { message: string }).message;
-    expect(message).toContain("Cards I'm looking for:");
-    expect(message).toContain('Charizard');
-    expect(message).toContain('Gengar ex');
-    expect(shareSpy.mock.calls[0][0]).not.toHaveProperty('url');
+    expect(shareSpy).not.toHaveBeenCalled();
+    const sheet = await screen.findByTestId('wishlist-share-sheet');
+    expect(sheet).toBeTruthy();
+    expect(screen.getByText('Send wishlist to')).toBeTruthy();
+
+    // Pick a recipient and assert what actually lands in the thread.
+    await act(async () => {
+      fireEvent.press(await screen.findByText('Misty'));
+    });
+
+    const { sendMessage } = jest.requireMock('@/features/social/dm-service');
+    await waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+    });
+    /*
+      A REFERENCE, not text (social_24). This went through three forms and the
+      last one is the point:
+
+        1. the card list as text — duplicated what the link already showed
+        2. a one-liner plus a `spotlight://` URL — the URL rendered PURPLE on the
+           sender's own purple bubble, so it was invisible to the person sending
+           it and read as "sharing just sends text"
+        3. an attachment id, hydrated into a preview card on every read
+
+      Only (3) can respect a block created after the send: text baked into a body
+      is a permanent pointer nobody can revoke.
+    */
+    const [, body, options] = (sendMessage as jest.Mock).mock.calls[0];
+    // Caption-less: `body` is NOT NULL, so the attachment carries the meaning.
+    expect(body).toBe('');
+    expect(options).toMatchObject({ sharedProfileTab: 'wishlist' });
+    expect(options.sharedProfileUserId).toBeTruthy();
 
     shareSpy.mockRestore();
   });
@@ -550,6 +608,150 @@ describe('WishlistScreen', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('wishlist-row-charizard')).not.toBeOnTheScreen();
       expect(screen.queryByTestId('wishlist-row-gengar')).not.toBeOnTheScreen();
+    });
+  });
+
+  /*
+    "The buttons stay but the wishlist goes away because it goes out of the view
+    when you scroll" — the same relationship Home already has between its pinned
+    bubbles and its departing search pill.
+
+    The bar therefore FLOATS over the list instead of sitting in a row above it,
+    and three things about that wiring fail silently, so all three are pinned
+    here. (Where the fade STARTS and what it looks like belongs to
+    `wishlist-header-test`; this file is about the screen's half of the contract.)
+
+    1. NATIVE DRIVER. The list's `onScroll` is an `Animated.event` with
+       `useNativeDriver: true`. `useScrollToTop(ref, onScroll)` wraps whatever it
+       is handed in a plain JS `useCallback`, so passing that event in and using
+       the result as `onScroll` would drop the native driver — and, because a
+       native `Animated.event` is an OBJECT rather than a function, would throw
+       on the first scroll. The hook is given NO handler; its `handleScroll` runs
+       inside the event's `listener`.
+
+    2. THE RESERVATION. A floating bar contributes nothing to layout, so the list
+       has to reserve its height, safe area included — this list is NOT inset by
+       UIKit, unlike Home's.
+
+    3. THE REST OFFSET. Because it is not inset, it rests at 0 on both platforms:
+       "Back to top" targets 0 and needs no `scrollToOverflowEnabled` to survive
+       RN's clamp.
+  */
+  describe('the floating top bar', () => {
+    /** The top inset `renderWithProviders` mounts. */
+    const TOP_INSET = 59;
+    /** The viewport `handleLayout` is told about, i.e. the FAB's threshold. */
+    const VIEWPORT = 800;
+
+    function wishlistList() {
+      return screen.getByTestId('wishlist-scroll');
+    }
+
+    /** The `Animated.View` carrying the title — the clip's only child. */
+    function titleWrapper() {
+      return screen.getByTestId('wishlist-header-title-clip').props.children;
+    }
+
+    async function measureViewport() {
+      await act(async () => {
+        fireEvent(wishlistList(), 'layout', {
+          nativeEvent: { layout: { height: VIEWPORT, width: 393, x: 0, y: 0 } },
+        });
+      });
+    }
+
+    async function scrollList(y: number) {
+      await act(async () => {
+        fireEvent.scroll(wishlistList(), {
+          nativeEvent: {
+            contentOffset: { y },
+            contentSize: { height: 4000, width: 393 },
+            layoutMeasurement: { height: VIEWPORT, width: 393 },
+          },
+        });
+      });
+    }
+
+    it('keeps the scroll handler natively driven', async () => {
+      renderWishlistScreen();
+      await screen.findByTestId('wishlist-header-title');
+
+      // `Animated.event` returns the AnimatedEvent OBJECT when it is native and
+      // a plain handler function when it is not, so this distinguishes the two.
+      // Composing the FAB by passing this handler through `useScrollToTop` would
+      // turn it into a function here and move the bar's motion onto the bridge.
+      const onScroll = screen.UNSAFE_getByType(Animated.FlatList as never).props.onScroll;
+      expect(typeof onScroll).toBe('object');
+      expect(onScroll.__isNative).toBe(true);
+    });
+
+    it('reserves the bar’s height, safe area and all, so the list starts below it', async () => {
+      renderWishlistScreen();
+      await screen.findByTestId('wishlist-header-title');
+
+      const content = StyleSheet.flatten(wishlistList().props.contentContainerStyle);
+      expect(content.paddingTop).toBe(TOP_INSET + WISHLIST_HEADER_BAR_HEIGHT);
+    });
+
+    // An empty wishlist has no rows to push the copy down, so this is the case
+    // where a missing reservation would tuck the empty state under the bubbles.
+    it('still reserves it when the wishlist is empty', async () => {
+      const repository = createTestSpotlightRepository({ getCardFavorites: async () => [] });
+      renderWishlistScreen(repository);
+
+      await screen.findByTestId('wishlist-empty');
+      const content = StyleSheet.flatten(wishlistList().props.contentContainerStyle);
+      expect(content.paddingTop).toBe(TOP_INSET + WISHLIST_HEADER_BAR_HEIGHT);
+    });
+
+    /*
+      END TO END: the listener really does run off the native event. The title is
+      live at rest and disarmed once the page has travelled the hide distance —
+      `pointerEvents` is not animatable, so this is the JS half of the motion and
+      the only part of it observable from the screen.
+    */
+    it('disarms the departed title, while the buttons stay tappable', async () => {
+      renderWishlistScreen();
+      await screen.findByTestId('wishlist-header-title');
+      await measureViewport();
+
+      expect(titleWrapper().props.pointerEvents).toBe('auto');
+
+      await scrollList(WISHLIST_TITLE_HIDE_DISTANCE);
+      expect(titleWrapper().props.pointerEvents).toBe('none');
+
+      // ...and the pinned controls are untouched: still mounted, still working.
+      expect(screen.getByTestId('wishlist-header-menu')).toBeTruthy();
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('wishlist-header-search'));
+      });
+      expect(push).toHaveBeenCalledWith('/catalog/search');
+    });
+
+    // The FAB rides on the SAME listener. Passing the animated event through
+    // `useScrollToTop` is what would have broken the native driver, so this is
+    // the assertion that the alternative wiring actually kept the FAB working.
+    it('keeps "Back to top" working, and lands it on the true top', async () => {
+      const scrollToOffset = jest
+        .spyOn(FlatList.prototype, 'scrollToOffset')
+        .mockImplementation(() => {});
+
+      renderWishlistScreen();
+      await screen.findByTestId('wishlist-header-title');
+      await measureViewport();
+
+      await scrollList(VIEWPORT + 1);
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('wishlist-scroll-to-top'));
+      });
+
+      // 0, not `-insets.top`: this list is not inset by UIKit, so 0 IS its top —
+      // and a target of 0 needs no `scrollToOverflowEnabled` to survive RN's
+      // clamp, which is why the prop is absent here but required on Home.
+      expect(scrollToOffset).toHaveBeenCalledWith({ offset: 0, animated: true });
+      expect(wishlistList().props.scrollToOverflowEnabled).toBeUndefined();
+
+      scrollToOffset.mockRestore();
     });
   });
 

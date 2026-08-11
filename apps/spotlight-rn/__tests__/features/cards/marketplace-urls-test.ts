@@ -347,6 +347,49 @@ describe('buildEbaySearchUrl', () => {
     expect(url).toContain('LH_Complete=1');
   });
 
+  // The "Lowest Listed" panel needs LIVE listings, cheapest first — the inverse
+  // of the sold-comps page every other caller wants.
+  it('builds an active-listings search sorted cheapest-first', () => {
+    const url = buildEbaySearchUrl({
+      setName: 'Base Set',
+      name: 'Charizard',
+      cardNumber: '4/102',
+      grader: 'PSA',
+      grade: '10',
+      listingType: 'active',
+    });
+
+    expect(url).toContain('ebay.com/sch/i.html');
+    // These two are what restrict eBay to ENDED listings, so both must be gone.
+    expect(url).not.toContain('LH_Sold');
+    expect(url).not.toContain('LH_Complete');
+    // 15 = price + shipping, lowest first.
+    expect(url).toContain('_sop=15');
+  });
+
+  it('builds the same keywords for active and sold — only the listing filters differ', () => {
+    const params = {
+      setName: 'Base Set',
+      name: 'Charizard',
+      cardNumber: '4/102',
+      grader: 'PSA',
+      grade: '10',
+    };
+    const sold = new URL(buildEbaySearchUrl(params)!);
+    const active = new URL(buildEbaySearchUrl({ ...params, listingType: 'active' })!);
+
+    expect(active.searchParams.get('_nkw')).toBe(sold.searchParams.get('_nkw'));
+  });
+
+  // Every pre-existing caller passes no listingType and must keep the sold page.
+  it('defaults to sold listings when no listingType is given', () => {
+    const params = { setName: 'Base Set', name: 'Charizard', cardNumber: '4/102' };
+
+    expect(buildEbaySearchUrl(params)).toBe(
+      buildEbaySearchUrl({ ...params, listingType: 'sold' }),
+    );
+  });
+
   it('leads the query with a QUOTED grader + grade phrase and sorts by most-recently-sold', () => {
     const url = buildEbaySearchUrl({
       setName: 'XY Promos',

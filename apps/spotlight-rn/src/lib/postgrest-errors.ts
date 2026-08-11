@@ -41,6 +41,34 @@ export function isMissingColumnError(
 }
 
 /**
+ * Does this error mean "that RPC isn't in the schema (yet)"?
+ *
+ * Migrations land per environment, so a client that calls a function added by a
+ * recent migration must survive an environment that has not run it. PostgREST
+ * reports an unknown RPC as `PGRST202` ("Could not find the function ... in the
+ * schema cache"); Postgres itself reports one as `42883` (undefined_function).
+ *
+ * This is the test for "fall back to the older read path": every other failure
+ * (RLS, transport, a raise inside the function) means the function DOES exist
+ * and retrying a different way would be wrong.
+ */
+export function isMissingFunctionError(
+  error: PostgrestErrorLike | null | undefined,
+): boolean {
+  if (!error) {
+    return false;
+  }
+  const code = error.code ?? '';
+  if (code === 'PGRST202' || code === '42883') {
+    return true;
+  }
+  const message = (error.message ?? '').toLowerCase();
+  return message.includes('function') && (
+    message.includes('does not exist') || message.includes('could not find')
+  );
+}
+
+/**
  * Does this error mean "your role may not write that"?
  *
  * Postgres raises `42501` / `permission denied for table <t>` when a statement

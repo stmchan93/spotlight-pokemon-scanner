@@ -2,7 +2,12 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-
 import { Alert, Animated, FlatList, Platform, StyleSheet } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 
-import { deletePost, fetchFollowingFeed, fetchGlobalFeed } from '@/features/social/social-service';
+import {
+  deletePost,
+  fetchFollowingFeed,
+  fetchGlobalFeed,
+  fetchGlobalFeedItems,
+} from '@/features/social/social-service';
 import { FeedScreen } from '@/features/social/screens/feed-screen';
 import { signalFeedNeedsRefresh } from '@/features/social/screens/new-post-screen';
 
@@ -24,10 +29,26 @@ jest.mock('@/providers/app-drawer-provider', () => {
   };
 });
 
-jest.mock('@/features/social/social-service', () => ({
+jest.mock('@/features/social/social-service', () => {
+  // The screen reads `fetchGlobalFeedItems` (posts + reposts as feed rows), but
+  // every fixture in this file is a plain post list. Delegating keeps those
+  // fixtures driving the screen unchanged; the repost-specific tests override
+  // `fetchGlobalFeedItems` directly to inject a reposted row.
+  const fetchGlobalFeed = jest.fn();
+  return {
   deletePost: jest.fn(async () => true),
   fetchFollowingFeed: jest.fn(),
-  fetchGlobalFeed: jest.fn(),
+  fetchGlobalFeed,
+  fetchGlobalFeedItems: jest.fn(async (...args: unknown[]) => {
+    const posts = (await (fetchGlobalFeed as jest.Mock)(...args)) ?? [];
+    return (posts as { id: string; createdAt: string }[]).map((post) => ({
+      key: `post:${post.id}`,
+      post,
+      repostedBy: null,
+      repostedAt: null,
+      activityAt: post.createdAt,
+    }));
+  }),
   fetchLikedPostIds: jest.fn(async () => new Set()),
   likePost: jest.fn(async () => true),
   unlikePost: jest.fn(async () => true),
@@ -38,7 +59,8 @@ jest.mock('@/features/social/social-service', () => ({
   addComment: jest.fn(async () => ({ ok: false, reason: 'nope' })),
   likeComment: jest.fn(async () => true),
   unlikeComment: jest.fn(async () => true),
-}));
+  };
+});
 
 /** The id `AuthProvider` signs in as under NODE_ENV=test. */
 const MY_USER_ID = '00000000-0000-0000-0000-000000000001';
@@ -84,6 +106,75 @@ describe('FeedScreen', () => {
     // No switch to press any more.
     expect(screen.queryByTestId('feed-segment-tab-global')).toBeNull();
     expect(screen.queryByTestId('feed-segment-tab-following')).toBeNull();
+  });
+
+  /*
+    REPOSTS BELONG IN THE FEED, AS THEIR OWN ROWS.
+
+    A repost used to be invisible everywhere except the reposter's profile: the
+    feed read `posts` alone and never touched `post_reposts`. The row carries the
+    ORIGINAL author's card with a "<name> reposted" line above it, so nothing is
+    misattributed to whoever passed it on.
+  */
+  describe('reposts in the feed', () => {
+    const original = buildPost({ id: 'original', body: 'Original post' });
+    // These tests replace the delegating implementation. `clearAllMocks` only
+    // clears CALLS, not implementations, so it has to be put back by hand or
+    // every later test in this file inherits the repost fixture.
+    const delegateToGlobalFeed = (fetchGlobalFeedItems as jest.Mock).getMockImplementation();
+
+    afterEach(() => {
+      (fetchGlobalFeedItems as jest.Mock).mockImplementation(delegateToGlobalFeed!);
+    });
+
+    function mockFeedWithRepost() {
+      (fetchGlobalFeedItems as jest.Mock).mockResolvedValue([
+        {
+          key: 'repost:original:reposter-1',
+          post: original,
+          repostedBy: {
+            displayName: 'Misty',
+            handle: 'misty',
+            avatarUrl: null,
+            isVerified: false,
+          },
+          repostedAt: '2026-05-02T00:00:00.000Z',
+          activityAt: '2026-05-02T00:00:00.000Z',
+        },
+        {
+          key: 'post:original',
+          post: original,
+          repostedBy: null,
+          repostedAt: null,
+          activityAt: original.createdAt,
+        },
+      ]);
+    }
+
+    it('captions a reposted row with who passed it on', async () => {
+      mockFeedWithRepost();
+
+      renderWithProviders(<FeedScreen />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('feed-repost-attribution')).toBeTruthy();
+      });
+      expect(screen.getByText('Misty reposted')).toBeTruthy();
+    });
+
+    // The repost and the original are DIFFERENT rows for the SAME post — keyed
+    // on the post id alone, React would drop one as a duplicate key.
+    it('renders the repost and the original as two separate rows', async () => {
+      mockFeedWithRepost();
+
+      renderWithProviders(<FeedScreen />);
+
+      await waitFor(() => {
+        expect(screen.getAllByTestId('feed-post-body')).toHaveLength(2);
+      });
+      // Exactly one of them is captioned.
+      expect(screen.getAllByTestId('feed-repost-attribution')).toHaveLength(1);
+    });
   });
 
   it('shows an empty state when there are no posts', async () => {

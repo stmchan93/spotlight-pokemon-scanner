@@ -9,9 +9,17 @@ type EditDoneButtonProps = {
 };
 
 /**
- * "Done" pill that exits an edit / multi-select mode (Figma 1874:18766): a
- * gray-50 fully-rounded 36px pill with a 14px SemiBold purple-500 label. Shared
- * by the Collection and Wishlist headers so the two read identically.
+ * "Done" pill that exits an edit / multi-select mode: a gray-50 fully-rounded
+ * 40pt pill with a 14px SemiBold purple-500 label. Shared by the Collection and
+ * Wishlist headers so the two read identically.
+ *
+ * 40 because this pill SWAPS INTO a bar's trailing slot beside a `size="compact"`
+ * `GlassNavBubble`, and the live toolbar (Figma "Home" 3523:15499, toolbar
+ * 3567:22969) makes every control in a bar 40 tall. It sat at 36 against 36pt
+ * bubbles; both moved, and leaving this one behind would reintroduce the
+ * height mismatch the Wishlist header already shipped once. The horizontal
+ * padding goes 12 → 14 with it, so the taller pill keeps its shape rather than
+ * turning into a circle-ended stub around a four-letter word.
  */
 export function EditDoneButton({
   onPress,
@@ -47,9 +55,9 @@ const styles = StyleSheet.create({
   pill: {
     alignItems: 'center',
     borderRadius: 999,
-    height: 36,
+    height: 40,
     justifyContent: 'center',
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
   },
 });
 

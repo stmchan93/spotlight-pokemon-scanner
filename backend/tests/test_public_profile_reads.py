@@ -212,6 +212,39 @@ class PublicProfileReadTests(unittest.TestCase):
             },
         )
 
+    # --- public wishlist: the favorited subset of the SAME read ---------------
+
+    def test_wishlist_read_returns_only_the_targets_favorited_cards(self) -> None:
+        self._seed_two_owners()
+        # The target owns two cards but wishlists only one of them.
+        self._insert_card(card_id="base-blastoise-2", name="Blastoise", number="2/102")
+        self._record_buy(user_id=TARGET_USER_ID, card_id="base-blastoise-2")
+        with self.service.request_identity_context(self._identity(TARGET_USER_ID)):
+            self.service.set_card_favorite("base-blastoise-2", is_favorite=True)
+
+        with self.service.request_identity_context(self._identity(CALLER_USER_ID)):
+            wishlist = self.service.deck_entries_for_owner(
+                TARGET_USER_ID, limit=10, favorites_only=True
+            )
+            collection = self.service.deck_entries_for_owner(TARGET_USER_ID, limit=10)
+
+        self.assertEqual(
+            [entry["card"]["id"] for entry in wishlist["entries"]], ["base-blastoise-2"]
+        )
+        # The filter is the whole point: the wishlist must be a strict subset.
+        self.assertEqual(len(collection["entries"]), 2)
+
+    def test_wishlist_read_does_not_leak_the_callers_own_favorites(self) -> None:
+        self._seed_two_owners()
+        # The CALLER favorites their own card; the target favorites nothing.
+        with self.service.request_identity_context(self._identity(CALLER_USER_ID)):
+            self.service.set_card_favorite("base-pikachu-58", is_favorite=True)
+            wishlist = self.service.deck_entries_for_owner(
+                TARGET_USER_ID, limit=10, favorites_only=True
+            )
+
+        self.assertEqual(wishlist["entries"], [])
+
     # --- uuid validation helper ----------------------------------------------
 
     def test_is_plausible_user_id(self) -> None:
@@ -263,6 +296,35 @@ class PublicProfileRouteTests(unittest.TestCase):
             HTTPStatus.OK, handler.service.deck_entries_for_owner.return_value
         )
 
+    def test_public_wishlist_route_reads_the_target_owner_with_favorites_only(self) -> None:
+        caller = RequestIdentity(user_id=CALLER_USER_ID, auth_source="test")
+        handler = self._handler(
+            f"/api/v1/profiles/{TARGET_USER_ID}/wishlist/entries?limit=25&offset=10"
+        )
+        handler.service.deck_entries_for_owner.return_value = {
+            "entries": [],
+            "summary": {"count": 0},
+        }
+        handler._require_request_identity = lambda: caller  # type: ignore[method-assign]
+        handler._write_json = Mock()  # type: ignore[method-assign]
+
+        handler.do_GET()
+
+        handler.service.request_identity_context.assert_called_once_with(caller)
+        # `favorites_only=True` is the ONLY difference from the collection route;
+        # if it regresses to False the tab silently shows the whole collection.
+        handler.service.deck_entries_for_owner.assert_called_once_with(
+            TARGET_USER_ID,
+            limit=25,
+            offset=10,
+            include_inactive=False,
+            favorites_only=True,
+        )
+        handler.service.deck_entries.assert_not_called()
+        handler._write_json.assert_called_once_with(
+            HTTPStatus.OK, handler.service.deck_entries_for_owner.return_value
+        )
+
     def test_public_portfolio_summary_route_reads_the_target_owner_explicitly(self) -> None:
         caller = RequestIdentity(user_id=CALLER_USER_ID, auth_source="test")
         handler = self._handler(f"/api/v1/profiles/{TARGET_USER_ID}/portfolio/summary")
@@ -302,6 +364,7 @@ class PublicProfileRouteTests(unittest.TestCase):
     def test_public_routes_require_authentication(self) -> None:
         for path in (
             f"/api/v1/profiles/{TARGET_USER_ID}/deck/entries",
+            f"/api/v1/profiles/{TARGET_USER_ID}/wishlist/entries",
             f"/api/v1/profiles/{TARGET_USER_ID}/portfolio/summary",
         ):
             with self.subTest(path=path):
@@ -328,6 +391,9 @@ class PublicProfileRouteTests(unittest.TestCase):
             "/api/v1/profiles/not-a-uuid/deck/entries",
             "/api/v1/profiles/..%2F..%2Fetc/deck/entries",
             f"/api/v1/profiles/{TARGET_USER_ID}x/deck/entries",
+            "/api/v1/profiles//wishlist/entries",
+            "/api/v1/profiles/not-a-uuid/wishlist/entries",
+            "/api/v1/profiles/..%2F..%2Fetc/wishlist/entries",
             "/api/v1/profiles//portfolio/summary",
             "/api/v1/profiles/not-a-uuid/portfolio/summary",
         ]
@@ -368,6 +434,7 @@ class PublicProfileRouteTests(unittest.TestCase):
     def test_public_profile_routes_only_exist_on_do_get(self) -> None:
         get_source = inspect.getsource(SpotlightRequestHandler.do_GET)
         self.assertIn("PUBLIC_PROFILE_DECK_ENTRIES_SUFFIX", get_source)
+        self.assertIn("PUBLIC_PROFILE_WISHLIST_ENTRIES_SUFFIX", get_source)
         self.assertIn("PUBLIC_PROFILE_SUMMARY_SUFFIX", get_source)
         self.assertIn("deck_entries_for_owner", get_source)
         self.assertIn("portfolio_summary_for_owner", get_source)

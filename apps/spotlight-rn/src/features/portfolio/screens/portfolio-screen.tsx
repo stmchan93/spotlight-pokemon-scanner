@@ -1681,6 +1681,18 @@ export function PortfolioScreen({
         contentInsetTop={Platform.OS === 'ios' ? insets.top : 0}
         disabled={editMode}
         header={pagerHeader}
+        /*
+          Fade the profile block out across exactly the strip it would otherwise
+          park in. Scrolled all the way, this page shows the floating bubbles and
+          "Collection / Activity" and nothing else — before this, the block's
+          tail stopped under the bubbles and the Followers/Following pills showed
+          through the gaps BETWEEN them.
+
+          Same expression as `pinnedTopInset` below, and that is the point rather
+          than a coincidence: the collapse stops that many points early, so that
+          is precisely how much of the header survives it. Keep the two together.
+        */
+        headerFadeDistance={insets.top + HOME_HEADER_ROW_HEIGHT}
         onChange={setActiveProfileTab}
         onPageScroll={handlePageScroll}
         order={PROFILE_TAB_ORDER}

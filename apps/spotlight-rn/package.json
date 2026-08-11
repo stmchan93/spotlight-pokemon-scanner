@@ -14,7 +14,10 @@
     "test:coverage": "jest --runInBand --coverage",
     "test:coverage:target": "jest --runInBand --coverage --collectCoverageFrom='src/**/*.{ts,tsx}'",
     "test:watch": "jest --watch",
-    "test:integration": "jest --runInBand __tests__/integration"
+    "test:integration": "jest --runInBand __tests__/integration",
+    "db:start": "supabase start",
+    "db:reset": "supabase db reset --local",
+    "test:db": "supabase test db --local supabase/tests"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "^3.0.2",

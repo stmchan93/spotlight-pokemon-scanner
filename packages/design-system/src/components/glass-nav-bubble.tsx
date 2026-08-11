@@ -13,11 +13,12 @@ export const glassNavBubbleSizes = {
   /** 32pt — dense chrome floating over a live surface (scanner viewfinder). */
   small: 32,
   /**
-   * 36pt — a bubble sharing a top bar with other controls, sized to sit level
-   * with the 36pt `SearchEntryPill` between them (the Home header). Below the
+   * 40pt — a bubble sharing a top bar with other controls, sized to sit level
+   * with the 40pt `SearchEntryPill` between them (Figma "Home" 3523:15499,
+   * toolbar 3567:22969, where every control in the row is 40 tall). Below the
    * 44pt touch minimum on its own, which the primitive's 8pt `hitSlop` covers.
    */
-  compact: 36,
+  compact: 40,
   /** 44pt — the standard floating nav bubble (Collection / Wishlist). */
   medium: 44,
 } as const;

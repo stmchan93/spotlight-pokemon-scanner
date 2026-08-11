@@ -1,5 +1,5 @@
 import { Image } from 'expo-image';
-import { CheckCircle, EditPencil, Link } from 'iconoir-react-native';
+import { CheckCircle, Link } from 'iconoir-react-native';
 import { useCallback, useEffect, useState } from 'react';
 import { AccessibilityInfo, Pressable, StyleSheet, View } from 'react-native';
 import Animated, {
@@ -11,7 +11,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Avatar, IconButton, SkeletonBlock, Text, useSpotlightTheme } from '@spotlight/design-system';
+import { Avatar, SkeletonBlock, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 type ProfileHeaderProps = {
   displayName: string;
@@ -38,14 +38,18 @@ type ProfileHeaderProps = {
   onSocialLinkPress?: () => void;
   onFollowersPress?: () => void;
   onFollowingPress?: () => void;
-  /**
-   * Owner-only affordance: opens Edit Profile. Passed by Home, which is the one
-   * place this block shows YOUR profile — the public profile omits it, and the
-   * control is simply absent rather than disabled when it is not yours to edit.
-   * It lives here, beside the name it edits, rather than in the top bar: Home's
-   * bar is Figma 3505:14521 and has exactly four slots, none of them this.
+  /*
+   * NO EDIT CONTROL HERE. This block carried an owner-only pencil beside the
+   * display name, on the argument that the top bar (then Figma 3505:14521) had
+   * four slots and none of them was edit. The profile toolbar has since been
+   * redrawn — 3670:47454 gives its trailing capsule an edit pencil and a share
+   * glyph — so edit lives in the bar again, and a second pencil 100pt below it
+   * would be two controls for one action.
+   *
+   * The screen that owns the bar owns the affordance: `portfolio-screen` passes
+   * `onEditProfile` to `HomeHeader`, and the public profile (which draws this
+   * same block for someone else) simply never renders one.
    */
-  onEditPress?: () => void;
   /**
    * Distance from the top of the header block to the top of the avatar. Screens
    * pass this so the avatar keeps a fixed gap below the floating nav bubbles,
@@ -85,7 +89,6 @@ export function ProfileHeader({
   onSocialLinkPress,
   onFollowersPress,
   onFollowingPress,
-  onEditPress,
   avatarTop,
   testID = 'profile-header',
 }: ProfileHeaderProps) {
@@ -193,39 +196,21 @@ export function ProfileHeader({
         <View style={styles.identityRow}>
           <View style={styles.identity}>
             <View style={styles.nameRow}>
-              <View style={styles.nameAndBadge}>
-                <Text
-                  style={[theme.typography.titleMedium, { lineHeight: 22 }]}
-                  testID={`${testID}-name`}
-                >
-                  {displayName}
-                </Text>
-                {isVerified ? (
-                  <View style={styles.verifiedRow} testID={`${testID}-verified`}>
-                    <CheckCircle color={theme.colors.purple500} height={14} width={14} />
-                    <Text
-                      style={[theme.typography.captionMedium, { color: theme.colors.purple500 }]}
-                    >
-                      Verified
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-
-              {onEditPress ? (
-                <IconButton
-                  accessibilityLabel="Edit profile"
-                  onPress={onEditPress}
-                  // `ghost` and sized to hug the glyph, so the 16pt gap above is
-                  // the gap you SEE. A padded button would put its own inset on
-                  // top of that and read as ~26. The tap target is still 36pt —
-                  // `IconButton` carries `hitSlop={8}`.
-                  size={20}
-                  testID={`${testID}-edit`}
-                  variant="ghost"
-                >
-                  <EditPencil color={theme.colors.gray900} height={18} width={18} />
-                </IconButton>
+              <Text
+                style={[theme.typography.titleMedium, { lineHeight: 22 }]}
+                testID={`${testID}-name`}
+              >
+                {displayName}
+              </Text>
+              {isVerified ? (
+                <View style={styles.verifiedRow} testID={`${testID}-verified`}>
+                  <CheckCircle color={theme.colors.purple500} height={14} width={14} />
+                  <Text
+                    style={[theme.typography.captionMedium, { color: theme.colors.purple500 }]}
+                  >
+                    Verified
+                  </Text>
+                </View>
               ) : null}
             </View>
 
@@ -452,21 +437,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
-  // Name (+ verified badge) and the owner-only edit pencil, 16pt apart. The
-  // pencil used to be a labelled "Edit" chip pushed out to the far right of the
-  // row, which read as a button bolted onto the profile rather than an
-  // affordance on the name it edits.
+  // The display name and, if there is one, the verified badge beside it. This
+  // used to be two nested rows — name + badge in one, an edit pencil 16pt away
+  // in the other — which collapsed to a single row when edit moved up into the
+  // top bar (Figma 3670:47454).
   nameRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 16,
-  },
-  // Shrinks so a long display name wraps INSIDE this block rather than pushing
-  // the pencil off the gutter.
-  nameAndBadge: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    flexShrink: 1,
     gap: 6,
   },
   socialRow: {

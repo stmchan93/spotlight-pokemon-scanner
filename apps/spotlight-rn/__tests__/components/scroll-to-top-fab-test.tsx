@@ -17,13 +17,16 @@ function layoutEvent(height: number) {
 type HarnessProps = {
   onScroll?: (event: any) => void;
   scrollTo?: (args: { y: number; animated: boolean }) => void;
+  /** See the hook: negative for a scroller UIKit has inset. */
+  topOffset?: number;
 };
 
-function HookHarness({ onScroll, scrollTo }: HarnessProps) {
+function HookHarness({ onScroll, scrollTo, topOffset }: HarnessProps) {
   const ref = useRef<ScrollView | null>({ scrollTo } as unknown as ScrollView);
   const { isVisible, handleScroll, handleLayout, scrollToTop } = useScrollToTop(
     ref,
     onScroll,
+    topOffset,
   );
 
   return (
@@ -32,6 +35,10 @@ function HookHarness({ onScroll, scrollTo }: HarnessProps) {
       <Pressable testID="layout" onPress={() => handleLayout(layoutEvent(800))} />
       <Pressable testID="scroll-near" onPress={() => handleScroll(scrollEvent(120))} />
       <Pressable testID="scroll-far" onPress={() => handleScroll(scrollEvent(1200))} />
+      {/* Just past one viewport of TRAVEL on a page resting at -59 (760 + 59 =
+          819 > 800), but short of it by the raw-offset arithmetic (760 < 800) —
+          the only band where the fix is observable. */}
+      <Pressable testID="scroll-inset-edge" onPress={() => handleScroll(scrollEvent(760))} />
       <Pressable testID="to-top" onPress={scrollToTop} />
     </View>
   );
@@ -67,6 +74,52 @@ describe('useScrollToTop', () => {
 
     fireEvent.press(screen.getByTestId('to-top'));
     expect(scrollTo).toHaveBeenCalledWith({ y: 0, animated: true });
+  });
+
+  /*
+    An inset scroller (`contentInsetAdjustmentBehavior="automatic"`) RESTS at
+    `-adjustedContentInset.top`, not at 0 — the Portfolio pager's `pageTop`. The
+    hook assumed 0 in both places it touched an offset, so "Back to top" stopped
+    a status bar short of the top and the button appeared a status bar late.
+  */
+  describe('on a scroller UIKit has inset', () => {
+    it('scrolls to the real top, not to 0', () => {
+      const scrollTo = jest.fn();
+      renderWithProviders(<HookHarness scrollTo={scrollTo} topOffset={-59} />);
+
+      fireEvent.press(screen.getByTestId('to-top'));
+      expect(scrollTo).toHaveBeenCalledWith({ y: -59, animated: true });
+    });
+
+    it('measures travel from that top, so the button is not revealed late', () => {
+      renderWithProviders(<HookHarness topOffset={-59} />);
+      fireEvent.press(screen.getByTestId('layout'));
+
+      // Deliberately inside the 59pt band where the two arithmetics disagree:
+      // 760 of raw offset is 819 of real travel, past the 800 viewport. The old
+      // code compared 760 > 800 and kept the button hidden. A larger scroll
+      // (1200) would pass either way and prove nothing.
+      fireEvent.press(screen.getByTestId('scroll-inset-edge'));
+      expect(screen.getByTestId('visible').props.children).toBe('yes');
+    });
+
+    it('still measures travel from 0 on an ordinary scroller', () => {
+      renderWithProviders(<HookHarness />);
+      fireEvent.press(screen.getByTestId('layout'));
+
+      // Same 760, no inset: genuinely short of the viewport, so it stays hidden.
+      // This is what stops the fix leaking onto every other screen.
+      fireEvent.press(screen.getByTestId('scroll-inset-edge'));
+      expect(screen.getByTestId('visible').props.children).toBe('no');
+    });
+
+    it('leaves an ordinary scroller alone (the default is 0)', () => {
+      const scrollTo = jest.fn();
+      renderWithProviders(<HookHarness scrollTo={scrollTo} />);
+
+      fireEvent.press(screen.getByTestId('to-top'));
+      expect(scrollTo).toHaveBeenCalledWith({ y: 0, animated: true });
+    });
   });
 });
 

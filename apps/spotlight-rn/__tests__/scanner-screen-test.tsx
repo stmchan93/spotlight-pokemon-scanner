@@ -1351,6 +1351,10 @@ describe('ScannerScreen', () => {
     const addPill = await screen.findByTestId('scanner-tray-add-0');
     expect(addPill).toHaveTextContent('ADD');
     fireEvent.press(addPill, {
+      // A real press always carries both; the handler reads the tap point
+      // BEFORE the async measure so Android's flaky measureInWindow cannot
+      // leave the button dead (see the open-first fallback at the call site).
+      nativeEvent: { pageX: 180, pageY: 640 },
       currentTarget: {
         measureInWindow: (cb: (x: number, y: number, w: number, h: number) => void) =>
           cb(0, 0, 0, 0),

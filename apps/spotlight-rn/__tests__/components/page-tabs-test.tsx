@@ -46,6 +46,35 @@ describe('PageTabs', () => {
     expect(otherTab.props.accessibilityState).toMatchObject({ selected: false });
   });
 
+  // Figma 3456:3193 gives each tab a box wider than its word and runs the
+  // underline edge to edge of it. The rule used to hug the label with a 4pt
+  // negative margin, which read as clipped to the word rather than marking the
+  // tab. Padding on the TAB is what sets the width now, so the underline must
+  // stretch and must NOT claw any of it back.
+  it('runs the underline the full width of the tab, not just the label', () => {
+    renderWithProviders(
+      <PageTabs<TabValue>
+        tabs={TABS}
+        value="portfolio"
+        onChange={jest.fn()}
+        testID="page-tabs"
+      />,
+    );
+
+    const tabStyle = StyleSheet.flatten(
+      screen.getByTestId('page-tabs-tab-portfolio').props.style,
+    );
+    expect(tabStyle.paddingHorizontal).toBe(10);
+
+    const underlineStyle = StyleSheet.flatten(
+      screen.getByTestId('page-tabs-tab-portfolio-underline').props.style,
+    );
+    expect(underlineStyle.alignSelf).toBe('stretch');
+    // The negative margin that made it hug the word is gone.
+    expect(underlineStyle.marginHorizontal).toBeUndefined();
+    expect(underlineStyle.height).toBe(2);
+  });
+
   it('calls onChange with the tapped tab value', () => {
     const onChange = jest.fn();
     renderWithProviders(

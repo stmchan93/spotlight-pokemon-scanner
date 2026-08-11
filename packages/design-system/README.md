@@ -378,6 +378,25 @@ Current API concepts:
 - children = the card image (absolute-fill; it is positioned into the
   template's card window)
 
+### EkalightWordmark
+
+File: `src/components/ekalight-wordmark.tsx`
+
+The Ekalight horizontal brand lockup — swirl mark + "ekalight" letterforms
+(Figma 3686:58352 `Ekalight_Wordmark-purple`). Vector (react-native-svg), not a
+bundled PNG, so it stays crisp at any size and recolors per surface. Rendered by
+`AuthScreenLayout`, so it heads every auth screen (log in, sign up, change
+password).
+
+Current API concepts:
+
+- `height` — points tall; width follows the lockup's fixed 104.726:32 ratio.
+  Defaults to 32 (the Figma toolbar size)
+- `color` — glyph fill; defaults to `purple500`, the brand purple the mark ships
+  in. Override for dark or single-color surfaces
+- the path data is exported verbatim from Figma — do not hand-edit it; re-export
+  from the source node if the mark changes
+
 ### GraderWordmark
 
 File: `src/components/grader-wordmark.tsx`
@@ -637,8 +656,18 @@ reads as one set of actions, which is what they are.
 - also valid with a SINGLE child: that is how a lone back button stays in the
   same material as the group opposite it, instead of one bar carrying two
   different chrome styles
-- `fallbackColor` defaults to `gray50`, the fill `IconButton variant="subtle"`
-  already uses and what the design's glass composites to over a white page
+- `fallbackColor` defaults to `canvasElevated` (white) — the SAME fallback
+  `GlassNavBubble` uses, plus `shadows.card` when there is no real glass, since
+  white on a white page needs a raised edge to be visible at all. It defaulted
+  to `gray50` until 2026-08-11, which left Android drawing a white menu bubble
+  beside a grey action pill on the Wishlist bar and a grey back/delete/share on
+  card detail. Pass a colour explicitly for anything that is not a white page
+  (the scanner does)
+- `glassButtonGroupHeight`, `glassButtonGroupControlSize`,
+  `glassButtonGroupPaddingHorizontal` and `glassButtonGroupGap` are the
+  canonical grouped-toolbar geometry — `GlassNavBubbleGroup` reads them rather
+  than restating 6/6/36/40, because the Home bar's layout is solved from those
+  exact numbers and two copies could silently disagree
 
 ### GlassNavBubble
 
@@ -687,6 +716,57 @@ Non-glass fallbacks (Android, iOS < 26, glass disabled for accessibility):
 
 Icon color is never forced — the glyph is `children`, so callers pass `gray900`
 on light surfaces and `gray0` on the scanner.
+
+### GlassNavBubbleGroup
+
+File: `src/components/glass-nav-bubble-group.tsx`
+
+Several nav controls sharing ONE glass capsule — Home's trailing bell + `+`
+pair. Figma "Home" 3523:15499 → toolbar 3567:22969 → `Trailing` →
+`Button Group 1`: a single 90×40 `BG` with 36pt symbol frames at x=6 and x=48,
+i.e. Apple's iOS 26 grouped-toolbar pattern. **They are not two circles.**
+
+- `items`: one entry per slot, left to right —
+  `{ accessibilityLabel, children, onPress, disabled?, testID? }`. An ARRAY
+  rather than `children`, so the primitive can size itself from the count and
+  vary each slot's `hitSlop` by position; neither is possible with opaque
+  children.
+- `surface`: same meaning as on `GlassNavBubble` — what is UNDERNEATH, not the
+  material. `'onLight'` (default) or `'onDark'`.
+- `style` (layout is caller-owned), `testID`
+
+Geometry, from `glassNavBubbleGroupMetrics` (which reads `GlassButtonGroup`'s
+own 6/6/36/40 rather than restating them):
+
+- 40pt tall, `paddingHorizontal: 6`, `gap: 6`, 36pt slots
+- `glassNavBubbleGroupWidth(n)` = `6 + 36n + 6(n−1) + 6` → **90 for two slots**,
+  applied as an explicit `width`. The number is load-bearing: Home's toolbar
+  closes at `16 + 40 + 8 + 215 + 8 + 90 + 16 = 393`, so the flexed
+  `SearchEntryPill` only lands on its 215 if the trailing control is exactly 90.
+  Two separate 40pt bubbles with the row's 8pt gap measure 88.
+- `hitSlop` is 8 on the OUTSIDE edges (matching a standalone `GlassNavBubble`)
+  and 4 on the inside ones, which takes every 36pt slot over the 44pt touch
+  minimum. The 6pt seam between neighbours is therefore shared: a tap in its
+  middle 2pt goes to the later slot.
+
+Why not `GlassButtonGroup`, which is the same shape:
+
+- the fallback has to be `canvasElevated` + `shadows.card`, matching the
+  `GlassNavBubble` at the other end of the same row; `GlassButtonGroup` falls
+  back to a flat `gray50` with no lift, which beside a shadowed menu bubble
+  reads as two chrome styles in one bar
+- `overflow` must stay **visible** — Home's unread badge hangs off the bell at
+  `top: -2, right: -2`, and `GlassButtonGroup` clips its material with
+  `overflow: 'hidden'`
+- it owns its pressables, so a slot's `hitSlop` can depend on whether it is on
+  an outside edge; `GlassButtonGroup` takes arbitrary children and cannot know
+
+Non-glass fallbacks are ONE capsule, never one chip per slot — `onLight` a solid
+`canvasElevated` pill with the `shadows.card` lift, `onDark` a transparent pill
+with a 1pt `gray0` ring. Nesting two fallback circles in a container is exactly
+the "two circles in a box" look grouping exists to remove. Pressing dims the
+SLOT, not the capsule, so the material never fades out from under a live
+neighbour.
 
 ## Design-System Editing Rules
 

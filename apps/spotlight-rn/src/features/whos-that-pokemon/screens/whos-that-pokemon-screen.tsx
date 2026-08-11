@@ -581,10 +581,7 @@ export function WhosThatPokemonScreen() {
 
         <View style={[styles.captureFooter, { paddingBottom: insets.bottom + spacing.lg }]}>
           <AppText style={styles.captureHint} testID="wtp-capture-hint">
-            Step back for a full-body shot — your whole outfit &amp; vibe make the match.
-          </AppText>
-          <AppText style={styles.privacyCaption} testID="wtp-privacy-caption">
-            Analyzed in the moment. Never stored.
+            Take a picture of yourself to find out which Pok&eacute;mon you look like!
           </AppText>
           <Pressable
             accessibilityLabel="Take selfie"
@@ -755,10 +752,6 @@ const styles = StyleSheet.create({
     color: colors.scannerTextPrimary,
     marginHorizontal: spacing.xl,
     textAlign: 'center',
-  },
-  privacyCaption: {
-    ...textStyles.captionMedium,
-    color: colors.scannerTextSecondary,
   },
   shutterOuter: {
     alignItems: 'center',
