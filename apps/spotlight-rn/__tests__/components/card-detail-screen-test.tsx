@@ -644,11 +644,10 @@ describe('CardDetailScreen', () => {
       cache: 'cold',
     });
 
-    // Free tier: 1 clear sale, the rest behind the blur paywall + subscribe CTA.
+    // Paywall off: every sale renders clear, with no blur layer and no upsell.
     expect(screen.getByTestId('detail-recent-sales-sale-0')).toBeTruthy();
-    expect(screen.queryByTestId('detail-recent-sales-sale-1')).toBeNull();
-    expect(screen.getByTestId('detail-recent-sales-locked')).toBeTruthy();
-    expect(screen.getByTestId('detail-recent-sales-subscribe')).toBeTruthy();
+    expect(screen.queryByTestId('detail-recent-sales-locked')).toBeNull();
+    expect(screen.queryByTestId('detail-recent-sales-subscribe')).toBeNull();
     // Clear sale's price renders INSIDE the panel (the trend row shows $100 too).
     expect(
       within(screen.getByTestId('detail-recent-sales-sale-0')).getByText('$100.00'),
@@ -737,7 +736,7 @@ describe('CardDetailScreen', () => {
     premiumSpy.mockRestore();
   });
 
-  it('free tier: exactly 1 clear sale, no Show more, and the lock counts ALL hidden sales', async () => {
+  it('shows every recent sale to everyone — the paywall is off', async () => {
     const manySalesRecord = {
       ...recentSalesRecord,
       saleCount: 8,
@@ -773,19 +772,21 @@ describe('CardDetailScreen', () => {
       expect(screen.getByTestId('detail-recent-sales')).toBeTruthy();
     });
 
-    // 1 clear sale, a 4-row blurred preview, and NO Show-more (the locked
-    // user's next step is Unlock, not more blur).
+    /*
+      `PAYWALL_ENABLED` is false, so there is no free tier to be on: comps are
+      not something to hold back while we are still getting people to use the
+      app. Nothing is blurred, nothing is counted as hidden, and there is no
+      upsell to tap.
+    */
     expect(screen.getByTestId('detail-recent-sales-sale-0')).toBeTruthy();
-    expect(screen.queryByTestId('detail-recent-sales-sale-1')).toBeNull();
-    expect(screen.getByTestId('detail-recent-sales-locked-3')).toBeTruthy();
-    expect(screen.queryByTestId('detail-recent-sales-locked-4')).toBeNull();
-    expect(screen.queryByTestId('detail-recent-sales-show-more')).toBeNull();
-    // The lock overlay advertises everything hidden (7), not just the preview.
-    expect(screen.getByText('7 more recent sales')).toBeTruthy();
-    expect(screen.getByTestId('detail-recent-sales-subscribe')).toBeTruthy();
+    expect(screen.getByTestId('detail-recent-sales-sale-1')).toBeTruthy();
+    expect(screen.queryByTestId('detail-recent-sales-locked-0')).toBeNull();
+    expect(screen.queryByTestId('detail-recent-sales-locked-3')).toBeNull();
+    expect(screen.queryByText('7 more recent sales')).toBeNull();
+    expect(screen.queryByTestId('detail-recent-sales-subscribe')).toBeNull();
   });
 
-  it('subscribe CTA fires the paywall event and the stub toast', async () => {
+  it('offers no subscribe CTA at all, so no paywall event can fire', async () => {
     const getCardPriceTrends = jest.fn(async (query: { mode: string }) => ({
       mode: query.mode as 'raw' | 'graded',
       provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
@@ -806,18 +807,17 @@ describe('CardDetailScreen', () => {
     fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
     fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA 10'));
     await waitFor(() => {
-      expect(screen.getByTestId('detail-recent-sales-subscribe')).toBeTruthy();
+      expect(screen.getByTestId('detail-recent-sales')).toBeTruthy();
     });
 
-    fireEvent.press(screen.getByTestId('detail-recent-sales-subscribe'));
-    expect(capturePostHogEvent).toHaveBeenCalledWith('paywall_subscribe_tapped', {
-      surface: 'pdp_recent_sales',
-    });
-    // Interim free unlock (no payment provider yet): the paywall lifts — the
-    // subscribe CTA disappears and the previously-locked rows are revealed.
-    await waitFor(() => {
-      expect(screen.queryByTestId('detail-recent-sales-subscribe')).not.toBeOnTheScreen();
-    });
+    // With the paywall off there is no CTA to press, so the event it used to
+    // fire cannot happen. Asserting the EVENT as well as the button matters:
+    // a stray upsell elsewhere would still be reporting an intent to charge.
+    expect(screen.queryByTestId('detail-recent-sales-subscribe')).toBeNull();
+    expect(capturePostHogEvent).not.toHaveBeenCalledWith(
+      'paywall_subscribe_tapped',
+      expect.anything(),
+    );
   });
 
   it('parses the pipe-delimited graded row key too (backend version robustness)', async () => {

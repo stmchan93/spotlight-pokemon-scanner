@@ -25,7 +25,27 @@ let localUnlock = false; // interim device-local unlock
 let hydrated = false;
 const listeners = new Set<() => void>();
 
+/*
+  PAYWALL OFF — everyone sees every listing and every recent sale.
+
+  Nothing about the product is ready to charge for, and holding comps behind a
+  blur is the wrong first impression while we are still getting people to use
+  the app at all. `isPremium` gates exactly two things — the PDP recent-sales
+  and lowest-listed panels — so this one switch removes the whole thing on both
+  platforms without touching anything else.
+
+  The RevenueCat wiring underneath is deliberately LEFT INTACT rather than
+  deleted: `rcPremium` / `localUnlock` still hydrate and still notify, so
+  turning the paywall back on is flipping this constant back, not rebuilding
+  the purchase flow. The `paywall_subscribe_tapped` events simply stop firing,
+  because there is no longer an upsell to tap.
+*/
+const PAYWALL_ENABLED = false;
+
 function isPremium(): boolean {
+  if (!PAYWALL_ENABLED) {
+    return true;
+  }
   return rcPremium || localUnlock;
 }
 
