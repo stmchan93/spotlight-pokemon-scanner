@@ -18,6 +18,8 @@ type WishlistHeaderProps = {
   onOpenMenu: () => void;
   /** Opens the card catalog search. Omit to leave the search slot empty. */
   onOpenSearch?: () => void;
+  /** Share the list as text. Omitted → the control is not rendered. */
+  onShare?: () => void;
   /** When true the bar shows a "Done" action instead of the edit pencil. */
   editMode?: boolean;
   /** Enables the edit-mode toggle in the right slot. */
@@ -63,6 +65,7 @@ const BUTTON_ICON_SIZE = 20;
 export function WishlistHeader({
   onOpenMenu,
   onOpenSearch,
+  onShare,
   editMode = false,
   onToggleEditMode,
   testID = 'wishlist-header',
@@ -136,27 +139,25 @@ export function WishlistHeader({
               </IconButton>
             ) : null}
             {/*
-              SHARE IS A PLACEHOLDER AND DOES NOTHING, on purpose.
+              Shares the LIST — "here is what I'm hunting" — as text. The macro
+              counterpart to card detail's per-card share.
 
-              Your wishlist is private: the public profile has Collection / For
-              Sale / Activity and no Wishlist tab, so there is no URL to share.
-              The options are a public wishlist tab (a feature, not a button),
-              a text export, or a rendered image — none of them decided yet.
-
-              It is here because it was asked for, ahead of that decision. When
-              the decision lands, give `onShare` a body; until then the handler
-              is deliberately empty rather than firing something arbitrary.
+              No link, because there is nothing to link to: the wishlist is
+              private and the public profile has no Wishlist tab. A URL that
+              404s for the recipient would be worse than plain text.
             */}
-            <IconButton
-              accessibilityLabel="Share wishlist"
-              onPress={() => {}}
-              shape="circle"
-              size={glassButtonGroupControlSize}
-              testID="wishlist-header-share"
-              variant="ghost"
-            >
-              <ShareIos color={theme.colors.gray900} height={BUTTON_ICON_SIZE} width={BUTTON_ICON_SIZE} />
-            </IconButton>
+            {onShare ? (
+              <IconButton
+                accessibilityLabel="Share wishlist"
+                onPress={onShare}
+                shape="circle"
+                size={glassButtonGroupControlSize}
+                testID="wishlist-header-share"
+                variant="ghost"
+              >
+                <ShareIos color={theme.colors.gray900} height={BUTTON_ICON_SIZE} width={BUTTON_ICON_SIZE} />
+              </IconButton>
+            ) : null}
           </GlassButtonGroup>
         )}
       </View>

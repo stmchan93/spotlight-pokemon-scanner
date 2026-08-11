@@ -1,4 +1,5 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
+import { Share } from 'react-native';
 import { useRouter } from 'expo-router';
 
 import type { CardFavoriteEntry } from '@spotlight/api-client';
@@ -415,28 +416,54 @@ describe('WishlistScreen', () => {
     expect(within(actions).getByTestId('wishlist-header-share')).toBeTruthy();
   });
 
-  it('shows share, and share deliberately does nothing yet', async () => {
+  it('shares the list you are looking at, filters and all', async () => {
+    const shareSpy = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' } as never);
     const repository = createTestSpotlightRepository({
-      getCardFavorites: async () => [buildFavoriteEntry({ cardId: 'charizard', name: 'Charizard' })],
+      getCardFavorites: async () => [
+        buildFavoriteEntry({ cardId: 'charizard', name: 'Charizard' }),
+        buildFavoriteEntry({ cardId: 'gengar', name: 'Gengar ex' }),
+      ],
     });
 
     renderWishlistScreen(repository);
-
-    const share = await screen.findByTestId('wishlist-header-share');
-    expect(share.props.accessibilityLabel).toBe('Share wishlist');
+    // Wait for the favourites to land — sharing before they load would share
+    // an empty list, which is a different (also tested) path.
+    await screen.findByText('Charizard');
 
     await act(async () => {
-      fireEvent.press(share);
+      fireEvent.press(screen.getByTestId('wishlist-header-share'));
     });
 
     /*
-      A PLACEHOLDER, on purpose: the wishlist is private (the public profile has
-      Collection / For Sale / Activity and no Wishlist tab), so there is no URL
-      to share and no decision yet on text vs image vs a public tab. This test
-      exists so that when the handler gains a body, someone has to come here and
-      say what it now does — rather than it quietly starting to fire something.
+      The MACRO counterpart to card detail's per-card share: the list, as text.
+      No URL — the wishlist is private and the public profile has no Wishlist
+      tab, so a link would 404 for whoever you sent it to.
     */
-    expect(push).not.toHaveBeenCalled();
+    expect(shareSpy).toHaveBeenCalledTimes(1);
+    const message = (shareSpy.mock.calls[0][0] as { message: string }).message;
+    expect(message).toContain("Cards I'm looking for:");
+    expect(message).toContain('Charizard');
+    expect(message).toContain('Gengar ex');
+    expect(shareSpy.mock.calls[0][0]).not.toHaveProperty('url');
+
+    shareSpy.mockRestore();
+  });
+
+  it('stays silent when there is nothing to share', async () => {
+    const shareSpy = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' } as never);
+    const repository = createTestSpotlightRepository({ getCardFavorites: async () => [] });
+
+    renderWishlistScreen(repository);
+
+    await act(async () => {
+      fireEvent.press(await screen.findByTestId('wishlist-header-share'));
+    });
+
+    // Opening the OS sheet with a header and no cards under it is worse than
+    // the button appearing to do nothing.
+    expect(shareSpy).not.toHaveBeenCalled();
+
+    shareSpy.mockRestore();
   });
 
   // A header button is chrome, not an overlay on the list, so it survives the

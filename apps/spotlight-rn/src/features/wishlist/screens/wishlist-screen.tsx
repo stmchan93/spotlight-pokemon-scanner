@@ -4,6 +4,7 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
+  Share,
   StyleSheet,
   View,
 } from 'react-native';
@@ -32,13 +33,15 @@ import {
 
 import { ScrollToTopFab, useScrollToTop } from '@/components/scroll-to-top-fab';
 import { GridViewIcon, ListViewIcon } from '@/components/view-toggle-icons';
-import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
 import { ConfirmDeleteSheet } from '@/features/cards/components/confirm-delete-sheet';
 import { saveCardDetailPreviewFromFavorite } from '@/features/cards/card-detail-preview-session';
 import { prefetchCardDetail } from '@/features/cards/card-detail-prefetch';
 import { formatOptionalCurrency } from '@/features/portfolio/components/portfolio-formatting';
 import { WishlistHeader } from '@/features/wishlist/components/wishlist-header';
+import { buildWishlistShareMessage } from '@/features/wishlist/wishlist-share';
 import { useGuestGate } from '@/features/auth/use-guest-gate';
+import { DrawerEdgeSwipe } from '@/components/drawer-edge-swipe';
+import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAppServices } from '@/providers/app-providers';
 
 // A wishlist tracks the CARD, not a specific copy. Condition/grade only ever
@@ -123,6 +126,7 @@ export function WishlistScreen() {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { openDrawer } = useAppDrawer();
   const { isGuest, openLogin } = useGuestGate();
   // Belt-and-suspenders: every entry point here is already guest-gated, but if a
   // guest somehow lands on this screen, bounce them to the login modal.
@@ -142,6 +146,7 @@ export function WishlistScreen() {
   // and the bottom edit bar drives un-favorite in bulk. (It used to hide the
   // JS tab bar too; UIKit owns the bar now and it can't be hidden per-screen.)
   const [editMode, setEditMode] = useState(false);
+
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -221,6 +226,25 @@ export function WishlistScreen() {
     }
     return entries;
   }, [activeFilter, favorites, query]);
+
+  /*
+    Share the LIST — the macro counterpart to card detail's per-card share.
+    "Here is what I'm hunting", pasted into a group chat or a dealer's DM.
+
+    Shares `visibleEntries`, so filters and search carry through: sharing the
+    whole wishlist while the screen shows six filtered cards would surprise.
+
+    Silent on an empty list — opening the OS share sheet with a header and
+    nothing under it is worse than the button appearing to do nothing, which is
+    why `buildWishlistShareMessage` returns null there.
+  */
+  const handleShareWishlist = useCallback(() => {
+    const message = buildWishlistShareMessage(visibleEntries);
+    if (!message) {
+      return;
+    }
+    void Share.share({ message }).catch(() => undefined);
+  }, [visibleEntries]);
 
   const handleOpenDetail = useCallback((entry: CardFavoriteEntry) => {
     // Favorites carry no owned slab → warm the default raw lane + hero image.
@@ -313,6 +337,14 @@ export function WishlistScreen() {
         setIsDeleting(false);
       });
   }, [isDeleting, loadFavorites, selectedIds, spotlightRepository]);
+
+  // Catalog search. Same destination the floating magnifier FAB had; it is a
+  // bubble in the top bar now (see `WishlistHeader`), which also keeps it
+  // reachable on an empty wishlist without an overlay hanging over the empty
+  // copy.
+  const handleOpenCatalogSearch = useCallback(() => {
+    router.push('/catalog/search' as never);
+  }, [router]);
 
   const handleToggleViewMode = useCallback(() => {
     setViewMode(viewMode === 'list' ? 'grid' : 'list');
@@ -486,13 +518,20 @@ export function WishlistScreen() {
   );
 
   return (
+    // Same left-edge drag as Home and You. Wishlist is a tab, so the drawer is
+    // reachable from it by the same gesture as everywhere else rather than only
+    // from the button. `disabled` while editing: the edit UI owns gestures
+    // across the full screen, matching how the Collection pager stands down.
+    <DrawerEdgeSwipe disabled={editMode}>
     <SafeAreaView
       edges={['left', 'right']}
       style={[styles.safeArea, { backgroundColor: colors.gray0 }]}
     >
       <WishlistHeader
         editMode={editMode}
-        onBack={() => router.back()}
+        onOpenMenu={openDrawer}
+        onOpenSearch={handleOpenCatalogSearch}
+        onShare={handleShareWishlist}
         onToggleEditMode={() => (editMode ? handleExitEditMode() : setEditMode(true))}
       />
       <View style={styles.listWrap} testID="wishlist-list">
@@ -529,7 +568,10 @@ export function WishlistScreen() {
         visible={showScrollTop}
       />
 
-      {editMode ? null : <CollectionAddFab />}
+      {/* No floating catalog-search FAB here either. It was a magnifier circle
+          pinned above the tab bar; the same action is a bubble in the top bar
+          now, beside Edit (`WishlistHeader`). The shared `CollectionAddFab`
+          component still exists — Insights renders it. */}
       {/* No `<AppBottomTabBar>` here. Wishlist was a PUSHED stack screen that had
           to draw its own JS tab bar; it is a real tab now (`(tabs)/wishlist.tsx`)
           and Apple's native iOS 26 bar from `(tabs)/_layout.tsx` is already on
@@ -601,6 +643,7 @@ export function WishlistScreen() {
         visible={deleteConfirmOpen}
       />
     </SafeAreaView>
+    </DrawerEdgeSwipe>
   );
 }
 
