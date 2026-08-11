@@ -57,7 +57,6 @@ import { CollectionSearchRow } from '@/features/portfolio/components/collection-
 import {
   HOME_HEADER_ROW_HEIGHT,
   HomeHeader,
-  SEARCH_PILL_HIDE_DISTANCE,
 } from '@/components/home-header';
 import {
   CollectionFilterChipRow,
@@ -444,13 +443,9 @@ export function PortfolioScreen({
   // would leak the same number one row further down.
 
   // The pager writes its scroll offset here; this screen only READS it, and
-  // hands it to `HomeHeader` raw so the bar can slide the pill out. Driving that
-  // off the same value the header collapse runs on keeps the pill glued to the
-  // page rather than a JS frame behind the finger.
+  // hands it to `HomeHeader` raw. It still drives the header collapse and the
+  // backdrop fade — the pill itself no longer moves (see `persistentSearch`).
   const pagerScrollY = useRef(new Animated.Value(0)).current;
-  // `pointerEvents` is not animatable, so the departed pill is disarmed from JS
-  // or it stays an invisible tap target over the collection.
-  const [isSearchPillHidden, setIsSearchPillHidden] = useState(false);
 
   const collectionTotalLabel = isSummaryHidden
     ? HIDDEN_VALUE_MASK
@@ -1265,6 +1260,12 @@ export function PortfolioScreen({
         chrome layer, which TRANSLATES with scroll, so a plate extended upward
         from it paints over the profile block at rest.
       */
+      /*
+        The pill STAYS on this page — see `persistentSearch`. Without it the
+        backdrop above painted a white strip with nothing in it, which is a bar
+        that has lost its contents rather than a bar that is out of the way.
+      */
+      persistentSearch
       pinnedBackdrop
       // Every page runs `contentInsetAdjustmentBehavior="automatic"` and so
       // rests at `-insets.top` on iOS; `pagerScrollY` carries that ABSOLUTE
@@ -1273,7 +1274,6 @@ export function PortfolioScreen({
       // pager's `contentInsetTop` use.
       scrollRestOffset={pageTopOffset}
       scrollY={pagerScrollY}
-      searchInteractive={!isSearchPillHidden}
       testID="portfolio-header"
     />
   );
@@ -1713,9 +1713,10 @@ export function PortfolioScreen({
     // TRAVEL from the page's own top, not the raw offset — every page rests at
     // `pageTopOffset` (negative on iOS), so comparing the raw value disarmed
     // the pill a whole safe-area inset after the bar had faded it out.
-    const travelled = event.nativeEvent.contentOffset.y - pageTopOffset;
-    const hidden = travelled >= SEARCH_PILL_HIDE_DISTANCE;
-    setIsSearchPillHidden((previous) => (previous === hidden ? previous : hidden));
+    // NOTHING TO DISARM ANY MORE. The pill is persistent on this page (see
+    // `persistentSearch`), so it is always visible and always tappable;
+    // `pointerEvents` only ever needed switching off because opacity alone left
+    // an invisible pill catching taps over the collection.
   };
 
   return (

@@ -90,6 +90,18 @@ type HomeHeaderProps = {
    */
   pinnedBackdrop?: boolean;
   /**
+   * Keep the search pill on screen instead of sliding it away as you scroll.
+   *
+   * THE YOU/COLLECTION PAGE ONLY. Home deliberately trades its pill for screen
+   * as you read the feed — there is nothing else in that bar, so an empty strip
+   * is honest there. On Collection the bar has to stay opaque anyway
+   * (`pinnedBackdrop`, so cards do not scroll through it), and a white plate
+   * with nothing in it is just a bar that lost its contents. Searching your own
+   * collection is also a thing you do MID-scroll, which is exactly when the
+   * fade took the control away.
+   */
+  persistentSearch?: boolean;
+  /**
    * The page's scroll offset. Drives the pill sliding up out of the row while
    * the bubbles beside it stay put; omit to keep the pill solid and static.
    *
@@ -261,6 +273,7 @@ export function HomeHeader({
   onOpenMenu,
   floating = false,
   onOpenSearch,
+  persistentSearch = false,
   pinnedBackdrop = false,
   scrollRestOffset = 0,
   scrollY,
@@ -285,7 +298,9 @@ export function HomeHeader({
     Android, where the page really does rest at 0).
   */
   const searchMotion = useMemo(() => {
-    if (!scrollY) {
+    // Null is already the "no motion" case the prop wants — the pill renders
+    // solid and static, exactly as it does for a caller that passes no scrollY.
+    if (!scrollY || persistentSearch) {
       return null;
     }
     const inputRange = [scrollRestOffset, scrollRestOffset + SEARCH_PILL_HIDE_DISTANCE];
@@ -305,7 +320,7 @@ export function HomeHeader({
         },
       ],
     };
-  }, [scrollRestOffset, scrollY]);
+  }, [persistentSearch, scrollRestOffset, scrollY]);
 
   // Reaches full opacity over the same distance the pill takes to leave, which
   // is far shorter than the profile block's collapse — so by the time anything

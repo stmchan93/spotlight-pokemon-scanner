@@ -1692,19 +1692,23 @@ describe('PortfolioScreen', () => {
       });
     });
 
-    // Scrolled past the hide distance the pill has LEFT THE ROW, so it must not
-    // answer a press: it is clipped out of sight but its box is still in the
-    // tree, and an invisible live tap target sitting over the collection is
-    // precisely what `searchInteractive` exists to prevent.
-    //
-    // This assertion used to say the opposite — that the pill still navigated
-    // after a 240pt scroll — which passed only because the bar accepted the
-    // fade props and never applied them.
+    /*
+      THE PILL STAYS, ON THIS PAGE ONLY (`persistentSearch`).
+
+      It used to slide out of the row and get disarmed, which left the pinned
+      backdrop painting a white strip with nothing in it — a bar that had lost
+      its contents rather than one that was out of the way. Searching your own
+      collection is also something you do MID-scroll, which is exactly when the
+      fade took the control away.
+
+      Home keeps the fade: its bar holds nothing else, so an empty strip there
+      is honest. That difference is the whole reason this is a prop.
+    */
     push.mockClear();
     await act(async () => {
       fireEvent.press(screen.getByTestId('portfolio-header-search'));
     });
-    expect(push).not.toHaveBeenCalled();
+    expect(push).toHaveBeenLastCalledWith('/catalog/search');
 
     // The bubbles are pinned and stay live for the whole scroll.
     await act(async () => {
