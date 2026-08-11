@@ -84,6 +84,59 @@ let dmChannelSequence = 0;
  * No ticking timer: the label refreshes on any re-render, which this screen
  * does on every send, refresh, and realtime event.
  */
+/**
+ * How long a silence has to be before the thread stamps the time on top of the
+ * next message. One hour, which is roughly what Messenger does.
+ *
+ * The point is to date a CONVERSATION, not a message: stamping every bubble
+ * turns a thread into a log, and stamping none leaves you scrolling back
+ * wondering whether "tomorrow?" was asked today or last week. A gap is the
+ * signal — it is exactly where the reader's sense of time breaks.
+ */
+const TIME_SEPARATOR_GAP_MS = 60 * 60 * 1000;
+
+/**
+ * The separator's copy: the time alone when it is today, the weekday when it is
+ * this week, and a date once it is older.
+ *
+ * ALWAYS THE READER'S OWN CLOCK, never the sender's and never UTC. `created_at`
+ * is stored as an absolute instant, `Date.parse` turns it back into one, and
+ * every read below — `toLocaleTimeString`, `getDate`, `toDateString` — resolves
+ * it in the device's timezone. So a message sent at 09:00 in London shows as
+ * 04:00 to someone reading in New York, which is the only stamp that helps them
+ * place it against their own day.
+ *
+ * That also means "today" and the day-change rule are the READER's day. Two
+ * messages either side of the sender's midnight may sit in one block for you,
+ * and that is correct — the separator exists to orient the person looking at it.
+ *
+ * Locale-formatted rather than hand-built, so 24-hour locales get 13:58 instead
+ * of a hard-coded 1:58 PM.
+ */
+function formatTimeSeparator(iso: string, now: number = Date.now()): string {
+  const timestamp = Date.parse(iso);
+  if (Number.isNaN(timestamp)) {
+    return '';
+  }
+  const then = new Date(timestamp);
+  const time = then.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const today = new Date(now);
+
+  const sameDay =
+    then.getFullYear() === today.getFullYear()
+    && then.getMonth() === today.getMonth()
+    && then.getDate() === today.getDate();
+  if (sameDay) {
+    return time;
+  }
+
+  const days = Math.floor((now - timestamp) / (24 * 60 * 60 * 1000));
+  if (days < 7) {
+    return `${then.toLocaleDateString([], { weekday: 'short' })} ${time}`;
+  }
+  return `${then.toLocaleDateString([], { day: 'numeric', month: 'short' })}, ${time}`;
+}
+
 function formatSentAgo(iso: string): string {
   const timestamp = Date.parse(iso);
   if (Number.isNaN(timestamp)) {
@@ -526,6 +579,27 @@ export function DmThreadScreen({
     [applyBlocked, conversationId, markFailed],
   );
 
+  /*
+    ─────────────────────────────────────────────────────────────────────────
+    SEND FIRES ON TOUCH-DOWN, AND THIS IS WHY.
+    ─────────────────────────────────────────────────────────────────────────
+    Reported: with a word underlined for autocorrect, tapping Send only
+    ACCEPTED the correction — you had to tap again to actually send. On iOS a
+    pending autocorrection consumes the first touch outside the field, so the
+    press never reached the button.
+
+    `onPressIn` runs before that handling, so one tap sends. It also sends what
+    was actually typed rather than what iOS was about to substitute, which is
+    the behaviour asked for.
+
+    `onPress` stays for accessibility — VoiceOver activation raises `onPress`
+    and never `onPressIn`, so dropping it would leave screen-reader users unable
+    to send at all. This latch is what stops the two paths double-sending: a
+    same-tick second call would still read the pre-clear `draft`, since the
+    clear is a state update that has not flushed yet.
+  */
+  const sentOnTouchDownRef = useRef(false);
+
   const handleSend = useCallback(() => {
     const text = draft.trim();
     // `isBlockedRef` covers the paths a disabled button does not: `returnKeyType`
@@ -644,6 +718,35 @@ export function DmThreadScreen({
     return null;
   }, [messages, myUserId, otherLastReadAt]);
 
+  /*
+    Which messages open a new time block. Computed over the whole thread once
+    rather than per row, so `renderItem` stays a pure lookup and does not need
+    the message list in its dependencies.
+
+    A day change always stamps, even when the gap is short: two messages twenty
+    minutes apart across midnight are a different day to a reader, and the
+    hour threshold alone would say nothing.
+  */
+  const timeSeparatorIds = useMemo(() => {
+    const ids = new Set<string>();
+    let previousAt: number | null = null;
+    for (const message of messages) {
+      const at = Date.parse(message.createdAt);
+      if (Number.isNaN(at)) {
+        continue;
+      }
+      const startsBlock =
+        previousAt === null
+        || at - previousAt >= TIME_SEPARATOR_GAP_MS
+        || new Date(at).toDateString() !== new Date(previousAt).toDateString();
+      if (startsBlock) {
+        ids.add(message.id);
+      }
+      previousAt = at;
+    }
+    return ids;
+  }, [messages]);
+
   const renderItem = useCallback(
     ({ item }: { item: ThreadMessage }) => {
       // A locally-created entry is always mine, which keeps the optimistic bubble
@@ -677,10 +780,24 @@ export function DmThreadScreen({
           than beside it — the row inside is horizontal for the avatar, so a
           footer sibling there would land at the bubble's right edge.
         */
-        <View
-          style={[styles.block, isMine ? styles.blockMine : styles.blockTheirs]}
-          testID={`${testID}-row-${item.id}`}
-        >
+        <>
+          {/*
+            The time this block of conversation started, centred over it —
+            Messenger's shape. It sits OUTSIDE the block wrapper so it spans the
+            thread rather than aligning to whichever side sent the message.
+          */}
+          {timeSeparatorIds.has(item.id) ? (
+            <Text
+              style={[theme.typography.micro, styles.timeSeparator, { color: theme.colors.gray600 }]}
+              testID={`${testID}-time-${item.id}`}
+            >
+              {formatTimeSeparator(item.createdAt)}
+            </Text>
+          ) : null}
+          <View
+            style={[styles.block, isMine ? styles.blockMine : styles.blockTheirs]}
+            testID={`${testID}-row-${item.id}`}
+          >
           <View style={styles.row}>
             {/*
               THEIR photo, on the left of THEIR bubble, and a second way through to
@@ -823,9 +940,10 @@ export function DmThreadScreen({
               >
                 {formatSentAgo(item.createdAt)}
               </Text>
-            )
-          ) : null}
-        </View>
+              )
+            ) : null}
+          </View>
+        </>
       );
     },
     [
@@ -838,6 +956,7 @@ export function DmThreadScreen({
       myUserId,
       openProfile,
       otherUser?.avatarUrl,
+      timeSeparatorIds,
       router,
       testID,
       theme,
@@ -1043,7 +1162,18 @@ export function DmThreadScreen({
               accessibilityRole="button"
               disabled={!canSend}
               hitSlop={8}
-              onPress={handleSend}
+              onPress={() => {
+                // Already sent on touch-down; this is the VoiceOver path only.
+                if (sentOnTouchDownRef.current) {
+                  sentOnTouchDownRef.current = false;
+                  return;
+                }
+                handleSend();
+              }}
+              onPressIn={() => {
+                sentOnTouchDownRef.current = true;
+                handleSend();
+              }}
               style={[
                 styles.sendButton,
                 {
@@ -1086,6 +1216,14 @@ const styles = StyleSheet.create({
     gap: 2,
     paddingHorizontal: 12,
     paddingVertical: 8,
+  },
+  timeSeparator: {
+    // Spans the thread and centres, rather than aligning to whichever side sent
+    // the next message — it dates the CONVERSATION, not one person's turn.
+    alignSelf: 'stretch',
+    paddingBottom: 4,
+    paddingTop: 12,
+    textAlign: 'center',
   },
   seenNote: {
     // Under the bubble and on its side of the thread — the block wrapper's

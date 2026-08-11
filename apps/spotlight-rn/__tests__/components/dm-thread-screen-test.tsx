@@ -655,6 +655,8 @@ describe('DmThreadScreen', () => {
       body: 'you around?',
     };
 
+    // The receipt is their AVATAR, not the word "Seen" — the Messenger shape.
+    // Who saw it is the answer, and the face says it without a status line.
     it('marks your newest message seen once their cursor passes it', async () => {
       (fetchMessages as jest.Mock).mockResolvedValue([buildMessage({ id: 'm-1', ...MINE })]);
       (fetchConversationReadState as jest.Mock).mockResolvedValue({
@@ -664,10 +666,11 @@ describe('DmThreadScreen', () => {
       renderWithProviders(<DmThreadScreen conversationId="c-1" />);
 
       expect(await screen.findByTestId('dm-thread-seen-m-1')).toBeTruthy();
-      expect(screen.getByText('Seen')).toBeTruthy();
+      // Seen REPLACES the sent label — the two must never stack.
+      expect(screen.queryByTestId('dm-thread-sent-m-1')).toBeNull();
     });
 
-    it('says nothing when their cursor is older than the message', async () => {
+    it('says Sent, not Seen, while their cursor is older than the message', async () => {
       (fetchMessages as jest.Mock).mockResolvedValue([buildMessage({ id: 'm-1', ...MINE })]);
       (fetchConversationReadState as jest.Mock).mockResolvedValue({
         otherLastReadAt: '2026-07-28T11:59:00.000Z',
@@ -676,7 +679,8 @@ describe('DmThreadScreen', () => {
       renderWithProviders(<DmThreadScreen conversationId="c-1" />);
       await waitFor(() => expect(screen.getByTestId('dm-thread-row-m-1')).toBeTruthy());
 
-      expect(screen.queryByText('Seen')).toBeNull();
+      expect(screen.queryByTestId('dm-thread-seen-m-1')).toBeNull();
+      expect(screen.getByTestId('dm-thread-sent-m-1')).toHaveTextContent(/^Sent/);
     });
 
     /*
@@ -684,7 +688,7 @@ describe('DmThreadScreen', () => {
       last message is seen every earlier one is too — repeating it per bubble
       would turn the thread into a column of status text saying nothing extra.
     */
-    it('shows one Seen, on the newest of your messages only', async () => {
+    it('shows one receipt, on the newest of your messages only', async () => {
       (fetchMessages as jest.Mock).mockResolvedValue([
         buildMessage({ id: 'm-1', ...MINE }),
         buildMessage({
@@ -702,11 +706,12 @@ describe('DmThreadScreen', () => {
 
       expect(await screen.findByTestId('dm-thread-seen-m-2')).toBeTruthy();
       expect(screen.queryByTestId('dm-thread-seen-m-1')).toBeNull();
-      expect(screen.getAllByText('Seen')).toHaveLength(1);
+      expect(screen.queryByTestId('dm-thread-sent-m-1')).toBeNull();
+      expect(screen.queryByTestId('dm-thread-sent-m-2')).toBeNull();
     });
 
     // Their own messages carry no receipt — you reading them is not news to you.
-    it('never marks THEIR message seen', async () => {
+    it('never puts a receipt on THEIR message', async () => {
       (fetchMessages as jest.Mock).mockResolvedValue([
         buildMessage({ id: 'm-1', senderId: 'them', body: 'hey' }),
       ]);
@@ -717,24 +722,164 @@ describe('DmThreadScreen', () => {
       renderWithProviders(<DmThreadScreen conversationId="c-1" />);
       await waitFor(() => expect(screen.getByTestId('dm-thread-row-m-1')).toBeTruthy());
 
-      expect(screen.queryByText('Seen')).toBeNull();
+      expect(screen.queryByTestId('dm-thread-seen-m-1')).toBeNull();
+      expect(screen.queryByTestId('dm-thread-sent-m-1')).toBeNull();
     });
 
     /*
-      GROUPS GET NOTHING, and the service is what enforces it: "seen" in a group
-      means seen by EVERYONE, which is a different rule. Returning the max of
-      several cursors would claim the whole group had read something when one
+      GROUPS NEVER SAY SEEN, and the service is what enforces it: "seen" in a
+      group means seen by EVERYONE, which is a different rule. Returning the max
+      of several cursors would claim the whole group had read something when one
       person had, so `fetchConversationReadState` answers null for anything that
-      is not exactly one counterpart.
+      is not exactly one counterpart. Delivery is still a fact, though — the
+      Sent label stays even where "seen" has no single answer.
     */
-    it('shows nothing when the read state is unavailable, as it is for a group', async () => {
+    it('falls back to Sent when the read state is unavailable, as it is for a group', async () => {
       (fetchMessages as jest.Mock).mockResolvedValue([buildMessage({ id: 'm-1', ...MINE })]);
       (fetchConversationReadState as jest.Mock).mockResolvedValue(null);
 
       renderWithProviders(<DmThreadScreen conversationId="c-1" />);
       await waitFor(() => expect(screen.getByTestId('dm-thread-row-m-1')).toBeTruthy());
 
-      expect(screen.queryByText('Seen')).toBeNull();
+      expect(screen.queryByTestId('dm-thread-seen-m-1')).toBeNull();
+      expect(screen.getByTestId('dm-thread-sent-m-1')).toHaveTextContent(/^Sent/);
+    });
+  });
+
+  /*
+    ═══════════════════════════════════════════════════════════════════════════
+    ONE TAP SENDS, EVEN MID-AUTOCORRECT.
+    ═══════════════════════════════════════════════════════════════════════════
+    Reported: with a word underlined for autocorrect, tapping Send only ACCEPTED
+    the correction and you had to tap again. On iOS a pending autocorrection
+    consumes the first touch outside the field, so the press never arrived.
+
+    Sending on touch-down runs before that handling. `onPress` stays for
+    VoiceOver, which raises it and never `onPressIn` — so both paths have to
+    work, and neither may fire twice.
+  */
+  describe('sending past an autocorrection', () => {
+    it('sends on touch-down, before the press the correction would eat', async () => {
+      renderWithProviders(<DmThreadScreen conversationId="c-1" />);
+      await waitFor(() => expect(fetchMessages).toHaveBeenCalled());
+
+      fireEvent.changeText(screen.getByTestId('dm-thread-input'), 'teh');
+      await act(async () => {
+        fireEvent(screen.getByTestId('dm-thread-send'), 'pressIn');
+      });
+
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+      // What was typed, not what iOS was about to substitute.
+      expect((sendMessage as jest.Mock).mock.calls[0]?.slice(0, 2)).toEqual(['c-1', 'teh']);
+    });
+
+    // A real tap raises pressIn AND press. Without the latch the second one
+    // would re-send: the draft clear is a state update that has not flushed.
+    it('sends exactly once for a full tap', async () => {
+      renderWithProviders(<DmThreadScreen conversationId="c-1" />);
+      await waitFor(() => expect(fetchMessages).toHaveBeenCalled());
+
+      fireEvent.changeText(screen.getByTestId('dm-thread-input'), 'hello');
+      await act(async () => {
+        fireEvent(screen.getByTestId('dm-thread-send'), 'pressIn');
+        fireEvent.press(screen.getByTestId('dm-thread-send'));
+      });
+
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    // VoiceOver activation raises `press` alone. Dropping it would leave screen
+    // reader users unable to send at all.
+    it('still sends from press alone, which is the VoiceOver path', async () => {
+      renderWithProviders(<DmThreadScreen conversationId="c-1" />);
+      await waitFor(() => expect(fetchMessages).toHaveBeenCalled());
+
+      fireEvent.changeText(screen.getByTestId('dm-thread-input'), 'hello');
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('dm-thread-send'));
+      });
+
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  /*
+    Messenger's centred time separators: the thread dates a CONVERSATION, not
+    every bubble. Stamping each message turns a thread into a log; stamping none
+    leaves you scrolling back wondering whether "tomorrow?" meant today.
+  */
+  describe('time separators', () => {
+    it('stamps the first message and any that opens a new block', async () => {
+      (fetchMessages as jest.Mock).mockResolvedValue([
+        buildMessage({ id: 'm-1', body: 'morning', createdAt: '2026-07-28T09:00:00.000Z' }),
+        // Four minutes later — same block, no stamp.
+        buildMessage({ id: 'm-2', body: 'you there?', createdAt: '2026-07-28T09:04:00.000Z' }),
+        // Three hours later — a new block.
+        buildMessage({ id: 'm-3', body: 'back', createdAt: '2026-07-28T12:10:00.000Z' }),
+      ]);
+
+      renderWithProviders(<DmThreadScreen conversationId="c-1" />);
+      await waitFor(() => expect(screen.getByText('morning')).toBeTruthy());
+
+      expect(screen.getByTestId('dm-thread-time-m-1')).toBeTruthy();
+      expect(screen.queryByTestId('dm-thread-time-m-2')).toBeNull();
+      expect(screen.getByTestId('dm-thread-time-m-3')).toBeTruthy();
+    });
+
+    /*
+      THE READER'S CLOCK, NOT THE SENDER'S AND NOT UTC.
+
+      `created_at` is an absolute instant; what makes the stamp useful is
+      resolving it in the timezone of whoever is looking. A message stored as
+      16:30Z has to read as 09:30 to someone in Los Angeles, or it places the
+      conversation against a day they did not live.
+    */
+    it('renders the stamp in the reader’s own timezone', async () => {
+      // A LOCAL wall-clock time, converted to the absolute instant that would
+      // have been stored. If the stamp were rendered in UTC this would come
+      // back as some other hour anywhere but UTC.
+      const localSendTime = new Date(2026, 6, 28, 14, 37, 0, 0);
+      (fetchMessages as jest.Mock).mockResolvedValue([
+        buildMessage({ id: 'm-1', body: 'hi', createdAt: localSendTime.toISOString() }),
+      ]);
+
+      renderWithProviders(<DmThreadScreen conversationId="c-1" />);
+      await waitFor(() => expect(screen.getByText('hi')).toBeTruthy());
+
+      const stamp = screen.getByTestId('dm-thread-time-m-1').props.children as string;
+      const expected = localSendTime.toLocaleTimeString([], {
+        hour: 'numeric',
+        minute: '2-digit',
+      });
+      // `toContain`, not `toBe`: this instant is older than a week, so the copy
+      // also carries a date prefix. The TIME is the part under test.
+      expect(stamp).toContain(expected);
+      // 37 is the minute nothing else would produce by coincidence — a UTC
+      // render would keep it only in a UTC-offset-zero environment, and the
+      // HOUR beside it is what would move.
+      expect(stamp).toContain('37');
+    });
+
+    // Two messages twenty minutes apart across midnight are a different day to
+    // a reader, and the hour threshold alone would say nothing about it.
+    it('stamps a new day even when the gap is short', async () => {
+      /*
+        Built from LOCAL times, not fixed UTC strings. The separator asks
+        "different calendar day for this reader?", so a UTC literal only crosses
+        midnight in some timezones — the assertion would pass or fail depending
+        on where the suite runs.
+      */
+      const beforeMidnight = new Date(2026, 6, 28, 23, 50, 0, 0);
+      const afterMidnight = new Date(2026, 6, 29, 0, 5, 0, 0);
+      (fetchMessages as jest.Mock).mockResolvedValue([
+        buildMessage({ id: 'm-1', body: 'night', createdAt: beforeMidnight.toISOString() }),
+        buildMessage({ id: 'm-2', body: 'morning', createdAt: afterMidnight.toISOString() }),
+      ]);
+
+      renderWithProviders(<DmThreadScreen conversationId="c-1" />);
+      await waitFor(() => expect(screen.getByText('night')).toBeTruthy());
+
+      expect(screen.getByTestId('dm-thread-time-m-2')).toBeTruthy();
     });
   });
 
