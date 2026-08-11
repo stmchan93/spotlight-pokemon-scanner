@@ -100,7 +100,7 @@ import {
   fetchAuthorActivity,
 } from '@/features/social/social-service';
 import { usePostDeletion } from '@/features/social/use-post-deletion';
-import { consumeFeedRefreshSignal } from '@/features/social/screens/new-post-screen';
+import { getFeedRefreshVersion } from '@/features/social/screens/new-post-screen';
 import { ProfileHeader } from '@/features/profile/components/profile-header';
 import { buildProfileShareMessage } from '@/features/profile/profile-share';
 import { buildProfileDeepLink } from '@/features/profile/profile-link';
@@ -271,6 +271,8 @@ export function PortfolioScreen({
   const [activityStatus, setActivityStatus] = useState<ActivityStatus>('idle');
   // Bumped to force an Activity re-fetch (e.g. after composing a post).
   const [activityReloadToken, setActivityReloadToken] = useState(0);
+  // Last refresh signal this screen acted on — see `getFeedRefreshVersion`.
+  const seenRefreshVersionRef = useRef(getFeedRefreshVersion());
   // Which user's Activity posts have already been requested, so re-selecting the
   // tab doesn't refetch.
   const activityLoadedRef = useRef<string | null>(null);
@@ -677,13 +679,17 @@ export function PortfolioScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ownerId, activityReloadToken]);
 
-  // The composer flips a one-shot refresh flag on a successful post. Consume it
-  // when this screen regains focus and force the owner's Activity to reload —
-  // otherwise the lazy-load ref keeps the stale, pre-post list and the new post
-  // never appears (the "I posted but see nothing" bug).
+  // Publishing a post or reposting one bumps the shared refresh counter. When
+  // this screen regains focus having missed a bump, force the owner's Activity
+  // to reload — otherwise the lazy-load ref keeps serving the stale list and the
+  // new row never appears ("I posted/reposted but see nothing").
+  //
+  // The counter is compared, not consumed: the feed watches it too, and the old
+  // read-and-clear flag meant whichever screen focused first swallowed it.
   useFocusEffect(
     useCallback(() => {
-      if (consumeFeedRefreshSignal()) {
+      if (seenRefreshVersionRef.current !== getFeedRefreshVersion()) {
+        seenRefreshVersionRef.current = getFeedRefreshVersion();
         activityLoadedRef.current = null;
         setActivityReloadToken((token) => token + 1);
       }
@@ -1669,6 +1675,12 @@ export function PortfolioScreen({
         onPageScroll={handlePageScroll}
         order={PROFILE_TAB_ORDER}
         pageRefs={pageScrollRefs}
+        // The glass toolbar floats over this header, so without a fade the
+        // Followers / Following / Fame pills spend the whole collapse sliding up
+        // behind those buttons at full opacity — which reads as the buttons
+        // covering the pills rather than floating over a page. Faded, the bar
+        // settles onto plain background.
+        fadeHeaderOnCollapse
         // Park the tab bar under the floating bubbles instead of at y=0, where
         // "Collection / For Sale / Activity" ended up drawn behind the clock.
         pinnedTopInset={insets.top + HOME_HEADER_ROW_HEIGHT}
