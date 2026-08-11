@@ -253,6 +253,38 @@ describe('FeedScreen', () => {
   });
 
   /*
+    ═══════════════════════════════════════════════════════════════════════════
+    THE PILL IS VISIBLE THE MOMENT THE APP OPENS.
+    ═══════════════════════════════════════════════════════════════════════════
+    Reported as "the search cards is disappeared when I first open the app", on
+    iOS only.
+
+    This list runs `contentInsetAdjustmentBehavior="automatic"` and so RESTS at
+    `-insets.top`, which is what it hands the bar as `scrollRestOffset`. The bar
+    fades the pill across `[rest, rest + 56]` — `[-59, -3]` on this harness's
+    59pt inset. Seeding the scroll value at 0 therefore started it PAST the end
+    of that range, so the pill mounted at opacity 0 and only snapped in once the
+    first scroll event delivered the real offset.
+
+    Android rests at 0 and was always fine, which is exactly why this survived:
+    the wrong seed agrees with the right answer on one platform.
+
+    Read off the HOST node, whose style carries the interpolation already
+    resolved to numbers — the same technique `home-header-test` uses, and the
+    only way the fade's origin is observable off-device.
+  */
+  it('shows the search pill at rest, before anything has scrolled', async () => {
+    renderWithProviders(<FeedScreen />);
+    await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
+
+    const motion = StyleSheet.flatten(
+      screen.getByTestId('feed-header-search-motion').props.style,
+    ) as { opacity: number };
+
+    expect(motion.opacity).toBe(1);
+  });
+
+  /*
     NO RULE AT ALL — deliberately, and this test is inverted rather than deleted
     so the removal is visible to whoever comes looking for the hairline.
 

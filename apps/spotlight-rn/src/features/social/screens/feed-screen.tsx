@@ -135,7 +135,28 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   // out of the row, so the list scrolls beneath the whole thing. The offset is
   // handed to `HomeHeader` raw — the bar owns the motion, this screen only
   // measures the scroll.
-  const scrollY = useRef(new Animated.Value(0)).current;
+  /*
+    SEEDED AT THE LIST'S RESTING OFFSET, NOT AT 0.
+
+    Reported as "the search pill is gone when I first open the app" — on iOS
+    only. This list runs `contentInsetAdjustmentBehavior="automatic"` and so
+    RESTS at `-insets.top`, which is what `scrollRestOffset` below tells the bar.
+    The bar fades the pill across `[rest, rest + 56]`, i.e. `[-59, -3]` on a
+    notched phone.
+
+    Starting the value at 0 therefore starts it PAST the end of that range, so
+    the pill rendered at opacity 0 until the first scroll event delivered the
+    real offset and snapped it back in. Android was fine because it rests at 0,
+    which is why this survived: the simulator most used for this screen agrees
+    with the wrong value.
+
+    `insets` is real on this render — `SafeAreaProvider` has no `initialMetrics`
+    and renders nothing until it has measured — so the ref captures the right
+    number the first time.
+  */
+  const scrollY = useRef(
+    new Animated.Value(Platform.OS === 'ios' ? -insets.top : 0),
+  ).current;
   // `pointerEvents` is not animatable, so the departed pill is disarmed from JS
   // or it stays an invisible tap target over the first post.
   const [isSearchPillHidden, setIsSearchPillHidden] = useState(false);
