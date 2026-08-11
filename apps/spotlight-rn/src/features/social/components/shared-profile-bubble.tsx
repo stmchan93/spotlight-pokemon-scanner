@@ -295,7 +295,21 @@ export function SharedProfileBubble({
   const destination = `${owner}'s ${tab}`;
   // Four slots always, so a two-card list still renders a 2x2 grid rather than a
   // ragged row that changes the card's height.
-  const slots = Array.from({ length: COLLAGE_SLOTS }, (_, index) => cards[index] ?? null);
+  /*
+    ONE TILE PER CARD — no padding out to four.
+
+    This used to be `Array.from({ length: COLLAGE_SLOTS }, (_, i) => cards[i] ?? null)`,
+    which drew an empty grey tile for every slot the list did not fill. On a
+    one-item wishlist that is a card beside a phantom card, and the phantom reads
+    as "there is something else in here that failed to load" rather than as
+    blank space.
+
+    The fixed four earns its place in the SKELETON above, where the count is
+    genuinely unknown and the grid's height is what stops the bubble reflowing
+    when the data lands. Here the count is known, so the structure can simply be
+    the truth: 1 or 2 cards make one row, 3 or 4 make two.
+  */
+  const slots = cards.slice(0, COLLAGE_SLOTS);
 
   return (
     <Pressable
@@ -342,10 +356,12 @@ export function SharedProfileBubble({
       <View style={styles.collage} testID={`${testID}-collage`}>
         {slots.map((entry, index) => (
           <CollageTile
-            key={entry?.id ?? `empty-${index}`}
+            key={entry.id}
+            // A REAL card with no artwork still gets its grey tile: that one is
+            // honest — the card is in the list, the picture is missing.
             placeholderColor={theme.colors.gray100}
             testID={`${testID}-slot-${index}`}
-            uri={entry?.smallImageUrl || entry?.imageUrl || null}
+            uri={entry.smallImageUrl || entry.imageUrl || null}
           />
         ))}
       </View>

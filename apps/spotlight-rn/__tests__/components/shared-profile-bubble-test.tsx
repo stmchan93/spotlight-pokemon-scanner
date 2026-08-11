@@ -110,6 +110,38 @@ describe('SharedProfileBubble', () => {
   });
 
   /*
+    ONE TILE PER CARD — no padding out to four.
+
+    The collage used to build a fixed 2×2 and fill the unused slots with `null`,
+    which drew an empty grey tile for each. On a one-item wishlist that is a card
+    beside a PHANTOM card, and it reads as something that failed to load rather
+    than as blank space. Reported from a real shared wishlist.
+
+    The `-slot-N` testIDs above cannot see this: they sit on the IMAGE, which an
+    empty slot never renders — the empty tile is a bare `View`. So the assertion
+    has to count the collage's CHILDREN, which is exactly why nothing caught it.
+  */
+  it('draws no empty tiles for a list shorter than the grid', async () => {
+    render(
+      <SharedProfileBubble
+        onOpen={jest.fn()}
+        repository={buildRepository({
+          getProfileWishlistEntries: jest.fn(async () => [buildCard('only')]),
+        })}
+        tab="wishlist"
+        testID="bubble"
+        userId="owner-1"
+      />,
+    );
+
+    await screen.findByTestId('bubble-card');
+    const collage = screen.getByTestId('bubble-collage');
+    // One card in the list, one tile in the grid — not one tile and three ghosts.
+    expect(collage.children).toHaveLength(1);
+    expect(screen.getByTestId('bubble-slot-0')).toBeTruthy();
+  });
+
+  /*
     ───────────────────────────────────────────────────────────────────────────
     THE SKELETON MUST NOT CHANGE SHAPE WHEN IT RESOLVES
     ───────────────────────────────────────────────────────────────────────────
