@@ -438,8 +438,17 @@ describe('DmThreadScreen', () => {
 
       const input = screen.getByTestId('dm-thread-input');
       fireEvent.changeText(input, 'first');
-      // Keyboard "send" key, not the button — the path a disabled button misses.
-      fireEvent(input, 'submitEditing');
+      /*
+        Driven through the BUTTON, and it still catches what a disabled button
+        misses: `disabled` is one render behind the block being discovered, so a
+        press landing in that window reaches `handleSend` regardless. The guard
+        under test is `isBlockedRef`, not the button's own state.
+
+        This used to fire `submitEditing` — the keyboard's Send key. That key no
+        longer exists: the composer is multiline now and the return key inserts
+        a newline, so the keyboard cannot send at all.
+      */
+      fireEvent(screen.getByTestId('dm-thread-send'), 'pressIn');
       expect(sendMessage).toHaveBeenCalledTimes(1);
 
       // The first send fails, the re-ask says blocked, the composer closes.
@@ -448,8 +457,8 @@ describe('DmThreadScreen', () => {
       });
       await waitFor(() => expect(screen.getByTestId('dm-thread-blocked')).toBeTruthy());
 
-      // A submit that was already on its way finds a screen that refuses it.
-      fireEvent(input, 'submitEditing');
+      // A send already on its way finds a screen that refuses it.
+      fireEvent.changeText(input, 'second');
       expect(sendMessage).toHaveBeenCalledTimes(1);
     });
   });
@@ -758,6 +767,44 @@ describe('DmThreadScreen', () => {
     VoiceOver, which raises it and never `onPressIn` — so both paths have to
     work, and neither may fire twice.
   */
+  /*
+    ═══════════════════════════════════════════════════════════════════════════
+    THE RETURN KEY IS A RETURN KEY.
+    ═══════════════════════════════════════════════════════════════════════════
+    The composer offered a blue "Send" where every other chat app offers a
+    newline, so there was no way to write a second line at all. Sending is the
+    button's job; the keyboard's job is typing.
+  */
+  describe('the composer', () => {
+    it('takes newlines instead of turning the return key into Send', async () => {
+      renderWithProviders(<DmThreadScreen conversationId="c-1" />);
+      await waitFor(() => expect(fetchMessages).toHaveBeenCalled());
+
+      const input = screen.getByTestId('dm-thread-input');
+      expect(input.props.multiline).toBe(true);
+      // Neither half of the old keyboard-send may survive: `returnKeyType`
+      // alone would still LABEL the key Send, and `onSubmitEditing` alone would
+      // still fire on it.
+      expect(input.props.returnKeyType).toBeUndefined();
+      expect(input.props.onSubmitEditing).toBeUndefined();
+    });
+
+    it('sends a multi-line draft as typed', async () => {
+      renderWithProviders(<DmThreadScreen conversationId="c-1" />);
+      await waitFor(() => expect(fetchMessages).toHaveBeenCalled());
+
+      fireEvent.changeText(screen.getByTestId('dm-thread-input'), 'line one\nline two');
+      await act(async () => {
+        fireEvent(screen.getByTestId('dm-thread-send'), 'pressIn');
+      });
+
+      expect((sendMessage as jest.Mock).mock.calls[0]?.slice(0, 2)).toEqual([
+        'c-1',
+        'line one\nline two',
+      ]);
+    });
+  });
+
   describe('sending past an autocorrection', () => {
     it('sends on touch-down, before the press the correction would eat', async () => {
       renderWithProviders(<DmThreadScreen conversationId="c-1" />);

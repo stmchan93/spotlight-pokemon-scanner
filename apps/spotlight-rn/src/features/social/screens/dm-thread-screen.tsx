@@ -1144,15 +1144,26 @@ export function DmThreadScreen({
           <View style={[styles.composer, { borderTopColor: theme.colors.outlineSubtle }]}>
             <View style={styles.composerField}>
               <TextField
+                inputStyle={styles.composerInput}
+                /*
+                  MULTILINE, AND THE RETURN KEY IS A RETURN KEY.
+
+                  It was `returnKeyType="send"` with `onSubmitEditing`, so the
+                  keyboard offered a blue Send where every other chat app offers
+                  a newline — and there was no way to write a second line at all.
+                  Sending is the button's job; the keyboard's job is typing.
+
+                  With `multiline` the default submit behaviour is already
+                  'newline', so nothing has to force it.
+                */
+                multiline
                 onChangeText={setDraft}
                 // The keyboard shortens the list without changing its content, so
                 // onContentSizeChange never fires and the newest message ends up
                 // hidden behind the keyboard.
                 onFocus={() => requestAnimationFrame(() => scrollToLatest(true))}
                 ref={composerRef}
-                onSubmitEditing={handleSend}
                 placeholder="Message…"
-                returnKeyType="send"
                 testID={`${testID}-input`}
                 value={draft}
               />
@@ -1254,7 +1265,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   composer: {
-    alignItems: 'center',
+    // Bottom-aligned, not centred: the field grows upward as lines are added and
+    // the send button has to stay level with the LAST line, the way every chat
+    // app draws it. Centred, the button drifted up the taller the draft got.
+    alignItems: 'flex-end',
     borderTopWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
     gap: 8,
@@ -1263,6 +1277,14 @@ const styles = StyleSheet.create({
   },
   composerField: {
     flex: 1,
+  },
+  composerInput: {
+    /*
+      Roughly five lines, then it scrolls internally. Unbounded, a long draft
+      pushes the thread off the top of the screen — you end up composing into a
+      wall of your own text with no idea what you are replying to.
+    */
+    maxHeight: 120,
   },
   emptyContent: {
     // `flexGrow` (not `flex`) so the container fills the list only while empty;
