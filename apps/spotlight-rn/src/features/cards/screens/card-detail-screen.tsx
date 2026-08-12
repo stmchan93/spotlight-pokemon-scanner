@@ -282,6 +282,14 @@ export function CardDetailScreen({
   // Once the user edits Cost Basis, a background data refresh (which can swap the
   // selectedEntry reference / id) must not silently reset what they typed.
   const editCostBasisDirtyRef = useRef(false);
+  // True once the user taps a variant chip on THIS card. The variant seed can
+  // resolve to a label the stored entry does not actually carry (a NULL-variant
+  // raw row seeds "Normal"/the first option; a stored label can differ from the
+  // catalog option in case). Saving that seeded label changes the entry's
+  // identity key, turning a quantity-only SAVE into a destructive replace
+  // (zero old row + insert new row) instead of an update-in-place — see
+  // handleSaveEdit. Only a variant the USER picked may move the stored identity.
+  const editVariantDirtyRef = useRef(false);
 
   const [priceTrends, setPriceTrends] = useState<CardPriceTrendListRecord | null>(null);
   const [priceTrendsLoading, setPriceTrendsLoading] = useState(false);
@@ -428,6 +436,7 @@ export function CardDetailScreen({
     seededCardIdRef.current = null;
     seededVariantCardIdRef.current = null;
     seededGradedFallbackCardIdRef.current = null;
+    editVariantDirtyRef.current = false;
   }, [cardId]);
 
   useEffect(() => {
@@ -657,6 +666,14 @@ export function CardDetailScreen({
     }
   }, [ownedSlabContext]);
 
+  // User-driven variant pick (configurator chip). Marks the variant dirty so an
+  // owned-entry SAVE knows the variant reflects USER intent, not just the seed
+  // — see editVariantDirtyRef / handleSaveEdit.
+  const handleSelectVariant = useCallback((variantId: string) => {
+    editVariantDirtyRef.current = true;
+    setSelectedVariant(variantId);
+  }, []);
+
   const isRawLane = selectedGrader == null || selectedGrader === 'Raw';
 
   // Resolve the active variant label (configurator uses option ids).
@@ -790,16 +807,21 @@ export function CardDetailScreen({
       // Accordion: toggle the inline last-solds panel for this row (instead of
       // kicking straight out to the eBay browser search).
       if (expandedTrendRowKey === row.key) {
+        capturePostHogEvent('pdp_comps_collapsed', { grader, grade });
         setExpandedTrendRowKey(null);
         return;
       }
       setExpandedTrendRowKey(row.key);
       const recentCached = recentSalesByRowKey[row.key];
       const listedCached = lowestListedByRowKey[row.key];
+      // Kept under its original name: the saved dashboard queries it, and one
+      // chevron opens BOTH panels, so `listed_cache` rides along rather than
+      // becoming a second expand event.
       capturePostHogEvent('pdp_recent_sales_expanded', {
         grader,
         grade,
         cache: recentCached !== undefined ? 'warm' : 'cold',
+        listed_cache: listedCached !== undefined ? 'warm' : 'cold',
       });
       // Recent sales (Scrydex sold comps). refresh:true is credit-safe: the
       // backend's shared 24h TTL only hits Scrydex when the cache is stale —
@@ -946,9 +968,20 @@ export function CardDetailScreen({
           onShowMorePress={() => {
             capturePostHogEvent('pdp_recent_sales_show_more', { grader, grade });
           }}
+          onSalePress={() => {
+            capturePostHogEvent('pricing_link_opened', {
+              marketplace: 'ebay',
+              lane: 'graded',
+              surface: 'pdp_recent_sales_row',
+            });
+          }}
           onSeeMoreOnEbayPress={
             soldFallbackUrl
-              ? () => openEbayFallback(soldFallbackUrl, 'pdp_recent_sales_empty')
+              ? ({ hasRows }) =>
+                  openEbayFallback(
+                    soldFallbackUrl,
+                    hasRows ? 'pdp_recent_sales' : 'pdp_recent_sales_empty',
+                  )
               : undefined
           }
           onSubscribePress={() => {
@@ -981,9 +1014,20 @@ export function CardDetailScreen({
           onShowMorePress={() => {
             capturePostHogEvent('pdp_lowest_listed_show_more', { grader, grade });
           }}
+          onListingPress={() => {
+            capturePostHogEvent('pricing_link_opened', {
+              marketplace: 'ebay',
+              lane: 'graded',
+              surface: 'pdp_lowest_listed_row',
+            });
+          }}
           onSeeMoreOnEbayPress={
             activeFallbackUrl
-              ? () => openEbayFallback(activeFallbackUrl, 'pdp_lowest_listed_empty')
+              ? ({ hasRows }) =>
+                  openEbayFallback(
+                    activeFallbackUrl,
+                    hasRows ? 'pdp_lowest_listed' : 'pdp_lowest_listed_empty',
+                  )
               : undefined
           }
           onSubscribePress={() => {
@@ -1509,6 +1553,7 @@ export function CardDetailScreen({
         setIsAddPending(false);
       });
   }, [
+    activeCollectionID,
     addConfiguredSlabContext,
     addCondition,
     addDetail,
@@ -1743,6 +1788,30 @@ export function CardDetailScreen({
     setIsSavingEdit(true);
     setErrorMessage(null);
     const costBasis = editCostBasisPerUnit;
+    // Identity guard: the configurator's variant is SEEDED (the owned variant
+    // when it matches a catalog option, else "Normal"/the first option), so for
+    // a stored entry with no variant — or a label that differs from the option
+    // in case — `selectedVariantLabel` is NOT what the row actually carries.
+    // Saving that seeded label changes the entry's identity key, which makes
+    // the backend REPLACE the row (zero the old id + insert a new one) instead
+    // of updating in place — and on backends that don't thread the collection
+    // through the replace path, the new row lands with collection_id=NULL, so
+    // a quantity-only edit silently dropped the card out of its collection.
+    // Unless the USER picked a variant this visit (editVariantDirtyRef) or
+    // retargeted the card via the EN/JP swap, save the stored variant verbatim.
+    const keepStoredVariant =
+      !editVariantDirtyRef.current && activeCardId === selectedEntry.cardId;
+    const savedRawVariantName = !editIsRaw
+      ? null
+      : keepStoredVariant && selectedEntry.kind === 'raw'
+        ? selectedEntry.variantName ?? null
+        : selectedVariantLabel;
+    const savedSlabContext =
+      editSlabContext == null
+        ? null
+        : keepStoredVariant && selectedEntry.kind === 'graded'
+          ? { ...editSlabContext, variantName: ownedSlabContext?.variantName ?? null }
+          : editSlabContext;
     spotlightRepository
       .replacePortfolioEntry({
         deckEntryID: selectedEntry.id,
@@ -1750,8 +1819,8 @@ export function CardDetailScreen({
         // synchronously while `detail` refetches. A fast SAVE right after the
         // toggle used to persist the OLD printing from the stale detail.
         cardID: activeCardId,
-        slabContext: editSlabContext,
-        variantName: editIsRaw ? selectedVariantLabel : null,
+        slabContext: savedSlabContext,
+        variantName: savedRawVariantName,
         condition: editIsRaw ? selectedCondition : null,
         quantity: editQuantity,
         unitPrice: costBasis ?? 0,
@@ -1811,11 +1880,11 @@ export function CardDetailScreen({
           quantity: editQuantity,
           addedAt: selectedEntry.addedAt,
           kind: editIsRaw ? 'raw' : 'graded',
-          variantName: editIsRaw ? selectedVariantLabel ?? null : editSlabContext?.variantName ?? null,
+          variantName: editIsRaw ? savedRawVariantName : savedSlabContext?.variantName ?? null,
           conditionCode: editIsRaw ? selectedCondition : null,
           conditionLabel: conditionOption?.label ?? null,
           conditionShortLabel: conditionOption?.shortLabel ?? null,
-          slabContext: editSlabContext,
+          slabContext: savedSlabContext,
           isFavorite: selectedEntry.isFavorite,
         });
         refreshData();
@@ -1836,6 +1905,7 @@ export function CardDetailScreen({
     editSlabContext,
     isSavingEdit,
     onBack,
+    ownedSlabContext,
     prependOptimisticInventoryEntry,
     refreshData,
     removeOptimisticInventoryEntries,
@@ -1869,6 +1939,12 @@ export function CardDetailScreen({
   const editSectionRectRef = useRef({ y: 0, height: 0 });
   const costBasisFocusedRef = useRef(false);
   const keyboardHeightRef = useRef(0);
+  // Scroll room for the keyboard. The content reserved only `footerHeight`, so
+  // with the keyboard up there was nothing left to scroll INTO: `scrollTo` below
+  // clamped at max offset and left Cost Basis under the lifted footer, and the
+  // rest of the page was unreachable. State, not the shared value, because this
+  // is a layout inset the JS thread has to commit.
+  const [keyboardInset, setKeyboardInset] = useState(0);
 
   const scrollEditSectionAboveKeyboard = useCallback(
     (keyboardHeight: number) => {
@@ -1905,17 +1981,30 @@ export function CardDetailScreen({
       // assumed `adjustResize` resized it and skipped the lift on Android,
       // which would have left footer AND input behind the keyboard.)
       keyboardLift.value = withTiming(event.endCoordinates.height, { duration: 220 });
+      // Same number the footer climbs by, so the padding matches what the
+      // footer + keyboard actually occlude.
+      setKeyboardInset(event.endCoordinates.height);
       scrollEditSectionAboveKeyboard(event.endCoordinates.height);
     });
     const hideSub = Keyboard.addListener('keyboardDidHide', () => {
       keyboardHeightRef.current = 0;
       keyboardLift.value = withTiming(0, { duration: 220 });
+      setKeyboardInset(0);
     });
     return () => {
       showSub.remove();
       hideSub.remove();
     };
   }, [keyboardLift, scrollEditSectionAboveKeyboard]);
+
+  // The listener's own scroll runs BEFORE the padding above is committed, so it
+  // can still clamp short. This re-aims once the taller content has laid out —
+  // same target, so it is a no-op when the first attempt already landed.
+  useEffect(() => {
+    if (keyboardInset > 0) {
+      scrollEditSectionAboveKeyboard(keyboardInset);
+    }
+  }, [keyboardInset, scrollEditSectionAboveKeyboard]);
 
   const handleCostBasisFocus = useCallback(() => {
     costBasisFocusedRef.current = true;
@@ -2029,13 +2118,14 @@ export function CardDetailScreen({
         ref={scrollRef}
         contentContainerStyle={[
           styles.content,
-          { paddingTop: headerHeight, paddingBottom: footerHeight },
+          { paddingTop: headerHeight, paddingBottom: footerHeight + keyboardInset },
         ]}
         keyboardShouldPersistTaps="handled"
         onScroll={scrollHandler}
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
         style={styles.scroll}
+        testID="detail-scroll"
       >
         <CardDetailHero
           imageUrl={displayImageUrl}
@@ -2116,7 +2206,7 @@ export function CardDetailScreen({
             languages={languageToggleOptions}
             onSelectGrader={handleSelectGrader}
             onSelectLanguage={handleSwitchLanguage}
-            onSelectVariant={setSelectedVariant}
+            onSelectVariant={handleSelectVariant}
             selectedGrader={selectedGrader}
             selectedLanguage={selectedLanguageChip}
             selectedVariant={selectedVariant}

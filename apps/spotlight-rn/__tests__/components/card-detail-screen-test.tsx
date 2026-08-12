@@ -1,5 +1,5 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
-import { Linking, Share } from 'react-native';
+import { Keyboard, Linking, StyleSheet, Share } from 'react-native';
 import { useRouter } from 'expo-router';
 
 import type { CardDetailRecord, CardText, InventoryCardEntry } from '@spotlight/api-client';
@@ -673,10 +673,12 @@ describe('CardDetailScreen', () => {
         refresh: true,
       }),
     );
+    // One chevron opens BOTH panels, so the expand carries both cache states.
     expect(capturePostHogEvent).toHaveBeenCalledWith('pdp_recent_sales_expanded', {
       grader: 'PSA',
       grade: '10',
       cache: 'cold',
+      listed_cache: 'cold',
     });
 
     // Paywall off: every sale renders clear, with no blur layer and no upsell.
@@ -698,12 +700,12 @@ describe('CardDetailScreen', () => {
     fireEvent.press(screen.getByTestId('detail-recent-sales-sale-0'));
     expect(openURL).toHaveBeenCalledWith('https://www.ebay.com/itm/100');
 
-    // The aggregate "See all on eBay" title-search link was removed (it couldn't
-    // reproduce the specific sold comps) — only the exact per-row listings remain.
-    expect(screen.queryByTestId('detail-recent-sales-see-all')).toBeNull();
-    // Same reasoning pins the new empty-state fallback OFF a populated panel: an
-    // approximate search must never sit under accurate comps.
-    expect(screen.queryByTestId('detail-recent-sales-see-more')).toBeNull();
+    // "See more on eBay" now sits under a POPULATED panel too (user request:
+    // always offer the jump-out, data or not). It became reasonable once the
+    // search query was simplified to a single readable phrase — what eBay shows
+    // is legible and editable, unlike the old paren-soup title search that got
+    // this link removed the first time.
+    expect(screen.getByTestId('detail-recent-sales-see-more')).toBeTruthy();
 
     // Second tap on the row collapses the accordion.
     fireEvent.press(screen.getByTestId('detail-price-trends-row-PSA 10'));
@@ -778,6 +780,82 @@ describe('CardDetailScreen', () => {
       marketplace: 'ebay',
       lane: 'graded',
       surface: 'pdp_lowest_listed_empty',
+    });
+  });
+
+  /*
+    "See more on eBay" renders under a POPULATED panel as well as an empty one,
+    but both branches reported `..._empty` — so every exit from a full panel was
+    filed as "there was nothing here". Same trip out to eBay, opposite meaning.
+    Individual row taps reported nothing at all.
+  */
+  it('separates the eBay exits: populated vs empty, and per-row taps', async () => {
+    const getCardPriceTrends = jest.fn(async (query: { mode: string }) => ({
+      mode: query.mode as 'raw' | 'graded',
+      provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
+      rows: trendRows(query.mode),
+    }));
+    const getCardRecentSales = jest.fn(async () => recentSalesRecord);
+    const getCardEbayListings = jest.fn(async () => ({
+      status: 'available' as const,
+      listingCount: 2,
+      listings: [0, 1].map((index) => ({
+        id: `listing-${index}`,
+        title: `Gengar ex 088/091 PSA 10 listing-${index}`,
+        priceAmount: 200 + index,
+        currencyCode: 'USD',
+        saleType: 'fixed_price',
+        listingUrl: `https://www.ebay.com/itm/20${index}`,
+      })),
+    }));
+    jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as never);
+
+    renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />, {
+      spotlightRepository: createTestSpotlightRepository({
+        getCardPriceTrends,
+        getCardRecentSales,
+        getCardEbayListings,
+      }),
+    });
+
+    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA 10'));
+
+    // A sold row and a listing row each open one specific eBay page.
+    fireEvent.press(await screen.findByTestId('detail-recent-sales-sale-0'));
+    expect(capturePostHogEvent).toHaveBeenCalledWith('pricing_link_opened', {
+      marketplace: 'ebay',
+      lane: 'graded',
+      surface: 'pdp_recent_sales_row',
+    });
+
+    fireEvent.press(await screen.findByTestId('detail-lowest-listed-listing-0'));
+    expect(capturePostHogEvent).toHaveBeenCalledWith('pricing_link_opened', {
+      marketplace: 'ebay',
+      lane: 'graded',
+      surface: 'pdp_lowest_listed_row',
+    });
+
+    // …and the footer search, from panels that DO have rows.
+    fireEvent.press(await screen.findByTestId('detail-recent-sales-see-more'));
+    expect(capturePostHogEvent).toHaveBeenCalledWith('pricing_link_opened', {
+      marketplace: 'ebay',
+      lane: 'graded',
+      surface: 'pdp_recent_sales',
+    });
+
+    fireEvent.press(await screen.findByTestId('detail-lowest-listed-see-more'));
+    expect(capturePostHogEvent).toHaveBeenCalledWith('pricing_link_opened', {
+      marketplace: 'ebay',
+      lane: 'graded',
+      surface: 'pdp_lowest_listed',
+    });
+
+    // Closing the chevron is its own event; it used to report nothing.
+    fireEvent.press(screen.getByTestId('detail-price-trends-row-PSA 10'));
+    expect(capturePostHogEvent).toHaveBeenCalledWith('pdp_comps_collapsed', {
+      grader: 'PSA',
+      grade: '10',
     });
   });
 
@@ -1634,6 +1712,127 @@ describe('CardDetailScreen', () => {
     );
   });
 
+  // Regression: a quantity-only edit REPLACED the entry instead of updating it.
+  // The variant seed resolves a NULL-variant raw entry to "Normal" (the first
+  // catalog option), and saving that seeded label changed the identity key —
+  // the backend then zeroed the old row and inserted a NEW one, and on the
+  // replace path the new row lost the entry's collection_id ("I increased the
+  // quantity and the card disappeared" from its collection). The SAVE payload
+  // must carry the entry's STORED variant (here: null) so the identity key is
+  // unchanged and the backend updates the row in place, preserving its
+  // collection. Only an explicit user variant pick may change the identity.
+  function nullVariantRawEntry(): InventoryCardEntry {
+    return {
+      addedAt: '2026-04-27T12:00:00.000Z',
+      cardId: 'sm7-1',
+      cardNumber: '#001/096',
+      conditionCode: 'near_mint',
+      conditionLabel: 'Near Mint',
+      conditionShortLabel: 'NM',
+      costBasisPerUnit: null,
+      costBasisTotal: null,
+      currencyCode: 'USD',
+      hasMarketPrice: true,
+      id: 'raw-treecko-no-variant',
+      imageUrl: 'https://cdn.spotlight.test/sm7/treecko.png',
+      kind: 'raw',
+      marketPrice: 0.31,
+      name: 'Treecko',
+      quantity: 1,
+      setName: 'Sky Stream',
+      slabContext: null,
+      variantName: null,
+    };
+  }
+
+  function renderOwnedRawNoVariant(repoOverrides: Parameters<typeof createTestSpotlightRepository>[0]) {
+    // A prior test's save chain can bump its provider's dataVersion during
+    // teardown (afterEach runs BEFORE RTL's auto-unmount), re-populating the
+    // module-level card-detail cache with ITS repository's sm7-1 detail after
+    // afterEach already cleared it. Clear again so this render fetches from
+    // THIS test's repository.
+    clearCardDetailCache();
+    const baseRepository = createTestSpotlightRepository();
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" entryId="raw-treecko-no-variant" onBack={jest.fn()} />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardDetail: async (query) => {
+            const detail = await baseRepository.getCardDetail(query);
+            return detail
+              ? ({ ...detail, ownedEntries: [nullVariantRawEntry()] } satisfies CardDetailRecord)
+              : null;
+          },
+          ...repoOverrides,
+        }),
+      },
+    );
+  }
+
+  function replaceAndCostBasisMocks() {
+    const replacePortfolioEntry = jest.fn(async () => ({
+      previousDeckEntryID: 'raw-treecko-no-variant',
+      deckEntryID: 'raw-treecko-no-variant',
+      cardID: 'sm7-1',
+      quantity: 2,
+      unitPrice: 0,
+      updatedAt: '2026-06-29T00:00:00.000Z',
+    }));
+    const updateDeckEntryCostBasis = jest.fn(async () => ({
+      deckEntryID: 'raw-treecko-no-variant',
+      cardID: 'sm7-1',
+      costBasisPerUnit: null,
+      costBasisPerUnitCents: null,
+      currencyCode: 'USD',
+      updatedAt: '2026-06-29T00:00:00.000Z',
+    }));
+    return { replacePortfolioEntry, updateDeckEntryCostBasis };
+  }
+
+  it('a quantity-only SAVE keeps the stored identity: variantName stays null, not the seeded "Normal"', async () => {
+    const { replacePortfolioEntry, updateDeckEntryCostBasis } = replaceAndCostBasisMocks();
+    renderOwnedRawNoVariant({ replacePortfolioEntry, updateDeckEntryCostBasis });
+
+    // Bump the quantity — touch NOTHING else (no variant, grader, condition).
+    fireEvent.press(await screen.findByTestId('detail-owned-edit-quantity-increment'));
+    // Let the configurator's variant seed land ("Normal" chip selected) so the
+    // test proves SAVE ignores the seeded label, not that it raced the seed.
+    expect(await screen.findByTestId('detail-configurator-variant-normal')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('detail-save-edit'));
+
+    await waitFor(() => expect(replacePortfolioEntry).toHaveBeenCalledTimes(1));
+    // The payload's identity fields mirror the STORED entry exactly — same
+    // card, null variant, raw (no slab). Identity key unchanged means the
+    // backend updates the row in place and the entry keeps its collection_id.
+    expect(replacePortfolioEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deckEntryID: 'raw-treecko-no-variant',
+        cardID: 'sm7-1',
+        quantity: 2,
+        variantName: null,
+        slabContext: null,
+        condition: 'near_mint',
+      }),
+    );
+  });
+
+  it('an explicit variant pick before SAVE still changes the identity (user intent wins)', async () => {
+    const { replacePortfolioEntry, updateDeckEntryCostBasis } = replaceAndCostBasisMocks();
+    renderOwnedRawNoVariant({ replacePortfolioEntry, updateDeckEntryCostBasis });
+
+    // The user deliberately picks the "Raw" variant chip, then saves.
+    fireEvent.press(await screen.findByTestId('detail-configurator-variant-raw'));
+    fireEvent.press(screen.getByTestId('detail-save-edit'));
+
+    await waitFor(() => expect(replacePortfolioEntry).toHaveBeenCalledTimes(1));
+    expect(replacePortfolioEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deckEntryID: 'raw-treecko-no-variant',
+        variantName: 'Raw',
+      }),
+    );
+  });
+
   it('no longer renders the similar-cards button even with scan candidates present', async () => {
     const scanReviewId = saveScanCandidateReviewSession({
       id: 'scan-review-oshawott',
@@ -1955,6 +2154,52 @@ describe('CardDetailScreen', () => {
     });
     // …and the default raw/Normal lane was NOT re-requested over the network.
     expect(getCardPriceTrends).toHaveBeenCalledTimes(callsAfterPrefetch);
+  });
+
+  /*
+    The keyboard used to cover the bottom of the page. The scroll content
+    reserved only `footerHeight`, so with the keyboard up there was nowhere left
+    to scroll: the programmatic scroll clamped at max offset and left Cost Basis
+    under the lifted SAVE/CANCEL row, and the rest of the card was unreachable.
+  */
+  it('reserves scroll room for the keyboard so the page stays reachable', async () => {
+    const listeners: Record<string, (event: unknown) => void> = {};
+    const addListener = jest
+      .spyOn(Keyboard, 'addListener')
+      .mockImplementation(((event: string, cb: (e: unknown) => void) => {
+        listeners[event] = cb;
+        return { remove: jest.fn() };
+      }) as never);
+
+    renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />);
+    const scrollView = await screen.findByTestId('detail-scroll');
+
+    const restingPadding = StyleSheet.flatten(
+      scrollView.props.contentContainerStyle,
+    ).paddingBottom as number;
+
+    await act(async () => {
+      listeners.keyboardDidShow?.({ endCoordinates: { height: 336 } });
+    });
+
+    const liftedPadding = StyleSheet.flatten(
+      screen.getByTestId('detail-scroll').props.contentContainerStyle,
+    ).paddingBottom as number;
+    // The keyboard's whole height becomes scrollable room — the same number the
+    // footer climbs by, so footer + keyboard can both be cleared.
+    expect(liftedPadding).toBe(restingPadding + 336);
+
+    await act(async () => {
+      listeners.keyboardDidHide?.({});
+    });
+
+    expect(
+      StyleSheet.flatten(
+        screen.getByTestId('detail-scroll').props.contentContainerStyle,
+      ).paddingBottom,
+    ).toBe(restingPadding);
+
+    addListener.mockRestore();
   });
 
   it('renders an unavailable state when the repository returns no local card detail', async () => {
