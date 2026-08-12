@@ -58,6 +58,13 @@ type PostCardProps = {
    */
   onRequestDelete?: (post: FeedPost) => void;
   /**
+   * The viewer just blocked this post's author. Screens holding a list use it
+   * to drop EVERY row that person is in — their other posts and, the case that
+   * exposed this, their reposts. Without it a block only hid the one card the
+   * viewer happened to tap, and the rest stayed until the next read.
+   */
+  onAuthorBlocked?: (userId: string) => void;
+  /**
    * Open the comment thread as soon as the card mounts. Set by the post-detail
    * screen when a notification about a comment opened it, so the tap lands on
    * the conversation it was telling you about instead of on a shut thread.
@@ -258,6 +265,7 @@ export function PostCard({
   initialLiked,
   initialReposted,
   onRequestDelete,
+  onAuthorBlocked,
   autoOpenComments = false,
   testID = 'post-card',
 }: PostCardProps) {
@@ -514,6 +522,8 @@ export function PostCard({
       safetyWritePending.current = false;
       if (ok) {
         setBlockedByViewer(true);
+        // Tell the list, so the block clears everything of theirs at once.
+        onAuthorBlocked?.(post.authorId);
       } else {
         Alert.alert(
           "Couldn't block",
@@ -521,7 +531,7 @@ export function PostCard({
         );
       }
     })();
-  }, [displayName, post.authorId]);
+  }, [displayName, onAuthorBlocked, post.authorId]);
 
   // One ⋯ target, two meanings. Delete stays a direct jump to its confirmation
   // (unchanged); the non-author case needs a real choice, so it opens the same
@@ -544,9 +554,8 @@ export function PostCard({
   // purple blob instead of reading as a solid shape the way the thumb does.
   const repostColor = reposted ? theme.colors.purple500 : theme.colors.gray700;
 
-  // Blocked from this card: the post the viewer just acted on leaves the screen
-  // straight away. Everything else by this author goes on the next feed read,
-  // where RLS drops the rows before they reach the client.
+  // Local fallback for surfaces that hold no list (post detail). Screens with a
+  // list drop every row of theirs via `onAuthorBlocked` and never reach this.
   if (blockedByViewer) {
     return null;
   }

@@ -408,6 +408,13 @@ export type FeedItem = {
   post: FeedPost;
   /** The reposter, or null when this is the post appearing on its own. */
   repostedBy: FeedPostAuthor | null;
+  /**
+   * The reposter's user id. `repostedBy` is display-only (no id), so without
+   * this a client holding a feed cannot tell which rows belong to a given
+   * person — which is why blocking someone left their reposts on screen until
+   * the next read.
+   */
+  repostedById: string | null;
   repostedAt: string | null;
   activityAt: string;
 };
@@ -417,6 +424,7 @@ function feedItemFromPost(post: FeedPost): FeedItem {
     key: `post:${post.id}`,
     post,
     repostedBy: null,
+    repostedById: null,
     repostedAt: null,
     activityAt: post.createdAt,
   };
@@ -497,6 +505,7 @@ export async function fetchGlobalFeedItems(
         key: `repost:${row.post_id}:${row.user_id}`,
         post,
         repostedBy,
+        repostedById: row.user_id,
         repostedAt: row.created_at,
         activityAt: row.created_at,
       });

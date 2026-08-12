@@ -36,6 +36,7 @@ jest.mock('@/features/social/social-service', () => {
   // `fetchGlobalFeedItems` directly to inject a reposted row.
   const fetchGlobalFeed = jest.fn();
   return {
+  blockUser: jest.fn(async () => true),
   deletePost: jest.fn(async () => true),
   fetchFollowingFeed: jest.fn(),
   fetchGlobalFeed,
@@ -205,23 +206,42 @@ describe('FeedScreen', () => {
     expect(push).toHaveBeenCalledWith('/new-post');
   });
 
-  // On Android the rule showed on first paint and vanished once the post below
-  // loaded — a sibling hairline box on the header/cell seam, relaid out away.
-  // A border on the row itself has nothing to lose; this pins that form.
-  it('draws the compose rule as a border on the row, not a separate hairline view', async () => {
+  /*
+    On Android, cell 0 paints over the header's fractional bottom edge, so
+    EVERY line drawn from the header's side — sibling hairline, border, even a
+    zIndex'd border — got shaved to a lighter sliver once posts loaded. The
+    rule therefore has two owners: the header's border while the list is
+    empty, and the first cell itself once posts exist. This pins both halves.
+  */
+  it('hands the compose rule to the first cell once posts load', async () => {
     renderWithProviders(<FeedScreen />);
     await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
+    // The header's own border is OFF — a line here would be shaved on Android
+    // (and double-ruled everywhere else).
     const section = screen.getByTestId('feed-compose-divider');
     const style = StyleSheet.flatten(section.props.style);
+    expect(style.borderBottomWidth).toBe(0);
+    expect(style.width).toBe('100%');
+    expect(within(section).getByTestId('feed-compose-prompt')).toBeTruthy();
 
+    // The first cell draws the rule itself, in the same View form as the
+    // card's bottom divider, so the two lines rasterize identically.
+    const rule = screen.getByTestId('feed-first-cell-rule');
+    const ruleStyle = StyleSheet.flatten(rule.props.style);
+    expect(ruleStyle.height).toBeGreaterThan(0);
+    expect(ruleStyle.backgroundColor).toBeTruthy();
+  });
+
+  it('keeps the compose rule as a header border while the feed is empty', async () => {
+    (fetchGlobalFeed as jest.Mock).mockResolvedValue([]);
+    renderWithProviders(<FeedScreen />);
+    await waitFor(() => expect(screen.getByTestId('feed-compose-divider')).toBeTruthy());
+    await waitFor(() => expect(screen.queryByTestId('feed-first-cell-rule')).not.toBeOnTheScreen());
+
+    const style = StyleSheet.flatten(screen.getByTestId('feed-compose-divider').props.style);
     expect(style.borderBottomWidth).toBeGreaterThan(0);
     expect(style.borderBottomColor).toBeTruthy();
-    // The row it is painted on must itself be full-width, or the border is too.
-    expect(style.width).toBe('100%');
-    // And it must really be the row — a border on an empty box would be the
-    // same bug wearing a different style prop.
-    expect(within(section).getByTestId('feed-compose-prompt')).toBeTruthy();
   });
 
   it('shows an empty state when there are no posts', async () => {
@@ -624,6 +644,66 @@ describe('FeedScreen', () => {
 
       alertSpy.mockRestore();
     });
+  });
+
+  /*
+    Blocking someone must clear EVERY row they are in, not just the card that was
+    tapped. Reported: "I blocked someone but their reposts didn't get removed
+    from the timeline until I refreshed" — a repost carries SOMEONE ELSE'S post,
+    so filtering on `post.authorId` alone leaves it on screen.
+  */
+  describe('blocking', () => {
+    // Same restore the repost tests need: replacing the delegating
+    // implementation leaks into every later test in this file otherwise.
+    const delegateToGlobalFeed = (fetchGlobalFeedItems as jest.Mock).getMockImplementation();
+
+    afterEach(() => {
+      (fetchGlobalFeedItems as jest.Mock).mockImplementation(delegateToGlobalFeed!);
+    });
+
+  it('drops the blocked person\'s posts AND their reposts immediately', async () => {
+    const theirPost = buildPost({ id: 'theirs', body: 'Their own post', authorId: 'blocked-1' });
+    const someoneElse = buildPost({ id: 'other', body: 'Unrelated post', authorId: 'author-other' });
+
+    (fetchGlobalFeedItems as jest.Mock).mockResolvedValue([
+      { key: 'post:theirs', post: theirPost, repostedBy: null, repostedById: null, repostedAt: null, activityAt: theirPost.createdAt },
+      {
+        key: 'repost:other:blocked-1',
+        post: someoneElse,
+        repostedBy: { displayName: 'Blocked One', handle: 'blocked1', avatarUrl: null, isVerified: false },
+        repostedById: 'blocked-1',
+        repostedAt: '2026-05-02T00:00:00.000Z',
+        activityAt: '2026-05-02T00:00:00.000Z',
+      },
+      { key: 'post:other', post: someoneElse, repostedBy: null, repostedById: null, repostedAt: null, activityAt: someoneElse.createdAt },
+    ]);
+
+    renderWithProviders(<FeedScreen />);
+    await waitFor(() => expect(screen.getByText('Their own post')).toBeTruthy());
+    // Their post, their repost, and the unrelated original.
+    expect(screen.getAllByTestId('feed-post-body')).toHaveLength(3);
+
+    await act(async () => {
+      fireEvent.press(
+        within(screen.getByTestId('feed-post-theirs')).getByTestId('feed-post-more-button'),
+      );
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByText('Block Collector theirs'));
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('feed-post-block-confirm-confirm'));
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText('Their own post')).not.toBeOnTheScreen();
+    });
+    // The repost is gone too — it was the one that survived before.
+    expect(screen.queryByTestId('feed-repost-attribution')).toBeNull();
+    // …and the unrelated original is untouched.
+    expect(screen.getAllByTestId('feed-post-body')).toHaveLength(1);
+    expect(screen.getByText('Unrelated post')).toBeTruthy();
+  });
   });
 
   it('renders a card chip for a post anchored to a card', async () => {

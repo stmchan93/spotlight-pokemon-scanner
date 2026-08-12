@@ -261,6 +261,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
             key: `post:${post.id}`,
             post,
             repostedBy: null,
+            repostedById: null,
             repostedAt: null,
             activityAt: post.createdAt,
           });
@@ -268,6 +269,17 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
       }
       return rebuilt;
     });
+  }, []);
+
+  // Blocking someone clears EVERY row they are in, not just the card that was
+  // tapped: their own posts AND their reposts (which carry someone else's post,
+  // so filtering on `post.authorId` alone leaves them on screen — the reported
+  // bug). The next read drops them server-side via RLS; this is what makes the
+  // block look instant instead of arriving on the next refresh.
+  const handleAuthorBlocked = useCallback((userId: string) => {
+    setItems((current) => current.filter((item) => (
+      item.post.authorId !== userId && item.repostedById !== userId
+    )));
   }, []);
 
   const { requestDelete, confirmSheet: deleteConfirmSheet } = usePostDeletion(setFeedPosts, {
@@ -486,7 +498,21 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         styles.composeSection,
         {
           borderBottomColor: theme.colors.gray300,
-          borderBottomWidth: theme.borderWidths.rule,
+          /*
+            Only while the list is EMPTY. Once posts exist, the FIRST CELL
+            draws this rule (see renderItem): Android lays cell 0 over the
+            header's fractional bottom edge, and every line drawn from the
+            header's side — sibling view, border, even a zIndex'd border —
+            got fully or partly shaved by the cell's background. On Android a
+            0.5pt border also anti-aliases into a wash, so the empty-state
+            rule uses the hairline: exactly one solid physical pixel.
+          */
+          borderBottomWidth:
+            items.length > 0
+              ? 0
+              : Platform.OS === 'android'
+                ? StyleSheet.hairlineWidth
+                : theme.borderWidths.rule,
         },
       ]}
       testID={`${testID}-compose-divider`}
@@ -653,8 +679,22 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
             tintColor={theme.colors.gray400}
           />
         }
-        renderItem={({ item }: { item: FeedItem }) => (
+        renderItem={({ item, index }: { item: FeedItem; index: number }) => (
           <>
+            {/*
+              The composer's closing rule, drawn BY THE FIRST CELL rather than
+              by the header above it: cell 0 paints over the header's bottom
+              edge on Android, so any line the header drew was shaved to a
+              lighter sliver the moment posts loaded. Owned by the very view
+              that was doing the shaving, it has nothing left to lose — and as
+              a View it rasterizes identically to the card's bottom divider.
+            */}
+            {index === 0 ? (
+              <View
+                style={{ backgroundColor: theme.colors.gray300, height: theme.borderWidths.rule }}
+                testID={`${testID}-first-cell-rule`}
+              />
+            ) : null}
             {/*
               The card below carries the ORIGINAL author's name and avatar, so
               without this line a reposted row reads as though the reposter wrote
@@ -669,6 +709,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
             <PostCard
               accessToken={accessToken}
               apiBaseUrl={apiBaseUrl}
+              onAuthorBlocked={handleAuthorBlocked}
               onPressCard={handleOpenCard}
               onRequestDelete={requestDelete}
               post={item.post}
