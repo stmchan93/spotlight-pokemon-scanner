@@ -29,13 +29,31 @@ from __future__ import annotations
 
 import argparse
 import sqlite3
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 
-def _default_collection_id(con: sqlite3.Connection, owner_user_id: str) -> str | None:
+DEFAULT_COLLECTION_NAME = "Main Collection"
+
+
+def _default_collection_id(
+    con: sqlite3.Connection,
+    owner_user_id: str,
+    *,
+    create_missing: bool,
+    apply_changes: bool,
+) -> str | None:
     """The owner's default collection — first by sort order, matching
-    `_ensure_owner_collections`. None when the owner has no collections at all
-    (nothing to adopt into; the server creates one on their next touch)."""
+    `_ensure_owner_collections`.
+
+    Most orphans on a live database are not from the replace bug at all: they
+    predate multi-collection, and belong to owners who have never touched
+    collections and so have none. The server mints one for them lazily on their
+    next touch. `create_missing` does the same thing eagerly, which is what makes
+    "every holding has a collection" true of the whole table rather than true
+    only of the accounts that happen to have been active.
+    """
     row = con.execute(
         """
         SELECT id FROM collections
@@ -45,7 +63,30 @@ def _default_collection_id(con: sqlite3.Connection, owner_user_id: str) -> str |
         """,
         (owner_user_id,),
     ).fetchone()
-    return str(row["id"]).strip() if row is not None else None
+    if row is not None:
+        return str(row["id"]).strip()
+    if not create_missing:
+        return None
+
+    collection_id = f"collection:{uuid.uuid4().hex}"
+    print(f"  {'NEW ' if apply_changes else 'PLAN'}  collection {collection_id} "
+          f"\"{DEFAULT_COLLECTION_NAME}\" for owner={owner_user_id}")
+    if apply_changes:
+        con.execute(
+            """
+            INSERT INTO collections (id, owner_user_id, name, sort_order, created_at)
+            VALUES (?, ?, ?, 0, ?)
+            """,
+            (
+                collection_id,
+                owner_user_id,
+                DEFAULT_COLLECTION_NAME,
+                datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            ),
+        )
+        return collection_id
+    # Dry run: report the plan without pretending the row exists.
+    return None
 
 
 def _predecessor_collection_id(con: sqlite3.Connection, entry: sqlite3.Row) -> str | None:
@@ -88,7 +129,7 @@ def _predecessor_collection_id(con: sqlite3.Connection, entry: sqlite3.Row) -> s
     return str(candidates[0]["collection_id"]).strip() or None
 
 
-def run(db_path: Path, *, apply_changes: bool) -> int:
+def run(db_path: Path, *, apply_changes: bool, create_missing_defaults: bool = False) -> int:
     con = sqlite3.connect(str(db_path))
     con.row_factory = sqlite3.Row
 
@@ -117,13 +158,25 @@ def run(db_path: Path, *, apply_changes: bool) -> int:
         source = "predecessor"
         if target is None:
             if owner not in default_cache:
-                default_cache[owner] = _default_collection_id(con, owner) if owner else None
+                default_cache[owner] = (
+                    _default_collection_id(
+                        con,
+                        owner,
+                        create_missing=create_missing_defaults,
+                        apply_changes=apply_changes,
+                    )
+                    if owner
+                    else None
+                )
             target = default_cache[owner]
             source = "default"
 
         if target is None:
             skipped += 1
-            print(f"  SKIP  {entry['id']} owner={owner or '<none>'} — owner has no collection")
+            print(
+                f"  SKIP  {entry['id']} owner={owner or '<none>'} — owner has no collection"
+                f"{' (use --create-missing-defaults)' if not create_missing_defaults else ''}"
+            )
             continue
 
         if source == "predecessor":
@@ -166,8 +219,21 @@ def main() -> int:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dry-run", action="store_true", help="Report only; write nothing")
     mode.add_argument("--apply", action="store_true", help="Write the repairs")
+    parser.add_argument(
+        "--create-missing-defaults",
+        action="store_true",
+        help=(
+            "Create a \"Main Collection\" for owners who have none, the same way the "
+            "server's own lazy backfill would on their next touch. Without this, "
+            "their rows are reported and skipped."
+        ),
+    )
     args = parser.parse_args()
-    return run(args.db, apply_changes=bool(args.apply))
+    return run(
+        args.db,
+        apply_changes=bool(args.apply),
+        create_missing_defaults=bool(args.create_missing_defaults),
+    )
 
 
 if __name__ == "__main__":
