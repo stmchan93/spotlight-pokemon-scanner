@@ -56,6 +56,7 @@ TEST_MODULES=(
   backend.tests.test_day_change_condition_match
   backend.tests.test_card_likes
   backend.tests.test_multi_collection
+  backend.tests.test_replace_deck_entry_collection
   backend.tests.test_whos_that_pokemon
 )
 

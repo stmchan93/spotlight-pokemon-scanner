@@ -6360,6 +6360,14 @@ class SpotlightScanService:
                     event_kind="replace_in",
                     added_market_price=added_market_price,
                     added_market_date=added_market_date,
+                    # STAY IN THE COLLECTION IT WAS ALREADY IN. Omitting this
+                    # inserted the new row with collection_id NULL, and a scoped
+                    # read (`AND collection_id = ?`) cannot match NULL — so any
+                    # identity-changing edit made the card vanish from the
+                    # collection the user was looking at. Reported for the PDP's
+                    # EN/JP swap, but card_id is only one part of identity_key:
+                    # a grade, variant or condition change did it too.
+                    collection_id=str(existing_row["collection_id"] or "").strip() or None,
                 )
                 self.connection.execute(
                     """
