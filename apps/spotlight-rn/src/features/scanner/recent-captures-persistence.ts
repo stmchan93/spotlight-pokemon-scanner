@@ -188,21 +188,8 @@ export async function copyToScansDir(
     } catch {
       // Size lookup is best-effort; the copy already succeeded.
     }
-    capturePostHogEvent('scan_tray_persist_copy', {
-      copy_ms: Date.now() - startedAt,
-      success: 1,
-      mode,
-      source,
-      ...(bytes != null ? { bytes } : {}),
-    });
     return destination;
   } catch (error) {
-    capturePostHogEvent('scan_tray_persist_copy', {
-      copy_ms: Date.now() - startedAt,
-      success: 0,
-      mode,
-      source,
-    });
     reportError('copy', error);
     return null;
   }
@@ -218,17 +205,7 @@ export async function deleteScanFile(
   const startedAt = Date.now();
   try {
     await FileSystem.deleteAsync(uri, { idempotent: true });
-    capturePostHogEvent('scan_tray_persist_delete', {
-      delete_ms: Date.now() - startedAt,
-      success: 1,
-      reason,
-    });
   } catch (error) {
-    capturePostHogEvent('scan_tray_persist_delete', {
-      delete_ms: Date.now() - startedAt,
-      success: 0,
-      reason,
-    });
     reportError('delete', error);
   }
 }
@@ -335,13 +312,6 @@ async function performTrayWrite(items: RecentCapture[]): Promise<void> {
   }
   try {
     await AsyncStorage.setItem(RECENT_CAPTURES_STORAGE_KEY, serialized);
-    capturePostHogEvent('scan_tray_persist_write', {
-      item_count: envelope.items.length,
-      serialized_bytes: serialized.length,
-      write_ms: Date.now() - startedAt,
-      skipped_loading_count: skippedLoading,
-      coalesced_change_count: coalescedChangeCount,
-    });
   } catch (error) {
     reportError('write', error);
   }
@@ -458,25 +428,9 @@ export async function loadPersistedTray(): Promise<RecentCapture[]> {
     readMs = Date.now() - readStartedAt;
   } catch (error) {
     reportError('read', error);
-    capturePostHogEvent('scan_tray_persist_read', {
-      item_count_loaded: 0,
-      item_count_dropped_missing_file: 0,
-      read_ms: 0,
-      parse_ms: 0,
-      verify_ms: 0,
-      total_ms: Date.now() - totalStartedAt,
-    });
     return [];
   }
   if (!raw) {
-    capturePostHogEvent('scan_tray_persist_read', {
-      item_count_loaded: 0,
-      item_count_dropped_missing_file: 0,
-      read_ms: readMs,
-      parse_ms: 0,
-      verify_ms: 0,
-      total_ms: Date.now() - totalStartedAt,
-    });
     return [];
   }
   let envelope: PersistedTrayEnvelope | null = null;
@@ -498,14 +452,6 @@ export async function loadPersistedTray(): Promise<RecentCapture[]> {
     } catch (error) {
       reportError('write', error);
     }
-    capturePostHogEvent('scan_tray_persist_read', {
-      item_count_loaded: 0,
-      item_count_dropped_missing_file: 0,
-      read_ms: readMs,
-      parse_ms: parseMs,
-      verify_ms: 0,
-      total_ms: Date.now() - totalStartedAt,
-    });
     return [];
   }
   // Account switch: if this tray was explicitly stamped for a DIFFERENT account,
@@ -520,9 +466,6 @@ export async function loadPersistedTray(): Promise<RecentCapture[]> {
       reportError('write', error);
     }
     await sweepOrphanScans(new Set());
-    capturePostHogEvent('scan_tray_cleared_account_switch', {
-      previous_item_count: envelope.items.length,
-    });
     return [];
   }
 
@@ -551,14 +494,6 @@ export async function loadPersistedTray(): Promise<RecentCapture[]> {
     } else {
       dropped += 1;
     }
-  });
-  capturePostHogEvent('scan_tray_persist_read', {
-    item_count_loaded: survivors.length,
-    item_count_dropped_missing_file: dropped,
-    read_ms: readMs,
-    parse_ms: parseMs,
-    verify_ms: verifyMs,
-    total_ms: Date.now() - totalStartedAt,
   });
   // Legacy (unstamped) tray adopted by the current account: re-stamp it now so a
   // later switch to another account detects the mismatch and clears it.
@@ -591,11 +526,6 @@ export async function sweepOrphanScans(keepIds: Set<string>): Promise<void> {
       } catch (error) {
         reportError('sweep', error);
       }
-    });
-    capturePostHogEvent('scan_tray_orphan_sweep', {
-      sweep_ms: Date.now() - startedAt,
-      orphans_deleted: orphansDeleted,
-      files_scanned: filesScanned,
     });
   } catch (error) {
     reportError('sweep', error);

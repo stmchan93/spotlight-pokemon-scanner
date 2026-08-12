@@ -249,10 +249,6 @@ function applyCapEviction(
   }
   const survivors = nextItems.slice(0, maxStoredCaptures);
   const dropped = nextItems.slice(maxStoredCaptures);
-  capturePostHogEvent('scan_tray_evicted_for_cap', {
-    evicted_count: dropped.length,
-    mode: insertingMode,
-  });
   dropped.forEach((item) => {
     if (item.normalizedImageUri) {
       void deleteScanFile(item.normalizedImageUri, 'cap_evict');
@@ -1295,10 +1291,6 @@ export function ScannerScreen({
       void (async () => {
         await Promise.all(uris.map((uri) => deleteScanFile(uri, 'clear_all')));
       })();
-      capturePostHogEvent('scan_tray_cleared', {
-        cleared_count: current.length,
-        clear_ms: Date.now() - clearStartedAt,
-      });
       return [];
     });
     setPriceSelection(new Map());
@@ -1365,10 +1357,6 @@ export function ScannerScreen({
     rawCollectorNumberPromise,
   }: CaptureMatchParams) => {
     try {
-      capturePostHogEvent('scan_match_requested', {
-        mode,
-        ...(typeof slabAnalysisMs === 'number' ? { slab_analysis_ms: slabAnalysisMs } : {}),
-      });
       const matchStartedAt = Date.now();
 
       // Phase 2: resolve the on-device collector-number reading that was started
@@ -1412,12 +1400,6 @@ export function ScannerScreen({
             return;
           }
           if (artifactUpload.status === 'uploaded') {
-            capturePostHogEvent('scan_artifact_upload_succeeded', {
-              mode,
-              ...(typeof artifactUpload.roundTripMs === 'number'
-                ? { upload_ms: artifactUpload.roundTripMs }
-                : {}),
-            });
           } else if (artifactUpload.status === 'failed') {
             capturePostHogEvent('scan_artifact_upload_failed', {
               error_kind: artifactUpload.errorKind ?? 'request_failed',
