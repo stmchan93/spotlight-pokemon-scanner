@@ -144,6 +144,60 @@ class ReplaceDeckEntryKeepsCollectionTest(unittest.TestCase):
         self.assertNotEqual(result["deckEntryID"], entry_id)
         self.assertEqual(self._collection_of(str(result["deckEntryID"])), collection_id)
 
+    def test_legacy_null_collection_is_adopted_by_the_edit(self) -> None:
+        """A holding written before multi-collection must not stay orphaned.
+
+        Every entry carries a collection after any edit — preserved when it had
+        one, the owner's default when it did not — so a scoped read can always
+        address it.
+        """
+        entry_id, _ = self._entry_in_named_collection("sv5k-88")
+        # Simulate a pre-migration row.
+        self.service.connection.execute(
+            "UPDATE deck_entries SET collection_id = NULL WHERE id = ?",
+            (entry_id,),
+        )
+        self.service.connection.commit()
+
+        result = self.service.replace_deck_entry(
+            {
+                "deckEntryID": entry_id,
+                "cardID": "sv5k-88",
+                "quantity": 1,
+                "unitPrice": 0,
+                "slabContext": None,
+                "variantName": "Holofoil",
+                "condition": "lightly_played",
+            }
+        )
+
+        self.assertIsNotNone(self._collection_of(str(result["deckEntryID"])))
+
+    def test_in_place_edit_also_normalizes_a_null_collection(self) -> None:
+        # The identity-UNCHANGED branch updates the row in place; it must fix a
+        # legacy NULL on the way past rather than leaving it unaddressable.
+        entry_id, _ = self._entry_in_named_collection("sv5k-88")
+        self.service.connection.execute(
+            "UPDATE deck_entries SET collection_id = NULL WHERE id = ?",
+            (entry_id,),
+        )
+        self.service.connection.commit()
+
+        result = self.service.replace_deck_entry(
+            {
+                "deckEntryID": entry_id,
+                "cardID": "sv5k-88",
+                # Same identity — only the quantity moves.
+                "quantity": 3,
+                "unitPrice": 0,
+                "slabContext": None,
+                "variantName": "Holofoil",
+            }
+        )
+
+        self.assertEqual(result["deckEntryID"], entry_id)
+        self.assertIsNotNone(self._collection_of(entry_id))
+
     def test_swapped_card_is_still_visible_when_the_collection_is_scoped(self) -> None:
         """The user-visible symptom, asserted through the read they were using."""
         entry_id, collection_id = self._entry_in_named_collection("sv5k-88")

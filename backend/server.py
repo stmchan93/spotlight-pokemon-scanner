@@ -6286,6 +6286,15 @@ class SpotlightScanService:
         existing_quantity = max(0, int(existing_row["quantity"] or 0))
         next_deck_entry_id = previous_deck_entry_id
 
+        # EVERY HOLDING CARRIES A COLLECTION, ALWAYS. Keep the one it is already
+        # in; fall back to the owner's default when the source row predates
+        # multi-collection. A scoped Collection read is `AND collection_id = ?`
+        # and cannot match NULL, so an orphaned row is an invisible row.
+        target_collection_id = (
+            str(existing_row["collection_id"] or "").strip()
+            or self._ensure_owner_collections(owner_user_id)
+        )
+
         try:
             if next_identity_key == existing_identity_key:
                 self.connection.execute(
@@ -6299,7 +6308,10 @@ class SpotlightScanService:
                         quantity = ?,
                         cost_basis_total = ?,
                         cost_basis_currency_code = ?,
-                        updated_at = ?
+                        updated_at = ?,
+                        -- Normalizes a legacy NULL on the way past, so an edit
+                        -- always leaves the row addressable by a scoped read.
+                        collection_id = ?
                     WHERE id = ?
                     """,
                     (
@@ -6312,6 +6324,7 @@ class SpotlightScanService:
                         round(unit_price * quantity, 2) if unit_price is not None else 0.0,
                         currency_code,
                         updated_at,
+                        target_collection_id,
                         previous_deck_entry_id,
                     ),
                 )
@@ -6360,14 +6373,11 @@ class SpotlightScanService:
                     event_kind="replace_in",
                     added_market_price=added_market_price,
                     added_market_date=added_market_date,
-                    # STAY IN THE COLLECTION IT WAS ALREADY IN. Omitting this
-                    # inserted the new row with collection_id NULL, and a scoped
-                    # read (`AND collection_id = ?`) cannot match NULL — so any
-                    # identity-changing edit made the card vanish from the
-                    # collection the user was looking at. Reported for the PDP's
-                    # EN/JP swap, but card_id is only one part of identity_key:
-                    # a grade, variant or condition change did it too.
-                    collection_id=str(existing_row["collection_id"] or "").strip() or None,
+                    # Stay in the collection it was already in. Omitting this
+                    # inserted the new row NULL, and any identity-changing edit
+                    # (EN/JP swap, grade, variant, condition) made the card
+                    # vanish from the collection the user was looking at.
+                    collection_id=target_collection_id,
                 )
                 self.connection.execute(
                     """
