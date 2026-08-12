@@ -240,6 +240,13 @@ const trayHeightTimingConfig = {
 } as const;
 
 
+// Capture ids already reported as cap-evicted. This function runs INSIDE a
+// setRecentCaptures updater, and React may invoke an updater more than once for
+// a single commit (StrictMode in dev, re-render during concurrent work). File
+// deletion tolerates that; an analytics count does not. Bounded by scans per
+// process, so a few hundred ids at worst.
+const reportedCapEvictionIds = new Set<string>();
+
 function applyCapEviction(
   nextItems: RecentCapture[],
   insertingMode: 'raw' | 'slabs',
@@ -250,6 +257,17 @@ function applyCapEviction(
   const survivors = nextItems.slice(0, maxStoredCaptures);
   const dropped = nextItems.slice(maxStoredCaptures);
   dropped.forEach((item) => {
+    if (!reportedCapEvictionIds.has(item.id)) {
+      reportedCapEvictionIds.add(item.id);
+      // The tray filled up and pushed this scan out untouched — the clearest
+      // signal we have that someone scanned a pile and added none of it.
+      capturePostHogEvent('scan_row_dismissed', {
+        count: 1,
+        inserting_mode: insertingMode,
+        mode: item.mode,
+        reason: 'cap_evicted',
+      });
+    }
     if (item.normalizedImageUri) {
       void deleteScanFile(item.normalizedImageUri, 'cap_evict');
     }
@@ -1224,6 +1242,15 @@ export function ScannerScreen({
   }, [trayPriceSummary]);
 
   const deleteRecentCapture = useCallback((captureId: string) => {
+    // Reported from here rather than inside the updater below: this runs once
+    // per swipe, whereas an updater can be replayed. Read through the ref so the
+    // callback keeps its empty dep list and the memoized swipe rows stay stable.
+    capturePostHogEvent('scan_row_dismissed', {
+      count: 1,
+      mode: recentCapturesRef.current.find((capture) => capture.id === captureId)?.mode ?? null,
+      reason: 'swipe',
+    });
+
     setRecentCaptures((current) => {
       const removed = current.find((capture) => capture.id === captureId);
       if (removed) {
@@ -1277,7 +1304,13 @@ export function ScannerScreen({
   }, []);
 
   const performClearAllCaptures = useCallback(() => {
-    const clearStartedAt = Date.now();
+    // One event carrying how many rows went, not one event per row — a tray
+    // wiped at the cap would otherwise cost as much as the scans themselves.
+    capturePostHogEvent('scan_row_dismissed', {
+      count: recentCapturesRef.current.length,
+      reason: 'clear_all',
+    });
+
     setRecentCaptures((current) => {
       const uris: string[] = [];
       current.forEach((capture) => {
@@ -2216,6 +2249,13 @@ export function ScannerScreen({
       return;
     }
 
+    // Fired on intent, before the write. `scan_inventory_add_failed` sitting at
+    // zero could mean adding never fails or that nobody ever reaches it; without
+    // this event those two are indistinguishable.
+    capturePostHogEvent('scan_add_tapped', {
+      mode: capture.mode,
+    });
+
     setRecentCaptures((current) => current.map((entry) => {
       if (entry.id !== captureId) {
         return entry;
@@ -2662,7 +2702,23 @@ export function ScannerScreen({
       return;
     }
 
-    router.dismissTo({ pathname: '/', params: { page: 'portfolio' } });
+    /*
+      Last resort, and in practice unreachable: `(tabs)/scan.tsx` always passes
+      `onExitToPortfolio`, so the branch above returns first.
+
+      It used to pass `params: { page: 'portfolio' }`, which was dead — nothing
+      reads `page` now that each page is a real route, and `/` stopped being the
+      Collection when the feed took the tabs root (`login-callback.tsx` carries
+      the full diagnosis of the same stale param). So it claimed to reach the
+      Collection and reached the feed.
+
+      Dropping the param rather than re-pointing it at `/you`: `dismissTo`
+      dispatches POP_TO, which `NativeBottomTabsRouter` cannot handle for a tab —
+      see the note in `app-drawer.tsx`. `/` is a root path and works, and landing
+      on the app's root surface is the right answer for "there is nothing to go
+      back to" anyway.
+    */
+    router.dismissTo('/');
   }, [onExitToPortfolio, router]);
 
   const handleOpenCatalogSearch = useCallback(() => {

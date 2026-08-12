@@ -80,6 +80,7 @@ import {
   getCardDetailPreview,
   saveCardDetailPreviewFromInventoryEntry,
 } from '@/features/cards/card-detail-preview-session';
+import { noteCardAdded } from '@/features/cards/card-added-notice';
 import {
   defaultLaneFromPreview,
   getCardDetailCached,
@@ -1086,6 +1087,14 @@ export function CardDetailScreen({
 
     void spotlightRepository.setCardFavorite(activeCardId, nextIsFavorite)
       .then((result) => {
+        // Reported off the SERVER's answer, not the optimistic flip above, so a
+        // write that silently disagreed with the UI is not counted as a save.
+        // The wishlist looked near-dead in PostHog because only the scanner's
+        // add was instrumented — this path, the main one, sent nothing at all.
+        capturePostHogEvent(
+          result.isFavorite ? 'wishlist_item_added' : 'wishlist_item_removed',
+          { source: 'card_detail' },
+        );
         setFavoriteState({
           favoritedAt: result.favoritedAt ?? null,
           isFavorite: result.isFavorite,
@@ -1473,18 +1482,36 @@ export function CardDetailScreen({
           quantity: Math.max(1, quantity),
         });
         setAddSheetOpen(false);
-        // Adding is the END of the search/add flow: collapse the pushed stack
-        // (search + PDP) back to the Collection page, where the optimistic
-        // insert has already surfaced the new card at the top.
-        //
-        // Android: let the native Modal finish detaching BEFORE popping the
-        // stack. Dismissing screens while the Modal tears down races Fabric's
-        // mounting ("addViewAt: view already has a parent") and reloads the
-        // whole React host — reads as an app crash. iOS composites the two
-        // transitions fine, so it keeps the immediate pop.
+        /*
+          GO BACK TO WHEREVER YOU CAME FROM — one screen, not the whole stack.
+
+          This was `dismissTo({ pathname: '/', params: { page: 'portfolio' } })`,
+          described as collapsing "back to the Collection page, where the
+          optimistic insert has already surfaced the new card at the top". Both
+          halves of that went stale: `/` stopped being the Collection when the
+          feed took the tabs root, and NOTHING reads `page` now that each page is
+          a real route. So adding a card quietly dropped you on the social feed —
+          `login-callback.tsx` carries the same diagnosis for the same param.
+
+          `back()` is the fix and is also better than naming the Collection: the
+          card page is reached from search, from the Collection, from the feed and
+          from the wishlist, and returning to the one you actually came from is
+          right in every case. From search that means the results stay up and you
+          can add the next card, which is what the old flow made impossible.
+
+          The confirmation the Collection used to provide by simply showing the
+          card now travels as a toast — see `noteCardAdded`.
+
+          Android: let the native Modal finish detaching BEFORE popping the
+          stack. Dismissing screens while the Modal tears down races Fabric's
+          mounting ("addViewAt: view already has a parent") and reloads the
+          whole React host — reads as an app crash. iOS composites the two
+          transitions fine, so it keeps the immediate pop.
+        */
         const finishAddFlow = () => {
           refreshData();
-          router.dismissTo({ pathname: '/', params: { page: 'portfolio' } } as never);
+          noteCardAdded('Added to your collection');
+          router.back();
         };
         if (Platform.OS === 'android') {
           setTimeout(finishAddFlow, 150);

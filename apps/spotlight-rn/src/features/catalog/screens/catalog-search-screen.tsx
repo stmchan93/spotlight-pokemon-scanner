@@ -7,6 +7,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
+import { useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
@@ -22,14 +23,17 @@ import {
   SearchField,
   StateCard,
   Text,
+  Toast,
   colors,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
+import { consumeCardAddedNotice } from '@/features/cards/card-added-notice';
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import { ExpansionCell } from '@/features/catalog/components/expansion-cell';
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
+import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useAppServices } from '@/providers/app-providers';
 
 /*
@@ -237,6 +241,21 @@ export function CatalogSearchScreen({
   const [errorMessage, setErrorMessage] = useState('');
   const [searchRevision, setSearchRevision] = useState(0);
   const [openingResultId, setOpeningResultId] = useState<string | null>(null);
+  /*
+    Confirmation left behind by the card page when it popped back to here. Read
+    ON FOCUS rather than on mount: this screen stays mounted underneath the card
+    page, so a mount effect would run once, before the add ever happened, and the
+    toast would never appear.
+  */
+  const [addedNotice, setAddedNotice] = useState<string | null>(null);
+  useFocusEffect(
+    useCallback(() => {
+      const notice = consumeCardAddedNotice();
+      if (notice) {
+        setAddedNotice(notice);
+      }
+    }, []),
+  );
   const [hasMore, setHasMore] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   // The query the current results belong to — guards against a late "load more"
@@ -328,6 +347,20 @@ export function CatalogSearchScreen({
           }
 
           activeQueryRef.current = searchKey;
+          // Fired on the settled query only — the 275ms debounce above means
+          // typing "charizard" costs one event, not nine.
+          //
+          // The query TEXT deliberately does not travel. `cardname` is already
+          // on the observability redact list, so shipping the same string under
+          // a friendlier key would just route around that decision. What this
+          // answers is "how often does search come back empty" — if a catalog
+          // coverage gap needs naming, that analysis belongs in backend search
+          // logs, where the text already lives.
+          capturePostHogEvent('catalog_search_performed', {
+            has_rarity_filter: activeRarity != null,
+            query_length: trimmed.length,
+            result_count: page.cards.length,
+          });
           setResults(page.cards);
           setHasMore(page.hasMore);
           setIsLoadingMore(false);
@@ -361,6 +394,13 @@ export function CatalogSearchScreen({
   const hasVisibleResults = hasActiveQuery && !errorMessage && results.length > 0;
 
   const openResult = (result: CatalogSearchResult) => {
+    // Paired with `catalog_search_performed`: searches that open nothing are
+    // how you tell a working search from one nobody trusts the results of.
+    capturePostHogEvent('catalog_search_result_opened', {
+      has_rarity_filter: activeRarity != null,
+      result_count: results.length,
+    });
+
     if (openingResetTimerRef.current) {
       clearTimeout(openingResetTimerRef.current);
     }
@@ -569,6 +609,8 @@ export function CatalogSearchScreen({
           value={query}
         />
 
+      </View>
+
         {/* Rarity chips (same PillButton tone="filter" pattern as the
             Collection filter row). Single-select; tapping the active chip
             clears it. A chip alone searches with no text (browse-by-rarity).
@@ -591,9 +633,24 @@ export function CatalogSearchScreen({
             />
           ))}
         </ScrollView>
-      </View>
 
       {renderBody()}
+
+      {/*
+        "Added to your collection", for the card you just added on the page that
+        has already unmounted.
+
+        IT IS RENDERED HERE RATHER THAN AT THE APP ROOT ON PURPOSE. This screen
+        presents as a `fullScreenModal`, which on iOS is its own view controller —
+        a toast hosted at the root would draw behind it and never be seen. See
+        `card-added-notice.ts` for the handoff itself.
+      */}
+      <Toast
+        message={addedNotice ?? ''}
+        onDismiss={() => setAddedNotice(null)}
+        testID="catalog-added-toast"
+        visible={addedNotice !== null}
+      />
     </SafeAreaView>
   );
 }
@@ -687,7 +744,14 @@ const styles = StyleSheet.create({
   rarityChipRow: {
     flexDirection: 'row',
     gap: 8,
+    // 16 on every side. The row used to live inside `fixedHeader`, whose
+    // `gap: 20` set the space above it and nothing set the space below — it
+    // sat flush against the results. Outside the gap-managed header it owns
+    // its own box: 16 above, 16 below, 16 left to line up with the header's
+    // own horizontal padding.
+    paddingLeft: 16,
     paddingRight: 16,
+    paddingVertical: 16,
   },
   resultSubtitle: {
     flexShrink: 1,

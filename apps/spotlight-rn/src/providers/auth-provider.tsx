@@ -309,6 +309,57 @@ function captureProfileCompleted() {
   capturePostHogEvent('profile_completed');
 }
 
+/*
+  ───────────────────────────────────────────────────────────────────────────
+  THE GUEST FUNNEL IS A BILLING QUESTION, NOT A CURIOSITY.
+  ───────────────────────────────────────────────────────────────────────────
+  Supabase charges per Monthly Active User, and an anonymous user is a user.
+  So every guest who is minted and never converts is a line on the bill with
+  nothing on the other side of it. Three points are needed to see that, and no
+  fewer:
+
+    guest_mode_entered            — free. Someone is using the app with no
+                                    Supabase user at all. The denominator.
+    auth_anonymous_identity_minted — THE BILLABLE MOMENT. Already instrumented,
+                                    and NOT from here: it is hooked in exactly
+                                    one place, `signInAnonymously()` in
+                                    auth-service (see
+                                    `anonymous-identity-churn.ts`). A second
+                                    hook in this file would double-count every
+                                    mint. Do not add one.
+    guest_converted               — the return. A guest became a real account.
+
+  `entered` minus `minted` is how well the deferred mint is working (people who
+  browsed and cost nothing). `minted` minus `converted` is the leak.
+
+  `preserved_identity` on the conversion is the one that catches a specific,
+  expensive mistake: converting a guest by creating a NEW user instead of
+  upgrading the anonymous one bills the same human twice. If that ratio is not
+  ~1.0, the conversion path is minting duplicates.
+*/
+function captureGuestModeEntered() {
+  capturePostHogEvent('guest_mode_entered');
+}
+
+// Narrowed rather than cast: `providers` is a plain string[], and an `as` here
+// would quietly relabel any future provider (or an empty list) as one of these
+// three in the type system while sending something else entirely.
+function conversionProvider(providers: readonly string[]): string {
+  return providers[0] ?? 'unknown';
+}
+
+function captureGuestConverted(options: {
+  hadMintedSession: boolean;
+  preservedIdentity: boolean;
+  provider: string;
+}) {
+  capturePostHogEvent('guest_converted', {
+    had_minted_session: options.hadMintedSession,
+    preserved_identity: options.preservedIdentity,
+    provider: options.provider,
+  });
+}
+
 // Synthetic AppUser for a guest (anonymous) session — no profile fetch, no
 // display-name requirement (a guest has no name source and would otherwise be
 // trapped on the profile-completion screen).
@@ -343,6 +394,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [isPendingGuest, setIsPendingGuest] = useState(false);
   const isPendingGuestRef = useRef(false);
   const guestMintRef = useRef<Promise<Session | null> | null>(null);
+  // The anonymous user id currently held, or null. Set whenever an anonymous
+  // session lands (a fresh mint OR a restored one — a guest who comes back
+  // tomorrow and then signs up is still a conversion), and read exactly once,
+  // when a real account replaces it. Its VALUE, not just its presence, is what
+  // tells us whether the conversion kept the same Supabase user or billed a
+  // second one for the same person.
+  const guestUserIdRef = useRef<string | null>(null);
   // Live access token. `accessToken` on the context is a render snapshot, and a
   // React render is too late for the guest mint: the scan that TRIGGERED the
   // mint is already running inside a closure built before it. This ref is
@@ -377,12 +435,18 @@ export function AuthProvider({ children }: PropsWithChildren) {
       return;
     }
 
+    // Read BEFORE `setPendingGuest(false)` below clears it — this is the only
+    // moment the pre-sign-in guest state is still observable.
+    const wasPendingGuest = isPendingGuestRef.current;
+    const priorGuestUserId = guestUserIdRef.current;
+
     setPendingGuest(false);
 
     // Guest (anonymous) session: land straight in the app as a synthetic
     // "Guest" — state 'signedIn' so AuthGate renders the app, but skip the
     // profile-completion gate.
     if (isAnonymousSession(session)) {
+      guestUserIdRef.current = session.user.id;
       setCurrentUser(guestAppUser(session));
       setProfileDraftName('');
       setState('signedIn');
@@ -394,6 +458,22 @@ export function AuthProvider({ children }: PropsWithChildren) {
     void markHasSignedIn();
 
     const resolvedUser = await resolveAppUserFromSession(session);
+
+    // Whatever guest we were holding is now spent, either way.
+    guestUserIdRef.current = null;
+
+    if (wasPendingGuest || priorGuestUserId != null) {
+      captureGuestConverted({
+        // False means they converted before ever costing anything — the
+        // deferred mint doing exactly its job.
+        hadMintedSession: priorGuestUserId != null,
+        // A conversion that changes the user id has billed this person twice.
+        // True when nothing was minted at all, because there is no duplicate.
+        preservedIdentity: priorGuestUserId == null || priorGuestUserId === session.user.id,
+        provider: conversionProvider(resolvedUser.providers),
+      });
+    }
+
     setCurrentUser(resolvedUser);
     setProfileDraftName((current) => current || resolvedUser.displayName || '');
     setState(getNeedsProfile(resolvedUser) ? 'needsProfile' : 'signedIn');
@@ -404,6 +484,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   // is skipped); the user only becomes a billable MAU once
   // `ensureGuestSession()` runs.
   const enterPendingGuest = useCallback(() => {
+    captureGuestModeEntered();
     setPendingGuest(true);
     setCurrentUser(guestAppUser(null));
     setProfileDraftName('');
@@ -438,6 +519,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
       guestMintRef.current = (async () => {
         try {
           const session = await signInAnonymously();
+          // No mint event here — `signInAnonymously()` reports it itself. See
+          // the funnel note above.
           await updateFromSession(session);
           return session;
         } catch (error) {

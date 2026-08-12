@@ -22,6 +22,7 @@ import {
   findOrCreateDm,
   sendMessage,
 } from '@/features/social/dm-service';
+import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { keyboardLift } from '@/lib/keyboard-insets';
 
 /** One tappable recipient, from either source. */
@@ -173,6 +174,22 @@ export function SharePostSheet({
     return () => animation.stop();
   }, [translateY, visible]);
 
+  // Read off `payload` as primitives so the effect below depends on values, not
+  // on an object identity the caller rebuilds every render — otherwise opening
+  // the sheet once would report it opened on every parent re-render.
+  const payloadKind = payload.kind;
+  const payloadTab = payload.kind === 'profile' ? payload.tab : null;
+
+  useEffect(() => {
+    if (!visible) {
+      return;
+    }
+    capturePostHogEvent('share_sheet_opened', {
+      kind: payloadKind,
+      tab: payloadTab,
+    });
+  }, [payloadKind, payloadTab, visible]);
+
   /*
     This sheet carries a text field, so it is one of the surfaces that has to
     hold itself clear of the keyboard. The arithmetic is NOT "subtract the
@@ -269,6 +286,13 @@ export function SharePostSheet({
           if (!sent) {
             return;
           }
+          // Opening the sheet is intent; this is the only thing that says
+          // sharing actually works. The sheet stays open for repeat sends, so
+          // one open can legitimately produce several of these.
+          capturePostHogEvent('share_sheet_sent', {
+            kind: payloadKind,
+            tab: payloadTab,
+          });
           setSentTo((current) => new Set(current).add(recipient.userId));
           onSent?.(recipient);
         } finally {
@@ -277,7 +301,7 @@ export function SharePostSheet({
         }
       })();
     },
-    [onSent, payload, sentTo],
+    [onSent, payload, payloadKind, payloadTab, sentTo],
   );
 
   const data = trimmedQuery.length > 0 ? results : threads;

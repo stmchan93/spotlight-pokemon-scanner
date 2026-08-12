@@ -45,6 +45,7 @@ import {
   WISHLIST_TITLE_HIDE_DISTANCE,
   WishlistHeader,
 } from '@/features/wishlist/components/wishlist-header';
+import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { buildWishlistShareMessage } from '@/features/wishlist/wishlist-share';
 import { buildProfileDeepLink } from '@/features/profile/profile-link';
 import { SharePostSheet } from '@/features/social/components/share-post-sheet';
@@ -393,6 +394,7 @@ export function WishlistScreen() {
   // Swipe-to-delete on a row removes it from the wishlist. Drop it optimistically,
   // then persist; re-sync from the backend if the unfavorite didn't stick.
   const handleRemoveEntry = useCallback((cardId: string) => {
+    capturePostHogEvent('wishlist_item_removed', { count: 1, source: 'wishlist_swipe' });
     setFavorites((current) => current.filter((favorite) => favorite.cardId !== cardId));
     void spotlightRepository.setCardFavorite(cardId, false).catch(() => {
       void loadFavorites();
@@ -418,6 +420,12 @@ export function WishlistScreen() {
       return;
     }
     const ids = [...selectedIds];
+    // One event carrying the count, not one per card — clearing a long wishlist
+    // should not cost more than building it did.
+    capturePostHogEvent('wishlist_item_removed', {
+      count: ids.length,
+      source: 'wishlist_bulk',
+    });
     setIsDeleting(true);
     setDeleteError(null);
     setFavorites((current) => current.filter((favorite) => !selectedIds.has(favorite.cardId)));

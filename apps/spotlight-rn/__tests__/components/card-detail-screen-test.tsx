@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import type { CardDetailRecord, CardText, InventoryCardEntry } from '@spotlight/api-client';
 import { CardDetailScreen } from '@/features/cards/screens/card-detail-screen';
 import { resetPremiumUnlock } from '@/features/monetization/entitlements';
+import { clearCardAddedNotice, consumeCardAddedNotice } from '@/features/cards/card-added-notice';
 import {
   clearCardDetailPreviewSessions,
   saveCardDetailPreviewFromInventoryEntry,
@@ -33,6 +34,7 @@ jest.mock('expo-router', () => ({
 
 const mockReplace = jest.fn();
 const mockDismissTo = jest.fn();
+const mockBack = jest.fn();
 
 const sampleCardText: CardText = {
   number: '001/096',
@@ -52,12 +54,13 @@ describe('CardDetailScreen', () => {
     (useRouter as jest.Mock).mockReturnValue({
       replace: mockReplace,
       push: jest.fn(),
-      back: jest.fn(),
+      back: mockBack,
       dismissTo: mockDismissTo,
     });
   });
 
   afterEach(() => {
+    clearCardAddedNotice();
     clearCardDetailPreviewSessions();
     clearScanCandidateReviewSessions();
     clearCardDetailCache();
@@ -456,6 +459,32 @@ describe('CardDetailScreen', () => {
     await waitFor(() => expect(screen.getByTestId('detail-save-edit')).toBeTruthy());
     expect(screen.getByTestId('detail-cancel-edit')).toBeTruthy();
     expect(screen.queryByTestId('detail-add-item')).toBeNull();
+  }, 10000);
+
+  /*
+    WHERE ADDING LEAVES YOU. This used to be
+    `dismissTo({ pathname: '/', params: { page: 'portfolio' } })`, which collapsed
+    the search sheet AND this page and landed on the tabs root — and the tabs root
+    is the social feed now, so adding a card from search dropped you in the feed.
+    Nothing reads `page`; it was the retired pager's addressing.
+
+    Popping ONE screen returns you to whatever pushed this page, which is the
+    search results when you came from search, and your Collection when you came
+    from there. The toast is what replaces the confirmation the Collection used to
+    give by showing the new card at the top.
+  */
+  it('returns to the screen you came from after adding, and leaves a confirmation', async () => {
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
+    );
+
+    fireEvent.press(await screen.findByTestId('detail-add-item'));
+    fireEvent.press(await screen.findByTestId('detail-add-sheet-confirm'));
+
+    await waitFor(() => expect(mockBack).toHaveBeenCalled());
+    // The whole stack must NOT be collapsed — that is what took you to the feed.
+    expect(mockDismissTo).not.toHaveBeenCalled();
+    expect(consumeCardAddedNotice()).toBe('Added to your collection');
   }, 10000);
 
   it('opens the grade/condition picker and selects a new condition for the raw lane', async () => {

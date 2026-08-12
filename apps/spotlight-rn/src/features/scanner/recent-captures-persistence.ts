@@ -75,7 +75,6 @@ let scansDirReady = false;
 let scansDirPromise: Promise<void> | null = null;
 let pendingDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingSnapshot: RecentCapture[] | null = null;
-let pendingChangeCount = 0;
 let isWriting = false;
 // Snapshot handed to `writePersistedTray` while another write was already in
 // flight. Depth-1 on purpose: a newer snapshot supersedes an older one (each
@@ -174,20 +173,10 @@ export async function copyToScansDir(
   if (isAlreadyInScansDir(srcUri)) {
     return srcUri;
   }
-  const startedAt = Date.now();
-  let bytes: number | null = null;
   try {
     await ensureScansDir();
     const destination = scanFilePath(id, source);
     await FileSystem.copyAsync({ from: srcUri, to: destination });
-    try {
-      const info = await FileSystem.getInfoAsync(destination);
-      if (info.exists) {
-        bytes = info.size;
-      }
-    } catch {
-      // Size lookup is best-effort; the copy already succeeded.
-    }
     return destination;
   } catch (error) {
     reportError('copy', error);
@@ -202,7 +191,6 @@ export async function deleteScanFile(
   if (!uri || !isAlreadyInScansDir(uri)) {
     return;
   }
-  const startedAt = Date.now();
   try {
     await FileSystem.deleteAsync(uri, { idempotent: true });
   } catch (error) {
@@ -290,21 +278,15 @@ function isPersistableItem(capture: RecentCapture): boolean {
  * depends on this so its drain loop cannot be aborted mid-queue.
  */
 async function performTrayWrite(items: RecentCapture[]): Promise<void> {
-  const startedAt = Date.now();
   let envelope: PersistedTrayEnvelope;
   let serialized: string;
-  let skippedLoading: number;
-  let coalescedChangeCount: number;
   try {
     const persistable = items.filter(isPersistableItem);
-    skippedLoading = items.length - persistable.length;
     envelope = {
       version: PERSIST_ENVELOPE_VERSION,
       ownerKey: currentOwnerKey,
       items: persistable.map(toPersistedCapture),
     };
-    coalescedChangeCount = pendingChangeCount;
-    pendingChangeCount = 0;
     serialized = JSON.stringify(envelope);
   } catch (error) {
     reportError('write', error);
@@ -370,7 +352,6 @@ async function writePersistedTray(items: RecentCapture[]): Promise<void> {
 
 export function schedulePersist(items: RecentCapture[]): void {
   pendingSnapshot = items;
-  pendingChangeCount += 1;
   if (pendingDebounceTimer) {
     return;
   }
@@ -417,15 +398,9 @@ function isPersistedCapture(value: unknown): value is PersistedCapture {
 }
 
 export async function loadPersistedTray(): Promise<RecentCapture[]> {
-  const totalStartedAt = Date.now();
   let raw: string | null = null;
-  let readMs = 0;
-  let parseMs = 0;
-  let verifyMs = 0;
   try {
-    const readStartedAt = Date.now();
     raw = await AsyncStorage.getItem(RECENT_CAPTURES_STORAGE_KEY);
-    readMs = Date.now() - readStartedAt;
   } catch (error) {
     reportError('read', error);
     return [];
@@ -435,9 +410,7 @@ export async function loadPersistedTray(): Promise<RecentCapture[]> {
   }
   let envelope: PersistedTrayEnvelope | null = null;
   try {
-    const parseStartedAt = Date.now();
     const parsed = JSON.parse(raw) as PersistedTrayEnvelope | null;
-    parseMs = Date.now() - parseStartedAt;
     if (parsed && parsed.version === PERSIST_ENVELOPE_VERSION && Array.isArray(parsed.items)) {
       envelope = parsed;
     }
@@ -470,7 +443,6 @@ export async function loadPersistedTray(): Promise<RecentCapture[]> {
   }
 
   const validItems = envelope.items.filter(isPersistedCapture);
-  const verifyStartedAt = Date.now();
   // Bounded: at a 150-item cap (and larger legacy trays) an unbounded
   // Promise.all here fires hundreds of concurrent native FS probes at mount.
   const existsResults = await mapWithConcurrency(validItems, FS_CONCURRENCY_LIMIT, async (item) => {
@@ -485,15 +457,13 @@ export async function loadPersistedTray(): Promise<RecentCapture[]> {
       return false;
     }
   });
-  verifyMs = Date.now() - verifyStartedAt;
   const survivors: RecentCapture[] = [];
-  let dropped = 0;
   validItems.forEach((item, idx) => {
     if (existsResults[idx]) {
       survivors.push(fromPersistedCapture(item));
-    } else {
-      dropped += 1;
     }
+    // An item whose file is gone is simply not rehydrated — a row pointing at a
+    // missing image is worse than no row.
   });
   // Legacy (unstamped) tray adopted by the current account: re-stamp it now so a
   // later switch to another account detects the mismatch and clears it.
@@ -504,13 +474,9 @@ export async function loadPersistedTray(): Promise<RecentCapture[]> {
 }
 
 export async function sweepOrphanScans(keepIds: Set<string>): Promise<void> {
-  const startedAt = Date.now();
-  let filesScanned = 0;
-  let orphansDeleted = 0;
   try {
     await ensureScansDir();
     const entries = await FileSystem.readDirectoryAsync(RECENT_CAPTURES_DIR);
-    filesScanned = entries.length;
     // Bounded: the scans dir holds up to two files per capture, so a full sweep
     // (e.g. account switch on a 150-item tray) would otherwise issue 300
     // concurrent deletes.
@@ -522,7 +488,6 @@ export async function sweepOrphanScans(keepIds: Set<string>): Promise<void> {
       }
       try {
         await FileSystem.deleteAsync(`${RECENT_CAPTURES_DIR}${name}`, { idempotent: true });
-        orphansDeleted += 1;
       } catch (error) {
         reportError('sweep', error);
       }
@@ -540,7 +505,6 @@ export function __resetRecentCapturesPersistenceForTests(): void {
     pendingDebounceTimer = null;
   }
   pendingSnapshot = null;
-  pendingChangeCount = 0;
   isWriting = false;
   queuedSnapshot = null;
   queuedWaiters.forEach((resolve) => resolve());

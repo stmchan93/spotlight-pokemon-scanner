@@ -2,6 +2,7 @@ import { type Dispatch, type ReactNode, type SetStateAction, useCallback, useRef
 import { Alert } from 'react-native';
 
 import { ConfirmDeleteSheet } from '@/features/cards/components/confirm-delete-sheet';
+import { signalFeedNeedsRefresh } from '@/features/social/screens/new-post-screen';
 import { deletePost, type FeedPost } from '@/features/social/social-service';
 
 const CONFIRM_TITLE = 'Delete post';
@@ -86,6 +87,22 @@ export function usePostDeletion(
       }
       inFlightRef.current.delete(post.id);
       if (deleted) {
+        /*
+          TELL THE OTHER LIST. The feed and the Portfolio Activity tab each hold
+          their own `FeedPost[]` (see the note above), so removing the row here
+          only fixes the list the delete was issued from. Activity then keeps
+          serving its once-loaded copy — its lazy-load is latched by
+          `activityLoadedRef`, and the portfolio's pull-to-refresh reloads
+          inventory and the dashboard, not posts — so a post deleted from the
+          feed stays on your profile for the rest of the session, with no way to
+          clear it short of relaunching. That was the reported bug.
+
+          Creating a post and reposting one both bump this counter already;
+          deleting was the asymmetry. The screens compare the version on focus,
+          so this costs one refetch when the other list is next looked at, and
+          nothing while it is not.
+        */
+        signalFeedNeedsRefresh();
         return;
       }
 

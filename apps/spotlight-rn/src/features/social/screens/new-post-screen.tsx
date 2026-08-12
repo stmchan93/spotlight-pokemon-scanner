@@ -19,6 +19,7 @@ import { Camera, Globe, MediaImage, NavArrowDown, Xmark } from 'iconoir-react-na
 import { Avatar, Button, IconButton, SheetHeader, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
+import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { keyboardLift } from '@/lib/keyboard-insets';
 import { loadNativeImagePicker } from '@/lib/native-image-picker';
 import { createPost } from '@/features/social/social-service';
@@ -514,6 +515,13 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
           );
         }
       }
+
+      // Counted after the post really exists, and after the image attempt, so
+      // `has_image` describes what was published rather than what was intended.
+      capturePostHogEvent('post_created', {
+        body_length: trimmedBody.length,
+        has_image: imageUri != null,
+      });
 
       signalFeedNeedsRefresh();
       // BEFORE `router.back()`, and terminal: the dismissal takes ~500ms and

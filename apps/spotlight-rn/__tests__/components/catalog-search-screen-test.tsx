@@ -8,7 +8,21 @@ import {
 
 import { CatalogSearchScreen } from '@/features/catalog/screens/catalog-search-screen';
 
+import { noteCardAdded, clearCardAddedNotice } from '@/features/cards/card-added-notice';
+
 import { renderWithProviders } from '../test-utils';
+
+/*
+  The screen reads the "Added to your collection" handoff on FOCUS, and
+  `useFocusEffect` needs a real navigation container — these tests render the
+  screen on its own, with no navigator above it. Running the callback once on
+  mount is the right stand-in: a screen that has just been rendered here IS the
+  focused one, and it keeps every existing test in this file navigator-free.
+*/
+jest.mock('expo-router', () => ({
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  useFocusEffect: (callback: () => void | (() => void)) => require('react').useEffect(callback, [callback]),
+}));
 
 async function advanceDebounce() {
   await act(async () => {
@@ -25,6 +39,8 @@ const ownedCatalogResults = mockCatalogResults.map((result) => ({
 describe('CatalogSearchScreen', () => {
   beforeEach(() => {
     jest.useFakeTimers();
+    // No test here may inherit another's pending confirmation.
+    clearCardAddedNotice();
   });
 
   afterEach(() => {
@@ -315,5 +331,48 @@ describe('CatalogSearchScreen', () => {
 
     expect(await screen.findByTestId('catalog-result-sm7-1')).toBeTruthy();
     expect(screen.getByText('#001/096')).toBeTruthy();
+  });
+
+  /*
+    ADDING A CARD NO LONGER LEAVES THIS SCREEN, so this is where the confirmation
+    lands. Adding used to collapse the whole stack — search and card page both —
+    and drop you on the tabs root, which stopped being the Collection when the
+    feed took it; you ended up on the social feed and had to reopen search to add
+    a second card. Now only the card page pops, and the toast carries the
+    confirmation the Collection used to give by simply showing the new card.
+  */
+  describe('the added-to-collection confirmation', () => {
+    it('shows the notice the card page left behind on the way back', () => {
+      noteCardAdded('Added to your collection');
+
+      renderWithProviders(
+        <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />,
+      );
+
+      expect(screen.getByTestId('catalog-added-toast')).toBeTruthy();
+      expect(screen.getByText('Added to your collection')).toBeTruthy();
+    });
+
+    it('stays silent when no card was added', () => {
+      renderWithProviders(
+        <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />,
+      );
+
+      // The Toast renders nothing at all while invisible, so a search opened
+      // normally must not carry a stale confirmation.
+      expect(screen.queryByTestId('catalog-added-toast')).toBeNull();
+    });
+
+    it('does not resurrect a notice that was never read in time', () => {
+      // Added somewhere that was not listening — the Collection, say — and only
+      // now is search opened.
+      noteCardAdded('Added to your collection', Date.now() - 60_000);
+
+      renderWithProviders(
+        <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />,
+      );
+
+      expect(screen.queryByTestId('catalog-added-toast')).toBeNull();
+    });
   });
 });

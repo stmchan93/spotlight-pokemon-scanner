@@ -746,6 +746,151 @@ describe('AuthProvider', () => {
       'auth_anonymous_identity_minted',
       expect.anything(),
     );
+    // Same rule, restated for the guest-funnel work: the provider must not grow
+    // its own mint event either. `auth_anonymous_identity_minted` is the one.
+    expect(capturePostHogEvent).not.toHaveBeenCalledWith(
+      'guest_session_minted',
+      expect.anything(),
+    );
+  });
+
+  /*
+    ─────────────────────────────────────────────────────────────────────────
+    THE GUEST FUNNEL IS A BILLING QUESTION.
+    ─────────────────────────────────────────────────────────────────────────
+    An anonymous user is a billable Supabase MAU, so a guest who is minted and
+    never converts is a cost with nothing on the other side. These lock the two
+    ends of that measurement: the free denominator, and the return.
+  */
+  it('GUEST FUNNEL: entering guest mode reports the free denominator', async () => {
+    const { capturePostHogEvent, getByText, waitFor } = renderAuthProvider({
+      hasSignedInBefore: false,
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => null),
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('guest:true')).toBeTruthy();
+    });
+    expect(capturePostHogEvent).toHaveBeenCalledWith('guest_mode_entered');
+  });
+
+  it('GUEST FUNNEL: a pending guest who converts before ever minting cost nothing', async () => {
+    const realSession = {
+      access_token: 'google-token',
+      user: { email: 'trainer@example.com', id: 'trainer-1' },
+    } as any;
+
+    const { capturePostHogEvent, fireEvent, getByTestId, getByText, waitFor } = renderAuthProvider({
+      hasSignedInBefore: false,
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => null),
+        getNeedsProfile: jest.fn(() => false),
+        signInWithGoogle: jest.fn(async () => realSession),
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('guest:true')).toBeTruthy();
+    });
+
+    fireEvent.press(getByTestId('sign-in-google'));
+
+    await waitFor(() => {
+      expect(getByText('user:trainer-1')).toBeTruthy();
+    });
+
+    expect(capturePostHogEvent).toHaveBeenCalledWith(
+      'guest_converted',
+      expect.objectContaining({
+        // Nothing was ever minted, so there is no duplicate to worry about and
+        // this conversion never appeared on a Supabase bill as a guest.
+        had_minted_session: false,
+        preserved_identity: true,
+        provider: 'google',
+      }),
+    );
+  });
+
+  /*
+    THE EXPENSIVE MISTAKE THIS WATCHES FOR. Converting a guest by creating a NEW
+    user instead of upgrading the anonymous one bills the same human twice.
+
+    The shipped path does the right thing — a minted guest signing in with
+    Google goes through `linkOAuthIdentityToCurrentUser`, which keeps the same
+    Supabase uuid — and this pins that, so `preserved_identity` reads true.
+
+    That is exactly why the property is worth sending. It costs nothing while
+    the path stays correct, and it is the only thing that would notice from the
+    outside if a future change quietly swapped the link for a fresh sign-up.
+    If the ratio in PostHog is ever below ~1.0, this is what broke.
+  */
+  it('GUEST FUNNEL: converting a minted guest keeps the same Supabase user', async () => {
+    const guestSession = {
+      access_token: 'anon-token',
+      user: { id: 'guest-1', is_anonymous: true },
+    } as any;
+
+    const { capturePostHogEvent, fireEvent, getByTestId, getByText, waitFor } = renderAuthProvider({
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => guestSession),
+        getNeedsProfile: jest.fn(() => false),
+        linkOAuthIdentityToCurrentUser: jest.fn(async () => ({
+          access_token: 'linked-token',
+          user: { id: 'guest-1', email: 'linked@example.com', is_anonymous: false },
+        })),
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('guest:true')).toBeTruthy();
+    });
+
+    fireEvent.press(getByTestId('sign-in-google'));
+
+    await waitFor(() => {
+      expect(capturePostHogEvent).toHaveBeenCalledWith(
+        'guest_converted',
+        expect.objectContaining({
+          // They cost a billable MAU as a guest, and that same user is now a
+          // real account — one person, one Supabase user, converted.
+          had_minted_session: true,
+          preserved_identity: true,
+        }),
+      );
+    });
+    expect(getByText('user:guest-1')).toBeTruthy();
+  });
+
+  it('GUEST FUNNEL: an ordinary signed-out login is NOT a conversion', async () => {
+    const realSession = {
+      access_token: 'google-token',
+      user: { email: 'trainer@example.com', id: 'trainer-1' },
+    } as any;
+
+    const { capturePostHogEvent, fireEvent, getByTestId, getByText, waitFor } = renderAuthProvider({
+      hasSignedInBefore: true,
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => null),
+        getNeedsProfile: jest.fn(() => false),
+        signInWithGoogle: jest.fn(async () => realSession),
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('state:signedOut')).toBeTruthy();
+    });
+
+    fireEvent.press(getByTestId('sign-in-google'));
+    await waitFor(() => {
+      expect(getByText('user:trainer-1')).toBeTruthy();
+    });
+
+    expect(capturePostHogEvent).not.toHaveBeenCalledWith(
+      'guest_converted',
+      expect.anything(),
+    );
   });
 
   it('DEFERRED MINT: a failed mint keeps the user in guest mode instead of ejecting to login', async () => {

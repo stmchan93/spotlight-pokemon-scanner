@@ -279,6 +279,10 @@ export function PortfolioScreen({
   const [activityStatus, setActivityStatus] = useState<ActivityStatus>('idle');
   // Bumped to force an Activity re-fetch (e.g. after composing a post).
   const [activityReloadToken, setActivityReloadToken] = useState(0);
+  // Drives the Activity page's own pull-to-refresh spinner. The Collection's
+  // `model.isRefreshing` covers inventory + dashboard and knows nothing about
+  // posts, so reusing it would spin for a load that never touches this list.
+  const [isActivityRefreshing, setIsActivityRefreshing] = useState(false);
   // Last refresh signal this screen acted on — see `getFeedRefreshVersion`.
   const seenRefreshVersionRef = useRef(getFeedRefreshVersion());
   // Which user's Activity posts have already been requested, so re-selecting the
@@ -710,12 +714,31 @@ export function PortfolioScreen({
       // are by someone else, and labelling them with the owner's name is exactly
       // the bug the attribution line exists to prevent. `fetchAuthorActivity`
       // keeps the two halves apart.
-      const loaded = await fetchAuthorActivity(ownerId, { knownAuthor: ownerAuthor });
-      if (cancelled) {
-        return;
+      try {
+        const loaded = await fetchAuthorActivity(ownerId, { knownAuthor: ownerAuthor });
+        if (cancelled) {
+          return;
+        }
+        setActivityPosts(loaded);
+        setActivityStatus('ready');
+      } catch {
+        // `fetchAuthorActivity` swallows the repost read but NOT the authored
+        // one, so this really can reject. It used to strand the tab on
+        // 'loading' forever — the 'error' state the empty view already renders
+        // was unreachable. Now it is reached, and (the reason this matters more
+        // than it did) the pull-to-refresh spinner below is released instead of
+        // turning over a request that is never coming back.
+        if (cancelled) {
+          return;
+        }
+        setActivityStatus('error');
+        // Let the next attempt through: the latch is what stops a retry.
+        activityLoadedRef.current = null;
+      } finally {
+        if (!cancelled) {
+          setIsActivityRefreshing(false);
+        }
       }
-      setActivityPosts(loaded);
-      setActivityStatus('ready');
     })();
     return () => {
       cancelled = true;
@@ -741,6 +764,25 @@ export function PortfolioScreen({
       }
     }, []),
   );
+
+  /*
+    Pull-to-refresh for the Activity page.
+
+    It had none. The Collection page's `RefreshControl` reloads inventory and
+    the dashboard and never touches posts, and the Activity page carried no
+    refresh control at all — so a stale row here (a post deleted elsewhere, a
+    repost that missed the signal) could not be cleared by the one gesture
+    everybody tries. Clearing the latch is the whole job: the load effect
+    re-runs on the token bump and repopulates from the server.
+  */
+  const handleRefreshActivity = useCallback(() => {
+    if (!ownerId) {
+      return;
+    }
+    setIsActivityRefreshing(true);
+    activityLoadedRef.current = null;
+    setActivityReloadToken((token) => token + 1);
+  }, [ownerId]);
 
   /*
     NO UNREAD COUNT HERE ANY MORE. This screen used to draw the bell, so it read
@@ -911,6 +953,10 @@ export function PortfolioScreen({
       .setCardFavorite(entry.cardId, nextIsFavorite)
       .then((record) => {
         const savedIsFavorite = record?.isFavorite ?? nextIsFavorite;
+        capturePostHogEvent(
+          savedIsFavorite ? 'wishlist_item_added' : 'wishlist_item_removed',
+          { source: 'collection_menu' },
+        );
         setWishlistToast(savedIsFavorite ? 'Added to Wishlist' : 'Removed from Wishlist');
         refreshData();
       })
@@ -1556,6 +1602,17 @@ export function PortfolioScreen({
           keyExtractor={(item) => item.key}
           ListEmptyComponent={activityEmpty}
           onScroll={page.onScroll}
+          refreshControl={(
+            <RefreshControl
+              onRefresh={handleRefreshActivity}
+              // Same treatment as the Collection page: drop the spinner below
+              // the pinned profile header + tab bar rather than behind them.
+              progressViewOffset={page.progressViewOffset}
+              refreshing={isActivityRefreshing}
+              testID="portfolio-activity-refresh-control"
+              tintColor={theme.colors.gray400}
+            />
+          )}
           renderItem={renderItem}
           scrollEventThrottle={page.scrollEventThrottle}
           // RN clamps a NEGATIVE scrollTo target to 0 unless this is set
