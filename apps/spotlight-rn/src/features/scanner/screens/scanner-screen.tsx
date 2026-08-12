@@ -2703,20 +2703,9 @@ export function ScannerScreen({
     }
 
     /*
-      Last resort, and in practice unreachable: `(tabs)/scan.tsx` always passes
-      `onExitToPortfolio`, so the branch above returns first.
-
-      It used to pass `params: { page: 'portfolio' }`, which was dead — nothing
-      reads `page` now that each page is a real route, and `/` stopped being the
-      Collection when the feed took the tabs root (`login-callback.tsx` carries
-      the full diagnosis of the same stale param). So it claimed to reach the
-      Collection and reached the feed.
-
-      Dropping the param rather than re-pointing it at `/you`: `dismissTo`
-      dispatches POP_TO, which `NativeBottomTabsRouter` cannot handle for a tab —
-      see the note in `app-drawer.tsx`. `/` is a root path and works, and landing
-      on the app's root surface is the right answer for "there is nothing to go
-      back to" anyway.
+      Unreachable in practice — `(tabs)/scan.tsx` always passes
+      `onExitToPortfolio`. Not re-pointed at `/you`: `dismissTo` dispatches POP_TO,
+      which `NativeBottomTabsRouter` cannot handle for a tab (see `app-drawer.tsx`).
     */
     router.dismissTo('/');
   }, [onExitToPortfolio, router]);

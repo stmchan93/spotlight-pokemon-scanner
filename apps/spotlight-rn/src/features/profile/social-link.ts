@@ -87,31 +87,15 @@ export function validateSocialLink(value: string | null | undefined): SocialLink
 }
 
 /*
-  `describeSocialLinkValidity` USED TO LIVE HERE AND IS DELIBERATELY GONE.
-
-  It turned a validity into red copy under the field — and because the field
-  re-validated on every keystroke, typing `instagram.com/you` was told "Enter a
-  full address, like instagram.com/you" from its first character. There is no
-  timing that fixes that: a half-typed URL is genuinely invalid, so any validator
-  watching the keystroke is correct and still wrong to speak.
-
-  The field now accepts free text and says nothing. What used to be an error is a
-  COLOUR: blue while the value is openable, ordinary text while it is not, in the
-  edit field and on the profile alike. Do not reintroduce the copy — reintroduce
-  the colour somewhere new if a surface needs the signal.
+  `describeSocialLinkValidity` is deliberately gone. It put red copy under the
+  field on every keystroke, so a half-typed URL was scolded for being unfinished.
+  The signal is a COLOUR now — blue while openable. Do not reintroduce the copy.
 */
 
 /**
- * The value to OPEN: an absolute `https://` URL, or null when there is nothing
- * usable.
- *
- * NOT the value to store, despite what this used to say. Storing the normalised
- * form meant an unopenable value was persisted as empty, so typing `instagram` and
- * pressing SAVE cleared the field. The raw text is stored now
- * (`sanitizeSocialLinkInput`) and this decides, at DISPLAY time, whether it is
- * drawn as a link at all — which is what stops an unopenable string being
- * presented as one. Every read site should call this instead of prefixing
- * `https://` itself.
+ * The value to OPEN — an absolute `https://` URL, or null. NOT the value to
+ * store: storing this form persisted unopenable input as '', which cleared the
+ * field. Raw text is stored; this decides at display whether it is a link.
  */
 export function normalizeSocialLink(value: string | null | undefined): string | null {
   const link = sanitizeSocialLinkInput(value ?? '');

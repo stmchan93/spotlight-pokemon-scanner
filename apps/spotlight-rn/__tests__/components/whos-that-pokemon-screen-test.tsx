@@ -484,6 +484,59 @@ describe('WhosThatPokemonScreen', () => {
   });
 
   /*
+    ─────────────────────────────────────────────────────────────────────────
+    THE CAMERA SURVIVES EVERY PHASE, INCLUDING "TRY AGAIN".
+    ─────────────────────────────────────────────────────────────────────────
+    It used to be rendered inside the capture phase, so each phase change tore
+    the native session down and the next rebuilt it — and result → capture, the
+    "Try again" path, hard-crashed the app on iOS.
+
+    `raw-scanner-capture-surface.tsx` had already found and fixed exactly this:
+    conditionally mounting the camera "reliably hard-crashed the app on the
+    portfolio->scanner return", and the answer was vision-camera's documented
+    mount-once / toggle-`isActive` pattern.
+
+    The test above walks the same route and passed straight through the bug,
+    because a crash in the native session is invisible to jest. So this asserts
+    the STRUCTURE instead — the one node whose continuous existence is the
+    whole fix — which is checkable without a camera.
+  */
+  it('keeps the camera mounted across every phase, and never remounts it on Try again', async () => {
+    const whosThatPokemon = jest.fn(async () => mockMatches);
+    const repository = createTestSpotlightRepository({ whosThatPokemon });
+
+    renderScreen(repository);
+
+    const cameraAtStart = await screen.findByTestId('wtp-camera');
+    expect(cameraAtStart.props.isActive).toBe(true);
+
+    await act(async () => {
+      fireEvent.press(await screen.findByTestId('wtp-shutter'));
+    });
+    await waitFor(
+      () => {
+        expect(screen.getByTestId('wtp-result-try-again')).toBeTruthy();
+      },
+      { timeout: 4000 },
+    );
+
+    // Still mounted while the result is up — just stopped. This is the
+    // assertion that fails if anyone puts <Camera> back inside a phase.
+    const cameraOnResult = screen.getByTestId('wtp-camera');
+    expect(cameraOnResult).toBeTruthy();
+    expect(cameraOnResult.props.isActive).toBe(false);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('wtp-result-try-again'));
+    });
+
+    const cameraAfterRetry = screen.getByTestId('wtp-camera');
+    expect(cameraAfterRetry.props.isActive).toBe(true);
+    // The session was re-activated, not rebuilt: one continuous camera.
+    expect(screen.getAllByTestId('wtp-camera')).toHaveLength(1);
+  });
+
+  /*
     ───────────────────────────────────────────────────────────────────────────
     THE SELFIE MUST NOT LEAK INTO TELEMETRY.
     ───────────────────────────────────────────────────────────────────────────

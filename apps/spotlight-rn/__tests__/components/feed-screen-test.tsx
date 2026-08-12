@@ -9,7 +9,7 @@ import {
   fetchGlobalFeedItems,
 } from '@/features/social/social-service';
 import { FeedScreen } from '@/features/social/screens/feed-screen';
-import { signalFeedNeedsRefresh } from '@/features/social/screens/new-post-screen';
+import { getFeedRefreshVersion, signalFeedNeedsRefresh } from '@/features/social/screens/new-post-screen';
 
 import { renderWithProviders } from '../test-utils';
 
@@ -177,6 +177,58 @@ describe('FeedScreen', () => {
     });
   });
 
+  /*
+    THE COMPOSE PROMPT ROW IS HOW YOU POST NOW. The header's `+` bubble was
+    invisible to users as a way to write — nobody read the glass symbol as
+    "new post" — so a Facebook-style "What's on your mind?" row (avatar + gray
+    placeholder, the same prompt Portfolio's empty Activity draws) sits
+    permanently at the top of the list and pushes the same composer route.
+  */
+  it('renders the compose prompt above the posts and opens the composer from it', async () => {
+    (fetchGlobalFeed as jest.Mock).mockResolvedValue([
+      buildPost({ id: '1', body: 'Feed post' }),
+      buildPost({ id: '2', body: 'Second post' }),
+    ]);
+
+    renderWithProviders(<FeedScreen />);
+    await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
+
+    // ABOVE the feed: a `ListHeaderComponent`, so it precedes every post row in
+    // tree order — asserted across prompt and bodies together, in one query.
+    const rows = screen.getAllByTestId(/^feed-(compose-prompt|post-body)$/);
+    expect(rows).toHaveLength(3);
+    expect(rows[0].props.testID).toBe('feed-compose-prompt');
+
+    expect(screen.getByText('What’s on your mind?')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('feed-compose-prompt'));
+    expect(push).toHaveBeenCalledWith('/new-post');
+  });
+
+  /*
+    The rule under the compose row went missing on Android because it was
+    declared with a height and a colour but no WIDTH. It has no content, so
+    nothing gave it an intrinsic size, and inside `ListHeaderComponent` — which
+    VirtualizedList wraps, not us — it never inherited a stretch. Zero points
+    wide draws nothing, however right the height and colour are.
+
+    `PostCard`'s identical rule was fine throughout because it has always
+    carried `width: '100%'`, which is why the lines BETWEEN posts still showed.
+  */
+  it('gives the compose rule an explicit width so it cannot lay out zero-wide', async () => {
+    renderWithProviders(<FeedScreen />);
+    await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
+
+    const divider = screen.getByTestId('feed-compose-divider');
+    const style = StyleSheet.flatten(divider.props.style);
+
+    expect(style.width).toBe('100%');
+    // Still the design-system rule, still visible — a width alone would satisfy
+    // the assertion above while drawing an invisible line.
+    expect(style.height).toBeGreaterThan(0);
+    expect(style.backgroundColor).toBeTruthy();
+  });
+
   it('shows an empty state when there are no posts', async () => {
     (fetchGlobalFeed as jest.Mock).mockResolvedValue([]);
 
@@ -202,11 +254,11 @@ describe('FeedScreen', () => {
       expect(screen.getByTestId('feed-empty')).toBeTruthy();
     });
 
-    // `-add`, not `-compose`: the feed draws the SHARED `HomeHeader` now, whose
-    // `+` is the generic add affordance. The feed's own `FeedHeader` is gone —
-    // it had solid IconButtons in a bar that occupied layout, where this one is
-    // glass bubbles floating over the list.
-    fireEvent.press(screen.getByTestId('feed-header-add'));
+    // Composing is NOT a header action any more — the bar's `+` was invisible
+    // to users and the compose prompt row replaced it — but it must survive an
+    // empty feed just the same. It does, because a `ListHeaderComponent`
+    // renders above `ListEmptyComponent`, not instead of it.
+    fireEvent.press(screen.getByTestId('feed-compose-prompt'));
     expect(push).toHaveBeenCalledWith('/new-post');
 
     fireEvent.press(screen.getByTestId('feed-header-search'));
@@ -487,6 +539,64 @@ describe('FeedScreen', () => {
       await waitFor(() => expect(screen.queryByText('My own post')).not.toBeOnTheScreen());
       expect(deletePost).toHaveBeenCalledWith('mine');
       expect(screen.getByText('Someone else post')).toBeTruthy();
+    });
+
+    /*
+      THE BUG THIS PINS. The feed and the Portfolio Activity tab each hold their
+      own `FeedPost[]` — there is no shared post store — so removing the row
+      here fixes only the list the delete was issued from. Activity's load is
+      latched by `activityLoadedRef` and its refresh reloads inventory, not
+      posts, so a post deleted from the feed stayed on the profile for the whole
+      session with no way to clear it.
+
+      Creating and reposting both bumped this counter already; deleting was the
+      asymmetry. The screens compare the version on focus, which is what makes
+      the deleted row disappear from Activity the next time it is looked at.
+    */
+    it('signals the other list so the deleted post cannot linger on the profile', async () => {
+      const versionBefore = getFeedRefreshVersion();
+
+      renderWithProviders(<FeedScreen />);
+      await waitFor(() => expect(screen.getByText('My own post')).toBeTruthy());
+
+      await act(async () => {
+        fireEvent.press(
+          within(screen.getByTestId('feed-post-mine')).getByTestId('feed-post-more-button'),
+        );
+      });
+      await screen.findByTestId('feed-delete-confirm');
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('feed-delete-confirm-confirm'));
+      });
+
+      await waitFor(() => {
+        expect(getFeedRefreshVersion()).toBeGreaterThan(versionBefore);
+      });
+    });
+
+    // The mirror image: the post is still there, so nothing may be told it went.
+    it('does NOT signal a refresh when the delete failed', async () => {
+      const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      (deletePost as jest.Mock).mockResolvedValue(false);
+      const versionBefore = getFeedRefreshVersion();
+
+      renderWithProviders(<FeedScreen />);
+      await waitFor(() => expect(screen.getByText('My own post')).toBeTruthy());
+
+      await act(async () => {
+        fireEvent.press(
+          within(screen.getByTestId('feed-post-mine')).getByTestId('feed-post-more-button'),
+        );
+      });
+      await screen.findByTestId('feed-delete-confirm');
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('feed-delete-confirm-confirm'));
+      });
+
+      await waitFor(() => expect(screen.getByText('My own post')).toBeTruthy());
+      expect(getFeedRefreshVersion()).toBe(versionBefore);
+
+      alertSpy.mockRestore();
     });
 
     it('puts the post back and tells the user when the delete fails', async () => {

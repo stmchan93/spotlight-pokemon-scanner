@@ -564,7 +564,11 @@ export function WhosThatPokemonScreen() {
     setRevealFromSilhouette(false);
     setPalette(fallbackSelfiePalette);
     setMatchFailed(false);
-    setIsCameraReady(isTestEnv);
+    // `isCameraReady` is NOT reset here any more. The session's own
+    // `onStarted`/`onStopped` drive it now that the camera outlives the phase,
+    // and hand-clearing it raced them: the flag went false while the session
+    // was already live, so `onStarted` had nothing left to fire and the shutter
+    // stayed disabled after a retry.
     setPhase('capture');
   }, [deleteSelfieFile]);
 
@@ -653,6 +657,61 @@ export function WhosThatPokemonScreen() {
   // creature's shape and then colour in as a different one.
   const activeSpeciesOutline = activeMatchIndex === 0 ? speciesOutline : null;
 
+  /*
+    ───────────────────────────────────────────────────────────────────────────
+    THE CAMERA IS MOUNTED ONCE AND NEVER CONDITIONALLY RENDERED.
+    ───────────────────────────────────────────────────────────────────────────
+    This screen used to render `<Camera>` inside the capture phase, so every
+    phase change tore the native session down and the next one rebuilt it. "Try
+    again" is the sharpest case — result → capture, a full teardown and remount
+    in one commit — and it hard-crashed the app on iOS.
+
+    That is not a new discovery. `raw-scanner-capture-surface.tsx` carries the
+    same finding in its own words: conditionally mounting the camera "tore down
+    and rebuilt the native camera session on every page swipe, which reliably
+    hard-crashed the app on the portfolio->scanner return", and the fix there
+    was vision-camera's documented pattern — mount once, toggle `isActive`.
+    This screen is now on that pattern too.
+
+    It has to be an ABSOLUTE layer rather than a flex child: `cameraCanvas` and
+    `resultScroll` are both `flex: 1`, so as siblings in the flex column they
+    would split the screen between them. Taking the camera out of the flow lets
+    it stay mounted underneath whatever phase is drawing, and `opacity` (not
+    unmounting, and not `display: 'none'`) is what hides it.
+  */
+  const isCameraMounted = hasPermission && device != null && photoOutput != null;
+  const isCapturePhase = phase === 'capture';
+
+  const renderCameraLayer = () => {
+    if (!isCameraMounted) {
+      return null;
+    }
+    return (
+      <View
+        pointerEvents="none"
+        style={[
+          StyleSheet.absoluteFillObject,
+          // Hidden, NOT unmounted — the whole point of the note above.
+          { opacity: isCapturePhase ? 1 : 0 },
+        ]}
+      >
+        <Camera
+          device={device}
+          isActive={isCapturePhase}
+          onStarted={() => setIsCameraReady(true)}
+          // Re-arms the shutter gate on the next activation. Without it the
+          // flag would stay true across a stopped session and the first tap
+          // after a retry would fire at a camera that is not live yet.
+          onStopped={() => setIsCameraReady(false)}
+          orientationSource="interface"
+          outputs={[photoOutput]}
+          style={StyleSheet.absoluteFillObject}
+          testID="wtp-camera"
+        />
+      </View>
+    );
+  };
+
   const renderCapturePhase = () => {
     if (!hasPermission) {
       return (
@@ -674,17 +733,7 @@ export function WhosThatPokemonScreen() {
 
     return (
       <View style={styles.cameraCanvas}>
-        {device && photoOutput ? (
-          <Camera
-            device={device}
-            isActive={phase === 'capture'}
-            onStarted={() => setIsCameraReady(true)}
-            orientationSource="interface"
-            outputs={[photoOutput]}
-            style={StyleSheet.absoluteFillObject}
-            testID="wtp-camera"
-          />
-        ) : (
+        {isCameraMounted ? null : (
           <View style={[StyleSheet.absoluteFillObject, styles.cameraFallback]} />
         )}
 
@@ -733,6 +782,8 @@ export function WhosThatPokemonScreen() {
 
   return (
     <View style={styles.root} testID="whos-that-pokemon-screen">
+      {/* First child, so every phase below draws over it. */}
+      {renderCameraLayer()}
       {phase === 'capture' ? renderCapturePhase() : null}
       {phase === 'scanning' ? renderScanningPhase() : null}
       {/* The lock-on stays mounted through the evolving beat. It ends holding

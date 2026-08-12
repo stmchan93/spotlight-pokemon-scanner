@@ -1483,30 +1483,13 @@ export function CardDetailScreen({
         });
         setAddSheetOpen(false);
         /*
-          GO BACK TO WHEREVER YOU CAME FROM — one screen, not the whole stack.
+          Pop ONE screen, not the whole stack: this page is reached from search,
+          the Collection, the feed and the wishlist, so `back()` is right in every
+          case — and from search the results stay up to add the next card.
 
-          This was `dismissTo({ pathname: '/', params: { page: 'portfolio' } })`,
-          described as collapsing "back to the Collection page, where the
-          optimistic insert has already surfaced the new card at the top". Both
-          halves of that went stale: `/` stopped being the Collection when the
-          feed took the tabs root, and NOTHING reads `page` now that each page is
-          a real route. So adding a card quietly dropped you on the social feed —
-          `login-callback.tsx` carries the same diagnosis for the same param.
-
-          `back()` is the fix and is also better than naming the Collection: the
-          card page is reached from search, from the Collection, from the feed and
-          from the wishlist, and returning to the one you actually came from is
-          right in every case. From search that means the results stay up and you
-          can add the next card, which is what the old flow made impossible.
-
-          The confirmation the Collection used to provide by simply showing the
-          card now travels as a toast — see `noteCardAdded`.
-
-          Android: let the native Modal finish detaching BEFORE popping the
-          stack. Dismissing screens while the Modal tears down races Fabric's
-          mounting ("addViewAt: view already has a parent") and reloads the
-          whole React host — reads as an app crash. iOS composites the two
-          transitions fine, so it keeps the immediate pop.
+          Android: let the native Modal finish detaching BEFORE popping, or the
+          teardown races Fabric's mounting ("addViewAt: view already has a
+          parent") and reloads the React host — reads as a crash.
         */
         const finishAddFlow = () => {
           refreshData();

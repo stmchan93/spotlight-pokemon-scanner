@@ -232,21 +232,9 @@ export function ProfileHeader({
 
         </View>
 
-        {/*
-          THE FIELD ACCEPTS ANYTHING; THIS DECIDES WHAT IS A LINK.
-
-          The social field is free text — `instagram` is a perfectly good thing to
-          put on a profile, and the edit screen no longer refuses it or rewrites it
-          on save. So linkability is settled HERE, at the moment of display, by
-          asking whether the value resolves to something openable.
-
-          That is also the real fix for the bug this used to carry: every value was
-          drawn blue, underlined by a link glyph, inside a `Pressable` — so
-          "hello world" advertised itself as a link and then did nothing at all
-          when tapped, because the handler could not open it. Reported as "the
-          social media url permits invalid urls". A non-link is now simply not
-          drawn as one, so there is nothing left to mislead.
-        */}
+        {/* The field is free text, so linkability is decided here. Everything
+            used to render blue and tappable, so unopenable text advertised a
+            destination it did not have. */}
         {socialLink ? (
           isSocialLinkOpenable ? (
             <Pressable
@@ -267,9 +255,8 @@ export function ProfileHeader({
               </Text>
             </Pressable>
           ) : (
-            // No glyph and no `Pressable`: both are the promise of a destination,
-            // and there isn't one. Same row and same metrics so the layout does
-            // not shift depending on what was typed.
+            // No glyph, no `Pressable` — both promise a destination. Same row
+            // metrics so the layout does not shift.
             <View style={styles.socialRow} testID={`${testID}-social-text`}>
               <Text
                 style={[

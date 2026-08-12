@@ -462,16 +462,9 @@ describe('CardDetailScreen', () => {
   }, 10000);
 
   /*
-    WHERE ADDING LEAVES YOU. This used to be
-    `dismissTo({ pathname: '/', params: { page: 'portfolio' } })`, which collapsed
-    the search sheet AND this page and landed on the tabs root — and the tabs root
-    is the social feed now, so adding a card from search dropped you in the feed.
-    Nothing reads `page`; it was the retired pager's addressing.
-
-    Popping ONE screen returns you to whatever pushed this page, which is the
-    search results when you came from search, and your Collection when you came
-    from there. The toast is what replaces the confirmation the Collection used to
-    give by showing the new card at the top.
+    Used to `dismissTo` the tabs root with a dead `page` param — and the tabs root
+    is the feed now, so adding from search dropped you there. Popping ONE screen
+    returns you to whatever pushed this page.
   */
   it('returns to the screen you came from after adding, and leaves a confirmation', async () => {
     renderWithProviders(

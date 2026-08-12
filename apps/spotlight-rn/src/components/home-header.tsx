@@ -1,4 +1,4 @@
-import { Bell, EditPencil, Menu, Plus, ShareIos } from 'iconoir-react-native';
+import { Bell, EditPencil, Menu, ShareIos } from 'iconoir-react-native';
 import { useMemo } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -16,38 +16,38 @@ import {
 import { EkalightMark } from '@/components/ekalight-mark';
 
 /**
- * WHICH PAIR OF SYMBOLS THE TRAILING CAPSULE CARRIES — the ONE thing that
- * differs between the two frames this bar draws. Home's toolbar (3567:22969) is
- * a bell and a `+`; the profile toolbar (3670:47454) is an edit pencil and a
- * share glyph. Everything else — the 40pt menu bubble at x=16, the 8pt gaps, the
- * 215pt pill, the 90pt capsule at x=287 — is identical, which is exactly why
- * this is a variant on ONE component rather than a second bar.
+ * WHAT THE BAR'S TRAILING CONTROL IS — the ONE thing that differs between the
+ * two variants this bar draws. Home carries a lone 40pt bell bubble (its
+ * toolbar frame 3567:22969 also shows a `+` compose bubble beside it; that
+ * control was removed and the pill widened into its space). The profile toolbar
+ * (3670:47454) carries an edit pencil and a share glyph in a single 90pt
+ * capsule. Everything else — the 40pt menu bubble at x=16, the 8pt gaps, the
+ * flexed pill between — is identical, which is exactly why this is a variant on
+ * ONE component rather than a second bar.
  *
  * A DISCRIMINATED UNION, not a `trailing: ReactNode` render slot and not four
  * loose optional callbacks:
  *
- * - A render slot would push the capsule out to the callers, and the capsule's
- *   width is load-bearing: the row only closes at 393 because the trailing
- *   control is exactly 90 (`glassNavBubbleGroupWidth(2)`). Two screens each
- *   building their own would be two places for that to drift, and nothing would
- *   stop a third symbol being added and silently stealing 42pt from the pill.
- * - Loose optionals (`onOpenAdd?`, `onEditProfile?`, …) make every illegal
- *   combination representable — a bar with a bell and a share glyph, or with
- *   none at all — and push a runtime "which of these did I get" decision into
- *   the render. The union makes the two legal shapes the only two shapes, and
- *   the unread count belongs to the bell so it travels with it.
+ * - A render slot would push the trailing control out to the callers, and its
+ *   width is load-bearing: the flexed pill lands on 265 (Home) / 215 (profile)
+ *   only because the trailing control is exactly 40 / 90
+ *   (`glassNavBubbleGroupWidth(2)`). Two screens each building their own would
+ *   be two places for that to drift, and nothing would stop an extra symbol
+ *   being added and silently stealing width from the pill.
+ * - Loose optionals (`onOpenNotifications?`, `onEditProfile?`, …) make every
+ *   illegal combination representable — a bar with a bell and a share glyph, or
+ *   with none at all — and push a runtime "which of these did I get" decision
+ *   into the render. The union makes the two legal shapes the only two shapes,
+ *   and the unread count belongs to the bell so it travels with it.
  *
  * The bell's unread badge stays INSIDE this file either way. It hangs outside
- * its slot at `top: -2, right: -2` and only survives because the capsule and its
- * slots are `overflow: 'visible'` — a contract between the badge and the
- * primitive that a caller composing its own children would not know to keep.
+ * the bell at `top: -2, right: -2` and only survives because the bubble's shell
+ * is `overflow: 'visible'` — a contract between the badge and the primitive
+ * that a caller composing its own children would not know to keep.
  */
 export type HomeHeaderTrailing =
   | {
       kind: 'home';
-      /** Spoken label for the `+`, which changes with the active profile tab. */
-      addAccessibilityLabel: string;
-      onOpenAdd: () => void;
       onOpenNotifications: () => void;
       unreadCount: number;
     }
@@ -150,7 +150,7 @@ type HomeHeaderProps = {
    * the real inset. Defaults to the safe-area inset for that case.
    */
   topInset?: number;
-  /** The pair of symbols in the 90×40 trailing capsule. See `HomeHeaderTrailing`. */
+  /** The bar's rightmost control — Home's bell or the profile's edit/share capsule. See `HomeHeaderTrailing`. */
   trailing: HomeHeaderTrailing;
   testID?: string;
 };
@@ -162,8 +162,9 @@ const BUTTON_ICON_SIZE = 20;
  * them smaller was wrong.
  *
  * Figma measures the pencil at 18×18 and the share glyph at 16×18 (3670:47454 /
- * 3670:48047) — but it also measures Home's bell at 16.66×18 and its `+` at
- * 18×18, and this app has always drawn those at 20. So following the frame
+ * 3670:48047) — but it also measures Home's bell at 16.66×18 (and the
+ * since-removed `+` at 18×18), and this app has always drawn those at 20. So
+ * following the frame
  * literally on ONE screen while rounding up on the other is precisely what made
  * the You bar read lighter than Home's, which is how it was reported.
  *
@@ -237,9 +238,11 @@ const SEARCH_PILL_TRAVEL = BAR_PADDING_TOP + CONTROL_ROW_HEIGHT;
 
 /**
  * Home's top bar (Figma "Home" 3523:15499, toolbar 3567:22969): menu, a
- * tap-to-search pill carrying the Ekalight mark, notifications, and a `+`.
- * Collection draws the same bar with the profile toolbar's trailing pair
- * (3670:47454 — edit and share); see `HomeHeaderTrailing`.
+ * tap-to-search pill carrying the Ekalight mark, and a bell. The frame also
+ * shows a `+` compose bubble; that control was deliberately removed and the
+ * pill stretched into the freed space. Collection draws the same bar with the
+ * profile toolbar's trailing pair (3670:47454 — edit and share); see
+ * `HomeHeaderTrailing`.
  *
  * THE ONE TOP BAR. Home (the feed) and Collection both draw this. The feed
  * briefly had its own `FeedHeader` — same controls, but solid `IconButton`s in a
@@ -338,80 +341,75 @@ export function HomeHeader({
   }, [pinnedBackdrop, scrollRestOffset, scrollY]);
 
   /*
-    The capsule's two slots, left to right. EXACTLY TWO in both variants — the
-    row closes at 393 only with a 90pt trailing control, so the count is part of
+    The bar's rightmost control. Home's is a lone 40pt bell BUBBLE — the same
+    shape as the menu bubble at the other end of the row — since the `+` left
+    it with a single symbol, and one symbol in a grouped-toolbar capsule is not
+    a group. The profile pair stays a capsule with EXACTLY TWO slots — its row
+    closes at 393 only with a 90pt trailing control, so the count is part of
     the frame's arithmetic and not a free parameter.
   */
-  const trailingItems: GlassNavBubbleGroupItem[] =
-    trailing.kind === 'home'
-      ? [
-          {
-            accessibilityLabel:
-              trailing.unreadCount > 0
-                ? `Notifications, ${trailing.unreadCount} unread`
-                : 'Notifications',
-            children: (
-              <>
-                <Bell
+  const trailingControl =
+    trailing.kind === 'home' ? (
+      <GlassNavBubble
+        accessibilityLabel={
+          trailing.unreadCount > 0
+            ? `Notifications, ${trailing.unreadCount} unread`
+            : 'Notifications'
+        }
+        onPress={trailing.onOpenNotifications}
+        size="compact"
+        testID={`${testID}-notifications`}
+      >
+        <Bell color={theme.colors.gray900} height={BUTTON_ICON_SIZE} width={BUTTON_ICON_SIZE} />
+        {trailing.unreadCount > 0 ? (
+          <View
+            // Count capped at 9+ so the badge stays a circle — a 3-digit
+            // count would stretch it into a lozenge.
+            style={[
+              styles.notificationBadge,
+              { backgroundColor: theme.colors.dangerStrong },
+            ]}
+            testID={`${testID}-notifications-badge`}
+          >
+            <Text style={[theme.typography.overline, { color: theme.colors.gray0 }]}>
+              {trailing.unreadCount > 9 ? '9+' : String(trailing.unreadCount)}
+            </Text>
+          </View>
+        ) : null}
+      </GlassNavBubble>
+    ) : (
+      <GlassNavBubbleGroup
+        items={
+          [
+            {
+              accessibilityLabel: 'Edit profile',
+              children: (
+                <EditPencil
                   color={theme.colors.gray900}
-                  height={BUTTON_ICON_SIZE}
-                  width={BUTTON_ICON_SIZE}
+                  height={EDIT_ICON_SIZE}
+                  width={EDIT_ICON_SIZE}
                 />
-                {trailing.unreadCount > 0 ? (
-                  <View
-                    // Count capped at 9+ so the badge stays a circle — a
-                    // 3-digit count would stretch it into a lozenge.
-                    style={[
-                      styles.notificationBadge,
-                      { backgroundColor: theme.colors.dangerStrong },
-                    ]}
-                    testID={`${testID}-notifications-badge`}
-                  >
-                    <Text style={[theme.typography.overline, { color: theme.colors.gray0 }]}>
-                      {trailing.unreadCount > 9 ? '9+' : String(trailing.unreadCount)}
-                    </Text>
-                  </View>
-                ) : null}
-              </>
-            ),
-            onPress: trailing.onOpenNotifications,
-            testID: `${testID}-notifications`,
-          },
-          {
-            accessibilityLabel: trailing.addAccessibilityLabel,
-            children: (
-              <Plus color={theme.colors.gray900} height={BUTTON_ICON_SIZE} width={BUTTON_ICON_SIZE} />
-            ),
-            onPress: trailing.onOpenAdd,
-            testID: `${testID}-add`,
-          },
-        ]
-      : [
-          {
-            accessibilityLabel: 'Edit profile',
-            children: (
-              <EditPencil
-                color={theme.colors.gray900}
-                height={EDIT_ICON_SIZE}
-                width={EDIT_ICON_SIZE}
-              />
-            ),
-            onPress: trailing.onEditProfile,
-            testID: `${testID}-edit`,
-          },
-          {
-            accessibilityLabel: 'Share profile',
-            children: (
-              <ShareIos
-                color={theme.colors.gray900}
-                height={SHARE_ICON_HEIGHT}
-                width={SHARE_ICON_WIDTH}
-              />
-            ),
-            onPress: trailing.onShareProfile,
-            testID: `${testID}-share`,
-          },
-        ];
+              ),
+              onPress: trailing.onEditProfile,
+              testID: `${testID}-edit`,
+            },
+            {
+              accessibilityLabel: 'Share profile',
+              children: (
+                <ShareIos
+                  color={theme.colors.gray900}
+                  height={SHARE_ICON_HEIGHT}
+                  width={SHARE_ICON_WIDTH}
+                />
+              ),
+              onPress: trailing.onShareProfile,
+              testID: `${testID}-share`,
+            },
+          ] satisfies GlassNavBubbleGroupItem[]
+        }
+        testID={`${testID}-trailing`}
+      />
+    );
 
   return (
     <View
@@ -459,8 +457,7 @@ export function HomeHeader({
       {/*
         The clip is on the PILL'S OWN wrapper and must stay there. Put
         `overflow: 'hidden'` any further up and it shaves the bell's unread
-        badge, which hangs outside its slot in the trailing capsule at
-        `top: -2, right: -2`.
+        badge, which hangs outside the bell bubble at `top: -2, right: -2`.
       */}
       <View style={styles.searchPillClip} testID={`${testID}-search-clip`}>
       <Animated.View
@@ -500,13 +497,16 @@ export function HomeHeader({
       </View>
 
       {/*
-        ONE CAPSULE, NOT TWO CIRCLES. Whichever pair it carries, the two symbols
-        share a single 90×40 glass pill (`Trailing → Button Group 1`), which is
-        also what leaves the flexed search pill its 215:
+        THE PILL'S WIDTH IS THE ROW'S REMAINDER, so the trailing control's width
+        is load-bearing. On Home the bell is a lone 40pt bubble and the flexed
+        pill takes 265: `16 + 40 + 8 + 265 + 8 + 40 + 16 = 393` — the 50 the
+        old bell-and-`+` capsule held beyond a bare bubble went to the pill.
+        On the profile the pair still shares ONE 90×40 glass capsule
+        (`Trailing → Button Group 1`), which leaves the pill its 215:
         `16 + 40 + 8 + 215 + 8 + 90 + 16 = 393`. Two separate 40pt bubbles with
         the row's own 8pt gap measure 88 and put the pill 2pt over.
       */}
-      <GlassNavBubbleGroup items={trailingItems} testID={`${testID}-trailing`} />
+      {trailingControl}
       </View>
     </View>
   );
@@ -533,9 +533,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: MARK_BADGE_SIZE,
   },
-  // Sits on the bell's top-right corner, hanging past it. Both the capsule and
-  // its 36pt slots are `overflow: 'visible'` (see `GlassNavBubbleGroup`), so
-  // nothing between here and the row shaves it.
+  // Sits on the bell's top-right corner, hanging past it. The bell's
+  // `GlassNavBubble` shell is `overflow: 'visible'`, so nothing between here
+  // and the row shaves it.
   notificationBadge: {
     alignItems: 'center',
     borderRadius: 9,

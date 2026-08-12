@@ -21,19 +21,11 @@ export const glassButtonGroupGap = GROUP_GAP;
 
 export type GlassButtonGroupProps = ViewProps & {
   /**
-   * Solid fill for every target that is not real iOS 26 Liquid Glass. Defaults
-   * to `canvasElevated` — WHITE, and paired with the card shadow below.
+   * Solid fill off iOS 26 Liquid Glass. Defaults to `canvasElevated` (white) to
+   * match `GlassNavBubble` — they sit side by side, and two fallbacks for one
+   * material read as two colours on the platform with no glass to hide it.
    *
-   * It used to default to `gray50`, matching `IconButton variant="subtle"`. That
-   * was defensible on its own and wrong beside anything else: `GlassNavBubble`
-   * falls back to white, so on Android the Wishlist bar drew a white menu bubble
-   * next to a grey action pill, and card detail drew a grey back button and a
-   * grey delete/share pair over a white page. Two fallbacks for one material is
-   * how "the same chrome" ends up two colours on the platform that has no glass
-   * to hide the difference.
-   *
-   * Pass a colour explicitly for a surface that is not a white page — the
-   * scanner does, since white-on-viewfinder is not the goal there.
+   * Pass a colour for anything that is not a white page; the scanner does.
    */
   fallbackColor?: string;
   style?: StyleProp<ViewStyle>;
@@ -67,14 +59,8 @@ export function GlassButtonGroup({
   ...rest
 }: GlassButtonGroupProps) {
   const theme = useSpotlightTheme();
-  /*
-    THE SHADOW IS WHAT MAKES A WHITE PILL VISIBLE. `gray50` separated this group
-    from a white page by itself; `canvasElevated` is the page colour, so without
-    a raised edge the group would simply vanish on Android. Applied ONLY when the
-    real material is absent — on glass it would fight the material's own edge —
-    which is exactly the rule `GlassNavBubble` follows, and the reason Home's
-    bubbles read as raised white chips on Android rather than as nothing.
-  */
+  // `canvasElevated` IS the page colour, so a white pill needs a raised edge to
+  // exist at all. Only without glass — on glass it fights the material's own.
   const fallbackShell = isLiquidGlassAvailable() ? null : theme.shadows.card;
   return (
     <GlassSurface

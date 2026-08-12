@@ -287,14 +287,9 @@ describe('ProfileHeader', () => {
   });
 
   /*
-    THE SOCIAL FIELD IS FREE TEXT, AND THIS IS WHERE THAT IS MADE SAFE.
-
-    The edit screen no longer refuses or rewrites what you type — `instagram` is a
-    reasonable thing to put on a profile — so whether a value is a LINK is decided
-    here, at display. Getting this wrong is what the original tester report was:
-    every value was drawn blue inside a `Pressable`, so unopenable text advertised
-    itself as a link and then did nothing when tapped ("the social media url
-    permits invalid urls").
+    The field is free text, so whether a value is a LINK is decided here. Every
+    value used to render blue inside a `Pressable`, so unopenable text advertised
+    a destination and did nothing when tapped.
   */
   describe('the social row', () => {
     it('draws an openable value as a tappable blue link', async () => {

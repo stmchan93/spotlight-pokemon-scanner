@@ -34,17 +34,17 @@ import { renderWithProviders } from '../test-utils';
  * `scrollY` that never advances would report the resting style either way.
  *
  * The `trailing` variant is the other thing asserted here: ONE component draws
- * both frames, so the pair of symbols in the capsule is the only difference
- * between Home's toolbar (3567:22969) and the profile's (3670:47454), and each
- * variant has to exclude the other's controls rather than merely include its own.
+ * both frames, so the rightmost control is the only difference between Home's
+ * toolbar (a lone bell bubble — the `+` compose control was removed and the
+ * pill widened into its space) and the profile's (3670:47454, an edit/share
+ * capsule), and each variant has to exclude the other's controls rather than
+ * merely include its own.
  */
 
-/** Home's trailing pair: the bell (optionally badged) and the `+`. */
+/** Home's trailing control: the bell (optionally badged). Nothing else. */
 function homeTrailing(unreadCount = 0): HomeHeaderTrailing {
   return {
     kind: 'home',
-    addAccessibilityLabel: 'New post',
-    onOpenAdd: jest.fn(),
     onOpenNotifications: jest.fn(),
     unreadCount,
   };
@@ -120,63 +120,90 @@ describe('HomeHeader', () => {
   });
 
   /*
-    THE TRAILING CONTROL IS ONE CAPSULE. Figma's toolbar puts the bell and the
-    `+` in a single 90×40 `Button Group` (`Trailing → Button Group 1`, two 36pt
-    symbol frames at x=6 and x=48) rather than in two 40pt circles — Apple's
-    iOS 26 grouped-toolbar pattern. It is also the 2pt: the row only closes at
-    393 with a 90pt trailing control, and two circles plus the row's gap measure
-    88.
+    THE TRAILING CONTROL. Home's is a LONE 40pt bell bubble — the `+` compose
+    control was removed, so there is no capsule left on Home and the flexed
+    pill takes the width the 90pt bell-and-`+` group used to hold. The profile
+    pair still shares a single 90×40 `Button Group` (`Trailing → Button
+    Group 1`, two 36pt symbol frames at x=6 and x=48) rather than two 40pt
+    circles — Apple's iOS 26 grouped-toolbar pattern, and the 2pt: that row
+    only closes at 393 with a 90pt trailing control, and two circles plus the
+    row's gap measure 88.
   */
-  describe('the trailing capsule', () => {
-    it('renders the bell and the + inside ONE 90pt capsule', () => {
-      renderHeader({ floating: true, trailing: homeTrailing(3) });
+  describe('the trailing control', () => {
+    it('renders NO create-post control on Home — just menu, pill, and bell', () => {
+      const onOpenNotifications = jest.fn();
+      renderHeader({
+        floating: true,
+        trailing: { kind: 'home', onOpenNotifications, unreadCount: 0 },
+      });
 
-      const capsule = StyleSheet.flatten(screen.getByTestId('home-header-trailing').props.style);
-      expect(capsule.width).toBe(90);
-      expect(capsule.height).toBe(glassNavBubbleSizes.compact);
+      // The `+` is gone entirely, not merely re-homed somewhere else in the bar.
+      expect(screen.queryByTestId('home-header-add')).toBeNull();
+      // And with one symbol left there is no capsule either — the bell stands
+      // alone, so the pill (flex: 1) stretches into the freed space.
+      expect(screen.queryByTestId('home-header-trailing')).toBeNull();
 
-      // Both controls are slots of that capsule, not bubbles of their own.
-      for (const testID of ['home-header-notifications', 'home-header-add']) {
-        const slot = StyleSheet.flatten(screen.getByTestId(testID).props.style);
-        expect(slot.width).toBe(36);
-        expect(slot.backgroundColor).toBeUndefined();
-      }
+      // The full Home control set: menu | pill | bell, bell rightmost.
+      expect(screen.getByTestId('home-header-menu')).toBeTruthy();
+      expect(screen.getByTestId('home-header-search')).toBeTruthy();
+      const bell = screen.getByTestId('home-header-notifications');
+      expect(bell.props.accessibilityLabel).toBe('Notifications');
+
+      fireEvent.press(bell);
+      expect(onOpenNotifications).toHaveBeenCalledTimes(1);
     });
 
-    it('leaves the flexed search pill the frame’s 215 at a 393pt width', () => {
-      // 16 + 40 + 8 + pill + 8 + 90 + 16 = 393. Everything but the pill is
-      // fixed, so the pill IS the remainder — spelled out rather than asserted
-      // as a bare literal, so a change to any term shows up as the wrong pill.
-      const fixed =
+    it('draws the bell as a 40pt bubble, level with the menu bubble', () => {
+      renderHeader({ floating: true, trailing: homeTrailing() });
+
+      const bell = StyleSheet.flatten(screen.getByTestId('home-header-notifications').props.style);
+      expect(bell.width).toBe(glassNavBubbleSizes.compact);
+      expect(bell.height).toBe(glassNavBubbleSizes.compact);
+    });
+
+    it('leaves the flexed search pill 265 on Home and 215 on the profile at a 393pt width', () => {
+      // Home: 16 + 40 + 8 + pill + 8 + 40 + 16 = 393. Everything but the pill
+      // is fixed, so the pill IS the remainder — spelled out rather than
+      // asserted as a bare literal, so a change to any term shows up as the
+      // wrong pill. The trailing term is a lone 40pt bubble now; the 50 the
+      // 90pt capsule held beyond that went to the pill (215 → 265).
+      const homeFixed = layout.pageGutter * 2 + glassNavBubbleSizes.compact * 2 + 8 + 8;
+      expect(393 - homeFixed).toBe(265);
+
+      // Profile: 16 + 40 + 8 + pill + 8 + 90 + 16 = 393 — unchanged.
+      const profileFixed =
         layout.pageGutter * 2 + glassNavBubbleSizes.compact + 8 + 8 + glassNavBubbleGroupWidth(2);
-      expect(393 - fixed).toBe(215);
+      expect(393 - profileFixed).toBe(215);
     });
 
     // The badge hangs off the bell at `top: -2, right: -2`. Moving the bell
-    // into a rounded capsule is exactly the change that would have clipped it.
-    it('still lets the unread badge overhang the capsule', () => {
+    // between shells is exactly the change that would have clipped it, so the
+    // bubble must stay `overflow: 'visible'`.
+    it('still lets the unread badge overhang the bell bubble', () => {
       renderHeader({ floating: true, trailing: homeTrailing(3) });
 
       expect(screen.getByTestId('home-header-notifications-badge')).toBeTruthy();
       expect(screen.getByText('3')).toBeTruthy();
       expect(
-        StyleSheet.flatten(screen.getByTestId('home-header-trailing').props.style).overflow,
+        StyleSheet.flatten(screen.getByTestId('home-header-notifications').props.style).overflow,
       ).toBe('visible');
     });
 
     /*
-      THE PROFILE VARIANT SWAPS THE PAIR AND NOTHING ELSE. Figma 3670:47454 is
-      Home's toolbar with edit and share where the bell and the `+` were — same
-      40pt menu bubble, same 8pt gaps, same 215pt pill, same 90pt capsule. So the
-      assertion that matters is EXCLUSION: a variant that merely added its own
-      controls beside the existing ones would put four symbols in a 90pt capsule.
+      THE PROFILE VARIANT SWAPS THE TRAILING CONTROL AND NOTHING ELSE. Figma
+      3670:47454 is Home's toolbar with an edit/share capsule where the bell
+      is — same 40pt menu bubble, same 8pt gaps, same flexed pill (215 here,
+      against the 90pt capsule). So the assertion that matters is EXCLUSION: a
+      variant that merely added its own controls beside the existing ones would
+      put too many symbols in the capsule.
     */
-    it('draws edit and share instead of the bell and the +', () => {
+    it('draws edit and share instead of the bell', () => {
       renderHeader({ floating: true, trailing: profileTrailing() });
 
       expect(screen.getByTestId('home-header-edit')).toBeTruthy();
       expect(screen.getByTestId('home-header-share')).toBeTruthy();
-      // Notifications and compose belong to Home's bar, not this one.
+      // The bell belongs to Home's bar, not this one — and the old `+` compose
+      // control belongs to neither.
       expect(screen.queryByTestId('home-header-notifications')).toBeNull();
       expect(screen.queryByTestId('home-header-add')).toBeNull();
 

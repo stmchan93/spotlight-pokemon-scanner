@@ -1,5 +1,5 @@
 import { act, fireEvent, screen } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { Keyboard, StyleSheet } from 'react-native';
 
 import {
   MockSpotlightRepository,
@@ -286,15 +286,9 @@ describe('CatalogSearchScreen', () => {
     expect(searchSpy).toHaveBeenCalledWith('tree', expect.any(Number), 0, undefined);
   });
 
-  it('shows the rarity tag on result rows only for chip-able buckets', async () => {
+  it('never shows a per-row rarity tag, whatever the payload carries', async () => {
     jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage').mockResolvedValue({
-      cards: [
-        { ...ownedCatalogResults[0], rarityBucket: 'illustration' },
-        // promo is served but chip-less → no tag on the row.
-        { ...ownedCatalogResults[2], rarityBucket: 'promo' },
-        // No bucket at all (old cached payload) → no tag, no crash.
-        { ...ownedCatalogResults[3], rarityBucket: undefined },
-      ],
+      cards: [ownedCatalogResults[0], { ...ownedCatalogResults[3], rarityBucket: undefined }],
       hasMore: false,
     });
 
@@ -305,11 +299,14 @@ describe('CatalogSearchScreen', () => {
     fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'tree');
     await advanceDebounce();
 
-    const tag = await screen.findByTestId('catalog-result-rarity-sm7-1');
-    // The chip row shows the same label, so assert on the row tag itself.
-    expect(tag.props.children).toBe('Illus. Rare');
-    expect(screen.queryByTestId('catalog-result-rarity-np-3')).toBeNull();
-    expect(screen.queryByTestId('catalog-result-rarity-dp1-3')).toBeNull();
+    /*
+      Rows USED to append the bucket label ("Full Art", "Secret", …) beside the
+      set name. With the rarity chips right above the results the per-row copy
+      restated the filter, so it was removed — for every bucket, not just the
+      chip-less ones.
+    */
+    await screen.findByTestId('catalog-result-sm7-1');
+    expect(screen.queryByTestId('catalog-result-rarity-sm7-1')).toBeNull();
   });
 
   it('surfaces the retry action after a failed search', async () => {
@@ -334,12 +331,70 @@ describe('CatalogSearchScreen', () => {
   });
 
   /*
-    ADDING A CARD NO LONGER LEAVES THIS SCREEN, so this is where the confirmation
-    lands. Adding used to collapse the whole stack — search and card page both —
-    and drop you on the tabs root, which stopped being the Collection when the
-    feed took it; you ended up on the social feed and had to reopen search to add
-    a second card. Now only the card page pops, and the toast carries the
-    confirmation the Collection used to give by simply showing the new card.
+    Literals, because the number is the design: the chip row pays 16 below and the
+    list under it used to add another 4, so the gap below the filters was 20 while
+    above stayed 16. Chip SIZE is not asserted here — that is `PillButton`'s.
+  */
+  describe('the space around the rarity filters', () => {
+    it('pays 16 above the chips and 16 below, with nothing added underneath', async () => {
+      jest.spyOn(MockSpotlightRepository.prototype, 'listExpansions').mockResolvedValue([
+        { id: 'sv1', name: 'Scarlet & Violet', series: 'SV', code: 'sv1', releaseDate: '2023-03-31', imageUrl: '' },
+      ]);
+
+      renderWithProviders(
+        <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} onSelectExpansion={jest.fn()} />,
+      );
+
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      const chipRow = StyleSheet.flatten(
+        screen.getByTestId('catalog-rarity-chip-row').props.contentContainerStyle,
+      );
+      expect(chipRow.paddingVertical).toBe(16);
+
+      // The grid must not top up that 16 — it is the whole gap.
+      const grid = StyleSheet.flatten(
+        screen.getByTestId('catalog-expansion-grid').props.contentContainerStyle,
+      );
+      expect(grid.paddingTop).toBe(0);
+    });
+
+    /*
+      The chips shipped as full-height white columns: RN's horizontal ScrollView
+      carries `flexGrow: 1`, and as a direct child of the `flex: 1` screen it took
+      every remaining point. Both halves pinned — either alone hides the symptom.
+    */
+    it('keeps the chip row hugging its content instead of filling the screen', async () => {
+      jest.spyOn(MockSpotlightRepository.prototype, 'listExpansions').mockResolvedValue([]);
+
+      renderWithProviders(
+        <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />,
+      );
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      const scroller = StyleSheet.flatten(
+        screen.getByTestId('catalog-rarity-chip-row').props.style,
+      );
+      expect(scroller.flexGrow).toBe(0);
+
+      // …and a chip is never sized by the row, whatever height the row has.
+      const chipRow = StyleSheet.flatten(
+        screen.getByTestId('catalog-rarity-chip-row').props.contentContainerStyle,
+      );
+      expect(chipRow.alignItems).toBe('center');
+    });
+  });
+
+  /*
+    Adding used to collapse the whole stack onto the tabs root — which is the feed
+    now — so you had to reopen search for every card. Only the card page pops, and
+    the toast carries the confirmation.
   */
   describe('the added-to-collection confirmation', () => {
     it('shows the notice the card page left behind on the way back', () => {
@@ -351,6 +406,26 @@ describe('CatalogSearchScreen', () => {
 
       expect(screen.getByTestId('catalog-added-toast')).toBeTruthy();
       expect(screen.getByText('Added to your collection')).toBeTruthy();
+    });
+
+    /*
+      The search that led to the add is OVER. Returning with the old text still
+      in the field kept the keyboard up, and the keyboard sat exactly where the
+      toast renders — the confirmation was invisible behind it.
+    */
+    it('clears the query and drops the keyboard so the toast can be seen', () => {
+      const dismiss = jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => undefined);
+      noteCardAdded('Added to your collection');
+
+      renderWithProviders(
+        <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />,
+      );
+
+      expect(
+        screen.getByPlaceholderText('Search by name, set, or number').props.value,
+      ).toBe('');
+      expect(dismiss).toHaveBeenCalled();
+      dismiss.mockRestore();
     });
 
     it('stays silent when no card was added', () => {

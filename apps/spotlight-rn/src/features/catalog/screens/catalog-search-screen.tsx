@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Keyboard,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -73,14 +74,6 @@ function resultNumberLabel(result: CatalogSearchResult) {
   return result.cardNumber.startsWith('#') ? result.cardNumber : `#${result.cardNumber}`;
 }
 
-// Chip label for the served bucket, or null for the chip-less buckets
-// (promo/standard/other) and for older cached payloads with no bucket.
-function rarityTagLabel(bucket: CatalogSearchResult['rarityBucket']): string | null {
-  return bucket && (RARITY_FILTER_BUCKETS as readonly string[]).includes(bucket)
-    ? RARITY_BUCKET_LABELS[bucket as RarityFilterBucket]
-    : null;
-}
-
 function ResultArtwork({
   fallbackTestID,
   imageUrl,
@@ -141,7 +134,6 @@ function SearchResultRow({
 }) {
   const theme = useSpotlightTheme();
   const subtitle = result.subtitle?.trim() ? result.subtitle : result.setName;
-  const rarityLabel = rarityTagLabel(result.rarityBucket);
 
   return (
     <View testID={`catalog-result-${result.id}`}>
@@ -183,19 +175,15 @@ function SearchResultRow({
               ) : null}
             </View>
 
-            <View style={styles.resultSubtitleRow}>
-              <Text numberOfLines={2} style={[styles.resultSubtitle, { color: theme.colors.textSecondary }]}>
-                {subtitle}
-              </Text>
-              {rarityLabel ? (
-                <Text
-                  style={[theme.typography.caption, { color: theme.colors.textSecondary }]}
-                  testID={`catalog-result-rarity-${result.id}`}
-                >
-                  {rarityLabel}
-                </Text>
-              ) : null}
-            </View>
+            {/*
+              Set name only — no per-row rarity tag. The rows used to append
+              the bucket label ("Full Art", "Secret", …) beside the subtitle;
+              with the rarity CHIPS right above the results, the per-row copy
+              restated the filter and just made every row noisier.
+            */}
+            <Text numberOfLines={2} style={[styles.resultSubtitle, { color: theme.colors.textSecondary }]}>
+              {subtitle}
+            </Text>
 
             <View style={styles.resultMetaRow}>
               <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
@@ -242,10 +230,8 @@ export function CatalogSearchScreen({
   const [searchRevision, setSearchRevision] = useState(0);
   const [openingResultId, setOpeningResultId] = useState<string | null>(null);
   /*
-    Confirmation left behind by the card page when it popped back to here. Read
-    ON FOCUS rather than on mount: this screen stays mounted underneath the card
-    page, so a mount effect would run once, before the add ever happened, and the
-    toast would never appear.
+    On FOCUS, not mount: this screen stays mounted under the card page, so a
+    mount effect would run before the add ever happened.
   */
   const [addedNotice, setAddedNotice] = useState<string | null>(null);
   useFocusEffect(
@@ -253,6 +239,14 @@ export function CatalogSearchScreen({
       const notice = consumeCardAddedNotice();
       if (notice) {
         setAddedNotice(notice);
+        /*
+          The add is DONE — the search that led to it is over. Clear the query
+          and drop the keyboard so the toast at the bottom is actually visible:
+          returning here with the old text still in the field kept the keyboard
+          up, and the keyboard sat exactly where the toast renders.
+        */
+        setQuery('');
+        Keyboard.dismiss();
       }
     }, []),
   );
@@ -555,6 +549,7 @@ export function CatalogSearchScreen({
         keyExtractor={(item) => item.id}
         keyboardShouldPersistTaps="handled"
         numColumns={2}
+        testID="catalog-expansion-grid"
         renderItem={({ item }) => (
           <ExpansionCell
             expansion={item}
@@ -620,6 +615,7 @@ export function CatalogSearchScreen({
           contentContainerStyle={styles.rarityChipRow}
           horizontal
           showsHorizontalScrollIndicator={false}
+          style={styles.rarityChipScroller}
           testID="catalog-rarity-chip-row"
         >
           {RARITY_FILTER_BUCKETS.map((key) => (
@@ -636,15 +632,8 @@ export function CatalogSearchScreen({
 
       {renderBody()}
 
-      {/*
-        "Added to your collection", for the card you just added on the page that
-        has already unmounted.
-
-        IT IS RENDERED HERE RATHER THAN AT THE APP ROOT ON PURPOSE. This screen
-        presents as a `fullScreenModal`, which on iOS is its own view controller —
-        a toast hosted at the root would draw behind it and never be seen. See
-        `card-added-notice.ts` for the handoff itself.
-      */}
+      {/* Here rather than at the app root: this screen is a `fullScreenModal`,
+          so on iOS a root-hosted toast draws behind it. */}
       <Toast
         message={addedNotice ?? ''}
         onDismiss={() => setAddedNotice(null)}
@@ -670,7 +659,8 @@ const styles = StyleSheet.create({
   expansionListContent: {
     paddingBottom: 48,
     paddingHorizontal: 8,
-    paddingTop: 4,
+    // The filter row above pays the whole 16 gap; anything here makes it 20.
+    paddingTop: 0,
   },
   fixedHeader: {
     gap: 20,
@@ -735,20 +725,26 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingBottom: 48,
     paddingHorizontal: 16,
-    paddingTop: 4,
+    // Matches the expansions grid — they share this slot, so differing top
+    // padding would shift the filter row as you type.
+    paddingTop: 0,
   },
   loadMoreFooter: {
     alignItems: 'center',
     paddingVertical: 16,
   },
+  rarityChipScroller: {
+    // LOAD-BEARING: RN's horizontal ScrollView defaults to `flexGrow: 1`, which
+    // in this `flex: 1` column takes all leftover height and stretches the chips
+    // to ~700pt tall.
+    flexGrow: 0,
+  },
   rarityChipRow: {
+    // Belt and braces with `flexGrow: 0` — a chip is sized by its own padding,
+    // never by the row.
+    alignItems: 'center',
     flexDirection: 'row',
     gap: 8,
-    // 16 on every side. The row used to live inside `fixedHeader`, whose
-    // `gap: 20` set the space above it and nothing set the space below — it
-    // sat flush against the results. Outside the gap-managed header it owns
-    // its own box: 16 above, 16 below, 16 left to line up with the header's
-    // own horizontal padding.
     paddingLeft: 16,
     paddingRight: 16,
     paddingVertical: 16,
@@ -757,11 +753,6 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     fontSize: 15,
     lineHeight: 20,
-  },
-  resultSubtitleRow: {
-    alignItems: 'baseline',
-    flexDirection: 'row',
-    gap: 8,
   },
   resultTitle: {
     flex: 1,

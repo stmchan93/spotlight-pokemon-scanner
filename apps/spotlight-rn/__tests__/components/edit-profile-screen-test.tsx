@@ -103,15 +103,8 @@ describe('EditProfileScreen', () => {
     expect(back).toHaveBeenCalledTimes(1);
   });
 
-  /*
-    THE SOCIAL FIELD MUST NOT EAT WHAT YOU TYPED.
-
-    It used to save `normalizeSocialLink(value) ?? ''`, so anything that was not an
-    openable URL was persisted as EMPTY — type `instagram`, press SAVE, and the
-    field came back blank with no explanation. Storing raw is what lets the profile
-    show `instagram` as ordinary text; `profile-header` decides separately whether
-    a value is drawn as a link, which is where that belongs.
-  */
+  // Saving used to normalise, so anything unopenable persisted as '' — type
+  // `instagram`, press SAVE, field comes back blank.
   it('saves a non-link social value verbatim instead of clearing it', async () => {
     renderWithProviders(<EditProfileScreen />);
 

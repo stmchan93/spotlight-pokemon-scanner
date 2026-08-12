@@ -5,13 +5,9 @@ import {
 } from '@/features/cards/card-added-notice';
 
 /*
-  The handoff that carries "Added to your collection" from the card page — which
-  is unmounting — to whichever screen it popped back to.
-
-  The expiry is the part worth pinning. Nothing guarantees a reader: adding from
-  the Collection pops back to a screen that is not listening, so without a
-  deadline the message would sit in the module and then appear, stale, the next
-  time catalog search happened to open.
+  Carries "Added to your collection" from the unmounting card page to whichever
+  screen it popped back to. The expiry is the part worth pinning: nothing
+  guarantees a reader, and a message with no deadline resurfaces stale later.
 */
 describe('card-added notice', () => {
   afterEach(() => {

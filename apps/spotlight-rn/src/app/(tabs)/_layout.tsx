@@ -218,31 +218,16 @@ export default function TabsLayout() {
         and drifts from the icons the rest of the app draws) and land here as
         `src` images. Regenerate after an iconoir upgrade.
 
-        `renderingMode="template"` IS LOAD-BEARING ON iOS. It used to be omitted
-        here, on the belief that `tintColor` alone made these template images.
-        It does not, and the tab read as permanently selected because of it:
+        `renderingMode="template"` IS LOAD-BEARING ON iOS. expo-router defaults it
+        to `'original'` unless `iconColor` is set — and `tintColor` does NOT set
+        that (`native-tabs/utils/icon.js`; `appearance.js` maps `tintColor` onto
+        `selectedIconColor` only). An original-mode image ignores the tint and
+        draws its own pixels, so these PNGs rendered pure black in BOTH states and
+        selecting a tab changed nothing.
 
-          expo-router, `native-tabs/utils/icon.js`
-            effectiveRenderingMode = renderingMode ?? (iconColor !== undefined
-              ? 'template' : 'original')
-
-        `iconColor` there is the appearance's per-state icon colour, which comes
-        from the `iconColor` prop and NOT from `tintColor` (`appearance.js` maps
-        `tintColor` onto `selectedIconColor` only). This bar sets `tintColor` and
-        never `iconColor`, so the fallback landed on `'original'`, the PNG went
-        to UIKit as a plain `imageSource`, and an original-mode image ignores the
-        bar's tint entirely — the glyph drew its own pixels, which are pure
-        black, in BOTH states. Selecting Home changed nothing about it.
-
-        Naming the mode makes the alpha the only thing that survives, which is
-        what lets `tintColor` paint the selected glyph gray900 (Figma 3523:15619)
-        and leaves the unselected one the platform's own gray — the behaviour
-        Scan and You already had, being SF Symbols, which are always templates.
-
-        The source PNGs are plain black for the same reason: only their alpha is
-        ever read. Android is unaffected either way — it has no rendering mode
-        (`convertOptionsIconToAndroidPropsIcon` drops it) and tints these bitmaps
-        unconditionally; see the note on the `you` trigger below.
+        The source PNGs are plain black because only their alpha is read. Android
+        is unaffected — no rendering mode, and it tints these bitmaps
+        unconditionally; see the `you` trigger below.
 
         SCAN IS THE EXCEPTION, AND FOR A LICENSING REASON. Its frame draws
         Apple's own `viewfinder`, which iOS renders natively — nothing to

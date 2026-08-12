@@ -1,31 +1,13 @@
 import { render, screen } from '@testing-library/react-native';
 
 /**
- * Home and Wishlist must go BLACK when their tab is selected (Figma 3523:15619,
- * `Color/gray/900`), and stay the platform's gray when it is not.
+ * Home and Wishlist must go black when selected (Figma 3523:15619). They are the
+ * only raster icons in the bar, and a PNG only follows `tintColor` if it reaches
+ * UIKit as a TEMPLATE — expo-router otherwise defaults to `'original'`, which
+ * ignores the tint and drew both tabs black in every state.
  *
- * WHY THIS NEEDS A TEST RATHER THAN AN EYEBALL. Those two glyphs are the only
- * raster icons in the bar — Scan and You are SF Symbols, which UIKit always
- * treats as templates and therefore always tints. A PNG only follows the bar's
- * `tintColor` if it reaches UIKit as a TEMPLATE, and expo-router decides that
- * for itself when the prop is omitted (`native-tabs/utils/icon.js`):
- *
- *   effectiveRenderingMode = renderingMode ?? (iconColor !== undefined
- *     ? 'template' : 'original')
- *
- * `iconColor` there is the appearance's icon colour, fed by the `iconColor`
- * prop — NOT by `tintColor`, which `appearance.js` maps onto `selectedIconColor`
- * alone. This bar sets `tintColor` and no `iconColor`, so omitting the mode
- * silently resolves to `'original'`, and an original-mode image ignores the tint
- * and draws its own pixels. The source PNGs are pure black, so Home and Wishlist
- * rendered black in BOTH states and selecting them changed nothing.
- *
- * That failure is invisible to every other test in the repo and to a screenshot
- * of the selected tab — it only shows up on the tab you are NOT on. Hence this.
- *
- * Android is deliberately unpinned here: it has no rendering mode at all
- * (`convertOptionsIconToAndroidPropsIcon` drops the prop) and Material tints
- * these bitmaps unconditionally, so the Android bar was always correct.
+ * Only visible on the tab you are NOT on, hence a test. Android is unpinned: it
+ * has no rendering mode and tints these unconditionally.
  */
 
 // Hook-free, like every other mock here: the layout is re-required under

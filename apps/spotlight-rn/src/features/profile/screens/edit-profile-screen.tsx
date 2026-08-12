@@ -270,16 +270,9 @@ export function EditProfileScreen() {
     excludes the navigation bar. Same helper `new-post-screen` lifts its POST
     footer with.
 
-    PLUS A GAP, because `keyboardLift` on its own lands the bar FLUSH. Its
-    contract is that "the surface's bottom edge ends up `bottomInset + lift` above
-    the screen's bottom edge" — the lift subtracts exactly the padding the bar
-    pays, so the two cancel and the buttons come to rest ON the keyboard with
-    nothing between them. Correct as clearance, wrong as layout: SAVE and CANCEL
-    read as part of the keyboard rather than as part of the form.
-
-    Added only while lifted. With the keyboard down the bar is pinned to the
-    bottom edge and already pays the safe-area inset, so a gap there would just
-    float it.
+    Plus a gap: `keyboardLift` lands the bar FLUSH by contract (the lift
+    subtracts exactly the padding the bar pays), so the buttons rest on the
+    keyboard. Only while lifted — at rest the bar already pays the safe area.
   */
   const actionsLift = keyboardLift(keyboardHeight, insets.bottom + 8);
   const actionsBottom = actionsLift > 0 ? actionsLift + KEYBOARD_ACTION_GAP : actionsLift;
@@ -443,19 +436,9 @@ export function EditProfileScreen() {
         bio: bio.trim(),
         displayName: displayName.trim(),
         location: location.trim(),
-        /*
-          Stored RAW — whatever the user typed, trimmed and bounded, and nothing
-          more. It used to be stored NORMALISED (`normalizeSocialLink(...) ?? ''`),
-          which quietly DELETED anything that was not an openable URL: typing
-          `instagram` and pressing SAVE cleared the field.
-
-          The bug that normalisation was for — "the social media url permits
-          invalid urls", a blue link that did nothing when tapped — is now fixed
-          where it actually belongs, at the point of DISPLAY: `profile-header`
-          only draws the blue tappable row when the value resolves to a URL, and
-          renders plain text otherwise. So a non-link is never presented as a link,
-          and the field no longer has to refuse the input to achieve that.
-        */
+        // RAW, not normalised: normalising stored an unopenable value as '', so
+        // typing `instagram` and saving cleared the field. `profile-header`
+        // decides at display whether it is drawn as a link.
         socialLink: sanitizeSocialLinkInput(socialLink),
         // Same reasoning as `handle` above, for the newest column: send
         // `coverURL` only when the user actually picked one this session.
@@ -600,22 +583,9 @@ export function EditProfileScreen() {
               onChangeText={setSocialLink}
               placeholder="Enter Social Link"
               testID="edit-profile-social-input"
-              /*
-                BLUE IS THE FEEDBACK, AND IT REPLACED AN ERROR MESSAGE.
-
-                Social link values render blue 13px Medium per Figma 3083:9399 —
-                but only once the text is actually a link. Anything else is
-                ordinary text in the ordinary colour, which is exactly how the
-                profile will show it.
-
-                This is the whole of what used to be a red caption under the
-                field. That caption re-validated on every keystroke, so typing
-                `instagram.com/you` was told "Enter a full address, like
-                instagram.com/you" from the very first character — scolding
-                someone for not having finished typing yet. Colour says the same
-                thing without ever being wrong mid-word: it simply turns blue when
-                the value becomes openable.
-              */
+              // Blue (Figma 3083:9399) only once it is actually a link — this
+              // replaced a red caption that scolded you mid-word, since a
+              // half-typed URL is invalid on every keystroke.
               valueColor={isSocialLinkOpenable ? theme.colors.blue400 : theme.colors.gray900}
               valueStyle={styles.fieldInputLink}
               value={socialLink}

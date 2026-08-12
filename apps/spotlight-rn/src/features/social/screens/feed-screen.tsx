@@ -11,6 +11,7 @@ import {
   Animated,
   ActivityIndicator,
   Platform,
+  Pressable,
   RefreshControl,
   StyleSheet,
   View,
@@ -22,7 +23,9 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
+  Avatar,
   StateCard,
+  Text,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
@@ -43,6 +46,7 @@ import {
 } from '@/features/social/social-service';
 import { useUnreadNotificationCount } from '@/features/social/use-unread-notification-count';
 import { usePostDeletion } from '@/features/social/use-post-deletion';
+import { getUserInitials } from '@/features/auth/auth-models';
 import { resolveRepositoryBaseUrl } from '@/providers/app-providers';
 import { DrawerEdgeSwipe } from '@/components/drawer-edge-swipe';
 import { ScrollToTopFab, useScrollToTop } from '@/components/scroll-to-top-fab';
@@ -95,8 +99,9 @@ function readFeed(before?: string): Promise<FeedItem[]> {
 
 /**
  * Social feed (Figma 3505:14426). A pinned top bar — menu, tap-to-search pill,
- * notifications, new post — over a full-bleed list of `PostCard`s, each closed
- * by an edge-to-edge hairline.
+ * notifications — over a full-bleed list of `PostCard`s, each closed by an
+ * edge-to-edge hairline. New post lives in the list itself, as the compose
+ * prompt row at the top.
  *
  * This is the HOME tab (`(tabs)/index`), so the frame's own Home/Scan/Wishlist/
  * You bar is drawn by the real tab bar around it and this screen still renders
@@ -453,6 +458,52 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     router.push('/new-post' as never);
   }, [router]);
 
+  // Initials fallback for the compose row's avatar — the same derivation
+  // Portfolio uses for its profile block.
+  const profileInitials = currentUser ? getUserInitials(currentUser) : 'P';
+
+  /*
+    Facebook-style compose prompt, pinned as the list's FIRST row.
+
+    The `+` bubble in the floating bar was invisible to users — nobody read the
+    glass symbol as "write a post" — so this row replaces it as the way into the
+    composer: your avatar next to a gray placeholder, the same prompt the empty
+    Activity tab on Portfolio draws (Figma 3147:10061), pushing the same
+    `/new-post` route the `+` pushed. A `ListHeaderComponent`, not chrome: it
+    scrolls away with the feed, and it renders above the empty/error/loading
+    states too, so composing stays reachable when there is nothing to read.
+
+    The row closes with the SAME full-bleed hairline every post card closes
+    with (`gray300` at `borderWidths.rule`), so the composer reads as its own
+    section rather than the first post's header. Spacing is 16 / line / 16:
+    the row pads 16 below itself, and the 16 under the line is the first
+    PostCard's own top inset — the same arithmetic the cards use between
+    themselves, so nothing here is double-padded.
+  */
+  const composePrompt = (
+    <View>
+      <Pressable
+        accessibilityLabel="Create a post"
+        accessibilityRole="button"
+        onPress={openComposer}
+        style={({ pressed }) => [styles.composePrompt, { opacity: pressed ? 0.7 : 1 }]}
+        testID={`${testID}-compose-prompt`}
+      >
+        <Avatar initials={profileInitials} size={40} uri={currentUser?.avatarURL} />
+        <Text style={[theme.typography.body, { fontSize: 16, color: theme.colors.gray600 }]}>
+          What&rsquo;s on your mind?
+        </Text>
+      </Pressable>
+      <View
+        style={[
+          styles.composeDivider,
+          { backgroundColor: theme.colors.gray300, height: theme.borderWidths.rule },
+        ]}
+        testID={`${testID}-compose-divider`}
+      />
+    </View>
+  );
+
   const openSearch = useCallback(() => {
     router.push('/catalog/search' as never);
   }, [router]);
@@ -577,6 +628,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         keyExtractor={(item: FeedItem) => item.key}
         ListEmptyComponent={listEmpty}
         ListFooterComponent={listFooter}
+        ListHeaderComponent={composePrompt}
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.5}
         // Measures the viewport the "Back to top" FAB uses as its threshold —
@@ -638,13 +690,12 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         scrollY={scrollY}
         searchInteractive={!isSearchPillHidden}
         testID={`${testID}-header`}
-        // Home keeps the bell and the `+` (Figma toolbar 3567:22969). Collection
-        // draws the same bar with the profile toolbar's edit/share pair — this
-        // is the only prop that differs between the two screens.
+        // Home keeps the bell (Figma toolbar 3567:22969); the `+` that sat next
+        // to it moved into the list as the compose prompt row. Collection draws
+        // the same bar with the profile toolbar's edit/share pair — this is the
+        // only prop that differs between the two screens.
         trailing={{
           kind: 'home',
-          addAccessibilityLabel: 'New post',
-          onOpenAdd: openComposer,
           onOpenNotifications: openNotifications,
           unreadCount,
         }}
@@ -667,6 +718,38 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
 }
 
 const styles = StyleSheet.create({
+  composePrompt: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    // The feed's 16 page gutter — the list itself is unpadded (posts are
+    // full-bleed), so the row insets itself, like the state cards below.
+    paddingHorizontal: 16,
+    // 16 below the floating bar's reserved height, and 16 above the closing
+    // hairline. The 16 UNDER the hairline is the first PostCard's own top
+    // inset, exactly as between cards.
+    paddingBottom: 16,
+    paddingTop: 16,
+  },
+  /*
+    THE WIDTH IS THE WHOLE STYLE, and it is not optional.
+
+    This rule has no content and no intrinsic size, so with only a height and a
+    colour it is laid out zero points WIDE and never draws — reported as "the
+    grey line isn't appearing" on Android while the identical rule between post
+    cards showed fine. The difference was exactly this declaration:
+    `PostCard`'s divider has always carried `width: '100%'`, so it never
+    depended on inheriting a stretch from whatever happens to wrap it. This one
+    sits inside `ListHeaderComponent`, which is wrapped by VirtualizedList
+    rather than by us, and there it does not get one.
+
+    Stating the width here makes the rule self-sufficient wherever it is
+    mounted, which is what the sibling was already doing.
+  */
+  composeDivider: {
+    alignSelf: 'stretch',
+    width: '100%',
+  },
   footerSpinner: {
     paddingVertical: 20,
   },

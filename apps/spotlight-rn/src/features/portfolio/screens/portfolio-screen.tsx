@@ -1042,9 +1042,11 @@ export function PortfolioScreen({
   /*
     NO `+` IN THIS BAR ANY MORE. The profile toolbar (3670:47454) spends both
     trailing slots on edit and share, so the `+` that composed a post from every
-    tab of this screen is gone with the bell. Composing survives in two places:
-    Home's bar keeps its `+`, and the Activity tab's own "What's on your mind?"
-    prompt (further down this file) still pushes `/new-post`.
+    tab of this screen is gone with the bell. Composing now lives in exactly ONE
+    place: the compose row at the top of Home's feed. The Activity tab's old
+    "What's on your mind?" prompt was removed because it only existed as the
+    empty state — it vanished after your first post, which users reported as
+    "I can't post again". Activity is now a pure record of your posts.
   */
 
   const handleEditProfilePress = useCallback(() => {
@@ -1448,24 +1450,19 @@ export function PortfolioScreen({
     </View>
   );
 
-  // Empty Activity: once the (empty) posts have actually loaded, show the Figma
-  // "What's on your mind?" compose prompt (avatar + gray placeholder, 3147:10061)
-  // that opens the composer on tap — not a dead "No posts yet" card. While the
+  // Empty Activity: once the (empty) posts have actually loaded, show a plain
+  // pointer to Home's compose row — not a composer of its own. This tab is a
+  // pure record of your posts; the compose entry point lives on Home. While the
   // posts are still loading (or errored) fall back to a state card.
   const activityEmpty =
     activityStatus === 'ready' ? (
-      <Pressable
-        accessibilityLabel="Create a post"
-        accessibilityRole="button"
-        onPress={() => router.push('/new-post' as never)}
-        style={({ pressed }) => [styles.composePrompt, { opacity: pressed ? 0.7 : 1 }]}
-        testID="portfolio-activity-empty"
-      >
-        <Avatar initials={profileInitials} size={40} uri={currentUser?.avatarURL} />
-        <Text style={[theme.typography.body, { fontSize: 14, color: theme.colors.gray600 }]}>
-          What&rsquo;s on your mind?
+      <View style={styles.activityEmptyText} testID="portfolio-activity-empty">
+        <Text
+          style={[theme.typography.body, { color: theme.colors.gray600, textAlign: 'center' }]}
+        >
+          Create a post to populate your feed!
         </Text>
-      </Pressable>
+      </View>
     ) : activityStatus === 'error' ? (
       <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
         <StateCard
@@ -1810,17 +1807,9 @@ export function PortfolioScreen({
         contentInsetTop={Platform.OS === 'ios' ? insets.top : 0}
         disabled={editMode}
         header={pagerHeader}
-        /*
-          Fade the profile block out across exactly the strip it would otherwise
-          park in. Scrolled all the way, this page shows the floating bubbles and
-          "Collection / Activity" and nothing else — before this, the block's
-          tail stopped under the bubbles and the Followers/Following pills showed
-          through the gaps BETWEEN them.
-
-          Same expression as `pinnedTopInset` below, and that is the point rather
-          than a coincidence: the collapse stops that many points early, so that
-          is precisely how much of the header survives it. Keep the two together.
-        */
+        // Fades the profile block across exactly the strip it would park in, so
+        // scrolled down you see only the bubbles and the tabs. Same expression as
+        // `pinnedTopInset` below by necessity — keep the two together.
         headerFadeDistance={insets.top + HOME_HEADER_ROW_HEIGHT}
         onChange={setActiveProfileTab}
         onPageScroll={handlePageScroll}
@@ -2060,20 +2049,12 @@ const styles = StyleSheet.create({
   pinnedBlock: {
     paddingBottom: 16,
   },
-  composePrompt: {
-    // Empty-Activity compose prompt (Figma 3147:10061): avatar + gray
-    // placeholder in a tappable row, page-gutter aligned.
+  activityEmptyText: {
+    // Empty-Activity message: plain centered text, no card chrome and no press
+    // handler — composing happens from Home's compose row, not here.
     alignItems: 'center',
-    flexDirection: 'row',
-    gap: 8,
     paddingHorizontal: 16,
-    // 16 above, because the page's content starts flush against the tab bar's
-    // rule — this padding is the ONLY thing between that line and the avatar,
-    // and at 4 the two were nearly touching. It matches the 16 a `PostCard`
-    // carries at its own top, so an empty Activity and a populated one begin at
-    // the same distance below the tabs.
-    paddingTop: 16,
-    paddingBottom: 4,
+    paddingVertical: 24,
   },
   emptyPrompt: {
     // Same top offset as the filter-miss StateCard so both empty states sit at

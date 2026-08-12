@@ -55,6 +55,16 @@ function resolveScreenName(pathname: string) {
     return 'design_system';
   }
 
+  // Untracked routes leave `$screen_name` reading whatever came BEFORE them, so
+  // this screen's crashes were landing in Error Tracking labelled `scan` or
+  // `feed`. That cost real time chasing a camera crash on the wrong screen —
+  // and this one owns a camera, so it is exactly the screen that must not be
+  // anonymous. (Adding a route here costs no extra events: `$screen` fires on
+  // navigation either way.)
+  if (pathname === '/whos-that-pokemon' || pathname.startsWith('/whos-that-pokemon/')) {
+    return 'whos_that_pokemon';
+  }
+
   return null;
 }
 

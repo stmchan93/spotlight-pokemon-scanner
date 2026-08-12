@@ -347,11 +347,21 @@ jest.mock('react-native-vision-camera', () => {
   const mockCapturePhoto = jest.fn(async () => makeMockPhoto());
 
   // <Camera> fires onStarted when "ready" and renders a View so testIDs resolve.
-  const Camera = React.forwardRef(({ onStarted, device: _device, outputs: _outputs, isActive: _isActive, ...props }: any, _ref: any) => {
+  // `isActive` is FORWARDED onto the rendered View rather than swallowed with
+  // the other native-only props: whether the session is running is a behaviour
+  // screens are responsible for (mount once, toggle isActive — see
+  // `raw-scanner-capture-surface.tsx`), and with it stripped there was no way
+  // to assert that from a test. `onStopped` is fired to match, so a screen that
+  // gates on the session being live can be driven both ways.
+  const Camera = React.forwardRef(({ onStarted, onStopped, device: _device, outputs: _outputs, isActive, ...props }: any, _ref: any) => {
     React.useEffect(() => {
-      onStarted?.();
-    }, [onStarted]);
-    return React.createElement(View, props);
+      if (isActive) {
+        onStarted?.();
+        return;
+      }
+      onStopped?.();
+    }, [isActive, onStarted, onStopped]);
+    return React.createElement(View, { ...props, isActive });
   });
   Camera.displayName = 'MockVisionCamera';
 

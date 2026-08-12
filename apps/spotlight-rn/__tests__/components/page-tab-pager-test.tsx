@@ -431,17 +431,10 @@ describe('CollapsibleTabPager', () => {
   });
 
   /*
-    THE PARKED STRIP, AND WHY IT HAS TO DISAPPEAR.
-
-    `pinnedTopInset` stops the collapse short on purpose, which leaves the
-    header's last `pinnedTopInset` points sitting in the strip behind whatever
-    floats above the pager. On Portfolio that tail is the Followers/Following
-    row, and the floating chrome there is a row of SEPARATE glass bubbles — so
-    the pills showed through the gaps between them, half-covered.
-
-    Making the bar opaque was tried first and rejected on sight ("a weird white
-    bar"), so the header fades instead, the way Home's search pill and the
-    Wishlist title already do.
+    `pinnedTopInset` stops the collapse short, leaving the header's last
+    `pinnedTopInset` points parked behind the floating chrome — on Portfolio, the
+    Followers/Following row showing through the gaps between glass bubbles. An
+    opaque bar was tried and rejected, so the header fades instead.
   */
   describe('headerFadeDistance', () => {
     // 300pt header parked 100 short → 200 of travel; a 100pt fade therefore
@@ -513,12 +506,8 @@ describe('CollapsibleTabPager', () => {
       expect(headerStyle().opacity).toBe(0);
     });
 
-    /*
-      OPACITY ALONE LEAVES A TAPPABLE GHOST. At zero opacity the Followers pill
-      is still a live target sitting between two glass bubbles, so a tap in the
-      gap opens a list the user cannot see. `pointerEvents` is not animatable,
-      which is why this is a separate JS decision rather than part of the style.
-    */
+    // At zero opacity the Followers pill is still a live target between two
+    // bubbles. `pointerEvents` is not animatable, hence a separate JS decision.
     it('disarms the invisible header so it cannot swallow a tap', () => {
       const scrollY = renderFadingPager(100);
       expect(headerPointerEvents()).toBe('auto');

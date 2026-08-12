@@ -1631,17 +1631,17 @@ describe('PortfolioScreen', () => {
   });
 
   /*
-    COMPOSING SURVIVES THE `+`.
+    ACTIVITY IS A RECORD, NOT A COMPOSER.
 
-    The bar's `+` composed a post from every tab of this screen. The profile
-    toolbar (3670:47454) spends that slot on share, so the `+` is gone — but
-    composing is not: HOME's bar keeps its own `+`, and an empty Activity tab
-    still offers "What's on your mind?". This test is what stops the removal
-    from quietly stranding the composer.
+    The old empty state was a "What's on your mind?" prompt that pushed
+    /new-post — but it only existed as the EMPTY state, so it vanished after
+    your first post ("I can't post again"). Composing now lives in exactly one
+    place, Home's compose row; this tab's empty state is plain text that
+    points there and must not navigate anywhere.
   */
-  it('still composes from an empty Activity tab now that the bar has no +', async () => {
+  it('shows plain empty-state text on the Activity tab that does not navigate', async () => {
     // Explicit, because an earlier test in this file leaves `fetchAuthorActivity`
-    // resolving a post — and the compose prompt is the EMPTY state.
+    // resolving a post — and the text is the EMPTY state.
     (fetchAuthorActivity as jest.Mock).mockResolvedValue([]);
     renderPortfolioScreen();
     await screen.findByTestId('portfolio-header-title');
@@ -1652,11 +1652,14 @@ describe('PortfolioScreen', () => {
       fireEvent.press(screen.getByTestId('portfolio-profile-tabs-tab-activity'));
     });
 
+    const empty = await screen.findByTestId('portfolio-activity-empty');
+    expect(screen.getByText('Create a post to populate your feed!')).toBeTruthy();
+
     push.mockClear();
     await act(async () => {
-      fireEvent.press(await screen.findByTestId('portfolio-activity-empty'));
+      fireEvent.press(empty);
     });
-    expect(push).toHaveBeenLastCalledWith('/new-post');
+    expect(push).not.toHaveBeenCalled();
   });
 
   it('opens the full-screen card search from the top bar pill', async () => {

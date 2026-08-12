@@ -1485,17 +1485,8 @@ describe('ScannerScreen', () => {
     });
   });
 
-  /*
-    The FALLBACK exit, reached only when there is nothing to go back to and the
-    screen was given no `onExitToPortfolio` — which `(tabs)/scan.tsx` always
-    passes, so in the app this branch does not run.
-
-    It used to assert `params: { page: 'portfolio' }`, which pinned a stale
-    destination rather than a behaviour: nothing reads `page` now that each page
-    is a real route, and `/` stopped being the Collection when the feed took the
-    tabs root. The param is gone; `/` is the root surface, which is the right
-    answer for "there is nowhere to return to".
-  */
+  // Fallback exit, unreachable in the app (`scan.tsx` always passes
+  // `onExitToPortfolio`). Used to assert a dead `page` param.
   it('exits to the app root from the back button when there is nothing to pop', () => {
     renderScannerScreen();
 
