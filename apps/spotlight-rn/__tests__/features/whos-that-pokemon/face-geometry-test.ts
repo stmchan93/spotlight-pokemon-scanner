@@ -14,7 +14,18 @@ import {
 } from '@/features/whos-that-pokemon/face-geometry';
 
 describe('resolveHeadRect', () => {
-  it('projects a selfie-space head box through the cover crop and the display mirror', () => {
+  /*
+    THE DEFAULT FLIPPED, DELIBERATELY: it used to mirror, and this test used to
+    assert x: 240 for exactly these inputs.
+
+    That default was correct only while `SelfieImage` flipped the photo for
+    display. It stopped — and the capture is un-mirrored at the source now, so
+    the pixels on screen ARE the pixels the backend measured — but this kept
+    mirroring, which put the lock-on reticle on the reflection of the face
+    instead of the face. `face-lock-on` never passes the flag, so the default is
+    the whole behaviour.
+  */
+  it('projects a selfie-space head box through the cover crop, unmirrored', () => {
     // Source and container share an aspect ratio → no crop, pure scale.
     const { rect, isMeasured } = resolveHeadRect({
       headBox: { x: 0.1, y: 0.2, width: 0.3, height: 0.15 },
@@ -25,8 +36,8 @@ describe('resolveHeadRect', () => {
     });
 
     expect(isMeasured).toBe(true);
-    // Mirrored: x 0.1..0.4 in the original becomes 0.6..0.9 on screen.
-    expect(rect).toEqual({ x: 240, y: 160, width: 120, height: 120 });
+    // x 0.1..0.4 of a 400pt-wide draw, straight through: 40..160.
+    expect(rect).toEqual({ x: 40, y: 160, width: 120, height: 120 });
   });
 
   it('accounts for the centre crop when the selfie is wider than the container', () => {
@@ -45,17 +56,21 @@ describe('resolveHeadRect', () => {
     expect(rect.height).toBeCloseTo(240, 6);
   });
 
-  it('can skip the mirror for callers that draw the un-flipped selfie', () => {
+  // Kept as an opt-in rather than deleted: the projection maths is still the
+  // right answer for a caller that draws a flipped selfie, and keeping it
+  // exercised means the flip is there — and correct — if one ever appears.
+  it('can still mirror, for a caller that draws a flipped selfie', () => {
     const { rect } = resolveHeadRect({
       headBox: { x: 0.1, y: 0.2, width: 0.3, height: 0.15 },
       sourceWidth: 1000,
       sourceHeight: 2000,
       containerWidth: 400,
       containerHeight: 800,
-      mirrored: false,
+      mirrored: true,
     });
 
-    expect(rect.x).toBe(40);
+    // x 0.1..0.4 in the original becomes 0.6..0.9 on screen.
+    expect(rect.x).toBe(240);
   });
 
   it('falls back to a centred proportional head box when the backend sent nothing', () => {

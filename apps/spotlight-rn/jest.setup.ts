@@ -515,6 +515,14 @@ jest.mock('expo-image-manipulator', () => {
       PNG: 'png',
       WEBP: 'webp',
     },
+    // Values are the real enum's own strings. A horizontal flip leaves both
+    // dimensions alone, so `manipulateAsync` above needs no branch for it — but
+    // the export has to exist, or the un-mirror path silently takes its
+    // missing-from-an-old-binary fallback and the mock stops proving anything.
+    FlipType: {
+      Horizontal: 'horizontal',
+      Vertical: 'vertical',
+    },
   };
 });
 

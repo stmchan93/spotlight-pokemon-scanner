@@ -12,10 +12,11 @@
  *  3. LAYOUT space   — pixels inside the reveal container, which is what we
  *                      actually draw in.
  *
- * The selfie is rendered `contentFit="cover"` and MIRRORED for display (see
- * `components/selfie-image.tsx`), so selfie→layout is a crop-and-flip, not a
- * plain multiply. The artwork is rendered `contentFit="contain"` inside a
- * fixed percentage box, so artwork→layout is a letterbox fit.
+ * The selfie is rendered `contentFit="cover"` and NOT mirrored (see
+ * `components/selfie-image.tsx`), so selfie→layout is a crop, not a
+ * crop-and-flip as this said while the display flip existed. The artwork is
+ * rendered `contentFit="contain"` inside a fixed percentage box, so
+ * artwork→layout is a letterbox fit.
  */
 
 export type NormalizedBox = {
@@ -90,10 +91,23 @@ export function resolveHeadRect(options: {
   sourceHeight: number;
   containerWidth: number;
   containerHeight: number;
-  /** Selfies are flipped horizontally for display. */
+  /**
+   * Whether the displayed photo is a mirror image of the one the backend
+   * measured `headBox` against.
+   *
+   * DEFAULTS TO FALSE, and used to default to true. That default was written
+   * when `SelfieImage` flipped the photo for display; it stopped, and this was
+   * left behind — so the reticle was landing on the reflection of the face
+   * rather than the face. `mirrorPerson` in `outline-morph` is the same switch
+   * for the traced outline and carries the same default for the same reason:
+   * all three describe ONE image and have to agree.
+   *
+   * The capture is un-mirrored at the source now (`bakeCaptureOrientation`), so
+   * the photo on screen and the pixels the backend measured are the same pixels.
+   */
   mirrored?: boolean;
 }): HeadRectResolution {
-  const { headBox, sourceWidth, sourceHeight, containerWidth, containerHeight, mirrored = true } =
+  const { headBox, sourceWidth, sourceHeight, containerWidth, containerHeight, mirrored = false } =
     options;
 
   if (!isFinitePositive(containerWidth) || !isFinitePositive(containerHeight)) {

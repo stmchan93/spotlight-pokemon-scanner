@@ -8,8 +8,15 @@ import type {
 } from '@spotlight/api-client';
 
 import { WhosThatPokemonScreen } from '@/features/whos-that-pokemon/screens/whos-that-pokemon-screen';
+import { capturePostHogEvent } from '@/lib/observability/posthog';
 
 import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
+
+jest.mock('@/lib/observability/posthog', () => ({
+  capturePostHogEvent: jest.fn(),
+}));
+
+const mockCapturePostHogEvent = capturePostHogEvent as jest.Mock;
 
 jest.mock('expo-router', () => ({
   useRouter: jest.fn(),
@@ -316,6 +323,85 @@ describe('WhosThatPokemonScreen', () => {
     );
   });
 
+  /*
+    THE MIRROR BUG — "when taking a photo of myself it got mirrored, it should
+    just take it as is."
+
+    `selfie-image.tsx` already answered that sentence once by removing a
+    display-side flip; the pixels were still arriving mirrored. vision-camera's
+    `mirrorMode` defaults to `'auto'`, which mirrors selfie cameras and records
+    it on the still as an EXIF flag — the SAME flag that carries the rotation.
+    So the mirror gets baked exactly where the rotation gets baked: in pass 1,
+    on the platform whose manipulator applies EXIF (iOS). Pass 2 rebuilds from
+    the original and drops the EXIF wholesale, mirror included.
+
+    Hence: cancel it in pass 1, and nowhere else. Undoing it in both places is
+    a double flip, which is the same bug wearing the opposite sign.
+  */
+  it('cancels the front camera mirror in the pass that bakes it, and only there', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { usePhotoOutput } = require('react-native-vision-camera') as {
+      usePhotoOutput: () => { capturePhoto: jest.Mock };
+    };
+    usePhotoOutput().capturePhoto.mockResolvedValueOnce({
+      width: 1080,
+      height: 1620,
+      // A portrait-locked app against a landscape sensor: always a quarter turn,
+      // which is what makes "did pass 1 apply the EXIF?" answerable at all.
+      orientation: 'right',
+      isMirrored: true,
+      saveToTemporaryFileAsync: jest.fn(async () => '/mock-scan.jpg'),
+      dispose: jest.fn(() => {}),
+    });
+
+    const whosThatPokemon = jest.fn(async (_payload: WhosThatPokemonPayload) => mockMatches);
+    renderScreen(createTestSpotlightRepository({ whosThatPokemon }));
+
+    await act(async () => {
+      fireEvent.press(await screen.findByTestId('wtp-shutter'));
+    });
+    await waitFor(
+      () => {
+        expect(whosThatPokemon).toHaveBeenCalledTimes(1);
+      },
+      { timeout: 4000 },
+    );
+
+    const { manipulateAsync } = imageManipulatorMock();
+    // Pass 1 carries the flip, which on iOS composes AFTER the module's own
+    // fix-orientation transformer — the ordering the cancellation depends on.
+    expect(manipulateAsync.mock.calls[0][1]).toEqual([{ flip: 'horizontal' }]);
+
+    /*
+      Pass 2 runs here because the mock's dimensions never come back upright —
+      the Android shape, where pass 1 did nothing and its flipped output is
+      discarded unread. It rebuilds from the ORIGINAL, so re-flipping would
+      mirror an image whose mirror flag was never applied.
+    */
+    expect(manipulateAsync).toHaveBeenCalledTimes(2);
+    expect(manipulateAsync.mock.calls[1][0]).toBe(RAW_CAPTURE_URI);
+    expect(manipulateAsync.mock.calls[1][1]).toEqual([{ rotate: -90 }]);
+  });
+
+  it('leaves a capture the camera never mirrored alone', async () => {
+    // The back camera, and any front camera the platform declines to mirror.
+    // `isMirrored` is the only signal — never assume the position.
+    const whosThatPokemon = jest.fn(async (_payload: WhosThatPokemonPayload) => mockMatches);
+    renderScreen(createTestSpotlightRepository({ whosThatPokemon }));
+
+    await act(async () => {
+      fireEvent.press(await screen.findByTestId('wtp-shutter'));
+    });
+    await waitFor(
+      () => {
+        expect(whosThatPokemon).toHaveBeenCalledTimes(1);
+      },
+      { timeout: 4000 },
+    );
+
+    expect(imageManipulatorMock().manipulateAsync.mock.calls[0][1]).toEqual([]);
+  });
+
   it('falls back to the original capture when the image manipulator is unavailable', async () => {
     // expo-image-manipulator is a native module that can be missing from the
     // binary an OTA'd bundle is running on. A rotated selfie beats no feature.
@@ -395,5 +481,71 @@ describe('WhosThatPokemonScreen', () => {
 
     expect(screen.getByTestId('wtp-shutter')).toBeTruthy();
     expect(screen.queryByTestId('wtp-result')).toBeNull();
+  });
+
+  /*
+    ───────────────────────────────────────────────────────────────────────────
+    THE SELFIE MUST NOT LEAK INTO TELEMETRY.
+    ───────────────────────────────────────────────────────────────────────────
+    Selfies are never persisted — that is a product guarantee, and analytics is
+    the obvious place for it to be quietly broken, because adding one more
+    property to an event never feels like storing a photo.
+
+    This asserts the guarantee against EVERY property of EVERY event the screen
+    sends, rather than against the three call sites as written, so a future
+    event added to this file is covered the day it is written.
+
+    The check is deliberately in two parts: no value may contain the image or
+    its file URI, and no KEY may be one of the face-derived signals the screen
+    holds (`palette`, `headBox`, `personOutline`, `speciesOutline`). The second
+    part is the one that matters — a dominant-colour palette of a picture of a
+    person carries more about them than it looks like it does.
+  */
+  it('never puts the selfie, its URI, or anything derived from the face into an event', async () => {
+    const whosThatPokemon = jest.fn(async () => mockMatches);
+    const whosThatShareCard = jest.fn(async () => mockShareCard);
+    const repository = createTestSpotlightRepository({ whosThatPokemon, whosThatShareCard });
+
+    renderScreen(repository);
+
+    await act(async () => {
+      fireEvent.press(await screen.findByTestId('wtp-shutter'));
+    });
+    await waitFor(
+      () => {
+        expect(screen.getByTestId('wtp-result-share')).toBeTruthy();
+      },
+      { timeout: 4000 },
+    );
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('wtp-result-share'));
+    });
+    await waitFor(() => {
+      expect(mockShareAsync).toHaveBeenCalled();
+    });
+
+    // The run really happened, so the assertions below are not vacuous.
+    const eventNames = mockCapturePostHogEvent.mock.calls.map(([name]) => name);
+    expect(eventNames).toEqual(
+      expect.arrayContaining(['whos_that_started', 'whos_that_completed', 'whos_that_shared']),
+    );
+
+    const forbiddenKeys = ['palette', 'headBox', 'personOutline', 'speciesOutline', 'selfie'];
+    mockCapturePostHogEvent.mock.calls.forEach(([name, properties]) => {
+      const serialized = JSON.stringify(properties ?? {});
+      expect(serialized).not.toContain(RAW_CAPTURE_BASE64);
+      expect(serialized).not.toContain(UPRIGHT_BASE64);
+      expect(serialized).not.toContain(RAW_CAPTURE_URI);
+      expect(serialized).not.toContain('data:image');
+      expect(serialized).not.toContain('file://');
+      forbiddenKeys.forEach((key) => {
+        expect(Object.keys((properties ?? {}) as Record<string, unknown>)).not.toContain(key);
+      });
+      // The species IS allowed to travel — it is a game outcome, and the only
+      // way to notice the model returning one answer for every face.
+      if (name === 'whos_that_completed') {
+        expect(properties).toEqual(expect.objectContaining({ matched: true, pokemon: 'Pikachu' }));
+      }
+    });
   });
 });

@@ -27,11 +27,15 @@ import { Platform, Vibration } from 'react-native';
 /**
  * One event in the score.
  *
- * - `tick`   the slow opening pulses — present, easy to ignore
+ * - `tick`   the slow opening pulses
  * - `build`  the later, harder pulses as the tempo tightens
  * - `roll`   the rapid run-up into the flash (the snare roll)
  * - `climax` the flash itself — the single heaviest thing in the beat
  * - `land`   the release, once the creature has arrived
+ *
+ * These are RHYTHMIC ROLES, not intensities. What each one actually plays lives
+ * in `playEvolutionHaptic` and nowhere else, which is why the ladder could be
+ * raised to scanner strength without touching a single caller or timing.
  */
 export type EvolutionHapticKind = 'tick' | 'build' | 'roll' | 'climax' | 'land';
 
@@ -97,13 +101,22 @@ function sanitizeScore(beats: readonly EvolutionHapticBeat[]): EvolutionHapticBe
  */
 let hapticsUnavailable = false;
 
-/** Android pulse lengths, in ms. See `playEvolutionHaptic` for why. */
+/**
+ * Android pulse lengths, in ms. See `playEvolutionHaptic` for why.
+ *
+ * Calibrated against the SCANNER, which is the app's reference for "strong":
+ * `triggerScannerHaptic` fires 60ms pulses for the shutter. A `tick` sits
+ * deliberately under that and the `climax` deliberately over it, so the build
+ * arrives somewhere in the neighbourhood of a capture and the flash beats it.
+ * The earlier values (14/24/12/60/40) were tuned as decoration and read as
+ * nothing at all next to a single scan tap.
+ */
 const ANDROID_DURATION_MS: Record<EvolutionHapticKind, number> = {
-  tick: 14,
-  build: 24,
-  roll: 12,
-  climax: 60,
-  land: 40,
+  tick: 40,
+  build: 55,
+  roll: 35,
+  climax: 90,
+  land: 60,
 };
 
 /**
@@ -142,15 +155,28 @@ export function playEvolutionHaptic(kind: EvolutionHapticKind): void {
     switch (kind) {
       case 'tick':
       case 'roll':
-        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-        return;
-      case 'build':
         void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
         return;
-      case 'climax':
+      case 'build':
         void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
         return;
+      /*
+        Both endpoints play the SCANNER'S found-card pair verbatim
+        (`scanner-screen-helpers.ts`: Heavy impact, then a Success notification).
+        That pairing is the app's existing definition of "unmistakably felt", and
+        matching it is the whole point of this ladder — the climax of an
+        evolution should not land softer than confirming a card.
+
+        Not chained with `.then`: `impactAsync` resolves on a microtask, and
+        sequencing through it would push the notification behind a promise tick
+        for no gain — the two are separate native calls either way, and ordering
+        on the native side follows call order. A synchronous throw from the first
+        call skips the second on its way to the catch below, which is what keeps
+        a missing native module to ONE failure per beat rather than two.
+      */
+      case 'climax':
       case 'land':
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
         return;
       default:

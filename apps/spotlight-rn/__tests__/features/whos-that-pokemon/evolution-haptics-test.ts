@@ -128,30 +128,51 @@ describe('scheduleEvolutionHaptics', () => {
     jest.useRealTimers();
   });
 
+  /*
+    THE LADDER WAS RAISED ONCE, DELIBERATELY, AND THIS IS THE TEST THAT MOVED.
+
+    It used to open on Light and top out at a lone Heavy. Measured against the
+    SCANNER — Heavy for the shutter, Heavy + Success for a found card — the
+    entire evolution build was quieter than a single scan tap, which is not a
+    defensible ranking of the two moments. Every rung went up one.
+  */
   it('plays each beat at its own time, with weight that rises to the climax', () => {
     scheduleEvolutionHaptics(score);
 
     jest.advanceTimersByTime(0);
-    expect(impactMock).toHaveBeenLastCalledWith(Haptics.ImpactFeedbackStyle.Light);
-
-    jest.advanceTimersByTime(100);
     expect(impactMock).toHaveBeenLastCalledWith(Haptics.ImpactFeedbackStyle.Medium);
 
     jest.advanceTimersByTime(100);
     expect(impactMock).toHaveBeenLastCalledWith(Haptics.ImpactFeedbackStyle.Heavy);
 
-    // The release is a notification, not an impact — a different texture, so it
-    // reads as "done" rather than as one more beat of the build.
-    expect(notificationMock).not.toHaveBeenCalled();
+    /*
+      The climax and the release now play the SAME pair as a found card: a Heavy
+      impact plus a Success notification. The old assertion here was
+      `expect(notificationMock).not.toHaveBeenCalled()`, on the grounds that the
+      release should have a texture the build never uses — true when the climax
+      was a bare impact, false now, and the honest fix is to state what is
+      actually being claimed rather than to delete the line.
+
+      What survives is the COUNT: the climax fires the pair exactly once, and the
+      release fires it a second time. If a rung ever leaks a Success into the
+      build, this goes red.
+    */
     jest.advanceTimersByTime(100);
+    expect(impactMock).toHaveBeenLastCalledWith(Haptics.ImpactFeedbackStyle.Heavy);
+    expect(notificationMock).toHaveBeenCalledTimes(1);
     expect(notificationMock).toHaveBeenCalledWith(Haptics.NotificationFeedbackType.Success);
+
+    jest.advanceTimersByTime(100);
+    expect(notificationMock).toHaveBeenCalledTimes(2);
   });
 
   it('scales the whole score, so the same rhythm can be replayed compressed', () => {
     scheduleEvolutionHaptics(score, { scale: 0.01 });
 
+    // Four beats, and the last two carry an impact each as well as their
+    // notification — so four impacts, not three.
     jest.advanceTimersByTime(3);
-    expect(impactMock).toHaveBeenCalledTimes(3);
+    expect(impactMock).toHaveBeenCalledTimes(4);
   });
 
   it('cancels pending beats, so a climax never fires onto a screen you left', () => {
@@ -176,5 +197,24 @@ describe('playEvolutionHaptic', () => {
     });
 
     expect(() => playEvolutionHaptic('climax')).not.toThrow();
+  });
+
+  /*
+    The climax and the release are the only beats that make TWO native calls.
+    The unavailability latch exists so a missing module costs one failed bridge
+    call rather than one per beat — a second call after the first has already
+    thrown would quietly double that, on the two beats that matter most.
+  */
+  it('does not attempt the second call once the first has thrown', () => {
+    impactMock.mockImplementationOnce(() => {
+      throw new Error('ExpoHaptics native module unavailable');
+    });
+
+    playEvolutionHaptic('land');
+
+    expect(notificationMock).not.toHaveBeenCalled();
+    // …and the latch means the next beat does not even try.
+    playEvolutionHaptic('build');
+    expect(impactMock).toHaveBeenCalledTimes(1);
   });
 });

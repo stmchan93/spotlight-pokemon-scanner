@@ -23,6 +23,7 @@ import {
 } from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
+import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useVisionCameraCapture } from '@/features/scanner/use-vision-camera-capture';
 import { useAppServices } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
@@ -85,6 +86,9 @@ type ImageManipulatorModule = {
     saveOptions?: { base64?: boolean; compress?: number; format?: string },
   ) => Promise<{ uri: string; width: number; height: number; base64?: string }>;
   SaveFormat: { JPEG: string };
+  // Optional like `SaveFormat` is treated below: an older binary may predate it,
+  // and the literal it resolves to (`'horizontal'`) is the enum's own value.
+  FlipType?: { Horizontal: string };
 };
 function loadImageManipulator(): ImageManipulatorModule | null {
   try {
@@ -96,7 +100,7 @@ function loadImageManipulator(): ImageManipulatorModule | null {
 }
 
 /**
- * Bake the capture's EXIF orientation into its PIXELS.
+ * Bake the capture's EXIF orientation — and its EXIF MIRROR — into its PIXELS.
  *
  * THE BUG THIS FIXES. vision-camera saves the still in the sensor's native
  * orientation — landscape, e.g. 3840x2160 — and records how to turn it upright
@@ -140,6 +144,48 @@ function loadImageManipulator(): ImageManipulatorModule | null {
  *
  * NOT done inside `use-vision-camera-capture` on purpose: that hook is shared
  * with the scanner, whose capture latency is a tracked product metric.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * THE MIRROR, which rides along on the very same EXIF flag
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Reported as "when taking a photo of myself it got mirrored — it should just
+ * take it as is", and note that `selfie-image.tsx` already answered that exact
+ * sentence once by deleting a display-side `scaleX: -1`. That was right and it
+ * was not enough: the pixels themselves were arriving mirrored.
+ *
+ * vision-camera's `mirrorMode` defaults to `'auto'`, which mirrors selfie
+ * cameras — the LIVE PREVIEW, which is what you want (you frame yourself in a
+ * mirror, like every camera app), and the still, which you do not. It records
+ * the still's mirror the same lazy way it records the rotation: as an EXIF flag
+ * (`HybridPhoto.kt` → `exif.flipHorizontally()`; on iOS AVFoundation hands back
+ * a `.mirrored` orientation). So the saved pixels are NOT mirrored — a flag
+ * saying "show me mirrored" is.
+ *
+ * Which means the mirror lands wherever the ROTATION lands, and nowhere else:
+ *
+ *   - pass 1 applies the EXIF (iOS) → it bakes the rotation AND the mirror, so
+ *     the upright image is a mirror image. This is the bug the user sees.
+ *   - pass 2 rebuilds from `capture.uri` with an explicit rotate (Android) → the
+ *     EXIF is dropped wholesale, mirror included, so that path was already
+ *     producing a true photo and must not be "corrected".
+ *
+ * Hence the flip is handed to PASS 1 only. On iOS it composes after the implicit
+ * fix-orientation and cancels the mirror it just baked; on Android pass 1's
+ * output is discarded by pass 2 anyway, so it costs nothing and changes nothing.
+ * No third pass, no `Platform.OS` branch, and no way to double-flip.
+ *
+ * Gated on `rotation !== 0` because that is what makes "did pass 1 apply the
+ * EXIF?" answerable at all (a quarter turn swaps width and height; nothing else
+ * is observable). The app is portrait-locked and the sensor buffer is landscape,
+ * so a capture is always a quarter turn from upright and the guard never fires —
+ * it is there so that if that ever stops being true, the failure is "the old
+ * mirrored photo", not "a photo flipped twice".
+ *
+ * The preview is deliberately left mirrored. Turning it off at the camera
+ * (`mirrorMode="off"`) would fix the still in one prop, but vision-camera shares
+ * one mirror mode across every output — `Camera.tsx` puts the preview output in
+ * the same list — so it would also un-mirror the self-view you frame with, which
+ * no mainstream selfie camera does.
  */
 type CaptureOrientation = 'up' | 'right' | 'down' | 'left';
 
@@ -181,6 +227,7 @@ async function bakeCaptureOrientation(
     width: number;
     height: number;
     orientation?: CaptureOrientation;
+    isMirrored?: boolean;
   },
 ): Promise<SelfieCapture | null> {
   const ImageManipulator = loadImageManipulator();
@@ -190,17 +237,29 @@ async function bakeCaptureOrientation(
   const format = ImageManipulator.SaveFormat?.JPEG ?? 'jpeg';
   const options = { base64: true, compress: 0.9, format } as const;
   const expected = uprightDimensions(capture, capture.orientation);
+  const rotation = uprightRotationDegrees(capture.orientation);
+  /*
+    The front camera's mirror is an EXIF flag, and pass 1 is the only pass that
+    can apply it — see the header. Undoing it there is therefore both sufficient
+    and safe. `rotation !== 0` is what makes pass 1's behaviour observable.
+  */
+  const unmirrorActions =
+    capture.isMirrored === true && rotation !== 0
+      ? [{ flip: ImageManipulator.FlipType?.Horizontal ?? 'horizontal' }]
+      : [];
   try {
     /*
-      PASS 1 — no operations, relying on the module to apply EXIF itself.
+      PASS 1 — relying on the module to apply EXIF itself, plus the one
+      operation that cancels the mirror it applies along with it.
 
-      iOS does: `ImageManipulatorModule.swift` unconditionally pushes
-      `ImageFixOrientationTransformer` first. ANDROID DOES NOT, and that is a
+      iOS does apply it: `ImageManipulatorModule.swift` unconditionally pushes
+      `ImageFixOrientationTransformer` FIRST — before our actions, which is
+      exactly the ordering the flip needs. ANDROID DOES NOT, and that is a
       shipped regression, not a theory: baking on Android stripped the EXIF tag
       WITHOUT rotating the pixels, so `expo-image` lost the only thing that had
       been making the selfie upright and it rendered sideways.
     */
-    let baked = await ImageManipulator.manipulateAsync(capture.uri, [], options);
+    let baked = await ImageManipulator.manipulateAsync(capture.uri, unmirrorActions, options);
     if (!baked?.uri || !baked.base64) {
       return null;
     }
@@ -212,8 +271,11 @@ async function bakeCaptureOrientation(
       self-corrects on whichever platform is (or becomes) lazy, and is a no-op
       where pass 1 already did the work. A quarter turn always swaps width and
       height, so the comparison is unambiguous.
+
+      Rebuilt from `capture.uri`, NOT from pass 1's output — which is why this
+      path needs no un-mirroring of its own: dropping the EXIF drops the mirror
+      flag with it, and pass 1's flipped file is discarded here unread.
     */
-    const rotation = uprightRotationDegrees(capture.orientation);
     const alreadyUpright = baked.width === expected.width && baked.height === expected.height;
     if (!alreadyUpright && rotation !== 0) {
       const rotated = await ImageManipulator.manipulateAsync(
@@ -333,11 +395,31 @@ export function WhosThatPokemonScreen() {
     }
   }, [hasPermission, requestPermission]);
 
+  /*
+    ─────────────────────────────────────────────────────────────────────────
+    WHAT MAY LEAVE THIS SCREEN, AND WHAT MAY NOT.
+    ─────────────────────────────────────────────────────────────────────────
+    The input here is a SELFIE. The product guarantee is that it is never
+    persisted, and telemetry does not get to be the quiet exception to that.
+
+    So: no image, no file URI, no hash of either, and nothing derived from the
+    face. That last clause is the one with teeth in this file — `palette`,
+    `headBox`, `personOutline` and `speciesOutline` are all computed FROM the
+    photo, and a dominant-colour palette of a picture of a person is exactly
+    the kind of "harmless" derived attribute that should never be shipped.
+    None of them appear below, and none of them should be added.
+
+    The species does travel. It is a game outcome rather than a description of
+    the person, and it is the only way to notice the model going degenerate
+    (every face coming back Pikachu) — which is the reason to measure this at
+    all.
+  */
   const runMatch = useCallback(async (nextSelfie: SelfieCapture) => {
     const runId = matchRunRef.current + 1;
     matchRunRef.current = runId;
     setMatchFailed(false);
     setPhase('scanning');
+    capturePostHogEvent('whos_that_started');
 
     const startedAt = Date.now();
     try {
@@ -378,10 +460,28 @@ export function WhosThatPokemonScreen() {
       setActiveMatchIndex(0);
       setRevealFromSilhouette(false);
       setPhase('lockon');
+
+      // Reported AFTER the staleness guard, so a run someone walked out on is
+      // counted as neither completed nor failed. `started` minus the two is the
+      // abandon rate, which is the number worth watching on a five-phase
+      // animation this long. `duration_ms` is the real round trip, measured
+      // before the theater's artificial floor is added back.
+      capturePostHogEvent('whos_that_completed', {
+        duration_ms: elapsedMs,
+        match_count: result.matches.length,
+        matched: topMatch != null,
+        pokemon: topMatch?.species ?? null,
+      });
     } catch {
       if (matchRunRef.current !== runId || !mountedRef.current) {
         return;
       }
+      capturePostHogEvent('whos_that_completed', {
+        duration_ms: Date.now() - startedAt,
+        match_count: 0,
+        matched: false,
+        pokemon: null,
+      });
       setMatchFailed(true);
     }
   }, [spotlightRepository]);
@@ -515,6 +615,15 @@ export function WhosThatPokemonScreen() {
       if (!sharedViaModule) {
         await Share.share({ url: fileUri });
       }
+
+      // The OS sheet was presented; neither path tells us whether it was sent,
+      // which is the usual ceiling on share tracking. `is_top_match` is the
+      // cheap read on model quality — people promoting an alternate before
+      // sharing means the first answer was not the good one.
+      capturePostHogEvent('whos_that_shared', {
+        is_top_match: activeMatchIndex === 0,
+        pokemon: match.species,
+      });
     } catch {
       if (mountedRef.current) {
         Alert.alert('Share failed', 'Could not build your share card. Please try again.');
