@@ -16,7 +16,9 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
-import { Camera, NavArrowLeft, NavArrowRight } from 'iconoir-react-native';
+import { Camera, NavArrowRight } from 'iconoir-react-native';
+
+import { ChromeBackButton, chromeBackButtonSize } from '@/components/chrome-back-button';
 
 import { Avatar, Button, Text, useSpotlightTheme } from '@spotlight/design-system';
 
@@ -26,14 +28,16 @@ import {
 } from '@/features/auth/auth-models';
 import { prefetchImageUrls } from '@/lib/card-images';
 import { keyboardClearance, keyboardLift } from '@/lib/keyboard-insets';
-import {
-  describeSocialLinkValidity,
-  normalizeSocialLink,
-  validateSocialLink,
-} from '@/features/profile/social-link';
+import { normalizeSocialLink, sanitizeSocialLinkInput } from '@/features/profile/social-link';
 import { loadNativeImagePicker } from '@/lib/native-image-picker';
 import { useAppServices } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
+
+/**
+ * Breathing room between the SAVE/CANCEL bar and the top of the keyboard. See the
+ * note on `actionsLift` for why the lift alone leaves none.
+ */
+const KEYBOARD_ACTION_GAP = 12;
 
 const BIO_MAX_LENGTH = 150;
 const COVER_HEIGHT = 176;
@@ -265,11 +269,25 @@ export function EditProfileScreen() {
     already paid on iOS and nothing on Android, where the reported height
     excludes the navigation bar. Same helper `new-post-screen` lifts its POST
     footer with.
+
+    PLUS A GAP, because `keyboardLift` on its own lands the bar FLUSH. Its
+    contract is that "the surface's bottom edge ends up `bottomInset + lift` above
+    the screen's bottom edge" — the lift subtracts exactly the padding the bar
+    pays, so the two cancel and the buttons come to rest ON the keyboard with
+    nothing between them. Correct as clearance, wrong as layout: SAVE and CANCEL
+    read as part of the keyboard rather than as part of the form.
+
+    Added only while lifted. With the keyboard down the bar is pinned to the
+    bottom edge and already pays the safe-area inset, so a gap there would just
+    float it.
   */
   const actionsLift = keyboardLift(keyboardHeight, insets.bottom + 8);
+  const actionsBottom = actionsLift > 0 ? actionsLift + KEYBOARD_ACTION_GAP : actionsLift;
 
-  // Null while empty or valid — see the note beside where it renders.
-  const socialLinkProblem = describeSocialLinkValidity(validateSocialLink(socialLink));
+  // Whether what has been typed so far is something the profile could actually
+  // open. Drives the field's colour, and nothing else — see the note where it is
+  // used. Same test `profile-header` applies when deciding to draw a link.
+  const isSocialLinkOpenable = normalizeSocialLink(socialLink) !== null;
 
   /**
    * Shared picker → resize → upload lane for both profile images. The only
@@ -425,9 +443,20 @@ export function EditProfileScreen() {
         bio: bio.trim(),
         displayName: displayName.trim(),
         location: location.trim(),
-        // Stored NORMALISED — an absolute https URL — or cleared. Persisting raw
-    // text is what let "hello world" render as a blue link that did nothing.
-    socialLink: normalizeSocialLink(socialLink) ?? '',
+        /*
+          Stored RAW — whatever the user typed, trimmed and bounded, and nothing
+          more. It used to be stored NORMALISED (`normalizeSocialLink(...) ?? ''`),
+          which quietly DELETED anything that was not an openable URL: typing
+          `instagram` and pressing SAVE cleared the field.
+
+          The bug that normalisation was for — "the social media url permits
+          invalid urls", a blue link that did nothing when tapped — is now fixed
+          where it actually belongs, at the point of DISPLAY: `profile-header`
+          only draws the blue tappable row when the value resolves to a URL, and
+          renders plain text otherwise. So a non-link is never presented as a link,
+          and the field no longer has to refuse the input to achieve that.
+        */
+        socialLink: sanitizeSocialLinkInput(socialLink),
         // Same reasoning as `handle` above, for the newest column: send
         // `coverURL` only when the user actually picked one this session.
         ...(coverChanged ? { coverURL: coverUrl } : {}),
@@ -496,16 +525,14 @@ export function EditProfileScreen() {
               </View>
             ) : null}
             <SafeAreaView edges={['top']} style={styles.coverBar}>
-              <Pressable
-                accessibilityLabel="Go back"
-                accessibilityRole="button"
-                hitSlop={10}
-                onPress={() => router.back()}
-                style={[styles.circleButton, { backgroundColor: theme.colors.canvasElevated }]}
-                testID="edit-profile-back"
-              >
-                <NavArrowLeft color={theme.colors.textPrimary} height={20} width={20} />
-              </Pressable>
+              {/*
+                THE SHARED back button, not a hand-rolled circle. This was its
+                own 36pt `Pressable` while every other back affordance in the app
+                is `ChromeBackButton` at 40 — so the one screen you reach from a
+                40pt bubble handed you a smaller target than the one you tapped
+                to get here.
+              */}
+              <ChromeBackButton onPress={() => router.back()} testID="edit-profile-back" />
 
               {/* Figma 3083:12783 — "Edit Profile", 14/600 in gray/0, centered on
                   the SCREEN rather than on the space left over beside the back
@@ -573,29 +600,26 @@ export function EditProfileScreen() {
               onChangeText={setSocialLink}
               placeholder="Enter Social Link"
               testID="edit-profile-social-input"
-              // Social link value renders in blue 13px Medium, per Figma 3083:9399.
-              valueColor={theme.colors.blue400}
+              /*
+                BLUE IS THE FEEDBACK, AND IT REPLACED AN ERROR MESSAGE.
+
+                Social link values render blue 13px Medium per Figma 3083:9399 —
+                but only once the text is actually a link. Anything else is
+                ordinary text in the ordinary colour, which is exactly how the
+                profile will show it.
+
+                This is the whole of what used to be a red caption under the
+                field. That caption re-validated on every keystroke, so typing
+                `instagram.com/you` was told "Enter a full address, like
+                instagram.com/you" from the very first character — scolding
+                someone for not having finished typing yet. Colour says the same
+                thing without ever being wrong mid-word: it simply turns blue when
+                the value becomes openable.
+              */
+              valueColor={isSocialLinkOpenable ? theme.colors.blue400 : theme.colors.gray900}
               valueStyle={styles.fieldInputLink}
               value={socialLink}
             />
-            {/*
-              Shown only once there is something to judge, and never while the
-              field is empty — clearing your link is not an error. Advisory
-              rather than blocking: SAVE stays enabled and an unusable value is
-              stored as empty, which is honest about what the profile will show.
-            */}
-            {socialLinkProblem ? (
-              <Text
-                style={[
-                  theme.typography.caption,
-                  styles.fieldProblem,
-                  { color: theme.colors.dangerStrong },
-                ]}
-                testID="edit-profile-social-problem"
-              >
-                {socialLinkProblem}
-              </Text>
-            ) : null}
 
             <UnderlineField
               label="Location"
@@ -687,7 +711,7 @@ export function EditProfileScreen() {
             borderTopColor: theme.colors.outlineSubtle,
             // Lifted so SAVE is reachable while typing. Previously pinned to the
             // screen's bottom edge and simply covered — see `actionsLift`.
-            bottom: actionsLift,
+            bottom: actionsBottom,
             paddingBottom: insets.bottom + 8,
           },
         ]}
@@ -783,13 +807,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
-  circleButton: {
-    alignItems: 'center',
-    borderRadius: 18,
-    height: 36,
-    justifyContent: 'center',
-    width: 36,
-  },
   coverUploading: {
     alignItems: 'center',
     // Dark scrim so the white spinner reads over any photo, including a bright
@@ -823,9 +840,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 0,
   },
-  fieldProblem: {
-    paddingTop: 4,
-  },
   fieldInputLink: {
     // Social link value: 13px Medium (Figma 3083:9399), not the 14px Regular the
     // other field values use.
@@ -839,11 +853,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 8,
   },
-  // Mirrors `circleButton`'s 36pt width so the flexible title between them lands
-  // on the screen's centerline instead of being pushed right by the back button.
+  // Mirrors the back button's width so the flexible title between them lands on
+  // the screen's centerline instead of being pushed right by it. Read from the
+  // primitive, not repeated as a literal: the two drifting apart is exactly what
+  // knocks the title off centre.
   coverBarSpacer: {
-    height: 36,
-    width: 36,
+    height: chromeBackButtonSize,
+    width: chromeBackButtonSize,
   },
   coverTitle: {
     flex: 1,
