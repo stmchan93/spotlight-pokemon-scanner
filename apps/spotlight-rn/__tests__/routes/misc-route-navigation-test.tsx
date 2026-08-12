@@ -1,6 +1,21 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import type { CatalogSearchResult, InventoryCardEntry } from '@spotlight/api-client';
 
+import AccountImportRoute from '@/app/(modal)/account/import';
+import ModalLayout from '@/app/(modal)/_layout';
+import AccountRoute from '@/app/(modal)/account';
+import CatalogSearchRoute from '@/app/(sheet)/catalog/search';
+import SheetLayout from '@/app/(sheet)/_layout';
+import BrowseStackLayout from '@/app/(stack)/_layout';
+import CardDetailRoute from '@/app/(stack)/cards/[cardId]';
+import DesignSystemRoute from '@/app/(stack)/design-system';
+import InventoryRoute from '@/app/(stack)/inventory/index';
+import LabelingSessionRoute from '@/app/(stack)/labeling/session';
+import SalesHistoryRoute from '@/app/(stack)/sales-history';
+import TabsLayout from '@/app/(tabs)/_layout';
+import PortfolioRedirect from '@/app/(tabs)/portfolio';
+import LoginCallbackScreen from '@/app/login-callback';
+
 const mockBack = jest.fn();
 const mockDismissTo = jest.fn();
 const mockPush = jest.fn();
@@ -271,21 +286,6 @@ jest.mock('@/features/portfolio/screens/sales-history-screen', () => ({
     );
   },
 }));
-
-import AccountImportRoute from '@/app/(modal)/account/import';
-import ModalLayout from '@/app/(modal)/_layout';
-import AccountRoute from '@/app/(modal)/account';
-import CatalogSearchRoute from '@/app/(sheet)/catalog/search';
-import SheetLayout from '@/app/(sheet)/_layout';
-import BrowseStackLayout from '@/app/(stack)/_layout';
-import CardDetailRoute from '@/app/(stack)/cards/[cardId]';
-import DesignSystemRoute from '@/app/(stack)/design-system';
-import InventoryRoute from '@/app/(stack)/inventory/index';
-import LabelingSessionRoute from '@/app/(stack)/labeling/session';
-import SalesHistoryRoute from '@/app/(stack)/sales-history';
-import TabsLayout from '@/app/(tabs)/_layout';
-import PortfolioRedirect from '@/app/(tabs)/portfolio';
-import LoginCallbackScreen from '@/app/login-callback';
 
 describe('misc route wrappers', () => {
   beforeEach(() => {
@@ -636,7 +636,10 @@ describe('misc route wrappers', () => {
 
     await waitFor(() => {
       expect(mockRestoreSessionFromUrl).toHaveBeenCalledWith('spotlight://login-callback#access_token=token');
-      expect(mockDismissTo).toHaveBeenCalledWith({ pathname: '/', params: { page: 'portfolio' } });
+      // Home, plainly. This asserted `{ pathname: '/', params: { page: 'portfolio' } }`
+      // — a name and a param that both said portfolio while `/` had become the
+      // feed, and a `page` param nothing has read since the pager was retired.
+      expect(mockDismissTo).toHaveBeenCalledWith('/');
     });
   });
 
@@ -648,7 +651,10 @@ describe('misc route wrappers', () => {
 
     await waitFor(() => {
       expect(mockRestoreSessionFromUrl).toHaveBeenCalledWith('spotlight://login-callback#access_token=token');
-      expect(mockDismissTo).toHaveBeenCalledWith({ pathname: '/', params: { page: 'portfolio' } });
+      // Home, plainly. This asserted `{ pathname: '/', params: { page: 'portfolio' } }`
+      // — a name and a param that both said portfolio while `/` had become the
+      // feed, and a `page` param nothing has read since the pager was retired.
+      expect(mockDismissTo).toHaveBeenCalledWith('/');
     });
   });
 
@@ -659,7 +665,10 @@ describe('misc route wrappers', () => {
     render(<LoginCallbackScreen />);
 
     await waitFor(() => {
-      expect(mockDismissTo).toHaveBeenCalledWith({ pathname: '/', params: { page: 'portfolio' } });
+      // Home, plainly. This asserted `{ pathname: '/', params: { page: 'portfolio' } }`
+      // — a name and a param that both said portfolio while `/` had become the
+      // feed, and a `page` param nothing has read since the pager was retired.
+      expect(mockDismissTo).toHaveBeenCalledWith('/');
     });
     expect(mockRestoreSessionFromUrl).not.toHaveBeenCalled();
   });

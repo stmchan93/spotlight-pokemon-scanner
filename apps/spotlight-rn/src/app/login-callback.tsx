@@ -16,13 +16,28 @@ export default function LoginCallbackScreen() {
   const hasHandledCallbackRef = useRef(false);
   const hasNavigatedAwayRef = useRef(false);
 
-  const navigateToPortfolio = useCallback(() => {
+  /**
+   * Land on Home after sign-in. Home IS `/` — the feed is the app's landing
+   * surface.
+   *
+   * This was `navigateToPortfolio` and passed `params: { page: 'portfolio' }`.
+   * Both were stale: `/` stopped being the collection when the feed took the
+   * tabs root, and `page` was the retired pager's addressing for choosing
+   * between two mounted pages — nothing reads it now that each page is a real
+   * route. So the name said portfolio, the param said portfolio, and the
+   * destination was the feed.
+   *
+   * `dismissTo` is correct HERE, unlike in the drawer: this is a root-stack
+   * route, so the divergence is at the stack and `StackRouter` implements
+   * POP_TO. Popping is what closes the callback screen.
+   */
+  const navigateHome = useCallback(() => {
     if (hasNavigatedAwayRef.current) {
       return;
     }
 
     hasNavigatedAwayRef.current = true;
-    router.dismissTo({ pathname: '/', params: { page: 'portfolio' } });
+    router.dismissTo('/');
   }, [router]);
 
   useEffect(() => {
@@ -51,9 +66,9 @@ export default function LoginCallbackScreen() {
 
   useEffect(() => {
     if (auth.state === 'signedIn') {
-      navigateToPortfolio();
+      navigateHome();
     }
-  }, [auth.state, navigateToPortfolio]);
+  }, [auth.state, navigateHome]);
 
   const resolvedCallbackURL = callbackURL ?? fallbackCallbackURL;
 
@@ -72,7 +87,7 @@ export default function LoginCallbackScreen() {
         // Auth provider owns error handling; this route only prevents dead-end navigation.
       } finally {
         if (isActive) {
-          navigateToPortfolio();
+          navigateHome();
         }
       }
     })();
@@ -80,7 +95,7 @@ export default function LoginCallbackScreen() {
     return () => {
       isActive = false;
     };
-  }, [navigateToPortfolio, resolvedCallbackURL]);
+  }, [navigateHome, resolvedCallbackURL]);
 
   return (
     <View style={styles.container}>

@@ -1,13 +1,11 @@
 import { usePathname, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  Bookmark,
   ChatBubbleEmpty,
   GraphUp,
   LogOut,
   MagicWand,
   Menu as MenuIcon,
-  Scanning,
   Settings,
   ViewGrid,
 } from 'iconoir-react-native';
@@ -199,6 +197,16 @@ export function AppDrawer() {
   const TAB_ROOT_KEYS: readonly (typeof activeKey)[] = ['collection', 'home', 'wishlist', 'scan'];
   const isOnStackRoute = activeKey != null && !TAB_ROOT_KEYS.includes(activeKey);
 
+  /**
+   * Navigate to a STACK route. Tab destinations must not be passed here — and
+   * must not be reached from the drawer at all.
+   *
+   * There is no correct branch for a tab: `dismissTo` dispatches POP_TO, which
+   * `NativeBottomTabsRouter` delegates to `TabRouter`, which has no POP_TO case,
+   * so the action is silently dropped; and `push`/`replace` from a stack route
+   * would stack a second `(tabs)` entry. The drawer's removed Portfolio item hit
+   * the first of those. Tabs are reached by tapping the tab bar.
+   */
   const goTo = (path: string) => {
     closeDrawer();
     // small delay so the drawer slide-out is visible
@@ -216,61 +224,30 @@ export function AppDrawer() {
     }, ANIM_DURATION_MS / 2);
   };
 
-  const navigateToCollection = () => {
-    closeDrawer();
-    if (activeKey === 'collection') {
-      return;
-    }
-    // From a stack route back to Collection, which is the `/you` TAB now.
-    // `/portfolio` is a Redirect to it, so `router.replace('/portfolio')` would
-    // leave the back-stack with BOTH the tabs entry AND the redirected one —
-    // both render Collection visually, producing the "Collections then
-    // Collections again" swipe-back bug. Pop the stack down to the tabs and
-    // select the tab instead, so there is a single Collection entry.
-    //
-    // The `page: 'portfolio'` param that used to ride along was the retired
-    // pager's addressing (it chose which of two mounted pages to show) and is
-    // read by nothing now that each page is a real route.
-    setTimeout(() => {
-      router.dismissTo('/you' as never);
-    }, ANIM_DURATION_MS / 2);
-  };
+  /*
+    THE DRAWER HOLDS ONLY WHAT THE TAB BAR DOES NOT.
 
-  const collectionItems: NavItem[] = [
-    {
-      key: 'collection',
-      label: 'Portfolio',
-      icon: ViewGrid,
-      selected: activeKey === 'collection',
-      onPress: gate(navigateToCollection),
-    },
-    {
-      key: 'wishlist',
-      label: 'Wishlist',
-      icon: Bookmark,
-      selected: activeKey === 'wishlist',
-      onPress: gate(() => goTo('/wishlist')),
-    },
+    It used to also list Portfolio, Wishlist and Scan — all three of which are
+    bottom tabs. That duplication was not merely redundant, it was the bug: a tab
+    destination has no correct branch in `goTo` (see its comment), so the
+    Portfolio item hand-rolled `router.dismissTo('/you')`, which dispatches
+    POP_TO, which `NativeBottomTabsRouter` cannot handle. It worked from a pushed
+    screen and silently did nothing from any tab.
+
+    The duplicates also bought no reach: the drawer opens from Home, You and
+    Wishlist only, and on every one of those the bottom bar is drawn with all
+    four tabs one tap away.
+
+    So everything left here is drawer-ONLY, and every one of them is a stack
+    route, which is exactly the case `goTo` handles correctly.
+  */
+  const navItems: NavItem[] = [
     {
       key: 'insights',
       label: 'Insights',
       icon: GraphUp,
       selected: activeKey === 'insights',
       onPress: gate(() => goTo('/insights')),
-    },
-  ];
-
-  const actionItems: NavItem[] = [
-    {
-      key: 'scan',
-      label: 'Scan',
-      icon: Scanning,
-      selected: activeKey === 'scan',
-      onPress: () => {
-        closeDrawer();
-        // Scanner lives on the tabs root; navigate via the tabs index path
-        setTimeout(() => router.push('/scan' as never), ANIM_DURATION_MS / 2);
-      },
     },
     {
       // The ONLY entry point to the DM inbox — `/messages` is reachable from
@@ -378,28 +355,20 @@ export function AppDrawer() {
 
           <View style={styles.divider} />
 
+          {/*
+            ONE section now. It was two, split Collection-ish / actions, which
+            stopped meaning anything once the tab-shadowing items left — the
+            remainder would have rendered as a single-item group between two
+            rules.
+          */}
           <View style={styles.navSection}>
-            {collectionItems.map((item) => (
-              <DrawerNavItem
-                key={item.key}
-                icon={item.icon}
-                label={item.label}
-                selected={item.selected}
-                onPress={item.onPress}
-                testID={`app-drawer-nav-${item.key}`}
-              />
-            ))}
-          </View>
-
-          <View style={styles.divider} />
-
-          <View style={styles.navSection}>
-            {actionItems.map((item) => (
+            {navItems.map((item) => (
               <DrawerNavItem
                 key={item.key}
                 badgeCount={item.badgeCount}
                 icon={item.icon}
                 label={item.label}
+                selected={item.selected}
                 onPress={item.onPress}
                 testID={`app-drawer-nav-${item.key}`}
               />

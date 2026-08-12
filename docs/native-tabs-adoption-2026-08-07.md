@@ -1,8 +1,13 @@
 # Native iOS 26 tabs — adoption
 
-> **STATUS: Phase 1 on staging, `/native-tabs`. The live `(tabs)` pager is
-> untouched.** Decided 2026-08-07: adopt native tabs, with the camera as a
-> pushed route rather than a tab.
+> **STATUS: SUPERSEDED 2026-08-11 by [navigation-ia-2026-08-11.md](/Users/stephenchan/Code/spotlight/docs/navigation-ia-2026-08-11.md).**
+>
+> This doc describes a TWO-tab shape (Collection and Wishlist, Scan not a tab)
+> that the app moved past within days: Scan became a real tab, and Home (the
+> feed) and You were added, giving Home / Scan / Wishlist / You. Kept for the
+> reasoning it records — why native tabs were adopted, why Scan cannot push
+> instead of switch, and the reticle-inset finding — but do NOT read its
+> structure as current.
 
 Supersedes the tab-bar half of `docs/archive/ios26-liquid-glass-bars-2026-06-04.md`.
 

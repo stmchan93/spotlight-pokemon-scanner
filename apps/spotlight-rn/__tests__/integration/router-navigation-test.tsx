@@ -47,9 +47,12 @@ describe('mobile app routing', () => {
     // Wishlist was a PUSHED stack screen and is now a tab, so `/wishlist`
     // resolves inside (tabs). The three tests that used to live here covered the
     // custom bar's push/dismiss contract on that pushed screen — a contract that
-    // no longer exists for Wishlist, since UIKit owns tab switching. The
-    // duplicate-push guard itself is still covered by app-bottom-tab-bar's own
-    // tests, which is where it belongs.
+    // no longer exists for Wishlist, since UIKit owns tab switching.
+    //
+    // That bar (`app-bottom-tab-bar`) has since been deleted outright — it had
+    // no remaining call sites — so its duplicate-push guard is gone with it,
+    // not relocated. This comment used to claim the guard was "still covered by
+    // app-bottom-tab-bar's own tests"; there were never any such tests.
     const app = renderAppRouter('/wishlist', {
       // Stubbed for the same reason the pushed version was: this asserts the
       // ROUTE resolves inside (tabs), not the wishlist content.

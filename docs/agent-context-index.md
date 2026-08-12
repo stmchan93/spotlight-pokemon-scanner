@@ -15,6 +15,7 @@ This index keeps volatile rollout state, migration phases, corpus notes, and imp
 - Earlier landed raw backend reset baseline: [raw-backend-reset-spec-2026-04-08.md](/Users/stephenchan/Code/spotlight/docs/raw-backend-reset-spec-2026-04-08.md)
 - Local raw visual dataset workflow and corpus handling: [raw-visual-local-dataset-workflow-2026-04-12.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-local-dataset-workflow-2026-04-12.md)
 - CLIP encoder ONNX/quantization findings (FP32 ONNX shipped behind a flag, ~1.5x on VM, zero regression; INT8 deferred to next retrain): [clip-encoder-onnx-quantization-findings-2026-05-26.md](/Users/stephenchan/Code/spotlight/docs/clip-encoder-onnx-quantization-findings-2026-05-26.md)
+- **Navigation IA — the four tabs (Home/Scan/Wishlist/You), Portfolio-contains-Collection, and the rule that the drawer holds only what the tab bar does not**: [navigation-ia-2026-08-11.md](/Users/stephenchan/Code/spotlight/docs/navigation-ia-2026-08-11.md)
 
 Use these docs for:
 

@@ -111,10 +111,17 @@ describe('AppDrawer', () => {
       drawerHandleRef.current?.open();
     });
 
-    expect(screen.getByTestId('app-drawer-nav-collection')).toBeTruthy();
+    // THE DRAWER HOLDS ONLY WHAT THE TAB BAR DOES NOT. Portfolio, Wishlist and
+    // Scan are bottom tabs, and duplicating them here is what produced a
+    // silently-dead item: a tab destination has no correct branch in `goTo`, so
+    // the Portfolio row hand-rolled `dismissTo`, which the native tabs router
+    // drops (see native-tabs-router-contract-test). Asserted absent rather than
+    // simply removed, so re-adding one fails here instead of on a device.
+    expect(screen.queryByTestId('app-drawer-nav-collection')).toBeNull();
+    expect(screen.queryByTestId('app-drawer-nav-wishlist')).toBeNull();
+    expect(screen.queryByTestId('app-drawer-nav-scan')).toBeNull();
+
     expect(screen.getByTestId('app-drawer-nav-insights')).toBeTruthy();
-    expect(screen.getByTestId('app-drawer-nav-wishlist')).toBeTruthy();
-    expect(screen.getByTestId('app-drawer-nav-scan')).toBeTruthy();
     // The drawer is the only way into the DM inbox.
     expect(screen.getByTestId('app-drawer-nav-messages')).toBeTruthy();
     expect(screen.getByTestId('app-drawer-nav-whos-that-pokemon')).toBeTruthy();
@@ -222,7 +229,7 @@ describe('AppDrawer', () => {
     }
   });
 
-  it('marks the Collection row active when pathname is /portfolio', () => {
+  it('marks no nav row active when pathname is a tab root', () => {
     (usePathname as jest.Mock).mockReturnValue('/portfolio');
 
     renderWithProviders(
@@ -236,7 +243,9 @@ describe('AppDrawer', () => {
       drawerHandleRef.current?.open();
     });
 
-    expect(screen.queryByTestId('app-drawer-nav-collection-active-dot')).toBeTruthy();
+    // Every remaining drawer row is a STACK route, so standing on a tab root
+    // lights none of them. The dot mechanism itself is covered by the /insights
+    // case below.
     expect(screen.queryByTestId('app-drawer-nav-insights-active-dot')).toBeNull();
   });
 
@@ -255,73 +264,17 @@ describe('AppDrawer', () => {
     });
 
     expect(screen.queryByTestId('app-drawer-nav-insights-active-dot')).toBeTruthy();
-    expect(screen.queryByTestId('app-drawer-nav-collection-active-dot')).toBeNull();
   });
 
-  it('navigates back to /portfolio when Collection is tapped from a stack route', () => {
-    jest.useFakeTimers();
-    try {
-      (usePathname as jest.Mock).mockReturnValue('/insights');
-
-      renderWithProviders(
-        <>
-          <DrawerController />
-          <AppDrawer />
-        </>,
-      );
-
-      act(() => {
-        drawerHandleRef.current?.open();
-      });
-
-      fireEvent.press(screen.getByTestId('app-drawer-nav-collection'));
-
-      act(() => {
-        jest.advanceTimersByTime(500);
-      });
-
-      // Pop the stack down to the tabs and select Collection, which is the
-      // `/you` TAB — not `/`, which is the Home feed now. `replace('/portfolio')`
-      // would leave both the tabs entry AND the redirected one in the stack
-      // (both render Collection visually), causing the "Collections Collections
-      // Collections" swipe-back bug. The `page: 'portfolio'` param that used to
-      // ride along was the retired pager's addressing and is read by nothing.
-      expect(dismissTo).toHaveBeenCalledWith('/you');
-      expect(replace).not.toHaveBeenCalled();
-    } finally {
-      jest.useRealTimers();
-    }
-  });
-
-  it('does not navigate when Collection is tapped while already on /portfolio', () => {
-    jest.useFakeTimers();
-    try {
-      (usePathname as jest.Mock).mockReturnValue('/portfolio');
-
-      renderWithProviders(
-        <>
-          <DrawerController />
-          <AppDrawer />
-        </>,
-      );
-
-      act(() => {
-        drawerHandleRef.current?.open();
-      });
-
-      fireEvent.press(screen.getByTestId('app-drawer-nav-collection'));
-
-      act(() => {
-        jest.advanceTimersByTime(500);
-      });
-
-      expect(replace).not.toHaveBeenCalled();
-      expect(push).not.toHaveBeenCalled();
-      expect(dismissTo).not.toHaveBeenCalled();
-    } finally {
-      jest.useRealTimers();
-    }
-  });
+  /*
+    Removed with the drawer's Collection/Portfolio row: two tests that asserted
+    `dismissTo('/you')` was CALLED. Both passed green while the feature was
+    broken on device — the router here is a jest mock, so "was it called" says
+    nothing about whether the navigator could handle it. The real constraint is
+    now pinned directly in
+    `__tests__/routes/native-tabs-router-contract-test.ts`, which drives the
+    actual NativeBottomTabsRouter and asserts POP_TO comes back null.
+  */
 
   it('confirms Log Out via an alert before signing out', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation((_title, _message, buttons) => {
