@@ -14,7 +14,6 @@ import LabelingSessionRoute from '@/app/(stack)/labeling/session';
 import SalesHistoryRoute from '@/app/(stack)/sales-history';
 import TabsLayout from '@/app/(tabs)/_layout';
 import PortfolioRedirect from '@/app/(tabs)/portfolio';
-import WishlistRoute from '@/app/(tabs)/wishlist';
 import LoginCallbackScreen from '@/app/login-callback';
 
 const mockBack = jest.fn();
@@ -573,21 +572,6 @@ describe('misc route wrappers', () => {
     // instead of silently pointing every old portfolio link at the feed.
     render(<PortfolioRedirect />);
     expect(screen.getByTestId('redirect-target').props.children).toBe(JSON.stringify('/you'));
-  });
-
-  /*
-    A guest must be REDIRECTED off the Wishlist tab, not bounced by the screen's
-    own login effect. NativeTabs mounts tab screens eagerly, so that effect ran
-    on a first launch before the tab was ever touched and threw the login modal
-    over the scanner — a fresh install appeared to open on a login wall.
-  */
-  it('redirects a guest off the Wishlist tab instead of mounting it', () => {
-    mockUseAuth.mockReturnValue({ state: 'signedIn', isGuest: true } as never);
-
-    render(<WishlistRoute />);
-
-    expect(screen.getByTestId('redirect-target').props.children).toBe(JSON.stringify('/scan'));
-    expect(screen.queryByTestId('wishlist-screen')).toBeNull();
   });
 
   it('wires inventory back and card detail navigation', () => {

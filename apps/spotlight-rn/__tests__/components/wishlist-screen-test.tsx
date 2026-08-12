@@ -17,6 +17,27 @@ jest.mock('expo-router', () => ({
   useRouter: jest.fn(),
 }));
 
+// Focus is what decides whether the guest bounce is allowed to fire, so the
+// test drives it directly.
+let mockIsFocused = true;
+jest.mock('@react-navigation/native', () => ({
+  // Keep the real module — expo-router's testing library needs its navigator
+  // factory; only the focus signal is swapped.
+  ...jest.requireActual('@react-navigation/native'),
+  useIsFocused: () => mockIsFocused,
+}));
+
+const mockOpenLogin = jest.fn();
+let mockIsGuest = false;
+jest.mock('@/features/auth/use-guest-gate', () => ({
+  useGuestGate: () => ({
+    ensureGuestSession: jest.fn(),
+    gate: (fn: () => void) => fn,
+    isGuest: mockIsGuest,
+    openLogin: mockOpenLogin,
+  }),
+}));
+
 // The share sheet is a real DM send. Stub the network edges so the test can
 // assert what actually lands in the thread.
 jest.mock('@/features/social/dm-service', () => ({
@@ -768,5 +789,44 @@ describe('WishlistScreen', () => {
     });
 
     expect(screen.queryByTestId('wishlist-list-pagination')).toBeNull();
+  });
+
+  /*
+    NativeTabs mounts tab screens eagerly, so this screen exists before the tab
+    is ever opened. Bouncing a guest to login from mount therefore threw the
+    login modal over the scanner on a first launch — the app looked like it
+    opened on a login wall. The bounce is allowed only while FOCUSED.
+  */
+  describe('guest bounce', () => {
+    afterEach(() => {
+      mockIsFocused = true;
+      mockIsGuest = false;
+      mockOpenLogin.mockClear();
+    });
+
+    it('does NOT open login while the tab is merely mounted, not focused', async () => {
+      mockIsGuest = true;
+      mockIsFocused = false;
+
+      renderWithProviders(<WishlistScreen />);
+
+      // The screen really did mount — the assertion below is about the bounce
+      // being withheld, not about the screen being absent.
+      await waitFor(() => {
+        expect(screen.getByTestId('wishlist-filter-row')).toBeTruthy();
+      });
+      expect(mockOpenLogin).not.toHaveBeenCalled();
+    });
+
+    it('opens login for a guest once the tab is actually focused', async () => {
+      mockIsGuest = true;
+      mockIsFocused = true;
+
+      renderWithProviders(<WishlistScreen />);
+
+      await waitFor(() => {
+        expect(mockOpenLogin).toHaveBeenCalled();
+      });
+    });
   });
 });
