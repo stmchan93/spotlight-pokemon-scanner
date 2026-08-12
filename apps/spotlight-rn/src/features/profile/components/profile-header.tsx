@@ -13,6 +13,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Avatar, SkeletonBlock, Text, useSpotlightTheme } from '@spotlight/design-system';
 
+import { normalizeSocialLink } from '@/features/profile/social-link';
+
 type ProfileHeaderProps = {
   displayName: string;
   handle?: string | null;
@@ -109,6 +111,10 @@ export function ProfileHeader({
   // preview the banner already shows the right picture, so a skeleton over it
   // would be a downgrade.
   const isCoverLoading = Boolean(coverUrl) && !hasPreview && settledCoverUrl !== coverUrl;
+
+  // Whether the stored value is something `onSocialLinkPress` could actually
+  // open. See the note beside the row it decides.
+  const isSocialLinkOpenable = normalizeSocialLink(socialLink) !== null;
 
   return (
     <View style={styles.block} testID={testID}>
@@ -226,24 +232,55 @@ export function ProfileHeader({
 
         </View>
 
+        {/*
+          THE FIELD ACCEPTS ANYTHING; THIS DECIDES WHAT IS A LINK.
+
+          The social field is free text — `instagram` is a perfectly good thing to
+          put on a profile, and the edit screen no longer refuses it or rewrites it
+          on save. So linkability is settled HERE, at the moment of display, by
+          asking whether the value resolves to something openable.
+
+          That is also the real fix for the bug this used to carry: every value was
+          drawn blue, underlined by a link glyph, inside a `Pressable` — so
+          "hello world" advertised itself as a link and then did nothing at all
+          when tapped, because the handler could not open it. Reported as "the
+          social media url permits invalid urls". A non-link is now simply not
+          drawn as one, so there is nothing left to mislead.
+        */}
         {socialLink ? (
-          <Pressable
-            onPress={onSocialLinkPress}
-            style={styles.socialRow}
-            testID={`${testID}-social-link`}
-          >
-            {/* Link is blue (#1A6FE8 / blue400) at 13px Medium — Figma 3083:12352.
-                Sits directly under the name, above the bio. */}
-            <Link color={theme.colors.blue400} height={16} width={16} />
-            <Text
-              style={[
-                theme.typography.bodyMedium,
-                { fontSize: 13, lineHeight: 16, color: theme.colors.blue400 },
-              ]}
+          isSocialLinkOpenable ? (
+            <Pressable
+              onPress={onSocialLinkPress}
+              style={styles.socialRow}
+              testID={`${testID}-social-link`}
             >
-              {socialLink}
-            </Text>
-          </Pressable>
+              {/* Link is blue (#1A6FE8 / blue400) at 13px Medium — Figma 3083:12352.
+                  Sits directly under the name, above the bio. */}
+              <Link color={theme.colors.blue400} height={16} width={16} />
+              <Text
+                style={[
+                  theme.typography.bodyMedium,
+                  { fontSize: 13, lineHeight: 16, color: theme.colors.blue400 },
+                ]}
+              >
+                {socialLink}
+              </Text>
+            </Pressable>
+          ) : (
+            // No glyph and no `Pressable`: both are the promise of a destination,
+            // and there isn't one. Same row and same metrics so the layout does
+            // not shift depending on what was typed.
+            <View style={styles.socialRow} testID={`${testID}-social-text`}>
+              <Text
+                style={[
+                  theme.typography.bodyMedium,
+                  { fontSize: 13, lineHeight: 16, color: theme.colors.gray600 },
+                ]}
+              >
+                {socialLink}
+              </Text>
+            </View>
+          )
         ) : null}
 
         {bio ? (

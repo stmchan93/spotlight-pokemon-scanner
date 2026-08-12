@@ -100,7 +100,11 @@ export function FollowListScreen({
         <Pressable
           accessibilityRole="button"
           onPress={() => handlePressRow(item)}
-          style={({ pressed }) => [styles.row, pressed ? styles.rowPressed : null]}
+          style={({ pressed }) => [
+            styles.row,
+            { borderBottomColor: theme.colors.gray200 },
+            pressed ? styles.rowPressed : null,
+          ]}
           testID={`${testID}-row-${item.userID}`}
         >
           <Avatar
@@ -191,6 +195,9 @@ const styles = StyleSheet.create({
   },
   row: {
     alignItems: 'center',
+    // Hairline under every row, the DM-inbox treatment — a list of people
+    // reads as a list, not a floating column of avatars.
+    borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
     gap: 12,
     paddingVertical: 12,

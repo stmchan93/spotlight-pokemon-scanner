@@ -86,27 +86,32 @@ export function validateSocialLink(value: string | null | undefined): SocialLink
   return 'ok';
 }
 
-/** User-facing copy for a validity, or null when there is nothing to say. */
-export function describeSocialLinkValidity(validity: SocialLinkValidity): string | null {
-  switch (validity) {
-    case 'has-space':
-      return "A link can't contain spaces.";
-    case 'bad-scheme':
-      return 'Only http and https links can be opened.';
-    case 'no-host':
-      return 'Enter a full address, like instagram.com/you.';
-    default:
-      return null;
-  }
-}
+/*
+  `describeSocialLinkValidity` USED TO LIVE HERE AND IS DELIBERATELY GONE.
+
+  It turned a validity into red copy under the field — and because the field
+  re-validated on every keystroke, typing `instagram.com/you` was told "Enter a
+  full address, like instagram.com/you" from its first character. There is no
+  timing that fixes that: a half-typed URL is genuinely invalid, so any validator
+  watching the keystroke is correct and still wrong to speak.
+
+  The field now accepts free text and says nothing. What used to be an error is a
+  COLOUR: blue while the value is openable, ordinary text while it is not, in the
+  edit field and on the profile alike. Do not reintroduce the copy — reintroduce
+  the colour somewhere new if a surface needs the signal.
+*/
 
 /**
- * The value to STORE and to OPEN: an absolute `https://` URL, or null when there
- * is nothing usable.
+ * The value to OPEN: an absolute `https://` URL, or null when there is nothing
+ * usable.
  *
- * Returning null rather than the raw text is what stops an unopenable string
- * being persisted and then rendered as a link. Both read sites should call this
- * instead of prefixing `https://` themselves.
+ * NOT the value to store, despite what this used to say. Storing the normalised
+ * form meant an unopenable value was persisted as empty, so typing `instagram` and
+ * pressing SAVE cleared the field. The raw text is stored now
+ * (`sanitizeSocialLinkInput`) and this decides, at DISPLAY time, whether it is
+ * drawn as a link at all — which is what stops an unopenable string being
+ * presented as one. Every read site should call this instead of prefixing
+ * `https://` itself.
  */
 export function normalizeSocialLink(value: string | null | undefined): string | null {
   const link = sanitizeSocialLinkInput(value ?? '');

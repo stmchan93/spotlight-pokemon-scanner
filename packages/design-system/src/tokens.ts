@@ -1,4 +1,4 @@
-import type { TextStyle, ViewStyle } from 'react-native';
+import { Platform, type TextStyle, type ViewStyle } from 'react-native';
 
 export const fontFamilies = {
   display: 'SpotlightDisplay',
@@ -227,7 +227,16 @@ export const textStyles = {
     ...numericFontVariant,
     fontFamily: fontFamilies.display,
     fontSize: 36,
-    lineHeight: 40,
+    /*
+      Android needs the font's REAL line box; iOS keeps the tight 40.
+
+      Jakarta ExtraBold's metrics ask for ~1.34em (≈48pt at 36), and Android
+      centers glyphs inside whatever lineHeight it is given, clipping ink that
+      doesn't fit — which cut the descender off the g in the "Following" header.
+      iOS lets tight lines overflow instead of clipping, so it can keep the
+      compact look safely.
+    */
+    lineHeight: Platform.select({ android: 48, default: 40 }),
     letterSpacing: -0.9,
     color: colors.textPrimary,
   } satisfies TextStyle,

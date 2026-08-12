@@ -103,6 +103,49 @@ describe('EditProfileScreen', () => {
     expect(back).toHaveBeenCalledTimes(1);
   });
 
+  /*
+    THE SOCIAL FIELD MUST NOT EAT WHAT YOU TYPED.
+
+    It used to save `normalizeSocialLink(value) ?? ''`, so anything that was not an
+    openable URL was persisted as EMPTY — type `instagram`, press SAVE, and the
+    field came back blank with no explanation. Storing raw is what lets the profile
+    show `instagram` as ordinary text; `profile-header` decides separately whether
+    a value is drawn as a link, which is where that belongs.
+  */
+  it('saves a non-link social value verbatim instead of clearing it', async () => {
+    renderWithProviders(<EditProfileScreen />);
+
+    fireEvent.changeText(screen.getByPlaceholderText('Enter Social Link'), 'instagram');
+    fireEvent.press(screen.getByTestId('edit-profile-save'));
+
+    await waitFor(() => expect(updateProfile).toHaveBeenCalled());
+    expect(updateProfile.mock.calls[0][0].socialLink).toBe('instagram');
+  });
+
+  it('still stores a real link, trimmed, exactly as typed', async () => {
+    renderWithProviders(<EditProfileScreen />);
+
+    fireEvent.changeText(screen.getByPlaceholderText('Enter Social Link'), '  instagram.com/ash  ');
+    fireEvent.press(screen.getByTestId('edit-profile-save'));
+
+    await waitFor(() => expect(updateProfile).toHaveBeenCalled());
+    // Trimmed and bounded, but NOT rewritten to `https://…` — the scheme is added
+    // when the link is opened, not when it is stored.
+    expect(updateProfile.mock.calls[0][0].socialLink).toBe('instagram.com/ash');
+  });
+
+  // The red caption under this field is gone for good: it re-validated on every
+  // keystroke, so a half-typed URL was told off for not being finished.
+  it('never shows an error while the link is being typed', () => {
+    renderWithProviders(<EditProfileScreen />);
+
+    const field = screen.getByPlaceholderText('Enter Social Link');
+    for (const partial of ['i', 'inst', 'instagram', 'instagram.c']) {
+      fireEvent.changeText(field, partial);
+      expect(screen.queryByTestId('edit-profile-social-problem')).toBeNull();
+    }
+  });
+
   it('stays open and does not dismiss when the save fails', async () => {
     const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     updateProfile.mockRejectedValueOnce(new Error('write failed'));

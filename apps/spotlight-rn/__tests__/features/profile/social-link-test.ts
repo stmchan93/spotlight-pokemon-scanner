@@ -1,5 +1,4 @@
 import {
-  describeSocialLinkValidity,
   normalizeSocialLink,
   sanitizeSocialLinkInput,
   validateSocialLink,
@@ -10,6 +9,13 @@ import {
   the field trimmed and saved anything, and both readers then prefixed
   `https://` and called `Linking.openURL(...).catch(() => {})`, so a bad value
   rendered as a blue link and did nothing when tapped. Silent.
+
+  THE CLASSIFICATIONS BELOW OUTLIVED THE ERROR MESSAGES. `describeSocialLinkValidity`
+  is gone (see the note in `social-link.ts`): nothing shows red copy under the field
+  any more, because a validator watching every keystroke is correct and still wrong
+  to speak while someone is mid-word. What survives is the classification itself,
+  which `normalizeSocialLink` uses to answer the only question left — is this
+  openable, i.e. should it be DRAWN as a link at all.
 */
 describe('social link validation', () => {
   it('accepts a bare host and a full URL alike', () => {
@@ -28,7 +34,6 @@ describe('social link validation', () => {
     expect(validateSocialLink('')).toBe('empty');
     expect(validateSocialLink('   ')).toBe('empty');
     expect(validateSocialLink(null)).toBe('empty');
-    expect(describeSocialLinkValidity('empty')).toBeNull();
   });
 
   /*
@@ -38,7 +43,8 @@ describe('social link validation', () => {
   */
   it('rejects text with spaces, which the old prefix-and-hope accepted', () => {
     expect(validateSocialLink('hello world')).toBe('has-space');
-    expect(describeSocialLinkValidity('has-space')).toMatch(/space/i);
+    // …and therefore is never drawn as a link.
+    expect(normalizeSocialLink('hello world')).toBeNull();
   });
 
   /*
@@ -55,7 +61,7 @@ describe('social link validation', () => {
   it('rejects schemes it will not open, rather than calling them malformed', () => {
     expect(validateSocialLink('mailto:ash@example.com')).toBe('bad-scheme');
     expect(validateSocialLink('javascript:alert(1)')).toBe('bad-scheme');
-    expect(describeSocialLinkValidity('bad-scheme')).toMatch(/http/i);
+    expect(normalizeSocialLink('javascript:alert(1)')).toBeNull();
   });
 
   it('never rejects while sanitizing, only bounds', () => {

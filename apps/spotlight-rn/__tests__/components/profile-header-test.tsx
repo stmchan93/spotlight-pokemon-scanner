@@ -285,4 +285,55 @@ describe('ProfileHeader', () => {
     // The user is already looking at their own photo — no skeleton over it.
     expect(screen.queryByTestId('profile-header-cover-skeleton')).toBeNull();
   });
+
+  /*
+    THE SOCIAL FIELD IS FREE TEXT, AND THIS IS WHERE THAT IS MADE SAFE.
+
+    The edit screen no longer refuses or rewrites what you type — `instagram` is a
+    reasonable thing to put on a profile — so whether a value is a LINK is decided
+    here, at display. Getting this wrong is what the original tester report was:
+    every value was drawn blue inside a `Pressable`, so unopenable text advertised
+    itself as a link and then did nothing when tapped ("the social media url
+    permits invalid urls").
+  */
+  describe('the social row', () => {
+    it('draws an openable value as a tappable blue link', async () => {
+      const onSocialLinkPress = jest.fn();
+      renderHeader(
+        <ProfileHeader
+          displayName="Ash Ketchum"
+          initials="AK"
+          onSocialLinkPress={onSocialLinkPress}
+          socialLink="instagram.com/ash"
+        />,
+      );
+
+      const row = screen.getByTestId('profile-header-social-link');
+      fireEvent.press(row);
+      expect(onSocialLinkPress).toHaveBeenCalled();
+      expect(screen.queryByTestId('profile-header-social-text')).toBeNull();
+      await flushMotionProbe();
+    });
+
+    it('draws a value that is not a link as plain, untappable text', async () => {
+      const onSocialLinkPress = jest.fn();
+      renderHeader(
+        <ProfileHeader
+          displayName="Ash Ketchum"
+          initials="AK"
+          onSocialLinkPress={onSocialLinkPress}
+          // A bare word: valid to store, impossible to open. Before this it was
+          // stored as '' and vanished; now it survives and shows as itself.
+          socialLink="instagram"
+        />,
+      );
+
+      expect(screen.getByText('instagram')).toBeTruthy();
+      // The whole point: no link row, so nothing to tap and nothing to promise.
+      expect(screen.queryByTestId('profile-header-social-link')).toBeNull();
+      expect(screen.getByTestId('profile-header-social-text')).toBeTruthy();
+      expect(onSocialLinkPress).not.toHaveBeenCalled();
+      await flushMotionProbe();
+    });
+  });
 });
