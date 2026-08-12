@@ -483,24 +483,9 @@ describe('WhosThatPokemonScreen', () => {
     expect(screen.queryByTestId('wtp-result')).toBeNull();
   });
 
-  /*
-    ─────────────────────────────────────────────────────────────────────────
-    THE CAMERA SURVIVES EVERY PHASE, INCLUDING "TRY AGAIN".
-    ─────────────────────────────────────────────────────────────────────────
-    It used to be rendered inside the capture phase, so each phase change tore
-    the native session down and the next rebuilt it — and result → capture, the
-    "Try again" path, hard-crashed the app on iOS.
-
-    `raw-scanner-capture-surface.tsx` had already found and fixed exactly this:
-    conditionally mounting the camera "reliably hard-crashed the app on the
-    portfolio->scanner return", and the answer was vision-camera's documented
-    mount-once / toggle-`isActive` pattern.
-
-    The test above walks the same route and passed straight through the bug,
-    because a crash in the native session is invisible to jest. So this asserts
-    the STRUCTURE instead — the one node whose continuous existence is the
-    whole fix — which is checkable without a camera.
-  */
+  // The test above walks the same route and passed straight through the crash —
+  // a dead native session is invisible to jest. So assert the structure that IS
+  // the fix: one camera, alive across every phase.
   it('keeps the camera mounted across every phase, and never remounts it on Try again', async () => {
     const whosThatPokemon = jest.fn(async () => mockMatches);
     const repository = createTestSpotlightRepository({ whosThatPokemon });

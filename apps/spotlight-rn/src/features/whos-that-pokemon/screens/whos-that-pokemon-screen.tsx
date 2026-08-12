@@ -658,26 +658,15 @@ export function WhosThatPokemonScreen() {
   const activeSpeciesOutline = activeMatchIndex === 0 ? speciesOutline : null;
 
   /*
-    ───────────────────────────────────────────────────────────────────────────
-    THE CAMERA IS MOUNTED ONCE AND NEVER CONDITIONALLY RENDERED.
-    ───────────────────────────────────────────────────────────────────────────
-    This screen used to render `<Camera>` inside the capture phase, so every
-    phase change tore the native session down and the next one rebuilt it. "Try
-    again" is the sharpest case — result → capture, a full teardown and remount
-    in one commit — and it hard-crashed the app on iOS.
+    Mounted ONCE, never conditionally rendered — vision-camera's documented
+    pattern, and the same fix `raw-scanner-capture-surface.tsx` already made
+    after conditional mounting "reliably hard-crashed the app". Rendering
+    `<Camera>` inside the capture phase tore the native session down on every
+    phase change; "Try again" (result → capture) crashed iOS outright.
 
-    That is not a new discovery. `raw-scanner-capture-surface.tsx` carries the
-    same finding in its own words: conditionally mounting the camera "tore down
-    and rebuilt the native camera session on every page swipe, which reliably
-    hard-crashed the app on the portfolio->scanner return", and the fix there
-    was vision-camera's documented pattern — mount once, toggle `isActive`.
-    This screen is now on that pattern too.
-
-    It has to be an ABSOLUTE layer rather than a flex child: `cameraCanvas` and
-    `resultScroll` are both `flex: 1`, so as siblings in the flex column they
-    would split the screen between them. Taking the camera out of the flow lets
-    it stay mounted underneath whatever phase is drawing, and `opacity` (not
-    unmounting, and not `display: 'none'`) is what hides it.
+    An absolute layer, not a flex child: `cameraCanvas` and `resultScroll` are
+    both `flex: 1` and would otherwise split the screen. Hidden with `opacity`,
+    never unmounted.
   */
   const isCameraMounted = hasPermission && device != null && photoOutput != null;
   const isCapturePhase = phase === 'capture';

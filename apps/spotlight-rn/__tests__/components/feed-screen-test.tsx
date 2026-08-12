@@ -205,28 +205,23 @@ describe('FeedScreen', () => {
     expect(push).toHaveBeenCalledWith('/new-post');
   });
 
-  /*
-    The rule under the compose row went missing on Android because it was
-    declared with a height and a colour but no WIDTH. It has no content, so
-    nothing gave it an intrinsic size, and inside `ListHeaderComponent` — which
-    VirtualizedList wraps, not us — it never inherited a stretch. Zero points
-    wide draws nothing, however right the height and colour are.
-
-    `PostCard`'s identical rule was fine throughout because it has always
-    carried `width: '100%'`, which is why the lines BETWEEN posts still showed.
-  */
-  it('gives the compose rule an explicit width so it cannot lay out zero-wide', async () => {
+  // On Android the rule showed on first paint and vanished once the post below
+  // loaded — a sibling hairline box on the header/cell seam, relaid out away.
+  // A border on the row itself has nothing to lose; this pins that form.
+  it('draws the compose rule as a border on the row, not a separate hairline view', async () => {
     renderWithProviders(<FeedScreen />);
     await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
-    const divider = screen.getByTestId('feed-compose-divider');
-    const style = StyleSheet.flatten(divider.props.style);
+    const section = screen.getByTestId('feed-compose-divider');
+    const style = StyleSheet.flatten(section.props.style);
 
+    expect(style.borderBottomWidth).toBeGreaterThan(0);
+    expect(style.borderBottomColor).toBeTruthy();
+    // The row it is painted on must itself be full-width, or the border is too.
     expect(style.width).toBe('100%');
-    // Still the design-system rule, still visible — a width alone would satisfy
-    // the assertion above while drawing an invisible line.
-    expect(style.height).toBeGreaterThan(0);
-    expect(style.backgroundColor).toBeTruthy();
+    // And it must really be the row — a border on an empty box would be the
+    // same bug wearing a different style prop.
+    expect(within(section).getByTestId('feed-compose-prompt')).toBeTruthy();
   });
 
   it('shows an empty state when there are no posts', async () => {

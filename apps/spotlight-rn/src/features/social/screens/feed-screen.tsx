@@ -481,7 +481,16 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     themselves, so nothing here is double-padded.
   */
   const composePrompt = (
-    <View>
+    <View
+      style={[
+        styles.composeSection,
+        {
+          borderBottomColor: theme.colors.gray300,
+          borderBottomWidth: theme.borderWidths.rule,
+        },
+      ]}
+      testID={`${testID}-compose-divider`}
+    >
       <Pressable
         accessibilityLabel="Create a post"
         accessibilityRole="button"
@@ -494,13 +503,6 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
           What&rsquo;s on your mind?
         </Text>
       </Pressable>
-      <View
-        style={[
-          styles.composeDivider,
-          { backgroundColor: theme.colors.gray300, height: theme.borderWidths.rule },
-        ]}
-        testID={`${testID}-compose-divider`}
-      />
     </View>
   );
 
@@ -731,22 +733,12 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     paddingTop: 16,
   },
-  /*
-    THE WIDTH IS THE WHOLE STYLE, and it is not optional.
-
-    This rule has no content and no intrinsic size, so with only a height and a
-    colour it is laid out zero points WIDE and never draws — reported as "the
-    grey line isn't appearing" on Android while the identical rule between post
-    cards showed fine. The difference was exactly this declaration:
-    `PostCard`'s divider has always carried `width: '100%'`, so it never
-    depended on inheriting a stretch from whatever happens to wrap it. This one
-    sits inside `ListHeaderComponent`, which is wrapped by VirtualizedList
-    rather than by us, and there it does not get one.
-
-    Stating the width here makes the rule self-sufficient wherever it is
-    mounted, which is what the sibling was already doing.
-  */
-  composeDivider: {
+  // The rule is a BORDER on this row, not a hairline View below it. As a
+  // sibling box on the seam between the list header and the first cell, it
+  // showed on first paint and vanished when the post below relaid it out
+  // (Android only). A border is painted inside a row that has real content, so
+  // it has nothing to lose — the same form the DM inbox and follow list use.
+  composeSection: {
     alignSelf: 'stretch',
     width: '100%',
   },
