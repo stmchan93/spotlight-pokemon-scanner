@@ -1398,9 +1398,9 @@ export function CommentsSheet({
     };
     // `onCommentCountResolved` is a reporting callback; re-running the fetch
     // when the parent re-creates it would refetch the thread on every render.
+    // `focusCommentId` is read at LOAD time only — re-running on a change would
+    // refetch the thread just to move the scroll.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    // `focusCommentId` is read at LOAD time only — re-running this on a change
-    // would refetch the thread just to move the scroll.
   }, [postId, visible]);
 
   const threads = useMemo(() => buildCommentThreads(comments), [comments]);
