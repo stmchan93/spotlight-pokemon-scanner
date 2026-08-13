@@ -70,6 +70,7 @@ import {
 import { CollectionListRow } from '@/features/portfolio/components/collection-list-view';
 import { CardActionsSheet } from '@/features/cards/components/card-actions-sheet';
 import { ConfirmDeleteSheet } from '@/features/cards/components/confirm-delete-sheet';
+import { buildEbaySearchUrl, buildTcgPlayerSearchUrl } from '@/features/cards/marketplace-urls';
 import { DrawerEdgeSwipe } from '@/components/drawer-edge-swipe';
 import {
   AnimatedFlatList,
@@ -140,6 +141,37 @@ const PROFILE_TAB_ORDER = PROFILE_TABS.map((tab) => tab.value);
 // Press-and-hold duration before a card's actions menu opens — a standard
 // long-press (iOS context menus sit around here).
 const CARD_LONG_PRESS_MS = 500;
+
+/**
+ * Marketplace link for a Collection card, used by the long-press Share action.
+ *
+ * Same rule as the PDP's "View on" link: raw goes to TCGplayer, graded to eBay
+ * SOLD comps. Uses the search builders rather than the exact-product one — the
+ * inventory row carries no TCGplayer product id (only `CardDetail` does), and
+ * search is what the app already falls back to there.
+ *
+ * Returns null when the entry has too little to identify it; the caller then
+ * shares the plain text it always did.
+ */
+function buildMarketplaceUrlForEntry(entry: InventoryCardEntry): string | null {
+  if (entry.kind === 'graded') {
+    return buildEbaySearchUrl({
+      cardNumber: entry.cardNumber,
+      grade: entry.slabContext?.grade ?? null,
+      grader: entry.slabContext?.grader ?? null,
+      name: entry.name,
+      setName: entry.setName,
+      variant: entry.slabContext?.variantName ?? entry.variantName ?? null,
+    });
+  }
+  return buildTcgPlayerSearchUrl({
+    cardNumber: entry.cardNumber,
+    condition: entry.conditionLabel ?? entry.conditionCode ?? null,
+    name: entry.name,
+    printing: entry.variantName ?? null,
+    setName: entry.setName,
+  });
+}
 
 // How long the holdings reads will wait for `listCollections` to say which
 // collection they are for. See the scope gate in the screen body.
@@ -981,7 +1013,12 @@ export function PortfolioScreen({
       .map((part) => (part ?? '').trim())
       .filter(Boolean)
       .join(' · ');
-    const url = entry.listingUrl ?? undefined;
+    // A marketplace link, not just the card's name. `listingUrl` is set on
+    // almost nothing, so a share was three words of text with no way to look the
+    // card up. Built the same way the PDP builds its "View on" link, and split
+    // by lane for the same reason: a TCGplayer search cannot express "PSA 10",
+    // so a graded card goes to its eBay sold comps instead.
+    const url = entry.listingUrl ?? buildMarketplaceUrlForEntry(entry) ?? undefined;
     // Present the native share sheet only AFTER the actions modal's view
     // controller has fully dismissed — presenting UIActivityViewController while
     // the RN modal is still tearing down freezes the screen. Queue it and let

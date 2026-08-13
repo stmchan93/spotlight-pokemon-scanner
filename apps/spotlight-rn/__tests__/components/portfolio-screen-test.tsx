@@ -1,6 +1,6 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import { useRouter } from 'expo-router';
-import { Alert, Share, StyleSheet, Text } from 'react-native';
+import { Alert, Platform, Share, StyleSheet, Text } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { MockSpotlightRepository } from '@spotlight/api-client';
@@ -787,6 +787,95 @@ describe('PortfolioScreen', () => {
     expect(screen.getByText('Send profile to')).toBeTruthy();
 
     shareSpy.mockRestore();
+  });
+
+  /*
+    LONG-PRESS → SHARE, ON ANDROID, WITH A LINK.
+
+    Two bugs in one flow, both reported from a real Android device:
+
+    1. It did NOTHING. The share is QUEUED and run from `CardActionsSheet`'s
+       `onDismiss`, which RN calls behind `Platform.OS === 'ios'` — so on Android
+       the queued action was dropped every time. (`card-actions-sheet-test`
+       pins the signal itself; this pins the flow that depends on it.)
+    2. It shared three words of text. `listingUrl` is set on almost nothing, so
+       there was no way to look the card up from what you received.
+
+    Runs as Android deliberately: on iOS the dismissal comes from the native
+    modal, which jest's renderer never drives, so the flow is only end-to-end
+    testable on the platform that was broken.
+  */
+  it('shares a TCGplayer link for a raw card, from a long-press, on Android', async () => {
+    const realOS = Platform.OS;
+    Platform.OS = 'android';
+    const shareSpy = jest
+      .spyOn(Share, 'share')
+      .mockResolvedValue({ action: 'sharedAction' } as never);
+    const entry = buildInventoryEntry({
+      id: 'share-1',
+      name: 'Charizard',
+      cardNumber: '#4/102',
+      setName: 'Base Set',
+    });
+    const dashboard = buildDashboardWithInventory([entry]);
+    const repository = createTestSpotlightRepository({
+      loadInventoryEntries: async () => ({ state: 'success', data: [entry], errorMessage: null }),
+      loadPortfolioDashboard: async () => ({ state: 'success', data: dashboard, errorMessage: null }),
+    });
+
+    try {
+      renderPortfolioScreen({ repository });
+      const tile = await screen.findByTestId('collection-masonry-grid-tile-share-1');
+
+      await act(async () => {
+        fireEvent(tile, 'longPress');
+      });
+      await act(async () => {
+        fireEvent.press(await screen.findByTestId('collection-card-actions-share'));
+      });
+
+      await waitFor(() => {
+        expect(shareSpy).toHaveBeenCalled();
+      });
+      const [payload] = shareSpy.mock.calls[0] as [{ message: string; url?: string }];
+      expect(payload.url).toContain('tcgplayer.com');
+      expect(payload.url).toContain('charizard');
+      // The text is still there — the link is in ADDITION to it, not instead.
+      expect(payload.message).toContain('Charizard');
+    } finally {
+      shareSpy.mockRestore();
+      Platform.OS = realOS;
+    }
+  });
+
+  // The other half of the same Android bug: Delete queues the confirm sheet on
+  // the same dismissal signal, so it was equally dead — the menu closed and no
+  // confirmation ever appeared.
+  it('opens the delete confirmation from a long-press on Android', async () => {
+    const realOS = Platform.OS;
+    Platform.OS = 'android';
+    const entry = buildInventoryEntry({ id: 'del-1', name: 'Charizard' });
+    const dashboard = buildDashboardWithInventory([entry]);
+    const repository = createTestSpotlightRepository({
+      loadInventoryEntries: async () => ({ state: 'success', data: [entry], errorMessage: null }),
+      loadPortfolioDashboard: async () => ({ state: 'success', data: dashboard, errorMessage: null }),
+    });
+
+    try {
+      renderPortfolioScreen({ repository });
+      const tile = await screen.findByTestId('collection-masonry-grid-tile-del-1');
+
+      await act(async () => {
+        fireEvent(tile, 'longPress');
+      });
+      await act(async () => {
+        fireEvent.press(await screen.findByTestId('collection-card-actions-delete'));
+      });
+
+      expect(await screen.findByTestId('portfolio-single-delete-sheet')).toBeTruthy();
+    } finally {
+      Platform.OS = realOS;
+    }
   });
 
   it('masks the summary value and delta when the visibility toggle is pressed', async () => {

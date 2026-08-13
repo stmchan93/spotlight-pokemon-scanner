@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
   Easing,
   Modal,
   PanResponder,
+  Platform,
   Pressable,
   StyleSheet,
   View,
@@ -18,9 +19,12 @@ type CardActionsSheetProps = {
   visible: boolean;
   onClose: () => void;
   /**
-   * Fires after the native modal view controller has fully dismissed (iOS). Use
-   * this to present a follow-up native sheet (e.g. the Share sheet) safely —
-   * presenting while this modal is still dismissing freezes the screen.
+   * Fires once this sheet is fully gone, on BOTH platforms. Use it to present a
+   * follow-up sheet (native Share, Confirm Delete) safely — presenting while
+   * this modal is still dismissing freezes the screen on iOS.
+   *
+   * The two platforms answer "fully gone" with different signals; see
+   * `fireDismissOnce` below for why this is not just `Modal`'s `onDismiss`.
    */
   onDismiss?: () => void;
   /** Card name shown as the centered title. */
@@ -33,6 +37,9 @@ type CardActionsSheetProps = {
 };
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
+
+/** Slide-out duration, and the Android "it is gone" delay — see `fireDismissOnce`. */
+const EXIT_DURATION_MS = 200;
 
 /**
  * Long-press context menu for a Collection card (Figma 1696:8708): a bottom
@@ -61,6 +68,53 @@ export function CardActionsSheet({
   const [isRendered, setIsRendered] = useState(visible);
   const translateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
 
+  /*
+    ANDROID HAS NO `onDismiss`. React Native's `Modal` calls it behind an
+    explicit `Platform.OS === 'ios'` check (`Libraries/Modal/Modal.js`), so on
+    Android it NEVER fires. Everything the caller queues on it — the native Share
+    sheet, the Confirm Delete sheet — was therefore silently dropped: the menu
+    closed, and nothing happened. Both actions were dead on Android.
+
+    So each platform reports "fully gone" with the signal it actually has:
+      - iOS: the modal's own `onDismiss`, i.e. the view controller finished
+        dismissing. That is the moment that matters there, because presenting
+        UIActivityViewController any earlier freezes the screen.
+      - Android: a timer. `visible={false}` tears the dialog down on the same
+        commit (`animationType="none"`), so there is no teardown to wait out —
+        the delay only spaces the two windows apart, and one exit duration is
+        enough for that.
+
+    NOT the exit animation's completion callback, which is the obvious candidate:
+    it is JS-driven off requestAnimationFrame, so it cannot be driven by a test
+    clock, and if the component unmounts mid-animation it never runs at all.
+
+    Idempotent per open/close cycle, so the two paths can never double-fire a
+    queued action if RN ever grows Android support.
+  */
+  const onDismissRef = useRef(onDismiss);
+  onDismissRef.current = onDismiss;
+  const hasFiredDismissRef = useRef(false);
+
+  const fireDismissOnce = useCallback(() => {
+    if (hasFiredDismissRef.current) {
+      return;
+    }
+    hasFiredDismissRef.current = true;
+    onDismissRef.current?.();
+  }, []);
+
+  useEffect(() => {
+    if (visible) {
+      hasFiredDismissRef.current = false;
+      return;
+    }
+    if (Platform.OS === 'ios') {
+      return;
+    }
+    const timer = setTimeout(fireDismissOnce, EXIT_DURATION_MS);
+    return () => clearTimeout(timer);
+  }, [fireDismissOnce, visible]);
+
   useEffect(() => {
     if (visible) {
       setIsRendered(true);
@@ -77,7 +131,7 @@ export function CardActionsSheet({
 
     const animation = Animated.timing(translateY, {
       toValue: SCREEN_HEIGHT,
-      duration: 200,
+      duration: EXIT_DURATION_MS,
       easing: Easing.in(Easing.cubic),
       useNativeDriver: false,
     });
@@ -131,7 +185,9 @@ export function CardActionsSheet({
   return (
     <Modal
       animationType="none"
-      onDismiss={onDismiss}
+      // iOS only — RN guards this call with `Platform.OS === 'ios'`. Android is
+      // covered by the exit-animation path above.
+      onDismiss={fireDismissOnce}
       onRequestClose={onClose}
       presentationStyle="overFullScreen"
       statusBarTranslucent
