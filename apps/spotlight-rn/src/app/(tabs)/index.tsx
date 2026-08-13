@@ -1,7 +1,7 @@
-import { Redirect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 
 import { NativeTabsPageBridge } from '@/components/native-tabs-page-bridge';
+import { GuestScannerRedirect } from '@/features/auth/components/guest-scanner-redirect';
 import { FeedScreen } from '@/features/social/screens/feed-screen';
 import { useAuth } from '@/providers/auth-provider';
 
@@ -21,11 +21,10 @@ import { useAuth } from '@/providers/auth-provider';
 export default function HomeRoute() {
   // Guests land on the scanner, which is the whole of the guest experience: the
   // feed reads are scoped to `auth.uid()` by RLS, so a guest would get an empty
-  // list rather than a first-launch surface worth seeing. This redirect used to
-  // live on the Collection screen that occupied this route.
+  // list rather than a first-launch surface worth seeing.
   const { isGuest } = useAuth();
   if (isGuest) {
-    return <Redirect href={'/scan' as never} />;
+    return <GuestScannerRedirect />;
   }
 
   return (
