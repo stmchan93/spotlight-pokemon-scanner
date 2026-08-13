@@ -127,16 +127,22 @@ export function OwnedEntryEditFields({
         <View style={[styles.costBasisRow, { borderBottomColor: theme.colors.gray200 }]}>
           <View style={styles.costBasisLeft}>
             <View style={styles.costBasisInputWrap}>
-              {hasValue ? (
-                <Text
-                  style={[
-                    theme.typography.bodyMedium,
-                    { color: theme.colors.gray900, lineHeight: undefined },
-                  ]}
-                >
-                  $
-                </Text>
-              ) : null}
+              {/*
+                ALWAYS MOUNTED, shown and hidden with OPACITY only. On Android,
+                adding or removing a SIBLING of a focused TextInput steals its
+                focus — mounting this "$" on the first keystroke (and dropping
+                it on backspace-to-empty) is what "the numbers go away / the
+                cursor vanished" was. Opacity changes no layout and steals no
+                focus; the reserved sliver of width when hidden is the price.
+              */}
+              <Text
+                style={[
+                  theme.typography.bodyMedium,
+                  { color: theme.colors.gray900, lineHeight: undefined, opacity: hasValue ? 1 : 0 },
+                ]}
+              >
+                $
+              </Text>
               <TextInput
                 keyboardType="decimal-pad"
                 onBlur={onCostBasisBlur}
@@ -148,7 +154,6 @@ export function OwnedEntryEditFields({
                   theme.typography.bodyMedium,
                   styles.costBasisInput,
                   { color: theme.colors.gray900, lineHeight: undefined },
-                  showGain ? null : styles.costBasisInputGrow,
                 ]}
                 testID={`${testID}-cost-basis-input`}
                 value={costBasisText}
@@ -178,10 +183,30 @@ export function OwnedEntryEditFields({
 
 const styles = StyleSheet.create({
   costBasisInput: {
+    /*
+      ALWAYS flexed, never conditionally. The flex used to be dropped the
+      moment `showGain` flipped true — i.e. the first keystroke that made the
+      typed value parseable — and an unflexed TextInput being squeezed by the
+      newly-mounted gain pill collapses to nothing on Android (iOS holds its
+      intrinsic content width): reported as "typing into the cost basis makes
+      the text disappear". `minWidth` is the floor the pill can never squeeze
+      it below; the pill itself refuses to shrink instead (`gainPill`).
+    */
+    flexGrow: 1,
+    flexShrink: 1,
+    /*
+      EXPLICIT HEIGHT, because the style strips `lineHeight` (a TextInput
+      renders it badly) and Android's intrinsic TextInput measurement collapses
+      to ZERO HEIGHT after the first controlled-text update — measured live on
+      device: frame 76,2867-519,2867. A zero-tall input clips its own text and
+      cursor invisible and leaves a hairline tap target, which was the whole
+      "numbers vanish / cursor gone / have to tap the exact spot" family.
+      28 covers bodyMedium at the 1.2 Dynamic Type cap. The design-system
+      TextField does the same strip-plus-fixed-height; this input must too.
+    */
+    minHeight: 28,
+    minWidth: 88,
     padding: 0,
-  },
-  costBasisInputGrow: {
-    flex: 1,
   },
   costBasisInputWrap: {
     alignItems: 'center',
@@ -207,6 +232,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 4,
     flexDirection: 'row',
+    // The pill keeps its size; the input yields (down to its minWidth).
+    flexShrink: 0,
     gap: 2,
     paddingHorizontal: 6,
     paddingVertical: 2,

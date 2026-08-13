@@ -63,7 +63,6 @@ import {
   Button,
   GlassNavBubble,
   GlassSurface,
-  isLiquidGlassAvailable,
   Text,
   colors,
   fontFamilies,
@@ -459,7 +458,7 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
       <View style={styles.captureRow} testID={`scanner-tray-row-${index}`}>
         <View style={styles.captureLeftGroup}>
           <View style={styles.captureThumbColumn}>
-            <Pressable
+            <ArenaPressable
               accessibilityLabel={canCycleCandidate ? 'Change match' : undefined}
               accessibilityRole={canCycleCandidate ? 'button' : undefined}
               disabled={!canCycleCandidate}
@@ -487,9 +486,9 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
               ) : (
                 <View style={styles.captureThumb} testID={`scanner-tray-image-${index}`} />
               )}
-            </Pressable>
+            </ArenaPressable>
             {canCycleCandidate ? (
-              <Pressable
+              <ArenaPressable
                 accessibilityLabel="Change match"
                 accessibilityRole="button"
                 hitSlop={6}
@@ -503,11 +502,11 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                 testID={`scanner-tray-change-${index}`}
               >
                 <Text style={styles.captureChangeLabel}>Switch</Text>
-              </Pressable>
+              </ArenaPressable>
             ) : null}
           </View>
 
-          <Pressable
+          <ArenaPressable
             accessibilityLabel={candidate
               ? `Open ${capture.mode === 'slabs'
                 ? [candidate.name, scannerSlabInlineLabel(capture)].filter(Boolean).join(' • ')
@@ -553,12 +552,12 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                 </>
               )}
             </View>
-          </Pressable>
+          </ArenaPressable>
         </View>
 
         {candidate ? (
           <View style={styles.capturePriceColumn}>
-            <Pressable
+            <ArenaPressable
               accessibilityLabel={`Show market price for ${candidate.name}`}
               accessibilityRole="button"
               hitSlop={6}
@@ -589,7 +588,7 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                   </Text>
                 ) : null}
               </View>
-            </Pressable>
+            </ArenaPressable>
             <ArenaPressable
               accessibilityLabel={`Add ${candidate.name}`}
               accessibilityRole="button"
@@ -2347,7 +2346,7 @@ export function ScannerScreen({
         recentlyAddedTimersRef.current.set(captureId, timerId);
       }
     }
-  }, [prependOptimisticInventoryEntry, priceSelection, recentCaptures, refreshData, removeCaptureAfterAdd, spotlightRepository, trackCandidateSelectionIfNeeded]);
+  }, [activeCollectionID, prependOptimisticInventoryEntry, priceSelection, recentCaptures, refreshData, removeCaptureAfterAdd, spotlightRepository, trackCandidateSelectionIfNeeded]);
 
   // Stable wrapper for the swipe row's "Collection" action so React.memo doesn't
   // re-render every row when handleAddToInventory re-creates on recentCaptures
@@ -2465,6 +2464,7 @@ export function ScannerScreen({
       refreshData();
     })();
   }, [
+    activeCollectionID,
     performClearAllCaptures,
     priceSelection,
     recentCaptures,
@@ -3059,43 +3059,29 @@ export function ScannerScreen({
         <GestureDetector gesture={trayPanGesture}>
         <View style={styles.trayShell} testID="scanner-tray">
           {/*
-            THE TRAY IS THE MATERIAL, not a dark panel (Figma 3686:56861 — the
-            camera reads straight through it).
+            ONE BACKDROP EVERYWHERE: blur + a light dark scrim (Figma
+            3594:25846 — `backdrop-blur(20px)` over rgba(0,0,0,0.15)).
 
-            Two paths on purpose. iOS 26 gets real Liquid Glass, which is the
-            frame. Everywhere else keeps the BlurView it already had, because
-            that blur is doing real work here: this sits over a live viewfinder,
-            and a flat scrim in its place would be a downgrade on every Android
-            device rather than a fallback.
-
-            This is a branch at the CALL SITE, not inside `GlassSurface` — the
-            primitive's no-blur rule is about not faking glass where there is
-            none, and the blur below is the treatment that already shipped.
+            iOS 26 briefly got real Liquid Glass here instead, and it was the
+            wrong material for THIS surface: `glassEffectStyle="clear"` refracts
+            whatever is behind it, and behind the tray is a LIVE viewfinder — so
+            the backdrop shimmered and warped with every hand movement ("the
+            glass is just a little too much on iOS"). Liquid Glass stays right
+            for the small chrome (pills, bubbles); a large panel over moving
+            video wants the calmer frosted dim the design actually specs, which
+            is also exactly what Android was already drawing.
           */}
-          {isLiquidGlassAvailable() ? (
-            <GlassSurface
-              fallbackColor="transparent"
-              glassColorScheme="dark"
-              glassEffectStyle="clear"
-              pointerEvents="none"
-              style={styles.trayBackdropBlur}
-              testID="scanner-tray-glass"
-            />
-          ) : (
-            <>
-              <BlurView
-                // Android needs the dimezisBlurView method or BlurView is a silent
-                // no-op (frosted tray rendered flat vs iOS). Matches the card-detail
-                // panels, which already opt in. iOS ignores the prop.
-                experimentalBlurMethod="dimezisBlurView"
-                intensity={isTrayExpanded ? 80 : 24}
-                pointerEvents="none"
-                style={styles.trayBackdropBlur}
-                tint="dark"
-              />
-              <View pointerEvents="none" style={styles.trayBackdropOverlay} />
-            </>
-          )}
+          <BlurView
+            // Android needs the dimezisBlurView method or BlurView is a silent
+            // no-op (frosted tray rendered flat vs iOS). Matches the card-detail
+            // panels, which already opt in. iOS ignores the prop.
+            experimentalBlurMethod="dimezisBlurView"
+            intensity={isTrayExpanded ? 80 : 24}
+            pointerEvents="none"
+            style={styles.trayBackdropBlur}
+            tint="dark"
+          />
+          <View pointerEvents="none" style={styles.trayBackdropOverlay} />
           <Pressable
             accessibilityLabel={isTrayExpanded ? 'Collapse recent scans' : 'Expand recent scans'}
             accessibilityRole="button"
@@ -3762,6 +3748,8 @@ const styles = StyleSheet.create({
   },
   trayBackdropOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    // Figma 3594:25846's scrim. Was 0.30 — visibly darker than the design;
+    // the blur underneath carries the legibility, the scrim only settles it.
+    backgroundColor: 'rgba(0, 0, 0, 0.15)',
   },
 });

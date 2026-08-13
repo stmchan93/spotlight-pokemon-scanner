@@ -1,4 +1,4 @@
-import { Dimensions, Modal, Pressable, StyleSheet, View } from 'react-native';
+import { Dimensions, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { GridPlus, Trash } from 'iconoir-react-native';
 
@@ -73,13 +73,19 @@ export function InventoryEntryMenu({
         testID={`${testID}-backdrop`}
       />
       <View style={[styles.card, { left, ...verticalStyle }]} testID={testID}>
-        <BlurView
-          experimentalBlurMethod="dimezisBlurView"
-          intensity={40}
-          style={StyleSheet.absoluteFill}
-          tint="light"
+        {/* iOS ONLY. Android's dimezis blur samples the app's own view
+            hierarchy, and inside a transparent Modal — a separate window —
+            there is nothing to sample, so the "glass" was just the translucent
+            fill with the screen showing through. Android gets an opaque card. */}
+        {Platform.OS === 'ios' ? (
+          <BlurView intensity={40} style={StyleSheet.absoluteFill} tint="light" />
+        ) : null}
+        <View
+          style={[
+            StyleSheet.absoluteFill,
+            Platform.OS === 'ios' ? styles.glassFill : styles.opaqueFill,
+          ]}
         />
-        <View style={[StyleSheet.absoluteFill, styles.glassFill]} />
 
         <Pressable
           accessibilityLabel="Add another to Collection"
@@ -138,6 +144,10 @@ const styles = StyleSheet.create({
   },
   glassFill: {
     backgroundColor: 'rgba(245, 245, 245, 0.72)',
+  },
+  // Android: same gray, full opacity — no blur behind it (see the render note).
+  opaqueFill: {
+    backgroundColor: '#F5F5F5',
   },
   row: {
     alignItems: 'center',

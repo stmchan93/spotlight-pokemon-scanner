@@ -1203,10 +1203,10 @@ describe('ScannerScreen', () => {
     expect(fillOf('scanner-value-pill-surface')).toBe(colors.scannerChromeFill);
 
     /*
-      The TRAY keeps its BlurView on this path rather than degrading to a flat
-      scrim. It sits over a live viewfinder and the blur is doing real work
-      there, so glass-or-nothing would have been a downgrade on every Android
-      device. Real Liquid Glass replaces it only on iOS 26.
+      The tray backdrop is the SAME frosted dim on every platform now (Figma
+      3594:25846: blur over rgba(0,0,0,0.15)). iOS 26 briefly swapped in real
+      Liquid Glass here and it warped the live viewfinder behind it — glass
+      stays for the small chrome, never for a large panel over moving video.
     */
     expect(screen.queryByTestId('scanner-tray-glass')).toBeNull();
   });

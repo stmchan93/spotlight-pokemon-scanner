@@ -1,4 +1,4 @@
-import { Dimensions, Modal, Pressable, StyleSheet, View } from 'react-native';
+import { Dimensions, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { GridPlus, Bookmark, Trash } from 'iconoir-react-native';
 
@@ -80,9 +80,22 @@ export function AddAllMenu({
       <View style={[styles.card, { left, ...verticalStyle }]} testID={testID}>
         {/* iOS context-menu glass (Figma 1821:9651): blur of the dark tray
             under a translucent light-gray fill, so the card reads GRAY over
-            the scanner instead of a flat white chip. */}
-        <BlurView experimentalBlurMethod="dimezisBlurView" intensity={40} style={StyleSheet.absoluteFill} tint="light" />
-        <View style={[StyleSheet.absoluteFill, styles.glassFill]} />
+            the scanner instead of a flat white chip.
+
+            iOS ONLY. Android's dimezis blur samples the app's own view
+            hierarchy, and inside a transparent Modal — a separate window —
+            there is nothing to sample, so the "glass" was just the translucent
+            fill with the zoom chips showing through the menu. Android gets an
+            opaque card instead, which is also the Material convention. */}
+        {Platform.OS === 'ios' ? (
+          <BlurView intensity={40} style={StyleSheet.absoluteFill} tint="light" />
+        ) : null}
+        <View
+          style={[
+            StyleSheet.absoluteFill,
+            Platform.OS === 'ios' ? styles.glassFill : styles.opaqueFill,
+          ]}
+        />
 
         <Pressable
           accessibilityLabel="Add to collection"
@@ -163,6 +176,10 @@ const styles = StyleSheet.create({
   // The translucent gray that makes the menu read as iOS glass over the tray.
   glassFill: {
     backgroundColor: 'rgba(245, 245, 245, 0.6)',
+  },
+  // Android: same gray, full opacity — no blur behind it (see the render note).
+  opaqueFill: {
+    backgroundColor: '#F5F5F5',
   },
   row: {
     alignItems: 'center',
