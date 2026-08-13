@@ -390,7 +390,7 @@ describe('buildEbaySearchUrl', () => {
     );
   });
 
-  it('leads the query with a QUOTED grader + grade phrase and sorts by most-recently-sold', () => {
+  it('leads the query with one plain grader + grade pair and sorts by most-recently-sold', () => {
     const url = buildEbaySearchUrl({
       setName: 'XY Promos',
       name: 'Ditto',
@@ -398,13 +398,32 @@ describe('buildEbaySearchUrl', () => {
       grader: 'PSA',
       grade: '10',
     });
-    // grader + grade first, as exact phrases inside an eBay OR-group so eBay
-    // can't relax the grade number, while the PSA descriptor wordings
-    // ("PSA GEM MINT 10") still match.
+    /*
+      Exactly `PSA 10 Ditto …` — UNQUOTED, a product call (2026-08-12): the
+      search box should read like something a person typed. The quotes used to
+      stop eBay relaxing a low-signal grade number; that trade is accepted and
+      recorded at buildEbayGradeTerm.
+    */
     const nkw = decodeURIComponent(new URL(url!).searchParams.get('_nkw')!);
-    expect(nkw).toMatch(/^\("PSA 10","PSA GEM MINT 10","PSA GEM MT 10"\) Ditto/);
+    expect(nkw).toMatch(/^PSA 10 Ditto/);
+    expect(nkw).not.toContain('"');
+    expect(nkw).not.toContain('(');
     expect(url).toContain('LH_Sold=1');
     expect(url).toContain('_sop=13');
+  });
+
+  // The number was the other half of the unreadable query, and slab titles
+  // word it inconsistently anyway — the quoted grade + name + set pin the card.
+  it('drops the collector number from every English graded search', () => {
+    const url = buildEbaySearchUrl({
+      setName: 'Obsidian Flames',
+      name: 'Charizard ex',
+      cardNumber: '125/197',
+      grader: 'PSA',
+      grade: '10',
+    });
+    const nkw = decodeURIComponent(new URL(url!).searchParams.get('_nkw')!);
+    expect(nkw).toBe('PSA 10 Charizard ex Obsidian Flames');
   });
 
   it('adds a "Japanese" keyword and keeps the number for a Japanese graded card', () => {
@@ -423,12 +442,15 @@ describe('buildEbaySearchUrl', () => {
     });
     const nkw = decodeURIComponent(new URL(url!).searchParams.get('_nkw')!);
     expect(nkw).toContain('Japanese');
-    expect(nkw).toContain('004'); // number kept (JP set name is stripped script)
+    // Number kept for JP (the set name is stripped script, so it carries the
+    // disambiguation) — as the single de-zeroed form, not the old OR-group.
+    expect(nkw).toContain('4/20');
     expect(nkw).not.toContain('1st'); // no edition keyword (mixed-edition comps)
-    expect(nkw).toContain('"PSA 10"');
+    expect(nkw).toContain('PSA 10');
   });
 
-  it('quotes a low grade so eBay does not backfill with high-grade solds (PSA 3 ≠ PSA 10)', () => {
+  // The low grade rides unquoted too — the accepted trade at buildEbayGradeTerm.
+  it('keeps a low grade as a plain pair (PSA 3, no quotes)', () => {
     const url = buildEbaySearchUrl({
       setName: 'Evolving Skies',
       name: 'Umbreon VMAX',
@@ -436,10 +458,10 @@ describe('buildEbaySearchUrl', () => {
       grader: 'PSA',
       grade: '3',
     });
-    expect(url).toContain('_nkw=%22PSA+3%22+Umbreon');
+    expect(url).toContain('_nkw=PSA+3+Umbreon');
   });
 
-  it('preserves a half-grade inside the quoted phrase ("9.5" not "9 5")', () => {
+  it('preserves a half-grade in the pair ("9.5" not "9 5")', () => {
     const url = buildEbaySearchUrl({
       setName: 'XY Promos',
       name: 'Ditto',
@@ -447,7 +469,7 @@ describe('buildEbaySearchUrl', () => {
       grader: 'CGC',
       grade: '9.5',
     });
-    expect(url).toContain('_nkw=%22CGC+9.5%22+Ditto');
+    expect(url).toContain('_nkw=CGC+9.5+Ditto');
     expect(url).not.toContain('9+5');
   });
 
@@ -461,7 +483,9 @@ describe('buildEbaySearchUrl', () => {
     expect(nkw).not.toContain('PSA');
     expect(url).toContain('_nkw=Charizard');
     // The collector number is an OR-group of its common wordings.
-    expect(nkw).toContain('("4/102",4)');
+    // The single readable fraction form, not the old ("4/102",4) OR-group.
+    expect(nkw).toContain('4/102');
+    expect(nkw).not.toContain('(');
   });
 
   it('returns null when all fields are empty', () => {
@@ -544,7 +568,7 @@ describe('buildEbaySearchUrl', () => {
       grade: '10',
       variant: '1st Edition Holofoil',
     })!;
-    expect(decodeURIComponent(new URL(url).searchParams.get('_nkw')!)).toContain('"PSA 10"');
+    expect(decodeURIComponent(new URL(url).searchParams.get('_nkw')!)).toContain('PSA 10');
     expect(url).toContain('Lugia');
     expect(url).toContain('Neo+Genesis');
     // No edition keyword (mixed-edition comps by design).
@@ -555,18 +579,19 @@ describe('buildEbaySearchUrl', () => {
     expect(url).not.toContain('111');
   });
 
-  it('keeps the collector number for a modern graded card (no edition qualifier)', () => {
+  it('drops the collector number for a modern English graded card too', () => {
+    // The drop used to be vintage-only. Slab titles word the number
+    // inconsistently or omit it, and the quoted grade + name + set already pin
+    // the card — the number was the other half of the unreadable query.
     const url = buildEbaySearchUrl({
-      name: 'Umbreon VMAX',
       setName: 'Evolving Skies',
+      name: 'Umbreon VMAX',
       cardNumber: '215/203',
       grader: 'PSA',
       grade: '10',
-      variant: 'Holofoil',
-    })!;
-    // Modern same-name prints (alt art vs regular) are disambiguated by the number.
-    expect(url).toContain('215');
-    expect(url).toContain('203');
+    });
+    const nkw = decodeURIComponent(new URL(url!).searchParams.get('_nkw')!);
+    expect(nkw).toBe('PSA 10 Umbreon VMAX Evolving Skies');
   });
 
   it('drops the collector number for a vintage Unlimited graded card (no edition exclusion)', () => {

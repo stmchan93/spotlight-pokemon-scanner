@@ -272,72 +272,40 @@ export function buildTcgPlayerProductUrl(params: {
 }
 
 // True when the variant is a vintage-style edition split (1st Edition / Unlimited).
-// We deliberately do NOT add an edition keyword to the eBay query: edition wording
-// is inconsistent in real titles ("1st Edition"/"1ST ED"/"First Edition") and a
-// vintage 1st-Ed card is often a $$$ rarity with ZERO sold comps in eBay's 90-day
-// window — requiring (or excluding) an edition term just makes eBay throw away the
-// query and backfill with junk. So we favor recall: show all same-name/same-set
-// graded comps (mixed editions) rather than nothing. This predicate is used only
-// to detect a vintage card so we can DROP its over-constraining collector number
-// (see buildEbaySearchUrl).
-function isVintageEditionVariant(variant: string | null | undefined): boolean {
-  const normalized = (variant ?? '').toLowerCase();
-  return (
-    normalized.includes('first edition') ||
-    normalized.includes('1st edition') ||
-    normalized.includes('unlimited')
-  );
-}
-
-// PSA's label descriptor frequently sits BETWEEN grader and grade in real
-// titles ("PSA GEM MINT 10"); one strict "PSA 10" phrase misses all of them.
-const PSA_GRADE_DESCRIPTORS: Record<string, string[]> = {
-  '10': ['GEM MINT', 'GEM MT'],
-  '9': ['MINT'],
-  '8': ['NM-MT'],
-};
-
-// "<grader> <grade>" strict phrase, widened into an eBay OR-group with the
-// known descriptor wordings for that exact grade (see buildEbaySearchUrl).
+// ONE plain "<grader> <grade>" pair — deliberately no more than that.
+//
+// UNQUOTED, per an explicit product call (2026-08-12): the search box should
+// read like something a person typed. Known trade accepted with it: as loose
+// keywords eBay can relax a low-signal grade number (a bare "3" collides with
+// card numbers and gets dropped), backfilling low-grade searches with
+// high-volume PSA 10 solds — the failure the quotes used to prevent. If that
+// resurfaces as a complaint, re-quote LOW grades only rather than all of them.
+//
+// Also long gone: the descriptor OR-group — ("PSA 10","PSA GEM MINT 10",
+// "PSA GEM MT 10") — which made the search read as a wall of quotes/parens.
 function buildEbayGradeTerm(graderToken: string | null, gradeToken: string | null): string | null {
-  if (!graderToken || !gradeToken) {
-    return [graderToken, gradeToken].filter(Boolean).join(' ') || null;
-  }
-  const phrases = [`"${graderToken} ${gradeToken}"`];
-  if (graderToken.toUpperCase() === 'PSA') {
-    for (const descriptor of PSA_GRADE_DESCRIPTORS[gradeToken] ?? []) {
-      phrases.push(`"${graderToken} ${descriptor} ${gradeToken}"`);
-    }
-  }
-  return phrases.length > 1 ? `(${phrases.join(',')})` : phrases[0];
+  return [graderToken, gradeToken].filter(Boolean).join(' ') || null;
 }
 
-// Collector numbers over-constrain as a bare keyword: "026/086" AND-requires
-// BOTH tokens, and sellers word it many ways (026/086, 26/86, just the 026, or
-// de-zeroed 26). OR-group the common spellings so ANY one satisfies the term —
-// recall strictly widens vs the single form while the name + set + grade terms
-// keep the search on the right card.
+// The collector number as ONE readable token: the de-zeroed fraction
+// ("004/020" → 4/20), or the cleaned raw form when it isn't a fraction.
+//
+// This replaced an OR-group of every common spelling — ("026/086","26/86",
+// 026,26) — which widened recall but was most of what made the search box
+// unreadable. The single de-zeroed form is how sellers most often word it;
+// where it under-matches, the reader can now SEE the query and loosen it,
+// which the paren soup made impossible.
 function buildEbayCollectorNumberTerm(cardNumber: string): string | null {
   // Parse the fraction from the RAW number — cleanedMarketplaceToken strips
-  // the slash ("4/102" → "4 102"), which is exactly the two-AND-required-token
-  // form this helper exists to avoid.
+  // the slash ("4/102" → "4 102"), two independently-required tokens that
+  // over-constrain the search.
   const raw = cardNumber.replace(/^#/, '').trim();
   const fraction = raw.match(/^(\d+)\s*\/\s*(\d+)$/);
   if (!fraction) {
     return cleanedMarketplaceToken(raw);
   }
   const [, numerator, denominator] = fraction;
-  const bareNumerator = String(Number.parseInt(numerator, 10));
-  const bareDenominator = String(Number.parseInt(denominator, 10));
-  const forms = [
-    ...new Set([
-      `${numerator}/${denominator}`,
-      `${bareNumerator}/${bareDenominator}`,
-      numerator,
-      bareNumerator,
-    ]),
-  ].map((form) => (form.includes('/') ? `"${form}"` : form));
-  return forms.length > 1 ? `(${forms.join(',')})` : forms[0];
+  return `${Number.parseInt(numerator, 10)}/${Number.parseInt(denominator, 10)}`;
 }
 
 export function buildEbaySearchUrl(params: {
@@ -363,7 +331,6 @@ export function buildEbaySearchUrl(params: {
 }) {
   const graderToken = cleanedMarketplaceToken(params.grader);
   const gradeToken = cleanedMarketplaceToken(params.grade);
-  const isVintage = isVintageEditionVariant(params.variant);
   const isJapanese = (params.language ?? '').toLowerCase() === 'japanese';
 
   // For Japanese cards add a "Japanese" keyword — US eBay listings of JP cards
@@ -386,21 +353,20 @@ export function buildEbaySearchUrl(params: {
   // regular same-set prints) and Japanese (the JP set name is non-Latin script
   // that gets stripped, so the number carries the disambiguation alongside the
   // "Japanese" keyword).
-  const dropCollectorNumber = !isJapanese && isVintage && Boolean(gradeToken);
+  /*
+    Drop the number for EVERY English graded search, not just vintage. Slab
+    titles word the number inconsistently (or omit it), the quoted grade + name
+    + set already pin the card, and the number was the other half of the
+    unreadable query. Kept where it genuinely carries the disambiguation:
+    Japanese (the JP set name is non-Latin script and gets stripped, so
+    "Japanese" + the number do that job) and ungraded/raw searches.
+  */
+  const dropCollectorNumber = !isJapanese && Boolean(gradeToken);
   const numberToken = dropCollectorNumber
     ? null
     : buildEbayCollectorNumberTerm(params.cardNumber);
 
-  // Quote the grader+grade as an EXACT phrase (e.g. "PSA 3") so eBay matches the grade
-  // strictly. As loose keywords, eBay relaxes the low-signal grade number — a bare "3"
-  // collides with card numbers ("215/203") and gets dropped, backfilling the page with
-  // high-volume PSA 10 solds. A quoted "PSA 3" can't match a "PSA 10" title.
-  //
-  // A single phrase misses titles that break the adjacency with PSA's label
-  // descriptor ("PSA GEM MINT 10", "PSA GEM MT 10" — very common wordings).
-  // eBay's OR-group syntax — ("a","b") matches ANY member — keeps the strict
-  // phrases while covering those word orders too: recall strictly widens and
-  // every alternative still pins the exact grade number.
+  // Plain "PSA 10", unquoted — see buildEbayGradeTerm for the accepted trade.
   const gradeTerm = buildEbayGradeTerm(graderToken, gradeToken);
 
   const query = [
