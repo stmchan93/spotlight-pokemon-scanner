@@ -20,6 +20,7 @@ import {
 import { __resetPortfolioViewModeForTests } from '@/features/portfolio/hooks/use-portfolio-view-mode';
 import { __resetTrendWindowForTests } from '@/features/portfolio/hooks/use-trend-window';
 import { deletePost, fetchAuthorActivity } from '@/features/social/social-service';
+import * as posthogObservability from '@/lib/observability/posthog';
 
 import * as mockApiClient from '../mock-api-client';
 import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
@@ -292,9 +293,13 @@ describe('PortfolioScreen', () => {
     expect(screen.getByTestId('collection-filter-chip-row-ungraded')).toBeTruthy();
     expect(screen.getByTestId('collection-filter-chip-row-graded')).toBeTruthy();
 
-    // Masonry grid renders the default inventory tiles.
+    // Masonry grid renders the default inventory tiles. Awaited because the
+    // holdings reads now wait for the collection scope to resolve, so the header
+    // paints a tick before the cards do.
     expect(screen.getByTestId('collection-masonry-grid')).toBeTruthy();
-    expect(screen.getAllByText('Scorbunny').length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(screen.getAllByText('Scorbunny').length).toBeGreaterThan(0);
+    });
 
     // Neither the old floating catalog-search FAB nor the in-row "Search Cards"
     // magnifier that replaced it: catalog search is reached from the top-bar
@@ -532,6 +537,80 @@ describe('PortfolioScreen', () => {
       // And the cards go with the money: the previous collection's rows must not
       // be left behind either.
       expect(screen.queryByTestId('collection-masonry-grid-tile-main-1')).not.toBeOnTheScreen();
+    });
+
+    it("migrates an 'all' scope to the snapshot's default collection once collections load", async () => {
+      // 'all' was the pre-migration default (and what a fresh install starts
+      // on). The aggregate is a readout, not a scope, so the reconcile effect
+      // must land on the server's DEFAULT collection — not the first in the
+      // list, and not stay on 'all'. It is a migration, not a reset, so the
+      // reset telemetry must stay quiet.
+      const capture = jest.spyOn(posthogObservability, 'capturePostHogEvent');
+      // Nothing persists under jest (the AsyncStorage native module is absent
+      // and every caller catches), so the scope genuinely begins at 'all'.
+      const snapshot: CollectionsSnapshot = {
+        ...COLLECTIONS_SNAPSHOT,
+        // Grails is SECOND in the list, so landing on it proves the default won.
+        defaultCollectionID: GRAILS_COLLECTION.id,
+      };
+      renderPortfolioScreen({
+        repository: createCollectionScopedRepository({
+          listCollections: async () => snapshot,
+        }),
+      });
+
+      // Once the collections read lands, the scope is the default collection —
+      // its name on the summary line, its money in the header.
+      await waitFor(() => {
+        expect(screen.getByTestId('portfolio-summary-value')).toHaveTextContent('$42.00');
+      });
+      expect(screen.getByText('Grails')).toBeTruthy();
+      expect(capture).not.toHaveBeenCalledWith(
+        'portfolio_active_collection_reset',
+        expect.anything(),
+      );
+      capture.mockRestore();
+    });
+
+    it('fetches the dashboard ONCE on a cold start, under the resolved collection', async () => {
+      /*
+        THE COST OF MIGRATING THE SCOPE AFTER THE FIRST LOAD.
+
+        The reconcile effect above turns the 'all' placeholder into a real
+        collection. A scope change BLANKS the model and refetches
+        (`use-portfolio-screen-model.ts`), so if the holdings reads start before
+        that migration, every cold start pays for the 3-5s dashboard twice and
+        throws the first answer away — with a skeleton flash in between. It also
+        broke `portfolio-optimistic-add-test`, because an add landing in the
+        discarded window had nothing to render into.
+
+        The fix is a gate, not a faster refetch: no holdings read runs until the
+        scope is an answer. So exactly one dashboard call, and it already carries
+        the resolved collection id — never `null`/'all'.
+      */
+      const scopes: (string | null | undefined)[] = [];
+      const base = createCollectionScopedRepository();
+      const repository = createTestSpotlightRepository({
+        ...base,
+        listCollections: async () => ({
+          ...COLLECTIONS_SNAPSHOT,
+          defaultCollectionID: GRAILS_COLLECTION.id,
+        }),
+        loadPortfolioDashboard: async (options?: { collectionID?: string | null }) => {
+          scopes.push(options?.collectionID);
+          return base.loadPortfolioDashboard(options);
+        },
+      });
+
+      renderPortfolioScreen({ repository });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('portfolio-summary-value')).toHaveTextContent('$42.00');
+      });
+      // Settle anything the migration might still have queued before counting.
+      await act(async () => {});
+
+      expect(scopes).toEqual([GRAILS_COLLECTION.id]);
     });
 
     it('confirms before deleting a collection, and deletes nothing until you do', async () => {
@@ -778,13 +857,20 @@ describe('PortfolioScreen', () => {
         resolveDashboard = resolve;
       });
     });
+    // The collections read is left to resolve normally. It used to be frozen
+    // here to stop the reconcile effect migrating the 'all' scope mid-test, but
+    // the holdings reads now WAIT for that resolution — so the migration happens
+    // before the first load rather than after it, and there is no second fetch
+    // to put the skeleton back.
 
     renderPortfolioScreen({ repository });
 
     expect(screen.queryByText('Loading your portfolio...')).toBeNull();
     expect(await screen.findByTestId('portfolio-chart-skeleton')).toBeTruthy();
     expect(screen.getByTestId('portfolio-summary-value')).toBeTruthy();
-    expect(screen.getAllByText('Scorbunny').length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(screen.getAllByText('Scorbunny').length).toBeGreaterThan(0);
+    });
 
     const dashboardResult = await sourceRepository.loadPortfolioDashboard();
     await act(async () => {
@@ -896,6 +982,11 @@ describe('PortfolioScreen', () => {
     };
     let calls = 0;
     const repository = createTestSpotlightRepository({
+      // The collections read resolves normally. It used to be frozen so the
+      // reconcile effect couldn't migrate the 'all' scope and turn the counted
+      // second call into an initial load — the holdings reads now WAIT for that
+      // migration, so call 1 is already the initial load under the resolved
+      // collection and call 2 is the refresh under test.
       loadInventoryEntries: async () => ({ state: 'success' as const, data: inventory, errorMessage: null }),
       loadPortfolioDashboard: async () => {
         calls += 1;
@@ -1549,9 +1640,12 @@ describe('PortfolioScreen', () => {
     // InventoryCardTile primitive applies the same base testID to its pressable
     // container and `${testID}-*` to each inner element, so match only the
     // container ids (`collection-masonry-grid-tile-page-<n>` with no trailing
-    // suffix) to count tiles.
+    // suffix) to count tiles. The grid CONTAINER mounts before its rows do —
+    // the holdings reads wait on the collection scope — so the count is awaited.
     const tileContainerPattern = /^collection-masonry-grid-tile-page-\d+$/;
-    expect(screen.queryAllByTestId(tileContainerPattern).length).toBe(12);
+    await waitFor(() => {
+      expect(screen.queryAllByTestId(tileContainerPattern).length).toBe(12);
+    });
     expect(screen.getByTestId('collection-masonry-grid-tile-page-0')).toBeTruthy();
     expect(screen.getByTestId('collection-masonry-grid-tile-page-11')).toBeTruthy();
 

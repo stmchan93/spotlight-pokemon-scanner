@@ -428,6 +428,30 @@ describe('CatalogSearchScreen', () => {
       dismiss.mockRestore();
     });
 
+    /*
+      And the keyboard drops at DEPARTURE, while the field genuinely holds
+      focus — the return-time dismiss above raced the pop transition's focus
+      restore, so the keyboard came straight back after adding a card.
+    */
+    it('drops the keyboard the moment a result is opened', async () => {
+      const dismiss = jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => undefined);
+      jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage')
+        .mockResolvedValue({ cards: ownedCatalogResults, hasMore: false });
+
+      renderWithProviders(
+        <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />,
+      );
+      fireEvent.changeText(
+        screen.getByPlaceholderText('Search by name, set, or number'),
+        'tree',
+      );
+      await advanceDebounce();
+
+      fireEvent.press(await screen.findByTestId('catalog-result-sm7-1'));
+      expect(dismiss).toHaveBeenCalled();
+      dismiss.mockRestore();
+    });
+
     it('stays silent when no card was added', () => {
       renderWithProviders(
         <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />,

@@ -84,9 +84,11 @@ def _default_collection_id(
                 datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             ),
         )
-        return collection_id
-    # Dry run: report the plan without pretending the row exists.
-    return None
+    # Returned in BOTH modes. A dry run that returns None here reports every
+    # subsequent row for this owner as skipped, which is the opposite of what
+    # --apply would do — and a preview that mispredicts the run is worse than
+    # no preview. Only the INSERT is withheld.
+    return collection_id
 
 
 def _predecessor_collection_id(con: sqlite3.Connection, entry: sqlite3.Row) -> str | None:

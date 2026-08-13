@@ -601,7 +601,7 @@ export type Collection = {
   /** The collection that receives adds when no specific one is active. */
   isDefault: boolean;
   /**
-   * Excluded from every un-scoped holdings read — the "All Collection" total,
+   * Excluded from every un-scoped holdings read — the "All Collections" total,
    * the ledger's inventory value, exports. The collection itself stays readable,
    * so hiding is reversible; it means "don't count this", not "hide it away".
    */
@@ -612,7 +612,7 @@ export type CollectionsSnapshot = {
   collections: Collection[];
   defaultCollectionID: string;
   /**
-   * The "All Collection" row — the un-scoped totals. Deliberately read from the
+   * The "All Collections" row — the un-scoped totals. Deliberately read from the
    * server rather than summed on the client, so it stays right even if a holding
    * is briefly missing a collection.
    */
@@ -620,7 +620,7 @@ export type CollectionsSnapshot = {
 };
 
 /**
- * The pseudo-id for "All Collection". Not a real collection row — it means "do
+ * The pseudo-id for "All Collections". Not a real collection row — it means "do
  * not scope this read", which is also what the backend does with no id at all.
  */
 export const ALL_COLLECTIONS_ID = 'all';
@@ -1262,7 +1262,7 @@ export type InventoryEntryCreateRequestPayload = {
    */
   costBasisPerUnit?: number | null;
   /**
-   * Which collection the card joins. Omitted (or the "All Collection" pseudo-id)
+   * Which collection the card joins. Omitted (or the "All Collections" pseudo-id)
    * files it into the owner's default collection — the backend never takes this
    * id on trust, so one belonging to another account is ignored rather than
    * honoured.

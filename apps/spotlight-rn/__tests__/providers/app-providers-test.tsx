@@ -95,6 +95,21 @@ function OwnerScopeProbe() {
   );
 }
 
+function CollectionRefreshProbe() {
+  const { refreshData, setActiveCollectionID } = useAppServices();
+
+  return (
+    <>
+      <Text testID="choose-collection-b" onPress={() => setActiveCollectionID('collection-b')}>
+        choose
+      </Text>
+      <Text testID="refresh-data" onPress={() => refreshData()}>
+        refresh
+      </Text>
+    </>
+  );
+}
+
 describe('AppProviders', () => {
   const mockedConstants = Constants as { expoConfig?: { extra?: Record<string, unknown>; hostUri?: string } };
   const originalNodeEnv = process.env.NODE_ENV;
@@ -320,6 +335,44 @@ describe('AppProviders', () => {
     // the collection scope falls back to "all" rather than inheriting A's.
     expect(screen.getByText('no-inventory|no-dashboard')).toBeTruthy();
     expect(screen.getByText(`owner:user-b|collection:${ALL_COLLECTIONS_ID}`)).toBeTruthy();
+  });
+
+  // The warm/refresh inventory read writes into the holdings cache, which is
+  // keyed by owner AND collection — so the read itself must carry the active
+  // collection. Unscoped, a refreshData() bump (the actions-menu Wishlist
+  // toggle) fetched the whole account's cards and wrote them under the scoped
+  // key, flooding the on-screen collection with cards that don't belong to it.
+  it('scopes the warm inventory read to the active collection, including after refreshData', async () => {
+    setNodeEnv('development');
+    const repository = new MockSpotlightRepository();
+    const loadSpy = jest
+      .spyOn(repository, 'loadInventoryEntries')
+      .mockResolvedValue({ state: 'empty', data: [], errorMessage: null });
+
+    render(
+      <AppProviders sessionOwnerKey="user-a" spotlightRepository={repository}>
+        <CollectionRefreshProbe />
+      </AppProviders>,
+    );
+
+    await waitFor(() => {
+      expect(loadSpy).toHaveBeenCalledWith({ collectionID: ALL_COLLECTIONS_ID });
+    });
+
+    await act(async () => {
+      screen.getByTestId('choose-collection-b').props.onPress();
+    });
+    await act(async () => {
+      screen.getByTestId('refresh-data').props.onPress();
+    });
+
+    await waitFor(() => {
+      expect(loadSpy).toHaveBeenCalledWith({ collectionID: 'collection-b' });
+    });
+    // Every read carried a scope — none fell back to the unscoped default.
+    expect(loadSpy.mock.calls.every(([query]) => Boolean(query?.collectionID))).toBe(true);
+
+    loadSpy.mockRestore();
   });
 
   // The guest mint lands a token mid-scan, after the closure that dispatches the

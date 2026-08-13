@@ -6,10 +6,11 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  type TextInput,
   View,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   RARITY_BUCKET_LABELS,
@@ -217,6 +218,7 @@ export function CatalogSearchScreen({
   onSelectExpansion,
 }: CatalogSearchScreenProps) {
   const theme = useSpotlightTheme();
+  const insets = useSafeAreaInsets();
   const { spotlightRepository } = useAppServices();
 
   const [query, setQuery] = useState(initialQuery);
@@ -234,6 +236,9 @@ export function CatalogSearchScreen({
     mount effect would run before the add ever happened.
   */
   const [addedNotice, setAddedNotice] = useState<string | null>(null);
+  // The real TextInput inside SearchField — blurred when a result opens, so no
+  // focus survives to be restored when the card page pops back to this screen.
+  const searchFieldRef = useRef<TextInput>(null);
   useFocusEffect(
     useCallback(() => {
       const notice = consumeCardAddedNotice();
@@ -398,6 +403,16 @@ export function CatalogSearchScreen({
     if (openingResetTimerRef.current) {
       clearTimeout(openingResetTimerRef.current);
     }
+    /*
+      Blur NOW, while the field actually holds focus — not on the way back.
+      The added-notice focus effect also dismisses, but it runs as this screen
+      regains focus, BEFORE the field re-acquires first responder during the
+      pop transition, so the keyboard came straight back ("I'm still focused
+      on the search input after adding"). Dropping focus at departure means
+      there is nothing to restore on return.
+    */
+    searchFieldRef.current?.blur();
+    Keyboard.dismiss();
     setOpeningResultId(result.id);
     onOpenCard(result);
     openingResetTimerRef.current = setTimeout(() => {
@@ -590,6 +605,7 @@ export function CatalogSearchScreen({
         />
 
         <SearchField
+          ref={searchFieldRef}
           autoCapitalize="none"
           autoCorrect={false}
           containerStyle={[
@@ -637,6 +653,13 @@ export function CatalogSearchScreen({
       <Toast
         message={addedNotice ?? ''}
         onDismiss={() => setAddedNotice(null)}
+        /*
+          `bottom` carries the inset itself: Yoga's web-conformant absolute
+          layout (RN 0.81) ignores the parent SafeAreaView's padding, so a bare
+          `bottom: 24` measured from the true screen edge and Android's system
+          navigation bar sat on top of the toast.
+        */
+        style={[styles.addedToast, { bottom: insets.bottom + 24 }]}
         testID="catalog-added-toast"
         visible={addedNotice !== null}
       />
@@ -732,6 +755,14 @@ const styles = StyleSheet.create({
   loadMoreFooter: {
     alignItems: 'center',
     paddingVertical: 16,
+  },
+  // `Toast` is unpositioned by design; without this it sits in normal flow and
+  // runs edge to edge. 16 matches the card detail toast.
+  addedToast: {
+    // `bottom` is inline — it needs the safe-area inset (see the render note).
+    left: 16,
+    position: 'absolute',
+    right: 16,
   },
   rarityChipScroller: {
     // LOAD-BEARING: RN's horizontal ScrollView defaults to `flexGrow: 1`, which

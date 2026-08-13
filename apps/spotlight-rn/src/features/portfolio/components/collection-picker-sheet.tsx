@@ -60,7 +60,7 @@ type CollectionPickerSheetProps = {
   visible: boolean;
   onClose: () => void;
   collections: Collection[];
-  /** Totals for the "All Collection" row — the server's un-scoped figures. */
+  /** Totals for the "All Collections" row — the server's un-scoped figures. */
   allTotals: { cardCount: number; totalValue: number };
   /** Active collection id, or ALL_COLLECTIONS_ID when the aggregate is shown. */
   activeCollectionID: string;
@@ -96,7 +96,7 @@ type CollectionPickerSheetProps = {
 /**
  * The collection picker (Figma 3377:3154). One bottom sheet, two steps:
  *
- *   list   — "All Collection" plus one row per collection, each with its
+ *   list   — "All Collections" plus one row per collection, each with its
  *            hide / rename / delete actions; ADD opens the form
  *   form   — name a NEW collection (CREATE) or rename an existing one (SAVE)
  *
@@ -358,7 +358,8 @@ export function CollectionPickerSheet({
     key: string;
     title: string;
     valueLabel: string;
-    onPress: () => void;
+    /** Omit for an informational row — same look, no press affordance. */
+    onPress?: () => void;
     leadingIcon?: React.ReactNode;
     trailingIcon?: React.ReactNode;
     isFirst?: boolean;
@@ -367,7 +368,8 @@ export function CollectionPickerSheet({
   }) => (
     <Pressable
       accessibilityLabel={`${options.title}, ${options.valueLabel}`}
-      accessibilityRole="button"
+      accessibilityRole={options.onPress ? 'button' : undefined}
+      disabled={!options.onPress}
       key={options.key}
       onPress={options.onPress}
       style={({ pressed }) => [
@@ -494,9 +496,10 @@ export function CollectionPickerSheet({
                 <>
                   {renderRow({
                     key: ALL_COLLECTIONS_ID,
-                    title: 'All Collection',
+                    title: 'All Collections',
                     valueLabel: formatValue(allTotals.totalValue),
-                    onPress: () => handleSelect(ALL_COLLECTIONS_ID),
+                    // Informational only — the aggregate is a readout, not a
+                    // scope. A real collection is always the active one.
                     isFirst: true,
                     leadingIcon: (
                       <ViewGrid color={colors.gray900} height={ROW_ICON_SIZE} width={ROW_ICON_SIZE} />
@@ -575,19 +578,24 @@ export function CollectionPickerSheet({
                               width={ROW_ICON_SIZE}
                             />
                           </Pressable>
-                          <Pressable
-                            accessibilityLabel={`Delete ${collection.name}`}
-                            accessibilityRole="button"
-                            hitSlop={8}
-                            onPress={() => onRequestDelete(collection)}
-                            testID={`${testID}-row-${collection.id}-delete`}
-                          >
-                            <Trash
-                              color={colors.gray900}
-                              height={ROW_ICON_SIZE}
-                              width={ROW_ICON_SIZE}
-                            />
-                          </Pressable>
+                          {collections.length > 1 ? (
+                            // The last collection is not deletable — a real one
+                            // must always exist to hold new adds (the backend
+                            // refuses too).
+                            <Pressable
+                              accessibilityLabel={`Delete ${collection.name}`}
+                              accessibilityRole="button"
+                              hitSlop={8}
+                              onPress={() => onRequestDelete(collection)}
+                              testID={`${testID}-row-${collection.id}-delete`}
+                            >
+                              <Trash
+                                color={colors.gray900}
+                                height={ROW_ICON_SIZE}
+                                width={ROW_ICON_SIZE}
+                              />
+                            </Pressable>
+                          ) : null}
                         </View>
                       ),
                       testID: `${testID}-row-${collection.id}`,

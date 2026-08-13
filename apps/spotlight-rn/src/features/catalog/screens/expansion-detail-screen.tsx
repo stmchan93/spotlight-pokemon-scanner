@@ -7,12 +7,14 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from 'expo-router';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { CatalogSearchResult } from '@spotlight/api-client';
-import { SearchField, StateCard, Text, colors, useSpotlightTheme } from '@spotlight/design-system';
+import { SearchField, StateCard, Text, Toast, colors, useSpotlightTheme } from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
+import { consumeCardAddedNotice } from '@/features/cards/card-added-notice';
 import { useAppServices } from '@/providers/app-providers';
 
 type ExpansionDetailScreenProps = {
@@ -82,7 +84,20 @@ function CardCell({
 }
 
 export function ExpansionDetailScreen({ expansionId, expansionName, onClose, onOpenCard }: ExpansionDetailScreenProps) {
+  // Cards are added from inside a set too, so the confirmation has to land here
+  // as well as on the search screen. On FOCUS — this screen stays mounted under
+  // the card page.
+  const [addedNotice, setAddedNotice] = useState<string | null>(null);
+  useFocusEffect(
+    useCallback(() => {
+      const notice = consumeCardAddedNotice();
+      if (notice) {
+        setAddedNotice(notice);
+      }
+    }, []),
+  );
   const theme = useSpotlightTheme();
+  const insets = useSafeAreaInsets();
   const { spotlightRepository } = useAppServices();
 
   const [cardQuery, setCardQuery] = useState('');
@@ -207,11 +222,29 @@ export function ExpansionDetailScreen({ expansionId, expansionName, onClose, onO
         )}
         showsVerticalScrollIndicator={false}
       />
+
+      <Toast
+        message={addedNotice ?? ''}
+        onDismiss={() => setAddedNotice(null)}
+        // Inset carried on `bottom` itself — Yoga's web-conformant absolute
+        // layout ignores the SafeAreaView's padding (same note as the catalog
+        // search toast), so without it Android's nav bar covered the toast.
+        style={[styles.addedToast, { bottom: insets.bottom + 24 }]}
+        testID="expansion-added-toast"
+        visible={addedNotice !== null}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  // `Toast` is unpositioned by design — 16 in from each edge, like card detail.
+  addedToast: {
+    // `bottom` is inline — it needs the safe-area inset (see the render note).
+    left: 16,
+    position: 'absolute',
+    right: 16,
+  },
   cardCell: {
     alignItems: 'center',
     flex: 1 / 3,

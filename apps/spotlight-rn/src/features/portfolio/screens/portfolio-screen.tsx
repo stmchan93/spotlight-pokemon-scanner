@@ -141,6 +141,10 @@ const PROFILE_TAB_ORDER = PROFILE_TABS.map((tab) => tab.value);
 // long-press (iOS context menus sit around here).
 const CARD_LONG_PRESS_MS = 500;
 
+// How long the holdings reads will wait for `listCollections` to say which
+// collection they are for. See the scope gate in the screen body.
+const COLLECTION_SCOPE_WAIT_MS = 2000;
+
 const isTestEnv = process.env.NODE_ENV === 'test';
 
 // A short "click" the moment a card is selected by long-press (iOS-style
@@ -339,17 +343,52 @@ export function PortfolioScreen({
   // fire the instant a guest lands on the scanner and bounce them to login.
   // Guests are kept out of Collection by the pager lock + the gated Collection
   // tab/drawer entries instead.
-  const model = usePortfolioScreenModel();
   const {
     spotlightRepository,
     refreshData,
     removeOptimisticInventoryEntries,
     activeCollectionID,
     setActiveCollectionID,
+    isActiveCollectionRestored,
   } = useAppServices();
-  const [isCollectionPickerVisible, setIsCollectionPickerVisible] = useState(false);
   const [collectionsSnapshot, setCollectionsSnapshot] = useState<CollectionsSnapshot | null>(null);
   const [isLoadingCollections, setIsLoadingCollections] = useState(false);
+  const [hasReadCollections, setHasReadCollections] = useState(false);
+
+  /*
+    THE HOLDINGS READS MUST NOT START UNDER A SCOPE WE ARE ABOUT TO CHANGE.
+
+    `ALL_COLLECTIONS_ID` is now a readout, not a scope, so on a cold start the
+    active collection resolves to a real one as soon as the collections read
+    lands. But a scope change BLANKS the model and refetches
+    (`use-portfolio-screen-model.ts`), so starting under the placeholder buys a
+    3-5s dashboard we immediately throw away — a second expensive fetch and a
+    skeleton flash on every launch.
+
+    So the aggregate counts as resolved only once we know there is nothing to
+    resolve it to. Three escape hatches, because the cost of a wrong answer here
+    is a Collection tab that never paints:
+      - a FAILED collections read still sets `hasReadCollections` (it is set in
+        `finally`), which falls through to the aggregate;
+      - a SLOW or hung one is capped by the timeout below — one wasted dashboard
+        fetch is a far better outcome than a blank screen;
+      - the persisted choice may still be in flight, and it wins over the
+        default — so the gate waits on it too.
+  */
+  const isCollectionScopeResolved = activeCollectionID !== ALL_COLLECTIONS_ID
+    || (isActiveCollectionRestored
+      && hasReadCollections
+      && (collectionsSnapshot?.collections.length ?? 0) === 0);
+
+  // Cap the wait. `listCollections` is a small query and normally beats this by
+  // an order of magnitude, but first paint must never be hostage to it.
+  useEffect(() => {
+    const timer = setTimeout(() => setHasReadCollections(true), COLLECTION_SCOPE_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const model = usePortfolioScreenModel({ isCollectionScopeResolved });
+  const [isCollectionPickerVisible, setIsCollectionPickerVisible] = useState(false);
   const [collectionPendingDelete, setCollectionPendingDelete] = useState<Collection | null>(null);
   // An action to run only AFTER the collection picker's modal has fully gone —
   // same rule as the card actions menu below: a second overFullScreen modal
@@ -455,15 +494,15 @@ export function PortfolioScreen({
     ? HIDDEN_VALUE_MASK
     : formatAbbreviatedCurrency(summary.currentValue);
 
-  // Name shown on the picker. Falls back to "All Collection" for the aggregate,
+  // Name shown on the picker. Falls back to "All Collections" for the aggregate,
   // and to the plain label until the collections read lands.
   const activeCollectionName = useMemo(() => {
     const collections = collectionsSnapshot?.collections ?? [];
     if (activeCollectionID === ALL_COLLECTIONS_ID) {
       // With a single collection the aggregate IS that collection, so name it —
-      // "All Collection" only earns its place once there is more than one
+      // "All Collections" only earns its place once there is more than one
       // (Figma 3356:2371 rests on "Main Collection").
-      return collections.length === 1 ? collections[0].name : 'All Collection';
+      return collections.length === 1 ? collections[0].name : 'All Collections';
     }
     const match = collections.find((collection) => collection.id === activeCollectionID);
     return match?.name ?? 'Main Collection';
@@ -488,13 +527,16 @@ export function PortfolioScreen({
       return null;
     } finally {
       setIsLoadingCollections(false);
+      // Settled either way. Failure has to count: the scope gate above waits on
+      // this, and a null snapshot alone cannot tell "still reading" from
+      // "read and got nothing".
+      setHasReadCollections(true);
     }
   }, [spotlightRepository]);
 
-  // Read the collections once so the picker label is right before it is opened.
-  // Deliberately does NOT change the active scope: the unscoped read is already
-  // correct for someone who has not picked a collection, and switching the scope
-  // here would cost a second (expensive) dashboard fetch on every cold start.
+  // Read the collections once. Two jobs: the picker label is right before it is
+  // opened, and the reconcile effect below has the list it needs to turn the
+  // aggregate placeholder into a real scope.
   useEffect(() => {
     void loadCollections();
   }, [loadCollections]);
@@ -523,17 +565,35 @@ export function PortfolioScreen({
   */
   useEffect(() => {
     const collections = collectionsSnapshot?.collections;
-    if (!collections || activeCollectionID === ALL_COLLECTIONS_ID) {
+    if (!collections || collections.length === 0) {
       return;
     }
-    if (collections.some((collection) => collection.id === activeCollectionID)) {
+    if (
+      activeCollectionID !== ALL_COLLECTIONS_ID
+      && collections.some((collection) => collection.id === activeCollectionID)
+    ) {
       return;
     }
-    capturePostHogEvent('portfolio_active_collection_reset', {
-      knownCollections: collections.length,
-    });
-    setActiveCollectionID(ALL_COLLECTIONS_ID);
-  }, [activeCollectionID, collectionsSnapshot, setActiveCollectionID]);
+    // The aggregate means "not resolved yet", and the persisted choice may still
+    // be in flight — resolving ahead of it would replace the collection the user
+    // actually picked with the default on every cold start.
+    if (activeCollectionID === ALL_COLLECTIONS_ID && !isActiveCollectionRestored) {
+      return;
+    }
+    // The aggregate is a readout, not a scope: "all" (the pre-migration
+    // default) and a deleted id both resolve to a real collection — the
+    // server's default when it still exists, else the first.
+    const fallback =
+      collections.find(
+        (collection) => collection.id === collectionsSnapshot?.defaultCollectionID,
+      ) ?? collections[0];
+    if (activeCollectionID !== ALL_COLLECTIONS_ID) {
+      capturePostHogEvent('portfolio_active_collection_reset', {
+        knownCollections: collections.length,
+      });
+    }
+    setActiveCollectionID(fallback.id);
+  }, [activeCollectionID, collectionsSnapshot, isActiveCollectionRestored, setActiveCollectionID]);
 
   const handleOpenCollectionPicker = useCallback(() => {
     setIsCollectionPickerVisible(true);
@@ -630,10 +690,13 @@ export function PortfolioScreen({
       try {
         await spotlightRepository.deleteCollection(target.id);
         setCollectionPendingDelete(null);
-        // If the deleted one was on screen, fall back to the aggregate rather
-        // than leaving the tab scoped to a collection that no longer exists.
+        // If the deleted one was on screen, move to another real collection —
+        // the aggregate is not a scope. The reconcile effect covers any gap.
         if (activeCollectionID === target.id) {
-          setActiveCollectionID(ALL_COLLECTIONS_ID);
+          const remaining = collectionsSnapshot?.collections.find(
+            (collection) => collection.id !== target.id,
+          );
+          setActiveCollectionID(remaining?.id ?? ALL_COLLECTIONS_ID);
         }
         refreshData();
         void loadCollections();
@@ -646,6 +709,7 @@ export function PortfolioScreen({
   }, [
     activeCollectionID,
     collectionPendingDelete,
+    collectionsSnapshot,
     loadCollections,
     refreshData,
     setActiveCollectionID,

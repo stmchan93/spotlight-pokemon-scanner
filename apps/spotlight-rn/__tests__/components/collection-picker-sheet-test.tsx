@@ -69,7 +69,7 @@ describe('CollectionPickerSheet', () => {
     renderSheet();
 
     expect(screen.getByText('Collection')).toBeTruthy();
-    expect(screen.getByText('All Collection')).toBeTruthy();
+    expect(screen.getByText('All Collections')).toBeTruthy();
     expect(screen.getByText('$2900.24')).toBeTruthy();
     expect(screen.getByText('Main Collection')).toBeTruthy();
     expect(screen.getByText('Gengar Only')).toBeTruthy();
@@ -84,12 +84,15 @@ describe('CollectionPickerSheet', () => {
     expect(props.onClose).toHaveBeenCalled();
   });
 
-  it('selects the aggregate from the All row', () => {
+  it('treats the All row as a readout, not a scope — tapping it selects nothing', () => {
+    // The aggregate is informational: a REAL collection is always the active
+    // one, so the row reports the un-scoped total but is not a destination.
     const props = renderSheet();
 
     fireEvent.press(screen.getByTestId('collection-picker-sheet-row-all'));
 
-    expect(props.onSelectCollection).toHaveBeenCalledWith('all');
+    expect(props.onSelectCollection).not.toHaveBeenCalled();
+    expect(props.onClose).not.toHaveBeenCalled();
   });
 
   it('ADD opens the New Collection form, and CREATE stays disabled until it is named', () => {
@@ -230,6 +233,27 @@ describe('CollectionPickerSheet', () => {
     fireEvent.press(screen.getByTestId('collection-picker-sheet-row-collection:grails-delete'));
 
     expect(props.onRequestDelete).toHaveBeenCalledWith(GRAILS);
+  });
+
+  it('shows a delete button on every row while more than one collection exists', () => {
+    renderSheet();
+
+    expect(screen.getByTestId('collection-picker-sheet-row-collection:main-delete')).toBeTruthy();
+    expect(screen.getByTestId('collection-picker-sheet-row-collection:grails-delete')).toBeTruthy();
+  });
+
+  it('offers no delete on the last remaining collection', () => {
+    // A real collection must always exist to hold new adds — the backend
+    // refuses to delete the last one, so the sheet doesn't offer it.
+    renderSheet({ collections: [MAIN] });
+
+    expect(screen.getByTestId('collection-picker-sheet-row-collection:main')).toBeTruthy();
+    expect(
+      screen.queryByTestId('collection-picker-sheet-row-collection:main-delete'),
+    ).not.toBeOnTheScreen();
+    // The other row actions stay — only the trash is withheld.
+    expect(screen.getByTestId('collection-picker-sheet-row-collection:main-rename')).toBeTruthy();
+    expect(screen.getByTestId('collection-picker-sheet-row-collection:main-hide')).toBeTruthy();
   });
 
   it('does NOT render a reorder handle — nothing persists an order yet', () => {

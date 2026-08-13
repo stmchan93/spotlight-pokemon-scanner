@@ -145,7 +145,7 @@ export type CatalogSearchOptions = {
 };
 
 export interface SpotlightRepository {
-  /** The owner's collections plus the "All Collection" totals. */
+  /** The owner's collections plus the "All Collections" totals. */
   listCollections(): Promise<CollectionsSnapshot>;
   /** Create a named collection. Returns it, empty. */
   createCollection(name: string): Promise<Collection>;
@@ -5872,6 +5872,9 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       wasTopPrediction: payload.wasTopPrediction ?? null,
       addedAt: payload.addedAt,
       costBasisPerUnit: payload.costBasisPerUnit ?? null,
+      // Every add landed in the default collection without this: the body is
+      // built field by field, and both callers were already sending it.
+      collectionID: payload.collectionID ?? null,
     };
     return this.requestJsonOrThrow<InventoryEntryCreateResponsePayload>(`${this.baseUrl}/api/v1/deck/entries`, {
       method: 'POST',

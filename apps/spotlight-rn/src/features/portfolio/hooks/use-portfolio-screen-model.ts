@@ -206,7 +206,24 @@ function applySalePriceEdit(
   };
 }
 
-export function usePortfolioScreenModel() {
+type PortfolioScreenModelOptions = {
+  /**
+   * Hold the FIRST load until the caller knows which collection it is asking
+   * about. Every read here is scoped to `activeCollectionID`, and a scope change
+   * blanks the model and refetches (see the reset effect below) — so loading
+   * under the aggregate placeholder and then resolving to a real collection pays
+   * for the expensive dashboard twice on every cold start, and throws the first
+   * answer away.
+   *
+   * Defaults to true for callers with no scope of their own to resolve
+   * (`sales-history-screen`).
+   */
+  isCollectionScopeResolved?: boolean;
+};
+
+export function usePortfolioScreenModel({
+  isCollectionScopeResolved = true,
+}: PortfolioScreenModelOptions = {}) {
   const {
     spotlightRepository,
     dataVersion,
@@ -592,11 +609,22 @@ export function usePortfolioScreenModel() {
   // loaders read it from a ref, so the callbacks stay stable and this effect is
   // the ONLY thing the switch re-triggers.
   useEffect(() => {
+    // Ahead of the gate there is nothing to load FOR yet — see
+    // `isCollectionScopeResolved`. Deliberately before `hasRunInitialLoad` is
+    // set, so the first real load still counts as the first one.
+    if (!isCollectionScopeResolved) return;
     if (!isPortfolioActive && hasRunInitialLoad.current) return;
     hasRunInitialLoad.current = true;
     void loadInventory();
     void loadDashboard();
-  }, [activeCollectionID, dataVersion, isPortfolioActive, loadDashboard, loadInventory]);
+  }, [
+    activeCollectionID,
+    dataVersion,
+    isCollectionScopeResolved,
+    isPortfolioActive,
+    loadDashboard,
+    loadInventory,
+  ]);
 
   // Live-reflect external optimistic adds. When a card is added from the card
   // detail or scanner, `prependOptimisticInventoryEntry` prepends it into the

@@ -32,7 +32,6 @@ import {
   persistActiveCollection,
   readPersistedActiveCollection,
 } from '@/features/portfolio/persisted-active-collection';
-import { configurePurchases } from '@/features/monetization/purchases';
 import { prefetchCardImages } from '@/lib/card-images';
 import { resolveRuntimeValue } from '@/lib/runtime-config';
 
@@ -212,6 +211,14 @@ type AppServices = {
    */
   activeCollectionID: string;
   setActiveCollectionID: (collectionID: string) => void;
+  /**
+   * False until the persisted choice for THIS account has been read back off
+   * disk. Until then `activeCollectionID` is the `ALL_COLLECTIONS_ID`
+   * placeholder rather than an answer, so anything that resolves the aggregate
+   * to a real collection must wait — resolving first would overwrite the
+   * collection the user actually picked with the default on every cold start.
+   */
+  isActiveCollectionRestored: boolean;
 };
 
 const AppServicesContext = createContext<AppServices | null>(null);
@@ -246,6 +253,10 @@ export function AppProviders({
   const [portfolioDashboardCacheState, setPortfolioDashboardCacheState] = useState<ScopedCache<PortfolioDashboard> | null>(null);
   const [portfolioPerformanceCacheState, setPortfolioPerformanceCacheState] = useState<ScopedCache<PortfolioPerformance> | null>(null);
   const [activeCollectionState, setActiveCollectionState] = useState<ScopedCache<string> | null>(null);
+  // Owner-scoped like the value itself: on an account switch this reverts to
+  // "not restored yet" for free, rather than reporting the previous account's
+  // read as if it answered for the new one.
+  const [restoredCollectionOwnerKey, setRestoredCollectionOwnerKey] = useState<string | null>(null);
 
   // `accessToken` stays in the deps so a newly-authenticated session still
   // triggers the load effect below; the repository itself reads the token
@@ -295,21 +306,32 @@ export function AppProviders({
     [activeSessionOwnerKey],
   );
 
+  const isActiveCollectionRestored = restoredCollectionOwnerKey === activeSessionOwnerKey;
+
   // Restore the last choice for THIS account on mount / account switch.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const persisted = await readPersistedActiveCollection(activeSessionOwnerKey);
-      if (cancelled || !persisted) {
-        return;
-      }
-      setActiveCollectionState((current) => {
-        // Don't clobber a choice the user made while the read was in flight.
-        if (current?.ownerKey === activeSessionOwnerKey) {
-          return current;
+      try {
+        const persisted = await readPersistedActiveCollection(activeSessionOwnerKey);
+        if (cancelled || !persisted) {
+          return;
         }
-        return { ownerKey: activeSessionOwnerKey, value: persisted };
-      });
+        setActiveCollectionState((current) => {
+          // Don't clobber a choice the user made while the read was in flight.
+          if (current?.ownerKey === activeSessionOwnerKey) {
+            return current;
+          }
+          return { ownerKey: activeSessionOwnerKey, value: persisted };
+        });
+      } finally {
+        // Settled, whether or not there was anything to restore — a missing or
+        // failed read is still an answer ("nothing persisted"), and consumers
+        // waiting on this must not hang on it.
+        if (!cancelled) {
+          setRestoredCollectionOwnerKey(activeSessionOwnerKey);
+        }
+      }
     })();
     return () => {
       cancelled = true;
@@ -373,23 +395,30 @@ export function AppProviders({
     ));
   }, [setInventoryEntriesCache, setPortfolioDashboardCache]);
 
-  // Configure RevenueCat once at startup. No-op until the native module + public
-  // SDK keys are present (the CTA's interim unlock covers the gap before then).
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'test') {
-      return;
-    }
-    configurePurchases();
-  }, []);
-
   useEffect(() => {
     if (process.env.NODE_ENV === 'test') {
       return undefined;
     }
 
+    // Wait for the persisted scope. Firing under the placeholder and again once
+    // the real choice lands is two reads for one screen, and the first one's
+    // result is cached under a scope nothing goes on to read.
+    if (!isActiveCollectionRestored) {
+      return undefined;
+    }
+
     let cancelled = false;
 
-    void spotlightRepository.loadInventoryEntries()
+    // Scoped to the ACTIVE collection: this result lands in the holdings cache,
+    // which is keyed by owner AND collection. Unscoped, this read put the whole
+    // account's cards under whatever collection was on screen — any refreshData()
+    // bump (the actions-menu Wishlist toggle was the repro) raced this
+    // all-collections read against the portfolio's scoped one, and this slower
+    // read landed last and flooded a 2-card collection with everything owned.
+    // `activeCollectionID` in the deps keeps the request and the cache key in
+    // step: a collection switch cancels the stale read and re-warms the new
+    // scope's cache.
+    void spotlightRepository.loadInventoryEntries({ collectionID: activeCollectionID })
       .then((loadResult) => {
         if (!cancelled && loadResult.data && loadResult.state !== 'error') {
           setInventoryEntriesCache(loadResult.data);
@@ -403,7 +432,7 @@ export function AppProviders({
     return () => {
       cancelled = true;
     };
-  }, [dataVersion, spotlightRepository]);
+  }, [activeCollectionID, dataVersion, isActiveCollectionRestored, spotlightRepository]);
 
   const services = useMemo<AppServices>(() => {
     return {
@@ -421,10 +450,12 @@ export function AppProviders({
       removeOptimisticInventoryEntries,
       activeCollectionID,
       setActiveCollectionID,
+      isActiveCollectionRestored,
     };
   }, [
     activeCollectionID,
     setActiveCollectionID,
+    isActiveCollectionRestored,
     activeSessionOwnerKey,
     dataVersion,
     inventoryEntriesCache,

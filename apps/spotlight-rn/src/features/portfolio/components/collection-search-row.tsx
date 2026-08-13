@@ -26,7 +26,7 @@ type CollectionSearchRowProps = {
   inputRef?: RefObject<TextInput | null>;
   /**
    * Name shown in the collection picker on the summary line (Figma 2749:4749).
-   * Reads "All Collection" when the aggregate is active, otherwise the active
+   * Reads "All Collections" when the aggregate is active, otherwise the active
    * collection's name.
    */
   collectionName?: string;
