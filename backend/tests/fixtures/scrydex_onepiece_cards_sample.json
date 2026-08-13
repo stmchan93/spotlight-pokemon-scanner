@@ -1,0 +1,993 @@
+{
+  "data": [
+    {
+      "id": "OP16-001",
+      "name": "Portgas.D.Ace",
+      "number": "1",
+      "printed_number": "OP16-001",
+      "cost": null,
+      "power": "5000",
+      "life": "5",
+      "counter": null,
+      "attribute": "Special",
+      "type": "Leader",
+      "colors": [
+        "Red"
+      ],
+      "subtypes": [
+        "Whitebeard Pirates"
+      ],
+      "printings": [
+        "OP16"
+      ],
+      "tags": [],
+      "rarity": "Leader",
+      "rarity_code": "L",
+      "rules": [
+        "[Activate: Main] [Once Per Turn] Up to 1 of your [Monkey.D.Luffy] Characters or up to 1 of your Characters with a type including \"Whitebeard Pirates\", with 8000 power or more, gains [Rush] during this turn."
+      ],
+      "images": [
+        {
+          "type": "front",
+          "small": "https://images.scrydex.com/onepiece/OP16-001/small",
+          "medium": "https://images.scrydex.com/onepiece/OP16-001/medium",
+          "large": "https://images.scrydex.com/onepiece/OP16-001/large"
+        }
+      ],
+      "expansion": {
+        "id": "OP16",
+        "name": "The Time Of Battle",
+        "type": "Booster Pack",
+        "code": "OP16",
+        "total": 119,
+        "printed_total": null,
+        "total_unique_variants": 155,
+        "release_date": "2026/06/12",
+        "logo": "https://images.scrydex.com/onepiece/OP16-logo/logo",
+        "symbol": null,
+        "language": "English",
+        "language_code": "EN"
+      },
+      "language": "English",
+      "language_code": "EN",
+      "expansion_sort_order": 1,
+      "variants": [
+        {
+          "name": "normal",
+          "printings": [
+            "OP16"
+          ],
+          "images": [
+            {
+              "type": "front",
+              "small": "https://images.scrydex.com/onepiece/OP16-001/small",
+              "medium": "https://images.scrydex.com/onepiece/OP16-001/medium",
+              "large": "https://images.scrydex.com/onepiece/OP16-001/large"
+            }
+          ],
+          "marketplaces": [
+            {
+              "name": "tcgplayer",
+              "product_id": "693417",
+              "purchase_url": "https://scrydex.com/onepiece/cards/OP16-001/purchase?type=tcgplayer&variant=normal"
+            }
+          ],
+          "pop_reports": [],
+          "prices": [
+            {
+              "condition": "NM",
+              "grade": null,
+              "company": null,
+              "is_perfect": false,
+              "is_signed": false,
+              "is_error": false,
+              "type": "raw",
+              "low": 0.01,
+              "mid": null,
+              "high": null,
+              "market": 0.13,
+              "currency": "USD",
+              "source_currency": "USD",
+              "trends": {
+                "days_1": {
+                  "price_change": 0.0,
+                  "percent_change": 0.0
+                },
+                "days_7": {
+                  "price_change": 0.0,
+                  "percent_change": 0.0
+                },
+                "days_14": {
+                  "price_change": 0.01,
+                  "percent_change": 8.33
+                },
+                "days_30": {
+                  "price_change": -0.02,
+                  "percent_change": -13.33
+                }
+              }
+            },
+            {
+              "condition": "LP",
+              "grade": null,
+              "company": null,
+              "is_perfect": false,
+              "is_signed": false,
+              "is_error": false,
+              "type": "raw",
+              "low": 0.1,
+              "mid": null,
+              "high": null,
+              "market": 0.12,
+              "currency": "USD",
+              "source_currency": "USD",
+              "trends": {
+                "days_1": {
+                  "price_change": 0.0,
+                  "percent_change": 0.0
+                },
+                "days_7": {
+                  "price_change": 0.0,
+                  "percent_change": 0.0
+                },
+                "days_14": {
+                  "price_change": 0.0,
+                  "percent_change": 0.0
+                },
+                "days_30": {
+                  "price_change": 0.01,
+                  "percent_change": 9.09
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "altArt",
+          "printings": [
+            "OP16"
+          ],
+          "images": [
+            {
+              "type": "front",
+              "small": "https://images.scrydex.com/onepiece/OP16-001A/small",
+              "medium": "https://images.scrydex.com/onepiece/OP16-001A/medium",
+              "large": "https://images.scrydex.com/onepiece/OP16-001A/large"
+            }
+          ],
+          "marketplaces": [
+            {
+              "name": "tcgplayer",
+              "product_id": "693418",
+              "purchase_url": "https://scrydex.com/onepiece/cards/OP16-001/purchase?type=tcgplayer&variant=altArt"
+            }
+          ],
+          "pop_reports": [],
+          "prices": [
+            {
+              "condition": "NM",
+              "grade": null,
+              "company": null,
+              "is_perfect": false,
+              "is_signed": false,
+              "is_error": false,
+              "type": "raw",
+              "low": 69.5,
+              "mid": null,
+              "high": null,
+              "market": 68.75,
+              "currency": "USD",
+              "source_currency": "USD",
+              "trends": {
+                "days_1": {
+                  "price_change": 0.7,
+                  "percent_change": 1.03
+                },
+                "days_7": {
+                  "price_change": 28.41,
+                  "percent_change": 70.43
+                },
+                "days_14": {
+                  "price_change": 24.87,
+                  "percent_change": 56.68
+                },
+                "days_30": {
+                  "price_change": 23.03,
+                  "percent_change": 50.37
+                }
+              }
+            },
+            {
+              "condition": "LP",
+              "grade": null,
+              "company": null,
+              "is_perfect": false,
+              "is_signed": false,
+              "is_error": false,
+              "type": "raw",
+              "low": null,
+              "mid": null,
+              "high": null,
+              "market": 46.5,
+              "currency": "USD",
+              "source_currency": "USD",
+              "trends": {
+                "days_1": {
+                  "price_change": 1.0,
+                  "percent_change": 2.2
+                },
+                "days_7": {
+                  "price_change": 0.85,
+                  "percent_change": 1.86
+                },
+                "days_14": {
+                  "price_change": 0.31,
+                  "percent_change": 0.67
+                },
+                "days_30": {
+                  "price_change": 0.74,
+                  "percent_change": 1.62
+                }
+              }
+            },
+            {
+              "condition": "DM",
+              "grade": null,
+              "company": null,
+              "is_perfect": false,
+              "is_signed": false,
+              "is_error": false,
+              "type": "raw",
+              "low": null,
+              "mid": null,
+              "high": null,
+              "market": 23.0,
+              "currency": "USD",
+              "source_currency": "USD",
+              "trends": {
+                "days_1": {
+                  "price_change": 0.0,
+                  "percent_change": 0.0
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "OP16-002",
+      "name": "Izo",
+      "number": "2",
+      "printed_number": "OP16-002",
+      "cost": "1",
+      "power": "2000",
+      "life": null,
+      "counter": "+1000",
+      "attribute": "Ranged",
+      "type": "Character",
+      "colors": [
+        "Red"
+      ],
+      "subtypes": [
+        "Land of Wano",
+        "Whitebeard Pirates"
+      ],
+      "printings": [
+        "OP16"
+      ],
+      "tags": [],
+      "rarity": "Uncommon",
+      "rarity_code": "UC",
+      "rules": [
+        "[On Play] You may reveal 1 Character card with 8000 power from your hand: Draw 1 card."
+      ],
+      "images": [
+        {
+          "type": "front",
+          "small": "https://images.scrydex.com/onepiece/OP16-002/small",
+          "medium": "https://images.scrydex.com/onepiece/OP16-002/medium",
+          "large": "https://images.scrydex.com/onepiece/OP16-002/large"
+        }
+      ],
+      "expansion": {
+        "id": "OP16",
+        "name": "The Time Of Battle",
+        "type": "Booster Pack",
+        "code": "OP16",
+        "total": 119,
+        "printed_total": null,
+        "total_unique_variants": 155,
+        "release_date": "2026/06/12",
+        "logo": "https://images.scrydex.com/onepiece/OP16-logo/logo",
+        "symbol": null,
+        "language": "English",
+        "language_code": "EN"
+      },
+      "language": "English",
+      "language_code": "EN",
+      "expansion_sort_order": 2,
+      "variants": [
+        {
+          "name": "normal",
+          "printings": [
+            "OP16"
+          ],
+          "images": [
+            {
+              "type": "front",
+              "small": "https://images.scrydex.com/onepiece/OP16-002/small",
+              "medium": "https://images.scrydex.com/onepiece/OP16-002/medium",
+              "large": "https://images.scrydex.com/onepiece/OP16-002/large"
+            }
+          ],
+          "marketplaces": [
+            {
+              "name": "tcgplayer",
+              "product_id": "695987",
+              "purchase_url": "https://scrydex.com/onepiece/cards/OP16-002/purchase?type=tcgplayer&variant=normal"
+            }
+          ],
+          "pop_reports": [],
+          "prices": [
+            {
+              "condition": "NM",
+              "grade": null,
+              "company": null,
+              "is_perfect": false,
+              "is_signed": false,
+              "is_error": false,
+              "type": "raw",
+              "low": 0.01,
+              "mid": null,
+              "high": null,
+              "market": 0.1,
+              "currency": "USD",
+              "source_currency": "USD",
+              "trends": {
+                "days_1": {
+                  "price_change": 0.0,
+                  "percent_change": 0.0
+                },
+                "days_7": {
+                  "price_change": 0.02,
+                  "percent_change": 25.0
+                },
+                "days_14": {
+                  "price_change": 0.02,
+                  "percent_change": 25.0
+                },
+                "days_30": {
+                  "price_change": 0.02,
+                  "percent_change": 25.0
+                }
+              }
+            },
+            {
+              "condition": "LP",
+              "grade": null,
+              "company": null,
+              "is_perfect": false,
+              "is_signed": false,
+              "is_error": false,
+              "type": "raw",
+              "low": 0.05,
+              "mid": null,
+              "high": null,
+              "market": 0.06,
+              "currency": "USD",
+              "source_currency": "USD",
+              "trends": {
+                "days_1": {
+                  "price_change": 0.0,
+                  "percent_change": 0.0
+                },
+                "days_7": {
+                  "price_change": 0.0,
+                  "percent_change": 0.0
+                },
+                "days_14": {
+                  "price_change": 0.01,
+                  "percent_change": 20.0
+                },
+                "days_30": {
+                  "price_change": 0.01,
+                  "percent_change": 20.0
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "OP16-003",
+      "name": "Edward.Newgate",
+      "number": "3",
+      "printed_number": "OP16-003",
+      "cost": "8",
+      "power": "10000",
+      "life": null,
+      "counter": null,
+      "attribute": "Special",
+      "type": "Character",
+      "colors": [
+        "Red"
+      ],
+      "subtypes": [
+        "The Four Emperors",
+        "Whitebeard Pirates"
+      ],
+      "printings": [
+        "OP16"
+      ],
+      "tags": [],
+      "rarity": "Super Rare",
+      "rarity_code": "SR",
+      "rules": [
+        "[Your Turn] Your Leader gains [Double Attack] and +2000 power.",
+        "[On Play] You may reveal 2 Character cards with 8000 power from your hand: Give up to 1 of your opponent's Characters \u22126000 power during this turn."
+      ],
+      "images": [
+        {
+          "type": "front",
+          "small": "https://images.scrydex.com/onepiece/OP16-003/small",
+          "medium": "https://images.scrydex.com/onepiece/OP16-003/medium",
+          "large": "https://images.scrydex.com/onepiece/OP16-003/large"
+        }
+      ],
+      "expansion": {
+        "id": "OP16",
+        "name": "The Time Of Battle",
+        "type": "Booster Pack",
+        "code": "OP16",
+        "total": 119,
+        "printed_total": null,
+        "total_unique_variants": 155,
+        "release_date": "2026/06/12",
+        "logo": "https://images.scrydex.com/onepiece/OP16-logo/logo",
+        "symbol": null,
+        "language": "English",
+        "language_code": "EN"
+      },
+      "language": "English",
+      "language_code": "EN",
+      "expansion_sort_order": 3,
+      "variants": [
+        {
+          "name": "foil",
+          "printings": [
+            "OP16"
+          ],
+          "images": [
+            {
+              "type": "front",
+              "small": "https://images.scrydex.com/onepiece/OP16-003/small",
+              "medium": "https://images.scrydex.com/onepiece/OP16-003/medium",
+              "large": "https://images.scrydex.com/onepiece/OP16-003/large"
+            }
+          ],
+          "marketplaces": [
+            {
+              "name": "tcgplayer",
+              "product_id": "693824",
+              "purchase_url": "https://scrydex.com/onepiece/cards/OP16-003/purchase?type=tcgplayer&variant=foil"
+            }
+          ],
+          "pop_reports": [],
+          "prices": [
+            {
+              "condition": "NM",
+              "grade": null,
+              "company": null,
+              "is_perfect": false,
+              "is_signed": false,
+              "is_error": false,
+              "type": "raw",
+              "low": 0.7,
+              "mid": null,
+              "high": null,
+              "market": 1.14,
+              "currency": "USD",
+              "source_currency": "USD",
+              "trends": {
+                "days_1": {
+                  "price_change": -0.53,
+                  "percent_change": -31.74
+                },
+                "days_7": {
+                  "price_change": 0.52,
+                  "percent_change": 83.87
+                },
+                "days_14": {
+                  "price_change": 0.27,
+                  "percent_change": 31.03
+                },
+                "days_30": {
+                  "price_change": 0.19,
+                  "percent_change": 20.0
+                }
+              }
+            },
+            {
+              "condition": "LP",
+              "grade": null,
+              "company": null,
+              "is_perfect": false,
+              "is_signed": false,
+              "is_error": false,
+              "type": "raw",
+              "low": 1.02,
+              "mid": null,
+              "high": null,
+              "market": 0.88,
+              "currency": "USD",
+              "source_currency": "USD",
+              "trends": {
+                "days_1": {
+                  "price_change": 0.0,
+                  "percent_change": 0.0
+                },
+                "days_7": {
+                  "price_change": -0.12,
+                  "percent_change": -12.0
+                },
+                "days_14": {
+                  "price_change": -0.12,
+                  "percent_change": -12.0
+                },
+                "days_30": {
+                  "price_change": -0.06,
+                  "percent_change": -6.38
+                }
+              }
+            },
+            {
+              "condition": "MP",
+              "grade": null,
+              "company": null,
+              "is_perfect": false,
+              "is_signed": false,
+              "is_error": false,
+              "type": "raw",
+              "low": null,
+              "mid": null,
+              "high": null,
+              "market": 1.04,
+              "currency": "USD",
+              "source_currency": "USD",
+              "trends": {
+                "days_1": {
+                  "price_change": 0.0,
+                  "percent_change": 0.0
+                },
+                "days_7": {
+                  "price_change": 0.0,
+                  "percent_change": 0.0
+                },
+                "days_14": {
+                  "price_change": 0.0,
+                  "percent_change": 0.0
+                },
+                "days_30": {
+                  "price_change": 0.0,
+                  "percent_change": 0.0
+                }
+              }
+            },
+            {
+              "condition": "DM",
+              "grade": null,
+              "company": null,
+              "is_perfect": false,
+              "is_signed": false,
+              "is_error": false,
+              "type": "raw",
+              "low": null,
+              "mid": null,
+              "high": null,
+              "market": 1.0,
+              "currency": "USD",
+              "source_currency": "USD",
+              "trends": {
+                "days_1": {
+                  "price_change": 0.0,
+                  "percent_change": 0.0
+                },
+                "days_7": {
+                  "price_change": 0.0,
+                  "percent_change": 0.0
+                },
+                "days_14": {
+                  "price_change": 0.0,
+                  "percent_change": 0.0
+                },
+                "days_30": {
+                  "price_change": 0.0,
+                  "percent_change": 0.0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "altArt",
+          "printings": [
+            "OP16"
+          ],
+          "images": [
+            {
+              "type": "front",
+              "small": "https://images.scrydex.com/onepiece/OP16-003A/small",
+              "medium": "https://images.scrydex.com/onepiece/OP16-003A/medium",
+              "large": "https://images.scrydex.com/onepiece/OP16-003A/large"
+            }
+          ],
+          "marketplaces": [
+            {
+              "name": "tcgplayer",
+              "product_id": "693822",
+              "purchase_url": "https://scrydex.com/onepiece/cards/OP16-003/purchase?type=tcgplayer&variant=altArt"
+            }
+          ],
+          "pop_reports": [],
+          "prices": [
+            {
+              "condition": "NM",
+              "grade": null,
+              "company": null,
+              "is_perfect": false,
+              "is_signed": false,
+              "is_error": false,
+              "type": "raw",
+              "low": 42.0,
+              "mid": null,
+              "high": null,
+              "market": 44.81,
+              "currency": "USD",
+              "source_currency": "USD",
+              "trends": {
+                "days_1": {
+                  "price_change": 0.11,
+                  "percent_change": 0.25
+                },
+                "days_7": {
+                  "price_change": 22.7,
+                  "percent_change": 102.67
+                },
+                "days_14": {
+                  "price_change": 21.82,
+                  "percent_change": 94.91
+                },
+                "days_30": {
+                  "price_change": 18.96,
+                  "percent_change": 73.35
+                }
+              }
+            },
+            {
+              "condition": "LP",
+              "grade": null,
+              "company": null,
+              "is_perfect": false,
+              "is_signed": false,
+              "is_error": false,
+              "type": "raw",
+              "low": null,
+              "mid": null,
+              "high": null,
+              "market": 23.82,
+              "currency": "USD",
+              "source_currency": "USD",
+              "trends": {
+                "days_1": {
+                  "price_change": 0.0,
+                  "percent_change": 0.0
+                },
+                "days_7": {
+                  "price_change": -0.58,
+                  "percent_change": -2.38
+                },
+                "days_14": {
+                  "price_change": -0.58,
+                  "percent_change": -2.38
+                },
+                "days_30": {
+                  "price_change": -1.39,
+                  "percent_change": -5.51
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "OP16-004",
+      "name": "Curiel",
+      "number": "4",
+      "printed_number": "OP16-004",
+      "cost": "7",
+      "power": "8000",
+      "life": null,
+      "counter": "+2000",
+      "attribute": "Ranged",
+      "type": "Character",
+      "colors": [
+        "Red"
+      ],
+      "subtypes": [
+        "Whitebeard Pirates"
+      ],
+      "printings": [
+        "OP16"
+      ],
+      "tags": [],
+      "rarity": "Common",
+      "rarity_code": "C",
+      "rules": [],
+      "images": [
+        {
+          "type": "front",
+          "small": "https://images.scrydex.com/onepiece/OP16-004/small",
+          "medium": "https://images.scrydex.com/onepiece/OP16-004/medium",
+          "large": "https://images.scrydex.com/onepiece/OP16-004/large"
+        }
+      ],
+      "expansion": {
+        "id": "OP16",
+        "name": "The Time Of Battle",
+        "type": "Booster Pack",
+        "code": "OP16",
+        "total": 119,
+        "printed_total": null,
+        "total_unique_variants": 155,
+        "release_date": "2026/06/12",
+        "logo": "https://images.scrydex.com/onepiece/OP16-logo/logo",
+        "symbol": null,
+        "language": "English",
+        "language_code": "EN"
+      },
+      "language": "English",
+      "language_code": "EN",
+      "expansion_sort_order": 4,
+      "variants": [
+        {
+          "name": "normal",
+          "printings": [
+            "OP16"
+          ],
+          "images": [
+            {
+              "type": "front",
+              "small": "https://images.scrydex.com/onepiece/OP16-004/small",
+              "medium": "https://images.scrydex.com/onepiece/OP16-004/medium",
+              "large": "https://images.scrydex.com/onepiece/OP16-004/large"
+            }
+          ],
+          "marketplaces": [
+            {
+              "name": "tcgplayer",
+              "product_id": "695988",
+              "purchase_url": "https://scrydex.com/onepiece/cards/OP16-004/purchase?type=tcgplayer&variant=normal"
+            }
+          ],
+          "pop_reports": [],
+          "prices": [
+            {
+              "condition": "NM",
+              "grade": null,
+              "company": null,
+              "is_perfect": false,
+              "is_signed": false,
+              "is_error": false,
+              "type": "raw",
+              "low": 0.01,
+              "mid": null,
+              "high": null,
+              "market": 0.06,
+              "currency": "USD",
+              "source_currency": "USD",
+              "trends": {
+                "days_1": {
+                  "price_change": -0.01,
+                  "percent_change": -14.29
+                },
+                "days_7": {
+                  "price_change": -0.02,
+                  "percent_change": -25.0
+                },
+                "days_14": {
+                  "price_change": -0.01,
+                  "percent_change": -14.29
+                },
+                "days_30": {
+                  "price_change": -0.03,
+                  "percent_change": -33.33
+                }
+              }
+            },
+            {
+              "condition": "LP",
+              "grade": null,
+              "company": null,
+              "is_perfect": false,
+              "is_signed": false,
+              "is_error": false,
+              "type": "raw",
+              "low": 0.05,
+              "mid": null,
+              "high": null,
+              "market": 0.1,
+              "currency": "USD",
+              "source_currency": "USD",
+              "trends": {
+                "days_1": {
+                  "price_change": -0.01,
+                  "percent_change": -9.09
+                },
+                "days_7": {
+                  "price_change": 0.0,
+                  "percent_change": 0.0
+                },
+                "days_14": {
+                  "price_change": -0.01,
+                  "percent_change": -9.09
+                },
+                "days_30": {
+                  "price_change": -0.01,
+                  "percent_change": -9.09
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "OP16-005",
+      "name": "Thatch",
+      "number": "5",
+      "printed_number": "OP16-005",
+      "cost": "8",
+      "power": "8000",
+      "life": null,
+      "counter": "+1000",
+      "attribute": "Slash",
+      "type": "Character",
+      "colors": [
+        "Red"
+      ],
+      "subtypes": [
+        "Whitebeard Pirates"
+      ],
+      "printings": [
+        "OP16"
+      ],
+      "tags": [],
+      "rarity": "Uncommon",
+      "rarity_code": "UC",
+      "rules": [
+        "If you have a Character with 8000 power or more and a type including \"Whitebeard Pirates\", give this card in your hand \u22123 cost.",
+        "[Blocker]"
+      ],
+      "images": [
+        {
+          "type": "front",
+          "small": "https://images.scrydex.com/onepiece/OP16-005/small",
+          "medium": "https://images.scrydex.com/onepiece/OP16-005/medium",
+          "large": "https://images.scrydex.com/onepiece/OP16-005/large"
+        }
+      ],
+      "expansion": {
+        "id": "OP16",
+        "name": "The Time Of Battle",
+        "type": "Booster Pack",
+        "code": "OP16",
+        "total": 119,
+        "printed_total": null,
+        "total_unique_variants": 155,
+        "release_date": "2026/06/12",
+        "logo": "https://images.scrydex.com/onepiece/OP16-logo/logo",
+        "symbol": null,
+        "language": "English",
+        "language_code": "EN"
+      },
+      "language": "English",
+      "language_code": "EN",
+      "expansion_sort_order": 5,
+      "variants": [
+        {
+          "name": "normal",
+          "printings": [
+            "OP16"
+          ],
+          "images": [
+            {
+              "type": "front",
+              "small": "https://images.scrydex.com/onepiece/OP16-005/small",
+              "medium": "https://images.scrydex.com/onepiece/OP16-005/medium",
+              "large": "https://images.scrydex.com/onepiece/OP16-005/large"
+            }
+          ],
+          "marketplaces": [
+            {
+              "name": "tcgplayer",
+              "product_id": "695989",
+              "purchase_url": "https://scrydex.com/onepiece/cards/OP16-005/purchase?type=tcgplayer&variant=normal"
+            }
+          ],
+          "pop_reports": [],
+          "prices": [
+            {
+              "condition": "NM",
+              "grade": null,
+              "company": null,
+              "is_perfect": false,
+              "is_signed": false,
+              "is_error": false,
+              "type": "raw",
+              "low": 0.01,
+              "mid": null,
+              "high": null,
+              "market": 0.1,
+              "currency": "USD",
+              "source_currency": "USD",
+              "trends": {
+                "days_1": {
+                  "price_change": -0.03,
+                  "percent_change": -23.08
+                },
+                "days_7": {
+                  "price_change": 0.0,
+                  "percent_change": 0.0
+                },
+                "days_14": {
+                  "price_change": -0.01,
+                  "percent_change": -9.09
+                },
+                "days_30": {
+                  "price_change": -0.02,
+                  "percent_change": -16.67
+                }
+              }
+            },
+            {
+              "condition": "LP",
+              "grade": null,
+              "company": null,
+              "is_perfect": false,
+              "is_signed": false,
+              "is_error": false,
+              "type": "raw",
+              "low": 0.06,
+              "mid": null,
+              "high": null,
+              "market": 0.1,
+              "currency": "USD",
+              "source_currency": "USD",
+              "trends": {
+                "days_1": {
+                  "price_change": 0.0,
+                  "percent_change": 0.0
+                },
+                "days_7": {
+                  "price_change": 0.03,
+                  "percent_change": 42.86
+                },
+                "days_14": {
+                  "price_change": 0.04,
+                  "percent_change": 66.67
+                },
+                "days_30": {
+                  "price_change": 0.04,
+                  "percent_change": 66.67
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

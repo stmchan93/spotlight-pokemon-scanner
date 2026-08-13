@@ -13,11 +13,16 @@ This is a **research spike**: the deliverable is this estimate, not code.
 release and never disturbs the main tree, where day-to-day work and other agents
 continue uninterrupted.
 
-**Verdict up front: feasible, and cheaper than it looks — roughly 4-6 evenings
-without the scanner, 8-11 with it.** The reason is that the expensive layers
-(pricing shape, card display, the embedding pipeline) turn out to be
-game-neutral already. The genuinely new work is a `game` column, a second visual
-index, and a rarity map. The one thing that does NOT come along is pop reports.
+**Verdict: technically feasible and cheap — ~4-6 evenings without the scanner,
+8-11 with it — but the product is weaker than expected.** The build is small
+because the expensive layers (card display, the embedding pipeline, the pricing
+seam) are already game-neutral; the new work is a `game` column, a second visual
+index and a rarity map.
+
+**The catch, found by running Phase 0 against the live API: Scrydex has no graded
+pricing and no pop reports for One Piece.** Raw prices only. Both of those asks
+fail on data availability, not on our code. The real question is therefore not
+"can we build it" but "is a raw-only One Piece worth having" — answer that first.
 
 ## Working setup: an isolated worktree
 
@@ -55,17 +60,56 @@ release. Local verification only until you decide it's worth merging.
 path prefix ([cards docs](https://scrydex.com/docs/onepiece/cards),
 [price history](https://scrydex.com/docs/onepiece/price-history)).
 
-**Crucially, One Piece prices carry the same graded model as Pokémon**: each
-price has `variant`, `condition` (NM/LP/MP/DM), `type` (`raw` | `graded`),
-`company`, `grade`, `is_perfect`, `is_signed`, `is_error`. That means the graded
-resolver, the per-printing graded logic, and the PDP dual-source handling carry
-over as-is — including the signed/perfect leak class of bug we already fixed.
-This is the single biggest reason the estimate is small.
+**CORRECTION — graded pricing and pop reports do not exist for One Piece.**
+An earlier draft of this doc claimed, from the API docs alone, that One Piece
+carried the same graded model as Pokémon. Phase 0 was run against the live API on
+2026-08-13 and that is **wrong**. See "Phase 0 results" below. The price *schema*
+is identical; the *data* is raw-only.
 
 **Scale:** ~5-6k One Piece cards including variants, against 46,461 Pokémon in
 our catalog — about an eighth the size. Sync cost is ~1 credit per 100-card page
 (`sync_scrydex_catalog.py` meters `estimated_credits_used = pagesFetched`), so a
 full One Piece catalog pull is **~50-60 credits**. Negligible.
+
+## Phase 0 results (run 2026-08-13, ~7 credits)
+
+`tools/probe_scrydex_onepiece.py`, against the live API with our real key.
+
+**✅ Our plan tier serves One Piece.** `/onepiece/v1/expansions` returns **53
+expansions** — OP01 through OP16, the ST starter decks, the EB sets. No 403, no
+gating.
+
+**✅ Raw pricing is complete and good.** Every card sampled (50 across two sets)
+had prices: `condition` NM/LP/DM, `market`, `low`, `currency`, plus 1/7/14/30-day
+`trends` — richer than I expected, and the same shape the Pokémon lane consumes.
+
+**❌ Graded pricing: none.** Not "sometimes" — none at all:
+
+| Probe | Graded rows |
+|---|---|
+| OP16 (newest set), 20 cards | 0 |
+| OP01 (oldest set, 2022), 30 cards | 0 |
+| `OP01-001` single-card detail, `include=prices` | `type` is `raw` only |
+| `OP01-001/price_history?company=PSA&grade=10&days=90` | 0 points |
+
+The `grade`, `company`, `is_perfect`, `is_signed` and `is_error` fields are all
+*present* on every price object and uniformly null. So the schema is identical to
+Pokémon and our resolver would understand graded data the day it appears — there
+just isn't any.
+
+**❌ Pop reports: none.** Each variant carries a `pop_reports` key, which is `[]`
+on every variant sampled — including OP01 alt-arts, where PSA-graded copies
+demonstrably exist in the real world.
+
+**What this means.** Both halves of the "pop reports + PSA pricing" ask fail on
+**data availability, not on our code**. One Piece would be a **raw-pricing-only**
+game in the app. That's the single most important thing to decide on before
+spending an evening: is One Piece worth having without graded prices or pop?
+
+**One unknown left.** The empty responses came back `200`, not `403`, which reads
+like "no data" rather than "not on your plan" — but some APIs return empty rather
+than forbidden for ungated tiers. Worth one email to Scrydex asking whether
+One Piece graded/pop is a higher tier before writing the feature off.
 
 ## What already works unchanged
 
@@ -143,13 +187,19 @@ Separate index per game, selected by the existing lane toggle:
 Keeping the indexes separate is what protects the Pokémon top-1 number: a One
 Piece card can never enter a Pokémon scan's candidate pool.
 
-### 7. Pop reports — not in v1
+### 7. Graded pricing and pop reports — unavailable, not deferred
 
-Population comes from **GemRate via PokemonPriceTracker** (`backend/ppt_adapter.py`,
-`card_price_snapshots.population_json`), which is Pokémon-only. Scrydex lists a
-"Pop Reports" webhook topic for One Piece, but the card docs don't show
-population on the object and I have not verified it's on our plan. One Piece PDPs
-ship with raw + graded pricing and **no population**, labelled honestly.
+Two independent sources, both dry:
+
+- **Population** comes from GemRate via PokemonPriceTracker
+  (`backend/ppt_adapter.py`, `card_price_snapshots.population_json`) — Pokémon-only.
+- **Scrydex** returns no graded prices and empty `pop_reports` for One Piece
+  (Phase 0 above).
+
+So a One Piece PDP shows raw prices by condition and nothing else. The graded
+section and the population block have to be **hidden for non-Pokémon games**
+rather than rendered empty — roughly half an evening, and the kind of thing that
+looks broken if skipped.
 
 ## Risks worth pricing in
 
