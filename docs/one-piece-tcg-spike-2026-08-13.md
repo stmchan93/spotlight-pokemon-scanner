@@ -45,6 +45,7 @@ shares git history but NOT gitignored artifacts, so it starts without:
 |---|---|---|
 | `node_modules/` | any RN work or `jest` | `pnpm install` at the worktree root |
 | `backend/.venv` | `run_all_tests.sh` | recreate, or point `PYTHON_BIN_OVERRIDE` at the main tree's venv |
+| `backend/.env` | **the backend suite** — 3 pricing tests fail without it | `ln -sf ~/Code/spotlight/backend/.env backend/.env` (symlink, don't copy the secret) |
 | `backend/data/*.sqlite` | running the backend, syncing One Piece | copy a catalog snapshot from the main tree |
 | `backend/data/visual-index/`, `visual-models/` | Phase 2 only | copy or symlink from the main tree — several GB, do NOT duplicate blindly |
 

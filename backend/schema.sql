@@ -2,6 +2,11 @@ PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS cards (
     id TEXT PRIMARY KEY,
+    -- Which TCG this card belongs to ('pokemon', 'onepiece'). Everything
+    -- predating multi-game is Pokémon, hence the default: the column exists to
+    -- ROUTE (which catalog search, which visual index, which price provider),
+    -- not to identify — card ids are already namespaced per game.
+    game TEXT NOT NULL DEFAULT 'pokemon',
     name TEXT NOT NULL,
     set_name TEXT NOT NULL,
     number TEXT NOT NULL,
@@ -29,6 +34,7 @@ CREATE TABLE IF NOT EXISTS cards (
 );
 
 CREATE INDEX IF NOT EXISTS idx_cards_tcgplayer_id ON cards(tcgplayer_id);
+CREATE INDEX IF NOT EXISTS idx_cards_game ON cards(game);
 
 CREATE TABLE IF NOT EXISTS expansions (
     id TEXT PRIMARY KEY,

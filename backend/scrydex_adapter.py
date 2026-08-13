@@ -16,6 +16,8 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from catalog_tools import (
+    DEFAULT_GAME,
+    scrydex_game_segment,
     _default_display_currency_code,
     _default_raw_field_values,
     _empty_graded_contexts,
@@ -1074,12 +1076,15 @@ def persist_scrydex_daily_history_from_card_payload(
     card_id: str,
     payload: dict[str, Any],
     price_date: str | None = None,
+    game: str = DEFAULT_GAME,
     commit: bool = True,
 ) -> dict[str, int]:
     data = _scrydex_card_data(payload)
     variants = data.get("variants") if isinstance(data.get("variants"), list) else []
     normalized_price_date = str(price_date or _scrydex_today_price_date()).strip() or _scrydex_today_price_date()
-    source_url = scrydex_request_url(f"/pokemon/v1/cards/{card_id}", include="prices")
+    source_url = scrydex_request_url(
+        f"/{scrydex_game_segment(game)}/v1/cards/{card_id}", include="prices"
+    )
     raw_contexts, graded_contexts, raw_count, graded_count, display_currency_code = _contexts_from_variant_payloads(variants)
     if raw_count <= 0 and graded_count <= 0:
         return {
@@ -1198,6 +1203,7 @@ def persist_scrydex_raw_snapshot(
     card_id: str,
     payload: dict[str, Any],
     *,
+    game: str = DEFAULT_GAME,
     commit: bool = True,
 ) -> dict[str, Any] | None:
     data = _scrydex_card_data(payload)
@@ -1205,7 +1211,9 @@ def persist_scrydex_raw_snapshot(
     raw_contexts, graded_contexts, raw_count, graded_count, display_currency_code = _contexts_from_variant_payloads(variants)
     if raw_count <= 0 and graded_count <= 0:
         return None
-    source_url = scrydex_request_url(f"/pokemon/v1/cards/{card_id}", include="prices")
+    source_url = scrydex_request_url(
+        f"/{scrydex_game_segment(game)}/v1/cards/{card_id}", include="prices"
+    )
     raw_contexts_to_store = raw_contexts if raw_count > 0 else None
     graded_contexts_to_store = graded_contexts if graded_count > 0 else None
     upsert_price_snapshot(
@@ -1233,12 +1241,13 @@ def fetch_scrydex_card_by_id(
     card_id: str,
     *,
     include_prices: bool = False,
+    game: str = DEFAULT_GAME,
     request_type: str = "card_fetch",
     timeout: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     params = {"include": "prices"} if include_prices else {}
     payload = scrydex_api_request(
-        f"/pokemon/v1/cards/{card_id}",
+        f"/{scrydex_game_segment(game)}/v1/cards/{card_id}",
         request_type=request_type,
         timeout=timeout,
         **params,
@@ -1530,14 +1539,20 @@ def fetch_scrydex_cards_page(
     page_size: int = 100,
     include_prices: bool = False,
     language: str | None = None,
+    game: str = DEFAULT_GAME,
     request_type: str = "catalog_sync_page",
     timeout: int = DEFAULT_CATALOG_SYNC_TIMEOUT_SECONDS,
 ) -> list[dict[str, Any]]:
+    # `game` defaults to Pokémon so every pre-multi-game caller builds exactly
+    # the URL it did before.
+    segment = scrydex_game_segment(game)
     normalized_language = str(language or "").strip().lower()
     if normalized_language in {"", "all", "default"}:
-        path = "/pokemon/v1/cards"
+        path = f"/{segment}/v1/cards"
     else:
-        path = f"/pokemon/v1/{normalized_language}/cards"
+        # Only Pokémon has per-language sub-paths on Scrydex; One Piece serves
+        # language as a card field instead.
+        path = f"/{segment}/v1/{normalized_language}/cards"
     params = {
         "page": str(page),
         "page_size": str(page_size),
@@ -2050,6 +2065,14 @@ def _best_scrydex_graded_price(
     return variant_name, price
 
 
+# NOTE — the graded and listings helpers below stay Pokémon-only ON PURPOSE.
+# Probing the live API on 2026-08-13 (tools/probe_scrydex_onepiece.py) found
+# Scrydex serves NO graded prices and empty pop_reports for One Piece: across
+# OP16 and OP01, a single-card detail read and a PSA-10 price_history query,
+# every graded row was absent and every `pop_reports` was []. The price schema is
+# identical, so these would work the day the data appears — until then,
+# parameterizing them would only add an unreachable branch to the hot pricing
+# path. See docs/one-piece-tcg-spike-2026-08-13.md.
 def persist_scrydex_psa_snapshot(
     connection,
     *,

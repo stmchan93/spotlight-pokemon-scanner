@@ -451,6 +451,11 @@ def _apply_additive_runtime_migrations(connection: sqlite3.Connection) -> None:
     # (variants[].marketplaces[name=tcgplayer].product_id). Persisting it as a
     # first-class column lets the PPT pricing sync join EN+JP deterministically.
     _add_column_if_missing(connection, "cards", "tcgplayer_id", "TEXT")
+    # Multi-game routing. Existing rows are all Pokémon, which the DEFAULT
+    # backfills in place — no rewrite pass needed.
+    _add_column_if_missing(connection, "cards", "game", "TEXT NOT NULL DEFAULT 'pokemon'")
+    if _table_exists(connection, "cards") and "game" in _table_columns(connection, "cards"):
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_cards_game ON cards(game)")
     if _table_exists(connection, "cards") and "tcgplayer_id" in _table_columns(connection, "cards"):
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_cards_tcgplayer_id ON cards(tcgplayer_id)"
@@ -1634,6 +1639,46 @@ _RAW_CONDITION_CODE_ALIASES = {
     "heavily_played": "HP",
     "damaged": "DM",
 }
+
+
+# ---------------------------------------------------------------------------
+# Games
+# ---------------------------------------------------------------------------
+# The app started Pokémon-only, so "which game" was implicit everywhere. These
+# constants are the one place that knowledge lives now. `game` ROUTES — which
+# catalog search, which visual index, which Scrydex path segment — it is not an
+# identity: card ids are already namespaced per game ("base1-4" vs "OP01-001").
+
+GAME_POKEMON = "pokemon"
+GAME_ONE_PIECE = "onepiece"
+DEFAULT_GAME = GAME_POKEMON
+SUPPORTED_GAMES = (GAME_POKEMON, GAME_ONE_PIECE)
+
+# Scrydex serves each game under its own path prefix, and the game id happens to
+# match ours. Kept as an explicit map so a future game whose Scrydex segment
+# differs from our key has somewhere to say so.
+SCRYDEX_GAME_SEGMENTS = {
+    GAME_POKEMON: "pokemon",
+    GAME_ONE_PIECE: "onepiece",
+}
+
+
+def normalize_game(game: str | None) -> str:
+    """Coerce any caller's game string to a supported id, defaulting to Pokémon.
+
+    Deliberately forgiving: every pre-multi-game caller passes nothing at all,
+    and an unknown value must not silently create a third catalog partition that
+    nothing can search.
+    """
+    text = str(game or "").strip().lower().replace("-", "").replace("_", "").replace(" ", "")
+    if text in {"onepiece", "op"}:
+        return GAME_ONE_PIECE
+    return GAME_POKEMON
+
+
+def scrydex_game_segment(game: str | None) -> str:
+    """The path segment for Scrydex's per-game API ("/pokemon/v1", "/onepiece/v1")."""
+    return SCRYDEX_GAME_SEGMENTS[normalize_game(game)]
 
 
 # Rarity buckets: coarse server-side grouping of the raw catalog rarity label
@@ -2933,6 +2978,7 @@ def upsert_card(
     rarity: str,
     variant: str,
     language: str,
+    game: str = DEFAULT_GAME,
     source_provider: str | None = None,
     source_record_id: str | None = None,
     set_id: str | None = None,
@@ -2951,20 +2997,22 @@ def upsert_card(
     source_payload: dict[str, Any] | None = None,
 ) -> None:
     now = utc_now()
+    normalized_game = normalize_game(game)
     # Auto-derive the TCGplayer product id from the Scrydex payload when the caller
     # didn't pass one, so the PPT join anchor stays populated on every catalog sync.
     resolved_tcgplayer_id = tcgplayer_id or extract_tcgplayer_product_id(source_payload)
     connection.execute(
         """
         INSERT INTO cards (
-            id, name, set_name, number, rarity, variant, language,
+            id, game, name, set_name, number, rarity, variant, language,
             source_provider, source_record_id, set_id, set_series, set_ptcgo_code, set_release_date,
             supertype, subtypes_json, types_json, artist, regulation_mark,
             national_pokedex_numbers_json, image_url, image_small_url, tcgplayer_id, source_payload_json,
             created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
+            game=excluded.game,
             name=excluded.name,
             set_name=excluded.set_name,
             number=excluded.number,
@@ -2991,6 +3039,7 @@ def upsert_card(
         """,
         (
             card_id,
+            normalized_game,
             name,
             set_name,
             number,
