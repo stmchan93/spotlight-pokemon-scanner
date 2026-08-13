@@ -327,7 +327,23 @@ class UserIsolationTests(unittest.TestCase):
             set_code="BS",
         )
 
-        owner_tables = self.service._ACCOUNT_DELETION_TABLES
+        # Only the tables that carry an owner_user_id column can be asserted
+        # via _owner_row_count; the rest (user_emails, access_grants, child
+        # tables keyed by scan/session/job id) are covered by
+        # test_account_deletion_storage.RowCoverageTests.
+        owner_tables = [
+            table_name
+            for table_name, _predicate in (
+                self.service._ACCOUNT_DELETION_TABLE_PREDICATES
+            )
+            if any(
+                row[1] == "owner_user_id"
+                for row in self.service.connection.execute(
+                    f"PRAGMA table_info({table_name})"
+                ).fetchall()
+            )
+        ]
+        self.assertIn("deck_entries", owner_tables)
 
         # Populate several owner-scoped tables for user-a: a buy (deck_entries +
         # deck_entry_events + scan provenance is optional), a card transaction
@@ -378,8 +394,12 @@ class UserIsolationTests(unittest.TestCase):
         with self.service.request_identity_context(self._identity("user-a")):
             result = self.service.delete_account({})
 
-        self.assertEqual(result["deleted"], True)
-        # No service-role key configured, so the auth user delete was skipped.
+        # No service-role key configured, so the auth user delete was skipped —
+        # and per legal §3.11 that partial outcome is reported as a FAILURE
+        # (the local erasure still ran; only the auth-user part is outstanding).
+        self.assertEqual(result["deleted"], False)
+        self.assertEqual(result["failedParts"], ["authUser"])
+        self.assertEqual(result["database"]["status"], "complete")
         self.assertEqual(result["authUserDeleted"], False)
 
         # Every owner-scoped table is empty for user-a.

@@ -4,14 +4,24 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-ENVIRONMENT="${1:-staging}"
+
+# ENVIRONMENT is a REQUIRED first argument. It used to default to staging; an
+# implicit default means a forgotten argument silently picks an environment,
+# which is exactly the class of mistake this deploy path must not allow.
+if [ -z "${1:-}" ]; then
+  echo "Usage: $0 <staging|production> [backend/.env.<environment>.secrets]" >&2
+  echo "ENVIRONMENT is required (no default)." >&2
+  exit 1
+fi
+
+ENVIRONMENT="$1"
 SECRETS_FILE="${2:-$SCRIPT_DIR/.env.$ENVIRONMENT.secrets}"
 
 case "$ENVIRONMENT" in
   staging|production)
     ;;
   *)
-    echo "Usage: $0 [staging|production] [backend/.env.<environment>.secrets]" >&2
+    echo "Usage: $0 <staging|production> [backend/.env.<environment>.secrets]" >&2
     exit 1
     ;;
 esac
@@ -34,6 +44,69 @@ if [ ! -f "$SECRETS_FILE" ]; then
 fi
 
 SECRETS_FILE="$(cd "$(dirname "$SECRETS_FILE")" && pwd)/$(basename "$SECRETS_FILE")"
+
+# Cross-environment secrets guard: the secrets file must belong to the SAME
+# Supabase project as the selected env file. A wrong secrets file here would
+# persist as .env.$ENVIRONMENT.secrets below and point this box at the other
+# environment's Supabase project. Verify BEFORE anything is copied.
+echo "Verifying secrets file Supabase project matches $ENV_FILE..."
+python3 - "$SECRETS_FILE" "$ENV_FILE" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+def read_dotenv(path):
+    values = {}
+    for raw_line in Path(path).read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].strip()
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        value = value.strip()
+        if value and len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        values[key.strip()] = value
+    return values
+
+def project_ref(url):
+    match = re.match(r"https?://([a-z0-9-]+)\.supabase\.", str(url or "").strip())
+    return match.group(1) if match else ""
+
+secrets_path, env_path = sys.argv[1], sys.argv[2]
+secrets_values = read_dotenv(secrets_path)
+env_values = read_dotenv(env_path)
+
+secrets_ref = project_ref(secrets_values.get("SUPABASE_URL")) or project_ref(
+    secrets_values.get("SUPABASE_JWKS_URL")
+)
+env_ref = project_ref(env_values.get("SUPABASE_URL"))
+
+if not env_ref:
+    print(f"Could not read a Supabase project ref from SUPABASE_URL in {env_path}.", file=sys.stderr)
+    sys.exit(1)
+if not secrets_ref:
+    print(
+        f"Could not read a Supabase project ref from SUPABASE_URL/SUPABASE_JWKS_URL in {secrets_path}.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+if secrets_ref != env_ref:
+    print(
+        f"Supabase project mismatch: secrets file {secrets_path} targets project "
+        f"'{secrets_ref}' but {env_path} targets '{env_ref}'.",
+        file=sys.stderr,
+    )
+    print(
+        "Refusing to deploy: this would point the box at the WRONG Supabase project.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+PY
+
 PERSISTED_SECRETS_FILE="$SCRIPT_DIR/.env.$ENVIRONMENT.secrets"
 if [ "$SECRETS_FILE" != "$PERSISTED_SECRETS_FILE" ]; then
   cp "$SECRETS_FILE" "$PERSISTED_SECRETS_FILE"

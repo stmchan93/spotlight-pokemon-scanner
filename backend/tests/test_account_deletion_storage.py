@@ -1,22 +1,33 @@
-"""Account deletion must erase the user's BYTES, not just the rows.
+"""Account deletion must erase the user's BYTES and EVERY user-keyed row, and a
+partial failure must be reported as a failure.
 
-`DELETE /api/v1/account/delete` used to delete owner-scoped SQLite rows and the
-Supabase auth user (which cascades posts/comments/messages/post_media) while
-every image the user ever uploaded stayed in Google Cloud Storage, orphaned.
-GDPR/CCPA erasure covers the image itself, not the row that points at it, and
-this is the App Store 5.1.1(v) path, so it has to be genuinely complete.
+`POST /api/v1/account/delete` is the App Store 5.1.1(v) path and the GDPR/CCPA
+erasure path, so it has to be genuinely complete: every local table carrying an
+owner/user column (including the user's EMAIL in user_emails / access_grants /
+access_waitlist), every stored object (avatars, post media, scan artifacts,
+transaction photos, labeling captures), the Supabase `deleted_content_bodies`
+archive rows, and finally the Supabase auth user (whose FK cascade removes the
+social rows).
 
 These tests pin the properties that make that safe rather than the happy path:
 
   - objects are erased across all three stores (avatars, post media, scan
-    artifacts + transaction photos)
+    artifacts + transaction photos + labeling captures)
+  - EVERY user-keyed table is emptied, including child tables that SQLite's
+    unenforced `ON DELETE CASCADE` clauses would silently orphan
   - post_media paths are captured BEFORE the auth-user cascade destroys them
   - objects are deleted while their pointers are still alive (a crash mid-sweep
     is retryable; the reverse strands files with nothing pointing at them)
   - an already-absent object is a no-op, not an error (users retry)
-  - an unconfigured store is skipped and reported, never fatal
-  - a storage failure NEVER blocks the account deletion, and is reported
-  - the sweep is bounded by object count and by wall clock
+  - an unconfigured store is skipped and reported, never fatal (no bucket means
+    nothing was ever stored there)
+  - a REAL storage failure FAILS the request (legal §3.11) and gates the row /
+    auth-user deletion, so the pointers and credentials survive and a retry
+    completes the remainder — nothing is silently half-deleted
+  - the sweep is bounded by object count and by wall clock, and retries make
+    monotonic progress toward completion
+  - the social_17 `deleted_content_bodies` archive is purged before the
+    auth-user cascade destroys the comment ids that address it
 """
 
 from __future__ import annotations
@@ -28,6 +39,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlparse
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = BACKEND_ROOT.parent
@@ -147,31 +159,38 @@ class _FakeResponse:
 class FakeSupabase:
     """Stands in for PostgREST + the auth admin API over one urlopen patch.
 
-    Deleting the auth user CASCADES the post_media rows away, and this fake
-    models that: `rows` is emptied when the admin DELETE lands. A listing read
-    after the cascade therefore returns nothing — which is exactly how the
-    ordering test detects a regression.
+    Deleting the auth user CASCADES the post_media and comments rows away, and
+    this fake models that: `rows` and `comment_rows` are emptied when the admin
+    DELETE lands. A listing read after the cascade therefore returns nothing —
+    which is exactly how the ordering tests detect a regression.
     """
 
     def __init__(
         self,
         *,
         rows: list[dict] | None = None,
+        comment_rows: list[dict] | None = None,
         auth_status: int = 200,
         listing_error: Exception | None = None,
+        archive_delete_error: Exception | None = None,
     ) -> None:
         self.rows = list(rows or [])
+        self.comment_rows = list(comment_rows or [])
         self.auth_status = auth_status
         self.listing_error = listing_error
+        self.archive_delete_error = archive_delete_error
         self.calls: list[str] = []
+        self.archive_deleted_target_ids: list[str] = []
 
     def urlopen(self, request, timeout=None):  # noqa: ARG002 - signature match
         url = request.full_url
         method = request.get_method()
         if "/auth/v1/admin/users/" in url:
             self.calls.append("auth_delete")
-            # The FK cascade: post_media rows for this author cease to exist.
+            # The FK cascade: post_media and comments rows for this author
+            # cease to exist.
             self.rows = []
+            self.comment_rows = []
             return _FakeResponse(b"", status=self.auth_status)
         if "/rest/v1/post_media" in url:
             self.calls.append("post_media_listing")
@@ -179,6 +198,21 @@ class FakeSupabase:
                 raise self.listing_error
             body = json.dumps(self.rows).encode("utf-8")
             return _FakeResponse(body)
+        if "/rest/v1/comments" in url:
+            self.calls.append("comments_listing")
+            body = json.dumps(self.comment_rows).encode("utf-8")
+            return _FakeResponse(body)
+        if "/rest/v1/deleted_content_bodies" in url and method == "DELETE":
+            self.calls.append("archive_delete")
+            if self.archive_delete_error is not None:
+                raise self.archive_delete_error
+            query = parse_qs(urlparse(url).query)
+            target_filter = str((query.get("target_id") or [""])[0])
+            inner = target_filter.removeprefix("in.").strip("()")
+            self.archive_deleted_target_ids.extend(
+                value for value in inner.split(",") if value
+            )
+            return _FakeResponse(b"", status=204)
         raise AssertionError(f"unexpected {method} {url}")
 
 
@@ -394,7 +428,9 @@ class OrderingTests(_AccountDeletionTestCase):
 
         result = self.delete_account(supabase=supabase)
 
-        self.assertEqual(supabase.calls, ["post_media_listing", "auth_delete"])
+        self.assertEqual(
+            supabase.calls, ["post_media_listing", "comments_listing", "auth_delete"]
+        )
         self.assertEqual(self.post_media.deleted, [media_path])
         self.assertTrue(result["storage"]["complete"])
 
@@ -457,20 +493,312 @@ class IdempotenceTests(_AccountDeletionTestCase):
 
 
 # --------------------------------------------------------------------------- #
+# Row coverage — EVERY user-keyed table, children included
+# --------------------------------------------------------------------------- #
+class RowCoverageTests(_AccountDeletionTestCase):
+    """The §3.2 gap: user_emails / access_grants / access_waitlist (the user's
+    EMAIL), collections, card_likes, the labeling tables, and the child tables
+    that the unenforced SQLite cascades would silently orphan."""
+
+    T = "2026-08-01T00:00:00Z"
+
+    def seed_card(self) -> None:
+        self.service.connection.execute(
+            "INSERT OR IGNORE INTO cards (id, name, set_name, number, rarity, "
+            "variant, language, created_at, updated_at) VALUES ('card-1', "
+            "'Pikachu', 'Base Set', '58', 'Common', 'Normal', 'en', ?, ?)",
+            (self.T, self.T),
+        )
+
+    def seed_full_owner_footprint(self, owner: str, suffix: str) -> None:
+        connection = self.service.connection
+        scan_id = f"scan-{suffix}"
+        self.seed_card()
+        self.insert_scan_artifact(scan_id=scan_id, owner_user_id=owner)
+        self.insert_transaction_photo(
+            transaction_id=f"txn-{suffix}", owner_user_id=owner
+        )
+        statements: list[tuple[str, tuple]] = [
+            (
+                "INSERT INTO scan_prediction_candidates (scan_id, rank, card_id, candidate_json) VALUES (?, 1, 'card-1', '{}')",
+                (scan_id,),
+            ),
+            (
+                "INSERT INTO scan_price_observations (scan_id, rank, card_id, observed_at) VALUES (?, 1, 'card-1', ?)",
+                (scan_id, self.T),
+            ),
+            (
+                "INSERT INTO scan_confirmations (id, scan_id, owner_user_id, confirmed_card_id, confirmation_source, was_top_prediction, created_at) VALUES (?, ?, ?, 'card-1', 'manual', 1, ?)",
+                (f"conf-{suffix}", scan_id, owner, self.T),
+            ),
+            (
+                "INSERT INTO collections (id, owner_user_id, name, created_at) VALUES (?, ?, 'Binder', ?)",
+                (f"col-{suffix}", owner, self.T),
+            ),
+            (
+                "INSERT INTO deck_entries (id, owner_user_id, item_kind, card_id, added_at, updated_at, collection_id) VALUES (?, ?, 'raw', 'card-1', ?, ?, ?)",
+                (f"deck-{suffix}", owner, self.T, self.T, f"col-{suffix}"),
+            ),
+            (
+                "INSERT INTO sale_events (id, owner_user_id, deck_entry_id, card_id, sold_at, created_at) VALUES (?, ?, ?, 'card-1', ?, ?)",
+                (f"sale-{suffix}", owner, f"deck-{suffix}", self.T, self.T),
+            ),
+            (
+                "INSERT INTO deck_entry_events (id, owner_user_id, deck_entry_id, card_id, event_kind, created_at) VALUES (?, ?, ?, 'card-1', 'added', ?)",
+                (f"dee-{suffix}", owner, f"deck-{suffix}", self.T),
+            ),
+            (
+                "INSERT INTO card_favorites (owner_user_id, card_id, created_at) VALUES (?, 'card-1', ?)",
+                (owner, self.T),
+            ),
+            (
+                "INSERT INTO card_likes (owner_user_id, card_id, created_at) VALUES (?, 'card-1', ?)",
+                (owner, self.T),
+            ),
+            (
+                "INSERT INTO card_views (owner_user_id, card_id, viewed_on, viewed_at) VALUES (?, 'card-1', '2026-08-01', ?)",
+                (owner, self.T),
+            ),
+            (
+                "INSERT INTO portfolio_import_jobs (id, owner_user_id, source_type, status, source_sha256, created_at, updated_at) VALUES (?, ?, 'csv', 'committed', 'sha', ?, ?)",
+                (f"job-{suffix}", owner, self.T, self.T),
+            ),
+            (
+                "INSERT INTO portfolio_import_rows (id, job_id, row_index, match_status, created_at, updated_at) VALUES (?, ?, 0, 'matched', ?, ?)",
+                (f"row-{suffix}", f"job-{suffix}", self.T, self.T),
+            ),
+            (
+                "INSERT INTO labeling_sessions (session_id, labeler_user_id, card_id, status, created_at, updated_at) VALUES (?, ?, 'card-1', 'completed', ?, ?)",
+                (f"sess-{suffix}", owner, self.T, self.T),
+            ),
+            (
+                "INSERT INTO labeling_session_artifacts (id, session_id, card_id, angle_index, angle_label, source_object_path, normalized_object_path, submitted_at, created_at, updated_at) VALUES (?, ?, 'card-1', 0, 'front', ?, ?, ?, ?, ?)",
+                (
+                    f"lsa-{suffix}",
+                    f"sess-{suffix}",
+                    f"labeling/{suffix}/source.jpg",
+                    f"labeling/{suffix}/normalized.jpg",
+                    self.T,
+                    self.T,
+                    self.T,
+                ),
+            ),
+            (
+                "INSERT INTO scan_labeling_reviews (id, scan_id, reviewer_user_id, reviewer_role, label_disposition, created_at) VALUES (?, ?, ?, 'friend', 'labeled', ?)",
+                (f"rev-{suffix}", scan_id, owner, self.T),
+            ),
+            (
+                "INSERT INTO access_grants (user_id, email, granted_via, granted_at) VALUES (?, ?, 'invite', ?)",
+                (owner, f"{suffix}@example.com", self.T),
+            ),
+            (
+                "INSERT INTO user_emails (user_id, email, updated_at) VALUES (?, ?, ?)",
+                (owner, f"{suffix}@example.com", self.T),
+            ),
+            # One waitlist row keyed by user id, one keyed ONLY by the user's
+            # email (user_id NULL) — the shape a blocked user creates before
+            # signing in. Both must go.
+            (
+                "INSERT INTO access_waitlist (email, user_id, created_at) VALUES (?, ?, ?)",
+                (f"{suffix}@example.com", owner, self.T),
+            ),
+            (
+                "INSERT INTO access_waitlist (email, user_id, created_at) VALUES (?, NULL, ?)",
+                (f"{suffix}@example.com", self.T),
+            ),
+        ]
+        for sql, params in statements:
+            connection.execute(sql, params)
+        connection.commit()
+
+    ALL_TABLES = (
+        "scan_prediction_candidates",
+        "scan_price_observations",
+        "labeling_session_artifacts",
+        "labeling_sessions",
+        "scan_labeling_reviews",
+        "deck_entry_events",
+        "sale_events",
+        "deck_entries",
+        "scan_artifacts",
+        "scan_confirmations",
+        "scan_events",
+        "card_favorites",
+        "card_likes",
+        "card_views",
+        "card_transactions",
+        "collections",
+        "portfolio_import_rows",
+        "portfolio_import_jobs",
+        "access_grants",
+        "access_waitlist",
+        "user_emails",
+    )
+
+    def table_count(self, table: str) -> int:
+        row = self.service.connection.execute(
+            f"SELECT COUNT(*) FROM {table}"
+        ).fetchone()
+        return int(row[0])
+
+    def test_every_user_keyed_table_is_emptied_and_other_owners_survive(self) -> None:
+        self.wire_gcs_stores()
+        self.seed_full_owner_footprint(OWNER_ID, "mine")
+        self.seed_full_owner_footprint(OTHER_OWNER_ID, "theirs")
+
+        before = {table: self.table_count(table) for table in self.ALL_TABLES}
+        for table, count in before.items():
+            self.assertGreater(count, 0, f"seed left {table} empty")
+
+        result = self.delete_account(supabase=FakeSupabase())
+
+        self.assertTrue(result["deleted"], result)
+        self.assertEqual(result["failedParts"], [])
+        self.assertEqual(result["database"]["status"], "complete")
+
+        # Exactly the owner's half of every table is gone.
+        for table in self.ALL_TABLES:
+            self.assertEqual(
+                self.table_count(table),
+                before[table] // 2,
+                f"{table}: expected only {OTHER_OWNER_ID}'s rows to survive",
+            )
+
+        # The response reports what was deleted, per table, for every covered
+        # table — the completeness claim is observable, not implied.
+        deleted_rows = result["database"]["deletedRows"]
+        covered_tables = {
+            table
+            for table, _predicate in (
+                SpotlightScanService._ACCOUNT_DELETION_TABLE_PREDICATES
+            )
+        }
+        self.assertEqual(set(deleted_rows), covered_tables)
+        for table in self.ALL_TABLES:
+            self.assertGreaterEqual(
+                deleted_rows[table], 1, f"{table}: nothing reported deleted"
+            )
+
+        # The email is gone everywhere it lived.
+        for table, column in (
+            ("user_emails", "email"),
+            ("access_grants", "email"),
+            ("access_waitlist", "email"),
+        ):
+            row = self.service.connection.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE {column} = ?",
+                ("mine@example.com",),
+            ).fetchone()
+            self.assertEqual(int(row[0]), 0, f"{table} still holds the email")
+
+    def test_labeling_capture_bytes_are_swept(self) -> None:
+        """labeling_session_artifacts rows carry their own object paths."""
+        self.wire_gcs_stores()
+        self.seed_full_owner_footprint(OWNER_ID, "mine")
+        self.artifacts.existing.update(
+            {"labeling/mine/source.jpg", "labeling/mine/normalized.jpg"}
+        )
+
+        result = self.delete_account(supabase=FakeSupabase())
+
+        self.assertTrue(result["deleted"], result)
+        self.assertIn("labeling/mine/source.jpg", self.artifacts.deleted)
+        self.assertIn("labeling/mine/normalized.jpg", self.artifacts.deleted)
+
+    def test_a_review_of_the_owners_scan_by_someone_else_is_cleaned(self) -> None:
+        """scan_labeling_reviews has no FK to scan_events; a reviewer's label on
+        the owner's scan must not outlive the scan it describes."""
+        self.wire_gcs_stores()
+        self.insert_scan_artifact(scan_id="scan-reviewed")
+        self.service.connection.execute(
+            "INSERT INTO scan_labeling_reviews (id, scan_id, reviewer_user_id, reviewer_role, label_disposition, created_at) VALUES ('rev-x', 'scan-reviewed', ?, 'friend', 'labeled', ?)",
+            (OTHER_OWNER_ID, self.T),
+        )
+        self.service.connection.commit()
+
+        result = self.delete_account(supabase=FakeSupabase())
+
+        self.assertTrue(result["deleted"], result)
+        self.assertEqual(self.table_count("scan_labeling_reviews"), 0)
+
+
+# --------------------------------------------------------------------------- #
+# Supabase deleted_content_bodies archive (social_17)
+# --------------------------------------------------------------------------- #
+class SocialArchiveTests(_AccountDeletionTestCase):
+    def test_archived_comment_bodies_are_purged_before_the_cascade(self) -> None:
+        """The archive rows are addressable only while `comments` still holds
+        the user's rows — after the auth-user cascade nothing can ever map the
+        user to them again."""
+        self.wire_gcs_stores()
+        supabase = FakeSupabase(comment_rows=[{"id": "c-1"}, {"id": "c-2"}])
+
+        result = self.delete_account(supabase=supabase)
+
+        self.assertTrue(result["deleted"], result)
+        self.assertEqual(result["socialArchive"]["status"], "complete")
+        self.assertEqual(result["socialArchive"]["purgedTargets"], 2)
+        self.assertEqual(supabase.archive_deleted_target_ids, ["c-1", "c-2"])
+        self.assertLess(
+            supabase.calls.index("archive_delete"),
+            supabase.calls.index("auth_delete"),
+        )
+
+    def test_an_archive_purge_failure_fails_the_request_and_spares_the_auth_user(
+        self,
+    ) -> None:
+        """Deleting the auth user after a failed purge would cascade the
+        comments away and orphan the archive rows forever."""
+        self.wire_gcs_stores()
+        supabase = FakeSupabase(
+            comment_rows=[{"id": "c-1"}],
+            archive_delete_error=RuntimeError("postgrest down"),
+        )
+
+        result = self.delete_account(supabase=supabase)
+
+        self.assertFalse(result["deleted"])
+        self.assertEqual(result["failedParts"], ["socialArchive"])
+        self.assertNotIn("auth_delete", supabase.calls)
+        self.assertFalse(result["authUserDeleted"])
+        self.assertEqual(result["authUser"]["status"], "skipped")
+
+    def test_a_user_with_no_soft_deleted_comments_purges_nothing(self) -> None:
+        self.wire_gcs_stores()
+        supabase = FakeSupabase()
+
+        result = self.delete_account(supabase=supabase)
+
+        self.assertTrue(result["deleted"], result)
+        self.assertEqual(result["socialArchive"]["purgedTargets"], 0)
+        self.assertNotIn("archive_delete", supabase.calls)
+
+
+# --------------------------------------------------------------------------- #
 # Unconfigured stores — the features ship dark
 # --------------------------------------------------------------------------- #
 class UnconfiguredStoreTests(_AccountDeletionTestCase):
-    def test_unconfigured_stores_are_skipped_and_reported(self) -> None:
+    def test_unconfigured_stores_do_not_block_but_missing_supabase_fails(self) -> None:
         # The default test environment sets neither bucket env var, so both the
-        # avatar and post-media stores are None — the "ships dark" state.
+        # avatar and post-media stores are None — the "ships dark" state. No
+        # bucket means nothing was ever stored, so the ROW deletion proceeds —
+        # but with no Supabase configured the auth user cannot be deleted, and
+        # per §3.11 that is reported as a FAILURE, never silent success.
         self.assertIsNone(self.service.avatar_store)
         self.assertIsNone(self.service.post_media_store)
+        self.insert_scan_artifact(scan_id="scan-dark")
 
         result = self.delete_account()
 
-        self.assertTrue(result["deleted"])
+        self.assertFalse(result["deleted"])
+        self.assertEqual(result["failedParts"], ["authUser"])
+        self.assertFalse(result["authUserDeleted"])
+        # The local erasure still ran: unconfigured stores are not actionable.
+        self.assertEqual(result["database"]["status"], "complete")
+        self.assertEqual(self.owner_row_count("scan_artifacts"), 0)
         storage = result["storage"]
         self.assertFalse(storage["complete"])
+        self.assertFalse(storage["actionable"])
         reported = {
             (problem["store"], problem["reason"]) for problem in storage["problems"]
         }
@@ -485,7 +813,7 @@ class UnconfiguredStoreTests(_AccountDeletionTestCase):
 
         self.delete_account(supabase=supabase)
 
-        self.assertEqual(supabase.calls, ["auth_delete"])
+        self.assertEqual(supabase.calls, ["comments_listing", "auth_delete"])
 
     def test_a_non_uuid_owner_id_is_reported_not_raised(self) -> None:
         """The avatars bucket derives its key from a UUID-shaped id."""
@@ -500,24 +828,36 @@ class UnconfiguredStoreTests(_AccountDeletionTestCase):
 
 
 # --------------------------------------------------------------------------- #
-# Partial failure — the account still goes
+# Partial failure — reported as FAILURE, resumable by retry (legal §3.11)
 # --------------------------------------------------------------------------- #
 class StorageFailureTests(_AccountDeletionTestCase):
-    def test_a_storage_failure_still_deletes_the_account_and_is_reported(self) -> None:
+    def test_a_storage_failure_fails_the_request_and_preserves_the_rows(self) -> None:
+        """A real orphan risk gates the row/auth deletion so a retry can finish.
+
+        Deleting the rows anyway would strand the failed object with nothing
+        pointing at it, and deleting the auth user would destroy the session
+        the user needs to retry — the §3.11 silent-partial-success bug.
+        """
         self.wire_gcs_stores()
         source, normalized = self.insert_scan_artifact(scan_id="scan-flaky")
         self.artifacts.existing.update({source, normalized})
         self.artifacts.errors[source] = RuntimeError("permission denied")
+        supabase = FakeSupabase()
 
-        result = self.delete_account(supabase=FakeSupabase())
+        result = self.delete_account(supabase=supabase)
 
-        # The account is gone. That is the legally important part.
-        self.assertTrue(result["deleted"])
-        self.assertTrue(result["authUserDeleted"])
-        self.assertEqual(self.owner_row_count("scan_artifacts"), 0)
+        self.assertFalse(result["deleted"])
+        self.assertEqual(result["failedParts"], ["storage"])
+        self.assertFalse(result["authUserDeleted"])
+        self.assertNotIn("auth_delete", supabase.calls)
+        # The pointer rows SURVIVE so the retry can re-enumerate the orphan.
+        self.assertEqual(self.owner_row_count("scan_artifacts"), 1)
+        self.assertEqual(result["database"]["status"], "skipped")
+        self.assertEqual(result["database"]["reason"], "blocked_by_storage")
 
         storage = result["storage"]
         self.assertFalse(storage["complete"])
+        self.assertTrue(storage["actionable"])
         self.assertEqual(storage["failedObjects"], 1)
         self.assertIn(
             f"{SCAN_ARTIFACT_STORE_NAME}:{source}", storage["unresolvedObjects"]
@@ -528,21 +868,52 @@ class StorageFailureTests(_AccountDeletionTestCase):
         # One bad object does not stop the sweep.
         self.assertIn(normalized, self.artifacts.deleted)
 
-    def test_a_whole_bucket_outage_never_fails_the_request(self) -> None:
+    def test_a_retry_after_the_storage_failure_completes_the_deletion(self) -> None:
         self.wire_gcs_stores()
-        self.insert_scan_artifact(scan_id="scan-outage")
+        source, normalized = self.insert_scan_artifact(scan_id="scan-retry")
+        self.artifacts.existing.update({source, normalized})
+        self.artifacts.errors[source] = RuntimeError("permission denied")
+
+        first = self.delete_account(supabase=FakeSupabase())
+        self.assertFalse(first["deleted"])
+
+        # The bucket recovers; the retry finds the surviving pointer rows.
+        del self.artifacts.errors[source]
+        second = self.delete_account(supabase=FakeSupabase())
+
+        self.assertTrue(second["deleted"])
+        self.assertEqual(second["failedParts"], [])
+        self.assertTrue(second["authUserDeleted"])
+        self.assertIn(source, self.artifacts.deleted)
+        self.assertEqual(self.owner_row_count("scan_artifacts"), 0)
+        self.assertEqual(self.owner_row_count("scan_events"), 0)
+
+    def test_a_whole_bucket_outage_fails_the_request_and_preserves_the_rows(
+        self,
+    ) -> None:
+        self.wire_gcs_stores()
+        source, normalized = self.insert_scan_artifact(scan_id="scan-outage")
+        self.artifacts.existing.update({source, normalized})
         for bucket in (self.avatars, self.post_media, self.artifacts):
             bucket.error = RuntimeError("bucket unavailable")
+        supabase = FakeSupabase()
 
-        result = self.delete_account(supabase=FakeSupabase())
+        result = self.delete_account(supabase=supabase)
 
-        self.assertTrue(result["deleted"])
-        self.assertEqual(self.owner_row_count("scan_artifacts"), 0)
+        self.assertFalse(result["deleted"])
+        self.assertIn("storage", result["failedParts"])
+        self.assertEqual(self.owner_row_count("scan_artifacts"), 1)
+        self.assertNotIn("auth_delete", supabase.calls)
         self.assertGreater(result["storage"]["failedObjects"], 0)
         self.assertFalse(result["storage"]["complete"])
 
-    def test_a_malformed_stored_path_is_refused_and_reported(self) -> None:
-        """Defense in depth: a hostile stored path must never address an object."""
+    def test_a_malformed_stored_path_is_refused_and_does_not_block(self) -> None:
+        """Defense in depth: a hostile stored path must never address an object.
+
+        Uploads run the same path guard, so nothing can exist behind a refused
+        path — it is reported, but it must not strand the account forever
+        behind a failure no retry could ever clear.
+        """
         self.wire_gcs_stores()
         self.insert_scan_artifact(scan_id="scan-bad", source_path="../../etc/passwd")
 
@@ -553,19 +924,27 @@ class StorageFailureTests(_AccountDeletionTestCase):
         # artifacts.json derived from the same poisoned directory too.
         self.assertNotIn("../../etc/passwd", self.artifacts.delete_calls)
         self.assertNotIn("../../artifacts.json", self.artifacts.delete_calls)
-        self.assertEqual(result["storage"]["failedObjects"], 2)
+        storage = result["storage"]
+        self.assertEqual(storage["refusedObjects"], 2)
+        self.assertEqual(storage["failedObjects"], 0)
+        self.assertFalse(storage["complete"])
+        self.assertFalse(storage["actionable"])
         self.assertIn(
             f"{SCAN_ARTIFACT_STORE_NAME}:../../etc/passwd",
-            result["storage"]["unresolvedObjects"],
+            storage["refusedObjectsSample"],
         )
-        # The well-formed sibling on the same scan is still swept.
+        # The well-formed sibling on the same scan is still swept, and the rows
+        # still go.
         self.assertIn(
             "scans/2026/08/01/scan-bad/normalized_target.jpg",
             self.artifacts.delete_calls,
         )
+        self.assertEqual(self.owner_row_count("scan_artifacts"), 0)
 
-    def test_a_failed_post_media_listing_is_reported_as_incomplete(self) -> None:
-        """Bytes may survive that nobody can ever find again. Say so."""
+    def test_a_failed_post_media_listing_fails_the_request(self) -> None:
+        """Bytes would survive that nobody could ever find again — so nothing
+        irreversible may run: the auth user must outlive the failure so a retry
+        can re-list the paths."""
         self.wire_gcs_stores()
         supabase = FakeSupabase(
             rows=[_media_row(f"{OWNER_ID}/photo.jpg")],
@@ -574,7 +953,9 @@ class StorageFailureTests(_AccountDeletionTestCase):
 
         result = self.delete_account(supabase=supabase)
 
-        self.assertTrue(result["deleted"])
+        self.assertFalse(result["deleted"])
+        self.assertEqual(result["failedParts"], ["storage"])
+        self.assertNotIn("auth_delete", supabase.calls)
         storage = result["storage"]
         self.assertFalse(storage["complete"])
         self.assertIn(
@@ -582,23 +963,50 @@ class StorageFailureTests(_AccountDeletionTestCase):
             {(problem["store"], problem["reason"]) for problem in storage["problems"]},
         )
 
-    def test_an_unanticipated_sweep_failure_still_deletes_the_account(self) -> None:
-        """The outer guard. Nothing storage-shaped may strand a user's account."""
+    def test_an_unanticipated_sweep_failure_fails_the_request_resumably(self) -> None:
+        """The outer guard reports the abort as a failed part instead of a 500
+        with no accounting — and preserves everything a retry needs."""
         self.wire_gcs_stores()
         self.insert_scan_artifact(scan_id="scan-boom")
+        supabase = FakeSupabase()
 
         with patch.object(
             SpotlightScanService,
             "_collect_account_storage_targets",
             side_effect=RuntimeError("something nobody predicted"),
         ):
-            result = self.delete_account(supabase=FakeSupabase())
+            result = self.delete_account(supabase=supabase)
+
+        self.assertFalse(result["deleted"])
+        self.assertEqual(result["failedParts"], ["storage"])
+        self.assertFalse(result["authUserDeleted"])
+        self.assertNotIn("auth_delete", supabase.calls)
+        self.assertEqual(self.owner_row_count("scan_artifacts"), 1)
+        self.assertEqual(result["storage"]["stoppedReason"], "sweep_aborted")
+        self.assertFalse(result["storage"]["complete"])
+
+    def test_a_failed_auth_user_delete_fails_the_request(self) -> None:
+        """§3.11 head-on: the auth-user delete failing must not report success."""
+        self.wire_gcs_stores()
+        self.insert_scan_artifact(scan_id="scan-auth-fail")
+
+        result = self.delete_account(supabase=FakeSupabase(auth_status=500))
+
+        self.assertFalse(result["deleted"])
+        self.assertEqual(result["failedParts"], ["authUser"])
+        self.assertFalse(result["authUserDeleted"])
+        # Everything before it did succeed — and stays done.
+        self.assertEqual(result["database"]["status"], "complete")
+        self.assertEqual(self.owner_row_count("scan_artifacts"), 0)
+
+    def test_an_already_deleted_auth_user_counts_as_success_on_retry(self) -> None:
+        """404 from the admin API = the goal state; a retry stays idempotent."""
+        self.wire_gcs_stores()
+
+        result = self.delete_account(supabase=FakeSupabase(auth_status=404))
 
         self.assertTrue(result["deleted"])
         self.assertTrue(result["authUserDeleted"])
-        self.assertEqual(self.owner_row_count("scan_artifacts"), 0)
-        self.assertEqual(result["storage"]["stoppedReason"], "sweep_aborted")
-        self.assertFalse(result["storage"]["complete"])
 
     def test_the_orphan_list_is_logged_in_full_for_manual_cleanup(self) -> None:
         self.wire_gcs_stores()
@@ -673,6 +1081,7 @@ class BoundedSweepTests(_AccountDeletionTestCase):
     def test_deferred_objects_are_reported_and_sampled_not_dumped(self) -> None:
         self.wire_gcs_stores()
         targets = self._targets(200)
+        self.artifacts.existing.update(target.object_path for target in targets)
 
         report = self.service._delete_account_storage_objects(
             OWNER_ID, targets, max_objects=1
@@ -685,18 +1094,53 @@ class BoundedSweepTests(_AccountDeletionTestCase):
         )
         self.assertTrue(all(item.startswith(f"{SCAN_ARTIFACT_STORE_NAME}:") for item in sample))
 
-    def test_a_capped_sweep_still_deletes_the_account(self) -> None:
+    def test_already_missing_objects_do_not_consume_the_cap(self) -> None:
+        """A retry must walk PAST what earlier attempts erased. If the cap
+        counted already-missing objects, a >cap account would re-defer the same
+        tail on every retry and never converge."""
+        self.wire_gcs_stores()
+        targets = self._targets(10)
+        # The first 8 were erased by an earlier attempt; only 2 remain.
+        for target in targets[8:]:
+            self.artifacts.existing.add(target.object_path)
+
+        report = self.service._delete_account_storage_objects(
+            OWNER_ID, targets, max_objects=3
+        )
+
+        self.assertEqual(report["alreadyMissingObjects"], 8)
+        self.assertEqual(report["deletedObjects"], 2)
+        self.assertEqual(report["deferredObjects"], 0)
+        self.assertTrue(report["complete"])
+
+    def test_a_capped_sweep_fails_but_retries_converge(self) -> None:
+        """More objects than one request may delete: each attempt reports
+        failure and preserves the rows, and repeated retries finish the job —
+        the resumability §3.11 asks for."""
         self.wire_gcs_stores()
         for index in range(6):
-            self.insert_scan_artifact(scan_id=f"scan-bulk-{index}")
+            source, normalized = self.insert_scan_artifact(
+                scan_id=f"scan-bulk-{index}"
+            )
+            self.artifacts.existing.update({source, normalized})
 
+        results = []
         with patch.object(
             SpotlightScanService, "_ACCOUNT_DELETION_MAX_STORAGE_OBJECTS", 3
         ):
-            result = self.delete_account(supabase=FakeSupabase())
+            for _attempt in range(10):
+                result = self.delete_account(supabase=FakeSupabase())
+                results.append(result)
+                if result["deleted"]:
+                    break
 
-        self.assertTrue(result["deleted"])
-        self.assertEqual(result["storage"]["stoppedReason"], "object_cap")
+        self.assertTrue(results[-1]["deleted"], results[-1]["storage"])
+        self.assertFalse(results[0]["deleted"])
+        self.assertEqual(results[0]["storage"]["stoppedReason"], "object_cap")
+        # Monotonic progress: every incomplete attempt still erased objects.
+        for result in results[:-1]:
+            self.assertGreater(result["storage"]["deletedObjects"], 0)
+        self.assertEqual(self.artifacts.existing, set())
         self.assertEqual(self.owner_row_count("scan_artifacts"), 0)
 
 

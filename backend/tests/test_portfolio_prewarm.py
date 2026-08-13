@@ -99,11 +99,12 @@ class PortfolioPrewarmTests(unittest.TestCase):
 
         # Stronger: the prewarm itself created the exact cache keys.
         self.assertIn(
-            (USER, "America/Los_Angeles", "1W"), self.service._dashboard_cache
+            # 4-tuple since the collections-scope change: "" = the unscoped dashboard.
+            (USER, "America/Los_Angeles", "1W", ""), self.service._dashboard_cache
         )
         self.assertIn((USER, "performance"), self.service._dashboard_cache)
         self.assertIn(
-            (USER, 200, 0, False, False, True), self.service._deck_entries_cache
+            (USER, 200, 0, False, False, True, ""), self.service._deck_entries_cache
         )
 
     def test_prewarmed_objects_are_served_to_the_first_client_call(self) -> None:
@@ -111,11 +112,11 @@ class PortfolioPrewarmTests(unittest.TestCase):
         # Snapshot the cached payload objects created by the prewarm, then
         # confirm the first real client call serves those exact objects.
         dashboard_cached = self.service._dashboard_cache[
-            (USER, "America/Los_Angeles", "1W")
+            (USER, "America/Los_Angeles", "1W", "")
         ][1]
         performance_cached = self.service._dashboard_cache[(USER, "performance")][1]
         entries_cached = self.service._deck_entries_cache[
-            (USER, 200, 0, False, False, True)
+            (USER, 200, 0, False, False, True, "")
         ][1]
         with self.service.request_identity_context(self._identity()):
             self.assertIs(
