@@ -1,9 +1,7 @@
 import { useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, StyleSheet, View } from 'react-native';
-import { BlurView } from 'expo-blur';
-import { IconLock } from '@tabler/icons-react-native';
 
-import { Button, Text, useSpotlightTheme } from '@spotlight/design-system';
+import { Text, useSpotlightTheme } from '@spotlight/design-system';
 import type { CardRecentSaleRecord, CardRecentSalesRecord } from '@spotlight/api-client';
 
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
@@ -14,17 +12,14 @@ import { formatCurrency } from '@/features/portfolio/components/portfolio-format
  * one credit per card+grader+grade per day, everything else served from
  * SQLite).
  *
- * Free tier: the most recent sale renders clear; the rest render with REAL
- * data under an unreadable blur + lock, with a subscribe CTA (stubbed until
- * subscriptions land). Premium: all rows clear and tappable (exact Scrydex
- * per-listing deep links).
+ * All rows are clear and tappable for everyone (exact Scrydex per-listing deep
+ * links). The old free-tier blur/subscribe paywall was removed 2026-08-12 along
+ * with RevenueCat — monetization is deferred.
  */
 
 type CardRecentSalesPanelProps = {
   record: CardRecentSalesRecord | null;
   isLoading: boolean;
-  isPremium: boolean;
-  onSubscribePress: () => void;
   /** Fired when "Show more" reveals the rest of the fetched sales (analytics). */
   onShowMorePress?: () => void;
   /**
@@ -35,18 +30,16 @@ type CardRecentSalesPanelProps = {
    * reproduce these specific sold listings, which is why the old always-on
    * "See all on eBay" footer was removed. Omit to render no footer at all.
    */
-  onSeeMoreOnEbayPress?: () => void;
+  onSeeMoreOnEbayPress?: (context: { hasRows: boolean }) => void;
+  /** A single sold row was opened on eBay (analytics; the row opens itself). */
+  onSalePress?: () => void;
   testID?: string;
 };
 
-// Premium ladder: 5 sales on expand → "Show more" reveals the rest of the
-// fetched page (up to the 20 the screen requests) → "See all on eBay" deep
-// link past that. All served from the same cached Scrydex page, zero extra
-// credits.
+// Ladder: 5 sales on expand → "Show more" reveals the rest of the fetched
+// page (up to the 20 the screen requests) → "See all on eBay" deep link past
+// that. All served from the same cached Scrydex page, zero extra credits.
 const INITIAL_VISIBLE_SALES = 5;
-// Free tier: exactly 1 clear sale; a short blurred stack underneath is the
-// upsell (the overlay counts EVERYTHING locked, not just the preview rows).
-const LOCKED_PREVIEW_SALES = 4;
 
 // Sellers often lead titles with the raw cert number ("140550170 Suicune…"),
 // which is pure noise on a one-line row — strip a leading 7+ digit run (with
@@ -87,10 +80,12 @@ function formatUpdatedAgo(fetchedAt: string | null | undefined): string | null {
 }
 
 function SaleRow({
+  onPress,
   sale,
   tappable,
   testID,
 }: {
+  onPress?: () => void;
   sale: CardRecentSaleRecord;
   tappable: boolean;
   testID?: string;
@@ -126,6 +121,7 @@ function SaleRow({
         accessibilityLabel={`Open sold listing: ${displayTitle}`}
         accessibilityRole="link"
         onPress={() => {
+          onPress?.();
           void Linking.openURL(sale.saleUrl as string);
         }}
         style={({ pressed }) => [styles.saleRow, { opacity: pressed ? 0.6 : 1 }]}
@@ -145,10 +141,9 @@ function SaleRow({
 export function CardRecentSalesPanel({
   record,
   isLoading,
-  isPremium,
-  onSubscribePress,
   onShowMorePress,
   onSeeMoreOnEbayPress,
+  onSalePress,
   testID = 'recent-sales-panel',
 }: CardRecentSalesPanelProps) {
   const theme = useSpotlightTheme();
@@ -168,7 +163,7 @@ export function CardRecentSalesPanel({
           accessibilityLabel="See more on eBay"
           accessibilityRole="link"
           hitSlop={8}
-          onPress={onSeeMoreOnEbayPress}
+          onPress={() => onSeeMoreOnEbayPress({ hasRows: false })}
           style={({ pressed }) => [styles.showMore, { opacity: pressed ? 0.6 : 1 }]}
           testID={`${testID}-see-more`}
         >
@@ -202,67 +197,21 @@ export function CardRecentSalesPanel({
     return renderNothingFound(`${testID}-empty`);
   }
 
-  // Free: 1 clear + a blurred preview + Unlock (no Show more — the next step
-  // for a locked user is subscribing, not more blur). Premium: 5 clear, then
-  // Show more expands to the full fetched page.
+  // 5 clear rows on expand, then Show more expands to the full fetched page.
   const visibleSales = showAllSales ? sales : sales.slice(0, INITIAL_VISIBLE_SALES);
-  const clearSales = isPremium ? visibleSales : sales.slice(0, 1);
-  const lockedSales = isPremium ? [] : sales.slice(1, 1 + LOCKED_PREVIEW_SALES);
-  const totalLockedCount = isPremium ? 0 : Math.max(sales.length - 1, 0);
-  const hiddenCount = isPremium ? sales.length - visibleSales.length : 0;
+  const hiddenCount = sales.length - visibleSales.length;
 
   return (
     <View style={styles.panel} testID={testID}>
-      {clearSales.map((sale, index) => (
+      {visibleSales.map((sale, index) => (
         <SaleRow
           key={sale.id}
+          onPress={onSalePress}
           sale={sale}
           tappable
           testID={`${testID}-sale-${index}`}
         />
       ))}
-
-      {lockedSales.length > 0 ? (
-        <View testID={`${testID}-locked`}>
-          <View style={styles.lockedStack}>
-            {lockedSales.map((sale, index) => (
-              <SaleRow
-                key={sale.id}
-                sale={sale}
-                tappable={false}
-                testID={`${testID}-locked-${index}`}
-              />
-            ))}
-            {/* Unreadable blur over the locked rows (real data underneath —
-                the paywall is presentational; the fetch is shared either way).
-                experimentalBlurMethod: without it BlurView is a NO-OP view on
-                Android (rows rendered fully readable). The scrim underlay is
-                the belt-and-braces fallback anywhere native blur is missing. */}
-            <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.lockedScrim]} />
-            <BlurView
-              experimentalBlurMethod="dimezisBlurView"
-              intensity={40}
-              style={StyleSheet.absoluteFill}
-              tint="light"
-            />
-            <View style={styles.lockOverlay} pointerEvents="none">
-              <IconLock color={theme.colors.gray600} size={16} strokeWidth={2} />
-              <Text style={[theme.typography.label, { color: theme.colors.gray600 }]}>
-                {`${totalLockedCount} more recent sales`}
-              </Text>
-            </View>
-          </View>
-          <Button
-            label="Unlock all recent sales"
-            labelStyleVariant="label"
-            onPress={onSubscribePress}
-            shape="rounded"
-            size="sm"
-            testID={`${testID}-subscribe`}
-            variant="dark"
-          />
-        </View>
-      ) : null}
 
       {hiddenCount > 0 ? (
         <Pressable
@@ -282,11 +231,29 @@ export function CardRecentSalesPanel({
         </Pressable>
       ) : null}
 
-      {/* The in-app rows above are the accurate last-solds (each taps through to
-          its exact Scrydex/eBay listing). The old "See all on eBay →" footer link
-          was a title-derived SEARCH that couldn't reproduce these specific comps
-          (wrong/mismatched listings), so it was removed — we surface the real
-          sold listings inline instead. */}
+      {/*
+        RESTORED at the user's request, and always present: a jump to the same
+        search on eBay proper. It was removed once because the title-derived
+        search couldn't reproduce the exact inline comps — but the query is now
+        a single readable phrase ('"PSA 10" <name> <set>'), so what eBay shows
+        is legible and editable rather than a paren-soup mystery, and having NO
+        way out to eBay when rows exist read as a missing feature.
+      */}
+      {onSeeMoreOnEbayPress ? (
+        <Pressable
+          accessibilityHint="Opens eBay outside the app"
+          accessibilityLabel="See more on eBay"
+          accessibilityRole="link"
+          hitSlop={8}
+          onPress={() => onSeeMoreOnEbayPress({ hasRows: true })}
+          style={({ pressed }) => [styles.showMore, { opacity: pressed ? 0.6 : 1 }]}
+          testID={`${testID}-see-more`}
+        >
+          <Text style={[theme.typography.labelStrong, { color: theme.colors.gray600 }]}>
+            See more on eBay ↗
+          </Text>
+        </Pressable>
+      ) : null}
       {updatedText ? (
         <View style={styles.footer}>
           <Text style={[theme.typography.overline, { color: theme.colors.gray400 }]}>
@@ -304,21 +271,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingTop: 10,
-  },
-  lockOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 6,
-    justifyContent: 'center',
-  },
-  lockedScrim: {
-    backgroundColor: 'rgba(255, 255, 255, 0.72)',
-  },
-  lockedStack: {
-    marginBottom: 10,
-    overflow: 'hidden',
-    position: 'relative',
   },
   panel: {
     gap: 2,

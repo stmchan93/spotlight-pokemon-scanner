@@ -35,7 +35,6 @@ import {
   GlassButtonGroup,
   IconButton,
   Text,
-  Toast,
   TrendTriangle,
   colors,
   fontFamilies,
@@ -72,8 +71,6 @@ import {
   buildTcgPlayerSearchUrl,
   resolveTcgPlayerProductId,
 } from '@/features/cards/marketplace-urls';
-import { useIsPremium } from '@/features/monetization/entitlements';
-import { requestPremiumUnlock } from '@/features/monetization/purchases';
 import {
   cardDetailPreviewFromCatalogResult,
   cardDetailPreviewFromInventoryEntry,
@@ -308,8 +305,6 @@ export function CardDetailScreen({
     Record<string, CardEbayListingsRecord | null>
   >({});
   const [lowestListedLoadingKey, setLowestListedLoadingKey] = useState<string | null>(null);
-  const isPremium = useIsPremium();
-  const [showSubscribeStubToast, setShowSubscribeStubToast] = useState(false);
 
   // A language swap / different card invalidates the sales; a lane change
   // (raw↔graded) just collapses the accordion.
@@ -964,7 +959,6 @@ export function CardDetailScreen({
         </View>
         <CardRecentSalesPanel
           isLoading={recentSalesLoadingKey === expandedTrendRowKey}
-          isPremium={isPremium}
           onShowMorePress={() => {
             capturePostHogEvent('pdp_recent_sales_show_more', { grader, grade });
           }}
@@ -984,11 +978,6 @@ export function CardDetailScreen({
                   )
               : undefined
           }
-          onSubscribePress={() => {
-            capturePostHogEvent('paywall_subscribe_tapped', { surface: 'pdp_recent_sales' });
-            // RevenueCat purchase when live; interim free unlock until then.
-            void requestPremiumUnlock();
-          }}
           record={record}
           testID="detail-recent-sales"
         />
@@ -1010,7 +999,6 @@ export function CardDetailScreen({
         </View>
         <CardLowestListedPanel
           isLoading={lowestListedLoadingKey === expandedTrendRowKey}
-          isPremium={isPremium}
           onShowMorePress={() => {
             capturePostHogEvent('pdp_lowest_listed_show_more', { grader, grade });
           }}
@@ -1030,10 +1018,6 @@ export function CardDetailScreen({
                   )
               : undefined
           }
-          onSubscribePress={() => {
-            capturePostHogEvent('paywall_subscribe_tapped', { surface: 'pdp_lowest_listed' });
-            void requestPremiumUnlock();
-          }}
           record={listedRecord}
           testID="detail-lowest-listed"
         />
@@ -1042,7 +1026,6 @@ export function CardDetailScreen({
   }, [
     detail,
     expandedTrendRowKey,
-    isPremium,
     lowestListedByRowKey,
     lowestListedLoadingKey,
     priceTrends?.mode,
@@ -1888,6 +1871,10 @@ export function CardDetailScreen({
           isFavorite: selectedEntry.isFavorite,
         });
         refreshData();
+        // Same handoff as the add flow: this page cannot toast while
+        // unmounting, so leave the notice for whichever screen we pop back to
+        // (search / expansion consume it; elsewhere it just expires).
+        noteCardAdded('Changes saved');
         onBack();
       })
       .catch(() => {
@@ -2468,16 +2455,6 @@ export function CardDetailScreen({
           </View>
         )}
       </Animated.View>
-
-      {/* Subscribe CTA stub feedback until real subscriptions land. */}
-      <Toast
-        message="Subscriptions coming soon"
-        onDismiss={() => setShowSubscribeStubToast(false)}
-        style={styles.subscribeToast}
-        testID="detail-subscribe-stub-toast"
-        tone="light"
-        visible={showSubscribeStubToast}
-      />
     </SafeAreaView>
   );
 }
@@ -2504,12 +2481,6 @@ const styles = StyleSheet.create({
   // Recent Sales panel rather than crowding its footer.
   compsSectionHeaderSecond: {
     paddingTop: 10,
-  },
-  subscribeToast: {
-    bottom: 120,
-    left: 16,
-    position: 'absolute',
-    right: 16,
   },
   actionButton: {
     flex: 1,

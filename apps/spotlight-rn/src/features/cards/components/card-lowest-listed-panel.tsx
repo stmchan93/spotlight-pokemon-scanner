@@ -1,9 +1,7 @@
 import { useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, StyleSheet, View } from 'react-native';
-import { BlurView } from 'expo-blur';
-import { IconLock } from '@tabler/icons-react-native';
 
-import { Button, Text, useSpotlightTheme } from '@spotlight/design-system';
+import { Text, useSpotlightTheme } from '@spotlight/design-system';
 import type { CardEbayListingRecord, CardEbayListingsRecord } from '@spotlight/api-client';
 
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
@@ -15,35 +13,33 @@ import { formatCurrency } from '@/features/portfolio/components/portfolio-format
  * sidesteps the 90-day sold-comp gap: illiquid grades with no recent sales
  * usually still have a live listing to show and tap through to.
  *
- * Free tier: the single cheapest listing renders clear; the rest render under
- * an unreadable blur + lock with a subscribe CTA. Premium: 5 clear on expand →
- * "Show more" reveals the rest (up to the 20 the screen requests), then
- * "See all on eBay". eBay Browse uses a free app token, so there are no
- * per-view credits either way.
+ * Everyone sees 5 clear rows on expand → "Show more" reveals the rest (up to
+ * the 20 the screen requests), then "See all on eBay". eBay Browse uses a free
+ * app token, so there are no per-view credits. The old free-tier blur/subscribe
+ * paywall was removed 2026-08-12 along with RevenueCat — monetization is
+ * deferred.
  */
 
 type CardLowestListedPanelProps = {
   record: CardEbayListingsRecord | null;
   isLoading: boolean;
-  isPremium: boolean;
-  onSubscribePress: () => void;
   /** Fired when "Show more" reveals the rest of the fetched listings (analytics). */
   onShowMorePress?: () => void;
   /**
-   * Opens an eBay SEARCH for this card's live listings, cheapest first.
-   * Rendered ONLY when there is nothing to show — see the twin prop on
-   * `CardRecentSalesPanel` for why it stays off the populated panel. Omit to
-   * render no footer at all.
+   * Opens an eBay SEARCH for this card's live listings, cheapest first. Rendered
+   * both when the panel is empty and under a populated list, so `hasRows` says
+   * which — leaving from a full panel means something different from leaving
+   * because there was nothing here.
    */
-  onSeeMoreOnEbayPress?: () => void;
+  onSeeMoreOnEbayPress?: (context: { hasRows: boolean }) => void;
+  /** A single listing row was opened on eBay (analytics; the row opens itself). */
+  onListingPress?: () => void;
   testID?: string;
 };
 
 // Mirror the sold panel's ladder: 5 listings on expand → "Show more" reveals
 // the fetched page (up to 20) → "See all on eBay" past that.
 const INITIAL_VISIBLE_LISTINGS = 5;
-// Free tier: 1 clear listing; a short blurred stack underneath is the upsell.
-const LOCKED_PREVIEW_LISTINGS = 4;
 
 // Sellers often lead titles with the raw cert number ("140550170 Suicune…").
 // Strip a leading 7+ digit run (matches the sold-panel cleaner).
@@ -66,10 +62,12 @@ function formatSaleType(saleType: string | null | undefined): string | null {
 
 function ListingRow({
   listing,
+  onPress,
   tappable,
   testID,
 }: {
   listing: CardEbayListingRecord;
+  onPress?: () => void;
   tappable: boolean;
   testID?: string;
 }) {
@@ -104,6 +102,7 @@ function ListingRow({
         accessibilityLabel={`Open eBay listing: ${displayTitle}`}
         accessibilityRole="link"
         onPress={() => {
+          onPress?.();
           void Linking.openURL(listing.listingUrl as string);
         }}
         style={({ pressed }) => [styles.listingRow, { opacity: pressed ? 0.6 : 1 }]}
@@ -123,10 +122,9 @@ function ListingRow({
 export function CardLowestListedPanel({
   record,
   isLoading,
-  isPremium,
-  onSubscribePress,
   onShowMorePress,
   onSeeMoreOnEbayPress,
+  onListingPress,
   testID = 'lowest-listed-panel',
 }: CardLowestListedPanelProps) {
   const theme = useSpotlightTheme();
@@ -145,7 +143,7 @@ export function CardLowestListedPanel({
           accessibilityLabel="See more on eBay"
           accessibilityRole="link"
           hitSlop={8}
-          onPress={onSeeMoreOnEbayPress}
+          onPress={() => onSeeMoreOnEbayPress({ hasRows: false })}
           style={({ pressed }) => [styles.showMore, { opacity: pressed ? 0.6 : 1 }]}
           testID={`${testID}-see-more`}
         >
@@ -179,58 +177,19 @@ export function CardLowestListedPanel({
   }
 
   const visibleListings = showAllListings ? listings : listings.slice(0, INITIAL_VISIBLE_LISTINGS);
-  const clearListings = isPremium ? visibleListings : listings.slice(0, 1);
-  const lockedListings = isPremium ? [] : listings.slice(1, 1 + LOCKED_PREVIEW_LISTINGS);
-  const totalLockedCount = isPremium ? 0 : Math.max(listings.length - 1, 0);
-  const hiddenCount = isPremium ? listings.length - visibleListings.length : 0;
+  const hiddenCount = listings.length - visibleListings.length;
 
   return (
     <View style={styles.panel} testID={testID}>
-      {clearListings.map((listing, index) => (
+      {visibleListings.map((listing, index) => (
         <ListingRow
           key={listing.id}
           listing={listing}
+          onPress={onListingPress}
           tappable
           testID={`${testID}-listing-${index}`}
         />
       ))}
-
-      {lockedListings.length > 0 ? (
-        <View testID={`${testID}-locked`}>
-          <View style={styles.lockedStack}>
-            {lockedListings.map((listing, index) => (
-              <ListingRow
-                key={listing.id}
-                listing={listing}
-                tappable={false}
-                testID={`${testID}-locked-${index}`}
-              />
-            ))}
-            <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.lockedScrim]} />
-            <BlurView
-              experimentalBlurMethod="dimezisBlurView"
-              intensity={40}
-              style={StyleSheet.absoluteFill}
-              tint="light"
-            />
-            <View style={styles.lockOverlay} pointerEvents="none">
-              <IconLock color={theme.colors.gray600} size={16} strokeWidth={2} />
-              <Text style={[theme.typography.label, { color: theme.colors.gray600 }]}>
-                {`${totalLockedCount} more listings`}
-              </Text>
-            </View>
-          </View>
-          <Button
-            label="Unlock all listings"
-            labelStyleVariant="label"
-            onPress={onSubscribePress}
-            shape="rounded"
-            size="sm"
-            testID={`${testID}-subscribe`}
-            variant="dark"
-          />
-        </View>
-      ) : null}
 
       {hiddenCount > 0 ? (
         <Pressable
@@ -250,9 +209,29 @@ export function CardLowestListedPanel({
         </Pressable>
       ) : null}
 
-      {/* The aggregate "See all on eBay →" search link was removed — like the
-          recent-sales one, it was a broad title-search that couldn't reproduce
-          the specific listings shown. The per-row listings above link exactly. */}
+      {/*
+        RESTORED at the user's request, and always present: a jump to the same
+        search on eBay proper. It was removed once because the title-derived
+        search couldn't reproduce the exact inline comps — but the query is now
+        a single readable phrase ('"PSA 10" <name> <set>'), so what eBay shows
+        is legible and editable rather than a paren-soup mystery, and having NO
+        way out to eBay when rows exist read as a missing feature.
+      */}
+      {onSeeMoreOnEbayPress ? (
+        <Pressable
+          accessibilityHint="Opens eBay outside the app"
+          accessibilityLabel="See more on eBay"
+          accessibilityRole="link"
+          hitSlop={8}
+          onPress={() => onSeeMoreOnEbayPress({ hasRows: true })}
+          style={({ pressed }) => [styles.showMore, { opacity: pressed ? 0.6 : 1 }]}
+          testID={`${testID}-see-more`}
+        >
+          <Text style={[theme.typography.labelStrong, { color: theme.colors.gray600 }]}>
+            See more on eBay ↗
+          </Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -280,21 +259,6 @@ const styles = StyleSheet.create({
   },
   listingTitle: {
     flexShrink: 1,
-  },
-  lockOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 6,
-    justifyContent: 'center',
-  },
-  lockedScrim: {
-    backgroundColor: 'rgba(255, 255, 255, 0.72)',
-  },
-  lockedStack: {
-    marginBottom: 10,
-    overflow: 'hidden',
-    position: 'relative',
   },
   panel: {
     gap: 2,

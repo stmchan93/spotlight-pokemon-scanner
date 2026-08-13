@@ -4,7 +4,6 @@ import { useRouter } from 'expo-router';
 
 import type { CardDetailRecord, CardText, InventoryCardEntry } from '@spotlight/api-client';
 import { CardDetailScreen } from '@/features/cards/screens/card-detail-screen';
-import { resetPremiumUnlock } from '@/features/monetization/entitlements';
 import { clearCardAddedNotice, consumeCardAddedNotice } from '@/features/cards/card-added-notice';
 import {
   clearCardDetailPreviewSessions,
@@ -64,7 +63,6 @@ describe('CardDetailScreen', () => {
     clearCardDetailPreviewSessions();
     clearScanCandidateReviewSessions();
     clearCardDetailCache();
-    resetPremiumUnlock();
     jest.clearAllMocks();
   });
 
@@ -762,7 +760,7 @@ describe('CardDetailScreen', () => {
     expect(soldUrl).toContain('ebay.com/sch/i.html');
     expect(soldUrl).toContain('LH_Sold=1');
     // `searchParams` (not decodeURIComponent) — the query encodes spaces as "+".
-    expect(new URL(soldUrl).searchParams.get('_nkw')).toContain('"PSA 10"');
+    expect(new URL(soldUrl).searchParams.get('_nkw')).toContain('PSA 10');
     expect(capturePostHogEvent).toHaveBeenCalledWith('pricing_link_opened', {
       marketplace: 'ebay',
       lane: 'graded',
@@ -859,11 +857,7 @@ describe('CardDetailScreen', () => {
     });
   });
 
-  it('premium: 5 clear sales, then "Show more" reveals the rest in place (no extra fetch)', async () => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const premiumSpy = jest
-      .spyOn(require('@/features/monetization/entitlements'), 'useIsPremium')
-      .mockReturnValue(true);
+  it('5 clear sales, then "Show more" reveals the rest in place (no extra fetch)', async () => {
     const manySalesRecord = {
       ...recentSalesRecord,
       saleCount: 8,
@@ -899,7 +893,7 @@ describe('CardDetailScreen', () => {
       expect(screen.getByTestId('detail-recent-sales')).toBeTruthy();
     });
 
-    // Premium first slice: 5 clear rows, no blur/subscribe, Show-more present.
+    // First slice: 5 clear rows, no blur/subscribe, Show-more present.
     expect(screen.getByTestId('detail-recent-sales-sale-4')).toBeTruthy();
     expect(screen.queryByTestId('detail-recent-sales-sale-5')).toBeNull();
     expect(screen.queryByTestId('detail-recent-sales-locked')).toBeNull();
@@ -915,10 +909,9 @@ describe('CardDetailScreen', () => {
       grader: 'PSA',
       grade: '10',
     });
-    premiumSpy.mockRestore();
   });
 
-  it('shows every recent sale to everyone — the paywall is off', async () => {
+  it('shows every recent sale to everyone — there is no paywall', async () => {
     const manySalesRecord = {
       ...recentSalesRecord,
       saleCount: 8,
@@ -955,10 +948,10 @@ describe('CardDetailScreen', () => {
     });
 
     /*
-      `PAYWALL_ENABLED` is false, so there is no free tier to be on: comps are
-      not something to hold back while we are still getting people to use the
-      app. Nothing is blurred, nothing is counted as hidden, and there is no
-      upsell to tap.
+      The paywall (and RevenueCat) was removed 2026-08-12, so there is no free
+      tier to be on: comps are not something to hold back while we are still
+      getting people to use the app. Nothing is blurred, nothing is counted as
+      hidden, and there is no upsell to tap.
     */
     expect(screen.getByTestId('detail-recent-sales-sale-0')).toBeTruthy();
     expect(screen.getByTestId('detail-recent-sales-sale-1')).toBeTruthy();
