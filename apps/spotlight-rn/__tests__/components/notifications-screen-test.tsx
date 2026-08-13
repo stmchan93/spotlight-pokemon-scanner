@@ -217,16 +217,19 @@ describe('NotificationsScreen', () => {
     // to, so a notification could tell you about a reply and then refuse to show
     // it to you.
     fireEvent.press(screen.getByTestId('notifications-row-n-comment'));
+    // The comment id travels with it: a reply is collapsed by default, so
+    // without it the thread opens with the very comment this notification is
+    // about still hidden behind "show replies".
     expect(push).toHaveBeenLastCalledWith({
       pathname: '/post/[postId]',
-      params: { postId: 'post-1', comments: '1' },
+      params: { postId: 'post-1', comments: '1', commentId: 'comment-1' },
     });
 
     // A like on the post itself opens the post with the thread shut.
     fireEvent.press(screen.getByTestId('notifications-row-n-like'));
     expect(push).toHaveBeenLastCalledWith({
       pathname: '/post/[postId]',
-      params: { postId: 'post-1', comments: '0' },
+      params: { postId: 'post-1', comments: '0', commentId: '' },
     });
   });
 

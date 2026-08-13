@@ -79,8 +79,15 @@ export function NotificationsScreen({ testID = 'notifications' }: { testID?: str
       }
       const postId = item.postId;
       const comments = item.commentId ? '1' : '0';
+      // The comment id travels too: a reply is collapsed by default, so without
+      // it the thread opens with the very comment the notification is about
+      // still hidden behind "show replies".
+      const commentId = item.commentId ?? '';
       return () =>
-        router.push({ pathname: '/post/[postId]', params: { postId, comments } } as never);
+        router.push({
+          pathname: '/post/[postId]',
+          params: { postId, comments, commentId },
+        } as never);
     },
     [router],
   );

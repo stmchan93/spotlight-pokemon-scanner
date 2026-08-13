@@ -54,6 +54,13 @@ type CommentsSheetProps = {
   */
   /** The post whose thread this sheet shows. */
   postId: string;
+  /**
+   * A comment to open ON — set when a notification about a reply brought the
+   * reader here. Its thread is expanded (a reply is collapsed by default, so it
+   * would otherwise not even be rendered) and the sheet rests on it instead of
+   * on the end of the thread.
+   */
+  focusCommentId?: string | null;
   /** Fired after a comment is optimistically appended, so the card can bump its count. */
   onCommentAdded?: (comment: PostComment) => void;
   /**
@@ -622,6 +629,7 @@ export function CommentsSheet({
   visible,
   onClose,
   postId,
+  focusCommentId = null,
   onCommentAdded,
   onCommentCountResolved,
   testID = 'comments-sheet',
@@ -1325,17 +1333,45 @@ export function CommentsSheet({
         }
         setComments(loaded);
         setStatus('ready');
-        const endOfThread = lastThreadBlockId(loaded);
-        if (endOfThread) {
+        /*
+          A notification about a reply opens ON that reply, not at the end of
+          the thread. Replies are collapsed by default, so the target has to be
+          EXPANDED first or there is nothing on screen to scroll to.
+
+          `measured: false` (unlike the end-of-thread case below): the target is
+          a reply inside a block that has not been laid out yet, so only its own
+          measurement can release the scroll. That is the same arming the
+          post-send path uses for exactly the same reason.
+        */
+        const focusTarget = focusCommentId
+          ? loaded.find((entry) => entry.id === focusCommentId)
+          : undefined;
+        if (focusTarget) {
+          const rootId = topLevelAncestorId(loaded, focusTarget.id);
+          const isReply = rootId !== focusTarget.id;
+          if (isReply) {
+            setExpandedIds((current) => new Set(current).add(rootId));
+          }
           pendingScrollRef.current = {
             animated: false,
-            // The end of the thread is the point; clamping would pin it to the
-            // last block's TOP instead.
             keepTopVisible: false,
-            measured: true,
-            replyId: null,
-            rootId: endOfThread,
+            measured: false,
+            replyId: isReply ? focusTarget.id : null,
+            rootId,
           };
+        } else {
+          const endOfThread = lastThreadBlockId(loaded);
+          if (endOfThread) {
+            pendingScrollRef.current = {
+              animated: false,
+              // The end of the thread is the point; clamping would pin it to the
+              // last block's TOP instead.
+              keepTopVisible: false,
+              measured: true,
+              replyId: null,
+              rootId: endOfThread,
+            };
+          }
         }
         // Report the thread's real size. `posts.comment_count` is maintained by
         // a DB trigger; when that count is stale the card would otherwise keep
@@ -1363,6 +1399,8 @@ export function CommentsSheet({
     // `onCommentCountResolved` is a reporting callback; re-running the fetch
     // when the parent re-creates it would refetch the thread on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+    // `focusCommentId` is read at LOAD time only — re-running this on a change
+    // would refetch the thread just to move the scroll.
   }, [postId, visible]);
 
   const threads = useMemo(() => buildCommentThreads(comments), [comments]);

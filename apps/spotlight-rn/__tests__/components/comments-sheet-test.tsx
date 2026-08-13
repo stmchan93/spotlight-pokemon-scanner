@@ -1084,6 +1084,56 @@ describe('CommentsSheet', () => {
     await waitFor(() => expect(screen.getByText('5')).toBeTruthy());
   });
 
+  /*
+    A notification about a reply has to land ON that reply. Replies are collapsed
+    behind the "N replies" toggle, so without this the thread opened with the very
+    comment the notification was about still hidden.
+  */
+  describe('opening on a notified comment', () => {
+    const thread = [
+      buildComment({ id: 'c1', body: 'Top level', likeCount: 0 }),
+      buildComment({
+        id: 'r1',
+        author: { displayName: 'Brock', handle: 'brock', avatarUrl: null, isVerified: false },
+        body: 'The reply you were told about',
+        parentCommentId: 'c1',
+      }),
+    ];
+
+    it('expands the thread the reply lives in, without a tap', async () => {
+      (fetchComments as jest.Mock).mockResolvedValue(thread);
+
+      renderSheet({ focusCommentId: 'r1' });
+
+      // Visible immediately — no press on the replies toggle.
+      expect(await screen.findByTestId('comments-sheet-comment-r1')).toBeTruthy();
+      // Loose match: the body renders in segments beside the @mention.
+      expect(screen.getByText(/The reply you were told about/)).toBeTruthy();
+      expect(screen.getByText('Hide replies')).toBeTruthy();
+    });
+
+    it('leaves replies collapsed when no comment was notified', async () => {
+      (fetchComments as jest.Mock).mockResolvedValue(thread);
+
+      renderSheet();
+
+      await screen.findByText('Top level');
+      // The default remains a collapsed thread — this only changes for a
+      // notification that names a comment.
+      expect(screen.queryByTestId('comments-sheet-comment-r1')).toBeNull();
+      expect(screen.getByText('1 reply')).toBeTruthy();
+    });
+
+    it('does not expand anything when the notified comment is top-level', async () => {
+      (fetchComments as jest.Mock).mockResolvedValue(thread);
+
+      renderSheet({ focusCommentId: 'c1' });
+
+      await screen.findByText('Top level');
+      expect(screen.queryByTestId('comments-sheet-comment-r1')).toBeNull();
+    });
+  });
+
   it('hides replies behind the "N replies" toggle and reveals them with a blue @mention', async () => {
     (fetchComments as jest.Mock).mockResolvedValue([
       buildComment({ id: 'c1', body: 'Top level', likeCount: 0 }),

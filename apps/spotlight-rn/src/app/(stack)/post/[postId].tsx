@@ -16,12 +16,24 @@ function firstParam(value?: string | string[]): string {
  * was inert because this route did not exist.
  */
 export default function PostDetailRoute() {
-  const params = useLocalSearchParams<{ postId?: string | string[]; comments?: string | string[] }>();
+  const params = useLocalSearchParams<{
+    postId?: string | string[];
+    comments?: string | string[];
+    commentId?: string | string[];
+  }>();
   const postId = firstParam(params.postId).trim();
+  // Carried by a notification about a reply, so the thread opens ON it.
+  const commentId = firstParam(params.commentId).trim();
 
   if (!postId) {
     return null;
   }
 
-  return <PostDetailScreen openComments={firstParam(params.comments) === '1'} postId={postId} />;
+  return (
+    <PostDetailScreen
+      focusCommentId={commentId || null}
+      openComments={firstParam(params.comments) === '1'}
+      postId={postId}
+    />
+  );
 }

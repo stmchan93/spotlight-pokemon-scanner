@@ -20,6 +20,8 @@ type PostDetailScreenProps = {
    * about rather than on the post with the thread still shut.
    */
   openComments?: boolean;
+  /** Comment the thread should open on — see `CommentsSheet.focusCommentId`. */
+  focusCommentId?: string | null;
   testID?: string;
 };
 
@@ -41,6 +43,7 @@ type LoadStatus = 'loading' | 'ready' | 'missing';
 export function PostDetailScreen({
   postId,
   openComments = false,
+  focusCommentId = null,
   testID = 'post-detail',
 }: PostDetailScreenProps) {
   const theme = useSpotlightTheme();
@@ -131,6 +134,7 @@ export function PostDetailScreen({
             accessToken={accessToken}
             apiBaseUrl={apiBaseUrl}
             autoOpenComments={openComments}
+            focusCommentId={focusCommentId}
             onPressCard={(cardId) => router.push({ pathname: '/cards/[cardId]', params: { cardId } })}
             onRequestDelete={requestDelete}
             post={post}

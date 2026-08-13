@@ -70,6 +70,8 @@ type PostCardProps = {
    * the conversation it was telling you about instead of on a shut thread.
    */
   autoOpenComments?: boolean;
+  /** Comment to open the thread on — see `CommentsSheet.focusCommentId`. */
+  focusCommentId?: string | null;
   testID?: string;
 };
 
@@ -267,6 +269,7 @@ export function PostCard({
   onRequestDelete,
   onAuthorBlocked,
   autoOpenComments = false,
+  focusCommentId = null,
   testID = 'post-card',
 }: PostCardProps) {
   const theme = useSpotlightTheme();
@@ -826,6 +829,7 @@ export function PostCard({
       />
 
       <CommentsSheet
+        focusCommentId={focusCommentId}
         onClose={() => setCommentsVisible(false)}
         onCommentAdded={() => setCommentCount((count) => count + 1)}
         onCommentCountResolved={setCommentCount}
