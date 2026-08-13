@@ -16,6 +16,7 @@ import {
   getNeedsProfile,
   isAnonymousSession,
   isAuthCanceledError,
+  isIdentityAlreadyLinkedError,
   linkAppleIdentityToCurrentUser,
   linkOAuthIdentityToCurrentUser,
   resendSignupCode,
@@ -40,6 +41,7 @@ import {
   getResolvedDisplayName,
   type ProfileUpdate,
 } from '@/features/auth/auth-models';
+import { TurnstileCaptchaHost } from '@/features/auth/captcha/turnstile-captcha-host';
 import { hasEverSignedIn, markHasSignedIn } from '@/features/auth/guest-first-launch';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { resolveRuntimeBoolean } from '@/lib/runtime-config';
@@ -777,8 +779,18 @@ export function AuthProvider({ children }: PropsWithChildren) {
         // Guest: LINK Apple to the anonymous user (native sheet, OIDC overload)
         // so the uuid survives. Signing in would mint a second user and orphan
         // the guest's scans.
+        //
+        // UNLESS the Apple identity already belongs to an existing account —
+        // then this person HAS an account (reinstall → guest scan → sign in),
+        // linking can never succeed, and the right move is to abandon the
+        // guest and sign into the account they own.
         const session = isAnonymousSession(currentSession)
-          ? await linkAppleIdentityToCurrentUser()
+          ? await linkAppleIdentityToCurrentUser().catch((error) => {
+              if (isIdentityAlreadyLinkedError(error)) {
+                return signInWithApple();
+              }
+              throw error;
+            })
           : await signInWithApple();
         if (session) {
           await updateFromSession(session);
@@ -794,9 +806,15 @@ export function AuthProvider({ children }: PropsWithChildren) {
       await performAuthAction(async () => {
         // Guest: LINK Google to the anonymous user (browser redirect) so the
         // uuid survives. A null session means the system browser took over and
-        // the session arrives on the deep link instead.
+        // the session arrives on the deep link instead. Same
+        // already-linked fallback as Apple: an existing account wins.
         const session = isAnonymousSession(currentSession)
-          ? await linkOAuthIdentityToCurrentUser('google')
+          ? await linkOAuthIdentityToCurrentUser('google').catch((error) => {
+              if (isIdentityAlreadyLinkedError(error)) {
+                return signInWithGoogle();
+              }
+              throw error;
+            })
           : await signInWithGoogle();
         if (session) {
           await bootstrapProfileIfNeeded(session.user, null, null);
@@ -885,6 +903,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   return (
     <AuthContext.Provider value={value}>
+      {/* Hidden Turnstile widget host. Renders nothing until an auth call asks
+          for a captcha token (and never when no site key is configured). */}
+      <TurnstileCaptchaHost />
       {children}
     </AuthContext.Provider>
   );

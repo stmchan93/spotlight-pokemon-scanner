@@ -171,6 +171,22 @@ describe('AccountScreen', () => {
     );
   });
 
+  // App Store Guideline 1.2 / 5.1.1: Terms and Privacy must be reachable from
+  // inside the app, not only from the sign-up footer.
+  it('opens the hosted Terms and Privacy pages from the Legal section', () => {
+    renderWithProviders(<AccountScreen />);
+
+    expect(screen.getByText('Legal')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('account-terms'));
+    expect(mockOpenURL).toHaveBeenCalledWith(
+      'https://stmchan93.github.io/ekalight-legal/terms/',
+    );
+
+    fireEvent.press(screen.getByTestId('account-privacy'));
+    expect(mockOpenURL).toHaveBeenCalledWith('https://stmchan93.github.io/ekalight-legal/');
+  });
+
   it('uses the shared left-aligned back button chrome', () => {
     renderWithProviders(<AccountScreen />);
 

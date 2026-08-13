@@ -7,6 +7,9 @@ const PLACEHOLDER_RUNTIME_VALUES = new Set([
   'com.yourcompany.spotlight',
   'your-expo-account',
   '00000000-0000-0000-0000-000000000000',
+  // Turnstile site-key placeholder: until the real key is pasted into
+  // eas.json / .env.production, captcha resolution stays disabled (tokenless).
+  'TURNSTILE_SITE_KEY_TBD',
 ]);
 
 function trimConfigValue(value: unknown) {

@@ -10,6 +10,12 @@ import { CheckCircle, CheckCircleSolid, Eye, EyeClosed } from 'iconoir-react-nat
 
 import { Text, fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
 
+import {
+  PRIVACY_POLICY_URL,
+  TERMS_OF_USE_URL,
+  openLegalUrl,
+} from '@/features/auth/legal-links';
+
 /**
  * Presentational building blocks shared by the light-theme email-auth screens
  * (Figma 2161:6847 "Log In" / 2170:7283 "Password Reset"). All are prop-driven;
@@ -238,16 +244,35 @@ export function OrDivider() {
 }
 
 /**
- * Bottom terms/privacy line (Figma 2161:6738). The links are styled per design;
- * no hosted terms pages exist yet, so they are not tappable.
+ * Bottom terms/privacy line (Figma 2161:6738). Both links open the hosted
+ * legal pages (`legal-links.ts`) — App Review requires them to be functional,
+ * not just styled.
  */
 export function TermsFooter() {
   const theme = useSpotlightTheme();
   return (
     <Text style={[styles.terms, { color: theme.colors.gray600 }]}>
       By signing up, you confirm to have read and agree to our{' '}
-      <Text style={styles.termsLink}>Terms of Use</Text> and{' '}
-      <Text style={styles.termsLink}>Privacy Policy</Text>.
+      <Text
+        accessibilityRole="link"
+        onPress={() => openLegalUrl(TERMS_OF_USE_URL)}
+        style={styles.termsLink}
+        suppressHighlighting
+        testID="auth-terms-link"
+      >
+        Terms of Use
+      </Text>{' '}
+      and{' '}
+      <Text
+        accessibilityRole="link"
+        onPress={() => openLegalUrl(PRIVACY_POLICY_URL)}
+        style={styles.termsLink}
+        suppressHighlighting
+        testID="auth-privacy-link"
+      >
+        Privacy Policy
+      </Text>
+      .
     </Text>
   );
 }

@@ -18,6 +18,11 @@ import {
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
+import {
+  PRIVACY_POLICY_URL,
+  TERMS_OF_USE_URL,
+  openLegalUrl,
+} from '@/features/auth/legal-links';
 import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { exportCollectionCsv } from '@/features/portfolio/export-collection';
 import { useAuth } from '@/providers/auth-provider';
@@ -432,6 +437,44 @@ export function AccountScreen() {
                 }}
                 size="lg"
                 testID="account-blocked-accounts"
+                variant="outline"
+              />
+            </View>
+          </View>
+        </SurfaceCard>
+
+        {/*
+          Legal sits with Safety and Contact & support: App Review (Guideline
+          1.2 / 5.1.1) expects the Terms and Privacy Policy to be reachable from
+          inside the app, not only from the sign-up footer.
+        */}
+        <SurfaceCard padding={20} radius={28}>
+          <View style={styles.collectionDataCard}>
+            <View style={styles.showModeCopy}>
+              <Text style={[theme.typography.titleCompact, { color: theme.colors.textPrimary }]}>
+                Legal
+              </Text>
+              <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>
+                The agreements that govern your use of Ekalight.
+              </Text>
+            </View>
+            <View style={styles.collectionDataButtons}>
+              <Button
+                label="Terms of Use"
+                onPress={() => {
+                  openLegalUrl(TERMS_OF_USE_URL);
+                }}
+                size="lg"
+                testID="account-terms"
+                variant="outline"
+              />
+              <Button
+                label="Privacy Policy"
+                onPress={() => {
+                  openLegalUrl(PRIVACY_POLICY_URL);
+                }}
+                size="lg"
+                testID="account-privacy"
                 variant="outline"
               />
             </View>

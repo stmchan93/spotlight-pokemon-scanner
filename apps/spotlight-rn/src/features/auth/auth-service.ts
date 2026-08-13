@@ -13,6 +13,7 @@ import {
   markAnonymousIdentityReleased,
   recordAnonymousIdentityMint,
 } from './anonymous-identity-churn';
+import { getCaptchaToken } from './captcha/turnstile';
 import { isColumnWriteRejectedError, isMissingColumnError } from '@/lib/postgrest-errors';
 import {
   supabase,
@@ -685,6 +686,10 @@ export async function signUpWithEmail({
     throw new Error(supabaseAuthConfig.configurationIssue ?? 'Supabase Auth is not configured.');
   }
 
+  // Production Supabase enforces captcha on signup; the provider resolves null
+  // instantly on captcha-off environments (staging/dev), keeping the request
+  // shape unchanged there.
+  const captchaToken = await getCaptchaToken();
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
@@ -692,6 +697,7 @@ export async function signUpWithEmail({
       data: {
         display_name: normalizeDisplayName(fullName) ?? fullName,
       },
+      ...(captchaToken ? { captchaToken } : {}),
     },
   });
 
@@ -732,9 +738,13 @@ export async function signInWithEmailPassword({
     throw new Error(supabaseAuthConfig.configurationIssue ?? 'Supabase Auth is not configured.');
   }
 
+  // Production Supabase enforces captcha on password sign-in (the /token
+  // password grant); null on captcha-off environments keeps the request as-is.
+  const captchaToken = await getCaptchaToken();
   const { data, error } = await supabase.auth.signInWithPassword({
     email,
     password,
+    ...(captchaToken ? { options: { captchaToken } } : {}),
   });
 
   if (error) {
@@ -797,9 +807,12 @@ export async function resendSignupCode(email: string): Promise<void> {
     throw new Error(supabaseAuthConfig.configurationIssue ?? 'Supabase Auth is not configured.');
   }
 
+  // /resend is captcha-protected alongside signup on production.
+  const captchaToken = await getCaptchaToken();
   const { error } = await supabase.auth.resend({
     type: 'signup',
     email,
+    ...(captchaToken ? { options: { captchaToken } } : {}),
   });
 
   if (error) {
@@ -812,7 +825,13 @@ export async function sendPasswordReset(email: string): Promise<void> {
     throw new Error(supabaseAuthConfig.configurationIssue ?? 'Supabase Auth is not configured.');
   }
 
-  const { error } = await supabase.auth.resetPasswordForEmail(email.trim());
+  // Production Supabase enforces captcha on the /recover endpoint. The options
+  // bag is omitted entirely when no token exists so captcha-off environments
+  // keep today's exact call shape.
+  const captchaToken = await getCaptchaToken();
+  const { error } = captchaToken
+    ? await supabase.auth.resetPasswordForEmail(email.trim(), { captchaToken })
+    : await supabase.auth.resetPasswordForEmail(email.trim());
 
   if (error) {
     throw error;
@@ -869,9 +888,13 @@ export async function updatePassword(
       throw new Error('You must be signed in to change your password.');
     }
 
+    // This re-verify is a real password sign-in, so production's captcha
+    // enforcement applies to it too.
+    const captchaToken = await getCaptchaToken();
     const { error: verifyError } = await supabase.auth.signInWithPassword({
       email,
       password: currentPassword,
+      ...(captchaToken ? { options: { captchaToken } } : {}),
     });
     if (verifyError) {
       throw new Error('Your current password is incorrect.');
@@ -921,7 +944,12 @@ export async function signInAnonymously(): Promise<Session> {
     throw new Error(supabaseAuthConfig.configurationIssue ?? 'Supabase Auth is not configured.');
   }
 
-  const { data, error } = await supabase.auth.signInAnonymously();
+  // Production Supabase enforces captcha on anonymous sign-ins; null on
+  // captcha-off environments keeps the zero-argument call shape unchanged.
+  const captchaToken = await getCaptchaToken();
+  const { data, error } = captchaToken
+    ? await supabase.auth.signInAnonymously({ options: { captchaToken } })
+    : await supabase.auth.signInAnonymously();
   if (error) {
     throw error;
   }
@@ -942,6 +970,25 @@ export async function signInAnonymously(): Promise<Session> {
 /** True when the session is a guest (Supabase anonymous user). */
 export function isAnonymousSession(session: Session | null): boolean {
   return session?.user.is_anonymous === true;
+}
+
+/**
+ * True when a guest→account link failed because the OAuth identity already
+ * belongs to an EXISTING account (GoTrue `identity_already_exists`). The
+ * caller falls back to a plain sign-in: the person provably has an account
+ * (reinstall → guest scan → sign in), so the account wins and the guest is
+ * abandoned.
+ */
+export function isIdentityAlreadyLinkedError(error: unknown): boolean {
+  const candidate = error as { code?: string; message?: string } | null;
+  if (!candidate) {
+    return false;
+  }
+  if (candidate.code === 'identity_already_exists') {
+    return true;
+  }
+  return typeof candidate.message === 'string'
+    && candidate.message.toLowerCase().includes('already linked');
 }
 
 // ---------------------------------------------------------------------------
