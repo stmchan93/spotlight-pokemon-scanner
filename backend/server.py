@@ -104,6 +104,7 @@ from catalog_tools import (
     _MANUAL_SEARCH_POOL_CEILING,
     RARITY_BUCKET_KEYS,
     rarity_bucket,
+    normalize_game,
     search_cards,
     search_cards_local,
     search_cards_local_collector_only,
@@ -11265,13 +11266,19 @@ class SpotlightScanService:
     @staticmethod
     def _candidate_base_payload(resolved_card: dict[str, Any], original_card: dict[str, Any]) -> dict[str, Any]:
         card_id = str(resolved_card.get("id") or original_card.get("id") or "")
+        # Which game this card belongs to. The client needs it to decide what the
+        # card detail may claim — a One Piece card has no graded prices and no
+        # population, so those blocks are hidden rather than rendered empty.
+        game = normalize_game(resolved_card.get("game") or original_card.get("game"))
+        raw_rarity = resolved_card.get("rarity") or original_card.get("rarity")
         return {
             "id": card_id,
+            "game": game,
             "name": str(resolved_card.get("name") or original_card.get("name") or ""),
             "setName": str(resolved_card.get("setName") or original_card.get("setName") or ""),
             "number": str(resolved_card.get("number") or original_card.get("number") or ""),
-            "rarity": str(resolved_card.get("rarity") or original_card.get("rarity") or "Unknown"),
-            "rarityBucket": rarity_bucket(resolved_card.get("rarity") or original_card.get("rarity")),
+            "rarity": str(raw_rarity or "Unknown"),
+            "rarityBucket": rarity_bucket(raw_rarity, game),
             "variant": str(resolved_card.get("variant") or original_card.get("variant") or "Raw"),
             "language": str(resolved_card.get("language") or original_card.get("language") or "English"),
             "imageSmallURL": resolved_card.get("imageSmallURL") or original_card.get("imageSmallURL"),

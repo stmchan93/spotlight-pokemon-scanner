@@ -19,6 +19,7 @@ import { useRouter } from 'expo-router';
 
 import {
   deckConditionOptions,
+  gameHasGradedData,
   graderOptions,
   type CardDetailRecord,
   type CardPriceTrendList as CardPriceTrendListRecord,
@@ -1195,6 +1196,15 @@ export function CardDetailScreen({
     ?? detailPreview?.largeImageUrl
     ?? detailPreview?.imageUrl
     ?? null;
+  // Grading lanes are offered ONLY for games that actually have graded data
+  // behind them. One Piece has none — Scrydex returns no graded prices and empty
+  // pop reports for it — so a PSA/BGS/CGC chip there would be a control that
+  // leads to a permanently empty chart.
+  const cardGame = detail?.game ?? detailPreview?.game;
+  const availableGraders = useMemo(
+    () => (gameHasGradedData(cardGame) ? [...graderOptions] : ['Raw']),
+    [cardGame],
+  );
   const displayCardNumber = detail?.cardNumber ?? detailPreview?.cardNumber ?? '';
   const displaySetName = detail?.setName ?? detailPreview?.setName ?? '';
   // Card number + set name share one line, dot-separated ("052 · Scarlet &
@@ -2189,7 +2199,7 @@ export function CardDetailScreen({
           style={styles.optionsGroup}
         >
           <CardConfigurator
-            graders={[...graderOptions]}
+            graders={availableGraders}
             languages={languageToggleOptions}
             onSelectGrader={handleSelectGrader}
             onSelectLanguage={handleSwitchLanguage}
@@ -2227,7 +2237,7 @@ export function CardDetailScreen({
           confirmLabel="CONFIRM"
           gradeLabel={addGradeLabel}
           gradeTitle={addGradeTitle}
-          graders={[...graderOptions]}
+          graders={availableGraders}
           languages={languageToggleOptions}
           onClose={() => setAddSheetOpen(false)}
           onConfirm={handleAddItem}

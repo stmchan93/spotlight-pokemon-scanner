@@ -1,8 +1,15 @@
-import type { CardFavoriteEntry, CatalogSearchResult, InventoryCardEntry } from '@spotlight/api-client';
+import type {
+  CardFavoriteEntry,
+  CardGame,
+  CatalogSearchResult,
+  InventoryCardEntry,
+} from '@spotlight/api-client';
 
 export type CardDetailPreview = {
   cardId: string;
   cardNumber: string;
+  /** Which TCG this card is from; undefined means Pokémon. */
+  game?: CardGame;
   currencyCode?: string | null;
   entryId?: string | null;
   id: string;

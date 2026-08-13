@@ -2694,13 +2694,18 @@ def _card_row_to_dict(
 ) -> dict[str, Any] | None:
     if row is None:
         return None
+    # `SELECT *` gives us the column when it exists; older callers that build a
+    # row dict by hand simply do not have it, hence the guard.
+    row_keys = row.keys() if hasattr(row, "keys") else ()
+    game = normalize_game(row["game"] if "game" in row_keys else None)
     return {
         "id": row["id"],
+        "game": game,
         "name": row["name"],
         "setName": row["set_name"],
         "number": row["number"],
         "rarity": row["rarity"],
-        "rarityBucket": rarity_bucket(row["rarity"]),
+        "rarityBucket": rarity_bucket(row["rarity"], game),
         "variant": row["variant"],
         "language": row["language"],
         "sourceProvider": row["source_provider"],

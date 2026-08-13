@@ -387,6 +387,8 @@ export type InventoryCardEntry = {
   slabContext?: SlabContext | null;
   /** Server-computed rarity bucket; undefined on older cached payloads. */
   rarityBucket?: RarityBucket;
+  /** Which TCG this card is from; undefined on older payloads means Pokémon. */
+  game?: CardGame;
   costBasisPerUnit?: number | null;
   costBasisTotal?: number | null;
   isFavorite?: boolean;
@@ -625,6 +627,28 @@ export type CollectionsSnapshot = {
  */
 export const ALL_COLLECTIONS_ID = 'all';
 
+/**
+ * Which TCG a card belongs to. Absent on payloads from a backend that predates
+ * multi-game, which is why every consumer must treat undefined as Pokémon
+ * rather than as "unknown".
+ */
+export type CardGame = 'pokemon' | 'onepiece';
+
+export const DEFAULT_CARD_GAME: CardGame = 'pokemon';
+
+/**
+ * Whether this game has graded pricing and population data behind it.
+ *
+ * Only Pokémon does. Probing Scrydex on 2026-08-13 found no graded prices and
+ * empty pop_reports for One Piece across the newest and oldest sets, and our
+ * population source (GemRate via PokemonPriceTracker) is Pokémon-only. The
+ * detail screen uses this to HIDE those sections rather than render them empty,
+ * which would read as broken.
+ */
+export function gameHasGradedData(game: CardGame | undefined): boolean {
+  return (game ?? DEFAULT_CARD_GAME) === 'pokemon';
+}
+
 export type PortfolioDashboard = {
   summary: PortfolioSummary;
   inventoryCount: number;
@@ -710,6 +734,8 @@ export type CatalogSearchResult = {
   matchScore?: number | null;
   /** Server-computed rarity bucket; undefined on older cached payloads. */
   rarityBucket?: RarityBucket;
+  /** Which TCG this card is from; undefined on older payloads means Pokémon. */
+  game?: CardGame;
   /**
    * True when `marketPrice` is a GRADED reference (a slab comp) rather than the
    * raw/ungraded price — set for cards that have no raw price of their own. The
@@ -853,6 +879,8 @@ export type CardDetailGradedReference = {
 
 export type CardDetailRecord = {
   cardId: string;
+  /** Which TCG this card is from; undefined on older payloads means Pokémon. */
+  game?: CardGame;
   name: string;
   cardNumber: string;
   setName: string;
@@ -1187,6 +1215,8 @@ export type CardFavoriteEntry = {
   slabContext?: SlabContext | null;
   /** Server-computed rarity bucket; undefined on older cached payloads. */
   rarityBucket?: RarityBucket;
+  /** Which TCG this card is from; undefined on older payloads means Pokémon. */
+  game?: CardGame;
   /** Day-over-day market price change for the owned/raw lane, in `currencyCode`. */
   dayChangeAmount?: number | null;
   dayChangePercent?: number | null;
