@@ -1774,12 +1774,57 @@ _RARITY_BUCKET_SUBSTRING_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
 )
 
 
-def rarity_bucket(rarity) -> str:
-    """Coarse bucket key for a raw rarity label.
+# One Piece rarity ladder, mapped onto the SAME bucket keys Pokémon uses.
+#
+# Reusing the keys rather than inventing One Piece ones is deliberate: the app's
+# rarity filter chips are already built, tested and shipped against these eight,
+# so a second game costs zero client work. The trade is that a couple of keys
+# ("sir", "shiny") simply never occur for One Piece, which is harmless — buckets
+# are read per game.
+#
+# Ladder: C / UC / R are the base ladder; SR and SP are the chase slots; SEC and
+# TR are the top end; Leader is a card role Scrydex reports in the rarity field.
+_ONE_PIECE_RARITY_BUCKETS: dict[str, str] = {
+    "common": "standard",
+    "uncommon": "standard",
+    "rare": "standard",
+    "leader": "standard",
+    "super rare": "ultra",
+    "special card": "ultra",
+    "secret rare": "secret",
+    "treasure rare": "secret",
+    "manga rare": "illustration",
+    "promo": "promo",
+}
+
+# Ordered substring fallback for labels the exact map misses (Scrydex has been
+# seen to prefix/suffix these, e.g. "Super Rare (Alt Art)").
+_ONE_PIECE_RARITY_SUBSTRING_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("manga",), "illustration"),
+    (("treasure", "secret"), "secret"),
+    (("super rare", "special"), "ultra"),
+    (("promo",), "promo"),
+    (("leader", "common", "uncommon", "rare"), "standard"),
+)
+
+
+def _one_piece_rarity_bucket(text: str) -> str:
+    exact = _ONE_PIECE_RARITY_BUCKETS.get(text)
+    if exact is not None:
+        return exact
+    for needles, bucket in _ONE_PIECE_RARITY_SUBSTRING_RULES:
+        if any(needle in text for needle in needles):
+            return bucket
+    return "other"
+
+
+def rarity_bucket(rarity, game: str | None = None) -> str:
+    """Coarse bucket key for a raw rarity label, for the given game.
 
     Never raises: None/empty/garbage → "other". Case- and whitespace-
     insensitive; exact catalog labels first, then the ordered substring
-    fallback above.
+    fallback above. `game` is optional so the dozen existing Pokémon callers
+    keep working untouched.
     """
     try:
         text = re.sub(r"\s+", " ", str(rarity or "").strip().lower())
@@ -1787,6 +1832,8 @@ def rarity_bucket(rarity) -> str:
         return "other"
     if not text:
         return "other"
+    if normalize_game(game) == GAME_ONE_PIECE:
+        return _one_piece_rarity_bucket(text)
     exact = _RARITY_BUCKETS.get(text)
     if exact is not None:
         return exact

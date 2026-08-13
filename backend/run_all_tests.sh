@@ -59,6 +59,7 @@ TEST_MODULES=(
   backend.tests.test_repair_orphaned_collections
   backend.tests.test_replace_deck_entry_collection
   backend.tests.test_whos_that_pokemon
+  backend.tests.test_one_piece_catalog
 )
 
 run_targeted_tests() {

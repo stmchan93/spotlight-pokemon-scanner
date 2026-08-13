@@ -17,6 +17,7 @@ from urllib.request import Request, urlopen
 
 from catalog_tools import (
     DEFAULT_GAME,
+    GAME_ONE_PIECE,
     scrydex_game_segment,
     _default_display_currency_code,
     _default_raw_field_values,
@@ -673,6 +674,69 @@ def map_scrydex_catalog_card(payload: dict[str, object]) -> dict[str, object]:
         "subtypes": list(translation_en.get("subtypes") or data.get("subtypes") or []),
         "types": list(translation_en.get("types") or data.get("types") or []),
         "artist": data.get("artist"),
+        "regulation_mark": None,
+        "national_pokedex_numbers": [],
+        "tcgplayer": {},
+        "cardmarket": {},
+        "source_payload": data,
+    }
+
+
+def map_scrydex_onepiece_card(payload: dict[str, object]) -> dict[str, object]:
+    """Map a Scrydex One Piece card onto the same catalog row shape as Pokémon.
+
+    Written against a real `/onepiece/v1/expansions/OP16/cards` response
+    (backend/tests/fixtures/scrydex_onepiece_cards_sample.json), not the docs.
+
+    The row shape is shared with Pokémon so everything downstream — the grid, the
+    PDP, search, the visual index builder — keeps working unchanged. Where One
+    Piece has no equivalent of a Pokémon field the value is empty rather than
+    invented:
+
+      * `supertype`  ← One Piece `type` ("Leader", "Character", "Event", "Stage")
+      * `types`      ← `colors` (Red/Green/Blue/…), the closest real analogue
+      * `subtypes`   ← `subtypes` (the crew/affiliation tags)
+      * `regulation_mark`, `national_pokedex_numbers` — Pokémon-only, left empty
+      * `artist` — One Piece cards do not carry one
+
+    Game-specific stats (cost, power, life, counter, attribute, rarity_code) have
+    no column and are NOT invented one; they ride along in `source_payload` so
+    they can be surfaced later without a migration.
+    """
+    data = _scrydex_card_data(payload)
+
+    expansion = data.get("expansion") if isinstance(data.get("expansion"), dict) else {}
+    images = data.get("images") if isinstance(data.get("images"), list) else []
+    # One Piece images have no "type" discriminator the way Pokémon fronts do —
+    # take the first usable entry.
+    front_image = next((image for image in images if isinstance(image, dict)), {}) or {}
+
+    return {
+        "id": str(data.get("id") or ""),
+        "game": GAME_ONE_PIECE,
+        "name": str(data.get("name") or ""),
+        "set_name": str(expansion.get("name") or ""),
+        # printed_number is what is actually on the card ("OP16-001"); `number`
+        # is Scrydex's sort key.
+        "number": str(data.get("printed_number") or data.get("number") or ""),
+        "rarity": str(data.get("rarity") or "Unknown"),
+        "variant": "Raw",
+        "language": _normalize_scrydex_language(
+            data.get("language_code") or data.get("language") or expansion.get("language")
+        ),
+        "reference_image_path": None,
+        "reference_image_url": front_image.get("large") or front_image.get("medium"),
+        "reference_image_small_url": front_image.get("small"),
+        "source": SCRYDEX_PROVIDER,
+        "source_record_id": str(data.get("id") or ""),
+        "set_id": expansion.get("id"),
+        "set_series": expansion.get("type"),
+        "set_ptcgo_code": expansion.get("code"),
+        "set_release_date": expansion.get("release_date"),
+        "supertype": str(data.get("type") or ""),
+        "subtypes": list(data.get("subtypes") or []),
+        "types": list(data.get("colors") or []),
+        "artist": None,
         "regulation_mark": None,
         "national_pokedex_numbers": [],
         "tcgplayer": {},
