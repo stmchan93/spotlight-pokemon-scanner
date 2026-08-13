@@ -175,8 +175,8 @@ importers:
         specifier: ^3.0.0
         version: 3.0.0(react-native@0.83.6(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.0))
       react-native-vision-camera:
-        specifier: ^5.0.11
-        version: 5.0.11(react-native-nitro-image@0.15.1(react-native-nitro-modules@0.35.9(react-native@0.83.6(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.0))(react@19.2.0))(react-native@0.83.6(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.0))(react@19.2.0))(react-native-nitro-modules@0.35.9(react-native@0.83.6(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.0))(react@19.2.0))(react-native@0.83.6(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.0))(react@19.2.0)
+        specifier: ^5.2.2
+        version: 5.2.2(react-native-nitro-image@0.15.1(react-native-nitro-modules@0.35.9(react-native@0.83.6(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.0))(react@19.2.0))(react-native@0.83.6(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.0))(react@19.2.0))(react-native-nitro-modules@0.35.9(react-native@0.83.6(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.0))(react@19.2.0))(react-native@0.83.6(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.0))(react@19.2.0)
       react-native-web:
         specifier: ~0.21.0
         version: 0.21.2(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
@@ -4637,8 +4637,8 @@ packages:
     peerDependencies:
       react-native: '*'
 
-  react-native-vision-camera@5.0.11:
-    resolution: {integrity: sha512-7d8KYemov5k7TciBeR+ICzvEvApMgjrxNHW9EiCHWVQ8A65Qkx2NCDNhYmS00tzWDPQNGKSNWPKuAj2DwjqdmA==}
+  react-native-vision-camera@5.2.2:
+    resolution: {integrity: sha512-oPSWDsKqZ6nmwulV0MqD0CeqDePvvq0yvC1rWUiintcBjWzqL4YXFmX4wTKwgFZ8LvwWkEMqcnOTennKQmvvdg==}
     peerDependencies:
       react: '*'
       react-native: '*'
@@ -11426,7 +11426,7 @@ snapshots:
       react-native: 0.83.6(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.0)
       whatwg-url-without-unicode: 8.0.0-3
 
-  react-native-vision-camera@5.0.11(react-native-nitro-image@0.15.1(react-native-nitro-modules@0.35.9(react-native@0.83.6(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.0))(react@19.2.0))(react-native@0.83.6(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.0))(react@19.2.0))(react-native-nitro-modules@0.35.9(react-native@0.83.6(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.0))(react@19.2.0))(react-native@0.83.6(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.0))(react@19.2.0):
+  react-native-vision-camera@5.2.2(react-native-nitro-image@0.15.1(react-native-nitro-modules@0.35.9(react-native@0.83.6(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.0))(react@19.2.0))(react-native@0.83.6(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.0))(react@19.2.0))(react-native-nitro-modules@0.35.9(react-native@0.83.6(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.0))(react@19.2.0))(react-native@0.83.6(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.0))(react@19.2.0):
     dependencies:
       react: 19.2.0
       react-native: 0.83.6(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.0)
