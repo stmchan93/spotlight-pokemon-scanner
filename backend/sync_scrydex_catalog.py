@@ -12,6 +12,10 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 
 from catalog_tools import (
+    DEFAULT_GAME,
+    GAME_ONE_PIECE,
+    GAME_POKEMON,
+    normalize_game,
     PROVIDER_SYNC_STATUS_FAILED,
     PROVIDER_SYNC_STATUS_SUCCEEDED,
     apply_schema,
@@ -24,6 +28,7 @@ from catalog_tools import (
 from env_loader import load_backend_env_file
 from fx_rates import ensure_fx_rate_snapshot
 from scrydex_adapter import (
+    map_scrydex_onepiece_card,
     SCRYDEX_FULL_CATALOG_SYNC_SCOPE,
     SCRYDEX_PROVIDER,
     fetch_scrydex_cards_page,
@@ -118,6 +123,7 @@ def _fetch_scrydex_cards_page_with_retries(
     include_prices: bool,
     language: str | None,
     request_type: str,
+    game: str = DEFAULT_GAME,
 ) -> list[dict[str, Any]]:
     for attempt in range(1, SCRYDEX_CATALOG_PAGE_MAX_ATTEMPTS + 1):
         try:
@@ -126,6 +132,7 @@ def _fetch_scrydex_cards_page_with_retries(
                 page_size=page_size,
                 include_prices=include_prices,
                 language=language,
+                game=game,
                 request_type=request_type,
             )
         except Exception as exc:
@@ -216,6 +223,7 @@ def _sync_scrydex_catalog_once(
     database_path: Path,
     repo_root: Path,
     page_size: int = 100,
+    game: str = DEFAULT_GAME,
     language: str | None = None,
     max_pages: int | None = None,
     price_date: str | None = None,
@@ -230,9 +238,12 @@ def _sync_scrydex_catalog_once(
         connection.close()
         raise SystemExit("Scrydex credentials are not configured")
 
+    normalized_game = normalize_game(game)
+    is_one_piece = normalized_game == GAME_ONE_PIECE
     normalized_language = str(language or "").strip().lower() or "all"
     normalized_price_date = str(price_date or "").strip() or None
     notes = {
+        "game": normalized_game,
         "language": normalized_language,
         "includePrices": True,
         "sameMachineCron": True,
@@ -256,7 +267,15 @@ def _sync_scrydex_catalog_once(
         "rawSnapshotsUpserted": 0,
         "gradedSnapshotsUpserted": 0,
     }
-    request_type = f"catalog_sync_{normalized_language}"
+    # Pokémon keeps its EXACT historical request_type. This string is the group-by
+    # key for the Scrydex usage rollups (scrydex_daily_usage_rollups), so
+    # renaming it would split this sync's credit history in two at the rename.
+    # Other games get a qualified label so their spend is separable.
+    request_type = (
+        f"catalog_sync_{normalized_language}"
+        if normalized_game == GAME_POKEMON
+        else f"catalog_sync_{normalized_game}_{normalized_language}"
+    )
 
     try:
         page = 1
@@ -265,7 +284,10 @@ def _sync_scrydex_catalog_once(
                 page=page,
                 page_size=page_size,
                 include_prices=True,
-                language=None if normalized_language == "all" else normalized_language,
+                # One Piece has no per-language sub-path; language rides as a
+                # card field instead.
+                language=None if (normalized_language == "all" or is_one_piece) else normalized_language,
+                game=normalized_game,
                 request_type=request_type,
             )
             if not cards:
@@ -276,7 +298,11 @@ def _sync_scrydex_catalog_once(
 
             imported_at = utc_now()
             for payload in cards:
-                mapped_card = map_scrydex_catalog_card(payload)
+                mapped_card = (
+                    map_scrydex_onepiece_card(payload)
+                    if is_one_piece
+                    else map_scrydex_catalog_card(payload)
+                )
                 upsert_catalog_card(
                     connection,
                     mapped_card,
@@ -290,9 +316,16 @@ def _sync_scrydex_catalog_once(
                     card_id=str(mapped_card["id"]),
                     payload=payload,
                     price_date=normalized_price_date,
+                    game=normalized_game,
                     commit=False,
                 )
-                if persist_scrydex_raw_snapshot(connection, str(mapped_card["id"]), payload, commit=False) is not None:
+                if persist_scrydex_raw_snapshot(
+                    connection,
+                    str(mapped_card["id"]),
+                    payload,
+                    game=normalized_game,
+                    commit=False,
+                ) is not None:
                     totals["rawSnapshotsUpserted"] += 1
                 if counts.get("gradedCount"):
                     totals["gradedSnapshotsUpserted"] += 1
@@ -336,7 +369,9 @@ def _sync_scrydex_catalog_once(
         expansions_refreshed = 0
         expansions_refresh_error: str | None = None
         try:
-            expansions_refreshed = sync_scrydex_expansions(connection, game="pokemon")
+            # Must follow the sync's game: hardcoding Pokémon here made a One
+            # Piece sync pull 449 POKÉMON expansions into the same table.
+            expansions_refreshed = sync_scrydex_expansions(connection, game=normalized_game)
             connection.commit()
         except Exception as exc:
             connection.rollback()
@@ -385,6 +420,7 @@ def sync_scrydex_catalog(
     database_path: Path,
     repo_root: Path,
     page_size: int = 100,
+    game: str = DEFAULT_GAME,
     language: str | None = None,
     max_pages: int | None = None,
     price_date: str | None = None,
@@ -411,6 +447,7 @@ def sync_scrydex_catalog(
                 database_path=database_path,
                 repo_root=repo_root,
                 page_size=page_size,
+                game=game,
                 language=language,
                 max_pages=max_pages,
                 price_date=price_date,
@@ -452,6 +489,7 @@ def main() -> None:
         database_path=database_path,
         repo_root=repo_root,
         page_size=page_size,
+        game=cli_value("--game") or DEFAULT_GAME,
         language=language,
         max_pages=max_pages,
         price_date=price_date,

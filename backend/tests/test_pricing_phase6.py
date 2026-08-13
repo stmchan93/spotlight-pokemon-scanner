@@ -1382,6 +1382,10 @@ class PricingPhase6Tests(unittest.TestCase):
             page_size=1,
             include_prices=True,
             language=None,
+            # Pokémon's request_type is deliberately UNqualified: it is the
+            # group-by key for the Scrydex usage rollups, so it must stay
+            # byte-identical to the historical value.
+            game="pokemon",
             request_type="catalog_sync_all",
         )
         self.assertEqual(summary["pagesFetched"], 1)

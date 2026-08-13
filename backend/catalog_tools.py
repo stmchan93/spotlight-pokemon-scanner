@@ -7984,6 +7984,9 @@ def upsert_catalog_card(
         rarity=str(card.get("rarity") or "Unknown"),
         variant=str(card.get("variant") or "Raw"),
         language=str(card.get("language") or "English"),
+        # The mapper stamps this; absent (every Pokémon mapper) normalizes to
+        # 'pokemon', so existing callers are unchanged.
+        game=normalize_game(card.get("game")),
         source_provider=card.get("source") or card.get("sourceProvider"),
         source_record_id=card.get("source_record_id") or card.get("sourceRecordID"),
         set_id=card.get("set_id") or card.get("setID"),
