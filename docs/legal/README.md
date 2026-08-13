@@ -231,6 +231,10 @@ statement-of-reasons, and appeal obligations. The moderation section is written 
 DSA-friendly but is not a compliance programme.
 
 ### 4.4 Subscriptions
+> **Update 2026-08-12:** RevenueCat (SDK, staging key, and the paywall UI) was removed from the
+> app entirely pending a future monetization pass — the paragraphs below describe the pre-removal
+> state and remain as reference for when subscriptions are revisited.
+
 The paywall UI and RevenueCat are wired, but `EXPO_PUBLIC_REVENUECAT_IOS_KEY` is set only in
 the **staging** EAS profile. In production there is no key, so `requestPremiumUnlock()` returns
 `'interim'` and grants a **free local unlock**. So today there is no live subscription and no

@@ -159,6 +159,26 @@ file URI, and no *key* is one of the face-derived signals the screen holds —
 with teeth. All four are computed from the photo, and a dominant-colour palette
 of a picture of a person carries more about them than it looks like it does.
 
+## PDP comps — the eBay exits (added 2026-08-11)
+
+The graded row's chevron and both comps panels. Most of this existed; the gaps
+were the collapse, the per-row taps, and a mislabel.
+
+| Event | Properties |
+|---|---|
+| `pdp_recent_sales_expanded` | `grader`, `grade`, `cache`, `listed_cache` |
+| `pdp_comps_collapsed` | `grader`, `grade` |
+| `pricing_link_opened` | `surface: pdp_recent_sales` / `_empty` / `_row`, and the `pdp_lowest_listed` trio |
+
+**The mislabel.** "See more on eBay" renders under a populated panel as well as
+an empty one, and both branches reported `..._empty` — so every exit from a full
+panel was filed as "there was nothing here". Opposite meanings, same event. The
+panels now pass `hasRows` and the screen picks the surface.
+
+One chevron opens BOTH panels, so the expand keeps its name (the dashboard
+queries it) and carries `listed_cache` alongside `cache` rather than splitting
+into two events.
+
 ## Tier 4 — activation — SHIPPED (the guest funnel only)
 
 Activation itself is derivable from `$identify` + `auth_sign_in_succeeded` +

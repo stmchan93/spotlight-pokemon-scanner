@@ -96,6 +96,11 @@ Use these docs for: starting any of these builds without re-deriving scope — i
 - Supabase migration runbook (STANDBY — decision log, invariants, phased steps, failure modes, rollback; open only if a trigger in the doc above fires): [supabase-migration-runbook-if-ever-needed-2026-08-06.md](/Users/stephenchan/Code/spotlight/docs/supabase-migration-runbook-if-ever-needed-2026-08-06.md)
 - **Supabase project split (staging `mphjenaaorntwkyivqtm` vs production `lvnjshymwvagwadqeofm`) + promotion checklist — READ BEFORE ANY `supabase db push`**: [supabase-project-split-and-promotion-2026-08-06.md](/Users/stephenchan/Code/spotlight/docs/supabase-project-split-and-promotion-2026-08-06.md)
 - Staging Supabase dashboard settings checklist (Apple/Google providers, OTP email templates, SMTP, anonymous sign-ins; marks the 3 values that MUST differ from production): [supabase-staging-project-settings-checklist-2026-08-06.md](/Users/stephenchan/Code/spotlight/docs/supabase-staging-project-settings-checklist-2026-08-06.md)
+- **Production promotion — plan (reasoning + file/line evidence)**: [production-promotion-plan-2026-08-12.md](/Users/stephenchan/Code/spotlight/docs/production-promotion-plan-2026-08-12.md)
+- **Production promotion — complete checklist (Phases 0-4, dependency order; the launch source of truth)**: [production-promotion-checklist-2026-08-12.md](/Users/stephenchan/Code/spotlight/docs/production-promotion-checklist-2026-08-12.md)
+- **iOS App Store submission runbook (metadata copy, age-rating answers, review notes/demo account, screenshot shot-list, `frontend:release:production` step order)**: [app-store-submission-2026-08-12.md](/Users/stephenchan/Code/spotlight/docs/app-store-submission-2026-08-12.md)
+- Android Play Store submission runbook: [android-play-store-submission-2026-07-20.md](/Users/stephenchan/Code/spotlight/docs/android-play-store-submission-2026-07-20.md)
+- Legal documents (final Terms/Privacy + publishing guide for the GitHub Pages legal site): [legal/](/Users/stephenchan/Code/spotlight/docs/legal/) — see [legal/PUBLISHING.md](/Users/stephenchan/Code/spotlight/docs/legal/PUBLISHING.md) and [legal/README.md](/Users/stephenchan/Code/spotlight/docs/legal/README.md)
 
 Use these docs for:
 
