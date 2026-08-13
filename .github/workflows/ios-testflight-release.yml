@@ -60,11 +60,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Preview-only: the notes shown here are informational. The step is
+      # no-op-safe on purpose — a release-notes failure must never block a
+      # TestFlight release, so any error falls back to a placeholder line.
       - name: Preview TestFlight notes
         run: |
           echo "### TestFlight notes" >> "$GITHUB_STEP_SUMMARY"
           echo '```text' >> "$GITHUB_STEP_SUMMARY"
-          pnpm release:notes:testflight >> "$GITHUB_STEP_SUMMARY"
+          pnpm --silent release:notes:testflight >> "$GITHUB_STEP_SUMMARY" 2>/dev/null \
+            || echo "(release notes unavailable)" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run iOS TestFlight action

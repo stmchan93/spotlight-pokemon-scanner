@@ -22,7 +22,7 @@
 #
 # Requirements:
 #   - gcloud CLI authenticated to spotlight-492502
-#   - SSH access to spotlight-backend-vm-small (your account already has it)
+#   - SSH access to spotlight-backend-staging (your account already has it)
 #
 # Usage:
 #   pnpm backend:restore:local                 # → backend/data/spotlight_scanner.local.sqlite
@@ -36,8 +36,10 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DEFAULT_DEST="$REPO_ROOT/backend/data/spotlight_scanner.local.sqlite"
 DEST="${1:-$DEFAULT_DEST}"
 
-VM_INSTANCE="${SPOTLIGHT_VM_STAGING_INSTANCE:-spotlight-backend-vm-small}"
-VM_ZONE="${SPOTLIGHT_VM_STAGING_ZONE:-us-central1-c}"
+# Staging box (split 2026-07-10): spotlight-backend-staging in us-central1-a.
+# (spotlight-backend-vm-small / us-central1-c is PRODUCTION — do not default there.)
+VM_INSTANCE="${SPOTLIGHT_VM_STAGING_INSTANCE:-spotlight-backend-staging}"
+VM_ZONE="${SPOTLIGHT_VM_STAGING_ZONE:-us-central1-a}"
 VM_PROJECT="${SPOTLIGHT_GCP_PROJECT:-spotlight-492502}"
 VM_DB_PATH="${SPOTLIGHT_VM_DB_PATH:-/home/stephenchan/spotlight/data/spotlight_scanner.sqlite}"
 VM_SNAPSHOT_PATH="/home/stephenchan/restore-snapshot-$$.sqlite"

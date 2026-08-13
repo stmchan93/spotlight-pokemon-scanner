@@ -57,14 +57,13 @@ default_secrets_file() {
   environment_upper="$(printf '%s' "$environment" | tr '[:lower:]' '[:upper:]')"
   local environment_key="SPOTLIGHT_BACKEND_${environment_upper}_SECRETS_FILE"
   local environment_override="${!environment_key:-}"
-  local generic_override="${SPOTLIGHT_BACKEND_SECRETS_FILE:-}"
 
+  # Only env-scoped overrides (SPOTLIGHT_BACKEND_STAGING_SECRETS_FILE /
+  # SPOTLIGHT_BACKEND_PRODUCTION_SECRETS_FILE) are honored. A generic
+  # SPOTLIGHT_BACKEND_SECRETS_FILE var left in a shell once nearly shipped the
+  # staging secrets file to production, so it is deliberately ignored here.
   if [ -n "$environment_override" ]; then
     printf '%s\n' "$environment_override"
-    return
-  fi
-  if [ -n "$generic_override" ]; then
-    printf '%s\n' "$generic_override"
     return
   fi
   printf '%s/.env.%s.secrets\n' "$BACKEND_DIR" "$environment"
@@ -105,16 +104,14 @@ resolve_target_value() {
   local environment_upper
   environment_upper="$(printf '%s' "$environment" | tr '[:lower:]' '[:upper:]')"
   local environment_key="SPOTLIGHT_VM_${environment_upper}_${kind}"
-  local generic_key="SPOTLIGHT_VM_${kind}"
   local environment_override="${!environment_key:-}"
-  local generic_override="${!generic_key:-}"
 
+  # Only env-scoped overrides (SPOTLIGHT_VM_STAGING_* / SPOTLIGHT_VM_PRODUCTION_*)
+  # are honored. Generic SPOTLIGHT_VM_INSTANCE/ZONE vars are deliberately ignored:
+  # a stale generic var can silently retarget a deploy at the wrong box (the same
+  # failure mode that once nearly shipped staging secrets to prod).
   if [ -n "$environment_override" ]; then
     printf '%s\n' "$environment_override"
-    return
-  fi
-  if [ -n "$generic_override" ]; then
-    printf '%s\n' "$generic_override"
     return
   fi
 
@@ -195,13 +192,13 @@ REMOTE_DIR="$(resolve_target_value "$ENVIRONMENT" "REMOTE_DIR")"
 
 if [ -z "$INSTANCE" ]; then
   echo "Missing VM instance for $ENVIRONMENT." >&2
-  echo "Set SPOTLIGHT_VM_${ENVIRONMENT^^}_INSTANCE or SPOTLIGHT_VM_INSTANCE." >&2
+  echo "Set SPOTLIGHT_VM_${ENVIRONMENT^^}_INSTANCE (the generic SPOTLIGHT_VM_INSTANCE is no longer honored)." >&2
   exit 1
 fi
 
 if [ -z "$ZONE" ]; then
   echo "Missing VM zone for $ENVIRONMENT." >&2
-  echo "Set SPOTLIGHT_VM_${ENVIRONMENT^^}_ZONE or SPOTLIGHT_VM_ZONE." >&2
+  echo "Set SPOTLIGHT_VM_${ENVIRONMENT^^}_ZONE (the generic SPOTLIGHT_VM_ZONE is no longer honored)." >&2
   exit 1
 fi
 
@@ -236,7 +233,7 @@ mkdir -p "$BUNDLE_ROOT/tools"
 COPYFILE_DISABLE=1 tar -C "$BACKEND_DIR" \
   --exclude='./.venv' \
   --exclude='./.env' \
-  --exclude='./.env.*.secrets' \
+  --exclude='./.env*secrets*' \
   --exclude='./__pycache__' \
   --exclude='./data' \
   --exclude='./logs' \

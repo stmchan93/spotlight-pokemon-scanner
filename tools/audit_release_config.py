@@ -456,9 +456,11 @@ def build_parser() -> argparse.ArgumentParser:
 def default_backend_secrets_file(repo_root: Path, environment: str) -> Path:
     backend_dir = resolve_backend_dir(repo_root)
     env_key = f"SPOTLIGHT_BACKEND_{environment.upper()}_SECRETS_FILE"
-    generic_override = os.environ.get("SPOTLIGHT_BACKEND_SECRETS_FILE", "").strip()
+    # Only the env-scoped override is honored. The generic
+    # SPOTLIGHT_BACKEND_SECRETS_FILE var is deliberately ignored: a stale
+    # generic value once nearly audited/shipped staging secrets against prod.
     env_override = os.environ.get(env_key, "").strip()
-    candidate = env_override or generic_override or str(backend_dir / f".env.{environment}.secrets")
+    candidate = env_override or str(backend_dir / f".env.{environment}.secrets")
     path = Path(candidate)
     if not path.is_absolute():
         path = (repo_root / path).resolve()

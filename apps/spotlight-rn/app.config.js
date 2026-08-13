@@ -30,6 +30,10 @@ const EXPO_EXTRA_ENV_MAPPINGS = [
   // open (each one is a billable MAU). Defaults ON in code — set this to 0 only
   // as an emergency rollback to the eager mint.
   ['EXPO_PUBLIC_SPOTLIGHT_DEFER_GUEST_SESSION', 'spotlightDeferGuestSession'],
+  // Cloudflare Turnstile site key for Supabase Auth captcha. Only production
+  // Supabase enforces captcha; when absent (or the TBD placeholder) the app
+  // sends auth requests tokenless, which is correct for staging/dev.
+  ['EXPO_PUBLIC_TURNSTILE_SITE_KEY', 'turnstileSiteKey'],
 ];
 
 const PLACEHOLDER_ENV_VALUES = new Set([
@@ -39,6 +43,7 @@ const PLACEHOLDER_ENV_VALUES = new Set([
   'com.yourcompany.spotlight',
   'your-expo-account',
   '00000000-0000-0000-0000-000000000000',
+  'TURNSTILE_SITE_KEY_TBD',
 ]);
 
 function parseDotenvEntries(source) {
@@ -228,6 +233,29 @@ function withPlugin(existingPlugins, pluginEntry) {
   return nextPlugins;
 }
 
+// Per-environment OTA runtimeVersion.
+//
+// The staging TestFlight binaries already in testers' hands were built with the
+// literal app.json runtimeVersion ("0.1.2"), and they MUST keep receiving
+// staging OTA updates until the production cutover — so staging, development,
+// and any unset environment keep resolving to the app.json value untouched.
+// Production's FIRST binary instead starts on a clean runtime ("0.2.0") that no
+// staging-era binary has ever declared, so a production OTA can never land on a
+// staging-era binary (and a staging OTA can never land on a production one),
+// even if a channel is ever misconfigured.
+const SPOTLIGHT_RUNTIME_VERSION_BY_ENV = {
+  production: '0.2.0',
+};
+
+function resolveSpotlightRuntimeVersionForEnv(resolvedAppEnv, baseConfig = baseExpoConfig) {
+  const baseRuntimeVersion =
+    typeof baseConfig.runtimeVersion === 'string' && baseConfig.runtimeVersion.trim().length > 0
+      ? baseConfig.runtimeVersion.trim()
+      : baseConfig.version;
+  const key = trimEnvValue(resolvedAppEnv);
+  return SPOTLIGHT_RUNTIME_VERSION_BY_ENV[key] ?? baseRuntimeVersion;
+}
+
 const SPOTLIGHT_DISPLAY_NAME_SUFFIX_BY_ENV = {
   production: '',
   staging: ' β', // "Ekalight β"
@@ -246,10 +274,7 @@ function buildExpoConfigForEnv(env = process.env, overridesPath = LOCAL_OVERRIDE
   const releaseOverrides = loadSpotlightReleaseOverridesFromEnv(resolvedEnv);
   const resolvedAppEnv = trimEnvValue(resolvedEnv.SPOTLIGHT_APP_ENV);
   const resolvedScheme = releaseOverrides.scheme || baseExpoConfig.scheme;
-  const resolvedRuntimeVersion =
-    typeof baseExpoConfig.runtimeVersion === 'string' && baseExpoConfig.runtimeVersion.trim().length > 0
-      ? baseExpoConfig.runtimeVersion.trim()
-      : baseExpoConfig.version;
+  const resolvedRuntimeVersion = resolveSpotlightRuntimeVersionForEnv(resolvedAppEnv);
   const extra = {
     ...(baseExpoConfig.extra ?? {}),
     ...loadSpotlightExpoExtra(overridesPath, resolvedEnv),
@@ -375,4 +400,5 @@ module.exports.loadSpotlightExpoExtra = loadSpotlightExpoExtra;
 module.exports.loadSpotlightReleaseOverridesFromEnv = loadSpotlightReleaseOverridesFromEnv;
 module.exports.getPluginIdentifier = getPluginIdentifier;
 module.exports.resolveSpotlightDisplayNameForEnv = resolveSpotlightDisplayNameForEnv;
+module.exports.resolveSpotlightRuntimeVersionForEnv = resolveSpotlightRuntimeVersionForEnv;
 module.exports.withPlugin = withPlugin;

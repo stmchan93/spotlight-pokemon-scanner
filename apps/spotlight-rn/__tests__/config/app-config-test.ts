@@ -283,6 +283,8 @@ describe('app config local overrides bridge', () => {
     // ON_ERROR_RECOVERY override was removed in 48e5112 so staging checks
     // for OTA updates on every launch (the Expo default ON_LOAD behavior).
     expect(config.updates?.checkAutomatically).toBeUndefined();
+    // No SPOTLIGHT_APP_ENV set here, so runtimeVersion stays the app.json
+    // literal — the runtime that every staging-era binary was built with.
     expect(config.runtimeVersion).toBe('0.1.2');
 
     Object.assign(process.env, previousEnv);
@@ -328,10 +330,34 @@ describe('app config local overrides bridge', () => {
     expect(config.extra?.spotlightSupabaseUrl).toBe('https://sb.looty.app');
     expect(config.extra?.eas?.projectId).toBe('12345678-1234-1234-1234-1234567890ab');
     expect(config.updates?.requestHeaders?.['expo-channel-name']).toBe('production');
-    expect(config.runtimeVersion).toBe('0.1.2');
+    // Production resolves its own runtime (see the per-env runtimeVersion test
+    // below): prod's first binary starts a clean runtime so prod OTAs can never
+    // land on staging-era 0.1.2 binaries.
+    expect(config.runtimeVersion).toBe('0.2.0');
 
     existsSpy.mockRestore();
     readSpy.mockRestore();
+  });
+
+  it('pins the OTA runtimeVersion per environment', () => {
+    const runtimeFor = (appEnv?: string) =>
+      buildExpoConfigForEnv(
+        {
+          EXPO_NO_DOTENV: '1',
+          ...(appEnv ? { SPOTLIGHT_APP_ENV: appEnv } : {}),
+        },
+        '/virtual/LocalOverrides.xcconfig',
+      ).runtimeVersion;
+
+    // Staging TestFlight binaries in the wild were built as runtime 0.1.2 and
+    // MUST keep receiving staging OTAs until the production cutover, so every
+    // non-production environment keeps the app.json literal. Production's first
+    // binary starts a clean runtime that no staging-era binary ever declared,
+    // so a production OTA can never land on a staging-era binary.
+    expect(runtimeFor('production')).toBe('0.2.0');
+    expect(runtimeFor('staging')).toBe('0.1.2');
+    expect(runtimeFor('development')).toBe('0.1.2');
+    expect(runtimeFor()).toBe('0.1.2');
   });
 
   it('adds localization plugin with PostHog observability env values', () => {
@@ -376,6 +402,79 @@ describe('app config local overrides bridge', () => {
     // The photo-library string is picker-only, so it keeps its own wording — and
     // it must stay set, since its absence is what made Photo/avatar picking fail.
     expect(pickerEntry?.[1].photosPermission).toEqual(expect.stringContaining('photos'));
+  });
+
+  it('declares no microphone permission anywhere — the app has no audio feature', () => {
+    const config = buildExpoConfigForEnv({}, '/virtual/LocalOverrides.xcconfig');
+
+    // Removed from ios.infoPlist (it shipped as boilerplate inherited from the
+    // camera library; nothing in the app records audio — the scanner takes
+    // photos, and both image-picker call sites are MediaTypeOptions.Images).
+    expect(config.ios?.infoPlist?.NSMicrophoneUsageDescription).toBeUndefined();
+
+    // Removing the infoPlist key is NOT enough: expo-image-picker's config
+    // plugin ADDS NSMicrophoneUsageDescription (and Android RECORD_AUDIO) by
+    // default whenever `microphonePermission` is merely absent. Only an
+    // explicit `false` deletes the key and blocks the Android permission.
+    type PluginEntry = string | [string, ...unknown[]];
+    const plugins = (config.plugins ?? []) as PluginEntry[];
+    const pickerEntry = plugins.find(
+      (entry): entry is [string, Record<string, unknown>] =>
+        Array.isArray(entry) && entry[0] === 'expo-image-picker',
+    );
+    expect(pickerEntry?.[1].microphonePermission).toBe(false);
+  });
+
+  it('declares the collected data types in the iOS privacy manifest source of truth', () => {
+    const config = buildExpoConfigForEnv({}, '/virtual/LocalOverrides.xcconfig');
+
+    // `ios.privacyManifests` is what prebuild merges into the generated
+    // ios/Ekalight/PrivacyInfo.xcprivacy (the ios/ dir is gitignored, so this
+    // is the ONLY durable source). The Expo template already contributes the
+    // required-reason NSPrivacyAccessedAPITypes; the app must contribute the
+    // collected data types, which shipped as an empty array before this.
+    const manifests = config.ios?.privacyManifests as {
+      NSPrivacyTracking?: boolean;
+      NSPrivacyCollectedDataTypes?: {
+        NSPrivacyCollectedDataType: string;
+        NSPrivacyCollectedDataTypeLinked: boolean;
+        NSPrivacyCollectedDataTypeTracking: boolean;
+        NSPrivacyCollectedDataTypePurposes: string[];
+      }[];
+    };
+
+    // No IDFA, no ATT, no cross-app tracking — a genuine selling point.
+    expect(manifests?.NSPrivacyTracking).toBe(false);
+
+    const declaredTypes = (manifests?.NSPrivacyCollectedDataTypes ?? []).map(
+      (entry) => entry.NSPrivacyCollectedDataType,
+    );
+    // Mirrors docs/legal/README.md §5 (the codebase-audit questionnaire):
+    // email, display name (also sent to PostHog), user id, photos (scans /
+    // posts / avatars), user content (posts, comments, DMs, bio), financial
+    // info (cost basis and sale prices), product interaction, crash and
+    // performance data. Deliberately absent: device/advertising id, location,
+    // contacts, purchase history.
+    expect(declaredTypes.sort()).toEqual(
+      [
+        'NSPrivacyCollectedDataTypeEmailAddress',
+        'NSPrivacyCollectedDataTypeName',
+        'NSPrivacyCollectedDataTypeUserID',
+        'NSPrivacyCollectedDataTypePhotosorVideos',
+        'NSPrivacyCollectedDataTypeOtherUserContent',
+        'NSPrivacyCollectedDataTypeOtherFinancialInfo',
+        'NSPrivacyCollectedDataTypeProductInteraction',
+        'NSPrivacyCollectedDataTypeCrashData',
+        'NSPrivacyCollectedDataTypePerformanceData',
+      ].sort(),
+    );
+
+    for (const entry of manifests?.NSPrivacyCollectedDataTypes ?? []) {
+      // Everything is account-linked, nothing is used for tracking.
+      expect(entry.NSPrivacyCollectedDataTypeLinked).toBe(true);
+      expect(entry.NSPrivacyCollectedDataTypeTracking).toBe(false);
+      expect(entry.NSPrivacyCollectedDataTypePurposes.length).toBeGreaterThan(0);
+    }
   });
 
   it('configures expo-build-properties with the iOS deployment target ML Kit requires', () => {
