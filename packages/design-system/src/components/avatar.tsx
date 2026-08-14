@@ -1,4 +1,5 @@
 import { Image as ExpoImage } from 'expo-image';
+import { useState } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { useSpotlightTheme } from '../theme';
@@ -24,12 +25,14 @@ export function Avatar({
   uri,
 }: AvatarProps) {
   const theme = useSpotlightTheme();
+  // Track the exact uri that failed so a new uri automatically retries.
+  const [failedUri, setFailedUri] = useState<string | null>(null);
 
   const ringStyle = ring
     ? { borderColor: ringColor ?? theme.colors.canvasElevated, borderWidth: 3 }
     : null;
 
-  const hasImage = typeof uri === 'string' && uri.length > 0;
+  const hasImage = typeof uri === 'string' && uri.length > 0 && uri !== failedUri;
 
   return (
     <View
@@ -45,6 +48,7 @@ export function Avatar({
       {hasImage ? (
         <ExpoImage
           contentFit="cover"
+          onError={() => setFailedUri(uri)}
           source={{ uri }}
           style={{ borderRadius: size / 2, height: size, width: size }}
           testID={testID ? `${testID}-image` : undefined}
