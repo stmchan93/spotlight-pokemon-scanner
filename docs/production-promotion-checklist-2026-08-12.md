@@ -85,6 +85,19 @@ Ship:
 - [ ] Revisit Play target-audience (runbook chose 18+; align with iOS 13+).
 - [ ] Consider `predictiveBackGestureEnabled: true` for the next native build.
 
+## Post-launch product fixes (not blockers, wanted soon)
+
+- [ ] **Mandatory unique handles** (user request 2026-08-13, behavior CONFIRMED): people-search by display name returns look-alike duplicates; every signed-in user must own a unique @handle.
+  - New users: claim during the first-run profile step (hang on the existing needs-profile flow — `getNeedsProfile` / profile draft in auth-provider).
+  - Existing users (`handle: null` — currently ALL profiles): a **BLOCKING claim screen on next app open — no dismiss, no back, no using the app until claimed** (same modality as the needs-profile gate). Guests exempt until they convert.
+  - NO backfill script — null means "not claimed yet"; the DB unique constraint enforces; seed a reserved-word list (admin, ekalight, support, …) in code; availability check as-you-type; search results display @handles to disambiguate.
+- [ ] Auth-gate white-screen on invalid restored session (found 2026-08-13): hard-redirect to login the moment a restored session fails its first refresh instead of letting the tab shell render blank; affects any server-side-revoked session, not just the cutover cohort.
+- [ ] Avatar component: fall back to initials when the image URL errors (currently renders a blank circle — seen with a Google avatar URL on prod).
+- [ ] Live-repro pass on the guest→existing-account sign-in fallback once convenient (unit-tested only).
+- [ ] **Android OAuth-after-scan silent failure** (found 2026-08-13 on the Galaxy, prod build): existing-account user who scans as a guest (mints anonymous user) then taps Continue with Google gets a GoTrue "identity already linked" ERROR callback that `restoreSessionFromUrl` misses — it checks only `error_code`, Supabase sends `error`/`error_description` → silent no-op, user stuck signed out (iOS unaffected: the awaited auth-session path catches it and the fallback re-signs-in). Fix: treat `error`/`error_description` as errors in the URL handler AND run the identity-already-linked fallback from that path (remember the initiating provider). Pure JS → OTA to production channel (both store binaries are runtime 0.2.0). Only hits returning users on fresh installs who scan before signing in — zero launch-week impact, grows with reinstalls/phone upgrades.
+- [ ] **Avatar wiped after reinstall + re-sign-in** (user report 2026-08-13, iOS): set a photo avatar, then after delete/reinstall/sign-in testing the avatar was gone. Suspect: the sign-in path's `upsertProfile(user.id, displayName, avatarURL)` upserting a null/absent avatar over the previously saved one on a fresh device (auth-service ~L510). Verify, then make the upsert avatar-preserving (only write avatar_url when a new value exists).
+- [ ] Re-enable Turnstile CAPTCHA once Turnstile-carrying builds dominate (site key shipped; Supabase toggle only) + verify the live token path then.
+
 ## Cleanup (LATER, non-blocking)
 
 - [x] DONE 2026-08-12 — `release:notes:testflight` script restored + workflow step made no-op-safe; prod still blocked in CI by design.
