@@ -21014,6 +21014,15 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/v1/admin/handle-claim-required":
+            # Unlike the older admin toggles this one requires the ops token —
+            # it force-blocks every signed-in user behind a claim screen, and
+            # the token-less admin surface predates the public launch.
+            query = parse_qs(parsed.query)
+            expected_token = str(os.environ.get("SPOTLIGHT_OPS_REFRESH_TOKEN") or "").strip()
+            provided_token = query.get("token", [""])[0].strip()
+            if expected_token and provided_token != expected_token:
+                self._write_json(HTTPStatus.UNAUTHORIZED, {"error": "invalid ops token"})
+                return
             enabled = payload.get("enabled")
             if not isinstance(enabled, bool):
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": "enabled must be a boolean"})
