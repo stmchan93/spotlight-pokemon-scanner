@@ -143,6 +143,9 @@ function mapUserProfile(row: UserProfileRow): UserProfile {
     displayName: row.display_name,
     labelerEnabled: row.labeler_enabled === true,
     userID: row.user_id,
+    // False by default: only fetchProfile can prove the handle column was
+    // actually selected. A `handle: null` from any other path is unknowable.
+    handleKnown: false,
     handle: row.handle ?? null,
     bio: row.bio ?? null,
     location: row.location ?? null,
@@ -245,7 +248,13 @@ export async function fetchProfile(userID: string) {
         // Double cast: a select whose column list is a runtime variable gives
         // postgrest-js no literal to infer the row shape from, so it widens to
         // its error-string union. `UserProfileRow` is the real shape.
-        return mapUserProfile(data as unknown as UserProfileRow);
+        return {
+          ...mapUserProfile(data as unknown as UserProfileRow),
+          // `handle: null` is only trustworthy when this tier actually SELECTED
+          // the handle column — the base fallback drops it, and a gate keyed on
+          // a false null would trap users who already own a handle.
+          handleKnown: select !== profileSelectBase,
+        };
       }
       if (!isMissingColumnError(error)) {
         return null;
@@ -267,18 +276,23 @@ async function fetchProfileWithTimeout(userID: string, timeoutMs = 2000) {
   ]);
 }
 
+/**
+ * `avatarURL` semantics: a string writes it, `null` clears it, and `undefined`
+ * OMITS the column so a previously saved avatar survives the upsert untouched.
+ */
 export async function upsertProfile(
   userID: string,
   displayName: string,
-  avatarURL: string | null,
+  avatarURL: string | null | undefined,
 ) {
   const normalizedDisplayName = normalizeDisplayName(displayName) ?? displayName;
   const profile: UserProfile = {
     adminEnabled: false,
-    avatarURL,
+    avatarURL: avatarURL ?? null,
     displayName: normalizedDisplayName,
     labelerEnabled: false,
     userID,
+    handleKnown: false,
     handle: null,
     bio: null,
     location: null,
@@ -296,13 +310,13 @@ export async function upsertProfile(
   }
 
   try {
-    await syncUserMetadata(normalizedDisplayName, avatarURL);
+    await syncUserMetadata(normalizedDisplayName, avatarURL ?? null);
     const { data } = await supabase
       .from('user_profiles')
       .upsert({
-        avatar_url: avatarURL,
         display_name: normalizedDisplayName,
         user_id: userID,
+        ...(avatarURL !== undefined ? { avatar_url: avatarURL } : {}),
       }, {
         onConflict: 'user_id',
       })
@@ -333,6 +347,9 @@ export async function resolveAppUserFromSession(session: Session): Promise<AppUs
     id: authUser.id,
     labelerEnabled: profile?.labelerEnabled ?? false,
     providers: dedupeProviders(authUser),
+    // True ONLY when a real profile row was fetched via a handle-bearing
+    // select. A timeout or fabricated fallback must read as "unknown".
+    handleKnown: profile?.handleKnown === true,
     handle: profile?.handle ?? null,
     bio: profile?.bio ?? null,
     location: profile?.location ?? null,
@@ -495,16 +512,55 @@ export async function updateProfile(
   }
 }
 
+/**
+ * What `user_profiles.avatar_url` currently holds, with "couldn't read" kept
+ * distinct from "no row / no avatar" — the bootstrap path must not treat a
+ * flaky read as permission to overwrite a saved avatar.
+ */
+async function readSavedAvatarURL(
+  userID: string,
+): Promise<{ known: boolean; avatarURL: string | null }> {
+  if (!supabase) {
+    return { known: false, avatarURL: null };
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .select('user_id, avatar_url')
+      .eq('user_id', userID)
+      .maybeSingle();
+    if (error) {
+      return { known: false, avatarURL: null };
+    }
+    return { known: true, avatarURL: (data as { avatar_url?: string | null } | null)?.avatar_url ?? null };
+  } catch {
+    return { known: false, avatarURL: null };
+  }
+}
+
 export async function bootstrapProfileIfNeeded(
   user: User,
   preferredDisplayName: string | null,
   preferredAvatarURL: string | null = null,
 ) {
   const displayName = normalizeDisplayName(preferredDisplayName) ?? fallbackDisplayName(user);
-  const avatarURL = preferredAvatarURL ?? fallbackAvatarURL(user);
 
   if (!displayName) {
     return null;
+  }
+
+  // Runs on EVERY sign-in, so the avatar write must be preserving: a fresh
+  // device has no preferred avatar, and blindly upserting null (email user) or
+  // the provider photo (OAuth) wiped custom avatars on reinstall + re-sign-in.
+  const saved = await readSavedAvatarURL(user.id);
+  let avatarURL: string | null | undefined;
+  if (preferredAvatarURL) {
+    avatarURL = preferredAvatarURL;
+  } else if (!saved.known || saved.avatarURL) {
+    avatarURL = undefined; // saved avatar (or unknowable) — leave the column alone
+  } else {
+    avatarURL = fallbackAvatarURL(user); // first bootstrap — provider photo, if any
   }
 
   return upsertProfile(user.id, displayName, avatarURL);
@@ -516,10 +572,15 @@ export async function restoreSessionFromUrl(url: string) {
   }
 
   const params = parseCallbackParams(url);
+  // GoTrue reports failures with `error_code` OR `error`/`error_description`
+  // depending on the flow (linkIdentity rejections send only the latter), so a
+  // callback carrying any of them is an error — returning null here made the
+  // Android deep-link path a silent no-op.
   const errorCode = params.get('error_code');
+  const errorParam = params.get('error');
   const errorDescription = params.get('error_description');
-  if (errorCode) {
-    throw new Error(errorDescription ?? errorCode);
+  if (errorCode || errorParam || errorDescription) {
+    throw new Error(errorDescription ?? errorCode ?? errorParam ?? 'Authentication failed.');
   }
 
   const accessToken = params.get('access_token');
@@ -1252,6 +1313,33 @@ export async function getCurrentSession() {
   }
 
   return data.session;
+}
+
+/**
+ * Server round-trip check that the restored session's user still exists.
+ * `getSession()` trusts local storage while the access token is unexpired, so a
+ * server-side-revoked/deleted user otherwise looks signed in until the next
+ * token refresh fails. Returns the auth error, or null when the user is valid.
+ */
+export async function fetchAuthUserError(): Promise<unknown | null> {
+  if (!supabase) {
+    return null;
+  }
+
+  const { error } = await supabase.auth.getUser();
+  return error ?? null;
+}
+
+/**
+ * Drop the locally persisted session without a server call — the server-side
+ * session is already dead when this runs, so a global sign-out would just fail.
+ */
+export async function clearStoredSession(): Promise<void> {
+  if (!supabase) {
+    return;
+  }
+
+  await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
 }
 
 export function getConfigurationIssue() {
