@@ -235,6 +235,10 @@ REVIEW_DYNAMIC_SINCE = os.environ.get("SPOTLIGHT_REVIEW_SINCE", "2026-05-19")
 _REVIEW_QUEUE_ID_PATTERN = re.compile(r"[^A-Za-z0-9_-]")
 CARD_SHOW_MODE_SETTING_KEY = "card_show_mode"
 LIVE_PRICING_SETTING_KEY = "live_pricing"
+# Server-side switch for the app's mandatory @handle claim gate. The client
+# fails OPEN (no gate) when this is absent/false, so the blocking screen can be
+# turned off instantly without an OTA if it ever misbehaves.
+HANDLE_CLAIM_REQUIRED_SETTING_KEY = "handle_claim_required"
 
 # --- Public App Store ACCESS GATE -------------------------------------------
 # When the gate is CLOSED (card-show-mode inactive), only allowed users may use
@@ -2559,6 +2563,39 @@ class SpotlightScanService:
         self.connection.commit()
         return self._card_show_mode_state()
 
+    def _handle_claim_required_state(self) -> dict[str, Any]:
+        record = runtime_setting(self.connection, HANDLE_CLAIM_REQUIRED_SETTING_KEY)
+        payload = (record or {}).get("value") if isinstance(record, dict) else {}
+        if not isinstance(payload, dict):
+            payload = {}
+        return {
+            "enabled": bool(payload.get("enabled") is True),
+            "setAt": str(payload.get("setAt") or "").strip() or None,
+            "note": str(payload.get("note") or "").strip() or None,
+        }
+
+    def _handle_claim_required(self) -> bool:
+        return bool(self._handle_claim_required_state().get("enabled"))
+
+    def set_handle_claim_required_mode(
+        self,
+        *,
+        enabled: bool,
+        note: str | None = None,
+    ) -> dict[str, Any]:
+        now = datetime.now(timezone.utc)
+        upsert_runtime_setting(
+            self.connection,
+            key=HANDLE_CLAIM_REQUIRED_SETTING_KEY,
+            value={
+                "enabled": bool(enabled),
+                "setAt": now.isoformat(),
+                "note": str(note or "").strip() or None,
+            },
+        )
+        self.connection.commit()
+        return self._handle_claim_required_state()
+
     # --- Public App Store ACCESS GATE --------------------------------------
     def _access_whitelist_emails(self) -> set[str]:
         record = runtime_setting(self.connection, ACCESS_WHITELIST_SETTING_KEY)
@@ -2643,6 +2680,7 @@ class SpotlightScanService:
             "allowed": self.access_allowed(identity),
             "isAdmin": self._is_admin_email(getattr(identity, "email", "")),
             "showMode": self._card_show_mode_state(),
+            "handleClaimRequired": self._handle_claim_required(),
         }
 
     def redeem_invite_code(self, identity: RequestIdentity, code: str) -> dict[str, Any]:
@@ -20972,6 +21010,16 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 return
             note = str(payload.get("note") or "").strip() or None
             summary = self.service.set_live_pricing_mode(enabled=enabled, note=note)
+            self._write_json(HTTPStatus.OK, summary)
+            return
+
+        if parsed.path == "/api/v1/admin/handle-claim-required":
+            enabled = payload.get("enabled")
+            if not isinstance(enabled, bool):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "enabled must be a boolean"})
+                return
+            note = str(payload.get("note") or "").strip() or None
+            summary = self.service.set_handle_claim_required_mode(enabled=enabled, note=note)
             self._write_json(HTTPStatus.OK, summary)
             return
 

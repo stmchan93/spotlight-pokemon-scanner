@@ -19,6 +19,13 @@ export type UserProfile = {
   // Social profile fields (Supabase `user_profiles`, social migrations).
   // Optional so existing fixtures/callers don't all need updating; the auth
   // service populates them, consumers read with sensible defaults.
+  /**
+   * True ONLY when `handle` came from a profile select that actually included
+   * the handle column. False on timeouts, fabricated fallbacks, and the
+   * degraded base select — so a claim gate keyed on `handle == null` can never
+   * fire on a false null. Absent/false means "unknown", never "no handle".
+   */
+  handleKnown?: boolean;
   handle?: string | null;
   bio?: string | null;
   location?: string | null;
@@ -40,6 +47,8 @@ export type AppUser = {
   providers: string[];
   labelerEnabled: boolean;
   adminEnabled: boolean;
+  /** See UserProfile.handleKnown — false/absent means "unknown", not "none". */
+  handleKnown?: boolean;
   handle?: string | null;
   bio?: string | null;
   location?: string | null;
@@ -96,11 +105,38 @@ export function sanitizeHandleInput(value: string): string {
     .slice(0, HANDLE_MAX_LENGTH);
 }
 
-export type HandleValidity = 'empty' | 'too-short' | 'too-long' | 'bad-start' | 'ok';
+export type HandleValidity = 'empty' | 'too-short' | 'too-long' | 'bad-start' | 'reserved' | 'ok';
+
+/**
+ * Handles nobody may claim. `followers` and `following` are LIVE route segments
+ * under /u/[handle] — a user owning either would shadow those screens. The rest
+ * are impersonation surface (staff/system names). Slurs are not listed here;
+ * profile text already flows through the moderation wordlist server-side.
+ */
+export const RESERVED_HANDLES: ReadonlySet<string> = new Set([
+  'admin',
+  'administrator',
+  'api',
+  'ekalight',
+  'spotlight',
+  'help',
+  'mod',
+  'moderator',
+  'official',
+  'root',
+  'staff',
+  'support',
+  'system',
+  'www',
+  'followers',
+  'following',
+]);
 
 /**
  * Validate an already-sanitized handle. `empty` is a legitimate state, not an
- * error: handles are optional, and profiles stay reachable by user id.
+ * error: handles are optional, and profiles stay reachable by user id. (The
+ * mandatory claim screen treats `empty` as blocking-submit, but that is the
+ * screen's rule, not the validator's.)
  */
 export function validateHandle(value: string | null | undefined): HandleValidity {
   const handle = sanitizeHandleInput(value ?? '');
@@ -117,6 +153,9 @@ export function validateHandle(value: string | null | undefined): HandleValidity
   if (!/^[a-z0-9]/.test(handle)) {
     return 'bad-start';
   }
+  if (RESERVED_HANDLES.has(handle)) {
+    return 'reserved';
+  }
   return 'ok';
 }
 
@@ -129,6 +168,8 @@ export function describeHandleValidity(validity: HandleValidity): string | null 
       return `At most ${HANDLE_MAX_LENGTH} characters.`;
     case 'bad-start':
       return 'Start with a letter or number.';
+    case 'reserved':
+      return "That handle isn't available.";
     default:
       return null;
   }

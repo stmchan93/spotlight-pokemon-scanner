@@ -1623,6 +1623,12 @@ export type AccessStatus = {
   isAdmin: boolean;
   /** Current card-show mode window. */
   showMode: AccessShowMode;
+  /**
+   * Whether signed-in users must claim an @handle before using the app.
+   * Server-side kill switch for the blocking claim screen: absent/false (or any
+   * fetch failure) means no gate, so a backend blip can never trap users.
+   */
+  handleClaimRequired: boolean;
 };
 
 export type AccessRedeemResult = {
