@@ -620,10 +620,11 @@ Piece, Lorcana or Riftbound, you are looking at main.
   was verified byte-identical against the real 192-row merged catalog. The four
   POC databases were stamped without spending Scrydex credits via
   `tools/backfill_expansion_game.py`.
-- **`refresh_card_pricing` / `hydrate-pricing` are Pokémon-only.** The
-  `PricingProvider` ABC has no `game` parameter, so `ScrydexProvider` hardcodes
-  `/pokemon/v1` for fetch-by-id. Fixing it means changing the ABC and every
-  implementation.
+- ~~**`refresh_card_pricing` / `hydrate-pricing` are Pokémon-only.**~~ **FIXED.**
+  `PricingProvider.refresh_raw_pricing` / `refresh_psa_pricing` now take a
+  keyword-required `game: str` (no default — every caller had to be visited),
+  and `ScrydexProvider` routes fetch-by-id through the game's segment.
+  Covered by `test_multi_game_pricing_refresh.py`.
 - **Product deep-links on collection rows and the scan price sheet** fall back to
   a keyword search: `_candidate_base_payload` carries no `sourcePayload`, so
   those rows have no TCGplayer product id. Only the card-detail endpoint does.
@@ -651,3 +652,96 @@ and delete the branch — `main` never saw any of it.
 Pop reports, One Piece-specific card attributes as first-class columns
 (cost/power/colors), per-game collection totals, deck-building, and any change to
 the Pokémon lane's accuracy or pricing path.
+
+---
+
+## Update 2026-08-20 — product GO, the Japanese answer, and the road to a phone
+
+### The product decision is made
+
+The open question at the top of this doc — "is a raw-only One Piece worth
+having?" — was answered **yes** on 2026-08-20: *"everything that CAN be scanned
+should be scanned."* All four new games keep their scanner lanes, including
+Gundam and Riftbound with no real-photo validation yet; that is now a recorded
+product choice, not an oversight, so the `canScan` capability flag this doc
+floated is deliberately NOT being added.
+
+### Japanese: measured, and the answer is "not yet, and not our code"
+
+*"If there is Japanese One Piece we should allow it."* There isn't — on our
+catalog provider. `tools/probe_scrydex_game_languages.py` spent 13 requests
+settling it for all four games at once, three shapes per game:
+
+| probe | onepiece | lorcana | riftbound | gundam |
+|---|---|---|---|---|
+| `/{seg}/v1/ja/cards` (Pokémon-style sub-path) | empty 200 | empty 200 | empty 200 | empty 200 |
+| `/{seg}/v1/cards?q=language_code:JA` | 0 rows | 0 rows | 0 rows | 0 rows |
+| `/{seg}/v1/expansions?q=language_code:JA` | 0 rows | 0 rows | 0 rows | 0 rows |
+
+The filter syntax itself was validated with an EN control on the same endpoint
+(`q=language_code:EN` returns rows). So the POC syncs did not miss anything:
+**Scrydex simply has no Japanese catalog for any non-Pokémon game today.** Same
+empty-200 shape as the One Piece graded probes — consistent with either absence
+or tier gating, which is one more line in the Scrydex email below.
+
+What this means for the product:
+
+- **No JP lane is possible** for these games until Scrydex ships JP data — there
+  is no JP reference art to index. The lane config already refuses to offer a
+  language toggle for games without `has_language_paths`, so nothing to build.
+- **JP cards are allowed, not blocked.** One Piece EN/JP share set codes,
+  collector numbers and artwork, so a JP capture in the (single) One Piece lane
+  scores against EN references at the measured **42.9% top-1 / 85.7% top-10**.
+  Degraded, not broken — and it improves the day a JP catalog exists, with no
+  client change.
+- Revisit trigger: Scrydex answering the email, or JP paths appearing on their
+  changelog.
+
+### Email to Scrydex (ready to send)
+
+> Subject: One Piece graded pricing + Japanese catalogs — absent or tier-gated?
+>
+> Hi — we're building on the Scrydex API (team ID on this account) with Pokémon
+> in production and One Piece / Lorcana / Riftbound / Gundam synced from your
+> v1 endpoints. Two questions about empty-but-200 responses we're seeing:
+>
+> 1. **One Piece graded pricing & population**: `/onepiece/v1/cards` returns no
+>    graded price contexts and empty `pop_reports` on every card we probed,
+>    while `/lorcana/v1/cards` returns rich graded data (8 grading companies).
+>    Is One Piece graded/pop data absent from the catalog, or gated to a higher
+>    plan tier? If absent — is it on the roadmap?
+>
+> 2. **Japanese catalogs for non-Pokémon games**: `/onepiece/v1/ja/cards`,
+>    `q=language_code:JA` card and expansion filters all return empty 200s for
+>    onepiece, lorcana, riftbound and gundam. Are Japanese printings for these
+>    games planned? One Piece JP in particular matters to our collectors.
+>
+> Thanks — happy to share exact request logs if useful.
+
+### What changed today (2026-08-20)
+
+- The idle-since-08-14 working tree (80 files) is **committed** — checkpoint
+  `4088bb07`, 333 files.
+- Lorcana `hasListingsData` drift fixed on the client (the probe's True finally
+  propagated to `CARD_GAME_CAPABILITIES`), and `test_catalog_id_namespacing`
+  joined the backend gate — the two consistency gaps this doc's review found.
+- The `refresh_card_pricing` Known-gap above was already fixed in-tree; the
+  bullet now says so.
+- Phone-test environment verified end-to-end (see the runbook:
+  `docs/multigame-phone-test-runbook-2026-08-20.md`). The smoke run found and
+  fixed two real bugs:
+  1. `tools/start_multigame_test_backend.sh` never set
+     `SPOTLIGHT_VISUAL_MODEL_ID`, so the matcher booted in CLIP ViT-B/32 mode,
+     looked for `*_clip-vit-base-patch32.npz` per-game artifacts that don't
+     exist, and **every non-Pokémon lane reported itself unavailable** (plus a
+     512-vs-768 adapter shape mismatch on the Pokémon prewarm). The phone-dev
+     script always had the export; the backend-only script now does too.
+  2. `_visual_candidate_stub` built scan candidates without a `game` key, so
+     `_candidate_base_payload` defaulted **every scan candidate to pokemon** —
+     a One Piece scan result would have rendered Pokémon-style grading lanes.
+     Fixed by resolving the game from the namespaced id (cached row first);
+     regression-tested in `test_scan_candidate_pool.py`
+     (`VisualCandidateStubGameTests`).
+- Verified-working smoke numbers, post-fix: One Piece real-photo top-1 match in
+  247ms; Lorcana/Riftbound/Gundam reference self-match 0.998+; a One Piece
+  query in the Pokémon lane leaks nothing (all candidates tilde-free).
