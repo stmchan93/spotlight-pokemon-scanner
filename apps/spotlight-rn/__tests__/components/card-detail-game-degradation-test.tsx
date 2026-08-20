@@ -24,8 +24,9 @@ jest.mock('expo-router', () => ({
  * states under a "See more on eBay" link that goes somewhere equally empty.
  *
  * Everything here is driven by the capability table, never by `game ===
- * 'pokemon'`, which is why Lorcana (graded YES, listings NO) is the interesting
- * case rather than a redundant one.
+ * 'pokemon'`, which is why Lorcana (graded YES with its OWN eight companies,
+ * population NO, listings YES only since the 2026-08-14 probe) is the
+ * interesting case rather than a redundant one.
  */
 describe('card detail degrades by game capability', () => {
   beforeEach(() => {
@@ -120,20 +121,35 @@ describe('card detail degrades by game capability', () => {
     }
   });
 
-  it('does not open a comps drawer — or spend a Scrydex credit — for a game with no listings', async () => {
-    // Lorcana is the case that matters: it HAS graded pricing, so it reaches a
-    // graded trend row, and Scrydex serves it no sold comps. Tapping the row
-    // must be a no-op rather than an accordion that opens on emptiness, and the
-    // `refresh: true` recent-sales call must never be made.
-    const getCardRecentSales = jest.fn();
-    const getCardPriceTrends = priceTrendsFor();
+  it('opens the comps drawer for Lorcana now that its listings are measured real', async () => {
+    // Flipped 2026-08-14: the probe (tools/probe_scrydex_lorcana_listings.py)
+    // returned a real eBay sold row for AOTV-224, so Lorcana's graded rows now
+    // have something to expand INTO. This USED to assert the tap was a no-op —
+    // that was the honest state while listings were unmeasured, and keeping the
+    // drawer hidden here would have buried the one non-Pokémon game with real
+    // comps behind a stale client table.
+    const getCardRecentSales = jest.fn(async () => ({
+      source: 'ebay' as const,
+      status: 'available' as const,
+      fetchedAt: new Date().toISOString(),
+      canRefresh: false,
+      saleCount: 1,
+      sales: [{
+        id: 'sale-0',
+        title: 'Mulan Elite Archer 224/204 Foil Legendary PSA 10 GEM Deep Trouble Lorcana',
+        soldAt: '2026-08-10T00:00:00.000Z',
+        priceAmount: 140,
+        currencyCode: 'USD',
+        saleUrl: 'https://www.ebay.com/itm/224',
+      }],
+    }));
 
     renderWithProviders(
       <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
       {
         spotlightRepository: createTestSpotlightRepository({
           getCardDetail: detailForGame('lorcana'),
-          getCardPriceTrends,
+          getCardPriceTrends: priceTrendsFor(),
           getCardRecentSales,
         }),
       },
@@ -143,11 +159,9 @@ describe('card detail degrades by game capability', () => {
     fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA 10'));
 
     await waitFor(() => {
-      expect(getCardPriceTrends).toHaveBeenCalled();
+      expect(screen.getByTestId('detail-recent-sales')).toBeTruthy();
     });
-    expect(screen.queryByTestId('detail-recent-sales')).toBeNull();
-    expect(screen.queryByTestId('detail-lowest-listed-see-more')).toBeNull();
-    expect(getCardRecentSales).not.toHaveBeenCalled();
+    expect(getCardRecentSales).toHaveBeenCalled();
   });
 
   it('still opens the comps drawer for Pokémon', async () => {

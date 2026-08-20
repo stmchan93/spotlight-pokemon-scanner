@@ -206,5 +206,40 @@ class ScanCandidatesRouteTests(unittest.TestCase):
         self.assertEqual(captured["status"], HTTPStatus.NOT_FOUND)
 
 
+class VisualCandidateStubGameTests(unittest.TestCase):
+    """Scan candidates must carry their game, or the client draws Pokémon UI.
+
+    `_candidate_base_payload` defaults a missing `game` to pokemon, so a stub
+    without the key made every One Piece scan candidate render grading lanes
+    the game doesn't have. The namespaced id is the authority: `onepiece~…`
+    resolves to onepiece, a bare id to pokemon — cache hit or miss alike.
+    """
+
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory()
+        database_path = Path(self.tempdir.name) / "stub-game.sqlite"
+        connection = connect(database_path)
+        apply_schema(connection, BACKEND_ROOT / "schema.sql")
+        connection.commit()
+        connection.close()
+        self.service = SpotlightScanService(database_path, REPO_ROOT)
+
+    def tearDown(self) -> None:
+        self.service.connection.close()
+        self.tempdir.cleanup()
+
+    def _stub(self, card_id: str) -> dict:
+        return self.service._visual_candidate_stub(  # noqa: SLF001
+            {"providerCardId": card_id, "name": "Any", "language": "English"}
+        )
+
+    def test_namespaced_id_resolves_to_its_game(self) -> None:
+        self.assertEqual(self._stub("onepiece~OP05-119")["game"], "onepiece")
+        self.assertEqual(self._stub("lorcana~AOTV-224")["game"], "lorcana")
+
+    def test_bare_id_stays_pokemon(self) -> None:
+        self.assertEqual(self._stub("sv5-163")["game"], "pokemon")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -106,6 +106,7 @@ from catalog_tools import (
     rarity_bucket,
     GAME_POKEMON,
     game_display_name,
+    game_for_catalog_id,
     game_for_scan_payload,
     game_has_graded_pricing,
     game_has_listings,
@@ -11643,6 +11644,14 @@ class SpotlightScanService:
         provider_card_id = str(entry.get("providerCardId") or "").strip()
         cached_card = self._cached_card_by_id(provider_card_id)
         image_url = entry.get("imageUrl")
+        # Without this, `_candidate_base_payload` defaults every scan candidate
+        # to Pokémon and the client draws grading lanes on games that have none.
+        # The namespaced id is authoritative (`onepiece~OP05-119` -> onepiece;
+        # bare -> pokemon); the cached row wins when present since it's the same
+        # value read from the catalog.
+        game = normalize_game(
+            (cached_card or {}).get("game") or game_for_catalog_id(provider_card_id)
+        )
         title_aliases = list(
             dict.fromkeys(
                 [
@@ -11654,6 +11663,7 @@ class SpotlightScanService:
         if cached_card is not None:
             return {
                 "id": provider_card_id or str(cached_card.get("id") or ""),
+                "game": game,
                 "name": str(cached_card.get("name") or entry.get("name") or ""),
                 "setName": str(cached_card.get("setName") or entry.get("setName") or ""),
                 "number": str(cached_card.get("number") or entry.get("collectorNumber") or ""),
@@ -11677,6 +11687,7 @@ class SpotlightScanService:
             }
         return {
             "id": provider_card_id,
+            "game": game,
             "name": str(entry.get("name") or ""),
             "setName": str(entry.get("setName") or ""),
             "number": str(entry.get("collectorNumber") or ""),

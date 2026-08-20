@@ -674,13 +674,17 @@ export const CARD_GAMES: readonly CardGame[] = [
  * The flags are statements about the DATA WE CAN GET, not about the games. One
  * Piece slabs exist in the world; what does not exist is a source we integrate
  * that serves their prices, populations or sold comps. Established by probing
- * the live Scrydex API on 2026-08-13:
+ * the live Scrydex API on 2026-08-13/14 (mirrors the backend `GAMES` registry,
+ * which is the source of truth):
  *
- *   - no graded prices for any non-Pokémon game
+ *   - graded prices exist for Pokémon AND Lorcana, and for nobody else
  *   - empty `pop_reports` for any non-Pokémon game (and our population source,
  *     GemRate via PokemonPriceTracker, is Pokémon-only regardless)
  *   - `/onepiece/v1/cards/{id}/listings` returns ZERO rows, so recent sales /
- *     lowest listed have nothing to show
+ *     lowest listed have nothing to show; the same endpoint returned a REAL
+ *     eBay sold row for Lorcana (measured 2026-08-14 via
+ *     tools/probe_scrydex_lorcana_listings.py), and is unmeasured for
+ *     Riftbound and Gundam — which therefore claim nothing
  *
  * `marketplaceKeyword` is the word a person puts in a TCGplayer search box to
  * scope it to this game — it is what keeps a One Piece card from searching
@@ -750,16 +754,18 @@ export const CARD_GAME_CAPABILITIES: Record<CardGame, CardGameCapabilities> = {
     ebayKeyword: 'lorcana',
     // Lorcana DOES have graded pricing — measured, not assumed: 1,525 of 3,170
     // priced cards carry graded contexts (e.g. AOTV-224 PSA 10 Holofoil at $140
-    // market). It is the first game where graded and listings disagree.
+    // market). It is the first game where graded and population disagree.
     hasGradedData: true,
     // Population is zero outside Pokémon: our source (GemRate via
     // PokemonPriceTracker) is Pokémon-only.
     hasPopulationData: false,
-    // No listings evidence for Lorcana — Scrydex's recent-sales endpoint is only
-    // known to serve Pokémon. An always-empty sold-comps drawer hanging under a
-    // real graded lane is exactly the "looks broken" failure this table exists
-    // to prevent, so the surface stays hidden until someone measures otherwise.
-    hasListingsData: false,
+    // MEASURED, 2026-08-14 (tools/probe_scrydex_lorcana_listings.py): the
+    // broadest query for AOTV-224 returned one real eBay sold row, so the
+    // sold-comps drawer under Lorcana's graded lanes has something to show.
+    // Flipped from the earlier "no evidence" default, which was a guess, not a
+    // measurement — the backend descriptor flipped with the probe and this
+    // client half has to match it.
+    hasListingsData: true,
     // English-only catalog: Lorcana ships in several languages, but Scrydex
     // serves it under one path and we sync EN.
     hasLanguageLanes: false,

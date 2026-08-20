@@ -26,5 +26,13 @@ cd "$WORKTREE"
 export SPOTLIGHT_DATABASE_PATH="$DB"
 export SPOTLIGHT_VISUAL_INDEX_NPZ_PATH="$MAIN/backend/data/visual-index/visual_index_active_siglip2-base-patch16-384.npz"
 export SPOTLIGHT_VISUAL_INDEX_MANIFEST_PATH="$MAIN/backend/data/visual-index/visual_index_active_manifest.json"
+# The encoder must match the indexes. The code default is CLIP ViT-B/32 and the
+# local .env symlink doesn't set this (only .env.staging/.env.production do), so
+# without it per-game artifact resolution looks for *_clip-vit-base-patch32.npz
+# — which doesn't exist — and every non-Pokémon lane reports itself unavailable
+# while the Pokémon prewarm dies on a 512-vs-768 adapter shape mismatch.
+export SPOTLIGHT_VISUAL_MODEL_ID="google/siglip2-base-patch16-384"
+export SPOTLIGHT_VISUAL_ADAPTER_CHECKPOINT_PATH="$MAIN/backend/data/visual-models/raw_visual_adapter_active.pt"
+export SPOTLIGHT_VISUAL_ADAPTER_METADATA_PATH="$MAIN/backend/data/visual-models/raw_visual_adapter_active_metadata.json"
 
 exec "$MAIN/backend/.venv/bin/python" backend/server.py --port "${1:-8788}"

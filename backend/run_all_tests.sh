@@ -64,6 +64,7 @@ TEST_MODULES=(
   backend.tests.test_synthetic_capture
   backend.tests.test_game_registry
   backend.tests.test_multi_game_catalog_scoping
+  backend.tests.test_catalog_id_namespacing
   backend.tests.test_multi_game_pricing_paths
   backend.tests.test_multi_game_pricing_refresh
   # The catalog-read suites. Added when `game` became a required argument on

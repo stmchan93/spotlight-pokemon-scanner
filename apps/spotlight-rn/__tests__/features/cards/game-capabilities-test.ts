@@ -73,23 +73,29 @@ describe('card game capability table', () => {
     }
   });
 
-  it('proves graded and listings are separate claims, via Lorcana', () => {
-    // Lorcana is why these cannot be one flag: real graded prices, no
-    // sold-comps source. Collapsing them would either hide its grading lanes or
-    // hang an always-empty comps drawer under them.
+  it('proves the capability flags are separate claims, via Lorcana', () => {
+    // Lorcana is why these cannot be one flag: real graded prices AND a real
+    // eBay sold comp (measured 2026-08-14 via
+    // tools/probe_scrydex_lorcana_listings.py), but zero population rows.
+    // Collapsing them would have hung an always-empty population panel under
+    // real graded lanes.
     expect(gameHasGradedData('lorcana')).toBe(true);
-    expect(gameHasListingsData('lorcana')).toBe(false);
+    expect(gameHasListingsData('lorcana')).toBe(true);
+    expect(cardGameCapabilities('lorcana').hasPopulationData).toBe(false);
   });
 
   it('hides the recent-sales surface wherever there are no listings to show', () => {
-    // Scrydex's `/onepiece/v1/cards/{id}/listings` returns ZERO rows, and the
-    // endpoint is only known to serve Pokémon at all. Both comps panels would
-    // otherwise render empty states plus a "See more on eBay" footer leading
-    // somewhere equally empty. The block must be ABSENT, not empty.
+    // Scrydex's `/onepiece/v1/cards/{id}/listings` returns ZERO rows, while the
+    // same endpoint served a real eBay sold row for Lorcana (AOTV-224, probed
+    // 2026-08-14 via tools/probe_scrydex_lorcana_listings.py). Riftbound and
+    // Gundam are unmeasured and therefore claim nothing. Where there is nothing
+    // to show, both comps panels would otherwise render empty states plus a
+    // "See more on eBay" footer leading somewhere equally empty — the block
+    // must be ABSENT, not empty.
     expect(gameHasListingsData('pokemon')).toBe(true);
     expect(gameHasListingsData(undefined)).toBe(true);
+    expect(gameHasListingsData('lorcana')).toBe(true);
     expect(gameHasListingsData('onepiece')).toBe(false);
-    expect(gameHasListingsData('lorcana')).toBe(false);
     expect(gameHasListingsData('riftbound')).toBe(false);
     expect(gameHasListingsData('gundam')).toBe(false);
   });
