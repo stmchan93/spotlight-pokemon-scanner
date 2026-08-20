@@ -1,0 +1,11 @@
+{
+  "labelState": "confirmed",
+  "labelSource": "manual_visual_verification",
+  "providerMapping": {
+    "providerCardId": "onepiece~ST14-007",
+    "sourceProvider": "scrydex",
+    "collectorNumber": "ST14-007",
+    "setName": "3D2Y"
+  },
+  "verification": "Collector number ST14-007 read off the photographed card; artwork, name plate and card frame match the Scrydex reference art for onepiece~ST14-007; no SAMPLE overlay present. Seller listing title: Nico Robin - (Pirate Foil) ST14-007 C Premium Booster -The Best- Vol. 2 NM"
+}

@@ -1,0 +1,11 @@
+{
+  "labelState": "confirmed",
+  "labelSource": "manual_visual_verification",
+  "providerMapping": {
+    "providerCardId": "onepiece~OP01-070",
+    "sourceProvider": "scrydex",
+    "collectorNumber": "OP01-070",
+    "setName": "Romance Dawn"
+  },
+  "verification": "Collector number OP01-070 read off the photographed card; artwork, name plate and card frame match the Scrydex reference art for onepiece~OP01-070; no SAMPLE overlay present. Seller listing title: Dracule Mihawk OP01-070 SR ROMANCE DAWN ONE PIECE Card Japan eBay"
+}

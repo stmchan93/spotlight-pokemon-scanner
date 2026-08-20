@@ -1,0 +1,11 @@
+{
+  "labelState": "confirmed",
+  "labelSource": "manual_visual_verification",
+  "providerMapping": {
+    "providerCardId": "onepiece~OP04-119",
+    "sourceProvider": "scrydex",
+    "collectorNumber": "OP04-119",
+    "setName": "Kingdoms of Intrigue"
+  },
+  "verification": "Collector number OP04-119 read off the photographed card; artwork, name plate and card frame match the Scrydex reference art for onepiece~OP04-119; no SAMPLE overlay present. Seller listing title: Donquixote Rosinante (ALTERNATE ART) : OP04-119 KINGDOMS OF INTRIGUE - One Piece"
+}

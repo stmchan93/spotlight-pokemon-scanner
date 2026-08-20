@@ -1,0 +1,11 @@
+{
+  "labelState": "confirmed",
+  "labelSource": "manual_visual_verification",
+  "providerMapping": {
+    "providerCardId": "onepiece~OP01-025",
+    "sourceProvider": "scrydex",
+    "collectorNumber": "OP01-025",
+    "setName": "Romance Dawn"
+  },
+  "verification": "Collector number OP01-025 read off the photographed card; artwork, name plate and card frame match the Scrydex reference art for onepiece~OP01-025; no SAMPLE overlay present. Seller listing title: Roronoa Zoro OP01-025 SR - Romance Dawn One Piece TCG/CCG, foto zoro perfil"
+}

@@ -3,6 +3,7 @@ import Constants from 'expo-constants';
 import type { ComponentProps } from 'react';
 import { AppState, Keyboard, LayoutAnimation, StyleSheet } from 'react-native';
 
+import { SpotlightRepositoryRequestError } from '@spotlight/api-client';
 import { colors } from '@spotlight/design-system';
 
 import { TabsPageContext } from '@/contexts/tabs-page-context';
@@ -538,7 +539,106 @@ describe('ScannerScreen', () => {
       expect(payloads).toHaveLength(1);
     });
 
-    expect(payloads[0]).toMatchObject({ mode: 'raw', cardLanguage: 'japanese' });
+    expect(payloads[0]).toMatchObject({
+      mode: 'raw',
+      cardLanguage: 'japanese',
+      // Still the Pokémon index — JP is a LANGUAGE, not a different game.
+      game: 'pokemon',
+    });
+  });
+
+  // --- Multi-game lanes ------------------------------------------------------
+  // The backend resolves a separate visual index per game from the payload's
+  // `game`, so a lane that doesn't send it is silently matched against Pokémon.
+  it('sends the default Pokémon lane unchanged', async () => {
+    const payloads: any[] = [];
+    const spotlightRepository = createTestSpotlightRepository({
+      matchScannerCapture: async (payload) => {
+        payloads.push(payload);
+        return { scanID: 'scan-pokemon-default', candidates: [] };
+      },
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    await waitFor(() => {
+      expect(payloads).toHaveLength(1);
+    });
+
+    // 'pokemon' is exactly what the backend infers from an absent field, so a
+    // Pokémon EN scan resolves identically to how it did before multi-game.
+    expect(payloads[0]).toMatchObject({
+      mode: 'raw',
+      game: 'pokemon',
+      cardLanguage: 'english',
+    });
+  });
+
+  it('threads the selected One Piece lane into the match payload game', async () => {
+    const payloads: any[] = [];
+    const spotlightRepository = createTestSpotlightRepository({
+      matchScannerCapture: async (payload) => {
+        payloads.push(payload);
+        return { scanID: 'scan-onepiece', candidates: [] };
+      },
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    fireEvent.press(screen.getByTestId('scanner-target-pill'));
+    fireEvent.press(screen.getByTestId('scanning-for-sheet-type-onepiece'));
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    await waitFor(() => {
+      expect(payloads).toHaveLength(1);
+    });
+
+    expect(payloads[0]).toMatchObject({ mode: 'raw', game: 'onepiece' });
+    // One Piece has no per-language catalog, so the user never chose a
+    // language and we send no language hint for the backend to filter on.
+    expect(payloads[0].cardLanguage).toBeNull();
+  });
+
+  it('names the active game in the scan-target pill', async () => {
+    renderScannerScreen();
+
+    expect(screen.getByTestId('scanner-target-pill')).toHaveTextContent('Pokémon EN');
+
+    fireEvent.press(screen.getByTestId('scanner-target-pill'));
+    fireEvent.press(screen.getByTestId('scanning-for-sheet-type-lorcana'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-target-pill')).toHaveTextContent('Disney Lorcana');
+    });
+  });
+
+  it('explains a lane whose visual index is not built yet instead of a bare failure', async () => {
+    // A game with no index makes the backend raise at scan time, which reaches
+    // the client as a 500. Surface it as the lane being unavailable.
+    const spotlightRepository = createTestSpotlightRepository({
+      matchScannerCapture: async () => {
+        throw new SpotlightRepositoryRequestError('Visual scan match failed', 'request_failed', 500);
+      },
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    fireEvent.press(screen.getByTestId('scanner-target-pill'));
+    fireEvent.press(screen.getByTestId('scanning-for-sheet-type-riftbound'));
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Riftbound scanning isn't available yet. Switch lanes and try again."),
+      ).toBeTruthy();
+    });
   });
 
   it('threads the selected camera zoom factor into the match payload', async () => {
@@ -620,9 +720,13 @@ describe('ScannerScreen', () => {
     expect(mockLoadRawScannerSmokeFixture).toHaveBeenCalledTimes(1);
     // The fixture carries both transports: fileUri for the default multipart
     // lane and inline base64 so the JSON fallback stays read-free.
+    // …and the ACTIVE LANE's game, so the fixture smoke-tests the lane the user
+    // is actually in rather than always Pokémon. It still sends no
+    // `cardLanguage`, so the fixture keeps matching without a language filter.
     expect(payloads).toEqual([{
       height: 880,
       fileUri: 'file:///scanner-smoke-fixture.jpg',
+      game: 'pokemon',
       jpegBase64: 'c21va2UtZml4dHVyZS1iYXNlNjQ=',
       mode: 'raw',
       width: 630,

@@ -1,0 +1,11 @@
+{
+  "labelState": "confirmed",
+  "labelSource": "manual_visual_verification",
+  "providerMapping": {
+    "providerCardId": "onepiece~ST12-001",
+    "sourceProvider": "scrydex",
+    "collectorNumber": "ST12-001",
+    "setName": "Zoro and Sanji"
+  },
+  "verification": "Collector number ST12-001 read off the photographed card; artwork, name plate and card frame match the Scrydex reference art for onepiece~ST12-001; no SAMPLE overlay present. Seller listing title: Roronoa Zoro & Sanji ST12-001 Starter Deck 12 One Piece NM English LP"
+}

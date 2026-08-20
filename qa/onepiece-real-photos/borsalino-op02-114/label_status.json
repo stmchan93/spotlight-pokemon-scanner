@@ -1,0 +1,11 @@
+{
+  "labelState": "confirmed",
+  "labelSource": "manual_visual_verification",
+  "providerMapping": {
+    "providerCardId": "onepiece~OP02-114",
+    "sourceProvider": "scrydex",
+    "collectorNumber": "OP02-114",
+    "setName": "Paramount War"
+  },
+  "verification": "Collector number OP02-114 read off the photographed card; artwork, name plate and card frame match the Scrydex reference art for onepiece~OP02-114; no SAMPLE overlay present. Seller listing title: Borsalino : OP02-114 PARAMOUNT WAR - One Piece Single Card"
+}

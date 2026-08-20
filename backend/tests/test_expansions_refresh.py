@@ -36,7 +36,7 @@ class FetchScrydexExpansionsRawTests(unittest.TestCase):
             return pages[params["page"]]
 
         with patch("scrydex_adapter.scrydex_api_request", side_effect=fake_request) as api_request:
-            items = fetch_scrydex_expansions_raw()
+            items = fetch_scrydex_expansions_raw("pokemon")
 
         self.assertEqual(len(items), 208)
         self.assertEqual(api_request.call_count, 3)
@@ -50,7 +50,7 @@ class FetchScrydexExpansionsRawTests(unittest.TestCase):
             "scrydex_adapter.scrydex_api_request",
             return_value={"data": _expansion_items(0, 100)},
         ) as api_request:
-            items = fetch_scrydex_expansions_raw()
+            items = fetch_scrydex_expansions_raw("pokemon")
 
         # Same 100 ids every page: keep one copy and stop instead of looping.
         self.assertEqual(len(items), 100)
@@ -61,7 +61,7 @@ class FetchScrydexExpansionsRawTests(unittest.TestCase):
             "scrydex_adapter.scrydex_api_request",
             side_effect=[{"data": _expansion_items(0, 100)}, RuntimeError("boom")],
         ):
-            items = fetch_scrydex_expansions_raw()
+            items = fetch_scrydex_expansions_raw("pokemon")
 
         self.assertEqual(len(items), 100)
 
@@ -70,7 +70,7 @@ class FetchScrydexExpansionsRawTests(unittest.TestCase):
             "scrydex_adapter.scrydex_api_request",
             return_value={"data": [{"id": "sv1", "name": "ok"}, {"name": "no id"}, "junk"]},
         ):
-            items = fetch_scrydex_expansions_raw()
+            items = fetch_scrydex_expansions_raw("pokemon")
 
         self.assertEqual([item["id"] for item in items], ["sv1"])
 

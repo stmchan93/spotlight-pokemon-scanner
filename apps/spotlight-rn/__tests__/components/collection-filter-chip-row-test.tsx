@@ -65,4 +65,78 @@ describe('CollectionFilterChipRow', () => {
     const otherChip = screen.getByTestId('collection-filter-chip-row-all');
     expect(otherChip.props.accessibilityState).toMatchObject({ selected: false });
   });
+
+  it('offers no game chip to a single-game collection', () => {
+    // Almost every collection is Pokémon-only. A chip that can only ever return
+    // the whole list is clutter, so it simply isn't there.
+    render(
+      <SpotlightThemeProvider>
+        <CollectionFilterChipRow
+          activeFilter="all"
+          games={['pokemon']}
+          onFilterChange={jest.fn()}
+        />
+      </SpotlightThemeProvider>,
+    );
+
+    expect(screen.queryByTestId('collection-filter-chip-row-game:pokemon')).toBeNull();
+  });
+
+  it('offers one chip per game once a collection spans more than one', () => {
+    const onFilterChange = jest.fn();
+    render(
+      <SpotlightThemeProvider>
+        <CollectionFilterChipRow
+          activeFilter="all"
+          games={['pokemon', 'onepiece']}
+          onFilterChange={onFilterChange}
+        />
+      </SpotlightThemeProvider>,
+    );
+
+    // Labelled from the capability table, so "onepiece" reads as "One Piece".
+    expect(screen.getByText('One Piece')).toBeTruthy();
+    expect(screen.getByText('Pokémon')).toBeTruthy();
+    // A game the user owns nothing from is not offered.
+    expect(screen.queryByTestId('collection-filter-chip-row-game:lorcana')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('collection-filter-chip-row-game:onepiece'));
+    expect(onFilterChange).toHaveBeenCalledWith('game:onepiece');
+  });
+
+  it('puts the game chips between the lane chips and the rarity chips', () => {
+    // "Which game" is a coarser cut than "which rarity", so it reads to the
+    // left of it — and the fixed chips keep their existing order either way.
+    render(
+      <SpotlightThemeProvider>
+        <CollectionFilterChipRow
+          activeFilter="all"
+          games={['pokemon', 'onepiece']}
+          onFilterChange={jest.fn()}
+        />
+      </SpotlightThemeProvider>,
+    );
+
+    const row = screen.getByTestId('collection-filter-chip-row');
+    const keys = screen
+      .getAllByTestId(/^collection-filter-chip-row-/)
+      .map((node) => String(node.props.testID).replace('collection-filter-chip-row-', ''));
+
+    expect(row).toBeTruthy();
+    expect(keys).toEqual([
+      'all',
+      'az',
+      'price',
+      'favorites',
+      'ungraded',
+      'graded',
+      'game:pokemon',
+      'game:onepiece',
+      'sir',
+      'illustration',
+      'ultra',
+      'secret',
+      'shiny',
+    ]);
+  });
 });

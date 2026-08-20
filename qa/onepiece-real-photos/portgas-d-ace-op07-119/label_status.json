@@ -1,0 +1,11 @@
+{
+  "labelState": "confirmed",
+  "labelSource": "manual_visual_verification",
+  "providerMapping": {
+    "providerCardId": "onepiece~OP07-119",
+    "sourceProvider": "scrydex",
+    "collectorNumber": "OP07-119",
+    "setName": "500 Years In The Future"
+  },
+  "verification": "Collector number OP07-119 read off the photographed card; artwork, name plate and card frame match the Scrydex reference art for onepiece~OP07-119; no SAMPLE overlay present. Seller listing title: Portgas.D.Ace (119) OP07-119 500 Years in the Future One Piece Foil NM"
+}

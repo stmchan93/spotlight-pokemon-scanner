@@ -1,0 +1,11 @@
+{
+  "labelState": "confirmed",
+  "labelSource": "manual_visual_verification",
+  "providerMapping": {
+    "providerCardId": "onepiece~OP01-060",
+    "sourceProvider": "scrydex",
+    "collectorNumber": "OP01-060",
+    "setName": "Romance Dawn"
+  },
+  "verification": "Collector number OP01-060 read off the photographed card; artwork, name plate and card frame match the Scrydex reference art for onepiece~OP01-060; no SAMPLE overlay present. Seller listing title: \u041a\u0443\u043f\u0438\u0442\u044c donquixote doflamingo 060 op01 060 romance dawn regular (365294829735), \u0421"
+}

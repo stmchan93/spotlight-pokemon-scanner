@@ -1,0 +1,11 @@
+{
+  "labelState": "confirmed",
+  "labelSource": "manual_visual_verification",
+  "providerMapping": {
+    "providerCardId": "onepiece~OP10-118",
+    "sourceProvider": "scrydex",
+    "collectorNumber": "OP10-118",
+    "setName": "Royal Blood"
+  },
+  "verification": "Collector number OP10-118 read off the photographed card; artwork, name plate and card frame match the Scrydex reference art for onepiece~OP10-118; no SAMPLE overlay present. Seller listing title: One Piece Royal Blood Monkey D. Luffy OP10-118 Secret Rare Card English Edition"
+}

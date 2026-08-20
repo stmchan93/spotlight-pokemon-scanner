@@ -28,8 +28,13 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { CheckCircle, Trash } from 'iconoir-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ALL_COLLECTIONS_ID } from '@spotlight/api-client';
-import type { Collection, CollectionsSnapshot, InventoryCardEntry } from '@spotlight/api-client';
+import { ALL_COLLECTIONS_ID, CARD_GAMES, DEFAULT_CARD_GAME } from '@spotlight/api-client';
+import type {
+  CardGame,
+  Collection,
+  CollectionsSnapshot,
+  InventoryCardEntry,
+} from '@spotlight/api-client';
 import {
   Avatar,
   EmptyStatePrompt,
@@ -61,6 +66,7 @@ import {
 import {
   CollectionFilterChipRow,
   type CollectionFilterKey,
+  gameFromFilterKey,
 } from '@/features/portfolio/components/collection-filter-chip-row';
 import {
   CollectionGridRow,
@@ -162,6 +168,7 @@ function buildMarketplaceUrlForEntry(entry: InventoryCardEntry): string | null {
       name: entry.name,
       setName: entry.setName,
       variant: entry.slabContext?.variantName ?? entry.variantName ?? null,
+      game: entry.game,
     });
   }
   return buildTcgPlayerSearchUrl({
@@ -170,6 +177,7 @@ function buildMarketplaceUrlForEntry(entry: InventoryCardEntry): string | null {
     name: entry.name,
     printing: entry.variantName ?? null,
     setName: entry.setName,
+    game: entry.game,
   });
 }
 
@@ -255,10 +263,32 @@ function timestampMs(value: string | null | undefined): number {
   return Number.isNaN(parsed) ? -Infinity : parsed;
 }
 
+/**
+ * The distinct games present in a collection, in `CARD_GAMES` order.
+ *
+ * An entry with no `game` counts as Pokémon rather than as its own bucket —
+ * older cached payloads (and any backend predating multi-game) carry none, and
+ * treating those as a separate game would show a two-chip row to a user with a
+ * plain Pokémon collection.
+ */
+export function collectionGames(items: InventoryCardEntry[]): CardGame[] {
+  const present = new Set<CardGame>();
+  for (const entry of items) {
+    present.add(entry.game ?? DEFAULT_CARD_GAME);
+  }
+  return CARD_GAMES.filter((game) => present.has(game));
+}
+
 export function applyCollectionFilter(
   items: InventoryCardEntry[],
   filter: CollectionFilterKey,
 ): InventoryCardEntry[] {
+  // Game chips are dynamic (one per game the user actually owns), so they can't
+  // be `case` labels. Same undefined-means-Pokémon rule as collectionGames.
+  const gameFilter = gameFromFilterKey(filter);
+  if (gameFilter) {
+    return items.filter((entry) => (entry.game ?? DEFAULT_CARD_GAME) === gameFilter);
+  }
   switch (filter) {
     case 'all':
       // Recently added first.
@@ -773,13 +803,31 @@ export function PortfolioScreen({
     [loadCollections, setActiveCollectionID, spotlightRepository],
   );
 
+  // Which games this collection spans. Derived from the UNFILTERED collection —
+  // filtering to One Piece must not then hide the chip that got you there.
+  const availableGames = useMemo<CardGame[]>(
+    () => collectionGames(baseInventory),
+    [baseInventory],
+  );
+  // A game chip can stop being offered while it is selected (delete the last
+  // One Piece card, switch to a single-game collection). Fall back to 'all'
+  // here rather than in an effect, so there is never a frame where an invisible
+  // chip is silently filtering the list down to nothing.
+  const effectiveFilter = useMemo<CollectionFilterKey>(() => {
+    const game = gameFromFilterKey(activeFilter);
+    if (game && !(availableGames.length > 1 && availableGames.includes(game))) {
+      return 'all';
+    }
+    return activeFilter;
+  }, [activeFilter, availableGames]);
+
   const visibleInventory = useMemo(() => {
     const present = removedIds.size > 0
       ? baseInventory.filter((entry) => !removedIds.has(entry.id))
       : baseInventory;
-    const filtered = applyCollectionFilter(present, activeFilter);
+    const filtered = applyCollectionFilter(present, effectiveFilter);
     return applyInventorySearch(filtered, model.searchQuery);
-  }, [activeFilter, baseInventory, model.searchQuery, removedIds]);
+  }, [baseInventory, effectiveFilter, model.searchQuery, removedIds]);
 
   // Prefetch the owner's own posts as soon as we know who they are, rather than
   // waiting for the Activity tab to be tapped — the round trip then overlaps
@@ -1542,7 +1590,8 @@ export function PortfolioScreen({
               tabs instead of scrolling to the rarity chips. */}
           <PageSwipeGuard>
             <CollectionFilterChipRow
-              activeFilter={activeFilter}
+              activeFilter={effectiveFilter}
+              games={availableGames}
               onFilterChange={setActiveFilter}
             />
           </PageSwipeGuard>

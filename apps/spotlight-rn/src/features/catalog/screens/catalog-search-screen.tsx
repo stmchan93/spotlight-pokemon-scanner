@@ -13,8 +13,11 @@ import { useFocusEffect } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
+  DEFAULT_CARD_GAME,
+  gameDisplayName,
   RARITY_BUCKET_LABELS,
   RARITY_FILTER_BUCKETS,
+  type CardGame,
   type CatalogSearchResult,
   type ExpansionRecord,
   type RarityFilterBucket,
@@ -59,8 +62,12 @@ const CATALOG_PAGE_SIZE = 30;
 
 type CatalogSearchScreenProps = {
   initialQuery?: string;
-  /** Game whose expansions populate the browse grid (defaults to pokemon). */
-  game?: string;
+  /**
+   * Game whose expansions populate the browse grid. Typed as `CardGame` rather
+   * than `string` so a lane can only ever be one the capability table knows;
+   * absent means Pokémon, as everywhere.
+   */
+  game?: CardGame;
   onClose: () => void;
   onOpenCard: (result: CatalogSearchResult) => void;
   /**
@@ -73,6 +80,27 @@ type CatalogSearchScreenProps = {
 
 function resultNumberLabel(result: CatalogSearchResult) {
   return result.cardNumber.startsWith('#') ? result.cardNumber : `#${result.cardNumber}`;
+}
+
+/**
+ * Whether these results need a per-row game tag.
+ *
+ * Search is scoped to one game — the lane's — so in practice this is false and
+ * no tag renders. It is kept because the scoping lives in the REQUEST, not in
+ * the row shape: a caller that omits the game (or a future cross-game search)
+ * gets mixed results, and then a row saying only "Ace" cannot say which game it
+ * came from. Tagging every row of a single-game set would just repeat one word
+ * down the page, so the tag appears only when the results actually SPAN games.
+ */
+export function resultsSpanMultipleGames(results: CatalogSearchResult[]): boolean {
+  const games = new Set<CardGame>();
+  for (const result of results) {
+    games.add(result.game ?? DEFAULT_CARD_GAME);
+    if (games.size > 1) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function ResultArtwork({
@@ -128,10 +156,12 @@ function SearchResultRow({
   result,
   isOpening,
   onPress,
+  showGameTag = false,
 }: {
   result: CatalogSearchResult;
   isOpening: boolean;
   onPress: () => void;
+  showGameTag?: boolean;
 }) {
   const theme = useSpotlightTheme();
   const subtitle = result.subtitle?.trim() ? result.subtitle : result.setName;
@@ -191,6 +221,15 @@ function SearchResultRow({
                 {resultNumberLabel(result)}
               </Text>
 
+              {showGameTag ? (
+                <Text
+                  style={[theme.typography.caption, { color: theme.colors.textSecondary }]}
+                  testID={`catalog-result-game-${result.id}`}
+                >
+                  {gameDisplayName(result.game)}
+                </Text>
+              ) : null}
+
               {result.marketPrice != null ? (
                 <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
                   {formatCurrency(result.marketPrice, result.currencyCode ?? 'USD')}
@@ -212,7 +251,7 @@ function SearchResultRow({
 
 export function CatalogSearchScreen({
   initialQuery = '',
-  game = 'pokemon',
+  game = DEFAULT_CARD_GAME,
   onClose,
   onOpenCard,
   onSelectExpansion,
@@ -338,7 +377,7 @@ export function CatalogSearchScreen({
         trimmed,
         CATALOG_PAGE_SIZE,
         0,
-        activeRarity ? { rarityBucket: activeRarity } : undefined,
+        { game, ...(activeRarity ? { rarityBucket: activeRarity } : {}) },
       )
         .then((page) => {
           if (isCancelled) {
@@ -386,7 +425,9 @@ export function CatalogSearchScreen({
       isCancelled = true;
       clearTimeout(timeout);
     };
-  }, [activeRarity, query, searchRevision, spotlightRepository]);
+    // `game` is a dependency: switching lanes has to re-run the search, not
+    // leave the previous game's results on screen.
+  }, [activeRarity, game, query, searchRevision, spotlightRepository]);
 
   const trimmedQuery = query.trim();
   const hasActiveQuery = trimmedQuery.length >= 2 || activeRarity != null;
@@ -433,7 +474,7 @@ export function CatalogSearchScreen({
       trimmed,
       CATALOG_PAGE_SIZE,
       offset,
-      activeRarity ? { rarityBucket: activeRarity } : undefined,
+      { game, ...(activeRarity ? { rarityBucket: activeRarity } : {}) },
     )
       .then((page) => {
         // Drop the page if the query/chip changed while it was in flight.
@@ -455,7 +496,12 @@ export function CatalogSearchScreen({
         setHasMore(false);
         setIsLoadingMore(false);
       });
-  }, [query, activeRarity, isLoading, isLoadingMore, hasMore, results.length, spotlightRepository]);
+  }, [query, activeRarity, game, isLoading, isLoadingMore, hasMore, results.length, spotlightRepository]);
+
+  // Recomputed per results change (cheap: it short-circuits on the second
+  // distinct game), so a "load more" page that brings in a second game turns
+  // the tags on for the whole list rather than only the new rows.
+  const showGameTags = resultsSpanMultipleGames(results);
 
   const renderBody = () => {
     // Search mode: the box has a real query, so show card matches / states.
@@ -521,6 +567,7 @@ export function CatalogSearchScreen({
                 isOpening={openingResultId === item.id}
                 onPress={() => openResult(item)}
                 result={item}
+                showGameTag={showGameTags}
               />
             )}
             showsVerticalScrollIndicator={false}

@@ -13,7 +13,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from catalog_tools import RawEvidence  # noqa: E402
+from catalog_tools import GAME_POKEMON, RawEvidence  # noqa: E402
 import scrydex_adapter as scrydex_adapter_module  # noqa: E402
 from scrydex_adapter import (  # noqa: E402
     ScrydexProvider,
@@ -446,12 +446,12 @@ class ScrydexAdapterHelperTests(unittest.TestCase):
             patch.object(scrydex_adapter_module, "fetch_scrydex_card_by_id", return_value={"id": "base1-4"}),
             patch.object(scrydex_adapter_module, "persist_scrydex_raw_snapshot", return_value={"id": "base1-4"}),
         ):
-            raw_success = provider.refresh_raw_pricing(None, "base1-4")
+            raw_success = provider.refresh_raw_pricing(None, "base1-4", game=GAME_POKEMON)
         self.assertTrue(raw_success.success)
         self.assertEqual(raw_success.provider_id, "scrydex")
 
         with patch.object(scrydex_adapter_module, "fetch_scrydex_card_by_id", side_effect=RuntimeError("fetch failed")):
-            raw_failure = provider.refresh_raw_pricing(None, "base1-4")
+            raw_failure = provider.refresh_raw_pricing(None, "base1-4", game=GAME_POKEMON)
         self.assertFalse(raw_failure.success)
         self.assertEqual(raw_failure.error, "fetch failed")
 
@@ -459,7 +459,7 @@ class ScrydexAdapterHelperTests(unittest.TestCase):
             patch.object(scrydex_adapter_module, "fetch_scrydex_card_by_id", return_value={"id": "base1-4"}),
             patch.object(scrydex_adapter_module, "persist_scrydex_raw_snapshot", return_value=None),
         ):
-            raw_missing = provider.refresh_raw_pricing(None, "base1-4")
+            raw_missing = provider.refresh_raw_pricing(None, "base1-4", game=GAME_POKEMON)
         self.assertFalse(raw_missing.success)
         self.assertIn("No raw pricing available", raw_missing.error or "")
 
@@ -467,13 +467,13 @@ class ScrydexAdapterHelperTests(unittest.TestCase):
             patch.object(scrydex_adapter_module, "fetch_scrydex_card_by_id", return_value={"id": "base1-4"}),
             patch.object(scrydex_adapter_module, "persist_scrydex_psa_snapshot", return_value={"id": "base1-4"}),
         ):
-            psa_success = provider.refresh_psa_pricing(None, "base1-4", "PSA", "9", preferred_variant="Holofoil")
+            psa_success = provider.refresh_psa_pricing(None, "base1-4", "PSA", "9", game=GAME_POKEMON, preferred_variant="Holofoil")
         self.assertTrue(psa_success.success)
         self.assertEqual(psa_success.grader, "PSA")
         self.assertEqual(psa_success.grade, "9")
 
         with patch.object(scrydex_adapter_module, "fetch_scrydex_card_by_id", side_effect=RuntimeError("psa fetch failed")):
-            psa_failure = provider.refresh_psa_pricing(None, "base1-4", "PSA", "9")
+            psa_failure = provider.refresh_psa_pricing(None, "base1-4", "PSA", "9", game=GAME_POKEMON)
         self.assertFalse(psa_failure.success)
         self.assertEqual(psa_failure.error, "psa fetch failed")
 
@@ -481,7 +481,7 @@ class ScrydexAdapterHelperTests(unittest.TestCase):
             patch.object(scrydex_adapter_module, "fetch_scrydex_card_by_id", return_value={"id": "base1-4"}),
             patch.object(scrydex_adapter_module, "persist_scrydex_psa_snapshot", return_value=None),
         ):
-            psa_missing = provider.refresh_psa_pricing(None, "base1-4", "PSA", "9")
+            psa_missing = provider.refresh_psa_pricing(None, "base1-4", "PSA", "9", game=GAME_POKEMON)
         self.assertFalse(psa_missing.success)
         self.assertIn("No graded pricing available", psa_missing.error or "")
 

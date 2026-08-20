@@ -136,9 +136,13 @@ Nothing anywhere records which game a card belongs to; Pokémon is implicit. Add
 `cards.game TEXT NOT NULL DEFAULT 'pokemon'` (the existing
 `_sqlite_add_column_if_missing` pattern in `backend/catalog_tools.py`), backfill
 lazily, and thread it through card payloads, catalog search filtering, and visual
-index selection. Card ids are already namespaced (`base1-4` vs `OP13-118`) so
-there is no collision risk — the column is for filtering and routing, not
-identity.
+index selection.
+
+> **This paragraph originally claimed card ids were already namespaced
+> (`base1-4` vs `OP13-118`) and so carried no collision risk. That is FALSE** —
+> One Piece and Gundam collide on 211 ids. See "BLOCKER found while building the
+> test harness" below. The assumption survived this long because each game was
+> synced into its own database, which hid it.
 
 ### 2. Adapter parameterization (~0.5 evening)
 
@@ -245,6 +249,391 @@ All of it runs **inside `../spotlight-onepiece`**, never against staging:
 - Scanner: replay harness against a One Piece holdout set (has to be built)
   before the lane is exposed; the Pokémon top-1 number must be unchanged, which
   the separate-index design should make true by construction.
+
+## Measured results (2026-08-14)
+
+The spike grew from One Piece alone to **four games** — Magic stayed out at 104,865
+cards / 1,049 credits. Total one-time cost for the four: **81 credits**, 7,948
+cards. Index builds cost nothing (`download_image()` is a plain CDN fetch), and
+ongoing cost is zero unless prices are refreshed.
+
+### Per-game visual indexes
+
+| Game | Cards | Index size | Credits |
+|---|---|---|---|
+| One Piece | 2,633 | 7.5 MB | 27 |
+| Lorcana | 3,181 | 9.1 MB | 32 |
+| Riftbound | 1,187 | 3.4 MB | 12 |
+| Gundam | 947 | 2.7 MB | 10 |
+| **Total** | **7,948** | **22.7 MB** | **81** |
+
+For scale, Pokémon's active index is 127 MB for 44,484 cards.
+
+### Synthetic capture head-to-head (n=150/game, seed 20260814)
+
+Same SigLIP2-384 backbone, same seed, byte-identical degradations per game.
+
+| Game | Gallery | Clean | Realistic top-1 | Realistic top-5 | Worst single |
+|---|---|---|---|---|---|
+| Pokémon | 44,484 | 100.0% | 76.0% | 94.0% | defocus 90.0% |
+| One Piece | 2,633 | 100.0% | 82.7% | 96.0% | crop 95.3% |
+| Lorcana | 3,181 | 100.0% | 84.0% | 98.7% | crop 87.3% |
+| Riftbound | 1,187 | 100.0% | 92.7% | 98.0% | crop 97.3% |
+| Gundam | 947 | 100.0% | 92.7% | 98.0% | perspective 100.0% |
+
+Every new game scores **above** Pokémon, and the ranking tracks corpus size. Read
+it as a floor and a comparison, not an accuracy claim: the harness models no print
+variation, sensor noise or real lighting, and query and reference derive from the
+same image.
+
+Two things keep the conclusion honest:
+
+- At n=150 the Pokémon-vs-One-Piece gap (6.7pp) is roughly 1.5σ. The *five-point
+  trend* carries the argument, not any single pair.
+- The harness omits the user-photo rerank pool that production Pokémon scans get,
+  so Pokémon's real number is **better** than 76%. That makes "the new games are
+  not worse" safe, and "the new games are better" unsupported.
+
+A real accuracy number still needs ~30-50 photographed cards per game through
+`tools/eval_raw_visual_model.py --fixture-root`.
+
+### The Pokémon lane provably did not move
+
+"Unchanged by construction" was not accepted as evidence. There is no stored
+baseline scorecard at the current active index, so the check was run as a genuine
+before/after: the **main tree** still holds the pre-refactor matcher and the
+worktree holds the per-game registry, so the identical eval ran from each — same
+adapter, same index, same 116 fixtures, same device.
+
+    visual top-1 52/71 (73.2%) · top-10 66/71 (93.0%) · hybrid top-1 61/71 (85.9%)
+
+Identical in both, and the scorecards match on the **per-fixture `entries` array**,
+not merely on the aggregates.
+
+Re-run after the backend route audit landed, because that audit changed
+`search_cards` and the `/scan/match` OCR fallback — the exact text signals
+**hybrid** top-1 depends on, so the earlier result no longer covered the tree.
+Identical again, entries included. Visual top-1 was never at risk; hybrid was, and
+it held.
+
+### THE REAL NUMBER: 88.6% top-1 on real English One Piece photos
+
+Measured on **42 hand-verified photographs of real cards** sourced from listings
+(`qa/onepiece-real-photos/`), scored against the shipped One Piece index with
+`tools/eval_raw_visual_model.py`. Not synthetic, not publisher art — actual
+photos with foil glare, off-axis angles, dark desks, a sleeve and a slab.
+
+| slice | n | visual top-1 | visual top-10 |
+|---|---|---|---|
+| **English printings** | 35 | **88.6%** | **97.1%** |
+| Japanese printings | 7 | 42.9% | 85.7% |
+| all | 42 | 81.0% | 95.2% |
+
+**For comparison, Pokémon's own holdout scores 73.2% visual top-1 / 93.0%
+top-10.** One Piece on real photos is *better* than the shipped Pokémon lane —
+which is what the original structural argument predicted (a 17× smaller corpus is
+an easier retrieval problem), now demonstrated on real captures instead of the
+synthetic harness that could not see past its own assumptions.
+
+The Japanese row is not a model failure: **the index is English-only**, because
+One Piece was synced without language paths. Pokémon solves this with separate
+EN/JP lanes; One Piece would need a JP catalog sync to match. Until then, JP
+cards are out of domain by construction.
+
+By rarity, English only: Leader 5/5, Common 6/6, Uncommon 2/2, Rare 5/5, Super
+Rare 5/6, **Secret Rare 8/11** — the alt-art and manga secrets are the hard class,
+exactly as expected.
+
+**What the 8 misses actually are:** 5 of 8 lost to *the same character in a
+different printing* (Borsalino → another Borsalino, Rosinante → another
+Rosinante, Luffy → another Luffy), and the true card was still inside the top 10
+for 6 of the 8. That is the documented, accepted consequence of having no OCR
+collector-number tiebreak: near-identical printings resolve to a near-tie and the
+user picks from the tray — precisely how the Pokémon lane behaves today.
+
+### CORRECTION (2026-08-14, later the same day): the watermark is NOT the blocker
+
+The section below was written from a comparison that changed **two variables at
+once**, and its conclusion is wrong. It compared a watermarked *art file* against
+a *photograph* of a real card, and attributed the whole gap to the watermark.
+
+Holding capture domain fixed settles it. Same index, same card:
+
+| query | OP05-119 rank |
+|---|---|
+| TCGplayer **art**, watermarked | 1 (sim 0.8987) |
+| de-watermarked **art** | 1 (sim **0.9254**) |
+| real **photo** of the card | 30, then absent |
+
+An unwatermarked image ranks first just as easily — slightly better. **The stamp
+costs no rank.** What the failing case actually had in common was being a
+*photograph*: angle, glare, holo shimmer, resolution, background. That is the
+**capture-domain gap**, the same lever the show-scan work already identified, and
+the fix is in-domain training data, not image cleaning.
+
+A four-arm harness (`tools/eval_watermark_transform_arms.py`) confirms there is
+no headroom: across 13 real query images, **every arm is 13/13 top-1, including
+the untouched baseline**. Three further findings worth keeping:
+
+- The stamp is near-**opaque** (oracle alpha peak 0.996), so un-blending cannot
+  recover the art underneath — "strip the watermark" is dead on arrival.
+- Stamping the *query* instead needs no index rebuild and buys ~+21% top-1
+  margin, but changes **zero ranks**. Only worth anything if an absolute
+  similarity threshold ever gates the pipeline.
+- A mask estimator fitted from reference-image variance flags **clean** games
+  (Lorcana 6.9%, Riftbound 7.1%) about as strongly as stamped ones. It must never
+  be applied game-blind.
+
+Everything below remains factually accurate about the watermark's *existence* and
+which publishers stamp their art. Only the causal claim is retracted.
+
+### The watermark itself (still true, no longer believed to be the blocker)
+
+Found 2026-08-14 by scanning a real card — the first real card ever put through
+this lane. It returned 30 candidates, **all** the right character
+(Monkey.D.Luffy) and **none** of them the right printing. The true card
+(OP05-119) is in the catalog and in the index, and still did not place.
+
+The reason is visible the moment you open the reference image: Scrydex's One
+Piece art is Bandai's official promo art with a large white **SAMPLE** stamped
+across the middle. The physical card has no such thing. Every One Piece
+embedding therefore encodes a mark that no real capture will ever contain.
+
+It tracks the **publisher**, not the provider:
+
+| game | publisher | reference art |
+|---|---|---|
+| One Piece | Bandai | **SAMPLE watermark** (median 0.22 near-white in the middle band, 91% of a 120-card sample) |
+| Gundam | Bandai | **fainter SAMPLE watermark**, confirmed visually |
+| Lorcana | Ravensburger | clean |
+| Riftbound | Riot | clean |
+| Pokémon | — | clean |
+
+**No eval on this branch could have caught it, including mine.** The synthetic
+capture harness derives its query from the same reference image, so the watermark
+sits on both sides of the comparison and cancels perfectly. One Piece scored
+82.7% and Gundam 92.7% top-1 under "realistic" degradation while being unusable
+on a real card. That is a sharper version of the caveat already written here —
+"a floor and a comparison, not an accuracy claim" — and it also means the
+cross-game head-to-head compared a watermarked catalog against clean ones, which
+is not apples-to-apples.
+
+**What this does not affect:** everything non-visual. Search, catalog, pricing,
+PDP, collections, marketplace links and set browsing all work on real data and
+are unaffected. Lorcana and Riftbound have clean reference art and should scan on
+their merits — that is also the cheapest confirmation of this diagnosis.
+
+**Options, none taken yet:** find a clean image source for the two Bandai games;
+remove the watermark before embedding (it is a consistent overlay, so this is
+tractable); or ship those two games search-and-collection-only with the scanner
+lane disabled. The registry already models "which game can do what", so the last
+one is a capability flag rather than new machinery.
+
+### Backend route audit — six routes were silently Pokémon-assuming
+
+Auditing every route that reads `cards` found more leaks than the design
+predicted. The per-game visual index was being undone one layer below by
+unscoped text search:
+
+| Route | Was | Now |
+|---|---|---|
+| `GET /cards/search` | entirely game-blind | scoped |
+| `GET /expansions/{id}/cards` | `set_id` is only unique *within* a game | scoped |
+| `/scan/match` OCR fallback | text search ignored the scan's lane | scoped |
+| Rarity bucket filter/browse | bucketed every label with Pokémon's table | per-game table |
+| `/cards/{id}/recent-sales` | always `/pokemon/v1/…` | per-game + capability gate |
+| `/cards/{id}/market-history` | hardcoded `/pokemon/v1/…/price_history` | per-game |
+
+`game` is now a **required keyword** on `search_cards`, `search_cards_local`, the
+raw OCR helpers and `get_cards_by_expansion` — nothing defaults, and
+`normalize_game` runs only at the HTTP boundary. `game_for_scan_payload` is the
+single payload→game reader, so the visual index and the OCR fallback cannot drift
+onto different catalogs.
+
+**The performance trap.** A naive `AND game = ?` flips SQLite from
+`idx_cards_name_set_number` onto `idx_cards_game` — which, in a catalog where
+every row is `pokemon`, selects the entire table on every keystroke. The main
+search therefore filters in Python where rows materialise, and paths that page in
+SQL use `+game = ?` to suppress index selection. Query plans are pinned by tests.
+Measured on the real 43,991-card catalog, same queries, both trees:
+
+    before (main tree)  median 78.4 ms · total 958.2 ms
+    after  (worktree)   median 75.8 ms · total 904.1 ms
+
+No regression.
+
+**Lorcana has listings after all.** `GET /lorcana/v1/cards/AOTV-224/listings`
+returned a real eBay sold row, so `has_listings` went `False` → `True`; it had
+been set on a "no evidence" default rather than a measurement.
+
+### The client was ignoring `game` entirely
+
+The backend emitted `game` on card payloads and the client **dropped it** — no
+`game` in `CardCandidateDTO`, `normalizeCardCandidate`, `mapDeckEntry`, the three
+search mappers, favorites, or `CardDetailRecord`. Every capability check was
+therefore answering "Pokémon" for a One Piece card, so the PDP would still have
+offered PSA/BGS/CGC lanes into a permanently empty chart. All the capability
+plumbing was real; nothing fed it. Now wired end to end, with `normalizeCardGame`
+collapsing an unknown-to-this-build game to `undefined` rather than poisoning a
+lookup.
+
+Also added: `game` on the card-detail response (the only payload a **deep link**
+can reach), a collection game filter that appears only when the collection spans
+games, and game tags on search rows only when the results span games.
+
+### BLOCKER found while building the test harness: card ids collide across games
+
+The four games were synced into **four separate POC databases**, which was right
+for building indexes and wrong for testing — the backend serves exactly one
+database, so nothing could exercise two lanes at once. Merging them into one
+catalog surfaced the problem the separate databases had been hiding:
+
+    One Piece × Gundam    211 card ids collide      EB01-001, EB01-002, …
+    One Piece × Gundam     11 expansion ids collide EB01, ST01, ST02, ST03, ST04
+
+Both games ship an expansion literally called `EB01`, numbered from 001. So
+`EB01-001` is *Kouzuki Oden* in One Piece and *Gundam Astray Red Frame Custom* in
+Gundam. `cards.id` is `TEXT PRIMARY KEY` with no game component, so the merge
+silently dropped 211 Gundam cards (947 → 736).
+
+This **falsifies a line in the route audit**: card-detail-by-id and
+`cards_by_ids` were classified "game-neutral-and-safe (id-keyed; ids are
+namespaced)". They are not namespaced. Pokémon is unaffected (`base1-4`,
+`sv3pt5-25`), so nothing shipped is at risk — but any two games can collide, and
+this pair does.
+
+**FIXED — non-Pokémon ids are namespaced at ingest**: `gundam~EB01-001`. Pokémon
+ids are byte-identical, so the live catalog cannot move. A composite `(game, id)`
+primary key was the alternative and was rejected as a far larger schema change
+touching every collection row and foreign key.
+
+**The separator is `~`, not `:`, for three measured reasons.** `backend/server.py`
+is a hand-rolled `http.server` handler and only 4 of its 11 card/expansion-id
+extraction sites call `unquote()` — `encodeURIComponent(':')` is `%3A`, so a colon
+id would 404 on seven routes and work on four. `~` is RFC 3986 *unreserved* and
+survives both `encodeURIComponent` and `quote()` verbatim. Reference images are
+also cached as `{card_id}{suffix}` and the id recovered from `path.stem`; `:` is
+illegal on Windows and the historical HFS separator. Finally `~` appears in zero
+ids across all five catalogs, where `_` occurs in 20,566 Pokémon ids and `-` is
+disqualified because set-code recovery splits on it.
+
+Two real regressions the change introduced were caught by a before/after diff and
+fixed: a `set_id >= ? AND set_id < ?` range made the game name a prefix of every
+set id in that game (typing "gundam" pulled in the whole catalog), and a
+`LIKE '%gundam%'` matched every Gundam set. The namespace also had to be stripped
+out of scored search text, or `tokenize("gundam~GD01")` would make the game name
+itself a searchable token.
+
+Verified: all four games' ids pairwise disjoint, zero overlap with Pokémon's
+43,991, and **1,443 real search queries per game before vs after → 0 result
+differences**. All four indexes rebuilt from renamed cached images — embedding
+only, zero downloads.
+
+### Testing it end to end
+
+    python tools/build_multigame_test_db.py --rebuild  # free, no Scrydex
+    bash tools/start_multigame_test_backend.sh         # port 8788
+    cp apps/spotlight-rn/.env.development.example apps/spotlight-rn/.env.development
+    pnpm dev:mobile
+
+The merged catalog, after the id fix:
+
+| game | cards | expansions | priced |
+|---|---|---|---|
+| pokemon | 43,991 | 100 | 40,242 |
+| lorcana | 3,181 | 22 | 3,170 |
+| onepiece | 2,633 | 53 | 2,633 |
+| riftbound | 1,187 | 5 | 1,179 |
+| gundam | **947** | 23 | 945 |
+
+Gundam is 947 again, not 736. The build script reports offered-vs-landed per game
+precisely so a future id collision shows up as a number rather than as a game
+quietly missing cards.
+
+The script exists because two things are non-obvious: the merged catalog
+(`backend/data/spotlight_multigame_test.sqlite`, built free from the local
+Pokémon catalog plus the POC databases) and the **Pokémon visual index, which
+lives in the main tree** — only the four new per-game indexes were built here, so
+without the env overrides the Pokémon lane reports itself unavailable.
+
+Verified live against that backend:
+
+    /cards/search?q=luffy&game=onepiece   → Luffy & Ace, Luffy-Tarou, …
+    /cards/search?q=mickey&game=lorcana   → Mickey Mouse, …
+    /cards/search?q=charizard&game=pokemon→ unchanged
+    /cards/search?q=charizard             → unchanged (no game param = Pokémon)
+
+### Testing on a phone needs its OWN dev build
+
+Scanning the Expo QR does **not** load this branch. Every worktree declares the
+same `scheme` (`spotlight`) and `bundleIdentifier`
+(`com.ekalight.app.staging`), so the deep link is handed to the **installed
+TestFlight build**, which is a release binary: it ignores the bundle URL and runs
+its own embedded JS against staging. The symptom is convincing and misleading —
+the "coming soon" list shows One Piece, and searches for the new games return
+nothing, because that is genuinely true of staging.
+
+Confirm which bundle is really loaded before debugging anything else:
+
+    lsof -iTCP:8081 -n -P | grep -v LISTEN   # Metro
+    lsof -iTCP:8788 -n -P | grep -v LISTEN   # local backend
+
+Zero connections means the phone is running an installed binary. So the branch
+needs its own development build — `npx expo run:ios --device <udid>`, local and
+free (`ios/` is gitignored). Expo Go is not an option: the app depends on
+`react-native-vision-camera`, which Expo Go cannot load. A simulator build covers
+everything except the camera.
+
+**Fastest visual check that you are on the right bundle:** this branch's
+"coming soon" list is Magic / Sports / Yu-Gi-Oh only. If it still lists One
+Piece, Lorcana or Riftbound, you are looking at main.
+
+### Manual test checklist
+
+1. **Lane switch** — the scanner's "Scanning for" sheet offers Pokémon EN/JP plus
+   One Piece, Lorcana, Riftbound, Gundam.
+2. **Search follows the lane.** "luffy" in the One Piece lane finds cards; in the
+   Pokémon lane it correctly finds nothing. Search is scoped to one game, and the
+   app's active game currently rides on the scanner lane.
+3. **The graded contrast** — the sharpest single check that capabilities drive the
+   UI rather than a hardcoded game name. A **One Piece** PDP shows raw pricing and
+   **no** PSA/BGS/CGC lanes, no empty population block. A **Lorcana** PDP **does**
+   show graded lanes, across 8 graders.
+4. **Set browse is scoped** — 53 One Piece sets, not 449 Pokémon ones.
+5. **The id collision** — One Piece `EB01-001` is *Kouzuki Oden*; Gundam
+   `EB01-001` is *Gundam Astray Red Frame Custom*. Both must exist.
+6. **Marketplace links** — a One Piece card's TCGplayer link opens the right
+   product (every One Piece card has a `tcgplayer_id`), and the eBay link finds
+   real listings rather than searching "pokemon OP16 …".
+7. **Pokémon is untouched** — graded lanes, population, both marketplace links,
+   and search results exactly as before.
+
+### Known gaps — these need a schema change
+
+- ~~**`/expansions` mixes games.**~~ **FIXED.** `expansions.game` now exists —
+  additive, `TEXT NOT NULL DEFAULT 'pokemon'`, so a live table backfills in
+  place. The read, the count and the sync are all scoped per game, and
+  `sync_scrydex_expansions` stamps every row it writes. Deliberately NOT indexed:
+  measured on 449 rows, `idx_expansions_game` flips the listing onto a full
+  re-sort, which is the one thing that could reorder Pokémon's list — the
+  predicate is `+game` for the same reason it is on `cards`. Pokémon's response
+  was verified byte-identical against the real 192-row merged catalog. The four
+  POC databases were stamped without spending Scrydex credits via
+  `tools/backfill_expansion_game.py`.
+- **`refresh_card_pricing` / `hydrate-pricing` are Pokémon-only.** The
+  `PricingProvider` ABC has no `game` parameter, so `ScrydexProvider` hardcodes
+  `/pokemon/v1` for fetch-by-id. Fixing it means changing the ABC and every
+  implementation.
+- **Product deep-links on collection rows and the scan price sheet** fall back to
+  a keyword search: `_candidate_base_payload` carries no `sourcePayload`, so
+  those rows have no TCGplayer product id. Only the card-detail endpoint does.
+
+### Suite state
+
+- backend gate **981 tests OK** (was 906 — three modules that the curated list in
+  `run_all_tests.sh` had never run were breaking, and are now gated)
+- all 115 backend modules **1,405 tests OK**
+- RN **180 suites / 1,936 passed / 1 skipped**, `tsc` clean, eslint 0 errors
 
 ## Merging back
 

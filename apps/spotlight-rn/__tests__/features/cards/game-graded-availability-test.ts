@@ -1,4 +1,10 @@
-import { DEFAULT_CARD_GAME, gameHasGradedData, graderOptions } from '@spotlight/api-client';
+import {
+  type CardGame,
+  DEFAULT_CARD_GAME,
+  gameHasGradedData,
+  graderOptions,
+  gradersForGame,
+} from '@spotlight/api-client';
 
 /**
  * Which grading lanes a card may offer is decided by its GAME, not by whether a
@@ -27,13 +33,15 @@ describe('graded data availability by game', () => {
     expect(DEFAULT_CARD_GAME).toBe('pokemon');
   });
 
-  it('offers the full grader set only where graded data exists', () => {
+  it('offers grader lanes only where graded data exists', () => {
     // Mirrors what card-detail-screen derives for its configurator + add sheet.
-    const gradersFor = (game: 'pokemon' | 'onepiece' | undefined) =>
-      gameHasGradedData(game) ? [...graderOptions] : ['Raw'];
+    // Note it reads `gradersForGame`, NOT the `graderOptions` constant: that
+    // constant is the POKÉMON list, and a game's lanes are its own (Lorcana's
+    // span eight companies). See game-capabilities-test for the full ladders.
+    const gradersFor = (game: CardGame | undefined) => [...gradersForGame(game)];
 
-    expect(gradersFor('pokemon')).toEqual(['Raw', 'PSA', 'BGS', 'CGC']);
-    expect(gradersFor(undefined)).toEqual(['Raw', 'PSA', 'BGS', 'CGC']);
+    expect(gradersFor('pokemon')).toEqual([...graderOptions]);
+    expect(gradersFor(undefined)).toEqual([...graderOptions]);
     // Raw stays, so the card is still addable to a collection — it just can't
     // claim a grade.
     expect(gradersFor('onepiece')).toEqual(['Raw']);

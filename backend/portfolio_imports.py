@@ -11,6 +11,7 @@ from catalog_tools import (
     card_by_id,
     cards_by_ids,
     contextual_pricing_summary_for_card,
+    GAME_POKEMON,
     search_cards,
     tokenize,
     upsert_deck_entry,
@@ -706,7 +707,11 @@ def _shortlist_cards(connection: sqlite3.Connection, normalized_row: dict[str, A
             return []
         search_query = fallback
 
-    return search_cards(connection, search_query, limit=limit)
+    # Explicitly Pokémon rather than defaulted-to-Pokémon. The importable CSV
+    # formats are Pokémon collection exports and carry no game column, so there
+    # is no per-row game to honour; when a second game gets an import format
+    # this becomes a field on the import job rather than a constant here.
+    return search_cards(connection, search_query, limit=limit, game=GAME_POKEMON)
 
 
 def _candidate_exact_match(candidate: dict[str, Any], normalized_row: dict[str, Any]) -> bool:

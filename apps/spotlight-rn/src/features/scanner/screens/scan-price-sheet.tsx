@@ -196,6 +196,7 @@ export function ScanPriceSheet({
       cardNumber: candidate.cardNumber ?? '',
       name: candidate.name ?? '',
       setName: candidate.setName ?? '',
+      game: candidate.game,
     });
   }, [candidate, mode]);
 

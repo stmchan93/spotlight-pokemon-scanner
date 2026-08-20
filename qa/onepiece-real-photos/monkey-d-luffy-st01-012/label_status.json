@@ -1,0 +1,11 @@
+{
+  "labelState": "confirmed",
+  "labelSource": "manual_visual_verification",
+  "providerMapping": {
+    "providerCardId": "onepiece~ST01-012",
+    "sourceProvider": "scrydex",
+    "collectorNumber": "ST01-012",
+    "setName": "Straw Hat Crew"
+  },
+  "verification": "Collector number ST01-012 read off the photographed card; artwork, name plate and card frame match the Scrydex reference art for onepiece~ST01-012; no SAMPLE overlay present. Seller listing title: Monkey.D.Luffy ST01-012 SR Foil One Piece Starter Deck 1: Straw Hat Crew"
+}

@@ -1,0 +1,11 @@
+{
+  "labelState": "confirmed",
+  "labelSource": "manual_visual_verification",
+  "providerMapping": {
+    "providerCardId": "onepiece~OP01-120",
+    "sourceProvider": "scrydex",
+    "collectorNumber": "OP01-120",
+    "setName": "Romance Dawn"
+  },
+  "verification": "Collector number OP01-120 read off the photographed card; artwork, name plate and card frame match the Scrydex reference art for onepiece~OP01-120; no SAMPLE overlay present. Seller listing title: Shanks OP01-120 SEC PRB-01 Premium Booster English ONE PIECE Foil"
+}

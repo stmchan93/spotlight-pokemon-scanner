@@ -1,0 +1,11 @@
+{
+  "labelState": "confirmed",
+  "labelSource": "manual_visual_verification",
+  "providerMapping": {
+    "providerCardId": "onepiece~OP16-112",
+    "sourceProvider": "scrydex",
+    "collectorNumber": "OP16-112",
+    "setName": "The Time Of Battle"
+  },
+  "verification": "Collector number OP16-112 read off the photographed card; artwork, name plate and card frame match the Scrydex reference art for onepiece~OP16-112; no SAMPLE overlay present. Seller listing title: Bandai One Piece Card Game Boa Hancock Character OP16-112 Special 6C 8000 ENG"
+}

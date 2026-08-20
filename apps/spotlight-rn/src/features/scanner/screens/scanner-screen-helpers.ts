@@ -8,7 +8,10 @@ import { Platform, Vibration } from 'react-native';
 import * as Haptics from 'expo-haptics';
 
 import {
+  DEFAULT_CARD_GAME,
+  gameDisplayName,
   isSpotlightRepositoryRequestError,
+  type CardGame,
   type CatalogSearchResult,
   type InventoryCardEntry,
   type ScannerSlabAnalysisPayload,
@@ -571,6 +574,37 @@ export function scannerCaptureThumbUri(capture: RecentCapture, candidate: Catalo
     || sourceUri
     || null
   );
+}
+
+/**
+ * The subtitle a failed match shows, when the failure is explainable by the
+ * LANE it was scanned in.
+ *
+ * A game whose visual index has not been built yet makes the backend raise at
+ * scan time, and that surfaces here as a server error (HTTP 5xx) — an unhandled
+ * "matches could not load" would send the user back to the shutter to try the
+ * same impossible scan again. Deliberately narrow:
+ *
+ *  - Pokémon always returns null (its index is eagerly loaded and always
+ *    present; a 500 there is a real backend fault, not a missing lane), so the
+ *    Pokémon failure copy is untouched.
+ *  - Only SERVER errors qualify. A timeout or an offline phone carries no
+ *    status, and blaming the lane for those would be a lie the user acts on.
+ */
+export function scannerLaneUnavailableReason(
+  game: CardGame | undefined,
+  error: unknown,
+): string | null {
+  if ((game ?? DEFAULT_CARD_GAME) === DEFAULT_CARD_GAME) {
+    return null;
+  }
+  if (!isSpotlightRepositoryRequestError(error)) {
+    return null;
+  }
+  if (typeof error.status !== 'number' || error.status < 500) {
+    return null;
+  }
+  return `${gameDisplayName(game)} scanning isn't available yet. Switch lanes and try again.`;
 }
 
 export function scannerPreparationReviewReason(mode: ScannerMode, error: unknown) {

@@ -13,7 +13,12 @@ from typing import Any
 
 import numpy as np
 
-from catalog_tools import _collector_components
+from catalog_tools import (
+    GAME_POKEMON,
+    _collector_components,
+    game_for_scan_payload,
+    normalize_game,
+)
 from raw_visual_index import RawVisualIndex, RawVisualSearchMatch
 from raw_visual_model import RawVisualFrozenEncoder, load_projection_adapter, project_embeddings_numpy
 from raw_visual_user_photo_rerank import RawVisualUserPhotoRerankPool
@@ -122,6 +127,51 @@ def detect_language_mismatch(
     }
 
 
+def sanitize_model_slug(model_id: str) -> str:
+    """Filename-safe slug for a model id ("google/siglip2-so400m-patch16-384"
+    -> "siglip2-so400m-patch16-384"). Mirrors the identical helper in
+    tools/build_raw_visual_index.py so the builder's output filenames and the
+    matcher's expected filenames cannot drift apart.
+    """
+    slug = str(model_id or "").split("/")[-1].strip().lower()
+    return "".join(character if character.isalnum() or character in {"-", "_"} else "-" for character in slug)
+
+
+def game_index_artifact_names(game: str, model_id: str) -> tuple[str, str]:
+    """Per-game visual index artifact filenames: (npz name, manifest name).
+
+    NAMING CONVENTION
+    -----------------
+    Non-Pokémon games get the game id inserted into the artifact name:
+
+        visual_index_active_<game>_<model-slug>.npz
+        visual_index_active_<game>_manifest.json
+
+    e.g. visual_index_active_onepiece_siglip2-so400m-patch16-384.npz.
+
+    Pokémon is deliberately NOT covered by this helper. Its live artifacts
+    predate multi-game and are already deployed on every VM under the historical
+    names (`visual_index_active_clip-vit-base-patch32.npz` +
+    `visual_index_active_manifest.json` — the "clip" slug is frozen history, the
+    file holds whatever the active backbone produced). Pokémon keeps resolving
+    through the untouched active/fallback + env-override block in `__init__`, so
+    its index file — and therefore its accuracy — cannot move.
+
+    `tools/build_raw_visual_index.py --game <game>` writes the versioned form of
+    these names (`visual_index_<version>_<game>_<model-slug>.npz`); promoting a
+    build to live means copying it to the `active` name above, exactly as the
+    Pokémon index is promoted today.
+    """
+    normalized_game = normalize_game(game)
+    if normalized_game == GAME_POKEMON:
+        raise ValueError("Pokémon resolves its index through the legacy active/fallback paths, not this convention.")
+    model_slug = sanitize_model_slug(model_id)
+    return (
+        f"visual_index_active_{normalized_game}_{model_slug}.npz",
+        f"visual_index_active_{normalized_game}_manifest.json",
+    )
+
+
 def resolve_repo_relative_path(repo_root: Path, value: str | Path | None, default: Path) -> Path:
     if value is None:
         return default
@@ -190,6 +240,7 @@ class RawVisualMatcher:
     ) -> None:
         self.repo_root = repo_root
         default_root = repo_root / "backend" / "data" / "visual-index"
+        self.visual_index_root = default_root
         default_model_root = repo_root / "backend" / "data" / "visual-models"
         self.model_id = model_id or os.environ.get("SPOTLIGHT_VISUAL_MODEL_ID", "openai/clip-vit-base-patch32")
         active_index_npz_path = default_root / "visual_index_active_clip-vit-base-patch32.npz"
@@ -214,6 +265,14 @@ class RawVisualMatcher:
                 default_index_manifest_path,
             ),
         )
+        # Per-game indexes (One Piece, …). The Pokémon index above is eager and
+        # unchanged; every other game is resolved LAZILY on first scan for that
+        # game and cached here — including the "not built yet" answer (None), so
+        # a game whose index is missing simply has no scanner lane instead of
+        # taking the whole backend down at boot. See game_index_artifact_names()
+        # for the filename convention.
+        self._game_indexes: dict[str, RawVisualIndex | None] = {}
+        self._game_index_lock = threading.Lock()
         adapter_checkpoint_value = os.environ.get("SPOTLIGHT_VISUAL_ADAPTER_CHECKPOINT_PATH")
         adapter_metadata_value = os.environ.get("SPOTLIGHT_VISUAL_ADAPTER_METADATA_PATH")
         active_adapter_checkpoint_path = default_model_root / "raw_visual_adapter_active.pt"
@@ -412,8 +471,101 @@ class RawVisualMatcher:
             featureDim=int(coef.shape[1]),
         )
 
-    def is_available(self) -> bool:
-        return self.index.is_available()
+    def _resolve_game_index(self, game: str) -> RawVisualIndex | None:
+        """Build (but do not load) the RawVisualIndex for a non-Pokémon game.
+
+        Returns None — never raises — when the artifacts are missing, so an
+        unbuilt game degrades to "that lane is unavailable".
+        """
+        try:
+            npz_name, manifest_name = game_index_artifact_names(game, self.model_id)
+        except ValueError:
+            return None
+        root = getattr(self, "visual_index_root", None) or (self.repo_root / "backend" / "data" / "visual-index")
+        # Per-game env overrides mirror the Pokémon ones with a game suffix:
+        # SPOTLIGHT_VISUAL_INDEX_NPZ_PATH_ONEPIECE / ..._MANIFEST_PATH_ONEPIECE.
+        env_suffix = game.upper()
+        npz_path = resolve_repo_relative_path(
+            self.repo_root,
+            os.environ.get(f"SPOTLIGHT_VISUAL_INDEX_NPZ_PATH_{env_suffix}"),
+            root / npz_name,
+        )
+        manifest_path = resolve_repo_relative_path(
+            self.repo_root,
+            os.environ.get(f"SPOTLIGHT_VISUAL_INDEX_MANIFEST_PATH_{env_suffix}"),
+            root / manifest_name,
+        )
+        index = RawVisualIndex(npz_path=npz_path, manifest_path=manifest_path)
+        if not index.is_available():
+            _emit_matcher_log(
+                "WARNING",
+                "visual_index_game_unavailable",
+                game=game,
+                npzPath=str(npz_path),
+                manifestPath=str(manifest_path),
+                reason="missing_artifacts",
+            )
+            return None
+        _emit_matcher_log(
+            "INFO",
+            "visual_index_game_resolved",
+            game=game,
+            npzPath=str(npz_path),
+            manifestPath=str(manifest_path),
+        )
+        return index
+
+    def index_for_game(self, game: Any = None) -> RawVisualIndex | None:
+        """The visual index for a scan's game, or None when that game has none.
+
+        Pokémon ALWAYS returns `self.index` — the exact instance built by
+        __init__ from the legacy active/fallback paths and env overrides — so
+        the Pokémon lane behaves bit-for-bit as it did before per-game indexes
+        existed (and tests/tools that swap `matcher.index` keep working).
+        """
+        normalized_game = normalize_game(game)
+        if normalized_game == GAME_POKEMON:
+            return getattr(self, "index", None)
+
+        cache = getattr(self, "_game_indexes", None)
+        if cache is None:
+            cache = {}
+            self._game_indexes = cache
+        if normalized_game in cache:
+            return cache[normalized_game]
+
+        lock = getattr(self, "_game_index_lock", None)
+        if lock is None:
+            lock = threading.Lock()
+            self._game_index_lock = lock
+        with lock:
+            if normalized_game in cache:
+                return cache[normalized_game]
+            try:
+                resolved = self._resolve_game_index(normalized_game)
+            except Exception as exc:  # pragma: no cover - defensive: a bad path must not break scans
+                _emit_matcher_log(
+                    "WARNING", "visual_index_game_resolve_failed", game=normalized_game, error=str(exc)
+                )
+                resolved = None
+            cache[normalized_game] = resolved
+            return resolved
+
+    @staticmethod
+    def game_for_payload(payload: dict[str, Any] | None) -> str:
+        """Which game a scan payload is for. Absent/unknown -> Pokémon, which is
+        every pre-multi-game client.
+
+        Delegates so the OCR fallback in server.py — which cannot import this
+        module without pulling in numpy/torch — reads the payload through the
+        SAME code. Two readers would be free to drift apart, and the scanner
+        would then search one catalog visually and another textually.
+        """
+        return game_for_scan_payload(payload)
+
+    def is_available(self, game: Any = None) -> bool:
+        index = self.index_for_game(game)
+        return index is not None and index.is_available()
 
     def prewarm(self, *, run_inference: bool = False) -> dict[str, Any]:
         if not self.is_available():
@@ -1214,8 +1366,10 @@ class RawVisualMatcher:
         top_k: int = 10,
         telemetry_context: str = "live_scan",
     ) -> tuple[list[RawVisualSearchMatch], dict[str, Any]]:
-        if not self.is_available():
-            raise RuntimeError("Visual index artifacts are not available.")
+        game = self.game_for_payload(payload)
+        index = self.index_for_game(game)
+        if index is None or not index.is_available():
+            raise RuntimeError(f"Visual index artifacts are not available for game '{game}'.")
         match_started_at = perf_counter()
         inference_sequence, idle_before_ms = self._begin_inference_telemetry()
 
@@ -1274,7 +1428,7 @@ class RawVisualMatcher:
                 apply_language_bias = preferred_language is not None and preferred_language_confidence >= 0.65
 
                 index_started_at = perf_counter()
-                raw_matches = self.index.search(embedding, top_k=internal_top_k)
+                raw_matches = index.search(embedding, top_k=internal_top_k)
                 index_search_ms += (perf_counter() - index_started_at) * 1000.0
 
                 adjusted_matches = self._apply_language_adjustments(
@@ -1346,11 +1500,18 @@ class RawVisualMatcher:
             # Mini-index basic-energy routing: run AFTER the main lookup so we
             # can compare similarities and override only when the mini-index is
             # both confident and beating the main top-1.
-            mini_routed_debug = self._maybe_route_basic_energy_mini_index(
-                matches=matches,
-                base_variant_embedding=base_variant_embedding,
-                payload=payload,
-                preferred_language=preferred_language,
+            # Pokémon-only: the mini-index holds Pokémon basic energies, so
+            # routing a non-Pokémon scan through it could only ever substitute a
+            # card from the wrong game.
+            mini_routed_debug = (
+                self._maybe_route_basic_energy_mini_index(
+                    matches=matches,
+                    base_variant_embedding=base_variant_embedding,
+                    payload=payload,
+                    preferred_language=preferred_language,
+                )
+                if game == GAME_POKEMON
+                else None
             )
             if mini_routed_debug is not None and mini_routed_debug.get("used"):
                 replacement_match = mini_routed_debug.pop("_replacementMatch", None)
@@ -1394,8 +1555,9 @@ class RawVisualMatcher:
 
             debug = {
                 "modelId": self.model_id,
-                "indexNpzPath": str(self.index.npz_path),
-                "indexManifestPath": str(self.index.manifest_path),
+                "game": game,
+                "indexNpzPath": str(index.npz_path),
+                "indexManifestPath": str(index.manifest_path),
                 "adapterCheckpointPath": str(self.adapter_checkpoint_path) if self.adapter_checkpoint_path and self.adapter_checkpoint_path.exists() else None,
                 "adapterMetadataPath": str(self.adapter_metadata_path) if self.adapter_metadata_path and self.adapter_metadata_path.exists() else None,
                 "topK": top_k,

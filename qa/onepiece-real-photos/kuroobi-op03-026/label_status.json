@@ -1,0 +1,11 @@
+{
+  "labelState": "confirmed",
+  "labelSource": "manual_visual_verification",
+  "providerMapping": {
+    "providerCardId": "onepiece~OP03-026",
+    "sourceProvider": "scrydex",
+    "collectorNumber": "OP03-026",
+    "setName": "Pillars of Strength"
+  },
+  "verification": "Collector number OP03-026 read off the photographed card; artwork, name plate and card frame match the Scrydex reference art for onepiece~OP03-026; no SAMPLE overlay present. Seller listing title: KUROOBI OP03-026 UC PILLARS OF STRENGTH ONE PIECE NM"
+}

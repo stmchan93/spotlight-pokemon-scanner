@@ -24,9 +24,14 @@ type ScannerLanguageTooltipProps = {
 
 /**
  * One-time coach mark over the scanner (Figma 2302:29019): a white speech
- * bubble above the language pill — “Switch between Pokémon EN/JP!” — with a
+ * bubble above the scan-target pill — “Switch games and languages!” — with a
  * curved tail pointing down at the pill. Fades in/out on `visible` (opacity
  * only → native driver); unmounts after the fade-out completes.
+ *
+ * The copy was “Switch between Pokémon EN/JP!” while the pill only chose a
+ * language. It now chooses a GAME as well, so describing it as a language
+ * toggle would have left anyone in a non-Pokémon lane reading a coach mark
+ * about a control that does something else.
  */
 export function ScannerLanguageTooltip({
   visible,
@@ -68,7 +73,7 @@ export function ScannerLanguageTooltip({
     <Animated.View pointerEvents={visible ? 'auto' : 'none'} style={{ opacity }}>
       <Pressable accessibilityRole="button" onPress={onPress} testID={testID}>
         <Animated.View style={styles.bubble}>
-          <Text style={styles.copy}>Switch between Pokémon EN/JP!</Text>
+          <Text style={styles.copy}>Switch games and languages!</Text>
         </Animated.View>
         <Svg height={13} style={styles.tail} viewBox="0 0 56 13" width={56}>
           <Path d={TAIL_PATH} fill={BUBBLE_BACKGROUND} />

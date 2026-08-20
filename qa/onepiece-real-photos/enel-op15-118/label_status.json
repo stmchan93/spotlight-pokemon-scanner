@@ -1,0 +1,11 @@
+{
+  "labelState": "confirmed",
+  "labelSource": "manual_visual_verification",
+  "providerMapping": {
+    "providerCardId": "onepiece~OP15-118",
+    "sourceProvider": "scrydex",
+    "collectorNumber": "OP15-118",
+    "setName": "Adventure on Kami's Island"
+  },
+  "verification": "Collector number OP15-118 read off the photographed card; artwork, name plate and card frame match the Scrydex reference art for onepiece~OP15-118; no SAMPLE overlay present. Seller listing title: One Piece Enel OP15-118 Secret Rare SEC Foil Card (Adventure on Kami's Island)"
+}

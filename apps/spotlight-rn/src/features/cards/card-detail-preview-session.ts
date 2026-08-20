@@ -58,11 +58,15 @@ function saveCardDetailPreview(input: SaveCardDetailPreviewInput) {
   return id;
 }
 
+// The preview is what the PDP paints from BEFORE the detail request lands, so
+// it must carry the game too — otherwise the grading lanes render as Pokémon's
+// for a beat and then swap, which reads as a flicker of wrong controls.
 export function cardDetailPreviewFromCatalogResult(result: CatalogSearchResult): CardDetailPreview {
   return {
     cardId: result.cardId,
     cardNumber: result.cardNumber,
     currencyCode: result.currencyCode ?? 'USD',
+    game: result.game,
     id: result.id,
     imageUrl: result.imageUrl,
     marketPrice: result.marketPrice ?? null,
@@ -77,6 +81,7 @@ export function cardDetailPreviewFromInventoryEntry(entry: InventoryCardEntry): 
     cardNumber: entry.cardNumber,
     currencyCode: entry.currencyCode,
     entryId: entry.id,
+    game: entry.game,
     id: entry.id,
     imageUrl: entry.imageUrl,
     largeImageUrl: entry.largeImageUrl ?? null,
@@ -100,6 +105,7 @@ export function cardDetailPreviewFromFavorite(entry: CardFavoriteEntry): CardDet
     cardId: entry.cardId,
     cardNumber: entry.cardNumber,
     currencyCode: entry.currencyCode,
+    game: entry.game,
     id: `favorite:${entry.cardId}`,
     imageUrl: entry.imageUrl,
     largeImageUrl: entry.largeImageUrl ?? null,

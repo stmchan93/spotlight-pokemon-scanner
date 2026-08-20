@@ -13,7 +13,8 @@ REPO_ROOT = BACKEND_ROOT.parent
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from catalog_tools import (  # noqa: E402
+from catalog_tools import (
+    GAME_POKEMON,  # noqa: E402
     apply_schema,
     connect,
     expansion_count,
@@ -87,7 +88,7 @@ class GetCardsByExpansionTests(unittest.TestCase):
         self.tempdir.cleanup()
 
     def test_returns_all_cards_for_set_id_when_no_query(self) -> None:
-        results = get_cards_by_expansion(self.connection, "obf")
+        results = get_cards_by_expansion(self.connection, "obf", game=GAME_POKEMON)
         ids = [r["id"] for r in results]
         self.assertIn("obf-charizard", ids)
         self.assertIn("obf-pikachu", ids)
@@ -95,27 +96,27 @@ class GetCardsByExpansionTests(unittest.TestCase):
         self.assertNotIn("base1-charizard", ids)
 
     def test_returns_empty_for_unknown_set_id(self) -> None:
-        results = get_cards_by_expansion(self.connection, "nonexistent-set-xyz")
+        results = get_cards_by_expansion(self.connection, "nonexistent-set-xyz", game=GAME_POKEMON)
         self.assertEqual(results, [])
 
     def test_returns_empty_for_blank_set_id(self) -> None:
-        results = get_cards_by_expansion(self.connection, "")
+        results = get_cards_by_expansion(self.connection, "", game=GAME_POKEMON)
         self.assertEqual(results, [])
 
     def test_filters_by_query_within_expansion(self) -> None:
-        results = get_cards_by_expansion(self.connection, "obf", query="charizard")
+        results = get_cards_by_expansion(self.connection, "obf", query="charizard", game=GAME_POKEMON)
         ids = [r["id"] for r in results]
         self.assertIn("obf-charizard", ids)
         self.assertNotIn("base1-charizard", ids)
 
     def test_filters_by_card_number_within_expansion(self) -> None:
-        results = get_cards_by_expansion(self.connection, "obf", query="125")
+        results = get_cards_by_expansion(self.connection, "obf", query="125", game=GAME_POKEMON)
         ids = [r["id"] for r in results]
         self.assertIn("obf-charizard", ids)
         self.assertNotIn("obf-pikachu", ids)
 
     def test_filters_by_card_number_with_hash_prefix(self) -> None:
-        results = get_cards_by_expansion(self.connection, "obf", query="#125")
+        results = get_cards_by_expansion(self.connection, "obf", query="#125", game=GAME_POKEMON)
         ids = [r["id"] for r in results]
         self.assertIn("obf-charizard", ids)
 
@@ -128,7 +129,7 @@ class GetCardsByExpansionTests(unittest.TestCase):
             refresh_embeddings=False,
         )
         self.connection.commit()
-        results = get_cards_by_expansion(self.connection, "obf", query="1")
+        results = get_cards_by_expansion(self.connection, "obf", query="1", game=GAME_POKEMON)
         ids = [r["id"] for r in results]
         self.assertIn("obf-leading-zero", ids)
 
@@ -141,21 +142,21 @@ class GetCardsByExpansionTests(unittest.TestCase):
             refresh_embeddings=False,
         )
         self.connection.commit()
-        results = get_cards_by_expansion(self.connection, "obf", query="005")
+        results = get_cards_by_expansion(self.connection, "obf", query="005", game=GAME_POKEMON)
         ids = [r["id"] for r in results]
         self.assertIn("obf-005", ids)
 
     def test_does_not_match_other_expansions_for_number_query(self) -> None:
-        results = get_cards_by_expansion(self.connection, "base1", query="125")
+        results = get_cards_by_expansion(self.connection, "base1", query="125", game=GAME_POKEMON)
         ids = [r["id"] for r in results]
         self.assertNotIn("obf-charizard", ids)
 
     def test_respects_limit(self) -> None:
-        results = get_cards_by_expansion(self.connection, "obf", limit=2)
+        results = get_cards_by_expansion(self.connection, "obf", limit=2, game=GAME_POKEMON)
         self.assertLessEqual(len(results), 2)
 
     def test_result_has_expected_fields(self) -> None:
-        results = get_cards_by_expansion(self.connection, "base1")
+        results = get_cards_by_expansion(self.connection, "base1", game=GAME_POKEMON)
         self.assertGreater(len(results), 0)
         card = results[0]
         self.assertIn("id", card)
@@ -322,19 +323,19 @@ class ExpansionEndpointTests(unittest.TestCase):
 
     def test_search_expansion_cards_returns_results_for_known_set(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
-        payload = service.search_expansion_cards("obf")
+        payload = service.search_expansion_cards("obf", game=GAME_POKEMON)
         ids = [r["id"] for r in payload["results"]]
         self.assertIn("obf-charizard", ids)
         self.assertIn("obf-pikachu", ids)
 
     def test_search_expansion_cards_returns_empty_for_unknown_set(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
-        payload = service.search_expansion_cards("nonexistent-set")
+        payload = service.search_expansion_cards("nonexistent-set", game=GAME_POKEMON)
         self.assertEqual(payload["results"], [])
 
     def test_search_expansion_cards_filters_by_query(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
-        payload = service.search_expansion_cards("obf", query="charizard")
+        payload = service.search_expansion_cards("obf", query="charizard", game=GAME_POKEMON)
         ids = [r["id"] for r in payload["results"]]
         self.assertIn("obf-charizard", ids)
 

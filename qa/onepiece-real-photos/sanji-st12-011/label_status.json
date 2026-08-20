@@ -1,0 +1,11 @@
+{
+  "labelState": "confirmed",
+  "labelSource": "manual_visual_verification",
+  "providerMapping": {
+    "providerCardId": "onepiece~ST12-011",
+    "sourceProvider": "scrydex",
+    "collectorNumber": "ST12-011",
+    "setName": "Zoro and Sanji"
+  },
+  "verification": "Collector number ST12-011 read off the photographed card; artwork, name plate and card frame match the Scrydex reference art for onepiece~ST12-011; no SAMPLE overlay present. Seller listing title: Sanji ST12-011 Common Starter Deck 12: Zoro and Sanji One Piece Near Mint"
+}

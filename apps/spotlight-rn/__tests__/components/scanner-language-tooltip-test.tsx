@@ -9,7 +9,8 @@ describe('ScannerLanguageTooltip (Figma 2302:29019)', () => {
     const onPress = jest.fn();
     render(<ScannerLanguageTooltip onPress={onPress} visible />);
 
-    expect(screen.getByText('Switch between Pokémon EN/JP!')).toBeTruthy();
+    // The pill now picks a GAME as well as a language, so the coach mark says so.
+    expect(screen.getByText('Switch games and languages!')).toBeTruthy();
     fireEvent.press(screen.getByTestId('scanner-language-tooltip'));
     expect(onPress).toHaveBeenCalledTimes(1);
   });

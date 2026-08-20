@@ -1,0 +1,11 @@
+{
+  "labelState": "confirmed",
+  "labelSource": "manual_visual_verification",
+  "providerMapping": {
+    "providerCardId": "onepiece~OP03-013",
+    "sourceProvider": "scrydex",
+    "collectorNumber": "OP03-013",
+    "setName": "Pillars of Strength"
+  },
+  "verification": "Collector number OP03-013 read off the photographed card; artwork, name plate and card frame match the Scrydex reference art for onepiece~OP03-013; no SAMPLE overlay present. Seller listing title: Marco OP03-013 SR Mighty Enemies - ONE PIECE Card Game Japanese eBay"
+}

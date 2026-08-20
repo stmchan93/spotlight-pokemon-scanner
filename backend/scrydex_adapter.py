@@ -18,7 +18,12 @@ from urllib.request import Request, urlopen
 from catalog_tools import (
     DEFAULT_GAME,
     GAME_ONE_PIECE,
+    bare_catalog_id,
+    game_has_language_paths,
+    namespaced_catalog_id,
+    normalize_game,
     scrydex_game_segment,
+    scrydex_request_type,
     _default_display_currency_code,
     _default_raw_field_values,
     _empty_graded_contexts,
@@ -745,6 +750,47 @@ def map_scrydex_onepiece_card(payload: dict[str, object]) -> dict[str, object]:
     }
 
 
+# Which mapper turns a Scrydex card payload into our shared card row, per game.
+# A table rather than an `if game == …` chain so adding a game is one entry, and
+# so the "did we forget a mapper?" question has an answer you can read.
+#
+# Only games whose payload shape actually differs need an entry: Scrydex's
+# Lorcana / Riftbound / Gundam card objects follow the same envelope Pokémon
+# does, so they fall through to the default mapper until proven otherwise.
+_SCRYDEX_CARD_MAPPERS = {
+    GAME_ONE_PIECE: map_scrydex_onepiece_card,
+}
+
+
+def map_scrydex_card_for_game(payload: dict[str, object], game: str) -> dict[str, object]:
+    """Map one Scrydex card payload to a catalog row for `game`.
+
+    `game` is required: silently mapping a One Piece payload with the Pokémon
+    mapper produces a row that looks fine and is wrong in every field.
+
+    This is also where provider ids become OUR ids. Namespacing belongs here
+    rather than in each mapper because it is the one seam that both knows the
+    game and is crossed by every game — a per-mapper transform would have to be
+    re-remembered for every future game, and the games that fall through to the
+    default Pokémon mapper have no mapper of their own to put it in.
+
+    `set_id` is namespaced with the SAME prefix as the card id, and must be:
+    expansion ids collide too (EB01, ST01..ST10), and set browsing joins
+    `cards.set_id` to `expansions.id`. Namespacing one and not the other would
+    trade a card-id collision for an empty set browse.
+
+    `source_record_id` deliberately keeps the provider's bare id — it is
+    provenance, and the thing you need to go ask Scrydex about this row again.
+    """
+    normalized_game = normalize_game(game)
+    mapper = _SCRYDEX_CARD_MAPPERS.get(normalized_game, map_scrydex_catalog_card)
+    mapped = mapper(payload)
+    mapped["id"] = namespaced_catalog_id(normalized_game, mapped.get("id"))
+    if mapped.get("set_id"):
+        mapped["set_id"] = namespaced_catalog_id(normalized_game, mapped.get("set_id"))
+    return mapped
+
+
 def _quote_query_value(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
 
@@ -1146,8 +1192,10 @@ def persist_scrydex_daily_history_from_card_payload(
     data = _scrydex_card_data(payload)
     variants = data.get("variants") if isinstance(data.get("variants"), list) else []
     normalized_price_date = str(price_date or _scrydex_today_price_date()).strip() or _scrydex_today_price_date()
+    # `card_id` is OUR id and may be namespaced; the recorded provenance URL has
+    # to be the one Scrydex would actually answer. No-op for Pokémon.
     source_url = scrydex_request_url(
-        f"/{scrydex_game_segment(game)}/v1/cards/{card_id}", include="prices"
+        f"/{scrydex_game_segment(game)}/v1/cards/{bare_catalog_id(card_id)}", include="prices"
     )
     raw_contexts, graded_contexts, raw_count, graded_count, display_currency_code = _contexts_from_variant_payloads(variants)
     if raw_count <= 0 and graded_count <= 0:
@@ -1185,6 +1233,7 @@ def persist_scrydex_daily_history_from_card_payload(
 def fetch_scrydex_price_history(
     card_id: str,
     *,
+    game: str | None = None,
     days: int = 30,
     variant: str | None = None,
     condition: str | None = None,
@@ -1213,8 +1262,17 @@ def fetch_scrydex_price_history(
         params["is_signed"] = "true" if is_signed else "false"
     if is_error is not None:
         params["is_error"] = "true" if is_error else "false"
+    # Segment from the descriptor, not a hardcoded "pokemon". The PDP fires
+    # /market-history for EVERY card it opens, so a non-Pokemon id was being
+    # asked for down the Pokemon path on every single detail view -- a request
+    # that cannot succeed and still bills. `game=None` keeps every existing
+    # caller on /pokemon/v1 exactly as before.
+    #
+    # The id is stripped back to the provider's own: Scrydex has never heard of
+    # `gundam~EB01-001`. Segment + bare id together are what make the request
+    # unambiguous — which is exactly why the namespace can be dropped here.
     return scrydex_api_request(
-        f"/pokemon/v1/cards/{card_id}/price_history",
+        f"/{scrydex_game_segment(game)}/v1/cards/{bare_catalog_id(card_id)}/price_history",
         request_type="price_history",
         timeout=timeout,
         **params,
@@ -1226,13 +1284,16 @@ def persist_scrydex_price_history_payload(
     *,
     card_id: str,
     payload: dict[str, Any],
+    game: str | None = None,
     commit: bool = True,
 ) -> int:
     entries = payload.get("data")
     if not isinstance(entries, list):
         return 0
     persisted_count = 0
-    source_url = scrydex_request_url(f"/pokemon/v1/cards/{card_id}/price_history")
+    source_url = scrydex_request_url(
+        f"/{scrydex_game_segment(game)}/v1/cards/{bare_catalog_id(card_id)}/price_history"
+    )
     for entry in entries:
         if not isinstance(entry, dict):
             continue
@@ -1275,8 +1336,9 @@ def persist_scrydex_raw_snapshot(
     raw_contexts, graded_contexts, raw_count, graded_count, display_currency_code = _contexts_from_variant_payloads(variants)
     if raw_count <= 0 and graded_count <= 0:
         return None
+    # Provenance URL must be the provider's, so the stored id is stripped back.
     source_url = scrydex_request_url(
-        f"/{scrydex_game_segment(game)}/v1/cards/{card_id}", include="prices"
+        f"/{scrydex_game_segment(game)}/v1/cards/{bare_catalog_id(card_id)}", include="prices"
     )
     raw_contexts_to_store = raw_contexts if raw_count > 0 else None
     graded_contexts_to_store = graded_contexts if graded_count > 0 else None
@@ -1310,8 +1372,10 @@ def fetch_scrydex_card_by_id(
     timeout: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     params = {"include": "prices"} if include_prices else {}
+    # Callers pass OUR id (that is what is in the DB and on the wire from the
+    # app); the provider only knows the bare one. No-op for Pokémon.
     payload = scrydex_api_request(
-        f"/{scrydex_game_segment(game)}/v1/cards/{card_id}",
+        f"/{scrydex_game_segment(game)}/v1/cards/{bare_catalog_id(card_id)}",
         request_type=request_type,
         timeout=timeout,
         **params,
@@ -1325,6 +1389,7 @@ def fetch_scrydex_card_by_id(
 def fetch_scrydex_recent_sales(
     card_id: str,
     *,
+    game: str | None = None,
     source: str = "ebay",
     grader: str | None = None,
     grade: str | None = None,
@@ -1345,8 +1410,16 @@ def fetch_scrydex_recent_sales(
     if normalized_grade:
         params["grade"] = normalized_grade
 
+    # Path segment from the descriptor rather than a hardcoded "pokemon": with
+    # Lorcana carrying real graded lanes, a Lorcana card id could otherwise be
+    # asked for down the POKÉMON listings path — a request that cannot succeed
+    # and still costs a credit. `game=None` keeps every existing caller on
+    # /pokemon/v1 exactly as before.
+    #
+    # Bare id for the same reason: the namespace is ours, the segment already
+    # tells the provider which game this is.
     payload = scrydex_api_request(
-        f"/pokemon/v1/cards/{card_id}/listings",
+        f"/{scrydex_game_segment(game)}/v1/cards/{bare_catalog_id(card_id)}/listings",
         request_type=request_type,
         timeout=timeout,
         **params,
@@ -1451,7 +1524,11 @@ def fetch_scrydex_recent_sales(
         "grader": normalized_grader,
         "grade": normalized_grade,
         "source": normalized_source,
-        "sourceURL": scrydex_request_url(f"/pokemon/v1/cards/{card_id}/listings", **params),
+        # Must mirror the segment the request above actually used -- echoing
+        # /pokemon here while calling /lorcana mislabels the row's provenance.
+        "sourceURL": scrydex_request_url(
+            f"/{scrydex_game_segment(game)}/v1/cards/{bare_catalog_id(card_id)}/listings", **params
+        ),
         "sourcePayload": payload,
         "sales": sales[:normalized_limit],
     }
@@ -1480,11 +1557,14 @@ def _map_scrydex_expansion(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def fetch_scrydex_expansions(game: str = "pokemon") -> list[dict[str, Any]]:
-    normalized_game = str(game or "pokemon").strip().lower()
+def fetch_scrydex_expansions(game: str) -> list[dict[str, Any]]:
+    # `game` is REQUIRED, not defaulted. The default that used to live here is
+    # exactly how a One Piece sync quietly pulled 449 POKÉMON expansions: the
+    # caller thought it had said which game, and the signature disagreed in
+    # silence. A missing argument must be a TypeError, not a wrong catalog.
     try:
         payload = scrydex_api_request(
-            f"/{normalized_game}/v1/expansions",
+            f"/{scrydex_game_segment(game)}/v1/expansions",
             request_type="expansions_list",
         )
     except Exception:
@@ -1500,16 +1580,21 @@ def fetch_scrydex_expansions(game: str = "pokemon") -> list[dict[str, Any]]:
         return []
 
     mapped = [_map_scrydex_expansion(item) for item in items if isinstance(item, dict) and item.get("id")]
+    # Same namespace the sync writes, so a live expansion listing and the stored
+    # `expansions` rows are comparable by id instead of quietly disagreeing.
+    for expansion in mapped:
+        expansion["id"] = namespaced_catalog_id(game, expansion["id"])
     mapped.sort(key=lambda e: str(e.get("releaseDate") or ""), reverse=True)
     return mapped
 
 
 def fetch_scrydex_expansions_raw(
-    game: str = "pokemon",
+    game: str,
     *,
     page_size: int = 100,
 ) -> list[dict[str, Any]]:
-    normalized_game = str(game or "pokemon").strip().lower()
+    # `game` is REQUIRED — see fetch_scrydex_expansions for why.
+    segment = scrydex_game_segment(game)
     # Scrydex caps unpaginated responses at one page (100 items), which
     # silently truncated the expansion catalog — page until a short page.
     collected: list[dict[str, Any]] = []
@@ -1518,7 +1603,7 @@ def fetch_scrydex_expansions_raw(
     while True:
         try:
             payload = scrydex_api_request(
-                f"/{normalized_game}/v1/expansions",
+                f"/{segment}/v1/expansions",
                 request_type="expansions_list",
                 page=str(page),
                 page_size=str(page_size),
@@ -1550,9 +1635,13 @@ def fetch_scrydex_expansions_raw(
     return collected
 
 
-def sync_scrydex_expansions(connection: Any, *, game: str = "pokemon") -> int:
-    from catalog_tools import upsert_expansion, utc_now
+def sync_scrydex_expansions(connection: Any, *, game: str) -> int:
+    # `game` is REQUIRED — see fetch_scrydex_expansions for why. It also STAMPS
+    # every row it writes, so `/expansions?game=…` can hand back one game's sets
+    # instead of whatever the table happens to hold.
+    from catalog_tools import normalize_game, upsert_expansion, utc_now
 
+    normalized_game = normalize_game(game)
     raw_expansions = fetch_scrydex_expansions_raw(game=game)
     if not raw_expansions:
         return 0
@@ -1579,7 +1668,11 @@ def sync_scrydex_expansions(connection: Any, *, game: str = "pokemon") -> int:
 
         upsert_expansion(
             connection,
-            expansion_id=str(mapped["id"]),
+            # Namespaced with the same prefix `map_scrydex_card_for_game` puts
+            # on `cards.set_id`. These two MUST agree or the set browse joins
+            # nothing: One Piece and Gundam both ship an expansion called EB01.
+            expansion_id=namespaced_catalog_id(game, mapped["id"]),
+            game=normalized_game,
             name=str(mapped.get("name") or ""),
             series=mapped.get("series"),
             code=mapped.get("code"),
@@ -1611,11 +1704,12 @@ def fetch_scrydex_cards_page(
     # the URL it did before.
     segment = scrydex_game_segment(game)
     normalized_language = str(language or "").strip().lower()
-    if normalized_language in {"", "all", "default"}:
+    # A per-language sub-path (`/pokemon/v1/ja/cards`) only exists for games that
+    # declare `has_language_paths`; the rest serve language as a card field, and
+    # asking them for one 404s. The descriptor owns that fact — see catalog_tools.
+    if normalized_language in {"", "all", "default"} or not game_has_language_paths(game):
         path = f"/{segment}/v1/cards"
     else:
-        # Only Pokémon has per-language sub-paths on Scrydex; One Piece serves
-        # language as a card field instead.
         path = f"/{segment}/v1/{normalized_language}/cards"
     params = {
         "page": str(page),
@@ -2129,14 +2223,16 @@ def _best_scrydex_graded_price(
     return variant_name, price
 
 
-# NOTE — the graded and listings helpers below stay Pokémon-only ON PURPOSE.
-# Probing the live API on 2026-08-13 (tools/probe_scrydex_onepiece.py) found
-# Scrydex serves NO graded prices and empty pop_reports for One Piece: across
-# OP16 and OP01, a single-card detail read and a PSA-10 price_history query,
-# every graded row was absent and every `pop_reports` was []. The price schema is
-# identical, so these would work the day the data appears — until then,
-# parameterizing them would only add an unreachable branch to the hot pricing
-# path. See docs/one-piece-tcg-spike-2026-08-13.md.
+# These graded helpers were Pokémon-only while One Piece was the only second
+# game: probing the live API on 2026-08-13 (tools/probe_scrydex_onepiece.py)
+# found Scrydex serves NO graded prices and empty pop_reports for it, so a
+# `game` parameter would have been an unreachable branch on the hot pricing path.
+# LORCANA changed that — measured 2026-08-14, 1,525 of its 3,170 priced cards
+# carry graded contexts across eight companies — so the branch is now live and
+# the segment comes from the descriptor. Whether a game has graded data at all is
+# the CALLER's gate (`game_has_graded_pricing`); these helpers only need to
+# record which catalog the row actually came from.
+# See docs/one-piece-tcg-spike-2026-08-13.md.
 def persist_scrydex_psa_snapshot(
     connection,
     *,
@@ -2144,6 +2240,7 @@ def persist_scrydex_psa_snapshot(
     payload: dict[str, Any],
     grader: str,
     grade: str,
+    game: str,
     preferred_variant: str | None = None,
     variant_hints: dict[str, Any] | None = None,
     commit: bool = True,
@@ -2165,7 +2262,9 @@ def persist_scrydex_psa_snapshot(
     _, graded_contexts, _, graded_count, display_currency_code = _contexts_from_variant_payloads(variants)
     if graded_count <= 0:
         return None
-    source_url = scrydex_request_url(f"/pokemon/v1/cards/{card_id}", include="prices")
+    source_url = scrydex_request_url(
+        f"/{scrydex_game_segment(game)}/v1/cards/{card_id}", include="prices"
+    )
     upsert_price_snapshot(
         connection,
         card_id=card_id,
@@ -2201,11 +2300,14 @@ def persist_scrydex_all_graded_snapshots(
     *,
     card_id: str,
     payload: dict[str, Any],
+    game: str,
     commit: bool = True,
 ) -> int:
     data = _scrydex_card_data(payload)
     variants = data.get("variants") if isinstance(data.get("variants"), list) else []
-    source_url = scrydex_request_url(f"/pokemon/v1/cards/{card_id}", include="prices")
+    source_url = scrydex_request_url(
+        f"/{scrydex_game_segment(game)}/v1/cards/{card_id}", include="prices"
+    )
     _, graded_contexts, _, persisted_count, display_currency_code = _contexts_from_variant_payloads(variants)
     if persisted_count > 0:
         upsert_price_snapshot(
@@ -2245,9 +2347,18 @@ class ScrydexProvider(PricingProvider):
     def is_ready(self) -> bool:
         return scrydex_credentials() is not None
 
-    def refresh_raw_pricing(self, connection, card_id: str) -> RawPricingResult:
+    def refresh_raw_pricing(self, connection, card_id: str, *, game: str) -> RawPricingResult:
         try:
-            payload = fetch_scrydex_card_by_id(card_id, include_prices=True, request_type="raw_fetch_by_id")
+            payload = fetch_scrydex_card_by_id(
+                card_id,
+                include_prices=True,
+                game=game,
+                # Pokémon resolves to the literal "raw_fetch_by_id" it has always
+                # sent. That string is the GROUP BY key of the credit rollups, so
+                # it must not move; other games get their own label instead of
+                # being merged into Pokémon's spend.
+                request_type=scrydex_request_type("raw_fetch_by_id", game),
+            )
         except Exception as exc:
             return RawPricingResult(
                 success=False,
@@ -2256,7 +2367,7 @@ class ScrydexProvider(PricingProvider):
                 error=str(exc),
             )
 
-        persisted = persist_scrydex_raw_snapshot(connection, card_id, payload)
+        persisted = persist_scrydex_raw_snapshot(connection, card_id, payload, game=game)
         if persisted is None:
             return RawPricingResult(
                 success=False,
@@ -2278,11 +2389,18 @@ class ScrydexProvider(PricingProvider):
         card_id: str,
         grader: str,
         grade: str,
+        *,
+        game: str,
         preferred_variant: str | None = None,
         variant_hints: dict[str, Any] | None = None,
     ) -> PsaPricingResult:
         try:
-            payload = fetch_scrydex_card_by_id(card_id, include_prices=True, request_type="psa_fetch_by_id")
+            payload = fetch_scrydex_card_by_id(
+                card_id,
+                include_prices=True,
+                game=game,
+                request_type=scrydex_request_type("psa_fetch_by_id", game),
+            )
         except Exception as exc:
             return PsaPricingResult(
                 success=False,
@@ -2299,6 +2417,7 @@ class ScrydexProvider(PricingProvider):
             payload=payload,
             grader=grader,
             grade=grade,
+            game=game,
             preferred_variant=preferred_variant,
             variant_hints=variant_hints,
         )

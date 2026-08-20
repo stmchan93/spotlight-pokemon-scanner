@@ -1,0 +1,14 @@
+{
+  "note": "No runtime OCR was captured for this fixture; visual retrieval metrics only.",
+  "collectorNumber": null,
+  "collectorNumberPartial": null,
+  "setHintTokens": [],
+  "titleTextPrimary": null,
+  "passSummaries": [],
+  "titleConfidenceScore": 0.0,
+  "collectorConfidenceScore": 0.0,
+  "setConfidenceScore": 0.0,
+  "cropConfidence": 0.0,
+  "ocrUsedFallback": false,
+  "ocrTargetQualityScore": 0.0
+}

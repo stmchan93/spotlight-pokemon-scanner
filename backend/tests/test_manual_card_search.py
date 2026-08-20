@@ -13,7 +13,7 @@ REPO_ROOT = BACKEND_ROOT.parent
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from catalog_tools import apply_schema, connect, search_cards, upsert_catalog_card  # noqa: E402
+from catalog_tools import GAME_POKEMON, apply_schema, connect, search_cards, upsert_catalog_card  # noqa: E402
 from server import SpotlightRequestHandler, SpotlightScanService  # noqa: E402
 
 
@@ -150,7 +150,7 @@ class ManualCardSearchTests(unittest.TestCase):
     def test_search_returns_backward_compatible_payload_and_prefers_exact_name(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
 
-        payload = service.search("charizard", limit=10)
+        payload = service.search("charizard", limit=10, game=GAME_POKEMON)
 
         self.assertIn("results", payload)
         self.assertLessEqual(len(payload["results"]), 10)
@@ -167,7 +167,7 @@ class ManualCardSearchTests(unittest.TestCase):
         offset = 0
         pages = 0
         while True:
-            payload = service.search("test", limit=page_size, offset=offset)
+            payload = service.search("test", limit=page_size, offset=offset, game=GAME_POKEMON)
             self.assertIn("hasMore", payload)
             results = payload["results"]
             self.assertLessEqual(len(results), page_size)
@@ -187,18 +187,18 @@ class ManualCardSearchTests(unittest.TestCase):
     def test_search_hasMore_false_on_last_page_of_small_result_set(self) -> None:
         # "charizard" matches only a handful of cards → single page, hasMore False.
         service = SpotlightScanService(self.database_path, REPO_ROOT)
-        payload = service.search("charizard", limit=30, offset=0)
+        payload = service.search("charizard", limit=30, offset=0, game=GAME_POKEMON)
         self.assertFalse(payload["hasMore"])
         self.assertGreater(len(payload["results"]), 0)
 
     def test_search_prefers_set_match_for_multitoken_queries(self) -> None:
-        results = search_cards(self.connection, "base set charizard", limit=10)
+        results = search_cards(self.connection, "base set charizard", limit=10, game=GAME_POKEMON)
 
         self.assertGreater(len(results), 0)
         self.assertEqual(results[0]["id"], "base-charizard-4")
 
     def test_search_prefers_exact_number_match_for_number_queries(self) -> None:
-        results = search_cards(self.connection, "charizard 4/102", limit=10)
+        results = search_cards(self.connection, "charizard 4/102", limit=10, game=GAME_POKEMON)
 
         self.assertGreater(len(results), 0)
         self.assertEqual(results[0]["id"], "base-charizard-4")
@@ -207,7 +207,7 @@ class ManualCardSearchTests(unittest.TestCase):
         # A real name + a mis-read number must still surface the named card, not
         # unrelated cards that merely share the number (regression: a blurry
         # "Cinccino 026/049" returned Kirlia/Tapu Lele instead of Cinccino).
-        results = search_cards(self.connection, "charizard 060/088", limit=10)
+        results = search_cards(self.connection, "charizard 060/088", limit=10, game=GAME_POKEMON)
         self.assertGreater(len(results), 0)
         self.assertIn("Charizard", results[0]["name"])
 
@@ -259,7 +259,7 @@ class ManualCardSearchTests(unittest.TestCase):
         self.connection.commit()
 
         def ids(query: str) -> set[str]:
-            return {row["id"] for row in search_cards(self.connection, query, limit=15)}
+            return {row["id"] for row in search_cards(self.connection, query, limit=15, game=GAME_POKEMON)}
 
         # Name + set name words, and name + the printed promo code, both surface
         # the buried promo print.
@@ -302,7 +302,7 @@ class ManualCardSearchTests(unittest.TestCase):
         self.connection.commit()
 
         def top_ids(query: str) -> list[str]:
-            return [row["id"] for row in search_cards(self.connection, query, limit=10)]
+            return [row["id"] for row in search_cards(self.connection, query, limit=10, game=GAME_POKEMON)]
 
         # No-slash alphanumeric promo code (regression: SWSH039).
         self.assertEqual(top_ids("swsh039")[0], "swshp-pikachu-039")
@@ -341,7 +341,7 @@ class ManualCardSearchTests(unittest.TestCase):
         self.connection.commit()
 
         def ids(query: str) -> set[str]:
-            return {row["id"] for row in search_cards(self.connection, query, limit=15)}
+            return {row["id"] for row in search_cards(self.connection, query, limit=15, game=GAME_POKEMON)}
 
         # The Pokémon's own name reaches both owner-prefixed prints.
         self.assertIn("sv10-nidoking-119", ids("nidoking"))
@@ -377,7 +377,7 @@ class ManualCardSearchTests(unittest.TestCase):
             )
         self.connection.commit()
 
-        results = search_cards(self.connection, "team rocket's nidoking ex", limit=10)
+        results = search_cards(self.connection, "team rocket's nidoking ex", limit=10, game=GAME_POKEMON)
 
         self.assertGreater(len(results), 0)
         self.assertEqual(results[0]["id"], "sv10-nidoking-119")
@@ -401,45 +401,45 @@ class ManualCardSearchTests(unittest.TestCase):
         )
         self.connection.commit()
 
-        top_ids = [row["id"] for row in search_cards(self.connection, "charizard", limit=10)]
+        top_ids = [row["id"] for row in search_cards(self.connection, "charizard", limit=10, game=GAME_POKEMON)]
 
         self.assertIn("tr-dark-charizard-4", top_ids)
         self.assertTrue(top_ids[0].endswith("charizard-4") and top_ids[0].startswith("base"))
         self.assertLess(top_ids.index("base-charizard-4"), top_ids.index("tr-dark-charizard-4"))
         # And the substring branch still makes it findable by its own full name.
         self.assertEqual(
-            search_cards(self.connection, "dark charizard", limit=5)[0]["id"],
+            search_cards(self.connection, "dark charizard", limit=5, game=GAME_POKEMON)[0]["id"],
             "tr-dark-charizard-4",
         )
 
     def test_search_supports_structured_name_queries(self) -> None:
-        results = search_cards(self.connection, "name:charizard", limit=10)
+        results = search_cards(self.connection, "name:charizard", limit=10, game=GAME_POKEMON)
 
         self.assertGreater(len(results), 0)
         self.assertEqual(results[0]["id"], "base-charizard-4")
 
     def test_search_supports_structured_set_queries(self) -> None:
-        results = search_cards(self.connection, 'set:"base set"', limit=10)
+        results = search_cards(self.connection, 'set:"base set"', limit=10, game=GAME_POKEMON)
 
         self.assertGreater(len(results), 0)
         self.assertEqual(results[0]["id"], "base-charizard-4")
         self.assertTrue(all(result["setName"] == "Base Set" for result in results[:3]))
 
     def test_search_supports_quoted_structured_name_queries(self) -> None:
-        results = search_cards(self.connection, 'name:"charizard ex"', limit=10)
+        results = search_cards(self.connection, 'name:"charizard ex"', limit=10, game=GAME_POKEMON)
 
         self.assertGreater(len(results), 0)
         self.assertEqual(results[0]["id"], "obf-charizard")
 
     def test_search_supports_structured_number_queries(self) -> None:
-        results = search_cards(self.connection, "number:4/102", limit=10)
+        results = search_cards(self.connection, "number:4/102", limit=10, game=GAME_POKEMON)
 
         self.assertGreater(len(results), 0)
         self.assertEqual(results[0]["id"], "base-charizard-4")
         self.assertEqual(results[0]["number"], "4/102")
 
     def test_search_preserves_slash_collector_number_queries(self) -> None:
-        results = search_cards(self.connection, "060/088", limit=10)
+        results = search_cards(self.connection, "060/088", limit=10, game=GAME_POKEMON)
 
         self.assertGreater(len(results), 0)
         self.assertEqual(results[0]["id"], "perfect-order-rattata-60")
@@ -447,20 +447,20 @@ class ManualCardSearchTests(unittest.TestCase):
         self.assertNotIn("scarlet-violet-aegislash-60", [result["id"] for result in results[:2]])
 
     def test_search_preserves_structured_slash_collector_number_queries(self) -> None:
-        results = search_cards(self.connection, "number:060/088", limit=10)
+        results = search_cards(self.connection, "number:060/088", limit=10, game=GAME_POKEMON)
 
         self.assertGreater(len(results), 0)
         self.assertEqual(results[0]["id"], "perfect-order-rattata-60")
         self.assertTrue(all(result["number"] == "060/088" for result in results))
 
     def test_search_supports_combined_structured_and_free_text_queries(self) -> None:
-        results = search_cards(self.connection, "set:obf charizard", limit=10)
+        results = search_cards(self.connection, "set:obf charizard", limit=10, game=GAME_POKEMON)
 
         self.assertGreater(len(results), 0)
         self.assertEqual(results[0]["id"], "obf-charizard")
 
     def test_search_deprioritizes_tcgp_digital_entries(self) -> None:
-        results = search_cards(self.connection, "charizard", limit=10)
+        results = search_cards(self.connection, "charizard", limit=10, game=GAME_POKEMON)
 
         self.assertGreater(len(results), 0)
         self.assertNotEqual(results[0]["id"], "tcgp-charizard")
@@ -469,8 +469,8 @@ class ManualCardSearchTests(unittest.TestCase):
         statements: list[str] = []
         self.connection.set_trace_callback(statements.append)
         try:
-            default_results = search_cards(self.connection, "pikachu")
-            limited_results = search_cards(self.connection, "pikachu", limit=999)
+            default_results = search_cards(self.connection, "pikachu", game=GAME_POKEMON)
+            limited_results = search_cards(self.connection, "pikachu", limit=999, game=GAME_POKEMON)
         finally:
             self.connection.set_trace_callback(None)
 
@@ -537,7 +537,7 @@ class ArtistSearchTests(unittest.TestCase):
         self.connection.commit()
 
     def _ids(self, query: str) -> list[str]:
-        return [row["id"] for row in search_cards(self.connection, query, limit=10)]
+        return [row["id"] for row in search_cards(self.connection, query, limit=10, game=GAME_POKEMON)]
 
     def test_matches_by_artist_surname_token(self) -> None:
         # Typing one token of a multi-word artist finds the card.

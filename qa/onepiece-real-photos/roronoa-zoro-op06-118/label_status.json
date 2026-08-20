@@ -1,0 +1,11 @@
+{
+  "labelState": "confirmed",
+  "labelSource": "manual_visual_verification",
+  "providerMapping": {
+    "providerCardId": "onepiece~OP06-118",
+    "sourceProvider": "scrydex",
+    "collectorNumber": "OP06-118",
+    "setName": "Wings of the Captain"
+  },
+  "verification": "Collector number OP06-118 read off the photographed card; artwork, name plate and card frame match the Scrydex reference art for onepiece~OP06-118; no SAMPLE overlay present. Seller listing title: 2024 One Piece Wings Of The Captain 118 Roronoa Zoro Alternate Art PSA 10 GameSt"
+}

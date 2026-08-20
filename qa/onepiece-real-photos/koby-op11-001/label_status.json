@@ -1,0 +1,11 @@
+{
+  "labelState": "confirmed",
+  "labelSource": "manual_visual_verification",
+  "providerMapping": {
+    "providerCardId": "onepiece~OP11-001",
+    "sourceProvider": "scrydex",
+    "collectorNumber": "OP11-001",
+    "setName": "A Fist Of Divine Speed"
+  },
+  "verification": "Collector number OP11-001 read off the photographed card; artwork, name plate and card frame match the Scrydex reference art for onepiece~OP11-001; no SAMPLE overlay present. Seller listing title: Koby (001) OP11-001 Leader A Fist of Divine Speed One Piece Moeka Araki NM"
+}

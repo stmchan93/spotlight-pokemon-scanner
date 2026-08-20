@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import type { ExpansionRecord } from '@spotlight/api-client';
+import { DEFAULT_CARD_GAME, type CardGame, type ExpansionRecord } from '@spotlight/api-client';
 import { SearchField, StateCard, Text, colors, useSpotlightTheme } from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
@@ -14,12 +14,22 @@ import { ExpansionCell } from '@/features/catalog/components/expansion-cell';
 import { useAppServices } from '@/providers/app-providers';
 
 type ExpansionBrowserScreenProps = {
-  game?: string;
+  /**
+   * Which game's sets to list. `/expansions` is scoped per game server-side, so
+   * without this a One Piece lane browses Pokémon's 449 sets. Typed as
+   * `CardGame` so the value can only be a lane the capability table knows;
+   * absent means Pokémon, as everywhere.
+   */
+  game?: CardGame;
   onClose: () => void;
   onSelectExpansion: (expansion: ExpansionRecord) => void;
 };
 
-export function ExpansionBrowserScreen({ game = 'pokemon', onClose, onSelectExpansion }: ExpansionBrowserScreenProps) {
+export function ExpansionBrowserScreen({
+  game = DEFAULT_CARD_GAME,
+  onClose,
+  onSelectExpansion,
+}: ExpansionBrowserScreenProps) {
   const theme = useSpotlightTheme();
   const { spotlightRepository } = useAppServices();
 

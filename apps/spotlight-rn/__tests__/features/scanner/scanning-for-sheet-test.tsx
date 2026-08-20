@@ -22,8 +22,8 @@ function Wrapper({ children }: PropsWithChildren) {
 function renderSheet(overrides?: Partial<Parameters<typeof ScanningForSheet>[0]>) {
   const props = {
     visible: true,
-    cardType: 'pokemon_en' as const,
-    onSelectCardType: jest.fn(),
+    lane: { game: 'pokemon', language: 'english' } as const,
+    onSelectLane: jest.fn(),
     onClose: jest.fn(),
     ...overrides,
   };
@@ -43,37 +43,66 @@ describe('ScanningForSheet', () => {
     expect(screen.queryByTestId('scanning-for-sheet-condition-ungraded')).toBeNull();
   });
 
-  it('selects an EN/JP card type', () => {
+  it('selects an EN/JP Pokémon lane', () => {
     const props = renderSheet();
 
     fireEvent.press(screen.getByTestId('scanning-for-sheet-type-pokemon-jp'));
-    expect(props.onSelectCardType).toHaveBeenCalledWith('pokemon_jp');
+    expect(props.onSelectLane).toHaveBeenCalledWith({ game: 'pokemon', language: 'japanese' });
 
     fireEvent.press(screen.getByTestId('scanning-for-sheet-type-pokemon-en'));
-    expect(props.onSelectCardType).toHaveBeenCalledWith('pokemon_en');
+    expect(props.onSelectLane).toHaveBeenCalledWith({ game: 'pokemon', language: 'english' });
   });
 
-  it('reflects the selected card type via the radio accessibility state', () => {
-    renderSheet({ cardType: 'pokemon_jp' });
+  it('offers every shipped game as a real, selectable lane', () => {
+    const props = renderSheet();
+
+    expect(screen.getByText('One Piece')).toBeTruthy();
+    expect(screen.getByText('Disney Lorcana')).toBeTruthy();
+    expect(screen.getByText('Riftbound')).toBeTruthy();
+    expect(screen.getByText('Gundam')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('scanning-for-sheet-type-onepiece'));
+    expect(props.onSelectLane).toHaveBeenCalledWith({ game: 'onepiece', language: 'english' });
+
+    fireEvent.press(screen.getByTestId('scanning-for-sheet-type-gundam'));
+    expect(props.onSelectLane).toHaveBeenCalledWith({ game: 'gundam', language: 'english' });
+  });
+
+  it('offers no EN/JP split for games with no Japanese catalog', () => {
+    renderSheet();
+
+    // Only Pokémon has per-language rows; every other game gets exactly one.
+    expect(screen.queryByTestId('scanning-for-sheet-type-onepiece-jp')).toBeNull();
+    expect(screen.queryByTestId('scanning-for-sheet-type-lorcana-jp')).toBeNull();
+    expect(screen.queryByTestId('scanning-for-sheet-type-riftbound-jp')).toBeNull();
+    expect(screen.queryByTestId('scanning-for-sheet-type-gundam-jp')).toBeNull();
+    expect(screen.queryByText('One Piece JP')).toBeNull();
+    expect(screen.queryByText('One Piece EN')).toBeNull();
+  });
+
+  it('reflects the selected lane via the radio accessibility state', () => {
+    renderSheet({ lane: { game: 'onepiece', language: 'english' } });
 
     expect(
-      screen.getByTestId('scanning-for-sheet-type-pokemon-jp').props.accessibilityState,
+      screen.getByTestId('scanning-for-sheet-type-onepiece').props.accessibilityState,
     ).toMatchObject({ selected: true });
     expect(
       screen.getByTestId('scanning-for-sheet-type-pokemon-en').props.accessibilityState,
     ).toMatchObject({ selected: false });
+    expect(
+      screen.getByTestId('scanning-for-sheet-type-pokemon-jp').props.accessibilityState,
+    ).toMatchObject({ selected: false });
   });
 
-  it('renders disabled "Coming Soon" rows for unshipped games', () => {
+  it('renders disabled "Coming Soon" rows only for games we have no catalog for', () => {
     renderSheet();
 
-    // Each unshipped game shows a Coming Soon tag…
-    expect(screen.getAllByText('Coming Soon').length).toBe(6);
-    // …and the rows are not interactive (no radio control / testID).
-    expect(screen.getByText('Lorcana')).toBeTruthy();
+    expect(screen.getAllByText('Coming Soon').length).toBe(3);
     expect(screen.getByText('Magic: The Gathering')).toBeTruthy();
+    expect(screen.getByText('Sports')).toBeTruthy();
     expect(screen.getByText('Yu-Gi-Oh')).toBeTruthy();
-    expect(screen.queryByTestId('scanning-for-sheet-type-lorcana')).toBeNull();
+    // …and the rows are not interactive (no radio control / testID).
+    expect(screen.queryByTestId('scanning-for-sheet-type-yugioh')).toBeNull();
   });
 
   it('closes when the backdrop is pressed', () => {

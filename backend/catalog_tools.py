@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 import unicodedata
 
 
@@ -456,6 +456,10 @@ def _apply_additive_runtime_migrations(connection: sqlite3.Connection) -> None:
     _add_column_if_missing(connection, "cards", "game", "TEXT NOT NULL DEFAULT 'pokemon'")
     if _table_exists(connection, "cards") and "game" in _table_columns(connection, "cards"):
         connection.execute("CREATE INDEX IF NOT EXISTS idx_cards_game ON cards(game)")
+    # The set browser's half of the same routing. Same additive/DEFAULT shape, so
+    # a live Pokémon `expansions` table backfills in place and every existing row
+    # stays Pokémon. NO index on purpose — see `list_persisted_expansions`.
+    _add_column_if_missing(connection, "expansions", "game", "TEXT NOT NULL DEFAULT 'pokemon'")
     if _table_exists(connection, "cards") and "tcgplayer_id" in _table_columns(connection, "cards"):
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_cards_tcgplayer_id ON cards(tcgplayer_id)"
@@ -1644,51 +1648,39 @@ _RAW_CONDITION_CODE_ALIASES = {
 # ---------------------------------------------------------------------------
 # Games
 # ---------------------------------------------------------------------------
-# The app started Pokémon-only, so "which game" was implicit everywhere. These
-# constants are the one place that knowledge lives now. `game` ROUTES — which
-# catalog search, which visual index, which Scrydex path segment — it is not an
-# identity: card ids are already namespaced per game ("base1-4" vs "OP01-001").
+# The app started Pokémon-only, so "which game" was implicit everywhere. `game`
+# ROUTES — which catalog search, which visual index, which Scrydex path segment,
+# which marketplace query.
+#
+# It is ALSO part of identity, which this comment used to deny: provider ids are
+# only unique within a game, and One Piece and Gundam genuinely share `EB01-001`.
+# See `namespaced_catalog_id` below for how that is resolved at ingest.
+#
+# Everything a game IS and HAS lives in ONE descriptor table below. Nothing
+# outside this section may branch on a game id: ask the descriptor instead. That
+# is what keeps "add a game" a data change rather than a grep for `== "pokemon"`.
 
 GAME_POKEMON = "pokemon"
 GAME_ONE_PIECE = "onepiece"
+GAME_LORCANA = "lorcana"
+GAME_RIFTBOUND = "riftbound"
+GAME_GUNDAM = "gundam"
 DEFAULT_GAME = GAME_POKEMON
-SUPPORTED_GAMES = (GAME_POKEMON, GAME_ONE_PIECE)
 
-# Scrydex serves each game under its own path prefix, and the game id happens to
-# match ours. Kept as an explicit map so a future game whose Scrydex segment
-# differs from our key has somewhere to say so.
-SCRYDEX_GAME_SEGMENTS = {
-    GAME_POKEMON: "pokemon",
-    GAME_ONE_PIECE: "onepiece",
-}
-
-
-def normalize_game(game: str | None) -> str:
-    """Coerce any caller's game string to a supported id, defaulting to Pokémon.
-
-    Deliberately forgiving: every pre-multi-game caller passes nothing at all,
-    and an unknown value must not silently create a third catalog partition that
-    nothing can search.
-    """
-    text = str(game or "").strip().lower().replace("-", "").replace("_", "").replace(" ", "")
-    if text in {"onepiece", "op"}:
-        return GAME_ONE_PIECE
-    return GAME_POKEMON
-
-
-def scrydex_game_segment(game: str | None) -> str:
-    """The path segment for Scrydex's per-game API ("/pokemon/v1", "/onepiece/v1")."""
-    return SCRYDEX_GAME_SEGMENTS[normalize_game(game)]
-
-
-# Rarity buckets: coarse server-side grouping of the raw catalog rarity label
-# ("Special Illustration Rare", "Rare Holo GX", …) into a small stable key set
-# the app can filter by. Exact-match first (keys are the lowercased raw rarity
-# labels observed in the live catalog DB), then an ordered substring fallback,
-# else "other". This is the ONLY place buckets are computed.
+# Coarse server-side grouping of the raw catalog rarity label ("Special
+# Illustration Rare", "Rare Holo GX", …) into a small stable key set the app can
+# filter by. EVERY game maps onto these same eight keys — the rarity filter chips
+# are already built, tested and shipped against them, so a new game costs zero
+# client work. The trade is that some keys simply never occur for some games
+# (One Piece has no "sir"), which is harmless: buckets are read per game.
 RARITY_BUCKET_KEYS = ("sir", "illustration", "ultra", "secret", "shiny", "promo", "standard", "other")
 
-_RARITY_BUCKETS: dict[str, str] = {
+# Per game, exact-match first (keys are the lowercased raw rarity labels observed
+# in the live catalog / API), then an ordered substring fallback, else "other".
+# Mapping an unrecognized label to "other" is CORRECT — better a card that lands
+# in the catch-all chip than an invented bucket no chip renders.
+
+_POKEMON_RARITY_BUCKETS: dict[str, str] = {
     # sir — special illustration rares (EN) / special art rares (JP) / PSA 2-star style
     "special illustration rare": "sir",
     "special art rare": "sir",
@@ -1761,9 +1753,7 @@ _RARITY_BUCKETS: dict[str, str] = {
     "none": "other",
 }
 
-# Ordered substring fallback for rarity labels with no exact-match entry.
-# First hit wins; applied to the normalized (lowercased/collapsed) label only.
-_RARITY_BUCKET_SUBSTRING_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
+_POKEMON_RARITY_SUBSTRING_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("special illustration", "special art"), "sir"),
     (("illustration rare", "art rare", "trainer gallery", "character"), "illustration"),
     (("shiny", "shining", "radiant"), "shiny"),
@@ -1773,17 +1763,11 @@ _RARITY_BUCKET_SUBSTRING_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("diamond",), "standard"),
 )
 
-
-# One Piece rarity ladder, mapped onto the SAME bucket keys Pokémon uses.
-#
-# Reusing the keys rather than inventing One Piece ones is deliberate: the app's
-# rarity filter chips are already built, tested and shipped against these eight,
-# so a second game costs zero client work. The trade is that a couple of keys
-# ("sir", "shiny") simply never occur for One Piece, which is harmless — buckets
-# are read per game.
-#
-# Ladder: C / UC / R are the base ladder; SR and SP are the chase slots; SEC and
-# TR are the top end; Leader is a card role Scrydex reports in the rarity field.
+# One Piece. Ladder: C / UC / R are the base ladder; SR and SP are the chase
+# slots; SEC and TR are the top end; Leader is a card ROLE Scrydex reports in the
+# rarity field. Verified against the 2,633-card synced catalog, whose observed
+# labels are exactly: Common, Uncommon, Rare, Super Rare, Secret Rare, Leader,
+# Promo, Unknown.
 _ONE_PIECE_RARITY_BUCKETS: dict[str, str] = {
     "common": "standard",
     "uncommon": "standard",
@@ -1795,10 +1779,9 @@ _ONE_PIECE_RARITY_BUCKETS: dict[str, str] = {
     "treasure rare": "secret",
     "manga rare": "illustration",
     "promo": "promo",
+    "unknown": "other",
 }
 
-# Ordered substring fallback for labels the exact map misses (Scrydex has been
-# seen to prefix/suffix these, e.g. "Super Rare (Alt Art)").
 _ONE_PIECE_RARITY_SUBSTRING_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("manga",), "illustration"),
     (("treasure", "secret"), "secret"),
@@ -1807,23 +1790,517 @@ _ONE_PIECE_RARITY_SUBSTRING_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("leader", "common", "uncommon", "rare"), "standard"),
 )
 
+# Disney Lorcana. Ladder as of Fabled (set 9, Aug 2025): Common / Uncommon /
+# Rare are the base curve, Super Rare and Legendary the in-set chase, and Epic /
+# Enchanted / Iconic the top end (Epic and Iconic were both added in Fabled;
+# Iconic is rarer than Enchanted).
+#
+# Enchanted is Lorcana's alternate-ART chase rather than another rarity step —
+# the honest Pokémon analogue is an illustration rare — which is why it buckets
+# to "illustration" and Iconic takes "secret".
+#
+# "super_rare" is carried as its own key because sibling Lorcana APIs emit the
+# underscored spelling; the bucket normalizer collapses whitespace, not
+# underscores, and widening it would touch Pokémon's matching for no reason.
+_LORCANA_RARITY_BUCKETS: dict[str, str] = {
+    "common": "standard",
+    "uncommon": "standard",
+    "rare": "standard",
+    "super rare": "ultra",
+    "super_rare": "ultra",
+    "legendary": "ultra",
+    "epic": "ultra",
+    "enchanted": "illustration",
+    "iconic": "secret",
+    "promo": "promo",
+    "unknown": "other",
+}
 
-def _one_piece_rarity_bucket(text: str) -> str:
-    exact = _ONE_PIECE_RARITY_BUCKETS.get(text)
-    if exact is not None:
-        return exact
-    for needles, bucket in _ONE_PIECE_RARITY_SUBSTRING_RULES:
-        if any(needle in text for needle in needles):
-            return bucket
-    return "other"
+_LORCANA_RARITY_SUBSTRING_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("enchanted",), "illustration"),
+    (("iconic",), "secret"),
+    (("legendary", "super rare", "super_rare", "epic"), "ultra"),
+    (("promo",), "promo"),
+    (("common", "uncommon", "rare"), "standard"),
+)
+
+# Riftbound (the Riot / League of Legends TCG, Scrydex Beta). The GAMEPLAY
+# ladder is only four deep — Common / Uncommon / Rare / Epic — which is what
+# Scrydex's own Riftbound docs enumerate. Notably there is NO "Legendary"
+# rarity: in Riftbound "Legend" is a card TYPE, not a rarity.
+#
+# Showcase is a collector/print variant layered on top of those four (it covers
+# alt-art, promo and Overnumbered printings, plus the Signature Overnumber
+# sub-variant) and may well arrive on a separate field rather than in `rarity`.
+# Mapped anyway so that if it does land here it buckets somewhere sensible
+# instead of "other".
+_RIFTBOUND_RARITY_BUCKETS: dict[str, str] = {
+    "common": "standard",
+    "uncommon": "standard",
+    "rare": "standard",
+    "epic": "ultra",
+    "showcase": "illustration",
+    "overnumbered": "secret",
+    "overnumber": "secret",
+    "promo": "promo",
+    "unknown": "other",
+}
+
+_RIFTBOUND_RARITY_SUBSTRING_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("overnumber",), "secret"),
+    (("showcase", "signature", "alternate art"), "illustration"),
+    (("epic",), "ultra"),
+    (("promo",), "promo"),
+    (("common", "uncommon", "rare"), "standard"),
+)
+
+# Gundam Card Game (Bandai, 2025). The one game here whose rarity is a CODE:
+# Scrydex serves `rarity_code` ("C") alongside a spelled-out `rarity`
+# ("Common"), so BOTH spellings are mapped for every tier.
+#
+# Ladder: C / U / R, topped by LR (Legend Rare). There is deliberately no Super
+# Rare tier — this game does not have one, and inventing "sr" here would be
+# guessing. P is the organized-play promo slot and SP the alternate-art reprint
+# line (from GD03 Steel Requiem). Chase printings suffix the base code with
+# "+"/"++" ("R+", "LR++"), which the substring rules below catch.
+_GUNDAM_RARITY_BUCKETS: dict[str, str] = {
+    "common": "standard",
+    "c": "standard",
+    "uncommon": "standard",
+    "u": "standard",
+    "rare": "standard",
+    "r": "standard",
+    "legend rare": "secret",
+    "legendary rare": "secret",
+    "lr": "secret",
+    "special": "illustration",
+    "sp": "illustration",
+    "promo": "promo",
+    "p": "promo",
+    "unknown": "other",
+}
+
+# Order matters: the multi-letter codes must be tested before the single-letter
+# ones, or "lr++" would fall into the "r" rule and read as a plain Rare.
+_GUNDAM_RARITY_SUBSTRING_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("legend", "lr"), "secret"),
+    (("special", "sp", "parallel", "alternate art"), "illustration"),
+    (("promo",), "promo"),
+    (("uncommon", "u"), "standard"),
+    (("common", "c"), "standard"),
+    (("rare", "r"), "standard"),
+)
+
+
+@dataclass(frozen=True)
+class GameDescriptor:
+    """Everything the backend needs to know about one supported TCG.
+
+    Capability flags are statements about the DATA WE CAN ACTUALLY GET, not
+    about the game itself. One Piece slabs plainly exist in the world; what is
+    false is that any source we integrate serves their prices, so offering that
+    surface would render it empty. Measured against the live Scrydex API and the
+    synced catalogs (2026-08-13/14), NOT assumed:
+
+      * graded prices exist for Pokémon and for LORCANA (1,525 of 3,170 priced
+        Lorcana cards carry graded contexts, across eight companies), and for
+        neither One Piece, Riftbound nor Gundam — all three measured at zero
+      * `pop_reports` are empty for every non-Pokémon game; our population
+        source, GemRate via PokemonPriceTracker, is Pokémon-only anyway
+      * `/{game}/v1/cards/{id}/listings` returns 0 rows for One Piece but real
+        eBay sold rows for LORCANA (measured 2026-08-14), and is unmeasured for
+        Riftbound and Gundam — which therefore do not claim listings
+      * only Pokémon has per-language sub-paths (`/pokemon/v1/ja/cards`); the
+        others carry language as a card field
+
+    The flags stay SEPARATE rather than collapsing into one "is this a graded
+    game" boolean because each is its own measurement against its own endpoint.
+    Lorcana happens to have come back true on both, but `has_pop_reports` is
+    false for it while `has_graded_pricing` is true — a single boolean would
+    have hung an always-empty population panel under a real graded lane. One
+    field per measured fact is the only shape that cannot lie.
+    """
+
+    id: str
+    display_name: str
+    # Scrydex serves each game under its own path prefix. Kept explicit so a
+    # future game whose Scrydex segment differs from our key has somewhere to
+    # say so.
+    scrydex_segment: str
+    # The word a human puts in a TCGplayer search box to scope it to this game.
+    # Drives the marketplace deep links on the client.
+    marketplace_keyword: str
+    # The same word for eBay, or None to add NOTHING. eBay AND-requires every
+    # keyword, so a token is not free: Pokémon's queries are tuned and shipped
+    # (name + set + grade already pin the card, and vintage solds are sparse
+    # enough that one more required word can zero the page), so Pokémon declares
+    # None and its URLs stay byte-identical. Every other game needs the word —
+    # "Ace", "Nami", "Elsa" are not searches, they are collisions.
+    ebay_search_keyword: str | None
+    has_graded_pricing: bool
+    has_pop_reports: bool
+    has_listings: bool
+    has_language_paths: bool
+    # The grading companies this game actually has priced data for, "Raw" first.
+    # NOT a constant: the Pokémon set (PSA/BGS/CGC) is a Pokémon fact, and
+    # Lorcana's priced slabs span eight companies including SGC, TAG, ACE, AGS
+    # and CCIC. Offering a game a Pokémon-shaped subset would hide half its real
+    # data; offering a game Lorcana's list would invent lanes it cannot fill.
+    # Games with no graded pricing carry ("Raw",) — the card is still ownable,
+    # it just cannot claim a grade.
+    graders: tuple[str, ...]
+    rarity_buckets: Mapping[str, str]
+    rarity_substring_rules: tuple[tuple[tuple[str, ...], str], ...] = ()
+    # Spellings a caller might pass for this game. Normalized (lowercased,
+    # separators stripped) before lookup, so "One Piece" and "one-piece" both
+    # only need "onepiece" here.
+    aliases: tuple[str, ...] = ()
+
+
+GAMES: dict[str, GameDescriptor] = {
+    GAME_POKEMON: GameDescriptor(
+        id=GAME_POKEMON,
+        display_name="Pokémon",
+        scrydex_segment="pokemon",
+        marketplace_keyword="pokemon",
+        ebay_search_keyword=None,
+        has_graded_pricing=True,
+        has_pop_reports=True,
+        has_listings=True,
+        has_language_paths=True,
+        graders=("Raw", "PSA", "BGS", "CGC"),
+        rarity_buckets=_POKEMON_RARITY_BUCKETS,
+        rarity_substring_rules=_POKEMON_RARITY_SUBSTRING_RULES,
+        aliases=("pokemon", "pkmn", "ptcg"),
+    ),
+    GAME_ONE_PIECE: GameDescriptor(
+        id=GAME_ONE_PIECE,
+        display_name="One Piece",
+        scrydex_segment="onepiece",
+        marketplace_keyword="one piece",
+        ebay_search_keyword="one piece",
+        has_graded_pricing=False,
+        has_pop_reports=False,
+        has_listings=False,
+        has_language_paths=False,
+        graders=("Raw",),
+        rarity_buckets=_ONE_PIECE_RARITY_BUCKETS,
+        rarity_substring_rules=_ONE_PIECE_RARITY_SUBSTRING_RULES,
+        aliases=("onepiece", "op", "optcg"),
+    ),
+    GAME_LORCANA: GameDescriptor(
+        id=GAME_LORCANA,
+        display_name="Disney Lorcana",
+        scrydex_segment="lorcana",
+        marketplace_keyword="lorcana",
+        ebay_search_keyword="lorcana",
+        # Lorcana DOES have graded pricing — measured, not assumed: 1,525 of
+        # 3,170 priced cards carry graded contexts (e.g. AOTV-224 PSA 10
+        # Holofoil at $140 market with low/mid/high populated).
+        has_graded_pricing=True,
+        # Population is still zero everywhere outside Pokémon: our source is
+        # GemRate via PokemonPriceTracker, which is Pokémon-only.
+        has_pop_reports=False,
+        # MEASURED, 2026-08-14, one live request
+        # (tools/probe_scrydex_lorcana_listings.py): the broadest possible query
+        # for AOTV-224 — a $140 PSA 10, the best candidate we have — returned a
+        # real eBay sold row ("Mulan Elite Archer 224/204 Foil Legendary PSA 10
+        # GEM Deep Trouble Lorcana"). So Lorcana is NOT like One Piece, which
+        # returns zero: the comps drawer under its graded lanes has something to
+        # show. Flipped from the earlier "no evidence" default, which was a
+        # guess, not a measurement.
+        has_listings=True,
+        has_language_paths=False,
+        # Ordered by how much data each company actually has, most first:
+        # PSA 1,488 cards, CGC 770, SGC 267, BGS 232, TAG 202, ACE 82, AGS 11,
+        # CCIC 6.
+        graders=("Raw", "PSA", "CGC", "SGC", "BGS", "TAG", "ACE", "AGS", "CCIC"),
+        rarity_buckets=_LORCANA_RARITY_BUCKETS,
+        rarity_substring_rules=_LORCANA_RARITY_SUBSTRING_RULES,
+        aliases=("lorcana", "disneylorcana"),
+    ),
+    GAME_RIFTBOUND: GameDescriptor(
+        id=GAME_RIFTBOUND,
+        display_name="Riftbound",
+        scrydex_segment="riftbound",
+        marketplace_keyword="riftbound",
+        ebay_search_keyword="riftbound",
+        has_graded_pricing=False,
+        has_pop_reports=False,
+        has_listings=False,
+        has_language_paths=False,
+        graders=("Raw",),
+        rarity_buckets=_RIFTBOUND_RARITY_BUCKETS,
+        rarity_substring_rules=_RIFTBOUND_RARITY_SUBSTRING_RULES,
+        aliases=("riftbound", "lolriftbound"),
+    ),
+    GAME_GUNDAM: GameDescriptor(
+        id=GAME_GUNDAM,
+        display_name="Gundam",
+        scrydex_segment="gundam",
+        marketplace_keyword="gundam",
+        ebay_search_keyword="gundam",
+        has_graded_pricing=False,
+        has_pop_reports=False,
+        has_listings=False,
+        has_language_paths=False,
+        graders=("Raw",),
+        rarity_buckets=_GUNDAM_RARITY_BUCKETS,
+        rarity_substring_rules=_GUNDAM_RARITY_SUBSTRING_RULES,
+        aliases=("gundam", "gcg", "gundamcardgame"),
+    ),
+}
+
+SUPPORTED_GAMES = tuple(GAMES)
+
+# Back-compat view for callers that only ever wanted the path segment.
+SCRYDEX_GAME_SEGMENTS = {game_id: game.scrydex_segment for game_id, game in GAMES.items()}
+
+
+def _normalized_game_key(game: str | None) -> str:
+    return str(game or "").strip().lower().replace("-", "").replace("_", "").replace(" ", "")
+
+
+_GAME_ALIASES: dict[str, str] = {
+    alias: game.id for game in GAMES.values() for alias in (game.id, *game.aliases)
+}
+
+
+def normalize_game(game: str | None) -> str:
+    """Coerce any caller's game string to a supported id, defaulting to Pokémon.
+
+    Deliberately forgiving: every pre-multi-game caller passes nothing at all,
+    and an unknown value must not silently create a catalog partition that
+    nothing can search. ABSENT MEANS POKÉMON, everywhere — payloads from an
+    older backend carry no game, and treating those as "unknown" would strip
+    PSA pricing off every Pokémon card.
+    """
+    return _GAME_ALIASES.get(_normalized_game_key(game), DEFAULT_GAME)
+
+
+# ---------------------------------------------------------------------------
+# Card / expansion id namespacing
+# ---------------------------------------------------------------------------
+# Provider card ids are NOT unique across games. One Piece and Gundam both ship
+# an expansion literally called EB01 numbered from 001, so `EB01-001` is
+# "Kouzuki Oden" in one game and "Gundam Astray Red Frame Custom (EX)" in the
+# other. `cards.id` is a TEXT PRIMARY KEY with no game component, so merging
+# both catalogs dropped 211 Gundam cards on the floor (947 -> 736) with no error
+# anywhere: the second sync just UPSERTed over the first. 11 expansion ids
+# collide the same way (EB01, ST01..ST10).
+#
+# The fix is to make the game part of the id for every game EXCEPT Pokémon.
+# Pokémon ids stay byte-identical because they are already load-bearing
+# everywhere that matters: the live catalog, every user's collection rows, the
+# shipped visual index NPZ, deck entries, price snapshots. Rewriting them would
+# be a data migration across all of those for zero benefit — Pokémon ids collide
+# with nothing (measured: 0 overlap against all four other games).
+#
+# Separator: "~". NOT ":" — measured against how ids actually travel:
+#
+#   * URL. Card ids ride in the path of `/api/v1/cards/{id}` and friends. Some
+#     of those handlers unquote the segment and some do not (see server.py:
+#     /price-trends unquotes, the bare card read at /api/v1/cards/{id} does
+#     not). `encodeURIComponent(":")` is "%3A", so a colon id would reach the
+#     non-unquoting handlers as a literal "%3A" and miss every row. "~" is an
+#     RFC 3986 UNRESERVED character that encodeURIComponent leaves alone, so it
+#     survives both kinds of handler unchanged.
+#   * Filename. Reference images are cached as `{card_id}{suffix}`
+#     (tools/build_raw_visual_index.py). ":" is illegal in a Windows filename
+#     and is the historical HFS path separator on macOS; "~" is legal on every
+#     platform (and is not leading, so no shell tilde expansion).
+#   * Collision. "~" appears in ZERO ids across all five synced catalogs.
+#     "_" would have been the other unreserved candidate, but it occurs in
+#     20,566 Pokémon ids, which makes it a poor visual signal for "this prefix
+#     is a namespace".
+#
+# "-" is disqualified outright: several call sites split a card id on "-" to
+# recover its set code, and a "gundam-EB01-001" would hand them "gundam".
+GAME_ID_NAMESPACE_SEPARATOR = "~"
+
+# Longest-first so a future game id that prefixes another can never shadow it.
+_GAME_ID_NAMESPACE_PREFIXES: tuple[tuple[str, str], ...] = tuple(
+    sorted(
+        (
+            (f"{game_id}{GAME_ID_NAMESPACE_SEPARATOR}", game_id)
+            for game_id in GAMES
+            if game_id != GAME_POKEMON
+        ),
+        key=lambda pair: len(pair[0]),
+        reverse=True,
+    )
+)
+
+
+def namespaced_catalog_id(game: str | None, raw_id: object) -> str:
+    """The id a provider card/expansion should be STORED under for `game`.
+
+    Applied in the mapper/sync layer so the namespaced value is what reaches the
+    database — a display-time transform would leave the primary key colliding,
+    which is the actual bug.
+
+    Idempotent, and idempotent against ANY game's prefix rather than only
+    `game`'s: re-running a sync, or passing an id that has already been through
+    here, must never produce "gundam~gundam~EB01-001".
+    """
+    value = str(raw_id or "").strip()
+    normalized_game = normalize_game(game)
+    # Pokémon is the identity case, and an empty id must stay empty — emitting a
+    # bare "gundam~" would be a row keyed on nothing.
+    if not value or normalized_game == GAME_POKEMON:
+        return value
+    if any(value.startswith(prefix) for prefix, _ in _GAME_ID_NAMESPACE_PREFIXES):
+        return value
+    return f"{normalized_game}{GAME_ID_NAMESPACE_SEPARATOR}{value}"
+
+
+def game_id_namespace_prefix(game: str | None) -> str:
+    """The literal prefix every id for `game` carries — "" for Pokémon.
+
+    For SQL that matches ids by PREFIX or SUBSTRING rather than equality. Those
+    predicates are the ones namespacing quietly breaks: an unanchored
+    `set_id LIKE '%gundam%'` matches every Gundam set once the game name is
+    inside the id, and a `set_id >= 'gundam'` range scan matches the whole game.
+    Anchoring the pattern to this prefix puts the comparison back on the part of
+    the id the user actually typed.
+    """
+    normalized_game = normalize_game(game)
+    if normalized_game == GAME_POKEMON:
+        return ""
+    return f"{normalized_game}{GAME_ID_NAMESPACE_SEPARATOR}"
+
+
+def split_namespaced_catalog_id(value: object) -> tuple[str, str]:
+    """Split a stored id back into `(game, provider_id)`.
+
+    An id with no recognized namespace is Pokémon's by construction, so this is
+    also the reader that answers "which game is this id" without a DB round
+    trip. It matches on the KNOWN game prefixes only; a Pokémon id that happened
+    to contain a "~" would still come back whole.
+    """
+    text = str(value or "").strip()
+    for prefix, game_id in _GAME_ID_NAMESPACE_PREFIXES:
+        if text.startswith(prefix):
+            return game_id, text[len(prefix) :]
+    return DEFAULT_GAME, text
+
+
+def bare_catalog_id(value: object) -> str:
+    """The provider's own id, with any game namespace stripped.
+
+    Use this at every outbound provider boundary: Scrydex knows `EB01-001`, it
+    has never heard of `gundam~EB01-001`.
+    """
+    return split_namespaced_catalog_id(value)[1]
+
+
+def game_for_catalog_id(value: object) -> str:
+    """Which game a stored catalog id belongs to. Unnamespaced -> Pokémon."""
+    return split_namespaced_catalog_id(value)[0]
+
+
+def game_for_scan_payload(payload: Mapping[str, Any] | None) -> str:
+    """Which game a scan payload is for. Absent/unknown -> Pokémon.
+
+    ONE reader for the wire shape, because the scanner has two consumers of it —
+    the per-game visual index and the OCR text fallback — and if they ever read
+    different keys the fallback would search a different catalog than the index
+    it is backing up. That is the cross-game contamination, arrived at by
+    drift rather than by omission. `cardGame` is the older client spelling.
+    """
+    if not isinstance(payload, Mapping):
+        return DEFAULT_GAME
+    return normalize_game(payload.get("game") or payload.get("cardGame"))
+
+
+def game_descriptor(game: str | None) -> GameDescriptor:
+    """The descriptor for a game. Never raises — unknown resolves to Pokémon."""
+    return GAMES[normalize_game(game)]
+
+
+def scrydex_game_segment(game: str | None) -> str:
+    """The path segment for Scrydex's per-game API ("/pokemon/v1", "/onepiece/v1")."""
+    return game_descriptor(game).scrydex_segment
+
+
+def game_display_name(game: str | None) -> str:
+    return game_descriptor(game).display_name
+
+
+def game_marketplace_keyword(game: str | None) -> str:
+    """The word that scopes a TCGplayer search to this game."""
+    return game_descriptor(game).marketplace_keyword
+
+
+def game_ebay_search_keyword(game: str | None) -> str | None:
+    """The word that scopes an eBay search to this game, or None to add nothing."""
+    return game_descriptor(game).ebay_search_keyword
+
+
+def game_has_graded_pricing(game: str | None) -> bool:
+    return game_descriptor(game).has_graded_pricing
+
+
+def game_has_pop_reports(game: str | None) -> bool:
+    return game_descriptor(game).has_pop_reports
+
+
+def game_graders(game: str | None) -> tuple[str, ...]:
+    """The grading companies this game has priced data for, "Raw" first."""
+    return game_descriptor(game).graders
+
+
+def game_has_listings(game: str | None) -> bool:
+    """Whether a sold-comps / active-listings surface has anything to show."""
+    return game_descriptor(game).has_listings
+
+
+def game_has_language_paths(game: str | None) -> bool:
+    """Whether Scrydex serves this game under per-language sub-paths."""
+    return game_descriptor(game).has_language_paths
+
+
+def catalog_sync_request_type(game: str | None, language: str | None) -> str:
+    """The Scrydex usage-rollup label for one catalog-sync page request.
+
+    Pokémon keeps its EXACT historical string. This is the group-by key for
+    `scrydex_daily_usage_rollups`, so qualifying it would split years of credit
+    history in two at the rename. Every other game gets a game-qualified label
+    so its spend is separable from day one.
+    """
+    normalized_game = normalize_game(game)
+    normalized_language = str(language or "").strip().lower() or "all"
+    if normalized_game == DEFAULT_GAME:
+        return f"catalog_sync_{normalized_language}"
+    return f"catalog_sync_{normalized_game}_{normalized_language}"
+
+
+def scrydex_request_type(base_request_type: str, game: str | None) -> str:
+    """The Scrydex usage-rollup label for one request of `base_request_type`.
+
+    Same rule as `catalog_sync_request_type`, for the same reason: this string
+    is the GROUP BY key of `scrydex_daily_usage_rollups`, so Pokémon keeps its
+    EXACT historical label — qualifying it would split years of credit history
+    in two at the rename — while every other game gets a game-qualified one so
+    its spend is separable from its very first request.
+
+    Kept separate from `catalog_sync_request_type` rather than folded into it
+    because that label also carries a language and composes the two in a fixed
+    order (`catalog_sync_onepiece_en`); reusing this generic form would silently
+    reorder it and break the same history it exists to protect.
+    """
+    normalized_game = normalize_game(game)
+    if normalized_game == DEFAULT_GAME:
+        return base_request_type
+    return f"{base_request_type}_{normalized_game}"
 
 
 def rarity_bucket(rarity, game: str | None = None) -> str:
     """Coarse bucket key for a raw rarity label, for the given game.
 
     Never raises: None/empty/garbage → "other". Case- and whitespace-
-    insensitive; exact catalog labels first, then the ordered substring
-    fallback above. `game` is optional so the dozen existing Pokémon callers
+    insensitive; the game's exact catalog labels first, then its ordered
+    substring fallback. `game` is optional so the dozen existing Pokémon callers
     keep working untouched.
     """
     try:
@@ -1832,12 +2309,11 @@ def rarity_bucket(rarity, game: str | None = None) -> str:
         return "other"
     if not text:
         return "other"
-    if normalize_game(game) == GAME_ONE_PIECE:
-        return _one_piece_rarity_bucket(text)
-    exact = _RARITY_BUCKETS.get(text)
+    descriptor = game_descriptor(game)
+    exact = descriptor.rarity_buckets.get(text)
     if exact is not None:
         return exact
-    for needles, bucket in _RARITY_BUCKET_SUBSTRING_RULES:
+    for needles, bucket in descriptor.rarity_substring_rules:
         if any(needle in text for needle in needles):
             return bucket
     return "other"
@@ -3505,13 +3981,16 @@ def _manual_search_clause_matches_set(card: dict[str, Any], clause: str) -> bool
     if not normalized_clause:
         return False
 
+    # `set:eb01` has to keep matching a stored "gundam~EB01" — the user types the
+    # printed set code, never our namespace.
+    set_id_text = bare_catalog_id(card.get("setID"))
     normalized_set_values = tuple(
         normalized
         for normalized in (
             _normalized_alias_text(value)
             for value in [
                 str(card.get("setName") or ""),
-                str(card.get("setID") or ""),
+                set_id_text,
                 str(card.get("setPtcgoCode") or ""),
             ]
         )
@@ -3531,7 +4010,7 @@ def _manual_search_clause_matches_set(card: dict[str, Any], clause: str) -> bool
             " ".join(
                 [
                     str(card.get("setName") or ""),
-                    str(card.get("setID") or ""),
+                    set_id_text,
                     str(card.get("setPtcgoCode") or ""),
                 ]
             )
@@ -3553,12 +4032,18 @@ def _manual_search_clause_matches_number(card: dict[str, Any], clause: str) -> b
     return card_number.startswith(clause_number)
 
 
-def _manual_search_clause_matches_rarity(card: dict[str, Any], clause: str) -> bool:
+def _manual_search_clause_matches_rarity(card: dict[str, Any], clause: str, *, game: str) -> bool:
+    # The bucket a rarity label falls into is a PER-GAME fact: "Manga Rare" is
+    # One Piece's illustration tier and means nothing in Pokémon's table, so
+    # bucketing it with Pokémon's rules silently drops it into "other" and the
+    # chip that should list it comes back empty. `rarity_bucket` still defaults
+    # to Pokémon for its dozen older callers, which is exactly why this one has
+    # to say what it means.
     value = str(clause or "").strip().lower()
     if not value:
         return True
     raw_rarity = str(card.get("rarity") or "")
-    if value == rarity_bucket(raw_rarity):
+    if value == rarity_bucket(raw_rarity, game):
         return True
     return value in raw_rarity.lower()
 
@@ -3566,6 +4051,8 @@ def _manual_search_clause_matches_rarity(card: dict[str, Any], clause: str) -> b
 def _manual_search_card_matches_structured_filters(
     card: dict[str, Any],
     structured_filters: dict[str, tuple[str, ...]],
+    *,
+    game: str,
 ) -> bool:
     for clause in structured_filters["name"]:
         if not _manual_search_clause_matches_name(card, clause):
@@ -3581,7 +4068,7 @@ def _manual_search_card_matches_structured_filters(
 
     # .get: older callers/tests may build filter dicts without the rarity key.
     for clause in structured_filters.get("rarity", ()):
-        if not _manual_search_clause_matches_rarity(card, clause):
+        if not _manual_search_clause_matches_rarity(card, clause, game=game):
             return False
 
     return True
@@ -3592,6 +4079,7 @@ def _manual_search_candidate_rows_for_phrase(
     phrase: str,
     *,
     limit: int,
+    game: str,
 ) -> list[tuple[str, float]]:
     normalized_phrase = _normalized_alias_text(phrase)
     if not normalized_phrase:
@@ -3643,7 +4131,13 @@ def _manual_search_candidate_rows_for_phrase(
             [
                 (
                     "SELECT id AS id, 360.0 AS score FROM cards WHERE set_id >= ? AND set_id < ? LIMIT ?",
-                    _manual_search_prefix_bounds(normalized_phrase),
+                    # Bounds carry the game's id namespace, so this stays one
+                    # indexed range scan over the part of set_id the user typed.
+                    # Without it, "gundam" is a prefix of EVERY Gundam set_id and
+                    # this tier would hand the scorer the whole game at 360.
+                    _manual_search_prefix_bounds(
+                        f"{game_id_namespace_prefix(game)}{normalized_phrase}"
+                    ),
                 ),
                 (
                     "SELECT id AS id, 360.0 AS score FROM cards WHERE set_ptcgo_code >= ? AND set_ptcgo_code < ? LIMIT ?",
@@ -3775,6 +4269,7 @@ def _manual_search_candidate_rows_for_name_qualifiers(
     search_text: str,
     *,
     limit: int,
+    game: str,
 ) -> list[tuple[str, float]]:
     """Retrieve cards by a NAME token intersected with a SET/number qualifier —
     e.g. "pikachu sun moon promos" (set name words) or "pikachu sm-p" (the
@@ -3806,6 +4301,12 @@ def _manual_search_candidate_rows_for_name_qualifiers(
         "AND (c.set_name LIKE ? OR c.set_id LIKE ? OR c.number LIKE ?) "
         "LIMIT ?"
     )
+    # The set_id pattern is anchored past the game namespace; the other two are
+    # not, because set_name and number never carried one. Unanchored, a
+    # qualifier token that happens to BE the game name ("launcher strike
+    # gundam") substring-matches every set_id in the game and floods the pool at
+    # score 490 — measured against the Gundam catalog, not theorized.
+    set_id_prefix = game_id_namespace_prefix(game)
     # The exact printed promo code ("SM-P") gets a higher retrieval score so the
     # matching promo set outranks generic same-prefix prints (e.g. English "SM04").
     code_sql = (
@@ -3835,7 +4336,8 @@ def _manual_search_candidate_rows_for_name_qualifiers(
             like = f"%{qualifier}%"
             record(
                 connection.execute(
-                    set_sql, (low, high, like, like, like, clause_limit)
+                    set_sql,
+                    (low, high, like, f"{set_id_prefix}{like}", like, clause_limit),
                 ).fetchall()
             )
         for code in promo_codes:
@@ -3865,12 +4367,17 @@ def _manual_search_score(
         if normalized
     )
     title_token_set = set(tokenize(" ".join(_candidate_title_values(card))))
+    # BARE set id: the namespace is our storage detail, not text the user typed
+    # at. `tokenize` splits on non-word chars, so a stored "gundam~GD01" would
+    # otherwise contribute a "gundam" token — and every Gundam card would score
+    # a set-token hit for the query "gundam", reordering results by nothing.
+    set_id_text = bare_catalog_id(card.get("setID"))
     set_token_set = set(
         tokenize(
             " ".join(
                 [
                     str(card.get("setName") or ""),
-                    str(card.get("setID") or ""),
+                    set_id_text,
                     str(card.get("setPtcgoCode") or ""),
                 ]
             )
@@ -3917,7 +4424,7 @@ def _manual_search_score(
             score += 70.0
         if phrase == _normalized_alias_text(card.get("setName") or ""):
             score += 55.0
-        if phrase == _normalized_alias_text(card.get("setID") or ""):
+        if phrase == _normalized_alias_text(set_id_text):
             score += 50.0
         if phrase == _normalized_alias_text(card.get("setPtcgoCode") or ""):
             score += 50.0
@@ -3946,7 +4453,7 @@ def _manual_search_score(
                 _normalized_alias_text(value)
                 for value in [
                     str(card.get("setName") or ""),
-                    str(card.get("setID") or ""),
+                    set_id_text,
                     str(card.get("setPtcgoCode") or ""),
                 ]
             )
@@ -3999,6 +4506,7 @@ def _manual_search_rarity_browse(
     connection: sqlite3.Connection,
     rarity_clauses: tuple[str, ...],
     *,
+    game: str,
     limit: int,
     offset: int,
 ) -> list[dict[str, Any]]:
@@ -4006,14 +4514,31 @@ def _manual_search_rarity_browse(
     name terms lists all cards in the bucket. Buckets are computed in Python,
     so resolve the (small) DISTINCT rarity-label set first, then page a
     deterministic name/number/id ordering in SQL.
+
+    Scoped in SQL rather than in Python (unlike `search_cards`, see there)
+    because THIS path does its paging in SQL: filtering the page after LIMIT/
+    OFFSET would hand back short pages and make the scroll skip rows.
+
+    On `+game`: the unary plus suppresses index use for that term only. Without
+    it SQLite prefers `idx_cards_game` — an equality constraint looks more
+    selective than a range — and since every production row is 'pokemon' that
+    index selects the entire table. Measured: the plan flips from
+    `SEARCH … USING INDEX idx_cards_name_set_number` to
+    `SEARCH … USING INDEX idx_cards_game`. `+game` keeps every existing plan
+    byte-for-byte and applies the game as a row filter, which is all we want.
     """
-    rarity_rows = connection.execute("SELECT DISTINCT rarity FROM cards").fetchall()
+    rarity_rows = connection.execute(
+        "SELECT DISTINCT rarity FROM cards WHERE +game = ?", (game,)
+    ).fetchall()
     matching_labels: list[str] = []
     include_null = False
     for row in rarity_rows:
         raw_label = row["rarity"]
         probe = {"rarity": raw_label}
-        if all(_manual_search_clause_matches_rarity(probe, clause) for clause in rarity_clauses):
+        if all(
+            _manual_search_clause_matches_rarity(probe, clause, game=game)
+            for clause in rarity_clauses
+        ):
             if raw_label is None:
                 include_null = True
             else:
@@ -4030,9 +4555,9 @@ def _manual_search_rarity_browse(
     if include_null:
         where_clauses.append("rarity IS NULL")
     id_rows = connection.execute(
-        f"SELECT id FROM cards WHERE {' OR '.join(where_clauses)} "
+        f"SELECT id FROM cards WHERE ({' OR '.join(where_clauses)}) AND +game = ? "
         "ORDER BY name, number, id LIMIT ? OFFSET ?",
-        (*params, limit, offset),
+        (*params, game, limit, offset),
     ).fetchall()
     ordered_ids = [str(row["id"]) for row in id_rows]
     card_map = cards_by_ids(connection, ordered_ids)
@@ -4044,11 +4569,19 @@ def search_cards(
     query: str,
     limit: int = 20,
     *,
+    game: str,
     offset: int = 0,
     pool_ceiling: int | None = None,
     rarity_bucket_filter: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Manual catalog search.
+    """Manual catalog search, scoped to ONE game.
+
+    `game` is REQUIRED and deliberately has no default. This function is the
+    single place a cross-game catalog leak can happen — every text search in the
+    product funnels through here, including the scanner's OCR fallback — and a
+    default would make the leak the thing you get by forgetting. The request's
+    game is decided by the outermost caller (the HTTP boundary, which is where
+    "absent means Pokémon" lives) and threaded down; nothing in here guesses.
 
     `offset`/`pool_ceiling` power the paginated catalog-search endpoint: pass a
     `pool_ceiling` and the query gathers a large, STABLE candidate pool (the same
@@ -4059,6 +4592,7 @@ def search_cards(
     `rarity_bucket_filter` applies a structured rarity filter regardless of the
     query text (the `rarityBucket` query param on the search endpoint).
     """
+    game = normalize_game(game)
     structured_filters, search_text = _manual_search_parse_query(query)
     if rarity_bucket_filter:
         normalized_bucket = str(rarity_bucket_filter).strip().lower()
@@ -4072,6 +4606,7 @@ def search_cards(
             return _manual_search_rarity_browse(
                 connection,
                 tuple(structured_filters["rarity"]),
+                game=game,
                 limit=_normalized_manual_search_limit(limit),
                 offset=max(0, int(offset or 0)),
             )
@@ -4127,6 +4662,7 @@ def search_cards(
             connection,
             phrase,
             limit=per_phrase_limit,
+            game=game,
         ):
             add_candidate(card_id, score, phrase_tokens)
         # Illustrator match (e.g. "sugimori" → Ken Sugimori's cards). Scored below
@@ -4146,6 +4682,7 @@ def search_cards(
         tokens,
         search_text,
         limit=per_phrase_limit,
+        game=game,
     ):
         add_candidate(card_id, score)
 
@@ -4176,7 +4713,25 @@ def search_cards(
         card = candidate_map.get(card_id)
         if card is None:
             continue
-        if not _manual_search_card_matches_structured_filters(card, structured_filters):
+        # The game gate, and the reason it is HERE rather than in the retrieval
+        # SQL above. Retrieval fans out across a dozen statements, several of
+        # which read `card_name_aliases` / `card_artist_aliases` — tables with no
+        # game column, so scoping them means joining `cards` into the hot path.
+        # Both that join and a plain `AND game = ?` flip SQLite off the name/set/
+        # number indexes onto `idx_cards_game` (an equality term reads as more
+        # selective than a range), and because every production row is 'pokemon'
+        # that index selects the whole table: every keystroke becomes a full
+        # catalog scan. Measured, not assumed — see the plan assertions in
+        # backend/tests/test_multi_game_catalog_scoping.py.
+        #
+        # Filtering at the one point card rows actually materialize is airtight
+        # anyway: `candidate_map` is the only way a row reaches a caller. The
+        # cost is that a foreign-game card can occupy a candidate-pool slot
+        # before being dropped, which trims recall slightly on a shared catalog
+        # — a ranking nuance, never a wrong-game result.
+        if card.get("game") != game:
+            continue
+        if not _manual_search_card_matches_structured_filters(card, structured_filters, game=game):
             continue
         search_score = _manual_search_score(
             card,
@@ -4198,7 +4753,11 @@ def search_cards(
                         list(_candidate_title_values(card))
                         + [
                             str(card.get("setName") or ""),
-                            str(card.get("setID") or ""),
+                            # Bare: a namespaced "gundam~GD01" would tokenize to
+                            # include "gundam", so the query "gundam" would count
+                            # as covered by every card in the game and skip the
+                            # number-only ×0.2 penalty on all of them.
+                            bare_catalog_id(card.get("setID")),
                             str(card.get("setPtcgoCode") or ""),
                             # Include the illustrator so a card legitimately matched
                             # by its artist isn't treated as a number-only hit and
@@ -4236,17 +4795,30 @@ def search_cards(
     return [card for _, card in scored_cards[offset : offset + requested_limit]]
 
 
-def search_cards_local(connection: sqlite3.Connection, query: str, limit: int = 20) -> list[dict[str, Any]]:
-    return search_cards(connection, query, limit=limit)
+def search_cards_local(
+    connection: sqlite3.Connection, query: str, limit: int = 20, *, game: str
+) -> list[dict[str, Any]]:
+    return search_cards(connection, query, limit=limit, game=game)
 
 
 def get_cards_by_expansion(
     connection: sqlite3.Connection,
     set_id: str,
     *,
+    game: str,
     query: str = "",
     limit: int = 50,
 ) -> list[dict[str, Any]]:
+    """Cards in one expansion, scoped to one game.
+
+    `set_id` alone is NOT a safe key. It is provider-assigned per game, so
+    nothing stops One Piece's "OP01" from colliding with a Pokémon set code —
+    and this reads straight out of the shared `cards` table. `game` is required
+    for the same reason it is on `search_cards`: the caller knows, this does not.
+
+    See `_manual_search_rarity_browse` for why the predicate is `+game`.
+    """
+    game = normalize_game(game)
     normalized_set_id = str(set_id or "").strip()
     if not normalized_set_id:
         return []
@@ -4255,8 +4827,8 @@ def get_cards_by_expansion(
 
     if not normalized_query:
         rows = connection.execute(
-            "SELECT * FROM cards WHERE set_id = ? ORDER BY number ASC LIMIT ?",
-            (normalized_set_id, clamped_limit),
+            "SELECT * FROM cards WHERE set_id = ? AND +game = ? ORDER BY number ASC LIMIT ?",
+            (normalized_set_id, game, clamped_limit),
         ).fetchall()
         return [r for r in (_card_row_to_dict(row) for row in rows) if r is not None]
 
@@ -4282,29 +4854,39 @@ def get_cards_by_expansion(
     sql = f"""
         SELECT * FROM cards
         WHERE set_id = ?
+          AND +game = ?
           AND ({" OR ".join(or_parts)})
         ORDER BY
           CASE WHEN LOWER(name) LIKE ? THEN 0 ELSE 1 END,
           number ASC
         LIMIT ?
     """
-    final_params: list[Any] = [normalized_set_id, *params, f"{clean.lower()}%", clamped_limit]
+    final_params: list[Any] = [normalized_set_id, game, *params, f"{clean.lower()}%", clamped_limit]
     rows = connection.execute(sql, tuple(final_params)).fetchall()
     return [r for r in (_card_row_to_dict(row) for row in rows) if r is not None]
 
 
-def list_local_expansions(connection: sqlite3.Connection) -> list[dict[str, Any]]:
-    persisted = list_persisted_expansions(connection)
+def list_local_expansions(
+    connection: sqlite3.Connection, *, game: str | None = None
+) -> list[dict[str, Any]]:
+    normalized_game = normalize_game(game)
+    persisted = list_persisted_expansions(connection, game=normalized_game)
     if persisted:
         return persisted
+    # `+game` (not `game`) for the same reason as the card queries: it keeps the
+    # existing plan and applies the game as a row filter. That matters more here
+    # than elsewhere because the bare set_name/set_series/set_release_date
+    # columns come from an ARBITRARY row of each GROUP BY set_id group, so a plan
+    # flip could silently reorder or re-pick Pokémon's fallback list.
     rows = connection.execute(
         """
         SELECT set_id, set_name, set_series, set_release_date
         FROM cards
-        WHERE set_id IS NOT NULL AND set_id != ''
+        WHERE set_id IS NOT NULL AND set_id != '' AND +game = ?
         GROUP BY set_id
         ORDER BY set_release_date DESC
         """,
+        (normalized_game,),
     ).fetchall()
     return [
         {
@@ -4319,13 +4901,30 @@ def list_local_expansions(connection: sqlite3.Connection) -> list[dict[str, Any]
     ]
 
 
-def list_persisted_expansions(connection: sqlite3.Connection) -> list[dict[str, Any]]:
+def list_persisted_expansions(
+    connection: sqlite3.Connection, *, game: str | None = None
+) -> list[dict[str, Any]]:
+    """The set browser's list for ONE game. Absent means Pokémon, as everywhere.
+
+    On `+game` and on the missing index: this is the query the shipped Pokémon
+    set browser runs, and its output must stay byte-identical. Measured on a
+    449-row table, adding `idx_expansions_game` flips the plan from
+    `SCAN … USING INDEX idx_expansions_release_date` + a temp b-tree for the LAST
+    ORDER BY term to `SEARCH … USING INDEX idx_expansions_game` + a temp b-tree
+    for the WHOLE ORDER BY — a different sort, so rows tied on
+    (release_date, name) could come back in a different order. There is nothing
+    to win either way: `game` has five values over a few hundred rows and the
+    listing sorts the whole result regardless. So: no index, and `+game` so that
+    adding one later cannot silently move Pokémon's rows.
+    """
     rows = connection.execute(
         """
         SELECT id, name, series, code, release_date, logo_url, symbol_url, image_url
         FROM expansions
+        WHERE +game = ?
         ORDER BY release_date DESC NULLS LAST, name ASC
         """,
+        (normalize_game(game),),
     ).fetchall()
     return [
         {
@@ -4340,8 +4939,17 @@ def list_persisted_expansions(connection: sqlite3.Connection) -> list[dict[str, 
     ]
 
 
-def expansion_count(connection: sqlite3.Connection) -> int:
-    row = connection.execute("SELECT COUNT(*) AS count FROM expansions").fetchone()
+def expansion_count(connection: sqlite3.Connection, *, game: str | None = None) -> int:
+    """How many sets are stored FOR ONE GAME.
+
+    Per game, not global: the count gates the first-run sync, and a global count
+    is non-zero the moment Pokémon syncs — which is why `?game=onepiece` against
+    a populated Pokémon table never synced and returned a pure-Pokémon list.
+    """
+    row = connection.execute(
+        "SELECT COUNT(*) AS count FROM expansions WHERE +game = ?",
+        (normalize_game(game),),
+    ).fetchone()
     return int(row["count"]) if row else 0
 
 
@@ -4360,24 +4968,28 @@ def upsert_expansion(
     source_provider: str | None = None,
     source_payload: dict[str, Any] | None = None,
     imported_at: str | None = None,
+    game: str | None = None,
 ) -> None:
     normalized_id = str(expansion_id or "").strip()
     if not normalized_id:
         raise ValueError("expansion_id is required")
     timestamp = imported_at or utc_now()
     payload_json = json.dumps(source_payload or {}, ensure_ascii=False)
+    # The sync that wrote the row is the authority on which game it is, so a
+    # re-sync repairs a mis-stamped row the same way it repairs a renamed set.
     connection.execute(
         """
         INSERT INTO expansions (
-            id, name, series, code, language, release_date,
+            id, game, name, series, code, language, release_date,
             logo_url, symbol_url, image_url,
             source_provider, source_payload_json, created_at, updated_at
         ) VALUES (
-            ?, ?, ?, ?, ?, ?,
+            ?, ?, ?, ?, ?, ?, ?,
             ?, ?, ?,
             ?, ?, ?, ?
         )
         ON CONFLICT(id) DO UPDATE SET
+            game=excluded.game,
             name=excluded.name,
             series=excluded.series,
             code=excluded.code,
@@ -4392,6 +5004,7 @@ def upsert_expansion(
         """,
         (
             normalized_id,
+            normalize_game(game),
             str(name or "").strip(),
             series,
             code,
@@ -8140,8 +8753,11 @@ def _set_overlap(card: dict[str, Any], evidence: RawEvidence) -> float:
     query_tokens = set(evidence.trusted_set_hint_tokens or evidence.set_hint_tokens)
     if not query_tokens:
         return 0.0
+    # Bare set id: OCR reads the code PRINTED on the card ("EB01"), so comparing
+    # it against a stored "gundam~EB01" would never hit exactly and this game's
+    # set evidence would silently stop scoring.
     exact_candidate_tokens = {
-        str(card.get("setID") or "").lower(),
+        bare_catalog_id(card.get("setID")).lower(),
         str(card.get("setPtcgoCode") or "").lower(),
     }
     source_payload = card.get("sourcePayload") or {}
@@ -8159,7 +8775,7 @@ def _set_overlap(card: dict[str, Any], evidence: RawEvidence) -> float:
                 for part in [
                     card.get("setName") or "",
                     card.get("setSeries") or "",
-                    card.get("setID") or "",
+                    bare_catalog_id(card.get("setID")),
                     card.get("setPtcgoCode") or "",
                     *(_candidate_source_expansion_values(card)),
                 ]
@@ -8228,21 +8844,33 @@ def _raw_local_shortlist_query(*parts: object) -> str:
 def _raw_local_shortlisted_cards(
     connection: sqlite3.Connection,
     *,
+    game: str,
     query: str,
     limit: int,
 ) -> list[dict[str, Any]]:
+    """Shared text shortlist behind the raw OCR retrieval routes.
+
+    `game` is required all the way down this chain because these routes are the
+    scanner's fallback: the visual index is already per-game, so an unscoped
+    text search here is the one way a One Piece scan could still surface a
+    Pokémon card — the exact contamination the per-game index was built to
+    prevent, re-introduced one layer below it.
+    """
     normalized_query = str(query or "").strip()
     if not normalized_query:
         return []
     shortlist_limit = min(max(int(limit) * 6, 48), 120)
-    return search_cards(connection, normalized_query, limit=shortlist_limit)
+    return search_cards(connection, normalized_query, limit=shortlist_limit, game=game)
 
 
-def search_cards_local_title_set(connection: sqlite3.Connection, evidence: RawEvidence, limit: int = 12) -> list[dict[str, Any]]:
+def search_cards_local_title_set(
+    connection: sqlite3.Connection, evidence: RawEvidence, limit: int = 12, *, game: str
+) -> list[dict[str, Any]]:
     scored = []
     set_tokens = evidence.trusted_set_hint_tokens or evidence.set_hint_tokens
     shortlist = _raw_local_shortlisted_cards(
         connection,
+        game=game,
         query=_raw_local_shortlist_query(
             evidence.title_text_primary,
             evidence.title_text_secondary,
@@ -8261,10 +8889,13 @@ def search_cards_local_title_set(connection: sqlite3.Connection, evidence: RawEv
     return [candidate for _, candidate in scored[:limit]]
 
 
-def search_cards_local_title_only(connection: sqlite3.Connection, evidence: RawEvidence, limit: int = 12) -> list[dict[str, Any]]:
+def search_cards_local_title_only(
+    connection: sqlite3.Connection, evidence: RawEvidence, limit: int = 12, *, game: str
+) -> list[dict[str, Any]]:
     scored = []
     shortlist = _raw_local_shortlisted_cards(
         connection,
+        game=game,
         query=_raw_local_shortlist_query(
             evidence.title_text_primary,
             evidence.title_text_secondary,
@@ -8281,11 +8912,14 @@ def search_cards_local_title_only(connection: sqlite3.Connection, evidence: RawE
     return [candidate for _, candidate in scored[:limit]]
 
 
-def search_cards_local_collector_set(connection: sqlite3.Connection, evidence: RawEvidence, limit: int = 12) -> list[dict[str, Any]]:
+def search_cards_local_collector_set(
+    connection: sqlite3.Connection, evidence: RawEvidence, limit: int = 12, *, game: str
+) -> list[dict[str, Any]]:
     scored = []
     set_tokens = evidence.trusted_set_hint_tokens or evidence.set_hint_tokens
     shortlist = _raw_local_shortlisted_cards(
         connection,
+        game=game,
         query=_raw_local_shortlist_query(
             *_raw_local_number_query_parts(evidence),
             *set_tokens,
@@ -8303,10 +8937,13 @@ def search_cards_local_collector_set(connection: sqlite3.Connection, evidence: R
     return [candidate for _, candidate in scored[:limit]]
 
 
-def search_cards_local_collector_only(connection: sqlite3.Connection, evidence: RawEvidence, limit: int = 12) -> list[dict[str, Any]]:
+def search_cards_local_collector_only(
+    connection: sqlite3.Connection, evidence: RawEvidence, limit: int = 12, *, game: str
+) -> list[dict[str, Any]]:
     scored = []
     shortlist = _raw_local_shortlisted_cards(
         connection,
+        game=game,
         query=_raw_local_shortlist_query(*_raw_local_number_query_parts(evidence)),
         limit=limit,
     )

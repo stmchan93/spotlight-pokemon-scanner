@@ -19,8 +19,8 @@ import { useRouter } from 'expo-router';
 
 import {
   deckConditionOptions,
-  gameHasGradedData,
-  graderOptions,
+  gameHasListingsData,
+  gradersForGame,
   type CardDetailRecord,
   type CardPriceTrendList as CardPriceTrendListRecord,
   type CardPriceTrendRow,
@@ -364,6 +364,15 @@ export function CardDetailScreen({
     return inventoryEntry ? cardDetailPreviewFromInventoryEntry(inventoryEntry) : null;
   }, [cardId, entryId, inventoryEntriesCache, portfolioDashboardCache]);
   const detailPreview = scanDetailPreview ?? savedDetailPreview ?? dashboardDetailPreview;
+  // Which TCG this card is from. Declared up here because the marketplace-link
+  // and comps callbacks below close over it AND list it as a dependency — a
+  // dependency array is evaluated during render, so a later `const` would be a
+  // temporal-dead-zone ReferenceError, not just untidy.
+  //
+  // `undefined` is a real, common value (payloads from a backend that predates
+  // multi-game carry no game) and every reader must treat it as Pokémon — which
+  // is exactly what the capability helpers do.
+  const cardGame = detail?.game ?? detailPreview?.game;
 
   useEffect(() => {
     let cancelled = false;
@@ -550,7 +559,9 @@ export function CardDetailScreen({
     seededCardIdRef.current = cardId;
 
     if (ownedSlabContext?.grader) {
-      const graderMatch = graderOptions.find(
+      // Match against THIS GAME's graders: an SGC-graded Lorcana card must seed
+      // to SGC, not fall through to PSA because SGC isn't a Pokémon lane.
+      const graderMatch = gradersForGame(cardGame).find(
         (option) => option.toLowerCase() === ownedSlabContext.grader.toLowerCase(),
       );
       setSelectedGrader(graderMatch ?? 'PSA');
@@ -560,7 +571,7 @@ export function CardDetailScreen({
       const ownedCondition = selectedEntry?.kind === 'raw' ? selectedEntry.conditionCode ?? null : null;
       setSelectedCondition(ownedCondition ?? deckConditionOptions[0]?.code ?? null);
     }
-  }, [cardId, detail, ownedSlabContext, selectedEntry]);
+  }, [cardGame, cardId, detail, ownedSlabContext, selectedEntry]);
 
   // Seed the variant default once the variant list actually resolves. Kept
   // separate from the grader seed because variantOptions is empty until full
@@ -644,12 +655,12 @@ export function CardDetailScreen({
       return;
     }
     const matchedGrader =
-      graderOptions.find(
+      gradersForGame(cardGame).find(
         (option) => option !== 'Raw' && option.toLowerCase() === reference.grader.toLowerCase(),
       ) ?? reference.grader;
     setSelectedGrader(matchedGrader);
     setSelectedGrade(reference.grade ?? '10');
-  }, [activeCardId, detail, selectedGrader]);
+  }, [activeCardId, cardGame, detail, selectedGrader]);
 
   // Reset the per-lane selection whenever the grader switches so the grade
   // label always reflects the active lane.
@@ -800,6 +811,17 @@ export function CardDetailScreen({
       // fall back to the configurator's selected print variant.
       const keyVariant = row.key.split('|')[2]?.trim();
       const variantName = keyVariant || selectedVariantLabel || null;
+      // No listings source for this game → the row has nothing to expand INTO,
+      // so the tap is a no-op rather than an accordion that opens on emptiness.
+      //
+      // This guard is not redundant with hiding the graded lanes: Lorcana has
+      // real graded pricing and NO sold-comps source, so it reaches here. And
+      // it must sit before the fetches, not just before the render — the
+      // recent-sales call is `refresh: true` and costs a Scrydex credit, which
+      // is not something to spend on an endpoint that cannot answer.
+      if (!gameHasListingsData(cardGame)) {
+        return;
+      }
       // Accordion: toggle the inline last-solds panel for this row (instead of
       // kicking straight out to the eBay browser search).
       if (expandedTrendRowKey === row.key) {
@@ -887,6 +909,7 @@ export function CardDetailScreen({
         cardNumber: detail.cardNumber,
         setName: detail.setName,
         condition,
+        game: cardGame,
       });
     if (url) {
       capturePostHogEvent('pricing_link_opened', { marketplace: 'tcgplayer', lane: 'raw' });
@@ -894,6 +917,7 @@ export function CardDetailScreen({
     }
   }, [
     activeCardId,
+    cardGame,
     detail,
     expandedTrendRowKey,
     priceTrends,
@@ -908,6 +932,20 @@ export function CardDetailScreen({
   // sold titles (far better recall than our guessed keyword query).
   const expandedTrendContent = useMemo(() => {
     if (!expandedTrendRowKey || !detail || priceTrends?.mode !== 'graded') {
+      return null;
+    }
+    // Games with no listings data get NO comps block at all — not an empty one.
+    // Scrydex's `/{game}/v1/cards/{id}/listings` returns zero rows for One
+    // Piece, so both panels would render their empty states plus a "See more on
+    // eBay" footer that leads somewhere equally empty. Two skeletons that never
+    // fill read as a broken screen, and the honest answer is "this surface does
+    // not exist for this game".
+    //
+    // Belt-and-braces with the grading lanes being hidden already (no graded
+    // lane → `mode` is never 'graded' → we return above): that guard is about
+    // GRADED PRICING, this one is about LISTINGS, and they are separate claims
+    // that a future game could split.
+    if (!gameHasListingsData(cardGame)) {
       return null;
     }
     const [grader, grade] = expandedTrendRowKey.replace(/\|/g, ' ').trim().split(/\s+/);
@@ -927,6 +965,7 @@ export function CardDetailScreen({
       grade,
       variant: selectedVariantLabel,
       language: detail.language,
+      game: cardGame,
     };
     const soldFallbackUrl = buildEbaySearchUrl(ebayFallbackParams);
     const activeFallbackUrl = buildEbaySearchUrl({
@@ -1025,6 +1064,7 @@ export function CardDetailScreen({
       </View>
     );
   }, [
+    cardGame,
     detail,
     expandedTrendRowKey,
     lowestListedByRowKey,
@@ -1073,6 +1113,7 @@ export function CardDetailScreen({
         // Unlimited) so the recent-sales list isn't a mix of both.
         variant: selectedVariantLabel,
         language: detail.language,
+        game: cardGame,
       });
       if (ebayUrl) {
         capturePostHogEvent('pricing_link_opened', { marketplace: 'ebay', lane: 'graded' });
@@ -1093,12 +1134,13 @@ export function CardDetailScreen({
         cardNumber: detail.cardNumber,
         setName: detail.setName,
         condition: 'Near Mint',
+        game: cardGame,
       });
     if (url) {
       capturePostHogEvent('pricing_link_opened', { marketplace: 'tcgplayer', lane: 'raw' });
       void Linking.openURL(url);
     }
-  }, [detail, priceTrends, selectedGrade, selectedGrader, selectedVariantLabel]);
+  }, [cardGame, detail, priceTrends, selectedGrade, selectedGrader, selectedVariantLabel]);
 
   const handleToggleFavorite = useCallback(() => {
     if (isFavoritePending) {
@@ -1196,15 +1238,14 @@ export function CardDetailScreen({
     ?? detailPreview?.largeImageUrl
     ?? detailPreview?.imageUrl
     ?? null;
-  // Grading lanes are offered ONLY for games that actually have graded data
-  // behind them. One Piece has none — Scrydex returns no graded prices and empty
-  // pop reports for it — so a PSA/BGS/CGC chip there would be a control that
-  // leads to a permanently empty chart.
-  const cardGame = detail?.game ?? detailPreview?.game;
-  const availableGraders = useMemo(
-    () => (gameHasGradedData(cardGame) ? [...graderOptions] : ['Raw']),
-    [cardGame],
-  );
+  // Grading lanes come from the GAME, both in whether there are any and in
+  // which. One Piece has none — Scrydex returns no graded prices for it — so a
+  // PSA chip there would be a control leading to a permanently empty chart.
+  // Lorcana has real ones, but NOT Pokémon's: its priced slabs span eight
+  // companies (PSA, CGC, SGC, BGS, TAG, ACE, AGS, CCIC), so handing it the
+  // Pokémon four would hide most of its data. `gradersForGame` owns both facts;
+  // this screen only asks. (`cardGame` is declared near the top; see the note.)
+  const availableGraders = useMemo(() => [...gradersForGame(cardGame)], [cardGame]);
   const displayCardNumber = detail?.cardNumber ?? detailPreview?.cardNumber ?? '';
   const displaySetName = detail?.setName ?? detailPreview?.setName ?? '';
   // Card number + set name share one line, dot-separated ("052 · Scarlet &
@@ -1306,9 +1347,18 @@ export function CardDetailScreen({
         setName: displaySetName,
         condition,
         printing: selectedVariantLabel,
+        game: cardGame,
       })
     );
-  }, [detail, displayCardNumber, displayName, displaySetName, selectedCondition, selectedVariantLabel]);
+  }, [
+    cardGame,
+    detail,
+    displayCardNumber,
+    displayName,
+    displaySetName,
+    selectedCondition,
+    selectedVariantLabel,
+  ]);
 
   const handleShare = useCallback(() => {
     const message = [transactionLabel, marketplaceUrl].filter(Boolean).join('\n');

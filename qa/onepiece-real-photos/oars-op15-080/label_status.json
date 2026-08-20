@@ -1,0 +1,11 @@
+{
+  "labelState": "confirmed",
+  "labelSource": "manual_visual_verification",
+  "providerMapping": {
+    "providerCardId": "onepiece~OP15-080",
+    "sourceProvider": "scrydex",
+    "collectorNumber": "OP15-080",
+    "setName": "Adventure on Kami's Island"
+  },
+  "verification": "Collector number OP15-080 read off the photographed card; artwork, name plate and card frame match the Scrydex reference art for onepiece~OP15-080; no SAMPLE overlay present. Seller listing title: Oars OP15-080 Adventure on Kami's Island One Piece CCG R Foil NM"
+}

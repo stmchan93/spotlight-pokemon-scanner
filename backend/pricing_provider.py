@@ -65,13 +65,17 @@ class PricingProvider(ABC):
         pass
 
     @abstractmethod
-    def refresh_raw_pricing(self, connection, card_id: str) -> RawPricingResult:
+    def refresh_raw_pricing(self, connection, card_id: str, *, game: str) -> RawPricingResult:
         """
         Refresh raw card pricing for a card.
 
         Args:
             connection: Database connection
             card_id: Card ID to refresh
+            game: Which TCG the card belongs to. REQUIRED and never defaulted
+                here: a provider that guessed would build a request for the
+                wrong catalog, and the caller loading the card row is the only
+                party that actually knows. Callers pass `normalize_game(row)`.
 
         Returns:
             RawPricingResult with success status and optional payload/error
@@ -85,6 +89,8 @@ class PricingProvider(ABC):
         card_id: str,
         grader: str,
         grade: str,
+        *,
+        game: str,
         preferred_variant: str | None = None,
         variant_hints: dict[str, Any] | None = None,
     ) -> PsaPricingResult:
@@ -96,6 +102,10 @@ class PricingProvider(ABC):
             card_id: Card ID to refresh
             grader: Grader (e.g., "PSA", "CGC")
             grade: PSA grade (e.g., "10", "9", "8")
+            game: Which TCG the card belongs to. REQUIRED — see
+                `refresh_raw_pricing`. Whether the game HAS graded pricing at
+                all is the caller's gate (`game_has_graded_pricing`), not the
+                provider's.
 
         Returns:
             PsaPricingResult with success status and optional payload/error
@@ -156,7 +166,9 @@ class PricingProviderRegistry:
                 return provider
         return None
 
-    def refresh_raw_pricing(self, connection, card_id: str, use_cache: bool = False) -> RawPricingResult:
+    def refresh_raw_pricing(
+        self, connection, card_id: str, *, game: str, use_cache: bool = False
+    ) -> RawPricingResult:
         del use_cache
         last_error = None
         for provider in self._providers:
@@ -166,7 +178,7 @@ class PricingProviderRegistry:
             if not metadata.supports_raw_pricing:
                 continue
 
-            result = provider.refresh_raw_pricing(connection, card_id)
+            result = provider.refresh_raw_pricing(connection, card_id, game=game)
             if result.success:
                 return result
             last_error = result.error
@@ -185,6 +197,8 @@ class PricingProviderRegistry:
         card_id: str,
         grader: str,
         grade: str,
+        *,
+        game: str,
         preferred_variant: str | None = None,
         variant_hints: dict[str, Any] | None = None,
         use_cache: bool = False,
@@ -203,6 +217,7 @@ class PricingProviderRegistry:
                 card_id,
                 grader,
                 grade,
+                game=game,
                 preferred_variant=preferred_variant,
                 variant_hints=variant_hints,
             )

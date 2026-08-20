@@ -35,7 +35,11 @@ class PriceChartingProvider(PricingProvider):
     def is_ready(self) -> bool:
         return pricecharting_credentials() is not None
 
-    def refresh_raw_pricing(self, connection, card_id: str) -> RawPricingResult:
+    def refresh_raw_pricing(self, connection, card_id: str, *, game: str) -> RawPricingResult:
+        # Accepted and discarded: the shell never reaches a network path, but it
+        # must satisfy the same contract as the live provider so the ABC has one
+        # signature rather than a per-implementation one.
+        del game
         return RawPricingResult(
             success=False,
             provider_id=PRICECHARTING_PROVIDER,
@@ -49,10 +53,12 @@ class PriceChartingProvider(PricingProvider):
         card_id: str,
         grader: str,
         grade: str,
+        *,
+        game: str,
         preferred_variant: str | None = None,
         variant_hints: dict | None = None,
     ) -> PsaPricingResult:
-        del preferred_variant, variant_hints
+        del game, preferred_variant, variant_hints
         return PsaPricingResult(
             success=False,
             provider_id=PRICECHARTING_PROVIDER,

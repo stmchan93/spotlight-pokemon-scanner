@@ -13,7 +13,8 @@ REPO_ROOT = BACKEND_ROOT.parent
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from catalog_tools import (  # noqa: E402
+from catalog_tools import (
+    GAME_POKEMON,  # noqa: E402
     RARITY_BUCKET_KEYS,
     apply_schema,
     card_by_id,
@@ -262,7 +263,7 @@ class RaritySearchFilterTests(unittest.TestCase):
         self.tempdir.cleanup()
 
     def _ids(self, query: str, **kwargs) -> set[str]:
-        return {row["id"] for row in search_cards(self.connection, query, limit=20, **kwargs)}
+        return {row["id"] for row in search_cards(self.connection, query, limit=20, **kwargs, game=GAME_POKEMON)}
 
     def test_structured_rarity_token_narrows_results(self) -> None:
         ids = self._ids("rarity:sir umbreon")
@@ -311,8 +312,8 @@ class RaritySearchFilterTests(unittest.TestCase):
         self.assertEqual(ids, {"umbreon-ultra"})
 
     def test_rarity_browse_respects_limit_and_offset(self) -> None:
-        page_one = search_cards(self.connection, "rarity:standard", limit=1, offset=0)
-        page_two = search_cards(self.connection, "rarity:standard", limit=1, offset=1)
+        page_one = search_cards(self.connection, "rarity:standard", limit=1, offset=0, game=GAME_POKEMON)
+        page_two = search_cards(self.connection, "rarity:standard", limit=1, offset=1, game=GAME_POKEMON)
         self.assertEqual(len(page_one), 1)
         self.assertEqual(len(page_two), 1)
         self.assertNotEqual(page_one[0]["id"], page_two[0]["id"])

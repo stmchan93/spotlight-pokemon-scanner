@@ -1,0 +1,11 @@
+{
+  "labelState": "confirmed",
+  "labelSource": "manual_visual_verification",
+  "providerMapping": {
+    "providerCardId": "onepiece~OP03-123",
+    "sourceProvider": "scrydex",
+    "collectorNumber": "OP03-123",
+    "setName": "Pillars of Strength"
+  },
+  "verification": "Collector number OP03-123 read off the photographed card; artwork, name plate and card frame match the Scrydex reference art for onepiece~OP03-123; no SAMPLE overlay present. Seller listing title: Charlotte Katakuri OP03-123 SEC Mighty Enemies One Piece Card Japan eBay"
+}

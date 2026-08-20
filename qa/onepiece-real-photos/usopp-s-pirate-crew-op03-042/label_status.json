@@ -1,0 +1,11 @@
+{
+  "labelState": "confirmed",
+  "labelSource": "manual_visual_verification",
+  "providerMapping": {
+    "providerCardId": "onepiece~OP03-042",
+    "sourceProvider": "scrydex",
+    "collectorNumber": "OP03-042",
+    "setName": "Pillars of Strength"
+  },
+  "verification": "Collector number OP03-042 read off the photographed card; artwork, name plate and card frame match the Scrydex reference art for onepiece~OP03-042; no SAMPLE overlay present. Seller listing title: JAPANESE USOPP'S PIRATE CREW PILLARS OF STRENGTH OP03-042 NM A26517 FREE S&H"
+}

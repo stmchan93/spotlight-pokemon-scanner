@@ -11,7 +11,14 @@ import {
   seedMockScannerCandidates,
   updateInventoryForSale,
 } from './mock-data';
-import { ALL_COLLECTIONS_ID, labelingSessionAngleLabels, RARITY_BUCKET_VALUES } from './types';
+import {
+  ALL_COLLECTIONS_ID,
+  CARD_GAMES,
+  DEFAULT_CARD_GAME,
+  labelingSessionAngleLabels,
+  marketplaceKeywordForGame,
+  RARITY_BUCKET_VALUES,
+} from './types';
 import type {
   AccessRedeemResult,
   AccessStatus,
@@ -29,6 +36,7 @@ import type {
   CardDetailGradedReference,
   CardDetailRecord,
   CardFavoriteContext,
+  CardGame,
   CardPopulation,
   TcgPlayerVariantMarketplace,
   CardEbayListingRecord,
@@ -142,6 +150,16 @@ export type CatalogSearchPage = {
 export type CatalogSearchOptions = {
   /** Rarity bucket filter — sent as the `rarityBucket` query-string param. */
   rarityBucket?: RarityBucket;
+  /**
+   * Which game's catalog to search. Omitted means Pokémon, because that is what
+   * the backend's boundary already infers from an absent `game` — so a caller
+   * that predates multi-game keeps its exact results.
+   *
+   * Search is scoped, not cross-game: the backend takes one game per query.
+   * Without this a One Piece lane searched the POKÉMON catalog and came back
+   * empty for every One Piece card.
+   */
+  game?: CardGame;
 };
 
 export interface SpotlightRepository {
@@ -282,8 +300,13 @@ export interface SpotlightRepository {
     payload: PortfolioImportResolveRequestPayload,
   ): Promise<PortfolioImportJobRecord>;
   commitPortfolioImportJob(jobID: string): Promise<PortfolioImportCommitResponsePayload>;
-  listExpansions(game?: string): Promise<ExpansionRecord[]>;
-  listCardsInExpansion(expansionId: string, query?: string, limit?: number): Promise<CatalogSearchResult[]>;
+  listExpansions(game?: CardGame): Promise<ExpansionRecord[]>;
+  listCardsInExpansion(
+    expansionId: string,
+    query?: string,
+    limit?: number,
+    game?: CardGame,
+  ): Promise<CatalogSearchResult[]>;
   getAccessStatus(): Promise<AccessStatus>;
   redeemInviteCode(code: string): Promise<AccessRedeemResult>;
   joinAccessWaitlist(email: string): Promise<AccessWaitlistResult>;
@@ -425,6 +448,9 @@ type CardCandidateDTO = {
   imageLargeURL?: string | null;
   pricing?: CardPricingSummaryDTO | null;
   isFavorite?: boolean | null;
+  // Which TCG the card belongs to. Absent from a backend that predates
+  // multi-game; validated client-side against the games this build knows.
+  game?: string | null;
   // Server-computed rarity bucket; validated client-side against the known
   // bucket keys (the client never re-implements the rarity→bucket mapping).
   rarityBucket?: string | null;
@@ -902,6 +928,7 @@ type NormalizedCardCandidate = {
   imageLargeURL: string;
   isFavorite: boolean;
   rarityBucket?: RarityBucket;
+  game?: CardGame;
   pricing: {
     currencyCode: string;
     market: number | null;
@@ -1344,34 +1371,40 @@ function formatTradedAtLabel(isoDate: string) {
   })}`;
 }
 
-function cleanedTcgPlayerToken(value?: string | null) {
+function cleanedTcgPlayerToken(value?: string | null, gameKeyword = 'pokemon') {
   // Decompose accented chars (é→e), lowercase, keep apostrophes and slashes
   const normalized = (value ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-  // Strip a redundant "pokemon" prefix so set names like "Pokémon Card 151" don't double up
-  return (
-    normalized
-      .replace(/[^a-z0-9/' ]+/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .replace(/^pokemon\s+/, '') || null
-  );
+  // Strip a redundant game-name prefix so set names like "Pokémon Card 151" (or
+  // "One Piece Card Game …") don't double up the keyword the query opens with.
+  const cleaned = normalized
+    .replace(/[^a-z0-9/' ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const prefix = `${gameKeyword} `;
+  return (cleaned.startsWith(prefix) ? cleaned.slice(prefix.length) : cleaned) || null;
 }
 
 function buildTcgPlayerSearchUrl(params: {
   name: string;
   cardNumber: string;
   setName: string;
+  /** Absent means Pokémon — see `cardGameCapabilities`. */
+  game?: CardGame;
 }) {
+  // The game's own word, not a hardcoded "pokemon": this URL is served as the
+  // card detail's `marketplaceUrl`, and a One Piece card searching TCGplayer
+  // for "pokemon OP16-001" finds nothing.
+  const gameKeyword = marketplaceKeywordForGame(params.game);
   const query = [
-    'pokemon',
-    cleanedTcgPlayerToken(params.setName),
-    cleanedTcgPlayerToken(params.name),
-    cleanedTcgPlayerToken(params.cardNumber.replace(/^#/, '')),
+    gameKeyword,
+    cleanedTcgPlayerToken(params.setName, gameKeyword),
+    cleanedTcgPlayerToken(params.name, gameKeyword),
+    cleanedTcgPlayerToken(params.cardNumber.replace(/^#/, ''), gameKeyword),
   ]
     .filter(Boolean)
     .join(' ');
 
-  if (!query || query === 'pokemon') {
+  if (!query || query === gameKeyword) {
     return null;
   }
 
@@ -1736,6 +1769,19 @@ function normalizeRarityBucket(value: unknown): RarityBucket | undefined {
     : undefined;
 }
 
+// Which TCG a card belongs to, validated against the games THIS BUILD knows.
+//
+// Returns `undefined` for both an absent value (a backend predating multi-game)
+// and a game shipped after this build (a newer backend than this app). Both
+// collapse to undefined on purpose, because every capability helper already
+// reads undefined as Pokémon — so an unrecognised game degrades to the default
+// lane rather than crashing a lookup or blanking the card's pricing UI.
+function normalizeCardGame(value: unknown): CardGame | undefined {
+  return typeof value === 'string' && (CARD_GAMES as readonly string[]).includes(value)
+    ? (value as CardGame)
+    : undefined;
+}
+
 function normalizeCardCandidate(candidate: CardCandidateDTO | null | undefined, baseUrl?: string) {
   const id = normalizeString(candidate?.id);
   const name = normalizeString(candidate?.name);
@@ -1759,6 +1805,11 @@ function normalizeCardCandidate(candidate: CardCandidateDTO | null | undefined, 
     imageLargeURL: normalizeImageUrl(candidate?.imageLargeURL, baseUrl),
     isFavorite: normalizeBoolean(candidate?.isFavorite) ?? false,
     rarityBucket: normalizeRarityBucket(candidate?.rarityBucket),
+    // Read off the wire ONCE, here, because every card-shaped record in the app
+    // (scan candidate, search result, collection entry, card detail) is built
+    // from this normalizer. Dropping it here is what would leave the capability
+    // helpers permanently answering "Pokémon" for a One Piece card.
+    game: normalizeCardGame(candidate?.game),
     pricing: {
       currencyCode: normalizeCurrencyCode(candidate?.pricing?.currencyCode),
       market: normalizeNumber(candidate?.pricing?.market),
@@ -1953,6 +2004,10 @@ function createScannerMatchPayload(
     slabRecommendedLookupPath: slabAnalysis?.slabRecommendedLookupPath ?? null,
     resolverModeHint: payload.mode === 'slabs' ? 'psa_slab' : 'raw_card',
     rawResolverMode: payload.mode === 'raw' ? 'visual' : null,
+    // Which per-game visual index the backend should search. Always explicit —
+    // `'pokemon'` is what the backend already infers from an absent field, so
+    // Pokémon scans keep resolving exactly as they did before multi-game.
+    game: payload.game ?? DEFAULT_CARD_GAME,
     cardLanguage: payload.cardLanguage ?? null,
     cropConfidence: 1,
     warnings: [],
@@ -2039,6 +2094,7 @@ function mapScannerMatchCandidates(
       // Persisted tray rows keep their full candidates[] — carry the bucket so
       // rehydrated rows can still render/filter without a fresh search.
       rarityBucket: card.rarityBucket,
+      game: card.game,
       priceIsGradedReference,
       gradedReferenceLabel,
     }];
@@ -2136,6 +2192,7 @@ function mapDeckEntry(entry: DeckEntryDTO, baseUrl?: string): InventoryCardEntry
     conditionShortLabel: conditionCopy.shortLabel ?? null,
     slabContext,
     rarityBucket: card.rarityBucket,
+    game: card.game,
     costBasisPerUnit: explicitCostBasisPerUnit ?? derivedCostBasisPerUnit,
     costBasisTotal: costBasisTotal ?? null,
     isFavorite: normalizeBoolean(entry.isFavorite) ?? card.isFavorite,
@@ -3288,8 +3345,14 @@ export class MockSpotlightRepository implements SpotlightRepository {
     }
 
     const start = Math.max(0, offset);
+    const game = options?.game;
     const matched = this.catalogResults.filter((result) => {
       if (rarityBucket && result.rarityBucket !== rarityBucket) {
+        return false;
+      }
+      // Same scoping the HTTP repository gets from the backend. A fixture with
+      // no game is Pokémon, matching how the backend reads an absent column.
+      if (game && (result.game ?? DEFAULT_CARD_GAME) !== game) {
         return false;
       }
       if (normalized.length === 0) {
@@ -3328,7 +3391,13 @@ export class MockSpotlightRepository implements SpotlightRepository {
   }
 
   async matchScannerCapture(payload: ScannerCapturePayload, _options?: ScannerMatchOptions) {
-    const candidates = buildScannerCandidates(payload.mode, 10);
+    // The mock seed is a Pokémon corpus, but it must still answer in the lane it
+    // was asked about: candidates carry the requested game so any game-aware UI
+    // reading `candidate.game` behaves the same against the mock as against the
+    // real backend (which stamps the scanned game on every candidate).
+    const game = payload.game ?? DEFAULT_CARD_GAME;
+    const candidates = buildScannerCandidates(payload.mode, 10)
+      .map((candidate) => ({ ...candidate, game }));
     return {
       scanID: createPseudoUUID(),
       candidates,
@@ -4221,11 +4290,16 @@ export class MockSpotlightRepository implements SpotlightRepository {
     };
   }
 
-  async listExpansions(_game?: string): Promise<ExpansionRecord[]> {
+  async listExpansions(_game?: CardGame): Promise<ExpansionRecord[]> {
     return [];
   }
 
-  async listCardsInExpansion(_expansionId: string, query?: string, _limit?: number): Promise<CatalogSearchResult[]> {
+  async listCardsInExpansion(
+    _expansionId: string,
+    query?: string,
+    _limit?: number,
+    _game?: CardGame,
+  ): Promise<CatalogSearchResult[]> {
     if (!query?.trim()) {
       return [];
     }
@@ -4382,6 +4456,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           ownedQuantity: 0,
           isFavorite: card.isFavorite,
           rarityBucket: card.rarityBucket,
+          game: card.game,
         }];
       });
   }
@@ -5010,6 +5085,12 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     if (rarityBucket) {
       queryParams.set('rarityBucket', rarityBucket);
     }
+    // Only sent when the caller named a game. Omitting it entirely (rather than
+    // sending 'pokemon') keeps the request byte-identical for pre-multi-game
+    // callers, so nothing about the Pokémon lane changes.
+    if (options?.game) {
+      queryParams.set('game', options.game);
+    }
     const [searchResponse, inventoryResult] = await Promise.all([
       this.requestJson<SearchResultsDTO>(`${this.baseUrl}/api/v1/cards/search?${queryParams.toString()}`),
       this.loadInventoryEntries(),
@@ -5047,6 +5128,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
             .reduce((sum: number, entry: InventoryCardEntry) => sum + entry.quantity, 0),
           isFavorite: card.isFavorite,
           rarityBucket: card.rarityBucket,
+          game: card.game,
         }];
       });
 
@@ -5512,6 +5594,10 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       name: card.name,
       cardNumber: withCardNumberPrefix(card.number),
       setName: card.setName,
+      // The authoritative game for the PDP. A preview (scan/collection/search
+      // row) usually carries one too, but a deep link into a card has no
+      // preview at all — this is the only source that always exists.
+      game: card.game,
       imageUrl: pickImageUrl([
         detailResponse.data.imageLargeURL,
         detailResponse.data.card.imageLargeURL,
@@ -5530,6 +5616,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         name: card.name,
         cardNumber: card.number,
         setName: card.setName,
+        game: card.game,
       }),
       marketHistory: {
         ...marketHistory,
@@ -5815,6 +5902,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           conditionShortLabel: conditionCopy.shortLabel ?? null,
           slabContext,
           rarityBucket: normalizeRarityBucket(card.rarityBucket),
+          game: normalizeCardGame(card.game),
           dayChangeAmount: normalizeNumber(entry.dayChangeAmount) ?? null,
           dayChangePercent: normalizeNumber(entry.dayChangePercent) ?? null,
           sinceAddedChangeAmount: normalizeNumber(entry.sinceAddedChangeAmount) ?? null,
@@ -6170,7 +6258,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     return normalizePortfolioImportCommitResponse(response, this.baseUrl, inventoryEntries);
   }
 
-  async listExpansions(game = 'pokemon'): Promise<ExpansionRecord[]> {
+  async listExpansions(game: CardGame = DEFAULT_CARD_GAME): Promise<ExpansionRecord[]> {
     const params = new URLSearchParams({ game });
     const response = await this.requestJson<{ expansions: ExpansionRecord[] }>(
       `${this.baseUrl}/api/v1/expansions?${params.toString()}`,
@@ -6181,8 +6269,15 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     return Array.isArray(response.data?.expansions) ? response.data.expansions : [];
   }
 
-  async listCardsInExpansion(expansionId: string, query = '', limit = 50): Promise<CatalogSearchResult[]> {
-    const params = new URLSearchParams({ limit: String(Math.max(1, Math.min(limit, 200))) });
+  async listCardsInExpansion(
+    expansionId: string,
+    query = '',
+    limit = 50,
+    // `set_id` is only unique WITHIN a game, so the lane has to travel with the
+    // id — without it a One Piece set drills into an empty list.
+    game: CardGame = DEFAULT_CARD_GAME,
+  ): Promise<CatalogSearchResult[]> {
+    const params = new URLSearchParams({ game, limit: String(Math.max(1, Math.min(limit, 200))) });
     if (query.trim()) {
       params.set('q', query.trim());
     }
@@ -6217,6 +6312,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           .reduce((sum: number, entry: InventoryCardEntry) => sum + entry.quantity, 0),
         isFavorite: card.isFavorite,
         rarityBucket: card.rarityBucket,
+        game: card.game,
       }];
     });
   }

@@ -9,28 +9,33 @@ import {
   colors,
 } from '@spotlight/design-system';
 
-import type { ScannerCardType } from '@/features/scanner/use-scanner-target-config';
+import {
+  SCANNER_LANES,
+  isSameScannerLane,
+  scanTargetFlag,
+  scannerLaneKey,
+  scannerLaneLabel,
+  type ScannerLane,
+} from '@/features/scanner/use-scanner-target-config';
 
 import { RoundFlag } from './round-flag';
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 
-// Trading-card games we intend to support but haven't shipped yet. Rendered as
-// disabled rows with a "Coming Soon" tag per the Figma "Scanning for" sheet
-// (node 1056-1472). Non-interactive — no handler.
+// Trading-card games we have no catalog for at all. Rendered as disabled rows
+// with a "Coming Soon" tag per the Figma "Scanning for" sheet (node 1056-1472).
+// Non-interactive — no handler. Everything we DO have a catalog and a visual
+// index for comes from `SCANNER_LANES`, never from a list in this file.
 const COMING_SOON_TYPES = [
-  'Lorcana',
   'Magic: The Gathering',
-  'One Piece',
-  'Riftbound',
   'Sports',
   'Yu-Gi-Oh',
 ] as const;
 
 type ScanningForSheetProps = {
   visible: boolean;
-  cardType: ScannerCardType;
-  onSelectCardType: (cardType: ScannerCardType) => void;
+  lane: ScannerLane;
+  onSelectLane: (lane: ScannerLane) => void;
   onClose: () => void;
   testID?: string;
 };
@@ -40,8 +45,8 @@ type ScanningForSheetProps = {
 // detail page. The slab lane is kept but gated off pending the PDP-grading flow.
 export function ScanningForSheet({
   visible,
-  cardType,
-  onSelectCardType,
+  lane,
+  onSelectLane,
   onClose,
   testID = 'scanning-for-sheet',
 }: ScanningForSheetProps) {
@@ -122,20 +127,16 @@ export function ScanningForSheet({
           </View>
 
           <View style={styles.list}>
-            <LanguageRow
-              flag="en"
-              label="Pokémon EN"
-              selected={cardType === 'pokemon_en'}
-              onPress={() => onSelectCardType('pokemon_en')}
-              testID={`${testID}-type-pokemon-en`}
-            />
-            <LanguageRow
-              flag="jp"
-              label="Pokémon JP"
-              selected={cardType === 'pokemon_jp'}
-              onPress={() => onSelectCardType('pokemon_jp')}
-              testID={`${testID}-type-pokemon-jp`}
-            />
+            {SCANNER_LANES.map((option) => (
+              <LaneRow
+                flag={scanTargetFlag(option)}
+                key={scannerLaneKey(option)}
+                label={scannerLaneLabel(option)}
+                onPress={() => onSelectLane(option)}
+                selected={isSameScannerLane(lane, option)}
+                testID={`${testID}-type-${scannerLaneKey(option)}`}
+              />
+            ))}
             {COMING_SOON_TYPES.map((name) => (
               <ComingSoonRow key={name} label={name} />
             ))}
@@ -189,7 +190,7 @@ function DismissHandle({
   );
 }
 
-function LanguageRow({
+function LaneRow({
   label,
   flag,
   selected,
@@ -197,7 +198,11 @@ function LanguageRow({
   testID,
 }: {
   label: string;
-  /** Round language flag rendered after the label (mirrors the pill). */
+  /**
+   * Round language flag rendered after the label (mirrors the pill). Undefined
+   * for games with a single-language catalog — a flag there would advertise a
+   * choice that does not exist.
+   */
   flag?: 'en' | 'jp';
   selected: boolean;
   onPress: () => void;

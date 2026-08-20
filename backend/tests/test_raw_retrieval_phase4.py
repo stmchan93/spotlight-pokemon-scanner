@@ -19,6 +19,7 @@ from catalog_tools import (  # noqa: E402
     connect,
     merge_raw_candidate_pools,
     score_raw_signals,
+    GAME_POKEMON,
     search_cards_local_collector_set,
     search_cards_local_title_set,
     upsert_catalog_card,
@@ -187,7 +188,7 @@ class RawRetrievalPhase4Tests(unittest.TestCase):
         )
         evidence = build_raw_evidence(payload)
 
-        candidates = search_cards_local_title_set(self.connection, evidence, limit=5)
+        candidates = search_cards_local_title_set(self.connection, evidence, limit=5, game=GAME_POKEMON)
 
         self.assertTrue(candidates)
         self.assertEqual(candidates[0]["id"], "obf-223")
@@ -204,7 +205,7 @@ class RawRetrievalPhase4Tests(unittest.TestCase):
         )
         evidence = build_raw_evidence(payload)
 
-        candidates = search_cards_local_collector_set(self.connection, evidence, limit=5)
+        candidates = search_cards_local_collector_set(self.connection, evidence, limit=5, game=GAME_POKEMON)
 
         self.assertTrue(candidates)
         self.assertEqual(candidates[0]["id"], "gym1-60")
@@ -222,7 +223,7 @@ class RawRetrievalPhase4Tests(unittest.TestCase):
         statements: list[str] = []
         self.connection.set_trace_callback(statements.append)
         try:
-            candidates = search_cards_local_title_set(self.connection, evidence, limit=5)
+            candidates = search_cards_local_title_set(self.connection, evidence, limit=5, game=GAME_POKEMON)
         finally:
             self.connection.set_trace_callback(None)
 
@@ -315,7 +316,7 @@ class RawRetrievalPhase4Tests(unittest.TestCase):
         signals = score_raw_signals(evidence)
         plan = build_raw_retrieval_plan(evidence, signals)
 
-        candidates = service._retrieve_local_raw_candidates(evidence, signals, plan)
+        candidates = service._retrieve_local_raw_candidates(evidence, signals, plan, game=GAME_POKEMON)
         service.connection.close()
 
         self.assertTrue(candidates)
@@ -344,7 +345,7 @@ class RawRetrievalPhase4Tests(unittest.TestCase):
         signals = score_raw_signals(evidence)
         plan = build_raw_retrieval_plan(evidence, signals)
 
-        candidates = service._retrieve_local_raw_candidates(evidence, signals, plan)
+        candidates = service._retrieve_local_raw_candidates(evidence, signals, plan, game=GAME_POKEMON)
         service.connection.close()
 
         self.assertEqual(candidates, [])

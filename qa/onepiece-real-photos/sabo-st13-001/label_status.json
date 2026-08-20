@@ -1,0 +1,11 @@
+{
+  "labelState": "confirmed",
+  "labelSource": "manual_visual_verification",
+  "providerMapping": {
+    "providerCardId": "onepiece~ST13-001",
+    "sourceProvider": "scrydex",
+    "collectorNumber": "ST13-001",
+    "setName": "Ultra Deck: The Three Brothers"
+  },
+  "verification": "Collector number ST13-001 read off the photographed card; artwork, name plate and card frame match the Scrydex reference art for onepiece~ST13-001; no SAMPLE overlay present. Seller listing title: Sabo Leader ST13-001 The Three Brothers Ultra Deck English"
+}

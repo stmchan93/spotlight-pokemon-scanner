@@ -11,6 +11,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
+from catalog_tools import GAME_POKEMON  # noqa: E402
 from pricing_provider import (  # noqa: E402
     PricingProvider,
     PricingProviderRegistry,
@@ -45,8 +46,8 @@ class FakePricingProvider(PricingProvider):
             grade="10",
             error="psa failed",
         )
-        self.raw_calls: list[tuple[Any, str]] = []
-        self.psa_calls: list[tuple[Any, str, str, str, str | None, dict[str, Any] | None]] = []
+        self.raw_calls: list[tuple[Any, str, str]] = []
+        self.psa_calls: list[tuple[Any, str, str, str, str, str | None, dict[str, Any] | None]] = []
 
     def get_metadata(self) -> ProviderMetadata:
         return self._metadata
@@ -54,8 +55,8 @@ class FakePricingProvider(PricingProvider):
     def is_ready(self) -> bool:
         return self._ready
 
-    def refresh_raw_pricing(self, connection, card_id: str) -> RawPricingResult:
-        self.raw_calls.append((connection, card_id))
+    def refresh_raw_pricing(self, connection, card_id: str, *, game: str) -> RawPricingResult:
+        self.raw_calls.append((connection, card_id, game))
         return self._raw_result
 
     def refresh_psa_pricing(
@@ -64,11 +65,13 @@ class FakePricingProvider(PricingProvider):
         card_id: str,
         grader: str,
         grade: str,
+        *,
+        game: str,
         preferred_variant: str | None = None,
         variant_hints: dict[str, Any] | None = None,
     ) -> PsaPricingResult:
         self.psa_calls.append(
-            (connection, card_id, grader, grade, preferred_variant, variant_hints)
+            (connection, card_id, grader, grade, game, preferred_variant, variant_hints)
         )
         return self._psa_result
 
@@ -210,12 +213,13 @@ class PricingProviderRegistryTests(unittest.TestCase):
         registry.register(failed)
         registry.register(succeeded)
 
-        result = registry.refresh_raw_pricing(object(), "base1-4")
+        result = registry.refresh_raw_pricing(object(), "base1-4", game=GAME_POKEMON)
 
         self.assertTrue(result.success)
         self.assertEqual(result.provider_id, "ok")
-        self.assertEqual(failed.raw_calls, [(mock.ANY, "base1-4")])
-        self.assertEqual(succeeded.raw_calls, [(mock.ANY, "base1-4")])
+        # The registry must FORWARD the game it was given, not re-derive one.
+        self.assertEqual(failed.raw_calls, [(mock.ANY, "base1-4", GAME_POKEMON)])
+        self.assertEqual(succeeded.raw_calls, [(mock.ANY, "base1-4", GAME_POKEMON)])
         self.assertEqual(skipped.raw_calls, [])
 
     def test_refresh_raw_pricing_returns_last_error_when_all_providers_fail(self) -> None:
@@ -257,7 +261,7 @@ class PricingProviderRegistryTests(unittest.TestCase):
             )
         )
 
-        result = registry.refresh_raw_pricing(object(), "xy1-1")
+        result = registry.refresh_raw_pricing(object(), "xy1-1", game=GAME_POKEMON)
 
         self.assertFalse(result.success)
         self.assertEqual(result.provider_id, "none")
@@ -290,6 +294,7 @@ class PricingProviderRegistryTests(unittest.TestCase):
             "basep-9",
             "PSA",
             "10",
+            game=GAME_POKEMON,
             preferred_variant="Holofoil",
             variant_hints={"language": "en"},
         )
@@ -304,6 +309,7 @@ class PricingProviderRegistryTests(unittest.TestCase):
                     "basep-9",
                     "PSA",
                     "10",
+                    GAME_POKEMON,
                     "Holofoil",
                     {"language": "en"},
                 )
@@ -313,7 +319,7 @@ class PricingProviderRegistryTests(unittest.TestCase):
     def test_refresh_psa_pricing_returns_default_error_when_no_provider_is_ready(self) -> None:
         registry = PricingProviderRegistry()
 
-        result = registry.refresh_psa_pricing(object(), "basep-9", "PSA", "9")
+        result = registry.refresh_psa_pricing(object(), "basep-9", "PSA", "9", game=GAME_POKEMON)
 
         self.assertFalse(result.success)
         self.assertEqual(result.provider_id, "none")

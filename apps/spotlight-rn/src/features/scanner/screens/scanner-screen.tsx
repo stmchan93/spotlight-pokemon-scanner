@@ -123,7 +123,8 @@ import { ScannerLanguageTooltip } from '@/features/scanner/components/scanner-la
 import { ScannerSearchPill } from '@/features/scanner/components/scanner-search-pill';
 import { ScanningForSheet } from '@/features/scanner/components/scanning-for-sheet';
 import {
-  cardLanguageForCardType,
+  scanCardLanguageForLane,
+  scanTargetFlag,
   scanTargetPillLabel,
   useScannerTargetConfig,
 } from '@/features/scanner/use-scanner-target-config';
@@ -152,6 +153,7 @@ import {
   scannerCaptureThumbUri,
   scannerErrorKind,
   scannerErrorMessage,
+  scannerLaneUnavailableReason,
   scannerPreparationReviewReason,
   scannerSlabInlineLabel,
   scannerSlabSubtitle,
@@ -823,7 +825,7 @@ export function ScannerScreen({
   const [rowMenuAnchor, setRowMenuAnchor] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const addAllTriggerRef = useRef<View | null>(null);
   const lastBulkActionRef = useRef<AddAllMenuAction>('collection');
-  const { cardType, setCardType } = useScannerTargetConfig();
+  const { lane: scanLane, setLane: setScanLane } = useScannerTargetConfig();
   const [zoomFactor, setZoomFactor, zoomHydrated] = useScannerZoomFactor();
   const [isScanTargetSheetOpen, setIsScanTargetSheetOpen] = useState(false);
   const [ebayTrayState, setEbayTrayState] = useState<Map<string, { loading: boolean; url: string | null }>>(new Map());
@@ -1569,7 +1571,10 @@ export function ScannerScreen({
         isLoadingMoreCandidates: false,
         isLoadingCandidates: false,
         matchReviewDisposition: null,
-        matchReviewReason: null,
+        // Names the lane when the failure is "this game has no visual index
+        // yet"; null (the generic retry copy) for every other failure, and
+        // always null for Pokémon.
+        matchReviewReason: scannerLaneUnavailableReason(matchPayload.game ?? undefined, error),
         normalizedImageDimensions: matchTarget.normalizedImageDimensions,
         normalizedImageUri: matchTarget.normalizedImageUri,
         scanID: null,
@@ -1864,7 +1869,11 @@ export function ScannerScreen({
         height: normalizedTarget.normalizedImageDimensions.height,
         fileUri: normalizedTarget.normalizedImageUri,
         mode: isSlab ? 'slabs' : 'raw',
-        cardLanguage: cardLanguageForCardType(cardType),
+        // The active lane, split into the two things the backend uses it for:
+        // `game` selects the per-game visual index, `cardLanguage` is the
+        // preferred-language hint (null for single-language catalogs).
+        game: scanLane.game,
+        cardLanguage: scanCardLanguageForLane(scanLane),
         width: normalizedTarget.normalizedImageDimensions.width,
         captureSource: 'camera',
         cameraZoomFactor: zoomFactor,
@@ -2000,7 +2009,6 @@ export function ScannerScreen({
       void triggerScannerProcessedHaptic();
     }
   }, [
-    cardType,
     ensureGuestSession,
     hasPermission,
     isCameraReady,
@@ -2008,6 +2016,7 @@ export function ScannerScreen({
     isGuest,
     requestPermission,
     runMatchForCapture,
+    scanLane,
     triggerCaptureFlash,
     triggerReticleLock,
     updateRecentCapture,
@@ -2081,6 +2090,12 @@ export function ScannerScreen({
           fileUri: normalizedTarget.normalizedImageUri,
           jpegBase64: normalizedTarget.normalizedImageBase64,
           mode: 'raw',
+          // The smoke fixture runs the REAL match flow, so it must carry the
+          // active game too — otherwise it would silently smoke-test Pokémon
+          // while the user sits in another game's lane. It deliberately still
+          // sends no `cardLanguage` (as it always has), so the fixture keeps
+          // being matched without a language filter.
+          game: scanLane.game,
           width: normalizedTarget.normalizedImageDimensions.width,
         },
         matchTarget: normalizedTarget,
@@ -2111,7 +2126,7 @@ export function ScannerScreen({
         normalizeMs: 0,
       }));
     }
-  }, [isCapturing, scannerSmokeEnabled, runMatchForCapture, updateRecentCapture]);
+  }, [isCapturing, scanLane, scannerSmokeEnabled, runMatchForCapture, updateRecentCapture]);
 
   const cycleCandidate = useCallback((captureId: string) => {
     setRecentCaptures((current) => current.map((capture) => {
@@ -2983,8 +2998,8 @@ export function ScannerScreen({
             ]}
           >
             <ScanTargetPill
-              flag={cardType === 'pokemon_jp' ? 'jp' : 'en'}
-              label={scanTargetPillLabel(cardType)}
+              flag={scanTargetFlag(scanLane)}
+              label={scanTargetPillLabel(scanLane)}
               onPress={gate(() => {
                 // Tapping the pill is also a tooltip dismissal — they learn the
                 // control by using it.
@@ -3343,11 +3358,11 @@ export function ScannerScreen({
 
       <ScanningForSheet
         visible={isScanTargetSheetOpen}
-        cardType={cardType}
-        onSelectCardType={(type) => {
-          // Picking a language is a one-tap action: apply it and close the sheet
+        lane={scanLane}
+        onSelectLane={(nextLane) => {
+          // Picking a lane is a one-tap action: apply it and close the sheet
           // so the user doesn't have to also tap out of the modal to dismiss it.
-          setCardType(type);
+          setScanLane(nextLane);
           setIsScanTargetSheetOpen(false);
         }}
         onClose={() => setIsScanTargetSheetOpen(false)}

@@ -1,0 +1,11 @@
+{
+  "labelState": "confirmed",
+  "labelSource": "manual_visual_verification",
+  "providerMapping": {
+    "providerCardId": "onepiece~EB02-061",
+    "sourceProvider": "scrydex",
+    "collectorNumber": "EB02-061",
+    "setName": "Anime 25th Collection"
+  },
+  "verification": "Collector number EB02-061 read off the photographed card; artwork, name plate and card frame match the Scrydex reference art for onepiece~EB02-061; no SAMPLE overlay present. Seller listing title: Monkey.D.Luffy (061) SEC Extra Booster: Anime 25th Collection EB02-061 (2)"
+}

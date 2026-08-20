@@ -18,6 +18,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from catalog_tools import (  # noqa: E402
+    GAME_POKEMON,
     PSA_GRADE_PRICING_MODE,
     PROVIDER_SYNC_STATUS_SUCCEEDED,
     RAW_PRICING_MODE,
@@ -884,6 +885,7 @@ class PricingPhase6Tests(unittest.TestCase):
             self.connection,
             card_id="base1-4",
             payload=payload,
+            game=GAME_POKEMON,
             commit=False,
         )
         self.connection.commit()
@@ -948,6 +950,7 @@ class PricingPhase6Tests(unittest.TestCase):
             payload=payload,
             grader="PSA",
             grade="9",
+            game=GAME_POKEMON,
             preferred_variant="Holofoil",
             commit=False,
         )

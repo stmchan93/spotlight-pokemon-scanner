@@ -11,6 +11,8 @@ from typing import Any, Callable, Iterable
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from catalog_tools import game_ebay_search_keyword
+
 
 EBAY_WEB_SEARCH_BASE_URL = "https://www.ebay.com/sch/i.html"
 EBAY_BROWSE_API_BASE_URL = "https://api.ebay.com"
@@ -154,9 +156,23 @@ def _build_search_query(
     set_name = str(card.get("setName") or card.get("set_name") or "").strip()
     card_number = str(card.get("number") or "").strip()
     edition_token, _ = _edition_qualifiers(variant)
+    # Leading game keyword, when the game declares one. Pokémon declares None —
+    # its name + set + grade already pin the card, and eBay AND-requires every
+    # keyword, so adding a word to a sparse vintage graded search can zero the
+    # page. Non-Pokémon character names ("Ace", "Nami", "Elsa") collide with
+    # unrelated listings and genuinely need it. The descriptor owns the call.
+    game_token = game_ebay_search_keyword(card.get("game"))
     parts = [
         part
-        for part in [card_name, set_name, card_number, grader, selected_grade, edition_token]
+        for part in [
+            game_token,
+            card_name,
+            set_name,
+            card_number,
+            grader,
+            selected_grade,
+            edition_token,
+        ]
         if part
     ]
     return " ".join(parts)

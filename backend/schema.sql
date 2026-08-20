@@ -38,6 +38,13 @@ CREATE INDEX IF NOT EXISTS idx_cards_game ON cards(game);
 
 CREATE TABLE IF NOT EXISTS expansions (
     id TEXT PRIMARY KEY,
+    -- Which TCG this set belongs to, same shape and default as `cards.game`:
+    -- everything predating multi-game is Pokémon. Without it `/expansions`
+    -- hands a One Piece lane 449 Pokémon sets.
+    --
+    -- Deliberately NOT indexed — see `list_persisted_expansions` for the
+    -- measured reason (an index here flips the listing's query plan).
+    game TEXT NOT NULL DEFAULT 'pokemon',
     name TEXT NOT NULL,
     series TEXT,
     code TEXT,

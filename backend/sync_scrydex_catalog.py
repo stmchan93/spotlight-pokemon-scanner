@@ -13,8 +13,8 @@ from urllib.error import HTTPError, URLError
 
 from catalog_tools import (
     DEFAULT_GAME,
-    GAME_ONE_PIECE,
-    GAME_POKEMON,
+    catalog_sync_request_type,
+    game_has_language_paths,
     normalize_game,
     PROVIDER_SYNC_STATUS_FAILED,
     PROVIDER_SYNC_STATUS_SUCCEEDED,
@@ -28,11 +28,10 @@ from catalog_tools import (
 from env_loader import load_backend_env_file
 from fx_rates import ensure_fx_rate_snapshot
 from scrydex_adapter import (
-    map_scrydex_onepiece_card,
     SCRYDEX_FULL_CATALOG_SYNC_SCOPE,
     SCRYDEX_PROVIDER,
     fetch_scrydex_cards_page,
-    map_scrydex_catalog_card,
+    map_scrydex_card_for_game,
     persist_scrydex_daily_history_from_card_payload,
     persist_scrydex_raw_snapshot,
     scrydex_credentials,
@@ -239,7 +238,7 @@ def _sync_scrydex_catalog_once(
         raise SystemExit("Scrydex credentials are not configured")
 
     normalized_game = normalize_game(game)
-    is_one_piece = normalized_game == GAME_ONE_PIECE
+    has_language_paths = game_has_language_paths(normalized_game)
     normalized_language = str(language or "").strip().lower() or "all"
     normalized_price_date = str(price_date or "").strip() or None
     notes = {
@@ -267,15 +266,7 @@ def _sync_scrydex_catalog_once(
         "rawSnapshotsUpserted": 0,
         "gradedSnapshotsUpserted": 0,
     }
-    # Pokémon keeps its EXACT historical request_type. This string is the group-by
-    # key for the Scrydex usage rollups (scrydex_daily_usage_rollups), so
-    # renaming it would split this sync's credit history in two at the rename.
-    # Other games get a qualified label so their spend is separable.
-    request_type = (
-        f"catalog_sync_{normalized_language}"
-        if normalized_game == GAME_POKEMON
-        else f"catalog_sync_{normalized_game}_{normalized_language}"
-    )
+    request_type = catalog_sync_request_type(normalized_game, normalized_language)
 
     try:
         page = 1
@@ -284,9 +275,13 @@ def _sync_scrydex_catalog_once(
                 page=page,
                 page_size=page_size,
                 include_prices=True,
-                # One Piece has no per-language sub-path; language rides as a
-                # card field instead.
-                language=None if (normalized_language == "all" or is_one_piece) else normalized_language,
+                # Games without per-language Scrydex sub-paths carry language as
+                # a card field instead, so asking for one would 404.
+                language=(
+                    None
+                    if (normalized_language == "all" or not has_language_paths)
+                    else normalized_language
+                ),
                 game=normalized_game,
                 request_type=request_type,
             )
@@ -298,11 +293,14 @@ def _sync_scrydex_catalog_once(
 
             imported_at = utc_now()
             for payload in cards:
-                mapped_card = (
-                    map_scrydex_onepiece_card(payload)
-                    if is_one_piece
-                    else map_scrydex_catalog_card(payload)
-                )
+                mapped_card = map_scrydex_card_for_game(payload, normalized_game)
+                # Stamp the game HERE, not in the mapper. Games without a
+                # dedicated mapper fall back to the Pokémon one, which does not
+                # set `game` — so a Lorcana sync silently wrote 3,181 rows
+                # labelled 'pokemon', and the index builder then found 0 cards
+                # for game='lorcana'. The sync always knows its game; a mapper
+                # can forget.
+                mapped_card["game"] = normalized_game
                 upsert_catalog_card(
                     connection,
                     mapped_card,

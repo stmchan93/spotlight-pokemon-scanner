@@ -671,3 +671,113 @@ describe('buildEbaySearchUrl', () => {
     expect(url).not.toContain('%C3%A9');
   });
 });
+
+/**
+ * Game scoping.
+ *
+ * The bug this locks down: `buildTcgPlayerSearchUrl` hardcoded 'pokemon' as the
+ * leading search token, so a One Piece card searched TCGplayer for
+ * "pokemon OP16-001 …" and found nothing. Every Pokémon assertion above is the
+ * other half of this contract — those URLs must not move.
+ */
+describe('marketplace URLs are scoped to the card game', () => {
+  it('leads a One Piece TCGplayer search with "one piece", never "pokemon"', () => {
+    const url = buildTcgPlayerSearchUrl({
+      setName: 'The Time Of Battle',
+      name: 'Portgas.D.Ace',
+      cardNumber: 'OP16-001',
+      game: 'onepiece',
+    })!;
+    expect(url).not.toContain('pokemon');
+    // The existing cleaner turns "Portgas.D.Ace" / "OP16-001" into spaced
+    // tokens, exactly as it does for Pokémon names — unchanged by this work.
+    expect(url).toContain('q=one+piece+the+time+of+battle+portgas+d+ace+op16+001');
+  });
+
+  it.each(['lorcana', 'riftbound', 'gundam'] as const)(
+    'leads a %s TCGplayer search with its own keyword',
+    (game) => {
+      const url = buildTcgPlayerSearchUrl({
+        setName: 'Some Set',
+        name: 'Some Card',
+        cardNumber: '001',
+        game,
+      })!;
+      expect(url).not.toContain('pokemon');
+      expect(url).toContain(`q=${game}+some+set+some+card+001`);
+    },
+  );
+
+  it('keeps the Pokémon keyword when no game is given (older payloads)', () => {
+    // Absent game means Pokémon. Dropping the keyword here would silently widen
+    // every existing search on any payload from a pre-multi-game backend.
+    const url = buildTcgPlayerSearchUrl({
+      setName: 'Base Set',
+      name: 'Charizard',
+      cardNumber: '4/102',
+    })!;
+    expect(url).toContain('q=pokemon+base+set+charizard+4/102');
+  });
+
+  it('returns null when only the game keyword would remain', () => {
+    // The empty-field guard has to compare against the GAME'S keyword — a
+    // literal 'pokemon' check would let "one piece" through as a real query.
+    expect(
+      buildTcgPlayerSearchUrl({ setName: '', name: '', cardNumber: '', game: 'onepiece' }),
+    ).toBeNull();
+    expect(
+      buildTcgPlayerSearchUrl({ setName: ' ', name: ' ', cardNumber: ' ', game: 'lorcana' }),
+    ).toBeNull();
+  });
+
+  it('does not double up a game keyword already leading the set name', () => {
+    const url = buildTcgPlayerSearchUrl({
+      setName: 'One Piece Card Game Romance Dawn',
+      name: 'Monkey.D.Luffy',
+      cardNumber: 'OP01-001',
+      game: 'onepiece',
+    })!;
+    expect(url).toContain('q=one+piece+card+game+romance+dawn');
+    expect(url.match(/one\+piece/g)).toHaveLength(1);
+  });
+
+  it('adds a game keyword to a non-Pokémon eBay search', () => {
+    const url = buildEbaySearchUrl({
+      setName: 'Romance Dawn',
+      name: 'Monkey.D.Luffy',
+      cardNumber: 'OP01-001',
+      game: 'onepiece',
+    })!;
+    expect(url).toContain('one+piece');
+    expect(url).not.toContain('pokemon');
+  });
+
+  it('adds NO game keyword to a Pokémon eBay search, with or without the game', () => {
+    // eBay AND-requires every keyword, so a token is not free: Pokémon's queries
+    // are tuned around not having one, and these two URLs must stay identical.
+    const params = {
+      setName: 'Base Set',
+      name: 'Charizard',
+      cardNumber: '4/102',
+      grader: 'PSA',
+      grade: '10',
+    };
+    const withoutGame = buildEbaySearchUrl(params)!;
+    const withGame = buildEbaySearchUrl({ ...params, game: 'pokemon' })!;
+    expect(withGame).toBe(withoutGame);
+    expect(withoutGame).not.toContain('pokemon');
+  });
+
+  it('prefers an exact product page over a keyword search when a product id resolves', () => {
+    // Every One Piece card carries a TCGplayer product id (2,633/2,633), so the
+    // PDP should essentially never fall back to guessing with keywords.
+    const productId = resolveTcgPlayerProductId(
+      [{ name: 'normal', marketplaces: [{ name: 'tcgplayer', product_id: '693417' }] }],
+      'normal',
+    );
+    expect(productId).toBe('693417');
+    expect(buildTcgPlayerProductUrl({ productId: productId!, condition: 'Near Mint' })).toBe(
+      'https://www.tcgplayer.com/product/693417?Condition=Near+Mint',
+    );
+  });
+});

@@ -15,6 +15,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from catalog_tools import (  # noqa: E402
+    GAME_POKEMON,
     PSA_GRADE_PRICING_MODE,
     RAW_PRICING_MODE,
     RawCandidateMatch,
@@ -1809,7 +1810,12 @@ class BackendResetPhase1Tests(unittest.TestCase):
             service.refresh_card_pricing("m2a_ja-232")
         service.connection.close()
 
-        scrydex_provider.refresh_raw_pricing.assert_called_once_with(service.connection, "m2a_ja-232")
+        # The Pokemon path is now EXPLICIT rather than assumed: the service reads
+        # the card row and passes its game, so an unchanged Pokemon refresh is
+        # asserted here rather than merely surviving a default.
+        scrydex_provider.refresh_raw_pricing.assert_called_once_with(
+            service.connection, "m2a_ja-232", game=GAME_POKEMON
+        )
 
     def test_card_detail_keeps_native_jpy_snapshot_but_returns_usd_display_pricing(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
@@ -1895,7 +1901,9 @@ class BackendResetPhase1Tests(unittest.TestCase):
             service.refresh_card_pricing("m2a_ja-232", grader="PSA", grade="9")
         service.connection.close()
 
-        scrydex_provider.refresh_psa_pricing.assert_called_once_with(service.connection, "m2a_ja-232", "PSA", "9")
+        scrydex_provider.refresh_psa_pricing.assert_called_once_with(
+            service.connection, "m2a_ja-232", "PSA", "9", game=GAME_POKEMON
+        )
 
     def test_match_scan_resolves_psa_slab_and_returns_exact_grade_pricing(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
@@ -2794,6 +2802,7 @@ class BackendResetPhase1Tests(unittest.TestCase):
             "base1-58",
             "PSA",
             "7",
+            game=GAME_POKEMON,
             preferred_variant="Unlimited Shadowless",
         )
 

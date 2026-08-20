@@ -271,19 +271,40 @@ describe('CatalogSearchScreen', () => {
     fireEvent.press(screen.getByTestId('catalog-rarity-chip-sir'));
     await advanceDebounce();
 
-    expect(searchSpy).toHaveBeenCalledWith('', expect.any(Number), 0, { rarityBucket: 'sir' });
+    // The screen always names its game — search is scoped to ONE game, and the
+    // screen is the outermost caller that knows which lane it is in. It defaults
+    // to Pokémon, which is also what the backend infers from an absent `game`.
+    expect(searchSpy).toHaveBeenCalledWith('', expect.any(Number), 0, { game: 'pokemon', rarityBucket: 'sir' });
     expect(await screen.findByTestId('catalog-result-sm7-1')).toBeTruthy();
 
     // Text + chip combine into one search request.
     fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'tree');
     await advanceDebounce();
-    expect(searchSpy).toHaveBeenCalledWith('tree', expect.any(Number), 0, { rarityBucket: 'sir' });
+    expect(searchSpy).toHaveBeenCalledWith('tree', expect.any(Number), 0, { game: 'pokemon', rarityBucket: 'sir' });
 
     // Tapping the active chip again clears it; with text present the next
-    // search goes out without the rarity option.
+    // search goes out with the game alone and no rarity option.
     fireEvent.press(screen.getByTestId('catalog-rarity-chip-sir'));
     await advanceDebounce();
-    expect(searchSpy).toHaveBeenCalledWith('tree', expect.any(Number), 0, undefined);
+    expect(searchSpy).toHaveBeenCalledWith('tree', expect.any(Number), 0, { game: 'pokemon' });
+  });
+
+  it('searches the lane it was opened in, not always Pokémon', async () => {
+    // The bug this pins: the screen had `game` (it used it for set browsing) but
+    // the SEARCH call dropped it, so the backend applied its "absent means
+    // Pokémon" boundary rule and a One Piece lane searched the Pokémon catalog.
+    // Every One Piece search came back empty.
+    const searchSpy = jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage')
+      .mockResolvedValue({ cards: [], hasMore: false });
+
+    renderWithProviders(
+      <CatalogSearchScreen game="onepiece" onClose={jest.fn()} onOpenCard={jest.fn()} />,
+    );
+
+    fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'luffy');
+    await advanceDebounce();
+
+    expect(searchSpy).toHaveBeenCalledWith('luffy', expect.any(Number), 0, { game: 'onepiece' });
   });
 
   it('never shows a per-row rarity tag, whatever the payload carries', async () => {

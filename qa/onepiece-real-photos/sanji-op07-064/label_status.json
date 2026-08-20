@@ -1,0 +1,11 @@
+{
+  "labelState": "confirmed",
+  "labelSource": "manual_visual_verification",
+  "providerMapping": {
+    "providerCardId": "onepiece~OP07-064",
+    "sourceProvider": "scrydex",
+    "collectorNumber": "OP07-064",
+    "setName": "500 Years In The Future"
+  },
+  "verification": "Collector number OP07-064 read off the photographed card; artwork, name plate and card frame match the Scrydex reference art for onepiece~OP07-064; no SAMPLE overlay present. Seller listing title: Sanji OP07-064 SR One Piece 500 Years Into The Future English"
+}

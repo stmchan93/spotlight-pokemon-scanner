@@ -50,6 +50,14 @@ export type ScannerSlabAnalysisPayload = {
 export type ScannerCapturePayload = ScannerImagePayload & {
   mode: ScannerMode;
   /**
+   * Which TCG the user is scanning for — the scanner's active lane. The backend
+   * resolves a SEPARATE visual index per game from this field
+   * (`RawVisualMatcher.game_for_payload`), so omitting it silently matches the
+   * capture against the Pokémon catalog. Omitted/null is read as Pokémon, which
+   * is exactly what every pre-multi-game client sends.
+   */
+  game?: CardGame | null;
+  /**
    * Explicit card language chosen by the user via the scanner's "Scanning for"
    * toggle. Sent to the backend as an authoritative `preferred_language` hint so
    * it can skip OCR-based language detection. Defaults to English when omitted.
@@ -632,21 +640,220 @@ export const ALL_COLLECTIONS_ID = 'all';
  * multi-game, which is why every consumer must treat undefined as Pokémon
  * rather than as "unknown".
  */
-export type CardGame = 'pokemon' | 'onepiece';
+export type CardGame = 'pokemon' | 'onepiece' | 'lorcana' | 'riftbound' | 'gundam';
 
 export const DEFAULT_CARD_GAME: CardGame = 'pokemon';
 
 /**
- * Whether this game has graded pricing and population data behind it.
+ * Every game, in the order they should be offered in a picker. Pokémon first
+ * (it is the default lane and the only one with a language split); the rest in
+ * the same order as the backend's `GAMES` table.
  *
- * Only Pokémon does. Probing Scrydex on 2026-08-13 found no graded prices and
- * empty pop_reports for One Piece across the newest and oldest sets, and our
- * population source (GemRate via PokemonPriceTracker) is Pokémon-only. The
+ * Exported as an ordered LIST rather than leaving callers to walk
+ * `Object.keys(CARD_GAME_CAPABILITIES)`, so display order is a stated decision
+ * instead of an accident of object-literal ordering.
+ */
+export const CARD_GAMES: readonly CardGame[] = [
+  'pokemon',
+  'onepiece',
+  'lorcana',
+  'riftbound',
+  'gundam',
+];
+
+/**
+ * What a game HAS — the client-side half of the backend's game descriptor table
+ * (`GAMES` in backend/catalog_tools.py). Only the fields the UI actually needs
+ * are mirrored; the Scrydex path segments, rarity ladders and sync labels stay
+ * server-side.
+ *
+ * The rule this table exists to enforce: UI code asks a CAPABILITY, never
+ * `game === 'pokemon'`. A screen that compares game names has to be revisited
+ * for every new game; a screen that asks "does this have graded data?" does not.
+ *
+ * The flags are statements about the DATA WE CAN GET, not about the games. One
+ * Piece slabs exist in the world; what does not exist is a source we integrate
+ * that serves their prices, populations or sold comps. Established by probing
+ * the live Scrydex API on 2026-08-13:
+ *
+ *   - no graded prices for any non-Pokémon game
+ *   - empty `pop_reports` for any non-Pokémon game (and our population source,
+ *     GemRate via PokemonPriceTracker, is Pokémon-only regardless)
+ *   - `/onepiece/v1/cards/{id}/listings` returns ZERO rows, so recent sales /
+ *     lowest listed have nothing to show
+ *
+ * `marketplaceKeyword` is the word a person puts in a TCGplayer search box to
+ * scope it to this game — it is what keeps a One Piece card from searching
+ * TCGplayer for "pokemon OP16-001".
+ *
+ * `ebayKeyword` is the same word for eBay, or `null` to add nothing. It is a
+ * separate field because eBay AND-requires every keyword, so a token is not
+ * free: Pokémon's queries are tuned and shipped (name + set + grade already pin
+ * the card, and vintage solds are sparse enough that one more required word can
+ * zero the page), so Pokémon declares `null` and its URLs stay byte-identical.
+ * Every other game needs the word — "Ace", "Nami", "Elsa" are not searches,
+ * they are collisions.
+ */
+export type CardGameCapabilities = {
+  displayName: string;
+  marketplaceKeyword: string;
+  ebayKeyword: string | null;
+  hasGradedData: boolean;
+  hasPopulationData: boolean;
+  hasListingsData: boolean;
+  /**
+   * Whether this game's catalog is split BY LANGUAGE — the client half of the
+   * backend descriptor's `has_language_paths` (only Pokémon has
+   * `/pokemon/v1/ja/cards`; every other game carries language as a card field
+   * and we sync English only).
+   *
+   * This is what decides whether a surface may offer an EN/JP choice. The
+   * scanner's "Scanning for" sheet asks it rather than testing for Pokémon, so
+   * a game with no Japanese catalog is never offered a Japanese lane that would
+   * scan against an index that does not exist.
+   */
+  hasLanguageLanes: boolean;
+  /**
+   * Grading lanes this game has priced data for, 'Raw' first and then by how
+   * much data each company actually has. Per game rather than one shared
+   * constant: PSA/BGS/CGC is a POKÉMON fact, and Lorcana's priced slabs span
+   * eight companies. Games with no graded data carry `['Raw']` — the card is
+   * still ownable, it just cannot claim a grade.
+   */
+  graders: readonly GraderOption[];
+};
+
+export const CARD_GAME_CAPABILITIES: Record<CardGame, CardGameCapabilities> = {
+  pokemon: {
+    displayName: 'Pokémon',
+    marketplaceKeyword: 'pokemon',
+    ebayKeyword: null,
+    hasGradedData: true,
+    hasPopulationData: true,
+    hasListingsData: true,
+    hasLanguageLanes: true,
+    graders: ['Raw', 'PSA', 'BGS', 'CGC'],
+  },
+  onepiece: {
+    displayName: 'One Piece',
+    marketplaceKeyword: 'one piece',
+    ebayKeyword: 'one piece',
+    hasGradedData: false,
+    hasPopulationData: false,
+    hasListingsData: false,
+    hasLanguageLanes: false,
+    graders: ['Raw'],
+  },
+  lorcana: {
+    displayName: 'Disney Lorcana',
+    marketplaceKeyword: 'lorcana',
+    ebayKeyword: 'lorcana',
+    // Lorcana DOES have graded pricing — measured, not assumed: 1,525 of 3,170
+    // priced cards carry graded contexts (e.g. AOTV-224 PSA 10 Holofoil at $140
+    // market). It is the first game where graded and listings disagree.
+    hasGradedData: true,
+    // Population is zero outside Pokémon: our source (GemRate via
+    // PokemonPriceTracker) is Pokémon-only.
+    hasPopulationData: false,
+    // No listings evidence for Lorcana — Scrydex's recent-sales endpoint is only
+    // known to serve Pokémon. An always-empty sold-comps drawer hanging under a
+    // real graded lane is exactly the "looks broken" failure this table exists
+    // to prevent, so the surface stays hidden until someone measures otherwise.
+    hasListingsData: false,
+    // English-only catalog: Lorcana ships in several languages, but Scrydex
+    // serves it under one path and we sync EN.
+    hasLanguageLanes: false,
+    // Ordered by real coverage: PSA 1,488 cards, CGC 770, SGC 267, BGS 232,
+    // TAG 202, ACE 82, AGS 11, CCIC 6.
+    graders: ['Raw', 'PSA', 'CGC', 'SGC', 'BGS', 'TAG', 'ACE', 'AGS', 'CCIC'],
+  },
+  riftbound: {
+    displayName: 'Riftbound',
+    marketplaceKeyword: 'riftbound',
+    ebayKeyword: 'riftbound',
+    hasGradedData: false,
+    hasPopulationData: false,
+    hasListingsData: false,
+    hasLanguageLanes: false,
+    graders: ['Raw'],
+  },
+  gundam: {
+    displayName: 'Gundam',
+    marketplaceKeyword: 'gundam',
+    ebayKeyword: 'gundam',
+    hasGradedData: false,
+    hasPopulationData: false,
+    hasListingsData: false,
+    hasLanguageLanes: false,
+    graders: ['Raw'],
+  },
+};
+
+/**
+ * Capabilities for a game, tolerating both `undefined` (payloads from a backend
+ * that predates multi-game) and an id this build has never heard of (a newer
+ * backend than this app). BOTH fall back to Pokémon: absent means Pokémon
+ * everywhere, and treating it as "unknown" would strip PSA pricing off every
+ * Pokémon card in the collection.
+ */
+export function cardGameCapabilities(game: CardGame | undefined): CardGameCapabilities {
+  return CARD_GAME_CAPABILITIES[game as CardGame] ?? CARD_GAME_CAPABILITIES[DEFAULT_CARD_GAME];
+}
+
+/**
+ * Whether this game has graded pricing and population data behind it. The
  * detail screen uses this to HIDE those sections rather than render them empty,
  * which would read as broken.
  */
 export function gameHasGradedData(game: CardGame | undefined): boolean {
-  return (game ?? DEFAULT_CARD_GAME) === 'pokemon';
+  return cardGameCapabilities(game).hasGradedData;
+}
+
+/**
+ * Whether a sold-comps / active-listings surface has anything to show. Separate
+ * from {@link gameHasGradedData} on purpose: they happen to agree today, but
+ * "we can price a slab" and "eBay comps exist for it" are different claims, and
+ * a game could gain one without the other.
+ */
+export function gameHasListingsData(game: CardGame | undefined): boolean {
+  return cardGameCapabilities(game).hasListingsData;
+}
+
+/**
+ * Whether this game has a per-language catalog — i.e. whether an EN/JP choice
+ * is meaningful for it. Only Pokémon does. Ask this instead of comparing game
+ * ids: a JP lane offered for a game with no Japanese catalog would scan against
+ * an index that does not exist.
+ */
+export function gameHasLanguageLanes(game: CardGame | undefined): boolean {
+  return cardGameCapabilities(game).hasLanguageLanes;
+}
+
+/**
+ * The user-facing name of a game ("Pokémon", "One Piece"). The client mirror of
+ * the backend's `game_display_name`; UI must read it from here rather than
+ * hardcoding a string per game.
+ */
+export function gameDisplayName(game: CardGame | undefined): string {
+  return cardGameCapabilities(game).displayName;
+}
+
+/**
+ * The grading lanes this game can offer, 'Raw' first. Use this instead of the
+ * `graderOptions` constant anywhere a game is in hand.
+ */
+export function gradersForGame(game: CardGame | undefined): readonly GraderOption[] {
+  return cardGameCapabilities(game).graders;
+}
+
+/** The search keyword that scopes a TCGplayer query to this game. */
+export function marketplaceKeywordForGame(game: CardGame | undefined): string {
+  return cardGameCapabilities(game).marketplaceKeyword;
+}
+
+/** The keyword that scopes an eBay query to this game, or null to add nothing. */
+export function ebayKeywordForGame(game: CardGame | undefined): string | null {
+  return cardGameCapabilities(game).ebayKeyword;
 }
 
 export type PortfolioDashboard = {
@@ -1243,8 +1450,30 @@ export type CollectionVariantOption = {
   label: string;
 };
 
-export type GraderOption = 'Raw' | 'PSA' | 'BGS' | 'CGC';
+/**
+ * A grading lane the configurator can offer. The union spans every company we
+ * have priced data for in ANY game — which one a given card may offer comes
+ * from its game's capability entry, not from this list.
+ */
+export type GraderOption =
+  | 'Raw'
+  | 'PSA'
+  | 'BGS'
+  | 'CGC'
+  | 'SGC'
+  | 'TAG'
+  | 'ACE'
+  | 'AGS'
+  | 'CCIC';
 
+/**
+ * Pokémon's grader lanes.
+ *
+ * Kept exported and unchanged because it IS the Pokémon list and plenty of code
+ * still reads it directly. For anything game-aware, call `gradersForGame` —
+ * Lorcana's priced slabs span eight companies, and handing it this four-entry
+ * Pokémon-shaped list would hide most of its real data.
+ */
 export const graderOptions: readonly GraderOption[] = ['Raw', 'PSA', 'BGS', 'CGC'] as const;
 
 export type AddToCollectionOptions = {

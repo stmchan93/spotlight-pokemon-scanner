@@ -1,0 +1,11 @@
+{
+  "labelState": "confirmed",
+  "labelSource": "manual_visual_verification",
+  "providerMapping": {
+    "providerCardId": "onepiece~ST13-010",
+    "sourceProvider": "scrydex",
+    "collectorNumber": "ST13-010",
+    "setName": "Ultra Deck: The Three Brothers"
+  },
+  "verification": "Collector number ST13-010 read off the photographed card; artwork, name plate and card frame match the Scrydex reference art for onepiece~ST13-010; no SAMPLE overlay present. Seller listing title: Portgas D Ace ST13-010 Premium Booster Promo Pirate Foil One Piece TCG NM"
+}

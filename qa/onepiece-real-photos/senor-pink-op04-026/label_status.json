@@ -1,0 +1,11 @@
+{
+  "labelState": "confirmed",
+  "labelSource": "manual_visual_verification",
+  "providerMapping": {
+    "providerCardId": "onepiece~OP04-026",
+    "sourceProvider": "scrydex",
+    "collectorNumber": "OP04-026",
+    "setName": "Kingdoms of Intrigue"
+  },
+  "verification": "Collector number OP04-026 read off the photographed card; artwork, name plate and card frame match the Scrydex reference art for onepiece~OP04-026; no SAMPLE overlay present. Seller listing title: 2023 ONE PIECE ENGLISH KINGDOMS OF INTRIGUE SENOR PINK OP04-026 (R) RARE"
+}

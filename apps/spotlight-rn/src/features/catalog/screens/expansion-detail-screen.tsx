@@ -10,7 +10,7 @@ import {
 import { useFocusEffect } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import type { CatalogSearchResult } from '@spotlight/api-client';
+import { DEFAULT_CARD_GAME, type CardGame, type CatalogSearchResult } from '@spotlight/api-client';
 import { SearchField, StateCard, Text, Toast, colors, useSpotlightTheme } from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
@@ -20,6 +20,8 @@ import { useAppServices } from '@/providers/app-providers';
 type ExpansionDetailScreenProps = {
   expansionId: string;
   expansionName: string;
+  /** The set's game — `set_id` is only unique within one. Absent means Pokémon. */
+  game?: CardGame;
   onClose: () => void;
   onOpenCard: (result: CatalogSearchResult) => void;
 };
@@ -83,7 +85,13 @@ function CardCell({
   );
 }
 
-export function ExpansionDetailScreen({ expansionId, expansionName, onClose, onOpenCard }: ExpansionDetailScreenProps) {
+export function ExpansionDetailScreen({
+  expansionId,
+  expansionName,
+  game = DEFAULT_CARD_GAME,
+  onClose,
+  onOpenCard,
+}: ExpansionDetailScreenProps) {
   // Cards are added from inside a set too, so the confirmation has to land here
   // as well as on the search screen. On FOCUS — this screen stays mounted under
   // the card page.
@@ -122,7 +130,7 @@ export function ExpansionDetailScreen({ expansionId, expansionName, onClose, onO
     let isCancelled = false;
 
     const timeout = setTimeout(() => {
-      void spotlightRepository.listCardsInExpansion(expansionId, trimmedQuery, 60)
+      void spotlightRepository.listCardsInExpansion(expansionId, trimmedQuery, 60, game)
         .then((results) => {
           if (!isCancelled) {
             setCards(results);
@@ -141,7 +149,7 @@ export function ExpansionDetailScreen({ expansionId, expansionName, onClose, onO
       isCancelled = true;
       clearTimeout(timeout);
     };
-  }, [expansionId, cardQuery, spotlightRepository]);
+  }, [expansionId, cardQuery, game, spotlightRepository]);
 
   const openCard = useCallback((result: CatalogSearchResult) => {
     if (openingResetTimerRef.current) {

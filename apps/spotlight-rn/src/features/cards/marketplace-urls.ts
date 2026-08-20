@@ -1,5 +1,16 @@
+import {
+  type CardGame,
+  ebayKeywordForGame,
+  marketplaceKeywordForGame,
+} from '@spotlight/api-client';
+
 // Pokémon TCG name glyphs → the words real eBay/TCGplayer listings use. Curated
-// from a scan of every catalog card name. Without this the cleaners below strip
+// from a scan of every catalog card name. Deliberately Pokémon-ONLY: these are
+// Pokémon set mechanics (Gold Star, Delta Species, Prism Star, gender variants).
+// Other games simply never contain these characters, so they never hit the map —
+// no per-game gating needed, and none should be added speculatively.
+//
+// Without this the cleaners below strip
 // the glyph and the search loses the signal that identifies the card (e.g. a
 // Gold Star / Delta Species / Prism Star / gender variant), returning zero solds.
 const NAME_GLYPH_REPLACEMENTS: [RegExp, string][] = [
@@ -40,15 +51,19 @@ function cleanedMarketplaceToken(value: string | null | undefined) {
     .trim();
 }
 
-function cleanedTcgPlayerToken(value: string | null | undefined) {
+function cleanedTcgPlayerToken(value: string | null | undefined, gameKeyword: string = 'pokemon') {
   // Decompose accented chars (é→e), lowercase, keep apostrophes and slashes
   const normalized = expandNameGlyphs(value ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-  // Strip a redundant "pokemon" prefix so set names like "Pokémon Card 151" don't double up
-  return normalized
+  const cleaned = normalized
     .replace(/[^a-z0-9/' ]+/g, ' ')
     .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/^pokemon\s+/, '');
+    .trim();
+  // Strip a redundant game-name prefix so set names like "Pokémon Card 151" (or
+  // "One Piece Card Game …") don't double up the keyword the query already
+  // opens with. Keyword-driven rather than hardcoded to "pokemon", but a plain
+  // prefix test rather than a built regex — the keywords are lowercase words.
+  const prefix = `${gameKeyword} `;
+  return cleaned.startsWith(prefix) ? cleaned.slice(prefix.length) : cleaned;
 }
 
 // TCGplayer's Condition filter accepts these display values verbatim.
@@ -107,24 +122,41 @@ function normalizeTcgPlayerPrinting(value: string | null | undefined) {
   }
 }
 
+/**
+ * Keyword search on TCGplayer, scoped to the card's game.
+ *
+ * Prefer {@link buildTcgPlayerProductUrl} whenever a `tcgplayer_id` resolves —
+ * a product page is the exact card, a keyword search is a guess. This is the
+ * fallback for cards with no product id (and for callers that only have preview
+ * fields).
+ */
 export function buildTcgPlayerSearchUrl(params: {
   cardNumber: string;
   name: string;
   setName: string;
   condition?: string | null;
   printing?: string | null;
+  /**
+   * Which TCG the card is from. Absent means Pokémon — payloads from a backend
+   * that predates multi-game carry no game, and the keyword must not vanish for
+   * them. Asked of the capability table, never compared here.
+   */
+  game?: CardGame;
 }) {
+  // The game's own word, not a hardcoded "pokemon" — that literal is what made a
+  // One Piece card search TCGplayer for "pokemon OP16-001" and find nothing.
+  const gameKeyword = marketplaceKeywordForGame(params.game);
   const query = [
-    'pokemon',
-    cleanedTcgPlayerToken(params.setName),
-    cleanedTcgPlayerToken(params.name),
-    cleanedTcgPlayerToken(params.cardNumber.replace(/^#/, '')),
+    gameKeyword,
+    cleanedTcgPlayerToken(params.setName, gameKeyword),
+    cleanedTcgPlayerToken(params.name, gameKeyword),
+    cleanedTcgPlayerToken(params.cardNumber.replace(/^#/, ''), gameKeyword),
   ]
     .filter(Boolean)
     .join(' ');
 
-  // "pokemon" alone means all three fields were empty
-  if (!query || query === 'pokemon') {
+  // The bare keyword alone means all three fields were empty
+  if (!query || query === gameKeyword) {
     return null;
   }
 
@@ -319,6 +351,13 @@ export function buildEbaySearchUrl(params: {
   /** Card language ('english' | 'japanese'); scopes the query for JP cards. */
   language?: string | null;
   /**
+   * Which TCG the card is from. Absent means Pokémon. Pokémon adds NO game
+   * keyword (see the capability table: eBay AND-requires every word, and its
+   * queries are tuned around not having one); every other game adds its word,
+   * because "Ace" or "Nami" on bare eBay is not a search, it's a collision.
+   */
+  game?: CardGame;
+  /**
    * Which side of eBay to land on. Defaults to `'sold'` — the historical
    * behaviour every existing caller relies on.
    *
@@ -372,6 +411,8 @@ export function buildEbaySearchUrl(params: {
   const query = [
     // Grader + grade first so the search lands on graded sales of this exact card.
     gradeTerm,
+    // Game keyword (null for Pokémon — its URLs are unchanged by this).
+    ebayKeywordForGame(params.game),
     cleanedMarketplaceToken(params.name),
     languageToken,
     numberToken,

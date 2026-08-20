@@ -1,0 +1,11 @@
+{
+  "labelState": "confirmed",
+  "labelSource": "manual_visual_verification",
+  "providerMapping": {
+    "providerCardId": "onepiece~EB01-021",
+    "sourceProvider": "scrydex",
+    "collectorNumber": "EB01-021",
+    "setName": "Memorial Collection"
+  },
+  "verification": "Collector number EB01-021 read off the photographed card; artwork, name plate and card frame match the Scrydex reference art for onepiece~EB01-021; no SAMPLE overlay present. Seller listing title: Hannyabal EB01-021 Leader Extra Booster: Memorial Collection One Piece Near Mint"
+}

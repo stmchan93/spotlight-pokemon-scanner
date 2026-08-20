@@ -3,11 +3,15 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { prefetchCardDetail } from '@/features/cards/card-detail-prefetch';
 import { saveCardDetailPreviewFromCatalogResult } from '@/features/cards/card-detail-preview-session';
 import { ExpansionDetailScreen } from '@/features/catalog/screens/expansion-detail-screen';
+import { useScannerTargetConfig } from '@/features/scanner/use-scanner-target-config';
 import { useAppServices } from '@/providers/app-providers';
 
 export default function ExpansionDetailRoute() {
   const router = useRouter();
   const { spotlightRepository } = useAppServices();
+  // Same lane the browser listed this set under — `set_id` is only unique
+  // within a game, so drilling in has to carry it.
+  const { lane } = useScannerTargetConfig();
   const params = useLocalSearchParams<{
     expansionId?: string | string[];
     name?: string | string[];
@@ -20,6 +24,7 @@ export default function ExpansionDetailRoute() {
     <ExpansionDetailScreen
       expansionId={expansionId}
       expansionName={expansionName}
+      game={lane.game}
       onClose={() => router.back()}
       onOpenCard={(result) => {
         // Warm the detail + default-lane price-trend caches the instant the card

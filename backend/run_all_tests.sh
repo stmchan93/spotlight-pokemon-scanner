@@ -60,6 +60,20 @@ TEST_MODULES=(
   backend.tests.test_replace_deck_entry_collection
   backend.tests.test_whos_that_pokemon
   backend.tests.test_one_piece_catalog
+  backend.tests.test_multi_game_visual_index
+  backend.tests.test_synthetic_capture
+  backend.tests.test_game_registry
+  backend.tests.test_multi_game_catalog_scoping
+  backend.tests.test_multi_game_pricing_paths
+  backend.tests.test_multi_game_pricing_refresh
+  # The catalog-read suites. Added when `game` became a required argument on
+  # search_cards / get_cards_by_expansion: all three broke, and the gate stayed
+  # green because they were never in this list. They cover the search surface
+  # every multi-game change touches, and they run in well under a second.
+  backend.tests.test_manual_card_search
+  backend.tests.test_expansion_browser
+  backend.tests.test_expansion_game_scoping
+  backend.tests.test_rarity_buckets
 )
 
 run_targeted_tests() {

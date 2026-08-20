@@ -1,0 +1,11 @@
+{
+  "labelState": "confirmed",
+  "labelSource": "manual_visual_verification",
+  "providerMapping": {
+    "providerCardId": "onepiece~OP12-118",
+    "sourceProvider": "scrydex",
+    "collectorNumber": "OP12-118",
+    "setName": "Legacy of the Master"
+  },
+  "verification": "Collector number OP12-118 read off the photographed card; artwork, name plate and card frame match the Scrydex reference art for onepiece~OP12-118; no SAMPLE overlay present. Seller listing title: Yahoo!\u30aa-\u30af \u30b7 \u30e7 \u30f3 - \u30ef \u30f3 \u30d4-\u30b9 \u30ab-\u30c9 \u30b8 \u30e5 \u30a8 \u30ea--\u30dc \u30cb- OP12-118"
+}

@@ -104,6 +104,11 @@ from catalog_tools import (
     _MANUAL_SEARCH_POOL_CEILING,
     RARITY_BUCKET_KEYS,
     rarity_bucket,
+    GAME_POKEMON,
+    game_display_name,
+    game_for_scan_payload,
+    game_has_graded_pricing,
+    game_has_listings,
     normalize_game,
     search_cards,
     search_cards_local,
@@ -3984,12 +3989,16 @@ class SpotlightScanService:
         self,
         card_id: str,
         *,
+        game: str,
         pricing_context: PricingContext,
         days: int,
         selected_variant: str | None,
         pricing_summary: dict[str, Any] | None,
         history_is_fresh: bool,
     ) -> None:
+        # Required, and passed down to both the fetch and the persist: the fetch
+        # so the request lands on this game's Scrydex path, the persist so the
+        # stored `source_url` names the path we actually called.
         if history_is_fresh or not self._live_pricing_enabled():
             return
         if pricing_context.is_graded:
@@ -3997,11 +4006,14 @@ class SpotlightScanService:
                 return
             payload = fetch_scrydex_price_history(
                 card_id,
+                game=game,
                 days=days,
                 company=pricing_context.grader,
                 grade=pricing_context.grade,
             )
-            persist_scrydex_price_history_payload(self.connection, card_id=card_id, payload=payload)
+            persist_scrydex_price_history_payload(
+                self.connection, card_id=card_id, payload=payload, game=game
+            )
             return
 
         variant_key = self._history_variant_query_key(
@@ -4011,10 +4023,13 @@ class SpotlightScanService:
         )
         payload = fetch_scrydex_price_history(
             card_id,
+            game=game,
             days=days,
             variant=variant_key,
         )
-        persist_scrydex_price_history_payload(self.connection, card_id=card_id, payload=payload)
+        persist_scrydex_price_history_payload(
+            self.connection, card_id=card_id, payload=payload, game=game
+        )
 
     def _card_volume_level(self, card_id: str) -> Literal["low", "normal", "unknown"]:
         """Classify a card's recent pricing volume from card_price_history_daily.
@@ -4075,6 +4090,9 @@ class SpotlightScanService:
         if card is None:
             return None
 
+        # The row has always carried the game; this path just dropped it before
+        # reaching the Scrydex backfill.
+        card_game = normalize_game(card.get("game"))
         days = max(7, min(int(days), 90))
         pricing_summary = self._display_pricing_summary_for_context(card_id, pricing_context=pricing_context)
 
@@ -4090,6 +4108,7 @@ class SpotlightScanService:
             )
             self._backfill_market_history_if_needed(
                 card_id,
+                game=card_game,
                 pricing_context=pricing_context,
                 days=days,
                 selected_variant=selected_variant,
@@ -4181,6 +4200,7 @@ class SpotlightScanService:
         )
         self._backfill_market_history_if_needed(
             card_id,
+            game=card_game,
             pricing_context=pricing_context,
             days=days,
             selected_variant=selected_variant,
@@ -9930,10 +9950,14 @@ class SpotlightScanService:
         self,
         query: str,
         *,
+        game: str,
         limit: int = 20,
         offset: int = 0,
         rarity_bucket_filter: str | None = None,
     ) -> dict[str, Any]:
+        # No default: the HTTP handler owns "absent means Pokémon". A default
+        # here would put that decision in two places, and the service layer is
+        # the wrong one — it cannot see whether the client sent a lane or not.
         offset = max(0, int(offset or 0))
         # Fetch one extra past the page to detect whether more results exist
         # (hasMore) without a second query. pool_ceiling switches search_cards
@@ -9943,6 +9967,7 @@ class SpotlightScanService:
             self.connection,
             query,
             limit=limit + 1,
+            game=game,
             offset=offset,
             pool_ceiling=_MANUAL_SEARCH_POOL_CEILING,
             rarity_bucket_filter=rarity_bucket_filter,
@@ -10431,18 +10456,25 @@ class SpotlightScanService:
         return {"ok": True, "remaining": remaining}
 
     def list_expansions(self, game: str = "pokemon", *, refresh: bool = False) -> dict[str, Any]:
-        if refresh or expansion_count(self.connection) == 0:
+        # Every read here is scoped to ONE game. The emptiness check especially:
+        # a global count is non-zero as soon as Pokémon has synced, so
+        # `?game=onepiece` used to skip its own sync and then be served the
+        # Pokémon list.
+        normalized_game = normalize_game(game)
+        if refresh or expansion_count(self.connection, game=normalized_game) == 0:
             try:
-                sync_scrydex_expansions(self.connection, game=game)
+                sync_scrydex_expansions(self.connection, game=normalized_game)
             except Exception:
                 traceback.print_exc()
-        expansions = list_persisted_expansions(self.connection)
+        expansions = list_persisted_expansions(self.connection, game=normalized_game)
         if not expansions:
-            expansions = list_local_expansions(self.connection)
+            expansions = list_local_expansions(self.connection, game=normalized_game)
         return {"expansions": expansions}
 
-    def search_expansion_cards(self, expansion_id: str, query: str = "", limit: int = 50) -> dict[str, Any]:
-        cards = get_cards_by_expansion(self.connection, expansion_id, query=query, limit=limit)
+    def search_expansion_cards(
+        self, expansion_id: str, *, game: str, query: str = "", limit: int = 50
+    ) -> dict[str, Any]:
+        cards = get_cards_by_expansion(self.connection, expansion_id, game=game, query=query, limit=limit)
         return {"results": cards}
 
     def _persist_mapped_catalog_card(
@@ -10756,28 +10788,33 @@ class SpotlightScanService:
         evidence: RawEvidence,
         signals: RawSignalScores,
         plan: RawRetrievalPlan,
+        *,
+        game: str,
     ) -> list[dict[str, Any]]:
+        # `game` comes from the scan payload via the same reader the visual
+        # matcher uses, so the OCR fallback and the visual index can never
+        # disagree about which catalog this scan is against.
         candidate_groups: list[list[dict[str, Any]]] = []
         routes = set(plan.routes)
         has_trusted_set = bool(evidence.trusted_set_hint_tokens)
 
         if "collector_set_exact" in routes:
-            candidate_groups.append(search_cards_local_collector_set(self.connection, evidence, limit=12))
+            candidate_groups.append(search_cards_local_collector_set(self.connection, evidence, limit=12, game=game))
         if "title_set_primary" in routes:
-            candidate_groups.append(search_cards_local_title_set(self.connection, evidence, limit=12))
+            candidate_groups.append(search_cards_local_title_set(self.connection, evidence, limit=12, game=game))
         if "title_collector" in routes:
-            candidate_groups.append(self._with_retrieval_route(search_cards_local_title_only(self.connection, evidence, limit=12), "title_collector"))
+            candidate_groups.append(self._with_retrieval_route(search_cards_local_title_only(self.connection, evidence, limit=12, game=game), "title_collector"))
             if not has_trusted_set:
-                candidate_groups.append(self._with_retrieval_route(search_cards_local_collector_only(self.connection, evidence, limit=12), "title_collector"))
+                candidate_groups.append(self._with_retrieval_route(search_cards_local_collector_only(self.connection, evidence, limit=12, game=game), "title_collector"))
         else:
             if "title_only" in routes:
-                candidate_groups.append(search_cards_local_title_only(self.connection, evidence, limit=12))
+                candidate_groups.append(search_cards_local_title_only(self.connection, evidence, limit=12, game=game))
             if "collector_only" in routes and not has_trusted_set:
-                candidate_groups.append(search_cards_local_collector_only(self.connection, evidence, limit=12))
+                candidate_groups.append(search_cards_local_collector_only(self.connection, evidence, limit=12, game=game))
 
         if "broad_text_fallback" in routes and evidence.recognized_text:
             fallback_group = self._with_retrieval_route(
-                search_cards_local(self.connection, evidence.recognized_text, limit=12),
+                search_cards_local(self.connection, evidence.recognized_text, limit=12, game=game),
                 "broad_text_fallback",
             )
             for candidate in fallback_group:
@@ -10845,7 +10882,11 @@ class SpotlightScanService:
         seen: set[str] = set()
         candidates: list[dict[str, Any]] = []
         for query in query_parts:
-            for card in search_cards_local(self.connection, query, limit=12):
+            # Explicitly Pokémon, not defaulted-to-Pokémon. Slab scope is
+            # cert-first PSA Pokémon by policy (backend/AGENTS.md, "Slab Rules"),
+            # and no other game has graded POP or cert data to resolve against.
+            # When a second game gets a slab lane this becomes the scan's game.
+            for card in search_cards_local(self.connection, query, limit=12, game=GAME_POKEMON):
                 card_id = str(card.get("id") or "")
                 if not card_id or card_id in seen or not self._slab_candidate_matches_language_hint(card, evidence):
                     continue
@@ -11196,6 +11237,10 @@ class SpotlightScanService:
 
         source_payload = card.get("sourcePayload") or card.get("source_payload") or {}
         source_provider = str(card.get("sourceProvider") or card.get("source") or "").strip().lower()
+        # The snapshot's `source_url` is its provenance record. Writing a
+        # /pokemon/v1 URL for a card that came from another catalog mislabels
+        # where the price came from — wrong in a way that only surfaces at audit.
+        card_game = normalize_game(card.get("game"))
         mapped_card: dict[str, Any] | None = None
         if isinstance(source_payload, dict):
             try:
@@ -11238,7 +11283,7 @@ class SpotlightScanService:
         if cached is not None:
             cached_pricing = contextual_pricing_summary_for_card(self.connection, card_id)
             if cached_pricing is None and source_provider == "scrydex" and isinstance(source_payload, dict) and source_payload:
-                persisted = persist_scrydex_raw_snapshot(self.connection, card_id, source_payload)
+                persisted = persist_scrydex_raw_snapshot(self.connection, card_id, source_payload, game=card_game)
                 if persisted is not None:
                     return card_by_id(self.connection, card_id) or cached
             if cached_pricing is None and provider_prices:
@@ -11260,7 +11305,7 @@ class SpotlightScanService:
             refresh_embeddings=False,
         )
         if source_provider == "scrydex" and isinstance(source_payload, dict) and source_payload:
-            persist_scrydex_raw_snapshot(self.connection, card_id, source_payload)
+            persist_scrydex_raw_snapshot(self.connection, card_id, source_payload, game=card_game)
         return card_by_id(self.connection, card_id) or card
 
     @staticmethod
@@ -12600,7 +12645,9 @@ class SpotlightScanService:
         signals = score_raw_signals(evidence)
         plan = build_raw_retrieval_plan(evidence, signals)
 
-        local_candidates = self._retrieve_local_raw_candidates(evidence, signals, plan)
+        local_candidates = self._retrieve_local_raw_candidates(
+            evidence, signals, plan, game=game_for_scan_payload(payload)
+        )
         top_local_score = float(local_candidates[0].get("_retrievalScoreHint") or 0.0) if local_candidates else 0.0
         local_delta = (
             top_local_score - float(local_candidates[1].get("_retrievalScoreHint") or 0.0)
@@ -12683,6 +12730,17 @@ class SpotlightScanService:
                 return self._card_detail_for_context(card_id, pricing_context=pricing_context)
 
             existing_card = card_by_id(self.connection, card_id)
+            # The card row has always carried its game; this path just dropped it
+            # before building the Scrydex request, so a One Piece or Lorcana id
+            # was asked for down /pokemon/v1 — a guaranteed miss that still bills.
+            card_game = normalize_game((existing_card or {}).get("game"))
+            # And for a game the registry says has NO graded pricing, the whole
+            # request is waste we already measured: One Piece, Riftbound and
+            # Gundam return zero graded rows. Capability comes from the registry
+            # so adding a game stays a data change, never an `if game ==` here.
+            if not game_has_graded_pricing(card_game):
+                return self._card_detail_for_context(card_id, pricing_context=pricing_context)
+
             provider_id = str((existing_card or {}).get("sourceProvider") or "scrydex")
             psa_provider = self.pricing_registry.get_provider(provider_id) or self.pricing_registry.get_provider("scrydex")
             if psa_provider is None or not psa_provider.is_ready() or not psa_provider.get_metadata().supports_psa_pricing:
@@ -12698,6 +12756,7 @@ class SpotlightScanService:
                 card_id,
                 pricing_context.grader,
                 pricing_context.grade,
+                game=card_game,
                 **refresh_kwargs,
             )
             return self._card_detail_for_context(card_id, pricing_context=pricing_context)
@@ -12715,7 +12774,14 @@ class SpotlightScanService:
         if raw_provider is None or not raw_provider.is_ready() or not raw_provider.get_metadata().supports_raw_pricing:
             return self._card_detail_for_context(card_id, pricing_context=pricing_context)
 
-        raw_provider.refresh_raw_pricing(self.connection, card_id)
+        # Same fix on the raw lane, and no capability gate: every supported game
+        # has raw prices (all four POC catalogs have populated snapshots), so the
+        # only thing that was wrong here was the path.
+        raw_provider.refresh_raw_pricing(
+            self.connection,
+            card_id,
+            game=normalize_game((existing_card or {}).get("game")),
+        )
         return self._card_detail_for_context(card_id, pricing_context=pricing_context)
 
     def refresh_card_pricing(
@@ -12771,6 +12837,32 @@ class SpotlightScanService:
         )
         ordered_card_ids = self._normalized_unique_card_ids(card_ids)
         preloaded_cards, price_snapshot_rows = self._batched_card_hydration_context(ordered_card_ids)
+        # ONE pricing context is applied to the whole batch, which is only safe
+        # while the context says nothing game-specific.
+        #
+        #   raw  — says nothing. Each card is refreshed on its OWN game's Scrydex
+        #          path (resolved per card from its row), so a mixed batch is
+        #          legal and correct.
+        #   graded — a slabContext describes one physical slab. "PSA 10" asked of
+        #          a Pokémon card and a Lorcana card in the same request cannot
+        #          be attributed to either, and PSA 10 of a One Piece card is not
+        #          a thing that exists. Rejected LOUDLY rather than grouped:
+        #          there is no per-game graded context to group BY, so grouping
+        #          would just be silently applying the one context to everything
+        #          — exactly the bug. A caller that means two games means two
+        #          requests.
+        if pricing_context.is_graded:
+            batch_games = {
+                normalize_game(card.get("game"))
+                for card in preloaded_cards.values()
+                if isinstance(card, dict)
+            }
+            if len(batch_games) > 1:
+                raise ValueError(
+                    "A graded slabContext cannot be applied to a batch spanning "
+                    + " and ".join(sorted(game_display_name(game) for game in batch_games))
+                    + ". Hydrate one game per request."
+                )
         # Cells-first current price: one bulk latest-day cell prefetch for the whole
         # batch so each card detail resolves price from cells (no cold blob read,
         # no per-card cell query). Empty in JSON mode → JSON-blob path unchanged.
@@ -12853,6 +12945,11 @@ class SpotlightScanService:
         payload: dict[str, Any] = {
             "card": {
                 "id": resolved_card["id"],
+                # The card detail is the only card payload a DEEP LINK can reach
+                # (no scan candidate, no collection row, no search result to
+                # carry the game across). Without it the client falls back to
+                # Pokémon and offers grading lanes the game has no data for.
+                "game": normalize_game(resolved_card.get("game")),
                 "name": resolved_card["name"],
                 "setName": resolved_card["setName"],
                 "number": resolved_card["number"],
@@ -13166,9 +13263,33 @@ class SpotlightScanService:
         if card is None:
             return None
 
+        # The card row already knows its game — this endpoint just never asked.
+        # Two things follow from it:
+        #   1. the Scrydex request goes to /{game}/v1/... instead of always
+        #      /pokemon/v1/..., which for a One Piece or Lorcana id was a
+        #      guaranteed miss that still cost a credit;
+        #   2. games the registry says have no listings data never spend that
+        #      credit at all. Capability comes from the registry, so adding a
+        #      game stays a data change.
+        card_game = normalize_game(card.get("game"))
+
         normalized_source = str(source or "").strip().lower() or "ebay"
         normalized_grader = str(grader or "").strip().upper() or None
         normalized_grade = str(grade or "").strip().upper() or None
+
+        if not game_has_listings(card_game):
+            # NOT a 404: the card exists, the comps source does not cover it.
+            # "unavailable" is the shape the client already renders as a quiet
+            # empty drawer, whereas "Card not found" reads as a broken PDP.
+            return _recent_sales_payload(
+                None,
+                source=normalized_source,
+                grader=normalized_grader or "",
+                grade=normalized_grade or "",
+                unavailable_reason=(
+                    f"{game_display_name(card_game)} has no sold-listings source."
+                ),
+            )
         # The requested printing scopes serve-time FILTERING only. The cache is
         # deliberately SHARED across variants (bare source key): the Scrydex
         # listings request is variant-blind, so per-variant cache keys would
@@ -13227,6 +13348,7 @@ class SpotlightScanService:
         # clean rows.
         remote_payload = fetch_scrydex_recent_sales(
             card_id,
+            game=card_game,
             source=normalized_source,
             grader=normalized_grader,
             grade=normalized_grade,
@@ -19949,10 +20071,16 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             )
             if rarity_bucket_param not in RARITY_BUCKET_KEYS:
                 rarity_bucket_param = None
+            # THE boundary where "absent means Pokémon" is allowed to be decided.
+            # Every pre-multi-game client sends no `game`, and normalize_game
+            # maps that (and any junk) to pokemon — so their results are exactly
+            # what they were. Everything below this line is told, never guesses.
+            game = normalize_game(query_params.get("game", [""])[0])
             self._write_json(
                 HTTPStatus.OK,
                 self.service.search(
                     query,
+                    game=game,
                     limit=limit,
                     offset=offset,
                     rarity_bucket_filter=rarity_bucket_param,
@@ -19977,7 +20105,13 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": "limit must be an integer"})
                 return
-            self._write_json(HTTPStatus.OK, self.service.search_expansion_cards(expansion_id, query=query, limit=limit))
+            # Same boundary rule as /cards/search: `set_id` is only unique
+            # WITHIN a game, so the lane has to come off the request.
+            game = normalize_game(query_params.get("game", [""])[0])
+            self._write_json(
+                HTTPStatus.OK,
+                self.service.search_expansion_cards(expansion_id, game=game, query=query, limit=limit),
+            )
             return
 
         ebay_listings_suffixes = ("/graded-comps", "/ebay-comps", "/comps", "/ebay-listings")
@@ -21025,6 +21159,12 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                     cert_number=cert_number,
                     preferred_variant=preferred_variant,
                 )
+            except ValueError as error:
+                # A malformed request (e.g. a graded slabContext over a mixed-game
+                # batch) is the CLIENT's mistake, not an upstream failure — 502
+                # would send it hunting Scrydex for a bug in its own payload.
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
             except Exception as error:
                 self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"Candidate pricing hydration failed: {error}"})
                 return

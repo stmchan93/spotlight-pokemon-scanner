@@ -1,0 +1,11 @@
+{
+  "labelState": "confirmed",
+  "labelSource": "manual_visual_verification",
+  "providerMapping": {
+    "providerCardId": "onepiece~OP14-028",
+    "sourceProvider": "scrydex",
+    "collectorNumber": "OP14-028",
+    "setName": "The Azure Sea's Seven"
+  },
+  "verification": "Collector number OP14-028 read off the photographed card; artwork, name plate and card frame match the Scrydex reference art for onepiece~OP14-028; no SAMPLE overlay present. Seller listing title: Japanese One Piece TCG Johnny The Azure Sea's Seven OP14 028 Common"
+}
