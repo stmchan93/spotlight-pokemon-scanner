@@ -90,6 +90,23 @@ CREATE TABLE IF NOT EXISTS card_price_snapshots (
     -- GemRate population (PPT), keyed by grader: {"PSA": {"totalPopulation", "gemRate",
     -- "grades": {"10": n, ...}}, ...}. Metadata only — never feeds a displayed price.
     population_json TEXT NOT NULL DEFAULT '{}',
+    -- "Main lane": the raw headline price from TCGCSV (TCGplayer marketPrice),
+    -- written only by sync_tcgcsv_prices. NULL = no TCGCSV price -> the read path
+    -- falls through to the Scrydex default_raw_* chain. Deliberately NOT in the
+    -- startup rebuild-guard's required set (extra columns are safe, required ones
+    -- nuke the table on older DBs).
+    main_raw_market_price REAL,
+    main_raw_low_price REAL,
+    main_raw_mid_price REAL,
+    main_raw_high_price REAL,
+    main_raw_direct_low_price REAL,
+    main_raw_variant TEXT,
+    main_raw_updated_at TEXT,
+    -- Per-printing TCGCSV rows, keyed by Scrydex variant label ("Normal"/"Holofoil"/
+    -- "Reverse Holofoil"/"First Edition"/"Unlimited"): {"<label>": {"subTypeName",
+    -- "market", "low", "mid", "high", "directLow"}}. Only printings with their own
+    -- TCGplayer marketPrice appear; freshness rides main_raw_updated_at.
+    main_raw_printings_json TEXT NOT NULL DEFAULT '{}',
     source_url TEXT,
     source_updated_at TEXT,
     source_payload_json TEXT NOT NULL DEFAULT '{}',
@@ -115,6 +132,9 @@ CREATE TABLE IF NOT EXISTS card_price_history_daily (
     -- migration) passes the startup guard without a rebuild. source_url stays.
     raw_contexts_json TEXT NOT NULL DEFAULT '{}',
     graded_contexts_json TEXT NOT NULL DEFAULT '{}',
+    -- Main-lane daily value (TCGCSV); same non-required-column rule as the snapshot.
+    main_raw_market_price REAL,
+    main_raw_variant TEXT,
     source_url TEXT,
     source_payload_json TEXT NOT NULL DEFAULT '{}',
     updated_at TEXT NOT NULL,

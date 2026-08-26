@@ -43,6 +43,15 @@ from catalog_tools import (
     _resolve_raw_context_summary,
     _cell_summary_from_row,
     _cell_field,
+    _amount_to_usd,
+    _resolve_default_raw_context,
+    _variant_match_key,
+    _is_default_main_raw_read,
+    main_raw_history_market,
+    raw_main_price_enabled,
+    resolve_main_raw_summary_from_row,
+    RAW_MAIN_PRICE_SOURCE_SCRYDEX,
+    RAW_MAIN_PRICE_SOURCE_TCGCSV,
     price_history_cells_enabled,
     pricing_provider,
     price_history_cell_rows_for_day,
@@ -169,6 +178,7 @@ from scrydex_adapter import (
     search_remote_scrydex_japanese_raw_candidates,
 )
 from slab_cert_resolver import resolve_psa_cert_from_scan_cache
+from tcgcsv_adapter import scrydex_variant_label_for_subtype
 from slab_set_aliases import resolve_slab_set_aliases
 from scan_artifact_store import (
     ARTIFACTS_JSON_BASENAME,
@@ -3243,10 +3253,18 @@ class SpotlightScanService:
             and pricing.get("market") is not None
         ):
             phantom_row = snapshot_row or price_snapshot_row(self.connection, card_id)
+            # When the TCGCSV main lane won, the guard judges the value actually
+            # served instead of the Scrydex NM entry.
+            served_kwargs: dict[str, Any] = (
+                {"served_market": pricing.get("market"), "served_currency": pricing.get("currencyCode")}
+                if pricing.get("mainPriceSource") == RAW_MAIN_PRICE_SOURCE_TCGCSV
+                else {}
+            )
             if phantom_row is not None and _is_raw_phantom_price(
                 self.connection,
                 _raw_contexts_payload(phantom_row["raw_contexts_json"]),
                 _graded_contexts_payload(phantom_row["graded_contexts_json"]),
+                **served_kwargs,
             ):
                 for _k in ("market", "low", "mid", "high", "trend", "directLow", "trendsPct"):
                     if _k in pricing:
@@ -3378,6 +3396,17 @@ class SpotlightScanService:
             except ValueError:
                 is_fresh = False
 
+        # Main-lane intercept (flag-gated): a fresh TCGCSV main price serves the
+        # DEFAULT raw read (condition unset/NM, variant unset/main's own) before
+        # any Scrydex resolution runs. Graded contexts never take this path.
+        main_summary: dict[str, Any] | None = None
+        if not pricing_context.is_graded:
+            main_summary = resolve_main_raw_summary_from_row(
+                snapshot_row,
+                variant=pricing_context.preferred_variant,
+                condition=pricing_context.preferred_condition,
+            )
+
         # Cells-first: when the cell read source is active AND the caller has
         # pre-fetched this card's latest-day cells (``day_cells``), resolve the
         # price fields from the normalized cell table and skip parsing the fat
@@ -3385,7 +3414,7 @@ class SpotlightScanService:
         # pre-fetched" — keep the JSON path so no per-call cell query is issued
         # (avoids an N+1 in deck_entries); an empty list means "this card has no
         # cells" and also falls through to JSON.
-        use_cells = price_history_cells_enabled() and day_cells is not None
+        use_cells = main_summary is None and price_history_cells_enabled() and day_cells is not None
         cells_resolution: tuple[str | None, dict[str, Any] | None] | None = None
         if use_cells:
             cells_resolution = self._cells_summary_from_snapshot_row(
@@ -3397,7 +3426,7 @@ class SpotlightScanService:
         # The JSON-context blobs are only parsed when cells did not resolve the
         # price (fallback), so the cells-first path never pays for the cold blob
         # read.
-        need_json = cells_resolution is None
+        need_json = main_summary is None and cells_resolution is None
         raw_contexts = (
             _raw_contexts_payload(snapshot_row["raw_contexts_json"]) if need_json else {}
         )
@@ -3419,7 +3448,34 @@ class SpotlightScanService:
         resolved_payload: dict[str, Any] = {}
         resolved_variant: str | None = None
 
-        if cells_resolution is not None:
+        if main_summary is not None:
+            summary = dict(main_summary)
+            resolved_variant = main_summary.get("variant")
+            resolved_payload = {}
+            # Phantom guard runs against the value actually SERVED (the main
+            # price); the single-printing gate stays on the Scrydex variant
+            # cardinality, read from cells when pre-fetched, else the blobs.
+            served_market = summary.get("market")
+            if price_history_cells_enabled() and day_cells:
+                phantom = _is_raw_phantom_price_from_cells(
+                    self.connection,
+                    day_cells,
+                    served_market=served_market,
+                    served_currency="USD",
+                )
+            else:
+                phantom = _is_raw_phantom_price(
+                    self.connection,
+                    _raw_contexts_payload(snapshot_row["raw_contexts_json"]),
+                    _graded_contexts_payload(snapshot_row["graded_contexts_json"]),
+                    served_market=served_market,
+                    served_currency="USD",
+                )
+            if phantom:
+                for key in ("market", "low", "mid", "high", "trend", "directLow"):
+                    summary[key] = None
+                summary["suppressionReason"] = "phantom"
+        elif cells_resolution is not None:
             # Cells-first path: the price fields come from the normalized cell
             # row; payload/trendsPct are absent on cells, so resolved_payload
             # stays empty and the payload-derived fields below fall through to
@@ -3531,6 +3587,19 @@ class SpotlightScanService:
             "payload": resolved_payload if resolved_payload else payload,
             "isFresh": is_fresh,
         }
+        # Source stamp on DEFAULT raw reads only (flag-gated so the DTO stays
+        # byte-identical with the flag off). The served condition is stamped on
+        # the main lane because the RN owned-copy gate matches on it.
+        if not pricing_context.is_graded and raw_main_price_enabled():
+            if main_summary is not None:
+                pricing["condition"] = DEFAULT_RAW_CONDITION
+                pricing["mainPriceSource"] = RAW_MAIN_PRICE_SOURCE_TCGCSV
+            elif _is_default_main_raw_read(
+                variant=pricing_context.preferred_variant,
+                condition=pricing_context.preferred_condition,
+                main_raw_variant=_cell_field(snapshot_row, "main_raw_variant"),
+            ):
+                pricing["mainPriceSource"] = RAW_MAIN_PRICE_SOURCE_SCRYDEX
         pricing = decorate_pricing_summary_with_fx(self.connection, pricing)
         if (
             pricing_context.is_graded
@@ -3794,6 +3863,53 @@ class SpotlightScanService:
         "DM": "Damaged",
     }
 
+    # A same-printing non-NM Scrydex cell priced above this multiple of the served
+    # TCGCSV main is an out-of-scale leftover, not a usable condition price
+    # (companion to catalog_tools' _RAW_PHANTOM_MARGIN; applies to ONE printing only).
+    _MAIN_CONDITION_SCALE_MARGIN = 2.0
+
+    def _raw_main_condition_overlay(self, card_id: str) -> dict[str, dict[str, Any]] | None:
+        """{Scrydex printing match key: TCGCSV printing row} for every printing
+        with its own TCGplayer market — parsed from main_raw_printings_json, plus
+        the main lane itself when the JSON lacks it (pre-printings back-compat).
+        Printings absent from the map are deliberately untouched (no TCGplayer
+        sales -> keep Scrydex). None keeps every surface byte-identical to the
+        Scrydex-only read (flag off, main absent/stale, no mappable printing)."""
+        row = price_snapshot_row(self.connection, card_id)
+        if row is None:
+            return None
+        summary = resolve_main_raw_summary_from_row(row)  # flag + freshness gated
+        if summary is None:
+            return None
+        printings: dict[str, dict[str, Any]] = {}
+        try:
+            parsed = json.loads(_cell_field(row, "main_raw_printings_json") or "{}")
+        except (TypeError, ValueError):
+            parsed = {}
+        if isinstance(parsed, dict):
+            for label, entry in parsed.items():
+                key = _variant_match_key(label)
+                if key and isinstance(entry, dict) and entry.get("market") is not None:
+                    printings[key] = entry
+        label = scrydex_variant_label_for_subtype(row["main_raw_variant"])
+        if label:
+            printings.setdefault(_variant_match_key(label), summary)
+        return printings or None
+
+    def _condition_out_of_main_scale(
+        self,
+        market: Any,
+        currency_code: Any,
+        main_market: Any,
+    ) -> bool:
+        """Rule 2 predicate: same-printing Scrydex condition market (USD-converted)
+        exceeds the served main by more than the scale margin. Unconvertible
+        values are kept (conservative: never hide what we cannot compare)."""
+        if not isinstance(main_market, (int, float)) or isinstance(main_market, bool) or main_market <= 0:
+            return False
+        usd = _amount_to_usd(self.connection, market, currency_code)
+        return usd is not None and usd > self._MAIN_CONDITION_SCALE_MARGIN * float(main_market)
+
     def raw_pricing_matrix(self, card_id: str) -> dict[str, Any]:
         """Return the full variant x condition price matrix for a raw card.
 
@@ -3802,6 +3918,9 @@ class SpotlightScanService:
         """
 
         raw_contexts = self._snapshot_raw_contexts(card_id)
+        # Snapshot contexts feed the matrix in BOTH history modes (cells mode only
+        # regates the daily-history readers), so the overlay applies uniformly.
+        overlay = self._raw_main_condition_overlay(card_id)
         variants_payload: list[dict[str, Any]] = []
         currency_code: str | None = None
 
@@ -3819,12 +3938,11 @@ class SpotlightScanService:
 
         ordered_variants = sorted(_raw_context_variants(raw_contexts), key=variant_sort_key)
         for variant_label in ordered_variants:
-            variant_key = ""
-            condition_rows: list[dict[str, Any]] = []
             ordered_conditions = sorted(
                 _raw_context_conditions(raw_contexts, variant_label),
                 key=condition_sort_key,
             )
+            resolved_cells: list[tuple[str, dict[str, Any]]] = []
             for condition_code in ordered_conditions:
                 entry = _raw_context_entry(
                     raw_contexts,
@@ -3834,22 +3952,52 @@ class SpotlightScanService:
                 summary = _coerce_price_summary_from_entry(entry)
                 if summary is None:
                     continue
-                display = self._display_price_history_row(
-                    {
-                        "pricingMode": "raw",
+                resolved_cells.append((condition_code, summary))
+
+            variant_key = ""
+            for _, summary in resolved_cells:
+                payload = summary.get("payload") if isinstance(summary.get("payload"), dict) else {}
+                variant_key = str(payload.get("variantKey") or payload.get("variant") or "").strip()
+                if variant_key:
+                    break
+
+            # Only printings with their own TCGCSV market are ever reshaped; the
+            # rest are NEVER judged against another printing's price (legit
+            # parallels price high, and no-sales printings stay pure Scrydex).
+            printing = None
+            if overlay is not None:
+                printing = overlay.get(_variant_match_key(variant_label))
+                if printing is None and variant_key:
+                    printing = overlay.get(_variant_match_key(variant_key))
+
+            condition_rows: list[dict[str, Any]] = []
+            for condition_code, summary in resolved_cells:
+                if printing is not None and condition_code == DEFAULT_RAW_CONDITION:
+                    # Rule 1: the TCGCSV row IS this printing's NM price.
+                    source = {
+                        "currencyCode": "USD",
+                        "low": printing.get("low"),
+                        "market": printing.get("market"),
+                        "mid": printing.get("mid"),
+                        "high": printing.get("high"),
+                    }
+                elif printing is not None and self._condition_out_of_main_scale(
+                    summary.get("market"), summary.get("currencyCode"), printing.get("market")
+                ):
+                    # Rule 2: same-printing condition priced out of scale vs the main.
+                    continue
+                else:
+                    source = {
                         "currencyCode": summary.get("currencyCode"),
                         "low": summary.get("low"),
                         "market": summary.get("market"),
                         "mid": summary.get("mid"),
                         "high": summary.get("high"),
                     }
-                )
-                entry_currency = str(display.get("currencyCode") or summary.get("currencyCode") or "")
+                display = self._display_price_history_row({"pricingMode": "raw", **source})
+                entry_currency = str(display.get("currencyCode") or source.get("currencyCode") or "")
                 if entry_currency and currency_code is None:
                     currency_code = entry_currency
-                payload = summary.get("payload") if isinstance(summary.get("payload"), dict) else {}
-                if not variant_key:
-                    variant_key = str(payload.get("variantKey") or payload.get("variant") or "").strip()
                 condition_rows.append(
                     {
                         "code": condition_code,
@@ -4062,10 +4210,17 @@ class SpotlightScanService:
           `default_raw_market_price` value (flat/illiquid)
         - "normal" otherwise
         """
+        # In main-lane mode the served headline is the TCGCSV market, so volume
+        # is judged on the same COALESCE the readers serve.
+        price_expr = (
+            "COALESCE(main_raw_market_price, default_raw_market_price)"
+            if raw_main_price_enabled()
+            else "default_raw_market_price"
+        )
         row = self.connection.execute(
-            """
+            f"""
             SELECT COUNT(*) AS days,
-                   COUNT(DISTINCT default_raw_market_price) AS distinct_prices
+                   COUNT(DISTINCT {price_expr}) AS distinct_prices
             FROM card_price_history_daily
             WHERE card_id = ? AND price_date >= date('now','-30 days')
             """,
@@ -4314,7 +4469,67 @@ class SpotlightScanService:
             variant=variant,
             grader=grader,
         )
-        return convert_price_trend_list_with_fx(self.connection, trend_list)
+        converted = convert_price_trend_list_with_fx(self.connection, trend_list)
+        # Raw rows only; graded rows are never touched by the main-lane rules.
+        if str(mode).strip().lower() != PSA_GRADE_PRICING_MODE:
+            converted = self._apply_main_condition_rules_to_raw_trend_rows(
+                card_id, converted, requested_variant=variant
+            )
+        return converted
+
+    def _apply_main_condition_rules_to_raw_trend_rows(
+        self,
+        card_id: str,
+        trend_list: dict[str, Any] | None,
+        *,
+        requested_variant: str | None,
+    ) -> dict[str, Any] | None:
+        """Post-FX overlay on the raw per-condition trend rows: a TCGCSV-priced
+        printing's NM row carries that printing's market (Rule 1) and its
+        out-of-scale sibling conditions are dropped (Rule 2). No-op (same object)
+        when the overlay is inactive or the rows' printing has no TCGCSV market,
+        so those responses stay byte-identical."""
+        overlay = self._raw_main_condition_overlay(card_id)
+        if overlay is None or not isinstance(trend_list, dict):
+            return trend_list
+        # Re-derive the printing the rows belong to, mirroring
+        # card_price_trend_list's variant resolution (it does not return it).
+        snapshot_row = price_snapshot_row(self.connection, card_id)
+        snapshot_raw = (
+            _raw_contexts_payload(snapshot_row["raw_contexts_json"]) if snapshot_row is not None else {"variants": {}}
+        )
+        resolved_variant = _normalized_variant_label(requested_variant) if requested_variant else None
+        if resolved_variant is None or not _raw_context_conditions(snapshot_raw, resolved_variant):
+            default_variant, _, _ = _resolve_default_raw_context(snapshot_raw)
+            resolved_variant = default_variant or resolved_variant
+        # Rows of printings without their own TCGCSV market are never judged or reshaped.
+        printing = overlay.get(_variant_match_key(resolved_variant)) if resolved_variant else None
+        if printing is None:
+            return trend_list
+        rows = trend_list.get("rows")
+        if not isinstance(rows, list):
+            return trend_list
+        main_market = printing.get("market")
+        kept_rows: list[Any] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                kept_rows.append(row)
+                continue
+            code = str(row.get("key") or "").upper()
+            if code == DEFAULT_RAW_CONDITION:
+                # Rule 1 — but never resurrect a phantom-suppressed row.
+                if "suppressionReason" not in row:
+                    row = dict(row)
+                    row["currentPrice"] = main_market
+                    row["currencyCode"] = "USD"
+                kept_rows.append(row)
+                continue
+            if self._condition_out_of_main_scale(row.get("currentPrice"), row.get("currencyCode"), main_market):
+                continue  # Rule 2
+            kept_rows.append(row)
+        result = dict(trend_list)
+        result["rows"] = kept_rows
+        return result
 
     @staticmethod
     def _prettify_variant_key(variant_key: str) -> str:
@@ -4531,7 +4746,15 @@ class SpotlightScanService:
                 }
             )
 
-        if use_cells:
+        # Main-lane COALESCE (flag-gated): on default raw reads the day's TCGCSV
+        # main market wins, matching what the headline served that day. The main
+        # lane IS the NM price, so the like-for-like guard below treats it as an
+        # exact NM resolution.
+        main_market = main_raw_history_market(row, variant=variant_name, condition=condition_code)
+        if main_market is not None:
+            resolved_condition = DEFAULT_RAW_CONDITION
+            summary = {"currencyCode": "USD", "market": main_market, "payload": {}}
+        elif use_cells:
             _, resolved_condition, summary = resolve_raw_summary_from_cells(
                 day_cells,
                 variant=variant_name,
@@ -4626,6 +4849,10 @@ class SpotlightScanService:
         "default_raw_high_price",
         "default_raw_direct_low_price",
         "default_raw_trend_price",
+        # Main-lane raw headline (TCGCSV): thin scalars, needed for the
+        # flag-gated main-market COALESCE in the per-day resolver.
+        "main_raw_market_price",
+        "main_raw_variant",
         "updated_at",
     )
 
@@ -15403,6 +15630,12 @@ class SpotlightScanService:
             snapshot = price_snapshot_rows.get(card_id) if card_id else None
             market_price_dollars: float | None = None
             if snapshot is not None:
+                # Main lane first (flag + freshness checked inside), matching the
+                # headline the rest of the app serves for the default raw read.
+                main_summary = resolve_main_raw_summary_from_row(snapshot)
+                if main_summary is not None and main_summary["market"] > 0:
+                    market_price_dollars = main_summary["market"]
+            if snapshot is not None and market_price_dollars is None:
                 for key in (
                     "default_raw_market_price",
                     "default_raw_mid_price",
@@ -16217,6 +16450,17 @@ class SpotlightScanService:
             ),
         ).fetchone()
         parts = [resolved_tz] + [str(row[key]) for key in row.keys()] if row is not None else [resolved_tz]
+        # TCGCSV main-lane sync bump: a re-sync of an already-snapshotted day
+        # changes prices without moving MAX(price_date), so the sync bumps
+        # ``pricing_sync_generation`` and the token folds it in (missing -> 0).
+        generation = "0"
+        try:
+            setting = runtime_setting(self.connection, "pricing_sync_generation")
+            if setting is not None and setting.get("value") not in (None, {}):
+                generation = str(setting["value"])
+        except sqlite3.Error:
+            generation = "0"
+        parts.append(f"psg:{generation}")
         return "|".join(parts)
 
     def _dashboard_cache_lock_for(self, cache_key: tuple[str, str, str]) -> "threading.Lock":

@@ -455,6 +455,24 @@ def _apply_additive_runtime_migrations(connection: sqlite3.Connection) -> None:
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_cards_tcgplayer_id ON cards(tcgplayer_id)"
         )
+    # Main-lane raw headline price (TCGCSV / TCGplayer marketPrice), written only by
+    # sync_tcgcsv_prices. NULL = no TCGCSV price -> read path falls through to the
+    # Scrydex default_raw_* chain. Kept OUT of _rebuild_pricing_tables_if_needed's
+    # required sets so older DBs never trigger the destructive rebuild.
+    for column_name, column_sql in (
+        ("main_raw_market_price", "REAL"),
+        ("main_raw_low_price", "REAL"),
+        ("main_raw_mid_price", "REAL"),
+        ("main_raw_high_price", "REAL"),
+        ("main_raw_direct_low_price", "REAL"),
+        ("main_raw_variant", "TEXT"),
+        ("main_raw_updated_at", "TEXT"),
+        # Per-printing TCGCSV rows keyed by Scrydex variant label; see schema.sql.
+        ("main_raw_printings_json", "TEXT NOT NULL DEFAULT '{}'"),
+    ):
+        _add_column_if_missing(connection, "card_price_snapshots", column_name, column_sql)
+    _add_column_if_missing(connection, "card_price_history_daily", "main_raw_market_price", "REAL")
+    _add_column_if_missing(connection, "card_price_history_daily", "main_raw_variant", "TEXT")
     if _table_exists(connection, "labeling_sessions"):
         labeling_session_table_columns = _table_columns(connection, "labeling_sessions")
         if {"provider_card_id", "created_at"}.issubset(labeling_session_table_columns):
@@ -4509,6 +4527,126 @@ def pricing_provider() -> str:
     return str(os.environ.get("PRICING_PROVIDER") or "").strip().lower() or "scrydex"
 
 
+# --- Main-lane raw headline source flag (TCGCSV cutover) ----------------------
+RAW_MAIN_PRICE_SOURCE_SCRYDEX = "scrydex"
+RAW_MAIN_PRICE_SOURCE_TCGCSV = "tcgcsv"
+
+
+def raw_main_price_source() -> str:
+    """Which lane serves the raw HEADLINE price: ``"scrydex"`` (default, today's
+    resolution) or ``"tcgcsv"`` (the ``main_raw_*`` columns the TCGCSV sync
+    writes). Per-card semantics even when flipped: a card without a FRESH
+    ``main_raw_market_price`` falls back to the Scrydex resolution unchanged.
+    The per-condition matrix and the entire graded lane stay on Scrydex."""
+    value = str(os.environ.get("RAW_MAIN_PRICE_SOURCE") or "").strip().lower()
+    return RAW_MAIN_PRICE_SOURCE_TCGCSV if value == RAW_MAIN_PRICE_SOURCE_TCGCSV else RAW_MAIN_PRICE_SOURCE_SCRYDEX
+
+
+def raw_main_price_enabled() -> bool:
+    """True when the raw headline should serve the TCGCSV main lane."""
+    return raw_main_price_source() == RAW_MAIN_PRICE_SOURCE_TCGCSV
+
+
+def tcgcsv_stale_hours() -> float:
+    """Freshness window (hours) for ``main_raw_updated_at`` — a dead TCGCSV sync
+    must not freeze headlines, so anything older falls back to Scrydex."""
+    try:
+        return float(os.environ.get("TCGCSV_STALE_HOURS") or 48.0)
+    except (TypeError, ValueError):
+        return 48.0
+
+
+def _main_raw_is_fresh(updated_at: Any) -> bool:
+    """NULL/unparseable timestamps count as stale (never serve a frozen main)."""
+    if not updated_at:
+        return False
+    try:
+        parsed = datetime.fromisoformat(str(updated_at))
+    except ValueError:
+        return False
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - parsed <= timedelta(hours=tcgcsv_stale_hours())
+
+
+def _is_default_main_raw_read(
+    *,
+    variant: str | None,
+    condition: str | None,
+    main_raw_variant: Any,
+) -> bool:
+    """True when a raw read targets the main-lane headline: condition unset/NM
+    and variant unset or the main lane's own printing."""
+    if str(condition or "").strip() and _normalized_condition_code(condition) != DEFAULT_RAW_CONDITION:
+        return False
+    if not str(variant or "").strip():
+        return True
+    requested_key = _variant_match_key(variant)
+    main_key = _variant_match_key(str(main_raw_variant or "") or None)
+    if requested_key in _NORMAL_VARIANT_MATCH_KEYS:
+        requested_key = "normal"
+    if main_key in _NORMAL_VARIANT_MATCH_KEYS:
+        main_key = "normal"
+    return requested_key == main_key
+
+
+def resolve_main_raw_summary_from_row(
+    row: Any,
+    *,
+    variant: str | None = None,
+    condition: str | None = None,
+) -> dict[str, Any] | None:
+    """TCGCSV main-lane summary for a snapshot row, or ``None`` when the flag is
+    off, the read is not the default raw read, or the main price is absent/stale.
+    ``trend`` mirrors ``market`` (TCGCSV has no trend series) and ``condition``
+    is always NM — the RN owned-copy gate matches on it, so a non-NM request
+    must never land here."""
+    if not raw_main_price_enabled():
+        return None
+    market = _coerce_price_float(_cell_field(row, "main_raw_market_price"))
+    if market is None:
+        return None
+    if not _main_raw_is_fresh(_cell_field(row, "main_raw_updated_at")):
+        return None
+    main_variant = _cell_field(row, "main_raw_variant")
+    if not _is_default_main_raw_read(variant=variant, condition=condition, main_raw_variant=main_variant):
+        return None
+    return {
+        "currencyCode": "USD",
+        "low": _coerce_price_float(_cell_field(row, "main_raw_low_price")),
+        "market": market,
+        "mid": _coerce_price_float(_cell_field(row, "main_raw_mid_price")),
+        "high": _coerce_price_float(_cell_field(row, "main_raw_high_price")),
+        "directLow": _coerce_price_float(_cell_field(row, "main_raw_direct_low_price")),
+        "trend": market,
+        "trendsPct": None,
+        "condition": DEFAULT_RAW_CONDITION,
+        "variant": _normalized_variant_label(main_variant),
+        "payload": {},
+    }
+
+
+def main_raw_history_market(
+    row: Any,
+    *,
+    variant: str | None = None,
+    condition: str | None = None,
+) -> float | None:
+    """COALESCE head for daily-history RAW rows: the row's
+    ``main_raw_market_price`` when the flag is on and the read is the default
+    raw read. No freshness check — the row is pinned to its own day."""
+    if not raw_main_price_enabled():
+        return None
+    market = _coerce_price_float(_cell_field(row, "main_raw_market_price"))
+    if market is None:
+        return None
+    if not _is_default_main_raw_read(
+        variant=variant, condition=condition, main_raw_variant=_cell_field(row, "main_raw_variant")
+    ):
+        return None
+    return market
+
+
 def _variant_match_key(value: str | None) -> str:
     """Lowercase-alphanumeric reduction used to reconcile a variant *label*
     ("Holofoil", "Reverse Holofoil") with a stored ``variant_key``
@@ -5135,8 +5273,10 @@ def replace_price_history_cells(
         graded_contexts=graded_contexts,
         updated_at=updated_at,
     )
+    # The TCGCSV sync owns the 'raw_main' cell; the Scrydex rewrite of the same
+    # (card, day) must not wipe it.
     connection.execute(
-        "DELETE FROM card_price_history_cell WHERE card_id = ? AND price_date = ?",
+        "DELETE FROM card_price_history_cell WHERE card_id = ? AND price_date = ? AND lane != 'raw_main'",
         (card_id, price_date),
     )
     if cells:
@@ -5376,7 +5516,15 @@ def price_history_rows_for_card(
         resolved_variant: str | None = None
         resolved_condition: str | None = None
         resolved_mode = pricing_mode or (PSA_GRADE_PRICING_MODE if grader or grade else RAW_PRICING_MODE)
-        if use_cells:
+        # Main-lane COALESCE (flag-gated): on default raw reads a row's TCGCSV
+        # main market wins over the Scrydex resolution, matching the headline.
+        if resolved_mode != PSA_GRADE_PRICING_MODE:
+            main_market = main_raw_history_market(row, variant=variant, condition=condition)
+            if main_market is not None:
+                summary = {"currencyCode": "USD", "market": main_market, "payload": {}}
+                resolved_variant = _normalized_variant_label(_cell_field(row, "main_raw_variant"))
+                resolved_condition = DEFAULT_RAW_CONDITION
+        if summary is None and use_cells:
             cells = price_history_cell_rows_for_day(
                 connection, card_id=card_id, price_date=str(row["price_date"])
             )
@@ -5394,7 +5542,7 @@ def price_history_rows_for_card(
                 resolved_variant, resolved_condition, summary = resolve_raw_summary_from_cells(
                     cells, variant=variant, condition=condition
                 )
-        else:
+        elif summary is None:
             raw_contexts = _raw_contexts_payload(row["raw_contexts_json"])
             graded_contexts = _graded_contexts_payload(row["graded_contexts_json"])
             if resolved_mode == PSA_GRADE_PRICING_MODE:
@@ -5456,6 +5604,10 @@ _HISTORY_DAILY_BASE_COLUMNS = (
     "display_currency_code",
     "source_url",
     "updated_at",
+    # Main-lane raw headline (TCGCSV): two thin scalar columns, needed so the
+    # projected batched read can apply the flag-gated main-market COALESCE.
+    "main_raw_market_price",
+    "main_raw_variant",
 )
 
 
@@ -5571,7 +5723,14 @@ def price_history_rows_for_cards_batched(
             summary: dict[str, Any] | None = None
             resolved_variant: str | None = None
             resolved_condition: str | None = None
-            if use_cells:
+            # Same flag-gated main-lane COALESCE as price_history_rows_for_card.
+            if resolved_mode != PSA_GRADE_PRICING_MODE:
+                main_market = main_raw_history_market(row, variant=variant, condition=condition)
+                if main_market is not None:
+                    summary = {"currencyCode": "USD", "market": main_market, "payload": {}}
+                    resolved_variant = _normalized_variant_label(_cell_field(row, "main_raw_variant"))
+                    resolved_condition = DEFAULT_RAW_CONDITION
+            if summary is None and use_cells:
                 cells = card_cells.get(str(row["price_date"]), [])
                 if resolved_mode == PSA_GRADE_PRICING_MODE:
                     entry = resolve_graded_entry_from_cells(
@@ -5587,7 +5746,7 @@ def price_history_rows_for_cards_batched(
                     resolved_variant, resolved_condition, summary = resolve_raw_summary_from_cells(
                         cells, variant=variant, condition=condition
                     )
-            else:
+            elif summary is None:
                 raw_contexts = _raw_contexts_payload(row["raw_contexts_json"])
                 graded_contexts = _graded_contexts_payload(row["graded_contexts_json"])
                 if resolved_mode == PSA_GRADE_PRICING_MODE:
@@ -5981,6 +6140,9 @@ def _is_raw_phantom_price(
     connection: sqlite3.Connection,
     raw_contexts: dict[str, Any] | None,
     graded_contexts: dict[str, Any] | None,
+    *,
+    served_market: float | None = None,
+    served_currency: str | None = None,
 ) -> bool:
     """True when a SINGLE-PRINTING card's RAW NM market sits well above its OWN PSA
     10 market (USD) — an illiquid "phantom" raw price (a raw card cannot be worth
@@ -6004,11 +6166,17 @@ def _is_raw_phantom_price(
     (variant_bucket,) = variants.values()
     if not isinstance(variant_bucket, dict):
         return False
-    conditions = variant_bucket.get("conditions")
-    cell = conditions.get("NM") if isinstance(conditions, dict) else None
-    if not isinstance(cell, dict):
-        return False
-    raw_nm_usd = _amount_to_usd(connection, cell.get("market"), cell.get("currencyCode"))
+    # ``served_market`` overrides the NM cell: the guard must judge the value
+    # actually served (the TCGCSV main price when that lane wins), while the
+    # single-printing gate above stays on the Scrydex variant cardinality.
+    if served_market is not None:
+        raw_nm_usd = _amount_to_usd(connection, served_market, served_currency)
+    else:
+        conditions = variant_bucket.get("conditions")
+        cell = conditions.get("NM") if isinstance(conditions, dict) else None
+        if not isinstance(cell, dict):
+            return False
+        raw_nm_usd = _amount_to_usd(connection, cell.get("market"), cell.get("currencyCode"))
     if raw_nm_usd is None or raw_nm_usd < _RAW_PHANTOM_MIN_USD:
         return False
 
@@ -6025,6 +6193,9 @@ def _is_raw_phantom_price(
 def _is_raw_phantom_price_from_cells(
     connection: sqlite3.Connection,
     day_cells: list[Any] | None,
+    *,
+    served_market: float | None = None,
+    served_currency: str | None = None,
 ) -> bool:
     """Cells twin of ``_is_raw_phantom_price`` for the cells-first CURRENT-price
     path: evaluates the same raw-NM-vs-own-PSA-10 rule on a card's latest-day
@@ -6058,11 +6229,17 @@ def _is_raw_phantom_price_from_cells(
             return False
         if _normalized_condition_code(_cell_field(cell, "condition")) == "NM":
             nm_cell = cell
-    if len(raw_variant_keys) != 1 or nm_cell is None:
+    if len(raw_variant_keys) != 1:
         return False
-    raw_nm_usd = _amount_to_usd(
-        connection, _cell_field(nm_cell, "market"), _cell_field(nm_cell, "currency_code")
-    )
+    # Same override as the JSON twin: judge the value actually served.
+    if served_market is not None:
+        raw_nm_usd = _amount_to_usd(connection, served_market, served_currency)
+    elif nm_cell is None:
+        return False
+    else:
+        raw_nm_usd = _amount_to_usd(
+            connection, _cell_field(nm_cell, "market"), _cell_field(nm_cell, "currency_code")
+        )
     if raw_nm_usd is None or raw_nm_usd < _RAW_PHANTOM_MIN_USD:
         return False
 
@@ -6409,6 +6586,11 @@ def price_snapshot_for_card(
     summary: dict[str, Any] | None = None
     resolved_variant: str | None = None
     resolved_payload: dict[str, Any] = {}
+    # The requested (pre-resolution) context drives the main-lane eligibility
+    # and source stamp below; ``variant`` is mutated by the raw resolution.
+    requested_variant = variant
+    requested_condition = condition
+    main_summary: dict[str, Any] | None = None
     if pricing_mode == PSA_GRADE_PRICING_MODE:
         entry = _resolve_graded_context_entry(graded_contexts, grader=grader, grade=grade, variant=variant)
         summary = _coerce_price_summary_from_entry(entry)
@@ -6418,28 +6600,36 @@ def price_snapshot_for_card(
         resolved_payload = summary.get("payload") or {}
         resolved_condition = None
     else:
-        resolved_variant, resolved_condition, summary = _resolve_raw_context_summary(
-            raw_contexts,
-            variant=variant or row["default_raw_variant"],
-            condition=condition or DEFAULT_RAW_CONDITION,
-        )
-        if summary is None and row["default_raw_market_price"] is not None:
-            summary = {
-                "currencyCode": row["display_currency_code"],
-                "low": row["default_raw_low_price"],
-                "market": row["default_raw_market_price"],
-                "mid": row["default_raw_mid_price"],
-                "high": row["default_raw_high_price"],
-                "directLow": row["default_raw_direct_low_price"],
-                "trend": row["default_raw_trend_price"],
-                "payload": {},
-            }
-            resolved_condition = row["default_raw_condition"]
+        # Main-lane intercept (flag-gated): a fresh TCGCSV main price serves the
+        # default raw read before any Scrydex resolution runs.
+        main_summary = resolve_main_raw_summary_from_row(row, variant=variant, condition=condition)
+        if main_summary is not None:
+            summary = main_summary
+            resolved_variant = main_summary["variant"]
+            resolved_condition = main_summary["condition"]
+        else:
+            resolved_variant, resolved_condition, summary = _resolve_raw_context_summary(
+                raw_contexts,
+                variant=variant or row["default_raw_variant"],
+                condition=condition or DEFAULT_RAW_CONDITION,
+            )
+            if summary is None and row["default_raw_market_price"] is not None:
+                summary = {
+                    "currencyCode": row["display_currency_code"],
+                    "low": row["default_raw_low_price"],
+                    "market": row["default_raw_market_price"],
+                    "mid": row["default_raw_mid_price"],
+                    "high": row["default_raw_high_price"],
+                    "directLow": row["default_raw_direct_low_price"],
+                    "trend": row["default_raw_trend_price"],
+                    "payload": {},
+                }
+                resolved_condition = row["default_raw_condition"]
         if summary is None:
             return None
         resolved_payload = summary.get("payload") or {}
         variant = resolved_variant
-    return {
+    result = {
         "id": row["card_id"],
         "cardID": row["card_id"],
         "pricingMode": "psa_grade_estimate" if pricing_mode == PSA_GRADE_PRICING_MODE else pricing_mode,
@@ -6471,6 +6661,21 @@ def price_snapshot_for_card(
         "payload": resolved_payload if resolved_payload else payload,
         "isFresh": is_fresh,
     }
+    # Source stamp on DEFAULT raw reads only (flag-gated so the DTO stays
+    # byte-identical with the flag off). ``provider``/``source`` keep meaning
+    # the snapshot-row provider; the served condition is stamped because the RN
+    # owned-copy gate matches on it.
+    if pricing_mode != PSA_GRADE_PRICING_MODE and raw_main_price_enabled():
+        if main_summary is not None:
+            result["condition"] = DEFAULT_RAW_CONDITION
+            result["mainPriceSource"] = RAW_MAIN_PRICE_SOURCE_TCGCSV
+        elif _is_default_main_raw_read(
+            variant=requested_variant,
+            condition=requested_condition,
+            main_raw_variant=_cell_field(row, "main_raw_variant"),
+        ):
+            result["mainPriceSource"] = RAW_MAIN_PRICE_SOURCE_SCRYDEX
+    return result
 
 
 def raw_pricing_summary_for_card(connection: sqlite3.Connection, card_id: str) -> dict[str, Any] | None:

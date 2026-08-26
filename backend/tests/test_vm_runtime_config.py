@@ -148,6 +148,7 @@ class ModerationCronScheduleTests(unittest.TestCase):
             [
                 "set -euo pipefail",
                 "SYNC_CRON_SCHEDULE='0 18 * * *'",
+                "TCGCSV_SYNC_CRON_SCHEDULE='5 13 * * *'",
                 "HEALTH_CRON_SCHEDULE='*/5 * * * *'",
                 "RESOURCE_CRON_SCHEDULE='*/15 * * * *'",
                 'MODERATION_CRON_SCHEDULE="$1"',

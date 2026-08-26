@@ -1,0 +1,39 @@
+{
+  "_readme": "Manual card->TCGplayer product overrides for the TCGCSV main-price sync. Each entry replaces the Scrydex payload's product-id claim for that card and is exempt from collision blocking and number verification (a human verified the product). Confirmed by Stephen 2026-08-25. Spec: docs/tcgcsv-main-price-migration-spec-2026-08-25.md.",
+  "svp-222": {
+    "productId": "664827",
+    "note": "Professor's Research (Kukui) #222 - Scrydex payload mis-points at Birch's 664829 (#221)"
+  },
+  "swsh8a_ja-27": {
+    "productId": "571819",
+    "note": "Pikachu V-UNION 027/028 (Bottom Left) - Scrydex points at 571820, the 028 Bottom Right quarter"
+  },
+  "sm1s_ja-43": {
+    "productId": "573257",
+    "note": "Kangaskhan 043/060 (JP Collection Sun) - Scrydex points at 573258 (#42), off by one"
+  },
+  "tk6b-12": {
+    "productId": "98007",
+    "note": "Noibat #12/30 (XY Trainer Kit Noivern) - kit has two Noibats; Scrydex points at 98020, the #23"
+  },
+  "dp6-71": {
+    "productId": "89534",
+    "note": "Starmie 71/146 (Legends Awakened) - payload shared Seadra's 89015; 89534 is Starmie's own product"
+  },
+  "ecard2-50": {
+    "productId": "85813",
+    "note": "Aquapolis Golduck - TCGplayer sells only the '50a' printing; Scrydex writes the number letterless, join is correct"
+  },
+  "ecard2-74": {
+    "productId": "84971",
+    "note": "Aquapolis Drowzee - same letterless-number case ('74a')"
+  },
+  "ecard2-95": {
+    "productId": "87590",
+    "note": "Aquapolis Mr. Mime - same letterless-number case ('95a')"
+  },
+  "ecard2-103": {
+    "productId": "88306",
+    "note": "Aquapolis Porygon - same letterless-number case ('103a')"
+  }
+}

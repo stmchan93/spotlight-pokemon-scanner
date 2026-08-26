@@ -59,6 +59,10 @@ TEST_MODULES=(
   backend.tests.test_repair_orphaned_collections
   backend.tests.test_replace_deck_entry_collection
   backend.tests.test_whos_that_pokemon
+  backend.tests.test_tcgcsv_adapter
+  backend.tests.test_sync_tcgcsv_prices
+  backend.tests.test_main_raw_price_serving
+  backend.tests.test_raw_condition_surface_coherence
 )
 
 run_targeted_tests() {
