@@ -1,0 +1,368 @@
+{
+  "$comment": "Screen ↔ Figma registry for /sync-design (.claude/commands/sync-design.md). figmaNodeId/figmaUrl are filled by hand from the Figma file (node-id URL param; '-' and ':' forms are equivalent). deepLink is how the simulator opens the screen deterministically — spotlight://dev/<slug> routes render with mock data (registry: apps/spotlight-rn/src/dev/dev-screen-host.tsx); 'TODO(dev route)' means the mock registry entry hasn't been built yet, and /sync-design will help add it. mockData is the module seeding that screen's deterministic data.",
+  "screens": [
+    {
+      "figmaNodeId": "4173:82045",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=4173-82045",
+      "screenName": "Wishlist",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/wishlist/screens/wishlist-screen.tsx",
+        "apps/spotlight-rn/src/features/wishlist/components/wishlist-header.tsx",
+        "apps/spotlight-rn/src/app/(tabs)/wishlist.tsx",
+        "packages/design-system/src/components/card-list-row.tsx",
+        "packages/design-system/src/components/inventory-card-tile.tsx"
+      ],
+      "deepLink": "spotlight://dev/wishlist",
+      "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts",
+      "notes": "List view frame. Grid-view alternate: 1874:21732. Toolbar glass (GlassNavBubble/GlassButtonGroup) matches Figma structurally but renders its solid-white fallback on iOS < 26; real Liquid Glass needs an iOS 26 DEVICE — iOS 26 sims can't run the app until GoogleMLKit pods gain arm64-simulator slices. Crop the toolbar from diffs until then.",
+      "states": [
+        {
+          "name": "list",
+          "figmaNodeId": "4173:82045",
+          "how": "default view"
+        },
+        {
+          "name": "grid",
+          "figmaNodeId": "1874:21732",
+          "how": "tap the grid toggle right of the search bar (renders InventoryCardTile, not CardListRow)"
+        }
+      ]
+    },
+    {
+      "figmaNodeId": "4211:86063",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=4211-86063",
+      "screenName": "CardDetail",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/cards/screens/card-detail-screen.tsx",
+        "apps/spotlight-rn/src/app/(stack)/cards/[cardId].tsx",
+        "apps/spotlight-rn/src/features/cards/components/card-detail-hero.tsx",
+        "apps/spotlight-rn/src/features/cards/components/card-configurator.tsx",
+        "apps/spotlight-rn/src/features/cards/components/card-price-trend-list.tsx",
+        "apps/spotlight-rn/src/features/cards/components/card-product-details.tsx"
+      ],
+      "deepLink": "spotlight://dev/card-detail",
+      "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts",
+      "notes": "Raw PDP (full scroll, 393x1811) from 'Scanner to PDP - Raw'. Graded alternates: 1640:4077, 4173:80900 ('Profile - PDP'). Language chip row renders only when an EN/JP counterpart exists (feature gated on the unrun Phase-B link script). Like-count formats 9999+ (app) vs 10.1k (Figma mock) — formatter rule needs a designer decision. POP REPORT is graded-lane only (user ruling 2026-08-19; the app is correct) — the Figma RAW frame showing it is stale and should be fixed in the design file.",
+      "states": [
+        {
+          "name": "browse-unowned",
+          "figmaNodeId": "4211:86063",
+          "deepLink": "spotlight://dev/card-detail",
+          "how": "unowned card (sm7-1): ADD ITEM/SHARE footer, trend list"
+        },
+        {
+          "name": "owned-edit",
+          "figmaNodeId": "TODO",
+          "deepLink": "spotlight://dev/card-detail-owned",
+          "how": "owned card (mcdonalds25-21): Inventory panel, SAVE/CANCEL footer"
+        }
+      ]
+    },
+    {
+      "figmaNodeId": "4134:50940",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=4134-50940",
+      "screenName": "Portfolio",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/portfolio/screens/portfolio-screen.tsx",
+        "apps/spotlight-rn/src/app/(tabs)/you.tsx"
+      ],
+      "deepLink": "spotlight://dev/portfolio",
+      "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts",
+      "notes": "Dev route renders without the native tab bar — crop comparisons to content area. One of 5 'Collection-Portfolio' iterations in the 'You' section (3670:47219) — CONFIRM which is current: 4067:23632, 4134:48866, 4134:49488, 4134:50566, 4134:50940. Profile header rebuilt 2026-08-19 to the cover-overlay design (4134:48866): content over the cover, white text, plain-text stats, dark gray800 fallback when no cover, white sheet lip r16. States: 48866 list-rest (synced), 50940 mid-scrub, 49488/50566 grid, 4067:23632 stale."
+    },
+    {
+      "figmaNodeId": "TODO",
+      "figmaUrl": "TODO",
+      "screenName": "DesignSystemCatalog",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/design-system/screens/design-system-catalog-screen.tsx",
+        "apps/spotlight-rn/src/app/(stack)/design-system.tsx"
+      ],
+      "deepLink": "spotlight://design-system",
+      "mockData": null,
+      "notes": "Already deterministic (renders tokens/primitives with inline samples); no dev route needed."
+    },
+    {
+      "figmaNodeId": "4299:95117",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=4299-95117",
+      "screenName": "Feed",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/social/screens/feed-screen.tsx",
+        "apps/spotlight-rn/src/app/(tabs)/index.tsx",
+        "apps/spotlight-rn/src/features/social/components/post-card.tsx",
+        "apps/spotlight-rn/src/features/social/components/repost-attribution.tsx",
+        "apps/spotlight-rn/src/components/home-header.tsx"
+      ],
+      "deepLink": "spotlight://dev/feed",
+      "mockData": "apps/spotlight-rn/src/dev/dev-feed-data.ts",
+      "notes": "CONFIRMED 2026-08-19: 4299:95117 = current resting Home (icon-only purple Ekalight mark). 4299:94902 = same design with the full wordmark (logo-form alternate, not a state). 4037:15535 stale. Frame text line-heights are Auto/intrinsic — token line heights are NOT mismatches. Post photos are mock content; crop 3:4 image regions and the bottom 95pt (no tab bar in dev route). Logo intro (mp4 handoff, node 4299:94915): wordmark holds 1.5s then letters wipe right-to-left to the resting mark — EkalightLogoIntro, once per app launch, Reduce Motion renders mark only; screenshots of the resting state only (crop or relaunch-and-wait for deterministic diffs).",
+      "states": [
+        {
+          "name": "resting",
+          "figmaNodeId": "4299:95117",
+          "how": "spotlight://dev/feed"
+        },
+        {
+          "name": "empty",
+          "figmaNodeId": null,
+          "how": "spotlight://dev/feed-empty (no Figma frame exists)"
+        }
+      ]
+    },
+    {
+      "figmaNodeId": "1041:3488",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=1041-3488",
+      "screenName": "Scanner",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/scanner/screens/scanner-screen.tsx",
+        "apps/spotlight-rn/src/app/(tabs)/scan.tsx"
+      ],
+      "deepLink": "TODO(dev route)",
+      "mockData": null,
+      "notes": "Live camera feed — not pixel-reproducible. A dev route would need shouldMountCamera=false and would only verify overlay chrome. 'Scan-1' in the 'Scan' section. Scan-0 (pre-scan) alternate: 1041:4238."
+    },
+    {
+      "figmaNodeId": "TODO",
+      "figmaUrl": "TODO",
+      "screenName": "Inventory",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/inventory/screens/inventory-browser-screen.tsx",
+        "apps/spotlight-rn/src/app/(stack)/inventory/index.tsx"
+      ],
+      "deepLink": "TODO(dev route)",
+      "mockData": null
+    },
+    {
+      "figmaNodeId": "4196:83062",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=4196-83062",
+      "screenName": "Insights",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/insights/screens/insights-screen.tsx",
+        "apps/spotlight-rn/src/features/insights/components/performance-table.tsx",
+        "apps/spotlight-rn/src/features/insights/components/insights-filter-chip-row.tsx",
+        "apps/spotlight-rn/src/features/insights/components/insights-sort-sheet.tsx",
+        "apps/spotlight-rn/src/app/(stack)/insights/index.tsx"
+      ],
+      "deepLink": "spotlight://dev/insights",
+      "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts (devPerformanceRowOverrides)",
+      "notes": "'Highlights' frame. 2625:23848 is a pixel-identical duplicate; 2664:24720 = Filter By sheet open; 2664:25051 = the sheet component alone. Frame has the iOS26 glass toolbar and a category chevron the app deliberately omits; table pans horizontally — crop right of x=393 when diffing. Sheet copy 'Today' is stale in Figma (app is Monthly, matches 1M columns)."
+    },
+    {
+      "figmaNodeId": "TODO",
+      "figmaUrl": "TODO",
+      "screenName": "SalesHistory",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/portfolio/screens/sales-history-screen.tsx",
+        "apps/spotlight-rn/src/app/(stack)/sales-history.tsx"
+      ],
+      "deepLink": "TODO(dev route)",
+      "mockData": null,
+      "notes": "CONFIRMED MISMATCH 2026-08-19: frame 1874:22334 'Transactions' is the FUTURE marketplace transaction ledger (buy/sell/trade lots, day grouping, signed amounts) — not this per-card sales screen. No current frame exists for sales-history; 1874:22334 becomes the spec when the marketplace ledger is built. Candidate exports in .design-sync/SalesHistory/."
+    },
+    {
+      "figmaNodeId": "4164:77948",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=4164-77948",
+      "screenName": "EditProfile",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/profile/screens/edit-profile-screen.tsx",
+        "apps/spotlight-rn/src/app/(stack)/edit-profile.tsx"
+      ],
+      "deepLink": "TODO(dev route)",
+      "mockData": null,
+      "notes": "SYNCED 2026-08-19 (numeric; 4164:77948 filled + 4167:78756 empty). Figma is a bottom sheet; app is a full-page push — structural divergence deferred. TextField hairline fixed to borderWidths.rule. Dev-route wiring staged in .design-sync/patches/agent-editprofile-patches.md."
+    },
+    {
+      "figmaNodeId": "4157:74954",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=4157-74954",
+      "screenName": "PublicProfile",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/profile/screens/public-profile-screen.tsx",
+        "apps/spotlight-rn/src/app/(stack)/u/[handle].tsx"
+      ],
+      "deepLink": "TODO(dev route)",
+      "mockData": null,
+      "notes": "SYNCED 2026-08-19. 4157:74155 = Collection tab/not-following, 4157:74954 = For Sale tab (STATES). No following-state frame. Action-row-on-cover + For-Sale header block deferred (structural). Dev-route wiring staged in .design-sync/patches/agent-publicprofile-patches.md."
+    },
+    {
+      "figmaNodeId": "4279:93336",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=4279-93336",
+      "screenName": "FollowList",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/profile/screens/follow-list-route.tsx",
+        "apps/spotlight-rn/src/app/(stack)/u/[handle]/followers.tsx",
+        "apps/spotlight-rn/src/app/(stack)/u/[handle]/following.tsx"
+      ],
+      "deepLink": "TODO(dev route)",
+      "mockData": null,
+      "notes": "SYNCED 2026-08-19 (toolbar rebuilt to one-row centered title, rows 40pt/gap8/no dividers). 92461 Followers / 93084 Following / 93336 overflow-menu-open. Tabs-with-counts + search + Unfollow/Block/Mute menu deferred (needs service capabilities)."
+    },
+    {
+      "figmaNodeId": "TODO",
+      "figmaUrl": "TODO",
+      "screenName": "PostDetail",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/social/screens/post-detail-screen.tsx",
+        "apps/spotlight-rn/src/app/(stack)/post/[postId].tsx"
+      ],
+      "deepLink": "TODO(dev route)",
+      "mockData": null
+    },
+    {
+      "figmaNodeId": "4167:78849",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=4167-78849",
+      "screenName": "NewPost",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/social/screens/new-post-screen.tsx",
+        "apps/spotlight-rn/src/app/new-post.tsx"
+      ],
+      "deepLink": "TODO(dev route)",
+      "mockData": null,
+      "notes": "SYNCED 2026-08-19 (numeric; canonical composer spec 3656:40116; 4167:79261/79465 sheet states). Figma is a HALF-SHEET composer vs app full-page modal — structural redesign deferred (details in .design-sync/patches/agent-social2-patches.md). Figma max-length 160 vs backend 500 — data rule, not synced."
+    },
+    {
+      "figmaNodeId": "TODO",
+      "figmaUrl": "TODO",
+      "screenName": "Notifications",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/social/screens/notifications-screen.tsx",
+        "apps/spotlight-rn/src/app/notifications.tsx"
+      ],
+      "deepLink": "TODO(dev route)",
+      "mockData": null,
+      "notes": "NO FIGMA DESIGN EXISTS (confirmed 2026-08-19 — 4299:94427 is the profile Activity TAB, not this screen). Cleared the wrong node id. Dev-route + mock staged in .design-sync/patches/agent-social2-patches.md."
+    },
+    {
+      "figmaNodeId": "TODO",
+      "figmaUrl": "TODO",
+      "screenName": "Messages",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/social/screens/dm-inbox-screen.tsx",
+        "apps/spotlight-rn/src/app/messages.tsx"
+      ],
+      "deepLink": "TODO(dev route)",
+      "mockData": null
+    },
+    {
+      "figmaNodeId": "TODO",
+      "figmaUrl": "TODO",
+      "screenName": "Conversation",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/social/screens/dm-thread-screen.tsx",
+        "apps/spotlight-rn/src/app/messages/[conversationId].tsx"
+      ],
+      "deepLink": "TODO(dev route)",
+      "mockData": null
+    },
+    {
+      "figmaNodeId": "TODO",
+      "figmaUrl": "TODO",
+      "screenName": "CatalogSearch",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/catalog/screens/catalog-search-screen.tsx",
+        "apps/spotlight-rn/src/app/(sheet)/catalog/search.tsx"
+      ],
+      "deepLink": "TODO(dev route)",
+      "mockData": null
+    },
+    {
+      "figmaNodeId": "TODO",
+      "figmaUrl": "TODO",
+      "screenName": "ExpansionBrowser",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/catalog/screens/expansion-browser-screen.tsx",
+        "apps/spotlight-rn/src/app/(sheet)/catalog/expansion-browser.tsx"
+      ],
+      "deepLink": "TODO(dev route)",
+      "mockData": null
+    },
+    {
+      "figmaNodeId": "TODO",
+      "figmaUrl": "TODO",
+      "screenName": "ExpansionDetail",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/catalog/screens/expansion-detail-screen.tsx",
+        "apps/spotlight-rn/src/app/(sheet)/catalog/expansion/[expansionId].tsx"
+      ],
+      "deepLink": "TODO(dev route)",
+      "mockData": null
+    },
+    {
+      "figmaNodeId": "4255:88306",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=4255-88306",
+      "screenName": "Login",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/auth/components/signed-out-flow.tsx",
+        "apps/spotlight-rn/src/app/(modal)/login.tsx"
+      ],
+      "deepLink": "TODO(dev route)",
+      "mockData": null,
+      "notes": "SYNCED 2026-08-19 (numeric). Current frames: 4255:88306/88511 (LogIn empty/filled), 4255:88782/89139 (SignUp empty/filled+checklist), 4255:89937/90171 (Reset). 2161:* frames stale. No frame for verify/OTP. Dev-route wiring staged in .design-sync/patches/agent-login-patches.md."
+    },
+    {
+      "figmaNodeId": "TODO",
+      "figmaUrl": "TODO",
+      "screenName": "Account",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/auth/screens/account-screen.tsx",
+        "apps/spotlight-rn/src/app/(modal)/account.tsx"
+      ],
+      "deepLink": "TODO(dev route)",
+      "mockData": null
+    },
+    {
+      "figmaNodeId": "TODO",
+      "figmaUrl": "TODO",
+      "screenName": "PortfolioImport",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/portfolio-import/screens/portfolio-import-screen.tsx",
+        "apps/spotlight-rn/src/app/(modal)/account/import.tsx"
+      ],
+      "deepLink": "TODO(dev route)",
+      "mockData": null
+    },
+    {
+      "figmaNodeId": "TODO",
+      "figmaUrl": "TODO",
+      "screenName": "BlockedAccounts",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/social/screens/blocked-accounts-screen.tsx",
+        "apps/spotlight-rn/src/app/(modal)/account/blocked.tsx"
+      ],
+      "deepLink": "TODO(dev route)",
+      "mockData": null
+    },
+    {
+      "figmaNodeId": "TODO",
+      "figmaUrl": "TODO",
+      "screenName": "ChangePassword",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/auth/screens/change-password-screen.tsx",
+        "apps/spotlight-rn/src/app/(modal)/change-password.tsx"
+      ],
+      "deepLink": "TODO(dev route)",
+      "mockData": null
+    },
+    {
+      "figmaNodeId": "TODO",
+      "figmaUrl": "TODO",
+      "screenName": "ScanReview",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/cards/screens/scan-candidate-review-screen.tsx",
+        "apps/spotlight-rn/src/app/(modal)/cards/[cardId]/scan-review.tsx"
+      ],
+      "deepLink": "TODO(dev route)",
+      "mockData": null
+    },
+    {
+      "figmaNodeId": "TODO",
+      "figmaUrl": "TODO",
+      "screenName": "WhosThatPokemon",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/whos-that-pokemon/screens/whos-that-pokemon-screen.tsx",
+        "apps/spotlight-rn/src/app/(stack)/whos-that-pokemon/index.tsx"
+      ],
+      "deepLink": "TODO(dev route)",
+      "mockData": null
+    }
+  ]
+}

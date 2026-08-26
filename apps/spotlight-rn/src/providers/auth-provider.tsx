@@ -149,7 +149,12 @@ const testUser: AppUser = {
   providers: ['ui-tests'],
 };
 
-const shouldBypassAuthForTests = process.env.NODE_ENV === 'test';
+// EXPO_PUBLIC_DEV_SCREENS=1 (dev builds only) reuses the same deterministic
+// test user so `spotlight://dev/*` screenshot routes render without a login
+// wall. The `__DEV__` guard strips the branch from release bundles.
+const shouldBypassAuthForTests =
+  process.env.NODE_ENV === 'test' ||
+  (__DEV__ && process.env.EXPO_PUBLIC_DEV_SCREENS === '1');
 
 /**
  * Defer minting the guest's Supabase anonymous user until the first action that

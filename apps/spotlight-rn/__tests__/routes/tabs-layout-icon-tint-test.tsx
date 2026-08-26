@@ -102,6 +102,22 @@ describe('tabs layout — the raster glyphs follow the selected tint', () => {
     expect(iconProps(tab).selectedColor).toBeUndefined();
   });
 
+  it.each(['index', 'wishlist'])(
+    '%s carries both an outline default and a filled selected image (Figma 4299:95029)',
+    (tab) => {
+      renderTabsLayout();
+
+      // `require()` resolves to a numeric asset id under Metro/Jest; the point
+      // pinned here is the SHAPE — a {default, selected} pair, and two
+      // DIFFERENT images, so selecting the tab actually swaps to the filled
+      // glyph on iOS instead of re-showing the outline.
+      const src = iconProps(tab).src as { default?: unknown; selected?: unknown };
+      expect(src.default).toBeDefined();
+      expect(src.selected).toBeDefined();
+      expect(src.selected).not.toBe(src.default);
+    },
+  );
+
   it('tints the selected glyph gray900, which is what "black when selected" means', () => {
     renderTabsLayout();
 

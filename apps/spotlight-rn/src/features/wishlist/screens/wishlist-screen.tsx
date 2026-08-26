@@ -57,10 +57,10 @@ import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAppServices } from '@/providers/app-providers';
 
 // A wishlist tracks the CARD, not a specific copy. Condition/grade only ever
-// populate for cards the user also owns, so showing them made owned favorites
-// read "Near Mint" while unowned ones (the whole point of a wishlist) were
-// blank. Omit the condition/grade + print variant from every wishlist row so
-// they're consistent; the slab-case thumbnail frame still marks graded copies.
+// populate for cards the user also owns; per Figma 4173:82045 owned favorites
+// show that line ("PSA 10" / "Near Mint") and unowned ones stay two-line —
+// there is no copy to describe. The slab-case thumbnail frame still marks
+// graded copies.
 
 type WishlistFilterKey = 'all' | 'az' | 'price' | 'owned' | 'unowned' | RarityFilterBucket;
 type WishlistViewMode = 'grid' | 'list';
@@ -845,8 +845,16 @@ function WishlistListRow({
       cardNumber={entry.cardNumber}
       currencyCode={entry.currencyCode ?? 'USD'}
       firstInSection={firstInSection}
-      // No condition/grade text on the wishlist (owned-only, inconsistent).
-      gradeLabel={null}
+      // Condition/grade line per Figma 4173:82045 ("PSA 10" / "Near Mint").
+      // The line labels the lane the row's PRICE resolved on: graded copies
+      // their grade, owned raw copies their stored condition, and every other
+      // raw row "Near Mint" — the default lane raw market prices resolve on —
+      // so long as there is a price to label. No price → no line.
+      gradeLabel={
+        entry.slabContext?.grader
+          ? [entry.slabContext.grader, entry.slabContext.grade].filter(Boolean).join(' ')
+          : entry.conditionLabel ?? (entry.marketPrice != null ? 'Near Mint' : null)
+      }
       // Slab-case frame on the thumbnail — keyed by THIS entry's grader; kept
       // so graded copies still read as slabs even without the text line.
       grader={entry.slabContext?.grader ?? null}
@@ -1022,10 +1030,14 @@ function WishlistGridTile({ entry, onPress, selectable = false, selected = false
       cardNumber={entry.cardNumber ?? null}
       kind={tileKind}
       variantName={null}
-      // No condition/grade TEXT (owned-only, inconsistent on a wishlist), but
-      // keep grader/grade so the slab-case thumbnail frame still renders.
-      showQualityLine={false}
-      conditionLabel={null}
+      // Quality line per Figma 2609:14262 — "PSA 10" for slabs, otherwise the
+      // condition lane of the shown price: the owned copy's condition when
+      // stored, else "Near Mint" (the default raw pricing lane) when a price
+      // exists. No price → no line.
+      conditionLabel={
+        entry.conditionLabel
+          ?? (tileKind === 'raw' && entry.marketPrice != null ? 'Near Mint' : null)
+      }
       graderLabel={tileKind === 'slab' ? entry.slabContext?.grader ?? null : null}
       gradeLabel={tileKind === 'slab' ? entry.slabContext?.grade ?? null : null}
       showQuantity={false}

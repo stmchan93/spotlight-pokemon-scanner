@@ -126,6 +126,16 @@ export const colors = {
   scannerValuePill: '#8EA086',
   scannerAddPurple: '#A54BFA',
   scannerConditionPill: '#7A5200',
+  /**
+   * Non-glass fallback fill for glass chrome (bubbles, button pills) on light
+   * pages. Figma 4211:83834 "Fill + Shadow" specs a layered stack —
+   * #FFFFFF@65% over #DDDDDD over #F7F7F7 — which composites to this flat
+   * gray. The old `canvasElevated` (pure white) fallback vanished on white
+   * pages; this one stays visible without imitating glass.
+   */
+  glassFallback: '#F3F3F3',
+  // Tappable link text over dark/photo backgrounds (profile header cover).
+  linkOnDark: '#D6E8FF',
 } as const;
 
 /**
@@ -192,6 +202,8 @@ export const layout = {
   // photo has its own shape and rounding would clip it.
   inventoryArtRadiusRaw: 2,
   inventoryArtRadiusSlab: 0,
+  // PDP hero card art (Figma 4211:86063 "Product Image" — 194x270 r=6).
+  heroArtRadius: 6,
   recentSaleHeight: 96,
   recentSaleImageWidth: 72,
   recentSaleImageHeight: 96,
@@ -207,6 +219,18 @@ export const shadows = {
       height: 6,
     },
     elevation: 3,
+  } satisfies ViewStyle,
+  // Glass-chrome fallback lift (Figma 4211:83834: drop shadow 0/8, blur 40 @
+  // 15%). CALayer's shadowRadius is ~half a Figma blur, hence 20.
+  glassPill: {
+    shadowColor: '#000000',
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    shadowOffset: {
+      width: 0,
+      height: 8,
+    },
+    elevation: 6,
   } satisfies ViewStyle,
 } as const;
 

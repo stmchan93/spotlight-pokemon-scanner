@@ -94,13 +94,15 @@ export function CardConfigurator({
   const theme = useSpotlightTheme();
 
   return (
-    <View style={[styles.root, { gap: 16 }]} testID={testID}>
+    // 24 between option groups, 8 title→chips, per Figma 4211:86063
+    // "Product Options" (was 16/10 from an older frame).
+    <View style={[styles.root, { gap: 24 }]} testID={testID}>
       {/* Language row only renders when there's an actual other-language
           counterpart to switch to (driven by `languages`); hidden otherwise. */}
       {languages.length > 0 ? (
-        <View style={[styles.group, { gap: 10 }]}>
+        <View style={[styles.group, { gap: 8 }]}>
           <GroupTitle theme={theme}>Language</GroupTitle>
-          <View style={[styles.chipRow, { gap: 6 }]}>
+          <View style={[styles.chipRow, { gap: 10 }]}>
             {languages.map((language) => (
               <OptionChip
                 key={language}
@@ -116,7 +118,7 @@ export function CardConfigurator({
       ) : null}
 
       {variants.length > 0 ? (
-        <View style={[styles.group, { gap: 10 }]}>
+        <View style={[styles.group, { gap: 8 }]}>
           <GroupTitle theme={theme}>Variant</GroupTitle>
           <View style={[styles.chipRow, { gap: 6 }]}>
             {variants.map((variant) => (
@@ -132,7 +134,7 @@ export function CardConfigurator({
           </View>
         </View>
       ) : variantsLoading ? (
-        <View style={[styles.group, { gap: 10 }]} testID={testID ? `${testID}-variant-skeleton` : undefined}>
+        <View style={[styles.group, { gap: 8 }]} testID={testID ? `${testID}-variant-skeleton` : undefined}>
           <GroupTitle theme={theme}>Variant</GroupTitle>
           <View style={[styles.chipRow, { gap: 6 }]}>
             <SkeletonBlock height={32} radius={theme.radii.sm} width={84} />
@@ -141,7 +143,7 @@ export function CardConfigurator({
         </View>
       ) : null}
 
-      <View style={[styles.group, { gap: 10 }]}>
+      <View style={[styles.group, { gap: 8 }]}>
         <GroupTitle theme={theme}>Grader</GroupTitle>
         <View style={[styles.chipRow, { gap: 10 }]}>
           {graders.map((grader) => (

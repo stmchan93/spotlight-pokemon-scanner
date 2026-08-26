@@ -1,5 +1,5 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
-import { Alert, Animated, FlatList, Platform, StyleSheet } from 'react-native';
+import { Alert, FlatList, Platform, StyleSheet } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 
 import {
@@ -208,40 +208,43 @@ describe('FeedScreen', () => {
 
   /*
     On Android, cell 0 paints over the header's fractional bottom edge, so
-    EVERY line drawn from the header's side — sibling hairline, border, even a
-    zIndex'd border — got shaved to a lighter sliver once posts loaded. The
-    rule therefore has two owners: the header's border while the list is
-    empty, and the first cell itself once posts exist. This pins both halves.
+    EVERY line drawn from the header's side — sibling view, border, even a
+    zIndex'd border — got shaved once posts loaded. The band therefore has two
+    owners: the header's border while the list is empty, and the first cell
+    itself once posts exist. This pins both halves, at the 4pt `gray100` band
+    the Figma (4299:94902) separates sections with.
   */
-  it('hands the compose rule to the first cell once posts load', async () => {
+  it('hands the compose band to the first cell once posts load', async () => {
     renderWithProviders(<FeedScreen />);
     await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
-    // The header's own border is OFF — a line here would be shaved on Android
-    // (and double-ruled everywhere else).
+    // The header's own border is OFF — a band here would be shaved on Android
+    // (and doubled everywhere else).
     const section = screen.getByTestId('feed-compose-divider');
     const style = StyleSheet.flatten(section.props.style);
     expect(style.borderBottomWidth).toBe(0);
     expect(style.width).toBe('100%');
     expect(within(section).getByTestId('feed-compose-prompt')).toBeTruthy();
 
-    // The first cell draws the rule itself, in the same View form as the
-    // card's bottom divider, so the two lines rasterize identically.
-    const rule = screen.getByTestId('feed-first-cell-rule');
-    const ruleStyle = StyleSheet.flatten(rule.props.style);
-    expect(ruleStyle.height).toBeGreaterThan(0);
-    expect(ruleStyle.backgroundColor).toBeTruthy();
+    // The first cell draws the band itself, in the same View form as the
+    // card's bottom band, so the two rasterize identically. Its 4pt bottom
+    // margin + the card's 12pt top inset is the 16pt under-composer gap.
+    const band = screen.getByTestId('feed-first-cell-rule');
+    const bandStyle = StyleSheet.flatten(band.props.style);
+    expect(bandStyle.height).toBe(4);
+    expect(bandStyle.backgroundColor).toBe('#F2F2F2');
+    expect(bandStyle.marginBottom).toBe(4);
   });
 
-  it('keeps the compose rule as a header border while the feed is empty', async () => {
+  it('keeps the compose band as a header border while the feed is empty', async () => {
     (fetchGlobalFeed as jest.Mock).mockResolvedValue([]);
     renderWithProviders(<FeedScreen />);
     await waitFor(() => expect(screen.getByTestId('feed-compose-divider')).toBeTruthy());
     await waitFor(() => expect(screen.queryByTestId('feed-first-cell-rule')).not.toBeOnTheScreen());
 
     const style = StyleSheet.flatten(screen.getByTestId('feed-compose-divider').props.style);
-    expect(style.borderBottomWidth).toBeGreaterThan(0);
-    expect(style.borderBottomColor).toBeTruthy();
+    expect(style.borderBottomWidth).toBe(4);
+    expect(style.borderBottomColor).toBe('#F2F2F2');
   });
 
   it('shows an empty state when there are no posts', async () => {
@@ -294,11 +297,12 @@ describe('FeedScreen', () => {
     expect(screen.queryByTestId('feed-header-share')).toBeNull();
   });
 
-  // The bar FLOATS and its bubbles stay put; only the pill gets out of the way.
-  // This has been wrong in every direction — solid buttons stacked above the
-  // list, then one bar that scrolled away whole, then the inverse where the
-  // bubbles left and the pill stayed — so the shape is pinned here.
-  it('keeps the bubbles pinned over the list and disarms the pill once it fades', async () => {
+  // The bar FLOATS and stays pinned whole; nothing in it moves on scroll any
+  // more (the fading search pill retired with Figma 4299:94902 — search is now
+  // a bubble in the trailing group). This has been wrong in every direction —
+  // solid buttons stacked above the list, then one bar that scrolled away
+  // whole — so the shape is pinned here.
+  it('keeps the bar pinned over the list with both trailing actions live', async () => {
     renderWithProviders(<FeedScreen />);
     await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
@@ -306,49 +310,15 @@ describe('FeedScreen', () => {
     const bar = screen.getByTestId('feed-header');
     expect(StyleSheet.flatten(bar.props.style).position).toBe('absolute');
 
-    // Both halves are live at rest. The FADE itself is a native-driven opacity
-    // and the disarm rides on a scroll listener that this environment does not
-    // dispatch through the animated list, so it is deliberately not asserted
-    // here rather than asserted falsely — `portfolio-screen-test` covers the
-    // same pill/bubble contract on the pager, which does dispatch.
     push.mockClear();
     fireEvent.press(screen.getByTestId('feed-header-search'));
     expect(push).toHaveBeenLastCalledWith('/catalog/search');
 
     fireEvent.press(screen.getByTestId('feed-header-notifications'));
     expect(push).toHaveBeenLastCalledWith('/notifications');
-  });
 
-  /*
-    ═══════════════════════════════════════════════════════════════════════════
-    THE PILL IS VISIBLE THE MOMENT THE APP OPENS.
-    ═══════════════════════════════════════════════════════════════════════════
-    Reported as "the search cards is disappeared when I first open the app", on
-    iOS only.
-
-    This list runs `contentInsetAdjustmentBehavior="automatic"` and so RESTS at
-    `-insets.top`, which is what it hands the bar as `scrollRestOffset`. The bar
-    fades the pill across `[rest, rest + 56]` — `[-59, -3]` on this harness's
-    59pt inset. Seeding the scroll value at 0 therefore started it PAST the end
-    of that range, so the pill mounted at opacity 0 and only snapped in once the
-    first scroll event delivered the real offset.
-
-    Android rests at 0 and was always fine, which is exactly why this survived:
-    the wrong seed agrees with the right answer on one platform.
-
-    Read off the HOST node, whose style carries the interpolation already
-    resolved to numbers — the same technique `home-header-test` uses, and the
-    only way the fade's origin is observable off-device.
-  */
-  it('shows the search pill at rest, before anything has scrolled', async () => {
-    renderWithProviders(<FeedScreen />);
-    await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
-
-    const motion = StyleSheet.flatten(
-      screen.getByTestId('feed-header-search-motion').props.style,
-    ) as { opacity: number };
-
-    expect(motion.opacity).toBe(1);
+    // The retired full-width pill must not come back on Home.
+    expect(screen.queryByTestId('feed-header-search-motion')).toBeNull();
   });
 
   /*
@@ -357,10 +327,10 @@ describe('FeedScreen', () => {
 
     The feed used to render one as its first list row (`HomeHeaderRule`), on the
     reading that the hairline belonged to the page rather than to the floating
-    bar. The live frame (Figma "Home" 3523:15499) draws no line under the
+    bar. The live frame (Figma "Home" 4299:94902) draws no line under the
     toolbar: the bar is floating glass that is meant to hover, and the only
-    hairlines on Home are the ones each post card closes with. The bar's own 8pt
-    bottom padding plus a card's 16pt top inset is the whole gap.
+    separators on Home are the 4pt bands each section closes with. The bar's
+    own bottom padding plus the composer section's top inset is the whole gap.
   */
   it('draws no hairline under the bar — not in the list, not in the bar', async () => {
     renderWithProviders(<FeedScreen />);
@@ -723,25 +693,20 @@ describe('FeedScreen', () => {
     "Back to top" (Figma 3725:59137). Collection, Wishlist and Insights have all
     carried the FAB for a while; Home never got one.
 
-    Three things make the feed's copy of it different from every other caller,
-    and all three fail SILENTLY, so all three are pinned here.
+    Two things make the feed's copy of it different from every other caller,
+    and both fail SILENTLY, so both are pinned here. (A third — keeping the
+    list's `onScroll` a natively-driven `Animated.event` for the bar's motion —
+    retired with the fading search pill in Figma 4299:94902; the hook's plain
+    handler is the whole `onScroll` now.)
 
-    1. NATIVE DRIVER. The list's `onScroll` is an `Animated.event` with
-       `useNativeDriver: true` — it is what animates the floating bar. But
-       `useScrollToTop(ref, onScroll)` wraps whatever it is handed in a plain JS
-       `useCallback`, so passing that event in and using the result as `onScroll`
-       is precisely the arrow-function wrap the event's own comment warns about.
-       The hook is therefore given NO handler, and its `handleScroll` is invoked
-       from inside the event's `listener`, beside `setIsSearchPillHidden`.
-
-    2. NEGATIVE REST OFFSET. `contentInsetAdjustmentBehavior="automatic"` means
+    1. NEGATIVE REST OFFSET. `contentInsetAdjustmentBehavior="automatic"` means
        UIKit insets this list, so on iOS it rests at `-insets.top`, not at 0 —
        the Collection pages' `pageTopOffset` again. That offset has to be used
        BOTH for the scroll target and for the travel measurement that decides
        when the button shows. Android takes the explicit-padding branch and
        rests at 0.
 
-    3. CLAMPING. RN clamps a negative `scrollTo`/`scrollToOffset` target back to
+    2. CLAMPING. RN clamps a negative `scrollTo`/`scrollToOffset` target back to
        0 unless `scrollToOverflowEnabled` is set, so without that prop point 2 is
        inert and "back to top" lands a status bar short.
   */
@@ -798,18 +763,11 @@ describe('FeedScreen', () => {
       });
     }
 
-    it('keeps the scroll handler natively driven', async () => {
-      renderWithProviders(<FeedScreen />);
-      await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
-
-      // `Animated.event` returns the AnimatedEvent OBJECT when it is native and
-      // a plain handler function when it is not, so this distinguishes the two.
-      // Composing the FAB by passing this handler through `useScrollToTop` would
-      // turn it into a function here and move the bar's motion onto the bridge.
-      const onScroll = screen.UNSAFE_getByType(Animated.FlatList as never).props.onScroll;
-      expect(typeof onScroll).toBe('object');
-      expect(onScroll.__isNative).toBe(true);
-    });
+    // No natively-driven scroll handler any more, ON PURPOSE: the bar stopped
+    // moving on scroll when the fading search pill retired (Figma 4299:94902),
+    // so the list's `onScroll` is the plain JS visibility tracker below and an
+    // `Animated.event` here would be dead weight. The FAB tests that follow are
+    // what exercise it.
 
     it('does not appear while the feed is at rest', async () => {
       renderWithProviders(<FeedScreen />);

@@ -173,7 +173,7 @@ export function SignUpScreen({
         <SecondaryActionButton
           disabled={isBusy}
           label="Continue with Email"
-          leadingIcon={<Mail color={theme.colors.gray900} height={16} width={16} />}
+          leadingIcon={<Mail color={theme.colors.gray900} height={20} width={20} />}
           onPress={onLogIn}
           testID="auth-signup-login"
         />

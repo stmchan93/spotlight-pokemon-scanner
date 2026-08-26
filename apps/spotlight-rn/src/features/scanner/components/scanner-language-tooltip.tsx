@@ -19,6 +19,8 @@ type ScannerLanguageTooltipProps = {
   visible: boolean;
   /** Tap-to-dismiss; the screen also dismisses via the pill tap + a 10s timer. */
   onPress: () => void;
+  /** 'bottom' points down at a pill below; 'top' points up at a pill above. */
+  tailPosition?: 'bottom' | 'top';
   testID?: string;
 };
 
@@ -31,6 +33,7 @@ type ScannerLanguageTooltipProps = {
 export function ScannerLanguageTooltip({
   visible,
   onPress,
+  tailPosition = 'bottom',
   testID = 'scanner-language-tooltip',
 }: ScannerLanguageTooltipProps) {
   const opacity = useRef(new Animated.Value(0)).current;
@@ -64,15 +67,25 @@ export function ScannerLanguageTooltip({
     return null;
   }
 
+  const tail = (
+    <Svg
+      height={13}
+      style={[styles.tail, tailPosition === 'top' ? styles.tailTop : null]}
+      viewBox="0 0 56 13"
+      width={56}
+    >
+      <Path d={TAIL_PATH} fill={BUBBLE_BACKGROUND} />
+    </Svg>
+  );
+
   return (
     <Animated.View pointerEvents={visible ? 'auto' : 'none'} style={{ opacity }}>
       <Pressable accessibilityRole="button" onPress={onPress} testID={testID}>
+        {tailPosition === 'top' ? tail : null}
         <Animated.View style={styles.bubble}>
           <Text style={styles.copy}>Switch between Pokémon EN/JP!</Text>
         </Animated.View>
-        <Svg height={13} style={styles.tail} viewBox="0 0 56 13" width={56}>
-          <Path d={TAIL_PATH} fill={BUBBLE_BACKGROUND} />
-        </Svg>
+        {tailPosition === 'bottom' ? tail : null}
       </Pressable>
     </Animated.View>
   );
@@ -102,6 +115,12 @@ const styles = StyleSheet.create({
     marginLeft: 2,
     // Tuck the tail up under the bubble's corner radius so they read as one shape.
     marginTop: -1,
+  },
+  tailTop: {
+    alignSelf: 'center',
+    marginBottom: -1,
+    marginTop: 0,
+    transform: [{ scaleY: -1 }],
   },
 });
 

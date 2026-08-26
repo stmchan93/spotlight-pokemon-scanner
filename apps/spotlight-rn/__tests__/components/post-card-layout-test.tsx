@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from '@testing-library/react-native';
 import type { PropsWithChildren } from 'react';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { SpotlightThemeProvider } from '@spotlight/design-system';
@@ -78,34 +78,54 @@ function flatten(node: { props: { style?: unknown } }) {
 
 /**
  * The card's VERTICAL RHYTHM, which nothing asserted until a double-counted gap
- * shipped (Figma "Home" 3523:15499, post card 3505:14460).
+ * shipped (Figma "Home" 3523:15499; post card now 4299:94902).
  *
- * `metricsRow` carried a `paddingBottom: 8` on top of the card's own `gap: 8`,
- * so every divider sat 16pt below the action glyphs instead of 8 — the spacing
- * was right in each style on its own and wrong once the two were added up. The
- * only way to catch that class of bug is to assert the gap AND the padding that
- * stacks with it together, which is what this file does.
+ * `metricsRow` once carried a `paddingBottom` on top of the content block's own
+ * spacing, so every separator sat twice as far below the action glyphs as the
+ * frame drew it — the spacing was right in each style on its own and wrong once
+ * the two were added up. The only way to catch that class of bug is to assert
+ * the gap AND the padding that stacks with it together, which is what this file
+ * does.
  */
 describe('PostCard layout', () => {
-  it('stacks the card on a single 8pt gap with a 16pt top inset', async () => {
+  it('stacks the content on a single 10pt gap with a 12pt inset to the band on each side', async () => {
     await renderCard();
 
-    const card = flatten(screen.getByTestId(`post-card-${post.id}`));
+    const content = flatten(screen.getByTestId('post-card-content'));
 
-    // One rhythm for header→body→image→metrics.
-    expect(card.gap).toBe(8);
-    // The 16 above the avatar is the same 16 that separates a divider from the
-    // next card, so the feed itself carries no inter-item gap.
-    expect(card.paddingTop).toBe(16);
+    // One rhythm for header→body→image→metrics (Figma 4299:94902).
+    expect(content.gap).toBe(10);
+    // 12 above and below — the gap to the 4pt band on each side of a card.
+    expect(content.paddingTop).toBe(12);
+    expect(content.paddingBottom).toBe(12);
   });
 
-  it('leaves the action row no padding of its own, so the divider sits 8pt below the glyphs', async () => {
+  it('closes the card with the 4pt full-bleed gray band as its last layout child', async () => {
+    await renderCard();
+
+    // Card-owned so every PostCard surface — feed, post detail, Activity —
+    // carries the same separator (Figma 4299:94902).
+    const card = screen.getByTestId(`post-card-${post.id}`);
+    // Direct children only: the content block, the band, and non-layout
+    // machinery (the comments sheet). The band must be the last View.
+    const layoutChildren = card.children.filter(
+      (child: { type?: unknown } | string) => typeof child !== 'string' && child.type === View,
+    );
+    const band = flatten(layoutChildren[layoutChildren.length - 1] as never);
+
+    expect(band.height).toBe(4);
+    expect(band.width).toBe('100%');
+    expect(band.backgroundColor).toBe('#F2F2F2');
+  });
+
+  it('leaves the action row no padding of its own, so the band sits 12pt below the glyphs', async () => {
     await renderCard();
 
     const metricsRow = flatten(screen.getByTestId('post-card-metrics'));
 
-    // MUST stay undefined. Any value here is ADDED to the card's `gap: 8` and
-    // doubles the glyph→divider distance the frame specifies as 8.
+    // MUST stay undefined. Any value here is ADDED to `cardContent`'s
+    // `paddingBottom: 12` and pushes the band further from the glyphs than the
+    // frame specifies.
     expect(metricsRow.paddingBottom).toBeUndefined();
     // Still the 16pt page gutter — the row's horizontal inset is unrelated.
     expect(metricsRow.paddingHorizontal).toBe(16);
@@ -120,7 +140,7 @@ describe('PostCard layout', () => {
     alone on the right, and the split is load-bearing rather than decorative:
     `metricsRow` is `space-between` with exactly two children, so a control added
     as a THIRD child of the row (rather than inside the left group) silently
-    re-spaces the whole thing and drops the 12pt inter-group gap.
+    re-spaces the whole thing and drops the 20pt inter-group gap.
   */
   it('groups all three reactions on the left with share alone on the right', async () => {
     await renderCard();
@@ -143,7 +163,7 @@ describe('PostCard layout', () => {
     expect(within(left).getByTestId('post-card-repost-count')).toBeTruthy();
     expect(within(left).queryByTestId('post-card-share-button')).toBeNull();
 
-    // Figma 3505:14441 — 12 between reaction groups, 4 inside one.
-    expect(flatten(left).gap).toBe(12);
+    // Figma 4299:94902 — 20 between reaction groups, 4 inside one.
+    expect(flatten(left).gap).toBe(20);
   });
 });

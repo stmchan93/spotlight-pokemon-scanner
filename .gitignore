@@ -114,3 +114,9 @@ apps/spotlight-rn/supabase/.temp/
 # Stray Supabase CLI link state when a command is run from the repo root
 # without --workdir (the real project lives in apps/spotlight-rn/supabase).
 /supabase/.temp/
+
+# /sync-design screenshot + diff artifacts (see .claude/commands/sync-design.md)
+.design-sync/
+
+# Figma personal access token for design-sync (never commit)
+.env.figma

@@ -1,14 +1,12 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type Dispatch,
   type SetStateAction,
 } from 'react';
 import {
-  Animated,
   ActivityIndicator,
   Platform,
   Pressable,
@@ -16,8 +14,6 @@ import {
   StyleSheet,
   View,
   type FlatList,
-  type NativeScrollEvent,
-  type NativeSyntheticEvent,
 } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -30,11 +26,7 @@ import {
 } from '@spotlight/design-system';
 
 import { AnimatedFlatList } from '@/components/page-tab-pager';
-import {
-  HOME_HEADER_BAR_HEIGHT,
-  HomeHeader,
-  SEARCH_PILL_HIDE_DISTANCE,
-} from '@/components/home-header';
+import { HOME_HEADER_BAR_HEIGHT, HomeHeader } from '@/components/home-header';
 import { PostCard } from '@/features/social/components/post-card';
 import { RepostAttribution } from '@/features/social/components/repost-attribution';
 import { getFeedRefreshVersion } from '@/features/social/screens/new-post-screen';
@@ -136,48 +128,8 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   const seenRefreshVersionRef = useRef(getFeedRefreshVersion());
   const unreadCount = useUnreadNotificationCount();
 
-  // The bar FLOATS: the bubbles stay pinned at the top while the pill slides up
-  // out of the row, so the list scrolls beneath the whole thing. The offset is
-  // handed to `HomeHeader` raw — the bar owns the motion, this screen only
-  // measures the scroll.
-  /*
-    SEEDED AT THE LIST'S RESTING OFFSET, NOT AT 0.
-
-    Reported as "the search pill is gone when I first open the app" — on iOS
-    only. This list runs `contentInsetAdjustmentBehavior="automatic"` and so
-    RESTS at `-insets.top`, which is what `scrollRestOffset` below tells the bar.
-    The bar fades the pill across `[rest, rest + 56]`, i.e. `[-59, -3]` on a
-    notched phone.
-
-    Starting the value at 0 therefore starts it PAST the end of that range, so
-    the pill rendered at opacity 0 until the first scroll event delivered the
-    real offset and snapped it back in. Android was fine because it rests at 0,
-    which is why this survived: the simulator most used for this screen agrees
-    with the wrong value.
-
-    `insets` is real on this render — `SafeAreaProvider` has no `initialMetrics`
-    and renders nothing until it has measured — so the ref captures the right
-    number the first time.
-  */
-  const scrollY = useRef(
-    new Animated.Value(Platform.OS === 'ios' ? -insets.top : 0),
-  ).current;
-  // `pointerEvents` is not animatable, so the departed pill is disarmed from JS
-  // or it stays an invisible tap target over the first post.
-  const [isSearchPillHidden, setIsSearchPillHidden] = useState(false);
-
   /*
     "Back to top", the same FAB Collection / Wishlist / Insights already carry.
-
-    THE HOOK'S HANDLER IS NOT PASSED AS `onScroll` HERE. `useScrollToTop(ref,
-    onScroll)` wraps whatever it is handed in a plain JS `useCallback`, so
-    handing it the `Animated.event` below and using the result as the list's
-    `onScroll` is exactly the arrow-function wrap the comment in that event
-    warns about — it would silently drop the native driver from `scrollY` and
-    the floating bar would start animating over the bridge. Instead the hook is
-    given no handler and its `handleScroll` is called from INSIDE the listener
-    that already rides on the native event, so the native driver keeps driving
-    the bar while visibility is computed in JS off the same event object.
 
     `topOffset`: `contentInsetAdjustmentBehavior="automatic"` below means UIKit
     insets this list, so on iOS it RESTS at `-insets.top` rather than at 0 —
@@ -193,26 +145,6 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     handleLayout: handleListLayout,
     scrollToTop,
   } = useScrollToTop(scrollRef, undefined, listTopOffset);
-
-  const handleScroll = useMemo(
-    () =>
-      Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
-        useNativeDriver: true,
-        // The listener rides ON the animated event; wrapping `onScroll` in an
-        // arrow function would silently drop the native driver.
-        listener: (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-          // TRAVEL, not the raw offset: this list rests at `listTopOffset`
-          // (negative on iOS), and comparing the raw offset disarmed the pill a
-          // whole safe-area inset after the bar had finished fading it out.
-          const travelled = event.nativeEvent.contentOffset.y - listTopOffset;
-          const hidden = travelled >= SEARCH_PILL_HIDE_DISTANCE;
-          setIsSearchPillHidden((previous) => (previous === hidden ? previous : hidden));
-          // Plain JS, but still inside the natively-driven handler. See above.
-          trackScrollTopVisibility(event);
-        },
-      }),
-    [listTopOffset, scrollY, trackScrollTopVisibility],
-  );
 
 
   // Delete-your-own-post: confirm → optimistic removal from THIS list → restore
@@ -485,34 +417,25 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     scrolls away with the feed, and it renders above the empty/error/loading
     states too, so composing stays reachable when there is nothing to read.
 
-    The row closes with the SAME full-bleed hairline every post card closes
-    with (`gray300` at `borderWidths.rule`), so the composer reads as its own
-    section rather than the first post's header. Spacing is 16 / line / 16:
-    the row pads 16 below itself, and the 16 under the line is the first
-    PostCard's own top inset — the same arithmetic the cards use between
-    themselves, so nothing here is double-padded.
+    The row closes with the SAME full-bleed 4pt `gray100` band every post card
+    closes with (Figma 4299:94902), so the composer reads as its own section
+    rather than the first post's header. Spacing is 16 / band / 16: the row
+    pads 16 below itself, and the 16 under the band is the first-cell band's
+    4pt bottom margin plus the first PostCard's own 12pt top inset — the one
+    seam where two values sum, because the under-composer gap (16) is wider
+    than the inter-post gap (12).
   */
   const composePrompt = (
     <View
       style={[
         styles.composeSection,
         {
-          borderBottomColor: theme.colors.gray300,
-          /*
-            Only while the list is EMPTY. Once posts exist, the FIRST CELL
-            draws this rule (see renderItem): Android lays cell 0 over the
-            header's fractional bottom edge, and every line drawn from the
-            header's side — sibling view, border, even a zIndex'd border —
-            got fully or partly shaved by the cell's background. On Android a
-            0.5pt border also anti-aliases into a wash, so the empty-state
-            rule uses the hairline: exactly one solid physical pixel.
-          */
-          borderBottomWidth:
-            items.length > 0
-              ? 0
-              : Platform.OS === 'android'
-                ? StyleSheet.hairlineWidth
-                : theme.borderWidths.rule,
+          borderBottomColor: theme.colors.gray100,
+          // Only while the list is EMPTY. Once posts exist, the FIRST CELL
+          // draws this band (see renderItem): Android lays cell 0 over the
+          // header's bottom edge, and anything drawn from the header's side
+          // got shaved by the cell's background.
+          borderBottomWidth: items.length > 0 ? 0 : 4,
         },
       ]}
       testID={`${testID}-compose-divider`}
@@ -521,11 +444,18 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         accessibilityLabel="Create a post"
         accessibilityRole="button"
         onPress={openComposer}
-        style={({ pressed }) => [styles.composePrompt, { opacity: pressed ? 0.7 : 1 }]}
+        style={({ pressed }) => [
+          styles.composePrompt,
+          {
+            backgroundColor: theme.colors.gray100,
+            borderRadius: theme.radii.pill,
+            opacity: pressed ? 0.7 : 1,
+          },
+        ]}
         testID={`${testID}-compose-prompt`}
       >
-        <Avatar initials={profileInitials} size={40} uri={currentUser?.avatarURL} />
-        <Text style={[theme.typography.body, { fontSize: 16, color: theme.colors.gray600 }]}>
+        <Avatar initials={profileInitials} size={24} uri={currentUser?.avatarURL} />
+        <Text style={[theme.typography.label, { color: theme.colors.gray600 }]}>
           What&rsquo;s on your mind?
         </Text>
       </Pressable>
@@ -633,7 +563,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
             `contentInsetAdjustmentBehavior="automatic"` above already insets
             this scroll view by the top safe area; adding `insets.top` here
             counted it a second time. What is left to reserve is only the bar
-            itself (`HOME_HEADER_BAR_HEIGHT` = 8 + the 40pt control row + 8).
+            itself (`HOME_HEADER_BAR_HEIGHT` = the padded 44pt control row).
 
             ANDROID keeps the explicit inset: `contentInsetAdjustmentBehavior`
             is an iOS-only prop (a no-op in the Android ScrollView), so there is
@@ -646,8 +576,8 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
               : insets.top + HOME_HEADER_BAR_HEIGHT,
           paddingBottom: insets.bottom + 24,
           // No horizontal padding and no inter-item gap: post cards are
-          // full-bleed and carry their own 16pt top inset, which is exactly the
-          // gap Figma leaves between a card's closing hairline and the next
+          // full-bleed and carry their own 12pt top inset, which is exactly the
+          // gap Figma leaves between a card's closing 4pt band and the next
           // avatar. State cards re-inset themselves below.
         }}
         data={items}
@@ -662,7 +592,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         // Measures the viewport the "Back to top" FAB uses as its threshold —
         // it appears once you have travelled roughly one screen height.
         onLayout={handleListLayout}
-        onScroll={handleScroll}
+        onScroll={trackScrollTopVisibility}
         scrollEventThrottle={16}
         // RN clamps a NEGATIVE scrollTo target to 0 unless this is set
         // (RCTScrollViewComponentView.mm), and it clamps against
@@ -682,16 +612,21 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         renderItem={({ item, index }: { item: FeedItem; index: number }) => (
           <>
             {/*
-              The composer's closing rule, drawn BY THE FIRST CELL rather than
+              The composer's closing band, drawn BY THE FIRST CELL rather than
               by the header above it: cell 0 paints over the header's bottom
-              edge on Android, so any line the header drew was shaved to a
-              lighter sliver the moment posts loaded. Owned by the very view
-              that was doing the shaving, it has nothing left to lose — and as
-              a View it rasterizes identically to the card's bottom divider.
+              edge on Android, so anything the header drew on the seam was
+              shaved the moment posts loaded. Owned by the very view that was
+              doing the shaving, it has nothing left to lose. The 4pt bottom
+              margin plus the card's own 12pt top inset makes the 16pt
+              under-composer gap (Figma 4299:94902).
             */}
             {index === 0 ? (
               <View
-                style={{ backgroundColor: theme.colors.gray300, height: theme.borderWidths.rule }}
+                style={{
+                  backgroundColor: theme.colors.gray100,
+                  height: 4,
+                  marginBottom: 4,
+                }}
                 testID={`${testID}-first-cell-rule`}
               />
             ) : null}
@@ -727,16 +662,12 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         floating
         onOpenMenu={openDrawer}
         onOpenSearch={openSearch}
-        // The list rests at `-insets.top` on iOS, so the pill's fade has to
-        // measure travel from there. See `listTopOffset`.
-        scrollRestOffset={listTopOffset}
-        scrollY={scrollY}
-        searchInteractive={!isSearchPillHidden}
         testID={`${testID}-header`}
-        // Home keeps the bell (Figma toolbar 3567:22969); the `+` that sat next
-        // to it moved into the list as the compose prompt row. Collection draws
-        // the same bar with the profile toolbar's edit/share pair — this is the
-        // only prop that differs between the two screens.
+        // Home puts search + bell in one trailing glass pill (Figma 4299:94902);
+        // the `+` that once sat here moved into the list as the compose prompt
+        // row. Collection draws the same bar with the profile toolbar's
+        // edit/share pair — this is the only prop that differs between the two
+        // screens.
         trailing={{
           kind: 'home',
           onOpenNotifications: openNotifications,
@@ -761,26 +692,28 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
 }
 
 const styles = StyleSheet.create({
+  // The filled pill itself (Figma 4299:94902): 8 padding around a 24pt avatar
+  // makes the 40pt-tall capsule; fill + radius come from the theme inline.
   composePrompt: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 12,
+    gap: 8,
     // The feed's 16 page gutter — the list itself is unpadded (posts are
-    // full-bleed), so the row insets itself, like the state cards below.
-    paddingHorizontal: 16,
-    // 16 below the floating bar's reserved height, and 16 above the closing
-    // hairline. The 16 UNDER the hairline is the first PostCard's own top
-    // inset, exactly as between cards.
-    paddingBottom: 16,
-    paddingTop: 16,
+    // full-bleed), so the pill insets itself, like the state cards below.
+    marginHorizontal: 16,
+    padding: 8,
   },
-  // The rule is a BORDER on this row, not a hairline View below it. As a
+  // The band is a BORDER on this row, not a sibling View below it. As a
   // sibling box on the seam between the list header and the first cell, it
   // showed on first paint and vanished when the post below relaid it out
   // (Android only). A border is painted inside a row that has real content, so
   // it has nothing to lose — the same form the DM inbox and follow list use.
   composeSection: {
     alignSelf: 'stretch',
+    // 16 below the floating bar's reserved height, and 16 between the pill
+    // and the closing band.
+    paddingBottom: 16,
+    paddingTop: 16,
     width: '100%',
   },
   footerSpinner: {

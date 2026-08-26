@@ -1078,6 +1078,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: 24,
+    justifyContent: 'center',
     marginHorizontal: 16,
   },
   rangeRowHidden: {
@@ -1117,12 +1118,13 @@ const styles = StyleSheet.create({
   },
   rangePillLabel: {
     fontFamily: fontFamilies.bodyMedium,
-    fontSize: 12,
-    lineHeight: 16.8,
+    fontSize: 13,
+    lineHeight: 16.4,
     textAlign: 'center',
   },
   rangePillLabelSelected: {
     fontFamily: fontFamilies.bodySemiBold,
+    lineHeight: 18.2,
   },
   skeletonBar: {
     borderRadius: 6,

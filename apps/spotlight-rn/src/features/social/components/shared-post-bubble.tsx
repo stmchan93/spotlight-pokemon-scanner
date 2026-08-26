@@ -3,7 +3,10 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Avatar, SkeletonBlock, Text, useSpotlightTheme } from '@spotlight/design-system';
 
-import { PostImage } from '@/features/social/components/post-card';
+// `IMAGE_ASPECT_RATIO` is shared so the loading skeleton reserves exactly the
+// box the resolved `PostImage` will occupy — a frame of a different shape would
+// resize the card (and jump the thread) when the photo lands.
+import { IMAGE_ASPECT_RATIO, PostImage } from '@/features/social/components/post-card';
 import { loadSharedPost, peekSharedPost } from '@/features/social/shared-post-cache';
 import type { FeedPost } from '@/features/social/social-service';
 
@@ -20,8 +23,6 @@ type LoadState =
 
 /** Matches the media frame, so the card does not resize when the photo lands. */
 const CARD_WIDTH = 240;
-/** `PostImage`'s frame, restated so the skeleton reserves the same box. */
-const IMAGE_ASPECT_RATIO = 4 / 5;
 
 /** What the cache already knows about this post, as a render state. */
 function cachedState(postId: string): LoadState {

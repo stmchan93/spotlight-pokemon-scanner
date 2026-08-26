@@ -1,6 +1,7 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
+import { IMAGE_ASPECT_RATIO } from '@/features/social/components/post-card';
 import { SharedPostBubble } from '@/features/social/components/shared-post-bubble';
 import { clearSharedPostCache } from '@/features/social/shared-post-cache';
 import { fetchPostById } from '@/features/social/social-service';
@@ -215,12 +216,13 @@ describe('SharedPostBubble', () => {
     const bands = skeleton.props.children.filter(Boolean);
     expect(bands.length).toBeGreaterThanOrEqual(3);
 
-    // The image band holds `PostImage`'s exact frame, so the photo lands into
-    // space that was already reserved rather than pushing the thread down.
+    // The image band holds `PostImage`'s exact frame — the shared constant, so
+    // the photo lands into space that was already reserved rather than pushing
+    // the thread down.
     const frames = skeleton.findAll(
       (node: { props?: { style?: unknown } }) =>
         (StyleSheet.flatten(node?.props?.style) as { aspectRatio?: number } | undefined)
-          ?.aspectRatio === 4 / 5,
+          ?.aspectRatio === IMAGE_ASPECT_RATIO,
     );
     expect(frames.length).toBeGreaterThan(0);
 

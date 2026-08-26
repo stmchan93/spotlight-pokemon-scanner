@@ -22,7 +22,7 @@ type AuthScreenLayoutProps = {
   testID?: string;
 };
 
-const HEADER_BUTTON_SIZE = 36;
+const HEADER_BUTTON_SIZE = 40;
 // Figma 3686:58352 renders the lockup at 32pt tall inside the top toolbar.
 const WORDMARK_HEIGHT = 32;
 
@@ -45,8 +45,9 @@ export function AuthScreenLayout({
 }: AuthScreenLayoutProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
-  // Header row: insets.top + 16 padding + 36 button; content starts 24 below it.
-  const contentTop = insets.top + 16 + HEADER_BUTTON_SIZE + 24;
+  // Header row: insets.top + 16 padding + 40 button; content starts 32 below it
+  // (the toolbar's 16 bottom padding plus a 16 gap, per Figma 4255:88306).
+  const contentTop = insets.top + 16 + HEADER_BUTTON_SIZE + 32;
 
   return (
     <View style={[styles.root, { backgroundColor: theme.colors.gray0 }]} testID={testID}>

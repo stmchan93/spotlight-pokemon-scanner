@@ -14,7 +14,6 @@ import {
 } from '@spotlight/design-system';
 
 import { EditDoneButton } from '@/components/edit-done-button';
-import { SEARCH_PILL_HIDE_DISTANCE } from '@/components/home-header';
 
 type WishlistHeaderProps = {
   /** Opens the app drawer. Wishlist is a TAB, so there is nothing to go back to. */
@@ -119,12 +118,12 @@ const BUTTON_ICON_SIZE = 20;
 const BAR_PADDING_TOP = 8;
 /**
  * Height of the control row. Every control in this bar is 40 tall — the menu
- * bubble (`size="compact"`), the `GlassButtonGroup`, and the `EditDoneButton`
+ * bubble (`size="medium"`), the `GlassButtonGroup`, and the `EditDoneButton`
  * that swaps in for it — so the shared bubble token IS the row height, and it
  * does not change when edit mode swaps the wider "Done" pill in. The title
  * (`titleMedium`, 23.4pt tall) never sets it.
  */
-const CONTROL_ROW_HEIGHT = glassNavBubbleSizes.compact;
+const CONTROL_ROW_HEIGHT = glassNavBubbleSizes.medium;
 /**
  * Height of the bar below the safe-area inset. Exported because a FLOATING bar
  * contributes nothing to layout, so the list under it reserves
@@ -141,15 +140,13 @@ export const WISHLIST_HEADER_BAR_HEIGHT = BAR_PADDING_TOP + CONTROL_ROW_HEIGHT;
 /**
  * How far the page scrolls before the title has fully left the row.
  *
- * DELIBERATELY THE SAME NUMBER AS HOME'S PILL, not a new timing: the two bars
- * are the same chrome doing the same thing, and a Wishlist title that took a
- * different distance to leave than Home's pill would read as a different bar.
  * Exported because the screen needs the SAME number to switch the title's
  * `pointerEvents` off — that is not animatable, so the disarm is a separate JS
  * decision, and if the two numbers drift the title is either dead while visible
  * or live while invisible.
  */
-export const WISHLIST_TITLE_HIDE_DISTANCE = SEARCH_PILL_HIDE_DISTANCE;
+// 56 matched the retired Home search pill's hide timing; the number outlives the pill.
+export const WISHLIST_TITLE_HIDE_DISTANCE = 56;
 /**
  * How far the title travels to clear the row: the control row plus the padding
  * above it, so it is entirely past the clip's top edge at the end.
@@ -219,7 +216,7 @@ export function WishlistHeader({
         <GlassNavBubble
           accessibilityLabel="Open menu"
           onPress={onOpenMenu}
-          size="compact"
+          size="medium"
           surface="onLight"
           testID="wishlist-header-menu"
         >

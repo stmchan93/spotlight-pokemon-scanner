@@ -6,26 +6,10 @@ import { GlassSurface, Text, colors, textStyles } from '@spotlight/design-system
 import { RoundFlag } from './round-flag';
 
 /**
- * The "Scanning for Pokémon EN/JP" control, floating over the viewfinder.
- *
- * GLASS ON iOS 26, the same dark scrim as before everywhere else. `GlassSurface`
- * draws the real material where the platform has it and falls back to
- * `scannerChromeFill` — which is exactly what this pill was hard-coded to — so
- * Android and iOS < 26 are pixel-identical to what shipped.
- *
- * `glassColorScheme="dark"` is deliberate, not a default: `auto` follows the
- * SYSTEM appearance, and a light material over a near-black camera feed washes
- * out to an opaque white puck (see `glass-nav-bubble.tsx`). Everything on this
- * screen sits on the viewfinder, so it always wants the dark material.
- *
- * `clear` rather than `regular` because the frame shows the camera through the
- * pill; `bottom-tab-bar.tsx` is the other `clear` user.
- *
- * HEIGHT IS LOAD-BEARING. `rawScannerControlsRowHeight` (36) in
- * `raw-scanner-capture-surface.tsx` reserves this row's height, and the reticle
- * inset is computed from it — and the reticle IS the capture crop. Growing this
- * pill silently changes what gets cropped, and therefore match accuracy. The
- * language coach-mark is positioned off the same number.
+ * The "Pokémon EN/JP" scan-target control, centered in the scanner's top
+ * toolbar (Figma 4299:93955): light glass pill, dark 15pt label, flag, and a
+ * chevron. Real glass on iOS 26; the shared `glassFallback` gray elsewhere so
+ * it stays visible over the live camera.
  */
 export function ScanTargetPill({
   label,
@@ -34,7 +18,6 @@ export function ScanTargetPill({
   testID,
 }: {
   label: string;
-  /** Round language flag shown after the label (Figma 2302:28968). */
   flag?: 'en' | 'jp';
   onPress: () => void;
   testID?: string;
@@ -49,15 +32,15 @@ export function ScanTargetPill({
       testID={testID}
     >
       <GlassSurface
-        fallbackColor={colors.scannerChromeFill}
-        glassColorScheme="dark"
-        glassEffectStyle="clear"
+        fallbackColor={colors.glassFallback}
+        glassColorScheme="light"
+        glassEffectStyle="regular"
         style={styles.pill}
         testID={testID ? `${testID}-surface` : undefined}
       >
         <Text style={styles.label}>{label}</Text>
-        {flag ? <RoundFlag language={flag} size={13} /> : null}
-        <IconChevronDown color={colors.gray0} size={20} strokeWidth={2} />
+        {flag ? <RoundFlag language={flag} size={14} /> : null}
+        <IconChevronDown color={colors.gray900} size={20} strokeWidth={2} />
       </GlassSurface>
     </Pressable>
   );
@@ -65,23 +48,20 @@ export function ScanTargetPill({
 
 const styles = StyleSheet.create({
   label: {
-    // Figma 1180-1278 "Label" — Plus Jakarta Sans Medium 13 (not the default
-    // 15/SemiBold control role), white over the translucent pill.
-    ...textStyles.label,
-    color: colors.gray0,
+    ...textStyles.body,
+    color: colors.gray900,
   },
-  // The Pressable owns the press feedback; the glass owns the shape and fill,
-  // so the material clips the children rather than sitting behind them.
   pressable: {
+    alignSelf: 'stretch',
     borderRadius: 999,
   },
   pill: {
     alignItems: 'center',
     borderRadius: 999,
     flexDirection: 'row',
-    gap: 4,
-    // 36 — see the note above. Do not change without re-checking the reticle.
-    height: 36,
+    gap: 6,
+    height: 44,
+    justifyContent: 'center',
     overflow: 'hidden',
     paddingHorizontal: 16,
   },

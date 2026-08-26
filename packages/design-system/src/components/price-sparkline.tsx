@@ -80,7 +80,7 @@ export function PriceSparkline({
 
   const plotted = plotPoints(points, width, height);
   const isUp = (trendPct ?? 0) >= 0;
-  const tint = isUp ? theme.colors.green400 : theme.colors.red400;
+  const tint = isUp ? theme.colors.green500 : theme.colors.red500;
 
   if (plotted.length === 0) {
     return <View style={{ width, height }} testID={testID} />;

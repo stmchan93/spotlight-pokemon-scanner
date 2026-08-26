@@ -21,30 +21,24 @@ import { formatCompactCurrency, formatCurrency } from '@/features/portfolio/comp
 // horizontally with the metrics. This keeps virtualization robust (one list, one
 // getItemLayout, no two-list scroll-sync) and the card column is wide enough that
 // little horizontal panning is needed to read it.
-// Wide enough that the text block (192 − thumb − gap = 132pt) fits the longest
-// common lines ("Reverse Holofoil", "Near Mint · ×3") without truncating.
-const CARD_COL_WIDTH = 192;
+// Card column (Figma 4196:83062): 58 thumb + 8 gap + 114 text block, 16 to the
+// first metric column (the shared CELL_GAP).
+const CARD_COL_WIDTH = 180;
 const ROW_HEIGHT = 100; // taller rows: subtitle line + ~5 rows per iPhone screen
 const CELL_GAP = 16;
-// The card column sits 24px from the first metric column (Figma 2179-8996 vs
-// 2179-9032); metric↔metric gaps stay CELL_GAP. Rows already flow with
-// `gap: CELL_GAP`, so the card cell carries the extra 8px as margin.
-const CARD_METRIC_EXTRA_GAP = 24 - CELL_GAP;
-const HEADER_BOTTOM_GAP = 24;
+const HEADER_BOTTOM_GAP = 20;
 const CHART_W = 62;
 // Wide enough for a 6-char value (e.g. "$87.06") on one line even at the 1.2×
 // Dynamic Type cap; value cells also force numberOfLines={1} so nothing wraps.
-const CELL_W = 68;
+const CELL_W = 60;
 const THUMB_W = 58;
 const THUMB_H = 80; // 58x80 card thumbnail (Figma 2652-24367)
 
-// Figma 2179-9144 labels the G/L pair "Tdy", but the backend tracks month-over-
-// month G/L — keep the Mth wording, adopt the design's title casing.
 const METRIC_COLUMNS = [
   'Graph',
   'Current',
-  '$ Mth G/L',
-  '% Mth G/L',
+  '$ 1M G/L',
+  '% 1M G/L',
   '$ Total',
   '% Total',
   'Cost',
@@ -283,35 +277,41 @@ export const PerformanceTable = forwardRef<
               <View style={[styles.thumb, { backgroundColor: theme.colors.gray100 }]} />
             )}
             <View style={styles.cardText}>
-              <Text
-                numberOfLines={2}
-                style={[theme.typography.bodyMedium, { color: theme.colors.gray900 }]}
-              >
-                {row.name}
-              </Text>
-              <Text
-                numberOfLines={1}
-                style={[theme.typography.label, { color: theme.colors.gray500 }]}
-              >
-                {row.cardNumber}
-              </Text>
-              {subtitleLines.primary ? (
+              <View style={styles.cardTextBlock}>
+                <Text
+                  numberOfLines={2}
+                  style={[theme.typography.label, { color: theme.colors.gray900 }]}
+                >
+                  {row.name}
+                </Text>
                 <Text
                   numberOfLines={1}
                   style={[theme.typography.label, { color: theme.colors.gray500 }]}
-                  testID={`${testID}-subtitle-${row.entryId}`}
                 >
-                  {subtitleLines.primary}
+                  {row.cardNumber}
                 </Text>
-              ) : null}
-              {subtitleLines.secondary ? (
-                <Text
-                  numberOfLines={1}
-                  style={[theme.typography.label, { color: theme.colors.gray500 }]}
-                  testID={`${testID}-subtitle2-${row.entryId}`}
-                >
-                  {subtitleLines.secondary}
-                </Text>
+              </View>
+              {subtitleLines.primary || subtitleLines.secondary ? (
+                <View style={styles.cardTextBlock}>
+                  {subtitleLines.primary ? (
+                    <Text
+                      numberOfLines={1}
+                      style={[theme.typography.label, { color: theme.colors.gray900 }]}
+                      testID={`${testID}-subtitle-${row.entryId}`}
+                    >
+                      {subtitleLines.primary}
+                    </Text>
+                  ) : null}
+                  {subtitleLines.secondary ? (
+                    <Text
+                      numberOfLines={1}
+                      style={[theme.typography.label, { color: theme.colors.gray900 }]}
+                      testID={`${testID}-subtitle2-${row.entryId}`}
+                    >
+                      {subtitleLines.secondary}
+                    </Text>
+                  ) : null}
+                </View>
               ) : null}
             </View>
           </Pressable>
@@ -320,28 +320,28 @@ export const PerformanceTable = forwardRef<
             {row.sparkline.length > 1 ? (
               <PriceSparkline points={row.sparkline} trendPct={row.ytdGainPercent} />
             ) : (
-              <Text style={[theme.typography.body, { color: theme.colors.gray400 }]}>—</Text>
+              <Text style={[theme.typography.bodySmall, { color: theme.colors.gray400 }]}>—</Text>
             )}
           </View>
           {/* Current = unit price × quantity (backend `currentValue`), not the
               per-unit price — a 3× Near Mint entry shows the position's worth.
               The $ G/L column is likewise quantity-scaled backend-side. */}
-          <Text numberOfLines={1} style={[theme.typography.body, styles.cell, { color: theme.colors.gray900 }]}>
+          <Text numberOfLines={1} style={[theme.typography.bodySmall, styles.cell, { color: theme.colors.gray900 }]}>
             {money(row.currentValue)}
           </Text>
-          <Text numberOfLines={1} style={[theme.typography.body, styles.cell, { color: dollarDeltaColor(row.monthGainDollar) }]}>
+          <Text numberOfLines={1} style={[theme.typography.bodySmall, styles.cell, { color: dollarDeltaColor(row.monthGainDollar) }]}>
             {gainMoney(row.monthGainDollar)}
           </Text>
-          <Text numberOfLines={1} style={[theme.typography.body, styles.cell, { color: deltaColor(row.monthGainPercent) }]}>
+          <Text numberOfLines={1} style={[theme.typography.bodySmall, styles.cell, { color: deltaColor(row.monthGainPercent) }]}>
             {percent(row.monthGainPercent)}
           </Text>
-          <Text numberOfLines={1} style={[theme.typography.body, styles.cell, { color: dollarDeltaColor(totalDollar) }]}>
+          <Text numberOfLines={1} style={[theme.typography.bodySmall, styles.cell, { color: dollarDeltaColor(totalDollar) }]}>
             {gainMoney(totalDollar)}
           </Text>
-          <Text numberOfLines={1} style={[theme.typography.body, styles.cell, { color: deltaColor(totalPercent) }]}>
+          <Text numberOfLines={1} style={[theme.typography.bodySmall, styles.cell, { color: deltaColor(totalPercent) }]}>
             {percent(totalPercent)}
           </Text>
-          <Text numberOfLines={1} style={[theme.typography.body, styles.cell, { color: theme.colors.gray900 }]}>
+          <Text numberOfLines={1} style={[theme.typography.bodySmall, styles.cell, { color: theme.colors.gray900 }]}>
             {money(row.costBasisTotal)}
           </Text>
         </View>
@@ -360,8 +360,7 @@ export const PerformanceTable = forwardRef<
       theme.colors.gray400,
       theme.colors.gray500,
       theme.colors.gray900,
-      theme.typography.body,
-      theme.typography.bodyMedium,
+      theme.typography.bodySmall,
       theme.typography.label,
     ],
   );
@@ -433,8 +432,10 @@ export function PerformanceTableSkeleton({ testID = 'performance-table-skeleton'
           <View style={[styles.cardCell, { width: CARD_COL_WIDTH }]}>
             <View style={[styles.thumb, fill]} />
             <View style={styles.cardText}>
-              <View style={[styles.skeletonLine, { width: '92%' }, fill]} />
-              <View style={[styles.skeletonLine, { width: '55%' }, fill]} />
+              <View style={styles.cardTextBlock}>
+                <View style={[styles.skeletonLine, { width: '92%' }, fill]} />
+                <View style={[styles.skeletonLine, { width: '55%' }, fill]} />
+              </View>
               <View style={[styles.skeletonLine, { width: '72%' }, fill]} />
             </View>
           </View>
@@ -470,23 +471,22 @@ const styles = StyleSheet.create({
     borderBottomWidth: borderWidths.rule,
     flexDirection: 'row',
     gap: CELL_GAP,
-    // Keep the original 24px header→first-row gap (Figma 2179-9032) but split it
+    // Keep the 20px header→first-row gap (Figma 4196:83062) but split it
     // around the rule so the line reads as "in between" the two.
     marginBottom: HEADER_BOTTOM_GAP / 2,
     paddingBottom: HEADER_BOTTOM_GAP / 2,
   },
   cardHeaderSlot: {
     justifyContent: 'center',
-    marginRight: CARD_METRIC_EXTRA_GAP,
   },
   portfolioTag: {
     // Spans the full card column (Figma 2179-8997 fills its column) so the
-    // Chart header sits exactly 24px to the tag's right, not 24px past the
+    // Chart header sits exactly one CELL_GAP to the tag's right, not past the
     // (much wider) column edge.
     alignItems: 'center',
     borderRadius: radii.pill,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
     width: CARD_COL_WIDTH,
   },
   headerLabel: {
@@ -505,7 +505,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: 8,
-    marginRight: CARD_METRIC_EXTRA_GAP,
   },
   thumb: {
     borderRadius: 2,
@@ -514,6 +513,9 @@ const styles = StyleSheet.create({
   },
   cardText: {
     flex: 1,
+    gap: 8,
+  },
+  cardTextBlock: {
     gap: 2,
   },
   chartCell: {

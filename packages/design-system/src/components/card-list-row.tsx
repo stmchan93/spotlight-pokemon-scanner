@@ -1,6 +1,7 @@
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 
 import { useSpotlightTheme } from '../theme';
+import { borderWidths } from '../tokens';
 import { AppText } from './app-text';
 import { PriceSparkline } from './price-sparkline';
 import { SelectionCheckCircle } from './selection-check-circle';
@@ -92,6 +93,9 @@ const THUMBNAIL_RADIUS = 2;
 const SLAB_THUMBNAIL_WIDTH = 50;
 const SLAB_THUMBNAIL_HEIGHT = 80;
 
+// Always two decimals ("$1,100.00") — the Figma frames' bare "$1,100" examples
+// are mock content, not a formatting spec (confirmed with the designer
+// 2026-08-18 after briefly shipping a ".00"-trimming version).
 function formatCurrency(amount: number, currencyCode: string) {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -136,10 +140,12 @@ export function CardListRow({
 }: CardListRowProps) {
   const theme = useSpotlightTheme();
 
+  // Figma rows (Wishlist 4173:82045, Collection 4134:50940) rule with a 0.5pt
+  // gray-300 hairline, not the old 1pt gray-100.
   const borderStyle = {
-    borderBottomColor: theme.colors.gray100,
+    borderBottomColor: theme.colors.gray300,
     ...(firstInSection
-      ? { borderTopColor: theme.colors.gray100, borderTopWidth: 1 }
+      ? { borderTopColor: theme.colors.gray300, borderTopWidth: borderWidths.rule }
       : null),
   };
 
@@ -274,29 +280,40 @@ export function CardListRow({
         </View>
       ) : null}
 
+      {/*
+        Two groups, SPACE_BETWEEN — name/set anchored to the row top, the
+        grade/qty line to the bottom of the 80pt thumb, matching Figma's Card
+        Details (Wishlist 4173:82045, Collection 4134:50940).
+      */}
       <View style={styles.middle}>
-        <AppText color="gray900" numberOfLines={1} variant="titleSmall">
-          {name}
-        </AppText>
-        {metaLine ? (
-          <AppText color="gray600" numberOfLines={1} variant="label">
-            {metaLine}
+        <View style={styles.copyGroup}>
+          <AppText color="gray900" numberOfLines={1} variant="titleSmall">
+            {name}
           </AppText>
-        ) : null}
-        {gradeText ? (
-          <AppText color="gray600" numberOfLines={1} variant="label">
-            {gradeText}
-          </AppText>
-        ) : null}
-        {showQuantity ? (
-          <AppText
-            color="gray600"
-            numberOfLines={1}
-            testID={testID ? `${testID}-quantity` : undefined}
-            variant="label"
-          >
-            {`Qty: ${quantity}`}
-          </AppText>
+          {metaLine ? (
+            <AppText color="gray600" numberOfLines={1} variant="label">
+              {metaLine}
+            </AppText>
+          ) : null}
+        </View>
+        {gradeText || showQuantity ? (
+          <View style={styles.copyGroup}>
+            {gradeText ? (
+              <AppText color="gray600" numberOfLines={1} variant="label">
+                {gradeText}
+              </AppText>
+            ) : null}
+            {showQuantity ? (
+              <AppText
+                color="gray600"
+                numberOfLines={1}
+                testID={testID ? `${testID}-quantity` : undefined}
+                variant="label"
+              >
+                {`Qty: ${quantity}`}
+              </AppText>
+            ) : null}
+          </View>
         ) : null}
       </View>
 
@@ -337,22 +354,34 @@ export function CardListRow({
 }
 
 const styles = StyleSheet.create({
-  middle: {
-    flex: 1,
+  copyGroup: {
     gap: 4,
+  },
+  // Stretch so the copy stack starts at the row top like Figma's Card Details
+  // (SPACE_BETWEEN over the 80pt thumb) instead of centering.
+  middle: {
+    alignSelf: 'stretch',
+    flex: 1,
+    justifyContent: 'space-between',
     minWidth: 0,
   },
-  // Price: 14px Bold gray900 / 150% (Figma 992:10059).
+  // Price: 14px BOLD gray900 / 150%. The current Figma frames (4173:82045,
+  // 4134:50940) spec Regular-400 here, but the user overruled that on
+  // 2026-08-18 — bold is the intended weight (matches the older Figma
+  // 992:10059). Update the frames, not this, if the design ever changes.
   priceText: {
     fontFamily: 'SpotlightBodyBold',
     fontSize: 14,
     lineHeight: 21,
     textAlign: 'right',
   },
+  // Price column matches the Figma rows (Wishlist 4173:82045, Collection
+  // 4134:50940): stretch the row and SPACE_BETWEEN so the price top-aligns
+  // with the title and the trend line sits at the bottom, not centered.
   right: {
     alignItems: 'flex-end',
-    gap: 4,
-    justifyContent: 'center',
+    alignSelf: 'stretch',
+    justifyContent: 'space-between',
     marginLeft: 8,
   },
   selectLeading: {
@@ -361,9 +390,10 @@ const styles = StyleSheet.create({
   },
   row: {
     alignItems: 'center',
-    borderBottomWidth: 1,
+    borderBottomWidth: borderWidths.rule,
     flexDirection: 'row',
-    gap: 12,
+    // Thumb ↔ copy gap is 8 in Figma (Card Content itemSpacing, 4173:82045).
+    gap: 8,
     minHeight: 72,
     paddingHorizontal: 16,
     paddingVertical: 12,

@@ -3,7 +3,6 @@ import { fireEvent, screen } from '@testing-library/react-native';
 
 import { glassNavBubbleSizes } from '@spotlight/design-system';
 
-import { SEARCH_PILL_HIDE_DISTANCE } from '@/components/home-header';
 import {
   WISHLIST_HEADER_BAR_HEIGHT,
   WISHLIST_TITLE_HIDE_DISTANCE,
@@ -52,19 +51,19 @@ describe('WishlistHeader', () => {
     not arithmetic against the same constants that produce it, or the assertion
     is tautological.
 
-    8pt of padding above a 40pt control row. NO bottom padding, unlike Home's 56:
+    8pt of padding above a 44pt control row. NO bottom padding, unlike Home's 56:
     the first thing in this list carries its own 24pt top margin.
   */
-  it('reserves 8pt above a 40pt control row, and nothing below it', () => {
-    expect(WISHLIST_HEADER_BAR_HEIGHT).toBe(48);
+  it('reserves 8pt above a 44pt control row, and nothing below it', () => {
+    expect(WISHLIST_HEADER_BAR_HEIGHT).toBe(52);
     expect(glassNavBubbleSizes.compact).toBe(40);
   });
 
-  // Home's pill and this title are the same chrome doing the same thing, so the
-  // timing is REUSED rather than re-picked. A Wishlist title that took a
-  // different distance to leave would read as a different bar.
-  it('leaves over exactly the distance Home’s search pill takes', () => {
-    expect(WISHLIST_TITLE_HIDE_DISTANCE).toBe(SEARCH_PILL_HIDE_DISTANCE);
+  // The timing was inherited from Home's retired search pill (56) and kept as
+  // a literal once the pill left — a re-picked number would read as a
+  // different bar.
+  it('leaves over the 56pt the retired Home pill took', () => {
+    expect(WISHLIST_TITLE_HIDE_DISTANCE).toBe(56);
   });
 
   it('floats above the list rather than taking up a row of it', () => {

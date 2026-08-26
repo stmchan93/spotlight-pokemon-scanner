@@ -1,5 +1,6 @@
 import { BlurView } from 'expo-blur';
 import * as FileSystem from 'expo-file-system/legacy';
+import Svg, { Defs, LinearGradient as SvgLinearGradient, Rect, Stop } from 'react-native-svg';
 import { useKeepAwake } from 'expo-keep-awake';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -120,7 +121,6 @@ import { AddAllMenu, type AddAllMenuAction } from '@/features/scanner/components
 import { ScanBulkConfirmSheet } from '@/features/scanner/components/scan-bulk-confirm-sheet';
 import { ScanTargetPill } from '@/features/scanner/components/scan-target-pill';
 import { ScannerLanguageTooltip } from '@/features/scanner/components/scanner-language-tooltip';
-import { ScannerSearchPill } from '@/features/scanner/components/scanner-search-pill';
 import { ScanningForSheet } from '@/features/scanner/components/scanning-for-sheet';
 import {
   cardLanguageForCardType,
@@ -2924,24 +2924,32 @@ export function ScannerScreen({
           <GlassNavBubble
             accessibilityLabel="Exit scanner"
             onPress={gate(handleExitScanner)}
-            // 40, level with the search pill beside it (Figma 3686:55168).
-            // `small` (32) was sized for a row of bare icons.
-            size="compact"
-            surface="onDark"
+            size="medium"
+            surface="onLight"
             testID="scanner-back-button"
           >
-            <IconChevronLeft color={colors.gray0} size={20} strokeWidth={1.5} />
+            <IconChevronLeft color={colors.gray900} size={20} strokeWidth={2.2} />
           </GlassNavBubble>
-          {/*
-            A full search FIELD, not a magnifier bubble (Figma 3686:56583). A
-            32pt icon reads as "some action"; a full-width field reads as
-            "search, and this is where you would type" — which is what it does.
-            It takes the rest of the row for that reason.
-          */}
-          <ScannerSearchPill
+          <View style={styles.topChromeCenter}>
+            <ScanTargetPill
+              flag={cardType === 'pokemon_jp' ? 'jp' : 'en'}
+              label={scanTargetPillLabel(cardType)}
+              onPress={gate(() => {
+                dismissLanguageTooltip();
+                setIsScanTargetSheetOpen(true);
+              })}
+              testID="scanner-target-pill"
+            />
+          </View>
+          <GlassNavBubble
+            accessibilityLabel="Search the card catalog"
             onPress={gate(handleOpenCatalogSearch)}
+            size="medium"
+            surface="onLight"
             testID="scanner-search-button"
-          />
+          >
+            <IconSearch color={colors.gray900} size={20} strokeWidth={2.2} />
+          </GlassNavBubble>
         </View>
 
         {scannerSmokeEnabled ? (
@@ -2982,17 +2990,6 @@ export function ScannerScreen({
               },
             ]}
           >
-            <ScanTargetPill
-              flag={cardType === 'pokemon_jp' ? 'jp' : 'en'}
-              label={scanTargetPillLabel(cardType)}
-              onPress={gate(() => {
-                // Tapping the pill is also a tooltip dismissal — they learn the
-                // control by using it.
-                dismissLanguageTooltip();
-                setIsScanTargetSheetOpen(true);
-              })}
-              testID="scanner-target-pill"
-            />
             <View style={styles.zoomDock} testID="scanner-zoom-control">
               {SCANNER_ZOOM_FACTORS.map((factor) => {
                 const selected = factor === zoomFactor;
@@ -3015,9 +3012,9 @@ export function ScannerScreen({
                     */}
                     {selected ? (
                       <GlassSurface
-                        fallbackColor={colors.scannerChromeFill}
-                        glassColorScheme="dark"
-                        glassEffectStyle="clear"
+                        fallbackColor={colors.gray0}
+                        glassColorScheme="light"
+                        glassEffectStyle="regular"
                         style={styles.zoomPillSurface}
                         testID={`scanner-zoom-${factor}x-surface`}
                       >
@@ -3040,22 +3037,41 @@ export function ScannerScreen({
             pointerEvents="box-none"
             style={[
               styles.languageTooltipWrap,
-              {
-                // Directly above the language pill: the controls row's tray-anchored
-                // bottom + the 36px pill + an 8px gap.
-                bottom:
-                  (recentCaptures.length > 0 ? collapsedTrayReservedHeight : emptyTrayVisualHeight)
-                  + 16 + 36 + 8,
-              },
+              // Directly below the top-bar scan-target pill, tail pointing up.
+              { top: captureSurfaceLayout.backButtonTop + 44 + 8 },
             ]}
           >
             <ScannerLanguageTooltip
               onPress={dismissLanguageTooltip}
+              tailPosition="top"
               visible={showLanguageTooltip && !isScanTargetSheetOpen}
             />
           </View>
         )}
 
+        {/*
+          Bottom gradient behind the collapsed footer chrome (Figma 4062:21146:
+          350pt, black at the screen edge fading out by the top). The expanded
+          tray swaps it for the flat 40% scrim below (Figma 4046:20417).
+        */}
+        {isTrayExpanded ? null : (
+          <Svg
+            height={350}
+            pointerEvents="none"
+            style={styles.bottomGradient}
+            testID="scanner-bottom-gradient"
+            width="100%"
+          >
+            <Defs>
+              <SvgLinearGradient id="scannerBottomGradient" x1="0" x2="0" y1="0" y2="1">
+                <Stop offset="0" stopColor="#5D5D5D" stopOpacity="0" />
+                <Stop offset="0.4" stopColor="#5D5D5D" stopOpacity="0.19" />
+                <Stop offset="1" stopColor="#000000" stopOpacity="0.3" />
+              </SvgLinearGradient>
+            </Defs>
+            <Rect fill="url(#scannerBottomGradient)" height="100%" width="100%" />
+          </Svg>
+        )}
         <GestureDetector gesture={trayPanGesture}>
         <View style={styles.trayShell} testID="scanner-tray">
           {/*
@@ -3071,17 +3087,20 @@ export function ScannerScreen({
             video wants the calmer frosted dim the design actually specs, which
             is also exactly what Android was already drawing.
           */}
-          <BlurView
-            // Android needs the dimezisBlurView method or BlurView is a silent
-            // no-op (frosted tray rendered flat vs iOS). Matches the card-detail
-            // panels, which already opt in. iOS ignores the prop.
-            experimentalBlurMethod="dimezisBlurView"
-            intensity={isTrayExpanded ? 80 : 24}
-            pointerEvents="none"
-            style={styles.trayBackdropBlur}
-            tint="dark"
-          />
-          <View pointerEvents="none" style={styles.trayBackdropOverlay} />
+          {isTrayExpanded ? (
+            <BlurView
+              // Android needs the dimezisBlurView method or BlurView is a
+              // silent no-op. iOS ignores the prop.
+              experimentalBlurMethod="dimezisBlurView"
+              intensity={88}
+              pointerEvents="none"
+              style={styles.trayBackdropBlur}
+              tint="default"
+            />
+          ) : null}
+          {isTrayExpanded ? (
+            <View pointerEvents="none" style={styles.trayBackdropOverlay} />
+          ) : null}
           <Pressable
             accessibilityLabel={isTrayExpanded ? 'Collapse recent scans' : 'Expand recent scans'}
             accessibilityRole="button"
@@ -3104,17 +3123,36 @@ export function ScannerScreen({
                   that read as a different material from everything else over
                   the camera. Glass on iOS 26, the same scrim elsewhere.
                 */}
-                <GlassSurface
-                  fallbackColor={colors.scannerChromeFill}
-                  glassColorScheme="dark"
-                  glassEffectStyle="clear"
-                  style={styles.trayInfoPill}
-                  testID="scanner-recent-title-surface"
-                >
-                  <Text style={styles.trayInfoPillLabel} testID="scanner-recent-title">
-                    {`SCAN: ${recentCaptures.length}`}
-                  </Text>
-                </GlassSurface>
+                {/*
+                  Expanded: a solid white chip (Figma 4046:20579) — a plain
+                  View, never glass, so the fill can't be replaced by the
+                  translucent material on iOS 26.
+                */}
+                {isTrayExpanded ? (
+                  <View
+                    style={[styles.trayInfoPill, styles.trayInfoPillExpanded]}
+                    testID="scanner-recent-title-surface"
+                  >
+                    <Text
+                      style={[styles.trayInfoPillLabel, styles.trayInfoPillLabelExpanded]}
+                      testID="scanner-recent-title"
+                    >
+                      {`SCAN: ${recentCaptures.length}`}
+                    </Text>
+                  </View>
+                ) : (
+                  <GlassSurface
+                    fallbackColor="rgba(255, 255, 255, 0.10)"
+                    glassColorScheme="dark"
+                    glassEffectStyle="clear"
+                    style={styles.trayInfoPill}
+                    testID="scanner-recent-title-surface"
+                  >
+                    <Text style={styles.trayInfoPillLabel} testID="scanner-recent-title">
+                      {`SCAN: ${recentCaptures.length}`}
+                    </Text>
+                  </GlassSurface>
+                )}
                 {/* ADD ALL shows in BOTH tray states — collapsed too, so a
                     burst scanner can bulk-add without first swiping the tray
                     up. The dropdown flips above its anchor near the screen
@@ -3139,17 +3177,31 @@ export function ScannerScreen({
                   </Pressable>
                 ) : null}
               </View>
-              <GlassSurface
-                fallbackColor={colors.scannerChromeFill}
-                glassColorScheme="dark"
-                glassEffectStyle="clear"
-                style={styles.trayInfoPill}
-                testID="scanner-value-pill-surface"
-              >
-                <Text style={styles.trayInfoPillLabel} testID="scanner-value-pill-text">
-                  {`TOTAL: ${formatTrayTotal(trayPriceSummary)}`}
-                </Text>
-              </GlassSurface>
+              {isTrayExpanded ? (
+                <View
+                  style={[styles.trayInfoPill, styles.trayInfoPillExpanded]}
+                  testID="scanner-value-pill-surface"
+                >
+                  <Text
+                    style={[styles.trayInfoPillLabel, styles.trayInfoPillLabelExpanded]}
+                    testID="scanner-value-pill-text"
+                  >
+                    {`TOTAL: ${formatTrayTotal(trayPriceSummary)}`}
+                  </Text>
+                </View>
+              ) : (
+                <GlassSurface
+                  fallbackColor="rgba(255, 255, 255, 0.10)"
+                  glassColorScheme="dark"
+                  glassEffectStyle="clear"
+                  style={styles.trayInfoPill}
+                  testID="scanner-value-pill-surface"
+                >
+                  <Text style={styles.trayInfoPillLabel} testID="scanner-value-pill-text">
+                    {`TOTAL: ${formatTrayTotal(trayPriceSummary)}`}
+                  </Text>
+                </GlassSurface>
+              )}
             </View>
           </Pressable>
 
@@ -3380,15 +3432,19 @@ const styles = StyleSheet.create({
   controlsRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     position: 'absolute',
     zIndex: 4,
   },
+  topChromeCenter: {
+    flex: 1,
+    paddingHorizontal: 16,
+  },
   languageTooltipWrap: {
-    // Left-aligned with the language pill (controls row inset 16).
-    left: 16,
+    alignItems: 'center',
+    left: 0,
     position: 'absolute',
-    // Above the controls row so the tail visually touches the pill.
+    right: 0,
     zIndex: 5,
   },
   zoomDock: {
@@ -3400,32 +3456,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: 'transparent',
     borderRadius: 999,
-    height: 36,
+    height: 32,
     justifyContent: 'center',
-    width: 36,
+    width: 32,
   },
   // The glass fills the whole 36pt circle, so the material clips the label
   // rather than sitting behind it.
   zoomPillSurface: {
     alignItems: 'center',
     borderRadius: 999,
-    height: 36,
+    height: 32,
     justifyContent: 'center',
     overflow: 'hidden',
-    width: 36,
+    width: 32,
   },
   zoomPillLabel: {
-    // 13px / Medium / white per Figma 1390-1662/1665/1668 (the `control` role's
-    // 15px SemiBold read too large on the live camera dock).
     ...textStyles.label,
     color: colors.gray0,
+    fontSize: 12,
   },
   zoomPillLabelSelected: {
-    color: colors.gray0,
+    color: colors.gray900,
   },
   captureCopy: {
     alignItems: 'flex-start',
-    gap: 4,
+    gap: 2,
   },
   captureLoadingRow: {
     alignItems: 'center',
@@ -3483,10 +3538,10 @@ const styles = StyleSheet.create({
   },
   captureSubtitle: {
     ...textStyles.caption,
-    color: colors.gray300,
+    color: colors.scannerTextPrimary,
     fontFamily: fontFamilies.bodyMedium,
     fontSize: 13,
-    lineHeight: 17.55,
+    lineHeight: 16.4,
   },
   captureThumb: {
     // Figma 3594:25986 — 58x80 at radius 2.695, which is a real card's corner
@@ -3587,11 +3642,14 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   trayInfoPillLabel: {
-    // White per Figma 1041-4238. `gray400` was legible against the old opaque
-    // gray900 chip; over glass or the scrim it has the camera behind it and
-    // needs the same contrast as every other label on this screen.
     ...textStyles.labelStrong,
     color: colors.gray0,
+  },
+  trayInfoPillExpanded: {
+    backgroundColor: colors.gray0,
+  },
+  trayInfoPillLabelExpanded: {
+    color: colors.gray900,
   },
   trayAddAllRow: {
     alignItems: 'center',
@@ -3748,8 +3806,13 @@ const styles = StyleSheet.create({
   },
   trayBackdropOverlay: {
     ...StyleSheet.absoluteFillObject,
-    // Figma 3594:25846's scrim. Was 0.30 — visibly darker than the design;
-    // the blur underneath carries the legibility, the scrim only settles it.
-    backgroundColor: 'rgba(0, 0, 0, 0.15)',
+    backgroundColor: 'rgba(0, 0, 0, 0.40)',
+  },
+  bottomGradient: {
+    bottom: 0,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    zIndex: 3,
   },
 });

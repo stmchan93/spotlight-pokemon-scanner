@@ -24,28 +24,23 @@ function surfaceFill(testID: string): unknown {
 }
 
 describe('ScanTargetPill', () => {
-  it('falls back to the scanner chrome scrim when glass is unavailable', () => {
+  it('falls back to the shared light glass fill when glass is unavailable', () => {
     render(<ScanTargetPill flag="en" label="Pokémon EN" onPress={jest.fn()} testID="pill" />);
 
-    // Not a hard-coded literal any more — one token, shared with the zoom dock
-    // and the tray's SCAN/TOTAL pills.
-    expect(surfaceFill('pill-surface')).toBe(colors.scannerChromeFill);
-    expect(colors.scannerChromeFill).toBe('rgba(0, 0, 0, 0.35)');
+    // The pill lives in the top toolbar now (Figma 4299:93955) and shares the
+    // light glass fallback with every other toolbar control.
+    expect(surfaceFill('pill-surface')).toBe(colors.glassFallback);
   });
 
-  it('keeps the 36pt height the reticle geometry is derived from', () => {
+  it('is 44pt tall, level with the toolbar bubbles beside it', () => {
     render(<ScanTargetPill flag="jp" label="Pokémon JP" onPress={jest.fn()} testID="pill" />);
 
-    /*
-      `rawScannerControlsRowHeight` (36) reserves this row, and the reticle inset
-      is computed from it — and the reticle IS the capture crop. A taller pill
-      silently changes what gets cropped, and therefore match accuracy, with no
-      visible symptom until scans start missing.
-    */
+    // Top-toolbar control: no reticle coupling here — the capture geometry is
+    // frozen behind its own constants in raw-scanner-capture-surface.
     const flattened = StyleSheet.flatten(
       screen.getByTestId('pill-surface').props.style as never,
     ) as Record<string, unknown>;
-    expect(flattened.height).toBe(36);
+    expect(flattened.height).toBe(44);
   });
 
   it('still renders its label, flag and affordance through the surface', () => {

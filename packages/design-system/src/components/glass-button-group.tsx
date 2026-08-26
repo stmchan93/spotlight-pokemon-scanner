@@ -3,8 +3,8 @@ import { StyleSheet, type StyleProp, type ViewProps, type ViewStyle } from 'reac
 import { useSpotlightTheme } from '../theme';
 import { GlassSurface, isLiquidGlassAvailable } from './glass-surface';
 
-/** 40pt — level with `glassNavBubbleSizes.compact` and the 40pt search pill. */
-const GROUP_HEIGHT = 40;
+/** 44pt — level with `glassNavBubbleSizes.medium` (Figma toolbars, 4299:94908). */
+const GROUP_HEIGHT = 44;
 /** Inset and spacing around the 36pt controls inside (Figma 3686:55175). */
 const GROUP_PADDING_HORIZONTAL = 6;
 const GROUP_GAP = 6;
@@ -21,9 +21,10 @@ export const glassButtonGroupGap = GROUP_GAP;
 
 export type GlassButtonGroupProps = ViewProps & {
   /**
-   * Solid fill off iOS 26 Liquid Glass. Defaults to `canvasElevated` (white) to
-   * match `GlassNavBubble` — they sit side by side, and two fallbacks for one
-   * material read as two colours on the platform with no glass to hide it.
+   * Solid fill off iOS 26 Liquid Glass. Defaults to `glassFallback` (Figma
+   * 4211:83834's composited "Fill + Shadow" gray) to match `GlassNavBubble` —
+   * they sit side by side, and two fallbacks for one material read as two
+   * colours on the platform with no glass to hide it.
    *
    * Pass a colour for anything that is not a white page; the scanner does.
    */
@@ -59,12 +60,11 @@ export function GlassButtonGroup({
   ...rest
 }: GlassButtonGroupProps) {
   const theme = useSpotlightTheme();
-  // `canvasElevated` IS the page colour, so a white pill needs a raised edge to
-  // exist at all. Only without glass — on glass it fights the material's own.
-  const fallbackShell = isLiquidGlassAvailable() ? null : theme.shadows.card;
+  // Only without glass — on glass a shadow fights the material's own edge.
+  const fallbackShell = isLiquidGlassAvailable() ? null : theme.shadows.glassPill;
   return (
     <GlassSurface
-      fallbackColor={fallbackColor ?? theme.colors.canvasElevated}
+      fallbackColor={fallbackColor ?? theme.colors.glassFallback}
       glassEffectStyle="regular"
       style={[styles.group, { borderRadius: theme.radii.pill }, fallbackShell, style]}
       {...rest}

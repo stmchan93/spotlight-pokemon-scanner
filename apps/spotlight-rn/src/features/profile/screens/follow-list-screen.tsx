@@ -3,9 +3,10 @@ import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { CheckCircle } from 'iconoir-react-native';
+
 import {
   Avatar,
-  ScreenHeader,
   StateCard,
   Text,
   useSpotlightTheme,
@@ -100,27 +101,33 @@ export function FollowListScreen({
         <Pressable
           accessibilityRole="button"
           onPress={() => handlePressRow(item)}
-          style={({ pressed }) => [
-            styles.row,
-            { borderBottomColor: theme.colors.gray200 },
-            pressed ? styles.rowPressed : null,
-          ]}
+          style={({ pressed }) => [styles.row, pressed ? styles.rowPressed : null]}
           testID={`${testID}-row-${item.userID}`}
         >
           <Avatar
             initials={getProfileInitials(item.displayName)}
-            size={44}
+            size={40}
             testID={`${testID}-row-${item.userID}-avatar`}
             uri={item.avatarURL}
           />
           <View style={styles.rowCopy}>
-            <Text numberOfLines={1} style={theme.typography.bodyStrong}>
-              {displayName}
-            </Text>
+            <View style={styles.nameRow}>
+              <Text numberOfLines={1} style={[theme.typography.bodyMedium, styles.nameText]}>
+                {displayName}
+              </Text>
+              {item.isVerified ? (
+                <CheckCircle
+                  color={theme.colors.purple500}
+                  height={16}
+                  testID={`${testID}-row-${item.userID}-verified`}
+                  width={16}
+                />
+              ) : null}
+            </View>
             {handle ? (
               <Text
                 numberOfLines={1}
-                style={[theme.typography.captionMedium, { color: theme.colors.gray500 }]}
+                style={[theme.typography.label, { color: theme.colors.gray600 }]}
               >
                 @{handle}
               </Text>
@@ -166,20 +173,18 @@ export function FollowListScreen({
         keyExtractor={(item) => item.userID}
         ListEmptyComponent={listEmpty}
         ListHeaderComponent={
-          <ScreenHeader
-            // Back button on its own row above the title, matching Search Cards
-            // — they are the same kind of screen and were laid out two
-            // different ways.
-            accessoryTestID={`${testID}-back-row`}
-            layout="stacked"
-            leftAccessory={
-              onBack ? (
-                <ChromeBackButton onPress={onBack} testID={`${testID}-back`} />
-              ) : undefined
-            }
-            style={styles.header}
-            title={headerTitle}
-          />
+          <View style={styles.toolbar} testID={`${testID}-toolbar`}>
+            {onBack ? (
+              <ChromeBackButton
+                onPress={onBack}
+                style={styles.toolbarBack}
+                testID={`${testID}-back`}
+              />
+            ) : null}
+            <Text numberOfLines={1} style={theme.typography.titleMedium}>
+              {headerTitle}
+            </Text>
+          </View>
         }
         renderItem={renderItem}
         testID={`${testID}-scroll-view`}
@@ -189,22 +194,23 @@ export function FollowListScreen({
 }
 
 const styles = StyleSheet.create({
-  header: {
-    paddingBottom: 12,
-    paddingTop: 8,
+  nameRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 4,
+  },
+  nameText: {
+    flexShrink: 1,
   },
   row: {
     alignItems: 'center',
-    // Hairline under every row, the DM-inbox treatment — a list of people
-    // reads as a list, not a floating column of avatars.
-    borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
-    gap: 12,
-    paddingVertical: 12,
+    gap: 8,
+    paddingVertical: 8,
   },
   rowCopy: {
     flex: 1,
-    gap: 2,
+    gap: 4,
     minWidth: 0,
   },
   rowPressed: {
@@ -215,5 +221,15 @@ const styles = StyleSheet.create({
   },
   stateCard: {
     marginTop: 12,
+  },
+  toolbar: {
+    alignItems: 'center',
+    height: 56,
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  toolbarBack: {
+    left: 0,
+    position: 'absolute',
   },
 });

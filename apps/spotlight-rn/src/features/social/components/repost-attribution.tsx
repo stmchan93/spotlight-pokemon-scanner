@@ -44,10 +44,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 6,
     // Aligns with the card's own 16pt gutter; the top padding is the card's
-    // `paddingTop: 16` moved up here so the attribution sits ON the card rather
-    // than floating in the gap between two of them.
+    // `cardContent` `paddingTop: 12` moved up here so the attribution sits ON
+    // the card rather than floating in the gap between two of them.
     paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingTop: 12,
   },
 });
 

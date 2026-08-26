@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, Text, useSpotlightTheme } from '@spotlight/design-system';
+import { Text, useSpotlightTheme } from '@spotlight/design-system';
 
 // Sort keys for the Insights performance table (Figma 2179:16233 "Filter By").
 export type InsightsSortKey =
@@ -48,11 +48,11 @@ type InsightsSortSheetProps = {
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 
 /**
- * "Filter By" sort sheet (Figma 2179:16233): handle + centered title, the sort
- * option list (selected row = purple/50 fill), then a dark Apply CTA over an
- * outline Cancel. Selection is a draft — only Apply commits it; Cancel and the
- * backdrop discard. Mirrors ConfirmDeleteSheet's slide/scrim so the app's
- * sheets feel like one system; the header is the drag-to-dismiss zone.
+ * "Filter By" sort sheet (Figma 2664:25051): handle, then a CANCEL / centered
+ * title / APPLY header row over the sort option list (selected row = purple/50
+ * fill + semibold label). Selection is a draft — only APPLY commits it; CANCEL
+ * and the backdrop discard. Mirrors ConfirmDeleteSheet's slide/scrim so the
+ * app's sheets feel like one system; the header is the drag-to-dismiss zone.
  */
 export function InsightsSortSheet({
   visible,
@@ -170,11 +170,37 @@ export function InsightsSortSheet({
             >
               <View style={[styles.handleBar, { backgroundColor: theme.colors.gray200 }]} />
             </Pressable>
-            <Text
-              style={[theme.typography.bodyMedium, styles.title, { color: theme.colors.gray900 }]}
-            >
-              Filter By
-            </Text>
+            <View style={styles.headerRow}>
+              <Pressable
+                accessibilityLabel="Cancel"
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={onClose}
+                style={styles.headerActionLeading}
+                testID={`${testID}-cancel`}
+              >
+                <Text style={[theme.typography.labelStrong, { color: theme.colors.gray600 }]}>
+                  CANCEL
+                </Text>
+              </Pressable>
+              <Text
+                style={[theme.typography.titleSmall, styles.title, { color: theme.colors.gray900 }]}
+              >
+                Filter By
+              </Text>
+              <Pressable
+                accessibilityLabel="Apply"
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={() => onApply(draftKey)}
+                style={styles.headerActionTrailing}
+                testID={`${testID}-apply`}
+              >
+                <Text style={[theme.typography.labelStrong, { color: theme.colors.purple500 }]}>
+                  APPLY
+                </Text>
+              </Pressable>
+            </View>
           </View>
 
           <View style={styles.options}>
@@ -194,7 +220,7 @@ export function InsightsSortSheet({
                 >
                   <Text
                     style={[
-                      theme.typography.body,
+                      selected ? theme.typography.titleXsmall : theme.typography.bodySmall,
                       { color: selected ? theme.colors.gray900 : theme.colors.gray700 },
                     ]}
                   >
@@ -204,27 +230,6 @@ export function InsightsSortSheet({
               );
             })}
           </View>
-
-          <View style={styles.actions}>
-            <Button
-              label="Apply"
-              labelStyleVariant="label"
-              onPress={() => onApply(draftKey)}
-              shape="rounded"
-              size="md"
-              testID={`${testID}-apply`}
-              variant="dark"
-            />
-            <Button
-              label="Cancel"
-              labelStyleVariant="label"
-              onPress={onClose}
-              shape="rounded"
-              size="md"
-              testID={`${testID}-cancel`}
-              variant="outline"
-            />
-          </View>
         </Animated.View>
       </View>
     </Modal>
@@ -232,11 +237,6 @@ export function InsightsSortSheet({
 }
 
 const styles = StyleSheet.create({
-  actions: {
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingTop: 24,
-  },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0, 0, 0, 0.4)',
@@ -248,15 +248,28 @@ const styles = StyleSheet.create({
   },
   handleHit: {
     alignItems: 'center',
-    paddingBottom: 6,
-    paddingTop: 4,
   },
   header: {
     width: '100%',
   },
+  headerActionLeading: {
+    alignItems: 'flex-start',
+    minWidth: 56,
+  },
+  headerActionTrailing: {
+    alignItems: 'flex-end',
+    minWidth: 56,
+  },
+  headerRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 14,
+    paddingHorizontal: 16,
+  },
   optionRow: {
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 10,
     width: '100%',
   },
   options: {
@@ -272,7 +285,7 @@ const styles = StyleSheet.create({
     paddingTop: 10,
   },
   title: {
-    paddingTop: 14,
+    flex: 1,
     textAlign: 'center',
   },
 });

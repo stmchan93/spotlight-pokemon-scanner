@@ -31,7 +31,7 @@ export function PageTabs<V extends string>({
         style={[
           styles.rail,
           {
-            backgroundColor: theme.colors.gray200,
+            backgroundColor: theme.colors.gray300,
             height: theme.borderWidths.containerRule,
           },
         ]}
@@ -62,7 +62,7 @@ export function PageTabs<V extends string>({
                     fontFamily: selected
                       ? theme.typography.bodyMedium.fontFamily
                       : theme.typography.body.fontFamily,
-                    color: selected ? theme.colors.textPrimary : theme.colors.textSecondary,
+                    color: selected ? theme.colors.textPrimary : theme.colors.gray600,
                   },
                 ]}
               >
