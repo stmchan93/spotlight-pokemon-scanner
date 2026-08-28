@@ -204,6 +204,18 @@ variant None/matching `main_raw_variant`.
   (20,519/20,580), JP 57% priced + 43% Scrydex fallback, 22 colliding product
   ids, 92% exact subtype matches, 261 JP cards gain a price.
 
+## Multi-TCG (when the worktree merges)
+
+TCGCSV categories for the other games: One Piece 68, Lorcana 71, Gundam 86,
+Riftbound 89 (Star Wars Unlimited 79). The ONLY Pokémon-specific line in the
+pipeline is `TCGCSV_CATEGORY_IDS = (3, 85)` — join/verification/per-printing/
+trend machinery is category-generic. Before extending: (1) verify those games'
+Scrydex payloads carry TCGplayer product ids (the join key), (2) rerun
+`tools/audit_tcgcsv_parity.py --categories 68,71,86,89` against the worktree DB
+per game. The marketPrice==NM finding transfers structurally (same TCGplayer
+pipeline) and matters less for these 2022+ games (negligible NM/LP gaps); no
+JP-fallback problem exists there (Scrydex non-Pokémon is EN-only).
+
 ## Rollout
 
 1. Deploy backend to staging. Run `sync_tcgcsv_prices.py` manually with
