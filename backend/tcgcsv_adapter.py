@@ -24,8 +24,12 @@ from email.utils import parsedate_to_datetime
 
 TCGCSV_PROVIDER = "tcgcsv"
 TCGCSV_BASE_URL = "https://tcgcsv.com/tcgplayer"
-# TCGplayer categories: Pokemon EN = 3, Pokemon Japan = 85 (this catalog is Pokémon-only).
-TCGCSV_CATEGORY_IDS = (3, 85)
+# TCGplayer categories: Pokemon EN = 3, Pokemon Japan = 85, One Piece = 68,
+# Lorcana = 71, Gundam = 86, Riftbound = 89. The join is by tcgplayer
+# product_id (game-agnostic), so a category here only decides which price
+# files get fetched. Multi-TCG parity audit 2026-08-28: 7,901/7,917 new-game
+# cards priced, 0 collector-number mismatches, delta p50 = 0%.
+TCGCSV_CATEGORY_IDS = (3, 85, 68, 71, 86, 89)
 
 TCGCSV_USER_AGENT = "Spotlight/1.1 (card scanner; contact: stmchan8953@gmail.com)"
 TCGCSV_MIN_REQUEST_INTERVAL_SECONDS = 0.3
