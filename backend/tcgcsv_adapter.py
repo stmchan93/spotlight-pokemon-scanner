@@ -258,11 +258,18 @@ _VARIANT_LABEL_TO_SUBTYPE = {
     "Reverse Holofoil": "Reverse Holofoil",
     "First Edition": "1st Edition Holofoil",
     "Unlimited": "Unlimited Holofoil",
+    # Non-Pokémon finishes (measured live in categories 68/71/86/89): One
+    # Piece + Riftbound use Foil; Lorcana uses Cold Foil; Gundam reuses
+    # Holofoil. Labels arrive camelCase-split ("coldFoil" -> "Cold Foil").
+    "Foil": "Foil",
+    "Cold Foil": "Cold Foil",
 }
 _SUBTYPE_FALLBACK_ORDER = (
     "Normal",
     "Holofoil",
     "Reverse Holofoil",
+    "Foil",
+    "Cold Foil",
     "Unlimited Normal",
     "Unlimited Holofoil",
     "1st Edition Normal",
@@ -280,6 +287,8 @@ SUBTYPE_TO_SCRYDEX_VARIANT_LABEL = {
     "1st Edition Normal": "First Edition",
     "Unlimited Holofoil": "Unlimited",
     "Unlimited Normal": "Unlimited",
+    "Foil": "Foil",
+    "Cold Foil": "Cold Foil",
 }
 
 

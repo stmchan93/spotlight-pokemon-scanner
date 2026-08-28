@@ -119,6 +119,15 @@ class NumberNormalizationTests(unittest.TestCase):
         ):
             self.assertEqual(tcgcsv_adapter.normalized_card_number(raw), expected, raw)
 
+    def test_non_pokemon_finish_mappings(self):
+        # Measured live in categories 68/71/86/89: OP/Riftbound use Foil,
+        # Lorcana uses Cold Foil (Scrydex "coldFoil" -> "Coldfoil"), Gundam
+        # reuses Holofoil.
+        self.assertEqual(tcgcsv_adapter.subtype_for_variant_label("Foil"), "Foil")
+        self.assertEqual(tcgcsv_adapter.subtype_for_variant_label("Cold Foil"), "Cold Foil")
+        self.assertEqual(tcgcsv_adapter.scrydex_variant_label_for_subtype("Foil"), "Foil")
+        self.assertEqual(tcgcsv_adapter.scrydex_variant_label_for_subtype("Cold Foil"), "Cold Foil")
+
     def test_card_numbers_match_table(self):
         match = tcgcsv_adapter.card_numbers_match
         self.assertTrue(match("175", "svp175"))       # product carries the set prefix

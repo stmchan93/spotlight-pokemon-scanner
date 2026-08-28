@@ -102,7 +102,9 @@ One row per card everywhere, no provider-key migration:
   swsh8a_ja-27 (V-UNION quarter) + sm1s_ja-43 (off-by-one) + tk6b-12
   (#12→product #23). `--force` flag exists for manual validation runs only
   (bypasses the last-updated guard; keep rare).
-- **Manual overrides** (`backend/data/tcgplayer_id_overrides.json`, confirmed by
+- **Manual overrides** (`backend/tcgplayer_id_overrides.json` — backend ROOT,
+  never data/ (the deploy tar excludes ./data, which once kept the file off the
+  VM and every override silently inert); confirmed by
   Stephen 2026-08-25): human-verified card→product remaps that replace the
   Scrydex payload claim and are exempt from collision blocking and number
   verification. Nine entries: svp-222→664827 (Kukui), swsh8a_ja-27→571819

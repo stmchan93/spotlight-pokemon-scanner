@@ -321,6 +321,55 @@ class SyncTcgcsvPricesTests(unittest.TestCase):
         self.assertEqual(stats["priced"], 0)
         self.assertEqual(stats["skipped_no_match"], 2)
 
+    def test_unmapped_label_with_own_product_takes_its_sole_priced_subtype(self):
+        # One Piece alt-art shape: the "altArt" printing is its OWN TCGplayer
+        # product; its sole priced subtype belongs to it unambiguously.
+        payload = {"variants": [
+            {"name": "normal", "marketplaces": [{"name": "tcgplayer", "product_id": "700001"}]},
+            {"name": "altArt", "marketplaces": [{"name": "tcgplayer", "product_id": "700002"}]},
+        ]}
+        upsert_card(
+            self.connection, card_id="onepiece~OP01-001", name="Roronoa Zoro",
+            set_name="Romance Dawn", number="OP01-001", rarity="L", variant="Raw",
+            language="English", source_provider="scrydex", source_payload=payload,
+        )
+        self.connection.commit()
+        reset_collision_guard_cache()
+        prices = {
+            "700001": {"Normal": {"productId": 700001, "subTypeName": "Normal", "marketPrice": 1.5}},
+            "700002": {"Foil": {"productId": 700002, "subTypeName": "Foil", "marketPrice": 40.0}},
+        }
+        self._sync(product_price_map=prices)
+        row = self.connection.execute(
+            "SELECT main_raw_printings_json FROM card_price_snapshots WHERE card_id='onepiece~OP01-001'"
+        ).fetchone()
+        printings = json.loads(row[0])
+        self.assertEqual(printings["Normal"]["market"], 1.5)
+        self.assertEqual(printings["Alt Art"], {"subTypeName": "Foil", "market": 40.0,
+                                                "low": None, "mid": None, "high": None, "directLow": None})
+
+    def test_unmapped_label_sharing_a_product_contributes_nothing(self):
+        # Pokémon cross-finish safety: an unmapped label on a SHARED pid must
+        # not grab another printing's subtype price.
+        payload = {"variants": [
+            {"name": "normal", "marketplaces": [{"name": "tcgplayer", "product_id": "700003"}]},
+            {"name": "weirdFinish", "marketplaces": [{"name": "tcgplayer", "product_id": "700003"}]},
+        ]}
+        upsert_card(
+            self.connection, card_id="shared-1", name="Sharedmon", set_name="S",
+            number="1", rarity="C", variant="Raw", language="English",
+            source_provider="scrydex", source_payload=payload,
+        )
+        self.connection.commit()
+        reset_collision_guard_cache()
+        prices = {"700003": {"Normal": {"productId": 700003, "subTypeName": "Normal", "marketPrice": 2.0}}}
+        self._sync(product_price_map=prices)
+        row = self.connection.execute(
+            "SELECT main_raw_printings_json FROM card_price_snapshots WHERE card_id='shared-1'"
+        ).fetchone()
+        printings = json.loads(row[0])
+        self.assertEqual(set(printings), {"Normal"})
+
     def test_number_verified_collision_resolution_prices_the_rightful_card(self):
         # The svp-221/222 shape: svp-222's payload mis-points at Birch's product
         # (Number 221), blocking svp-221 too. The product's Number names the

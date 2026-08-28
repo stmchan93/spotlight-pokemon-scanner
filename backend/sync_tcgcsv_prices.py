@@ -53,7 +53,9 @@ load_backend_env_file(Path(__file__).resolve().parent / ".env")
 TCGCSV_SYNC_SCOPE = "raw-main"
 PRICING_SYNC_GENERATION_KEY = "pricing_sync_generation"
 TCGCSV_LAST_UPDATED_KEY = "tcgcsv_last_updated_marker"
-TCGPLAYER_ID_OVERRIDES_PATH = Path(__file__).resolve().parent / "data" / "tcgplayer_id_overrides.json"
+# Lives at the backend ROOT, not data/: the deploy tar excludes ./data (the live
+# DB), which silently kept this file off the VM and every override inert.
+TCGPLAYER_ID_OVERRIDES_PATH = Path(__file__).resolve().parent / "tcgplayer_id_overrides.json"
 
 
 def load_tcgplayer_id_overrides(path: Path = TCGPLAYER_ID_OVERRIDES_PATH) -> dict[str, str]:
@@ -224,8 +226,15 @@ def _build_printings_map(
     verify_numbers: bool,
 ) -> dict[str, dict[str, Any]]:
     """{Scrydex variant label: printing entry} for every printing with its own
-    marketPrice. Exact label->subTypeName rows only — no fallback-order walking
-    (the walk is a headline-only behavior)."""
+    marketPrice. Exact label->subTypeName rows, with one relaxation: an unmapped
+    label (altArt/beta/jollyRogerFoil — printings that are their OWN TCGplayer
+    product) may take its product's ONLY priced subtype, but only when no other
+    label of the card shares that product id — a pid unique to the printing
+    means any subtype under it belongs to that printing. Shared-pid unmapped
+    labels still contribute nothing (the Pokémon cross-finish safety)."""
+    pid_claims: dict[str, int] = {}
+    for pid in variant_product_ids.values():
+        pid_claims[pid] = pid_claims.get(pid, 0) + 1
     printings: dict[str, dict[str, Any]] = {}
     for label, product_id in variant_product_ids.items():
         if product_id in blocked:
@@ -234,12 +243,15 @@ def _build_printings_map(
             product_num = product_number_map.get(product_id)
             if product_num and card_number and not card_numbers_match(card_number, product_num):
                 continue
+        subtypes = product_price_map.get(product_id) or {}
         sub_type_name = subtype_for_variant_label(label)
+        if not sub_type_name and pid_claims.get(product_id) == 1:
+            priced = [s for s, prices in subtypes.items() if cleaned_price(prices.get("marketPrice"))]
+            if len(priced) == 1:
+                sub_type_name = priced[0]
         if not sub_type_name:
             continue
-        entry = _printing_entry(
-            (product_price_map.get(product_id) or {}).get(sub_type_name) or {}, sub_type_name
-        )
+        entry = _printing_entry(subtypes.get(sub_type_name) or {}, sub_type_name)
         if entry is not None:
             printings.setdefault(label, entry)
     return printings
