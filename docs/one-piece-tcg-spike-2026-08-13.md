@@ -721,7 +721,20 @@ What this means for the product:
 >    typical delay between a One Piece set's street date and its appearance in
 >    the API? It determines how often we should re-sync.
 >
+> 4. **DON!! cards and Premium Booster contents**: `q=name:DON*` returns no
+>    DON!! cards at all, and PRB01 ("Premium Booster -The Best-") contains a
+>    single card (PRB01-001). Alt-art DON!! cards are actively collected and
+>    traded with real market prices — are they, and the PRB alt-art reprints,
+>    planned as catalog entries (or exposed as variants we're not seeing)?
+>
 > Thanks — happy to share exact request logs if useful.
+
+**Field report backing question 4 (2026-08-27):** second real user scan to miss
+was an alt-art DON!! Luffy from PRB-01. Not a lag like ST31 — a card CLASS
+Scrydex doesn't model. Until they do, DON!!s are unscannable and PRB sets look
+nearly empty in browse, which a One Piece collector will read as a broken app
+rather than a data gap. Worth deciding before launch whether the scanner's
+"no match" copy should name the known-uncataloged classes.
 
 **Field report backing question 3:** the first real user scan to miss (2026-08-26)
 was `ST31-004` — a set Scrydex doesn't carry yet, not a model miss. The scanner
