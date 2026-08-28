@@ -13,6 +13,7 @@ from urllib.error import HTTPError, URLError
 
 from catalog_tools import (
     DEFAULT_GAME,
+    GAMES,
     catalog_sync_request_type,
     game_has_language_paths,
     normalize_game,
@@ -156,6 +157,31 @@ def _fetch_scrydex_cards_page_with_retries(
             time.sleep(delay_seconds)
 
     raise RuntimeError("unreachable")
+
+
+def parse_games_list(value: str) -> list[str]:
+    """Parse a comma-separated ``--games`` value into normalized, deduped game ids.
+
+    Strict on unknown tokens: ``normalize_game`` maps anything unrecognized to
+    Pokémon, so a typo'd game would silently become a second full Pokémon sync
+    (and the intended game would get no history that day). Reject instead.
+    """
+    games: list[str] = []
+    for token in value.split(","):
+        stripped = token.strip()
+        if not stripped:
+            continue
+        normalized = normalize_game(stripped)
+        if normalized == DEFAULT_GAME and stripped.lower() not in (
+            DEFAULT_GAME,
+            *GAMES[DEFAULT_GAME].aliases,
+        ):
+            raise SystemExit(f"Unknown game in --games: {stripped}")
+        if normalized not in games:
+            games.append(normalized)
+    if not games:
+        raise SystemExit("--games requires at least one game")
+    return games
 
 
 def cli_value(flag: str) -> str | None:
@@ -470,6 +496,52 @@ def sync_scrydex_catalog(
     raise RuntimeError("unreachable")
 
 
+def sync_scrydex_catalog_for_games(
+    *,
+    database_path: Path,
+    repo_root: Path,
+    games: list[str],
+    page_size: int = 100,
+    language: str | None = None,
+    max_pages: int | None = None,
+    price_date: str | None = None,
+    scheduled_for: str | None = None,
+) -> dict[str, Any]:
+    """Run the catalog sync once per game, sequentially, each with its own
+    provider_sync_runs row. One game's outage must not cost the other games
+    their daily price-history point, so failures are recorded and the loop
+    continues; the caller decides the exit code from ``failures``."""
+    summaries: list[dict[str, Any]] = []
+    failures: list[dict[str, Any]] = []
+    for game in games:
+        try:
+            summaries.append(
+                sync_scrydex_catalog(
+                    database_path=database_path,
+                    repo_root=repo_root,
+                    page_size=page_size,
+                    game=game,
+                    language=language,
+                    max_pages=max_pages,
+                    price_date=price_date,
+                    scheduled_for=scheduled_for,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - continue-on-failure is the contract
+            failures.append({"game": game, "errorText": str(exc)})
+            print(
+                json.dumps(
+                    {
+                        "event": "scrydex_sync_game_failed",
+                        "game": game,
+                        "errorText": str(exc),
+                    }
+                ),
+                file=sys.stderr,
+            )
+    return {"games": list(games), "summaries": summaries, "failures": failures}
+
+
 def main() -> None:
     backend_root = Path(__file__).resolve().parent
     repo_root = backend_root.parent
@@ -483,6 +555,26 @@ def main() -> None:
     language = cli_value("--language")
     price_date = cli_value("--price-date")
     scheduled_for = cli_value("--scheduled-for")
+
+    games_value = cli_value("--games")
+    if games_value is not None:
+        if cli_value("--game") is not None:
+            raise SystemExit("Pass either --game or --games, not both")
+        result = sync_scrydex_catalog_for_games(
+            database_path=database_path,
+            repo_root=repo_root,
+            games=parse_games_list(games_value),
+            page_size=page_size,
+            language=language,
+            max_pages=max_pages,
+            price_date=price_date,
+            scheduled_for=scheduled_for,
+        )
+        print(json.dumps(result, indent=2))
+        if result["failures"]:
+            raise SystemExit(1)
+        return
+
     summary = sync_scrydex_catalog(
         database_path=database_path,
         repo_root=repo_root,

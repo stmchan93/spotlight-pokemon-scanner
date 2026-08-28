@@ -80,6 +80,7 @@ TEST_MODULES=(
   backend.tests.test_main_raw_price_serving
   backend.tests.test_raw_condition_surface_coherence
   backend.tests.test_main_raw_trend_series
+  backend.tests.test_seed_condition_history_from_snapshots
 )
 
 run_targeted_tests() {

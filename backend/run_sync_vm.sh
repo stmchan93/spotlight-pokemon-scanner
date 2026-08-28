@@ -31,8 +31,12 @@ DATABASE_PATH="${SPOTLIGHT_DATABASE_PATH:-$SCRIPT_DIR/data/spotlight_scanner.sql
 HOSTNAME_VALUE="$(hostname -s 2>/dev/null || hostname)"
 export SPOTLIGHT_RUNTIME_LABEL="${SPOTLIGHT_RUNTIME_LABEL:-vm-sync:${HOSTNAME_VALUE}}"
 
+# Every supported game, in catalog_tools.GAMES registry order. The sync loops
+# per game inside sync_scrydex_catalog.py (own provider_sync_runs row each,
+# continue-on-failure), so a dead game still exits nonzero AFTER the others ran.
 "$PYTHON_BIN" "$SCRIPT_DIR/sync_scrydex_catalog.py" \
   --database-path "$DATABASE_PATH" \
+  --games pokemon,onepiece,lorcana,riftbound,gundam \
   --scheduled-for "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
 # Post-sync: embed any newly-synced cards into the visual index and hot-reload

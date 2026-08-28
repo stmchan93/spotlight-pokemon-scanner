@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import socket
 import sys
 import unittest
@@ -24,6 +26,8 @@ from sync_scrydex_catalog import (
     _refresh_fx_rates_for_catalog,
     _retry_after_from_error,
     _scrydex_catalog_page_retry_delay_seconds,
+    parse_games_list,
+    sync_scrydex_catalog_for_games,
 )
 
 
@@ -175,6 +179,119 @@ class SyncScrydexCatalogHelperTests(unittest.TestCase):
 
         self.assertEqual(fetch_page.call_count, 1)
         sleep.assert_not_called()
+
+
+class ParseGamesListTests(unittest.TestCase):
+    def test_normalizes_dedupes_and_keeps_order(self) -> None:
+        self.assertEqual(
+            parse_games_list("pokemon, onepiece,lorcana,onepiece"),
+            ["pokemon", "onepiece", "lorcana"],
+        )
+        # Aliases normalize to registry ids.
+        self.assertEqual(parse_games_list("op,ptcg"), ["onepiece", "pokemon"])
+
+    def test_rejects_unknown_games_instead_of_defaulting_to_pokemon(self) -> None:
+        # normalize_game maps unknowns to Pokémon; here a typo must NOT silently
+        # become a second full Pokémon sync while the typo'd game gets nothing.
+        with self.assertRaises(SystemExit):
+            parse_games_list("pokemon,lorcanna")
+        with self.assertRaises(SystemExit):
+            parse_games_list("")
+
+
+class SyncScrydexCatalogForGamesTests(unittest.TestCase):
+    GAMES = ["pokemon", "onepiece", "lorcana", "riftbound", "gundam"]
+
+    def _run(self, side_effect) -> tuple:
+        with patch.object(
+            sync_scrydex_catalog, "sync_scrydex_catalog", side_effect=side_effect
+        ) as mock_sync:
+            with contextlib.redirect_stderr(io.StringIO()):
+                result = sync_scrydex_catalog_for_games(
+                    database_path=Path("/tmp/does-not-matter.sqlite"),
+                    repo_root=Path("/tmp"),
+                    games=list(self.GAMES),
+                    scheduled_for="2026-08-28T01:00:00Z",
+                )
+        return result, mock_sync
+
+    def test_runs_each_game_once_in_the_given_order(self) -> None:
+        result, mock_sync = self._run(lambda **kwargs: {"game": kwargs["game"]})
+
+        self.assertEqual(
+            [call.kwargs["game"] for call in mock_sync.call_args_list], self.GAMES
+        )
+        self.assertEqual([s["game"] for s in result["summaries"]], self.GAMES)
+        self.assertEqual(result["failures"], [])
+        # Every per-game run keeps the shared invocation parameters.
+        for call in mock_sync.call_args_list:
+            self.assertEqual(call.kwargs["scheduled_for"], "2026-08-28T01:00:00Z")
+
+    def test_a_failing_game_is_recorded_and_the_rest_still_run(self) -> None:
+        def sync(**kwargs):
+            if kwargs["game"] == "onepiece":
+                raise RuntimeError("scrydex melted")
+            return {"game": kwargs["game"]}
+
+        result, mock_sync = self._run(sync)
+
+        # The failure did not stop lorcana/riftbound/gundam.
+        self.assertEqual(mock_sync.call_count, len(self.GAMES))
+        self.assertEqual(
+            result["failures"], [{"game": "onepiece", "errorText": "scrydex melted"}]
+        )
+        self.assertEqual(
+            [s["game"] for s in result["summaries"]],
+            ["pokemon", "lorcana", "riftbound", "gundam"],
+        )
+
+    def _run_main(self, argv: list[str], side_effect) -> None:
+        with patch.object(sys, "argv", ["sync_scrydex_catalog.py", *argv]):
+            with patch.object(
+                sync_scrydex_catalog, "sync_scrydex_catalog", side_effect=side_effect
+            ):
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
+                    io.StringIO()
+                ):
+                    sync_scrydex_catalog.main()
+
+    def test_main_exits_nonzero_when_any_game_failed(self) -> None:
+        def sync(**kwargs):
+            if kwargs["game"] == "gundam":
+                raise RuntimeError("boom")
+            return {"game": kwargs["game"]}
+
+        with self.assertRaises(SystemExit) as caught:
+            self._run_main(["--games", "pokemon,gundam"], sync)
+        self.assertEqual(caught.exception.code, 1)
+
+    def test_main_succeeds_quietly_when_every_game_succeeds(self) -> None:
+        # No SystemExit: a clean multi-game run must exit 0 for cron.
+        self._run_main(
+            ["--games", "pokemon,onepiece"], lambda **kwargs: {"game": kwargs["game"]}
+        )
+
+    def test_main_rejects_game_and_games_together(self) -> None:
+        with self.assertRaises(SystemExit):
+            self._run_main(
+                ["--games", "pokemon", "--game", "onepiece"],
+                lambda **kwargs: {"game": kwargs["game"]},
+            )
+
+    def test_main_without_games_keeps_the_single_game_path(self) -> None:
+        # Back-compat: --game alone still means exactly one sync invocation.
+        with patch.object(
+            sys, "argv", ["sync_scrydex_catalog.py", "--game", "onepiece"]
+        ):
+            with patch.object(
+                sync_scrydex_catalog,
+                "sync_scrydex_catalog",
+                return_value={"game": "onepiece"},
+            ) as mock_sync:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    sync_scrydex_catalog.main()
+        mock_sync.assert_called_once()
+        self.assertEqual(mock_sync.call_args.kwargs["game"], "onepiece")
 
 
 if __name__ == "__main__":
