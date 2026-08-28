@@ -92,23 +92,6 @@ function dashboardHasHydratedSeries(dashboard: PortfolioDashboard) {
   });
 }
 
-function inventorySearchText(item: InventoryCardEntry) {
-  return [
-    item.name,
-    item.cardNumber,
-    item.setName,
-    item.conditionLabel,
-    item.conditionShortLabel,
-    item.variantName,
-    item.slabContext?.grader,
-    item.slabContext?.grade,
-    item.slabContext?.variantName,
-  ]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-}
-
 function normalizeChartPointDate(isoDate: string) {
   return isoDate.includes('T') ? isoDate : `${isoDate}T12:00:00.000Z`;
 }
@@ -296,6 +279,13 @@ export function usePortfolioScreenModel({
   const [searchQuery, setSearchQuery] = useState('');
   const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
   const [editingSalePriceText, setEditingSalePriceText] = useState('');
+  // Unscoped (cross-collection) entries, fetched lazily when the Collection
+  // search needs them. Null = not fetched; the cache is dropped whenever the
+  // scoped inventory refetches so the two lists can't drift apart, and the
+  // generation counter discards a fetch that was in flight at that moment.
+  const [allInventoryEntries, setAllInventoryEntries] = useState<InventoryCardEntry[] | null>(null);
+  const allInventoryRequestedRef = useRef(false);
+  const allInventoryGenerationRef = useRef(0);
 
   // A dashboard belongs to the collection it was read for. `dashboard` is local
   // state that nothing re-scopes, so switching collections used to leave the
@@ -326,11 +316,17 @@ export function usePortfolioScreenModel({
     setIsDashboardStale(false);
     setLastUpdatedAt(null);
     setLoadError(null);
+    // A search typed against one collection must not silently filter the next.
+    setSearchQuery('');
   }, [activeCollectionID]);
 
   const loadInventory = useCallback(async () => {
     const requestedCollectionID = activeCollectionIDRef.current;
     setIsLoadingInventory(true);
+    // The cross-collection cache is only as fresh as the scoped read beside it.
+    allInventoryGenerationRef.current += 1;
+    allInventoryRequestedRef.current = false;
+    setAllInventoryEntries(null);
     const loadResult = await spotlightRepository.loadInventoryEntries({
       collectionID: requestedCollectionID,
     });
@@ -405,6 +401,26 @@ export function usePortfolioScreenModel({
 
     setIsLoadingInventory(false);
   }, [setInventoryEntriesCache, spotlightRepository]);
+
+  // Backs the "In other collections" search section: one unscoped read per
+  // invalidation, latched so repeated triggers while it is in flight no-op. A
+  // failed read unlatches, so the next search trigger may retry.
+  const ensureAllInventoryLoaded = useCallback(async () => {
+    if (allInventoryRequestedRef.current) {
+      return;
+    }
+    allInventoryRequestedRef.current = true;
+    const generation = allInventoryGenerationRef.current;
+    const loadResult = await spotlightRepository.loadInventoryEntries();
+    if (generation !== allInventoryGenerationRef.current) {
+      return;
+    }
+    if (loadResult.data && loadResult.state !== 'error') {
+      setAllInventoryEntries(loadResult.data);
+    } else {
+      allInventoryRequestedRef.current = false;
+    }
+  }, [spotlightRepository]);
 
   // On a cold launch with no in-memory cache, hydrate the last persisted
   // dashboard so the chart appears instantly; the live refresh below then
@@ -653,20 +669,7 @@ export function usePortfolioScreenModel({
     void prefetchCardImages(dashboard.recentSales.slice(0, maxRecentSales), 'small');
   }, [dashboard.inventoryItems, dashboard.recentSales]);
 
-  const filteredInventory = useMemo(() => {
-    const normalizedQuery = searchQuery.trim().toLowerCase();
-
-    if (normalizedQuery.length === 0) {
-      return dashboard.inventoryItems;
-    }
-
-    return dashboard.inventoryItems.filter((item) => {
-      return inventorySearchText(item).includes(normalizedQuery);
-    });
-  }, [dashboard, searchQuery]);
-
   const hasInventoryEntries = dashboard.inventoryItems.length > 0;
-  const inventoryTotalCount = filteredInventory.length;
   const isLoading = isLoadingInventory || isLoadingDashboard;
 
   const recentSales = useMemo(() => {
@@ -734,10 +737,10 @@ export function usePortfolioScreenModel({
     isDashboardStale,
     lastUpdatedAt,
     canConfirmSalePriceEdit: editingSale !== null && parsedEditingSalePrice != null,
-    filteredInventory,
+    allInventoryEntries,
+    ensureAllInventoryLoaded,
     hasInventoryEntries,
     inventoryExpanded,
-    inventoryTotalCount,
     recentSales,
     recentSalesExpanded,
     searchQuery,

@@ -397,6 +397,10 @@ export type InventoryCardEntry = {
   rarityBucket?: RarityBucket;
   /** Which TCG this card is from; undefined on older payloads means Pokémon. */
   game?: CardGame;
+  // Owning collection, for unscoped (cross-collection) reads. Absent/null on
+  // servers that predate collection tagging.
+  collectionId?: string | null;
+  collectionName?: string | null;
   costBasisPerUnit?: number | null;
   costBasisTotal?: number | null;
   isFavorite?: boolean;

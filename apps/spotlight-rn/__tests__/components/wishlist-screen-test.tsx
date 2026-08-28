@@ -212,6 +212,59 @@ describe('WishlistScreen', () => {
     });
   });
 
+  it('sorts by descending price from a chip whose arrow points down', async () => {
+    const favorites = [
+      buildFavoriteEntry({ cardId: 'cheap', name: 'Cheap Card', marketPrice: 1 }),
+      buildFavoriteEntry({ cardId: 'dear', name: 'Expensive Card', marketPrice: 100 }),
+      buildFavoriteEntry({ cardId: 'mid', name: 'Middle Card', marketPrice: 10 }),
+    ];
+    const repository = createTestSpotlightRepository({
+      getCardFavorites: async () => favorites,
+    });
+
+    renderWishlistScreen(repository);
+    await screen.findByTestId('wishlist-row-cheap');
+
+    // Highest-first sort ⇒ a downward arrow. It pointed up for a while, which
+    // read as "ascending" over a list that was anything but.
+    const priceChip = screen.getByTestId('wishlist-filter-price');
+    expect(within(priceChip).getByTestId('iconoir-ArrowDown')).toBeTruthy();
+    expect(within(priceChip).queryByTestId('iconoir-ArrowUp')).toBeNull();
+
+    fireEvent.press(priceChip);
+
+    await waitFor(() => {
+      const ids = screen
+        .getAllByTestId(/^wishlist-row-(cheap|dear|mid)$/)
+        .map((node) => node.props.testID);
+      expect(ids).toEqual(['wishlist-row-dear', 'wishlist-row-mid', 'wishlist-row-cheap']);
+    });
+  });
+
+  it('sorts A-Z case-insensitively, matching the Collection collation', async () => {
+    const favorites = [
+      buildFavoriteEntry({ cardId: 'ban', name: 'banana Split' }),
+      buildFavoriteEntry({ cardId: 'zeb', name: 'Zebstrika' }),
+      buildFavoriteEntry({ cardId: 'abs', name: 'absol' }),
+    ];
+    const repository = createTestSpotlightRepository({
+      getCardFavorites: async () => favorites,
+    });
+
+    renderWishlistScreen(repository);
+    await screen.findByTestId('wishlist-row-ban');
+
+    fireEvent.press(screen.getByTestId('wishlist-filter-az'));
+
+    // A codepoint sort would put the capital Z first ('Z' < 'a').
+    await waitFor(() => {
+      const ids = screen
+        .getAllByTestId(/^wishlist-row-(ban|zeb|abs)$/)
+        .map((node) => node.props.testID);
+      expect(ids).toEqual(['wishlist-row-abs', 'wishlist-row-ban', 'wishlist-row-zeb']);
+    });
+  });
+
   // The since-added/30d trend UI was removed from the wishlist (2026-07-18,
   // same as Collection; it is moving to the PDP): no header tag, no row/tile
   // percents, no row sparklines — even when entries carry the trend data.

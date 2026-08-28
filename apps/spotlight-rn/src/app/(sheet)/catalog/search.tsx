@@ -9,8 +9,8 @@ import { useAppServices } from '@/providers/app-providers';
 export default function CatalogSearchRoute() {
   const router = useRouter();
   const { spotlightRepository } = useAppServices();
-  // Only the browse grid is per-game — typing still searches every game's cards
-  // (which is why results carry a game tag when they span games).
+  // The whole screen is scoped to the scanner lane's game — the browse grid AND
+  // typed queries (catalog-search-screen passes `game` to both reads).
   const { lane } = useScannerTargetConfig();
   const params = useLocalSearchParams<{
     q?: string | string[];

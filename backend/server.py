@@ -17724,6 +17724,7 @@ class SpotlightScanService:
                 id,
                 item_kind,
                 card_id,
+                collection_id,
                 grader,
                 grade,
                 cert_number,
@@ -17750,6 +17751,16 @@ class SpotlightScanService:
             (*where_params, safe_limit, safe_offset),
         ).fetchall()
         deck_card_ids = [str(row["card_id"] or "").strip() for row in rows]
+        # One id->name map per request so each entry can carry its collection
+        # label without a per-row join. Legacy rows (NULL collection_id) and
+        # dangling ids resolve to null fields.
+        collection_names_by_id = {
+            str(collection_row["id"]): str(collection_row["name"] or "").strip() or None
+            for collection_row in self.connection.execute(
+                "SELECT id, name FROM collections WHERE owner_user_id = ?",
+                (owner_user_id,),
+            ).fetchall()
+        }
         cards_by_id_map = cards_by_ids(self.connection, deck_card_ids)
         price_snapshot_rows = self._price_snapshot_rows_by_card_id(deck_card_ids)
         # Cells-first current price: pre-fetch each card's latest-day cells in two
@@ -17902,12 +17913,19 @@ class SpotlightScanService:
             except (TypeError, ValueError):
                 listing_price_cents_value = None
             listed_at_value = str(row["listed_at"] or "").strip() if "listed_at" in row.keys() else ""
+            entry_collection_id = str(row["collection_id"] or "").strip() or None
 
             entries.append(
                 {
                     "id": row["id"],
                     "itemKind": row["item_kind"],
                     "card": card_payload,
+                    "collectionId": entry_collection_id,
+                    "collectionName": (
+                        collection_names_by_id.get(entry_collection_id)
+                        if entry_collection_id is not None
+                        else None
+                    ),
                     "variantName": variant_name,
                     "slabContext": slab_context,
                     "condition": condition,

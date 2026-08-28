@@ -93,14 +93,16 @@ const portfolioTabsContext = {
 function renderPortfolioScreen({
   repository,
   showPortfolio = true,
+  onOpenInventoryEntry,
 }: {
   repository?: mockApiClient.SpotlightRepository;
   showPortfolio?: boolean;
+  onOpenInventoryEntry?: (entry: InventoryCardEntry) => void;
 } = {}) {
   return renderWithProviders(
     <TabsPageContext.Provider value={portfolioTabsContext}>
       {showPortfolio ? (
-        <PortfolioScreen />
+        <PortfolioScreen onOpenInventoryEntry={onOpenInventoryEntry} />
       ) : (
         <Text testID="portfolio-placeholder">Portfolio hidden</Text>
       )}
@@ -707,6 +709,179 @@ describe('PortfolioScreen', () => {
       const after = screen.getByTestId('portfolio-scroll-view');
       expect(after.props.scrollEnabled).not.toBe(false);
       expect(after.props.automaticallyAdjustKeyboardInsets).toBe(true);
+    });
+  });
+
+  describe('cross-collection search', () => {
+    // Entries as the UNSCOPED read serves them: tagged with their owning
+    // collection (the contract the backend is being extended to meet). The
+    // unscoped list deliberately includes the active collection's own entry so
+    // the de-dupe is exercised, not assumed.
+    const mainCharizard = buildInventoryEntry({
+      id: 'main-1',
+      name: 'Main Charizard',
+      marketPrice: 100,
+      collectionId: MAIN_COLLECTION.id,
+      collectionName: MAIN_COLLECTION.name,
+    });
+    const grailCharizard = buildInventoryEntry({
+      id: 'grail-1',
+      name: 'Grail Charizard',
+      marketPrice: 42,
+      collectionId: GRAILS_COLLECTION.id,
+      collectionName: GRAILS_COLLECTION.name,
+    });
+    const grailPikachu = buildInventoryEntry({
+      id: 'grail-2',
+      name: 'Grail Pikachu',
+      marketPrice: 7,
+      collectionId: GRAILS_COLLECTION.id,
+      collectionName: GRAILS_COLLECTION.name,
+    });
+
+    function createSearchRepository({
+      unscopedCalls,
+      ...overrides
+    }: Partial<mockApiClient.SpotlightRepository> & { unscopedCalls?: string[] } = {}) {
+      return createTestSpotlightRepository({
+        listCollections: async () => COLLECTIONS_SNAPSHOT,
+        loadInventoryEntries: async (query?: { collectionID?: string | null }) => {
+          if (query?.collectionID == null) {
+            unscopedCalls?.push('unscoped');
+            return {
+              state: 'success' as const,
+              data: [mainCharizard, grailCharizard, grailPikachu],
+              errorMessage: null,
+            };
+          }
+          return {
+            state: 'success' as const,
+            data: query.collectionID === GRAILS_COLLECTION.id
+              ? [grailCharizard, grailPikachu]
+              : [mainCharizard],
+            errorMessage: null,
+          };
+        },
+        loadPortfolioDashboard: async (options?: { collectionID?: string | null }) => ({
+          state: 'success' as const,
+          data: options?.collectionID === GRAILS_COLLECTION.id
+            ? buildScopedDashboard([grailCharizard, grailPikachu], 49)
+            : buildScopedDashboard([mainCharizard], 100),
+          errorMessage: null,
+        }),
+        ...overrides,
+      });
+    }
+
+    // The SearchField forwards its accessibilityLabel to the TextInput; the
+    // `collection-search-row-input` testID is on the container, which does not
+    // receive changeText events.
+    async function typeSearch(text: string) {
+      await act(async () => {
+        fireEvent.changeText(screen.getByLabelText('Search your portfolio'), text);
+      });
+    }
+
+    it('lists other-folder matches under their folder name, de-duped and fetched once', async () => {
+      const unscopedCalls: string[] = [];
+      renderPortfolioScreen({ repository: createSearchRepository({ unscopedCalls }) });
+      await screen.findByTestId('collection-masonry-grid-tile-main-1');
+
+      // No query ⇒ no section, and no unscoped read has been paid for.
+      expect(screen.queryByText('In other collections')).toBeNull();
+      expect(unscopedCalls).toHaveLength(0);
+
+      await typeSearch('charizard');
+
+      await screen.findByTestId('collection-cross-collection-header');
+      expect(screen.getByText('In other collections')).toBeTruthy();
+      // The other folder's match renders with the folder name in its meta line.
+      expect(screen.getByTestId('collection-masonry-grid-tile-grail-1')).toBeTruthy();
+      expect(screen.getByText(/Test Set · Grails/)).toBeTruthy();
+      // The active collection's own entry is in the unscoped payload too, and
+      // must render exactly once — in the active section, un-suffixed.
+      expect(screen.getAllByTestId('collection-masonry-grid-tile-main-1')).toHaveLength(1);
+      // A non-matching other-folder card is not dragged in by the section.
+      expect(screen.queryByTestId('collection-masonry-grid-tile-grail-2')).toBeNull();
+
+      // Refining the query reuses the session cache instead of refetching.
+      await typeSearch('char');
+      expect(unscopedCalls).toHaveLength(1);
+    });
+
+    it('still renders the section when only other folders match, without the filter-miss card', async () => {
+      renderPortfolioScreen({ repository: createSearchRepository() });
+      await screen.findByTestId('collection-masonry-grid-tile-main-1');
+
+      await typeSearch('pikachu');
+
+      await screen.findByTestId('collection-masonry-grid-tile-grail-2');
+      expect(screen.getByText('In other collections')).toBeTruthy();
+      // A cross-only hit is a RESULT, not a miss.
+      expect(screen.queryByText('No cards match this filter')).toBeNull();
+      expect(screen.queryByTestId('collection-masonry-grid-tile-main-1')).toBeNull();
+    });
+
+    it('opens the PDP with the pristine entry when a cross-folder row is tapped', async () => {
+      const onOpenInventoryEntry = jest.fn();
+      renderPortfolioScreen({ repository: createSearchRepository(), onOpenInventoryEntry });
+      await screen.findByTestId('collection-masonry-grid-tile-main-1');
+
+      await typeSearch('charizard');
+      const tile = await screen.findByTestId('collection-masonry-grid-tile-grail-1');
+      await act(async () => {
+        fireEvent.press(tile);
+      });
+
+      // The entry as served — same id (entryId param) and an UN-suffixed set
+      // name, so the PDP preview never shows the folder-name display copy.
+      expect(onOpenInventoryEntry).toHaveBeenCalledWith(grailCharizard);
+      expect(onOpenInventoryEntry.mock.calls[0][0].setName).toBe('Test Set');
+    });
+
+    it('shows no section, and pays for no unscoped read, with a single collection', async () => {
+      const unscopedCalls: string[] = [];
+      renderPortfolioScreen({
+        repository: createSearchRepository({
+          unscopedCalls,
+          listCollections: async () => ({
+            collections: [MAIN_COLLECTION],
+            defaultCollectionID: MAIN_COLLECTION.id,
+            all: { cardCount: 1, totalValue: 100 },
+          }),
+        }),
+      });
+      await screen.findByTestId('collection-masonry-grid-tile-main-1');
+
+      await typeSearch('charizard');
+      // Settle anything the search could have queued before asserting absence.
+      await act(async () => {});
+
+      expect(screen.queryByText('In other collections')).toBeNull();
+      expect(unscopedCalls).toHaveLength(0);
+    });
+
+    it('clears the search query when the active collection switches', async () => {
+      renderPortfolioScreen({ repository: createSearchRepository() });
+      await screen.findByTestId('collection-masonry-grid-tile-main-1');
+
+      await typeSearch('charizard');
+      expect(screen.getByLabelText('Search your portfolio').props.value).toBe('charizard');
+
+      await openCollectionPicker();
+      await act(async () => {
+        fireEvent.press(
+          screen.getByTestId(`collection-picker-sheet-row-${GRAILS_COLLECTION.id}`),
+        );
+      });
+
+      // The typed query must not silently filter the collection switched to.
+      await waitFor(() => {
+        expect(screen.getByLabelText('Search your portfolio').props.value).toBe('');
+      });
+      await screen.findByTestId('collection-masonry-grid-tile-grail-2');
+      expect(screen.getByTestId('collection-masonry-grid-tile-grail-1')).toBeTruthy();
+      expect(screen.queryByText('In other collections')).toBeNull();
     });
   });
 
@@ -1532,7 +1707,7 @@ describe('PortfolioScreen', () => {
     expect(screen.getByTestId('collection-masonry-grid-tile-zeta')).toBeTruthy();
   });
 
-  it('sorts by descending price when the $-$$$ chip is tapped', async () => {
+  it('sorts by descending price when the $$$ chip is tapped', async () => {
     const inventory = [
       buildInventoryEntry({ id: 'cheap', name: 'Cheap Card', marketPrice: 1 }),
       buildInventoryEntry({ id: 'expensive', name: 'Expensive Card', marketPrice: 100 }),

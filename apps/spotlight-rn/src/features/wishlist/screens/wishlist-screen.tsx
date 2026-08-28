@@ -11,7 +11,7 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
-import { ArrowUp, CheckCircle, Trash } from 'iconoir-react-native';
+import { ArrowDown, CheckCircle, Trash } from 'iconoir-react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -304,7 +304,9 @@ export function WishlistScreen() {
       );
     }
     if (activeFilter === 'az') {
-      entries = [...entries].sort((left, right) => left.name.localeCompare(right.name));
+      // Same collation as Collection's A-Z: case/accent-insensitive.
+      entries = [...entries].sort((left, right) =>
+        left.name.localeCompare(right.name, undefined, { sensitivity: 'base' }));
     } else if (activeFilter === 'price') {
       entries = [...entries].sort((left, right) => (right.marketPrice ?? 0) - (left.marketPrice ?? 0));
     }
@@ -594,7 +596,8 @@ export function WishlistScreen() {
                 key={filter.key}
                 label={filter.label}
                 leading={filter.hasArrow ? (
-                  <ArrowUp
+                  // Down, because the sort is descending (highest price first).
+                  <ArrowDown
                     color={isSelected ? theme.colors.gray0 : theme.colors.gray900}
                     height={12}
                     strokeWidth={2}

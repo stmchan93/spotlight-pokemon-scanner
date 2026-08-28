@@ -37,6 +37,17 @@ describe('CollectionFilterChipRow', () => {
     expect(screen.getByText('Shiny')).toBeTruthy();
   });
 
+  it('labels the price chip "$$$" — the sort is highest-first', () => {
+    render(
+      <SpotlightThemeProvider>
+        <CollectionFilterChipRow activeFilter="all" onFilterChange={jest.fn()} />
+      </SpotlightThemeProvider>,
+    );
+
+    expect(screen.getByText('$$$')).toBeTruthy();
+    expect(screen.queryByText('$-$$$')).toBeNull();
+  });
+
   it('fires onFilterChange with the correct key when a chip is tapped', () => {
     const onFilterChange = jest.fn();
     render(

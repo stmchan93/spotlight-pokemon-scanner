@@ -488,6 +488,8 @@ type DeckEntryDTO = {
   listingPriceCents?: number | null;
   listedAt?: string | null;
   addedAt?: string;
+  collectionId?: string | null;
+  collectionName?: string | null;
   isFavorite?: boolean | null;
   favoritedAt?: string | null;
   dayChangeAmount?: number | null;
@@ -2193,6 +2195,8 @@ function mapDeckEntry(entry: DeckEntryDTO, baseUrl?: string): InventoryCardEntry
     slabContext,
     rarityBucket: card.rarityBucket,
     game: card.game,
+    collectionId: normalizeString(entry.collectionId) ?? null,
+    collectionName: normalizeString(entry.collectionName) ?? null,
     costBasisPerUnit: explicitCostBasisPerUnit ?? derivedCostBasisPerUnit,
     costBasisTotal: costBasisTotal ?? null,
     isFavorite: normalizeBoolean(entry.isFavorite) ?? card.isFavorite,

@@ -58,7 +58,8 @@ export function gameFromFilterKey(key: CollectionFilterKey): CardGame | null {
 const FILTER_LABELS: Record<Exclude<CollectionFilterKey, GameFilterKey>, string> = {
   all: 'All',
   az: 'A-Z',
-  price: '$-$$$',
+  // The sort is highest-first, so the label leads with the expensive end.
+  price: '$$$',
   favorites: 'Likes',
   ungraded: 'Ungraded',
   graded: 'Graded',

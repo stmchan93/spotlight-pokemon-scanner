@@ -41,6 +41,7 @@ import {
   InlineLoader,
   PageTabs,
   type PageTab,
+  SectionHeader,
   StateCard,
   Text,
   Toast,
@@ -225,6 +226,8 @@ type CollectionRow =
       isLastRow: boolean;
     }
   | { kind: 'grid-single'; key: string; entry: InventoryCardEntry }
+  /** Heads the cross-collection search results ("In other collections"). */
+  | { kind: 'section-header'; key: string; title: string }
   /** `repostedAt` set = the owner passed the post on rather than wrote it. */
   | { kind: 'post'; key: string; post: FeedPost; repostedAt: string | null };
 
@@ -254,6 +257,22 @@ function applyInventorySearch(items: InventoryCardEntry[], query: string) {
       .toLowerCase()
       .includes(normalized);
   });
+}
+
+/**
+ * Display copy of a cross-collection search match. The section reuses the exact
+ * row/tile components, and the meta line's `setName` slot is the least invasive
+ * place they both render, so the folder name rides there
+ * ("#4/102 · Base Set · Binder"). Press handlers must forward the PRISTINE
+ * entry (see `crossCollectionOriginals`) so the PDP preview never carries the
+ * suffixed set name.
+ */
+function withCollectionContext(entry: InventoryCardEntry): InventoryCardEntry {
+  const label = entry.collectionName?.trim();
+  if (!label) {
+    return entry;
+  }
+  return { ...entry, setName: entry.setName ? `${entry.setName} · ${label}` : label };
 }
 
 // Parse an ISO timestamp to epoch ms; missing/invalid sort oldest (so they land
@@ -829,6 +848,55 @@ export function PortfolioScreen({
     return applyInventorySearch(filtered, model.searchQuery);
   }, [baseInventory, effectiveFilter, model.searchQuery, removedIds]);
 
+  // ── Cross-collection search ────────────────────────────────────────────────
+  // Searching with more than one collection also surfaces matches from the
+  // OTHER folders, under their folder names. The unscoped entries are fetched
+  // lazily, on the first search of a screen session; the model re-nulls its
+  // cache whenever the scoped inventory refetches, which re-arms this effect.
+  const hasMultipleCollections = (collectionsSnapshot?.collections.length ?? 0) > 1;
+  const isSearching = model.searchQuery.trim().length > 0;
+  const { allInventoryEntries, ensureAllInventoryLoaded } = model;
+  useEffect(() => {
+    if (isSearching && hasMultipleCollections && allInventoryEntries === null) {
+      void ensureAllInventoryLoaded();
+    }
+  }, [allInventoryEntries, ensureAllInventoryLoaded, hasMultipleCollections, isSearching]);
+
+  // Same pipeline as the active list. Entries the unscoped read cannot
+  // attribute to a folder (no collectionId — an older server) are left out
+  // rather than risked as duplicates of active rows; the id check covers a
+  // server that tags entries but disagrees with the client about scope.
+  const crossCollectionMatches = useMemo(() => {
+    if (!isSearching || !hasMultipleCollections || !allInventoryEntries) {
+      return [];
+    }
+    const activeIds = new Set(baseInventory.map((entry) => entry.id));
+    const others = allInventoryEntries.filter((entry) =>
+      entry.collectionId != null
+      && entry.collectionId !== activeCollectionID
+      && !activeIds.has(entry.id)
+      && !removedIds.has(entry.id));
+    const filtered = applyCollectionFilter(others, effectiveFilter);
+    return applyInventorySearch(filtered, model.searchQuery);
+  }, [
+    activeCollectionID,
+    allInventoryEntries,
+    baseInventory,
+    effectiveFilter,
+    hasMultipleCollections,
+    isSearching,
+    model.searchQuery,
+    removedIds,
+  ]);
+
+  // The section renders display COPIES (folder name in the meta line); anything
+  // that leaves the row — PDP open, actions menu — goes back through this map
+  // to the pristine entry.
+  const crossCollectionOriginals = useMemo(
+    () => new Map(crossCollectionMatches.map((entry) => [entry.id, entry] as const)),
+    [crossCollectionMatches],
+  );
+
   // Prefetch the owner's own posts as soon as we know who they are, rather than
   // waiting for the Activity tab to be tapped — the round trip then overlaps
   // with the Collection load instead of starting cold on tab switch, so Activity
@@ -1023,9 +1091,9 @@ export function PortfolioScreen({
         toggleSelected(entry.id);
         return;
       }
-      onOpenInventoryEntry(entry);
+      onOpenInventoryEntry(crossCollectionOriginals.get(entry.id) ?? entry);
     },
-    [editMode, onOpenInventoryEntry, toggleSelected],
+    [crossCollectionOriginals, editMode, onOpenInventoryEntry, toggleSelected],
   );
 
   // Press-and-hold a card → a "click" haptic + the actions menu (skipped during
@@ -1036,9 +1104,9 @@ export function PortfolioScreen({
         return;
       }
       triggerSelectionHaptic();
-      setActionMenuEntry(entry);
+      setActionMenuEntry(crossCollectionOriginals.get(entry.id) ?? entry);
     },
-    [editMode],
+    [crossCollectionOriginals, editMode],
   );
 
   const closeActionMenu = useCallback(() => setActionMenuEntry(null), []);
@@ -1257,26 +1325,51 @@ export function PortfolioScreen({
     if (shouldShowInitialError) {
       return [];
     }
-    if (viewMode === 'list') {
-      return visibleInventory.map((entry, index) => ({
-        kind: 'list',
-        key: entry.id,
-        entry,
-        firstInSection: index === 0,
-      }));
+    const rows: CollectionRow[] = [];
+    // Grid row indexes run across BOTH sections — they key the per-row testIDs,
+    // which would otherwise collide.
+    let gridRowCount = 0;
+    const appendEntries = (entries: InventoryCardEntry[], keyPrefix: string, allowSingle: boolean) => {
+      if (viewMode === 'list') {
+        entries.forEach((entry, index) => {
+          rows.push({
+            kind: 'list',
+            key: `${keyPrefix}${entry.id}`,
+            entry,
+            firstInSection: index === 0,
+          });
+        });
+        return;
+      }
+      if (allowSingle && entries.length === 1) {
+        rows.push({ kind: 'grid-single', key: `${keyPrefix}${entries[0].id}`, entry: entries[0] });
+        return;
+      }
+      const gridRows = chunkCollectionGridRows(entries);
+      gridRows.forEach((rowEntries, index) => {
+        rows.push({
+          kind: 'grid',
+          key: rowEntries[0] ? `${keyPrefix}${rowEntries[0].id}` : `${keyPrefix}grid-row-${gridRowCount}`,
+          rowEntries,
+          rowIndex: gridRowCount,
+          isLastRow: index === gridRows.length - 1,
+        });
+        gridRowCount += 1;
+      });
+    };
+    appendEntries(visibleInventory, '', true);
+    if (crossCollectionMatches.length > 0) {
+      rows.push({
+        kind: 'section-header',
+        key: 'cross-collection-header',
+        title: 'In other collections',
+      });
+      // No lone-tile treatment here: a single match still reads as part of a
+      // ruled results list, not as a boxed showcase.
+      appendEntries(crossCollectionMatches.map(withCollectionContext), 'cross-', false);
     }
-    if (visibleInventory.length === 1) {
-      return [{ kind: 'grid-single', key: visibleInventory[0].id, entry: visibleInventory[0] }];
-    }
-    const rows = chunkCollectionGridRows(visibleInventory);
-    return rows.map((rowEntries, rowIndex) => ({
-      kind: 'grid',
-      key: rowEntries[0]?.id ?? `grid-row-${rowIndex}`,
-      rowEntries,
-      rowIndex,
-      isLastRow: rowIndex === rows.length - 1,
-    }));
-  }, [shouldShowInitialError, viewMode, visibleInventory]);
+    return rows;
+  }, [crossCollectionMatches, shouldShowInitialError, viewMode, visibleInventory]);
 
   const activityData = useMemo<CollectionRow[]>(
     () =>
@@ -1349,6 +1442,13 @@ export function PortfolioScreen({
               testID="portfolio-activity-post"
             />
           </>
+        );
+      }
+      if (item.kind === 'section-header') {
+        return (
+          <View style={styles.crossSectionHeader}>
+            <SectionHeader testID="collection-cross-collection-header" title={item.title} />
+          </View>
         );
       }
       if (item.kind === 'list') {
@@ -2219,6 +2319,13 @@ const styles = StyleSheet.create({
   },
   emptyStateCard: {
     marginTop: 12,
+  },
+  // "In other collections" — same page gutter as the rest of the chrome; the
+  // vertical padding separates it from the active section's last ruled row.
+  crossSectionHeader: {
+    paddingBottom: 12,
+    paddingHorizontal: 16,
+    paddingTop: 24,
   },
   footerSpacer: {
     // Matches the legacy list/grid `paddingBottom: 16` below the last row.

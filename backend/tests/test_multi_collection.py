@@ -296,6 +296,51 @@ class MultiCollectionTests(unittest.TestCase):
 
         self.assertEqual([e["card"]["id"] for e in survivors["entries"]], ["tst-1"])
 
+    def test_entries_carry_collection_id_and_name(self) -> None:
+        """Every entry DTO names its collection — scoped and unscoped reads alike —
+        and a legacy NULL-collection row emits null fields instead of crashing."""
+        self._insert_card(card_id="tst-1", name="Pikachu", number="1/1")
+        self._insert_card(card_id="tst-2", name="Gengar", number="2/2")
+        self._insert_card(card_id="tst-3", name="Snorlax", number="3/3")
+        self._add_card(user_id="user-a", card_id="tst-1")
+
+        with self.service.request_identity_context(self._identity("user-a")):
+            main_id = self.service.list_collections()["defaultCollectionID"]
+            grails_id = self.service.create_collection({"name": "Grails"})["collection"]["id"]
+            self._add_card_inline(user_id="user-a", card_id="tst-2", collection_id=grails_id)
+            self._add_card_inline(user_id="user-a", card_id="tst-3", collection_id=main_id)
+
+        # Simulate a legacy row that predates collections, before any read so the
+        # lazy default-collection adoption cannot re-file it first.
+        self.service.connection.execute(
+            "UPDATE deck_entries SET collection_id = NULL WHERE owner_user_id = ? AND card_id = ?",
+            ("user-a", "tst-3"),
+        )
+        self.service.connection.commit()
+
+        with self.service.request_identity_context(self._identity("user-a")):
+            scoped_main = self.service.deck_entries(limit=10, collection_id=main_id)
+            scoped_grails = self.service.deck_entries(limit=10, collection_id=grails_id)
+            unscoped = self.service.deck_entries(limit=10)
+
+        self.assertEqual(
+            [(e["collectionId"], e["collectionName"]) for e in scoped_main["entries"]],
+            [(main_id, "Main Collection")],
+        )
+        self.assertEqual(
+            [(e["collectionId"], e["collectionName"]) for e in scoped_grails["entries"]],
+            [(grails_id, "Grails")],
+        )
+        by_card = {e["card"]["id"]: e for e in unscoped["entries"]}
+        self.assertEqual(set(by_card), {"tst-1", "tst-2", "tst-3"})
+        self.assertEqual(by_card["tst-1"]["collectionId"], main_id)
+        self.assertEqual(by_card["tst-1"]["collectionName"], "Main Collection")
+        self.assertEqual(by_card["tst-2"]["collectionId"], grails_id)
+        self.assertEqual(by_card["tst-2"]["collectionName"], "Grails")
+        # Legacy row: fields present, both null.
+        self.assertIsNone(by_card["tst-3"]["collectionId"])
+        self.assertIsNone(by_card["tst-3"]["collectionName"])
+
     def test_cannot_mutate_another_accounts_collection(self) -> None:
         with self.service.request_identity_context(self._identity("user-b")):
             victim_id = self.service.create_collection({"name": "Victim"})["collection"]["id"]
