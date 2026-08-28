@@ -461,6 +461,9 @@ Current API concepts:
 
 - `imageUrl` (art fills the column width inside a square frame at the card's
   real aspect ratio; "CARD" placeholder when null)
+- optional `artAspect` (`'square'` default | `'card'`) — `'card'` swaps the
+  square art frame for the portrait trading-card ratio (0.716) with the art
+  filling it, shortening the tile for dense grids (catalog search results)
 - `name`, `setName` + `cardNumber` (joined as `"{cardNumber} · {setName}"`)
 - `kind` (`'raw' | 'slab'`) with `variantName`, and `conditionLabel` (raw) or
   `graderLabel` + `gradeLabel` (slab) building the quality lines;

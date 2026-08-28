@@ -230,7 +230,7 @@ describe('CatalogSearchScreen', () => {
     expect(screen.getByTestId(`catalog-result-${page1[0].id}`)).toBeTruthy();
   });
 
-  it('shows the artwork fallback when a result is missing an image', async () => {
+  it('shows the tile art placeholder when a result is missing an image', async () => {
     jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage').mockResolvedValue({
       cards: [
         {
@@ -256,7 +256,9 @@ describe('CatalogSearchScreen', () => {
     await advanceDebounce();
 
     expect(await screen.findByTestId('catalog-result-fallback-1')).toBeTruthy();
-    expect(screen.getByTestId('catalog-artwork-fallback-fallback-1')).toBeTruthy();
+    // The shared tile owns the no-image state: "CARD" placeholder, no Image.
+    expect(screen.getByText('CARD')).toBeTruthy();
+    expect(screen.queryByTestId('catalog-result-smoke-fallback-1-image')).toBeNull();
   });
 
   it('sends the rarityBucket option on a chip-only search (no text required)', async () => {
@@ -309,6 +311,59 @@ describe('CatalogSearchScreen', () => {
     expect(screen.queryByTestId('catalog-result-rarity-sm7-1')).toBeNull();
   });
 
+  describe('the two-column results grid', () => {
+    it('chunks results into rows of two shared tiles with the card-aspect art frame', async () => {
+      jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage')
+        .mockResolvedValue({ cards: ownedCatalogResults, hasMore: false });
+
+      renderWithProviders(
+        <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />,
+      );
+
+      fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'tree');
+      await advanceDebounce();
+
+      await screen.findByTestId('catalog-result-sm7-1');
+
+      // 5 results → rows of [2, 2, 1] (chunk-rows-of-2, not numColumns).
+      const rows = screen.getByTestId('catalog-results-list').props.data as unknown[][];
+      expect(rows.map((row) => row.length)).toEqual([2, 2, 1]);
+
+      // Every tile renders, not just one per row.
+      for (const result of ownedCatalogResults) {
+        expect(screen.getByTestId(`catalog-result-${result.id}`)).toBeTruthy();
+      }
+
+      // The art frame is the tile's 'card' aspect, not the square default.
+      const frame = StyleSheet.flatten(
+        screen.getByTestId('catalog-result-smoke-sm7-1-image-frame').props.style,
+      );
+      expect(frame.aspectRatio).toBeCloseTo(0.716);
+    });
+
+    it("uses the tile's quantity readout as the Owned signal, hidden at zero", async () => {
+      jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage').mockResolvedValue({
+        cards: [
+          { ...ownedCatalogResults[0], ownedQuantity: 3 },
+          { ...ownedCatalogResults[1], ownedQuantity: 0 },
+        ],
+        hasMore: false,
+      });
+
+      renderWithProviders(
+        <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} />,
+      );
+
+      fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'tree');
+      await advanceDebounce();
+
+      await screen.findByTestId('catalog-result-sm7-1');
+      expect(screen.getByTestId('catalog-result-smoke-sm7-1-quantity')).toBeTruthy();
+      expect(screen.getByText('3')).toBeTruthy();
+      expect(screen.queryByTestId('catalog-result-smoke-sm7-2-quantity')).toBeNull();
+    });
+  });
+
   it('surfaces the retry action after a failed search', async () => {
     jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage')
       .mockRejectedValueOnce(new Error('offline'))
@@ -327,7 +382,8 @@ describe('CatalogSearchScreen', () => {
     await advanceDebounce();
 
     expect(await screen.findByTestId('catalog-result-sm7-1')).toBeTruthy();
-    expect(screen.getByText('#001/096')).toBeTruthy();
+    // The tile joins number + set (leading # stripped by the shared primitive).
+    expect(screen.getByText('001/096 · 裂空のカリスマ')).toBeTruthy();
   });
 
   /*

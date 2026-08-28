@@ -171,6 +171,17 @@ variant None/matching `main_raw_variant`.
   printings are never judged (phantom-guard lesson: high-value parallels are
   legit) — so a JP card's other printings can still show Scrydex-scale rows;
   the fix for that, if ever wanted, is persisting ALL subtype prices.
+- **Trend graphs on main-lane points** (2026-08-27, user decision): the NM
+  series on all three graph surfaces (PDP market-history chart, per-condition
+  trend list points + trendPct, condition-history series) merges per-day:
+  a date with a raw_main cell uses the TCGCSV value; older dates keep Scrydex.
+  NO backfill — the mixed series is intended, and the TCGplayer share grows
+  one day per sync (started 2026-08-25). Covers every printing with main-lane
+  cells; LP/MP series and no-sales printings untouched; flag-gated. Shared
+  reader: `catalog_tools.main_raw_cell_points_by_variant_date` (one query per
+  card window). If a full-history single-source curve is ever wanted, TCGCSV
+  archives reach back to 2024-02-08 (a deliberate one-off backfill job, not
+  built).
 - **Per-printing prices** (2026-08-26): the sync now persists EVERY printing's
   TCGCSV row that has marketPrice>0 in `card_price_snapshots.
   main_raw_printings_json` (keyed by Scrydex label, exact label→subTypeName

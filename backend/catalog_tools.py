@@ -15,6 +15,10 @@ from pathlib import Path
 from typing import Any, Iterable
 import unicodedata
 
+# TCGCSV printing (subTypeName) <-> Scrydex variant label, for the main-lane
+# series merge. tcgcsv_adapter is stdlib-only, so no import cycle.
+from tcgcsv_adapter import scrydex_variant_label_for_subtype, subtype_for_variant_label
+
 
 MATCHER_VERSION = "raw-backend-reset-v1"
 RAW_PRICING_MODE = "raw"
@@ -3956,6 +3960,169 @@ def _manual_search_rarity_browse(
     return [card_map[card_id] for card_id in ordered_ids if card_id in card_map]
 
 
+def _manual_search_price_usd_by_card_id(
+    connection: sqlite3.Connection,
+    card_ids: list[str],
+) -> dict[str, float]:
+    """USD market price per card, for the desirability tie-break only. TRUSTED
+    prices only: the TCGCSV main lane (sales-verified, already USD). The Scrydex
+    fallback is deliberately excluded — its inflated JP raws would buy ranking
+    (live example: fallback-priced JP Charizards at $4k outranking every
+    verified EN printing). Cards without a verified price are absent (→ 0)."""
+    normalized_ids = [card_id for card_id in card_ids if card_id]
+    prices: dict[str, float] = {}
+    if not normalized_ids or not _table_exists(connection, "card_price_snapshots"):
+        return prices
+    for chunk in _chunked_sql_values(normalized_ids):
+        placeholders = ", ".join("?" for _ in chunk)
+        rows = connection.execute(
+            "SELECT card_id, main_raw_market_price "
+            f"FROM card_price_snapshots WHERE card_id IN ({placeholders})",
+            chunk,
+        ).fetchall()
+        for row in rows:
+            main_price = row["main_raw_market_price"]
+            if isinstance(main_price, (int, float)) and not isinstance(main_price, bool):
+                prices[str(row["card_id"])] = float(main_price)
+    return prices
+
+
+# ---------------------------------------------------------------------------
+# Typo tolerance: a bounded, zero-hit-only correction pass. The vocabulary is
+# built lazily from catalog names/aliases and cached per process — tests swap
+# databases within one process, hence the reset hook.
+# ---------------------------------------------------------------------------
+
+_MANUAL_SEARCH_VOCAB_CACHE: tuple[dict[str, int], dict[str, list[str]]] | None = None
+
+# Structured clauses are precise intent — never second-guess their spelling.
+_MANUAL_SEARCH_TYPO_STRUCTURED_GUARD = re.compile(r"\b(name|set|number|rarity)\s*:", re.IGNORECASE)
+
+
+def reset_manual_search_vocabulary() -> None:
+    global _MANUAL_SEARCH_VOCAB_CACHE
+    _MANUAL_SEARCH_VOCAB_CACHE = None
+
+
+def _manual_search_vocabulary(
+    connection: sqlite3.Connection,
+) -> tuple[dict[str, int], dict[str, list[str]]]:
+    """(token → frequency, first-letter → tokens) over alphabetic name/alias
+    word tokens of length ≥ 4. Frequency doubles as a popularity prior when
+    several vocabulary tokens sit at the same edit distance."""
+    global _MANUAL_SEARCH_VOCAB_CACHE
+    if _MANUAL_SEARCH_VOCAB_CACHE is not None:
+        return _MANUAL_SEARCH_VOCAB_CACHE
+
+    frequencies: dict[str, int] = {}
+
+    def ingest(text: object) -> None:
+        for token in tokenize(str(text or "")):
+            if len(token) >= 4 and token.isalpha():
+                frequencies[token] = frequencies.get(token, 0) + 1
+
+    for row in connection.execute("SELECT name FROM cards"):
+        ingest(row["name"])
+    if _table_exists(connection, "card_name_aliases"):
+        for row in connection.execute("SELECT DISTINCT normalized_alias FROM card_name_aliases"):
+            ingest(row["normalized_alias"])
+
+    buckets: dict[str, list[str]] = {}
+    for token in frequencies:
+        buckets.setdefault(token[0], []).append(token)
+    _MANUAL_SEARCH_VOCAB_CACHE = (frequencies, buckets)
+    return _MANUAL_SEARCH_VOCAB_CACHE
+
+
+def _bounded_edit_distance(a: str, b: str, cutoff: int) -> int | None:
+    """Levenshtein distance, or None once it provably exceeds ``cutoff``."""
+    if a == b:
+        return 0
+    if abs(len(a) - len(b)) > cutoff:
+        return None
+    previous = list(range(len(b) + 1))
+    for i, ch_a in enumerate(a, start=1):
+        current = [i]
+        row_min = i
+        for j, ch_b in enumerate(b, start=1):
+            value = min(
+                previous[j] + 1,
+                current[j - 1] + 1,
+                previous[j - 1] + (0 if ch_a == ch_b else 1),
+            )
+            current.append(value)
+            if value < row_min:
+                row_min = value
+        if row_min > cutoff:
+            return None
+        previous = current
+    return previous[-1] if previous[-1] <= cutoff else None
+
+
+def _manual_search_best_vocab_match(
+    token: str,
+    frequencies: dict[str, int],
+    buckets: dict[str, list[str]],
+) -> str | None:
+    # Distance 2 only for longer tokens — a 2-edit change to a 4-letter word is
+    # usually a different word, not a typo.
+    max_distance = 2 if len(token) >= 6 else 1
+    best: tuple[int, int, str] | None = None
+    for candidate in buckets.get(token[0], ()):  # first-letter + length prefilter
+        if abs(len(candidate) - len(token)) > max_distance:
+            continue
+        distance = _bounded_edit_distance(token, candidate, max_distance)
+        if distance is None or distance == 0:
+            continue
+        key = (distance, -frequencies[candidate], candidate)
+        if best is None or key < best:
+            best = key
+    return best[2] if best is not None else None
+
+
+def _manual_search_corrected_query(connection: sqlite3.Connection, query: str) -> str | None:
+    """One corrected query string for a zero-hit free-text query, or None.
+    Narrow by design: no structured clauses, no digit-bearing queries, and only
+    alphabetic tokens of length ≥ 4 that are absent from the vocabulary."""
+    raw_query = str(query or "")
+    if _MANUAL_SEARCH_TYPO_STRUCTURED_GUARD.search(raw_query):
+        return None
+    _, search_text = _manual_search_parse_query(raw_query)
+    tokens = tokenize(search_text)
+    if not tokens or any(any(ch.isdigit() for ch in token) for token in tokens):
+        return None
+    correctable = [token for token in tokens if token.isalpha() and len(token) >= 4]
+    if not correctable:
+        return None
+
+    frequencies, buckets = _manual_search_vocabulary(connection)
+    if not frequencies:
+        return None
+
+    replacements: dict[str, str] = {}
+    for token in correctable:
+        if token in frequencies or token in replacements:
+            continue
+        suggestion = _manual_search_best_vocab_match(token, frequencies, buckets)
+        if suggestion:
+            replacements[token] = suggestion
+    if not replacements:
+        return None
+
+    corrected = raw_query
+    for token, suggestion in replacements.items():
+        corrected = re.sub(rf"\b{re.escape(token)}\b", suggestion, corrected, flags=re.IGNORECASE)
+    if _normalized_alias_text(corrected) == _normalized_alias_text(raw_query):
+        return None
+    return corrected
+
+
+class ManualSearchResults(list):
+    """Card-dict list annotated with the typo correction that produced it."""
+
+    corrected_query: str | None = None
+
+
 def search_cards(
     connection: sqlite3.Connection,
     query: str,
@@ -3975,7 +4142,48 @@ def search_cards(
 
     `rarity_bucket_filter` applies a structured rarity filter regardless of the
     query text (the `rarityBucket` query param on the search endpoint).
+
+    A free-text query whose retrieval finds ZERO candidates gets one bounded
+    typo-correction retry; when it fires the returned list is a
+    ManualSearchResults carrying ``corrected_query``.
     """
+    results, correctable_miss = _search_cards_attempt(
+        connection,
+        query,
+        limit,
+        offset=offset,
+        pool_ceiling=pool_ceiling,
+        rarity_bucket_filter=rarity_bucket_filter,
+    )
+    if not correctable_miss:
+        return results
+    corrected = _manual_search_corrected_query(connection, query)
+    if not corrected:
+        return results
+    corrected_results, _ = _search_cards_attempt(
+        connection,
+        corrected,
+        limit,
+        offset=offset,
+        pool_ceiling=pool_ceiling,
+        rarity_bucket_filter=rarity_bucket_filter,
+    )
+    annotated = ManualSearchResults(corrected_results)
+    annotated.corrected_query = corrected
+    return annotated
+
+
+def _search_cards_attempt(
+    connection: sqlite3.Connection,
+    query: str,
+    limit: int = 20,
+    *,
+    offset: int = 0,
+    pool_ceiling: int | None = None,
+    rarity_bucket_filter: str | None = None,
+) -> tuple[list[dict[str, Any]], bool]:
+    """One retrieval+scoring pass. Second element: True only when retrieval ran
+    and produced zero candidates — the only state the typo fallback may act on."""
     structured_filters, search_text = _manual_search_parse_query(query)
     if rarity_bucket_filter:
         normalized_bucket = str(rarity_bucket_filter).strip().lower()
@@ -3986,13 +4194,16 @@ def search_cards(
     if not normalized_query:
         # No name terms left: a rarity filter alone becomes a bucket browse.
         if structured_filters.get("rarity"):
-            return _manual_search_rarity_browse(
-                connection,
-                tuple(structured_filters["rarity"]),
-                limit=_normalized_manual_search_limit(limit),
-                offset=max(0, int(offset or 0)),
+            return (
+                _manual_search_rarity_browse(
+                    connection,
+                    tuple(structured_filters["rarity"]),
+                    limit=_normalized_manual_search_limit(limit),
+                    offset=max(0, int(offset or 0)),
+                ),
+                False,
             )
-        return []
+        return [], False
 
     tokens = tokenize(search_text)
     # Word (non-number) tokens the user typed — used to down-weight cards that
@@ -4067,7 +4278,7 @@ def search_cards(
         add_candidate(card_id, score)
 
     if not candidate_order:
-        return []
+        return [], True
 
     # Bound the total distinct candidates before cards_by_ids (several phrases ×
     # several helpers accumulate well past the ceiling on a broad query). Rank by
@@ -4143,14 +4354,22 @@ def search_cards(
             continue
         scored_cards.append((final_score, card))
 
+    # Desirability tie-break: within an IDENTICAL final score, pricier cards
+    # surface first (every "Charizard" ties on text score; the alphabetical
+    # fallback buried the iconic prints). Price is a pure tie-break — never
+    # added to the score — so relative order across different scores is fixed.
+    price_usd_by_id = _manual_search_price_usd_by_card_id(
+        connection, [str(card.get("id") or "") for _, card in scored_cards]
+    )
     scored_cards.sort(
         key=lambda item: (
             -item[0],
+            -price_usd_by_id.get(str(item[1].get("id") or ""), 0.0),
             str(item[1]["name"]),
             str(item[1]["number"]),
         )
     )
-    return [card for _, card in scored_cards[offset : offset + requested_limit]]
+    return [card for _, card in scored_cards[offset : offset + requested_limit]], False
 
 
 def search_cards_local(connection: sqlite3.Connection, query: str, limit: int = 20) -> list[dict[str, Any]]:
@@ -4645,6 +4864,60 @@ def main_raw_history_market(
     ):
         return None
     return market
+
+
+def main_raw_cell_points_by_variant_date(
+    connection: sqlite3.Connection,
+    *,
+    card_id: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """Per-day TCGCSV main-lane points for a card's series window, grouped as
+    ``{Scrydex-variant match key: {price_date: {market, low, mid, high}}}``.
+
+    ONE query per card window on the ``(card_id, price_date, cell_key)`` unique
+    index prefix. Flag-gated: returns ``{}`` when RAW_MAIN_PRICE_SOURCE is not
+    ``tcgcsv`` (or the cell table is absent), so every series merge built on it
+    is a no-op and flag-off output stays byte-identical. No freshness gate —
+    cells are pinned to their own day, like ``main_raw_history_market``."""
+    if not raw_main_price_enabled():
+        return {}
+    if not _table_exists(connection, "card_price_history_cell"):
+        return {}
+    query = (
+        "SELECT price_date, variant_key, low, market, mid, high "
+        "FROM card_price_history_cell WHERE card_id = ? AND lane = 'raw_main'"
+    )
+    params: list[Any] = [card_id]
+    if start_date:
+        query += " AND price_date >= ?"
+        params.append(str(start_date))
+    if end_date:
+        query += " AND price_date <= ?"
+        params.append(str(end_date))
+    result: dict[str, dict[str, dict[str, Any]]] = {}
+    for row in connection.execute(query, params).fetchall():
+        sub_type = str(_cell_field(row, "variant_key") or "").strip()
+        label = scrydex_variant_label_for_subtype(sub_type)
+        if label is None:
+            continue  # unmapped subtype: never guess a printing
+        market = _coerce_price_float(_cell_field(row, "market"))
+        if market is None:
+            continue
+        bucket = result.setdefault(_variant_match_key(label), {})
+        date = str(_cell_field(row, "price_date"))
+        # Two subtypes can collapse to one label (1st Edition Normal/Holofoil):
+        # the exact per-printing mapping wins, mirroring the sync's printings map.
+        if date in bucket and sub_type != subtype_for_variant_label(label):
+            continue
+        bucket[date] = {
+            "market": market,
+            "low": _coerce_price_float(_cell_field(row, "low")),
+            "mid": _coerce_price_float(_cell_field(row, "mid")),
+            "high": _coerce_price_float(_cell_field(row, "high")),
+        }
+    return result
 
 
 def _variant_match_key(value: str | None) -> str:
@@ -6433,9 +6706,27 @@ def card_price_trend_list(
         key=lambda code: (priority_index.get(code, len(RAW_CONDITION_PRIORITY)), code),
     )
 
+    # Main-lane per-day override (flag-gated): the NM series of a printing with
+    # its own raw_main cells serves those points; days without a cell keep the
+    # Scrydex value — the accepted mixed series (no backfill before the cell epoch).
+    window_dates = [str(r["price_date"]) for r in history_rows]
+    main_points_by_date: dict[str, dict[str, Any]] = {}
+    if resolved_variant and window_dates:
+        main_points_by_date = main_raw_cell_points_by_variant_date(
+            connection,
+            card_id=card_id,
+            start_date=min(window_dates),
+            end_date=max(window_dates),
+        ).get(_variant_match_key(resolved_variant), {})
+
     for condition_code in ordered_conditions:
         points = []
+        main_by_date = main_points_by_date if condition_code == DEFAULT_RAW_CONDITION else {}
         for row in history_rows:
+            main_point = main_by_date.get(str(row["price_date"]))
+            if main_point is not None:
+                points.append(main_point["market"])
+                continue
             if use_cells:
                 cell = raw_cell_exact_from_cells(
                     cells_by_date.get(str(row["price_date"]), []),

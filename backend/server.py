@@ -47,6 +47,7 @@ from catalog_tools import (
     _resolve_default_raw_context,
     _variant_match_key,
     _is_default_main_raw_read,
+    main_raw_cell_points_by_variant_date,
     main_raw_history_market,
     raw_main_price_enabled,
     resolve_main_raw_summary_from_row,
@@ -4242,6 +4243,80 @@ class SpotlightScanService:
             return "low"
         return "normal"
 
+    def _merge_main_raw_history_rows(
+        self,
+        card_id: str,
+        rows: list[dict[str, Any]],
+        *,
+        variant: str | None,
+        condition: str | None,
+    ) -> list[dict[str, Any]]:
+        """Per-day main-lane override for the PDP market-history series: any day
+        with a raw_main cell for the SELECTED printing serves that cell's values
+        (NM series only); days without one keep the Scrydex-resolved row — the
+        accepted mixed series (no backfill before the cell epoch). The row
+        reader's COALESCE already covers the main printing's default read; this
+        extends the same per-day rule to the other TCGCSV-priced printings.
+        Flag off (or no cells for the printing) returns ``rows`` unchanged."""
+        if not rows or not raw_main_price_enabled():
+            return rows
+        if str(condition or "").strip() and _normalized_condition_code(condition) != DEFAULT_RAW_CONDITION:
+            return rows
+        label = _normalized_variant_label(variant) if str(variant or "").strip() else None
+        if label is None:
+            # Default read: key the cell lookup to the main lane's own printing
+            # (the same one the row reader's COALESCE served).
+            snapshot_row = price_snapshot_row(self.connection, card_id)
+            label = (
+                scrydex_variant_label_for_subtype(_cell_field(snapshot_row, "main_raw_variant"))
+                if snapshot_row is not None
+                else None
+            )
+            if label is None:
+                return rows
+        # Start-bounded only: a day the TCGCSV sync priced but Scrydex resolution
+        # skipped can postdate the last resolved row and still belongs to the window.
+        dates = [str(r.get("date") or "") for r in rows]
+        points_by_date = main_raw_cell_points_by_variant_date(
+            self.connection, card_id=card_id, start_date=min(dates)
+        ).get(_variant_match_key(label), {})
+        if not points_by_date:
+            return rows
+        by_date = {str(r.get("date") or ""): dict(r) for r in rows}
+        for date, point in points_by_date.items():
+            row = by_date.get(date)
+            if row is None:
+                # Day priced only by TCGCSV: synthesize the row so the point exists.
+                row = {
+                    "id": f"{card_id}:{date}",
+                    "cardID": card_id,
+                    "pricingMode": "raw",
+                    "provider": pricing_provider(),
+                    "date": date,
+                    "grader": None,
+                    "grade": None,
+                    "isPerfect": False,
+                    "isSigned": False,
+                    "isError": False,
+                    "sourceURL": None,
+                    "payload": {},
+                    "updatedAt": None,
+                }
+            row.update(
+                {
+                    "currencyCode": "USD",
+                    "variant": label,
+                    "condition": DEFAULT_RAW_CONDITION,
+                    "low": point["low"],
+                    "market": point["market"],
+                    "mid": point["mid"],
+                    "high": point["high"],
+                }
+            )
+            by_date[date] = row
+        # Preserve the row reader's DESC date order.
+        return [by_date[d] for d in sorted(by_date, reverse=True)]
+
     def card_market_history(
         self,
         card_id: str,
@@ -4397,6 +4472,9 @@ class SpotlightScanService:
             days=days,
             variant=selected_variant,
             condition=selected_condition,
+        )
+        rows = self._merge_main_raw_history_rows(
+            card_id, rows, variant=selected_variant, condition=selected_condition
         )
         rows = self._display_price_history_rows(rows)
         available_variants = [
@@ -4629,6 +4707,33 @@ class SpotlightScanService:
                     "high": r["high"],
                 }
             )
+
+        if resolved_lane == "raw":
+            # Main-lane per-day override (flag-gated: {} when off): a TCGCSV-priced
+            # printing's NM series serves its raw_main cells; days without a cell
+            # keep the Scrydex point — the accepted mixed series (no backfill).
+            main_points = main_raw_cell_points_by_variant_date(
+                self.connection, card_id=card_id, start_date=start_date
+            )
+            if main_points:
+                for series_entry in series_map.values():
+                    if str(series_entry.get("condition") or "").upper() != DEFAULT_RAW_CONDITION:
+                        continue
+                    by_date = main_points.get(
+                        _variant_match_key(_normalized_variant_label(series_entry.get("variantKey")))
+                    )
+                    if not by_date:
+                        continue
+                    merged = {str(p["date"]): p for p in series_entry["points"]}
+                    for point_date, point in by_date.items():
+                        merged[point_date] = {
+                            "date": point_date,
+                            "market": point["market"],
+                            "low": point["low"],
+                            "mid": point["mid"],
+                            "high": point["high"],
+                        }
+                    series_entry["points"] = [merged[d] for d in sorted(merged)]
 
         currency_code = max(currency_counts, key=currency_counts.get) if currency_counts else "USD"
         series = [series_map[k] for k in order if series_map[k]["points"]]
@@ -10221,7 +10326,22 @@ class SpotlightScanService:
                 finishes = self._review_finishes_from_card(card)
                 if finishes:
                     card["finishes"] = finishes
-        return {"results": results, "hasMore": has_more}
+                # Search results historically shipped without pricing, so every
+                # result rendered priceless; attach the standard raw summary
+                # (main-lane aware, FX-decorated, phantom-guarded). Page ≤ ~31.
+                pricing = self._display_pricing_summary_for_context(
+                    str(card.get("id") or ""),
+                    pricing_context=self._raw_pricing_context(),
+                )
+                if pricing is not None:
+                    card["pricing"] = pricing
+        payload: dict[str, Any] = {"results": results, "hasMore": has_more}
+        # Typo-corrected retry fired: surface what was actually searched.
+        # Additive field — clients ignore unknown keys.
+        corrected_query = getattr(raw, "corrected_query", None)
+        if corrected_query:
+            payload["correctedQuery"] = corrected_query
+        return payload
 
     # ------------------------------------------------------------------
     # Reviewer-gated "label unlabeled scans" web surface (additive).

@@ -63,6 +63,7 @@ TEST_MODULES=(
   backend.tests.test_sync_tcgcsv_prices
   backend.tests.test_main_raw_price_serving
   backend.tests.test_raw_condition_surface_coherence
+  backend.tests.test_main_raw_trend_series
 )
 
 run_targeted_tests() {
