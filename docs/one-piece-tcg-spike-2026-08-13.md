@@ -745,6 +745,14 @@ The counterweight from the same session: Gundam's core catalog is the FRESHEST
 of the four games (through GD05, street date 2026-07-24, synced 21 days later)
 — so ingestion lag is a per-game behavior at Scrydex, not a uniform SLA.
 
+Follow-up on the Wing Gundam scan: top-1 was `GD05-067 Wing Gundam Zero (EW)`
+— the wrong suit but the closest winged-white-Gundam art in the index — while
+retail `ST02-001 Wing Gundam` did not win. So Edition Beta carries its own
+artwork rather than reprinting the retail art, i.e. beta cards can't even
+resolve to their retail lookalike. First Gundam real-photo observation on
+record: out-of-catalog card → same-franchise nearest neighbor, no cross-game
+leak. A true Gundam lane validation still needs a retail-card scan.
+
 **Field report backing question 3:** the first real user scan to miss (2026-08-26)
 was `ST31-004` — a set Scrydex doesn't carry yet, not a model miss. The scanner
 returned `OP10-118` (Monkey.D.Luffy SR), the nearest art it knows, and the truth
