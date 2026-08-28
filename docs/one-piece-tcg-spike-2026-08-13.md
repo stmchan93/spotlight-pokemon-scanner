@@ -716,7 +716,20 @@ What this means for the product:
 >    onepiece, lorcana, riftbound and gundam. Are Japanese printings for these
 >    games planned? One Piece JP in particular matters to our collectors.
 >
+> 3. **New-set ingestion lag**: `/onepiece/v1/cards/ST31-004` 404s and the
+>    expansion list still ends at ST30/OP16 (probed 2026-08-26). What's the
+>    typical delay between a One Piece set's street date and its appearance in
+>    the API? It determines how often we should re-sync.
+>
 > Thanks — happy to share exact request logs if useful.
+
+**Field report backing question 3:** the first real user scan to miss (2026-08-26)
+was `ST31-004` — a set Scrydex doesn't carry yet, not a model miss. The scanner
+returned `OP10-118` (Monkey.D.Luffy SR), the nearest art it knows, and the truth
+couldn't appear in any top-K because it isn't in the index. Consequence for
+launch: the new games need a periodic re-sync + index rebuild (Pokémon already
+has a daily sync; the POC catalogs are frozen 2026-08-14 snapshots), or every
+set release opens a coverage hole exactly where scan demand is hottest.
 
 ### What changed today (2026-08-20)
 
