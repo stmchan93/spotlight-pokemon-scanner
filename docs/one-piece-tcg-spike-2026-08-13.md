@@ -721,20 +721,29 @@ What this means for the product:
 >    typical delay between a One Piece set's street date and its appearance in
 >    the API? It determines how often we should re-sync.
 >
-> 4. **DON!! cards and Premium Booster contents**: `q=name:DON*` returns no
->    DON!! cards at all, and PRB01 ("Premium Booster -The Best-") contains a
->    single card (PRB01-001). Alt-art DON!! cards are actively collected and
->    traded with real market prices — are they, and the PRB alt-art reprints,
->    planned as catalog entries (or exposed as variants we're not seeing)?
+> 4. **Special print runs across games**: One Piece `q=name:DON*` returns no
+>    DON!! cards, PRB01 ("Premium Booster -The Best-") contains a single card
+>    (PRB01-001), and Gundam has no "Edition Beta" (the pre-launch print run
+>    TCGplayer lists as its own set with LR+ rarities). These parallel/special
+>    printings are actively collected and traded with real market prices — are
+>    they planned as catalog entries (or exposed as variants we're not seeing)?
 >
 > Thanks — happy to share exact request logs if useful.
 
-**Field report backing question 4 (2026-08-27):** second real user scan to miss
-was an alt-art DON!! Luffy from PRB-01. Not a lag like ST31 — a card CLASS
-Scrydex doesn't model. Until they do, DON!!s are unscannable and PRB sets look
-nearly empty in browse, which a One Piece collector will read as a broken app
-rather than a data gap. Worth deciding before launch whether the scanner's
+**Field report backing question 4 (2026-08-27/28):** second and third real user
+scan misses were an alt-art DON!! Luffy (PRB-01) and a Wing Gundam LR+ from
+Gundam's "Edition Beta" (GD01_b). Not lags like ST31 — print runs Scrydex
+doesn't model, across two different games, which makes it a policy, not an
+oversight. The pattern: Scrydex catalogs the core game and skips special
+printings — exactly the chase material collectors scan first. Until that
+changes these are unscannable (or resolve to their retail-printing lookalike),
+and PRB-style sets browse nearly empty, which a collector will read as a broken
+app rather than a data gap. Worth deciding before launch whether the scanner's
 "no match" copy should name the known-uncataloged classes.
+
+The counterweight from the same session: Gundam's core catalog is the FRESHEST
+of the four games (through GD05, street date 2026-07-24, synced 21 days later)
+— so ingestion lag is a per-game behavior at Scrydex, not a uniform SLA.
 
 **Field report backing question 3:** the first real user scan to miss (2026-08-26)
 was `ST31-004` — a set Scrydex doesn't carry yet, not a model miss. The scanner
