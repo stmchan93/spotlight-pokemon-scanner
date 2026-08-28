@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   FlatList,
   Keyboard,
-  Pressable,
   ScrollView,
   StyleSheet,
   type TextInput,
@@ -23,6 +22,7 @@ import {
   type RarityFilterBucket,
 } from '@spotlight/api-client';
 import {
+  InventoryCardTile,
   PillButton,
   ScreenHeader,
   SearchField,
@@ -33,7 +33,6 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
-import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { consumeCardAddedNotice } from '@/features/cards/card-added-notice';
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import { ExpansionCell } from '@/features/catalog/components/expansion-cell';
@@ -78,19 +77,27 @@ type CatalogSearchScreenProps = {
   onSelectExpansion?: (expansion: ExpansionRecord) => void;
 };
 
-function resultNumberLabel(result: CatalogSearchResult) {
-  return result.cardNumber.startsWith('#') ? result.cardNumber : `#${result.cardNumber}`;
+// Collectr-style results grid: chunked rows of two shared tiles (the repo's
+// grid convention — see wishlist-screen.tsx), NOT FlatList numColumns.
+const GRID_COLUMNS = 2;
+
+function chunkResultRows(entries: CatalogSearchResult[]): CatalogSearchResult[][] {
+  const rows: CatalogSearchResult[][] = [];
+  for (let index = 0; index < entries.length; index += GRID_COLUMNS) {
+    rows.push(entries.slice(index, index + GRID_COLUMNS));
+  }
+  return rows;
 }
 
 /**
- * Whether these results need a per-row game tag.
+ * Whether these results need a per-tile game tag.
  *
  * Search is scoped to one game — the lane's — so in practice this is false and
  * no tag renders. It is kept because the scoping lives in the REQUEST, not in
  * the row shape: a caller that omits the game (or a future cross-game search)
- * gets mixed results, and then a row saying only "Ace" cannot say which game it
- * came from. Tagging every row of a single-game set would just repeat one word
- * down the page, so the tag appears only when the results actually SPAN games.
+ * gets mixed results, and then a tile saying only "Ace" cannot say which game
+ * it came from. Tagging every tile of a single-game set would just repeat one
+ * word down the page, so the tag appears only when the results SPAN games.
  */
 export function resultsSpanMultipleGames(results: CatalogSearchResult[]): boolean {
   const games = new Set<CardGame>();
@@ -103,148 +110,54 @@ export function resultsSpanMultipleGames(results: CatalogSearchResult[]): boolea
   return false;
 }
 
-function ResultArtwork({
-  fallbackTestID,
-  imageUrl,
-  smallImageUrl,
-  title,
-}: {
-  fallbackTestID: string;
-  imageUrl: string;
-  smallImageUrl?: string | null;
-  title: string;
-}) {
-  const theme = useSpotlightTheme();
-  const [hasImageError, setHasImageError] = useState(false);
-
-  // Prefer the small/thumbnail-resolution image so result rows stay fast on
-  // poor connections; fall back to the large url when no small one exists.
-  const artworkUri = smallImageUrl ?? imageUrl;
-
-  return (
-    <View
-      style={[
-        styles.resultArtFrame,
-        {
-          backgroundColor: theme.colors.field,
-          borderColor: theme.colors.outlineSubtle,
-        },
-      ]}
-    >
-      {!hasImageError && artworkUri ? (
-        <CachedImage
-          cachePolicy={imageCachePolicy.thumbnail}
-          contentFit="contain"
-          onError={() => setHasImageError(true)}
-          style={styles.resultArt}
-          uri={artworkUri}
-        />
-      ) : (
-        <Text
-          numberOfLines={2}
-          testID={fallbackTestID}
-          style={[styles.resultArtFallback, theme.typography.caption, { color: theme.colors.textSecondary }]}
-        >
-          {title}
-        </Text>
-      )}
-    </View>
-  );
-}
-
-function SearchResultRow({
+function SearchResultTile({
   result,
-  isOpening,
   onPress,
   showGameTag = false,
 }: {
   result: CatalogSearchResult;
-  isOpening: boolean;
   onPress: () => void;
   showGameTag?: boolean;
 }) {
   const theme = useSpotlightTheme();
-  const subtitle = result.subtitle?.trim() ? result.subtitle : result.setName;
-
   return (
-    <View testID={`catalog-result-${result.id}`}>
-      <Pressable
-        accessibilityRole="button"
-        disabled={isOpening}
+    <View style={styles.gridCell} testID={`catalog-result-${result.id}`}>
+      <InventoryCardTile
+        artAspect="card"
+        cardNumber={result.cardNumber}
+        imageUrl={result.smallImageUrl ?? result.imageUrl ?? null}
+        isFavorite={false}
+        kind="raw"
+        name={result.name}
         onPress={onPress}
-        style={({ pressed }) => ({ opacity: isOpening ? 0.82 : pressed ? 0.94 : 1 })}
+        priceLabel={
+          result.marketPrice != null
+            ? formatCurrency(result.marketPrice, result.currencyCode ?? 'USD')
+            : null
+        }
+        quantity={result.ownedQuantity ?? 0}
+        // Set name only — no per-row rarity tag; the chips above already say it.
+        setName={result.subtitle?.trim() ? result.subtitle : result.setName}
+        showFavorite={false}
+        showQualityLine={false}
+        // The tile's quantity readout IS the "Owned N" signal; hidden when 0.
+        showQuantity={Boolean(result.ownedQuantity)}
         testID={`catalog-result-smoke-${result.cardId}`}
-      >
-        <View
-          style={[
-            styles.resultRow,
-            {
-              backgroundColor: theme.colors.surface,
-              borderColor: theme.colors.outlineSubtle,
-            },
-          ]}
+      />
+      {/*
+        Game tag BELOW the tile, not inside it: `InventoryCardTile` is a shared
+        primitive and a search-only concern doesn't belong on its prop surface.
+        Renders only when the result set spans games — see
+        `resultsSpanMultipleGames`.
+      */}
+      {showGameTag ? (
+        <Text
+          style={[theme.typography.caption, { color: theme.colors.textSecondary }]}
+          testID={`catalog-result-game-${result.id}`}
         >
-          <ResultArtwork
-            fallbackTestID={`catalog-artwork-fallback-${result.id}`}
-            imageUrl={result.imageUrl}
-            smallImageUrl={result.smallImageUrl}
-            title={result.name}
-          />
-
-          <View style={styles.resultCopy}>
-            <View style={styles.resultHeader}>
-              <Text numberOfLines={2} style={[styles.resultTitle, { color: theme.colors.textPrimary }]}>
-                {result.name}
-              </Text>
-
-              {result.ownedQuantity ? (
-                <View style={[styles.ownedBadge, { backgroundColor: theme.colors.surfaceMuted }]}>
-                  <Text style={[theme.typography.caption, { color: theme.colors.textPrimary }]}>
-                    Owned {result.ownedQuantity}
-                  </Text>
-                </View>
-              ) : null}
-            </View>
-
-            {/*
-              Set name only — no per-row rarity tag. The rows used to append
-              the bucket label ("Full Art", "Secret", …) beside the subtitle;
-              with the rarity CHIPS right above the results, the per-row copy
-              restated the filter and just made every row noisier.
-            */}
-            <Text numberOfLines={2} style={[styles.resultSubtitle, { color: theme.colors.textSecondary }]}>
-              {subtitle}
-            </Text>
-
-            <View style={styles.resultMetaRow}>
-              <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
-                {resultNumberLabel(result)}
-              </Text>
-
-              {showGameTag ? (
-                <Text
-                  style={[theme.typography.caption, { color: theme.colors.textSecondary }]}
-                  testID={`catalog-result-game-${result.id}`}
-                >
-                  {gameDisplayName(result.game)}
-                </Text>
-              ) : null}
-
-              {result.marketPrice != null ? (
-                <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
-                  {formatCurrency(result.marketPrice, result.currencyCode ?? 'USD')}
-                </Text>
-              ) : null}
-            </View>
-          </View>
-
-          {isOpening ? (
-            <ActivityIndicator color={theme.colors.brand} style={styles.resultActivity} />
-          ) : (
-            <Text style={[styles.resultChevron, { color: theme.colors.textSecondary }]}>›</Text>
-          )}
-        </View>
-      </Pressable>
+          {gameDisplayName(result.game)}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -550,9 +463,9 @@ export function CatalogSearchScreen({
         return (
           <FlatList
             contentContainerStyle={styles.resultsListContent}
-            data={results}
+            data={chunkResultRows(results)}
             key="results"
-            keyExtractor={(item) => item.id}
+            keyExtractor={(row) => row[0].id}
             keyboardShouldPersistTaps="handled"
             ListFooterComponent={isLoadingMore ? (
               <View style={styles.loadMoreFooter} testID="catalog-load-more-spinner">
@@ -562,13 +475,26 @@ export function CatalogSearchScreen({
             onEndReached={loadMore}
             onEndReachedThreshold={0.5}
             testID="catalog-results-list"
-            renderItem={({ item }) => (
-              <SearchResultRow
-                isOpening={openingResultId === item.id}
-                onPress={() => openResult(item)}
-                result={item}
-                showGameTag={showGameTags}
-              />
+            renderItem={({ item: row }) => (
+              <View style={styles.gridRow}>
+                {row.map((result) => (
+                  <SearchResultTile
+                    key={result.id}
+                    onPress={() => {
+                      // Same guard the old row's `disabled` gave: the tile just
+                      // tapped ignores re-taps until navigation settles.
+                      if (openingResultId === result.id) {
+                        return;
+                      }
+                      openResult(result);
+                    }}
+                    result={result}
+                    showGameTag={showGameTags}
+                  />
+                ))}
+                {/* A lone tile keeps one column's width, not the full row. */}
+                {row.length < GRID_COLUMNS ? <View style={styles.gridCell} /> : null}
+              </View>
             )}
             showsVerticalScrollIndicator={false}
             style={styles.body}
@@ -737,59 +663,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 12,
   },
-  ownedBadge: {
-    borderRadius: 999,
-    justifyContent: 'center',
-    minHeight: 24,
-    paddingHorizontal: 10,
-  },
-  resultActivity: {
-    paddingTop: 4,
-  },
-  resultArt: {
-    height: '100%',
-    width: '100%',
-  },
-  resultArtFallback: {
-    paddingHorizontal: 8,
-    textAlign: 'center',
-  },
-  resultArtFrame: {
-    alignItems: 'center',
-    borderRadius: 16,
-    borderWidth: 1,
-    height: 92,
-    justifyContent: 'center',
-    overflow: 'hidden',
-    width: 64,
-  },
-  resultChevron: {
-    fontSize: 18,
-    lineHeight: 18,
-    paddingTop: 6,
-  },
-  resultCopy: {
+  gridCell: {
     flex: 1,
-    gap: 8,
   },
-  resultHeader: {
-    alignItems: 'flex-start',
-    flexDirection: 'row',
-    gap: 8,
-    justifyContent: 'space-between',
-  },
-  resultMetaRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 8,
-  },
-  resultRow: {
-    alignItems: 'flex-start',
-    borderRadius: 20,
-    borderWidth: 1,
+  gridRow: {
+    alignItems: 'stretch',
     flexDirection: 'row',
     gap: 12,
-    padding: 12,
   },
   resultsListContent: {
     gap: 12,
@@ -826,17 +706,6 @@ const styles = StyleSheet.create({
     paddingLeft: 16,
     paddingRight: 16,
     paddingVertical: 16,
-  },
-  resultSubtitle: {
-    flexShrink: 1,
-    fontSize: 15,
-    lineHeight: 20,
-  },
-  resultTitle: {
-    flex: 1,
-    fontSize: 17,
-    fontWeight: '600',
-    lineHeight: 22,
   },
   searchField: {
   },

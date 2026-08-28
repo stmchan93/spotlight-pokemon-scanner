@@ -1245,10 +1245,11 @@ describe('ScannerScreen', () => {
     expect(screen.getByTestId('scanner-tray-collapse-backdrop')).toBeTruthy();
   });
 
-  it('shows the scan-target pill alongside the zoom controls and hides them when the tray expands', async () => {
+  it('keeps the scan-target pill in the top bar and hides only the zoom dock when the tray expands', async () => {
     renderScannerScreen();
 
-    // Pill shares the bottom controls row with the zoom dock; back/search stay in the header.
+    // Pill sits centered in the top bar between back and search (Figma
+    // 4299:93955); the zoom dock has the bottom controls row to itself.
     expect(screen.getByTestId('scanner-target-pill')).toBeTruthy();
     expect(screen.getByTestId('scanner-zoom-control')).toBeTruthy();
     expect(screen.getByTestId('scanner-back-button')).toBeTruthy();
@@ -1260,15 +1261,15 @@ describe('ScannerScreen', () => {
       expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
     });
 
-    // Still visible while collapsed with a scan.
     expect(screen.getByTestId('scanner-target-pill')).toBeTruthy();
 
-    // Shares the controls row with the zoom dock, so it hides when the tray expands.
+    // The top bar stays through tray expansion (Figma 4046:20297); only the
+    // bottom zoom dock leaves.
     fireEvent.press(screen.getByTestId('scanner-tray-header'));
     await waitFor(() => {
       expect(screen.getByTestId('scanner-tray-collapse-backdrop')).toBeTruthy();
     });
-    expect(screen.queryByTestId('scanner-target-pill')).toBeNull();
+    expect(screen.getByTestId('scanner-target-pill')).toBeTruthy();
     expect(screen.queryByTestId('scanner-zoom-control')).toBeNull();
   });
 
@@ -1290,9 +1291,10 @@ describe('ScannerScreen', () => {
         >
       )?.backgroundColor;
 
-    expect(fillOf('scanner-target-pill-surface')).toBe(colors.scannerChromeFill);
-    // Only the SELECTED zoom factor has a surface; the others are bare labels.
-    expect(fillOf('scanner-zoom-1x-surface')).toBe(colors.scannerChromeFill);
+    // Top-bar pill: shared light glass fallback (Figma 4299:93955). Selected
+    // zoom: solid white chip; the other factors are bare labels.
+    expect(fillOf('scanner-target-pill-surface')).toBe(colors.glassFallback);
+    expect(fillOf('scanner-zoom-1x-surface')).toBe(colors.gray0);
     expect(screen.queryByTestId('scanner-zoom-2x-surface')).toBeNull();
 
     await waitForScannerReady();
@@ -1301,10 +1303,9 @@ describe('ScannerScreen', () => {
       expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
     });
 
-    // The tray's SCAN/TOTAL chips used to be an opaque gray900 — the one
-    // surface here that read as a different material from the rest.
-    expect(fillOf('scanner-recent-title-surface')).toBe(colors.scannerChromeFill);
-    expect(fillOf('scanner-value-pill-surface')).toBe(colors.scannerChromeFill);
+    // Collapsed tray chips: translucent white over the camera (Figma 4299:93955).
+    expect(fillOf('scanner-recent-title-surface')).toBe('rgba(255, 255, 255, 0.10)');
+    expect(fillOf('scanner-value-pill-surface')).toBe('rgba(255, 255, 255, 0.10)');
 
     /*
       The tray backdrop is the SAME frosted dim on every platform now (Figma
@@ -1315,13 +1316,13 @@ describe('ScannerScreen', () => {
     expect(screen.queryByTestId('scanner-tray-glass')).toBeNull();
   });
 
-  it('replaces the search bubble with a labelled search field', async () => {
+  it('renders search as a trailing bubble, not a labelled field', async () => {
     renderScannerScreen();
 
-    // A magnifier icon reads as "some action"; the frame (3686:56583) gives
-    // search the whole width beside the back button so it reads as a field.
+    // Figma 4299:93955: back bubble | centered scan-target pill | search
+    // bubble — the old full-width "Search Cards" field left with that frame.
     expect(screen.getByTestId('scanner-search-button')).toBeTruthy();
-    expect(screen.getByText('Search Cards')).toBeTruthy();
+    expect(screen.queryByText('Search Cards')).toBeNull();
   });
 
   it('floats the toolbar over the camera with no dark strip behind it', async () => {

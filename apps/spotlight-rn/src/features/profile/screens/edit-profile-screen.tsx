@@ -50,8 +50,9 @@ const AVATAR_SIZE = 80;
 const COVER_UPLOAD_WIDTH = 1200;
 /** Longest edge of the uploaded avatar JPEG (80pt circle at 3x, oversampled). */
 const AVATAR_UPLOAD_WIDTH = 512;
-/** Camera glyph inside the avatar/cover badges (Figma 3083:12761 / 3083:12763). */
-const CAMERA_ICON_SIZE = 16;
+/** Camera glyphs inside the avatar/cover badges (Figma 4167:78756). */
+const AVATAR_CAMERA_ICON_SIZE = 16;
+const COVER_CAMERA_ICON_SIZE = 21;
 
 // expo-image-picker / expo-image-manipulator are native modules that may not be
 // present in the binary an OTA-updated JS bundle is running on. The picker goes
@@ -151,13 +152,13 @@ function VerifiedSeal({ size = 24 }: { size?: number }) {
     <Svg fill="none" height={size} viewBox="0 0 24 24" width={size}>
       <Path
         d="M10.5213 2.62368C11.3147 1.75255 12.6853 1.75255 13.4787 2.62368L14.4989 3.74391C14.8998 4.18418 15.4761 4.42288 16.071 4.39508L17.5845 4.32435C18.7614 4.26934 19.7307 5.23857 19.6757 6.41554L19.6049 7.92905C19.5771 8.52388 19.8158 9.10016 20.2561 9.50111L21.3763 10.5213C22.2475 11.3147 22.2475 12.6853 21.3763 13.4787L20.2561 14.4989C19.8158 14.8998 19.5771 15.4761 19.6049 16.071L19.6757 17.5845C19.7307 18.7614 18.7614 19.7307 17.5845 19.6757L16.071 19.6049C15.4761 19.5771 14.8998 19.8158 14.4989 20.2561L13.4787 21.3763C12.6853 22.2475 11.3147 22.2475 10.5213 21.3763L9.50111 20.2561C9.10016 19.8158 8.52388 19.5771 7.92905 19.6049L6.41553 19.6757C5.23857 19.7307 4.26934 18.7614 4.32435 17.5845L4.39508 16.071C4.42288 15.4761 4.18418 14.8998 3.74391 14.4989L2.62368 13.4787C1.75255 12.6853 1.75255 11.3147 2.62368 10.5213L3.74391 9.50111C4.18418 9.10016 4.42288 8.52388 4.39508 7.92905L4.32435 6.41553C4.26934 5.23857 5.23857 4.26934 6.41554 4.32435L7.92905 4.39508C8.52388 4.42288 9.10016 4.18418 9.50111 3.74391L10.5213 2.62368Z"
-        fill={theme.colors.brandStrong}
-        stroke={theme.colors.brandStrong}
+        fill={theme.colors.purple500}
+        stroke={theme.colors.purple500}
         strokeWidth={1.5}
       />
       <Path
         d="M9 12L11 14L15 10"
-        stroke={theme.colors.gray0}
+        stroke={theme.colors.gray50}
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth={2}
@@ -265,7 +266,7 @@ export function EditProfileScreen() {
 
   /*
     How far the SAVE/CANCEL bar has to rise to clear the keyboard. It pays
-    `insets.bottom + 8` itself, so `keyboardLift` subtracts exactly what is
+    `insets.bottom` itself, so `keyboardLift` subtracts exactly what is
     already paid on iOS and nothing on Android, where the reported height
     excludes the navigation bar. Same helper `new-post-screen` lifts its POST
     footer with.
@@ -274,7 +275,7 @@ export function EditProfileScreen() {
     subtracts exactly the padding the bar pays), so the buttons rest on the
     keyboard. Only while lifted — at rest the bar already pays the safe area.
   */
-  const actionsLift = keyboardLift(keyboardHeight, insets.bottom + 8);
+  const actionsLift = keyboardLift(keyboardHeight, insets.bottom);
   const actionsBottom = actionsLift > 0 ? actionsLift + KEYBOARD_ACTION_GAP : actionsLift;
 
   // Whether what has been typed so far is something the profile could actually
@@ -488,7 +489,7 @@ export function EditProfileScreen() {
           {/* Banner: full-bleed cover with a centered title, a back control on the
               left, and a cover-photo camera badge pinned to the bottom-right —
               mirroring the Figma "Banner Section". */}
-          <View style={[styles.cover, { backgroundColor: theme.colors.surfaceMuted }]}>
+          <View style={[styles.cover, { backgroundColor: theme.colors.gray300 }]}>
             {coverUrl ? (
               // Cropped the same way the profile header crops it, so what you
               // frame here is what the profile shows.
@@ -542,10 +543,10 @@ export function EditProfileScreen() {
               onPress={() => {
                 void handlePickCover();
               }}
-              style={[styles.coverCameraBadge, { backgroundColor: theme.colors.gray0 }]}
+              style={[styles.coverCameraBadge, { backgroundColor: theme.colors.gray50 }]}
               testID="edit-profile-cover-camera"
             >
-              <Camera color={theme.colors.gray900} height={CAMERA_ICON_SIZE} width={CAMERA_ICON_SIZE} />
+              <Camera color={theme.colors.gray900} height={COVER_CAMERA_ICON_SIZE} width={COVER_CAMERA_ICON_SIZE} />
             </Pressable>
           </View>
 
@@ -559,10 +560,10 @@ export function EditProfileScreen() {
                 onPress={() => {
                   void handlePickAvatar();
                 }}
-                style={[styles.avatarBadge, { backgroundColor: theme.colors.gray0 }]}
+                style={[styles.avatarBadge, { backgroundColor: theme.colors.gray50 }]}
                 testID="edit-profile-avatar-camera"
               >
-                <Camera color={theme.colors.gray900} height={CAMERA_ICON_SIZE} width={CAMERA_ICON_SIZE} />
+                <Camera color={theme.colors.gray900} height={AVATAR_CAMERA_ICON_SIZE} width={AVATAR_CAMERA_ICON_SIZE} />
               </Pressable>
             </View>
           </View>
@@ -603,10 +604,10 @@ export function EditProfileScreen() {
               <View style={styles.bioLabelRow}>
                 {/* The Bio row sits at 12px, unlike the 11px floating labels on
                     the underline fields above (Figma "Bio Info"). */}
-                <Text style={[theme.typography.caption, { color: theme.colors.gray500 }]}>
+                <Text style={[theme.typography.caption, { color: theme.colors.gray900 }]}>
                   Bio
                 </Text>
-                <Text style={[theme.typography.caption, { color: theme.colors.gray500 }]}>
+                <Text style={[theme.typography.caption, { color: theme.colors.gray600 }]}>
                   {bio.length}/{BIO_MAX_LENGTH}
                 </Text>
               </View>
@@ -678,11 +679,10 @@ export function EditProfileScreen() {
           styles.actions,
           {
             backgroundColor: theme.colors.gray0,
-            borderTopColor: theme.colors.outlineSubtle,
             // Lifted so SAVE is reachable while typing. Previously pinned to the
             // screen's bottom edge and simply covered — see `actionsLift`.
             bottom: actionsBottom,
-            paddingBottom: insets.bottom + 8,
+            paddingBottom: insets.bottom,
           },
         ]}
       >
@@ -723,15 +723,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   actions: {
-    // Mirrors the PDP sticky footer (card-detail-screen `stickyFooter` +
-    // `actionBar`): absolutely pinned, elevated above the scroll content, 16px
-    // gutter and 10px above the buttons. Bottom padding is applied inline from
-    // the safe-area inset.
-    borderTopWidth: 1,
+    // Figma "Dropdown Handle" (4167:78756): absolutely pinned, elevated above
+    // the scroll content, 16px gutter, 10px above the buttons, no top rule.
+    // Bottom padding is applied inline from the safe-area inset.
     bottom: 0,
     elevation: 10,
     flexDirection: 'row',
-    gap: 12,
+    gap: 10,
     left: 0,
     paddingHorizontal: 16,
     paddingTop: 10,
@@ -740,19 +738,19 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   avatarBadge: {
-    // Figma 3083:12761 — matches the cover badge: gray50 circle, black glyph.
+    // Figma 4167:78756 — gray50 circle, black glyph, flush to the avatar's edge.
     alignItems: 'center',
     borderRadius: 14,
-    bottom: -2,
+    bottom: -1,
     height: 28,
     justifyContent: 'center',
     position: 'absolute',
-    right: -2,
+    right: -1,
     width: 28,
   },
   avatarRow: {
-    marginTop: -AVATAR_SIZE / 2,
-    paddingHorizontal: 20,
+    marginTop: -46,
+    paddingHorizontal: 16,
   },
   avatarWrap: {
     height: AVATAR_SIZE,
@@ -763,12 +761,12 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   bioInput: {
-    // Figma "Bio Text Container": radius 8, even 16 padding, 104 tall, 14px
+    // Figma "Bio Text Container": radius 12, even 16 padding, 104 tall, 14px
     // Regular body on a flat fill (no border).
-    borderRadius: 8,
+    borderRadius: 12,
     fontFamily: 'SpotlightBodyRegular',
     fontSize: 14,
-    lineHeight: 20,
+    lineHeight: 18,
     minHeight: 104,
     padding: 16,
   },
@@ -789,12 +787,12 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   field: {
-    // 48px frame per Figma 3083:9398, bottom-anchored: the label's baseline lands
-    // 14px from the top and the value keeps its 33px centerline either way.
-    gap: 9,
+    // 48px frame per Figma 4167:78756, bottom-anchored so the value keeps its
+    // centerline whether or not the floating label is showing.
+    gap: 10,
     height: 48,
     justifyContent: 'flex-end',
-    paddingBottom: 5,
+    paddingBottom: 6,
   },
   fieldInput: {
     flex: 1,
@@ -836,25 +834,25 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   coverCameraBadge: {
-    // Figma 3083:12763 — a plain gray50 circle, no ring. Was a purple fill with a
-    // 2px border and a white glyph.
+    // Figma 4167:78756 — a plain gray50 circle, no ring, 36pt with a 21pt glyph.
     alignItems: 'center',
-    borderRadius: 14,
-    bottom: 12,
-    height: 28,
+    borderRadius: 18,
+    bottom: 16,
+    height: 36,
     justifyContent: 'center',
     position: 'absolute',
     right: 16,
-    width: 28,
+    width: 36,
   },
   flex: {
     flex: 1,
   },
   form: {
-    // Figma 3083:9397 — 24px between fields on the standard 16px page gutter.
-    gap: 24,
+    // Figma 4167:78756 — 16px between fields on the standard 16px page gutter,
+    // 24px below the avatar.
+    gap: 16,
     paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingTop: 24,
   },
   fullWidth: {
     width: '100%',
@@ -868,10 +866,10 @@ const styles = StyleSheet.create({
     paddingBottom: 96,
   },
   verifyCard: {
-    // Figma 3095:5499 — white card on a 0.5px gray400 hairline, radius 8, even
+    // Figma 4167:78756 — white card on a 0.5px gray400 hairline, radius 12, even
     // 12 padding, badge left / chevron right.
     alignItems: 'center',
-    borderRadius: 8,
+    borderRadius: 12,
     flexDirection: 'row',
     justifyContent: 'space-between',
     padding: 12,

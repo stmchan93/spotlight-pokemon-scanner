@@ -67,7 +67,7 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
           variant === 'underline'
             ? {
                 backgroundColor: 'transparent',
-                borderBottomWidth: StyleSheet.hairlineWidth,
+                borderBottomWidth: theme.borderWidths.rule,
                 // Figma draws the rule at gray/400 — a touch darker than the
                 // outline used on filled fields, so it reads on white.
                 borderColor: theme.colors.gray400,

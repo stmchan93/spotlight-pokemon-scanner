@@ -14,6 +14,8 @@ import {
 const DEFAULT_CARD_ASPECT = 245 / 342;
 // Slab display slot ratio (Figma 2609:6977's 84×136 card-image slot).
 const SLAB_ASPECT = 84 / 136;
+// `artAspect="card"` frame ratio — the portrait trading-card shape.
+const CARD_FRAME_ASPECT = 0.716;
 
 import { useSpotlightTheme } from '../theme';
 import { fontFamilies } from '../tokens';
@@ -30,6 +32,13 @@ export type InventoryCardTileProps = {
   setName: string;
   cardNumber: string | null;
   kind: InventoryCardTileKind;
+  /**
+   * Art frame shape. 'square' (default) keeps the 1:1 frame with the art
+   * letterboxed at its own aspect; 'card' renders the frame at the portrait
+   * trading-card ratio with the art filling it — a shorter tile for dense
+   * results grids (catalog search).
+   */
+  artAspect?: 'square' | 'card';
   /** Print variant (e.g. "Holofoil"); renders above the condition/grade line. */
   variantName?: string | null;
   conditionLabel?: string | null;
@@ -154,6 +163,7 @@ export function InventoryCardTile({
   setName,
   cardNumber,
   kind,
+  artAspect = 'square',
   variantName,
   conditionLabel,
   graderLabel,
@@ -245,7 +255,11 @@ export function InventoryCardTile({
     >
       <View style={styles.cardContent}>
         <View
-          style={[styles.imageFrame, { borderRadius: artRadius }]}
+          style={[
+            styles.imageFrame,
+            artAspect === 'card' ? styles.imageFrameCard : null,
+            { borderRadius: artRadius },
+          ]}
           testID={testID ? `${testID}-image-frame` : undefined}
         >
           {brandedGrader ? (
@@ -286,7 +300,12 @@ export function InventoryCardTile({
             </View>
           ) : (
             <View
-              style={[styles.artWrap, { aspectRatio: imageAspect ?? DEFAULT_CARD_ASPECT }]}
+              style={[
+                styles.artWrap,
+                artAspect === 'card'
+                  ? styles.artWrapFill
+                  : { aspectRatio: imageAspect ?? DEFAULT_CARD_ASPECT },
+              ]}
             >
               {imageUrl ? (
                 <Image
@@ -517,6 +536,11 @@ const styles = StyleSheet.create({
     maxWidth: '100%',
     position: 'relative',
   },
+  // 'card' mode: the frame already IS the card's shape, so the wrapper just
+  // fills it — no measured-aspect letterboxing.
+  artWrapFill: {
+    width: '100%',
+  },
   imageFrame: {
     alignItems: 'center',
     aspectRatio: 1,
@@ -524,6 +548,9 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     position: 'relative',
     width: '100%',
+  },
+  imageFrameCard: {
+    aspectRatio: CARD_FRAME_ASPECT,
   },
   quantityGroup: {
     alignItems: 'center',

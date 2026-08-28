@@ -67,6 +67,17 @@ Use these docs for:
 - RN migration state
 - RN design-system cleanup context
 
+## Pricing
+
+- **Raw main price = TCGCSV/TCGplayer, conditions + graded = Scrydex (current source of truth; flags, storage, rollout, revert)**: [tcgcsv-main-price-migration-spec-2026-08-25.md](/Users/stephenchan/Code/spotlight/docs/tcgcsv-main-price-migration-spec-2026-08-25.md)
+- Prior PPT migration analysis (superseded for the main price; still the reference for PPT graded signals): [ppt-pricing-migration-spec-2026-06-25.md](/Users/stephenchan/Code/spotlight/docs/ppt-pricing-migration-spec-2026-06-25.md)
+- JP raw pricing problem statement that motivated the split: [japanese-raw-pricing-tcgplayer-source-plan-2026-06-24.md](/Users/stephenchan/Code/spotlight/docs/japanese-raw-pricing-tcgplayer-source-plan-2026-06-24.md)
+
+Use these docs for:
+
+- which provider feeds which price lane
+- pricing sync schedules, flags, and revert procedure
+
 ## Labeling And Data Pipeline
 
 - Scan data labeling pipeline plan: [scan-data-labeling-pipeline-spec-2026-04-23.md](/Users/stephenchan/Code/spotlight/docs/scan-data-labeling-pipeline-spec-2026-04-23.md)

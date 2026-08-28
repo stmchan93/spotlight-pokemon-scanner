@@ -25,7 +25,7 @@ import {
 type SecondaryFieldProps = Omit<TextInputProps, 'style'> & {
   /**
    * Floating mini-label shown above the value once the field is non-empty
-   * (Figma 216:147 — 11px uppercase gray400, e.g. "EMAIL"). Falls back to the
+   * (Figma 216:147 — 11px uppercase gray500, e.g. "EMAIL"). Falls back to the
    * uppercased placeholder when omitted.
    */
   label?: string;
@@ -51,7 +51,7 @@ export function SecondaryField({
     <View style={[styles.fieldShell, { borderBottomColor: theme.colors.gray300 }]}>
       <View style={styles.fieldColumn}>
         {showLabel && labelText ? (
-          <Text style={[styles.fieldLabel, { color: theme.colors.gray400 }]}>{labelText}</Text>
+          <Text style={[styles.fieldLabel, { color: theme.colors.gray500 }]}>{labelText}</Text>
         ) : null}
         <TextInput
           placeholder={placeholder}
@@ -181,8 +181,6 @@ export function SecondaryActionButton({
       testID={testID}
     >
       {leadingIcon ? <View style={styles.buttonIcon}>{leadingIcon}</View> : null}
-      {/* Outline buttons use the 13px Label role (Figma 2368:44116); the filled
-          Continue uses 14px Body-medium. */}
       <Text style={[styles.buttonLabelOutline, { color: theme.colors.gray900 }]}>{label}</Text>
     </Pressable>
   );
@@ -236,9 +234,9 @@ export function OrDivider() {
   const theme = useSpotlightTheme();
   return (
     <View style={styles.divider}>
-      <View style={[styles.dividerLine, { backgroundColor: theme.colors.gray200 }]} />
+      <View style={[styles.dividerLine, { backgroundColor: theme.colors.gray100 }]} />
       <Text style={[styles.dividerLabel, { color: theme.colors.gray500 }]}>OR</Text>
-      <View style={[styles.dividerLine, { backgroundColor: theme.colors.gray200 }]} />
+      <View style={[styles.dividerLine, { backgroundColor: theme.colors.gray100 }]} />
     </View>
   );
 }
@@ -299,7 +297,7 @@ export function PasswordRules({ rules, testID }: { rules: PasswordRule[]; testID
       {rules.map((rule) => (
         <View key={rule.label} style={styles.ruleRow}>
           {rule.satisfied ? (
-            <CheckCircleSolid color={theme.colors.gray900} height={16} width={16} />
+            <CheckCircleSolid color={theme.colors.gray700} height={16} width={16} />
           ) : (
             <CheckCircle color={theme.colors.gray300} height={16} width={16} />
           )}
@@ -318,8 +316,8 @@ export function AuthErrorLine({ message }: { message: string }) {
   );
 }
 
-// Sizes track the UPDATED Figma (2368:44110-44133): 40px buttons, 14px filled/
-// tertiary labels, 13px outline labels; fields stay at their original 48px.
+// Sizes track the current Figma frames (4255:88306-89139): 40px buttons, 14px
+// labels on filled, tertiary, and outline alike; fields stay at 48px.
 const styles = StyleSheet.create({
   button: {
     alignItems: 'center',
@@ -341,8 +339,8 @@ const styles = StyleSheet.create({
   },
   buttonLabelOutline: {
     fontFamily: fontFamilies.bodyMedium,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 14,
+    lineHeight: 21,
   },
   divider: {
     alignItems: 'center',
@@ -406,7 +404,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   rules: {
-    gap: 8,
+    gap: 6,
   },
   sectionTitle: {
     fontFamily: fontFamilies.bodyRegular,

@@ -43,27 +43,23 @@ describe('ProfileHeader', () => {
     jest.restoreAllMocks();
   });
 
-  it('bleeds the cover under the status bar with AND without a photo', () => {
-    // These two branches drifted: the photo branch bled, the fallback did not,
-    // so a profile with no cover showed a white strip above the grey band and
-    // everything below it sat insets.top too low. Assert both, together, so they
-    // cannot diverge again.
+  it('spans the safe area with AND without a photo', () => {
+    // The overlay header renders from the screen's very top (its pinned
+    // container starts at y0), so its height carries the status-bar inset and
+    // there is no negative-margin pull-up — that double-compensated and
+    // dragged the avatar into the toolbar.
     const withPhoto = renderHeader(
       <ProfileHeader coverUrl="https://cdn.test/c.jpg" displayName="Ash" initials="AK" />,
     );
-    const photoFrame = StyleSheet.flatten(
-      screen.getByTestId('profile-header-cover-frame').props.style,
-    );
-    expect(photoFrame.marginTop).toBe(-59);
-    expect(photoFrame.height).toBe(176 + 59);
+    const photoBlock = StyleSheet.flatten(screen.getByTestId('profile-header').props.style);
+    expect(photoBlock.marginTop).toBeUndefined();
+    expect(photoBlock.height).toBe(286 + 59);
     withPhoto.unmount();
 
     renderHeader(<ProfileHeader displayName="Ash" initials="AK" />);
-    const placeholder = StyleSheet.flatten(
-      screen.getByTestId('profile-header-cover-placeholder').props.style,
-    );
-    expect(placeholder.marginTop).toBe(-59);
-    expect(placeholder.height).toBe(176 + 59);
+    const block = StyleSheet.flatten(screen.getByTestId('profile-header').props.style);
+    expect(block.marginTop).toBeUndefined();
+    expect(block.height).toBe(286 + 59);
   });
 
   it('renders the display name', () => {
@@ -92,7 +88,8 @@ describe('ProfileHeader', () => {
   it('renders the Verified badge when isVerified is set', () => {
     renderHeader(<ProfileHeader displayName="Ash Ketchum" initials="AK" isVerified />);
 
-    expect(screen.getByText('Verified')).toBeTruthy();
+    // Icon-only badge beside the name (no "Verified" text in the overlay design).
+    expect(screen.getByTestId('profile-header-verified')).toBeTruthy();
   });
 
   it('renders the bio text', () => {
@@ -129,11 +126,12 @@ describe('ProfileHeader', () => {
     expect(screen.getByText('AK')).toBeTruthy();
   });
 
-  it('falls back to a very light gray cover banner, not the tinted surface', () => {
+  it('falls back to a dark backdrop so the white overlay text stays readable', () => {
     renderHeader(<ProfileHeader displayName="Ash Ketchum" initials="AK" />);
 
-    const placeholder = screen.getByTestId('profile-header-cover-placeholder');
-    expect(StyleSheet.flatten(placeholder.props.style).backgroundColor).toBe(colors.gray100);
+    expect(screen.getByTestId('profile-header-cover-placeholder')).toBeTruthy();
+    const block = StyleSheet.flatten(screen.getByTestId('profile-header').props.style);
+    expect(block.backgroundColor).toBe(colors.gray800);
   });
 
   it('renders the uploaded cover banner instead of the placeholder', async () => {
@@ -198,11 +196,11 @@ describe('ProfileHeader', () => {
       fireEvent(screen.getByTestId('profile-header-cover'), 'error');
     });
 
-    // A failed cover must not pulse forever — the band settles to the same flat
-    // neutral a cover-less profile shows.
+    // A failed cover must not pulse forever — the band settles to the same dark
+    // backdrop a cover-less profile shows.
     expect(screen.queryByTestId('profile-header-cover-skeleton')).toBeNull();
-    const frame = screen.getByTestId('profile-header-cover-frame');
-    expect(StyleSheet.flatten(frame.props.style).backgroundColor).toBe(colors.gray100);
+    const block = screen.getByTestId('profile-header');
+    expect(StyleSheet.flatten(block.props.style).backgroundColor).toBe(colors.gray800);
   });
 
   it('re-enters the loading state when a newly uploaded cover replaces the old one', async () => {

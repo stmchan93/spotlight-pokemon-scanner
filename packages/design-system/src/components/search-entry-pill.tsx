@@ -22,10 +22,10 @@ type SearchEntryPillProps = {
 };
 
 /**
- * Figma "Home" 3523:15499 (toolbar 3567:22969) — 40pt tall, level with the 40pt
- * `GlassNavBubble`s (`size="compact"`) either side of it.
+ * Figma 4299:94902 — 44pt tall, level with the 44pt `GlassNavBubble`s
+ * (`size="medium"`) either side of it in the profile top bar.
  */
-const PILL_HEIGHT = 40;
+const PILL_HEIGHT = 44;
 
 /**
  * A tappable search ENTRY — a pill that looks like a search field but is a

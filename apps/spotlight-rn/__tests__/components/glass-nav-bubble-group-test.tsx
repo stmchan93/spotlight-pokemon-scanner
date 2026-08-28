@@ -47,21 +47,30 @@ describe('GlassNavBubbleGroup', () => {
     expect(glassNavBubbleGroupWidth(0)).toBe(0);
   });
 
-  it('renders that width as one 40pt capsule, not two circles in a box', () => {
+  // The 44pt Home toolbar capsule (Figma 4299:94902): same 6pt padding and
+  // 36pt slots, but a 20pt gap — 6 + 36 + 20 + 36 + 6 = 104 for the two-slot
+  // search + bell pair. Pinned as a literal like the compact 90.
+  it('measures 104 for a two-slot medium capsule', () => {
+    expect(glassNavBubbleGroupWidth(2, 'medium')).toBe(104);
+    expect(glassNavBubbleGroupWidth(1, 'medium')).toBe(48);
+    expect(glassNavBubbleGroupWidth(0, 'medium')).toBe(0);
+  });
+
+  it('renders that width as one 44pt capsule, not two circles in a box', () => {
     renderGroup(<GlassNavBubbleGroup items={pair} testID="group" />);
 
     const group = flattenStyle(screen.getByTestId('group').props.style);
     expect(group.width).toBe(90);
-    expect(group.height).toBe(40);
-    expect(group.borderRadius).toBe(20);
+    expect(group.height).toBe(44);
+    expect(group.borderRadius).toBe(22);
     expect(group.paddingHorizontal).toBe(6);
     expect(group.gap).toBe(6);
 
     // THE FALLBACK IS ONE SURFACE. The lift and the fill belong to the capsule;
     // a slot carrying either would read as a chip inside a pill on Android and
     // on every pre-iOS-26 device — the exact look grouping exists to remove.
-    expect(group.backgroundColor).toBe(colors.canvasElevated);
-    expect(group.shadowRadius).toBe(shadows.card.shadowRadius);
+    expect(group.backgroundColor).toBe(colors.glassFallback);
+    expect(group.shadowRadius).toBe(shadows.glassPill.shadowRadius);
 
     for (const testID of ['group-bell', 'group-add']) {
       const slot = flattenStyle(screen.getByTestId(testID).props.style);

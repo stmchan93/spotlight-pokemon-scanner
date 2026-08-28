@@ -155,13 +155,13 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   topGroup: {
-    gap: 4,
+    gap: 2,
   },
   portfolioLabel: {
     color: colors.gray500,
     fontFamily: fontFamilies.bodyMedium,
     fontSize: 12,
-    lineHeight: 14,
+    lineHeight: 16.8,
   },
   valueRow: {
     alignItems: 'center',

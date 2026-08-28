@@ -55,7 +55,7 @@ const styles = StyleSheet.create({
   pill: {
     alignItems: 'center',
     borderRadius: 999,
-    height: 40,
+    height: 44,
     justifyContent: 'center',
     paddingHorizontal: 14,
   },

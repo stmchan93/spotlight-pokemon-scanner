@@ -1,7 +1,8 @@
-import { Redirect, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 
 import { NativeTabsPageBridge } from '@/components/native-tabs-page-bridge';
+import { GuestScannerRedirect } from '@/features/auth/components/guest-scanner-redirect';
 import {
   cardDetailPreviewFromInventoryEntry,
   saveCardDetailPreviewFromInventoryEntry,
@@ -35,7 +36,7 @@ export default function YouRoute() {
   // Collection is gated for guests, so there is nothing to show them here. Send
   // them to the scanner, which is the whole of the guest experience.
   if (isGuest) {
-    return <Redirect href={'/scan' as never} />;
+    return <GuestScannerRedirect />;
   }
 
   return (

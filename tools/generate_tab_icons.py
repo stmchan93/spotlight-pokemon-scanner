@@ -1,8 +1,8 @@
 """Rasterize the bottom-tab glyphs from their REAL source: the installed iconoir.
 
-    uv run --with cairosvg python tools/generate_tab_icons.py
+    uv run --with cairosvg --with pillow python tools/generate_tab_icons.py
 
-(cairosvg is not a repo dependency, same as Pillow in `generate_app_icons.py`.)
+(cairosvg/Pillow are not repo dependencies, same as in `generate_app_icons.py`.)
 
 WHY THIS EXISTS AT ALL
 ======================
@@ -33,14 +33,16 @@ Android uses Material's own four-corner glyph instead. See `(tabs)/_layout.tsx`.
 
 from __future__ import annotations
 
+import io
 import re
 import sys
 from pathlib import Path
 
 import cairosvg
+from PIL import Image, ImageChops
 
 REPO = Path(__file__).resolve().parent.parent
-ICONOIR = REPO / "node_modules" / "iconoir-react-native" / "dist" / "regular"
+ICONOIR = REPO / "node_modules" / "iconoir-react-native" / "dist"
 OUT = REPO / "apps" / "spotlight-rn" / "assets" / "images" / "tab-icons"
 
 # The glyph each tab draws, and the file it becomes. Names are iconoir's own, so
@@ -49,6 +51,13 @@ ICONS = {
     "home": "HomeSimple",
     "wishlist": "Bookmark",
 }
+
+# SELECTED-STATE VARIANTS (Figma 4299:95029): the same glyphs, filled.
+# Wishlist ships as iconoir `solid/Bookmark`. iconoir has no solid HomeSimple,
+# so the filled home is the regular shell filled — with the door slot KNOCKED
+# OUT of the alpha rather than painted white as the Figma asset does: a tab
+# icon is template-tinted, only alpha survives, and white ink would simply
+# vanish into the fill.
 
 # Rendered in a 24pt box for BOTH glyphs. Figma reports Wishlist as 14x18 because
 # that is the bookmark's ink inside iconoir's 24x24 viewBox — rendering it in the
@@ -68,9 +77,9 @@ STROKE_WIDTH = 1.5
 STROKE = "#000000"
 
 
-def extract_paths(component: str) -> list[str]:
+def extract_paths(component: str, variant: str = "regular") -> list[str]:
     """Every `d=` in an iconoir component, in draw order."""
-    source = (ICONOIR / f"{component}.js").read_text(encoding="utf-8")
+    source = (ICONOIR / variant / f"{component}.js").read_text(encoding="utf-8")
     paths = re.findall(r'd:"([^"]+)"', source)
     if not paths:
         raise SystemExit(f"No path data in {component}.js — did iconoir change shape?")
@@ -89,25 +98,72 @@ def build_svg(paths: list[str]) -> str:
     )
 
 
+def build_solid_svg(paths: list[str]) -> str:
+    """iconoir solid glyphs: fill AND stroke, the way the package renders them."""
+    body = "".join(
+        f'<path d="{d}" fill="{STROKE}" stroke="{STROKE}" stroke-width="{STROKE_WIDTH}"'
+        ' stroke-linecap="round" stroke-linejoin="round"/>'
+        for d in paths
+    )
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{VIEW_BOX}" '
+        f'width="{BOX_PT}" height="{BOX_PT}">{body}</svg>'
+    )
+
+
+def rasterize_filled_home(name: str, shell: str, slot: str) -> None:
+    """The regular HomeSimple shell, filled, with the door slot erased from the
+    alpha. Done in raster space (cairosvg silently ignores SVG <mask>): render
+    the slot stroke on its own and subtract its alpha from the filled shell's.
+    """
+    shell_svg = build_solid_svg([shell]).encode("utf-8")
+    slot_svg = build_svg([slot]).encode("utf-8")
+    for scale in SCALES:
+        suffix = "" if scale == 1 else f"@{scale}x"
+        target = OUT / f"{name}{suffix}.png"
+        px = BOX_PT * scale
+        filled = Image.open(
+            io.BytesIO(cairosvg.svg2png(bytestring=shell_svg, output_width=px, output_height=px))
+        ).convert("RGBA")
+        slot_mask = Image.open(
+            io.BytesIO(cairosvg.svg2png(bytestring=slot_svg, output_width=px, output_height=px))
+        ).convert("RGBA")
+        alpha = ImageChops.subtract(filled.getchannel("A"), slot_mask.getchannel("A"))
+        filled.putalpha(alpha)
+        filled.save(target)
+        print(f"{target.relative_to(REPO)}  {px}x{px}  (regular/HomeSimple, filled)")
+
+
+def rasterize(name: str, svg_text: str, source: str) -> None:
+    svg = svg_text.encode("utf-8")
+    for scale in SCALES:
+        suffix = "" if scale == 1 else f"@{scale}x"
+        target = OUT / f"{name}{suffix}.png"
+        px = BOX_PT * scale
+        cairosvg.svg2png(
+            bytestring=svg,
+            write_to=str(target),
+            output_width=px,
+            output_height=px,
+        )
+        print(f"{target.relative_to(REPO)}  {px}x{px}  ({source})")
+
+
 def main() -> int:
     if not ICONOIR.is_dir():
         raise SystemExit(f"iconoir not installed at {ICONOIR}. Run pnpm install first.")
     OUT.mkdir(parents=True, exist_ok=True)
 
     for name, component in ICONS.items():
-        paths = extract_paths(component)
-        svg = build_svg(paths).encode("utf-8")
-        for scale in SCALES:
-            suffix = "" if scale == 1 else f"@{scale}x"
-            target = OUT / f"{name}{suffix}.png"
-            px = BOX_PT * scale
-            cairosvg.svg2png(
-                bytestring=svg,
-                write_to=str(target),
-                output_width=px,
-                output_height=px,
-            )
-            print(f"{target.relative_to(REPO)}  {px}x{px}  ({component}, {len(paths)} paths)")
+        rasterize(name, build_svg(extract_paths(component)), f"regular/{component}")
+
+    home_paths = extract_paths(ICONS["home"])
+    rasterize_filled_home("home-filled", home_paths[0], home_paths[1])
+    rasterize(
+        "wishlist-filled",
+        build_solid_svg(extract_paths(ICONS["wishlist"], variant="solid")),
+        "solid/Bookmark",
+    )
     return 0
 
 

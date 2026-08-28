@@ -20,7 +20,7 @@ function styleOf(testID: string): Record<string, unknown> {
 }
 
 describe('GlassButtonGroup', () => {
-  it('falls back to white, the same fill GlassNavBubble uses', () => {
+  it('falls back to glassFallback gray, the same fill GlassNavBubble uses', () => {
     renderGroup(
       <GlassButtonGroup testID="group">
         <Text>a</Text>
@@ -28,16 +28,13 @@ describe('GlassButtonGroup', () => {
     );
 
     /*
-      This asserted `gray50` until 2026-08-11, on the reasoning that
-      `IconButton variant="subtle"` is gray50 and the design's glass composites
-      to #f7f7f7 over a white page. Both true, and both beside the point: this
-      group sits NEXT TO `GlassNavBubble`, which falls back to white. On Android
-      — the platform with no glass to hide the difference — that shipped a white
-      menu bubble beside a grey action pill on the Wishlist bar, and a grey back
-      button and grey delete/share pair on card detail. One material, one
-      fallback.
+      One material, one fallback: this group sits NEXT TO `GlassNavBubble`, and
+      on the platforms with no glass to hide a difference the two must share a
+      fill. That shared fill is `glassFallback` (Figma 4211:83834's composited
+      "Fill + Shadow" stack) — pure white shipped an invisible pill on white
+      pages, which is what the user reported on the Wishlist bar (2026-08-19).
     */
-    expect(styleOf('group').backgroundColor).toBe(colors.canvasElevated);
+    expect(styleOf('group').backgroundColor).toBe(colors.glassFallback);
   });
 
   /*
@@ -67,7 +64,7 @@ describe('GlassButtonGroup', () => {
     const style = styleOf('group');
     // 40 tall so it sits level with the compact nav bubble and the search pill;
     // 6/6 inset and gap so two 36pt controls fit exactly (Figma 3686:55175).
-    expect(style.height).toBe(40);
+    expect(style.height).toBe(44);
     expect(style.paddingHorizontal).toBe(6);
     expect(style.gap).toBe(6);
     expect(style.flexDirection).toBe('row');
@@ -84,7 +81,7 @@ describe('GlassButtonGroup', () => {
 
     const style = styleOf('group');
     expect(style.backgroundColor).toBe('#123456');
-    expect(style.height).toBe(40);
+    expect(style.height).toBe(44);
   });
 
   it('renders its children through the surface', () => {

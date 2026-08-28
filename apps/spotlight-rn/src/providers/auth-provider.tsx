@@ -8,7 +8,9 @@ import {
   bootstrapProfileIfNeeded,
   checkAppleSignInAvailability,
   checkEmailExists,
+  clearStoredSession,
   convertAnonymousUserToEmailAccount,
+  fetchAuthUserError,
   getAccessToken,
   getCurrentSession,
   getConfigurationIssue,
@@ -124,6 +126,12 @@ type AuthContextValue = EmailAuthActions & {
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
   state: AuthState;
+  /**
+   * Claim the @handle from the blocking claim gate. Failures land in
+   * `errorMessage` (a taken handle keeps its specific message) and are NOT
+   * rethrown — the claim screen renders state, it does not await this.
+   */
+  submitHandle: (handle: string) => Promise<void>;
   submitProfile: () => Promise<void>;
   /** Persist Edit Profile fields, then refresh the current user. */
   updateProfile: (patch: ProfileUpdate) => Promise<void>;
@@ -141,7 +149,12 @@ const testUser: AppUser = {
   providers: ['ui-tests'],
 };
 
-const shouldBypassAuthForTests = process.env.NODE_ENV === 'test';
+// EXPO_PUBLIC_DEV_SCREENS=1 (dev builds only) reuses the same deterministic
+// test user so `spotlight://dev/*` screenshot routes render without a login
+// wall. The `__DEV__` guard strips the branch from release bundles.
+const shouldBypassAuthForTests =
+  process.env.NODE_ENV === 'test' ||
+  (__DEV__ && process.env.EXPO_PUBLIC_DEV_SCREENS === '1');
 
 /**
  * Defer minting the guest's Supabase anonymous user until the first action that
@@ -409,6 +422,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
   // written synchronously as soon as a session lands, and the repository reads
   // it per request, so that in-flight scan goes out authenticated.
   const accessTokenRef = useRef<string | null>(null);
+  // Which provider started the guest→account OAuth link, remembered across the
+  // browser round trip. On Android the result arrives on the deep link (the
+  // awaited browser session returns null), so when GoTrue rejects the link
+  // because the identity already belongs to an existing account, the URL
+  // handler needs this to re-sign-in with the right provider.
+  const pendingOAuthLinkProviderRef = useRef<'apple' | 'google' | null>(null);
 
   const setPendingGuest = useCallback((pending: boolean) => {
     isPendingGuestRef.current = pending;
@@ -458,6 +477,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
     // A real (non-anonymous) account signed in — remember it so this device
     // never silently returns to first-launch guest mode.
     void markHasSignedIn();
+    // Whatever OAuth link round trip was pending has resolved into an account.
+    pendingOAuthLinkProviderRef.current = null;
 
     const resolvedUser = await resolveAppUserFromSession(session);
 
@@ -539,20 +560,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
     return guestMintRef.current;
   }, [currentSession, updateFromSession]);
 
-  const handleIncomingURL = useCallback(async (url: string) => {
-    try {
-      const restoredSession = await restoreSessionFromUrl(url);
-      if (restoredSession) {
-        await updateFromSession(restoredSession);
-      }
-    } catch (error) {
-      const nextMessage = errorMessageFromUnknown(error);
-      if (nextMessage) {
-        setErrorMessage(nextMessage);
-      }
-    }
-  }, [updateFromSession]);
-
   const performAuthAction = useCallback(async (
     operation: () => Promise<void>,
     options?: {
@@ -580,6 +587,56 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setIsBusy(false);
     }
   }, [isBusy]);
+
+  const handleIncomingURL = useCallback(async (url: string) => {
+    try {
+      const restoredSession = await restoreSessionFromUrl(url);
+      if (restoredSession) {
+        await updateFromSession(restoredSession);
+      }
+    } catch (error) {
+      // The guest→account link came back "identity already linked to another
+      // user" on the deep link (Android — the awaited browser path catches this
+      // itself). Same fallback as the awaited path: this person provably HAS an
+      // account, so abandon the guest and sign into it with the provider that
+      // initiated the link.
+      const pendingProvider = pendingOAuthLinkProviderRef.current;
+      if (pendingProvider && isIdentityAlreadyLinkedError(error)) {
+        pendingOAuthLinkProviderRef.current = null;
+        // Inline busy/error handling, NOT performAuthAction: that callback's
+        // identity tracks isBusy, and depending on it here would re-run the
+        // init effect (which owns this handler) on every busy toggle.
+        setIsBusy(true);
+        setErrorMessage(null);
+        try {
+          const session = pendingProvider === 'apple'
+            ? await signInWithApple()
+            : await signInWithGoogle();
+          if (session) {
+            if (pendingProvider === 'google') {
+              await bootstrapProfileIfNeeded(session.user, null, null);
+            }
+            await updateFromSession(session);
+            captureAuthSignInSucceeded(pendingProvider);
+          }
+        } catch (fallbackError) {
+          captureAuthSignInFailed(pendingProvider, fallbackError);
+          const fallbackMessage = errorMessageFromUnknown(fallbackError);
+          if (fallbackMessage) {
+            setErrorMessage(fallbackMessage);
+          }
+        } finally {
+          setIsBusy(false);
+        }
+        return;
+      }
+
+      const nextMessage = errorMessageFromUnknown(error);
+      if (nextMessage) {
+        setErrorMessage(nextMessage);
+      }
+    }
+  }, [updateFromSession]);
 
   // Like performAuthAction but returns the operation's result and rethrows on
   // failure (after surfacing the message) so the email stepper can branch on
@@ -657,13 +714,47 @@ export function AuthProvider({ children }: PropsWithChildren) {
         }
 
         await updateFromSession(session);
+
+        // A restored session is trusted from LOCAL storage — no server call
+        // happens while the access token is unexpired, so a server-side
+        // revoked/deleted user lands on a signed-in shell whose every request
+        // 401s (blank app) until the eventual token refresh fails. Verify in
+        // the background and drop to the login screen the moment the server
+        // disowns the user. Transport failures keep the session: offline is
+        // not revoked.
+        if (session && !isAnonymousSession(session)) {
+          void (async () => {
+            const verifyError = await fetchAuthUserError();
+            if (!isMounted || !verifyError) {
+              return;
+            }
+            if (verifyError instanceof Error && isTransportError(verifyError)) {
+              return;
+            }
+            // A newer session took over (re-auth mid-check) — leave it alone.
+            if (accessTokenRef.current !== session.access_token) {
+              return;
+            }
+            await clearStoredSession();
+            await updateFromSession(null);
+          })();
+        }
       } catch (error) {
         const nextMessage = errorMessageFromUnknown(error);
         if (isMounted) {
           if (nextMessage) {
             setErrorMessage(nextMessage);
           }
-          setState((currentState) => (currentState === 'loading' ? 'signedOut' : currentState));
+          // An expired/invalid refresh token is a DEFINITIVE session end: force
+          // signedOut even when a racing INITIAL_SESSION already flipped state
+          // to signedIn, or the dead session renders a blank shell.
+          if (isExpectedSessionEndError(error)) {
+            setCurrentUser(null);
+            setProfileDraftName('');
+            setState('signedOut');
+          } else {
+            setState((currentState) => (currentState === 'loading' ? 'signedOut' : currentState));
+          }
         }
       }
     })();
@@ -784,6 +875,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
         // then this person HAS an account (reinstall → guest scan → sign in),
         // linking can never succeed, and the right move is to abandon the
         // guest and sign into the account they own.
+        if (isAnonymousSession(currentSession)) {
+          pendingOAuthLinkProviderRef.current = 'apple';
+        }
         const session = isAnonymousSession(currentSession)
           ? await linkAppleIdentityToCurrentUser().catch((error) => {
               if (isIdentityAlreadyLinkedError(error)) {
@@ -806,8 +900,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
       await performAuthAction(async () => {
         // Guest: LINK Google to the anonymous user (browser redirect) so the
         // uuid survives. A null session means the system browser took over and
-        // the session arrives on the deep link instead. Same
+        // the session arrives on the deep link instead — remember the provider
+        // so handleIncomingURL can run the fallback from there. Same
         // already-linked fallback as Apple: an existing account wins.
+        if (isAnonymousSession(currentSession)) {
+          pendingOAuthLinkProviderRef.current = 'google';
+        }
         const session = isAnonymousSession(currentSession)
           ? await linkOAuthIdentityToCurrentUser('google').catch((error) => {
               if (isIdentityAlreadyLinkedError(error)) {
@@ -832,6 +930,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         await signOut();
         setPendingGuest(false);
         guestMintRef.current = null;
+        pendingOAuthLinkProviderRef.current = null;
         accessTokenRef.current = null;
         setCurrentSession(null);
         setCurrentUser(null);
@@ -841,6 +940,25 @@ export function AuthProvider({ children }: PropsWithChildren) {
       });
     },
     state,
+    submitHandle: async (handle: string) => {
+      if (!currentUser) {
+        return;
+      }
+      // runWithBusy clears the previous error when the attempt starts and
+      // surfaces failures into errorMessage (`handle-taken` arrives with its
+      // user-facing message; other failures with the generic save error —
+      // see ProfileUpdateError in auth-service). Swallow the rethrow: unlike
+      // Edit Profile, the gate has no dismiss-on-success to prevent.
+      await runWithBusy(async () => {
+        await updateProfileService(currentUser.id, { handle });
+        // The submitProfile pattern: re-resolve the user from the session so
+        // `currentUser.handle` refreshes and the claim gate drops.
+        const refreshedSession = currentSession ?? await getCurrentSession();
+        if (refreshedSession) {
+          await updateFromSession(refreshedSession);
+        }
+      }).catch(() => undefined);
+    },
     submitProfile: async () => {
       if (!currentUser) {
         return;

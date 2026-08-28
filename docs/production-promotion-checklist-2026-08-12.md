@@ -85,6 +85,16 @@ Ship:
 - [ ] Revisit Play target-audience (runbook chose 18+; align with iOS 13+).
 - [ ] Consider `predictiveBackGestureEnabled: true` for the next native build.
 
+## Post-launch product fixes (not blockers, wanted soon)
+
+- [x] **DONE 2026-08-14 — Mandatory unique handles** (commit 3e856702 + social_25): HandleClaimGate (inside AccessGate) blocks any signed-in non-guest whose profile fetch was authoritative and whose handle is null; one claim screen serves new signups (email + OAuth) and existing users; guests exempt until conversion. Server kill switch `handle_claim_required` (default OFF, ops-token-gated admin toggle) — the gate is DARK everywhere until the flag is flipped per env. social_25 (format CHECK + base-table availability RPC) applied to STAGING; prod push pending explicit approval. Reserved list includes followers/following (live route segments). ROLLOUT REMAINING: staging soak → prod social_25 + backend deploy + OTA + flip flag (~Aug 18-19, each gated).
+- [x] DONE 2026-08-14 (commit 2ac87e03) — Auth-gate white-screen: restored non-anonymous sessions get a background getUser() verification; real auth error → local sign-out + login screen silently; transport error → session kept. Root cause: supabase-js never phones home while the stored token is unexpired.
+- [x] DONE 2026-08-14 (commit bb71ddf5) — Avatar initials fallback on image error (design-system primitive; new URI auto-retries). Known bypass: circular-tab-avatar.tsx has its own image pipeline.
+- [x] DONE 2026-08-14 — guest→existing-account sign-in fallback verified live by the user on device (was unit-tested only).
+- [x] DONE 2026-08-14 (commit 2ac87e03) — **Android OAuth-after-scan**: `restoreSessionFromUrl` now throws on `error`/`error_description` too, and the URL-handler path runs the same identity-already-linked re-sign-in fallback as iOS (pending-provider ref across the browser round-trip). Ships by OTA.
+- [x] DONE 2026-08-14 (commit 2ac87e03) — **Avatar wiped after reinstall**: confirmed the suspected cause; sign-in bootstrap now reads the saved avatar first and OMITS the column when one exists or the read failed; first bootstrap still writes the provider photo; Edit Profile set/clear untouched. KNOWN FOLLOW-UP: the same bootstrap can still overwrite a customized display NAME with the provider fallback on re-sign-in (deliberately out of scope this pass).
+- [ ] **[USER-OWNED]** Re-enable Turnstile CAPTCHA once Turnstile-carrying builds dominate (site key shipped; Supabase toggle only) + verify the live token path then. User is handling this themselves (2026-08-14). Reminder: check the Turnstile widget hostname allowlist includes ekalight.com, and verify a real sign-up on both platforms right after flipping it.
+
 ## Cleanup (LATER, non-blocking)
 
 - [x] DONE 2026-08-12 — `release:notes:testflight` script restored + workflow step made no-op-safe; prod still blocked in CI by design.

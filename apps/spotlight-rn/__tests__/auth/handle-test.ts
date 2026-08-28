@@ -47,12 +47,25 @@ describe('validateHandle', () => {
     expect(validateHandle('ash_99')).toBe('ok');
     expect(validateHandle('@AshKetchum')).toBe('ok');
   });
+
+  it('rejects reserved handles, including the live /u/[handle] route segments', () => {
+    expect(validateHandle('admin')).toBe('reserved');
+    expect(validateHandle('@Ekalight')).toBe('reserved');
+    expect(validateHandle('followers')).toBe('reserved');
+    expect(validateHandle('following')).toBe('reserved');
+  });
+
+  it('does not reject handles that merely contain a reserved word', () => {
+    expect(validateHandle('admiral')).toBe('ok');
+    expect(validateHandle('support_ash')).toBe('ok');
+  });
 });
 
 describe('describeHandleValidity', () => {
   it('explains only the fixable problems', () => {
     expect(describeHandleValidity('too-short')).toMatch(/at least/i);
     expect(describeHandleValidity('bad-start')).toMatch(/letter or number/i);
+    expect(describeHandleValidity('reserved')).toMatch(/isn't available/i);
   });
 
   it('says nothing for empty or ok', () => {

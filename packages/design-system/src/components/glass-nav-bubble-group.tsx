@@ -12,41 +12,66 @@ import type { GlassNavBubbleSurface } from './glass-nav-bubble';
 import { GlassSurface, isLiquidGlassAvailable } from './glass-surface';
 
 /**
- * The capsule's geometry, taken from `GlassButtonGroup` rather than restated —
- * it is the same grouped-toolbar shape (Figma 3686:55175), and the Home bar's
- * layout is solved from these four numbers.
+ * The capsule's geometry per named size.
+ *
+ * - `compact` — taken from `GlassButtonGroup` rather than restated: it is the
+ *   same grouped-toolbar shape (Figma 3686:55175), 40pt tall with 36pt symbol
+ *   frames on a 6pt gap.
+ * - `medium` — the 44pt Home toolbar capsule (Figma 4299:94902): same 36pt
+ *   symbol frames, but 44 tall to sit level with `glassNavBubbleSizes.medium`
+ *   bubbles, and a 20pt gap between slots so two glyphs read as two controls
+ *   rather than one crowded pair.
  */
-export const glassNavBubbleGroupMetrics = {
-  /** 40pt — level with `glassNavBubbleSizes.compact` and the search pill. */
-  height: glassButtonGroupHeight,
-  /** 36pt — the symbol frame inside, NOT a bubble of its own. */
-  slotSize: glassButtonGroupControlSize,
-  paddingHorizontal: glassButtonGroupPaddingHorizontal,
-  gap: glassButtonGroupGap,
+export const glassNavBubbleGroupSizes = {
+  compact: {
+    height: glassButtonGroupHeight,
+    slotSize: glassButtonGroupControlSize,
+    paddingHorizontal: glassButtonGroupPaddingHorizontal,
+    gap: glassButtonGroupGap,
+  },
+  medium: {
+    height: 44,
+    slotSize: glassButtonGroupControlSize,
+    paddingHorizontal: glassButtonGroupPaddingHorizontal,
+    gap: 20,
+  },
 } as const;
+
+export type GlassNavBubbleGroupSize = keyof typeof glassNavBubbleGroupSizes;
+
+/**
+ * The original single-size metrics export, kept as an alias of `compact` so
+ * existing readers (tests, layout arithmetic) keep working unchanged.
+ */
+export const glassNavBubbleGroupMetrics = glassNavBubbleGroupSizes.compact;
 
 /**
  * Width of a capsule holding `slotCount` symbols:
- * `6 + 36n + 6(n−1) + 6`, i.e. **90 for the two-slot bell + `+` pair**.
+ * `padding + slot·n + gap·(n−1) + padding`.
+ *
+ * - `compact`: `6 + 36n + 6(n−1) + 6` → **90 for two slots** (the profile bar's
+ *   old edit + share pair).
+ * - `medium`: `6 + 36n + 20(n−1) + 6` → **104 for the two-slot search + bell
+ *   pair** on Home (Figma 4299:94902).
  *
  * Exported and used as an explicit `width` rather than left to auto-layout,
- * because the number is load-bearing: Figma's Home toolbar (3523:15499 →
- * 3567:22969) closes at `16 + 40 + 8 + 215 + 8 + 90 + 16 = 393`, so the flexed
- * search pill only lands on its 215 if the trailing control is exactly 90. Two
- * separate 40pt bubbles with the row's 8pt gap measure 88 and leave the pill
- * 2pt over.
+ * because the number is load-bearing: the bar's flexed middle only lands on its
+ * designed width if the trailing control measures exactly this.
  */
-export function glassNavBubbleGroupWidth(slotCount: number): number {
+export function glassNavBubbleGroupWidth(
+  slotCount: number,
+  size: GlassNavBubbleGroupSize = 'compact',
+): number {
   if (slotCount <= 0) {
     return 0;
   }
-  const { gap, paddingHorizontal, slotSize } = glassNavBubbleGroupMetrics;
+  const { gap, paddingHorizontal, slotSize } = glassNavBubbleGroupSizes[size];
   return paddingHorizontal * 2 + slotSize * slotCount + gap * (slotCount - 1);
 }
 
 /**
- * Vertical slop is free — the capsule is 40 in a row with 8pt of padding above
- * and below it, so 8 each way takes every slot to 52 tall without colliding
+ * Vertical slop is free — the capsule sits in a row with padding above and
+ * below it, so 8 each way takes every slot past 44pt tall without colliding
  * with anything.
  */
 const HIT_SLOP_VERTICAL = 8;
@@ -57,10 +82,11 @@ const HIT_SLOP_VERTICAL = 8;
 const HIT_SLOP_OUTER = 8;
 /**
  * Inside edge: 4, which is what takes a 36pt slot to the 44pt touch minimum
- * (36 + 4 + 4). The gap between slots is only 6, so neighbouring targets
- * overlap across its middle 2pt and the LATER sibling wins there — an
+ * (36 + 4 + 4). On `compact` the gap between slots is only 6, so neighbouring
+ * targets overlap across its middle 2pt and the LATER sibling wins there — an
  * ambiguous tap in the 2pt seam between two adjacent controls, which is the
- * right trade against leaving either slot under 44.
+ * right trade against leaving either slot under 44. `medium`'s 20pt gap holds
+ * the two targets 12pt clear of each other.
  */
 const HIT_SLOP_INNER = 4;
 
@@ -80,6 +106,11 @@ export type GlassNavBubbleGroupProps = {
    * `hitSlop` by position — neither is possible with opaque children.
    */
   items: GlassNavBubbleGroupItem[];
+  /**
+   * `compact` (40pt, 6pt gap — the profile/action-bar shape) or `medium`
+   * (44pt, 20pt gap — the Home toolbar). Defaults to `compact`.
+   */
+  size?: GlassNavBubbleGroupSize;
   /** Same meaning as on `GlassNavBubble`: what is UNDERNEATH, not the material. */
   surface?: GlassNavBubbleSurface;
   /** Positioning/layout is the consumer's; the primitive only draws the shell. */
@@ -88,10 +119,10 @@ export type GlassNavBubbleGroupProps = {
 };
 
 /**
- * Several nav controls sharing ONE glass capsule — Home's trailing bell + `+`
- * pair (Figma "Home" 3523:15499 → toolbar 3567:22969 → `Trailing` →
- * `Button Group 1`, a single 90×40 `BG` with 36pt symbol frames at x=6 and
- * x=48). Apple's iOS 26 grouped-toolbar pattern.
+ * Several nav controls sharing ONE glass capsule — Home's trailing search +
+ * bell pair (Figma 4299:94902: a single 104×44 capsule with 36pt symbol frames
+ * on a 20pt gap) and the profile toolbar's edit + share pair. Apple's iOS 26
+ * grouped-toolbar pattern.
  *
  * IT IS ONE SURFACE, NOT TWO. The whole point is that the material spans both
  * controls: the glass is a single `GlassSurface` filling the capsule, and on
@@ -99,8 +130,9 @@ export type GlassNavBubbleGroupProps = {
  * fallback circles inside a container would give Android and iOS < 26 a pair of
  * chips in a box, which is the look this exists to remove.
  *
- * WHY NOT `GlassButtonGroup`. Same geometry — this reads its 6/6/36/40 straight
- * off that primitive — but three things differ and each of them matters here:
+ * WHY NOT `GlassButtonGroup`. Same geometry — `compact` reads its 6/6/36/40
+ * straight off that primitive — but three things differ and each of them
+ * matters here:
  *
  * 1. The fallback has to be `canvasElevated` + `shadows.card`, matching the
  *    `GlassNavBubble` sitting at the other end of the same row. `GlassButtonGroup`
@@ -118,6 +150,7 @@ export type GlassNavBubbleGroupProps = {
  */
 export function GlassNavBubbleGroup({
   items,
+  size = 'compact',
   surface = 'onLight',
   style,
   testID,
@@ -125,7 +158,8 @@ export function GlassNavBubbleGroup({
   const theme = useSpotlightTheme();
   const onDark = surface === 'onDark';
   const hasGlass = isLiquidGlassAvailable();
-  const radius = glassNavBubbleGroupMetrics.height / 2;
+  const metrics = glassNavBubbleGroupSizes[size];
+  const radius = metrics.height / 2;
   const lastIndex = items.length - 1;
 
   // Only applied when the real material is absent — on glass, a hairline ring
@@ -134,20 +168,26 @@ export function GlassNavBubbleGroup({
   // the same object on every fallback target.
   const fallbackShell = onDark
     ? { borderColor: theme.colors.gray0, borderWidth: 1 }
-    : [theme.shadows.card, { backgroundColor: theme.colors.canvasElevated }];
+    : [theme.shadows.glassPill, { backgroundColor: theme.colors.glassFallback }];
 
   return (
     <View
       style={[
         styles.group,
-        { borderRadius: radius, width: glassNavBubbleGroupWidth(items.length) },
+        {
+          borderRadius: radius,
+          gap: metrics.gap,
+          height: metrics.height,
+          paddingHorizontal: metrics.paddingHorizontal,
+          width: glassNavBubbleGroupWidth(items.length, size),
+        },
         hasGlass ? null : fallbackShell,
         style,
       ]}
       testID={testID}
     >
       <GlassSurface
-        fallbackColor={onDark ? 'transparent' : theme.colors.canvasElevated}
+        fallbackColor={onDark ? 'transparent' : theme.colors.glassFallback}
         glassColorScheme={onDark ? 'dark' : 'auto'}
         glassEffectStyle="regular"
         pointerEvents="none"
@@ -168,6 +208,7 @@ export function GlassNavBubbleGroup({
           onPress={item.onPress}
           style={({ pressed }) => [
             styles.slot,
+            { height: metrics.slotSize, width: metrics.slotSize },
             // The SLOT dims, not the capsule: pressing one control must not
             // fade the material out from under its neighbour.
             { opacity: item.disabled ? 0.45 : pressed ? 0.84 : 1 },
@@ -185,14 +226,11 @@ const styles = StyleSheet.create({
   group: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: glassNavBubbleGroupMetrics.gap,
-    height: glassNavBubbleGroupMetrics.height,
     // NOT `hidden`, unlike `GlassButtonGroup`. Badges hang past the capsule's
     // edge (Home's unread count sits at `top: -2, right: -2` on the bell), and
     // the fallback's drop shadow needs to escape too. The material clips itself
     // to `borderRadius` without help.
     overflow: 'visible',
-    paddingHorizontal: glassNavBubbleGroupMetrics.paddingHorizontal,
   },
   glass: {
     bottom: 0,
@@ -203,11 +241,9 @@ const styles = StyleSheet.create({
   },
   slot: {
     alignItems: 'center',
-    height: glassNavBubbleGroupMetrics.slotSize,
     justifyContent: 'center',
     // See the capsule's own note — a badge on a slot must not be clipped here
     // either.
     overflow: 'visible',
-    width: glassNavBubbleGroupMetrics.slotSize,
   },
 });

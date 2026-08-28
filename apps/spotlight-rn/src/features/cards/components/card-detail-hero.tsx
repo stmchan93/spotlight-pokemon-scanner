@@ -21,9 +21,9 @@ type CardDetailHeroProps = {
 
 // Portrait trading-card aspect (5:7).
 const CARD_ASPECT = 5 / 7;
-// Card occupies ~52% of the panel width (Figma 1086:401 — 205pt card art in a
-// 393pt frame), centered inside the gray backdrop.
-const CARD_WIDTH_RATIO = 0.52;
+// Card occupies ~49% of the panel width (Figma 4211:86063 — 194pt card art in
+// a 393pt frame), centered inside the gray backdrop.
+const CARD_WIDTH_RATIO = 0.49;
 // Pinch-to-zoom ceiling for inspecting foil / text / centering.
 const MAX_ZOOM = 4;
 
@@ -87,13 +87,13 @@ export function CardDetailHero({
             frameW.value = event.nativeEvent.layout.width;
             frameH.value = event.nativeEvent.layout.height;
           }}
-          style={[styles.imageWrapper, { borderRadius: theme.radii.md }, animatedStyle]}
+          style={[styles.imageWrapper, { borderRadius: theme.layout.heroArtRadius }, animatedStyle]}
         >
           <CachedImage
             accessibilityLabel={name}
             cachePolicy={imageCachePolicy.hero}
             contentFit="contain"
-            style={[styles.image, { borderRadius: theme.radii.md }]}
+            style={[styles.image, { borderRadius: theme.layout.heroArtRadius }]}
             uri={imageUrl}
           />
         </Animated.View>
@@ -159,10 +159,10 @@ const styles = StyleSheet.create({
   root: {
     alignItems: 'center',
     // Break out of the screen's 16px content padding so the gray band spans
-    // edge-to-edge like the Figma frame, then inset the card with 24px of
-    // vertical breathing room (Figma 1086 — card at y=24 in a 334pt band).
+    // edge-to-edge like the Figma frame, then inset the card with 32px of
+    // vertical breathing room (Figma 4211:86063 — 270pt card in a 334pt band).
     marginHorizontal: -16,
-    paddingVertical: 24,
+    paddingVertical: 32,
     position: 'relative',
   },
 });

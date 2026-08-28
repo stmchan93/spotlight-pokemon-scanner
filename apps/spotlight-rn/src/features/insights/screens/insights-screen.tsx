@@ -319,16 +319,13 @@ export function InsightsScreen() {
                 testID="insights-sort-button"
                 variant="outlined"
               >
-                <Filter color={colors.gray900} height={18} width={18} />
+                <Filter color={colors.gray600} height={18} width={18} />
               </IconButton>
               {/* Notification dot: a non-default sort/filter is applied. */}
               {sortKey !== 'default' ? (
                 <View
                   pointerEvents="none"
-                  style={[
-                    styles.sortAppliedDot,
-                    { backgroundColor: theme.colors.purple500, borderColor: colors.gray0 },
-                  ]}
+                  style={[styles.sortAppliedDot, { backgroundColor: theme.colors.red500 }]}
                   testID="insights-sort-active-dot"
                 />
               ) : null}
@@ -460,7 +457,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   searchGroup: {
-    gap: 12,
+    gap: 10,
   },
   searchRow: {
     alignItems: 'center',
@@ -475,20 +472,19 @@ const styles = StyleSheet.create({
   },
   sortAppliedDot: {
     borderRadius: 5,
-    borderWidth: 2,
     height: 10,
     position: 'absolute',
-    right: -2,
-    top: -2,
+    right: -4,
+    top: -4,
     width: 10,
   },
   tableSection: {
     flex: 1,
     gap: 16,
     paddingLeft: 16,
-    // pageBody's gap (16) + this = the 32px between the filter chips and the
-    // PORTFOLIO/column-header row (Figma 2179-8996).
-    paddingTop: 16,
+    // pageBody's gap (16) + this = the 24px between the filter chips and the
+    // PORTFOLIO/column-header row (Figma 4196:83062).
+    paddingTop: 8,
   },
   emptyText: {
     paddingRight: 16,

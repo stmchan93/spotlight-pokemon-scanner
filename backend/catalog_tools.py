@@ -15,6 +15,10 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 import unicodedata
 
+# TCGCSV printing (subTypeName) <-> Scrydex variant label, for the main-lane
+# series merge. tcgcsv_adapter is stdlib-only, so no import cycle.
+from tcgcsv_adapter import scrydex_variant_label_for_subtype, subtype_for_variant_label
+
 
 MATCHER_VERSION = "raw-backend-reset-v1"
 RAW_PRICING_MODE = "raw"
@@ -464,6 +468,24 @@ def _apply_additive_runtime_migrations(connection: sqlite3.Connection) -> None:
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_cards_tcgplayer_id ON cards(tcgplayer_id)"
         )
+    # Main-lane raw headline price (TCGCSV / TCGplayer marketPrice), written only by
+    # sync_tcgcsv_prices. NULL = no TCGCSV price -> read path falls through to the
+    # Scrydex default_raw_* chain. Kept OUT of _rebuild_pricing_tables_if_needed's
+    # required sets so older DBs never trigger the destructive rebuild.
+    for column_name, column_sql in (
+        ("main_raw_market_price", "REAL"),
+        ("main_raw_low_price", "REAL"),
+        ("main_raw_mid_price", "REAL"),
+        ("main_raw_high_price", "REAL"),
+        ("main_raw_direct_low_price", "REAL"),
+        ("main_raw_variant", "TEXT"),
+        ("main_raw_updated_at", "TEXT"),
+        # Per-printing TCGCSV rows keyed by Scrydex variant label; see schema.sql.
+        ("main_raw_printings_json", "TEXT NOT NULL DEFAULT '{}'"),
+    ):
+        _add_column_if_missing(connection, "card_price_snapshots", column_name, column_sql)
+    _add_column_if_missing(connection, "card_price_history_daily", "main_raw_market_price", "REAL")
+    _add_column_if_missing(connection, "card_price_history_daily", "main_raw_variant", "TEXT")
     if _table_exists(connection, "labeling_sessions"):
         labeling_session_table_columns = _table_columns(connection, "labeling_sessions")
         if {"provider_card_id", "created_at"}.issubset(labeling_session_table_columns):
@@ -4564,6 +4586,169 @@ def _manual_search_rarity_browse(
     return [card_map[card_id] for card_id in ordered_ids if card_id in card_map]
 
 
+def _manual_search_price_usd_by_card_id(
+    connection: sqlite3.Connection,
+    card_ids: list[str],
+) -> dict[str, float]:
+    """USD market price per card, for the desirability tie-break only. TRUSTED
+    prices only: the TCGCSV main lane (sales-verified, already USD). The Scrydex
+    fallback is deliberately excluded — its inflated JP raws would buy ranking
+    (live example: fallback-priced JP Charizards at $4k outranking every
+    verified EN printing). Cards without a verified price are absent (→ 0)."""
+    normalized_ids = [card_id for card_id in card_ids if card_id]
+    prices: dict[str, float] = {}
+    if not normalized_ids or not _table_exists(connection, "card_price_snapshots"):
+        return prices
+    for chunk in _chunked_sql_values(normalized_ids):
+        placeholders = ", ".join("?" for _ in chunk)
+        rows = connection.execute(
+            "SELECT card_id, main_raw_market_price "
+            f"FROM card_price_snapshots WHERE card_id IN ({placeholders})",
+            chunk,
+        ).fetchall()
+        for row in rows:
+            main_price = row["main_raw_market_price"]
+            if isinstance(main_price, (int, float)) and not isinstance(main_price, bool):
+                prices[str(row["card_id"])] = float(main_price)
+    return prices
+
+
+# ---------------------------------------------------------------------------
+# Typo tolerance: a bounded, zero-hit-only correction pass. The vocabulary is
+# built lazily from catalog names/aliases and cached per process — tests swap
+# databases within one process, hence the reset hook.
+# ---------------------------------------------------------------------------
+
+_MANUAL_SEARCH_VOCAB_CACHE: tuple[dict[str, int], dict[str, list[str]]] | None = None
+
+# Structured clauses are precise intent — never second-guess their spelling.
+_MANUAL_SEARCH_TYPO_STRUCTURED_GUARD = re.compile(r"\b(name|set|number|rarity)\s*:", re.IGNORECASE)
+
+
+def reset_manual_search_vocabulary() -> None:
+    global _MANUAL_SEARCH_VOCAB_CACHE
+    _MANUAL_SEARCH_VOCAB_CACHE = None
+
+
+def _manual_search_vocabulary(
+    connection: sqlite3.Connection,
+) -> tuple[dict[str, int], dict[str, list[str]]]:
+    """(token → frequency, first-letter → tokens) over alphabetic name/alias
+    word tokens of length ≥ 4. Frequency doubles as a popularity prior when
+    several vocabulary tokens sit at the same edit distance."""
+    global _MANUAL_SEARCH_VOCAB_CACHE
+    if _MANUAL_SEARCH_VOCAB_CACHE is not None:
+        return _MANUAL_SEARCH_VOCAB_CACHE
+
+    frequencies: dict[str, int] = {}
+
+    def ingest(text: object) -> None:
+        for token in tokenize(str(text or "")):
+            if len(token) >= 4 and token.isalpha():
+                frequencies[token] = frequencies.get(token, 0) + 1
+
+    for row in connection.execute("SELECT name FROM cards"):
+        ingest(row["name"])
+    if _table_exists(connection, "card_name_aliases"):
+        for row in connection.execute("SELECT DISTINCT normalized_alias FROM card_name_aliases"):
+            ingest(row["normalized_alias"])
+
+    buckets: dict[str, list[str]] = {}
+    for token in frequencies:
+        buckets.setdefault(token[0], []).append(token)
+    _MANUAL_SEARCH_VOCAB_CACHE = (frequencies, buckets)
+    return _MANUAL_SEARCH_VOCAB_CACHE
+
+
+def _bounded_edit_distance(a: str, b: str, cutoff: int) -> int | None:
+    """Levenshtein distance, or None once it provably exceeds ``cutoff``."""
+    if a == b:
+        return 0
+    if abs(len(a) - len(b)) > cutoff:
+        return None
+    previous = list(range(len(b) + 1))
+    for i, ch_a in enumerate(a, start=1):
+        current = [i]
+        row_min = i
+        for j, ch_b in enumerate(b, start=1):
+            value = min(
+                previous[j] + 1,
+                current[j - 1] + 1,
+                previous[j - 1] + (0 if ch_a == ch_b else 1),
+            )
+            current.append(value)
+            if value < row_min:
+                row_min = value
+        if row_min > cutoff:
+            return None
+        previous = current
+    return previous[-1] if previous[-1] <= cutoff else None
+
+
+def _manual_search_best_vocab_match(
+    token: str,
+    frequencies: dict[str, int],
+    buckets: dict[str, list[str]],
+) -> str | None:
+    # Distance 2 only for longer tokens — a 2-edit change to a 4-letter word is
+    # usually a different word, not a typo.
+    max_distance = 2 if len(token) >= 6 else 1
+    best: tuple[int, int, str] | None = None
+    for candidate in buckets.get(token[0], ()):  # first-letter + length prefilter
+        if abs(len(candidate) - len(token)) > max_distance:
+            continue
+        distance = _bounded_edit_distance(token, candidate, max_distance)
+        if distance is None or distance == 0:
+            continue
+        key = (distance, -frequencies[candidate], candidate)
+        if best is None or key < best:
+            best = key
+    return best[2] if best is not None else None
+
+
+def _manual_search_corrected_query(connection: sqlite3.Connection, query: str) -> str | None:
+    """One corrected query string for a zero-hit free-text query, or None.
+    Narrow by design: no structured clauses, no digit-bearing queries, and only
+    alphabetic tokens of length ≥ 4 that are absent from the vocabulary."""
+    raw_query = str(query or "")
+    if _MANUAL_SEARCH_TYPO_STRUCTURED_GUARD.search(raw_query):
+        return None
+    _, search_text = _manual_search_parse_query(raw_query)
+    tokens = tokenize(search_text)
+    if not tokens or any(any(ch.isdigit() for ch in token) for token in tokens):
+        return None
+    correctable = [token for token in tokens if token.isalpha() and len(token) >= 4]
+    if not correctable:
+        return None
+
+    frequencies, buckets = _manual_search_vocabulary(connection)
+    if not frequencies:
+        return None
+
+    replacements: dict[str, str] = {}
+    for token in correctable:
+        if token in frequencies or token in replacements:
+            continue
+        suggestion = _manual_search_best_vocab_match(token, frequencies, buckets)
+        if suggestion:
+            replacements[token] = suggestion
+    if not replacements:
+        return None
+
+    corrected = raw_query
+    for token, suggestion in replacements.items():
+        corrected = re.sub(rf"\b{re.escape(token)}\b", suggestion, corrected, flags=re.IGNORECASE)
+    if _normalized_alias_text(corrected) == _normalized_alias_text(raw_query):
+        return None
+    return corrected
+
+
+class ManualSearchResults(list):
+    """Card-dict list annotated with the typo correction that produced it."""
+
+    corrected_query: str | None = None
+
+
 def search_cards(
     connection: sqlite3.Connection,
     query: str,
@@ -4591,8 +4776,53 @@ def search_cards(
 
     `rarity_bucket_filter` applies a structured rarity filter regardless of the
     query text (the `rarityBucket` query param on the search endpoint).
+
+    A free-text query whose retrieval finds ZERO candidates gets one bounded
+    typo-correction retry; when it fires the returned list is a
+    ManualSearchResults carrying ``corrected_query``.
     """
     game = normalize_game(game)
+    results, correctable_miss = _search_cards_attempt(
+        connection,
+        query,
+        limit,
+        game=game,
+        offset=offset,
+        pool_ceiling=pool_ceiling,
+        rarity_bucket_filter=rarity_bucket_filter,
+    )
+    if not correctable_miss:
+        return results
+    corrected = _manual_search_corrected_query(connection, query)
+    if not corrected:
+        return results
+    corrected_results, _ = _search_cards_attempt(
+        connection,
+        corrected,
+        limit,
+        game=game,
+        offset=offset,
+        pool_ceiling=pool_ceiling,
+        rarity_bucket_filter=rarity_bucket_filter,
+    )
+    annotated = ManualSearchResults(corrected_results)
+    annotated.corrected_query = corrected
+    return annotated
+
+
+def _search_cards_attempt(
+    connection: sqlite3.Connection,
+    query: str,
+    limit: int = 20,
+    *,
+    game: str,
+    offset: int = 0,
+    pool_ceiling: int | None = None,
+    rarity_bucket_filter: str | None = None,
+) -> tuple[list[dict[str, Any]], bool]:
+    """One retrieval+scoring pass, scoped to `game` (required — see search_cards).
+    Second element: True only when retrieval ran and produced zero candidates —
+    the only state the typo fallback may act on."""
     structured_filters, search_text = _manual_search_parse_query(query)
     if rarity_bucket_filter:
         normalized_bucket = str(rarity_bucket_filter).strip().lower()
@@ -4603,14 +4833,17 @@ def search_cards(
     if not normalized_query:
         # No name terms left: a rarity filter alone becomes a bucket browse.
         if structured_filters.get("rarity"):
-            return _manual_search_rarity_browse(
-                connection,
-                tuple(structured_filters["rarity"]),
-                game=game,
-                limit=_normalized_manual_search_limit(limit),
-                offset=max(0, int(offset or 0)),
+            return (
+                _manual_search_rarity_browse(
+                    connection,
+                    tuple(structured_filters["rarity"]),
+                    game=game,
+                    limit=_normalized_manual_search_limit(limit),
+                    offset=max(0, int(offset or 0)),
+                ),
+                False,
             )
-        return []
+        return [], False
 
     tokens = tokenize(search_text)
     # Word (non-number) tokens the user typed — used to down-weight cards that
@@ -4687,7 +4920,7 @@ def search_cards(
         add_candidate(card_id, score)
 
     if not candidate_order:
-        return []
+        return [], True
 
     # Bound the total distinct candidates before cards_by_ids (several phrases ×
     # several helpers accumulate well past the ceiling on a broad query). Rank by
@@ -4785,14 +5018,22 @@ def search_cards(
             continue
         scored_cards.append((final_score, card))
 
+    # Desirability tie-break: within an IDENTICAL final score, pricier cards
+    # surface first (every "Charizard" ties on text score; the alphabetical
+    # fallback buried the iconic prints). Price is a pure tie-break — never
+    # added to the score — so relative order across different scores is fixed.
+    price_usd_by_id = _manual_search_price_usd_by_card_id(
+        connection, [str(card.get("id") or "") for _, card in scored_cards]
+    )
     scored_cards.sort(
         key=lambda item: (
             -item[0],
+            -price_usd_by_id.get(str(item[1].get("id") or ""), 0.0),
             str(item[1]["name"]),
             str(item[1]["number"]),
         )
     )
-    return [card for _, card in scored_cards[offset : offset + requested_limit]]
+    return [card for _, card in scored_cards[offset : offset + requested_limit]], False
 
 
 def search_cards_local(
@@ -5221,6 +5462,180 @@ def pricing_provider() -> str:
     Catalog/identity/search/expansion/sync-ops stay on ``SCRYDEX_PROVIDER``
     regardless — only PRICING follows this flag."""
     return str(os.environ.get("PRICING_PROVIDER") or "").strip().lower() or "scrydex"
+
+
+# --- Main-lane raw headline source flag (TCGCSV cutover) ----------------------
+RAW_MAIN_PRICE_SOURCE_SCRYDEX = "scrydex"
+RAW_MAIN_PRICE_SOURCE_TCGCSV = "tcgcsv"
+
+
+def raw_main_price_source() -> str:
+    """Which lane serves the raw HEADLINE price: ``"scrydex"`` (default, today's
+    resolution) or ``"tcgcsv"`` (the ``main_raw_*`` columns the TCGCSV sync
+    writes). Per-card semantics even when flipped: a card without a FRESH
+    ``main_raw_market_price`` falls back to the Scrydex resolution unchanged.
+    The per-condition matrix and the entire graded lane stay on Scrydex."""
+    value = str(os.environ.get("RAW_MAIN_PRICE_SOURCE") or "").strip().lower()
+    return RAW_MAIN_PRICE_SOURCE_TCGCSV if value == RAW_MAIN_PRICE_SOURCE_TCGCSV else RAW_MAIN_PRICE_SOURCE_SCRYDEX
+
+
+def raw_main_price_enabled() -> bool:
+    """True when the raw headline should serve the TCGCSV main lane."""
+    return raw_main_price_source() == RAW_MAIN_PRICE_SOURCE_TCGCSV
+
+
+def tcgcsv_stale_hours() -> float:
+    """Freshness window (hours) for ``main_raw_updated_at`` — a dead TCGCSV sync
+    must not freeze headlines, so anything older falls back to Scrydex."""
+    try:
+        return float(os.environ.get("TCGCSV_STALE_HOURS") or 48.0)
+    except (TypeError, ValueError):
+        return 48.0
+
+
+def _main_raw_is_fresh(updated_at: Any) -> bool:
+    """NULL/unparseable timestamps count as stale (never serve a frozen main)."""
+    if not updated_at:
+        return False
+    try:
+        parsed = datetime.fromisoformat(str(updated_at))
+    except ValueError:
+        return False
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - parsed <= timedelta(hours=tcgcsv_stale_hours())
+
+
+def _is_default_main_raw_read(
+    *,
+    variant: str | None,
+    condition: str | None,
+    main_raw_variant: Any,
+) -> bool:
+    """True when a raw read targets the main-lane headline: condition unset/NM
+    and variant unset or the main lane's own printing."""
+    if str(condition or "").strip() and _normalized_condition_code(condition) != DEFAULT_RAW_CONDITION:
+        return False
+    if not str(variant or "").strip():
+        return True
+    requested_key = _variant_match_key(variant)
+    main_key = _variant_match_key(str(main_raw_variant or "") or None)
+    if requested_key in _NORMAL_VARIANT_MATCH_KEYS:
+        requested_key = "normal"
+    if main_key in _NORMAL_VARIANT_MATCH_KEYS:
+        main_key = "normal"
+    return requested_key == main_key
+
+
+def resolve_main_raw_summary_from_row(
+    row: Any,
+    *,
+    variant: str | None = None,
+    condition: str | None = None,
+) -> dict[str, Any] | None:
+    """TCGCSV main-lane summary for a snapshot row, or ``None`` when the flag is
+    off, the read is not the default raw read, or the main price is absent/stale.
+    ``trend`` mirrors ``market`` (TCGCSV has no trend series) and ``condition``
+    is always NM — the RN owned-copy gate matches on it, so a non-NM request
+    must never land here."""
+    if not raw_main_price_enabled():
+        return None
+    market = _coerce_price_float(_cell_field(row, "main_raw_market_price"))
+    if market is None:
+        return None
+    if not _main_raw_is_fresh(_cell_field(row, "main_raw_updated_at")):
+        return None
+    main_variant = _cell_field(row, "main_raw_variant")
+    if not _is_default_main_raw_read(variant=variant, condition=condition, main_raw_variant=main_variant):
+        return None
+    return {
+        "currencyCode": "USD",
+        "low": _coerce_price_float(_cell_field(row, "main_raw_low_price")),
+        "market": market,
+        "mid": _coerce_price_float(_cell_field(row, "main_raw_mid_price")),
+        "high": _coerce_price_float(_cell_field(row, "main_raw_high_price")),
+        "directLow": _coerce_price_float(_cell_field(row, "main_raw_direct_low_price")),
+        "trend": market,
+        "trendsPct": None,
+        "condition": DEFAULT_RAW_CONDITION,
+        "variant": _normalized_variant_label(main_variant),
+        "payload": {},
+    }
+
+
+def main_raw_history_market(
+    row: Any,
+    *,
+    variant: str | None = None,
+    condition: str | None = None,
+) -> float | None:
+    """COALESCE head for daily-history RAW rows: the row's
+    ``main_raw_market_price`` when the flag is on and the read is the default
+    raw read. No freshness check — the row is pinned to its own day."""
+    if not raw_main_price_enabled():
+        return None
+    market = _coerce_price_float(_cell_field(row, "main_raw_market_price"))
+    if market is None:
+        return None
+    if not _is_default_main_raw_read(
+        variant=variant, condition=condition, main_raw_variant=_cell_field(row, "main_raw_variant")
+    ):
+        return None
+    return market
+
+
+def main_raw_cell_points_by_variant_date(
+    connection: sqlite3.Connection,
+    *,
+    card_id: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """Per-day TCGCSV main-lane points for a card's series window, grouped as
+    ``{Scrydex-variant match key: {price_date: {market, low, mid, high}}}``.
+
+    ONE query per card window on the ``(card_id, price_date, cell_key)`` unique
+    index prefix. Flag-gated: returns ``{}`` when RAW_MAIN_PRICE_SOURCE is not
+    ``tcgcsv`` (or the cell table is absent), so every series merge built on it
+    is a no-op and flag-off output stays byte-identical. No freshness gate —
+    cells are pinned to their own day, like ``main_raw_history_market``."""
+    if not raw_main_price_enabled():
+        return {}
+    if not _table_exists(connection, "card_price_history_cell"):
+        return {}
+    query = (
+        "SELECT price_date, variant_key, low, market, mid, high "
+        "FROM card_price_history_cell WHERE card_id = ? AND lane = 'raw_main'"
+    )
+    params: list[Any] = [card_id]
+    if start_date:
+        query += " AND price_date >= ?"
+        params.append(str(start_date))
+    if end_date:
+        query += " AND price_date <= ?"
+        params.append(str(end_date))
+    result: dict[str, dict[str, dict[str, Any]]] = {}
+    for row in connection.execute(query, params).fetchall():
+        sub_type = str(_cell_field(row, "variant_key") or "").strip()
+        label = scrydex_variant_label_for_subtype(sub_type)
+        if label is None:
+            continue  # unmapped subtype: never guess a printing
+        market = _coerce_price_float(_cell_field(row, "market"))
+        if market is None:
+            continue
+        bucket = result.setdefault(_variant_match_key(label), {})
+        date = str(_cell_field(row, "price_date"))
+        # Two subtypes can collapse to one label (1st Edition Normal/Holofoil):
+        # the exact per-printing mapping wins, mirroring the sync's printings map.
+        if date in bucket and sub_type != subtype_for_variant_label(label):
+            continue
+        bucket[date] = {
+            "market": market,
+            "low": _coerce_price_float(_cell_field(row, "low")),
+            "mid": _coerce_price_float(_cell_field(row, "mid")),
+            "high": _coerce_price_float(_cell_field(row, "high")),
+        }
+    return result
 
 
 def _variant_match_key(value: str | None) -> str:
@@ -5849,8 +6264,10 @@ def replace_price_history_cells(
         graded_contexts=graded_contexts,
         updated_at=updated_at,
     )
+    # The TCGCSV sync owns the 'raw_main' cell; the Scrydex rewrite of the same
+    # (card, day) must not wipe it.
     connection.execute(
-        "DELETE FROM card_price_history_cell WHERE card_id = ? AND price_date = ?",
+        "DELETE FROM card_price_history_cell WHERE card_id = ? AND price_date = ? AND lane != 'raw_main'",
         (card_id, price_date),
     )
     if cells:
@@ -6090,7 +6507,15 @@ def price_history_rows_for_card(
         resolved_variant: str | None = None
         resolved_condition: str | None = None
         resolved_mode = pricing_mode or (PSA_GRADE_PRICING_MODE if grader or grade else RAW_PRICING_MODE)
-        if use_cells:
+        # Main-lane COALESCE (flag-gated): on default raw reads a row's TCGCSV
+        # main market wins over the Scrydex resolution, matching the headline.
+        if resolved_mode != PSA_GRADE_PRICING_MODE:
+            main_market = main_raw_history_market(row, variant=variant, condition=condition)
+            if main_market is not None:
+                summary = {"currencyCode": "USD", "market": main_market, "payload": {}}
+                resolved_variant = _normalized_variant_label(_cell_field(row, "main_raw_variant"))
+                resolved_condition = DEFAULT_RAW_CONDITION
+        if summary is None and use_cells:
             cells = price_history_cell_rows_for_day(
                 connection, card_id=card_id, price_date=str(row["price_date"])
             )
@@ -6108,7 +6533,7 @@ def price_history_rows_for_card(
                 resolved_variant, resolved_condition, summary = resolve_raw_summary_from_cells(
                     cells, variant=variant, condition=condition
                 )
-        else:
+        elif summary is None:
             raw_contexts = _raw_contexts_payload(row["raw_contexts_json"])
             graded_contexts = _graded_contexts_payload(row["graded_contexts_json"])
             if resolved_mode == PSA_GRADE_PRICING_MODE:
@@ -6170,6 +6595,10 @@ _HISTORY_DAILY_BASE_COLUMNS = (
     "display_currency_code",
     "source_url",
     "updated_at",
+    # Main-lane raw headline (TCGCSV): two thin scalar columns, needed so the
+    # projected batched read can apply the flag-gated main-market COALESCE.
+    "main_raw_market_price",
+    "main_raw_variant",
 )
 
 
@@ -6285,7 +6714,14 @@ def price_history_rows_for_cards_batched(
             summary: dict[str, Any] | None = None
             resolved_variant: str | None = None
             resolved_condition: str | None = None
-            if use_cells:
+            # Same flag-gated main-lane COALESCE as price_history_rows_for_card.
+            if resolved_mode != PSA_GRADE_PRICING_MODE:
+                main_market = main_raw_history_market(row, variant=variant, condition=condition)
+                if main_market is not None:
+                    summary = {"currencyCode": "USD", "market": main_market, "payload": {}}
+                    resolved_variant = _normalized_variant_label(_cell_field(row, "main_raw_variant"))
+                    resolved_condition = DEFAULT_RAW_CONDITION
+            if summary is None and use_cells:
                 cells = card_cells.get(str(row["price_date"]), [])
                 if resolved_mode == PSA_GRADE_PRICING_MODE:
                     entry = resolve_graded_entry_from_cells(
@@ -6301,7 +6737,7 @@ def price_history_rows_for_cards_batched(
                     resolved_variant, resolved_condition, summary = resolve_raw_summary_from_cells(
                         cells, variant=variant, condition=condition
                     )
-            else:
+            elif summary is None:
                 raw_contexts = _raw_contexts_payload(row["raw_contexts_json"])
                 graded_contexts = _graded_contexts_payload(row["graded_contexts_json"])
                 if resolved_mode == PSA_GRADE_PRICING_MODE:
@@ -6695,6 +7131,9 @@ def _is_raw_phantom_price(
     connection: sqlite3.Connection,
     raw_contexts: dict[str, Any] | None,
     graded_contexts: dict[str, Any] | None,
+    *,
+    served_market: float | None = None,
+    served_currency: str | None = None,
 ) -> bool:
     """True when a SINGLE-PRINTING card's RAW NM market sits well above its OWN PSA
     10 market (USD) — an illiquid "phantom" raw price (a raw card cannot be worth
@@ -6718,11 +7157,17 @@ def _is_raw_phantom_price(
     (variant_bucket,) = variants.values()
     if not isinstance(variant_bucket, dict):
         return False
-    conditions = variant_bucket.get("conditions")
-    cell = conditions.get("NM") if isinstance(conditions, dict) else None
-    if not isinstance(cell, dict):
-        return False
-    raw_nm_usd = _amount_to_usd(connection, cell.get("market"), cell.get("currencyCode"))
+    # ``served_market`` overrides the NM cell: the guard must judge the value
+    # actually served (the TCGCSV main price when that lane wins), while the
+    # single-printing gate above stays on the Scrydex variant cardinality.
+    if served_market is not None:
+        raw_nm_usd = _amount_to_usd(connection, served_market, served_currency)
+    else:
+        conditions = variant_bucket.get("conditions")
+        cell = conditions.get("NM") if isinstance(conditions, dict) else None
+        if not isinstance(cell, dict):
+            return False
+        raw_nm_usd = _amount_to_usd(connection, cell.get("market"), cell.get("currencyCode"))
     if raw_nm_usd is None or raw_nm_usd < _RAW_PHANTOM_MIN_USD:
         return False
 
@@ -6739,6 +7184,9 @@ def _is_raw_phantom_price(
 def _is_raw_phantom_price_from_cells(
     connection: sqlite3.Connection,
     day_cells: list[Any] | None,
+    *,
+    served_market: float | None = None,
+    served_currency: str | None = None,
 ) -> bool:
     """Cells twin of ``_is_raw_phantom_price`` for the cells-first CURRENT-price
     path: evaluates the same raw-NM-vs-own-PSA-10 rule on a card's latest-day
@@ -6772,11 +7220,17 @@ def _is_raw_phantom_price_from_cells(
             return False
         if _normalized_condition_code(_cell_field(cell, "condition")) == "NM":
             nm_cell = cell
-    if len(raw_variant_keys) != 1 or nm_cell is None:
+    if len(raw_variant_keys) != 1:
         return False
-    raw_nm_usd = _amount_to_usd(
-        connection, _cell_field(nm_cell, "market"), _cell_field(nm_cell, "currency_code")
-    )
+    # Same override as the JSON twin: judge the value actually served.
+    if served_market is not None:
+        raw_nm_usd = _amount_to_usd(connection, served_market, served_currency)
+    elif nm_cell is None:
+        return False
+    else:
+        raw_nm_usd = _amount_to_usd(
+            connection, _cell_field(nm_cell, "market"), _cell_field(nm_cell, "currency_code")
+        )
     if raw_nm_usd is None or raw_nm_usd < _RAW_PHANTOM_MIN_USD:
         return False
 
@@ -6970,9 +7424,27 @@ def card_price_trend_list(
         key=lambda code: (priority_index.get(code, len(RAW_CONDITION_PRIORITY)), code),
     )
 
+    # Main-lane per-day override (flag-gated): the NM series of a printing with
+    # its own raw_main cells serves those points; days without a cell keep the
+    # Scrydex value — the accepted mixed series (no backfill before the cell epoch).
+    window_dates = [str(r["price_date"]) for r in history_rows]
+    main_points_by_date: dict[str, dict[str, Any]] = {}
+    if resolved_variant and window_dates:
+        main_points_by_date = main_raw_cell_points_by_variant_date(
+            connection,
+            card_id=card_id,
+            start_date=min(window_dates),
+            end_date=max(window_dates),
+        ).get(_variant_match_key(resolved_variant), {})
+
     for condition_code in ordered_conditions:
         points = []
+        main_by_date = main_points_by_date if condition_code == DEFAULT_RAW_CONDITION else {}
         for row in history_rows:
+            main_point = main_by_date.get(str(row["price_date"]))
+            if main_point is not None:
+                points.append(main_point["market"])
+                continue
             if use_cells:
                 cell = raw_cell_exact_from_cells(
                     cells_by_date.get(str(row["price_date"]), []),
@@ -7123,6 +7595,11 @@ def price_snapshot_for_card(
     summary: dict[str, Any] | None = None
     resolved_variant: str | None = None
     resolved_payload: dict[str, Any] = {}
+    # The requested (pre-resolution) context drives the main-lane eligibility
+    # and source stamp below; ``variant`` is mutated by the raw resolution.
+    requested_variant = variant
+    requested_condition = condition
+    main_summary: dict[str, Any] | None = None
     if pricing_mode == PSA_GRADE_PRICING_MODE:
         entry = _resolve_graded_context_entry(graded_contexts, grader=grader, grade=grade, variant=variant)
         summary = _coerce_price_summary_from_entry(entry)
@@ -7132,28 +7609,36 @@ def price_snapshot_for_card(
         resolved_payload = summary.get("payload") or {}
         resolved_condition = None
     else:
-        resolved_variant, resolved_condition, summary = _resolve_raw_context_summary(
-            raw_contexts,
-            variant=variant or row["default_raw_variant"],
-            condition=condition or DEFAULT_RAW_CONDITION,
-        )
-        if summary is None and row["default_raw_market_price"] is not None:
-            summary = {
-                "currencyCode": row["display_currency_code"],
-                "low": row["default_raw_low_price"],
-                "market": row["default_raw_market_price"],
-                "mid": row["default_raw_mid_price"],
-                "high": row["default_raw_high_price"],
-                "directLow": row["default_raw_direct_low_price"],
-                "trend": row["default_raw_trend_price"],
-                "payload": {},
-            }
-            resolved_condition = row["default_raw_condition"]
+        # Main-lane intercept (flag-gated): a fresh TCGCSV main price serves the
+        # default raw read before any Scrydex resolution runs.
+        main_summary = resolve_main_raw_summary_from_row(row, variant=variant, condition=condition)
+        if main_summary is not None:
+            summary = main_summary
+            resolved_variant = main_summary["variant"]
+            resolved_condition = main_summary["condition"]
+        else:
+            resolved_variant, resolved_condition, summary = _resolve_raw_context_summary(
+                raw_contexts,
+                variant=variant or row["default_raw_variant"],
+                condition=condition or DEFAULT_RAW_CONDITION,
+            )
+            if summary is None and row["default_raw_market_price"] is not None:
+                summary = {
+                    "currencyCode": row["display_currency_code"],
+                    "low": row["default_raw_low_price"],
+                    "market": row["default_raw_market_price"],
+                    "mid": row["default_raw_mid_price"],
+                    "high": row["default_raw_high_price"],
+                    "directLow": row["default_raw_direct_low_price"],
+                    "trend": row["default_raw_trend_price"],
+                    "payload": {},
+                }
+                resolved_condition = row["default_raw_condition"]
         if summary is None:
             return None
         resolved_payload = summary.get("payload") or {}
         variant = resolved_variant
-    return {
+    result = {
         "id": row["card_id"],
         "cardID": row["card_id"],
         "pricingMode": "psa_grade_estimate" if pricing_mode == PSA_GRADE_PRICING_MODE else pricing_mode,
@@ -7185,6 +7670,21 @@ def price_snapshot_for_card(
         "payload": resolved_payload if resolved_payload else payload,
         "isFresh": is_fresh,
     }
+    # Source stamp on DEFAULT raw reads only (flag-gated so the DTO stays
+    # byte-identical with the flag off). ``provider``/``source`` keep meaning
+    # the snapshot-row provider; the served condition is stamped because the RN
+    # owned-copy gate matches on it.
+    if pricing_mode != PSA_GRADE_PRICING_MODE and raw_main_price_enabled():
+        if main_summary is not None:
+            result["condition"] = DEFAULT_RAW_CONDITION
+            result["mainPriceSource"] = RAW_MAIN_PRICE_SOURCE_TCGCSV
+        elif _is_default_main_raw_read(
+            variant=requested_variant,
+            condition=requested_condition,
+            main_raw_variant=_cell_field(row, "main_raw_variant"),
+        ):
+            result["mainPriceSource"] = RAW_MAIN_PRICE_SOURCE_SCRYDEX
+    return result
 
 
 def raw_pricing_summary_for_card(connection: sqlite3.Connection, card_id: str) -> dict[str, Any] | None:

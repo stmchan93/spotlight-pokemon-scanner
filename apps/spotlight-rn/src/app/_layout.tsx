@@ -39,6 +39,7 @@ import {
 import { StagingSmokeDiagnostics } from '@/components/staging-smoke-diagnostics';
 import { AccessGate } from '@/features/auth/components/access-gate';
 import { AuthGate } from '@/features/auth/components/auth-gate';
+import { HandleClaimGate } from '@/features/auth/components/handle-claim-gate';
 import { AppErrorBoundary } from '@/lib/observability/app-error-boundary';
 import { PostHogAppProvider, identifyPostHogUser } from '@/lib/observability/posthog';
 import { PostHogScreenTracker } from '@/lib/observability/posthog-screen-tracker';
@@ -168,6 +169,9 @@ function AuthenticatedRoot() {
       appleSignInAvailable={auth.appleSignInAvailable}
       authenticatedContent={(
         <AccessGate>
+          {/* INSIDE the access-allowed content on purpose: someone held on the
+              BetweenShows screen must see that, not the claim screen. */}
+          <HandleClaimGate>
           <View style={{ flex: 1 }}>
             <StatusBar style={Platform.OS === 'android' ? 'dark' : 'dark'} />
             <PostHogScreenTracker />
@@ -263,6 +267,7 @@ function AuthenticatedRoot() {
               />
             </Stack>
           </View>
+          </HandleClaimGate>
         </AccessGate>
       )}
       configurationIssue={auth.configurationIssue}

@@ -1159,9 +1159,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   chrome: {
-    // Match the owner Portfolio's header chrome rhythm.
-    gap: 16,
-    paddingBottom: 16,
+    gap: 20,
+    paddingBottom: 20,
   },
   // The Collection page's own header, below the pinned tab bar. 24px down from
   // the bar, matching the owner Portfolio's tabs→balance gap.

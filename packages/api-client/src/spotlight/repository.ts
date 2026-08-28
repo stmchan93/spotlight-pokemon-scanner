@@ -4316,6 +4316,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
         until: null,
         remainingSeconds: 0,
       },
+      handleClaimRequired: false,
     };
   }
 
@@ -6327,15 +6328,18 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         until?: string | null;
         remainingSeconds?: number | null;
       } | null;
+      handleClaimRequired?: boolean | null;
     }>(`${this.baseUrl}/api/v1/access/status`);
 
     if (response.kind !== 'success' || !response.data) {
       // FAIL OPEN: a transport error / empty body must never lock a user out.
+      // handleClaimRequired fails open the other way — false = no claim gate.
       return {
         accessOpen: true,
         allowed: true,
         isAdmin: false,
         showMode: { active: false, until: null, remainingSeconds: 0 },
+        handleClaimRequired: false,
       };
     }
 
@@ -6349,6 +6353,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         until: normalizeString(data.showMode?.until),
         remainingSeconds: normalizeNumber(data.showMode?.remainingSeconds) ?? 0,
       },
+      handleClaimRequired: normalizeBoolean(data.handleClaimRequired) ?? false,
     };
   }
 

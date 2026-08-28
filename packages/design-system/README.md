@@ -160,10 +160,10 @@ stays the primitive for anything you actually type into.
 
 Current API concepts:
 
-- 40pt tall `gray50` pill with a `borderWidths.rule` `gray200` hairline at
-  `radii.pill`, sized to match the 40pt `GlassNavBubble`s (`size="compact"`)
-  beside it (Figma "Home" 3523:15499, toolbar 3567:22969)
-- label role: `typography.label` in `gray500`, left-aligned
+- 44pt tall `gray50` pill with a 1pt `searchBorder` stroke at `radii.pill`,
+  sized to match the 44pt `GlassNavBubble`s (`size="medium"`) beside it in the
+  profile top bar (Figma 4299:94902)
+- label role: `typography.bodySmall` in `gray600`, left-aligned
 - `leading?: ReactNode` — optional badge at the leading edge (the app mark in the
   feed top bar). In flow, not absolute: badge and label are ONE group starting
   8pt in from the pill's left edge with 4pt between them, which is what the
@@ -461,6 +461,9 @@ Current API concepts:
 
 - `imageUrl` (art fills the column width inside a square frame at the card's
   real aspect ratio; "CARD" placeholder when null)
+- optional `artAspect` (`'square'` default | `'card'`) — `'card'` swaps the
+  square art frame for the portrait trading-card ratio (0.716) with the art
+  filling it, shortening the tile for dense grids (catalog search results)
 - `name`, `setName` + `cardNumber` (joined as `"{cardNumber} · {setName}"`)
 - `kind` (`'raw' | 'slab'`) with `variantName`, and `conditionLabel` (raw) or
   `graderLabel` + `gradeLabel` (slab) building the quality lines;
@@ -665,9 +668,10 @@ reads as one set of actions, which is what they are.
   (the scanner does)
 - `glassButtonGroupHeight`, `glassButtonGroupControlSize`,
   `glassButtonGroupPaddingHorizontal` and `glassButtonGroupGap` are the
-  canonical grouped-toolbar geometry — `GlassNavBubbleGroup` reads them rather
-  than restating 6/6/36/40, because the Home bar's layout is solved from those
-  exact numbers and two copies could silently disagree
+  canonical compact grouped-toolbar geometry — `GlassNavBubbleGroup`'s
+  `compact` size reads them rather than restating 6/6/36/40, because bar
+  layouts are solved from those exact numbers and two copies could silently
+  disagree
 
 ### GlassNavBubble
 
@@ -682,15 +686,15 @@ Props:
 
 - `accessibilityLabel` (required), `children` (the glyph), `onPress`
 - `size`: `'small'` (32pt — dense chrome over a live surface, e.g. the scanner),
-  `'compact'` (40pt — a bubble sharing a top bar with other controls: Home, You
-  and Wishlist all use this, and the 8pt `hitSlop` carries it back over the 44pt
-  touch minimum), or `'medium'` (44pt, still the default — a bubble floating on
-  its own with nothing to line up against)
-  - **Pass `size="compact"` for anything in a bar.** `medium` currently has no
-    callers: every bar in the app is a 40pt row (Figma "Home" 3523:15499,
-    toolbar 3567:22969), so taking the default gets you a bubble 4pt taller than
-    everything beside it — which is exactly what the Wishlist header did next to
-    its own `EditDoneButton`.
+  `'compact'` (40pt — a bubble sharing a compact top bar with other 40pt
+  controls, e.g. the Wishlist header; the 8pt `hitSlop` carries it back over the
+  44pt touch minimum), or `'medium'` (44pt, the default — the standalone
+  floating bubble AND every control in the Home/profile top bar, Figma
+  4299:94902)
+  - **Match the bar you are in.** The Home/profile bar is a 44pt row
+    (`medium`); the Wishlist bar is still a 40pt row (`compact`). A bubble 4pt
+    taller than everything beside it is exactly what the Wishlist header once
+    did next to its own `EditDoneButton`.
 - `surface`: describes what is UNDERNEATH, not the glass material —
   `'onLight'` (default) or `'onDark'`
 - `disabled`, `style` (positioning is caller-owned), `testID`
@@ -721,33 +725,39 @@ on light surfaces and `gray0` on the scanner.
 
 File: `src/components/glass-nav-bubble-group.tsx`
 
-Several nav controls sharing ONE glass capsule — Home's trailing bell + `+`
-pair. Figma "Home" 3523:15499 → toolbar 3567:22969 → `Trailing` →
-`Button Group 1`: a single 90×40 `BG` with 36pt symbol frames at x=6 and x=48,
-i.e. Apple's iOS 26 grouped-toolbar pattern. **They are not two circles.**
+Several nav controls sharing ONE glass capsule — Home's trailing search + bell
+pair (Figma 4299:94902: a single 104×44 capsule with 36pt symbol frames on a
+20pt gap) and the profile toolbar's edit + share pair, i.e. Apple's iOS 26
+grouped-toolbar pattern. **They are not two circles.**
 
 - `items`: one entry per slot, left to right —
   `{ accessibilityLabel, children, onPress, disabled?, testID? }`. An ARRAY
   rather than `children`, so the primitive can size itself from the count and
   vary each slot's `hitSlop` by position; neither is possible with opaque
   children.
+- `size`: `'compact'` (default) or `'medium'` — see the geometry below.
 - `surface`: same meaning as on `GlassNavBubble` — what is UNDERNEATH, not the
   material. `'onLight'` (default) or `'onDark'`.
 - `style` (layout is caller-owned), `testID`
 
-Geometry, from `glassNavBubbleGroupMetrics` (which reads `GlassButtonGroup`'s
-own 6/6/36/40 rather than restating them):
+Geometry, from `glassNavBubbleGroupSizes`:
 
-- 40pt tall, `paddingHorizontal: 6`, `gap: 6`, 36pt slots
-- `glassNavBubbleGroupWidth(n)` = `6 + 36n + 6(n−1) + 6` → **90 for two slots**,
-  applied as an explicit `width`. The number is load-bearing: Home's toolbar
-  closes at `16 + 40 + 8 + 215 + 8 + 90 + 16 = 393`, so the flexed
-  `SearchEntryPill` only lands on its 215 if the trailing control is exactly 90.
-  Two separate 40pt bubbles with the row's 8pt gap measure 88.
+- `compact` — 40pt tall, `paddingHorizontal: 6`, `gap: 6`, 36pt slots, read
+  straight off `GlassButtonGroup`'s own 6/6/36/40 rather than restating them.
+  `glassNavBubbleGroupMetrics` survives as an alias of this size.
+- `medium` — 44pt tall, same 6pt padding and 36pt slots, but a 20pt gap
+  (Figma 4299:94902), sitting level with `glassNavBubbleSizes.medium` bubbles.
+- `glassNavBubbleGroupWidth(n, size?)` =
+  `padding·2 + slot·n + gap·(n−1)` → **90 for two `compact` slots, 104 for two
+  `medium` slots**, applied as an explicit `width`. The number is load-bearing:
+  the profile toolbar closes at `16 + 44 + 8 + 197 + 8 + 104 + 16 = 393`, so
+  the flexed `SearchEntryPill` only lands on its 197 if the trailing capsule is
+  exactly 104.
 - `hitSlop` is 8 on the OUTSIDE edges (matching a standalone `GlassNavBubble`)
   and 4 on the inside ones, which takes every 36pt slot over the 44pt touch
-  minimum. The 6pt seam between neighbours is therefore shared: a tap in its
-  middle 2pt goes to the later slot.
+  minimum. On `compact` the 6pt seam between neighbours is therefore shared: a
+  tap in its middle 2pt goes to the later slot. `medium`'s 20pt gap keeps the
+  targets 12pt apart.
 
 Why not `GlassButtonGroup`, which is the same shape:
 

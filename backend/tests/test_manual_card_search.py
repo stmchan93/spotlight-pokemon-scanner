@@ -157,6 +157,34 @@ class ManualCardSearchTests(unittest.TestCase):
         self.assertGreater(len(payload["results"]), 0)
         self.assertEqual(payload["results"][0]["id"], "base-charizard-4")
 
+    def test_search_results_carry_pricing_when_snapshot_exists(self) -> None:
+        # Search results shipped without pricing forever — the old row UI hid
+        # the gap; the grid tile shows "—". The service now attaches the
+        # standard raw summary per result.
+        from catalog_tools import upsert_price_snapshot
+
+        upsert_price_snapshot(
+            self.connection, card_id="base-charizard-4", provider="scrydex",
+            display_currency_code="USD",
+            raw_contexts={"variants": {"Holofoil": {"variant": "Holofoil", "conditions": {
+                "NM": {"condition": "NM", "variant": "Holofoil", "market": 214.9}
+            }}}},
+            graded_contexts={"graders": {}},
+            default_raw_variant="Holofoil", default_raw_market_price=214.9,
+        )
+        self.connection.commit()
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+
+        payload = service.search("charizard", limit=10, game=GAME_POKEMON)
+
+        top = payload["results"][0]
+        self.assertEqual(top["id"], "base-charizard-4")
+        self.assertEqual(top["pricing"]["market"], 214.9)
+        # A result with no snapshot simply has no pricing key — never a crash.
+        unpriced = [c for c in payload["results"] if c["id"] != "base-charizard-4"]
+        if unpriced:
+            self.assertNotIn("pricing", unpriced[0])
+
     def test_artist_search_paginates_through_all_matches_without_overlap(self) -> None:
         # All 128 seeded cards share artist "Test Artist"; searching that artist
         # must page through ALL of them — including late-alphabet cards the old
@@ -569,6 +597,161 @@ class ArtistSearchTests(unittest.TestCase):
         _backfill_missing_card_artist_aliases(self.connection)
         self.connection.commit()
         self.assertIn("art-eevee", self._ids("arita"))
+
+
+class ManualSearchDesirabilityTieBreakTests(unittest.TestCase):
+    """Price is a PURE tie-break within identical final scores — it never
+    reorders cards whose text scores differ."""
+
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.database_path = Path(self.tempdir.name) / "desirability-tiebreak.sqlite"
+        self.connection = connect(self.database_path)
+        apply_schema(self.connection, BACKEND_ROOT / "schema.sql")
+
+    def tearDown(self) -> None:
+        self.connection.close()
+        self.tempdir.cleanup()
+
+    def _seed_card(self, *, card_id: str, name: str, number: str, set_name: str = "Tie Set", set_id: str = "tie1") -> None:
+        upsert_catalog_card(
+            self.connection,
+            catalog_card(card_id=card_id, name=name, set_name=set_name, number=number, set_id=set_id),
+            REPO_ROOT,
+            "2026-08-20T12:00:00Z",
+            refresh_embeddings=False,
+        )
+
+    def _seed_price(
+        self,
+        card_id: str,
+        *,
+        main: float | None = None,
+        default: float | None = None,
+        currency: str = "USD",
+    ) -> None:
+        self.connection.execute(
+            "INSERT OR REPLACE INTO card_price_snapshots ("
+            " card_id, provider, display_currency_code,"
+            " default_raw_market_price, main_raw_market_price, updated_at"
+            ") VALUES (?, 'scrydex', ?, ?, ?, '2026-08-20T12:00:00Z')",
+            (card_id, currency, default, main),
+        )
+
+    def _ids(self, query: str) -> list[str]:
+        return [row["id"] for row in search_cards(self.connection, query, limit=10, game=GAME_POKEMON)]
+
+    def test_identical_scores_order_by_price_descending(self) -> None:
+        # Same name + set, only the number differs → identical text scores.
+        # Without prices the "10/100" print would sort first; the $500 print wins.
+        self._seed_card(card_id="tie-cheap", name="Tiebreakmon", number="10/100")
+        self._seed_card(card_id="tie-expensive", name="Tiebreakmon", number="11/100")
+        self._seed_price("tie-cheap", main=5.0)
+        self._seed_price("tie-expensive", main=500.0)
+        self.connection.commit()
+
+        ids = self._ids("tiebreakmon")
+        self.assertLess(ids.index("tie-expensive"), ids.index("tie-cheap"))
+
+    def test_price_never_overrides_a_higher_text_score(self) -> None:
+        # Exact-name match must keep outranking the substring match even when
+        # the substring match is worth 100x more.
+        self._seed_card(card_id="tie-exact", name="Tiebreakmon", number="10/100")
+        self._seed_card(card_id="tie-prefixed", name="Dark Tiebreakmon", number="11/100")
+        self._seed_price("tie-exact", main=5.0)
+        self._seed_price("tie-prefixed", main=500.0)
+        self.connection.commit()
+
+        ids = self._ids("tiebreakmon")
+        self.assertLess(ids.index("tie-exact"), ids.index("tie-prefixed"))
+
+    def test_unverified_fallback_price_buys_no_ranking(self) -> None:
+        # Only the sales-verified TCGCSV main lane counts as desirability. A
+        # huge Scrydex fallback number (the inflated-JP class) must NOT outrank
+        # a small verified price — live regression: fallback-priced JP
+        # Charizards at $4k jumped every verified EN printing.
+        self.connection.execute(
+            "INSERT INTO fx_rate_snapshots (id, base_currency, quote_currency, rate, source, updated_at)"
+            " VALUES ('jpy-usd-test', 'JPY', 'USD', 0.01, 'test', '2026-08-20T12:00:00Z')"
+        )
+        self._seed_card(card_id="tie-jpy", name="Tiebreakmon", number="10/100")
+        self._seed_card(card_id="tie-usd", name="Tiebreakmon", number="11/100")
+        # 10000 JPY (~$100) fallback vs $5 verified: the verified card wins.
+        self._seed_price("tie-jpy", default=10000.0, currency="JPY")
+        self._seed_price("tie-usd", main=5.0)
+        self.connection.commit()
+
+        ids = self._ids("tiebreakmon")
+        self.assertLess(ids.index("tie-usd"), ids.index("tie-jpy"))
+
+
+class ManualSearchTypoToleranceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        import catalog_tools
+
+        catalog_tools.reset_manual_search_vocabulary()
+        self.addCleanup(catalog_tools.reset_manual_search_vocabulary)
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.database_path = Path(self.tempdir.name) / "typo-tolerance.sqlite"
+        self.connection = connect(self.database_path)
+        apply_schema(self.connection, BACKEND_ROOT / "schema.sql")
+
+        for card in [
+            catalog_card(
+                card_id="base-charizard-4",
+                name="Charizard",
+                set_name="Base Set",
+                number="4/102",
+                set_id="base1",
+            ),
+            catalog_card(
+                card_id="base-blastoise-2",
+                name="Blastoise",
+                set_name="Base Set",
+                number="2/102",
+                set_id="base1",
+            ),
+        ]:
+            upsert_catalog_card(self.connection, card, REPO_ROOT, "2026-08-20T12:00:00Z", refresh_embeddings=False)
+        self.connection.commit()
+
+    def tearDown(self) -> None:
+        self.connection.close()
+        self.tempdir.cleanup()
+
+    def test_typo_query_returns_corrected_results_and_corrected_query(self) -> None:
+        results = search_cards(self.connection, "charzard", limit=10, game=GAME_POKEMON)
+
+        self.assertIn("base-charizard-4", [row["id"] for row in results])
+        self.assertEqual(getattr(results, "corrected_query", None), "charizard")
+
+    def test_service_payload_carries_corrected_query_only_on_correction(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        try:
+            corrected = service.search("charzard", limit=10, game=GAME_POKEMON)
+            self.assertGreater(len(corrected["results"]), 0)
+            self.assertEqual(corrected["correctedQuery"], "charizard")
+
+            # A query with hits must never be corrected (or carry the field).
+            direct = service.search("charizard", limit=10, game=GAME_POKEMON)
+            self.assertGreater(len(direct["results"]), 0)
+            self.assertNotIn("correctedQuery", direct)
+        finally:
+            service.connection.close()
+
+    def test_queries_with_digits_or_structured_clauses_are_never_corrected(self) -> None:
+        digit_results = search_cards(self.connection, "charzardy 999/999", limit=10, game=GAME_POKEMON)
+        self.assertIsNone(getattr(digit_results, "corrected_query", None))
+
+        structured_results = search_cards(self.connection, "name:charzard", limit=10, game=GAME_POKEMON)
+        self.assertEqual(list(structured_results), [])
+        self.assertIsNone(getattr(structured_results, "corrected_query", None))
+
+    def test_gibberish_returns_empty_without_correction(self) -> None:
+        results = search_cards(self.connection, "zzzzqqq", limit=10, game=GAME_POKEMON)
+
+        self.assertEqual(list(results), [])
+        self.assertIsNone(getattr(results, "corrected_query", None))
 
 
 if __name__ == "__main__":

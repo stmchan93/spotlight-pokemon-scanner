@@ -322,8 +322,10 @@ DATABASE_PATH="$DATA_DIR/spotlight_scanner.sqlite"
 RUNTIME_CONFIG_FILE="$SCRIPT_DIR/.vm-runtime.conf"
 FLOCK_BIN="$(command -v flock)"
 SYNC_LOCK_FILE="$DATA_DIR/scrydex-sync.lock"
+TCGCSV_SYNC_LOCK_FILE="$DATA_DIR/tcgcsv-sync.lock"
 SOCIAL_MODERATION_LOCK_FILE="$DATA_DIR/social-moderation.lock"
 SYNC_LOG_FILE="$LOG_DIR/scrydex_sync.log"
+TCGCSV_SYNC_LOG_FILE="$LOG_DIR/tcgcsv_sync.log"
 HEALTH_MONITOR_LOG_FILE="$LOG_DIR/health_monitor.log"
 RESOURCE_MONITOR_LOG_FILE="$LOG_DIR/resource_monitor.log"
 PPT_POPULATION_LOG_FILE="$LOG_DIR/ppt_population.log"
@@ -333,6 +335,13 @@ TORCH_CPU_INDEX_URL="${SPOTLIGHT_VM_TORCH_INDEX_URL:-https://download.pytorch.or
 TORCH_PACKAGE_SPEC="${SPOTLIGHT_VM_TORCH_PACKAGE_SPEC:-torch==2.11.0+cpu}"
 SYNC_CRON_SCHEDULE="${SPOTLIGHT_VM_SYNC_CRON:-0 18 * * *}"
 SYNC_CRON_TIMEZONE="${SPOTLIGHT_VM_SYNC_CRON_TZ:-America/Los_Angeles}"
+# TCGCSV main-lane price sync — 1:05 PM PT, after tcgcsv.com's ~20:00 UTC daily refresh.
+# First attempt 13:05 PT (user-chosen), with catch-up attempts through the
+# afternoon/evening because TCGCSV's daily publish finishes around ~13:05 PT and
+# a failed/partial crawl leaves the last-updated marker un-advanced so the next
+# attempt retries. The guard makes every attempt after a clean pull a
+# one-request no-op. 18-19h PT deliberately skipped (Scrydex sync window).
+TCGCSV_SYNC_CRON_SCHEDULE="${SPOTLIGHT_VM_TCGCSV_SYNC_CRON:-5,35 13,14,16,20 * * *}"
 BACKEND_HOST="${SPOTLIGHT_VM_BACKEND_HOST:-127.0.0.1}"
 PUBLIC_BASE_URL="${SPOTLIGHT_VM_PUBLIC_BASE_URL:-}"
 HEALTH_CRON_SCHEDULE="${SPOTLIGHT_VM_HEALTH_CRON:-*/5 * * * *}"
@@ -376,7 +385,7 @@ if [[ "$PUBLIC_BASE_URL" == *$'\n'* ]]; then
   exit 1
 fi
 
-for schedule_var in SYNC_CRON_SCHEDULE HEALTH_CRON_SCHEDULE RESOURCE_CRON_SCHEDULE MODERATION_CRON_SCHEDULE; do
+for schedule_var in SYNC_CRON_SCHEDULE TCGCSV_SYNC_CRON_SCHEDULE HEALTH_CRON_SCHEDULE RESOURCE_CRON_SCHEDULE MODERATION_CRON_SCHEDULE; do
   schedule_value="${!schedule_var}"
   if [ -z "$schedule_value" ] || [[ "$schedule_value" == *$'\n'* ]]; then
     echo "$schedule_var must be a single non-empty cron schedule line." >&2
@@ -439,6 +448,9 @@ write_runtime_override "SPOTLIGHT_VM_SYNC_CRON" "$SYNC_CRON_SCHEDULE"
 write_runtime_override "SPOTLIGHT_VM_SYNC_CRON_TZ" "$SYNC_CRON_TIMEZONE"
 write_runtime_override "SPOTLIGHT_SYNC_LOCK_FILE" "$SYNC_LOCK_FILE"
 write_runtime_override "SPOTLIGHT_SYNC_LOG_FILE" "$SYNC_LOG_FILE"
+write_runtime_override "SPOTLIGHT_VM_TCGCSV_SYNC_CRON" "$TCGCSV_SYNC_CRON_SCHEDULE"
+write_runtime_override "SPOTLIGHT_TCGCSV_SYNC_LOCK_FILE" "$TCGCSV_SYNC_LOCK_FILE"
+write_runtime_override "SPOTLIGHT_TCGCSV_SYNC_LOG_FILE" "$TCGCSV_SYNC_LOG_FILE"
 # Recorded for observability only — crontab owns the moderation cadence, so
 # editing this on the box changes nothing. The lock path below IS read, by
 # run_social_moderation_vm.sh.
@@ -452,6 +464,8 @@ chmod +x \
   "$SCRIPT_DIR/run_vm_prewarm_visual.sh" \
   "$SCRIPT_DIR/run_sync_vm.sh" \
   "$SCRIPT_DIR/run_sync_vm_scheduled.sh" \
+  "$SCRIPT_DIR/run_tcgcsv_sync_vm.sh" \
+  "$SCRIPT_DIR/run_tcgcsv_sync_vm_scheduled.sh" \
   "$SCRIPT_DIR/run_vm_health_check.sh" \
   "$SCRIPT_DIR/run_vm_resource_snapshot.sh" \
   "$SCRIPT_DIR/run_social_moderation_vm.sh" \
@@ -511,6 +525,10 @@ fi
 CRON_BEGIN="# BEGIN spotlight-backend-vm"
 CRON_END="# END spotlight-backend-vm"
 SYNC_LINE="* * * * * cd $REPO_ROOT && $SCRIPT_DIR/run_sync_vm_scheduled.sh"
+# TCGCSV main-lane sync — minute-level wrapper like the Scrydex line; the wrapper
+# evaluates SPOTLIGHT_VM_TCGCSV_SYNC_CRON itself, and the python job is a no-op
+# unless TCGCSV_SYNC_ENABLED is truthy in the env/secrets files.
+TCGCSV_SYNC_LINE="* * * * * cd $REPO_ROOT && $SCRIPT_DIR/run_tcgcsv_sync_vm_scheduled.sh"
 HEALTH_LINE="$HEALTH_CRON_SCHEDULE cd $REPO_ROOT && $SCRIPT_DIR/run_vm_health_check.sh >> $HEALTH_MONITOR_LOG_FILE 2>&1"
 RESOURCE_LINE="$RESOURCE_CRON_SCHEDULE cd $REPO_ROOT && $SCRIPT_DIR/run_vm_resource_snapshot.sh >> $RESOURCE_MONITOR_LOG_FILE 2>&1"
 # PPT GemRate population refresh — DAILY at 06:30 UTC (~10:30pm PST / 11:30pm PDT),
@@ -582,11 +600,15 @@ PY
   echo "$CRON_BEGIN"
   # Staging boxes never run the credit-burning jobs (Scrydex sync, PPT
   # population) — staging data arrives via litestream restore from prod's
-  # bucket. Only production gets the sync crons; both keep the monitors.
+  # bucket. Only production gets those sync crons; both keep the monitors.
   if [ "$ENVIRONMENT" = "production" ]; then
     echo "$SYNC_LINE"
     echo "$PPT_POPULATION_LINE"
   fi
+  # TCGCSV is a free mirror (no credits), so its line installs on BOTH
+  # environments; the job stays dark unless TCGCSV_SYNC_ENABLED is truthy in
+  # the env files. Staging needs it live for main-lane shadow history.
+  echo "$TCGCSV_SYNC_LINE"
   echo "$HEALTH_LINE"
   echo "$RESOURCE_LINE"
   echo "$SOCIAL_MODERATION_LINE"

@@ -205,6 +205,27 @@ class AccessGateTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.service.add_whitelist_email("not-an-email")
 
+    # The mandatory-@handle gate flag rides access_status. It must default OFF
+    # (the client fails open on a missing/false flag) and flip via the setter.
+    def test_handle_claim_required_defaults_off_and_toggles(self) -> None:
+        identity = self._identity("user-handle", "handle@example.com")
+        with self.service.request_identity_context(identity):
+            status = self.service.access_status(identity)
+        self.assertFalse(status["handleClaimRequired"])
+
+        summary = self.service.set_handle_claim_required_mode(enabled=True, note="show prep")
+        self.assertTrue(summary["enabled"])
+        self.assertEqual(summary["note"], "show prep")
+        with self.service.request_identity_context(identity):
+            status = self.service.access_status(identity)
+        self.assertTrue(status["handleClaimRequired"])
+
+        summary = self.service.set_handle_claim_required_mode(enabled=False)
+        self.assertFalse(summary["enabled"])
+        with self.service.request_identity_context(identity):
+            status = self.service.access_status(identity)
+        self.assertFalse(status["handleClaimRequired"])
+
 
 if __name__ == "__main__":
     unittest.main()

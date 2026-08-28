@@ -185,11 +185,13 @@ const styles = StyleSheet.create({
     height: borderWidths.rule,
     marginHorizontal: -16,
   },
+  // 12 under the header before the first row's rule (Figma 4211:86063
+  // "Pricing Info" gap).
   header: {
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 4,
+    marginBottom: 12,
   },
   // Figma 1664:1090 grade label: Body (Plus Jakarta Regular) at 14/gray-700,
   // muted so the price stays the emphasis.
@@ -213,12 +215,12 @@ const styles = StyleSheet.create({
     minWidth: 72,
     textAlign: 'right',
   },
-  // Figma 1664:1090 "Price Chart": the sparkline and price sit together,
-  // right-aligned, with a 32px gap between them.
+  // Figma 4211:86063 "Chart Info": sparkline and price sit together,
+  // right-aligned, with a 24px gap between them (was 32 from an older frame).
   priceGroup: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 32,
+    gap: 24,
   },
   pricePending: {
     alignItems: 'flex-end',

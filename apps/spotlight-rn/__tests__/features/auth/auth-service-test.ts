@@ -186,6 +186,9 @@ async function loadAuthService(options: LoadOptions = {}) {
  * NEW field showing up fails one shared line instead of five scattered ones.
  */
 const SOCIAL_PROFILE_DEFAULTS = {
+  // False except where the profile came from a handle-bearing SELECT (the read
+  // paths override to true); write/offline fallbacks must never claim to know.
+  handleKnown: false,
   handle: null,
   bio: null,
   location: null,
@@ -226,6 +229,8 @@ describe('auth-service profiles', () => {
       labelerEnabled: true,
       userID: 'user-1',
       ...SOCIAL_PROFILE_DEFAULTS,
+      // Read via the full (handle-bearing) select, so the handle is KNOWN.
+      handleKnown: true,
     });
     expect(supabase.from).toHaveBeenCalledWith('user_profiles');
     expect(table.eq).toHaveBeenCalledWith('user_id', 'user-1');
@@ -385,6 +390,8 @@ describe('auth-service profiles', () => {
       providers: ['google', 'apple'],
       // Carried onto the resolved AppUser, not just the UserProfile.
       ...SOCIAL_PROFILE_DEFAULTS,
+      // The profile fetch used a handle-bearing select, so the handle is KNOWN.
+      handleKnown: true,
     });
 
     table.single

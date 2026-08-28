@@ -75,6 +75,11 @@ TEST_MODULES=(
   backend.tests.test_expansion_browser
   backend.tests.test_expansion_game_scoping
   backend.tests.test_rarity_buckets
+  backend.tests.test_tcgcsv_adapter
+  backend.tests.test_sync_tcgcsv_prices
+  backend.tests.test_main_raw_price_serving
+  backend.tests.test_raw_condition_surface_coherence
+  backend.tests.test_main_raw_trend_series
 )
 
 run_targeted_tests() {

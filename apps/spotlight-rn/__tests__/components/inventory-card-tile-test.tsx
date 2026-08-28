@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 
 import { InventoryCardTile, SpotlightThemeProvider } from '@spotlight/design-system';
 
@@ -213,6 +214,24 @@ describe('InventoryCardTile', () => {
 
     expect(screen.getByTestId('tile-trend')).toBeTruthy();
     expect(screen.getByText('+2.26%')).toBeTruthy();
+  });
+
+  it('keeps the square art frame by default (existing consumers unchanged)', () => {
+    renderTile();
+
+    const frame = StyleSheet.flatten(
+      screen.getByTestId('tile-image-frame').props.style,
+    );
+    expect(frame.aspectRatio).toBe(1);
+  });
+
+  it("renders the art frame at the trading-card aspect for artAspect='card'", () => {
+    renderTile({ artAspect: 'card' });
+
+    const frame = StyleSheet.flatten(
+      screen.getByTestId('tile-image-frame').props.style,
+    );
+    expect(frame.aspectRatio).toBe(0.716);
   });
 
   it('renders a 1px #F2F2F2 hairline border around the tile', () => {

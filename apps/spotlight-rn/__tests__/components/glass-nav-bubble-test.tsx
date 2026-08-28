@@ -77,9 +77,9 @@ describe('GlassNavBubble', () => {
     );
 
     const style = flattenStyle(screen.getByTestId('bubble-light').props.style);
-    expect(style.backgroundColor).toBe(colors.canvasElevated);
-    expect(style.shadowRadius).toBe(shadows.card.shadowRadius);
-    expect(style.shadowOpacity).toBe(shadows.card.shadowOpacity);
+    expect(style.backgroundColor).toBe(colors.glassFallback);
+    expect(style.shadowRadius).toBe(shadows.glassPill.shadowRadius);
+    expect(style.shadowOpacity).toBe(shadows.glassPill.shadowOpacity);
     // A light chip must not also draw the dark-surface ring.
     expect(style.borderWidth).toBeUndefined();
   });

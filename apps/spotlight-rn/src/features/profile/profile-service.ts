@@ -344,3 +344,30 @@ export async function searchUsers(query: string, limit = 20): Promise<UserProfil
     return [];
   }
 }
+
+export type HandleAvailability = 'available' | 'taken' | 'unknown';
+
+/**
+ * Probe the `handle_available` RPC (social_25). SECURITY DEFINER over the BASE
+ * table, so handles held by blocked/suspended/shadowbanned users — invisible
+ * through `public_profiles` — still read as taken instead of failing at save.
+ *
+ * Tri-state on purpose: `unknown` (offline, missing RPC, any error) must render
+ * as neutral "can't check right now", never as taken — the claim screen is
+ * blocking, and the unique index remains the real authority at save time.
+ */
+export async function checkHandleAvailability(handle: string): Promise<HandleAvailability> {
+  const normalized = handle.trim().replace(/^@+/, '').toLowerCase();
+  if (!supabase || normalized.length === 0) {
+    return 'unknown';
+  }
+  try {
+    const { data, error } = await supabase.rpc('handle_available', { p_handle: normalized });
+    if (error || typeof data !== 'boolean') {
+      return 'unknown';
+    }
+    return data ? 'available' : 'taken';
+  } catch {
+    return 'unknown';
+  }
+}

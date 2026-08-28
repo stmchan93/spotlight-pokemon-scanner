@@ -136,10 +136,10 @@ async function pressById(testID: string) {
 
 const likeCountText = () => screen.getByTestId('post-card-like-count').props.children;
 // The thumbs-up has no solid variant; it tints to the accent color when liked.
-// (gray700 unliked, purple500 liked — see PostCard's `likeColor`.)
+// (gray900 unliked, purple500 liked — see PostCard's `likeColor`.)
 const likeIconColor = () => screen.getByTestId('post-card-like-icon').props.color;
 const ACCENT = '#A54BFA';
-const GRAY700 = '#4A4A4A';
+const GRAY900 = '#1A1A1A';
 
 const repostCountText = () => screen.getByTestId('post-card-repost-count').props.children;
 // The repeat glyph tints but is never FILLED — it is an open two-arrow path, so
@@ -160,7 +160,7 @@ describe('PostCard likes', () => {
 
     // Seeded unliked: gray thumbs-up, count = 2.
     expect(likeCountText()).toBe(2);
-    expect(likeIconColor()).toBe(GRAY700);
+    expect(likeIconColor()).toBe(GRAY900);
 
     fireEvent.press(screen.getByTestId('post-card-like-button'));
 
@@ -170,7 +170,7 @@ describe('PostCard likes', () => {
 
     // The write returned false → both the tint and the count roll back.
     await waitFor(() => expect(likeCountText()).toBe(2));
-    expect(likeIconColor()).toBe(GRAY700);
+    expect(likeIconColor()).toBe(GRAY900);
     expect(likePost as jest.Mock).toHaveBeenCalledWith('post-1');
   });
 
@@ -758,7 +758,7 @@ describe('PostCard reposts', () => {
     await renderCard(buildPost({ repostCount: 4 }));
 
     expect(repostCountText()).toBe(4);
-    expect(repostIconColor()).toBe(GRAY700);
+    expect(repostIconColor()).toBe(GRAY900);
 
     fireEvent.press(screen.getByTestId('post-card-repost-button'));
 
@@ -774,7 +774,7 @@ describe('PostCard reposts', () => {
       bumped would tell you that you had endorsed something you had not.
     */
     await waitFor(() => expect(repostCountText()).toBe(4));
-    expect(repostIconColor()).toBe(GRAY700);
+    expect(repostIconColor()).toBe(GRAY900);
     expect(repostPost as jest.Mock).toHaveBeenCalledWith('post-1');
   });
 
@@ -800,7 +800,7 @@ describe('PostCard reposts', () => {
     fireEvent.press(screen.getByTestId('post-card-repost-button'));
 
     expect(repostCountText()).toBe(3);
-    expect(repostIconColor()).toBe(GRAY700);
+    expect(repostIconColor()).toBe(GRAY900);
     await waitFor(() => expect(unrepostPost as jest.Mock).toHaveBeenCalledWith('post-1'));
     expect(repostPost as jest.Mock).not.toHaveBeenCalled();
   });
@@ -839,7 +839,7 @@ describe('PostCard reposts', () => {
 
     expect(repostCountText()).toBe(5);
     expect(likeCountText()).toBe(2);
-    expect(likeIconColor()).toBe(GRAY700);
+    expect(likeIconColor()).toBe(GRAY900);
     expect(likePost as jest.Mock).not.toHaveBeenCalled();
   });
 });

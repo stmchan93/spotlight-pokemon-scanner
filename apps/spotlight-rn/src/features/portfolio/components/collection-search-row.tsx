@@ -139,7 +139,7 @@ export function CollectionSearchRow({
 
 const styles = StyleSheet.create({
   container: {
-    gap: 12,
+    gap: 10,
     paddingHorizontal: 16,
   },
   row: {

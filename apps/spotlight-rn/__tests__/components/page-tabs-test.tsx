@@ -103,7 +103,7 @@ describe('PageTabs', () => {
     );
 
     const rail = StyleSheet.flatten(screen.getByTestId('page-tabs-rail').props.style);
-    expect(rail.backgroundColor).toBe(colors.gray200);
+    expect(rail.backgroundColor).toBe(colors.gray300);
     // Edge to edge, not inset by the page gutter or the tab widths.
     expect(rail).toMatchObject({ position: 'absolute', left: 0, right: 0, bottom: 0 });
     expect(rail.height).toBeGreaterThan(0);

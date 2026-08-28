@@ -184,10 +184,8 @@ function loadImageManipulator() {
 
 /**
  * A filled composer affordance pill — the gray "Post Controls" chips from the
- * Figma New Post sheet (gray/100 fill, radius-8, 40pt tall, an 18pt icon + a
- * 13pt Label). Used for the Public / Photo / Camera controls. The icon and
- * label colors are passed in so the active "Public" chip can render darker than
- * the Photo/Camera actions, matching the design.
+ * Figma New Post sheet (gray/50 fill, radius-8, 40pt tall, an 18pt icon + a
+ * 13pt Label). Used for the Public / Photo / Camera controls.
  */
 function ControlChip({
   icon,
@@ -212,7 +210,7 @@ function ControlChip({
       style={({ pressed }) => [
         styles.controlChip,
         {
-          backgroundColor: theme.colors.gray100,
+          backgroundColor: theme.colors.gray50,
           borderRadius: theme.radii.sm,
           opacity: pressed ? 0.85 : 1,
         },
@@ -548,8 +546,8 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
 
   const counterColor = useMemo(
     () =>
-      body.length >= BODY_MAX_LENGTH ? theme.colors.dangerStrong : theme.colors.textSecondary,
-    [body.length, theme.colors.dangerStrong, theme.colors.textSecondary],
+      body.length >= BODY_MAX_LENGTH ? theme.colors.dangerStrong : theme.colors.gray600,
+    [body.length, theme.colors.dangerStrong, theme.colors.gray600],
   );
 
   return (
@@ -632,21 +630,22 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
             multiline
             onChangeText={setBody}
             placeholder="What's on your mind?"
-            placeholderTextColor={theme.colors.gray600}
-            // Body copy is regular 14 / gray-800 (Figma 3147:10825).
-            // `body` straight through, with NO fontSize override. It carried
-            // `fontSize: 14` on top of the token, so you composed at 14 and the
-            // post then published at 15 — what you typed was never the size of
-            // what you got. The literal was also exactly the kind of one-off the
-            // design-system rule exists to keep out of screens.
+            placeholderTextColor={theme.colors.gray400}
+            // Typed text is 14/500 gray-800; the empty placeholder is 14/400
+            // gray-400 — two states in the frames, hence the conditional. RN
+            // has no separate placeholder font, so the style swaps with content.
             style={[
               styles.bodyInput,
               // With a photo attached the field stops reserving its full empty
               // height, so the preview sits right under what you typed instead
-              // of under a 96pt box with one line in it.
+              // of under the full-height box with one line in it.
               imageUri ? styles.bodyInputWithImage : null,
-              theme.typography.body,
-              { color: theme.colors.gray800 },
+              body.length > 0 ? theme.typography.bodyMedium : theme.typography.bodySmall,
+              {
+                backgroundColor: theme.colors.gray50,
+                borderRadius: theme.radii.md,
+                color: theme.colors.gray800,
+              },
             ]}
             testID={`${testID}-body-input`}
             textAlignVertical="top"
@@ -688,7 +687,7 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
         >
           {/* Character counter sits bottom-right, directly above the control chips. */}
           <View style={styles.counterRow}>
-            <Text style={[theme.typography.caption, { color: counterColor }]}>
+            <Text style={[theme.typography.label, { color: counterColor }]}>
               {body.length}/{BODY_MAX_LENGTH}
             </Text>
           </View>
@@ -706,9 +705,9 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
             {!imageUri ? (
               <>
                 <ControlChip
-                  icon={<MediaImage color={theme.colors.gray700} height={18} width={18} />}
+                  icon={<MediaImage color={theme.colors.gray900} height={18} width={18} />}
                   label="Photo"
-                  labelColor={theme.colors.gray700}
+                  labelColor={theme.colors.gray900}
                   onPress={() => {
                     void handlePickImage();
                   }}
@@ -716,9 +715,9 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
                 />
 
                 <ControlChip
-                  icon={<Camera color={theme.colors.gray700} height={18} width={18} />}
+                  icon={<Camera color={theme.colors.gray900} height={18} width={18} />}
                   label="Camera"
-                  labelColor={theme.colors.gray700}
+                  labelColor={theme.colors.gray900}
                   onPress={() => {
                     void handleCaptureImage();
                   }}
@@ -758,12 +757,14 @@ const styles = StyleSheet.create({
   },
   bodyInput: {
     // Comfortable target for an empty composer — this is what you tap into.
-    minHeight: 96,
+    minHeight: 120,
+    padding: 16,
+    paddingTop: 16,
   },
   bodyInputWithImage: {
     // Once there is a preview below, the tall empty field is just a gap. One
     // line's worth keeps the caret stable while the photo moves up to meet it.
-    minHeight: 24,
+    minHeight: 56,
   },
   controlChip: {
     alignItems: 'center',
@@ -778,7 +779,7 @@ const styles = StyleSheet.create({
   },
   controlRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 10,
   },
   counterRow: {
     alignItems: 'flex-end',

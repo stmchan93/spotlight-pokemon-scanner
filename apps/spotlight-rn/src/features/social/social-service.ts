@@ -448,10 +448,20 @@ type RepostRow = { post_id: string; user_id: string; created_at: string };
  * so taking the newest `limit` of the union is gap-free: anything dropped from
  * this page is still older than the cursor the next page starts from.
  */
+let devFeedItemsOverride: FeedItem[] | null = null;
+
+/** Dev-screens seam (spotlight://dev/feed): non-null replaces every global-feed read. */
+export function setDevFeedItemsOverride(items: FeedItem[] | null): void {
+  devFeedItemsOverride = __DEV__ ? items : null;
+}
+
 export async function fetchGlobalFeedItems(
   limit = DEFAULT_LIMIT,
   before?: string,
 ): Promise<FeedItem[]> {
+  if (__DEV__ && devFeedItemsOverride) {
+    return before ? [] : devFeedItemsOverride.slice(0, limit);
+  }
   const authored = await fetchGlobalFeed(limit, before);
   if (!supabase) {
     return authored.map(feedItemFromPost);

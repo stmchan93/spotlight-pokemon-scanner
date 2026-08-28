@@ -39,7 +39,26 @@ describe('HttpSpotlightRepository access gate', () => {
       allowed: true,
       isAdmin: true,
       showMode: { active: true, until: '2026-06-18T00:00:00.000Z', remainingSeconds: 3600 },
+      // Absent in the payload → false: an older backend must read as "no claim gate".
+      handleClaimRequired: false,
     });
+  });
+
+  it('passes the handle-claim flag through when the backend sends it', async () => {
+    global.fetch = jest.fn().mockResolvedValue(
+      jsonResponse(200, {
+        accessOpen: true,
+        allowed: true,
+        isAdmin: false,
+        showMode: { active: false, until: null, remainingSeconds: 0 },
+        handleClaimRequired: true,
+      }),
+    ) as typeof fetch;
+    const repository = new HttpSpotlightRepository('http://example.test');
+
+    const status = await repository.getAccessStatus();
+
+    expect(status.handleClaimRequired).toBe(true);
   });
 
   it('fails open when the access status request errors', async () => {
@@ -51,6 +70,8 @@ describe('HttpSpotlightRepository access gate', () => {
     expect(status.allowed).toBe(true);
     expect(status.accessOpen).toBe(true);
     expect(status.isAdmin).toBe(false);
+    // The claim gate fails open the OTHER way: no server answer → no gate.
+    expect(status.handleClaimRequired).toBe(false);
   });
 
   it('redeems a valid invite code', async () => {

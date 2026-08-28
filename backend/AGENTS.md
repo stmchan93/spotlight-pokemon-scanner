@@ -30,9 +30,10 @@ Backend-specific workflow notes for future coding agents.
 
 ## Hard Invariants
 
-- Scrydex is the active runtime identity/reference/pricing lane for raw cards and the intended slab lane. PriceCharting remains a thin non-active shell.
+- Scrydex is the active runtime identity/reference lane for raw cards and the intended slab lane. PriceCharting remains a thin non-active shell.
+- Raw pricing is split by lane (2026-08-25, behind `RAW_MAIN_PRICE_SOURCE`): the raw MAIN/headline price is TCGCSV-first (TCGplayer marketPrice, joined on `cards.tcgplayer_id`, per-card Scrydex fallback when unmatched/null/stale); the per-condition matrix (NM/LP/MP/HP), catalog/identity, and the ENTIRE graded/slab lane stay Scrydex. Source of truth: [docs/tcgcsv-main-price-migration-spec-2026-08-25.md](/Users/stephenchan/Code/spotlight/docs/tcgcsv-main-price-migration-spec-2026-08-25.md).
 - Do not add a PSA API or any official PSA verification dependency. Treat slab certs as OCR-derived lookup keys and repeat-scan cache keys only.
-- Provider prices are not blended or averaged together. The runtime returns one active provider result.
+- Provider prices are not blended or averaged together. The runtime returns one active provider result per lane (main lane and condition matrix may name different providers on one card; a single displayed number never mixes providers).
 - Runtime scanner behavior is mode-specific:
   - raw resolves as `raw_card`
   - slabs resolve through the cert-first slab path

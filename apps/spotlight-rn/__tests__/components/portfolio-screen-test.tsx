@@ -1879,16 +1879,12 @@ describe('PortfolioScreen', () => {
     });
 
     /*
-      THE PILL STAYS, ON THIS PAGE ONLY (`persistentSearch`).
-
-      It used to slide out of the row and get disarmed, which left the pinned
-      backdrop painting a white strip with nothing in it — a bar that had lost
-      its contents rather than one that was out of the way. Searching your own
-      collection is also something you do MID-scroll, which is exactly when the
-      fade took the control away.
-
-      Home keeps the fade: its bar holds nothing else, so an empty strip there
-      is honest. That difference is the whole reason this is a prop.
+      THE PILL STAYS. The header's search pill is static now — it used to slide
+      out of the row and get disarmed, which left the pinned backdrop painting a
+      white strip with nothing in it: a bar that had lost its contents rather
+      than one that was out of the way. Searching your own collection is also
+      something you do MID-scroll, which is exactly when the old fade took the
+      control away.
     */
     push.mockClear();
     await act(async () => {

@@ -45,6 +45,7 @@ describe('AuthProvider', () => {
     let authStateChangeHandler:
       | ((event: string, session: any) => void)
       | null = null;
+    let linkURLHandler: ((event: { url: string }) => void) | null = null;
 
     const defaultSession = {
       access_token: 'access-token',
@@ -67,6 +68,12 @@ describe('AuthProvider', () => {
       getNeedsProfile: jest.fn((user) => !user.displayName),
       isAnonymousSession: jest.fn((session) => session?.user?.is_anonymous === true),
       isAuthCanceledError: jest.fn((error) => error instanceof MockAuthCanceledError),
+      // Mirrors the real detector so URL-handler fallback tests behave like prod.
+      isIdentityAlreadyLinkedError: jest.fn((error) =>
+        error?.code === 'identity_already_exists'
+        || (typeof error?.message === 'string' && error.message.toLowerCase().includes('already linked'))),
+      fetchAuthUserError: jest.fn(async () => null),
+      clearStoredSession: jest.fn(async () => {}),
       signInAnonymously: jest.fn(async () => null),
       signUpWithEmail: jest.fn(async () => ({ needsCode: true, session: null })),
       verifySignupCode: jest.fn(async () => null),
@@ -87,15 +94,19 @@ describe('AuthProvider', () => {
       signInWithApple: jest.fn(async () => null),
       signInWithGoogle: jest.fn(async () => null),
       signOut: jest.fn(async () => {}),
+      updateProfile: jest.fn(async () => null),
       upsertProfile: jest.fn(async () => {}),
       ...authServiceOverrides,
     };
 
     jest.doMock('expo-linking', () => ({
-      addEventListener: jest.fn((_event, callback) => ({
-        callback,
-        remove: linkRemove.mockImplementation(() => undefined),
-      })),
+      addEventListener: jest.fn((_event, callback) => {
+        linkURLHandler = callback;
+        return {
+          callback,
+          remove: linkRemove.mockImplementation(() => undefined),
+        };
+      }),
       getInitialURL: jest.fn(async () => initialURL),
     }));
     jest.doMock('@/features/auth/auth-service', () => authService);
@@ -144,6 +155,7 @@ describe('AuthProvider', () => {
           null,
           React.createElement(Text, { testID: 'state' }, `state:${auth.state}`),
           React.createElement(Text, { testID: 'user' }, `user:${auth.currentUser?.id ?? 'none'}`),
+          React.createElement(Text, { testID: 'handle' }, `handle:${auth.currentUser?.handle ?? 'none'}`),
           React.createElement(Text, { testID: 'profile' }, `profile:${auth.profileDraftName || '<empty>'}`),
           React.createElement(Text, { testID: 'error' }, `error:${auth.errorMessage ?? 'none'}`),
           React.createElement(Text, { testID: 'apple' }, `apple:${String(auth.appleSignInAvailable)}`),
@@ -188,6 +200,7 @@ describe('AuthProvider', () => {
           React.createElement(Pressable, { testID: 'set-empty-name', onPress: () => auth.setProfileDraftName('   ') }),
           React.createElement(Pressable, { testID: 'set-profile-name', onPress: () => auth.setProfileDraftName('  Misty  ') }),
           React.createElement(Pressable, { testID: 'submit-profile', onPress: () => { void auth.submitProfile(); } }),
+          React.createElement(Pressable, { testID: 'submit-handle', onPress: () => { void auth.submitHandle('misty'); } }),
         );
       }
 
@@ -210,6 +223,8 @@ describe('AuthProvider', () => {
       capturePostHogEvent,
       defaultSession,
       fireEvent: testingLibrary!.fireEvent,
+      // Getter, not the value: the listener registers in an effect after render.
+      getLinkURLHandler: () => linkURLHandler,
       linkRemove,
       markHasSignedIn,
       waitFor: testingLibrary!.waitFor,
@@ -1206,6 +1221,231 @@ describe('AuthProvider', () => {
     });
     expect(authService.signInAnonymously).not.toHaveBeenCalled();
     expect(authService.convertAnonymousUserToEmailAccount).not.toHaveBeenCalled();
+  });
+
+  /*
+    ANDROID OAUTH-AFTER-SCAN (checklist line 97). On Android the OAuth result
+    arrives on the DEEP LINK, not the awaited browser session. When the
+    guest→account link fails because the Google identity already belongs to an
+    existing account, the URL handler must run the same fallback the awaited
+    iOS path has: abandon the guest, sign into the account that initiated.
+  */
+  it('ANDROID DEEP LINK: an identity-already-linked callback falls back to a plain provider sign-in', async () => {
+    const guestSession = {
+      access_token: 'anon-token',
+      user: { id: 'guest-1', is_anonymous: true },
+    } as any;
+    const accountSession = {
+      access_token: 'account-token',
+      user: { id: 'owner-1', email: 'owner@example.com' },
+    } as any;
+
+    const {
+      act,
+      authService,
+      capturePostHogEvent,
+      fireEvent,
+      getByTestId,
+      getByText,
+      getLinkURLHandler,
+      waitFor,
+    } = renderAuthProvider({
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => guestSession),
+        getNeedsProfile: jest.fn(() => false),
+        // Browser takeover: the awaited path resolves null; the result arrives
+        // on the deep link below.
+        linkOAuthIdentityToCurrentUser: jest.fn(async () => null),
+        restoreSessionFromUrl: jest.fn(async () => {
+          throw new Error('Identity is already linked to another user');
+        }),
+        signInWithGoogle: jest.fn(async () => accountSession),
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('guest:true')).toBeTruthy();
+    });
+
+    fireEvent.press(getByTestId('sign-in-google'));
+
+    await waitFor(() => {
+      expect(authService.linkOAuthIdentityToCurrentUser).toHaveBeenCalledWith('google');
+    });
+
+    await act(async () => {
+      getLinkURLHandler()?.({
+        url: 'spotlight://login-callback?error=server_error&error_description=Identity+is+already+linked+to+another+user',
+      });
+    });
+
+    await waitFor(() => {
+      expect(getByText('user:owner-1')).toBeTruthy();
+    });
+    // The fallback is the PLAIN provider sign-in — the account wins, the guest
+    // is abandoned — and lands signed in with no error banner.
+    expect(authService.signInWithGoogle).toHaveBeenCalledTimes(1);
+    expect(authService.bootstrapProfileIfNeeded).toHaveBeenCalledWith(accountSession.user, null, null);
+    expect(getByText('state:signedIn')).toBeTruthy();
+    expect(getByText('error:none')).toBeTruthy();
+    expect(capturePostHogEvent).toHaveBeenCalledWith('auth_sign_in_succeeded', {
+      provider: 'google',
+    });
+  });
+
+  it('ANDROID DEEP LINK: an already-linked error with NO pending link surfaces as an error only', async () => {
+    const { authService, getByText, waitFor } = renderAuthProvider({
+      initialURL: 'spotlight://login-callback',
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => null),
+        restoreSessionFromUrl: jest.fn(async () => {
+          throw new Error('Identity is already linked to another user');
+        }),
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('error:Identity is already linked to another user')).toBeTruthy();
+    });
+    // No link was initiated from this app run, so no fallback sign-in fires.
+    expect(authService.signInWithGoogle).not.toHaveBeenCalled();
+    expect(authService.signInWithApple).not.toHaveBeenCalled();
+  });
+
+  /*
+    AUTH-GATE WHITE SCREEN (checklist line 94). A restored session is trusted
+    from local storage, so a server-side revoked/deleted user used to land on a
+    signed-in shell whose every request 401s — blank app. The background user
+    check must bounce them to login, silently.
+  */
+  it('REVOKED RESTORED SESSION: a failed server user check lands on signedOut with no error banner', async () => {
+    const restoredSession = {
+      // Matches the harness getAccessToken mock, so the provider's
+      // same-session guard sees this session as still current.
+      access_token: 'access-token',
+      user: { id: 'gone-1', email: 'gone@example.com' },
+    } as any;
+    const revokedError = Object.assign(
+      new Error('User from sub claim in JWT does not exist'),
+      { name: 'AuthApiError' },
+    );
+
+    const { authService, getByText, waitFor } = renderAuthProvider({
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => restoredSession),
+        getNeedsProfile: jest.fn(() => false),
+        fetchAuthUserError: jest.fn(async () => revokedError),
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('state:signedOut')).toBeTruthy();
+    });
+    expect(authService.clearStoredSession).toHaveBeenCalledTimes(1);
+    // Silent redirect to login — a revoked session is not the user's mistake.
+    expect(getByText('error:none')).toBeTruthy();
+  });
+
+  it('OFFLINE RESTORED SESSION: a transport failure on the user check does NOT bounce to login', async () => {
+    const restoredSession = {
+      access_token: 'access-token',
+      user: { id: 'trainer-1', email: 'trainer@example.com' },
+    } as any;
+    const transportError = Object.assign(
+      new Error('Network request failed'),
+      { name: 'AuthRetryableFetchError' },
+    );
+
+    const { authService, getByText, waitFor } = renderAuthProvider({
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => restoredSession),
+        getNeedsProfile: jest.fn(() => false),
+        fetchAuthUserError: jest.fn(async () => transportError),
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('state:signedIn')).toBeTruthy();
+    });
+    await waitFor(() => {
+      expect(authService.fetchAuthUserError).toHaveBeenCalledTimes(1);
+    });
+    // Offline is not revoked: the session survives the blip.
+    expect(authService.clearStoredSession).not.toHaveBeenCalled();
+    expect(getByText('state:signedIn')).toBeTruthy();
+  });
+
+  it('HANDLE CLAIM: submitHandle saves the handle and refreshes the current user', async () => {
+    const currentSession = {
+      access_token: 'access-token',
+      user: { email: 'collector@example.com', id: 'user-1' },
+    } as any;
+    const baseUser = {
+      adminEnabled: false,
+      avatarURL: null,
+      displayName: 'Collector',
+      email: 'collector@example.com',
+      id: 'user-1',
+      labelerEnabled: false,
+      providers: ['google'],
+      handleKnown: true,
+    };
+    const resolveAppUserFromSession = jest.fn()
+      .mockResolvedValueOnce({ ...baseUser, handle: null })
+      .mockResolvedValueOnce({ ...baseUser, handle: 'misty' });
+
+    const { authService, fireEvent, getByTestId, getByText, waitFor } = renderAuthProvider({
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => currentSession),
+        getNeedsProfile: jest.fn(() => false),
+        resolveAppUserFromSession,
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('handle:none')).toBeTruthy();
+    });
+
+    fireEvent.press(getByTestId('submit-handle'));
+
+    // The re-resolve after the save is what drops the claim gate.
+    await waitFor(() => {
+      expect(getByText('handle:misty')).toBeTruthy();
+    });
+    expect(authService.updateProfile).toHaveBeenCalledWith('user-1', { handle: 'misty' });
+    expect(getByText('error:none')).toBeTruthy();
+  });
+
+  it('HANDLE CLAIM: a taken handle surfaces its message without rethrowing at the screen', async () => {
+    const currentSession = {
+      access_token: 'access-token',
+      user: { email: 'collector@example.com', id: 'user-1' },
+    } as any;
+    const updateProfile = jest.fn(async () => {
+      // Same shape the real ProfileUpdateError('handle-taken') carries.
+      throw new Error('That handle is already taken.');
+    });
+
+    const { authService, fireEvent, getByTestId, getByText, waitFor } = renderAuthProvider({
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => currentSession),
+        getNeedsProfile: jest.fn(() => false),
+        updateProfile,
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('state:signedIn')).toBeTruthy();
+    });
+
+    fireEvent.press(getByTestId('submit-handle'));
+
+    await waitFor(() => {
+      expect(getByText('error:That handle is already taken.')).toBeTruthy();
+    });
+    // The failed save must not have refreshed the handle.
+    expect(getByText('handle:none')).toBeTruthy();
+    expect(authService.updateProfile).toHaveBeenCalledWith('user-1', { handle: 'misty' });
   });
 
   // Owner key = data isolation; remount key = how much of the tree survives a

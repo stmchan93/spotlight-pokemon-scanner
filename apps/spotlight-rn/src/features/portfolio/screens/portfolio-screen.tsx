@@ -549,7 +549,7 @@ export function PortfolioScreen({
 
   // The pager writes its scroll offset here; this screen only READS it, and
   // hands it to `HomeHeader` raw. It still drives the header collapse and the
-  // backdrop fade — the pill itself no longer moves (see `persistentSearch`).
+  // backdrop fade — the bar's own controls (pill included) are static.
   const pagerScrollY = useRef(new Animated.Value(0)).current;
 
   const collectionTotalLabel = isSummaryHidden
@@ -1457,12 +1457,6 @@ export function PortfolioScreen({
         chrome layer, which TRANSLATES with scroll, so a plate extended upward
         from it paints over the profile block at rest.
       */
-      /*
-        The pill STAYS on this page — see `persistentSearch`. Without it the
-        backdrop above painted a white strip with nothing in it, which is a bar
-        that has lost its contents rather than a bar that is out of the way.
-      */
-      persistentSearch
       pinnedBackdrop
       // Every page runs `contentInsetAdjustmentBehavior="automatic"` and so
       // rests at `-insets.top` on iOS; `pagerScrollY` carries that ABSOLUTE
@@ -1917,10 +1911,10 @@ export function PortfolioScreen({
     // TRAVEL from the page's own top, not the raw offset — every page rests at
     // `pageTopOffset` (negative on iOS), so comparing the raw value disarmed
     // the pill a whole safe-area inset after the bar had faded it out.
-    // NOTHING TO DISARM ANY MORE. The pill is persistent on this page (see
-    // `persistentSearch`), so it is always visible and always tappable;
-    // `pointerEvents` only ever needed switching off because opacity alone left
-    // an invisible pill catching taps over the collection.
+    // NOTHING TO DISARM ANY MORE. The header's pill is static, so it is always
+    // visible and always tappable; `pointerEvents` only ever needed switching
+    // off because opacity alone left an invisible pill catching taps over the
+    // collection.
   };
 
   return (

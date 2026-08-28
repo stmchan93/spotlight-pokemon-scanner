@@ -13,13 +13,16 @@ export const glassNavBubbleSizes = {
   /** 32pt — dense chrome floating over a live surface (scanner viewfinder). */
   small: 32,
   /**
-   * 40pt — a bubble sharing a top bar with other controls, sized to sit level
-   * with the 40pt `SearchEntryPill` between them (Figma "Home" 3523:15499,
-   * toolbar 3567:22969, where every control in the row is 40 tall). Below the
-   * 44pt touch minimum on its own, which the primitive's 8pt `hitSlop` covers.
+   * 40pt — a bubble sharing a compact top bar with other 40pt controls (the
+   * Wishlist header's row, Figma 3505:14521). Below the 44pt touch minimum on
+   * its own, which the primitive's 8pt `hitSlop` covers. The Home/profile bar
+   * used to be a 40pt row too; it moved to `medium` with Figma 4299:94902.
    */
   compact: 40,
-  /** 44pt — the standard floating nav bubble (Collection / Wishlist). */
+  /**
+   * 44pt — the standard floating nav bubble, and the height of every control
+   * in the Home/profile top bar (Figma 4299:94902).
+   */
   medium: 44,
 } as const;
 
@@ -70,8 +73,9 @@ export type GlassNavBubbleProps = {
  * chrome has to meet it rather than the other way round.
  *
  * Fallbacks (Android, iOS < 26, glass off for accessibility):
- * - `onLight` → solid `canvasElevated` circle with the `shadows.card` lift, so
- *   it still reads as a raised chip against light scrolling content.
+ * - `onLight` → solid `glassFallback` gray circle with the `shadows.glassPill`
+ *   lift (Figma 4211:83834 "Fill + Shadow") — pure white vanished on white
+ *   pages.
  * - `onDark` → transparent fill with a 1pt `gray0` hairline ring. A solid light
  *   circle would punch a bright hole in the viewfinder and hide the frame the
  *   user is aiming; the ring stays legible over any camera content and casts no
@@ -100,7 +104,7 @@ export function GlassNavBubble({
   // an opaque fill would fight the material's own edge and refraction.
   const fallbackShell = onDark
     ? { borderColor: theme.colors.gray0, borderWidth: 1 }
-    : [theme.shadows.card, { backgroundColor: theme.colors.canvasElevated }];
+    : [theme.shadows.glassPill, { backgroundColor: theme.colors.glassFallback }];
 
   return (
     <Pressable
@@ -119,7 +123,7 @@ export function GlassNavBubble({
       testID={testID}
     >
       <GlassSurface
-        fallbackColor={onDark ? 'transparent' : theme.colors.canvasElevated}
+        fallbackColor={onDark ? 'transparent' : theme.colors.glassFallback}
         glassColorScheme={onDark ? 'dark' : 'auto'}
         glassEffectStyle="regular"
         pointerEvents="none"

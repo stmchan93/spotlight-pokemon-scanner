@@ -216,7 +216,11 @@ export default function TabsLayout() {
         glyphs are rasterized from the INSTALLED PACKAGE by
         `tools/generate_tab_icons.py` (not from a Figma export, which expires
         and drifts from the icons the rest of the app draws) and land here as
-        `src` images. Regenerate after an iconoir upgrade.
+        `src` images. Both also get a FILLED `selected` variant (Figma
+        4299:95029) from the same script — solid Bookmark from the package;
+        filled home built from the outline shell since iconoir ships no solid
+        HomeSimple, with the door slot knocked out of the alpha because only
+        alpha survives template tinting. Regenerate after an iconoir upgrade.
 
         `renderingMode="template"` IS LOAD-BEARING ON iOS. expo-router defaults it
         to `'original'` unless `iconColor` is set — and `tintColor` does NOT set
@@ -241,8 +245,19 @@ export default function TabsLayout() {
         part of what gets rendered into the glass.
       */}
       <Trigger name="index">
-        {/* One image for both platforms — see the note above. */}
-        <Icon renderingMode="template" src={require('../../../assets/images/tab-icons/home.png')} />
+        {/*
+          The `selected` filled variant (Figma 4299:95029) is iOS-only by
+          construction: expo-router forwards `selectedIcon` to the iOS tab item
+          only, and Android's Material nav item takes a single drawable — so
+          Android keeps the outline in both states, tinted as before.
+        */}
+        <Icon
+          renderingMode="template"
+          src={{
+            default: require('../../../assets/images/tab-icons/home.png'),
+            selected: require('../../../assets/images/tab-icons/home-filled.png'),
+          }}
+        />
         <Label>Home</Label>
       </Trigger>
       {/*
@@ -291,7 +306,10 @@ export default function TabsLayout() {
       <Trigger name="wishlist">
         <Icon
           renderingMode="template"
-          src={require('../../../assets/images/tab-icons/wishlist.png')}
+          src={{
+            default: require('../../../assets/images/tab-icons/wishlist.png'),
+            selected: require('../../../assets/images/tab-icons/wishlist-filled.png'),
+          }}
         />
         <Label>Wishlist</Label>
       </Trigger>
