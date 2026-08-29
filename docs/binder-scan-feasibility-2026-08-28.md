@@ -91,3 +91,15 @@ moment real captures exist:
 Remaining unknown is unchanged: real-capture artifacts (sleeve glare, page
 curvature) — the synthetic pages carry the fixtures' single-card capture
 noise but not page-level effects.
+
+## First REAL binder photo (2026-08-28, later that evening)
+
+A real 9-pocket page of Illustration Rares (eBay-style listing photo,
+1140×1266, sleeves with visible glare, slight tilt) through
+`--page`: **9/9 pockets identified correctly** — Ivysaur, Froakie,
+Bastiodon, Charcadet, Misdreavus, Xerneas, Watchog, Ludicolo, Doublade —
+similarities 0.55–0.79, ~120ms/pocket warm (~3s page incl. cold start).
+Quad detection fell back to naive thirds (photo tightly framed on the
+page) and the fallback was sufficient. Sleeve glare did not cost a single
+pocket. The feature's remaining risk is now ordinary engineering, not
+feasibility.
