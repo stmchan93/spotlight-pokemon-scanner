@@ -103,3 +103,9 @@ Quad detection fell back to naive thirds (photo tightly framed on the
 page) and the fallback was sufficient. Sleeve glare did not cost a single
 pocket. The feature's remaining risk is now ordinary engineering, not
 feasibility.
+
+User verified the page against the physical cards: 8/9 exact printings
+(incl. a Black Star Promo), 9/9 names. The one printing miss — Bastiodon
+093/084 — is NOT in the local index at all (printing newer than the
+snapshot), so the true score is **8/8 exact on answerable cards** and the
+recognition engine has still never missed a card it actually contains.
