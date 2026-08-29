@@ -155,6 +155,149 @@ export function makeReticleSourceImageCrop({
   }, sourceImageDimensions);
 }
 
+export const binderPageGridSize = 3;
+// Inset each pocket crop by this fraction of the cell so sleeve edges and
+// inter-pocket gaps stay out of the matcher input. Thirds-plus-inset scored
+// 8/8 exact printings on a real page — docs/binder-scan-feasibility-2026-08-28.md.
+const binderPocketInsetFraction = 0.025;
+
+/**
+ * The nine pocket crop rects for a binder page. A 3x3 page of cards shares the
+ * single card's 63:88 aspect, so the SAME canonical page rect the reticle
+ * produces subdivides into card-aspect cells; each cell is then re-canonicalized
+ * so rounding never drifts the aspect.
+ */
+export function makeBinderPocketCropRects(
+  pageCrop: ScanSourceImageCrop,
+  sourceImageDimensions: ScanSourceImageDimensions,
+): ScanSourceImageCrop[] {
+  const cellWidth = pageCrop.width / binderPageGridSize;
+  const cellHeight = pageCrop.height / binderPageGridSize;
+  const insetX = cellWidth * binderPocketInsetFraction;
+  const insetY = cellHeight * binderPocketInsetFraction;
+  const rects: ScanSourceImageCrop[] = [];
+  for (let row = 0; row < binderPageGridSize; row++) {
+    for (let column = 0; column < binderPageGridSize; column++) {
+      rects.push(makeCanonicalCropRect({
+        height: cellHeight - insetY * 2,
+        width: cellWidth - insetX * 2,
+        x: pageCrop.x + column * cellWidth + insetX,
+        y: pageCrop.y + row * cellHeight + insetY,
+      }, sourceImageDimensions));
+    }
+  }
+  return rects;
+}
+
+/**
+ * Binder-page capture: ONE full-res decode, nine pocket crops in reading order
+ * (row-major, top-left first), each normalized to the standard 630x880 target.
+ * Mirrors `buildNormalizedScannerTarget` — including the single-rotate rule:
+ * when the photo needs the portrait fix, the rotation is rendered ONCE and the
+ * nine crops share the rotated ref, not nine rotate passes.
+ */
+export async function buildBinderPocketTargets({
+  previewLayout,
+  reticle,
+  sourceImageDimensions,
+  sourceImageUri,
+}: {
+  previewLayout: PreviewLayout;
+  reticle: ReticleLayout;
+  sourceImageDimensions: ScanSourceImageDimensions;
+  sourceImageUri: string;
+}): Promise<NormalizedScannerTarget[] | null> {
+  const sourceContext = ImageManipulator.manipulate(sourceImageUri);
+  let sourceImage: Awaited<ReturnType<typeof sourceContext.renderAsync>> | null = null;
+  let rotateContext: ReturnType<typeof ImageManipulator.manipulate> | null = null;
+  let rotatedImage: Awaited<ReturnType<typeof sourceContext.renderAsync>> | null = null;
+  const cropContexts: Array<ReturnType<typeof ImageManipulator.manipulate>> = [];
+  const cropRefs: Array<Awaited<ReturnType<typeof sourceContext.renderAsync>>> = [];
+
+  try {
+    sourceImage = await sourceContext.renderAsync();
+    const nativeSourceImageDimensions: ScanSourceImageDimensions = {
+      height: sourceImage.height,
+      width: sourceImage.width,
+    };
+    const normalizationRotationDegrees = needsPortraitRotation({
+      nativeSourceImageDimensions,
+      reportedSourceImageDimensions: sourceImageDimensions,
+    })
+      ? 90
+      : 0;
+    const cropBasisDimensions = normalizationRotationDegrees === 0
+      ? nativeSourceImageDimensions
+      : makeOrientationFixedSourceImageDimensions(nativeSourceImageDimensions);
+    const pageCrop = makeReticleSourceImageCrop({
+      previewLayout,
+      reticle,
+      sourceImageDimensions: cropBasisDimensions,
+    });
+    if (!pageCrop) {
+      return null;
+    }
+
+    let cropSource: NonNullable<typeof sourceImage> = sourceImage;
+    if (normalizationRotationDegrees !== 0) {
+      rotateContext = ImageManipulator.manipulate(sourceImage);
+      rotateContext.rotate(normalizationRotationDegrees);
+      rotatedImage = await rotateContext.renderAsync();
+      cropSource = rotatedImage;
+    }
+
+    const pocketCrops = makeBinderPocketCropRects(pageCrop, cropBasisDimensions);
+    const targets: NormalizedScannerTarget[] = [];
+    for (const pocketCrop of pocketCrops) {
+      const cropContext = ImageManipulator.manipulate(cropSource);
+      cropContexts.push(cropContext);
+      cropContext.crop({
+        originX: pocketCrop.x,
+        originY: pocketCrop.y,
+        width: pocketCrop.width,
+        height: pocketCrop.height,
+      });
+      cropContext.resize({
+        width: rawCardNormalizedTargetWidth,
+        height: rawCardNormalizedTargetHeight,
+      });
+      const cropRef = await cropContext.renderAsync();
+      cropRefs.push(cropRef);
+      const normalizedImage = await cropRef.saveAsync({
+        base64: false,
+        compress: normalizedTargetCompress,
+        format: SaveFormat.JPEG,
+      });
+      if (!normalizedImage?.uri) {
+        return null;
+      }
+      targets.push({
+        normalizedImageBase64: null,
+        normalizedImageDimensions: {
+          height: normalizedImage.height,
+          width: normalizedImage.width,
+        },
+        normalizedImageUri: normalizedImage.uri,
+        nativeSourceImageDimensions,
+        normalizationRotationDegrees,
+        sourceImageCrop: pocketCrop,
+      });
+    }
+    return targets;
+  } finally {
+    for (const ref of cropRefs) {
+      ref.release?.();
+    }
+    for (const context of cropContexts) {
+      context.release?.();
+    }
+    rotatedImage?.release?.();
+    rotateContext?.release?.();
+    sourceImage?.release?.();
+    sourceContext.release?.();
+  }
+}
+
 export async function buildNormalizedScannerTarget({
   includeBase64 = false,
   previewLayout,

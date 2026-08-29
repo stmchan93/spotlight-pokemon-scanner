@@ -79,6 +79,8 @@ import {
   type ScanSourceImageDimensions,
 } from '@/features/scanner/scan-candidate-review-session';
 import {
+  binderPageGridSize,
+  buildBinderPocketTargets,
   buildNormalizedScannerTarget,
   makeOrientationFixedSourceImageDimensions,
   makeReticleSourceImageCrop,
@@ -671,6 +673,12 @@ export function ScannerScreen({
   const { hasPermission, requestPermission } = useCameraPermission();
   const [isCameraReady, setIsCameraReady] = useState(isTestEnv);
   const [isCapturing, setIsCapturing] = useState(false);
+  /**
+   * Binder-page POC (docs/binder-scan-v0-implementation-spec-2026-08-28.md):
+   * one shutter tap → nine pocket scans. Dev builds only for now — the toggle
+   * never renders in a store binary, so the flag can't be reached there.
+   */
+  const [isBinderPageMode, setIsBinderPageMode] = useState(false);
   // SYNCHRONOUS capture lock. `isCapturing` is React state, so two burst taps
   // fired within the same tick BOTH read the stale `false` before the setState
   // re-renders → both enter `handleCapture` and call `capturePhoto` concurrently
@@ -1595,6 +1603,182 @@ export function ScannerScreen({
     }
   }, [spotlightRepository, updateRecentCapture]);
 
+  /**
+   * Binder-page POC: one captured photo → nine pocket targets → nine ORDINARY
+   * scans through `runMatchForCapture`, capped at 3 in flight to match the
+   * server's inference slots (an uncapped nine would starve other scanners
+   * into the 6s semaphore timeout). Results land per-row in arrival order —
+   * the async-per-pocket contract in the v0 spec. Row 0 reuses the shutter
+   * placeholder; rows 1-8 are appended here. Only pocket 0 carries the page
+   * source image so the page photo uploads once, not nine times.
+   */
+  const runBinderPageCapture = useCallback(async ({
+    captureId,
+    captureMs,
+    guestSessionPromise,
+    photoUri,
+    previewLayout,
+    rawSourceImageDimensions,
+    reticleLayout,
+    scanStartedAt,
+    sourceImageDimensions,
+  }: {
+    captureId: string;
+    captureMs: number;
+    // The guest mint from handleCapture: resolves to a session (truthy) or
+    // null. Same truthiness contract the single-card path uses.
+    guestSessionPromise: Promise<unknown> | null;
+    photoUri: string;
+    previewLayout: { height: number; width: number };
+    rawSourceImageDimensions: ScanSourceImageDimensions;
+    reticleLayout: { height: number; width: number; x: number; y: number };
+    scanStartedAt: number;
+    sourceImageDimensions: ScanSourceImageDimensions;
+  }) => {
+    const pocketCount = binderPageGridSize * binderPageGridSize;
+    const pocketRowId = (index: number) => (index === 0 ? captureId : `${captureId}-p${index}`);
+
+    setRecentCaptures((current) => applyCapEviction([
+      ...Array.from({ length: pocketCount - 1 }, (_, offset) => ({
+        activeCandidateIndex: 0,
+        candidates: [],
+        totalCandidateCount: 0,
+        isLoadingMoreCandidates: false,
+        hasTrackedSelectionEvent: false,
+        id: pocketRowId(offset + 1),
+        isAddingToInventory: false,
+        isLoadingCandidates: true,
+        matchReviewDisposition: null,
+        matchReviewReason: null,
+        mode: 'raw' as const,
+        normalizedImageDimensions: null,
+        normalizedImageUri: null,
+        recentlyAdded: false,
+        scanID: null,
+        slabContext: null,
+        sourceImageCrop: null,
+        sourceImageDimensions: null,
+        sourceImageRotationDegrees: 0,
+        uri: '',
+      })),
+      ...current,
+    ], 'raw'));
+
+    const failAllPockets = () => {
+      setRecentCaptures((current) => current.map((capture) => {
+        if (capture.id !== captureId && !capture.id.startsWith(`${captureId}-p`)) {
+          return capture;
+        }
+        return {
+          ...capture,
+          isLoadingCandidates: false,
+          matchReviewDisposition: null,
+          matchReviewReason: null,
+          uri: capture.uri || photoUri,
+        };
+      }));
+      void triggerScannerProcessedHaptic();
+    };
+
+    const normalizeStartedAt = Date.now();
+    const pocketTargets = await buildBinderPocketTargets({
+      previewLayout,
+      reticle: reticleLayout,
+      sourceImageDimensions,
+      sourceImageUri: photoUri,
+    });
+    const normalizeMs = Date.now() - normalizeStartedAt;
+    if (!pocketTargets || pocketTargets.length !== pocketCount) {
+      failAllPockets();
+      return;
+    }
+
+    if (guestSessionPromise && !(await guestSessionPromise)) {
+      failAllPockets();
+      return;
+    }
+
+    capturePostHogEvent('binder_page_scan_started', {
+      mode: 'raw',
+      pocket_count: pocketCount,
+      normalize_ms: normalizeMs,
+    });
+
+    // Each pocket row shows ITS crop as the tray thumbnail, not the page photo.
+    pocketTargets.forEach((target, index) => {
+      updateRecentCapture(pocketRowId(index), (capture) => ({
+        ...capture,
+        normalizedImageDimensions: target.normalizedImageDimensions,
+        normalizedImageUri: target.normalizedImageUri,
+        sourceImageCrop: target.sourceImageCrop,
+        sourceImageDimensions,
+        sourceImageRotationDegrees: target.normalizationRotationDegrees,
+        uri: target.normalizedImageUri,
+      }));
+    });
+
+    const readScanImageAsBase64 = async (fileUri: string) => {
+      try {
+        const base64 = await FileSystem.readAsStringAsync(fileUri, { encoding: 'base64' });
+        return base64 || null;
+      } catch {
+        return null;
+      }
+    };
+
+    let nextPocketIndex = 0;
+    const runNextPocket = async (): Promise<void> => {
+      const index = nextPocketIndex++;
+      if (index >= pocketCount) {
+        return;
+      }
+      const target = pocketTargets[index];
+      const matchPayload: ScannerCapturePayload = {
+        height: target.normalizedImageDimensions.height,
+        fileUri: target.normalizedImageUri,
+        mode: 'raw',
+        game: scanLane.game,
+        cardLanguage: scanCardLanguageForLane(scanLane),
+        width: target.normalizedImageDimensions.width,
+        captureSource: 'camera',
+        cameraZoomFactor: zoomFactor,
+        normalizedImage: {
+          fileUri: target.normalizedImageUri,
+          width: target.normalizedImageDimensions.width,
+          height: target.normalizedImageDimensions.height,
+        },
+        ...(index === 0
+          ? {
+            sourceImage: {
+              fileUri: photoUri,
+              width: target.nativeSourceImageDimensions.width,
+              height: target.nativeSourceImageDimensions.height,
+            },
+          }
+          : {}),
+        submittedAt: new Date(scanStartedAt).toISOString(),
+        readFileAsBase64: readScanImageAsBase64,
+      };
+      await runMatchForCapture({
+        captureId: pocketRowId(index),
+        captureMs,
+        captureSource: 'camera',
+        matchPayload,
+        matchTarget: target,
+        mode: 'raw',
+        normalizeMs,
+        rawSourceImageDimensions,
+        scanStartedAt,
+        slabAnalysisMs: null,
+        sourceImageDimensions,
+        rawCollectorNumberPromise: null,
+      });
+      return runNextPocket();
+    };
+    const inFlight = Math.min(3, pocketCount);
+    await Promise.all(Array.from({ length: inFlight }, () => runNextPocket()));
+  }, [runMatchForCapture, scanLane, updateRecentCapture, zoomFactor]);
+
   const handleCapture = useCallback(async () => {
     if (!hasPermission) {
       // vision-camera exposes only a boolean — re-request once and bail if the
@@ -1776,6 +1960,24 @@ export function ScannerScreen({
         x: reticleSnapshotRef.current.x,
         y: reticleSnapshotRef.current.y,
       };
+
+      if (isBinderPageMode) {
+        // Nine pockets, one tap. Everything past this point in the single-card
+        // path (single normalize, OCR, single match) is replaced by the binder
+        // fan-out; its per-row failure handling lives inside the helper.
+        await runBinderPageCapture({
+          captureId,
+          captureMs,
+          guestSessionPromise,
+          photoUri: photo.uri,
+          previewLayout,
+          rawSourceImageDimensions,
+          reticleLayout,
+          scanStartedAt,
+          sourceImageDimensions,
+        });
+        return;
+      }
 
       // Always crop to the reticle first so the classifier sees the card/slab
       // content rather than the full camera frame (where the reticle sits in the
@@ -2011,10 +2213,12 @@ export function ScannerScreen({
   }, [
     ensureGuestSession,
     hasPermission,
+    isBinderPageMode,
     isCameraReady,
     isCapturing,
     isGuest,
     requestPermission,
+    runBinderPageCapture,
     runMatchForCapture,
     scanLane,
     triggerCaptureFlash,
@@ -2914,6 +3118,40 @@ export function ScannerScreen({
         ) : null}
 
         {/*
+          Binder-page mode: a faint 3×3 grid over the reticle. Pure alignment
+          guide — the reticle IS the page detector, so helping the user seat
+          each pocket in a cell is what makes thirds-splitting work.
+        */}
+        {isBinderPageMode && !isTrayExpanded ? (
+          <View pointerEvents="none" testID="scanner-binder-grid">
+            {[1, 2].map((third) => (
+              <View
+                key={`binder-grid-v${third}`}
+                style={[styles.binderGridLine, {
+                  height: captureSurfaceLayout.reticle.height,
+                  left: captureSurfaceLayout.reticle.x
+                    + (captureSurfaceLayout.reticle.width / binderPageGridSize) * third,
+                  top: captureSurfaceLayout.reticle.y,
+                  width: 1.5,
+                }]}
+              />
+            ))}
+            {[1, 2].map((third) => (
+              <View
+                key={`binder-grid-h${third}`}
+                style={[styles.binderGridLine, {
+                  height: 1.5,
+                  left: captureSurfaceLayout.reticle.x,
+                  top: captureSurfaceLayout.reticle.y
+                    + (captureSurfaceLayout.reticle.height / binderPageGridSize) * third,
+                  width: captureSurfaceLayout.reticle.width,
+                }]}
+              />
+            ))}
+          </View>
+        ) : null}
+
+        {/*
           NO DARK STRIP behind the toolbar. It was `rgba(0, 0, 0, 0.25)` across
           the full header height; the frame (3686:56583) has the glass controls
           floating straight over the camera with nothing behind them, which is
@@ -3007,6 +3245,26 @@ export function ScannerScreen({
               },
             ]}
           >
+            {/*
+              Binder-page POC toggle (dev builds only): Single ↔ Page. Function
+              over form — the UX pass owns its final look and placement
+              (docs/binder-scan-v0-implementation-spec-2026-08-28.md).
+            */}
+            {__DEV__ ? (
+              <Pressable
+                accessibilityLabel={isBinderPageMode ? 'Switch to single-card scanning' : 'Switch to binder-page scanning'}
+                accessibilityRole="button"
+                accessibilityState={{ selected: isBinderPageMode }}
+                hitSlop={6}
+                onPress={gate(() => setIsBinderPageMode((current) => !current))}
+                style={[styles.binderModePill, isBinderPageMode ? styles.binderModePillActive : null]}
+                testID="scanner-binder-mode-toggle"
+              >
+                <Text style={styles.binderModePillLabel}>
+                  {isBinderPageMode ? 'Page 3×3' : 'Single'}
+                </Text>
+              </Pressable>
+            ) : null}
             <View style={styles.zoomDock} testID="scanner-zoom-control">
               {SCANNER_ZOOM_FACTORS.map((factor) => {
                 const selected = factor === zoomFactor;
@@ -3463,6 +3721,27 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 0,
     zIndex: 5,
+  },
+  binderGridLine: {
+    backgroundColor: 'rgba(255, 255, 255, 0.28)',
+    position: 'absolute',
+    zIndex: 3,
+  },
+  // POC chrome (dev builds only) — the UX pass owns the real treatment.
+  binderModePill: {
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
+    borderRadius: 999,
+    marginRight: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+  },
+  binderModePillActive: {
+    backgroundColor: colors.purple500,
+  },
+  binderModePillLabel: {
+    ...textStyles.label,
+    color: colors.gray0,
+    fontSize: 12,
   },
   zoomDock: {
     alignItems: 'center',
