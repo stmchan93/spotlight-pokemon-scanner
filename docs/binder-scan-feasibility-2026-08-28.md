@@ -69,3 +69,25 @@ Readings:
    inference cost) or a bigger box.
 3. Given top-10 survives everywhere, the binder UX should lean on the
    candidate tray (tap-to-fix per pocket) rather than promising top-1.
+
+## POC results (2026-08-28, same day)
+
+`tools/binder_scan_poc.py` runs the full loop — cv2 page-quad detection →
+perspective rectification → 3×3 subdivision → `RawVisualMatcher` per pocket —
+on synthetic binder pages composited from the real-photo fixtures (known
+truth, mild perspective warp, downscaled to ~360px pockets):
+
+| game | pages | quad found | top-1 | top-10 | wall/page warm |
+|---|---|---|---|---|---|
+| onepiece | 4 | 4/4 | 91.7% | 97.2% | ~1.0s |
+| pokemon (46k) | 7 | 7/7 | 87.3% | 93.7% | ~1.2s |
+
+Identical to the single-card baselines within noise — subdivision and
+rectification cost nothing measurable. Real-photo mode is ready for the
+moment real captures exist:
+
+    backend/.venv/bin/python tools/binder_scan_poc.py --page photo.jpg --game pokemon
+
+Remaining unknown is unchanged: real-capture artifacts (sleeve glare, page
+curvature) — the synthetic pages carry the fixtures' single-card capture
+noise but not page-level effects.
