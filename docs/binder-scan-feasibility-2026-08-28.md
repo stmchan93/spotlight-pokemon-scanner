@@ -109,3 +109,15 @@ User verified the page against the physical cards: 8/9 exact printings
 093/084 — is NOT in the local index at all (printing newer than the
 snapshot), so the true score is **8/8 exact on answerable cards** and the
 recognition engine has still never missed a card it actually contains.
+
+## Async-first result delivery (user decision, 2026-08-28)
+
+Pockets return INDEPENDENTLY, in any order: v1 fires nine ordinary
+`/scan/visual-match` requests (client-minted scan_ids, grid cells fill on
+arrival) with a client-side in-flight cap of ~3 matching the server's
+inference slots — zero backend changes, each pocket gets the full existing
+pipeline. This REVISES the earlier "batch endpoint is mandatory" claim:
+capped fan-out is sufficient at personal/staging scale; the one-slot batch
+endpoint (+ batched encoder forward) is the broad-rollout optimization.
+Measured: ~110-140ms/pocket warm on M-series; VM estimate first cells ~1s,
+full page ~3-4s through 3 slots.
