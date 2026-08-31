@@ -420,6 +420,10 @@ INDEX_HTML = """<!doctype html>
 <main id="main"></main>
 <script>
 let cur = null;
+// Session-local stack of already-decided scans so 'b' can step back and
+// re-decide (the server is last-write-wins per scan_id, so a re-label just
+// overwrites the earlier decision in labels.jsonl).
+const history = [];
 const labelerEl = document.getElementById('labeler');
 labelerEl.value = localStorage.getItem('labeler') || '';
 labelerEl.addEventListener('change', () => localStorage.setItem('labeler', labelerEl.value));
@@ -438,8 +442,15 @@ async function send(disposition, card){
   if(!cur) return;
   const body = { scan_id: cur.scan_id, disposition, labeler: labeler(),
     chosen_card_id: card ? card.card_id : '', chosen_card_name: card ? card.name : '' };
+  const decided = cur;
   const r = await fetch('/api/label' + (K ? '?k=' + encodeURIComponent(K) : ''), {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
-  const d = await r.json(); setProgress(d.progress); render(d.next);
+  const d = await r.json(); setProgress(d.progress);
+  if(decided && (!history.length || history[history.length-1].scan_id !== decided.scan_id)) history.push(decided);
+  render(d.next);
+}
+function goBack(){
+  if(!history.length) return;
+  render(history.pop());
 }
 function cardButton(c, idx){
   const b = document.createElement('button'); b.className='card';
@@ -467,7 +478,8 @@ function render(next){
   const actions = document.createElement('div'); actions.className='actions';
   const u = document.createElement('button'); u.textContent='Unclear (u)'; u.onclick=()=>send('unclear');
   const s = document.createElement('button'); s.className='skip'; s.textContent='Skip (s)'; s.onclick=()=>send('skip');
-  actions.append(u,s); panel.appendChild(actions);
+  const bk = document.createElement('button'); bk.className='skip'; bk.textContent='Back (b)'; bk.onclick=goBack;
+  actions.append(u,s,bk); panel.appendChild(actions);
   const search = document.createElement('input'); search.id='search'; search.placeholder='Search the catalog (name / number / set)…';
   const results = document.createElement('div'); results.className='btnrow';
   let timer=null;
@@ -478,7 +490,7 @@ function render(next){
   },180); });
   panel.append(search, results);
   const hint = document.createElement('div'); hint.className='hint';
-  hint.textContent='Keys: 1–9,0 pick a candidate · u = unclear · s = skip';
+  hint.textContent='Keys: 1–9,0 pick a candidate · u = unclear · s = skip · b = back (re-decide)';
   panel.appendChild(hint);
   main.append(imgwrap, panel);
 }
@@ -487,6 +499,7 @@ document.addEventListener('keydown', (e)=>{
   if(!cur) return;
   if(e.key==='u'){ send('unclear'); }
   else if(e.key==='s'){ send('skip'); }
+  else if(e.key==='b'){ goBack(); }
   else if(/^[0-9]$/.test(e.key)){
     const idx = e.key==='0' ? 9 : (parseInt(e.key,10)-1);
     const c = (cur.top10||[])[idx]; if(c) send('labeled', c);
