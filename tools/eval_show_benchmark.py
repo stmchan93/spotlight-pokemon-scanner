@@ -92,6 +92,14 @@ def main() -> int:
         return 2
 
     baked_adapter = index_manifest.get("adapterCheckpointPath")
+    manifest_model = str(index_manifest.get("modelId") or "")
+    if baked_adapter and manifest_model and manifest_model != args.model_id:
+        # Manifest borrowed from a different backbone era (e.g. CLIP-era manifest
+        # paired with a SigLIP2 base npz): its projection marker describes the
+        # OTHER artifact, not this npz. Measured 2026-08-31: trusting it silently
+        # cost 6 top-1 on the show holdout. Treat the npz as base.
+        print(f"note: manifest modelId {manifest_model!r} != --model-id; ignoring its projection marker")
+        baked_adapter = None
     if args.reproject_index == "auto":
         project_index = baked_adapter is None
     else:
