@@ -46,7 +46,8 @@
         "SPOTLIGHT_APP_SCHEME": "spotlight",
         "SPOTLIGHT_EAS_PROJECT_ID": "bd29d8aa-8a70-45ba-907e-f7136f2be4ff",
         "SPOTLIGHT_EXPO_OWNER": "schan93",
-        "SPOTLIGHT_IOS_BUNDLE_IDENTIFIER": "com.ekalight.app.staging"
+        "SPOTLIGHT_IOS_BUNDLE_IDENTIFIER": "com.ekalight.app.staging",
+        "EXPO_PUBLIC_SPOTLIGHT_RAW_COLLECTOR_NUMBER_OCR_ENABLED": "1"
       },
       "channel": "staging",
       "autoIncrement": true

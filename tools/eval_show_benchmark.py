@@ -16,8 +16,12 @@ runtime/OCR artifacts `eval_raw_visual_model.py` requires.
 
 Truth comes from a {"entries":[{"truthKey","providerCardId"}]} manifest built
 from the gold DB labels (see tools/build_show_benchmark_truthmap.py companion
-note in docs). IMPORTANT: pass a BASE index (e.g. visual_index_v004-scrydex),
-NOT an already-adapter-projected one — this tool re-projects it per adapter.
+note in docs). Index projection: runtime index artifacts built by
+tools/build_raw_visual_index.py with --adapter-checkpoint store ALREADY-PROJECTED
+embeddings (their manifest carries top-level adapterCheckpointPath). Re-projecting
+such an index double-applies the adapter and silently deflates every number
+(measured: 79% -> 68% top-1 on 2026-08-30). This tool now auto-detects that
+marker and skips gallery projection; override with --reproject-index.
 
 Usage:
   tools/eval_show_benchmark.py                         # active vs v011-candidate, defaults
@@ -66,6 +70,10 @@ def main() -> int:
     ap.add_argument("--base-index-manifest", default=str(VI / "visual_index_v004-scrydex_manifest.json"))
     ap.add_argument("--model-id", default="openai/clip-vit-base-patch32")
     ap.add_argument("--device", default="mps")
+    ap.add_argument("--reproject-index", choices=["auto", "always", "never"], default="auto",
+                    help="Whether to project the index through the adapter. 'auto' (default) skips "
+                         "projection when the index manifest carries adapterCheckpointPath (i.e. the "
+                         "npz is already projected); 'always'/'never' force either behavior.")
     args = ap.parse_args()
 
     benchmark_root = Path(args.benchmark_root)
@@ -75,12 +83,25 @@ def main() -> int:
         print(f"ERROR: empty/missing truthmap at {truthmap_path}", file=sys.stderr)
         return 2
 
-    index_rows = [e for e in load_json(Path(args.base_index_manifest)).get("entries", []) if isinstance(e, dict)]
+    index_manifest = load_json(Path(args.base_index_manifest))
+    index_rows = [e for e in index_manifest.get("entries", []) if isinstance(e, dict)]
     base_matrix = np.asarray(np.load(args.base_index_npz)["embeddings"], dtype=np.float32)
     row_ids = [str(r.get("providerCardId") or "") for r in index_rows]
     if base_matrix.shape[0] != len(row_ids):
         print("ERROR: base index npz/manifest mismatch", file=sys.stderr)
         return 2
+
+    baked_adapter = index_manifest.get("adapterCheckpointPath")
+    if args.reproject_index == "auto":
+        project_index = baked_adapter is None
+    else:
+        project_index = args.reproject_index == "always"
+    if baked_adapter and project_index:
+        print(f"WARNING: index manifest says it is ALREADY projected ({baked_adapter}) but "
+              f"--reproject-index=always was passed — the gallery will be double-projected.", file=sys.stderr)
+    if not project_index:
+        print(f"index is pre-projected (adapter: {baked_adapter or 'assumed'}); gallery used as-stored — "
+              f"per-adapter comparison applies to queries only")
 
     fixtures = []  # (normalized_path, truth_provider_card_id)
     for d in sorted(glob.glob(str(benchmark_root / "*") + os.sep)):
@@ -104,7 +125,8 @@ def main() -> int:
     print(f"{'adapter':32} {'top-1':>12} {'top-5':>12} {'top-10':>12}")
     for label, ckpt in zip(labels, args.adapter):
         adapter = load_projection_adapter(Path(ckpt), embedding_dim=enc.embedding_dim, device=device)
-        pidx = project_embeddings_numpy(adapter, base_matrix, device=device, batch_size=512)
+        pidx = (project_embeddings_numpy(adapter, base_matrix, device=device, batch_size=512)
+                if project_index else base_matrix)
         pq = project_embeddings_numpy(adapter, base_q, device=device, batch_size=512)
         t1 = t5 = t10 = 0
         for i, (_, truth_id) in enumerate(fixtures):
