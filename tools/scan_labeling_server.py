@@ -482,7 +482,7 @@ function goBack(){
 function cardButton(c, idx){
   const b = document.createElement('button'); b.className='card';
   const k = idx!=null ? (idx<9 ? (idx+1) : 0) : '';
-  const thumb = c.img ? '<img class="thumb" loading="lazy" src="'+esc(c.img)+'" onerror="this.style.display=\'none\'">' : '';
+  const thumb = c.img ? '<img class="thumb" loading="lazy" src="'+esc(c.img)+'" onerror="this.remove()">' : '';
   b.innerHTML = '<span class="k">'+(k!==''?k:'')+'</span>'+thumb+'<span>'+esc(c.name||'(no name)')+
     '<div class="sub">'+esc([c.number, c.set].filter(Boolean).join(' · '))+'</div></span>';
   b.onclick = () => send('labeled', c);
