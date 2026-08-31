@@ -347,7 +347,10 @@ export function RawScannerCaptureSurface({
   const photoOutput = usePhotoOutput({
     targetResolution: captureResolution === 'page'
       ? CommonResolutions.UHD_16_9
-      : CommonResolutions.FHD_16_9,
+      // Single-card: EXACTLY the pre-binder resolutions (iOS HD, Android FHD).
+      // Telemetry 2026-08-31: FHD on iOS still ran capture_p50 ~740ms and
+      // normalize_p50 ~750ms vs the ~370/230ms HD-era baseline.
+      : (Platform.OS === 'android' ? CommonResolutions.FHD_16_9 : CommonResolutions.HD_16_9),
     quality: rawVisualCaptureQuality,
     qualityPrioritization: 'balanced',
   });

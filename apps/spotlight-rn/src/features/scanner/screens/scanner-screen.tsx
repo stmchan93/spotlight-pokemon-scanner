@@ -1624,7 +1624,16 @@ export function ScannerScreen({
       // never fails the scan (the promise resolves to null on any error).
       let resolvedMatchPayload = matchPayload;
       if (rawCollectorNumberPromise) {
+        const ocrAwaitStartedAt = Date.now();
         const rawCollectorNumber = await rawCollectorNumberPromise;
+        // Diagnostic (2026-08-31): every staging scan reached the backend with
+        // collectorNumber=null and the read event never fired, so this now
+        // reports EVERY outcome with the blocking-await cost, not just wins.
+        capturePostHogEvent('scan_raw_collector_number_attempted', {
+          mode,
+          outcome: rawCollectorNumber ? 'read' : 'null',
+          ocr_await_ms: Date.now() - ocrAwaitStartedAt,
+        });
         if (rawCollectorNumber) {
           resolvedMatchPayload = {
             ...matchPayload,
@@ -1634,6 +1643,13 @@ export function ScannerScreen({
           };
           capturePostHogEvent('scan_raw_collector_number_read', { mode });
         }
+      } else if (mode === 'raw') {
+        // Distinguishes "flag never reached this bundle" from "read returned
+        // null": not_started means the promise was never created.
+        capturePostHogEvent('scan_raw_collector_number_attempted', {
+          mode,
+          outcome: 'not_started',
+        });
       }
       // Base64 no longer exists on the scan hot path (multipart streams the
       // file), so the payload-size estimate is only available when a target
