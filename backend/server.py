@@ -587,6 +587,9 @@ def _labeling_session_id_from_path(path: str, suffix: str) -> str | None:
 def _is_large_image_upload_path(path: str) -> bool:
     if path == "/api/v1/scan-artifacts":
         return True
+    if path == SCAN_VISUAL_MATCH_BATCH_PATH:
+        # Up to nine normalized pocket images in one body.
+        return True
     if path == "/api/v1/card-transactions":
         return True
     return _labeling_session_id_from_path(path, "/artifacts") is not None
@@ -599,8 +602,70 @@ def _is_large_image_upload_path(path: str) -> bool:
 # image fields) plus `normalized_image` / `source_image` JPEG parts; the server
 # re-encodes the bytes to base64 into the exact same payload fields the JSON
 # path produces, so everything downstream of body parsing is byte-identical.
+SCAN_VISUAL_MATCH_BATCH_PATH = "/api/v1/scan/visual-match-batch"
+# Binder page = 3x3 pockets. One batch holds ONE inference slot for the whole
+# page, so the cap also bounds how long a slot can be held.
+SCAN_VISUAL_MATCH_BATCH_MAX_ITEMS = 9
+# Server-side page cropping: mirrors the client's thirds-plus-inset math in
+# apps/spotlight-rn scanner-normalized-target.ts so a page-image batch and a
+# pocket-images batch produce the same matcher inputs.
+BINDER_POCKET_INSET_FRACTION = 0.025
+BINDER_PAGE_GRID_SIZE = 3
+RAW_NORMALIZED_TARGET_SIZE = (630, 880)
+
+
+def _binder_pocket_jpegs_from_page(page_jpeg: bytes) -> list[bytes]:
+    """Split one binder-page JPEG (the reticle crop) into nine normalized
+    pocket JPEGs in reading order (row-major, top-left first)."""
+    import io  # local import: this lane only, matching the PIL import below
+    from PIL import Image  # local import: PIL is only needed on this lane
+
+    with Image.open(io.BytesIO(page_jpeg)) as decoded:
+        page = decoded.convert("RGB")
+        width, height = page.size
+        cell_w = width / BINDER_PAGE_GRID_SIZE
+        cell_h = height / BINDER_PAGE_GRID_SIZE
+        inset_x = cell_w * BINDER_POCKET_INSET_FRACTION
+        inset_y = cell_h * BINDER_POCKET_INSET_FRACTION
+        pockets: list[bytes] = []
+        for row in range(BINDER_PAGE_GRID_SIZE):
+            for column in range(BINDER_PAGE_GRID_SIZE):
+                left = column * cell_w + inset_x
+                top = row * cell_h + inset_y
+                crop = page.crop((
+                    int(round(left)),
+                    int(round(top)),
+                    int(round(left + cell_w - inset_x * 2)),
+                    int(round(top + cell_h - inset_y * 2)),
+                ))
+                crop = crop.resize(RAW_NORMALIZED_TARGET_SIZE, Image.LANCZOS)
+                out = io.BytesIO()
+                crop.save(out, format="JPEG", quality=85)
+                pockets.append(out.getvalue())
+        return pockets
+DECK_ENTRY_BULK_CREATE_MAX = 50
+
+# Streamed binder lane: upload the page ONCE, then nine ordinary single
+# visual-match calls reference the stored pocket crops by token. Pockets live
+# in memory only (they are matcher inputs, not scan artifacts) and are
+# owner-scoped so one user can never read another's page.
+BINDER_PAGE_PREPARE_PATH = "/api/v1/scan/binder-page/prepare"
+BINDER_PAGE_STORE_TTL_SECONDS = 600
+BINDER_PAGE_STORE_MAX_ENTRIES = 20
+# token -> {"owner_user_id", "created_at" (monotonic), "pockets": list[bytes]}
+_binder_page_store: dict[str, dict[str, Any]] = {}
+_binder_page_store_lock = threading.Lock()
+
+
+class BinderPageTokenError(ValueError):
+    """A binderPage pocket reference that cannot be honored (unknown, expired,
+    or foreign token, or a bad pocket index). Maps to 400 BinderPageTokenUnknown."""
+
+
 MULTIPART_SCAN_PATHS = {
     "/api/v1/scan/visual-match",
+    SCAN_VISUAL_MATCH_BATCH_PATH,
+    BINDER_PAGE_PREPARE_PATH,
     "/api/v1/scan-artifacts",
 }
 
@@ -683,6 +748,40 @@ def _inject_multipart_scan_images(
         # normalizedImageBase64, but image.jpegBase64 is the client field).
         if normalized_bytes:
             inject("image", normalized_bytes)
+        return
+    if request_path == BINDER_PAGE_PREPARE_PATH:
+        # Streamed binder lane: one `page_image` part carries the whole page;
+        # the prepare handler crops and stores the nine pockets server-side.
+        page_bytes = parts.get("page_image")
+        if page_bytes:
+            inject("pageImage", page_bytes)
+        return
+    if request_path == SCAN_VISUAL_MATCH_BATCH_PATH:
+        # Page-image mode: ONE `page_image` part carries the whole binder page;
+        # the handler splits it into nine pockets server-side.
+        page_bytes = parts.get("page_image")
+        if page_bytes:
+            page_payload = payload.get("pageImage")
+            if not isinstance(page_payload, dict):
+                page_payload = {}
+                payload["pageImage"] = page_payload
+            page_payload["jpegBase64"] = base64.b64encode(page_bytes).decode("ascii")
+        # Batch clients send one `normalized_image_{i}` part per items[i];
+        # each lands in items[i].image.jpegBase64, the single-scan field.
+        items = payload.get("items")
+        if not isinstance(items, list):
+            return
+        for index, item in enumerate(items):
+            if not isinstance(item, dict):
+                continue
+            item_bytes = parts.get(f"normalized_image_{index}")
+            if not item_bytes:
+                continue
+            image_payload = item.get("image")
+            if not isinstance(image_payload, dict):
+                image_payload = {}
+                item["image"] = image_payload
+            image_payload["jpegBase64"] = base64.b64encode(item_bytes).decode("ascii")
         return
     if request_path == "/api/v1/scan-artifacts":
         # JSON clients send normalizedImage.jpegBase64 (required) and
@@ -2149,6 +2248,7 @@ class SpotlightScanService:
         payload: dict[str, Any],
         *,
         requested_top_k: int,
+        prepared: Any | None = None,
     ) -> tuple[list[Any], dict[str, Any], float, list[Any]]:
         started_at = perf_counter()
         # The "Scanning for" language toggle is authoritative for the raw lane:
@@ -2157,7 +2257,12 @@ class SpotlightScanService:
         # the shortlist of correct-language candidates, then trim back.
         scan_language = self._explicit_scan_language(payload)
         fetch_top_k = requested_top_k * 3 if scan_language else requested_top_k
-        all_matches, debug = self._raw_visual_matcher_instance().match_payload(payload, top_k=fetch_top_k)
+        # `prepared` (binder batch lane) carries an already-computed embedding;
+        # only forwarded when present so matcher fakes keep the plain signature.
+        matcher_kwargs: dict[str, Any] = {"prepared": prepared} if prepared is not None else {}
+        all_matches, debug = self._raw_visual_matcher_instance().match_payload(
+            payload, top_k=fetch_top_k, **matcher_kwargs
+        )
         all_matches = list(all_matches)
         # The toggle-language matches drive ranking / top-1 exactly as before.
         matches = self._filter_visual_matches_by_scan_language(all_matches, scan_language)[:requested_top_k]
@@ -12414,13 +12519,93 @@ class SpotlightScanService:
             visual_phase_source="live",
         )
 
+    def prepare_binder_page(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Streamed binder lane, step 1: crop the uploaded page into nine
+        pocket JPEGs and stash them in memory under an owner-scoped token.
+        The client then issues nine ordinary single visual-match calls that
+        reference the pockets via ``binderPage`` instead of re-uploading."""
+        page_payload = payload.get("pageImage") if isinstance(payload.get("pageImage"), dict) else {}
+        page_b64 = str(page_payload.get("jpegBase64") or "").strip()
+        if not page_b64:
+            raise ValueError("pageImage.jpegBase64 is required")
+        try:
+            pockets = _binder_pocket_jpegs_from_page(base64.b64decode(page_b64))
+        except Exception as exc:  # noqa: BLE001 - a bad page image fails the request cleanly
+            raise ValueError(f"pageImage could not be decoded: {exc}") from exc
+        token = uuid.uuid4().hex
+        now = monotonic()
+        with _binder_page_store_lock:
+            # Prune expired entries, then evict oldest until under the cap.
+            for stale_token in [
+                existing_token
+                for existing_token, entry in _binder_page_store.items()
+                if now - float(entry.get("created_at") or 0.0) > BINDER_PAGE_STORE_TTL_SECONDS
+            ]:
+                del _binder_page_store[stale_token]
+            while len(_binder_page_store) >= BINDER_PAGE_STORE_MAX_ENTRIES:
+                oldest_token = min(
+                    _binder_page_store,
+                    key=lambda existing_token: float(
+                        _binder_page_store[existing_token].get("created_at") or 0.0
+                    ),
+                )
+                del _binder_page_store[oldest_token]
+            _binder_page_store[token] = {
+                "owner_user_id": self._current_owner_user_id(),
+                "created_at": now,
+                "pockets": pockets,
+            }
+        return {
+            "pageToken": token,
+            "pocketCount": len(pockets),
+            "expiresInSeconds": BINDER_PAGE_STORE_TTL_SECONDS,
+        }
+
+    def _inject_binder_page_pocket(self, payload: dict[str, Any]) -> None:
+        """Streamed binder lane, step 2: when the payload references a stored
+        binder-page pocket and carries no image bytes of its own, inject the
+        pocket JPEG into ``image.jpegBase64`` so the scan proceeds exactly as a
+        normal single visual match. Tokens are NOT consumed (retries reuse
+        them); the TTL handles cleanup."""
+        reference = payload.get("binderPage")
+        if not isinstance(reference, dict):
+            return
+        image_payload = payload.get("image") if isinstance(payload.get("image"), dict) else {}
+        if str(image_payload.get("jpegBase64") or "").strip():
+            return  # explicit bytes win; the reference is ignored
+        pocket_index = reference.get("pocketIndex")
+        if isinstance(pocket_index, bool) or not isinstance(pocket_index, int) or not (
+            0 <= pocket_index < BINDER_PAGE_GRID_SIZE * BINDER_PAGE_GRID_SIZE
+        ):
+            raise BinderPageTokenError("binderPage.pocketIndex must be an integer in [0, 8]")
+        token = str(reference.get("pageToken") or "").strip()
+        owner_user_id = self._current_owner_user_id()
+        now = monotonic()
+        with _binder_page_store_lock:
+            entry = _binder_page_store.get(token)
+            if (
+                entry is None
+                or str(entry.get("owner_user_id") or "") != owner_user_id
+                or now - float(entry.get("created_at") or 0.0) > BINDER_PAGE_STORE_TTL_SECONDS
+            ):
+                raise BinderPageTokenError("binderPage.pageToken is unknown or expired")
+            pocket_jpeg = entry["pockets"][pocket_index]
+        payload["image"] = {
+            **image_payload,
+            "jpegBase64": base64.b64encode(pocket_jpeg).decode("ascii"),
+            "width": RAW_NORMALIZED_TARGET_SIZE[0],
+            "height": RAW_NORMALIZED_TARGET_SIZE[1],
+        }
+
     def visual_match_scan(
         self,
         payload: dict[str, Any],
         *,
         api_key: str | None = None,
+        prepared: Any | None = None,
     ) -> dict[str, Any]:
         handler_started_at = perf_counter()
+        self._inject_binder_page_pocket(payload)
         self._emit_structured_log(self._scan_request_log_payload(payload))
         scrydex_before_total = int(scrydex_request_stats_snapshot().get("total") or 0)
         scan_id = str(payload.get("scanID") or "")
@@ -12428,7 +12613,7 @@ class SpotlightScanService:
         pre_visual_setup_ms = (match_started - handler_started_at) * 1000.0
         try:
             matches, debug, visual_match_ms, other_language_matches = self._run_raw_visual_phase(
-                payload, requested_top_k=SCAN_CANDIDATE_POOL_SIZE
+                payload, requested_top_k=SCAN_CANDIDATE_POOL_SIZE, prepared=prepared
             )
         except Exception as exc:
             response = self._unsupported_match_response(
@@ -12491,6 +12676,136 @@ class SpotlightScanService:
             response=response,
         )
         return response
+
+    def visual_match_scan_batch(
+        self,
+        payload: dict[str, Any],
+        *,
+        api_key: str | None = None,
+    ) -> dict[str, Any]:
+        """Binder-page lane: N pocket scans in one request.
+
+        The body is a single visual-match request whose image/scanID live in
+        `items[]` (one per pocket). The caller holds ONE inference slot for the
+        whole call; the encoder runs ONE batched forward, then every item goes
+        through the exact single-scan path after the embedding (index search,
+        rerank, candidate pool, confidence, review disposition, its own
+        scan_events row keyed by its own scanID). A failing item reports an
+        `error` instead of sinking the page.
+        """
+        batch_started_at = perf_counter()
+        raw_items = payload.get("items")
+        if not isinstance(raw_items, list) or not raw_items:
+            raise ValueError("items is required")
+        if len(raw_items) > SCAN_VISUAL_MATCH_BATCH_MAX_ITEMS:
+            raise ValueError(f"items must contain at most {SCAN_VISUAL_MATCH_BATCH_MAX_ITEMS} entries")
+        resolver_mode_hint = str(payload.get("resolverModeHint") or "raw_card").strip()
+        if resolver_mode_hint != "raw_card":
+            raise ValueError("visual-match-batch supports raw cards only")
+
+        # Page-image mode: one page JPEG arrives instead of nine pocket JPEGs
+        # (a third of the upload bytes); the pockets are cropped HERE with the
+        # same thirds-plus-inset math the client uses.
+        page_payload = payload.get("pageImage") if isinstance(payload.get("pageImage"), dict) else {}
+        page_b64 = str(page_payload.get("jpegBase64") or "").strip()
+        page_pocket_jpegs: list[bytes] | None = None
+        if page_b64:
+            try:
+                page_pocket_jpegs = _binder_pocket_jpegs_from_page(base64.b64decode(page_b64))
+            except Exception as exc:  # noqa: BLE001 - a bad page image fails the request cleanly
+                raise ValueError(f"pageImage could not be decoded: {exc}") from exc
+
+        shared_fields = {key: value for key, value in payload.items() if key not in ("items", "pageImage")}
+        shared_fields.pop("scanID", None)
+        item_payloads: list[dict[str, Any]] = []
+        pocket_indexes: list[int] = []
+        for position, raw_item in enumerate(raw_items):
+            if not isinstance(raw_item, dict):
+                raise ValueError(f"items[{position}] must be an object")
+            if not str(raw_item.get("scanID") or "").strip():
+                raise ValueError(f"items[{position}].scanID is required")
+            pocket_index_value = raw_item.get("pocketIndex", position)
+            pocket_index = pocket_index_value if isinstance(pocket_index_value, int) else position
+            item_payload = dict(shared_fields)
+            item_payload.update({key: value for key, value in raw_item.items() if key != "pocketIndex"})
+            if page_pocket_jpegs is not None and 0 <= pocket_index < len(page_pocket_jpegs):
+                image_payload = item_payload.get("image")
+                if not isinstance(image_payload, dict):
+                    image_payload = {}
+                existing_b64 = str(image_payload.get("jpegBase64") or "").strip()
+                if not existing_b64:
+                    item_payload["image"] = {
+                        **image_payload,
+                        "jpegBase64": base64.b64encode(page_pocket_jpegs[pocket_index]).decode("ascii"),
+                        "width": RAW_NORMALIZED_TARGET_SIZE[0],
+                        "height": RAW_NORMALIZED_TARGET_SIZE[1],
+                    }
+            item_payloads.append(item_payload)
+            pocket_indexes.append(pocket_index)
+
+        # One batched encoder forward for the page. If the matcher cannot
+        # prepare (index missing, no batch support on a fake), every item falls
+        # back to the per-item path, which reports the same failure shape the
+        # single endpoint does.
+        prepared_items: list[Any] = [None] * len(item_payloads)
+        batch_timing: dict[str, Any] = {}
+        prepare_error: str | None = None
+        matcher = self._raw_visual_matcher_instance()
+        prepare = getattr(matcher, "prepare_queries_batch", None)
+        if callable(prepare):
+            try:
+                prepared_items, batch_timing = prepare(item_payloads)
+                prepared_items = list(prepared_items)
+            except Exception as exc:  # noqa: BLE001 - per-item path still runs
+                prepare_error = str(exc)
+                prepared_items = [None] * len(item_payloads)
+
+        results: list[dict[str, Any]] = []
+        item_timings: list[dict[str, Any]] = []
+        for item_payload, pocket_index, prepared in zip(item_payloads, pocket_indexes, prepared_items, strict=True):
+            item_started_at = perf_counter()
+            scan_id = str(item_payload.get("scanID") or "")
+            try:
+                response = self.visual_match_scan(
+                    item_payload,
+                    api_key=api_key,
+                    prepared=prepared if not isinstance(prepared, Exception) else None,
+                )
+                response["pocketIndex"] = pocket_index
+                results.append(response)
+            except Exception as exc:  # noqa: BLE001 - isolate the pocket
+                traceback.print_exc()
+                try:
+                    self._emit_structured_log(self._scan_error_log_payload(item_payload, exc))
+                except Exception:  # noqa: BLE001 - logging must not mask the item error
+                    pass
+                results.append(
+                    {
+                        "pocketIndex": pocket_index,
+                        "scanID": scan_id,
+                        "error": "Visual scan match failed",
+                        "errorType": type(exc).__name__,
+                    }
+                )
+            item_timings.append(
+                {
+                    "pocketIndex": pocket_index,
+                    "scanID": scan_id,
+                    "itemMs": round((perf_counter() - item_started_at) * 1000.0, 3),
+                    "batchEmbedded": prepared is not None and not isinstance(prepared, Exception),
+                }
+            )
+
+        timing_debug: dict[str, Any] = dict(batch_timing)
+        timing_debug["items"] = item_timings
+        timing_debug["batchTotalMs"] = round((perf_counter() - batch_started_at) * 1000.0, 3)
+        if prepare_error:
+            timing_debug["batchPrepareError"] = prepare_error
+        return {
+            "results": results,
+            "itemCount": len(results),
+            "backendTimingDebug": timing_debug,
+        }
 
     def rerank_visual_match(
         self,
@@ -15183,7 +15498,16 @@ class SpotlightScanService:
             document=existing_document,
         )
 
-    def create_deck_entry(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def create_deck_entry(
+        self,
+        payload: dict[str, Any],
+        *,
+        _in_bulk: bool = False,
+        _default_collection_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Create one holding. `_in_bulk` (create_deck_entries_bulk only)
+        leaves commit/rollback and the artifacts.json write to the caller so
+        the whole page lands in one transaction."""
         owner_user_id = self._current_owner_user_id()
         card_id = str(payload.get("cardID") or "").strip()
         if not card_id:
@@ -15266,7 +15590,9 @@ class SpotlightScanService:
         # `_ensure_owner_collections` also runs the lazy backfill, so the first
         # add after the migration lands with every existing holding already
         # assigned.
-        default_collection_id = self._ensure_owner_collections(owner_user_id)
+        # The bulk path resolves this once up front: `_ensure_owner_collections`
+        # commits, which would end the bulk transaction mid-page.
+        default_collection_id = _default_collection_id or self._ensure_owner_collections(owner_user_id)
         requested_collection_id = str(payload.get("collectionID") or "").strip()
         collection_id = default_collection_id
         if requested_collection_id and requested_collection_id.lower() != "all":
@@ -15359,28 +15685,15 @@ class SpotlightScanService:
                     confirmed_at=added_at,
                 )
 
-            self.connection.commit()
+            if not _in_bulk:
+                self.connection.commit()
         except Exception:
-            self.connection.rollback()
+            if not _in_bulk:
+                self.connection.rollback()
             raise
 
-        if scan_id:
-            try:
-                self._update_scan_artifacts_json_for_confirm(
-                    scan_id=scan_id,
-                    confirmed_card_id=card_id,
-                    confirmed_at=added_at,
-                )
-            except Exception as exc:  # noqa: BLE001 - artifacts.json update is best-effort
-                self._emit_structured_log(
-                    {
-                        "severity": "WARNING",
-                        "event": "scan_artifacts_json_write_failed",
-                        "scanID": scan_id,
-                        "phase": "confirm",
-                        "error": str(exc),
-                    }
-                )
+        if scan_id and not _in_bulk:
+            self._confirm_scan_artifacts_best_effort(scan_id=scan_id, card_id=card_id, added_at=added_at)
 
         return {
             "deckEntryID": deck_entry_id,
@@ -15390,6 +15703,83 @@ class SpotlightScanService:
             "confirmationID": confirmation_id,
             "sourceScanID": scan_id,
             "addedAt": added_at,
+        }
+
+    def _confirm_scan_artifacts_best_effort(self, *, scan_id: str, card_id: str, added_at: str) -> None:
+        try:
+            self._update_scan_artifacts_json_for_confirm(
+                scan_id=scan_id,
+                confirmed_card_id=card_id,
+                confirmed_at=added_at,
+            )
+        except Exception as exc:  # noqa: BLE001 - artifacts.json update is best-effort
+            self._emit_structured_log(
+                {
+                    "severity": "WARNING",
+                    "event": "scan_artifacts_json_write_failed",
+                    "scanID": scan_id,
+                    "phase": "confirm",
+                    "error": str(exc),
+                }
+            )
+
+    def create_deck_entries_bulk(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Binder-page "add all": up to DECK_ENTRY_BULK_CREATE_MAX single-create
+        payloads in ONE transaction. Each entry runs the exact single-create
+        path (same owner scoping, dedupe, confirmation) inside a savepoint, so a
+        bad entry reports `{index, error}` while the rest still commit."""
+        owner_user_id = self._current_owner_user_id()
+        raw_entries = payload.get("entries")
+        if not isinstance(raw_entries, list) or not raw_entries:
+            raise ValueError("entries is required")
+        if len(raw_entries) > DECK_ENTRY_BULK_CREATE_MAX:
+            raise ValueError(f"entries must contain at most {DECK_ENTRY_BULK_CREATE_MAX} entries")
+
+        # Runs (and commits) its lazy backfill BEFORE the bulk transaction opens.
+        default_collection_id = self._ensure_owner_collections(owner_user_id)
+
+        results: list[dict[str, Any]] = []
+        created: list[dict[str, Any]] = []
+        try:
+            for index, entry in enumerate(raw_entries):
+                if not isinstance(entry, dict):
+                    results.append({"index": index, "error": "entry must be an object", "errorType": "ValueError"})
+                    continue
+                self.connection.execute("SAVEPOINT deck_entry_bulk_item")
+                try:
+                    response = self.create_deck_entry(
+                        entry,
+                        _in_bulk=True,
+                        _default_collection_id=default_collection_id,
+                    )
+                except Exception as exc:  # noqa: BLE001 - isolate the entry
+                    self.connection.execute("ROLLBACK TO SAVEPOINT deck_entry_bulk_item")
+                    self.connection.execute("RELEASE SAVEPOINT deck_entry_bulk_item")
+                    if not isinstance(exc, (ValueError, FileNotFoundError)):
+                        traceback.print_exc()
+                    results.append({"index": index, "error": str(exc) or type(exc).__name__, "errorType": type(exc).__name__})
+                    continue
+                self.connection.execute("RELEASE SAVEPOINT deck_entry_bulk_item")
+                results.append({"index": index, **response})
+                created.append(response)
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+
+        for response in created:
+            scan_id = str(response.get("sourceScanID") or "")
+            if scan_id:
+                self._confirm_scan_artifacts_best_effort(
+                    scan_id=scan_id,
+                    card_id=str(response.get("cardID") or ""),
+                    added_at=str(response.get("addedAt") or ""),
+                )
+
+        return {
+            "results": results,
+            "createdCount": len(created),
+            "failedCount": len(results) - len(created),
         }
 
     def update_deck_entry_condition(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -21852,6 +22242,37 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 _scan_inference_semaphore.release()
             return
 
+        if parsed.path == BINDER_PAGE_PREPARE_PATH:
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            # No inference slot: cropping is ~15ms of PIL work, not an encoder
+            # forward. The nine follow-up single scans each take their own slot.
+            try:
+                with self.service.request_identity_context(identity):
+                    self._write_json(
+                        HTTPStatus.OK,
+                        self.service.prepare_binder_page(payload),
+                    )
+            except ValueError as error:
+                self._write_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {
+                        "error": str(error),
+                        "errorType": "BinderPageInvalid",
+                    },
+                )
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {
+                        "error": "Binder page prepare failed",
+                        "errorType": type(error).__name__,
+                    },
+                )
+            return
+
         if parsed.path == "/api/v1/scan/visual-match":
             identity = self._require_request_identity()
             if identity is None:
@@ -21864,12 +22285,80 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                         HTTPStatus.OK,
                         self.service.visual_match_scan(payload),
                     )
+            except BinderPageTokenError as error:
+                # Streamed binder lane only: a dead pocket reference is the
+                # client's cue to re-run prepare, not a server failure.
+                self._write_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {
+                        "error": str(error),
+                        "errorType": "BinderPageTokenUnknown",
+                    },
+                )
             except Exception as error:
                 traceback.print_exc()
                 self._write_json(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                     {
                         "error": "Visual scan match failed",
+                        "errorType": type(error).__name__,
+                    },
+                )
+            finally:
+                _scan_inference_semaphore.release()
+            return
+
+        if parsed.path == SCAN_VISUAL_MATCH_BATCH_PATH:
+            # Phase timestamps for the 2026-08-30 latency hunt: the span between
+            # body-read and the first per-item log was 16 SILENT seconds.
+            _phase_started = perf_counter()
+            identity = self._require_request_identity()
+            _identity_ms = (perf_counter() - _phase_started) * 1000.0
+            if identity is None:
+                return
+            # ONE slot for the whole page: the batched forward is what makes
+            # nine pockets cheaper than nine queued single scans.
+            _slot_started = perf_counter()
+            if not self._acquire_scan_inference_slot():
+                return
+            _slot_ms = (perf_counter() - _slot_started) * 1000.0
+            print(
+                json.dumps({
+                    "severity": "INFO",
+                    "event": "batch_route_phases",
+                    "identityMs": round(_identity_ms, 1),
+                    "slotWaitMs": round(_slot_ms, 1),
+                }),
+                flush=True,
+            )
+            try:
+                with self.service.request_identity_context(identity):
+                    _service_started = perf_counter()
+                    _batch_response = self.service.visual_match_scan_batch(payload)
+                    print(
+                        json.dumps({
+                            "severity": "INFO",
+                            "event": "batch_service_done",
+                            "serviceMs": round((perf_counter() - _service_started) * 1000.0, 1),
+                            "timing": {
+                                k: v for k, v in (_batch_response.get("backendTimingDebug") or {}).items()
+                                if isinstance(v, (int, float))
+                            },
+                        }),
+                        flush=True,
+                    )
+                    self._write_json(
+                        HTTPStatus.OK,
+                        _batch_response,
+                    )
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {
+                        "error": "Visual scan batch match failed",
                         "errorType": type(error).__name__,
                     },
                 )
@@ -22070,6 +22559,23 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Deck entry delete failed: {error}"})
                 return
             self._write_json(HTTPStatus.OK, delete_payload)
+            return
+
+        if parsed.path == "/api/v1/deck/entries/create-bulk":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    create_payload = self.service.create_deck_entries_bulk(payload)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Deck entries bulk create failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, create_payload)
             return
 
         if parsed.path == "/api/v1/deck/entries/delete-bulk":
@@ -22291,8 +22797,23 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._json_body_error_message = "multipart boundary is missing"
             return None
 
+        body_read_started = perf_counter()
         body = self.rfile.read(content_length)
+        body_read_ms = (perf_counter() - body_read_started) * 1000.0
         parts = _parse_multipart_form_data(body, boundary)
+        # One line per multipart scan upload: how long the BODY took to arrive
+        # (client uplink) vs everything after. The 2026-08-30 binder-page
+        # latency hunt died repeatedly for lack of exactly this number.
+        print(
+            json.dumps({
+                "severity": "INFO",
+                "event": "multipart_body_read",
+                "path": request_path,
+                "bytes": content_length,
+                "readMs": round(body_read_ms, 1),
+            }),
+            flush=True,
+        )
         if parts is None:
             self._json_body_error_status = HTTPStatus.BAD_REQUEST
             self._json_body_error_message = "multipart body is malformed"

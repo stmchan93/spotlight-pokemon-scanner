@@ -198,6 +198,17 @@ class DecodedQueryImage:
     decodedHeight: int
 
 
+@dataclass(frozen=True)
+class PreparedRawVisualQuery:
+    """A query whose decode + base-variant embedding already ran, so
+    `match_payload` can skip the encoder. Produced by `prepare_queries_batch`
+    for the binder-page lane (one batched forward for nine pockets)."""
+
+    decoded: DecodedQueryImage
+    base_embedding: np.ndarray
+    embedding_timing: dict[str, float]
+
+
 def _env_flag_enabled(name: str, default: bool = False) -> bool:
     raw = os.environ.get(name)
     if raw is None:
@@ -1359,12 +1370,88 @@ class RawVisualMatcher:
         merged_matches.sort(key=lambda item: item.similarity, reverse=True)
         return merged_matches[:top_k]
 
+    def prepare_queries_batch(
+        self,
+        payloads: list[dict[str, Any]],
+        *,
+        batch_size: int = 32,
+    ) -> tuple[list["PreparedRawVisualQuery | Exception"], dict[str, float]]:
+        """Decode every payload's query image and run ONE batched encoder
+        forward for their base variants. Returns one entry per payload: a
+        PreparedRawVisualQuery, or the decode exception for that payload (a bad
+        pocket must not sink its page). Batch timing is split evenly across the
+        prepared items so each per-item `timings` still adds up."""
+        started_at = perf_counter()
+        decode_started_at = perf_counter()
+        decoded: list[DecodedQueryImage | Exception] = []
+        for payload in payloads:
+            try:
+                decoded.append(self._load_query_image(payload))
+            except Exception as exc:  # noqa: BLE001 - reported per item
+                decoded.append(exc)
+        decode_ms = (perf_counter() - decode_started_at) * 1000.0
+
+        runtime_started_at = perf_counter()
+        self._ensure_runtime()
+        ensure_runtime_ms = (perf_counter() - runtime_started_at) * 1000.0
+        assert self._encoder is not None
+
+        images = [item.image for item in decoded if isinstance(item, DecodedQueryImage)]
+        results: list[PreparedRawVisualQuery | Exception] = list(decoded)  # type: ignore[arg-type]
+        encoder_timing: dict[str, float] = {}
+        adapter_project_ms = 0.0
+        normalize_ms = 0.0
+        if images:
+            embed_started_at = perf_counter()
+            embeddings, encoder_timing = self._encoder.embed_images_with_timing(images, batch_size=batch_size)
+            if self._adapter is not None:
+                adapter_started_at = perf_counter()
+                embeddings = project_embeddings_numpy(
+                    self._adapter, embeddings, device=self._encoder.device, batch_size=batch_size,
+                )
+                adapter_project_ms = (perf_counter() - adapter_started_at) * 1000.0
+            normalize_started_at = perf_counter()
+            embeddings = np.nan_to_num(np.asarray(embeddings), nan=0.0, posinf=0.0, neginf=0.0)
+            norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+            embeddings = np.where(norms > 0, embeddings / np.maximum(norms, 1e-12), embeddings)
+            normalize_ms = (perf_counter() - normalize_started_at) * 1000.0
+            embed_total_ms = (perf_counter() - embed_started_at) * 1000.0
+            share = 1.0 / float(len(images))
+            per_item_timing = {
+                "encoderPreprocessMs": round(float(encoder_timing.get("preprocessMs") or 0.0) * share, 3),
+                "encoderForwardMs": round(float(encoder_timing.get("modelForwardMs") or 0.0) * share, 3),
+                "encoderPostprocessMs": round(float(encoder_timing.get("postprocessMs") or 0.0) * share, 3),
+                "adapterProjectMs": round(adapter_project_ms * share, 3),
+                "embeddingNormalizeMs": round(normalize_ms * share, 3),
+                "embeddingMs": round(embed_total_ms * share, 3),
+            }
+            cursor = 0
+            for position, item in enumerate(decoded):
+                if isinstance(item, DecodedQueryImage):
+                    results[position] = PreparedRawVisualQuery(
+                        decoded=item,
+                        base_embedding=embeddings[cursor],
+                        embedding_timing=dict(per_item_timing),
+                    )
+                    cursor += 1
+        return results, {
+            "batchItemCount": len(payloads),
+            "batchEmbeddedCount": len(images),
+            "batchDecodeMs": round(decode_ms, 3),
+            "batchEnsureRuntimeMs": round(ensure_runtime_ms, 3),
+            "batchEncoderForwardMs": round(float(encoder_timing.get("modelForwardMs") or 0.0), 3),
+            "batchEncoderMs": round(float(encoder_timing.get("totalMs") or 0.0), 3),
+            "batchAdapterProjectMs": round(adapter_project_ms, 3),
+            "batchPrepareMs": round((perf_counter() - started_at) * 1000.0, 3),
+        }
+
     def match_payload(
         self,
         payload: dict[str, Any],
         *,
         top_k: int = 10,
         telemetry_context: str = "live_scan",
+        prepared: PreparedRawVisualQuery | None = None,
     ) -> tuple[list[RawVisualSearchMatch], dict[str, Any]]:
         game = self.game_for_payload(payload)
         index = self.index_for_game(game)
@@ -1375,7 +1462,9 @@ class RawVisualMatcher:
 
         try:
             decode_started_at = perf_counter()
-            decoded_query = self._load_query_image(payload)
+            # A prepared query (batched binder lane) already decoded + embedded
+            # the base variant; everything after the embedding is identical.
+            decoded_query = prepared.decoded if prepared is not None else self._load_query_image(payload)
             image_decode_ms = (perf_counter() - decode_started_at) * 1000.0
 
             runtime_started_at = perf_counter()
@@ -1404,7 +1493,10 @@ class RawVisualMatcher:
             }
             query_variants = self._query_variants(payload, decoded_query.image)
             for query_variant in query_variants:
-                embedding, embedding_timing = self._image_embedding_with_timing(query_variant.image)
+                if prepared is not None and query_variant.name == "base":
+                    embedding, embedding_timing = prepared.base_embedding, dict(prepared.embedding_timing)
+                else:
+                    embedding, embedding_timing = self._image_embedding_with_timing(query_variant.image)
                 if query_variant.name == "base":
                     base_variant_embedding = embedding
                     # Language probe fallback: only invoke when OCR-derived
@@ -1555,6 +1647,8 @@ class RawVisualMatcher:
 
             debug = {
                 "modelId": self.model_id,
+                "encoderBackend": getattr(self._encoder, "backend", None),
+                "encoderPrecision": getattr(self._encoder, "precision", None),
                 "game": game,
                 "indexNpzPath": str(index.npz_path),
                 "indexManifestPath": str(index.manifest_path),

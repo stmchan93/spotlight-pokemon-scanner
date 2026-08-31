@@ -82,6 +82,14 @@ export type ScannerCapturePayload = ScannerImagePayload & {
    */
   ocrAnalysis?: ScannerOcrAnalysisPayload | null;
   /**
+   * Binder-page streamed lane: reference a pocket of a page the backend already
+   * stored via `prepareBinderPage`. When set, the match request carries NO image
+   * bytes — the server injects the stored pocket crop — and any local
+   * `fileUri`/`normalizedImage` on the payload feeds ONLY the deferred
+   * training-artifact upload, never the match request itself.
+   */
+  binderPage?: { pageToken: string; pocketIndex: number } | null;
+  /**
    * Lazily reads a local scan file as base64. Supplied by the app shell (which
    * owns the filesystem APIs) so the repository can materialize the JSON+base64
    * fallback body ONLY when the multipart transport is unavailable. Resolves to
@@ -146,10 +154,78 @@ export type ScannerMatchResult = {
   requestAttemptCount?: number | null;
   slabContext?: SlabContext | null;
   targetLanguageMismatch?: ScannerTargetLanguageMismatch | null;
+  /** Backend confidence in the top candidate. Null when the server omits it. */
+  confidence?: ScannerMatchConfidence | null;
+};
+
+export type ScannerMatchConfidence = 'high' | 'medium' | 'low';
+
+/**
+ * Binder-page batch: the single page image (the reticle crop) sent INSTEAD of
+ * nine pocket JPEGs — a third of the upload bytes. The server splits it into
+ * pockets with the same thirds-plus-inset math the client uses.
+ */
+export type ScannerBatchPageImage = {
+  fileUri?: string | null;
+  jpegBase64?: string | null;
+  width: number;
+  height: number;
 };
 
 export type ScannerMatchOptions = {
   onArtifactUploadComplete?: (result: ScannerArtifactUploadResult | null) => void;
+};
+
+/**
+ * One pocket's outcome from a binder-page batch match. `result` carries the
+ * exact per-scan shape the single `matchScannerCapture` resolves, so tray rows
+ * can reuse their existing handling; `errorMessage` is set instead when that
+ * pocket failed server-side (the batch itself still succeeds).
+ */
+export type ScannerMatchBatchItemResult = {
+  pocketIndex: number;
+  result: ScannerMatchResult | null;
+  errorMessage: string | null;
+};
+
+export type ScannerMatchBatchResult = {
+  results: ScannerMatchBatchItemResult[];
+};
+
+export type ScannerMatchBatchOptions = {
+  /** Page-image mode: upload ONE page JPEG; the server crops the nine pockets. */
+  pageImage?: ScannerBatchPageImage | null;
+  /**
+   * Page-image mode: the pocket crops may still be rendering when the match
+   * returns. Resolves to per-pocket payloads (with fileUris) once they exist;
+   * the deferred artifact uploads wait on it. Null skips the page's artifacts.
+   */
+  artifactItems?: Promise<ScannerCapturePayload[] | null> | null;
+  onArtifactUploadComplete?: (
+    pocketIndex: number,
+    result: ScannerArtifactUploadResult | null,
+  ) => void;
+};
+
+/**
+ * Result of `prepareBinderPage`: the backend stored the page image, cropped it
+ * into pockets, and handed back a short-lived token that per-pocket
+ * `matchScannerCapture` calls reference via `ScannerCapturePayload.binderPage`.
+ */
+export type BinderPagePrepareResult = {
+  pageToken: string;
+  pocketCount: number;
+  expiresInSeconds: number;
+};
+
+export type BinderPagePrepareOptions = {
+  /**
+   * Lazily reads the page file as base64 for the JSON fallback body — only
+   * used when the multipart transport is unavailable (same contract as
+   * `ScannerCapturePayload.readFileAsBase64`).
+   */
+  readFileAsBase64?: ((fileUri: string) => Promise<string | null>) | null;
+  timeoutMs?: number;
 };
 
 /** One "Who's That Pokémon" selfie-match candidate returned by the backend. */
@@ -722,6 +798,14 @@ export type CardGameCapabilities = {
    */
   hasLanguageLanes: boolean;
   /**
+   * For a game WITHOUT language lanes whose index is single-language: the tag
+   * the scanner label wears anyway (e.g. One Piece's EN-only index shows
+   * "One Piece EN" so a JP card's failure reads as "wrong language", not
+   * "broken scanner"). Omit for games with lanes (the lane carries the tag)
+   * and for games where no tag is wanted.
+   */
+  singleLanguageTag?: 'EN' | 'JP';
+  /**
    * Grading lanes this game has priced data for, 'Raw' first and then by how
    * much data each company actually has. Per game rather than one shared
    * constant: PSA/BGS/CGC is a POKÉMON fact, and Lorcana's priced slabs span
@@ -750,6 +834,8 @@ export const CARD_GAME_CAPABILITIES: Record<CardGame, CardGameCapabilities> = {
     hasPopulationData: false,
     hasListingsData: false,
     hasLanguageLanes: false,
+    // The index is English-only; the scanner label says so.
+    singleLanguageTag: 'EN',
     graders: ['Raw'],
   },
   lorcana: {
@@ -844,6 +930,13 @@ export function gameHasLanguageLanes(game: CardGame | undefined): boolean {
  * the backend's `game_display_name`; UI must read it from here rather than
  * hardcoding a string per game.
  */
+export function gameSingleLanguageTag(game: CardGame | undefined): 'EN' | 'JP' | undefined {
+  if (!game) {
+    return undefined;
+  }
+  return CARD_GAME_CAPABILITIES[game]?.singleLanguageTag;
+}
+
 export function gameDisplayName(game: CardGame | undefined): string {
   return cardGameCapabilities(game).displayName;
 }
@@ -1547,6 +1640,30 @@ export type InventoryEntryCreateResponsePayload = {
   confirmationID?: string | null;
   sourceScanID?: string | null;
   addedAt: string;
+};
+
+/**
+ * One entry's outcome from `POST /api/v1/deck/entries/create-bulk`. Success
+ * rows carry the single-create response fields; failures carry `error` and the
+ * batch still commits the rest.
+ */
+export type InventoryEntryBulkCreateResultEntry = {
+  index: number;
+  deckEntryID?: string;
+  cardID?: string;
+  variantName?: string | null;
+  condition?: DeckConditionCode | null;
+  confirmationID?: string | null;
+  sourceScanID?: string | null;
+  addedAt?: string;
+  error?: string | null;
+  errorType?: string | null;
+};
+
+export type InventoryEntryBulkCreateResponsePayload = {
+  results: InventoryEntryBulkCreateResultEntry[];
+  createdCount: number;
+  failedCount: number;
 };
 
 export type PortfolioEntryReplaceRequestPayload = {

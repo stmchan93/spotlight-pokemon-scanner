@@ -33,9 +33,11 @@ def detect_model_family(model_id: str) -> str:
 # Optional letterbox-to-square preprocessing (off by default).
 # Measured 2026-05-12 on a 71-fixture held-out subset (base CLIP, no
 # adapter): letterbox HURT visual top-10 by 9 fixtures (46.5% -> 33.8%).
-# The padding bars cost more effective resolution than the footer-crop
-# was saving. Keep this code path available for future experiments
-# (e.g. paired with a higher-resolution backbone) but default to OFF.
+# Retested 2026-08-30 at SigLIP2-384 + active adapter on the 204-scan
+# show holdout: letterbox-both-sides 163/184/188 vs squash 162/187/188
+# (top-1/5/10); query-side-only 160/186/189. It shuffles rank-2 near-
+# misses and recovers none of the deep misses — no benefit at 384
+# either. Default stays OFF.
 LETTERBOX_PAD_RGB = (114, 114, 114)
 
 
@@ -97,6 +99,11 @@ class RawVisualProjectionAdapter(torch.nn.Module):
 # and produces numerically identical embeddings (validated: cosine 1.000000 on
 # the held-out raw suite). See docs/clip-encoder-onnx-quantization-findings-2026-05-26.md.
 VALID_ENCODER_BACKENDS = ("torch", "onnx")
+# ONNX weight precision. fp32 is the default and the only validated artifact;
+# int8 (SPOTLIGHT_VISUAL_ENCODER_PRECISION=int8) selects the sibling
+# `<slug>_vision_int8.onnx` dynamic-quantized artifact when it exists and is a
+# measure-only experiment. See docs/siglip2-int8-encoder-experiment-2026-08-30.md.
+VALID_ENCODER_PRECISIONS = ("fp32", "int8")
 
 
 def visual_model_slug(model_id: str) -> str:
@@ -104,9 +111,24 @@ def visual_model_slug(model_id: str) -> str:
     return "".join(character if character.isalnum() or character in {"-", "_"} else "-" for character in slug)
 
 
-def default_onnx_encoder_path(model_id: str) -> Path:
+def default_onnx_encoder_path(model_id: str, precision: str = "fp32") -> Path:
     backend_root = Path(__file__).resolve().parent
-    return backend_root / "data" / "visual-models" / f"{visual_model_slug(model_id)}_vision_fp32.onnx"
+    return backend_root / "data" / "visual-models" / f"{visual_model_slug(model_id)}_vision_{precision}.onnx"
+
+
+def resolve_encoder_precision(precision: str | None) -> str:
+    value = (precision or os.environ.get("SPOTLIGHT_VISUAL_ENCODER_PRECISION") or "fp32").strip().lower()
+    if value not in VALID_ENCODER_PRECISIONS:
+        raise RuntimeError(f"Unknown visual encoder precision {value!r}; expected one of {VALID_ENCODER_PRECISIONS}.")
+    return value
+
+
+def int8_sibling_path(fp32_path: Path) -> Path:
+    # `<slug>_vision_fp32.onnx` -> `<slug>_vision_int8.onnx`; any other name gets `_int8` appended.
+    name = fp32_path.name
+    if "_fp32" in name:
+        return fp32_path.with_name(name.replace("_fp32", "_int8", 1))
+    return fp32_path.with_name(f"{fp32_path.stem}_int8{fp32_path.suffix}")
 
 
 def resolve_encoder_backend(backend: str | None) -> str:
@@ -143,6 +165,7 @@ class RawVisualFrozenEncoder:
         device: str = "auto",
         backend: str | None = None,
         onnx_path: str | Path | None = None,
+        precision: str | None = None,
     ) -> None:
         self.model_id = model_id
         self.device = resolve_torch_device(device)
@@ -162,6 +185,7 @@ class RawVisualFrozenEncoder:
         else:
             self.processor = CLIPProcessor.from_pretrained(model_id, use_fast=False)
         self.backend = resolve_encoder_backend(backend)
+        self.precision = resolve_encoder_precision(precision)
         self.model = None
         self._onnx_session = None
         self._onnx_input_name = None
@@ -179,8 +203,10 @@ class RawVisualFrozenEncoder:
                     flush=True,
                 )
                 self.backend = "torch"
+                self.precision = "fp32"
                 self._init_torch_backend()
         else:
+            self.precision = "fp32"
             self._init_torch_backend()
 
     def _init_torch_backend(self) -> None:
@@ -236,6 +262,17 @@ class RawVisualFrozenEncoder:
                 "(SPOTLIGHT_VISUAL_ENCODER_BACKEND=onnx)."
             ) from exc
         resolved = _resolve_onnx_artifact_path(onnx_path, self.model_id)
+        if self.precision == "int8":
+            int8_path = int8_sibling_path(resolved)
+            if int8_path.exists():
+                resolved = int8_path
+            else:
+                print(
+                    f"[raw_visual_model] INT8 encoder artifact not found ({int8_path}); using fp32 artifact.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                self.precision = "fp32"
         if not resolved.exists():
             raise RuntimeError(f"ONNX encoder artifact not found: {resolved}")
 

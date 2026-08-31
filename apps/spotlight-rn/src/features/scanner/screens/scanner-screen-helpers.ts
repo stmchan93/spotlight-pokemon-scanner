@@ -705,3 +705,43 @@ export async function triggerScannerProcessedHaptic(outcome: 'found' | 'done' = 
     Vibration.vibrate(outcome === 'found' ? [0, 45, 60, 45] : 15);
   }
 }
+
+/**
+ * Binder page: turn the shutter placeholder (already at the top of the tray as
+ * `pageId`) into pocket 0 and add pockets 1..N-1 directly beneath it, so the
+ * tray reads top-to-bottom in page reading order (top-left pocket first). The
+ * POC appended pockets 1-8 ABOVE the placeholder, which put pocket 0 last.
+ */
+export function insertBinderPocketRows(
+  current: RecentCapture[],
+  pageId: string,
+  pocketCount: number,
+): RecentCapture[] {
+  const placeholder = current.find((capture) => capture.id === pageId);
+  if (!placeholder) {
+    return current;
+  }
+  const others = current.filter((capture) => capture.id !== pageId);
+  const pockets = Array.from({ length: pocketCount }, (_, pocketIndex) => ({
+    ...placeholder,
+    id: binderPocketRowId(pageId, pocketIndex),
+    binderPage: { pageId, pocketIndex },
+    // No image until the pocket's own crop exists: inheriting the shutter
+    // placeholder's full-res page photo made NINE tiles + NINE tray rows
+    // decode the same 4K frame at once — the overlay-open jank.
+    uri: '',
+  }));
+  return [...pockets, ...others];
+}
+
+/** Row id for a pocket: pocket 0 IS the page's capture id (the shutter placeholder). */
+export function binderPocketRowId(pageId: string, pocketIndex: number): string {
+  return pocketIndex === 0 ? pageId : `${pageId}-p${pocketIndex}`;
+}
+
+/** The tray rows of one binder page, in pocket order, ready for the page overlay. */
+export function binderPageRows(captures: readonly RecentCapture[], pageId: string): RecentCapture[] {
+  return captures
+    .filter((capture) => capture.binderPage?.pageId === pageId)
+    .sort((a, b) => (a.binderPage?.pocketIndex ?? 0) - (b.binderPage?.pocketIndex ?? 0));
+}

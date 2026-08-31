@@ -46,11 +46,22 @@ from export_labeling_sessions_batch import (  # noqa: E402
 USABLE_UPLOAD_STATUSES = ("uploaded", "normalized_only")
 
 
+def parse_windows(raw_windows: list[str]) -> list[tuple[str, str]]:
+    windows: list[tuple[str, str]] = []
+    for raw in raw_windows:
+        start, sep, end = str(raw).partition("..")
+        if not sep or not start.strip() or not end.strip():
+            raise SystemExit(f"--window must look like START..END (got {raw!r})")
+        windows.append((start.strip(), end.strip()))
+    return windows
+
+
 def select_scan_rows(
     connection,
     *,
     since: str | None,
     until: str | None,
+    windows: list[tuple[str, str]] | None = None,
     owner_user_ids: list[str],
     include_unconfirmed: bool,
 ) -> list[Any]:
@@ -62,6 +73,14 @@ def select_scan_rows(
     if until:
         predicates.append("e.created_at < ?")
         params.append(until)
+    if windows:
+        # Repeatable disjoint capture windows (e.g. three show weekends): a scan
+        # matches if it falls inside ANY window. Combined with since/until by AND.
+        clauses = []
+        for window_start, window_end in windows:
+            clauses.append("(e.created_at >= ? AND e.created_at < ?)")
+            params.extend([window_start, window_end])
+        predicates.append("(" + " OR ".join(clauses) + ")")
     if owner_user_ids:
         placeholders = ", ".join("?" for _ in owner_user_ids)
         predicates.append(f"e.owner_user_id IN ({placeholders})")
@@ -166,6 +185,13 @@ def main() -> int:
     parser.add_argument("--gcs-bucket", default=os.environ.get(SCAN_ARTIFACTS_GCS_BUCKET_ENV))
     parser.add_argument("--since", help="Include scans with created_at >= this ISO date/time.")
     parser.add_argument("--until", help="Include scans with created_at < this ISO date/time.")
+    parser.add_argument(
+        "--window",
+        action="append",
+        default=[],
+        metavar="START..END",
+        help="Repeatable UTC window 'START..END' (ISO, END exclusive); a scan matches ANY window. Use for multi-show exports.",
+    )
     parser.add_argument("--owner-user-id", action="append", default=[], help="Filter to owner. Repeatable.")
     parser.add_argument("--confirmed-only", dest="include_unconfirmed", action="store_false", default=False)
     parser.add_argument("--include-unconfirmed", dest="include_unconfirmed", action="store_true")
@@ -198,6 +224,7 @@ def main() -> int:
             connection,
             since=args.since,
             until=args.until,
+            windows=parse_windows(args.window),
             owner_user_ids=[v.strip() for v in args.owner_user_id if v.strip()],
             include_unconfirmed=args.include_unconfirmed,
         )

@@ -56,7 +56,7 @@ describe('ScanningForSheet', () => {
   it('offers every shipped game as a real, selectable lane', () => {
     const props = renderSheet();
 
-    expect(screen.getByText('One Piece')).toBeTruthy();
+    expect(screen.getByText('One Piece EN')).toBeTruthy();
     expect(screen.getByText('Disney Lorcana')).toBeTruthy();
     expect(screen.getByText('Riftbound')).toBeTruthy();
     expect(screen.getByText('Gundam')).toBeTruthy();
@@ -77,7 +77,9 @@ describe('ScanningForSheet', () => {
     expect(screen.queryByTestId('scanning-for-sheet-type-riftbound-jp')).toBeNull();
     expect(screen.queryByTestId('scanning-for-sheet-type-gundam-jp')).toBeNull();
     expect(screen.queryByText('One Piece JP')).toBeNull();
-    expect(screen.queryByText('One Piece EN')).toBeNull();
+    // One Piece's EN-only index now WEARS the EN tag (user decision 2026-08-31)
+    // without offering a language toggle.
+    expect(screen.queryByText('One Piece EN')).not.toBeNull();
   });
 
   it('reflects the selected lane via the radio accessibility state', () => {

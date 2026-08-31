@@ -4,6 +4,8 @@ import {
   getRawScannerCollapsedTrayReservedHeight,
   getRawScannerEmptyTrayVisualHeight,
   makeRawScannerCaptureLayout,
+  rawScannerControlsRowHeight,
+  rawScannerControlsRowLift,
   rawScannerModeToggleGap,
   reticleLockedCornerColor,
   reticleRestingCornerColor,
@@ -61,3 +63,4 @@ describe('raw scanner capture layout', () => {
     expect(trayTop - modeToggleBottom).toBeGreaterThanOrEqual(rawScannerModeToggleGap);
   });
 });
+

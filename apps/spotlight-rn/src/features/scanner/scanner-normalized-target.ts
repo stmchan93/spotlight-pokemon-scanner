@@ -189,6 +189,24 @@ export function makeBinderPocketCropRects(
   return rects;
 }
 
+export type BinderPageImage = {
+  height: number;
+  uri: string;
+  width: number;
+};
+
+export type BinderPageTargets = {
+  /** The page itself (reticle crop), downscaled for the on-screen review overlay. */
+  pageImage: BinderPageImage;
+  /** Nine pocket targets in reading order (row-major, top-left first). */
+  targets: NormalizedScannerTarget[];
+};
+
+// Sized for SERVER-SIDE cropping: 1890px / 3 pockets = 630px, the matcher's
+// input width, so the server's thirds-split loses nothing. Capped at the
+// source crop width so a smaller reticle never upscales.
+const binderPageImageWidth = 1890;
+
 /**
  * Binder-page capture: ONE full-res decode, nine pocket crops in reading order
  * (row-major, top-left first), each normalized to the standard 630x880 target.
@@ -197,16 +215,24 @@ export function makeBinderPocketCropRects(
  * nine crops share the rotated ref, not nine rotate passes.
  */
 export async function buildBinderPocketTargets({
+  onPageImageReady,
   previewLayout,
   reticle,
   sourceImageDimensions,
   sourceImageUri,
 }: {
+  /**
+   * Fired the moment the page image file exists — BEFORE the nine pocket crop
+   * renders (~several seconds of on-device 4K work). The caller starts the
+   * batch upload here; the crops only feed thumbnails and training artifacts,
+   * so they must never sit on the network critical path.
+   */
+  onPageImageReady?: (pageImage: BinderPageImage) => void;
   previewLayout: PreviewLayout;
   reticle: ReticleLayout;
   sourceImageDimensions: ScanSourceImageDimensions;
   sourceImageUri: string;
-}): Promise<NormalizedScannerTarget[] | null> {
+}): Promise<BinderPageTargets | null> {
   const sourceContext = ImageManipulator.manipulate(sourceImageUri);
   let sourceImage: Awaited<ReturnType<typeof sourceContext.renderAsync>> | null = null;
   let rotateContext: ReturnType<typeof ImageManipulator.manipulate> | null = null;
@@ -246,6 +272,43 @@ export async function buildBinderPocketTargets({
       cropSource = rotatedImage;
     }
 
+    // The page review overlay draws chips over THIS image, so it must be the
+    // exact rect the pockets were cut from — the chips then sit on a plain
+    // thirds grid with no per-pocket geometry to carry around.
+    const pageContext = ImageManipulator.manipulate(cropSource);
+    cropContexts.push(pageContext);
+    pageContext.crop({
+      originX: pageCrop.x,
+      originY: pageCrop.y,
+      width: pageCrop.width,
+      height: pageCrop.height,
+    });
+    const pageRenderWidth = Math.min(binderPageImageWidth, Math.round(pageCrop.width));
+    pageContext.resize({
+      width: pageRenderWidth,
+      height: Math.round((pageRenderWidth * pageCrop.height) / pageCrop.width),
+    });
+    const pageRef = await pageContext.renderAsync();
+    cropRefs.push(pageRef);
+    const pageImageFile = await pageRef.saveAsync({
+      base64: false,
+      // Lighter than the pocket targets: this file is UPLOADED over the phone
+      // uplink (measured ~1MB+ at 0.82 for a detailed binder photo — the
+      // biggest single cost of a page scan). The matcher is robust to JPEG q
+      // and the server re-encodes the crops it makes from this.
+      compress: 0.6,
+      format: SaveFormat.JPEG,
+    });
+    if (!pageImageFile?.uri) {
+      return null;
+    }
+    const pageImage: BinderPageImage = {
+      height: pageImageFile.height,
+      uri: pageImageFile.uri,
+      width: pageImageFile.width,
+    };
+    onPageImageReady?.(pageImage);
+
     const pocketCrops = makeBinderPocketCropRects(pageCrop, cropBasisDimensions);
     const targets: NormalizedScannerTarget[] = [];
     for (const pocketCrop of pocketCrops) {
@@ -283,7 +346,7 @@ export async function buildBinderPocketTargets({
         sourceImageCrop: pocketCrop,
       });
     }
-    return targets;
+    return { pageImage, targets };
   } finally {
     for (const ref of cropRefs) {
       ref.release?.();

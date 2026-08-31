@@ -6,6 +6,7 @@ import {
   DEFAULT_CARD_GAME,
   gameDisplayName,
   gameHasLanguageLanes,
+  gameSingleLanguageTag,
   type CardGame,
   type ScannerCardLanguage,
   type ScannerMode,
@@ -109,7 +110,10 @@ export function scanCardLanguageForLane(lane: ScannerLane): ScannerCardLanguage 
 export function scannerLaneLabel(lane: ScannerLane): string {
   const name = gameDisplayName(lane.game);
   if (!gameHasLanguageLanes(lane.game)) {
-    return name;
+    // Single-language games with a declared index language wear the tag too
+    // ("One Piece EN"), so a JP card's miss reads as language, not breakage.
+    const tag = gameSingleLanguageTag(lane.game);
+    return tag ? `${name} ${tag}` : name;
   }
   return `${name} ${lane.language === 'japanese' ? 'JP' : 'EN'}`;
 }
@@ -129,7 +133,8 @@ export function scanTargetPillLabel(lane: ScannerLane): string {
  */
 export function scanTargetFlag(lane: ScannerLane): 'en' | 'jp' | undefined {
   if (!gameHasLanguageLanes(lane.game)) {
-    return undefined;
+    const tag = gameSingleLanguageTag(lane.game);
+    return tag === 'EN' ? 'en' : tag === 'JP' ? 'jp' : undefined;
   }
   return lane.language === 'japanese' ? 'jp' : 'en';
 }

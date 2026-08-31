@@ -20,10 +20,12 @@ from raw_visual_model import (  # noqa: E402
     RawVisualFrozenEncoder,
     RawVisualProjectionAdapter,
     default_onnx_encoder_path,
+    int8_sibling_path,
     load_projection_adapter,
     project_embeddings_numpy,
     project_embeddings_tensor,
     resolve_encoder_backend,
+    resolve_encoder_precision,
     resolve_torch_device,
 )
 
@@ -181,6 +183,57 @@ class RawVisualModelTests(unittest.TestCase):
         path = default_onnx_encoder_path("openai/clip-vit-base-patch32")
         self.assertEqual(path.name, "clip-vit-base-patch32_vision_fp32.onnx")
         self.assertEqual(path.parent.name, "visual-models")
+
+    def test_resolve_encoder_precision_defaults_env_and_validates(self) -> None:
+        with patch.dict("os.environ", {}, clear=False):
+            import os
+            os.environ.pop("SPOTLIGHT_VISUAL_ENCODER_PRECISION", None)
+            self.assertEqual(resolve_encoder_precision(None), "fp32")
+            self.assertEqual(resolve_encoder_precision("INT8"), "int8")
+            with patch.dict("os.environ", {"SPOTLIGHT_VISUAL_ENCODER_PRECISION": "int8"}):
+                self.assertEqual(resolve_encoder_precision(None), "int8")
+            with self.assertRaises(RuntimeError):
+                resolve_encoder_precision("fp16")
+
+    def test_int8_sibling_path_and_default_precision_path(self) -> None:
+        fp32 = default_onnx_encoder_path("google/siglip2-base-patch16-384")
+        self.assertEqual(fp32.name, "siglip2-base-patch16-384_vision_fp32.onnx")
+        self.assertEqual(int8_sibling_path(fp32).name, "siglip2-base-patch16-384_vision_int8.onnx")
+        self.assertEqual(default_onnx_encoder_path("x/y", "int8").name, "y_vision_int8.onnx")
+        self.assertEqual(int8_sibling_path(Path("/a/custom.onnx")).name, "custom_int8.onnx")
+
+    def test_int8_precision_falls_back_to_fp32_artifact_when_missing(self) -> None:
+        # Flag set but no `_int8` sibling: must use the fp32 artifact and report fp32.
+        fake_ort = types.SimpleNamespace(
+            SessionOptions=lambda: types.SimpleNamespace(),
+            InferenceSession=lambda path, opts, providers: types.SimpleNamespace(
+                get_inputs=lambda: [types.SimpleNamespace(name="pixel_values")], _path=path
+            ),
+        )
+        fake_config = types.SimpleNamespace(projection_dim=512)
+        with tempfile.TemporaryDirectory() as tmp:
+            fp32 = Path(tmp) / "clip-vit-base-patch32_vision_fp32.onnx"
+            fp32.write_bytes(b"stub")
+            with patch("raw_visual_model.CLIPProcessor") as mock_processor, \
+                    patch.dict("sys.modules", {"onnxruntime": fake_ort}), \
+                    patch("transformers.CLIPConfig") as mock_cfg:
+                mock_processor.from_pretrained.return_value = object()
+                mock_cfg.from_pretrained.return_value = fake_config
+                encoder = RawVisualFrozenEncoder(device="cpu", backend="onnx", onnx_path=fp32, precision="int8")
+                self.assertEqual(encoder.backend, "onnx")
+                self.assertEqual(encoder.precision, "fp32")
+                self.assertEqual(encoder._onnx_path, str(fp32))
+
+                int8 = fp32.with_name("clip-vit-base-patch32_vision_int8.onnx")
+                int8.write_bytes(b"stub")
+                encoder = RawVisualFrozenEncoder(device="cpu", backend="onnx", onnx_path=fp32, precision="int8")
+                self.assertEqual(encoder.precision, "int8")
+                self.assertEqual(encoder._onnx_path, str(int8))
+
+                # Default (flag unset) never touches the int8 sibling even when it exists.
+                encoder = RawVisualFrozenEncoder(device="cpu", backend="onnx", onnx_path=fp32)
+                self.assertEqual(encoder.precision, "fp32")
+                self.assertEqual(encoder._onnx_path, str(fp32))
 
     def test_onnx_backend_falls_back_to_torch_when_unavailable(self) -> None:
         # ONNX is the runtime default; any environment missing the artifact or

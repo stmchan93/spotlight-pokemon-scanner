@@ -1,6 +1,7 @@
 import type {
   CatalogSearchResult,
   ScannerCapturePayload,
+  ScannerMatchConfidence,
   SlabContext,
 } from '@spotlight/api-client';
 
@@ -11,6 +12,12 @@ import type {
 import type { NormalizedScannerTarget } from '@/features/scanner/scanner-normalized-target';
 
 export type ScannerMode = 'raw' | 'slabs';
+
+/** Which binder page a tray row came from and which pocket (0-8, reading order). */
+export type BinderPageRef = {
+  pageId: string;
+  pocketIndex: number;
+};
 
 export type RecentCapture = {
   candidates: CatalogSearchResult[];
@@ -35,6 +42,10 @@ export type RecentCapture = {
   totalCandidateCount: number;
   /** True while a "load more candidates" page request is in flight. */
   isLoadingMoreCandidates: boolean;
+  /** Set on rows produced by a binder-page scan; absent on single-card rows. */
+  binderPage?: BinderPageRef | null;
+  /** Backend confidence in the active top candidate; null until the match lands. */
+  matchConfidence?: ScannerMatchConfidence | null;
 };
 
 export type CaptureMatchParams = {

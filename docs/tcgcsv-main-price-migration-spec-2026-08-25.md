@@ -167,7 +167,12 @@ variant None/matching `main_raw_variant`.
   price-trends raw rows, the NM cell of the printing the main price belongs to
   serves the main lane's values (TCGplayer's product-level marketPrice has NO
   condition dimension — SKU/condition prices exist but TCGCSV doesn't publish
-  them; market≈NM is the same approximation TCGplayer's own page makes). A
+  them; market≈NM is the same approximation TCGplayer's own page makes).
+  CAVEAT (2026-08-29, per TCGplayer's definition): marketPrice centers on NM/LP
+  for MODERN cards but blends whatever's selling — including HP — for VINTAGE,
+  and nulls/lags on thin volume. So the NM row may UNDERSTATE true NM on old
+  cards (safe direction; Scrydex's EN NM cell ingests the same number verbatim
+  — the 8/27 "==NM" comparison was circular for EN). A
   same-printing non-NM Scrydex row is HIDDEN when it exceeds 2× the main price
   (kills broken-JP rows; margin `_MAIN_CONDITION_SCALE_MARGIN=2.0`). Other
   printings are never judged (phantom-guard lesson: high-value parallels are

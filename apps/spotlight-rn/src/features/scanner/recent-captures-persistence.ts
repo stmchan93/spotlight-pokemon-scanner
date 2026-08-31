@@ -58,6 +58,8 @@ type PersistedCapture = Pick<RecentCapture,
   | 'sourceImageCrop'
   | 'sourceImageDimensions'
   | 'sourceImageRotationDegrees'
+  | 'binderPage'
+  | 'matchConfidence'
 >;
 
 type PersistedTrayEnvelope = {
@@ -241,6 +243,8 @@ function toPersistedCapture(capture: RecentCapture): PersistedCapture {
     sourceImageCrop: capture.sourceImageCrop,
     sourceImageDimensions: capture.sourceImageDimensions,
     sourceImageRotationDegrees: capture.sourceImageRotationDegrees,
+    binderPage: capture.binderPage ?? null,
+    matchConfidence: capture.matchConfidence ?? null,
   };
 }
 

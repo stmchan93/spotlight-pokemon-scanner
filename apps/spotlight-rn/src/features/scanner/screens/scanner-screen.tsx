@@ -3,7 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Rect, Stop } from 'react-native-svg';
 import { useKeepAwake } from 'expo-keep-awake';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   IconChevronDown,
   IconChevronLeft,
@@ -53,11 +53,13 @@ import { useCameraPermission } from 'react-native-vision-camera';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
+  isSpotlightRepositoryRequestError,
   type CatalogSearchResult,
   type DeckConditionCode,
   type InventoryCardEntry,
   type InventoryEntryCreateRequestPayload,
   type ScannerCapturePayload,
+  type ScannerMatchResult,
   type SlabContext,
 } from '@spotlight/api-client';
 import {
@@ -79,7 +81,11 @@ import {
   type ScanSourceImageDimensions,
 } from '@/features/scanner/scan-candidate-review-session';
 import {
+  type BinderPageImage,
+  type NormalizedScannerTarget,
   binderPageGridSize,
+  rawCardNormalizedTargetHeight,
+  rawCardNormalizedTargetWidth,
   buildBinderPocketTargets,
   buildNormalizedScannerTarget,
   makeOrientationFixedSourceImageDimensions,
@@ -131,6 +137,7 @@ import {
   useScannerTargetConfig,
 } from '@/features/scanner/use-scanner-target-config';
 
+import { BinderPageReview } from './binder-page-review';
 import { ChangeCardPicker } from './change-card-picker';
 import { RecentCaptureSwipeRow } from './recent-capture-swipe-row';
 import { ScanPriceSheet, type ScanPriceSheetSelection } from './scan-price-sheet';
@@ -138,6 +145,9 @@ import {
   activeCandidateForCapture,
   alignToFourPointGrid,
   analyzeSlabCapture,
+  binderPageRows,
+  binderPocketRowId,
+  insertBinderPocketRows,
   buildOptimisticInventoryEntry,
   buildScanMatchFailureProperties,
   buildScanMatchSuccessProperties,
@@ -227,6 +237,8 @@ function buildInventoryEntryArgs(
 // Vertical space reserved for the "CLEAR ALL" footer appended below the scan
 // rows in the expanded tray, so the section stays reachable by scroll.
 const trayClearSectionHeight = 104;
+// Expanded tray only: the "Binder page" group header above a page's nine rows.
+const binderPageHeaderHeight = 40;
 const traySwipeThreshold = 20;
 // Fling velocity that commits an expand/collapse. gesture-handler reports
 // velocity in px/s, so this is the px/s equivalent of the old ~0.22 px/ms.
@@ -391,6 +403,25 @@ function useScannerZoomFactor(): [ScannerZoomFactor, (next: ScannerZoomFactor) =
 
 type CaptureRowMenuAnchor = { height: number; width: number; x: number; y: number };
 
+// "Pocket 4" plus a 3x3 glyph with that cell lit: the row's place on the page,
+// readable without counting rows in the tray.
+function PocketBadge({ pocketIndex }: { pocketIndex: number }) {
+  const cells = binderPageGridSize * binderPageGridSize;
+  return (
+    <View style={styles.pocketBadge} testID={`scanner-tray-pocket-${pocketIndex}`}>
+      <View style={styles.pocketGlyph}>
+        {Array.from({ length: cells }, (_, cell) => (
+          <View
+            key={`cell-${cell}`}
+            style={[styles.pocketGlyphCell, cell === pocketIndex ? styles.pocketGlyphCellActive : null]}
+          />
+        ))}
+      </View>
+      <Text style={styles.pocketBadgeLabel}>{`Pocket ${pocketIndex + 1}`}</Text>
+    </View>
+  );
+}
+
 type CaptureTrayRowProps = {
   capture: RecentCapture;
   enableEnterAnimation: boolean;
@@ -534,6 +565,7 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                     <Text style={styles.captureTitle}>Finding match</Text>
                   </View>
                   <Text style={styles.captureSubtitle}>Photo captured and queued for scan review</Text>
+                  {capture.binderPage ? <PocketBadge pocketIndex={capture.binderPage.pocketIndex} /> : null}
                 </>
               ) : candidate ? (
                 <>
@@ -548,6 +580,7 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                   <Text numberOfLines={1} style={styles.captureSubtitle}>
                     {modeTagLine}
                   </Text>
+                  {capture.binderPage ? <PocketBadge pocketIndex={capture.binderPage.pocketIndex} /> : null}
                 </>
               ) : (
                 <>
@@ -679,6 +712,8 @@ export function ScannerScreen({
    * never renders in a store binary, so the flag can't be reached there.
    */
   const [isBinderPageMode, setIsBinderPageMode] = useState(false);
+  const [activeBinderPageId, setActiveBinderPageId] = useState<string | null>(null);
+  const [isAddingBinderPage, setIsAddingBinderPage] = useState(false);
   // SYNCHRONOUS capture lock. `isCapturing` is React state, so two burst taps
   // fired within the same tick BOTH read the stale `false` before the setState
   // re-renders → both enter `handleCapture` and call `capturePhoto` concurrently
@@ -960,11 +995,19 @@ export function ScannerScreen({
   const emptyTrayVisualHeight = getRawScannerEmptyTrayVisualHeight({
     bottomInset: trayBottomInset,
   });
+  // Page mode reserves only the tray header so the full-width page reticle fits.
+  // Page mode reserves the same footer as single mode: the collapsed tray pops
+  // up with the newest rows exactly like a single scan (user decision — UX
+  // parity beats the ~10% pocket-resolution gain of a header-only footer).
+  const footerReservedHeight = collapsedTrayReservedHeight;
   const captureSurfaceLayout = makeRawScannerCaptureLayout({
     containerHeight: windowHeight,
     containerWidth: windowWidth,
+    // Page mode widens the reticle to the full usable width: it is the page
+    // detector, so its width sets every pocket crop's resolution.
+    mode: isBinderPageMode ? 'page' : 'card',
     safeAreaTop: insets.top,
-    trayReservedHeight: collapsedTrayReservedHeight,
+    trayReservedHeight: footerReservedHeight,
   });
   const runtimeAppEnv = resolveRuntimeValue([], ['spotlightAppEnv']);
   // Card-shaped crop (not the squatter visible frame) so the normalized target
@@ -1001,9 +1044,17 @@ export function ScannerScreen({
       272,
     ),
   );
+  // One group header per binder page present in the tray (expanded only; the
+  // collapsed tray shows a single row and must keep the newest row on top).
+  const binderPageHeaderCount = isTrayExpanded
+    ? new Set(recentCaptures.map((capture) => capture.binderPage?.pageId).filter(Boolean)).size
+    : 0;
   const trayContentHeight = recentCaptures.length === 0
     ? 0
-    : (recentCaptures.length * captureRowHeight) + ((recentCaptures.length - 1) * captureRowGap) + trayClearSectionHeight;
+    : (recentCaptures.length * captureRowHeight)
+      + ((recentCaptures.length - 1) * captureRowGap)
+      + (binderPageHeaderCount * (binderPageHeaderHeight + captureRowGap))
+      + trayClearSectionHeight;
   const trayScrollViewportHeight = recentCaptures.length > 0
     ? Math.min(trayContentHeight, trayExpandedBodyHeight)
     : Math.max(140, trayExpandedBodyHeight);
@@ -1384,6 +1435,171 @@ export function ScannerScreen({
     });
   }, [updateRecentCapture]);
 
+  /**
+   * Post-network SUCCESS handling shared by the single-scan path and the
+   * binder-page batch: paint the tray row, warm thumbnails, haptic, queue the
+   * persistence copy, and ship scan_match_succeeded. Exactly the block that
+   * used to live inline in `runMatchForCapture`.
+   */
+  const applyMatchSuccessForCapture = useCallback(({
+    captureId,
+    captureMs,
+    matchResult,
+    matchTarget,
+    mode,
+    normalizeMs,
+    scanStartedAt,
+    slabAnalysisMs,
+    sourceImageDimensions,
+  }: Pick<CaptureMatchParams, 'captureId' | 'captureMs' | 'matchTarget' | 'mode' | 'normalizeMs' | 'scanStartedAt' | 'slabAnalysisMs' | 'sourceImageDimensions'> & {
+    matchResult: ScannerMatchResult;
+  }) => {
+    const endToEndMs = Date.now() - scanStartedAt;
+    const paintedAt = Date.now();
+    // Grabbed inside the updater so we can copy the slab raw photo (which
+    // lives at `capture.uri` for slab rows) after paint.
+    let slabRawSourceUri: string | null = null;
+    updateRecentCapture(captureId, (capture) => {
+      if (mode === 'slabs') {
+        slabRawSourceUri = capture.uri || null;
+      }
+      return {
+        ...capture,
+        activeCandidateIndex: 0,
+        candidates: matchResult.candidates,
+        totalCandidateCount: matchResult.candidatePoolSize ?? matchResult.candidates.length,
+        isLoadingMoreCandidates: false,
+        isLoadingCandidates: false,
+        matchReviewDisposition: matchResult.reviewDisposition ?? null,
+        matchReviewReason: matchResult.reviewReason ?? null,
+        matchConfidence: matchResult.confidence ?? null,
+        normalizedImageDimensions: matchTarget.normalizedImageDimensions,
+        normalizedImageUri: matchTarget.normalizedImageUri,
+        scanID: matchResult.scanID,
+        slabContext: matchResult.slabContext ?? capture.slabContext,
+        sourceImageCrop: matchTarget.sourceImageCrop,
+        sourceImageDimensions,
+        sourceImageRotationDegrees: matchTarget.normalizationRotationDegrees,
+        uri: mode === 'slabs' ? capture.uri : matchTarget.normalizedImageUri,
+      };
+    });
+    // Warm the disk cache for this scan's candidate thumbnails (small urls)
+    // so swiping into the change-card picker on bad wifi paints instantly.
+    // Fire-and-forget off the scan hot path; raw lane only.
+    if (mode === 'raw') {
+      const candidateThumbUrls = matchResult.candidates
+        .map((candidate) => candidate.smallImageUrl ?? candidate.imageUrl)
+        .filter(Boolean) as string[];
+      void prefetchImageUrls(candidateThumbUrls, imageCachePolicy.thumbnail).catch(() => {});
+    }
+    void triggerScannerProcessedHaptic('found');
+    // Persistence copy. Fire-and-forget AFTER the result has been painted —
+    // the user already sees their match. We measure the gap between paint
+    // and the moment the copy is queued (persist_copy_queued_after_paint_ms)
+    // and ship it on scan_match_succeeded so any regression that sneaks
+    // persistence onto the scan hot path is visible in PostHog.
+    const persistCopyQueuedAfterPaintMs = Date.now() - paintedAt;
+    void (async () => {
+      const normalizedPermanent = await copyToScansDir(
+        matchTarget.normalizedImageUri,
+        captureId,
+        'normalized',
+        mode,
+      );
+      const slabRawPermanent = mode === 'slabs' && slabRawSourceUri
+        ? await copyToScansDir(slabRawSourceUri, captureId, 'raw', 'slabs')
+        : null;
+      if (!normalizedPermanent && !slabRawPermanent) {
+        return;
+      }
+      updateRecentCapture(captureId, (capture) => ({
+        ...capture,
+        normalizedImageUri: normalizedPermanent ?? capture.normalizedImageUri,
+        uri: mode === 'slabs'
+          ? (slabRawPermanent ?? capture.uri)
+          : (normalizedPermanent ?? capture.uri),
+      }));
+    })();
+    capturePostHogEvent('scan_match_succeeded', buildScanMatchSuccessProperties({
+      candidateCount: matchResult.candidates.length,
+      captureMs,
+      endToEndMs,
+      mode,
+      normalizeMs,
+      persistCopyQueuedAfterPaintMs,
+      requestAttemptCount: matchResult.requestAttemptCount,
+      reviewDisposition: matchResult.reviewDisposition,
+      roundTripMs: matchResult.roundTripMs,
+      slabAnalysisMs,
+      serverProcessingMs: matchResult.serverProcessingMs,
+    }));
+  }, [updateRecentCapture]);
+
+  /**
+   * Post-network FAILURE handling shared by both paths: diagnostic log, tray
+   * row reset, error haptic, and scan_match_failed.
+   */
+  const applyMatchFailureForCapture = useCallback(({
+    captureId,
+    captureMs,
+    captureSource,
+    error,
+    game,
+    matchTarget,
+    mode,
+    normalizeMs,
+    scanStartedAt,
+    slabAnalysisMs,
+    sourceImageDimensions,
+  }: Pick<CaptureMatchParams, 'captureId' | 'captureMs' | 'captureSource' | 'matchTarget' | 'mode' | 'normalizeMs' | 'scanStartedAt' | 'slabAnalysisMs' | 'sourceImageDimensions'> & {
+    error: unknown;
+    game?: ScannerCapturePayload['game'];
+  }) => {
+    if (mode === 'raw') {
+      logScannerDiagnostic(
+        `[SCANNER VISUAL TEST] matchError `
+        + `message=${scannerErrorMessage(error)} `
+        + `captureSource=${captureSource} `
+        + `nativeSource=${matchTarget.nativeSourceImageDimensions.width}x${matchTarget.nativeSourceImageDimensions.height} `
+        + `rotate=${matchTarget.normalizationRotationDegrees} `
+        + `normalized=${matchTarget.normalizedImageDimensions.width}x${matchTarget.normalizedImageDimensions.height} `
+        + `payloadKB=${matchTarget.normalizedImageBase64
+          ? Math.round((matchTarget.normalizedImageBase64.length * 0.75) / 1024)
+          : 'n/a'}`,
+        error,
+      );
+    }
+
+    updateRecentCapture(captureId, (capture) => ({
+      ...capture,
+      candidates: [],
+      totalCandidateCount: 0,
+      isLoadingMoreCandidates: false,
+      isLoadingCandidates: false,
+      matchReviewDisposition: null,
+      // Names the lane when the failure is "this game has no visual index
+      // yet"; null (the generic retry copy) for every other failure, and
+      // always null for Pokémon.
+      matchReviewReason: scannerLaneUnavailableReason(game ?? undefined, error),
+      normalizedImageDimensions: matchTarget.normalizedImageDimensions,
+      normalizedImageUri: matchTarget.normalizedImageUri,
+      scanID: null,
+      sourceImageCrop: matchTarget.sourceImageCrop,
+      sourceImageDimensions,
+      sourceImageRotationDegrees: matchTarget.normalizationRotationDegrees,
+      uri: mode === 'slabs' ? capture.uri : matchTarget.normalizedImageUri,
+    }));
+    void triggerScannerProcessedHaptic();
+    capturePostHogEvent('scan_match_failed', buildScanMatchFailureProperties({
+      captureMs,
+      endToEndMs: Date.now() - scanStartedAt,
+      errorKind: scannerErrorKind(error),
+      mode,
+      normalizeMs,
+      slabAnalysisMs,
+    }));
+  }, [updateRecentCapture]);
+
   const runMatchForCapture = useCallback(async ({
     captureId,
     captureMs,
@@ -1479,139 +1695,61 @@ export function ScannerScreen({
         );
       }
 
-      const paintedAt = Date.now();
-      // Grabbed inside the updater so we can copy the slab raw photo (which
-      // lives at `capture.uri` for slab rows) after paint.
-      let slabRawSourceUri: string | null = null;
-      updateRecentCapture(captureId, (capture) => {
-        if (mode === 'slabs') {
-          slabRawSourceUri = capture.uri || null;
-        }
-        return {
-          ...capture,
-          activeCandidateIndex: 0,
-          candidates: matchResult.candidates,
-          totalCandidateCount: matchResult.candidatePoolSize ?? matchResult.candidates.length,
-          isLoadingMoreCandidates: false,
-          isLoadingCandidates: false,
-          matchReviewDisposition: matchResult.reviewDisposition ?? null,
-          matchReviewReason: matchResult.reviewReason ?? null,
-          normalizedImageDimensions: matchTarget.normalizedImageDimensions,
-          normalizedImageUri: matchTarget.normalizedImageUri,
-          scanID: matchResult.scanID,
-          slabContext: matchResult.slabContext ?? capture.slabContext,
-          sourceImageCrop: matchTarget.sourceImageCrop,
-          sourceImageDimensions,
-          sourceImageRotationDegrees: matchTarget.normalizationRotationDegrees,
-          uri: mode === 'slabs' ? capture.uri : matchTarget.normalizedImageUri,
-        };
-      });
-      // Warm the disk cache for this scan's candidate thumbnails (small urls)
-      // so swiping into the change-card picker on bad wifi paints instantly.
-      // Fire-and-forget off the scan hot path; raw lane only.
-      if (mode === 'raw') {
-        const candidateThumbUrls = matchResult.candidates
-          .map((candidate) => candidate.smallImageUrl ?? candidate.imageUrl)
-          .filter(Boolean) as string[];
-        void prefetchImageUrls(candidateThumbUrls, imageCachePolicy.thumbnail).catch(() => {});
-      }
-      void triggerScannerProcessedHaptic('found');
-      // Persistence copy. Fire-and-forget AFTER the result has been painted —
-      // the user already sees their match. We measure the gap between paint
-      // and the moment the copy is queued (persist_copy_queued_after_paint_ms)
-      // and ship it on scan_match_succeeded so any regression that sneaks
-      // persistence onto the scan hot path is visible in PostHog.
-      const persistCopyQueuedAfterPaintMs = Date.now() - paintedAt;
-      void (async () => {
-        const normalizedPermanent = await copyToScansDir(
-          matchTarget.normalizedImageUri,
-          captureId,
-          'normalized',
-          mode,
-        );
-        const slabRawPermanent = mode === 'slabs' && slabRawSourceUri
-          ? await copyToScansDir(slabRawSourceUri, captureId, 'raw', 'slabs')
-          : null;
-        if (!normalizedPermanent && !slabRawPermanent) {
-          return;
-        }
-        updateRecentCapture(captureId, (capture) => ({
-          ...capture,
-          normalizedImageUri: normalizedPermanent ?? capture.normalizedImageUri,
-          uri: mode === 'slabs'
-            ? (slabRawPermanent ?? capture.uri)
-            : (normalizedPermanent ?? capture.uri),
-        }));
-      })();
-      capturePostHogEvent('scan_match_succeeded', buildScanMatchSuccessProperties({
-        candidateCount: matchResult.candidates.length,
+      applyMatchSuccessForCapture({
+        captureId,
         captureMs,
-        endToEndMs,
+        matchResult,
+        matchTarget,
         mode,
         normalizeMs,
-        persistCopyQueuedAfterPaintMs,
-        requestAttemptCount: matchResult.requestAttemptCount,
-        reviewDisposition: matchResult.reviewDisposition,
-        roundTripMs: matchResult.roundTripMs,
+        scanStartedAt,
         slabAnalysisMs,
-        serverProcessingMs: matchResult.serverProcessingMs,
-      }));
-    } catch (error) {
-      if (mode === 'raw') {
-        logScannerDiagnostic(
-          `[SCANNER VISUAL TEST] matchError `
-          + `message=${scannerErrorMessage(error)} `
-          + `captureSource=${captureSource} `
-          + `nativeSource=${matchTarget.nativeSourceImageDimensions.width}x${matchTarget.nativeSourceImageDimensions.height} `
-          + `rotate=${matchTarget.normalizationRotationDegrees} `
-          + `normalized=${matchTarget.normalizedImageDimensions.width}x${matchTarget.normalizedImageDimensions.height} `
-          + `payloadKB=${matchTarget.normalizedImageBase64
-            ? Math.round((matchTarget.normalizedImageBase64.length * 0.75) / 1024)
-            : 'n/a'}`,
-          error,
-        );
-      }
-
-      updateRecentCapture(captureId, (capture) => ({
-        ...capture,
-        candidates: [],
-        totalCandidateCount: 0,
-        isLoadingMoreCandidates: false,
-        isLoadingCandidates: false,
-        matchReviewDisposition: null,
-        // Names the lane when the failure is "this game has no visual index
-        // yet"; null (the generic retry copy) for every other failure, and
-        // always null for Pokémon.
-        matchReviewReason: scannerLaneUnavailableReason(matchPayload.game ?? undefined, error),
-        normalizedImageDimensions: matchTarget.normalizedImageDimensions,
-        normalizedImageUri: matchTarget.normalizedImageUri,
-        scanID: null,
-        sourceImageCrop: matchTarget.sourceImageCrop,
         sourceImageDimensions,
-        sourceImageRotationDegrees: matchTarget.normalizationRotationDegrees,
-        uri: mode === 'slabs' ? capture.uri : matchTarget.normalizedImageUri,
-      }));
-      void triggerScannerProcessedHaptic();
-      capturePostHogEvent('scan_match_failed', buildScanMatchFailureProperties({
+      });
+      return null;
+    } catch (error) {
+      applyMatchFailureForCapture({
+        captureId,
         captureMs,
-        endToEndMs: Date.now() - scanStartedAt,
-        errorKind: scannerErrorKind(error),
+        captureSource,
+        error,
+        game: matchPayload.game,
+        matchTarget,
         mode,
         normalizeMs,
+        scanStartedAt,
         slabAnalysisMs,
-      }));
+        sourceImageDimensions,
+      });
+      // Surface the failure to lane-level callers (the binder streamed loop
+      // keys on BinderPageTokenUnknown); the row itself is already handled.
+      return error;
     }
-  }, [spotlightRepository, updateRecentCapture]);
+  }, [applyMatchFailureForCapture, applyMatchSuccessForCapture, spotlightRepository]);
 
   /**
-   * Binder-page POC: one captured photo → nine pocket targets → nine ORDINARY
-   * scans through `runMatchForCapture`, capped at 3 in flight to match the
-   * server's inference slots (an uncapped nine would starve other scanners
-   * into the 6s semaphore timeout). Results land per-row in arrival order —
-   * the async-per-pocket contract in the v0 spec. Row 0 reuses the shutter
-   * placeholder; rows 1-8 are appended here. Only pocket 0 carries the page
-   * source image so the page photo uploads once, not nine times.
+   * Binder-page: one captured photo → the page image uploads ONCE
+   * (`prepareBinderPage`) → nine ORDINARY single visual-match calls that
+   * reference the stored pockets by token, run one-at-a-time so each pocket's
+   * tray row fills in as its response lands (results STREAM instead of all
+   * nine waiting out one batched forward). Older backends without the prepare
+   * endpoint fall back to the batched request (`matchScannerCaptureBatch`),
+   * which itself falls back to the original per-pocket upload loop. Row 0
+   * reuses the shutter placeholder; rows 1-8 are appended here. Only pocket 0
+   * carries the page source image so the page photo's training artifact
+   * uploads once, not nine times.
    */
+  // Serializes page batches: the server treats a page as ONE inference-slot
+  // customer, so a second page fired mid-flight would be shed with a 503.
+  // Chaining here lets the user tap the next page immediately — its rows show
+  // in the tray and its batch runs as soon as the previous page's finishes.
+  const binderBatchQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const enqueueBinderBatch = useCallback(<T,>(task: () => Promise<T>): Promise<T> => {
+    const result = binderBatchQueueRef.current.then(task, task);
+    binderBatchQueueRef.current = result.then(() => undefined, () => undefined);
+    return result;
+  }, []);
+
   const runBinderPageCapture = useCallback(async ({
     captureId,
     captureMs,
@@ -1636,33 +1774,14 @@ export function ScannerScreen({
     sourceImageDimensions: ScanSourceImageDimensions;
   }) => {
     const pocketCount = binderPageGridSize * binderPageGridSize;
-    const pocketRowId = (index: number) => (index === 0 ? captureId : `${captureId}-p${index}`);
+    const pocketRowId = (index: number) => binderPocketRowId(captureId, index);
 
-    setRecentCaptures((current) => applyCapEviction([
-      ...Array.from({ length: pocketCount - 1 }, (_, offset) => ({
-        activeCandidateIndex: 0,
-        candidates: [],
-        totalCandidateCount: 0,
-        isLoadingMoreCandidates: false,
-        hasTrackedSelectionEvent: false,
-        id: pocketRowId(offset + 1),
-        isAddingToInventory: false,
-        isLoadingCandidates: true,
-        matchReviewDisposition: null,
-        matchReviewReason: null,
-        mode: 'raw' as const,
-        normalizedImageDimensions: null,
-        normalizedImageUri: null,
-        recentlyAdded: false,
-        scanID: null,
-        slabContext: null,
-        sourceImageCrop: null,
-        sourceImageDimensions: null,
-        sourceImageRotationDegrees: 0,
-        uri: '',
-      })),
-      ...current,
-    ], 'raw'));
+    // Pocket 0 IS the shutter placeholder; pockets 1-8 go directly beneath it
+    // so the tray reads in page order (top-left first).
+    setRecentCaptures((current) => applyCapEviction(
+      insertBinderPocketRows(current, captureId, pocketCount),
+      'raw',
+    ));
 
     const failAllPockets = () => {
       setRecentCaptures((current) => current.map((capture) => {
@@ -1674,24 +1793,58 @@ export function ScannerScreen({
           isLoadingCandidates: false,
           matchReviewDisposition: null,
           matchReviewReason: null,
-          uri: capture.uri || photoUri,
+          // Keep failed pocket rows image-less rather than falling back to the
+          // full-res page photo (nine 4K decodes).
         };
       }));
       void triggerScannerProcessedHaptic();
     };
 
     const normalizeStartedAt = Date.now();
-    const pocketTargets = await buildBinderPocketTargets({
+    // The page image is all the BATCH needs (the server crops the pockets).
+    // The nine pocket crop renders — several seconds of on-device 4K work —
+    // only feed thumbnails and training artifacts, so they run while the
+    // request is already uploading instead of in front of it (measured ~12s
+    // from tap to server-arrival with them on the critical path).
+    let resolvePageImage: (image: BinderPageImage | null) => void = () => {};
+    const pageImagePromise = new Promise<BinderPageImage | null>((resolve) => {
+      resolvePageImage = resolve;
+    });
+    const binderTargetsPromise = buildBinderPocketTargets({
+      onPageImageReady: (image) => resolvePageImage(image),
       previewLayout,
       reticle: reticleLayout,
       sourceImageDimensions,
       sourceImageUri: photoUri,
-    });
+    }).then((result) => {
+      // No-op when onPageImageReady already fired; resolves null on failure.
+      resolvePageImage(result?.pageImage ?? null);
+      if (result && result.targets.length === pocketCount) {
+        result.targets.forEach((target, index) => {
+          updateRecentCapture(pocketRowId(index), (capture) => ({
+            ...capture,
+            normalizedImageDimensions: target.normalizedImageDimensions,
+            normalizedImageUri: target.normalizedImageUri,
+            sourceImageCrop: target.sourceImageCrop,
+            sourceImageDimensions,
+            sourceImageRotationDegrees: target.normalizationRotationDegrees,
+            uri: target.normalizedImageUri,
+          }));
+        });
+        logScannerDiagnostic(`[SCANNER PAGE] cropsMs=${Date.now() - normalizeStartedAt}`);
+        return result;
+      }
+      return null;
+    }).catch(() => null);
+
+    const pageImage = await pageImagePromise;
     const normalizeMs = Date.now() - normalizeStartedAt;
-    if (!pocketTargets || pocketTargets.length !== pocketCount) {
+    if (!pageImage) {
+      await binderTargetsPromise;
       failAllPockets();
       return;
     }
+    logScannerDiagnostic(`[SCANNER PAGE] pageReadyMs=${normalizeMs} captureMs=${captureMs}`);
 
     if (guestSessionPromise && !(await guestSessionPromise)) {
       failAllPockets();
@@ -1704,19 +1857,6 @@ export function ScannerScreen({
       normalize_ms: normalizeMs,
     });
 
-    // Each pocket row shows ITS crop as the tray thumbnail, not the page photo.
-    pocketTargets.forEach((target, index) => {
-      updateRecentCapture(pocketRowId(index), (capture) => ({
-        ...capture,
-        normalizedImageDimensions: target.normalizedImageDimensions,
-        normalizedImageUri: target.normalizedImageUri,
-        sourceImageCrop: target.sourceImageCrop,
-        sourceImageDimensions,
-        sourceImageRotationDegrees: target.normalizationRotationDegrees,
-        uri: target.normalizedImageUri,
-      }));
-    });
-
     const readScanImageAsBase64 = async (fileUri: string) => {
       try {
         const base64 = await FileSystem.readAsStringAsync(fileUri, { encoding: 'base64' });
@@ -1726,58 +1866,329 @@ export function ScannerScreen({
       }
     };
 
-    let nextPocketIndex = 0;
-    const runNextPocket = async (): Promise<void> => {
-      const index = nextPocketIndex++;
-      if (index >= pocketCount) {
+    // Batch payloads carry no pocket files — the server crops the page image.
+    const buildPocketPayload = (index: number): ScannerCapturePayload => ({
+      height: rawCardNormalizedTargetHeight,
+      mode: 'raw',
+      game: scanLane.game,
+      cardLanguage: scanCardLanguageForLane(scanLane),
+      width: rawCardNormalizedTargetWidth,
+      captureSource: 'camera',
+      cameraZoomFactor: zoomFactor,
+      ...(index === 0
+        ? {
+          sourceImage: {
+            fileUri: photoUri,
+            width: rawSourceImageDimensions.width,
+            height: rawSourceImageDimensions.height,
+          },
+        }
+        : {}),
+      submittedAt: new Date(scanStartedAt).toISOString(),
+      readFileAsBase64: readScanImageAsBase64,
+    });
+
+    // Full per-pocket payloads (with the crop files) for training-artifact
+    // uploads and the older-backend fallback.
+    const buildTargetPayload = (
+      target: NormalizedScannerTarget,
+      index: number,
+    ): ScannerCapturePayload => ({
+      ...buildPocketPayload(index),
+      fileUri: target.normalizedImageUri,
+      height: target.normalizedImageDimensions.height,
+      width: target.normalizedImageDimensions.width,
+      normalizedImage: {
+        fileUri: target.normalizedImageUri,
+        width: target.normalizedImageDimensions.width,
+        height: target.normalizedImageDimensions.height,
+      },
+    });
+
+    // Original per-pocket upload loop, kept as the last-resort fallback (older
+    // backends, or a page token lost mid-stream — `startIndex` resumes from
+    // the pocket that hit it): 3 in flight to match the server's inference
+    // slots.
+    const runPerPocketFallback = async (startIndex = 0) => {
+      const binderTargets = await binderTargetsPromise;
+      if (!binderTargets) {
+        failAllPockets();
         return;
       }
-      const target = pocketTargets[index];
-      const matchPayload: ScannerCapturePayload = {
-        height: target.normalizedImageDimensions.height,
-        fileUri: target.normalizedImageUri,
-        mode: 'raw',
-        game: scanLane.game,
-        cardLanguage: scanCardLanguageForLane(scanLane),
-        width: target.normalizedImageDimensions.width,
-        captureSource: 'camera',
-        cameraZoomFactor: zoomFactor,
-        normalizedImage: {
-          fileUri: target.normalizedImageUri,
-          width: target.normalizedImageDimensions.width,
-          height: target.normalizedImageDimensions.height,
-        },
-        ...(index === 0
-          ? {
-            sourceImage: {
-              fileUri: photoUri,
-              width: target.nativeSourceImageDimensions.width,
-              height: target.nativeSourceImageDimensions.height,
-            },
-          }
-          : {}),
-        submittedAt: new Date(scanStartedAt).toISOString(),
-        readFileAsBase64: readScanImageAsBase64,
+      let nextPocketIndex = startIndex;
+      const runNextPocket = async (): Promise<void> => {
+        const index = nextPocketIndex++;
+        if (index >= pocketCount) {
+          return;
+        }
+        await runMatchForCapture({
+          captureId: pocketRowId(index),
+          captureMs,
+          captureSource: 'camera',
+          matchPayload: buildTargetPayload(binderTargets.targets[index], index),
+          matchTarget: binderTargets.targets[index],
+          mode: 'raw',
+          normalizeMs,
+          rawSourceImageDimensions,
+          scanStartedAt,
+          slabAnalysisMs: null,
+          sourceImageDimensions,
+          rawCollectorNumberPromise: null,
+        });
+        return runNextPocket();
       };
-      await runMatchForCapture({
-        captureId: pocketRowId(index),
-        captureMs,
-        captureSource: 'camera',
-        matchPayload,
-        matchTarget: target,
-        mode: 'raw',
-        normalizeMs,
-        rawSourceImageDimensions,
-        scanStartedAt,
-        slabAnalysisMs: null,
-        sourceImageDimensions,
-        rawCollectorNumberPromise: null,
-      });
-      return runNextPocket();
+      const inFlight = Math.min(3, Math.max(1, pocketCount - startIndex));
+      await Promise.all(Array.from({ length: inFlight }, () => runNextPocket()));
     };
-    const inFlight = Math.min(3, pocketCount);
-    await Promise.all(Array.from({ length: inFlight }, () => runNextPocket()));
-  }, [runMatchForCapture, scanLane, updateRecentCapture, zoomFactor]);
+
+    const pocketPayloads = Array.from({ length: pocketCount }, (_, index) => buildPocketPayload(index));
+
+    // binder_page_scan_completed ships from every lane with the same shape;
+    // `lane` says which transport actually served the page, and batch_ms spans
+    // first pocket request → last pocket settled.
+    const emitPageScanCompleted = (
+      lane: 'streamed' | 'batch' | 'pocket_fallback',
+      batchMs: number,
+    ) => {
+      // Stage telemetry from ANY build (TestFlight included): where a page
+      // scan's wall-clock actually goes, queryable in PostHog.
+      void (async () => {
+        let pageFileKB: number | null = null;
+        try {
+          const info = await FileSystem.getInfoAsync(pageImage.uri);
+          const size = info.exists ? (info as { size?: number }).size : null;
+          pageFileKB = typeof size === 'number' ? Math.round(size / 1024) : null;
+        } catch {
+          // size is diagnostic-only
+        }
+        capturePostHogEvent('binder_page_scan_completed', {
+          batch_ms: batchMs,
+          capture_ms: captureMs,
+          lane,
+          mode: 'raw',
+          page_file_kb: pageFileKB,
+          page_ready_ms: normalizeMs,
+          pocket_count: pocketCount,
+          total_ms: Date.now() - scanStartedAt,
+        });
+      })();
+    };
+
+    // Batched lane, kept for backends without /scan/binder-page/prepare: ONE
+    // request holds a single inference slot and all nine results land together
+    // after the batched encoder forward.
+    const runBatchFallback = async () => {
+      const batchStartedAt = Date.now();
+      try {
+        const batch = await enqueueBinderBatch(() => spotlightRepository.matchScannerCaptureBatch(pocketPayloads, {
+          // One page upload instead of nine pocket uploads (~a third of the
+          // bytes); the server does the thirds crop.
+          pageImage: {
+            fileUri: pageImage.uri,
+            width: pageImage.width,
+            height: pageImage.height,
+          },
+          // Training artifacts wait for the crops (which render during upload).
+          artifactItems: binderTargetsPromise.then((result) => (
+            result ? result.targets.map((target, index) => buildTargetPayload(target, index)) : null
+          )),
+          onArtifactUploadComplete: (pocketIndex, artifactUpload) => {
+            if (artifactUpload?.status === 'failed') {
+              capturePostHogEvent('scan_artifact_upload_failed', {
+                error_kind: artifactUpload.errorKind ?? 'request_failed',
+                mode: 'raw',
+                pocket_index: pocketIndex,
+                ...(typeof artifactUpload.roundTripMs === 'number'
+                  ? { upload_ms: artifactUpload.roundTripMs }
+                  : {}),
+              });
+            }
+          },
+        }));
+        const batchMs = Date.now() - batchStartedAt;
+        logScannerDiagnostic(`[SCANNER PAGE] batchMs=${batchMs} totalMs=${Date.now() - scanStartedAt}`);
+        emitPageScanCompleted('batch', batchMs);
+        // The crops nearly always finish before the batch does; awaiting keeps
+        // matchTarget correct on the slow path too.
+        const binderTargets = await binderTargetsPromise;
+        if (!binderTargets) {
+          failAllPockets();
+          return;
+        }
+        const resultByPocket = new Map(batch.results.map((item) => [item.pocketIndex, item]));
+        for (let index = 0; index < pocketCount; index += 1) {
+          const item = resultByPocket.get(index);
+          const shared = {
+            captureId: pocketRowId(index),
+            captureMs,
+            matchTarget: binderTargets.targets[index],
+            mode: 'raw' as const,
+            normalizeMs,
+            scanStartedAt,
+            slabAnalysisMs: null,
+            sourceImageDimensions,
+          };
+          if (item?.result) {
+            applyMatchSuccessForCapture({ ...shared, matchResult: item.result });
+          } else {
+            applyMatchFailureForCapture({
+              ...shared,
+              captureSource: 'camera',
+              error: new Error(item?.errorMessage ?? 'Pocket match missing from batch response.'),
+              game: scanLane.game,
+            });
+          }
+        }
+      } catch (error) {
+        // Older backend without visual-match-batch (404 unknown path, 405, or a
+        // pre-batch 400): scan the page through the original per-pocket loop.
+        const status = isSpotlightRepositoryRequestError(error) ? error.status : null;
+        if (status === 400 || status === 404 || status === 405) {
+          await runPerPocketFallback();
+          emitPageScanCompleted('pocket_fallback', Date.now() - batchStartedAt);
+          return;
+        }
+        const binderTargets = await binderTargetsPromise;
+        if (!binderTargets) {
+          failAllPockets();
+          return;
+        }
+        for (let index = 0; index < pocketCount; index += 1) {
+          applyMatchFailureForCapture({
+            captureId: pocketRowId(index),
+            captureMs,
+            captureSource: 'camera',
+            error,
+            game: scanLane.game,
+            matchTarget: binderTargets.targets[index],
+            mode: 'raw',
+            normalizeMs,
+            scanStartedAt,
+            slabAnalysisMs: null,
+            sourceImageDimensions,
+          });
+        }
+      }
+    };
+
+    // Streamed lane (default): upload the page ONCE via prepare, then nine
+    // ORDINARY single visual-match calls that reference the stored pockets —
+    // each pocket's tray row fills in as its response lands (~2s cadence,
+    // first ~3s after tap) instead of all nine waiting out one ~15s batched
+    // forward (batching saves no FLOPs on the staging CPU). The prepare
+    // upload (~1s) and the on-device pocket crops (~0.5s on release builds)
+    // overlap here; the crops gate the first match only because each pocket's
+    // payload carries its crop file for thumbnails and the deferred
+    // training-artifact upload — never for the match request itself.
+    const [prepareOutcome, readyTargets] = await Promise.all([
+      spotlightRepository
+        .prepareBinderPage(
+          { fileUri: pageImage.uri, width: pageImage.width, height: pageImage.height },
+          { readFileAsBase64: readScanImageAsBase64 },
+        )
+        .then((prepared) => ({ ok: true as const, prepared }))
+        .catch((error: unknown) => ({ ok: false as const, error })),
+      binderTargetsPromise,
+    ]);
+    if (!prepareOutcome.ok) {
+      // Older backend without the prepare endpoint: the proven batched lane
+      // (which carries its own per-pocket fallback).
+      const status = isSpotlightRepositoryRequestError(prepareOutcome.error)
+        ? prepareOutcome.error.status
+        : null;
+      if (status === 404 || status === 405) {
+        await runBatchFallback();
+        return;
+      }
+      // Any other prepare failure (timeout / 5xx / rejected page): fail the
+      // rows retry-ably, like a whole-batch failure — re-uploading nine crops
+      // against a backend that just failed the one-page upload helps nobody.
+      if (!readyTargets) {
+        failAllPockets();
+        return;
+      }
+      for (let index = 0; index < pocketCount; index += 1) {
+        applyMatchFailureForCapture({
+          captureId: pocketRowId(index),
+          captureMs,
+          captureSource: 'camera',
+          error: prepareOutcome.error,
+          game: scanLane.game,
+          matchTarget: readyTargets.targets[index],
+          mode: 'raw',
+          normalizeMs,
+          scanStartedAt,
+          slabAnalysisMs: null,
+          sourceImageDimensions,
+        });
+      }
+      return;
+    }
+    if (!readyTargets) {
+      failAllPockets();
+      return;
+    }
+
+    const { pageToken } = prepareOutcome.prepared;
+    // A 400 naming BinderPageTokenUnknown means the stored page is gone
+    // (expired token / restarted server). The raw HTTP error body rides
+    // verbatim in error.message, so key on the errorType string.
+    const isPageTokenUnknownError = (error: unknown) =>
+      isSpotlightRepositoryRequestError(error)
+      && error.status === 400
+      && error.message.includes('BinderPageTokenUnknown');
+
+    // Pockets run SEQUENTIALLY (one in flight): the server encodes one pocket
+    // at a time anyway, and one-at-a-time preserves first-result latency.
+    // Holding the binder queue for the whole run keeps two pages from
+    // interleaving their encoder work.
+    let streamStartedAt = Date.now();
+    let tokenLostAtIndex: number | null = null;
+    await enqueueBinderBatch(async () => {
+      streamStartedAt = Date.now();
+      for (let index = 0; index < pocketCount; index += 1) {
+        const matchError = await runMatchForCapture({
+          captureId: pocketRowId(index),
+          captureMs,
+          captureSource: 'camera',
+          matchPayload: {
+            ...buildTargetPayload(readyTargets.targets[index], index),
+            binderPage: { pageToken, pocketIndex: index },
+          },
+          matchTarget: readyTargets.targets[index],
+          mode: 'raw',
+          normalizeMs,
+          rawSourceImageDimensions,
+          scanStartedAt,
+          slabAnalysisMs: null,
+          sourceImageDimensions,
+          rawCollectorNumberPromise: null,
+        });
+        if (isPageTokenUnknownError(matchError)) {
+          tokenLostAtIndex = index;
+          return;
+        }
+      }
+    });
+    if (tokenLostAtIndex !== null) {
+      // The failed pocket's row already shows the failure; the per-pocket
+      // fallback re-runs it (and every later pocket) with its own crop upload.
+      await runPerPocketFallback(tokenLostAtIndex);
+      emitPageScanCompleted('pocket_fallback', Date.now() - streamStartedAt);
+      return;
+    }
+    logScannerDiagnostic(`[SCANNER PAGE] streamMs=${Date.now() - streamStartedAt} totalMs=${Date.now() - scanStartedAt}`);
+    emitPageScanCompleted('streamed', Date.now() - streamStartedAt);
+  }, [
+    applyMatchFailureForCapture,
+    applyMatchSuccessForCapture,
+    enqueueBinderBatch,
+    runMatchForCapture,
+    scanLane,
+    spotlightRepository,
+    updateRecentCapture,
+    zoomFactor,
+  ]);
 
   const handleCapture = useCallback(async () => {
     if (!hasPermission) {
@@ -2412,6 +2823,14 @@ export function ScannerScreen({
     setActiveChangeCaptureId(null);
   }, []);
 
+  const openBinderPageReview = useCallback((pageId: string) => {
+    setActiveBinderPageId(pageId);
+  }, []);
+
+  const closeBinderPageReview = useCallback(() => {
+    setActiveBinderPageId(null);
+  }, []);
+
   // Backs the row's "WISHLIST" pill (Figma 1511:4096). Favorites the active
   // candidate, then slides the row out of the tray exactly like the swipe-rail
   // Collection action: optimistically flip the pill to "WISHLISTED", persist,
@@ -2688,6 +3107,115 @@ export function ScannerScreen({
     priceSelection,
     recentCaptures,
     refreshData,
+    spotlightRepository,
+    prependOptimisticInventoryEntry,
+    trackCandidateSelectionIfNeeded,
+  ]);
+
+  // Page overlay "Add N to collection": the tray's bulk add scoped to one
+  // binder page. Rows leave the tray as they land, like a row ADD, so the
+  // rest of the session (other pages, single scans) stays put.
+  const handleAddBinderPage = useCallback((pageId: string) => {
+    const targets = binderPageRows(recentCaptures, pageId).filter(
+      (capture) => !capture.isLoadingCandidates && !capture.recentlyAdded && !!activeCandidateForCapture(capture),
+    );
+    if (targets.length === 0 || isAddingBinderPage) {
+      return;
+    }
+    setIsAddingBinderPage(true);
+    void (async () => {
+      const addedAt = new Date().toISOString();
+      const rows = targets.flatMap((capture) => {
+        const candidate = activeCandidateForCapture(capture);
+        return candidate ? [{ capture, candidate }] : [];
+      });
+      const attempted = rows.length;
+      let succeeded = 0;
+
+      const applyCreated = (
+        capture: RecentCapture,
+        candidate: CatalogSearchResult,
+        deckEntryID: string,
+        createdAddedAt: string,
+      ) => {
+        prependOptimisticInventoryEntry(
+          buildOptimisticInventoryEntry(
+            candidate,
+            createdAddedAt || addedAt,
+            { mode: capture.mode, slabContext: capture.slabContext },
+            deckEntryID,
+          ),
+        );
+        removeCaptureAfterAdd(capture.id);
+        succeeded += 1;
+      };
+      const entryArgs = (capture: RecentCapture, candidate: CatalogSearchResult) => {
+        const condition: DeckConditionCode = priceSelection.get(capture.id)?.conditionCode ?? 'near_mint';
+        return buildInventoryEntryArgs(capture, candidate, addedAt, condition, activeCollectionID);
+      };
+      // Older-backend fallback: the original per-entry creates, 3 in flight.
+      const runPerEntryFallback = async () => {
+        let nextIndex = 0;
+        const drain = async (): Promise<void> => {
+          const index = nextIndex++;
+          if (index >= rows.length) {
+            return;
+          }
+          const { capture, candidate } = rows[index];
+          try {
+            const createResponse = await spotlightRepository.createInventoryEntry(entryArgs(capture, candidate));
+            applyCreated(capture, candidate, createResponse.deckEntryID, createResponse.addedAt || addedAt);
+          } catch (error) {
+            logScannerDiagnostic(`[SCANNER] binder page add failed: ${scannerErrorMessage(error)}`, error);
+          }
+          return drain();
+        };
+        await Promise.all(Array.from({ length: Math.min(3, rows.length) }, () => drain()));
+      };
+
+      rows.forEach(({ capture }) => trackCandidateSelectionIfNeeded(capture));
+      try {
+        // Nine ~1.5s creates were 13s on the wire; create-bulk lands the whole
+        // page in ONE request/transaction with per-entry results.
+        const response = await spotlightRepository.createInventoryEntriesBulk(
+          rows.map(({ capture, candidate }) => entryArgs(capture, candidate)),
+        );
+        for (const result of response.results) {
+          const row = rows[result.index];
+          if (!row) {
+            continue;
+          }
+          if (result.error || !result.deckEntryID) {
+            logScannerDiagnostic(`[SCANNER] binder page bulk add entry failed: ${result.error ?? 'missing deckEntryID'}`);
+            continue;
+          }
+          applyCreated(row.capture, row.candidate, result.deckEntryID, result.addedAt ?? addedAt);
+        }
+      } catch (error) {
+        const status = isSpotlightRepositoryRequestError(error) ? error.status : null;
+        if (status === 400 || status === 404 || status === 405) {
+          // Older backend without create-bulk.
+          await runPerEntryFallback();
+        } else {
+          logScannerDiagnostic(`[SCANNER] binder page bulk add failed: ${scannerErrorMessage(error)}`, error);
+        }
+      }
+      capturePostHogEvent('binder_page_add_all', {
+        attempted,
+        succeeded,
+        failed: attempted - succeeded,
+      });
+      setIsAddingBinderPage(false);
+      setActiveBinderPageId(null);
+      refreshData();
+    })();
+  }, [
+    activeCollectionID,
+    isAddingBinderPage,
+    priceSelection,
+    recentCaptures,
+    refreshData,
+    removeCaptureAfterAdd,
     spotlightRepository,
     prependOptimisticInventoryEntry,
     trackCandidateSelectionIfNeeded,
@@ -3076,6 +3604,7 @@ export function ScannerScreen({
       <RawScannerCaptureSurface
         cameraRef={cameraRef}
         canCapture={canCapture}
+        captureResolution={isBinderPageMode ? 'page' : 'card'}
         hasCameraPermission={hasCameraPermission}
         isTrayExpanded={isTrayExpanded}
         layout={captureSurfaceLayout}
@@ -3103,6 +3632,7 @@ export function ScannerScreen({
         }}
         prompt={promptCopy}
         shouldMountCamera={shouldMountCamera}
+        suspendPreview={activeBinderPageId != null}
         showSlabGuide={false}
         testIDPrefix="scanner"
         zoomFactor={zoomFactor}
@@ -3128,11 +3658,11 @@ export function ScannerScreen({
               <View
                 key={`binder-grid-v${third}`}
                 style={[styles.binderGridLine, {
-                  height: captureSurfaceLayout.reticle.height,
-                  left: captureSurfaceLayout.reticle.x
-                    + (captureSurfaceLayout.reticle.width / binderPageGridSize) * third,
-                  top: captureSurfaceLayout.reticle.y,
-                  width: 1.5,
+                  height: captureSurfaceLayout.captureCropRect.height,
+                  left: captureSurfaceLayout.captureCropRect.x
+                    + (captureSurfaceLayout.captureCropRect.width / binderPageGridSize) * third,
+                  top: captureSurfaceLayout.captureCropRect.y,
+                  width: 2,
                 }]}
               />
             ))}
@@ -3140,11 +3670,11 @@ export function ScannerScreen({
               <View
                 key={`binder-grid-h${third}`}
                 style={[styles.binderGridLine, {
-                  height: 1.5,
-                  left: captureSurfaceLayout.reticle.x,
-                  top: captureSurfaceLayout.reticle.y
-                    + (captureSurfaceLayout.reticle.height / binderPageGridSize) * third,
-                  width: captureSurfaceLayout.reticle.width,
+                  height: 2,
+                  left: captureSurfaceLayout.captureCropRect.x,
+                  top: captureSurfaceLayout.captureCropRect.y
+                    + (captureSurfaceLayout.captureCropRect.height / binderPageGridSize) * third,
+                  width: captureSurfaceLayout.captureCropRect.width,
                 }]}
               />
             ))}
@@ -3250,7 +3780,7 @@ export function ScannerScreen({
               over form — the UX pass owns its final look and placement
               (docs/binder-scan-v0-implementation-spec-2026-08-28.md).
             */}
-            {__DEV__ ? (
+            {__DEV__ || runtimeAppEnv === 'staging' ? (
               <Pressable
                 accessibilityLabel={isBinderPageMode ? 'Switch to single-card scanning' : 'Switch to binder-page scanning'}
                 accessibilityRole="button"
@@ -3265,6 +3795,8 @@ export function ScannerScreen({
                 </Text>
               </Pressable>
             ) : null}
+            {/* Zoom is meaningless for a whole page; hiding it also frees the band for the reticle. */}
+            {isBinderPageMode ? null : (
             <View style={styles.zoomDock} testID="scanner-zoom-control">
               {SCANNER_ZOOM_FACTORS.map((factor) => {
                 const selected = factor === zoomFactor;
@@ -3304,6 +3836,7 @@ export function ScannerScreen({
                 );
               })}
             </View>
+            )}
           </View>
         )}
 
@@ -3532,7 +4065,41 @@ export function ScannerScreen({
                   ]}
                   testID="scanner-tray-scroll"
                 >
-                  {visibleCaptures.map(renderCaptureRow)}
+                  {visibleCaptures.map((capture, index) => {
+                    const pageId = capture.binderPage?.pageId ?? null;
+                    const startsPage = isTrayExpanded
+                      && pageId != null
+                      && visibleCaptures.findIndex((entry) => entry.binderPage?.pageId === pageId) === index;
+                    if (!startsPage || pageId == null) {
+                      return renderCaptureRow(capture, index);
+                    }
+                    const pageRowCount = visibleCaptures.filter((entry) => entry.binderPage?.pageId === pageId).length;
+                    return (
+                      <Fragment key={`page-group-${pageId}`}>
+                        <View style={styles.binderPageHeader} testID={`scanner-tray-page-header-${pageId}`}>
+                          <Text style={styles.binderPageHeaderLabel}>
+                            {`BINDER PAGE · ${pageRowCount} CARD${pageRowCount === 1 ? '' : 'S'}`}
+                          </Text>
+                          {pageRowCount > 0 ? (
+                            <ArenaPressable
+                              accessibilityLabel="View binder page"
+                              accessibilityRole="button"
+                              hitSlop={8}
+                              onPress={gate(() => openBinderPageReview(pageId))}
+                              style={({ pressed }) => [
+                                styles.binderPageHeaderButton,
+                                pressed ? styles.captureChangeChipPressed : null,
+                              ]}
+                              testID={`scanner-tray-page-view-${pageId}`}
+                            >
+                              <Text style={styles.binderPageHeaderButtonLabel}>VIEW PAGE</Text>
+                            </ArenaPressable>
+                          ) : null}
+                        </View>
+                        {renderCaptureRow(capture, index)}
+                      </Fragment>
+                    );
+                  })}
                   {isTrayExpanded ? (
                     <View style={styles.trayClearSection}>
                       <ArenaPressable
@@ -3632,6 +4199,25 @@ export function ScannerScreen({
       />
 
       {(() => {
+        if (!activeBinderPageId) {
+          return null;
+        }
+        return (
+          <BinderPageReview
+            isAddingAll={isAddingBinderPage}
+            onAddAll={gate(() => handleAddBinderPage(activeBinderPageId))}
+            onClose={closeBinderPageReview}
+            onPressPocket={gate(openChangeCardPicker)}
+            pockets={binderPageRows(recentCaptures, activeBinderPageId)}
+            priceLabelFor={(capture) => {
+              const { amount, currencyCode } = resolveCaptureTrayPrice(capture, priceSelection.get(capture.id) ?? null);
+              return isFinitePrice(amount) ? formatCurrency(amount, currencyCode) : null;
+            }}
+          />
+        );
+      })()}
+
+      {(() => {
         const changeCapture = activeChangeCaptureId
           ? recentCaptures.find((capture) => capture.id === activeChangeCaptureId)
           : null;
@@ -3723,11 +4309,65 @@ const styles = StyleSheet.create({
     zIndex: 5,
   },
   binderGridLine: {
-    backgroundColor: 'rgba(255, 255, 255, 0.28)',
+    backgroundColor: 'rgba(255, 255, 255, 0.55)',
     position: 'absolute',
     zIndex: 3,
   },
   // POC chrome (dev builds only) — the UX pass owns the real treatment.
+  binderPageHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    height: binderPageHeaderHeight,
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  binderPageHeaderLabel: {
+    color: colors.scannerTextPrimary,
+    fontFamily: fontFamilies.bodyMedium,
+    fontSize: 12,
+    letterSpacing: 0.6,
+    lineHeight: 16,
+    opacity: 0.85,
+  },
+  binderPageHeaderButton: {
+    backgroundColor: colors.scannerConditionPill,
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  binderPageHeaderButtonLabel: {
+    color: colors.scannerTextPrimary,
+    fontFamily: fontFamilies.bodyMedium,
+    fontSize: 11,
+    lineHeight: 14,
+  },
+  pocketBadge: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 5,
+    marginTop: 2,
+  },
+  pocketGlyph: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 1,
+    width: 3 * 4 + 2,
+  },
+  pocketGlyphCell: {
+    backgroundColor: 'rgba(255, 255, 255, 0.28)',
+    height: 4,
+    width: 4,
+  },
+  pocketGlyphCellActive: {
+    backgroundColor: colors.purple500,
+  },
+  pocketBadgeLabel: {
+    color: colors.scannerTextPrimary,
+    fontFamily: fontFamilies.bodyMedium,
+    fontSize: 11,
+    lineHeight: 14,
+    opacity: 0.85,
+  },
   binderModePill: {
     backgroundColor: 'rgba(0, 0, 0, 0.35)',
     borderRadius: 999,

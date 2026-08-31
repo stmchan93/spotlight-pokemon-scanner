@@ -249,12 +249,15 @@ describe('useScannerTargetConfig', () => {
     expect(scanTargetFlag({ game: 'pokemon', language: 'japanese' })).toBe('jp');
     expect(scanTargetFlag({ game: 'pokemon', language: 'english' })).toBe('en');
 
-    // A single-language game names itself, carries no flag, and sends no
-    // language hint (the user never chose one).
-    expect(scannerLaneLabel({ game: 'onepiece', language: 'english' })).toBe('One Piece');
+    // A single-language game names itself and sends no language hint (the user
+    // never chose one). One Piece's EN-only index WEARS the EN tag + flag
+    // (user decision 2026-08-31) so a JP card's miss reads as language, not
+    // breakage; games without a declared tag stay bare.
+    expect(scannerLaneLabel({ game: 'onepiece', language: 'english' })).toBe('One Piece EN');
     expect(scannerLaneLabel({ game: 'lorcana', language: 'english' })).toBe('Disney Lorcana');
     expect(scanTargetPillLabel({ game: 'lorcana', language: 'english' })).toBe('Disney Lorcana');
-    expect(scanTargetFlag({ game: 'onepiece', language: 'english' })).toBeUndefined();
+    expect(scanTargetFlag({ game: 'onepiece', language: 'english' })).toBe('en');
+    expect(scanTargetFlag({ game: 'lorcana', language: 'english' })).toBeUndefined();
     expect(scanCardLanguageForLane({ game: 'onepiece', language: 'english' })).toBeNull();
   });
 });

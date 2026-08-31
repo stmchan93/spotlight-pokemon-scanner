@@ -23,6 +23,7 @@ import {
   GestureHandlerRootView,
 } from 'react-native-gesture-handler';
 import {
+  LogBox,
   Platform,
   View,
 } from 'react-native';
@@ -56,6 +57,11 @@ import {
 } from '@/providers/auth-provider';
 
 void SplashScreen.preventAutoHideAsync();
+
+// supabase auth-js `console.error`s a dead stored refresh token before the
+// auth provider catches it and lands on the login screen. That's a normal
+// "sign in again" path, not a bug — keep it out of the dev-only LogBox.
+LogBox.ignoreLogs([/Invalid Refresh Token/i, /Refresh Token Not Found/i]);
 
 // Cross-dissolve the native splash out instead of cutting it. Even when the JS
 // first frame is already painted, a hard cut exposes any sub-frame mismatch

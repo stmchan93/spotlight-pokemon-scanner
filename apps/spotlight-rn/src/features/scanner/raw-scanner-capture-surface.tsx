@@ -25,6 +25,7 @@ import {
 import {
   Text,
   colors,
+  spacing,
   textStyles,
 } from '@spotlight/design-system';
 
@@ -142,6 +143,12 @@ type RawScannerCaptureSurfaceProps = {
   onCameraReady: () => void;
   onCameraStopped?: () => void;
   onCapture: () => void;
+  /**
+   * 'page' = binder-page mode: a 4K still so each of the nine pocket crops is
+   * ~720px wide, above the matcher's 630px input. 'card' = the single-card
+   * FHD still (the reticle crop already exceeds 630px there).
+   */
+  captureResolution?: 'card' | 'page';
   prompt: string;
   /**
    * Capture "lock-in" pulse (Figma 2227:22138 → 2227:22140): 0 = resting white
@@ -150,6 +157,12 @@ type RawScannerCaptureSurfaceProps = {
    */
   reticleLockProgress?: SharedValue<number>;
   shouldMountCamera: boolean;
+  /**
+   * Pause the live session (isActive=false) WITHOUT unmounting the camera —
+   * used while a full-screen result overlay covers the preview, so the ISP/AF
+   * stop burning CPU behind the blur but reopening is instant.
+   */
+  suspendPreview?: boolean;
   showSlabGuide?: boolean;
   testIDPrefix: string;
   /**
@@ -160,14 +173,25 @@ type RawScannerCaptureSurfaceProps = {
   zoomFactor?: number;
 };
 
+export type RawScannerCaptureLayoutMode = 'card' | 'page';
+
 export function makeRawScannerCaptureLayout({
   containerHeight,
   containerWidth,
+  mode = 'card',
   safeAreaTop,
   trayReservedHeight = rawScannerTrayReservedHeight,
 }: {
   containerHeight: number;
   containerWidth: number;
+  /**
+   * 'page' = binder-page mode. The reticle IS the page detector (the pocket crops
+   * are a thirds split of it), so it spans the full usable width to maximise
+   * per-pocket pixels, and the visible frame equals the crop rect exactly so the
+   * 3×3 grid drawn on screen is the grid that gets cut. 'card' (default) is the
+   * single-card layout and is untouched by this flag.
+   */
+  mode?: RawScannerCaptureLayoutMode;
   safeAreaTop: number;
   trayReservedHeight?: number;
 }): RawScannerCaptureLayout {
@@ -187,6 +211,7 @@ export function makeRawScannerCaptureLayout({
   // Top edge of the controls row (pill + zoom), which sits a fixed lift above the
   // tray. The reticle bottom keeps `inset` clearance above it.
   const controlsRowTop = trayTop - rawScannerControlsRowLift - rawScannerControlsRowHeight;
+
   const x = inset;
   const width = Math.max(284, containerWidth - inset * 2);
   const y = headerHeight + inset;
@@ -235,6 +260,7 @@ export function getRawScannerCollapsedTrayReservedHeight({
   return rawScannerTrayHeaderHeight + rawScannerTrayCollapsedRowHeight + bottomInset;
 }
 
+
 export function getRawScannerEmptyTrayVisualHeight({
   bottomInset,
 }: {
@@ -254,9 +280,11 @@ export function RawScannerCaptureSurface({
   onCameraReady,
   onCameraStopped,
   onCapture,
+  captureResolution = 'card',
   prompt,
   reticleLockProgress,
   shouldMountCamera,
+  suspendPreview = false,
   showSlabGuide = false,
   testIDPrefix,
   zoomFactor = 1,
@@ -307,9 +335,19 @@ export function RawScannerCaptureSurface({
   // cards. FHD (1080×1920) keeps the crop ~700px → DOWNSCALED to 630 → sharp. iOS
   // negotiated a high-res still under HD already, so pin the higher target on
   // Android only (its CameraX negotiation landed on the low 720 tier this session).
+  // Binder-page mode divides the frame by three, so it needs a 4K still or each
+  // pocket lands at ~220px and gets upscaled 3x (measured 2026-08-30: every
+  // pocket scan logged source=1920x1080 crop=223x312, all low confidence).
+  // iOS: UHD for BOTH modes — changing targetResolution recreates the photo
+  // output and renegotiates the whole camera session, which made the
+  // Single<->Page toggle visibly laggy. A 4K still costs iOS ~200ms extra at
+  // capture and sharpens the single-card crop too. Android keeps FHD for
+  // single-card (budget ISPs; 4K stills are slow there) and pays the
+  // renegotiation only on the rare page toggle.
   const photoOutput = usePhotoOutput({
-    targetResolution:
-      Platform.OS === 'android' ? CommonResolutions.FHD_16_9 : CommonResolutions.HD_16_9,
+    targetResolution: Platform.OS === 'android'
+      ? (captureResolution === 'page' ? CommonResolutions.UHD_16_9 : CommonResolutions.FHD_16_9)
+      : CommonResolutions.UHD_16_9,
     quality: rawVisualCaptureQuality,
     qualityPrioritization: 'balanced',
   });
@@ -460,12 +498,17 @@ export function RawScannerCaptureSurface({
     return () => clearTimeout(timer);
   }, [shouldMountCamera, cameraStarted, cameraSessionEpoch]);
 
+  // Page mode draws the frame around the CROP rect: the 3x3 grid covers the
+  // crop (pockets are cut from it), so the purple corners must wrap the grid
+  // rather than the squatter single-card frame inside it.
+  const frameRect = captureResolution === 'page' ? layout.captureCropRect : layout.reticle;
+
   return (
     <View style={styles.previewCanvas}>
       {isCameraMounted ? (
         <Camera
           device={device}
-          isActive={shouldMountCamera}
+          isActive={shouldMountCamera && !suspendPreview}
           key={`camera-${cameraSessionEpoch}`}
           onError={onCameraError}
           onStarted={handleCameraStarted}
@@ -497,10 +540,10 @@ export function RawScannerCaptureSurface({
           style={[
             styles.reticleCaptureButton,
             {
-              height: layout.reticle.height,
-              left: layout.reticle.x,
-              top: layout.reticle.y,
-              width: layout.reticle.width,
+              height: frameRect.height,
+              left: frameRect.x,
+              top: frameRect.y,
+              width: frameRect.width,
             },
           ]}
           testID={`${testIDPrefix}-preview`}
@@ -520,10 +563,10 @@ export function RawScannerCaptureSurface({
           style={[
             styles.reticleShell,
             {
-              height: layout.reticle.height,
-              left: layout.reticle.x,
-              top: layout.reticle.y,
-              width: layout.reticle.width,
+              height: frameRect.height,
+              left: frameRect.x,
+              top: frameRect.y,
+              width: frameRect.width,
             },
             lockShellStyle,
           ]}

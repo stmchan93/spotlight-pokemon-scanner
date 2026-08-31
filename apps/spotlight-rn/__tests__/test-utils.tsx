@@ -134,6 +134,14 @@ export function createTestSpotlightRepository(
       return overrides.matchScannerCapture?.(...args)
         ?? baseRepository.matchScannerCapture(...args);
     },
+    matchScannerCaptureBatch: (...args) => {
+      return overrides.matchScannerCaptureBatch?.(...args)
+        ?? baseRepository.matchScannerCaptureBatch(...args);
+    },
+    prepareBinderPage: (...args) => {
+      return overrides.prepareBinderPage?.(...args)
+        ?? baseRepository.prepareBinderPage(...args);
+    },
     fetchScanCandidates: (...args) => {
       return overrides.fetchScanCandidates?.(...args)
         ?? baseRepository.fetchScanCandidates(...args);
@@ -205,6 +213,10 @@ export function createTestSpotlightRepository(
     createInventoryEntry: (...args) => {
       return overrides.createInventoryEntry?.(...args)
         ?? baseRepository.createInventoryEntry(...args);
+    },
+    createInventoryEntriesBulk: (...args) => {
+      return overrides.createInventoryEntriesBulk?.(...args)
+        ?? baseRepository.createInventoryEntriesBulk(...args);
     },
     createPortfolioBuy: (...args) => {
       return overrides.createPortfolioBuy?.(...args)

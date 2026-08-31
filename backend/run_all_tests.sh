@@ -19,6 +19,9 @@ TEST_MODULES=(
   backend.tests.test_raw_decision_phase5
   backend.tests.test_pricing_phase6
   backend.tests.test_scan_logging_phase7
+  backend.tests.test_binder_page_prepare
+  backend.tests.test_deck_entries_create_bulk
+  backend.tests.test_scan_visual_match_batch
   backend.tests.test_pricing_utils
   backend.tests.test_pricing_provider
   backend.tests.test_fx_rates

@@ -62,6 +62,8 @@ import type {
   CatalogSearchResult,
   CreateCardTransactionPayload,
   ExpansionRecord,
+  InventoryEntryBulkCreateResponsePayload,
+  InventoryEntryBulkCreateResultEntry,
   InventoryEntryCreateRequestPayload,
   InventoryEntryCreateResponsePayload,
   InventoryCardEntry,
@@ -122,7 +124,14 @@ import type {
   ScannerCardLanguage,
   ScannerImagePayload,
   ScanFeedbackPayload,
+  BinderPagePrepareOptions,
+  BinderPagePrepareResult,
+  ScannerMatchBatchItemResult,
+  ScannerMatchBatchOptions,
+  ScannerMatchBatchResult,
   ScannerMatchOptions,
+  ScannerBatchPageImage,
+  ScannerMatchConfidence,
   ScannerMatchResult,
   ScannerMode,
   ScannerTargetLanguageMismatch,
@@ -228,6 +237,30 @@ export interface SpotlightRepository {
     payload: ScannerCapturePayload,
     options?: ScannerMatchOptions,
   ): Promise<ScannerMatchResult>;
+  /**
+   * Binder-page lane: match up to nine pocket captures in ONE request that
+   * holds a single backend inference slot (one batched encoder forward).
+   * Resolves per-pocket results; a pocket-level failure lands in its item's
+   * `errorMessage` instead of rejecting. Rejects only when the whole request
+   * fails (e.g. an older backend without the endpoint answers 404 — callers
+   * fall back to per-pocket `matchScannerCapture`).
+   */
+  matchScannerCaptureBatch(
+    items: ScannerCapturePayload[],
+    options?: ScannerMatchBatchOptions,
+  ): Promise<ScannerMatchBatchResult>;
+  /**
+   * Binder-page streamed lane, step 1: upload the page image ONCE; the backend
+   * crops and stores the pockets and returns a short-lived `pageToken`. Each
+   * pocket then runs an ORDINARY `matchScannerCapture` whose payload carries
+   * `binderPage: { pageToken, pocketIndex }` and no image bytes, so per-pocket
+   * results stream as they land. Rejects (404/405 on older backends without the
+   * endpoint) so callers can fall back to `matchScannerCaptureBatch`.
+   */
+  prepareBinderPage(
+    pageImage: ScannerBatchPageImage,
+    options?: BinderPagePrepareOptions,
+  ): Promise<BinderPagePrepareResult>;
   fetchScanCandidates(
     scanId: string,
     offset: number,
@@ -272,6 +305,11 @@ export interface SpotlightRepository {
   getCardFavorites(query?: CardFavoritesQuery): Promise<CardFavoriteEntry[]>;
   getAddToCollectionOptions(cardId: string): Promise<AddToCollectionOptions>;
   createInventoryEntry(payload: InventoryEntryCreateRequestPayload): Promise<InventoryEntryCreateResponsePayload>;
+  /**
+   * Binder-page "add all": create up to 50 holdings in ONE request/transaction.
+   * Per-entry results carry either the single-create fields or an `error`.
+   */
+  createInventoryEntriesBulk(entries: InventoryEntryCreateRequestPayload[]): Promise<InventoryEntryBulkCreateResponsePayload>;
   createPortfolioBuy(payload: PortfolioBuyRequestPayload): Promise<PortfolioBuyResponsePayload>;
   replacePortfolioEntry(payload: PortfolioEntryReplaceRequestPayload): Promise<PortfolioEntryReplaceResponsePayload>;
   deletePortfolioEntry(payload: PortfolioEntryDeleteRequestPayload): Promise<PortfolioEntryDeleteResponsePayload>;
@@ -365,6 +403,14 @@ const scanMatchRequestTimeoutMs = 20000;
 // retried here and keep the single long timeout above — their matches take 40-50s and a
 // short timeout would false-fail them.
 const rawMatchPerAttemptTimeoutMs = 10000;
+// A binder page is one request carrying nine images and one batched inference:
+// upload on a slow uplink (~10s for 9 JPEGs) plus a small-VM batch encode (~7s
+// measured on staging) can pass 20s legitimately. Timing out early creates a
+// server-side zombie that 503s every follow-up for that page.
+const batchMatchRequestTimeoutMs = 75000;
+// Binder-page prepare uploads ONE page JPEG and the server only crops/stores
+// pockets — no inference. ~1s typical; 20s covers a slow show-floor uplink.
+const binderPagePrepareTimeoutMs = 20000;
 const rawMatchAttempts = 3; // 1 initial attempt + up to 2 retries
 const rawMatchRetryBackoffsMs = [500, 1000];
 // The artifact upload carries the full normalized (+ optional source) image as
@@ -623,6 +669,7 @@ type ScanMatchResponseDTO = {
   slabContext?: DeckEntryDTO['slabContext'];
   reviewDisposition?: string | null;
   reviewReason?: string | null;
+  confidence?: string | null;
   targetLanguageMismatch?: {
     selected?: string | null;
     detected?: string | null;
@@ -631,6 +678,22 @@ type ScanMatchResponseDTO = {
   performance?: {
     serverProcessingMs?: number | null;
   } | null;
+};
+
+type ScanMatchBatchResponseDTO = {
+  results?: Array<
+    (ScanMatchResponseDTO & { pocketIndex?: number | null; error?: string | null })
+  > | null;
+  itemCount?: number | null;
+};
+
+// Response of POST /api/v1/scan/binder-page/prepare — the stored-page token the
+// streamed binder lane's per-pocket matches reference. Values arrive untrusted
+// and are normalized.
+type BinderPagePrepareResponseDTO = {
+  pageToken?: string | null;
+  pocketCount?: number | null;
+  expiresInSeconds?: number | null;
 };
 
 type ScanCandidatesResponseDTO = {
@@ -2014,6 +2077,16 @@ function createScannerMatchPayload(
     cropConfidence: 1,
     warnings: [],
     ocrAnalysis: slabAnalysis?.ocrAnalysis ?? rawOcrAnalysis,
+    // Binder-page streamed lane: reference to a server-stored pocket crop.
+    // Present only when the caller prepared the page via prepareBinderPage.
+    ...(payload.binderPage
+      ? {
+        binderPage: {
+          pageToken: payload.binderPage.pageToken,
+          pocketIndex: payload.binderPage.pocketIndex,
+        },
+      }
+      : {}),
   };
 }
 
@@ -2119,6 +2192,11 @@ function normalizeSlabContext(value: DeckEntryDTO['slabContext']): SlabContext |
 
 function isScannerCardLanguage(value: string | null | undefined): value is ScannerCardLanguage {
   return value === 'english' || value === 'japanese';
+}
+
+function normalizeScannerMatchConfidence(value: unknown): ScannerMatchConfidence | null {
+  const raw = normalizeString(value)?.toLowerCase();
+  return raw === 'high' || raw === 'medium' || raw === 'low' ? raw : null;
 }
 
 function normalizeTargetLanguageMismatch(
@@ -3409,6 +3487,22 @@ export class MockSpotlightRepository implements SpotlightRepository {
     } satisfies ScannerMatchResult;
   }
 
+  async matchScannerCaptureBatch(items: ScannerCapturePayload[], options?: ScannerMatchBatchOptions) {
+    const results = await Promise.all(items.map(async (item, pocketIndex) => {
+      const result = await this.matchScannerCapture(item);
+      options?.onArtifactUploadComplete?.(pocketIndex, { status: 'skipped', reason: 'mock' });
+      return { pocketIndex, result, errorMessage: null };
+    }));
+    return { results } satisfies ScannerMatchBatchResult;
+  }
+
+  async prepareBinderPage(
+    _pageImage: ScannerBatchPageImage,
+    _options?: BinderPagePrepareOptions,
+  ): Promise<BinderPagePrepareResult> {
+    return { pageToken: createPseudoUUID(), pocketCount: 9, expiresInSeconds: 600 };
+  }
+
   async fetchScanCandidates(_scanId: string, offset: number, limit: number) {
     const all = buildScannerCandidates('raw', 30);
     const candidates = all.slice(Math.max(0, offset), Math.max(0, offset) + Math.max(0, limit));
@@ -3860,6 +3954,28 @@ export class MockSpotlightRepository implements SpotlightRepository {
       sourceScanID: payload.sourceScanID,
       addedAt: payload.addedAt,
     };
+  }
+
+  async createInventoryEntriesBulk(entries: InventoryEntryCreateRequestPayload[]) {
+    const results: InventoryEntryBulkCreateResultEntry[] = [];
+    for (const [index, entry] of entries.entries()) {
+      try {
+        const created = await this.createInventoryEntry(entry);
+        results.push({ index, ...created });
+      } catch (error) {
+        results.push({
+          index,
+          error: error instanceof Error ? error.message : String(error),
+          errorType: error instanceof Error ? error.name : 'Error',
+        });
+      }
+    }
+    const createdCount = results.filter((result) => !result.error).length;
+    return {
+      results,
+      createdCount,
+      failedCount: results.length - createdCount,
+    } satisfies InventoryEntryBulkCreateResponsePayload;
   }
 
   async replacePortfolioEntry(payload: PortfolioEntryReplaceRequestPayload) {
@@ -5179,10 +5295,16 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     const matchImageMeta = baseMatchPayload.image as { height: number; width: number };
     const normalizedFileUri = normalizeString(payload.fileUri)
       ?? scannerImageFileUri(payload.normalizedImage);
+    // Binder-page streamed lane: the server already holds this pocket's crop
+    // (keyed by pageToken + pocketIndex), so the match is a small JSON body
+    // with NO image bytes — never multipart, never base64. Any local
+    // fileUri/normalizedImage on the payload feeds ONLY the deferred artifact
+    // upload below, never the match request.
+    const binderPage = payload.binderPage ?? null;
     // Only the raw lane's /scan/visual-match speaks multipart (the slab lane's
     // /scan/match is not part of the multipart contract), and only when the
     // capture has a normalized file on disk to stream.
-    let useMultipart = isRawMatch && !!normalizedFileUri && canAttemptScanMultipart();
+    let useMultipart = isRawMatch && !binderPage && !!normalizedFileUri && canAttemptScanMultipart();
 
     const matchRequestOptions: JsonRequestOptions = {
       candidateStrategy: 'single_active',
@@ -5200,6 +5322,12 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     let jsonMatchBodyPromise: Promise<string | null> | null = null;
     const resolveJsonMatchBody = () => {
       jsonMatchBodyPromise ??= (async () => {
+        if (binderPage) {
+          // Standard match fields + the binderPage reference, and no image
+          // field at all — the server injects the stored pocket crop.
+          const { image: _image, ...tokenMatchFields } = baseMatchPayload;
+          return JSON.stringify(tokenMatchFields);
+        }
         const inline = normalizeString(payload.jpegBase64);
         const jpegBase64 = inline
           ?? (normalizedFileUri && payload.readFileAsBase64
@@ -5348,7 +5476,335 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       serverProcessingMs,
       slabContext: normalizeSlabContext(response.data?.slabContext),
       targetLanguageMismatch: normalizeTargetLanguageMismatch(response.data?.targetLanguageMismatch),
+      confidence: normalizeScannerMatchConfidence(response.data?.confidence),
     } satisfies ScannerMatchResult;
+  }
+
+  async matchScannerCaptureBatch(items: ScannerCapturePayload[], options?: ScannerMatchBatchOptions) {
+    if (items.length === 0) {
+      return { results: [] } satisfies ScannerMatchBatchResult;
+    }
+    const startedAt = Date.now();
+    const endpointPath = 'api/v1/scan/visual-match-batch';
+    // Per-pocket scanIDs generated up front: each keys BOTH its batch item and
+    // its own artifact upload, exactly like the single path.
+    const scanIDs = items.map(() => createPseudoUUID());
+
+    // Shared request fields come from pocket 0 (a binder page shares one
+    // mode/game/language/zoom); scanID + image move into items[].
+    const basePayload = createScannerMatchPayload(items[0], '', this.clientContext ?? undefined);
+    delete (basePayload as Record<string, unknown>).scanID;
+    delete (basePayload as Record<string, unknown>).image;
+    delete (basePayload as Record<string, unknown>).ocrAnalysis;
+
+    const itemFileUris = items.map((item) => (
+      normalizeString(item.fileUri) ?? scannerImageFileUri(item.normalizedImage)
+    ));
+    const itemPayloads = items.map((item, pocketIndex) => ({
+      scanID: scanIDs[pocketIndex],
+      pocketIndex,
+      image: {
+        width: Math.max(1, normalizeInteger(item.width, 1)),
+        height: Math.max(1, normalizeInteger(item.height, 1)),
+      },
+    }));
+
+    const requestOptions: JsonRequestOptions = {
+      candidateStrategy: 'single_active',
+      logTransport: true,
+      requestLabel: endpointPath,
+      // One request carries the whole page: nine uploads + a batched encode.
+      timeoutMs: batchMatchRequestTimeoutMs,
+    };
+
+    const pageImage = options?.pageImage ?? null;
+    const pageImageFileUri = normalizeString(pageImage?.fileUri ?? null);
+    // Page-image mode replaces the nine pocket uploads with one page upload.
+    const usePageImage = !!pageImage && (!!pageImageFileUri || !!normalizeString(pageImage.jpegBase64 ?? null));
+
+    let useMultipart = (usePageImage ? !!pageImageFileUri : itemFileUris.every(Boolean)) && canAttemptScanMultipart();
+
+    const runBatchRequest = async (): Promise<JsonRequestResult<ScanMatchBatchResponseDTO>> => {
+      if (useMultipart) {
+        const form = new FormData();
+        const multipartPayload = usePageImage
+          ? { ...basePayload, items: itemPayloads, pageImage: { width: pageImage!.width, height: pageImage!.height } }
+          : { ...basePayload, items: itemPayloads };
+        form.append('payload', JSON.stringify(multipartPayload));
+        if (usePageImage) {
+          appendMultipartJpegPart(form, 'page_image', pageImageFileUri as string, 'page.jpg');
+        } else {
+          itemFileUris.forEach((fileUri, pocketIndex) => {
+            appendMultipartJpegPart(form, `normalized_image_${pocketIndex}`, fileUri as string, `normalized_${pocketIndex}.jpg`);
+          });
+        }
+        const multipartResponse = await this.requestJson<ScanMatchBatchResponseDTO>(
+          `${this.baseUrl}/${endpointPath}`,
+          {
+            body: form,
+            // No Content-Type header — fetch generates the multipart boundary.
+            method: 'POST',
+          },
+          requestOptions,
+        );
+        if (multipartResponse.kind !== 'error') {
+          return multipartResponse;
+        }
+        if (isMultipartUnsupportedStatus(multipartResponse.error.status)) {
+          // Older backend without multipart: retry THIS call over JSON+base64
+          // (a 404 also 404s over JSON, which the caller's per-pocket fallback
+          // keys on).
+          markScanMultipartUnsupported();
+          useMultipart = false;
+        } else {
+          // Timeout / 5xx / network: the server may STILL be processing the
+          // page (it holds the inference slot for ~seconds). Re-sending the
+          // whole batch here just collides with that in-flight work and 503s —
+          // propagate the error instead.
+          return multipartResponse;
+        }
+      }
+
+      if (usePageImage) {
+        const materializedPage = await materializeScannerImageForJson(
+          { jpegBase64: pageImage!.jpegBase64, fileUri: pageImage!.fileUri, width: pageImage!.width, height: pageImage!.height },
+          items[0]?.readFileAsBase64,
+        );
+        if (!materializedPage) {
+          return {
+            kind: 'error',
+            error: new SpotlightRepositoryRequestError(
+              'Binder page image could not be read for upload.',
+              'request_failed',
+            ),
+            meta: null,
+          };
+        }
+        return this.requestJson<ScanMatchBatchResponseDTO>(
+          `${this.baseUrl}/${endpointPath}`,
+          {
+            body: JSON.stringify({ ...basePayload, items: itemPayloads, pageImage: materializedPage }),
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            method: 'POST',
+          },
+          requestOptions,
+        );
+      }
+
+      const jsonItems = await Promise.all(items.map(async (item, pocketIndex) => {
+        const materialized = await materializeScannerImageForJson(
+          item.normalizedImage ?? { jpegBase64: item.jpegBase64, fileUri: item.fileUri, width: item.width, height: item.height },
+          item.readFileAsBase64,
+        );
+        if (!materialized) {
+          return null;
+        }
+        return { ...itemPayloads[pocketIndex], image: materialized };
+      }));
+      if (jsonItems.some((item) => item === null)) {
+        return {
+          kind: 'error',
+          error: new SpotlightRepositoryRequestError(
+            'Binder page images could not be read for upload.',
+            'request_failed',
+          ),
+          meta: null,
+        };
+      }
+      return this.requestJson<ScanMatchBatchResponseDTO>(
+        `${this.baseUrl}/${endpointPath}`,
+        {
+          body: JSON.stringify({ ...basePayload, items: jsonItems }),
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          method: 'POST',
+        },
+        requestOptions,
+      );
+    };
+
+    const response = await runBatchRequest();
+    if (response.kind !== 'success') {
+      throw response.error;
+    }
+
+    // Deferred per-pocket artifact uploads, exactly like the raw single path:
+    // the match is done, so the uploads get the uplink to themselves. In
+    // page-image mode the crops may still be rendering — wait for them.
+    const artifactItemsPromise: Promise<ScannerCapturePayload[] | null> = options?.artifactItems !== undefined
+      ? Promise.resolve(options.artifactItems).catch(() => null)
+      : Promise.resolve(items);
+    void artifactItemsPromise.then((artifactItems) => {
+      artifactItems?.forEach((item, pocketIndex) => {
+        void this.uploadScanArtifactsForMatch(item, scanIDs[pocketIndex])
+          .then((result) => {
+            options?.onArtifactUploadComplete?.(pocketIndex, result);
+            return result;
+          })
+          .catch((error: unknown) => {
+            options?.onArtifactUploadComplete?.(pocketIndex, {
+              status: 'failed',
+              errorKind: 'request_failed',
+              errorMessage: error instanceof Error ? error.message : String(error),
+            });
+          });
+      });
+    });
+
+    const roundTripMs = Date.now() - startedAt;
+    const rawResults = Array.isArray(response.data?.results) ? response.data.results : [];
+    const resultByPocket = new Map<number, ScanMatchResponseDTO & { pocketIndex?: number | null; error?: string | null }>();
+    rawResults.forEach((entry, position) => {
+      const pocketIndex = normalizeNumber(entry?.pocketIndex) ?? position;
+      resultByPocket.set(pocketIndex, entry);
+    });
+
+    const results: ScannerMatchBatchItemResult[] = items.map((item, pocketIndex) => {
+      const entry = resultByPocket.get(pocketIndex);
+      if (!entry || normalizeString(entry.error)) {
+        return {
+          pocketIndex,
+          result: null,
+          errorMessage: normalizeString(entry?.error) ?? 'Pocket match missing from batch response.',
+        };
+      }
+      const candidates = mapScannerMatchCandidates(entry, this.baseUrl);
+      return {
+        pocketIndex,
+        errorMessage: null,
+        // Mirrors the single matchScannerCapture result field-for-field so tray
+        // rows reuse their existing post-network handling.
+        result: {
+          scanID: normalizeString(entry.scanID) ?? scanIDs[pocketIndex],
+          candidates,
+          candidatePoolSize: normalizeNumber(entry.candidatePoolSize) ?? candidates.length,
+          endpointPath,
+          resolverMode: normalizeString(entry.resolverMode),
+          reviewDisposition: normalizeString(entry.reviewDisposition),
+          reviewReason: normalizeString(entry.reviewReason),
+          requestAttemptCount: response.meta.attemptCount,
+          requestUrl: response.meta.requestUrl,
+          roundTripMs,
+          serverProcessingMs: normalizeNumber(entry.performance?.serverProcessingMs),
+          slabContext: normalizeSlabContext(entry.slabContext),
+          targetLanguageMismatch: normalizeTargetLanguageMismatch(entry.targetLanguageMismatch),
+          confidence: normalizeScannerMatchConfidence(entry.confidence),
+        } satisfies ScannerMatchResult,
+      };
+    });
+
+    return { results } satisfies ScannerMatchBatchResult;
+  }
+
+  /**
+   * Binder-page streamed lane, step 1: upload the page image ONCE. The backend
+   * crops and stores the pockets and returns a short-lived pageToken that the
+   * per-pocket matchScannerCapture calls reference via payload.binderPage.
+   * Multipart-first exactly like the batch endpoint (payload part + page_image
+   * file part), falling back to the JSON+base64 body only when multipart is
+   * unsupported. Older backends without the endpoint answer 404/405, which
+   * propagates so callers can fall back to matchScannerCaptureBatch.
+   */
+  async prepareBinderPage(
+    pageImage: ScannerBatchPageImage,
+    options?: BinderPagePrepareOptions,
+  ): Promise<BinderPagePrepareResult> {
+    const endpointPath = 'api/v1/scan/binder-page/prepare';
+    const pageImageFileUri = normalizeString(pageImage.fileUri ?? null);
+    let useMultipart = !!pageImageFileUri && canAttemptScanMultipart();
+    const requestOptions: JsonRequestOptions = {
+      candidateStrategy: 'single_active',
+      logTransport: true,
+      requestLabel: endpointPath,
+      // One JPEG upload + a server-side crop — no inference. Quick normally,
+      // but the page JPEG is the whole payload, so give a slow uplink room.
+      timeoutMs: options?.timeoutMs ?? binderPagePrepareTimeoutMs,
+    };
+
+    const runPrepareRequest = async (): Promise<JsonRequestResult<BinderPagePrepareResponseDTO>> => {
+      if (useMultipart && pageImageFileUri) {
+        const form = new FormData();
+        form.append(
+          'payload',
+          JSON.stringify({ image: { width: pageImage.width, height: pageImage.height } }),
+        );
+        appendMultipartJpegPart(form, 'page_image', pageImageFileUri, 'page.jpg');
+        const multipartResponse = await this.requestJson<BinderPagePrepareResponseDTO>(
+          `${this.baseUrl}/${endpointPath}`,
+          {
+            body: form,
+            // No Content-Type header — fetch generates the multipart boundary.
+            method: 'POST',
+          },
+          requestOptions,
+        );
+        if (multipartResponse.kind !== 'error') {
+          return multipartResponse;
+        }
+        if (isMultipartUnsupportedStatus(multipartResponse.error.status)) {
+          // Transport negotiation failure: retry THIS call over JSON+base64.
+          // (An older backend without the endpoint 404s over JSON too — that
+          // propagated 404 is what the caller's batch fallback keys on.)
+          markScanMultipartUnsupported();
+          useMultipart = false;
+        } else {
+          // Timeout / 5xx / network: propagate, mirroring the batch method —
+          // the server may still be receiving/storing the page.
+          return multipartResponse;
+        }
+      }
+
+      const materializedPage = await materializeScannerImageForJson(
+        {
+          jpegBase64: pageImage.jpegBase64,
+          fileUri: pageImage.fileUri,
+          width: pageImage.width,
+          height: pageImage.height,
+        },
+        options?.readFileAsBase64,
+      );
+      if (!materializedPage) {
+        return {
+          kind: 'error',
+          error: new SpotlightRepositoryRequestError(
+            'Binder page image could not be read for upload.',
+            'request_failed',
+          ),
+          meta: null,
+        };
+      }
+      return this.requestJson<BinderPagePrepareResponseDTO>(
+        `${this.baseUrl}/${endpointPath}`,
+        {
+          body: JSON.stringify({ pageImage: materializedPage }),
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          method: 'POST',
+        },
+        requestOptions,
+      );
+    };
+
+    const response = await runPrepareRequest();
+    if (response.kind !== 'success') {
+      throw response.error;
+    }
+    const pageToken = normalizeString(response.data?.pageToken);
+    if (!pageToken) {
+      throw new SpotlightRepositoryRequestError(
+        'Binder page prepare returned no page token.',
+        'invalid_response',
+      );
+    }
+    return {
+      pageToken,
+      pocketCount: normalizeNumber(response.data?.pocketCount) ?? 9,
+      expiresInSeconds: normalizeNumber(response.data?.expiresInSeconds) ?? 600,
+    } satisfies BinderPagePrepareResult;
   }
 
   async fetchScanCandidates(scanId: string, offset: number, limit: number) {
@@ -5970,6 +6426,33 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       collectionID: payload.collectionID ?? null,
     };
     return this.requestJsonOrThrow<InventoryEntryCreateResponsePayload>(`${this.baseUrl}/api/v1/deck/entries`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+  }
+
+  async createInventoryEntriesBulk(entries: InventoryEntryCreateRequestPayload[]) {
+    const body = {
+      // Same field-by-field mapping as the single create, per entry.
+      entries: entries.map((payload) => ({
+        cardID: payload.cardID,
+        slabContext: payload.slabContext,
+        variantName: payload.variantName ?? null,
+        condition: payload.condition,
+        quantity: payload.quantity,
+        sourceScanID: payload.sourceScanID,
+        selectionSource: payload.selectionSource,
+        selectedRank: payload.selectedRank ?? null,
+        wasTopPrediction: payload.wasTopPrediction ?? null,
+        addedAt: payload.addedAt,
+        costBasisPerUnit: payload.costBasisPerUnit ?? null,
+        collectionID: payload.collectionID ?? null,
+      })),
+    };
+    return this.requestJsonOrThrow<InventoryEntryBulkCreateResponsePayload>(`${this.baseUrl}/api/v1/deck/entries/create-bulk`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
