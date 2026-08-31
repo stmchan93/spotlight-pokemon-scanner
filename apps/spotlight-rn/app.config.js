@@ -23,6 +23,11 @@ const EXPO_EXTRA_ENV_MAPPINGS = [
   ['EXPO_PUBLIC_SPOTLIGHT_AUTH_SCHEME', 'spotlightAuthScheme'],
   ['EXPO_PUBLIC_SPOTLIGHT_STAGING_SMOKE_ENABLED', 'spotlightStagingSmokeEnabled'],
   ['EXPO_PUBLIC_SPOTLIGHT_SCANNER_SMOKE_ENABLED', 'spotlightScannerSmokeEnabled'],
+  // Collector-number footer OCR (tiebreak experiment). Dynamic process.env[key]
+  // reads are NOT inlined by Metro, so every runtime flag must ride expoConfig
+  // extra via this table — omitting this line made the flag silently false in
+  // every staging OTA (all scans logged outcome=not_started, 2026-08-31).
+  ['EXPO_PUBLIC_SPOTLIGHT_RAW_COLLECTOR_NUMBER_OCR_ENABLED', 'spotlightRawCollectorNumberOcrEnabled'],
   ['EXPO_PUBLIC_SPOTLIGHT_POSTHOG_API_KEY', 'spotlightPosthogApiKey'],
   ['EXPO_PUBLIC_SPOTLIGHT_POSTHOG_HOST', 'spotlightPosthogHost'],
   ['EXPO_PUBLIC_SPOTLIGHT_POSTHOG_ENABLED', 'spotlightPosthogEnabled'],
