@@ -105,7 +105,7 @@ def search_catalog(db_path: Path | None, query: str, limit: int = 30) -> list[di
         try:
             rows = connection.execute(
                 """
-                SELECT id, name, number, set_name
+                SELECT id, name, number, set_name, image_small_url, image_url
                 FROM cards
                 WHERE name LIKE ? OR number LIKE ? OR set_name LIKE ?
                 ORDER BY (CASE WHEN name LIKE ? THEN 0 ELSE 1 END), length(name), name
@@ -123,6 +123,7 @@ def search_catalog(db_path: Path | None, query: str, limit: int = 30) -> list[di
             "name": str(row["name"] or ""),
             "number": str(row["number"] or ""),
             "set": str(row["set_name"] or ""),
+            "img": str(row["image_small_url"] or row["image_url"] or ""),
         }
         for row in rows
     ]
@@ -183,6 +184,7 @@ class LabelingState:
             top10 = json.loads(row.get("top10_json") or "[]")
         except ValueError:
             top10 = []
+        self._attach_candidate_images(top10)
         return {
             "scan_id": scan_id,
             "created_at": row.get("created_at", ""),
@@ -192,6 +194,30 @@ class LabelingState:
             "image_url": f"/img/{scan_id}",
             "top10": top10,
         }
+
+    def _attach_candidate_images(self, candidates: list) -> None:
+        """Fill each candidate's 'img' with the catalog reference thumbnail so the
+        labeler can visually compare printings instead of guessing from numbers."""
+        ids = [str(c.get("card_id") or "") for c in candidates if isinstance(c, dict) and not c.get("img")]
+        ids = [i for i in ids if i]
+        if not ids or not self.db_path or not Path(self.db_path).exists():
+            return
+        try:
+            conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
+            try:
+                marks = ",".join("?" * len(ids))
+                lookup = {
+                    str(r[0]): str(r[1] or r[2] or "")
+                    for r in conn.execute(
+                        f"SELECT id, image_small_url, image_url FROM cards WHERE id IN ({marks})", ids)
+                }
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            return
+        for c in candidates:
+            if isinstance(c, dict) and not c.get("img"):
+                c["img"] = lookup.get(str(c.get("card_id") or ""), "")
 
     def record(self, *, scan_id: str, chosen_card_id: str, chosen_card_name: str, disposition: str, labeler: str) -> None:
         record = {
@@ -399,7 +425,8 @@ INDEX_HTML = """<!doctype html>
   .pred { color:#aaa; font-size:13px; margin-bottom:12px; }
   .pred b { color:#fee333; }
   .btnrow { display:flex; flex-direction:column; gap:8px; }
-  button.card { text-align:left; background:#1c1c1f; border:1px solid #2c2c30; color:#fff; border-radius:10px; padding:10px 12px; font-size:14px; cursor:pointer; display:flex; gap:10px; align-items:baseline; }
+  button.card { text-align:left; background:#1c1c1f; border:1px solid #2c2c30; color:#fff; border-radius:10px; padding:10px 12px; font-size:14px; cursor:pointer; display:flex; gap:10px; align-items:center; }
+  button.card img.thumb { width:56px; height:78px; object-fit:cover; border-radius:4px; background:#000; flex:none; }
   button.card:hover { border-color:#fee333; }
   button.card .k { color:#fee333; font-weight:700; width:20px; flex:0 0 20px; }
   button.card .sub { color:#999; font-size:12px; }
@@ -455,7 +482,8 @@ function goBack(){
 function cardButton(c, idx){
   const b = document.createElement('button'); b.className='card';
   const k = idx!=null ? (idx<9 ? (idx+1) : 0) : '';
-  b.innerHTML = '<span class="k">'+(k!==''?k:'')+'</span><span>'+esc(c.name||'(no name)')+
+  const thumb = c.img ? '<img class="thumb" loading="lazy" src="'+esc(c.img)+'" onerror="this.style.display=\'none\'">' : '';
+  b.innerHTML = '<span class="k">'+(k!==''?k:'')+'</span>'+thumb+'<span>'+esc(c.name||'(no name)')+
     '<div class="sub">'+esc([c.number, c.set].filter(Boolean).join(' · '))+'</div></span>';
   b.onclick = () => send('labeled', c);
   return b;
