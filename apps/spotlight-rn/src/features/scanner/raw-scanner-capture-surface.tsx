@@ -338,16 +338,16 @@ export function RawScannerCaptureSurface({
   // Binder-page mode divides the frame by three, so it needs a 4K still or each
   // pocket lands at ~220px and gets upscaled 3x (measured 2026-08-30: every
   // pocket scan logged source=1920x1080 crop=223x312, all low confidence).
-  // iOS: UHD for BOTH modes — changing targetResolution recreates the photo
-  // output and renegotiates the whole camera session, which made the
-  // Single<->Page toggle visibly laggy. A 4K still costs iOS ~200ms extra at
-  // capture and sharpens the single-card crop too. Android keeps FHD for
-  // single-card (budget ISPs; 4K stills are slow there) and pays the
-  // renegotiation only on the rare page toggle.
+  // Both platforms: UHD only in page mode. iOS briefly ran UHD for BOTH modes
+  // (to avoid renegotiating the camera session on the Single<->Page toggle),
+  // but the "~200ms" estimate was wrong on-device: a 4K 'balanced' still holds
+  // the tap lock ~2s per single-card scan (user-reported 2026-08-31, staging
+  // OTA). Single-card pays FHD (fast, ZSL-friendly; reticle crop stays >630px);
+  // the session renegotiation now happens only on the rare page toggle.
   const photoOutput = usePhotoOutput({
-    targetResolution: Platform.OS === 'android'
-      ? (captureResolution === 'page' ? CommonResolutions.UHD_16_9 : CommonResolutions.FHD_16_9)
-      : CommonResolutions.UHD_16_9,
+    targetResolution: captureResolution === 'page'
+      ? CommonResolutions.UHD_16_9
+      : CommonResolutions.FHD_16_9,
     quality: rawVisualCaptureQuality,
     qualityPrioritization: 'balanced',
   });
