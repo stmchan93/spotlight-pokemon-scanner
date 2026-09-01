@@ -3,7 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Rect, Stop } from 'react-native-svg';
 import { useKeepAwake } from 'expo-keep-awake';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, memo, type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   IconChevronDown,
   IconChevronLeft,
@@ -196,6 +196,11 @@ const rawCollectorNumberOcrEnabled = resolveRuntimeBoolean(
   ['spotlightRawCollectorNumberOcrEnabled'],
   false,
 );
+// Burst guard (2026-09-01): under rapid taps the per-scan ML Kit passes queued
+// and starved the camera/normalize pipeline (await p50 94ms relaxed -> 2.3s in
+// bursts; capture_ms tripled). One read in flight at a time — burst scans skip
+// the OPTIONAL tiebreak signal instead of stacking CPU.
+let rawCollectorNumberReadInFlight = false;
 const captureRowHeight = 102;
 // A little breathing room between scan rows in the tray (Figma scan-tray spacing).
 const captureRowGap = 24;
@@ -424,7 +429,11 @@ function PocketBadge({ pocketIndex }: { pocketIndex: number }) {
 
 type CaptureTrayRowProps = {
   capture: RecentCapture;
-  enableEnterAnimation: boolean;
+  // Ref, not a boolean: `entering` only matters at mount, but a boolean prop
+  // derived from `isTrayExpanded` changed identity for every row on every tray
+  // toggle — a full 100+-row re-render at the exact moment the expand/collapse
+  // animation started. The ref is stable; rows read `.current` when they render.
+  enterAnimationEnabledRef: MutableRefObject<boolean>;
   index: number;
   onActionRailVisibilityChange: (key: string, visible: boolean) => void;
   onAddToCollection: (captureId: string) => void;
@@ -441,11 +450,12 @@ type CaptureTrayRowProps = {
 // wrapper, so re-rendering all of them on every unrelated scanner-screen state
 // change (camera readiness, capture flashes, zoom, eBay lookups, sheet
 // open/close, …) made the tray's JS commits expensive with a full tray. All
-// callback props are stable useCallbacks from the screen, so a row now only
-// re-renders when ITS capture / price selection / enter-animation gate changes.
+// callback props must be render-stable — beware `gate(...)`, which returns a
+// fresh closure per call and silently defeats this memo if used inline — so a
+// row now only re-renders when ITS capture / price selection / index changes.
 const CaptureTrayRow = memo(function CaptureTrayRow({
   capture,
-  enableEnterAnimation,
+  enterAnimationEnabledRef,
   index,
   onActionRailVisibilityChange,
   onAddToCollection,
@@ -484,7 +494,7 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
       // Collapsed tray shows a single row; after ADD the next card advances
       // in with the slide-from-right enter. Expanded list opens without
       // fanning every row, so enter is gated to the collapsed viewport.
-      enableEnterAnimation={enableEnterAnimation}
+      enableEnterAnimation={enterAnimationEnabledRef.current}
       onActionRailVisibilityChange={onActionRailVisibilityChange}
       onAddToCollection={onAddToCollection}
       onDelete={onDelete}
@@ -1044,11 +1054,30 @@ export function ScannerScreen({
       272,
     ),
   );
-  // One group header per binder page present in the tray (expanded only; the
-  // collapsed tray shows a single row and must keep the newest row on top).
-  const binderPageHeaderCount = isTrayExpanded
-    ? new Set(recentCaptures.map((capture) => capture.binderPage?.pageId).filter(Boolean)).size
-    : 0;
+  // Binder page groups, computed once per tray change (the render loop used to
+  // findIndex/filter per row — O(n²) with a full binder tray). Headers are only
+  // RENDERED while expanded (the collapsed tray shows a single row and must
+  // keep the newest row on top), but the header count feeds the content height
+  // in BOTH states so a toggle never changes the pinned scroll-content height —
+  // that mid-animation height change re-laid-out every mounted row. Collapsed,
+  // the surplus height is invisible: the viewport clips to one row.
+  const binderPageGroups = useMemo(() => {
+    const groups = new Map<string, { firstCaptureId: string; rowCount: number }>();
+    recentCaptures.forEach((capture) => {
+      const pageId = capture.binderPage?.pageId;
+      if (!pageId) {
+        return;
+      }
+      const group = groups.get(pageId);
+      if (group) {
+        group.rowCount += 1;
+      } else {
+        groups.set(pageId, { firstCaptureId: capture.id, rowCount: 1 });
+      }
+    });
+    return groups;
+  }, [recentCaptures]);
+  const binderPageHeaderCount = binderPageGroups.size;
   const trayContentHeight = recentCaptures.length === 0
     ? 0
     : (recentCaptures.length * captureRowHeight)
@@ -1063,12 +1092,19 @@ export function ScannerScreen({
   const shouldLoadInventory = recentCaptures.length > 0 || dataVersion > 0;
 
   // --- Tray expand/collapse animation state (all UI-thread) ---
-  // While a tray pan is in flight, `trayDragHeight` overrides the viewport
-  // height so the tray tracks the finger frame-by-frame; the pan's onEnd then
-  // starts the settle `withTiming` directly on the UI thread. Null means "no
-  // gesture override": the animated style below owns the height and springs it
-  // toward the JS-state target (header taps, row-count changes).
-  const trayDragHeight = useSharedValue<number | null>(null);
+  // ONE shared value owns the viewport height for its whole life: the pan's
+  // onUpdate writes it directly (finger-following), the pan's onEnd starts the
+  // settle `withTiming` on it, and JS-driven target changes (header taps,
+  // row-count changes) retarget it via the effect below. There is deliberately
+  // NO `withTiming` inside the animated style: the old override/handoff design
+  // re-started the settle from the current height with a fresh full duration
+  // when the post-gesture React commit released the override — the last ~10% of
+  // every swipe replayed in slow motion, right as the commit hitch landed.
+  const trayHeight = useSharedValue(collapsedViewportHeight);
+  // The last commanded settle target. Lets the retarget effect distinguish "the
+  // gesture already started this exact settle on the UI thread — leave it
+  // alone" from a genuinely new target that needs its own animation.
+  const trayHeightTarget = useSharedValue(collapsedViewportHeight);
   const trayDragStartHeight = useSharedValue(collapsedViewportHeight);
   // Live scroll offset of the inner list, mirrored into a shared value ON THE
   // UI THREAD (useAnimatedScrollHandler below) so the pan worklets can gate
@@ -1076,34 +1112,28 @@ export function ScannerScreen({
   const trayScrollOffset = useSharedValue(0);
   const trayDragStartScrollOffset = useSharedValue(0);
 
-  // Tray viewport height, animated on the UI thread via Reanimated so the
-  // expand/collapse slide shares one animation system with the rows (replacing
-  // the classic LayoutAnimation that crashed when run over them). The gesture
-  // override branch comes first; otherwise `withTiming` animates from the live
-  // height to the `isTrayExpanded`-derived target on each toggle.
+  // Jest's reanimated mock rebuilds shared values from their init on every
+  // render, so imperative writes (the gesture, commitTrayExpandedState) never
+  // reach the style under test. Tests therefore read the state-derived target
+  // height; the runtime reads ONLY the shared value.
+  const trayViewportTargetHeight = isTrayExpanded ? trayScrollViewportHeight : collapsedViewportHeight;
   const trayViewportAnimatedStyle = useAnimatedStyle(
-    () => {
-      if (trayDragHeight.value !== null) {
-        return { height: trayDragHeight.value };
-      }
-      return {
-        height: withTiming(
-          isTrayExpanded ? trayScrollViewportHeight : collapsedViewportHeight,
-          trayHeightTimingConfig,
-        ),
-      };
-    },
-    [collapsedViewportHeight, isTrayExpanded, trayScrollViewportHeight],
+    () => ({ height: isTestEnv ? trayViewportTargetHeight : trayHeight.value }),
+    [isTestEnv, trayHeight, trayViewportTargetHeight],
   );
 
-  // Release the gesture's height override once the state it committed has
-  // re-rendered: the `withTiming` branch above then owns the height again —
-  // it continues from the current animated value (no jump) — and later
-  // non-gesture target changes (row add/remove while expanded) animate
-  // normally instead of being pinned to a stale drag height.
+  // Retargets the height when the state-derived target changes WITHOUT a
+  // toggle commit — rows added/removed while expanded resize the viewport.
+  // Skipped when the gesture or commitTrayExpandedState already commanded this
+  // exact target: restarting a mid-flight settle caused the slow-tail jank.
   useEffect(() => {
-    trayDragHeight.value = null;
-  }, [isTrayExpanded, trayDragHeight]);
+    const target = isTrayExpanded ? trayScrollViewportHeight : collapsedViewportHeight;
+    if (trayHeightTarget.value === target) {
+      return;
+    }
+    trayHeightTarget.value = target;
+    trayHeight.value = withTiming(target, trayHeightTimingConfig);
+  }, [collapsedViewportHeight, isTrayExpanded, trayHeight, trayHeightTarget, trayScrollViewportHeight]);
 
   useEffect(() => {
     if (!shouldLoadInventory) {
@@ -1229,6 +1259,16 @@ export function ScannerScreen({
   }, []);
 
   const commitTrayExpandedState = useCallback((nextExpanded: boolean) => {
+    // Command the settle BEFORE the state flip renders. Guarded so the settle
+    // the gesture already started on the UI thread is never re-commanded —
+    // restarting a mid-flight timing from the current height with a fresh full
+    // duration is what made every swipe stall at ~90% and replay its tail.
+    // Header taps (no gesture) reach here with a stale target and DO animate.
+    const target = nextExpanded ? trayScrollViewportHeight : collapsedViewportHeight;
+    if (trayHeightTarget.value !== target) {
+      trayHeightTarget.value = target;
+      trayHeight.value = withTiming(target, trayHeightTimingConfig);
+    }
     setIsTrayExpanded((current) => {
       if (current === nextExpanded) {
         return current;
@@ -1240,12 +1280,18 @@ export function ScannerScreen({
         trayScrollRef.current?.scrollTo({ y: 0, animated: false });
       }
 
-      // The tray height itself springs via the Reanimated `trayViewportHeight`
-      // shared value (see the effect below) — NOT a classic LayoutAnimation,
+      // The tray height itself springs via the Reanimated `trayHeight`
+      // shared value (commanded above) — NOT a classic LayoutAnimation,
       // which would crash when run over the Reanimated tray rows.
       return nextExpanded;
     });
-  }, [trayScrollOffset]);
+  }, [
+    collapsedViewportHeight,
+    trayHeight,
+    trayHeightTarget,
+    trayScrollOffset,
+    trayScrollViewportHeight,
+  ]);
 
   const inventoryByCardId = useMemo(() => {
     const lookup = new Map<string, { entryIds: string[]; quantity: number }>();
@@ -1266,6 +1312,14 @@ export function ScannerScreen({
 
     return lookup;
   }, [inventoryEntries]);
+
+  // Ref mirror for tap handlers (handleOpenCard): closing over the Map made the
+  // callback's identity change on every inventory refresh, which re-rendered
+  // every memoized tray row. Handlers run on tap, well after the sync effect.
+  const inventoryByCardIdRef = useRef(inventoryByCardId);
+  useEffect(() => {
+    inventoryByCardIdRef.current = inventoryByCardId;
+  }, [inventoryByCardId]);
 
   // The header TOTAL is the sum of exactly what the rows show: each capture is
   // priced through the SAME `resolveCaptureTrayPrice` the row cell uses, honoring
@@ -1625,13 +1679,18 @@ export function ScannerScreen({
       let resolvedMatchPayload = matchPayload;
       if (rawCollectorNumberPromise) {
         const ocrAwaitStartedAt = Date.now();
-        const rawCollectorNumber = await rawCollectorNumberPromise;
+        // Cap the blocking wait: a slow read must not delay the match request.
+        const raced = await Promise.race([
+          rawCollectorNumberPromise,
+          new Promise<'__ocr_timeout__'>((resolve) => setTimeout(() => resolve('__ocr_timeout__'), 500)),
+        ]);
+        const rawCollectorNumber = raced === '__ocr_timeout__' ? null : raced;
         // Diagnostic (2026-08-31): every staging scan reached the backend with
         // collectorNumber=null and the read event never fired, so this now
         // reports EVERY outcome with the blocking-await cost, not just wins.
         capturePostHogEvent('scan_raw_collector_number_attempted', {
           mode,
-          outcome: rawCollectorNumber ? 'read' : 'null',
+          outcome: raced === '__ocr_timeout__' ? 'timeout' : (rawCollectorNumber ? 'read' : 'null'),
           ocr_await_ms: Date.now() - ocrAwaitStartedAt,
         });
         if (rawCollectorNumber) {
@@ -2456,10 +2515,14 @@ export function ScannerScreen({
       // is awaited inside runMatchForCapture and folded into the payload as a
       // SECONDARY verification signal. Raw lane only; no-ops when the flag is off
       // or the native text reader is unavailable (Expo Go).
-      const rawCollectorNumberPromise =
-        !isSlab && rawCollectorNumberOcrEnabled
-          ? readRawCollectorNumber(normalizedTarget.normalizedImageUri)
-          : null;
+      let rawCollectorNumberPromise: Promise<string | null> | null = null;
+      if (!isSlab && rawCollectorNumberOcrEnabled && !rawCollectorNumberReadInFlight) {
+        rawCollectorNumberReadInFlight = true;
+        rawCollectorNumberPromise = readRawCollectorNumber(normalizedTarget.normalizedImageUri);
+        void rawCollectorNumberPromise.finally(() => {
+          rawCollectorNumberReadInFlight = false;
+        });
+      }
 
       // Default transport passes FILE URIs: the repository streams them as
       // multipart file parts, so no base64 ever crosses the JS thread on the
@@ -3318,14 +3381,18 @@ export function ScannerScreen({
           confirmVariant: 'dark' as const,
         };
 
+  // Reads the tray and inventory through refs (synced by effects above) so this
+  // callback stays render-stable: it is a prop on every memoized tray row, and
+  // depending on `recentCaptures` directly re-rendered the whole tray on every
+  // scan progress tick.
   const handleOpenCard = useCallback(async (captureId: string) => {
-    const capture = recentCaptures.find((entry) => entry.id === captureId);
+    const capture = recentCapturesRef.current.find((entry) => entry.id === captureId);
     const candidate = capture ? activeCandidateForCapture(capture) : null;
     if (!capture || !candidate || capture.isLoadingCandidates) {
       return;
     }
 
-    const matchingInventoryEntries = inventoryByCardId.get(candidate.cardId)?.entryIds ?? [];
+    const matchingInventoryEntries = inventoryByCardIdRef.current.get(candidate.cardId)?.entryIds ?? [];
     const scanReviewId = saveScanCandidateReviewSession({
       candidates: capture.candidates,
       id: capture.id,
@@ -3361,7 +3428,7 @@ export function ScannerScreen({
         scanReviewId,
       },
     });
-  }, [inventoryByCardId, recentCaptures, router, spotlightRepository, trackCandidateSelectionIfNeeded]);
+  }, [router, spotlightRepository, trackCandidateSelectionIfNeeded]);
 
   const handleEbayTrayTap = useCallback((captureId: string, slabContext: { grader?: string | null; grade?: string | null; certNumber?: string | null; variantName?: string | null } | null) => {
     const existing = ebayTrayState.get(captureId);
@@ -3519,9 +3586,9 @@ export function ScannerScreen({
           trayDragStartScrollOffset.value = trayScrollOffset.value;
         })
         .onStart(() => {
-          trayDragStartHeight.value =
-            trayDragHeight.value
-            ?? (isTrayExpanded ? trayScrollViewportHeight : collapsedViewportHeight);
+          // Writing trayHeight directly during the drag cancels any in-flight
+          // settle animation, so a grab mid-animation just takes over.
+          trayDragStartHeight.value = trayHeight.value;
         })
         .onUpdate((event) => {
           // Track the finger: expanding is always allowed from collapsed;
@@ -3533,7 +3600,7 @@ export function ScannerScreen({
           if (!mayFollow) {
             return;
           }
-          trayDragHeight.value = Math.min(
+          trayHeight.value = Math.min(
             trayScrollViewportHeight,
             Math.max(collapsedViewportHeight, trayDragStartHeight.value - event.translationY),
           );
@@ -3548,19 +3615,14 @@ export function ScannerScreen({
             && (event.translationY >= traySwipeThreshold || event.velocityY >= trayFlingVelocity);
           const nextExpanded = shouldExpand ? true : shouldCollapse ? false : isTrayExpanded;
 
+          // Settle toward the target NOW, on the UI thread, and record the
+          // commanded target so the retarget effect (running after the JS state
+          // flip re-renders) recognizes this settle and does NOT restart it.
+          const settleTarget = nextExpanded ? trayScrollViewportHeight : collapsedViewportHeight;
+          trayHeightTarget.value = settleTarget;
+          trayHeight.value = withTiming(settleTarget, trayHeightTimingConfig);
           if (nextExpanded !== isTrayExpanded) {
-            // Settle toward the new target NOW, on the UI thread. The JS state
-            // flip re-renders in parallel; the release effect then hands the
-            // height back to the state-driven timing with no visual jump.
-            trayDragHeight.value = withTiming(
-              nextExpanded ? trayScrollViewportHeight : collapsedViewportHeight,
-              trayHeightTimingConfig,
-            );
             runOnJS(commitTrayExpandedState)(nextExpanded);
-          } else {
-            // Aborted drag: release the override so the animated style glides
-            // the height back to the current state's target.
-            trayDragHeight.value = null;
           }
         }),
     [
@@ -3570,9 +3632,10 @@ export function ScannerScreen({
       isGuest,
       isTopLevelSwipeEnabled,
       isTrayExpanded,
-      trayDragHeight,
       trayDragStartHeight,
       trayDragStartScrollOffset,
+      trayHeight,
+      trayHeightTarget,
       trayScrollNativeGesture,
       trayScrollOffset,
       trayScrollViewportHeight,
@@ -3594,22 +3657,36 @@ export function ScannerScreen({
     setRowMenuCaptureId(captureId);
   }, []);
 
+  // `gate()` returns a FRESH closure per call, so calling it inline in the row
+  // props handed every CaptureTrayRow four new functions on every render and
+  // silently defeated the row memo — the whole tray (100+ Swipeables) was
+  // reconciled on every screen state tick. Wrap each handler exactly once.
+  const gatedRowAddToCollection = useMemo(() => gate(handleRowAddToCollection), [gate, handleRowAddToCollection]);
+  const gatedRowDelete = useMemo(() => gate(deleteRecentCapture), [deleteRecentCapture, gate]);
+  const gatedOpenChangeCardPicker = useMemo(() => gate(openChangeCardPicker), [gate, openChangeCardPicker]);
+  const gatedShowRowPrice = useMemo(() => gate(handleShowRowPrice), [gate, handleShowRowPrice]);
+
+  // Collapsed tray: a newly mounted row "advances" in with the slide-from-right
+  // enter; expanded: new rows appear in place. Mirrored through a stable ref
+  // (updated during render, read by rows when they mount) instead of a boolean
+  // prop — the boolean flipped on every toggle and re-rendered all rows at the
+  // exact moment the expand/collapse animation started.
+  const enterAnimationEnabledRef = useRef(!isTrayExpanded);
+  enterAnimationEnabledRef.current = !isTrayExpanded;
+
   const renderCaptureRow = (capture: RecentCapture, index: number) => (
     <CaptureTrayRow
       key={capture.id}
       capture={capture}
-      // Collapsed tray shows a single row; after ADD the next card advances
-      // in with the slide-from-right enter. Expanded list opens without
-      // fanning every row, so enter is gated to the collapsed viewport.
-      enableEnterAnimation={!isTrayExpanded}
+      enterAnimationEnabledRef={enterAnimationEnabledRef}
       index={index}
       onActionRailVisibilityChange={handleCaptureActionRailVisibilityChange}
-      onAddToCollection={gate(handleRowAddToCollection)}
-      onDelete={gate(deleteRecentCapture)}
+      onAddToCollection={gatedRowAddToCollection}
+      onDelete={gatedRowDelete}
       onOpenCard={handleOpenCard}
-      onOpenChangeCardPicker={gate(openChangeCardPicker)}
+      onOpenChangeCardPicker={gatedOpenChangeCardPicker}
       onOpenRowMenu={handleOpenRowMenu}
-      onShowPrice={gate(handleShowRowPrice)}
+      onShowPrice={gatedShowRowPrice}
       selection={priceSelection.get(capture.id) ?? null}
     />
   );
@@ -4083,13 +4160,12 @@ export function ScannerScreen({
                 >
                   {visibleCaptures.map((capture, index) => {
                     const pageId = capture.binderPage?.pageId ?? null;
-                    const startsPage = isTrayExpanded
-                      && pageId != null
-                      && visibleCaptures.findIndex((entry) => entry.binderPage?.pageId === pageId) === index;
-                    if (!startsPage || pageId == null) {
+                    const pageGroup = pageId != null ? binderPageGroups.get(pageId) : undefined;
+                    const startsPage = isTrayExpanded && pageGroup?.firstCaptureId === capture.id;
+                    if (!startsPage || pageId == null || pageGroup == null) {
                       return renderCaptureRow(capture, index);
                     }
-                    const pageRowCount = visibleCaptures.filter((entry) => entry.binderPage?.pageId === pageId).length;
+                    const pageRowCount = pageGroup.rowCount;
                     return (
                       <Fragment key={`page-group-${pageId}`}>
                         <View style={styles.binderPageHeader} testID={`scanner-tray-page-header-${pageId}`}>
