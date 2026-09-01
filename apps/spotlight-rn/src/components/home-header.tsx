@@ -468,6 +468,7 @@ export function HomeHeader({
           <View style={styles.searchPillSlot}>
             <SearchEntryPill
               label="Search Cards"
+              variant="glass"
               leading={
                 <View
                   style={[

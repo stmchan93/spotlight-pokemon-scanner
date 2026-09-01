@@ -160,9 +160,12 @@ stays the primitive for anything you actually type into.
 
 Current API concepts:
 
-- 44pt tall `gray50` pill with a 1pt `searchBorder` stroke at `radii.pill`,
-  sized to match the 44pt `GlassNavBubble`s (`size="medium"`) beside it in the
-  profile top bar (Figma 4299:94902)
+- 44pt tall at `radii.pill`, sized to match the 44pt `GlassNavBubble`s
+  (`size="medium"`) beside it in the profile top bar (Figma 4299:94902)
+- `variant`: `solid` (default) — `gray50` fill with a 1pt `searchBorder`
+  stroke; `glass` — the `GlassNavBubble` Liquid Glass shell (Figma 4134:49518),
+  `glassFallback` fill + `glassPill` lift and no stroke where real glass is
+  unavailable. The profile (You) top bar uses `glass`
 - label role: `typography.bodySmall` in `gray600`, left-aligned
 - `leading?: ReactNode` — optional badge at the leading edge (the app mark in the
   feed top bar). In flow, not absolute: badge and label are ONE group starting

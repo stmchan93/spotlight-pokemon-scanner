@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { Text } from './scaled-text';
+import { GlassSurface, isLiquidGlassAvailable } from './glass-surface';
 import { useSpotlightTheme } from '../theme';
 
 type SearchEntryPillProps = {
@@ -17,6 +18,14 @@ type SearchEntryPillProps = {
    * and the label 4pt after it, rather than centring the copy in the full pill.
    */
   leading?: ReactNode;
+  /**
+   * `solid` — the original `gray50` fill with the 1pt `searchBorder` stroke.
+   * `glass` — the same Liquid Glass shell as the `GlassNavBubble`s beside it
+   * (Figma 4134:49518): real glass on iOS 26; elsewhere the `glassFallback`
+   * fill with the `glassPill` lift and NO stroke — the material's edge (or the
+   * fallback's shadow) is what defines the shape, so a border would double it.
+   */
+  variant?: 'solid' | 'glass';
   style?: StyleProp<ViewStyle>;
   testID?: string;
 };
@@ -60,10 +69,23 @@ export function SearchEntryPill({
   onPress,
   accessibilityLabel,
   leading,
+  variant = 'solid',
   style,
   testID,
 }: SearchEntryPillProps) {
   const theme = useSpotlightTheme();
+  const glass = variant === 'glass';
+  const hasGlass = glass && isLiquidGlassAvailable();
+
+  const shell = glass
+    ? hasGlass
+      ? null
+      : [theme.shadows.glassPill, { backgroundColor: theme.colors.glassFallback }]
+    : {
+        backgroundColor: theme.colors.gray50,
+        borderColor: theme.colors.searchBorder,
+        borderWidth: 1,
+      };
 
   return (
     <Pressable
@@ -72,17 +94,22 @@ export function SearchEntryPill({
       onPress={onPress}
       style={({ pressed }) => [
         styles.pill,
-        {
-          backgroundColor: theme.colors.gray50,
-          borderColor: theme.colors.searchBorder,
-          borderRadius: theme.radii.pill,
-          borderWidth: 1,
-          opacity: pressed ? 0.84 : 1,
-        },
+        { borderRadius: theme.radii.pill },
+        shell,
+        { opacity: pressed ? 0.84 : 1 },
         style,
       ]}
       testID={testID}
     >
+      {glass ? (
+        <GlassSurface
+          fallbackColor={theme.colors.glassFallback}
+          glassColorScheme="auto"
+          glassEffectStyle="regular"
+          pointerEvents="none"
+          style={[styles.glass, { borderRadius: theme.radii.pill }]}
+        />
+      ) : null}
       {leading ? <View style={styles.leading}>{leading}</View> : null}
       <Text
         numberOfLines={1}
@@ -95,6 +122,13 @@ export function SearchEntryPill({
 }
 
 const styles = StyleSheet.create({
+  glass: {
+    bottom: 0,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
   // Shrinks rather than pushing the badge off the leading edge when the pill is
   // narrow; `numberOfLines={1}` then truncates the copy.
   label: {
