@@ -259,6 +259,17 @@ const trayHeightTimingConfig = {
   easing: Easing.out(Easing.cubic),
 } as const;
 
+// Windowed tray rows: only rows within the expanded viewport ± this overscan
+// render full content (Swipeable + image + pressables); the rest are
+// fixed-height shells. A full tray is 100+ rows (~5k native views when all
+// mounted), which made swipes, list scrolls and burst-scan commits scale with
+// tray size. ~5 rows of headroom on each side.
+const trayRenderOverscanPx = 600;
+// The scroll offset feeding the window only updates JS state when it crosses a
+// bucket edge (not per scrolled pixel). Must stay well under the overscan so a
+// row's content is mounted before it can scroll into view.
+const trayRenderWindowBucketPx = 464;
+
 
 // Capture ids already reported as cap-evicted. This function runs INSIDE a
 // setRecentCaptures updater, and React may invoke an updater more than once for
@@ -442,6 +453,10 @@ type CaptureTrayRowProps = {
   onOpenChangeCardPicker: (captureId: string) => void;
   onOpenRowMenu: (captureId: string, anchor: CaptureRowMenuAnchor) => void;
   onShowPrice: (captureId: string) => void;
+  // Windowed tray rendering: rows far outside the scroll viewport render a
+  // fixed-height shell instead of the Swipeable + image + pressables. See
+  // RecentCaptureSwipeRow.renderContent.
+  renderContent: boolean;
   selection: ScanPriceSheetSelection | null;
 };
 
@@ -464,6 +479,7 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
   onOpenChangeCardPicker,
   onOpenRowMenu,
   onShowPrice,
+  renderContent,
   selection,
 }: CaptureTrayRowProps) {
   const theme = useSpotlightTheme();
@@ -498,8 +514,10 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
       onActionRailVisibilityChange={onActionRailVisibilityChange}
       onAddToCollection={onAddToCollection}
       onDelete={onDelete}
+      renderContent={renderContent}
       testID={`scanner-tray-swipe-${index}`}
     >
+      {!renderContent ? null : (
       <View style={styles.captureRow} testID={`scanner-tray-row-${index}`}>
         <View style={styles.captureLeftGroup}>
           <View style={styles.captureThumbColumn}>
@@ -689,6 +707,7 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
           </View>
         ) : null}
       </View>
+      )}
     </RecentCaptureSwipeRow>
   );
 });
@@ -871,6 +890,9 @@ export function ScannerScreen({
   const recentCapturesRef = useRef<RecentCapture[]>([]);
   const [openActionRailKeys, setOpenActionRailKeys] = useState<Record<string, true>>({});
   const [isTrayExpanded, setIsTrayExpanded] = useState(false);
+  // Top of the windowed-row viewport in scroll-content px, bucketed (see
+  // trayRenderWindowBucketPx). Drives which rows render full content.
+  const [trayRenderWindowTop, setTrayRenderWindowTop] = useState(0);
   const [addAllMenuOpen, setAddAllMenuOpen] = useState(false);
   const [addAllAnchor, setAddAllAnchor] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [addAllConfirm, setAddAllConfirm] = useState<AddAllMenuAction | null>(null);
@@ -1089,7 +1111,43 @@ export function ScannerScreen({
     : Math.max(140, trayExpandedBodyHeight);
   const trayScrollEnabled = trayContentHeight > trayScrollViewportHeight;
   const collapsedViewportHeight = captureRowHeight;
+  // Binder page headers stay MOUNTED in both tray states (mounting them inside
+  // the expand commit shoved every visible row down ~64px mid-animation — the
+  // "awkward" binder expand). The collapsed tray instead anchors its scroll
+  // just past the first header so the newest ROW fills the one-row viewport;
+  // expanding is then a pure clip reveal with zero reflow.
+  const collapsedAnchorOffset = recentCaptures[0]?.binderPage
+    ? binderPageHeaderHeight + captureRowGap
+    : 0;
   const shouldLoadInventory = recentCaptures.length > 0 || dataVersion > 0;
+
+  // Which rows render full content (vs a fixed-height shell): everything
+  // intersecting [windowTop − overscan, windowTop + expanded viewport +
+  // overscan]. The span uses the EXPANDED viewport in both tray states so
+  // toggling never mounts row content mid-animation — the collapsed tray
+  // already has the whole first screenful rendered. Row offsets mirror the
+  // trayContentHeight math exactly (row 102 + gap 24, header 40 + gap when a
+  // binder page group starts while expanded).
+  const trayRowContentVisibility = useMemo(() => {
+    const windowTop = Math.max(0, trayRenderWindowTop - trayRenderOverscanPx);
+    const windowBottom = trayRenderWindowTop + trayScrollViewportHeight + trayRenderOverscanPx;
+    let nextRowTop = 0;
+    return recentCaptures.map((capture) => {
+      const pageId = capture.binderPage?.pageId;
+      if (pageId && binderPageGroups.get(pageId)?.firstCaptureId === capture.id) {
+        nextRowTop += binderPageHeaderHeight + captureRowGap;
+      }
+      const rowTop = nextRowTop;
+      const rowBottom = rowTop + captureRowHeight;
+      nextRowTop = rowBottom + captureRowGap;
+      return rowBottom >= windowTop && rowTop <= windowBottom;
+    });
+  }, [
+    binderPageGroups,
+    recentCaptures,
+    trayRenderWindowTop,
+    trayScrollViewportHeight,
+  ]);
 
   // --- Tray expand/collapse animation state (all UI-thread) ---
   // ONE shared value owns the viewport height for its whole life: the pan's
@@ -1111,6 +1169,9 @@ export function ScannerScreen({
   // "collapse only from top-of-content" without reading a stale JS ref.
   const trayScrollOffset = useSharedValue(0);
   const trayDragStartScrollOffset = useSharedValue(0);
+  // Last bucket the scroll handler reported to JS for the row window — kept on
+  // the UI thread so scrolling inside one bucket costs zero JS work.
+  const trayRenderWindowBucket = useSharedValue(0);
 
   // Jest's reanimated mock rebuilds shared values from their init on every
   // render, so imperative writes (the gesture, commitTrayExpandedState) never
@@ -1121,6 +1182,25 @@ export function ScannerScreen({
     () => ({ height: isTestEnv ? trayViewportTargetHeight : trayHeight.value }),
     [isTestEnv, trayHeight, trayViewportTargetHeight],
   );
+
+  // Backdrop (blur + scrim) visibility, driven by the live tray height on the
+  // UI thread with the views permanently mounted: creating the blur's native
+  // view inside the expand commit was a measured mid-animation stall, and the
+  // fade now tracks the drag instead of popping at release. `display: none`
+  // keeps the hidden blur out of layout/compositing while collapsed. Tests use
+  // the state-derived value (the jest reanimated mock resets shared values
+  // every render — see trayViewportAnimatedStyle).
+  const trayBackdropAnimatedStyle = useAnimatedStyle(() => {
+    const expandedRange = trayScrollViewportHeight - collapsedViewportHeight;
+    const dragProgress = expandedRange > 0
+      ? Math.min(1, Math.max(0, (trayHeight.value - collapsedViewportHeight) / expandedRange))
+      : 0;
+    const progress = isTestEnv ? (isTrayExpanded ? 1 : 0) : dragProgress;
+    return {
+      display: progress <= 0.01 ? ('none' as const) : ('flex' as const),
+      opacity: progress,
+    };
+  }, [collapsedViewportHeight, isTestEnv, isTrayExpanded, trayHeight, trayScrollViewportHeight]);
 
   // Retargets the height when the state-derived target changes WITHOUT a
   // toggle commit — rows added/removed while expanded resize the viewport.
@@ -1269,15 +1349,23 @@ export function ScannerScreen({
       trayHeightTarget.value = target;
       trayHeight.value = withTiming(target, trayHeightTimingConfig);
     }
+    if (!nextExpanded) {
+      // Collapse anchors the list to the top (scrollTo below) — realign the
+      // row-content window with it. The scroll handler would also report the
+      // 0-bucket, but not before the collapsed frame renders.
+      trayRenderWindowBucket.value = 0;
+      setTrayRenderWindowTop(0);
+    }
     setIsTrayExpanded((current) => {
       if (current === nextExpanded) {
         return current;
       }
 
       if (!nextExpanded) {
-        // Anchor row 0 so the collapse reveals the top card.
-        trayScrollOffset.value = 0;
-        trayScrollRef.current?.scrollTo({ y: 0, animated: false });
+        // Anchor row 0 so the collapse reveals the top card (just past the
+        // first binder page header, which stays mounted).
+        trayScrollOffset.value = collapsedAnchorOffset;
+        trayScrollRef.current?.scrollTo({ animated: false, y: collapsedAnchorOffset });
       }
 
       // The tray height itself springs via the Reanimated `trayHeight`
@@ -1286,12 +1374,25 @@ export function ScannerScreen({
       return nextExpanded;
     });
   }, [
+    collapsedAnchorOffset,
     collapsedViewportHeight,
     trayHeight,
     trayHeightTarget,
+    trayRenderWindowBucket,
     trayScrollOffset,
     trayScrollViewportHeight,
   ]);
+
+  // Hold the collapsed anchor as scans land: a binder capture prepending a new
+  // page (header + row) or a lane switch changes what sits at the top of the
+  // scroll content while the collapsed viewport shows exactly one row.
+  useEffect(() => {
+    if (isTrayExpanded || recentCaptures.length === 0) {
+      return;
+    }
+    trayScrollOffset.value = collapsedAnchorOffset;
+    trayScrollRef.current?.scrollTo({ animated: false, y: collapsedAnchorOffset });
+  }, [collapsedAnchorOffset, isTrayExpanded, recentCaptures.length, trayScrollOffset]);
 
   const inventoryByCardId = useMemo(() => {
     const lookup = new Map<string, { entryIds: string[]; quantity: number }>();
@@ -3555,6 +3656,13 @@ export function ScannerScreen({
   const handleTrayScroll = useAnimatedScrollHandler({
     onScroll: (event) => {
       trayScrollOffset.value = event.contentOffset.y;
+      // Advance the row-content window only when the scroll crosses a bucket
+      // edge — one JS render per ~4 rows scrolled, not one per scroll event.
+      const bucket = Math.round(event.contentOffset.y / trayRenderWindowBucketPx);
+      if (bucket !== trayRenderWindowBucket.value) {
+        trayRenderWindowBucket.value = bucket;
+        runOnJS(setTrayRenderWindowTop)(bucket * trayRenderWindowBucketPx);
+      }
     },
   });
 
@@ -3593,9 +3701,10 @@ export function ScannerScreen({
         .onUpdate((event) => {
           // Track the finger: expanding is always allowed from collapsed;
           // while expanded, the drag only collapses from top-of-content
-          // (mid-list drags belong to the ScrollView).
+          // (mid-list drags belong to the ScrollView). "Top" includes the
+          // collapsed anchor sitting just past the first binder page header.
           const mayFollow = isTrayExpanded
-            ? trayDragStartScrollOffset.value <= 0
+            ? trayDragStartScrollOffset.value <= collapsedAnchorOffset
             : true;
           if (!mayFollow) {
             return;
@@ -3611,7 +3720,7 @@ export function ScannerScreen({
             && (event.translationY <= -traySwipeThreshold || event.velocityY <= -trayFlingVelocity);
           const shouldCollapse =
             isTrayExpanded
-            && trayDragStartScrollOffset.value <= 0
+            && trayDragStartScrollOffset.value <= collapsedAnchorOffset
             && (event.translationY >= traySwipeThreshold || event.velocityY >= trayFlingVelocity);
           const nextExpanded = shouldExpand ? true : shouldCollapse ? false : isTrayExpanded;
 
@@ -3627,6 +3736,7 @@ export function ScannerScreen({
         }),
     [
       canToggleTray,
+      collapsedAnchorOffset,
       collapsedViewportHeight,
       commitTrayExpandedState,
       isGuest,
@@ -3687,6 +3797,7 @@ export function ScannerScreen({
       onOpenChangeCardPicker={gatedOpenChangeCardPicker}
       onOpenRowMenu={handleOpenRowMenu}
       onShowPrice={gatedShowRowPrice}
+      renderContent={trayRowContentVisibility[index] !== false}
       selection={priceSelection.get(capture.id) ?? null}
     />
   );
@@ -3988,7 +4099,11 @@ export function ScannerScreen({
             video wants the calmer frosted dim the design actually specs, which
             is also exactly what Android was already drawing.
           */}
-          {isTrayExpanded ? (
+          <Reanimated.View
+            pointerEvents="none"
+            style={[styles.trayBackdropFill, trayBackdropAnimatedStyle]}
+            testID="scanner-tray-backdrop"
+          >
             <BlurView
               // Android needs the dimezisBlurView method or BlurView is a
               // silent no-op. iOS ignores the prop.
@@ -3998,10 +4113,8 @@ export function ScannerScreen({
               style={styles.trayBackdropBlur}
               tint="default"
             />
-          ) : null}
-          {isTrayExpanded ? (
             <View pointerEvents="none" style={styles.trayBackdropOverlay} />
-          ) : null}
+          </Reanimated.View>
           <Pressable
             accessibilityLabel={isTrayExpanded ? 'Collapse recent scans' : 'Expand recent scans'}
             accessibilityRole="button"
@@ -4161,7 +4274,11 @@ export function ScannerScreen({
                   {visibleCaptures.map((capture, index) => {
                     const pageId = capture.binderPage?.pageId ?? null;
                     const pageGroup = pageId != null ? binderPageGroups.get(pageId) : undefined;
-                    const startsPage = isTrayExpanded && pageGroup?.firstCaptureId === capture.id;
+                    // Headers render in BOTH tray states — the collapsed
+                    // viewport scrolls past the first one (collapsedAnchorOffset)
+                    // instead of the header unmounting, so expanding never
+                    // reflows the list.
+                    const startsPage = pageGroup?.firstCaptureId === capture.id;
                     if (!startsPage || pageId == null || pageGroup == null) {
                       return renderCaptureRow(capture, index);
                     }
@@ -4830,6 +4947,9 @@ const styles = StyleSheet.create({
     elevation: 12,
   },
   trayBackdropBlur: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  trayBackdropFill: {
     ...StyleSheet.absoluteFillObject,
   },
   trayBackdropOverlay: {

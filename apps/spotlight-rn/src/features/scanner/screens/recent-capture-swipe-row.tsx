@@ -99,6 +99,13 @@ export type RecentCaptureSwipeRowProps = {
   onActionRailVisibilityChange?: (key: string, visible: boolean) => void;
   onAddToCollection: (id: string) => void;
   onDelete: (id: string) => void;
+  // Windowed tray rendering: when false, the row keeps its Reanimated wrapper
+  // (so identity, enter/exit choreography and list geometry never change) but
+  // swaps the Swipeable + content for a fixed-height empty shell. Rows far
+  // outside the scroll viewport set this — a full tray is 100+ rows, and
+  // keeping every Swipeable/image/pressable mounted made swipes, scrolls and
+  // burst scans scale with tray size.
+  renderContent?: boolean;
   testID: string;
 };
 
@@ -129,6 +136,7 @@ function RecentCaptureSwipeRowInner({
   onActionRailVisibilityChange,
   onAddToCollection,
   onDelete,
+  renderContent = true,
   testID,
 }: RecentCaptureSwipeRowProps) {
   const theme = useSpotlightTheme();
@@ -236,6 +244,16 @@ function RecentCaptureSwipeRowInner({
     };
   }, [actionRailKey, onActionRailVisibilityChange]);
 
+  // Windowed out with the rail open (scrolled far away): the Swipeable below
+  // unmounts, so its rail is gone — drop the mirrored open state too, or the
+  // tray-level pan stays disabled by a rail that no longer exists.
+  useEffect(() => {
+    if (!renderContent && isOpen) {
+      setIsOpen(false);
+      onActionRailVisibilityChange?.(actionRailKey, false);
+    }
+  }, [actionRailKey, isOpen, onActionRailVisibilityChange, renderContent]);
+
   return (
     // Outer reanimated wrapper owns the card-dismiss choreography: a removed row
     // slides left + fades (exiting), a newly-revealed row slides in from the
@@ -245,8 +263,19 @@ function RecentCaptureSwipeRowInner({
     <Reanimated.View
       entering={reduceMotion || !enableEnterAnimation ? undefined : buildRowEnterAnimation}
       exiting={reduceMotion ? undefined : buildRowExitAnimation}
-      layout={reduceMotion ? undefined : rowLayoutTransition}
+      // Windowed-out shells skip the layout glide: expanding a binder tray
+      // inserts page headers, which shifts EVERY row below them — with 150
+      // rows that started 150 concurrent layout animations in one commit
+      // (a ~200ms UI-thread stall mid-expand). Off-screen shells just snap;
+      // the visible rendered rows still glide.
+      layout={reduceMotion || !renderContent ? undefined : rowLayoutTransition}
     >
+    {!renderContent ? (
+      // Same height as the real row content so the pinned list geometry is
+      // byte-identical; the wrapper above stays mounted so windowing a row in
+      // or out never fires the enter/exit choreography.
+      <View style={styles.captureSwipeShellPlaceholder} testID={`${testID}-placeholder`} />
+    ) : (
     <Swipeable
       ref={swipeableRef}
       // Scope the horizontal claim by rail state (same negotiation as the
@@ -294,6 +323,7 @@ function RecentCaptureSwipeRowInner({
       ) : null}
       <View style={styles.captureSwipeContent}>{children}</View>
     </Swipeable>
+    )}
     </Reanimated.View>
   );
 }
@@ -344,6 +374,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   captureSwipeContent: {
+    width: '100%',
+  },
+  // Windowed-out shell: exactly the real row-content height so scroll geometry
+  // never shifts when content mounts in or out.
+  captureSwipeShellPlaceholder: {
+    height: captureRowHeight,
     width: '100%',
   },
   captureSwipeShell: {
