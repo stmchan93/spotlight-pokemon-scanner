@@ -2291,7 +2291,8 @@ const styles = StyleSheet.create({
   // The profile block inside the pinned chrome. It carries the 16px that the
   // shared header wrapper's `gap` used to put between it and the tab bar.
   pinnedBlock: {
-    paddingBottom: 16,
+    // No bottom padding: PageTabs below owns the 16pt above its labels
+    // (Figma 4067:26806).
   },
   activityEmptyText: {
     // Empty-Activity message: plain centered text, no card chrome and no press

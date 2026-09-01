@@ -1160,7 +1160,8 @@ const styles = StyleSheet.create({
   },
   chrome: {
     gap: 20,
-    paddingBottom: 20,
+    // No bottom padding: PageTabs below owns the 16pt above its labels
+    // (Figma 4067:26806).
   },
   // The Collection page's own header, below the pinned tab bar. 24px down from
   // the bar, matching the owner Portfolio's tabs→balance gap.

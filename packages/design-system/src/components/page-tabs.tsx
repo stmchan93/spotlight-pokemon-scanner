@@ -122,13 +122,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 40,
     backgroundColor: 'transparent',
+    // The bar owns ALL the space above its labels: 16pt (Figma 4067:26806
+    // pads the sheet 16 above the tabs). Screens must NOT add their own
+    // bottom padding above this bar — that is how it grew to 20-24pt.
+    paddingTop: 16,
   },
   tab: {
     alignItems: 'center',
     justifyContent: 'flex-end',
     // Bottom-padding-free: the 2px underline IS the tab's bottom edge (Figma
     // 3147:10092 puts it at y26 of a 28px tab), so it lands on the rail.
-    paddingTop: 4,
     // The box the underline fills. The 40pt `gap` sits between these boxes, so
     // the visible space between two words is the gap plus both paddings —
     // matching Figma, where the gap is measured box-to-box, not word-to-word.
