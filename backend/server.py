@@ -248,8 +248,36 @@ MODERATION_ACTIONS: dict[str, tuple[str | None, str, str]] = {
 # A live, DB-backed review queue: instead of a frozen file, serve every raw scan
 # that still needs a label from REVIEW_DYNAMIC_SINCE onward, oldest first, and
 # keep auto-feeding new scans as they come in. The /review page points at this id.
+# STAGING-ONLY convenience: when SPOTLIGHT_REVIEW_OPEN=1 the /review surface
+# needs no login — reviewers self-identify via an X-Reviewer-Name header
+# (reviewer id becomes "open:<name>", so per-reviewer piles still work). Scan
+# captures are PRIVATE (repo invariant): never enable on production; re-lock
+# staging before public launch.
+REVIEW_OPEN = str(os.environ.get("SPOTLIGHT_REVIEW_OPEN") or "").strip() == "1"
+
 REVIEW_DYNAMIC_QUEUE_ID = "all"
 REVIEW_DYNAMIC_SINCE = os.environ.get("SPOTLIGHT_REVIEW_SINCE", "2026-05-19")
+
+
+def _parse_review_windows(raw: str) -> list[tuple[str, str]]:
+    """Parse SPOTLIGHT_REVIEW_WINDOWS: comma-separated UTC 'START..END' pairs
+    (END exclusive). When set, the dynamic /review queue serves ONLY scans
+    inside one of the windows (e.g. the three 2026 show weekends) instead of
+    everything since REVIEW_DYNAMIC_SINCE."""
+    windows: list[tuple[str, str]] = []
+    for part in str(raw or "").split(","):
+        chunk = part.strip()
+        if not chunk:
+            continue
+        start, sep, end = chunk.partition("..")
+        if not sep or not start.strip() or not end.strip():
+            print(f"[review] ignoring malformed SPOTLIGHT_REVIEW_WINDOWS entry: {chunk!r}", flush=True)
+            continue
+        windows.append((start.strip(), end.strip()))
+    return windows
+
+
+REVIEW_DYNAMIC_WINDOWS = _parse_review_windows(os.environ.get("SPOTLIGHT_REVIEW_WINDOWS", ""))
 _REVIEW_QUEUE_ID_PATTERN = re.compile(r"[^A-Za-z0-9_-]")
 CARD_SHOW_MODE_SETTING_KEY = "card_show_mode"
 LIVE_PRICING_SETTING_KEY = "live_pricing"
@@ -10703,12 +10731,21 @@ class SpotlightScanService:
         oldest first, excluding ones already confirmed (by anyone, via add-to-deck
         or the review tool) and ones this reviewer already dispositioned (pending
         mode) — or, in revisit mode, only this reviewer's skip/unclear pile."""
-        params: list[Any] = [REVIEW_DYNAMIC_SINCE]
+        if REVIEW_DYNAMIC_WINDOWS:
+            # Window mode: only scans inside one of the configured capture
+            # windows (show weekends) are reviewable.
+            time_clause = "AND (" + " OR ".join(
+                "(e.created_at >= ? AND e.created_at < ?)" for _ in REVIEW_DYNAMIC_WINDOWS
+            ) + ") "
+            params: list[Any] = [bound for window in REVIEW_DYNAMIC_WINDOWS for bound in window]
+        else:
+            time_clause = "AND e.created_at >= ? "
+            params = [REVIEW_DYNAMIC_SINCE]
         where = (
             "FROM scan_events e JOIN scan_artifacts a ON a.scan_id = e.scan_id "
             "WHERE e.resolver_mode = 'raw_card' "
-            "AND e.created_at >= ? "
-            "AND a.normalized_object_path IS NOT NULL "
+            + time_clause
+            + "AND a.normalized_object_path IS NOT NULL "
             "AND a.upload_status IN ('uploaded','normalized_only') "
             "AND (e.confirmed_card_id IS NULL OR e.confirmed_card_id = '') "
             "AND e.scan_id NOT IN (SELECT scan_id FROM scan_labeling_reviews "
@@ -19089,6 +19126,24 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         raw = os.environ.get(REVIEWER_EMAILS_ENV) or ""
         return {part.strip().lower() for part in raw.split(",") if part.strip()}
 
+    def _review_route_identity(self) -> RequestIdentity | None:
+        """Identity for the /review surface: normal verified reviewer identity,
+        or (open mode) a self-declared name from X-Reviewer-Name."""
+        if REVIEW_OPEN:
+            raw_name = str(self.headers.get("X-Reviewer-Name") or "labeler")
+            safe_name = re.sub(r"[^A-Za-z0-9 _.-]", "", raw_name).strip()[:40] or "labeler"
+            return RequestIdentity(
+                user_id=f"open:{safe_name}",
+                auth_source="review_open",
+                email="",
+            )
+        identity = self._require_request_identity()
+        if identity is None:
+            return None
+        if not self._require_reviewer(identity):
+            return None
+        return identity
+
     def _require_reviewer(self, identity: RequestIdentity) -> bool:
         user_id = str(getattr(identity, "user_id", "") or "").strip()
         email = str(getattr(identity, "email", "") or "").strip().lower()
@@ -20010,7 +20065,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             )
             self._write_json(
                 HTTPStatus.OK,
-                {"supabaseUrl": supabase_url, "supabaseAnonKey": supabase_anon_key},
+                {"supabaseUrl": supabase_url, "supabaseAnonKey": supabase_anon_key, "open": REVIEW_OPEN},
             )
             return
 
@@ -20130,10 +20185,8 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/v1/review/queue":
-            identity = self._require_request_identity()
+            identity = self._review_route_identity()
             if identity is None:
-                return
-            if not self._require_reviewer(identity):
                 return
             queue_id = query.get("queue", [""])[0]
             mode = query.get("mode", ["pending"])[0]
@@ -20164,10 +20217,8 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path.startswith("/api/v1/review/image/"):
-            identity = self._require_request_identity()
+            identity = self._review_route_identity()
             if identity is None:
-                return
-            if not self._require_reviewer(identity):
                 return
             scan_id = unquote(parsed.path.removeprefix("/api/v1/review/image/").strip("/"))
             queue_id = query.get("queue", [""])[0]
@@ -21685,10 +21736,8 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/v1/review/label":
-            identity = self._require_request_identity()
+            identity = self._review_route_identity()
             if identity is None:
-                return
-            if not self._require_reviewer(identity):
                 return
             try:
                 with self.service.request_identity_context(identity):

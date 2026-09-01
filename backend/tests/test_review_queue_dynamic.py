@@ -89,6 +89,39 @@ class ReviewQueueDynamicTests(unittest.TestCase):
             )
         conn.commit()
 
+    def test_windows_mode_limits_queue_to_configured_show_weekends(self) -> None:
+        """With SPOTLIGHT_REVIEW_WINDOWS set, only scans inside a window are
+        reviewable — everything between/around the shows disappears."""
+        import server as server_module
+
+        self._seed_scan("scan-honolulu", created_at="2026-06-20T18:00:00Z")
+        self._seed_scan("scan-pomona", created_at="2026-07-12T20:00:00Z")
+        self._seed_scan("scan-ontario", created_at="2026-08-23T01:00:00Z")
+        # Outside every window: between shows, and just past a window's end.
+        self._seed_scan("scan-between", created_at="2026-07-20T12:00:00Z")
+        self._seed_scan("scan-after-hnl", created_at="2026-06-22T10:00:01Z")
+
+        original = server_module.REVIEW_DYNAMIC_WINDOWS
+        server_module.REVIEW_DYNAMIC_WINDOWS = server_module._parse_review_windows(
+            "2026-06-20T10:00:00..2026-06-22T10:00:00,"
+            "2026-07-12T07:00:00..2026-07-13T07:00:00,"
+            "2026-08-22T07:00:00..2026-08-24T07:00:00"
+        )
+        try:
+            payload = self.service.review_queue(REVIEW_DYNAMIC_QUEUE_ID, "reviewer-1", limit=30, mode="pending")
+        finally:
+            server_module.REVIEW_DYNAMIC_WINDOWS = original
+        scan_ids = [item["scan_id"] for item in payload["items"]]
+        self.assertEqual(scan_ids, ["scan-honolulu", "scan-pomona", "scan-ontario"])
+
+    def test_malformed_window_entries_are_ignored(self) -> None:
+        import server as server_module
+
+        self.assertEqual(
+            server_module._parse_review_windows("2026-06-20..2026-06-22, nonsense ,..broken"),
+            [("2026-06-20", "2026-06-22")],
+        )
+
     def test_only_pending_raw_scans_since_cutoff_oldest_first(self) -> None:
         # Three eligible raw scans across May 20 -> June 1 (out of order on insert).
         self._seed_scan("scan-jun", created_at="2026-06-01T10:00:00Z")

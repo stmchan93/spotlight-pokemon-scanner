@@ -257,7 +257,10 @@
       t._timer = setTimeout(() => t.classList.add("hidden"), 2600);
     }
 
+    let openReviewerName = null;
+
     function authHeaders() {
+      if (openReviewerName) return { "X-Reviewer-Name": openReviewerName };
       return accessToken ? { Authorization: "Bearer " + accessToken } : {};
     }
 
@@ -268,6 +271,22 @@
         cfg = await res.json();
       } catch (e) {
         $("boot").innerHTML = '<span class="err">Could not load config.</span>';
+        return;
+      }
+      if (cfg.open) {
+        // Open mode (staging labeling parties): no login — just a name so
+        // per-reviewer skip/seen piles still work.
+        let name = "";
+        try { name = localStorage.getItem("reviewerName") || ""; } catch (e) {}
+        if (!name) {
+          name = (window.prompt("Your name (for labeling credit):") || "labeler").trim() || "labeler";
+          try { localStorage.setItem("reviewerName", name); } catch (e) {}
+        }
+        openReviewerName = name;
+        $("boot").classList.add("hidden");
+        $("signedOutBar").classList.remove("hidden");
+        $("modeBar").classList.remove("hidden");
+        loadNext();
         return;
       }
       if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) {
