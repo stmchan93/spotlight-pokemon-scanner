@@ -58,3 +58,20 @@ with dose scaling: June's +10pt came from 1,035 labels.
 
 - `backend/data/visual-models/raw_visual_adapter_siglip2-384-v002-candidate.pt` (+ metadata/metrics/split)
 - The imported corpus + new holdout persist; v003 training starts from `build_raw_visual_training_manifest.py` after the next batch import.
+
+## UPDATE (same day): v003 with all three shows — PASSES THE GATE
+
+User labeled Ontario (582) + Pomona (298) locally; total new-label dose ~1,209. Corpus 2,657
+manifest rows; re-mined negatives; trained `siglip2-384-v003-candidate` (best epoch 2, val R@1 0.882).
+
+| benchmark | active v001 | v003 | delta |
+|---|---|---|---|
+| May gate (204) | 162/187/189 | **171/192/195 (83%/94%/95%)** | +9/+5/+6 |
+| Honolulu (57) | 46 | 47 | +1 |
+| Ontario (132) | 115 | 120 | +5 |
+| Pomona (82) | 66 | **78 (95%)** | +12 |
+
+No regressions on any benchmark → **gate PASSED; recommend publishing** (staging first; prod in
+the 1–8am PT dead window with explicit approval). Checkpoint:
+`backend/data/visual-models/raw_visual_adapter_siglip2-384-v003-candidate.pt`. Publishing requires
+rebuilding the projected runtime index with v003 (reference-image cache is local; ~1h MPS).
