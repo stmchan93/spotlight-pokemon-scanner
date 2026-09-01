@@ -3980,24 +3980,54 @@ export function ScannerScreen({
             ]}
           >
             {/*
-              Binder-page POC toggle (dev builds only): Single ↔ Page. Function
-              over form — the UX pass owns its final look and placement
-              (docs/binder-scan-v0-implementation-spec-2026-08-28.md).
+              Single ↔ 3×3 (binder page) segmented selection, drawn with the
+              same material recipe as the zoom dock beside it: a dark clear
+              glass dock (scrim fallback off iOS 26), with the SELECTED segment
+              on a light glass chip and the other a bare label — see
+              `ScanTargetPill` for why the scheme is pinned rather than `auto`.
             */}
             {__DEV__ || runtimeAppEnv === 'staging' ? (
-              <Pressable
-                accessibilityLabel={isBinderPageMode ? 'Switch to single-card scanning' : 'Switch to binder-page scanning'}
-                accessibilityRole="button"
-                accessibilityState={{ selected: isBinderPageMode }}
-                hitSlop={6}
-                onPress={gate(() => setIsBinderPageMode((current) => !current))}
-                style={[styles.binderModePill, isBinderPageMode ? styles.binderModePillActive : null]}
+              <GlassSurface
+                fallbackColor="rgba(0, 0, 0, 0.35)"
+                glassColorScheme="dark"
+                glassEffectStyle="clear"
+                style={styles.binderModeDock}
                 testID="scanner-binder-mode-toggle"
               >
-                <Text style={styles.binderModePillLabel}>
-                  {isBinderPageMode ? 'Page 3×3' : 'Single'}
-                </Text>
-              </Pressable>
+                {([false, true] as const).map((pageMode) => {
+                  const selected = isBinderPageMode === pageMode;
+                  const label = pageMode ? '3×3' : 'Single';
+                  const segmentTestID = pageMode ? 'scanner-binder-mode-page' : 'scanner-binder-mode-single';
+                  return (
+                    <Pressable
+                      accessibilityLabel={pageMode ? 'Scan binder pages, nine cards at a time' : 'Scan single cards'}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected }}
+                      hitSlop={6}
+                      key={label}
+                      onPress={gate(() => setIsBinderPageMode(pageMode))}
+                      style={styles.binderModeSegment}
+                      testID={segmentTestID}
+                    >
+                      {selected ? (
+                        <GlassSurface
+                          fallbackColor={colors.gray0}
+                          glassColorScheme="light"
+                          glassEffectStyle="regular"
+                          style={styles.binderModeSegmentSurface}
+                          testID={`${segmentTestID}-surface`}
+                        >
+                          <Text style={[styles.binderModeSegmentLabel, styles.binderModeSegmentLabelSelected]}>
+                            {label}
+                          </Text>
+                        </GlassSurface>
+                      ) : (
+                        <Text style={styles.binderModeSegmentLabel}>{label}</Text>
+                      )}
+                    </Pressable>
+                  );
+                })}
+              </GlassSurface>
             ) : null}
             {/* Zoom is meaningless for a whole page; hiding it also frees the band for the reticle. */}
             {isBinderPageMode ? null : (
@@ -4577,20 +4607,41 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     opacity: 0.85,
   },
-  binderModePill: {
-    backgroundColor: 'rgba(0, 0, 0, 0.35)',
+  // Single ↔ 3×3 segmented dock: dark clear-glass shell, light-glass chip on
+  // the selected segment (mirrors the zoom dock's material recipe).
+  binderModeDock: {
+    alignItems: 'center',
     borderRadius: 999,
+    flexDirection: 'row',
+    gap: 2,
     marginRight: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
+    overflow: 'hidden',
+    padding: 3,
   },
-  binderModePillActive: {
-    backgroundColor: colors.purple500,
+  binderModeSegment: {
+    alignItems: 'center',
+    borderRadius: 999,
+    height: 26,
+    justifyContent: 'center',
+    minWidth: 52,
+    paddingHorizontal: 10,
   },
-  binderModePillLabel: {
+  // The glass fills the whole segment chip so the material clips the label
+  // rather than sitting behind it (same trick as zoomPillSurface).
+  binderModeSegmentSurface: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    borderRadius: 999,
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  binderModeSegmentLabel: {
     ...textStyles.label,
     color: colors.gray0,
     fontSize: 12,
+  },
+  binderModeSegmentLabelSelected: {
+    color: colors.gray900,
   },
   zoomDock: {
     alignItems: 'center',
