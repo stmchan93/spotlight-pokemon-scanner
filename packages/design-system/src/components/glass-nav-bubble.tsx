@@ -41,6 +41,14 @@ export type GlassNavBubbleSize = keyof typeof glassNavBubbleSizes;
 export const glassNavBubbleGlyphSize = 24;
 
 /**
+ * Stroke width (viewBox units) for the icon inside a glass nav control — 2.0pt
+ * actual at the 24pt render. The frames' SF-Symbol glyphs measure ~1.6–2.1pt of
+ * ink; the sets' default 1.5 still read thin against them, and the scanner's
+ * over-camera bubbles already ran 2. One weight everywhere.
+ */
+export const glassNavBubbleGlyphStrokeWidth = 2;
+
+/**
  * Describes the SURFACE the bubble floats over, not the glass material. Callers
  * should never have to reason about `UIGlassEffect` color schemes — say what is
  * underneath and the primitive picks the material and the non-glass fallback.

@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type Dispatch,
@@ -8,6 +9,7 @@ import {
 } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   Platform,
   Pressable,
   RefreshControl,
@@ -145,6 +147,19 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     handleLayout: handleListLayout,
     scrollToTop,
   } = useScrollToTop(scrollRef, undefined, listTopOffset);
+
+  // Native-driven scroll offset for the header: drives the decorative app
+  // mark's fade-out (the glass controls themselves never move). Starts at the
+  // list's rest offset so the mark is fully visible before the first scroll.
+  const headerScrollY = useRef(new Animated.Value(listTopOffset)).current;
+  const handleListScroll = useMemo(
+    () =>
+      Animated.event(
+        [{ nativeEvent: { contentOffset: { y: headerScrollY } } }],
+        { listener: trackScrollTopVisibility, useNativeDriver: true },
+      ),
+    [headerScrollY, trackScrollTopVisibility],
+  );
 
 
   // Delete-your-own-post: confirm → optimistic removal from THIS list → restore
@@ -592,7 +607,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         // Measures the viewport the "Back to top" FAB uses as its threshold —
         // it appears once you have travelled roughly one screen height.
         onLayout={handleListLayout}
-        onScroll={trackScrollTopVisibility}
+        onScroll={handleListScroll}
         scrollEventThrottle={16}
         // RN clamps a NEGATIVE scrollTo target to 0 unless this is set
         // (RCTScrollViewComponentView.mm), and it clamps against
@@ -662,6 +677,8 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         floating
         onOpenMenu={openDrawer}
         onOpenSearch={openSearch}
+        scrollRestOffset={listTopOffset}
+        scrollY={headerScrollY}
         testID={`${testID}-header`}
         // Home puts search + bell in one trailing glass pill (Figma 4299:94902);
         // the `+` that once sat here moved into the list as the compose prompt

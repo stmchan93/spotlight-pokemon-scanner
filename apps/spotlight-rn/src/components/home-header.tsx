@@ -9,6 +9,7 @@ import {
   SearchEntryPill,
   Text,
   glassNavBubbleGlyphSize,
+  glassNavBubbleGlyphStrokeWidth,
   glassNavBubbleSizes,
   useSpotlightTheme,
   type GlassNavBubbleGroupItem,
@@ -207,6 +208,12 @@ export const HOME_HEADER_ROW_HEIGHT = BAR_PADDING_TOP + CONTROL_ROW_HEIGHT;
  * time anything parks behind the bar the backdrop is already solid.
  */
 const HEADER_BACKDROP_FADE_DISTANCE = 56;
+/**
+ * How far the page scrolls before Home's decorative app mark has fully faded.
+ * Shorter than the backdrop's distance so the mark is gone before content
+ * starts parking behind the bar.
+ */
+const HOME_MARK_FADE_DISTANCE = 40;
 
 /**
  * The shared top bar (Figma 4299:94902): a 44pt glass menu bubble leading, and
@@ -274,6 +281,21 @@ export function HomeHeader({
     });
   }, [pinnedBackdrop, scrollRestOffset, scrollY]);
 
+  // Home's leading app mark is decoration, not a control — so unlike the
+  // bubbles it does NOT hold its place while the page scrolls: it fades out
+  // over the first stretch of travel and returns at rest. Same rest-offset
+  // anchoring as the backdrop above. Without a scrollY it simply stays.
+  const homeMarkOpacity = useMemo(() => {
+    if (!scrollY) {
+      return null;
+    }
+    return scrollY.interpolate({
+      inputRange: [scrollRestOffset, scrollRestOffset + HOME_MARK_FADE_DISTANCE],
+      outputRange: [1, 0],
+      extrapolate: 'clamp',
+    });
+  }, [scrollRestOffset, scrollY]);
+
   /*
     The bar's rightmost control — ONE capsule on both variants, with EXACTLY
     TWO slots. On Home that is search + bell (Figma 4299:94902); on the profile
@@ -292,6 +314,7 @@ export function HomeHeader({
               children: (
                 <Search
                   color={theme.colors.gray900}
+                  strokeWidth={glassNavBubbleGlyphStrokeWidth}
                   height={BUTTON_ICON_SIZE}
                   width={BUTTON_ICON_SIZE}
                 />
@@ -308,6 +331,7 @@ export function HomeHeader({
                 <>
                   <Bell
                     color={theme.colors.gray900}
+                    strokeWidth={glassNavBubbleGlyphStrokeWidth}
                     height={BUTTON_ICON_SIZE}
                     width={BUTTON_ICON_SIZE}
                   />
@@ -347,6 +371,7 @@ export function HomeHeader({
               children: (
                 <EditPencil
                   color={theme.colors.gray900}
+                  strokeWidth={glassNavBubbleGlyphStrokeWidth}
                   height={EDIT_ICON_SIZE}
                   width={EDIT_ICON_SIZE}
                 />
@@ -359,6 +384,7 @@ export function HomeHeader({
               children: (
                 <ShareIos
                   color={theme.colors.gray900}
+                  strokeWidth={glassNavBubbleGlyphStrokeWidth}
                   height={SHARE_ICON_HEIGHT}
                   width={SHARE_ICON_WIDTH}
                 />
@@ -414,10 +440,15 @@ export function HomeHeader({
             size="medium"
             testID={`${testID}-menu`}
           >
-            <Menu color={theme.colors.gray900} height={BUTTON_ICON_SIZE} width={BUTTON_ICON_SIZE} />
+            <Menu color={theme.colors.gray900} strokeWidth={glassNavBubbleGlyphStrokeWidth} height={BUTTON_ICON_SIZE} width={BUTTON_ICON_SIZE} />
           </GlassNavBubble>
           {trailing.kind === 'home' ? (
-            <EkalightLogoIntro testID={`${testID}-home-mark`} />
+            <Animated.View
+              pointerEvents="none"
+              style={homeMarkOpacity ? { opacity: homeMarkOpacity } : null}
+            >
+              <EkalightLogoIntro testID={`${testID}-home-mark`} />
+            </Animated.View>
           ) : null}
         </View>
 
