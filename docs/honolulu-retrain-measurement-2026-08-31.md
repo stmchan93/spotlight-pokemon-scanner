@@ -75,3 +75,14 @@ No regressions on any benchmark → **gate PASSED; recommend publishing** (stagi
 the 1–8am PT dead window with explicit approval). Checkpoint:
 `backend/data/visual-models/raw_visual_adapter_siglip2-384-v003-candidate.pt`. Publishing requires
 rebuilding the projected runtime index with v003 (reference-image cache is local; ~1h MPS).
+
+## SHIPPED (same day): v003 live on staging
+
+Published via **adapter-composition reprojection** — staging's 46,118-row projected index was
+transformed with M = W_v003 · W_v001⁻¹ (both adapters are bias-free 768×768 linears; parity
+cos = 1.000000000 on 2,000 rows; the 204-gate reproduces 171/192/195 exactly through the
+composition). This avoids a multi-hour re-embed and preserves the VM's incremental rows that
+have no local base embeddings. Local active stack published the same way and re-verified.
+
+Rollback (both places): restore `*.pre-v003-20260831.bak` (index npz, manifest, adapter) and
+restart. Prod promotion: pending explicit approval, targeted at the 1–8am PT dead window.
