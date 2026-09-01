@@ -65,6 +65,7 @@ import {
 import {
   Button,
   GlassNavBubble,
+  glassNavBubbleGlyphSize,
   GlassSurface,
   Text,
   colors,
@@ -3915,7 +3916,7 @@ export function ScannerScreen({
             surface="onLight"
             testID="scanner-back-button"
           >
-            <IconChevronLeft color={colors.gray900} size={20} strokeWidth={2.2} />
+            <IconChevronLeft color={colors.gray900} size={glassNavBubbleGlyphSize} strokeWidth={2} />
           </GlassNavBubble>
           <View style={styles.topChromeCenter}>
             <ScanTargetPill
@@ -3937,7 +3938,7 @@ export function ScannerScreen({
             surface="onLight"
             testID="scanner-search-button"
           >
-            <IconSearch color={colors.gray900} size={20} strokeWidth={2.2} />
+            <IconSearch color={colors.gray900} size={glassNavBubbleGlyphSize} strokeWidth={2} />
           </GlassNavBubble>
         </View>
 

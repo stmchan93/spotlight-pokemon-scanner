@@ -8,6 +8,7 @@ import {
   GlassNavBubbleGroup,
   SearchEntryPill,
   Text,
+  glassNavBubbleGlyphSize,
   glassNavBubbleSizes,
   useSpotlightTheme,
   type GlassNavBubbleGroupItem,
@@ -135,24 +136,20 @@ type HomeHeaderProps = {
   testID?: string;
 };
 
-/** Figma 4299:94902 — every glyph in the bar draws at 20, whatever its slot. */
-const BUTTON_ICON_SIZE = 20;
 /**
- * The profile glyphs match Home's 20pt, and the earlier reasoning for making
- * them smaller was wrong.
- *
- * Figma measures the pencil at 18×18 and the share glyph at 16×18 — but it also
- * measures Home's bell at 16.66×18, and this app has always drawn those at 20.
- * So following the frame literally on ONE screen while rounding up on the other
- * is precisely what made the You bar read lighter than Home's, which is how it
- * was reported.
- *
- * Internal consistency wins here: every glyph in this bar is optically 20,
- * whichever screen it is on. The share arrow keeps Figma's non-square ratio
- * (16:18 scaled to 20 tall ≈ 18 wide) so it does not stretch into a square.
+ * Every glyph in the bar draws at the shared glass-nav glyph size — see
+ * `glassNavBubbleGlyphSize` for why that is 24 when the Figma toolbar frames
+ * measure their (tight-cropped SF-Symbol) glyphs at ~20.
+ */
+const BUTTON_ICON_SIZE = glassNavBubbleGlyphSize;
+/**
+ * The profile glyphs match Home's size — following the frame literally on ONE
+ * screen while rounding up on the other is what once made the You bar read
+ * lighter than Home's. The share arrow keeps Figma's non-square 16:18 ratio so
+ * it does not stretch into a square.
  */
 const EDIT_ICON_SIZE = BUTTON_ICON_SIZE;
-const SHARE_ICON_WIDTH = 18;
+const SHARE_ICON_WIDTH = Math.round(BUTTON_ICON_SIZE * 0.9);
 const SHARE_ICON_HEIGHT = BUTTON_ICON_SIZE;
 /**
  * The app-mark badge inside the profile bar's search pill, sized so the mark

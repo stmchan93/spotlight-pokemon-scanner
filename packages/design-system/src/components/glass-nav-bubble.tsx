@@ -29,6 +29,18 @@ export const glassNavBubbleSizes = {
 export type GlassNavBubbleSize = keyof typeof glassNavBubbleSizes;
 
 /**
+ * Render size (pt) for the stroke icon inside a glass nav control.
+ *
+ * 24, not the 20 the Figma toolbar frames measure — because those frames
+ * (4299:95118) place TIGHT-CROPPED SF-Symbol glyphs (a true ~20pt of ink at
+ * ~1.5pt weight), while the app's icon sets (iconoir, tabler) pad their glyphs
+ * inside a 24-unit viewBox and scale stroke weight with render size. Rendered
+ * at 20 they show ~16pt of ink at ~1.25pt — the "icons look small and thin"
+ * report. At 24 the visible glyph and stroke land on the frame's numbers.
+ */
+export const glassNavBubbleGlyphSize = 24;
+
+/**
  * Describes the SURFACE the bubble floats over, not the glass material. Callers
  * should never have to reason about `UIGlassEffect` color schemes — say what is
  * underneath and the primitive picks the material and the non-glass fallback.

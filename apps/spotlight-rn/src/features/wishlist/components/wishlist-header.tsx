@@ -9,6 +9,7 @@ import {
   GlassNavBubble,
   IconButton,
   glassButtonGroupControlSize,
+  glassNavBubbleGlyphSize,
   glassNavBubbleSizes,
   useSpotlightTheme,
 } from '@spotlight/design-system';
@@ -110,7 +111,7 @@ type WishlistHeaderProps = {
 // out of the row and clips away. The whole bar used to sit in normal flow above
 // the list, which is the shape that takes the menu and the actions off screen
 // with it — the regression `HomeHeader`'s own note exists to stop.
-const BUTTON_ICON_SIZE = 20;
+const BUTTON_ICON_SIZE = glassNavBubbleGlyphSize;
 /**
  * Figma's toolbar (3567:22969) pads 8pt above the control row; the safe-area
  * inset supplies the rest.
