@@ -3980,9 +3980,9 @@ export function ScannerScreen({
             ]}
           >
             {/*
-              Single ↔ 3×3 (binder page) toggle: one pill, tap to flip. Idle
-              ("Single") keeps the dark scrim pill; active ("3×3") sits on the
-              SAME light glass chip as the selected zoom factor beside it —
+              Single ↔ 3×3 (binder page) toggle: one pill, tap to flip. It
+              always shows the CURRENT mode, so it always sits highlighted on
+              the same light glass chip as the selected zoom factor beside it —
               glass on iOS 26, solid white elsewhere (see `ScanTargetPill` for
               why the scheme is pinned rather than `auto`).
             */}
@@ -3993,28 +3993,21 @@ export function ScannerScreen({
                 accessibilityState={{ selected: isBinderPageMode }}
                 hitSlop={6}
                 onPress={gate(() => setIsBinderPageMode((current) => !current))}
-                style={[styles.binderModePill, isBinderPageMode ? null : styles.binderModePillIdle]}
+                style={styles.binderModePill}
                 testID="scanner-binder-mode-toggle"
               >
-                {isBinderPageMode ? (
-                  // Glass fills the pill behind the in-flow label (the label
-                  // keeps sizing the pill; zoom pills can nest theirs because
-                  // they're fixed-width circles).
-                  <GlassSurface
-                    fallbackColor={colors.gray0}
-                    glassColorScheme="light"
-                    glassEffectStyle="regular"
-                    pointerEvents="none"
-                    style={styles.binderModePillSurface}
-                    testID="scanner-binder-mode-toggle-surface"
-                  />
-                ) : null}
-                <Text
-                  style={[
-                    styles.binderModePillLabel,
-                    isBinderPageMode ? styles.binderModePillLabelActive : null,
-                  ]}
-                >
+                {/* Glass fills the pill behind the in-flow label (the label
+                    keeps sizing the pill; zoom pills can nest theirs because
+                    they're fixed-width circles). */}
+                <GlassSurface
+                  fallbackColor={colors.gray0}
+                  glassColorScheme="light"
+                  glassEffectStyle="regular"
+                  pointerEvents="none"
+                  style={styles.binderModePillSurface}
+                  testID="scanner-binder-mode-toggle-surface"
+                />
+                <Text style={styles.binderModePillLabel}>
                   {isBinderPageMode ? '3×3' : 'Single'}
                 </Text>
               </Pressable>
@@ -4597,8 +4590,8 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     opacity: 0.85,
   },
-  // Single ↔ 3×3 toggle pill: dark scrim while idle, the zoom dock's light
-  // glass chip while binder mode is active.
+  // Single ↔ 3×3 toggle pill: always on the zoom dock's light glass chip —
+  // it shows the CURRENT mode, so it always reads as the highlighted choice.
   binderModePill: {
     alignItems: 'center',
     borderRadius: 999,
@@ -4608,25 +4601,15 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     paddingHorizontal: 14,
   },
-  binderModePillIdle: {
-    backgroundColor: 'rgba(0, 0, 0, 0.35)',
-  },
-  // The glass fills the whole pill so the material clips the label rather
-  // than sitting behind it (same trick as zoomPillSurface).
   binderModePillSurface: {
     ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
     borderRadius: 999,
-    justifyContent: 'center',
     overflow: 'hidden',
   },
   binderModePillLabel: {
     ...textStyles.label,
-    color: colors.gray0,
-    fontSize: 12,
-  },
-  binderModePillLabelActive: {
     color: colors.gray900,
+    fontSize: 12,
   },
   zoomDock: {
     alignItems: 'center',
