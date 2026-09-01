@@ -86,3 +86,19 @@ have no local base embeddings. Local active stack published the same way and re-
 
 Rollback (both places): restore `*.pre-v003-20260831.bak` (index npz, manifest, adapter) and
 restart. Prod promotion: pending explicit approval, targeted at the 1–8am PT dead window.
+
+## Binder-pocket relevance (measured 2026-09-01)
+
+Pocket-resolution sim (204 holdout, down/up-scaled like the 2026-08-28 feasibility harness),
+v001 vs v003:
+
+| px | v001 top-1 | v003 top-1 |
+|---|---|---|
+| 630 (≈4K pocket) | 162 (79%) | **171 (83%)** |
+| 360 (Android FHD pocket) | 158 (77%) | **167 (81%)** |
+| 240 (iOS HD pocket) | 160 (78%) | 155 (75%) ⚠ |
+
+v003's gains carry fully into the binder lane at the shipped 4K-pocket design (+4pp at both 630
+and 360). **Caveat:** at 240px v003 is slightly WORSE than v001 — its show-trained features are
+resolution-sensitive; harmless under the 4K design (pockets ≈720px) but if any path serves
+~240px pockets, add downscale augmentation / binder-pocket labels to v004.
