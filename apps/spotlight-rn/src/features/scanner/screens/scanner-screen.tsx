@@ -3980,54 +3980,44 @@ export function ScannerScreen({
             ]}
           >
             {/*
-              Single ↔ 3×3 (binder page) segmented selection, drawn with the
-              same material recipe as the zoom dock beside it: a dark clear
-              glass dock (scrim fallback off iOS 26), with the SELECTED segment
-              on a light glass chip and the other a bare label — see
-              `ScanTargetPill` for why the scheme is pinned rather than `auto`.
+              Single ↔ 3×3 (binder page) toggle: one pill, tap to flip. Idle
+              ("Single") keeps the dark scrim pill; active ("3×3") sits on the
+              SAME light glass chip as the selected zoom factor beside it —
+              glass on iOS 26, solid white elsewhere (see `ScanTargetPill` for
+              why the scheme is pinned rather than `auto`).
             */}
             {__DEV__ || runtimeAppEnv === 'staging' ? (
-              <GlassSurface
-                fallbackColor="rgba(0, 0, 0, 0.35)"
-                glassColorScheme="dark"
-                glassEffectStyle="clear"
-                style={styles.binderModeDock}
+              <Pressable
+                accessibilityLabel={isBinderPageMode ? 'Switch to single-card scanning' : 'Switch to binder-page scanning'}
+                accessibilityRole="button"
+                accessibilityState={{ selected: isBinderPageMode }}
+                hitSlop={6}
+                onPress={gate(() => setIsBinderPageMode((current) => !current))}
+                style={[styles.binderModePill, isBinderPageMode ? null : styles.binderModePillIdle]}
                 testID="scanner-binder-mode-toggle"
               >
-                {([false, true] as const).map((pageMode) => {
-                  const selected = isBinderPageMode === pageMode;
-                  const label = pageMode ? '3×3' : 'Single';
-                  const segmentTestID = pageMode ? 'scanner-binder-mode-page' : 'scanner-binder-mode-single';
-                  return (
-                    <Pressable
-                      accessibilityLabel={pageMode ? 'Scan binder pages, nine cards at a time' : 'Scan single cards'}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected }}
-                      hitSlop={6}
-                      key={label}
-                      onPress={gate(() => setIsBinderPageMode(pageMode))}
-                      style={styles.binderModeSegment}
-                      testID={segmentTestID}
-                    >
-                      {selected ? (
-                        <GlassSurface
-                          fallbackColor={colors.gray0}
-                          glassColorScheme="light"
-                          glassEffectStyle="regular"
-                          style={styles.binderModeSegmentSurface}
-                          testID={`${segmentTestID}-surface`}
-                        >
-                          <Text style={[styles.binderModeSegmentLabel, styles.binderModeSegmentLabelSelected]}>
-                            {label}
-                          </Text>
-                        </GlassSurface>
-                      ) : (
-                        <Text style={styles.binderModeSegmentLabel}>{label}</Text>
-                      )}
-                    </Pressable>
-                  );
-                })}
-              </GlassSurface>
+                {isBinderPageMode ? (
+                  // Glass fills the pill behind the in-flow label (the label
+                  // keeps sizing the pill; zoom pills can nest theirs because
+                  // they're fixed-width circles).
+                  <GlassSurface
+                    fallbackColor={colors.gray0}
+                    glassColorScheme="light"
+                    glassEffectStyle="regular"
+                    pointerEvents="none"
+                    style={styles.binderModePillSurface}
+                    testID="scanner-binder-mode-toggle-surface"
+                  />
+                ) : null}
+                <Text
+                  style={[
+                    styles.binderModePillLabel,
+                    isBinderPageMode ? styles.binderModePillLabelActive : null,
+                  ]}
+                >
+                  {isBinderPageMode ? '3×3' : 'Single'}
+                </Text>
+              </Pressable>
             ) : null}
             {/* Zoom is meaningless for a whole page; hiding it also frees the band for the reticle. */}
             {isBinderPageMode ? null : (
@@ -4607,40 +4597,35 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     opacity: 0.85,
   },
-  // Single ↔ 3×3 segmented dock: dark clear-glass shell, light-glass chip on
-  // the selected segment (mirrors the zoom dock's material recipe).
-  binderModeDock: {
+  // Single ↔ 3×3 toggle pill: dark scrim while idle, the zoom dock's light
+  // glass chip while binder mode is active.
+  binderModePill: {
     alignItems: 'center',
     borderRadius: 999,
-    flexDirection: 'row',
-    gap: 2,
+    height: 30,
+    justifyContent: 'center',
     marginRight: 12,
     overflow: 'hidden',
-    padding: 3,
+    paddingHorizontal: 14,
   },
-  binderModeSegment: {
-    alignItems: 'center',
-    borderRadius: 999,
-    height: 26,
-    justifyContent: 'center',
-    minWidth: 52,
-    paddingHorizontal: 10,
+  binderModePillIdle: {
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
   },
-  // The glass fills the whole segment chip so the material clips the label
-  // rather than sitting behind it (same trick as zoomPillSurface).
-  binderModeSegmentSurface: {
+  // The glass fills the whole pill so the material clips the label rather
+  // than sitting behind it (same trick as zoomPillSurface).
+  binderModePillSurface: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     borderRadius: 999,
     justifyContent: 'center',
     overflow: 'hidden',
   },
-  binderModeSegmentLabel: {
+  binderModePillLabel: {
     ...textStyles.label,
     color: colors.gray0,
     fontSize: 12,
   },
-  binderModeSegmentLabelSelected: {
+  binderModePillLabelActive: {
     color: colors.gray900,
   },
   zoomDock: {
