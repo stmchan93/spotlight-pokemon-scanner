@@ -4593,7 +4593,9 @@ const styles = StyleSheet.create({
     zIndex: 5,
   },
   binderGridLine: {
-    backgroundColor: 'rgba(255, 255, 255, 0.55)',
+    // The reticle corners' resting purple (reticleRestingCornerColor) — the
+    // white lines washed out over bright scenes.
+    backgroundColor: colors.purple300,
     position: 'absolute',
     zIndex: 3,
   },
