@@ -10,6 +10,7 @@ import {
   IconButton,
   glassButtonGroupControlSize,
   glassNavBubbleGlyphSize,
+  glassNavBubbleGlyphStrokeWidth,
   glassNavBubbleSizes,
   useSpotlightTheme,
 } from '@spotlight/design-system';
@@ -111,11 +112,11 @@ type WishlistHeaderProps = {
 // out of the row and clips away. The whole bar used to sit in normal flow above
 // the list, which is the shape that takes the menu and the actions off screen
 // with it — the regression `HomeHeader`'s own note exists to stop.
-// Trailing-pill glyphs follow the iOS-26 toolbar spec (Figma 4255:90646):
-// 20px glyphs at ~2px effective stroke inside the 36px controls — deliberately
-// NOT glassNavBubbleGlyphSize (24), which the Menu bubble keeps.
-const BUTTON_ICON_SIZE = 20;
-const BUTTON_ICON_STROKE = 2;
+// Token render size + weight: 24pt render of iconoir's padded 24-viewBox shows
+// the same ~20pt of ink the Figma toolbar's tight-cropped SF glyphs measure —
+// see glassNavBubbleGlyphSize's doc for why 20 here would look small and thin.
+const BUTTON_ICON_SIZE = glassNavBubbleGlyphSize;
+const BUTTON_ICON_STROKE = glassNavBubbleGlyphStrokeWidth;
 /**
  * Figma's toolbar (3567:22969) pads 8pt above the control row; the safe-area
  * inset supplies the rest.
@@ -225,7 +226,7 @@ export function WishlistHeader({
           surface="onLight"
           testID="wishlist-header-menu"
         >
-          <Menu color={theme.colors.gray900} height={BUTTON_ICON_SIZE} width={BUTTON_ICON_SIZE} />
+          <Menu color={theme.colors.gray900} height={BUTTON_ICON_SIZE} strokeWidth={BUTTON_ICON_STROKE} width={BUTTON_ICON_SIZE} />
         </GlassNavBubble>
       </View>
       {/*

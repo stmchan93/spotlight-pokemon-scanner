@@ -1294,7 +1294,7 @@ describe('ScannerScreen', () => {
     // Top-bar pill: shared light glass fallback (Figma 4299:93955). Selected
     // zoom: solid white chip; the other factors are bare labels.
     expect(fillOf('scanner-target-pill-surface')).toBe(colors.glassFallback);
-    expect(fillOf('scanner-zoom-1x-surface')).toBe(colors.gray0);
+    expect(fillOf('scanner-zoom-1x-surface')).toBe('rgba(255, 255, 255, 0.10)');
     expect(screen.queryByTestId('scanner-zoom-2x-surface')).toBeNull();
 
     await waitForScannerReady();

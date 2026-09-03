@@ -4000,12 +4000,13 @@ export function ScannerScreen({
                 {/* Glass fills the pill behind the in-flow label (the label
                     keeps sizing the pill; zoom pills can nest theirs because
                     they're fixed-width circles). */}
-                <View
-                  // Solid white like the selected zoom chip beside it — light
-                  // glass goes near-black over a dark camera scene (see the
-                  // zoom chip note).
+                <GlassSurface
+                  // The SCAN/TOTAL pill recipe — see the zoom chip note.
+                  fallbackColor="rgba(255, 255, 255, 0.10)"
+                  glassColorScheme="dark"
+                  glassEffectStyle="clear"
                   pointerEvents="none"
-                  style={[styles.binderModePillSurface, { backgroundColor: colors.gray0 }]}
+                  style={styles.binderModePillSurface}
                   testID="scanner-binder-mode-toggle-surface"
                 />
                 <Text style={styles.binderModePillLabel}>
@@ -4036,19 +4037,21 @@ export function ScannerScreen({
                       for why the scheme is pinned `dark` rather than `auto`.
                     */}
                     {selected ? (
-                      // SOLID white, deliberately not glass: light glass only
-                      // borrows brightness from what is behind it, and behind
-                      // this chip is the live camera — at night the chip went
-                      // near-black and the label vanished. A solid fill is
-                      // legible over any scene.
-                      <View
-                        style={[styles.zoomPillSurface, { backgroundColor: colors.gray0 }]}
+                      // The SCAN/TOTAL pill recipe: DARK-pinned clear glass
+                      // with a white label. Light glass borrows brightness
+                      // from the backdrop and went near-black over night
+                      // scenes; dark glass + white text reads over anything.
+                      <GlassSurface
+                        fallbackColor="rgba(255, 255, 255, 0.10)"
+                        glassColorScheme="dark"
+                        glassEffectStyle="clear"
+                        style={styles.zoomPillSurface}
                         testID={`scanner-zoom-${factor}x-surface`}
                       >
-                        <Text style={[styles.zoomPillLabel, styles.zoomPillLabelSelected]}>
+                        <Text style={styles.zoomPillLabel}>
                           {`${factor}x`}
                         </Text>
-                      </View>
+                      </GlassSurface>
                     ) : (
                       <Text style={styles.zoomPillLabel}>{`${factor}x`}</Text>
                     )}
@@ -4611,7 +4614,7 @@ const styles = StyleSheet.create({
   },
   binderModePillLabel: {
     ...textStyles.label,
-    color: colors.gray900,
+    color: colors.gray0,
     fontSize: 12,
   },
   zoomDock: {
@@ -4641,9 +4644,6 @@ const styles = StyleSheet.create({
     ...textStyles.label,
     color: colors.gray0,
     fontSize: 12,
-  },
-  zoomPillLabelSelected: {
-    color: colors.gray900,
   },
   captureCopy: {
     alignItems: 'flex-start',

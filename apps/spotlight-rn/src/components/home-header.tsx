@@ -147,12 +147,9 @@ const BUTTON_ICON_SIZE = glassNavBubbleGlyphSize;
  * lighter than Home's. The share arrow keeps Figma's non-square 16:18 ratio so
  * it does not stretch into a square.
  */
-// Profile toolbar glyphs follow the iOS-26 toolbar spec (Figma 4134:50957):
-// 20px glyphs in the 36px slots. Home keeps the shared 24px glyph token.
-const PROFILE_ICON_SIZE = 20;
-const EDIT_ICON_SIZE = PROFILE_ICON_SIZE;
-const SHARE_ICON_WIDTH = Math.round(PROFILE_ICON_SIZE * 0.9);
-const SHARE_ICON_HEIGHT = PROFILE_ICON_SIZE;
+const EDIT_ICON_SIZE = BUTTON_ICON_SIZE;
+const SHARE_ICON_WIDTH = Math.round(BUTTON_ICON_SIZE * 0.9);
+const SHARE_ICON_HEIGHT = BUTTON_ICON_SIZE;
 /**
  * The app-mark badge inside the profile bar's search pill, sized so the mark
  * stays a badge inside the field instead of filling it. The Figma logo node is
@@ -370,8 +367,8 @@ export function HomeHeader({
                 <Search
                   color={theme.colors.gray900}
                   strokeWidth={glassNavBubbleGlyphStrokeWidth}
-                  height={PROFILE_ICON_SIZE}
-                  width={PROFILE_ICON_SIZE}
+                  height={BUTTON_ICON_SIZE}
+                  width={BUTTON_ICON_SIZE}
                 />
               ),
               onPress: onOpenSearch,
@@ -454,8 +451,8 @@ export function HomeHeader({
             <Menu
               color={theme.colors.gray900}
               strokeWidth={glassNavBubbleGlyphStrokeWidth}
-              height={trailing.kind === 'profile' ? PROFILE_ICON_SIZE : BUTTON_ICON_SIZE}
-              width={trailing.kind === 'profile' ? PROFILE_ICON_SIZE : BUTTON_ICON_SIZE}
+              height={BUTTON_ICON_SIZE}
+              width={BUTTON_ICON_SIZE}
             />
           </GlassNavBubble>
           {trailing.kind === 'home' ? (

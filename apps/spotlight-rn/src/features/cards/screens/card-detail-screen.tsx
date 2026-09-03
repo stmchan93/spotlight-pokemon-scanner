@@ -34,6 +34,8 @@ import {
 import {
   Button,
   GlassButtonGroup,
+  glassNavBubbleGlyphSize,
+  glassNavBubbleGlyphStrokeWidth,
   IconButton,
   Text,
   TrendTriangle,
@@ -2405,7 +2407,7 @@ export function CardDetailScreen({
                 testID="detail-back"
                 variant="ghost"
               >
-                <NavArrowLeft color={theme.colors.gray900} height={24} width={24} />
+                <NavArrowLeft color={theme.colors.gray900} height={glassNavBubbleGlyphSize} strokeWidth={glassNavBubbleGlyphStrokeWidth} width={glassNavBubbleGlyphSize} />
               </IconButton>
             </GlassButtonGroup>
           </View>
@@ -2434,7 +2436,7 @@ export function CardDetailScreen({
                   testID="detail-delete"
                   variant="ghost"
                 >
-                  <Trash color={theme.colors.gray900} height={20} width={20} />
+                  <Trash color={theme.colors.gray900} height={glassNavBubbleGlyphSize} strokeWidth={glassNavBubbleGlyphStrokeWidth} width={glassNavBubbleGlyphSize} />
                 </IconButton>
               ) : null}
               <IconButton
@@ -2445,7 +2447,7 @@ export function CardDetailScreen({
                 testID="detail-share"
                 variant="ghost"
               >
-                <ShareIos color={theme.colors.gray900} height={20} width={20} />
+                <ShareIos color={theme.colors.gray900} height={glassNavBubbleGlyphSize} strokeWidth={glassNavBubbleGlyphStrokeWidth} width={glassNavBubbleGlyphSize} />
               </IconButton>
             </GlassButtonGroup>
           </View>
