@@ -94,11 +94,11 @@ export function BinderPageReview({
           </Pressable>
           <View style={styles.headerCopy}>
             <Text style={styles.title}>Binder page</Text>
-            <Text style={styles.subtitle} testID={`${testID}-status`}>
-              {pending > 0
-                ? `Identifying ${pending} of ${pocketCount}…`
-                : `${addable.length} of ${pockets.length} identified · tap a card to change it`}
-            </Text>
+            {pending > 0 ? (
+              <Text style={styles.subtitle} testID={`${testID}-status`}>
+                {`Identifying ${pending} of ${pocketCount}…`}
+              </Text>
+            ) : null}
           </View>
         </View>
 
