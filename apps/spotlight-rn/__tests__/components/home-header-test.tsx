@@ -200,9 +200,10 @@ describe('HomeHeader', () => {
       // The bell belongs to Home's bar, not this one.
       expect(screen.queryByTestId('home-header-notifications')).toBeNull();
 
-      // Still one capsule with two 36pt slots — 104×44 in the medium size.
+      // One capsule with THREE 36pt slots since 4134:50957 (search joined
+      // edit + share) — 160×44 in the medium size.
       const capsule = StyleSheet.flatten(screen.getByTestId('home-header-trailing').props.style);
-      expect(capsule.width).toBe(glassNavBubbleGroupWidth(2, 'medium'));
+      expect(capsule.width).toBe(glassNavBubbleGroupWidth(3, 'medium'));
       expect(capsule.height).toBe(glassNavBubbleSizes.medium);
       for (const testID of ['home-header-edit', 'home-header-share']) {
         expect(StyleSheet.flatten(screen.getByTestId(testID).props.style).width).toBe(36);
@@ -240,13 +241,13 @@ describe('HomeHeader', () => {
   });
 
   /*
-    THE PILL IS STATIC. The scroll-linked slide-and-fade (and its clip wrapper
-    and disarm plumbing) left with the 4299:94902 bar: the profile pill just
-    sits in the row, always visible and always tappable, whatever the scroll
-    offset is doing.
+    NO PILL ON EITHER VARIANT since 4134:50957 — the profile's "Search Cards"
+    pill became the search slot in the trailing capsule. The magnifier must
+    keep working mid-scroll, the exact moment the retired pill's fade used to
+    take search away.
   */
-  describe('the search pill', () => {
-    it('renders statically on the profile bar — no motion wrapper, no clip', () => {
+  describe('the search slot', () => {
+    it('search works on the profile bar mid-scroll, and the pill is gone', () => {
       const onOpenSearch = jest.fn();
       renderHeader({
         floating: true,
@@ -255,18 +256,12 @@ describe('HomeHeader', () => {
         trailing: profileTrailing(),
       });
 
-      expect(screen.getByText('Search Cards')).toBeTruthy();
-      // The old scroll-linked wrapper and its clip are gone entirely.
-      expect(screen.queryByTestId('home-header-search-motion')).toBeNull();
-      expect(screen.queryByTestId('home-header-search-clip')).toBeNull();
-
-      // Still a working control mid-scroll — the exact moment the old fade
-      // used to take it away.
+      expect(screen.queryByText('Search Cards')).toBeNull();
       fireEvent.press(screen.getByTestId('home-header-search'));
       expect(onOpenSearch).toHaveBeenCalledTimes(1);
     });
 
-    it('does not render at all on Home', () => {
+    it('does not render the pill on Home either', () => {
       renderHeader({ floating: true, trailing: homeTrailing() });
 
       expect(screen.queryByText('Search Cards')).toBeNull();

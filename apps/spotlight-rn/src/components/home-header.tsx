@@ -1,5 +1,5 @@
 import { Bell, EditPencil, Menu, Search, ShareIos } from 'iconoir-react-native';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -276,6 +276,39 @@ export function HomeHeader({
     });
   }, [pinnedBackdrop, scrollRestOffset, scrollY]);
 
+  /*
+    CONTENT CONTRAST FLIP, profile variant only. At rest the profile bar floats
+    over the cover photo's guaranteed scrim (ProfileHeader darkens the top of
+    every cover, black 0.6 → clear), so the bubbles pin the DARK material with
+    white glyphs — dark glyphs on a dark cover were the "can't see the icons"
+    report. As the page scrolls, the pinned backdrop fades the strip to white,
+    so at the fade's midpoint the content flips to the light treatment. Driven
+    by the same scrollY as the backdrop; a profile bar without a scrollY stays
+    in its resting over-cover form.
+  */
+  const [isOverCover, setIsOverCover] = useState(trailing.kind === 'profile');
+  useEffect(() => {
+    if (trailing.kind !== 'profile') {
+      setIsOverCover(false);
+      return undefined;
+    }
+    setIsOverCover(true);
+    if (!scrollY) {
+      return undefined;
+    }
+    const threshold = scrollRestOffset + HEADER_BACKDROP_FADE_DISTANCE / 2;
+    const listenerId = scrollY.addListener(({ value }) => {
+      setIsOverCover((current) => {
+        const next = value < threshold;
+        return next === current ? current : next;
+      });
+    });
+    return () => scrollY.removeListener(listenerId);
+  }, [scrollRestOffset, scrollY, trailing.kind]);
+  const overCover = trailing.kind === 'profile' && isOverCover;
+  const chromeSurface = overCover ? ('onDark' as const) : ('onLight' as const);
+  const glyphColor = overCover ? theme.colors.gray0 : theme.colors.gray900;
+
   // Home's leading app mark is decoration, not a control — so unlike the
   // bubbles it does NOT hold its place while the page scrolls: it fades out
   // over the first stretch of travel and returns at rest. Same rest-offset
@@ -308,7 +341,7 @@ export function HomeHeader({
               accessibilityLabel: 'Search cards',
               children: (
                 <Search
-                  color={theme.colors.gray900}
+                  color={glyphColor}
                   strokeWidth={glassNavBubbleGlyphStrokeWidth}
                   height={BUTTON_ICON_SIZE}
                   width={BUTTON_ICON_SIZE}
@@ -325,7 +358,7 @@ export function HomeHeader({
               children: (
                 <>
                   <Bell
-                    color={theme.colors.gray900}
+                    color={glyphColor}
                     strokeWidth={glassNavBubbleGlyphStrokeWidth}
                     height={BUTTON_ICON_SIZE}
                     width={BUTTON_ICON_SIZE}
@@ -365,7 +398,7 @@ export function HomeHeader({
               accessibilityLabel: 'Search cards',
               children: (
                 <Search
-                  color={theme.colors.gray900}
+                  color={glyphColor}
                   strokeWidth={glassNavBubbleGlyphStrokeWidth}
                   height={BUTTON_ICON_SIZE}
                   width={BUTTON_ICON_SIZE}
@@ -378,7 +411,7 @@ export function HomeHeader({
               accessibilityLabel: 'Edit profile',
               children: (
                 <EditPencil
-                  color={theme.colors.gray900}
+                  color={glyphColor}
                   strokeWidth={glassNavBubbleGlyphStrokeWidth}
                   height={EDIT_ICON_SIZE}
                   width={EDIT_ICON_SIZE}
@@ -391,7 +424,7 @@ export function HomeHeader({
               accessibilityLabel: 'Share profile',
               children: (
                 <ShareIos
-                  color={theme.colors.gray900}
+                  color={glyphColor}
                   strokeWidth={glassNavBubbleGlyphStrokeWidth}
                   height={SHARE_ICON_HEIGHT}
                   width={SHARE_ICON_WIDTH}
@@ -403,6 +436,7 @@ export function HomeHeader({
           ] satisfies GlassNavBubbleGroupItem[]
         }
         size="medium"
+        surface={chromeSurface}
         testID={`${testID}-trailing`}
       />
     );
@@ -446,10 +480,11 @@ export function HomeHeader({
             accessibilityLabel="Open menu"
             onPress={onOpenMenu}
             size="medium"
+            surface={chromeSurface}
             testID={`${testID}-menu`}
           >
             <Menu
-              color={theme.colors.gray900}
+              color={glyphColor}
               strokeWidth={glassNavBubbleGlyphStrokeWidth}
               height={BUTTON_ICON_SIZE}
               width={BUTTON_ICON_SIZE}

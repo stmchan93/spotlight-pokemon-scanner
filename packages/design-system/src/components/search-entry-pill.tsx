@@ -26,6 +26,13 @@ type SearchEntryPillProps = {
    * fallback's shadow) is what defines the shape, so a border would double it.
    */
   variant?: 'solid' | 'glass';
+  /**
+   * Glass variant only: what the pill floats over. `onLight` (default) keeps
+   * the auto scheme with a dark label; `onDark` pins the dark material with a
+   * light label — for a bar resting on a scrimmed cover photo, where a dark
+   * label vanishes. Mirrors `GlassNavBubbleSurface`.
+   */
+  surface?: 'onLight' | 'onDark';
   style?: StyleProp<ViewStyle>;
   testID?: string;
 };
@@ -70,17 +77,21 @@ export function SearchEntryPill({
   accessibilityLabel,
   leading,
   variant = 'solid',
+  surface = 'onLight',
   style,
   testID,
 }: SearchEntryPillProps) {
   const theme = useSpotlightTheme();
   const glass = variant === 'glass';
+  const onDark = glass && surface === 'onDark';
   const hasGlass = glass && isLiquidGlassAvailable();
 
   const shell = glass
     ? hasGlass
       ? null
-      : [theme.shadows.glassPill, { backgroundColor: theme.colors.glassFallback }]
+      : onDark
+        ? { backgroundColor: 'rgba(255, 255, 255, 0.10)' }
+        : [theme.shadows.glassPill, { backgroundColor: theme.colors.glassFallback }]
     : {
         backgroundColor: theme.colors.gray50,
         borderColor: theme.colors.searchBorder,
@@ -103,9 +114,9 @@ export function SearchEntryPill({
     >
       {glass ? (
         <GlassSurface
-          fallbackColor={theme.colors.glassFallback}
-          glassColorScheme="auto"
-          glassEffectStyle="regular"
+          fallbackColor={onDark ? 'rgba(255, 255, 255, 0.10)' : theme.colors.glassFallback}
+          glassColorScheme={onDark ? 'dark' : 'auto'}
+          glassEffectStyle={onDark ? 'clear' : 'regular'}
           pointerEvents="none"
           style={[styles.glass, { borderRadius: theme.radii.pill }]}
         />
@@ -113,7 +124,11 @@ export function SearchEntryPill({
       {leading ? <View style={styles.leading}>{leading}</View> : null}
       <Text
         numberOfLines={1}
-        style={[theme.typography.bodySmall, styles.label, { color: theme.colors.gray600 }]}
+        style={[
+          theme.typography.bodySmall,
+          styles.label,
+          { color: onDark ? theme.colors.gray200 : theme.colors.gray600 },
+        ]}
       >
         {label}
       </Text>
