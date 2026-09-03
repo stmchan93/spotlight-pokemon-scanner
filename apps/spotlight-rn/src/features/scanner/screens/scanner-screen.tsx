@@ -1130,8 +1130,11 @@ export function ScannerScreen({
   // trayContentHeight math exactly (row 102 + gap 24, header 40 + gap when a
   // binder page group starts while expanded).
   const trayRowContentVisibility = useMemo(() => {
-    const windowTop = Math.max(0, trayRenderWindowTop - trayRenderOverscanPx);
-    const windowBottom = trayRenderWindowTop + trayScrollViewportHeight + trayRenderOverscanPx;
+    // Clamp a stale window (content shrank under it — clear-all, bulk delete)
+    // back to the top rather than windowing every remaining row out.
+    const anchoredTop = trayRenderWindowTop > trayContentHeight ? 0 : trayRenderWindowTop;
+    const windowTop = Math.max(0, anchoredTop - trayRenderOverscanPx);
+    const windowBottom = anchoredTop + trayScrollViewportHeight + trayRenderOverscanPx;
     let nextRowTop = 0;
     return recentCaptures.map((capture) => {
       const pageId = capture.binderPage?.pageId;
@@ -1146,6 +1149,7 @@ export function ScannerScreen({
   }, [
     binderPageGroups,
     recentCaptures,
+    trayContentHeight,
     trayRenderWindowTop,
     trayScrollViewportHeight,
   ]);
@@ -1260,12 +1264,6 @@ export function ScannerScreen({
       UIManager.setLayoutAnimationEnabledExperimental?.(true);
     }
   }, []);
-
-  useEffect(() => {
-    if (recentCaptures.length === 0 && isTrayExpanded) {
-      setIsTrayExpanded(false);
-    }
-  }, [isTrayExpanded, recentCaptures.length]);
 
   useEffect(() => {
     onTopLevelSwipeEnabledChange?.(isTopLevelSwipeEnabled);
@@ -1391,6 +1389,17 @@ export function ScannerScreen({
     trayScrollOffset,
     trayScrollViewportHeight,
   ]);
+
+  useEffect(() => {
+    if (recentCaptures.length === 0 && isTrayExpanded) {
+      // Through commitTrayExpandedState, NOT setIsTrayExpanded: the commit
+      // path also resets the row-content window and scroll anchor. Collapsing
+      // around it once left the window pointing deep into a cleared list, so
+      // the next scan's row 0 rendered as an invisible windowed-out shell
+      // ("SCAN: 1 but no card").
+      commitTrayExpandedState(false);
+    }
+  }, [commitTrayExpandedState, isTrayExpanded, recentCaptures.length]);
 
   // Hold the collapsed anchor as scans land: a binder capture prepending a new
   // page (header + row) or a lane switch changes what sits at the top of the
