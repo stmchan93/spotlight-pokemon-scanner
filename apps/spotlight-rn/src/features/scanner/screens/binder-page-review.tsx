@@ -114,11 +114,7 @@ export function BinderPageReview({
               <Text style={styles.subtitle} testID={`${testID}-status`}>
                 {`Identifying ${pending} of ${pocketCount}…`}
               </Text>
-            ) : (
-              <Text style={styles.subtitle} testID={`${testID}-total`}>
-                {`Total: ${totalLabel}`}
-              </Text>
-            )}
+            ) : null}
           </View>
         </View>
 
@@ -149,7 +145,7 @@ export function BinderPageReview({
         <View style={styles.footer}>
           <Button
             disabled={isAddingAll || addable.length === 0}
-            label={isAddingAll ? 'Adding…' : `Add ${addable.length} to collection`}
+            label={isAddingAll ? 'Adding…' : `Add ${addable.length} · ${totalLabel}`}
             onPress={onAddAll}
             size="lg"
             testID={`${testID}-add-all`}
