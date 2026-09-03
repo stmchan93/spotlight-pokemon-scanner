@@ -39,7 +39,7 @@ export const PERSISTED_CANDIDATES_MAX = 10;
  */
 export const FS_CONCURRENCY_LIMIT = 16;
 
-export type DeleteReason = 'swipe' | 'clear_all' | 'cap_evict' | 'orphan_sweep' | 'copy_failed' | 'added';
+export type DeleteReason = 'swipe' | 'clear_all' | 'cap_evict' | 'orphan_sweep' | 'copy_failed' | 'added' | 'binder_page_delete';
 export type CopySource = 'normalized' | 'raw';
 
 type PersistedCapture = Pick<RecentCapture,

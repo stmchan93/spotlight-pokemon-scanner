@@ -1487,6 +1487,50 @@ export function ScannerScreen({
     });
   }, []);
 
+  // Deletes an entire binder page: every capture with this pageId leaves the
+  // tray in one update, with the same local-file + selection cleanup as a
+  // swipe-delete. Confirmed via handleDeleteBinderPage before it runs.
+  const performDeleteBinderPage = useCallback((pageId: string) => {
+    const pageCaptures = recentCapturesRef.current.filter(
+      (capture) => capture.binderPage?.pageId === pageId,
+    );
+    if (!pageCaptures.length) {
+      return;
+    }
+    capturePostHogEvent('scan_row_dismissed', {
+      count: pageCaptures.length,
+      mode: 'raw',
+      reason: 'binder_page_delete',
+    });
+    const removedIds = new Set(pageCaptures.map((capture) => capture.id));
+    pageCaptures.forEach((removed) => {
+      void deleteScanFile(removed.normalizedImageUri, 'binder_page_delete');
+      if (removed.uri && removed.uri !== removed.normalizedImageUri) {
+        void deleteScanFile(removed.uri, 'binder_page_delete');
+      }
+    });
+    setRecentCaptures((current) => current.filter((capture) => !removedIds.has(capture.id)));
+    setPriceSelection((current) => {
+      if (![...removedIds].some((id) => current.has(id))) {
+        return current;
+      }
+      const next = new Map(current);
+      removedIds.forEach((id) => next.delete(id));
+      return next;
+    });
+  }, []);
+
+  const handleDeleteBinderPage = useCallback((pageId: string, cardCount: number) => {
+    Alert.alert(
+      'Delete binder page?',
+      `This permanently removes all ${cardCount} scan${cardCount === 1 ? '' : 's'} from this page.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => performDeleteBinderPage(pageId) },
+      ],
+    );
+  }, [performDeleteBinderPage]);
+
   // After a capture is added to the collection it leaves the tray. Same cleanup
   // as a swipe-delete (free the local scan files + per-capture selection state),
   // but tagged 'added' so telemetry can tell intentional adds from discards.
@@ -4157,35 +4201,21 @@ export function ScannerScreen({
                   the camera. Glass on iOS 26, the same scrim elsewhere.
                 */}
                 {/*
-                  Expanded: a solid white chip (Figma 4046:20579) — a plain
-                  View, never glass, so the fill can't be replaced by the
-                  translucent material on iOS 26.
+                  SAME dark-glass chip in both tray states — the expanded tray
+                  briefly swapped to a solid white chip and the flip read as
+                  the pill changing identity mid-swipe.
                 */}
-                {isTrayExpanded ? (
-                  <View
-                    style={[styles.trayInfoPill, styles.trayInfoPillExpanded]}
-                    testID="scanner-recent-title-surface"
-                  >
-                    <Text
-                      style={[styles.trayInfoPillLabel, styles.trayInfoPillLabelExpanded]}
-                      testID="scanner-recent-title"
-                    >
-                      {`SCAN: ${recentCaptures.length}`}
-                    </Text>
-                  </View>
-                ) : (
-                  <GlassSurface
-                    fallbackColor="rgba(255, 255, 255, 0.10)"
-                    glassColorScheme="dark"
-                    glassEffectStyle="clear"
-                    style={styles.trayInfoPill}
-                    testID="scanner-recent-title-surface"
-                  >
-                    <Text style={styles.trayInfoPillLabel} testID="scanner-recent-title">
-                      {`SCAN: ${recentCaptures.length}`}
-                    </Text>
-                  </GlassSurface>
-                )}
+                <GlassSurface
+                  fallbackColor="rgba(255, 255, 255, 0.10)"
+                  glassColorScheme="dark"
+                  glassEffectStyle="clear"
+                  style={styles.trayInfoPill}
+                  testID="scanner-recent-title-surface"
+                >
+                  <Text style={styles.trayInfoPillLabel} testID="scanner-recent-title">
+                    {`SCAN: ${recentCaptures.length}`}
+                  </Text>
+                </GlassSurface>
                 {/* ADD ALL shows in BOTH tray states — collapsed too, so a
                     burst scanner can bulk-add without first swiping the tray
                     up. The dropdown flips above its anchor near the screen
@@ -4210,31 +4240,17 @@ export function ScannerScreen({
                   </Pressable>
                 ) : null}
               </View>
-              {isTrayExpanded ? (
-                <View
-                  style={[styles.trayInfoPill, styles.trayInfoPillExpanded]}
-                  testID="scanner-value-pill-surface"
-                >
-                  <Text
-                    style={[styles.trayInfoPillLabel, styles.trayInfoPillLabelExpanded]}
-                    testID="scanner-value-pill-text"
-                  >
-                    {`TOTAL: ${formatTrayTotal(trayPriceSummary)}`}
-                  </Text>
-                </View>
-              ) : (
-                <GlassSurface
-                  fallbackColor="rgba(255, 255, 255, 0.10)"
-                  glassColorScheme="dark"
-                  glassEffectStyle="clear"
-                  style={styles.trayInfoPill}
-                  testID="scanner-value-pill-surface"
-                >
-                  <Text style={styles.trayInfoPillLabel} testID="scanner-value-pill-text">
-                    {`TOTAL: ${formatTrayTotal(trayPriceSummary)}`}
-                  </Text>
-                </GlassSurface>
-              )}
+              <GlassSurface
+                fallbackColor="rgba(255, 255, 255, 0.10)"
+                glassColorScheme="dark"
+                glassEffectStyle="clear"
+                style={styles.trayInfoPill}
+                testID="scanner-value-pill-surface"
+              >
+                <Text style={styles.trayInfoPillLabel} testID="scanner-value-pill-text">
+                  {`TOTAL: ${formatTrayTotal(trayPriceSummary)}`}
+                </Text>
+              </GlassSurface>
             </View>
           </Pressable>
 
@@ -4309,19 +4325,42 @@ export function ScannerScreen({
                             {`BINDER PAGE · ${pageRowCount} CARD${pageRowCount === 1 ? '' : 'S'}`}
                           </Text>
                           {pageRowCount > 0 ? (
-                            <ArenaPressable
-                              accessibilityLabel="View binder page"
-                              accessibilityRole="button"
-                              hitSlop={8}
-                              onPress={gate(() => openBinderPageReview(pageId))}
-                              style={({ pressed }) => [
-                                styles.binderPageHeaderButton,
-                                pressed ? styles.captureChangeChipPressed : null,
-                              ]}
-                              testID={`scanner-tray-page-view-${pageId}`}
-                            >
-                              <Text style={styles.binderPageHeaderButtonLabel}>VIEW PAGE</Text>
-                            </ArenaPressable>
+                            <View style={styles.binderPageHeaderActions}>
+                              <ArenaPressable
+                                accessibilityLabel="View binder page"
+                                accessibilityRole="button"
+                                hitSlop={8}
+                                onPress={gate(() => openBinderPageReview(pageId))}
+                                style={({ pressed }) => [
+                                  styles.binderPageHeaderButton,
+                                  pressed ? styles.captureChangeChipPressed : null,
+                                ]}
+                                testID={`scanner-tray-page-view-${pageId}`}
+                              >
+                                <Text style={styles.binderPageHeaderButtonLabel}>VIEW PAGE</Text>
+                              </ArenaPressable>
+                              <ArenaPressable
+                                accessibilityLabel="Delete binder page"
+                                accessibilityRole="button"
+                                hitSlop={8}
+                                onPress={gate(() => handleDeleteBinderPage(pageId, pageRowCount))}
+                                style={({ pressed }) => [
+                                  styles.binderPageHeaderButton,
+                                  styles.binderPageHeaderDeleteButton,
+                                  pressed ? styles.captureChangeChipPressed : null,
+                                ]}
+                                testID={`scanner-tray-page-delete-${pageId}`}
+                              >
+                                <Text
+                                  style={[
+                                    styles.binderPageHeaderButtonLabel,
+                                    styles.binderPageHeaderDeleteButtonLabel,
+                                  ]}
+                                >
+                                  DELETE PAGE
+                                </Text>
+                              </ArenaPressable>
+                            </View>
                           ) : null}
                         </View>
                         {renderCaptureRow(capture, index)}
@@ -4557,11 +4596,22 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     opacity: 0.85,
   },
+  binderPageHeaderActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 16,
+  },
   binderPageHeaderButton: {
     backgroundColor: colors.scannerConditionPill,
     borderRadius: 6,
     paddingHorizontal: 10,
     paddingVertical: 6,
+  },
+  binderPageHeaderDeleteButton: {
+    backgroundColor: colors.dangerStrong,
+  },
+  binderPageHeaderDeleteButtonLabel: {
+    color: colors.gray0,
   },
   binderPageHeaderButtonLabel: {
     color: colors.scannerTextPrimary,
@@ -4811,12 +4861,6 @@ const styles = StyleSheet.create({
   trayInfoPillLabel: {
     ...textStyles.labelStrong,
     color: colors.gray0,
-  },
-  trayInfoPillExpanded: {
-    backgroundColor: colors.gray0,
-  },
-  trayInfoPillLabelExpanded: {
-    color: colors.gray900,
   },
   trayAddAllRow: {
     alignItems: 'center',
