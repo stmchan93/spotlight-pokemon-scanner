@@ -4000,12 +4000,12 @@ export function ScannerScreen({
                 {/* Glass fills the pill behind the in-flow label (the label
                     keeps sizing the pill; zoom pills can nest theirs because
                     they're fixed-width circles). */}
-                <GlassSurface
-                  fallbackColor={colors.gray0}
-                  glassColorScheme="light"
-                  glassEffectStyle="regular"
+                <View
+                  // Solid white like the selected zoom chip beside it — light
+                  // glass goes near-black over a dark camera scene (see the
+                  // zoom chip note).
                   pointerEvents="none"
-                  style={styles.binderModePillSurface}
+                  style={[styles.binderModePillSurface, { backgroundColor: colors.gray0 }]}
                   testID="scanner-binder-mode-toggle-surface"
                 />
                 <Text style={styles.binderModePillLabel}>
@@ -4036,17 +4036,19 @@ export function ScannerScreen({
                       for why the scheme is pinned `dark` rather than `auto`.
                     */}
                     {selected ? (
-                      <GlassSurface
-                        fallbackColor={colors.gray0}
-                        glassColorScheme="light"
-                        glassEffectStyle="regular"
-                        style={styles.zoomPillSurface}
+                      // SOLID white, deliberately not glass: light glass only
+                      // borrows brightness from what is behind it, and behind
+                      // this chip is the live camera — at night the chip went
+                      // near-black and the label vanished. A solid fill is
+                      // legible over any scene.
+                      <View
+                        style={[styles.zoomPillSurface, { backgroundColor: colors.gray0 }]}
                         testID={`scanner-zoom-${factor}x-surface`}
                       >
                         <Text style={[styles.zoomPillLabel, styles.zoomPillLabelSelected]}>
                           {`${factor}x`}
                         </Text>
-                      </GlassSurface>
+                      </View>
                     ) : (
                       <Text style={styles.zoomPillLabel}>{`${factor}x`}</Text>
                     )}

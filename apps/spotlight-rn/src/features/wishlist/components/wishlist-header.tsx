@@ -111,7 +111,11 @@ type WishlistHeaderProps = {
 // out of the row and clips away. The whole bar used to sit in normal flow above
 // the list, which is the shape that takes the menu and the actions off screen
 // with it — the regression `HomeHeader`'s own note exists to stop.
-const BUTTON_ICON_SIZE = glassNavBubbleGlyphSize;
+// Trailing-pill glyphs follow the iOS-26 toolbar spec (Figma 4255:90646):
+// 20px glyphs at ~2px effective stroke inside the 36px controls — deliberately
+// NOT glassNavBubbleGlyphSize (24), which the Menu bubble keeps.
+const BUTTON_ICON_SIZE = 20;
+const BUTTON_ICON_STROKE = 2;
 /**
  * Figma's toolbar (3567:22969) pads 8pt above the control row; the safe-area
  * inset supplies the rest.
@@ -284,7 +288,7 @@ export function WishlistHeader({
               >
                 {/* A plus, not a magnifier: the destination is the same catalog
                     search, but from here the INTENT is "add a card". */}
-                <Plus color={theme.colors.gray900} height={BUTTON_ICON_SIZE} width={BUTTON_ICON_SIZE} />
+                <Plus color={theme.colors.gray900} height={BUTTON_ICON_SIZE} strokeWidth={BUTTON_ICON_STROKE} width={BUTTON_ICON_SIZE} />
               </IconButton>
             ) : null}
             {onToggleEditMode ? (
@@ -296,7 +300,7 @@ export function WishlistHeader({
                 testID="wishlist-header-edit"
                 variant="ghost"
               >
-                <EditPencil color={theme.colors.gray900} height={BUTTON_ICON_SIZE} width={BUTTON_ICON_SIZE} />
+                <EditPencil color={theme.colors.gray900} height={BUTTON_ICON_SIZE} strokeWidth={BUTTON_ICON_STROKE} width={BUTTON_ICON_SIZE} />
               </IconButton>
             ) : null}
             {/*
@@ -316,7 +320,7 @@ export function WishlistHeader({
                 testID="wishlist-header-share"
                 variant="ghost"
               >
-                <ShareIos color={theme.colors.gray900} height={BUTTON_ICON_SIZE} width={BUTTON_ICON_SIZE} />
+                <ShareIos color={theme.colors.gray900} height={BUTTON_ICON_SIZE} strokeWidth={BUTTON_ICON_STROKE} width={BUTTON_ICON_SIZE} />
               </IconButton>
             ) : null}
           </GlassButtonGroup>
