@@ -261,7 +261,7 @@ export function InsightsScreen() {
           style={styles.headerButton}
           testID="insights-header-back"
         >
-          <NavArrowLeft color={colors.gray900} height={24} width={24} />
+          <NavArrowLeft color={colors.gray900} height={24} strokeWidth={2} width={24} />
         </Pressable>
         <Text style={styles.headerTitle} testID="insights-header-title">
           Insights
@@ -274,7 +274,7 @@ export function InsightsScreen() {
           style={styles.headerButton}
           testID="insights-header-share"
         >
-          <ShareIos color={colors.gray900} height={20} width={20} />
+          <ShareIos color={colors.gray900} height={24} strokeWidth={2} width={24} />
         </Pressable>
       </View>
 

@@ -1,7 +1,12 @@
 import { IconChevronLeft } from '@tabler/icons-react-native';
 import { type StyleProp, type ViewStyle } from 'react-native';
 
-import { IconButton, useSpotlightTheme } from '@spotlight/design-system';
+import {
+  IconButton,
+  glassNavBubbleGlyphSize,
+  glassNavBubbleGlyphStrokeWidth,
+  useSpotlightTheme,
+} from '@spotlight/design-system';
 
 /**
  * 40pt, matching `glassNavBubbleSizes.compact` and the 40pt `SearchEntryPill`,
@@ -41,8 +46,8 @@ export function ChromeBackButton({
     >
       <IconChevronLeft
         color={theme.colors.textPrimary}
-        size={18}
-        strokeWidth={2.35}
+        size={glassNavBubbleGlyphSize}
+        strokeWidth={glassNavBubbleGlyphStrokeWidth}
       />
     </IconButton>
   );
