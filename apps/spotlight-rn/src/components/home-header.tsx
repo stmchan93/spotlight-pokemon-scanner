@@ -6,7 +6,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   GlassNavBubble,
   GlassNavBubbleGroup,
-  SearchEntryPill,
   Text,
   glassNavBubbleGlyphSize,
   glassNavBubbleGlyphStrokeWidth,
@@ -15,7 +14,6 @@ import {
   type GlassNavBubbleGroupItem,
 } from '@spotlight/design-system';
 
-import { EkalightMark } from '@/components/ekalight-mark';
 import { EkalightLogoIntro } from '@/components/ekalight-logo-intro';
 
 /**
@@ -149,18 +147,18 @@ const BUTTON_ICON_SIZE = glassNavBubbleGlyphSize;
  * lighter than Home's. The share arrow keeps Figma's non-square 16:18 ratio so
  * it does not stretch into a square.
  */
-const EDIT_ICON_SIZE = BUTTON_ICON_SIZE;
-const SHARE_ICON_WIDTH = Math.round(BUTTON_ICON_SIZE * 0.9);
-const SHARE_ICON_HEIGHT = BUTTON_ICON_SIZE;
+// Profile toolbar glyphs follow the iOS-26 toolbar spec (Figma 4134:50957):
+// 20px glyphs in the 36px slots. Home keeps the shared 24px glyph token.
+const PROFILE_ICON_SIZE = 20;
+const EDIT_ICON_SIZE = PROFILE_ICON_SIZE;
+const SHARE_ICON_WIDTH = Math.round(PROFILE_ICON_SIZE * 0.9);
+const SHARE_ICON_HEIGHT = PROFILE_ICON_SIZE;
 /**
  * The app-mark badge inside the profile bar's search pill, sized so the mark
  * stays a badge inside the field instead of filling it. The Figma logo node is
  * flattened, so only its outer box is measurable — the mark keeps the badge's
  * existing inner ratio.
  */
-const MARK_BADGE_SIZE = 22;
-const MARK_WIDTH = 16.5;
-const MARK_HEIGHT = 15;
 // Home's leading app mark: 36 tall at the mark's intrinsic 56:52 box.
 const HOME_MARK_HEIGHT = 36;
 const HOME_MARK_WIDTH = (HOME_MARK_HEIGHT * 56) / 52;
@@ -367,6 +365,19 @@ export function HomeHeader({
         items={
           [
             {
+              accessibilityLabel: 'Search cards',
+              children: (
+                <Search
+                  color={theme.colors.gray900}
+                  strokeWidth={glassNavBubbleGlyphStrokeWidth}
+                  height={PROFILE_ICON_SIZE}
+                  width={PROFILE_ICON_SIZE}
+                />
+              ),
+              onPress: onOpenSearch,
+              testID: `${testID}-search`,
+            },
+            {
               accessibilityLabel: 'Edit profile',
               children: (
                 <EditPencil
@@ -440,7 +451,12 @@ export function HomeHeader({
             size="medium"
             testID={`${testID}-menu`}
           >
-            <Menu color={theme.colors.gray900} strokeWidth={glassNavBubbleGlyphStrokeWidth} height={BUTTON_ICON_SIZE} width={BUTTON_ICON_SIZE} />
+            <Menu
+              color={theme.colors.gray900}
+              strokeWidth={glassNavBubbleGlyphStrokeWidth}
+              height={trailing.kind === 'profile' ? PROFILE_ICON_SIZE : BUTTON_ICON_SIZE}
+              width={trailing.kind === 'profile' ? PROFILE_ICON_SIZE : BUTTON_ICON_SIZE}
+            />
           </GlassNavBubble>
           {trailing.kind === 'home' ? (
             <Animated.View
@@ -453,47 +469,13 @@ export function HomeHeader({
         </View>
 
         {/*
-          THE PROFILE PILL'S WIDTH IS THE ROW'S REMAINDER, so the trailing
-          capsule's width is load-bearing there. At a 393pt width the profile
-          row closes as `16 + 44 + 8 + 197 + 8 + 104 + 16 = 393` — menu bubble,
-          flexed pill, and the 104pt edit/share capsule
-          (`glassNavBubbleGroupWidth(2, 'medium')`).
-
-          Home has NO pill: menu leads, the search + bell capsule trails, and
-          `space-between` opens the middle of the bar (Figma 4299:94902). The
-          pill renders in a plain flexed view — static, no scroll-linked motion
-          and no clip; the old slide-away wrapper left with the Home pill.
+          NEITHER variant has a pill anymore (profile's "Search Cards" pill was
+          replaced by a magnifier slot in the trailing capsule — Figma
+          4134:50957): menu leads, the capsule trails (search+bell on Home,
+          search+edit+share on the profile), and `space-between` opens the
+          middle of the bar.
         */}
-        {trailing.kind === 'profile' ? (
-          <View style={styles.searchPillSlot}>
-            <SearchEntryPill
-              label="Search Cards"
-              variant="glass"
-              leading={
-                <View
-                  style={[
-                    styles.markBadge,
-                    {
-                      backgroundColor: theme.colors.purple500,
-                      borderRadius: MARK_BADGE_SIZE / 2,
-                    },
-                  ]}
-                >
-                  <EkalightMark
-                    color={theme.colors.gray0}
-                    height={MARK_HEIGHT}
-                    testID={`${testID}-mark`}
-                    width={MARK_WIDTH}
-                  />
-                </View>
-              }
-              onPress={onOpenSearch}
-              testID={`${testID}-search`}
-            />
-          </View>
-        ) : null}
-
-        {trailingControl}
+                {trailingControl}
       </View>
     </View>
   );
@@ -522,12 +504,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
-  markBadge: {
-    alignItems: 'center',
-    height: MARK_BADGE_SIZE,
-    justifyContent: 'center',
-    width: MARK_BADGE_SIZE,
-  },
   // Sits on the bell slot's top-right corner, hanging past it. The capsule and
   // its slots are `overflow: 'visible'`, so nothing between here and the row
   // shaves it.
@@ -541,9 +517,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: -2,
     top: -2,
-  },
-  searchPillSlot: {
-    flex: 1,
   },
 });
 
