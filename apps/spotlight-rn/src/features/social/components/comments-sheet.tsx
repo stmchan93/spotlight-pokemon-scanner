@@ -2763,22 +2763,14 @@ const styles = StyleSheet.create({
     // stays visibly tighter than the gap to the next comment.
     gap: 20,
     /*
-      BOTTOM-ANCHOR A SHORT THREAD.
-
-      With `flexGrow` alone the content container is the viewport's height and
-      the comments sit at the TOP of it, so everything the thread does not fill
-      is dead white between the last comment and the composer — around 150pt of
-      it with three short comments and the keyboard up, because the sheet grows
-      to 0.9 of the screen exactly then. Anchored to the end, a short thread
-      rests ON the composer at the intended 16, and a thread taller than the
-      viewport is unaffected: there is no free space left to distribute, so it
-      scrolls exactly as before.
-
-      The empty/loading/error states are unaffected too — each is `flex: 1`, so
-      it absorbs the free space this would otherwise push down and keeps
-      centring itself in the sheet.
+      TOP-ANCHORED. This was `justifyContent: 'flex-end'` for a while —
+      bottom-anchoring a short thread so it rested on the composer — but that
+      moves ALL the free space above the FIRST comment, and with the keyboard
+      down and a tall sheet a three-comment thread opened on a huge white void
+      under the title ("why is there this large white space?"). Comments read
+      top-down from the title, like every comments surface; free space below
+      the last comment is just where the thread ends.
     */
-    justifyContent: 'flex-end',
     paddingBottom: LIST_BOTTOM_PADDING,
     paddingHorizontal: 16,
     paddingTop: 12,

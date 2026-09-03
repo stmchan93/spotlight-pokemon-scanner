@@ -630,9 +630,12 @@ describe('CommentsSheet', () => {
       });
     }
 
-    // (1) The screenshot: three short comments, then a tall band of white, then
-    // the composer. The thread has to sit ON the composer instead.
-    it('bottom-anchors a short thread so it rests on the composer, 16 above it', async () => {
+    // The thread reads top-down from the title. It was bottom-anchored for a
+    // while (justifyContent flex-end, resting a short thread on the composer),
+    // which moved ALL the free space above the FIRST comment — a keyboard-down
+    // sheet opened on a tall white void under "Comments" (user report,
+    // 2026-09-03). Free space belongs below the last comment.
+    it('top-anchors a short thread under the title, 16 above the composer', async () => {
       (fetchComments as jest.Mock).mockResolvedValue([buildComment()]);
       renderSheet();
       await screen.findByText('Great card!');
@@ -640,13 +643,10 @@ describe('CommentsSheet', () => {
       const content = StyleSheet.flatten(
         screen.getByTestId('comments-sheet-list').props.contentContainerStyle,
       );
-      // `flexGrow` alone makes the container the viewport's height and leaves
-      // the comments at the top of it — which IS the dead space. Anchoring to
-      // the end is what puts a short thread against the composer, and a thread
-      // taller than the viewport has no free space to distribute so it scrolls
-      // exactly as before.
+      // flexGrow keeps the empty/loading states able to centre; no
+      // justifyContent means the comments stay at the top of the viewport.
       expect(content.flexGrow).toBe(1);
-      expect(content.justifyContent).toBe('flex-end');
+      expect(content.justifyContent).toBeUndefined();
 
       // And the gap it rests at is the 16 that was asked for: half under the
       // last comment, half above the field, divider centred in it.
