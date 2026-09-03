@@ -4497,6 +4497,12 @@ export function ScannerScreen({
               const { amount, currencyCode } = resolveCaptureTrayPrice(capture, priceSelection.get(capture.id) ?? null);
               return isFinitePrice(amount) ? formatCurrency(amount, currencyCode) : null;
             }}
+            // Same per-capture resolution as the rows and the tray TOTAL, so
+            // the page total can never drift from what the tiles show.
+            totalLabel={formatTrayTotal(summarizeTrayPrices(
+              binderPageRows(recentCaptures, activeBinderPageId).map((capture) =>
+                resolveCaptureTrayPrice(capture, priceSelection.get(capture.id) ?? null)),
+            ))}
           />
         );
       })()}

@@ -3,9 +3,9 @@ import {
   ActivityIndicator,
   BackHandler,
   Pressable,
-  ScrollView,
   StyleSheet,
   View,
+  type LayoutChangeEvent,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { IconChevronLeft } from '@tabler/icons-react-native';
@@ -33,6 +33,8 @@ export type BinderPageReviewProps = {
   onClose: () => void;
   /** Opens the ordinary change-card picker for that pocket's row. */
   onPressPocket: (captureId: string) => void;
+  /** Formatted total of this page's shown prices (tray TOTAL formatting). */
+  totalLabel: string;
   testID?: string;
 };
 
@@ -59,6 +61,7 @@ export function BinderPageReview({
   onPressPocket,
   pockets,
   priceLabelFor,
+  totalLabel,
   testID = 'scanner-binder-page-review',
 }: BinderPageReviewProps) {
   useEffect(() => {
@@ -70,6 +73,19 @@ export function BinderPageReview({
   }, [onClose]);
 
 
+
+  // Frame-measured tile sizing (see the grid note below).
+  const [tileWidth, setTileWidth] = useState(0);
+  const handleFrameLayout = (event: LayoutChangeEvent) => {
+    const { height, width } = event.nativeEvent.layout;
+    const usableWidth = width - 32;
+    const widthDriven = (usableWidth - 2 * gridGap) / 3;
+    const rowHeight = (height - 2 * gridGap) / 3;
+    const artHeight = rowHeight - captionHeight - 4;
+    const heightDriven = artHeight * cardAspect;
+    const next = Math.floor(Math.max(0, Math.min(widthDriven, heightDriven)));
+    setTileWidth((current) => (current === next ? current : next));
+  };
 
   const byPocket = new Map(pockets.map((capture) => [capture.binderPage?.pocketIndex ?? -1, capture]));
   const pocketCount = binderPageGridSize * binderPageGridSize;
@@ -98,24 +114,37 @@ export function BinderPageReview({
               <Text style={styles.subtitle} testID={`${testID}-status`}>
                 {`Identifying ${pending} of ${pocketCount}…`}
               </Text>
-            ) : null}
+            ) : (
+              <Text style={styles.subtitle} testID={`${testID}-total`}>
+                {`Total: ${totalLabel}`}
+              </Text>
+            )}
           </View>
         </View>
 
-        <ScrollView contentContainerStyle={styles.frame} style={styles.frameScroll}>
-          <View style={styles.grid} testID={`${testID}-grid`}>
-            {Array.from({ length: pocketCount }, (_, pocketIndex) => (
-              <PocketTile
-                capture={byPocket.get(pocketIndex) ?? null}
-                key={`pocket-${pocketIndex}`}
-                onPress={onPressPocket}
-                pocketIndex={pocketIndex}
-                priceLabelFor={priceLabelFor}
-                testID={`${testID}-pocket-${pocketIndex}`}
-              />
-            ))}
-          </View>
-        </ScrollView>
+        {/*
+          No ScrollView: all nine pockets must fit the viewport at once, so the
+          tile width is DERIVED from the measured frame — three rows of
+          art + caption plus the grid gaps — and clamped to the width-driven
+          three-column size. Small screens get smaller tiles, never a scroll.
+        */}
+        <View onLayout={handleFrameLayout} style={styles.frame}>
+          {tileWidth > 0 ? (
+            <View style={styles.grid} testID={`${testID}-grid`}>
+              {Array.from({ length: pocketCount }, (_, pocketIndex) => (
+                <PocketTile
+                  capture={byPocket.get(pocketIndex) ?? null}
+                  key={`pocket-${pocketIndex}`}
+                  onPress={onPressPocket}
+                  pocketIndex={pocketIndex}
+                  priceLabelFor={priceLabelFor}
+                  testID={`${testID}-pocket-${pocketIndex}`}
+                  width={tileWidth}
+                />
+              ))}
+            </View>
+          ) : null}
+        </View>
 
         <View style={styles.footer}>
           <Button
@@ -125,9 +154,6 @@ export function BinderPageReview({
             size="lg"
             testID={`${testID}-add-all`}
           />
-          <Pressable accessibilityRole="button" hitSlop={8} onPress={onClose} style={styles.doneButton}>
-            <Text style={styles.doneLabel}>Keep in tray</Text>
-          </Pressable>
         </View>
       </SafeAreaView>
     </View>
@@ -140,12 +166,14 @@ function PocketTile({
   pocketIndex,
   priceLabelFor,
   testID,
+  width,
 }: {
   capture: RecentCapture | null;
   onPress: (captureId: string) => void;
   pocketIndex: number;
   priceLabelFor: (capture: RecentCapture) => string | null;
   testID: string;
+  width: number;
 }) {
   // Long-press shows the crop we scanned instead of the matched art.
   const [peeking, setPeeking] = useState(false);
@@ -176,7 +204,7 @@ function PocketTile({
         }
       }}
       onPressOut={() => setPeeking(false)}
-      style={({ pressed }) => [styles.tile, pressed ? styles.tilePressed : null]}
+      style={({ pressed }) => [styles.tile, { width }, pressed ? styles.tilePressed : null]}
       testID={testID}
     >
       <View style={styles.art}>
@@ -262,11 +290,8 @@ const styles = StyleSheet.create({
     fontFamily: fontFamilies.bodyMedium,
     opacity: 0.8,
   },
-  frameScroll: {
-    flex: 1,
-  },
   frame: {
-    flexGrow: 1,
+    flex: 1,
     justifyContent: 'center',
     paddingHorizontal: 16,
   },
@@ -278,10 +303,9 @@ const styles = StyleSheet.create({
   },
   tile: {
     gap: 4,
-    // Percentage width + aspect-ratio art: three columns from the FIRST
-    // render — the old onLayout-measured widths painted a 2-wide grid for a
-    // frame before the corrected pass snapped it to 3x3.
-    width: '31%',
+    // Width comes inline from the measured frame (three rows must fit with no
+    // scroll); the grid renders only after the first measurement, so there is
+    // no unmeasured first paint to mis-wrap.
   },
   tilePressed: {
     opacity: 0.75,
@@ -349,15 +373,5 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 16,
     paddingTop: 8,
-  },
-  doneButton: {
-    alignItems: 'center',
-    paddingVertical: 8,
-  },
-  doneLabel: {
-    color: colors.scannerTextPrimary,
-    fontFamily: fontFamilies.bodyMedium,
-    fontSize: 14,
-    lineHeight: 18,
   },
 });
