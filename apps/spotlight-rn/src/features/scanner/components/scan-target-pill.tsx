@@ -7,9 +7,9 @@ import { RoundFlag } from './round-flag';
 
 /**
  * The "Pokémon EN/JP" scan-target control, centered in the scanner's top
- * toolbar (Figma 4299:93955): light glass pill, dark 15pt label, flag, and a
- * chevron. Real glass on iOS 26; the shared `glassFallback` gray elsewhere so
- * it stays visible over the live camera.
+ * toolbar: dark-pinned clear glass with white content — the SCAN/TOTAL pill
+ * recipe. Light glass borrows brightness from the backdrop and vanished over
+ * night scenes; dark glass + white text reads over any camera content.
  */
 export function ScanTargetPill({
   label,
@@ -32,15 +32,15 @@ export function ScanTargetPill({
       testID={testID}
     >
       <GlassSurface
-        fallbackColor={colors.glassFallback}
-        glassColorScheme="light"
-        glassEffectStyle="regular"
+        fallbackColor="rgba(255, 255, 255, 0.10)"
+        glassColorScheme="dark"
+        glassEffectStyle="clear"
         style={styles.pill}
         testID={testID ? `${testID}-surface` : undefined}
       >
         <Text style={styles.label}>{label}</Text>
         {flag ? <RoundFlag language={flag} size={14} /> : null}
-        <IconChevronDown color={colors.gray900} size={20} strokeWidth={2} />
+        <IconChevronDown color={colors.gray0} size={20} strokeWidth={2} />
       </GlassSurface>
     </Pressable>
   );
@@ -49,7 +49,7 @@ export function ScanTargetPill({
 const styles = StyleSheet.create({
   label: {
     ...textStyles.body,
-    color: colors.gray900,
+    color: colors.gray0,
   },
   pressable: {
     alignSelf: 'stretch',
