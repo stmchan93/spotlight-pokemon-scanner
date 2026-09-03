@@ -10,7 +10,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NavArrowLeft } from 'iconoir-react-native';
 
-import { EkalightWordmark, useSpotlightTheme } from '@spotlight/design-system';
+
+import { glassNavBubbleGlyphSize, glassNavBubbleGlyphStrokeWidth, EkalightWordmark, useSpotlightTheme } from '@spotlight/design-system';
 
 type AuthScreenLayoutProps = {
   /** Content flows top-down inside the scroll area on the white screen. */
@@ -84,7 +85,7 @@ export function AuthScreenLayout({
             ]}
             testID={backTestID}
           >
-            <NavArrowLeft color={theme.colors.gray900} height={24} width={24} />
+            <NavArrowLeft color={theme.colors.gray900} height={glassNavBubbleGlyphSize} strokeWidth={glassNavBubbleGlyphStrokeWidth} width={glassNavBubbleGlyphSize} />
           </Pressable>
         ) : (
           <View style={styles.headerButton} />
