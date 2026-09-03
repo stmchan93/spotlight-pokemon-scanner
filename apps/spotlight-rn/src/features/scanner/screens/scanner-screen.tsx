@@ -1356,6 +1356,14 @@ export function ScannerScreen({
       // 0-bucket, but not before the collapsed frame renders.
       trayRenderWindowBucket.value = 0;
       setTrayRenderWindowTop(0);
+    } else {
+      // Expanding: the collapsed state parked the scroll just past the first
+      // binder-page header (collapsedAnchorOffset) so the newest ROW filled
+      // the one-row peek. Left there, the header — VIEW PAGE / DELETE PAGE —
+      // opens hidden above the fold. Return to 0 so the header is the first
+      // thing the expanded tray shows.
+      trayScrollOffset.value = 0;
+      trayScrollRef.current?.scrollTo({ animated: false, y: 0 });
     }
     setIsTrayExpanded((current) => {
       if (current === nextExpanded) {
