@@ -84,6 +84,11 @@ const AVATAR_SIZE = 40;
  */
 export const IMAGE_ASPECT_RATIO = 3 / 4;
 const METRIC_ICON_SIZE = 20;
+// Figma 4299:94944: the repeat glyph is 24pt wide (the other three are 20) and
+// all four run a heavier ~1.7pt stroke — iconoir's default 1.5 rendered at
+// 20pt showed ~1.25 and read thin.
+const METRIC_ICON_STROKE = 2;
+const REPOST_ICON_SIZE = 24;
 /** The ⋯ options glyph, per Figma 315:2992. */
 const MORE_ICON_SIZE = 24;
 // The comment icon and its count are two separate targets 4px apart, so their
@@ -732,6 +737,7 @@ export function PostCard({
                 // color reads as a single solid shape.
                 fill={liked ? theme.colors.purple500 : 'none'}
                 height={METRIC_ICON_SIZE}
+                strokeWidth={METRIC_ICON_STROKE}
                 testID={`${testID}-like-icon`}
                 width={METRIC_ICON_SIZE}
               />
@@ -750,7 +756,7 @@ export function PostCard({
                 onPress={() => setCommentsVisible(true)}
                 testID={`${testID}-comment-button`}
               >
-                <ChatBubbleEmpty color={theme.colors.gray900} height={METRIC_ICON_SIZE} width={METRIC_ICON_SIZE} />
+                <ChatBubbleEmpty color={theme.colors.gray900} height={METRIC_ICON_SIZE} strokeWidth={METRIC_ICON_STROKE} width={METRIC_ICON_SIZE} />
               </Pressable>
               <Pressable
                 accessibilityLabel="View comments"
@@ -793,9 +799,10 @@ export function PostCard({
             >
               <Repeat
                 color={repostColor}
-                height={METRIC_ICON_SIZE}
+                height={REPOST_ICON_SIZE}
+                strokeWidth={METRIC_ICON_STROKE}
                 testID={`${testID}-repost-icon`}
-                width={METRIC_ICON_SIZE}
+                width={REPOST_ICON_SIZE}
               />
               <Text
                 style={[theme.typography.labelStrong, { color: repostColor }]}
@@ -822,7 +829,7 @@ export function PostCard({
             style={styles.metricItem}
             testID={`${testID}-share-button`}
           >
-            <ShareIos color={theme.colors.gray900} height={METRIC_ICON_SIZE} width={METRIC_ICON_SIZE} />
+            <ShareIos color={theme.colors.gray900} height={METRIC_ICON_SIZE} strokeWidth={METRIC_ICON_STROKE} width={METRIC_ICON_SIZE} />
           </Pressable>
         </View>
       </View>
