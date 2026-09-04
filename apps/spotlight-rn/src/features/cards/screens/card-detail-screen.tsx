@@ -2455,8 +2455,8 @@ export function CardDetailScreen({
       </Animated.View>
 
       {/* Sticky action bar — also auto-hides on scroll (slides down + fades).
-          Owned cards edit in place (SAVE + CANCEL); new cards add (ADD ITEM +
-          SHARE; ADD ITEM flashes "SAVED" 5s after a successful add). */}
+          Owned cards edit in place (UPDATE + CANCEL); new cards add (SAVE +
+          SHARE). */}
       <Animated.View
         onLayout={(event) => setFooterHeight(event.nativeEvent.layout.height)}
         pointerEvents="box-none"
@@ -2470,7 +2470,7 @@ export function CardDetailScreen({
           <View style={styles.actionBar}>
             <Button
               disabled={isSavingEdit || !detail}
-              label="SAVE"
+              label="UPDATE"
               labelStyleVariant="label"
               onPress={gate(handleSaveEdit)}
               shape="rounded"
@@ -2495,7 +2495,9 @@ export function CardDetailScreen({
           <View style={styles.actionBar}>
             <Button
               disabled={isAddPending || !detail}
-              label="ADD ITEM"
+              // SAVE when you don't own it, UPDATE when editing an owned line
+              // (user request 2026-09-04; was ADD ITEM / SAVE).
+              label="SAVE"
               labelStyleVariant="label"
               onPress={gate(handleOpenAddSheet)}
               shape="rounded"

@@ -457,6 +457,8 @@ type CaptureTrayRowProps = {
   // Windowed tray rendering: rows far outside the scroll viewport render a
   // fixed-height shell instead of the Swipeable + image + pressables. See
   // RecentCaptureSwipeRow.renderContent.
+  /** The active candidate's card is already in the collection — pill reads UPDATE. */
+  isOwned: boolean;
   renderContent: boolean;
   selection: ScanPriceSheetSelection | null;
 };
@@ -473,6 +475,7 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
   capture,
   enterAnimationEnabledRef,
   index,
+  isOwned,
   onActionRailVisibilityChange,
   onAddToCollection,
   onDelete,
@@ -699,7 +702,7 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
               ]}
               testID={`scanner-tray-add-${index}`}
             >
-              <Text style={styles.captureAddPillLabel}>ADD</Text>
+              <Text style={styles.captureAddPillLabel}>{isOwned ? 'UPDATE' : 'ADD ITEM'}</Text>
               {/* Real chevron glyph (Figma 1874:13192) — the old "▾" text
                   triangle read as a down ARROW. Sized 16 per the newer footer
                   spec (3594:26000). */}
@@ -3859,6 +3862,10 @@ export function ScannerScreen({
       onOpenChangeCardPicker={gatedOpenChangeCardPicker}
       onOpenRowMenu={handleOpenRowMenu}
       onShowPrice={gatedShowRowPrice}
+      isOwned={(() => {
+        const candidate = activeCandidateForCapture(capture);
+        return candidate ? inventoryByCardId.has(candidate.cardId) : false;
+      })()}
       renderContent={trayRowContentVisibility[index] !== false}
       selection={priceSelection.get(capture.id) ?? null}
     />
