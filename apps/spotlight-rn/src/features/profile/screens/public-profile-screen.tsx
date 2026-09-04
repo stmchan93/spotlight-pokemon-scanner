@@ -789,6 +789,35 @@ export function PublicProfileScreen({
   // three pages. The profile block still scrolls away (the pager translates it
   // up with the active page's offset); the tab bar stops at the top and pins.
   // Both need an opaque background — page content scrolls UNDER them.
+  // FOLLOW is the light pill (reads on the dark cover), MESSAGE the dark fill —
+  // Figma 4157:74906/74907; same 175.5x32 split with a 10pt gap as before.
+  const actionRow = (
+    <View style={styles.actionRow}>
+      <Button
+        disabled={followState === null}
+        label={followState === 'following' ? 'FOLLOWING' : 'FOLLOW'}
+        labelStyleVariant="label"
+        onPress={handleToggleFollow}
+        shape="rounded"
+        size="xs"
+        style={styles.actionButton}
+        testID={`${testID}-follow-button`}
+        variant="outline"
+      />
+      <Button
+        disabled={messagePending}
+        label="MESSAGE"
+        labelStyleVariant="label"
+        onPress={handleOpenMessage}
+        shape="rounded"
+        size="xs"
+        style={styles.actionButton}
+        testID={`${testID}-message-button`}
+        variant="dark"
+      />
+    </View>
+  );
+
   const pagerHeader = (
     <View style={[styles.chrome, { backgroundColor: theme.colors.gray0 }]}>
       <ProfileHeader
@@ -807,42 +836,11 @@ export function PublicProfileScreen({
         reputation={profile?.reputation}
         socialLink={profile?.socialLink}
         testID={`${testID}-header`}
+        // Figma 4157:74954: the FOLLOW/MESSAGE pair lives ON the cover,
+        // directly under the bio, not on the white sheet below it.
+        actionRow={canFollow ? actionRow : null}
       />
 
-      {canFollow ? (
-        // Figma 2730:4617. Two 32pt rounded buttons splitting the gutter width
-        // (175.5pt each at 393pt) with a 10pt gap, uppercase 13pt labels.
-        //
-        // The emphasis is deliberately inverted from what you'd guess: MESSAGE
-        // is the dark fill and FOLLOW is the white outline. On someone else's
-        // profile the design treats starting a conversation as the primary act,
-        // not following. FOLLOWING keeps the same outline shell so the row
-        // doesn't reflow when the state flips — only the label changes.
-        <View style={[styles.actionRow, { paddingHorizontal: theme.layout.pageGutter }]}>
-          <Button
-            disabled={followState === null}
-            label={followState === 'following' ? 'FOLLOWING' : 'FOLLOW'}
-            labelStyleVariant="label"
-            onPress={handleToggleFollow}
-            shape="rounded"
-            size="xs"
-            style={styles.actionButton}
-            testID={`${testID}-follow-button`}
-            variant="outline"
-          />
-          <Button
-            disabled={messagePending}
-            label="MESSAGE"
-            labelStyleVariant="label"
-            onPress={handleOpenMessage}
-            shape="rounded"
-            size="xs"
-            style={styles.actionButton}
-            testID={`${testID}-message-button`}
-            variant="dark"
-          />
-        </View>
-      ) : null}
     </View>
   );
 

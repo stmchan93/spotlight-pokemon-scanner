@@ -1,6 +1,7 @@
 import { Image } from 'expo-image';
 import { CheckCircle, Link } from 'iconoir-react-native';
 import { useCallback, useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import { AccessibilityInfo, Pressable, StyleSheet, View } from 'react-native';
 import Animated, {
   Easing,
@@ -21,6 +22,12 @@ type ProfileHeaderProps = {
   handle?: string | null;
   initials: string;
   isVerified?: boolean;
+  /**
+   * Optional row rendered INSIDE the cover overlay, directly under the bio —
+   * the public profile's FOLLOW / MESSAGE pair (Figma 4157:74954). Own-profile
+   * callers omit it.
+   */
+  actionRow?: ReactNode;
   bio?: string | null;
   socialLink?: string | null;
   avatarUrl?: string | null;
@@ -63,6 +70,7 @@ export function ProfileHeader({
   handle,
   initials,
   isVerified = false,
+  actionRow,
   bio,
   socialLink,
   avatarUrl,
@@ -233,6 +241,7 @@ export function ProfileHeader({
             {bio}
           </Text>
         ) : null}
+        {actionRow ? <View style={styles.actionRowSlot}>{actionRow}</View> : null}
       </View>
 
       <View
@@ -329,6 +338,9 @@ function StatText({
 }
 
 const styles = StyleSheet.create({
+  actionRowSlot: {
+    marginTop: 12,
+  },
   bio: {
     marginTop: 8,
   },
