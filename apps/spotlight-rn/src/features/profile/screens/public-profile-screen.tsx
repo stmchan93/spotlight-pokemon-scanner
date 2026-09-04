@@ -821,6 +821,9 @@ export function PublicProfileScreen({
   const pagerHeader = (
     <View style={[styles.chrome, { backgroundColor: theme.colors.gray0 }]}>
       <ProfileHeader
+        // 22 between the floating back bubble and the avatar (Figma
+        // 4157:74176 -> 74405): bubble spans insets.top+8..+52, so 52+22 = 74.
+        avatarTop={74}
         avatarUrl={profile?.avatarURL}
         bio={profile?.bio}
         coverUrl={profile?.coverURL}
