@@ -66,6 +66,13 @@ export type GlassNavBubbleProps = {
   size?: GlassNavBubbleSize;
   surface?: GlassNavBubbleSurface;
   /**
+   * 'solid' skips Liquid Glass entirely and paints an opaque gray0 puck —
+   * glass borrows brightness from what's behind it, and over a live camera or
+   * dark cover photo it reads muddy/near-black (2026-09-04 report). Solid is
+   * legible over anything; matches the scanner's zoom/mode pills.
+   */
+  material?: 'glass' | 'solid';
+  /**
    * Positioning is owned by the consumer (typically absolute, pinned to a
    * corner). The primitive only renders the circular shell + its content.
    */
@@ -111,6 +118,7 @@ export function GlassNavBubble({
   disabled = false,
   size = 'medium',
   surface = 'onLight',
+  material = 'glass',
   style,
   testID,
 }: GlassNavBubbleProps) {
@@ -142,14 +150,41 @@ export function GlassNavBubble({
       ]}
       testID={testID}
     >
-      <GlassSurface
-        fallbackColor={onDark ? 'transparent' : theme.colors.glassFallback}
-        glassColorScheme={onDark ? 'dark' : 'auto'}
-        glassEffectStyle="regular"
-        pointerEvents="none"
-        style={[styles.glass, { borderRadius: radius }]}
-      />
-      {children}
+      {/*
+        The glass is the CONTAINER holding the glyph (Figma 4157:71926), the
+        same shape `GlassButtonGroup` renders — NOT an empty absolute layer
+        behind it. As a zero-content absolute sibling the `UIGlassEffect`
+        material rendered as a flat puck next to the trailing capsule's real
+        frost ("the hamburger needs to be frosted too"); one working pattern,
+        used in both primitives, keeps the two ends of the bar identical.
+      */}
+      {material === 'solid' ? (
+        <View
+          style={[
+            styles.glass,
+            theme.shadows.glassPill,
+            {
+              alignItems: 'center',
+              backgroundColor: theme.colors.gray0,
+              borderRadius: radius,
+              height: diameter,
+              justifyContent: 'center',
+              width: diameter,
+            },
+          ]}
+        >
+          {children}
+        </View>
+      ) : (
+        <GlassSurface
+          fallbackColor={onDark ? 'transparent' : theme.colors.glassFallback}
+          glassColorScheme={onDark ? 'dark' : 'auto'}
+          glassEffectStyle="regular"
+          style={[styles.glass, { borderRadius: radius, height: diameter, width: diameter }]}
+        >
+          {children}
+        </GlassSurface>
+      )}
     </Pressable>
   );
 }
@@ -163,10 +198,10 @@ const styles = StyleSheet.create({
     overflow: 'visible',
   },
   glass: {
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
-    right: 0,
-    top: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    // The material clips to the circle; badges hang off the PRESSABLE (which
+    // stays `overflow: 'visible'`), not off the glass.
+    overflow: 'hidden',
   },
 });

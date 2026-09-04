@@ -113,6 +113,8 @@ export type GlassNavBubbleGroupProps = {
   size?: GlassNavBubbleGroupSize;
   /** Same meaning as on `GlassNavBubble`: what is UNDERNEATH, not the material. */
   surface?: GlassNavBubbleSurface;
+  /** 'solid' = opaque gray0 capsule instead of Liquid Glass (see GlassNavBubble). */
+  material?: 'glass' | 'solid';
   /** Positioning/layout is the consumer's; the primitive only draws the shell. */
   style?: StyleProp<ViewStyle>;
   testID?: string;
@@ -152,6 +154,7 @@ export function GlassNavBubbleGroup({
   items,
   size = 'compact',
   surface = 'onLight',
+  material = 'glass',
   style,
   testID,
 }: GlassNavBubbleGroupProps) {
@@ -187,7 +190,8 @@ export function GlassNavBubbleGroup({
       testID={testID}
     >
       <GlassSurface
-        fallbackColor={onDark ? 'transparent' : theme.colors.glassFallback}
+        fallbackColor={material === 'solid' ? theme.colors.gray0 : onDark ? 'transparent' : theme.colors.glassFallback}
+        forceFallback={material === 'solid'}
         glassColorScheme={onDark ? 'dark' : 'auto'}
         glassEffectStyle="regular"
         pointerEvents="none"

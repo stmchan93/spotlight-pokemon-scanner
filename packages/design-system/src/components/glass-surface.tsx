@@ -29,6 +29,12 @@ export type GlassSurfaceProps = ViewProps & {
    * (Reddit-style floating chrome). Ignored on fallback targets.
    */
   glassEffectStyle?: 'regular' | 'clear';
+  /**
+   * Skip the native glass even when available and render the solid fallback —
+   * for chrome over live camera / photos where glass borrows a dark backdrop
+   * and turns muddy (2026-09-04).
+   */
+  forceFallback?: boolean;
 };
 
 /**
@@ -48,11 +54,12 @@ export function GlassSurface({
   glassTintColor,
   glassColorScheme = 'auto',
   glassEffectStyle = 'regular',
+  forceFallback = false,
   style,
   children,
   ...rest
 }: GlassSurfaceProps) {
-  if (Platform.OS === 'ios' && isLiquidGlassAvailable()) {
+  if (!forceFallback && Platform.OS === 'ios' && isLiquidGlassAvailable()) {
     return (
       <GlassView
         colorScheme={glassColorScheme}

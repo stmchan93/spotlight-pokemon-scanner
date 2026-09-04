@@ -3975,8 +3975,15 @@ export function ScannerScreen({
         <View pointerEvents="none" style={styles.cameraTopFade}>
           <Svg height="100%" width="100%">
             <Defs>
+              {/*
+                Figma 4911:8741: solid black at the top edge -> clear over a
+                118pt band (the frame's progressive backdrop-blur is skipped,
+                as everywhere — expo-blur can't do gradient blur). Was 30%
+                over 160pt, which left the status region washed instead of
+                anchored.
+              */}
               <SvgLinearGradient id="scannerTopFade" x1="0" x2="0" y1="0" y2="1">
-                <Stop offset="0" stopColor="#000000" stopOpacity="0.3" />
+                <Stop offset="0" stopColor="#000000" stopOpacity="1" />
                 <Stop offset="1" stopColor="#000000" stopOpacity="0" />
               </SvgLinearGradient>
             </Defs>
@@ -3986,9 +3993,16 @@ export function ScannerScreen({
         <View pointerEvents="none" style={styles.cameraBottomFade}>
           <Svg height="100%" width="100%">
             <Defs>
+              {/*
+                Figma 4911:8693: solid black at the bottom edge -> #5C5C5C at
+                74% by the 60% mark -> clear at the top of a 258pt band, the
+                heavy scrim the zoom controls + shutter sit on. The frame's
+                progressive 32pt backdrop-blur is skipped as everywhere.
+              */}
               <SvgLinearGradient id="scannerBottomFade" x1="0" x2="0" y1="1" y2="0">
-                <Stop offset="0" stopColor="#000000" stopOpacity="0.3" />
-                <Stop offset="1" stopColor="#000000" stopOpacity="0" />
+                <Stop offset="0" stopColor="#000000" stopOpacity="1" />
+                <Stop offset="0.6" stopColor="#5C5C5C" stopOpacity="0.74" />
+                <Stop offset="1" stopColor="#5C5C5C" stopOpacity="0" />
               </SvgLinearGradient>
             </Defs>
             <Rect fill="url(#scannerBottomFade)" height="100%" width="100%" x="0" y="0" />
@@ -4008,6 +4022,7 @@ export function ScannerScreen({
             accessibilityLabel="Exit scanner"
             onPress={gate(handleExitScanner)}
             size="medium"
+            material="solid"
             surface="onLight"
             testID="scanner-back-button"
           >
@@ -4030,6 +4045,7 @@ export function ScannerScreen({
             accessibilityLabel="Search the card catalog"
             onPress={gate(handleOpenCatalogSearch)}
             size="medium"
+            material="solid"
             surface="onLight"
             testID="scanner-search-button"
           >
@@ -4257,8 +4273,10 @@ export function ScannerScreen({
                   the pill changing identity mid-swipe.
                 */}
                 <GlassSurface
-                  // Figma 4911:8717: light frosted white, dark label.
-                  fallbackColor="rgba(255, 255, 255, 0.72)"
+                  // Solid white like the zoom/mode pills — real glass turned
+                  // muddy over the camera (2026-09-04 TestFlight report).
+                  fallbackColor={colors.gray0}
+                  forceFallback
                   glassColorScheme="light"
                   glassEffectStyle="regular"
                   style={styles.trayInfoPill}
@@ -4293,8 +4311,9 @@ export function ScannerScreen({
                 ) : null}
               </View>
               <GlassSurface
-                // Figma 4911:8720: light frosted white, dark label.
-                fallbackColor="rgba(255, 255, 255, 0.72)"
+                // Solid white like the zoom/mode pills (see above).
+                fallbackColor={colors.gray0}
+                forceFallback
                 glassColorScheme="light"
                 glassEffectStyle="regular"
                 style={styles.trayInfoPill}
@@ -4597,7 +4616,8 @@ export function ScannerScreen({
 
 const styles = StyleSheet.create({
   cameraTopFade: {
-    height: 160,
+    // Figma 4911:8741 — the mock's frame height, includes the status-bar area.
+    height: 118,
     left: 0,
     position: 'absolute',
     right: 0,
@@ -4605,7 +4625,8 @@ const styles = StyleSheet.create({
   },
   cameraBottomFade: {
     bottom: 0,
-    height: 160,
+    // Figma 4911:8693 — the mock's frame height, includes the home-indicator area.
+    height: 258,
     left: 0,
     position: 'absolute',
     right: 0,

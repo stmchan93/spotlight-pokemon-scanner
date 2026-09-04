@@ -32,7 +32,8 @@ export function ScanTargetPill({
       testID={testID}
     >
       <GlassSurface
-        fallbackColor="rgba(255, 255, 255, 0.72)"
+        fallbackColor={colors.gray0}
+        forceFallback
         glassColorScheme="light"
         glassEffectStyle="clear"
         style={styles.pill}
