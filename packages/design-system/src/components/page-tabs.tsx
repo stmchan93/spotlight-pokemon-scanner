@@ -142,11 +142,11 @@ const styles = StyleSheet.create({
   },
   label: {
     textAlign: 'center',
-    marginBottom: 6,
+    // 8 word-to-underline (Figma 4067:26938: 18pt text box, underline at y26).
+    marginBottom: 8,
     // bodyMedium's 21pt line box floats the 14pt word ~3.5pt below the bar's
-    // 16pt padding. Figma's tab box (4067:26807, 28 tall: text + 6 + 2px
-    // underline at y26) uses normal leading — 18 here reproduces it, so the
-    // word itself sits 16 from the bar's top edge.
+    // 16pt padding. Figma's tab box (4067:26807) uses normal leading — 18 here
+    // reproduces it, so the word itself sits 16 from the bar's top edge.
     lineHeight: 18,
   },
   underline: {
