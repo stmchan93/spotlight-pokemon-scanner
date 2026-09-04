@@ -316,8 +316,11 @@ export function HomeHeader({
   useEffect(() => {
     onOverCoverChange?.(overCover);
   }, [onOverCoverChange, overCover]);
-  const chromeSurface = overCover ? ('onDark' as const) : ('onLight' as const);
-  const glyphColor = overCover ? theme.colors.gray0 : theme.colors.gray900;
+  // Figma 4134:49509/49518: the bubbles are FROSTED LIGHT even over the cover
+  // (white Liquid Glass, dark glyphs) — the contrast flip now drives only the
+  // status bar via onOverCoverChange, not the chrome material.
+  const chromeSurface = 'onLight' as const;
+  const glyphColor = theme.colors.gray900;
 
   // Home's leading app mark is decoration, not a control — so unlike the
   // bubbles it does NOT hold its place while the page scrolls: it fades out

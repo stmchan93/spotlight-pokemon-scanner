@@ -26,6 +26,7 @@ import {
 import * as Haptics from 'expo-haptics';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import Svg, { Defs, LinearGradient as SvgLinearGradient, Rect, Stop } from 'react-native-svg';
 import { CheckCircle, Trash } from 'iconoir-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -2046,6 +2047,31 @@ export function PortfolioScreen({
     {/* Overrides the route's static style: white glyphs over the cover, dark
         once the bar pins — mirrors the header's own contrast flip. */}
     {statusBar}
+    {/* Top/bottom white fades (Figma 4134:49489 / 49749): white 70% -> clear
+        under the status area, mirrored above the tab bar (the frame's 4px
+        bottom blur is skipped — no gradient-masked blur in RN). */}
+    <View pointerEvents="none" style={styles.profileTopFade}>
+      <Svg height="100%" width="100%">
+        <Defs>
+          <SvgLinearGradient id="profileTopFade" x1="0" x2="0" y1="0" y2="1">
+            <Stop offset="0" stopColor="#FFFFFF" stopOpacity="0.7" />
+            <Stop offset="1" stopColor="#FFFFFF" stopOpacity="0" />
+          </SvgLinearGradient>
+        </Defs>
+        <Rect fill="url(#profileTopFade)" height="100%" width="100%" x="0" y="0" />
+      </Svg>
+    </View>
+    <View pointerEvents="none" style={styles.profileBottomFade}>
+      <Svg height="100%" width="100%">
+        <Defs>
+          <SvgLinearGradient id="profileBottomFade" x1="0" x2="0" y1="1" y2="0">
+            <Stop offset="0" stopColor="#FFFFFF" stopOpacity="0.7" />
+            <Stop offset="0.93684" stopColor="#FFFFFF" stopOpacity="0" />
+          </SvgLinearGradient>
+        </Defs>
+        <Rect fill="url(#profileBottomFade)" height="100%" width="100%" x="0" y="0" />
+      </Svg>
+    </View>
     <SafeAreaView
       edges={['left', 'right']}
       style={[styles.safeArea, { backgroundColor: theme.colors.gray0 }]}
@@ -2288,6 +2314,23 @@ export function PortfolioScreen({
 }
 
 const styles = StyleSheet.create({
+  profileBottomFade: {
+    bottom: 0,
+    height: 95,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    zIndex: 6,
+  },
+  profileTopFade: {
+    height: 59,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    // Above the pager chrome (zIndex 5) but tap-transparent.
+    zIndex: 6,
+  },
   chartWrap: {
     // Gap from the % change line down to the time filter (7D/1M/…) is tuned to
     // 32px per feedback. The chrome wrapper already adds a 16px inter-child gap,
