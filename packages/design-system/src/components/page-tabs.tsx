@@ -122,12 +122,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 40,
     backgroundColor: 'transparent',
-    // The bar owns ALL the space above its labels. Design update 2026-09-04:
-    // 22 from the bar above to the CAP of the word (was 16). RN's 18pt line
-    // box floats the 14pt glyphs ~4pt lower, so 18 here lands the visible gap
-    // on the designed 22. Screens must NOT add their own bottom padding above
-    // this bar — that is how it once grew to 20-24pt.
-    paddingTop: 18,
+    // The bar owns the space above its labels INSIDE the container: Figma
+    // 4134:51191 puts 16 from the container's top edge to the word cap. RN's
+    // 19pt line box floats the 15pt glyphs ~4pt lower, so 12 lands the visible
+    // gap on the designed 16. The 16pt gap between the TOOLBAR and this
+    // container is the screen's job (pinnedTopInset), not this padding.
+    paddingTop: 12,
   },
   tab: {
     alignItems: 'center',
@@ -143,6 +143,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     // 8 word-to-underline (Figma 4067:26938: 18pt text box, underline at y26).
     marginBottom: 8,
+    // +1 over the Figma 14 (user request 2026-09-04: tabs read too small).
+    fontSize: 15,
     // bodyMedium's 21pt line box floats the 14pt word ~3.5pt below the bar's
     // 16pt padding. Figma's tab box (4067:26807) uses normal leading — 18 here
     // reproduces it, so the word itself sits 16 from the bar's top edge.

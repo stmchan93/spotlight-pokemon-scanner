@@ -2061,7 +2061,9 @@ export function PortfolioScreen({
         pageRefs={pageScrollRefs}
         // Park the tab bar under the floating bubbles instead of at y=0, where
         // "Collection / For Sale / Activity" ended up drawn behind the clock.
-        pinnedTopInset={insets.top + HOME_HEADER_ROW_HEIGHT}
+        // +16: the tab container's top edge sits 16 below the toolbar
+        // (Figma 4134:23879 -> 51191), not flush against it.
+        pinnedTopInset={insets.top + HOME_HEADER_ROW_HEIGHT + 16}
         renderPage={renderProfilePage}
         scrollY={pagerScrollY}
         shouldStandDown={isSearchFieldFocused}
