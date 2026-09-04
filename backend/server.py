@@ -12067,7 +12067,9 @@ class SpotlightScanService:
         raw_decision_debug: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         response = {
-            "scanID": payload["scanID"],
+            # .get: a truncated multipart body parses to an empty payload, and
+            # this error path must not 500 on the missing key (seen 2026-09-04).
+            "scanID": payload.get("scanID"),
             "topCandidates": [],
             "confidence": "low",
             "ambiguityFlags": ambiguity_flags,
@@ -22325,6 +22327,20 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/v1/scan/visual-match":
             identity = self._require_request_identity()
             if identity is None:
+                return
+            # A client abort mid-multipart-stream leaves a truncated body that
+            # parses to an empty payload (no scanID, no image parts). Matching
+            # would only crash deeper in; answer a clean 400 the app treats as
+            # a failed attempt to retry (observed 2026-09-04: 80s uplink stall
+            # -> aborted uploads -> empty-payload 500s).
+            if not str(payload.get("scanID") or "").strip():
+                self._write_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {
+                        "error": "Scan payload is missing scanID (truncated upload?)",
+                        "errorType": "ScanPayloadIncomplete",
+                    },
+                )
                 return
             if not self._acquire_scan_inference_slot():
                 return
