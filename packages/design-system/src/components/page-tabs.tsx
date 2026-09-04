@@ -122,13 +122,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 40,
     backgroundColor: 'transparent',
-    // The bar owns ALL the space above its labels. The frame (4134:49732)
-    // measures 16 from the sheet top to the CAP of the word — its text boxes
-    // are glyph-tight. RN's 18pt line box floats the 14pt glyphs ~4pt lower,
-    // so 12 here lands the visible gap on the designed 16. Screens must NOT
-    // add their own bottom padding above this bar — that is how it once grew
-    // to 20-24pt.
-    paddingTop: 12,
+    // The bar owns ALL the space above its labels. Design update 2026-09-04:
+    // 22 from the bar above to the CAP of the word (was 16). RN's 18pt line
+    // box floats the 14pt glyphs ~4pt lower, so 18 here lands the visible gap
+    // on the designed 22. Screens must NOT add their own bottom padding above
+    // this bar — that is how it once grew to 20-24pt.
+    paddingTop: 18,
   },
   tab: {
     alignItems: 'center',

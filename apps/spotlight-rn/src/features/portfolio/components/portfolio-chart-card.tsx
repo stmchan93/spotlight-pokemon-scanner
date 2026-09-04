@@ -963,16 +963,9 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
                         r={4}
                       />
                     </>
-                  ) : coordinates.length > 0 ? (
-                    <Circle
-                      // The last point now sits on the right edge (full-bleed),
-                      // so nudge the resting dot in by its radius to stay visible.
-                      cx={Math.min(coordinates[coordinates.length - 1]?.x ?? 0, chartWidth - 4)}
-                      cy={coordinates[coordinates.length - 1]?.y ?? 0}
-                      fill={chartAccentColor}
-                      r={4}
-                    />
                   ) : null}
+                  {/* Resting end dot removed 2026-09-04 (design): the line just
+                      ends at the edge; the dot only appears while scrubbing. */}
                 </>
               ) : (
                 <>
