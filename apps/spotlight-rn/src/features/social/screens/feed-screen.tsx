@@ -689,6 +689,23 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         </Svg>
       </View>
       {/*
+        Bottom gradient (Figma 4299:95240): white 70% at the edge -> clear by
+        ~94% up, fading the feed out under the floating tab bar. The frame's
+        4px backdrop-blur is intentionally skipped: expo-blur can't do partial-
+        opacity gradient blur and a full BlurView reads as a hard band.
+      */}
+      <View pointerEvents="none" style={[styles.bottomGradient, { height: insets.bottom + 95 }]}>
+        <Svg height="100%" width="100%">
+          <Defs>
+            <LinearGradient id="homeBottomFade" x1="0" x2="0" y1="1" y2="0">
+              <Stop offset="0" stopColor="#FFFFFF" stopOpacity="0.7" />
+              <Stop offset="0.93684" stopColor="#FFFFFF" stopOpacity="0" />
+            </LinearGradient>
+          </Defs>
+          <Rect fill="url(#homeBottomFade)" height="100%" width="100%" x="0" y="0" />
+        </Svg>
+      </View>
+      {/*
         AFTER the list so tree order paints it on top, and so UIKit's
         `subviews[0]` walk still reaches the scroller for minimize-on-scroll.
       */}
@@ -717,6 +734,14 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
 }
 
 const styles = StyleSheet.create({
+  bottomGradient: {
+    bottom: 0,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    // Over the list, under the tab bar chrome.
+    zIndex: 4,
+  },
   topGradient: {
     left: 0,
     position: 'absolute',
