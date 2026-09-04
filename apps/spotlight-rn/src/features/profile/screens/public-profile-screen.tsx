@@ -12,6 +12,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import type { InventoryCardEntry, ProfilePortfolioSummary } from '@spotlight/api-client';
 import {
+  SearchField,
   Button,
   InlineLoader,
   PageTabs,
@@ -611,7 +612,25 @@ export function PublicProfileScreen({
 
   // Each page owns its own list now, so the two data sets are built
   // independently instead of one being selected by the active tab.
+  // Visitor collection search (Figma 4157:74917): same client-side filter the
+  // owner's Collection uses — name / number / set / condition / grade.
+  const [collectionQuery, setCollectionQuery] = useState('');
+  const visibleEntries = useMemo(() => {
+    const normalized = collectionQuery.trim().toLowerCase();
+    if (normalized.length === 0) {
+      return entries;
+    }
+    return entries.filter((item) =>
+      [item.name, item.cardNumber, item.setName, item.conditionLabel, item.variantName]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .includes(normalized),
+    );
+  }, [collectionQuery, entries]);
+
   const collectionData = useMemo<PublicCollectionRow[]>(() => {
+    const entries = visibleEntries;
     if (entries.length === 0) {
       return [];
     }
@@ -626,7 +645,7 @@ export function PublicProfileScreen({
       rowIndex,
       isLastRow: rowIndex === rows.length - 1,
     }));
-  }, [entries]);
+  }, [visibleEntries]);
 
   const wishlistData = useMemo<PublicCollectionRow[]>(() => {
     if (wishlistEntries.length === 0) {
@@ -875,29 +894,29 @@ export function PublicProfileScreen({
           />
         </View>
       ) : (
-        // Visitor-visible portfolio headline. Total value + card count only —
-        // no chart, by design (the dashboard read is owner-only).
+        // Figma 4157:74912/74917: compact "Main Collection · Total Value" row
+        // + a search field, replacing the old oversized Portfolio headline.
         <View
           style={[styles.totalBlock, { paddingHorizontal: theme.layout.pageGutter }]}
           testID={`${testID}-total`}
         >
-          <Text
-            style={[theme.typography.captionMedium, { color: theme.colors.gray500 }]}
-          >
-            Portfolio
-          </Text>
-          <Text
-            style={theme.typography.displayLarge}
-            testID={`${testID}-total-value`}
-          >
-            {totalLabel ?? '—'}
-          </Text>
-          <Text
-            style={[theme.typography.captionMedium, { color: theme.colors.gray500 }]}
-            testID={`${testID}-total-count`}
-          >
-            {`${summary?.cardCount ?? entries.length} card${(summary?.cardCount ?? entries.length) === 1 ? '' : 's'}`}
-          </Text>
+          <View style={styles.collectionSummaryRow}>
+            <Text style={theme.typography.bodyMedium}>Main Collection</Text>
+            <Text style={theme.typography.bodyMedium} testID={`${testID}-total-value`}>
+              {totalLabel ? `Total Value: ${totalLabel}` : `${summary?.cardCount ?? entries.length} cards`}
+            </Text>
+          </View>
+          <SearchField
+            autoCapitalize="none"
+            autoCorrect={false}
+            containerTestID={`${testID}-collection-search`}
+            onChangeText={setCollectionQuery}
+            placeholder="Search collection"
+            returnKeyType="search"
+            size="collection"
+            surface="muted"
+            value={collectionQuery}
+          />
         </View>
       )}
     </View>
@@ -1142,6 +1161,12 @@ export function PublicProfileScreen({
 }
 
 const styles = StyleSheet.create({
+  collectionSummaryRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
   actionButton: {
     flex: 1,
   },
