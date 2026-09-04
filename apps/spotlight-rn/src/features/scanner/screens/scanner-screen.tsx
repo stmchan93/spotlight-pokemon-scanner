@@ -3960,6 +3960,33 @@ export function ScannerScreen({
           behind the STATUS BAR only — not the full header, which is what made
           the old one read as chrome.
         */}
+        {/*
+          Camera fades (Figma 4911:8741): black 30% -> clear from the top edge,
+          mirrored at the bottom, so the light glass chrome always sits on a
+          gently darkened backdrop instead of raw camera noise.
+        */}
+        <View pointerEvents="none" style={styles.cameraTopFade}>
+          <Svg height="100%" width="100%">
+            <Defs>
+              <SvgLinearGradient id="scannerTopFade" x1="0" x2="0" y1="0" y2="1">
+                <Stop offset="0" stopColor="#000000" stopOpacity="0.3" />
+                <Stop offset="1" stopColor="#000000" stopOpacity="0" />
+              </SvgLinearGradient>
+            </Defs>
+            <Rect fill="url(#scannerTopFade)" height="100%" width="100%" x="0" y="0" />
+          </Svg>
+        </View>
+        <View pointerEvents="none" style={styles.cameraBottomFade}>
+          <Svg height="100%" width="100%">
+            <Defs>
+              <SvgLinearGradient id="scannerBottomFade" x1="0" x2="0" y1="1" y2="0">
+                <Stop offset="0" stopColor="#000000" stopOpacity="0.3" />
+                <Stop offset="1" stopColor="#000000" stopOpacity="0" />
+              </SvgLinearGradient>
+            </Defs>
+            <Rect fill="url(#scannerBottomFade)" height="100%" width="100%" x="0" y="0" />
+          </Svg>
+        </View>
         <View
           style={[
             styles.topChromeRow,
@@ -3974,10 +4001,10 @@ export function ScannerScreen({
             accessibilityLabel="Exit scanner"
             onPress={gate(handleExitScanner)}
             size="medium"
-            surface="onDark"
+            surface="onLight"
             testID="scanner-back-button"
           >
-            <IconChevronLeft color={colors.gray0} size={glassNavBubbleGlyphSize} strokeWidth={2} />
+            <IconChevronLeft color={colors.gray900} size={glassNavBubbleGlyphSize} strokeWidth={2} />
           </GlassNavBubble>
           <View style={styles.topChromeCenter}>
             <ScanTargetPill
@@ -3996,10 +4023,10 @@ export function ScannerScreen({
             accessibilityLabel="Search the card catalog"
             onPress={gate(handleOpenCatalogSearch)}
             size="medium"
-            surface="onDark"
+            surface="onLight"
             testID="scanner-search-button"
           >
-            <IconSearch color={colors.gray0} size={glassNavBubbleGlyphSize} strokeWidth={2} />
+            <IconSearch color={colors.gray900} size={glassNavBubbleGlyphSize} strokeWidth={2} />
           </GlassNavBubble>
         </View>
 
@@ -4223,9 +4250,10 @@ export function ScannerScreen({
                   the pill changing identity mid-swipe.
                 */}
                 <GlassSurface
-                  fallbackColor="rgba(255, 255, 255, 0.10)"
-                  glassColorScheme="dark"
-                  glassEffectStyle="clear"
+                  // Figma 4911:8717: light frosted white, dark label.
+                  fallbackColor="rgba(255, 255, 255, 0.72)"
+                  glassColorScheme="light"
+                  glassEffectStyle="regular"
                   style={styles.trayInfoPill}
                   testID="scanner-recent-title-surface"
                 >
@@ -4258,9 +4286,10 @@ export function ScannerScreen({
                 ) : null}
               </View>
               <GlassSurface
-                fallbackColor="rgba(255, 255, 255, 0.10)"
-                glassColorScheme="dark"
-                glassEffectStyle="clear"
+                // Figma 4911:8720: light frosted white, dark label.
+                fallbackColor="rgba(255, 255, 255, 0.72)"
+                glassColorScheme="light"
+                glassEffectStyle="regular"
                 style={styles.trayInfoPill}
                 testID="scanner-value-pill-surface"
               >
@@ -4560,6 +4589,20 @@ export function ScannerScreen({
 }
 
 const styles = StyleSheet.create({
+  cameraTopFade: {
+    height: 160,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
+  cameraBottomFade: {
+    bottom: 0,
+    height: 160,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+  },
   captureFlash: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#FFFFFF',
@@ -4885,7 +4928,7 @@ const styles = StyleSheet.create({
   },
   trayInfoPillLabel: {
     ...textStyles.labelStrong,
-    color: colors.gray0,
+    color: colors.gray900,
   },
   trayAddAllRow: {
     alignItems: 'center',

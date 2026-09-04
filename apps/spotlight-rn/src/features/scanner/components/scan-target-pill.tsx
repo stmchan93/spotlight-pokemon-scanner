@@ -32,15 +32,15 @@ export function ScanTargetPill({
       testID={testID}
     >
       <GlassSurface
-        fallbackColor="rgba(255, 255, 255, 0.10)"
-        glassColorScheme="dark"
+        fallbackColor="rgba(255, 255, 255, 0.72)"
+        glassColorScheme="light"
         glassEffectStyle="clear"
         style={styles.pill}
         testID={testID ? `${testID}-surface` : undefined}
       >
         <Text style={styles.label}>{label}</Text>
         {flag ? <RoundFlag language={flag} size={14} /> : null}
-        <IconChevronDown color={colors.gray0} size={20} strokeWidth={2} />
+        <IconChevronDown color={colors.gray900} size={20} strokeWidth={2} />
       </GlassSurface>
     </Pressable>
   );
@@ -49,7 +49,7 @@ export function ScanTargetPill({
 const styles = StyleSheet.create({
   label: {
     ...textStyles.body,
-    color: colors.gray0,
+    color: colors.gray900,
   },
   pressable: {
     alignSelf: 'stretch',
