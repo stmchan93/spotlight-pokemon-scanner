@@ -145,7 +145,7 @@ export function CardListRow({
   const borderStyle = {
     borderBottomColor: theme.colors.gray300,
     ...(firstInSection
-      ? { borderTopColor: theme.colors.gray300, borderTopWidth: borderWidths.rule }
+      ? { borderTopColor: theme.colors.gray300, borderTopWidth: borderWidths.containerRule }
       : null),
   };
 
@@ -390,7 +390,7 @@ const styles = StyleSheet.create({
   },
   row: {
     alignItems: 'center',
-    borderBottomWidth: borderWidths.rule,
+    borderBottomWidth: borderWidths.containerRule,
     flexDirection: 'row',
     // Thumb ↔ copy gap is 8 in Figma (Card Content itemSpacing, 4173:82045).
     gap: 8,

@@ -245,7 +245,7 @@ export function InventoryCardTile({
         styles.pressable,
         {
           backgroundColor: bordered ? theme.colors.gray50 : 'transparent',
-          borderColor: bordered ? theme.colors.gray100 : 'transparent',
+          borderColor: bordered ? theme.colors.gray300 : 'transparent',
           borderWidth: bordered ? 1 : 0,
           borderRadius: bordered ? theme.radii.md : 0,
           opacity: pressed ? 0.92 : 1,
