@@ -25,6 +25,7 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useFocusEffect, useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import { CheckCircle, Trash } from 'iconoir-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -1527,8 +1528,14 @@ export function PortfolioScreen({
     built. It shares text now (`buildProfileShareMessage`); there is still no
     profile URL to attach, and that file says why.
   */
+  // Mirrors the header's contrast flip (white-over-cover vs dark-when-pinned)
+  // onto the STATUS BAR: Figma 4134:49776 shows white time/battery over the
+  // cover. Owned here because the header computes the flip but the screen owns
+  // the <StatusBar>.
+  const [isBarOverCover, setIsBarOverCover] = useState(true);
   const homeHeader = (
     <HomeHeader
+      onOverCoverChange={setIsBarOverCover}
       onOpenMenu={openDrawer}
       trailing={{
         kind: 'profile',
@@ -1599,6 +1606,8 @@ export function PortfolioScreen({
       />
     </View>
   );
+
+  const statusBar = <StatusBar style={isBarOverCover ? 'light' : 'dark'} />;
 
   const pagerTabBar = (
     <View style={{ backgroundColor: theme.colors.gray0 }}>
@@ -2034,6 +2043,9 @@ export function PortfolioScreen({
       which cancels the card underneath; ordinary scrolls are never claimed.
     */
     <DrawerEdgeSwipe>
+    {/* Overrides the route's static style: white glyphs over the cover, dark
+        once the bar pins — mirrors the header's own contrast flip. */}
+    {statusBar}
     <SafeAreaView
       edges={['left', 'right']}
       style={[styles.safeArea, { backgroundColor: theme.colors.gray0 }]}

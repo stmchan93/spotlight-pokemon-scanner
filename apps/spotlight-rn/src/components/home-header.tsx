@@ -64,6 +64,12 @@ type HomeHeaderProps = {
   /** Opens the full-screen card search — the trailing magnifier on Home, the pill on the profile. */
   onOpenSearch: () => void;
   /**
+   * Profile variant only: fires when the bar's contrast flips (true = resting
+   * over the dark cover, false = pinned on white). Lets the SCREEN mirror the
+   * flip onto things the bar doesn't own — the status bar's own text, above all.
+   */
+  onOverCoverChange?: (overCover: boolean) => void;
+  /**
    * FLOATING mode: absolutely positioned chrome over scrolling content rather
    * than a row that takes up layout. BOTH callers (Home and Collection) pass
    * it; the in-flow branch survives only as the fallback for a bar mounted
@@ -249,6 +255,7 @@ export function HomeHeader({
   onOpenMenu,
   floating = false,
   onOpenSearch,
+  onOverCoverChange,
   pinnedBackdrop = false,
   scrollRestOffset = 0,
   scrollY,
@@ -306,6 +313,9 @@ export function HomeHeader({
     return () => scrollY.removeListener(listenerId);
   }, [scrollRestOffset, scrollY, trailing.kind]);
   const overCover = trailing.kind === 'profile' && isOverCover;
+  useEffect(() => {
+    onOverCoverChange?.(overCover);
+  }, [onOverCoverChange, overCover]);
   const chromeSurface = overCover ? ('onDark' as const) : ('onLight' as const);
   const glyphColor = overCover ? theme.colors.gray0 : theme.colors.gray900;
 
