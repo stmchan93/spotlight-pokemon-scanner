@@ -616,7 +616,10 @@ export function PostCard({
               >
                 <Text
                   numberOfLines={1}
-                  style={theme.typography.bodyStrong}
+                  // +1 over bodyStrong (Figma says 15/600): user-requested bump
+                  // for feed legibility, 2026-09-03. Local to the post card —
+                  // update Figma before propagating anywhere else.
+                  style={[theme.typography.bodyStrong, styles.authorNameBump]}
                   testID={`${testID}-author-name`}
                 >
                   {displayName}
@@ -670,7 +673,7 @@ export function PostCard({
         {post.body ? (
           <Text
             // Figma 4299:94902 sets the post body at 14 Medium — `bodyMedium`.
-            style={[styles.bodyText, theme.typography.bodyMedium, { color: theme.colors.gray800 }]}
+            style={[styles.bodyText, theme.typography.bodyMedium, styles.postBodyBump, { color: theme.colors.gray800 }]}
             testID={`${testID}-body`}
           >
             {post.body}
@@ -921,6 +924,16 @@ export function PostCard({
 const styles = StyleSheet.create({
   bodyText: {
     paddingHorizontal: 16,
+  },
+  // Feed-legibility bumps (+1 each over bodyStrong 15 / bodyMedium 14) —
+  // local divergence from Figma, see author-name comment.
+  authorNameBump: {
+    fontSize: 16,
+    lineHeight: 21,
+  },
+  postBodyBump: {
+    fontSize: 15,
+    lineHeight: 22.5,
   },
   // The 4pt separator band, full-bleed across the card. Color comes from the
   // theme at the render site, mirroring the old divider.
