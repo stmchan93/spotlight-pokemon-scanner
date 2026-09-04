@@ -28,6 +28,8 @@ import {
 } from '@spotlight/design-system';
 
 import { AnimatedFlatList } from '@/components/page-tab-pager';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
+
 import { HOME_HEADER_BAR_HEIGHT, HomeHeader } from '@/components/home-header';
 import { PostCard } from '@/features/social/components/post-card';
 import { RepostAttribution } from '@/features/social/components/repost-attribution';
@@ -43,7 +45,7 @@ import { usePostDeletion } from '@/features/social/use-post-deletion';
 import { getUserInitials } from '@/features/auth/auth-models';
 import { resolveRepositoryBaseUrl } from '@/providers/app-providers';
 import { DrawerEdgeSwipe } from '@/components/drawer-edge-swipe';
-import { ScrollToTopFab, useScrollToTop } from '@/components/scroll-to-top-fab';
+import { useScrollToTop } from '@/components/scroll-to-top-fab';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAuth } from '@/providers/auth-provider';
 
@@ -141,11 +143,11 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   */
   const scrollRef = useRef<FlatList<FeedItem>>(null);
   const listTopOffset = Platform.OS === 'ios' ? -insets.top : 0;
+  // FAB removed 2026-09-04 (user request); the hook still supplies the scroll
+  // + layout trackers other wiring consumes.
   const {
-    isVisible: showScrollTop,
     handleScroll: trackScrollTopVisibility,
     handleLayout: handleListLayout,
-    scrollToTop,
   } = useScrollToTop(scrollRef, undefined, listTopOffset);
 
   // Native-driven scroll offset for the header: drives the decorative app
@@ -670,6 +672,23 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         testID={`${testID}-list`}
       />
       {/*
+        Top gradient (Figma 4299:95021): white 70% -> transparent over the
+        status-bar/header region, the top counterpart of the bottom fade over
+        the tab bar. SVG (like profile-header's scrim), not expo-linear-gradient,
+        pointerEvents none so it never eats header taps.
+      */}
+      <View pointerEvents="none" style={[styles.topGradient, { height: insets.top + HOME_HEADER_BAR_HEIGHT }]}>
+        <Svg height="100%" width="100%">
+          <Defs>
+            <LinearGradient id="homeTopFade" x1="0" x2="0" y1="0" y2="1">
+              <Stop offset="0" stopColor="#FFFFFF" stopOpacity="0.7" />
+              <Stop offset="1" stopColor="#FFFFFF" stopOpacity="0" />
+            </LinearGradient>
+          </Defs>
+          <Rect fill="url(#homeTopFade)" height="100%" width="100%" x="0" y="0" />
+        </Svg>
+      </View>
+      {/*
         AFTER the list so tree order paints it on top, and so UIKit's
         `subviews[0]` walk still reaches the scroller for minimize-on-scroll.
       */}
@@ -691,17 +710,6 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
           unreadCount,
         }}
       />
-      {/*
-        Bottom-RIGHT, 16pt in, floating clear of the tab bar (Figma 3725:59137).
-        No collision with the bar above: `HomeHeader` is pinned to the top edge
-        and this is anchored to the bottom one. Visibility is scroll-travel only,
-        so a short or empty feed never shows it.
-      */}
-      <ScrollToTopFab
-        onPress={scrollToTop}
-        testID={`${testID}-scroll-to-top`}
-        visible={showScrollTop}
-      />
       {deleteConfirmSheet}
     </SafeAreaView>
     </DrawerEdgeSwipe>
@@ -709,6 +717,14 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
 }
 
 const styles = StyleSheet.create({
+  topGradient: {
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    // Under HomeHeader (zIndex 5), over the list.
+    zIndex: 4,
+  },
   // The filled pill itself (Figma 4299:94902): 8 padding around a 24pt avatar
   // makes the 40pt-tall capsule; fill + radius come from the theme inline.
   composePrompt: {
