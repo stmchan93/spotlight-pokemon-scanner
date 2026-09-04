@@ -2580,7 +2580,9 @@ const styles = StyleSheet.create({
   stickyHeader: {
     elevation: 10,
     left: 0,
-    paddingBottom: 8,
+    // 16 under the toolbar row (Figma 4211:83798 — 60pt frame around 44pt
+    // controls), so the title/actions clear the content below by the spec gap.
+    paddingBottom: 16,
     paddingHorizontal: 16,
     paddingTop: 12,
     position: 'absolute',
