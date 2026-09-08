@@ -578,7 +578,7 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                 ]}
                 testID={`scanner-tray-change-${index}`}
               >
-                <Text style={styles.captureChangeLabel}>Switch</Text>
+                <Text style={styles.captureChangeLabel}>Change</Text>
               </ArenaPressable>
             ) : null}
           </View>
