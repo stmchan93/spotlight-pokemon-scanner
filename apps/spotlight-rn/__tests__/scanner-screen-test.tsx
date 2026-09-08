@@ -1292,10 +1292,11 @@ describe('ScannerScreen', () => {
       )?.backgroundColor;
 
     // Frost chrome with no glass to tint: the top-bar pill and the selected
-    // zoom chip fall back to solid gray0; unselected zoom chips to faint white.
+    // zoom chip fall back to solid gray0; unselected factors are bare labels
+    // (Figma 4911:8850/8853), no surface at all.
     expect(fillOf('scanner-target-pill-surface')).toBe(colors.gray0);
     expect(fillOf('scanner-zoom-1x-surface')).toBe(colors.gray0);
-    expect(fillOf('scanner-zoom-2x-surface')).toBe(colors.frostTintFaint);
+    expect(screen.queryByTestId('scanner-zoom-2x-surface')).toBeNull();
 
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));

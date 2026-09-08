@@ -4197,24 +4197,34 @@ export function ScannerScreen({
                     testID={`scanner-zoom-${factor}x`}
                   >
                     {/*
-                      EVERY factor is a light-frost chip, matching the
-                      SCAN/TOTAL pills (Figma 4911:8717 selected / 8720
-                      unselected). Labels are dark on both; selection reads
-                      from the white tint going strong vs faint. Fallback
-                      targets get solid gray0 / 40% white.
+                      Figma 4911:8845: the SELECTED factor is the same frost
+                      chip as every other puck (one tint, `colors.frostTint`);
+                      unselected factors are bare labels over the camera —
+                      no chip, so there is exactly one chip style on screen
+                      (three tints in one row read as three objects,
+                      2026-09-08). Bare labels are white with a shadow so they
+                      hold over any scene.
                     */}
-                    <GlassSurface
-                      fallbackColor={selected ? colors.gray0 : colors.frostTintFaint}
-                      glassColorScheme="light"
-                      glassEffectStyle="regular"
-                      glassTintColor={selected ? colors.frostTintStrong : colors.frostTintFaint}
-                      style={styles.zoomPillSurface}
-                      testID={`scanner-zoom-${factor}x-surface`}
-                    >
-                      <Text style={styles.zoomPillLabel}>
-                        {`${factor}x`}
-                      </Text>
-                    </GlassSurface>
+                    {selected ? (
+                      <GlassSurface
+                        fallbackColor={colors.gray0}
+                        glassColorScheme="light"
+                        glassEffectStyle="regular"
+                        glassTintColor={colors.frostTint}
+                        style={styles.zoomPillSurface}
+                        testID={`scanner-zoom-${factor}x-surface`}
+                      >
+                        <Text style={styles.zoomPillLabel}>
+                          {`${factor}x`}
+                        </Text>
+                      </GlassSurface>
+                    ) : (
+                      <View style={styles.zoomPillSurface}>
+                        <Text style={[styles.zoomPillLabel, styles.zoomPillLabelBare]}>
+                          {`${factor}x`}
+                        </Text>
+                      </View>
+                    )}
                   </Pressable>
                 );
               })}
@@ -4836,9 +4846,17 @@ const styles = StyleSheet.create({
   zoomPillLabel: {
     // labelStrong to match the SCAN/TOTAL pill weight (was plain label).
     ...textStyles.labelStrong,
-    // Dark on the white chips (was white on dark glass).
+    // Dark on the white chip.
     color: colors.gray900,
     fontSize: 12,
+  },
+  // Unselected factor: white over the camera, shadowed so it survives a
+  // bright wall behind it.
+  zoomPillLabelBare: {
+    color: colors.gray0,
+    textShadowColor: 'rgba(0, 0, 0, 0.45)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   captureCopy: {
     alignItems: 'flex-start',

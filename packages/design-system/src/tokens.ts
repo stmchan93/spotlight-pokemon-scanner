@@ -137,14 +137,13 @@ export const colors = {
   /**
    * White tint painted INTO real Liquid Glass on chrome that floats over live
    * camera / photos. Untinted glass has no floor — it is only as bright as its
-   * backdrop, so over a black slab a puck vanished (2026-09-04). 60% white is
-   * the darkest-case guard (≈4.8:1 for gray900 labels over pure black) and
-   * matches Figma's stacked 40%+40% chip fills (4911:8865). Strong/faint are
-   * the selected/unselected zoom-pill pair.
+   * backdrop, so over a black slab a puck vanished (2026-09-04). ONE value for
+   * every puck: at 60% the pucks still swung from mid-gray to white as the
+   * camera panned and sat at three different grays in one row ("keeps
+   * changing from light to dark", 2026-09-08). 85% leaves the backdrop a 15%
+   * say — frost at the edges and in the blur, a near-constant white face.
    */
-  frostTint: 'rgba(255, 255, 255, 0.6)',
-  frostTintStrong: 'rgba(255, 255, 255, 0.75)',
-  frostTintFaint: 'rgba(255, 255, 255, 0.4)',
+  frostTint: 'rgba(255, 255, 255, 0.85)',
   // Tappable link text over dark/photo backgrounds (profile header cover).
   linkOnDark: '#D6E8FF',
 } as const;
