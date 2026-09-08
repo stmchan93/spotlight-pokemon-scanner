@@ -61,6 +61,11 @@ class SyncTcgcsvPricesTests(unittest.TestCase):
         )
         overrides_patch.start()
         self.addCleanup(overrides_patch.stop)
+        backfill_patch = mock.patch.object(
+            sync_tcgcsv_prices, "load_tcgplayer_id_backfill", return_value={}
+        )
+        backfill_patch.start()
+        self.addCleanup(backfill_patch.stop)
         upsert_card(
             self.connection, card_id="swsh7-215", name="Umbreon VMAX",
             set_name="Evolving Skies", number="215/203", rarity="Secret",
@@ -450,6 +455,84 @@ class SyncTcgcsvPricesTests(unittest.TestCase):
             os.environ.pop("TCGCSV_VERIFY_NUMBERS", None)
         self.assertEqual(stats["priced"], 1)
         self.assertEqual(stats["skipped_number_mismatch"], 0)
+
+    def _seed_payload_less_jp_card(self):
+        # The gym1_ja-40 shape: Scrydex payload has variants but no tcgplayer
+        # marketplace entry, so the payload contributes no product id.
+        upsert_card(
+            self.connection, card_id="gym1_ja-40", name="Lt. Surge's Magneton",
+            set_name="Leaders' Stadium", number="No.082", rarity="Rare Holo",
+            variant="Raw", language="Japanese", source_provider="scrydex",
+            source_payload={"variants": [{"name": "holofoil", "marketplaces": []}]},
+        )
+        upsert_price_snapshot(
+            self.connection, card_id="gym1_ja-40", provider="scrydex",
+            display_currency_code="USD",
+            raw_contexts={"variants": {"Holofoil": {"variant": "Holofoil", "conditions": {
+                "NM": {"condition": "NM", "variant": "Holofoil", "market": 57.6, "low": 57.6}
+            }}}},
+            graded_contexts={"graders": {}},
+            default_raw_variant="Holofoil",
+            default_raw_market_price=57.6, default_raw_low_price=57.6,
+        )
+        self.connection.commit()
+
+    MAGNETON_PRICES = {"576806": {"Holofoil": {
+        "productId": 576806, "subTypeName": "Holofoil",
+        "marketPrice": 14.58, "lowPrice": 10.0, "midPrice": 13.59,
+    }}}
+
+    def test_backfill_prices_a_card_whose_payload_has_no_product_id(self):
+        self._seed_payload_less_jp_card()
+        prices = dict(MOONBREON_PRICES, **self.MAGNETON_PRICES)
+        with mock.patch.object(
+            sync_tcgcsv_prices, "load_tcgplayer_id_backfill",
+            return_value={"gym1_ja-40": "576806"},
+        ):
+            stats = self._sync(product_price_map=prices)
+        self.assertEqual(stats["backfill_applied"], 1)
+        self.assertEqual(stats["priced"], 2)
+        row = dict(self.connection.execute(
+            "SELECT * FROM card_price_snapshots WHERE card_id='gym1_ja-40'"
+        ).fetchone())
+        self.assertEqual(row["main_raw_market_price"], 14.58)
+        self.assertEqual(row["main_raw_variant"], "Holofoil")
+        # Scrydex columns untouched — the fallback is still there if the lane dies.
+        self.assertEqual(row["default_raw_market_price"], 57.6)
+        self.assertEqual(json.loads(row["main_raw_printings_json"]), {"Holofoil": {
+            "subTypeName": "Holofoil", "market": 14.58, "low": 10.0,
+            "mid": 13.59, "high": None, "directLow": None,
+        }})
+
+    def test_backfill_is_still_number_verified(self):
+        self._seed_payload_less_jp_card()
+        prices = dict(MOONBREON_PRICES, **self.MAGNETON_PRICES)
+        with mock.patch.object(
+            sync_tcgcsv_prices, "load_tcgplayer_id_backfill",
+            return_value={"gym1_ja-40": "576806"},
+        ):
+            stats = self._sync(
+                product_price_map=prices,
+                product_number_map={"576806": "83"},  # disagrees with No.082
+            )
+        self.assertEqual(stats["backfill_applied"], 0)
+        self.assertEqual(stats["skipped_number_mismatch"], 1)
+        row = self.connection.execute(
+            "SELECT main_raw_market_price FROM card_price_snapshots WHERE card_id='gym1_ja-40'"
+        ).fetchone()
+        self.assertIsNone(row[0])
+
+    def test_payload_claim_and_override_beat_backfill(self):
+        # Backfill for a card the payload already maps must be ignored — the
+        # payload's 246723 prices, the backfill's bogus pid never consulted.
+        with mock.patch.object(
+            sync_tcgcsv_prices, "load_tcgplayer_id_backfill",
+            return_value={"swsh7-215": "999999"},
+        ):
+            stats = self._sync()
+        self.assertEqual(stats["backfill_applied"], 0)
+        self.assertEqual(stats["priced"], 1)
+        self.assertEqual(self._snapshot_row()["main_raw_market_price"], 2276.45)
 
     def test_manual_override_beats_payload_collision_and_verification(self):
         # The override replaces the payload's product id and skips the number

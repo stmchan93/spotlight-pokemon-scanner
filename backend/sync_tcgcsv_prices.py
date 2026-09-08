@@ -56,6 +56,11 @@ TCGCSV_LAST_UPDATED_KEY = "tcgcsv_last_updated_marker"
 # Lives at the backend ROOT, not data/: the deploy tar excludes ./data (the live
 # DB), which silently kept this file off the VM and every override inert.
 TCGPLAYER_ID_OVERRIDES_PATH = Path(__file__).resolve().parent / "tcgplayer_id_overrides.json"
+# Generated (tools/build_tcgplayer_id_backfill.py) card->product ids for cards whose
+# Scrydex payload carries none — JP vintage + promos. Lower trust than an
+# override: only consulted when the payload has no product id, and still
+# collision-blocked and number-verified like a payload claim.
+TCGPLAYER_ID_BACKFILL_PATH = Path(__file__).resolve().parent / "tcgplayer_id_backfill.json"
 
 
 def load_tcgplayer_id_overrides(path: Path = TCGPLAYER_ID_OVERRIDES_PATH) -> dict[str, str]:
@@ -73,6 +78,12 @@ def load_tcgplayer_id_overrides(path: Path = TCGPLAYER_ID_OVERRIDES_PATH) -> dic
         if product_id:
             overrides[card_id] = product_id
     return overrides
+
+
+def load_tcgplayer_id_backfill(path: Path = TCGPLAYER_ID_BACKFILL_PATH) -> dict[str, str]:
+    """{card_id: product_id} from the generated backfill file (same entry shape as
+    the overrides file; keys starting with "_" are documentation)."""
+    return load_tcgplayer_id_overrides(path)
 
 
 def tcgcsv_sync_enabled() -> bool:
@@ -477,15 +488,27 @@ def run_tcgcsv_price_sync(
             for owner_card_id in owner_card_ids:
                 owned_pids_by_card.setdefault(owner_card_id, set()).add(pid)
         overrides = load_tcgplayer_id_overrides()
+        # Backfill fills the gap the payload leaves; a payload claim or an
+        # override for the same card wins outright.
+        backfill = {
+            card_id: product_id
+            for card_id, product_id in load_tcgplayer_id_backfill().items()
+            if card_id not in variant_map and card_id not in overrides
+        }
         requests_made = tcgcsv_adapter.request_count - requests_before
 
         card_numbers = _card_numbers(connection)
         verify_numbers = tcgcsv_verify_numbers_enabled()
 
         now = utc_now()
-        all_card_ids = list(variant_map) + [c for c in overrides if c not in variant_map]
+        all_card_ids = (
+            list(variant_map)
+            + [c for c in overrides if c not in variant_map]
+            + list(backfill)
+        )
         stats = {"cards_seen": len(all_card_ids), "priced": 0, "skipped_no_match": 0,
                  "skipped_number_mismatch": 0, "overrides_applied": 0,
+                 "backfill_applied": 0,
                  "requests": requests_made, "products": len(product_price_map),
                  "collisions_resolved": len(collision_owners)}
         mismatch_suspects: list[dict[str, str]] = []
@@ -515,7 +538,15 @@ def run_tcgcsv_price_sync(
                     if pending % commit_every == 0:
                         connection.commit()
                 continue
-            variant_product_ids = variant_map[card_id]
+            backfill_pid = backfill.get(card_id)
+            if backfill_pid:
+                # Generated map: the product stands in for the missing payload
+                # claim and gets the same treatment — blocked when colliding,
+                # number-verified below where TCGplayer publishes a Number.
+                label = _normalized_variant_label(defaults.get(card_id) or "Normal")
+                variant_product_ids = {label: backfill_pid}
+            else:
+                variant_product_ids = variant_map[card_id]
             owned = owned_pids_by_card.get(card_id)
             blocked = colliding - owned if owned else colliding
             selection = select_main_price_entry(
@@ -547,6 +578,8 @@ def run_tcgcsv_price_sync(
                         pending += 1
                     continue
             stats["priced"] += 1
+            if backfill_pid:
+                stats["backfill_applied"] += 1
             if dry_run:
                 continue
             _write_card_main_price(
@@ -587,6 +620,7 @@ def run_tcgcsv_price_sync(
                    "skippedNumberMismatch": stats["skipped_number_mismatch"],
                    "numberMismatchSuspects": mismatch_suspects,
                    "overridesApplied": stats["overrides_applied"],
+                   "backfillApplied": stats["backfill_applied"],
                    "failedGroups": failed_groups[:20]},
         )
         connection.commit()
