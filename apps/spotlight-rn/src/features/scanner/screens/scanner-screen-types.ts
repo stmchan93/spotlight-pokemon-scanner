@@ -9,14 +9,20 @@ import type {
   ScanSourceImageCrop,
   ScanSourceImageDimensions,
 } from '@/features/scanner/scan-candidate-review-session';
-import type { NormalizedScannerTarget } from '@/features/scanner/scanner-normalized-target';
+import type { BinderPageLayoutId, NormalizedScannerTarget } from '@/features/scanner/scanner-normalized-target';
 
 export type ScannerMode = 'raw' | 'slabs';
 
-/** Which binder page a tray row came from and which pocket (0-8, reading order). */
+/**
+ * Which binder page a tray row came from and which pocket (reading order,
+ * row-major from the top-left of the frame). `layoutId` says how many pockets
+ * the page had and their grid; absent on rows persisted before layouts
+ * existed, which were all 3×3.
+ */
 export type BinderPageRef = {
   pageId: string;
   pocketIndex: number;
+  layoutId?: BinderPageLayoutId;
 };
 
 export type RecentCapture = {

@@ -652,10 +652,14 @@ def _is_large_image_upload_path(path: str) -> bool:
 # re-encodes the bytes to base64 into the exact same payload fields the JSON
 # path produces, so everything downstream of body parsing is byte-identical.
 SCAN_VISUAL_MATCH_BATCH_PATH = "/api/v1/scan/visual-match-batch"
-# Binder page = 3x3 pockets. One batch holds ONE inference slot for the whole
-# page, so the cap also bounds how long a slot can be held.
-SCAN_VISUAL_MATCH_BATCH_MAX_ITEMS = 9
-# Server-side page cropping: mirrors the client's thirds-plus-inset math in
+# Binder page = up to 18 pockets (an open binder turned sideways). One batch
+# holds ONE inference slot for the whole page, so the cap also bounds how long
+# a slot can be held.
+SCAN_VISUAL_MATCH_BATCH_MAX_ITEMS = 18
+BINDER_PAGE_MAX_POCKETS = 18
+BINDER_PAGE_MAX_COLUMNS = 6
+BINDER_PAGE_MAX_ROWS = 6
+# Server-side page cropping: mirrors the client's grid-plus-inset math in
 # apps/spotlight-rn scanner-normalized-target.ts so a page-image batch and a
 # pocket-images batch produce the same matcher inputs.
 BINDER_POCKET_INSET_FRACTION = 0.025
@@ -663,22 +667,57 @@ BINDER_PAGE_GRID_SIZE = 3
 RAW_NORMALIZED_TARGET_SIZE = (630, 880)
 
 
-def _binder_pocket_jpegs_from_page(page_jpeg: bytes) -> list[bytes]:
-    """Split one binder-page JPEG (the reticle crop) into nine normalized
-    pocket JPEGs in reading order (row-major, top-left first)."""
+def _binder_layout_from_payload(payload: dict[str, Any]) -> tuple[int, int, int]:
+    """(columns, rows, crop_rotation_degrees) from ``payload["binderLayout"]``,
+    defaulting to the original upright 3×3. Mirrors the app's
+    ``BinderPageLayout``: rotation 90 = the cards lie sideways in the frame
+    (tops to the left) and every pocket crop is turned clockwise to upright."""
+    layout = payload.get("binderLayout")
+    if not isinstance(layout, dict):
+        return BINDER_PAGE_GRID_SIZE, BINDER_PAGE_GRID_SIZE, 0
+
+    def _int(name: str, default: int) -> int:
+        value = layout.get(name, default)
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(f"binderLayout.{name} must be an integer")
+        return value
+
+    columns = _int("columns", BINDER_PAGE_GRID_SIZE)
+    rows = _int("rows", BINDER_PAGE_GRID_SIZE)
+    rotation = _int("cropRotationDegrees", 0)
+    if not (1 <= columns <= BINDER_PAGE_MAX_COLUMNS) or not (1 <= rows <= BINDER_PAGE_MAX_ROWS):
+        raise ValueError("binderLayout columns/rows out of range")
+    if columns * rows > BINDER_PAGE_MAX_POCKETS:
+        raise ValueError(f"binderLayout must have at most {BINDER_PAGE_MAX_POCKETS} pockets")
+    if rotation not in (0, 90):
+        raise ValueError("binderLayout.cropRotationDegrees must be 0 or 90")
+    return columns, rows, rotation
+
+
+def _binder_pocket_jpegs_from_page(
+    page_jpeg: bytes,
+    *,
+    columns: int = BINDER_PAGE_GRID_SIZE,
+    rows: int = BINDER_PAGE_GRID_SIZE,
+    crop_rotation_degrees: int = 0,
+) -> list[bytes]:
+    """Split one binder-page JPEG (the reticle crop) into ``columns × rows``
+    normalized pocket JPEGs in reading order (row-major, top-left first).
+    Sideways layouts (rotation 90) turn each landscape cell clockwise so the
+    card stands upright before the 630×880 resize."""
     import io  # local import: this lane only, matching the PIL import below
     from PIL import Image  # local import: PIL is only needed on this lane
 
     with Image.open(io.BytesIO(page_jpeg)) as decoded:
         page = decoded.convert("RGB")
         width, height = page.size
-        cell_w = width / BINDER_PAGE_GRID_SIZE
-        cell_h = height / BINDER_PAGE_GRID_SIZE
+        cell_w = width / columns
+        cell_h = height / rows
         inset_x = cell_w * BINDER_POCKET_INSET_FRACTION
         inset_y = cell_h * BINDER_POCKET_INSET_FRACTION
         pockets: list[bytes] = []
-        for row in range(BINDER_PAGE_GRID_SIZE):
-            for column in range(BINDER_PAGE_GRID_SIZE):
+        for row in range(rows):
+            for column in range(columns):
                 left = column * cell_w + inset_x
                 top = row * cell_h + inset_y
                 crop = page.crop((
@@ -687,6 +726,11 @@ def _binder_pocket_jpegs_from_page(page_jpeg: bytes) -> list[bytes]:
                     int(round(left + cell_w - inset_x * 2)),
                     int(round(top + cell_h - inset_y * 2)),
                 ))
+                if crop_rotation_degrees == 90:
+                    # Card tops point LEFT in the frame -> a clockwise quarter
+                    # turn stands the card up. PIL's ROTATE_270 is 270° CCW ==
+                    # 90° CW; a pure transpose, no resampling.
+                    crop = crop.transpose(Image.Transpose.ROTATE_270)
                 crop = crop.resize(RAW_NORMALIZED_TARGET_SIZE, Image.LANCZOS)
                 out = io.BytesIO()
                 crop.save(out, format="JPEG", quality=85)
@@ -1545,6 +1589,18 @@ ADDED_BASELINE_BACKFILL_FLAG = "added_baseline_backfilled"
 PORTFOLIO_DASHBOARD_PREWARM_ENV = "PORTFOLIO_DASHBOARD_PREWARM"
 # Catalog-wide "Top Trends" (feed) prewarm — same shape as the portfolio one.
 MARKET_MOVERS_PREWARM_ENV = "MARKET_MOVERS_PREWARM"
+# Lookback for the Top Trends ranking. 30 by default; staging runs shorter
+# while its (Scrydex-keyless) history only has TCGCSV days since 2026-08-25.
+MARKET_MOVERS_WINDOW_DAYS_ENV = "MARKET_MOVERS_WINDOW_DAYS"
+
+
+def _market_movers_window_days() -> int:
+    raw = os.environ.get(MARKET_MOVERS_WINDOW_DAYS_ENV)
+    try:
+        value = int(raw) if raw else MARKET_MOVERS_WINDOW_DAYS
+    except (TypeError, ValueError):
+        return MARKET_MOVERS_WINDOW_DAYS
+    return value if value > 0 else MARKET_MOVERS_WINDOW_DAYS
 PORTFOLIO_DASHBOARD_PREWARM_MAX_OWNERS_ENV = "PORTFOLIO_DASHBOARD_PREWARM_MAX_OWNERS"
 PORTFOLIO_DASHBOARD_PREWARM_DELAY_ENV = "PORTFOLIO_DASHBOARD_PREWARM_DELAY_SECONDS"
 DEFAULT_PORTFOLIO_DASHBOARD_PREWARM_MAX_OWNERS = 50
@@ -12595,8 +12651,14 @@ class SpotlightScanService:
         page_b64 = str(page_payload.get("jpegBase64") or "").strip()
         if not page_b64:
             raise ValueError("pageImage.jpegBase64 is required")
+        columns, rows, crop_rotation_degrees = _binder_layout_from_payload(payload)
         try:
-            pockets = _binder_pocket_jpegs_from_page(base64.b64decode(page_b64))
+            pockets = _binder_pocket_jpegs_from_page(
+                base64.b64decode(page_b64),
+                columns=columns,
+                rows=rows,
+                crop_rotation_degrees=crop_rotation_degrees,
+            )
         except Exception as exc:  # noqa: BLE001 - a bad page image fails the request cleanly
             raise ValueError(f"pageImage could not be decoded: {exc}") from exc
         token = uuid.uuid4().hex
@@ -12642,9 +12704,11 @@ class SpotlightScanService:
             return  # explicit bytes win; the reference is ignored
         pocket_index = reference.get("pocketIndex")
         if isinstance(pocket_index, bool) or not isinstance(pocket_index, int) or not (
-            0 <= pocket_index < BINDER_PAGE_GRID_SIZE * BINDER_PAGE_GRID_SIZE
+            0 <= pocket_index < BINDER_PAGE_MAX_POCKETS
         ):
-            raise BinderPageTokenError("binderPage.pocketIndex must be an integer in [0, 8]")
+            raise BinderPageTokenError(
+                f"binderPage.pocketIndex must be an integer in [0, {BINDER_PAGE_MAX_POCKETS - 1}]"
+            )
         token = str(reference.get("pageToken") or "").strip()
         owner_user_id = self._current_owner_user_id()
         now = monotonic()
@@ -12656,6 +12720,10 @@ class SpotlightScanService:
                 or now - float(entry.get("created_at") or 0.0) > BINDER_PAGE_STORE_TTL_SECONDS
             ):
                 raise BinderPageTokenError("binderPage.pageToken is unknown or expired")
+            if pocket_index >= len(entry["pockets"]):
+                raise BinderPageTokenError(
+                    f"binderPage.pocketIndex must be below this page's pocket count ({len(entry['pockets'])})"
+                )
             pocket_jpeg = entry["pockets"][pocket_index]
         payload["image"] = {
             **image_payload,
@@ -12777,12 +12845,20 @@ class SpotlightScanService:
         page_b64 = str(page_payload.get("jpegBase64") or "").strip()
         page_pocket_jpegs: list[bytes] | None = None
         if page_b64:
+            columns, rows, crop_rotation_degrees = _binder_layout_from_payload(payload)
             try:
-                page_pocket_jpegs = _binder_pocket_jpegs_from_page(base64.b64decode(page_b64))
+                page_pocket_jpegs = _binder_pocket_jpegs_from_page(
+                    base64.b64decode(page_b64),
+                    columns=columns,
+                    rows=rows,
+                    crop_rotation_degrees=crop_rotation_degrees,
+                )
             except Exception as exc:  # noqa: BLE001 - a bad page image fails the request cleanly
                 raise ValueError(f"pageImage could not be decoded: {exc}") from exc
 
-        shared_fields = {key: value for key, value in payload.items() if key not in ("items", "pageImage")}
+        shared_fields = {
+            key: value for key, value in payload.items() if key not in ("items", "pageImage", "binderLayout")
+        }
         shared_fields.pop("scanID", None)
         item_payloads: list[dict[str, Any]] = []
         pocket_indexes: list[int] = []
@@ -18534,13 +18610,15 @@ class SpotlightScanService:
         )
         return [round(float(values[i]), 2) for i in indices]
 
-    def market_top_movers(self, *, window_days: int = MARKET_MOVERS_WINDOW_DAYS) -> dict[str, Any]:
+    def market_top_movers(self, *, window_days: int | None = None) -> dict[str, Any]:
         """Catalog-wide Top Trends (biggest raw gainers per game). Same
         cache-and-dogpile shape as portfolio_performance, but owner-independent:
         the payload is a pure function of the daily price history, so one
         version token (MAX(price_date) + sync generation) serves everyone and
         auto-invalidates after each daily sync."""
         started_at = perf_counter()
+        if window_days is None:
+            window_days = _market_movers_window_days()
         try:
             version = market_movers_version_token(self.connection, window_days=window_days)
         except Exception:  # noqa: BLE001 - cache bookkeeping must never break the feed
@@ -18581,7 +18659,7 @@ class SpotlightScanService:
         started_at = perf_counter()
         warmed = False
         try:
-            self.market_top_movers(window_days=MARKET_MOVERS_WINDOW_DAYS)
+            self.market_top_movers()
             warmed = True
         except Exception:  # noqa: BLE001 - prewarm is best-effort
             traceback.print_exc()
@@ -21056,17 +21134,19 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/v1/market/top-movers":
             query_params = parse_qs(parsed.query)
+            configured_window = _market_movers_window_days()
             try:
-                window_days = int(query_params.get("window", [str(MARKET_MOVERS_WINDOW_DAYS)])[0])
+                window_days = int(query_params.get("window", [str(configured_window)])[0])
             except (TypeError, ValueError):
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": "window must be an integer"})
                 return
-            if window_days != MARKET_MOVERS_WINDOW_DAYS:
-                # v1 serves the single cached window; other windows would each
-                # cost a catalog scan per version.
+            if window_days != configured_window:
+                # v1 serves the single cached window (the deployment's
+                # MARKET_MOVERS_WINDOW_DAYS); other windows would each cost a
+                # catalog scan per version. Clients should omit `window`.
                 self._write_json(
                     HTTPStatus.BAD_REQUEST,
-                    {"error": f"window must be {MARKET_MOVERS_WINDOW_DAYS}"},
+                    {"error": f"window must be {configured_window}"},
                 )
                 return
             # The slot only bites on a cache miss (the 45k-row scan); hits are ~1ms.

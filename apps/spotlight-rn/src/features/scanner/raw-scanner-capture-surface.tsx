@@ -187,11 +187,19 @@ export function makeRawScannerCaptureLayout({
   containerHeight,
   containerWidth,
   mode = 'card',
+  pageAspectRatio = rawCardReticleAspectRatio,
   safeAreaTop,
   trayReservedHeight = rawScannerTrayReservedHeight,
 }: {
   containerHeight: number;
   containerWidth: number;
+  /**
+   * Page mode only: height ÷ width of the page crop (a 3×3 of upright cards
+   * shares the single card's aspect; taller layouts are taller). The crop
+   * fits INSIDE the usable box — full width when the aspect allows, narrower
+   * and centered when the page would otherwise run into the controls.
+   */
+  pageAspectRatio?: number;
   /**
    * 'page' = binder-page mode. The reticle IS the page detector (the pocket crops
    * are a thirds split of it), so it spans the full usable width to maximise
@@ -228,7 +236,17 @@ export function makeRawScannerCaptureLayout({
   // Crop sent to matching keeps the TRUE card aspect (no stretch): same width and
   // horizontal center as the visible frame, centered vertically on it, so it
   // extends past the (squatter) frame top/bottom to capture the whole card.
-  const cropHeight = Math.round(width * rawCardReticleAspectRatio);
+  // Page mode: the frame IS the crop, so a taller layout must not run into
+  // the controls. The 3×3 page keeps its tuned full-width framing (its
+  // card-aspect crop already overhangs the box by a few points, deliberately —
+  // every pocket pixel counts); any layout taller than THAT is narrowed and
+  // centered so it overhangs no further.
+  const pageHeightAllowance = Math.max(height, width * rawCardReticleAspectRatio);
+  const cropWidth = mode === 'page'
+    ? Math.min(width, Math.floor(pageHeightAllowance / pageAspectRatio))
+    : width;
+  const cropHeight = Math.round(cropWidth * (mode === 'page' ? pageAspectRatio : rawCardReticleAspectRatio));
+  const cropX = mode === 'page' ? Math.round(x + (width - cropWidth) / 2) : x;
   const cropY = Math.round(y + (height - cropHeight) / 2);
 
   // controlsTop is clamped so it never drops into the tray's reserved band.
@@ -241,8 +259,8 @@ export function makeRawScannerCaptureLayout({
     backButtonTop: safeAreaTop + 10,
     captureCropRect: {
       height: cropHeight,
-      width,
-      x,
+      width: cropWidth,
+      x: cropX,
       y: cropY,
     },
     controlsTop,
@@ -606,6 +624,7 @@ export function RawScannerCaptureSurface({
               testID={`${testIDPrefix}-slab-guide`}
             />
           ) : null}
+
 
           {/* Resting white corners and the capture-pulse purple set crossfade on
               the shared lock progress (opacity+scale only → native driver). */}

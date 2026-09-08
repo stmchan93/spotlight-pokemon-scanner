@@ -83,8 +83,12 @@ import {
 } from '@/features/scanner/scan-candidate-review-session';
 import {
   type BinderPageImage,
+  type BinderPageLayoutId,
   type NormalizedScannerTarget,
-  binderPageGridSize,
+  binderPageAspectRatio,
+  binderPageLayoutById,
+  binderPagePocketCount,
+  defaultBinderPageLayoutId,
   rawCardNormalizedTargetHeight,
   rawCardNormalizedTargetWidth,
   buildBinderPocketTargets,
@@ -140,6 +144,7 @@ import {
 import { useScannerMacroLensLock } from '@/features/scanner/scanner-camera-lens';
 
 import { BinderPageReview } from './binder-page-review';
+import { BinderLayoutMenu, type BinderLayoutMenuSelection } from '@/features/scanner/components/binder-layout-menu';
 import { ChangeCardPicker } from './change-card-picker';
 import { RecentCaptureSwipeRow } from './recent-capture-swipe-row';
 import { ScanPriceSheet, type ScanPriceSheetSelection } from './scan-price-sheet';
@@ -184,6 +189,7 @@ import {
 } from './scanner-screen-helpers';
 import type {
   CaptureMatchParams,
+  BinderPageRef,
   RecentCapture,
 } from './scanner-screen-types';
 
@@ -421,13 +427,16 @@ function useScannerZoomFactor(): [ScannerZoomFactor, (next: ScannerZoomFactor) =
 
 type CaptureRowMenuAnchor = { height: number; width: number; x: number; y: number };
 
-// "Pocket 4" plus a 3x3 glyph with that cell lit: the row's place on the page,
-// readable without counting rows in the tray.
-function PocketBadge({ pocketIndex }: { pocketIndex: number }) {
-  const cells = binderPageGridSize * binderPageGridSize;
+// "Pocket 4" plus a grid glyph with that cell lit: the row's place on the
+// page, readable without counting rows in the tray. The glyph takes the
+// page's own layout (3×3, 3×4, 3×6) so it matches what was framed.
+function PocketBadge({ binderPage }: { binderPage: BinderPageRef }) {
+  const { pocketIndex } = binderPage;
+  const layout = binderPageLayoutById(binderPage.layoutId);
+  const cells = binderPagePocketCount(layout);
   return (
     <View style={styles.pocketBadge} testID={`scanner-tray-pocket-${pocketIndex}`}>
-      <View style={styles.pocketGlyph}>
+      <View style={[styles.pocketGlyph, { width: layout.columns * 4 + (layout.columns - 1) }]}>
         {Array.from({ length: cells }, (_, cell) => (
           <View
             key={`cell-${cell}`}
@@ -598,7 +607,7 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                     <Text style={styles.captureTitle}>Finding match</Text>
                   </View>
                   <Text style={styles.captureSubtitle}>Photo captured and queued for scan review</Text>
-                  {capture.binderPage ? <PocketBadge pocketIndex={capture.binderPage.pocketIndex} /> : null}
+                  {capture.binderPage ? <PocketBadge binderPage={capture.binderPage} /> : null}
                 </>
               ) : candidate ? (
                 <>
@@ -613,7 +622,7 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                   <Text numberOfLines={1} style={styles.captureSubtitle}>
                     {modeTagLine}
                   </Text>
-                  {capture.binderPage ? <PocketBadge pocketIndex={capture.binderPage.pocketIndex} /> : null}
+                  {capture.binderPage ? <PocketBadge binderPage={capture.binderPage} /> : null}
                 </>
               ) : (
                 <>
@@ -746,6 +755,30 @@ export function ScannerScreen({
    * never renders in a store binary, so the flag can't be reached there.
    */
   const [isBinderPageMode, setIsBinderPageMode] = useState(false);
+  // Which page framing is armed while in page mode: 9 / 12 / 18 pockets.
+  const [binderPageLayoutId, setBinderPageLayoutId] = useState<BinderPageLayoutId>(defaultBinderPageLayoutId);
+  const binderPageLayout = binderPageLayoutById(binderPageLayoutId);
+  const [isBinderLayoutMenuOpen, setBinderLayoutMenuOpen] = useState(false);
+  const [binderLayoutAnchor, setBinderLayoutAnchor] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const binderLayoutTriggerRef = useRef<View | null>(null);
+  const handleOpenBinderLayoutMenu = useCallback(() => {
+    setBinderLayoutMenuOpen(true);
+    const node = binderLayoutTriggerRef.current;
+    if (node && typeof node.measureInWindow === 'function') {
+      node.measureInWindow((x, y, width, height) => {
+        setBinderLayoutAnchor({ x, y, width, height });
+      });
+    }
+  }, []);
+  const handleSelectBinderLayout = useCallback((selection: BinderLayoutMenuSelection) => {
+    setBinderLayoutMenuOpen(false);
+    if (selection === 'single') {
+      setIsBinderPageMode(false);
+      return;
+    }
+    setBinderPageLayoutId(selection);
+    setIsBinderPageMode(true);
+  }, []);
   const [activeBinderPageId, setActiveBinderPageId] = useState<string | null>(null);
   const [isAddingBinderPage, setIsAddingBinderPage] = useState(false);
   // SYNCHRONOUS capture lock. `isCapturing` is React state, so two burst taps
@@ -1044,6 +1077,7 @@ export function ScannerScreen({
     // Page mode widens the reticle to the full usable width: it is the page
     // detector, so its width sets every pocket crop's resolution.
     mode: isBinderPageMode ? 'page' : 'card',
+    pageAspectRatio: binderPageAspectRatio(binderPageLayout),
     safeAreaTop: insets.top,
     trayReservedHeight: footerReservedHeight,
   });
@@ -2016,13 +2050,19 @@ export function ScannerScreen({
     scanStartedAt: number;
     sourceImageDimensions: ScanSourceImageDimensions;
   }) => {
-    const pocketCount = binderPageGridSize * binderPageGridSize;
+    const pageLayout = binderPageLayout;
+    const pocketCount = binderPagePocketCount(pageLayout);
+    const pageLayoutSpec = {
+      columns: pageLayout.columns,
+      rows: pageLayout.rows,
+      cropRotationDegrees: pageLayout.cropRotationDegrees,
+    };
     const pocketRowId = (index: number) => binderPocketRowId(captureId, index);
 
-    // Pocket 0 IS the shutter placeholder; pockets 1-8 go directly beneath it
+    // Pocket 0 IS the shutter placeholder; the rest go directly beneath it
     // so the tray reads in page order (top-left first).
     setRecentCaptures((current) => applyCapEviction(
-      insertBinderPocketRows(current, captureId, pocketCount),
+      insertBinderPocketRows(current, captureId, pocketCount, pageLayout.id),
       'raw',
     ));
 
@@ -2054,6 +2094,7 @@ export function ScannerScreen({
       resolvePageImage = resolve;
     });
     const binderTargetsPromise = buildBinderPocketTargets({
+      layout: pageLayout,
       onPageImageReady: (image) => resolvePageImage(image),
       previewLayout,
       reticle: reticleLayout,
@@ -2096,6 +2137,7 @@ export function ScannerScreen({
 
     capturePostHogEvent('binder_page_scan_started', {
       mode: 'raw',
+      layout: pageLayout.id,
       pocket_count: pocketCount,
       normalize_ms: normalizeMs,
     });
@@ -2230,6 +2272,7 @@ export function ScannerScreen({
             fileUri: pageImage.uri,
             width: pageImage.width,
             height: pageImage.height,
+            layout: pageLayoutSpec,
           },
           // Training artifacts wait for the crops (which render during upload).
           artifactItems: binderTargetsPromise.then((result) => (
@@ -2326,7 +2369,7 @@ export function ScannerScreen({
     const [prepareOutcome, readyTargets] = await Promise.all([
       spotlightRepository
         .prepareBinderPage(
-          { fileUri: pageImage.uri, width: pageImage.width, height: pageImage.height },
+          { fileUri: pageImage.uri, width: pageImage.width, height: pageImage.height, layout: pageLayoutSpec },
           { readFileAsBase64: readScanImageAsBase64 },
         )
         .then((prepared) => ({ ok: true as const, prepared }))
@@ -2425,6 +2468,7 @@ export function ScannerScreen({
   }, [
     applyMatchFailureForCapture,
     applyMatchSuccessForCapture,
+    binderPageLayout,
     enqueueBinderBatch,
     runMatchForCapture,
     scanLane,
@@ -3823,7 +3867,7 @@ export function ScannerScreen({
     ? 'Allow camera access to scan'
     : isCapturing
       ? 'Capturing scan...'
-      : 'Tap to scan';
+      : (isBinderPageMode && binderPageLayout.hint) || 'Tap to scan';
 
   // Stable per-row callbacks so `CaptureTrayRow`'s memo can actually bail out.
   const handleShowRowPrice = useCallback((captureId: string) => {
@@ -3924,32 +3968,33 @@ export function ScannerScreen({
         ) : null}
 
         {/*
-          Binder-page mode: a faint 3×3 grid over the reticle. Pure alignment
-          guide — the reticle IS the page detector, so helping the user seat
-          each pocket in a cell is what makes thirds-splitting work.
+          Binder-page mode: a faint pocket grid over the reticle, in the armed
+          layout's columns × rows. Pure alignment guide — the reticle IS the
+          page detector, so helping the user seat each pocket in a cell is
+          what makes the grid split work.
         */}
         {isBinderPageMode && !isTrayExpanded ? (
           <View pointerEvents="none" testID="scanner-binder-grid">
-            {[1, 2].map((third) => (
+            {Array.from({ length: binderPageLayout.columns - 1 }, (_, index) => index + 1).map((column) => (
               <View
-                key={`binder-grid-v${third}`}
+                key={`binder-grid-v${column}`}
                 style={[styles.binderGridLine, {
                   height: captureSurfaceLayout.captureCropRect.height,
                   left: captureSurfaceLayout.captureCropRect.x
-                    + (captureSurfaceLayout.captureCropRect.width / binderPageGridSize) * third,
+                    + (captureSurfaceLayout.captureCropRect.width / binderPageLayout.columns) * column,
                   top: captureSurfaceLayout.captureCropRect.y,
                   width: 2,
                 }]}
               />
             ))}
-            {[1, 2].map((third) => (
+            {Array.from({ length: binderPageLayout.rows - 1 }, (_, index) => index + 1).map((row) => (
               <View
-                key={`binder-grid-h${third}`}
+                key={`binder-grid-h${row}`}
                 style={[styles.binderGridLine, {
                   height: 2,
                   left: captureSurfaceLayout.captureCropRect.x,
                   top: captureSurfaceLayout.captureCropRect.y
-                    + (captureSurfaceLayout.captureCropRect.height / binderPageGridSize) * third,
+                    + (captureSurfaceLayout.captureCropRect.height / binderPageLayout.rows) * row,
                   width: captureSurfaceLayout.captureCropRect.width,
                 }]}
               />
@@ -4103,11 +4148,12 @@ export function ScannerScreen({
             */}
             {__DEV__ || runtimeAppEnv === 'staging' ? (
               <Pressable
-                accessibilityLabel={isBinderPageMode ? 'Switch to single-card scanning' : 'Switch to binder-page scanning'}
+                accessibilityLabel={isBinderPageMode ? `Scanning ${binderPageLayout.label} per page. Change scan mode` : 'Scanning single cards. Change scan mode'}
                 accessibilityRole="button"
                 accessibilityState={{ selected: isBinderPageMode }}
                 hitSlop={6}
-                onPress={gate(() => setIsBinderPageMode((current) => !current))}
+                onPress={gate(handleOpenBinderLayoutMenu)}
+                ref={binderLayoutTriggerRef}
                 style={styles.binderModePill}
                 testID="scanner-binder-mode-toggle"
               >
@@ -4126,9 +4172,12 @@ export function ScannerScreen({
                   style={styles.binderModePillSurface}
                   testID="scanner-binder-mode-toggle-surface"
                 />
-                <Text style={styles.binderModePillLabel}>
-                  {isBinderPageMode ? '3×3' : 'Single'}
-                </Text>
+                <View style={styles.binderModePillContent}>
+                  <Text style={styles.binderModePillLabel}>
+                    {isBinderPageMode ? binderPageLayout.label : 'Single'}
+                  </Text>
+                  <IconChevronDown color={colors.gray900} size={14} strokeWidth={2.2} />
+                </View>
               </Pressable>
             ) : null}
             {/* Zoom is meaningless for a whole page; hiding it also frees the band for the reticle. */}
@@ -4479,6 +4528,14 @@ export function ScannerScreen({
         );
       })()}
 
+      <BinderLayoutMenu
+        anchor={binderLayoutAnchor}
+        onClose={() => setBinderLayoutMenuOpen(false)}
+        onSelect={handleSelectBinderLayout}
+        selected={isBinderPageMode ? binderPageLayoutId : 'single'}
+        visible={isBinderLayoutMenuOpen}
+      />
+
       <AddAllMenu
         anchor={addAllAnchor}
         onClose={() => setAddAllMenuOpen(false)}
@@ -4737,6 +4794,11 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
     borderRadius: 999,
     overflow: 'hidden',
+  },
+  binderModePillContent: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 4,
   },
   binderModePillLabel: {
     // labelStrong to match the SCAN/TOTAL pill weight.

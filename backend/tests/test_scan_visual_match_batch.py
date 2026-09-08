@@ -278,8 +278,8 @@ class VisualMatchBatchServiceTests(unittest.TestCase):
     def test_batch_validation(self) -> None:
         with self.assertRaisesRegex(ValueError, "items is required"):
             self.service.visual_match_scan_batch({"resolverModeHint": "raw_card"})
-        with self.assertRaisesRegex(ValueError, "at most 9"):
-            self.service.visual_match_scan_batch(_batch_payload([f"scan-{i}" for i in range(10)]))
+        with self.assertRaisesRegex(ValueError, "at most 18"):
+            self.service.visual_match_scan_batch(_batch_payload([f"scan-{i}" for i in range(19)]))
         payload = _batch_payload(["scan-1"])
         payload["resolverModeHint"] = "psa_slab"
         with self.assertRaisesRegex(ValueError, "raw cards only"):

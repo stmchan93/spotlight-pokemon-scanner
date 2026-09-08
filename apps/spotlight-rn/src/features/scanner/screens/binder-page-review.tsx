@@ -15,7 +15,8 @@ import { Button, Text, colors, fontFamilies, textStyles } from '@spotlight/desig
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import {
-  binderPageGridSize,
+  binderPageLayoutById,
+  binderPagePocketCount,
   rawCardNormalizedTargetHeight,
   rawCardNormalizedTargetWidth,
 } from '@/features/scanner/scanner-normalized-target';
@@ -75,12 +76,15 @@ export function BinderPageReview({
 
 
   // Frame-measured tile sizing (see the grid note below).
+  // The page's own layout (3×3 / 3×4 / 3×6) drives the overlay grid; every
+  // row of the page shares one layout, so the first pocket's is the page's.
+  const layout = binderPageLayoutById(pockets[0]?.binderPage?.layoutId);
   const [tileWidth, setTileWidth] = useState(0);
   const handleFrameLayout = (event: LayoutChangeEvent) => {
     const { height, width } = event.nativeEvent.layout;
     const usableWidth = width - 32;
-    const widthDriven = (usableWidth - 2 * gridGap) / 3;
-    const rowHeight = (height - 2 * gridGap) / 3;
+    const widthDriven = (usableWidth - (layout.columns - 1) * gridGap) / layout.columns;
+    const rowHeight = (height - (layout.rows - 1) * gridGap) / layout.rows;
     const artHeight = rowHeight - captionHeight - 4;
     const heightDriven = artHeight * cardAspect;
     const next = Math.floor(Math.max(0, Math.min(widthDriven, heightDriven)));
@@ -88,7 +92,7 @@ export function BinderPageReview({
   };
 
   const byPocket = new Map(pockets.map((capture) => [capture.binderPage?.pocketIndex ?? -1, capture]));
-  const pocketCount = binderPageGridSize * binderPageGridSize;
+  const pocketCount = binderPagePocketCount(layout);
   const pending = pockets.filter((capture) => capture.isLoadingCandidates).length;
   const addable = pockets.filter((capture) => !capture.isLoadingCandidates && !!activeCandidateForCapture(capture));
 

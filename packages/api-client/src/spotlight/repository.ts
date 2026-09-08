@@ -3554,10 +3554,12 @@ export class MockSpotlightRepository implements SpotlightRepository {
   }
 
   async prepareBinderPage(
-    _pageImage: ScannerBatchPageImage,
+    pageImage: ScannerBatchPageImage,
     _options?: BinderPagePrepareOptions,
   ): Promise<BinderPagePrepareResult> {
-    return { pageToken: createPseudoUUID(), pocketCount: 9, expiresInSeconds: 600 };
+    const layout = pageImage.layout;
+    const pocketCount = layout ? layout.columns * layout.rows : 9;
+    return { pageToken: createPseudoUUID(), pocketCount, expiresInSeconds: 600 };
   }
 
   async fetchScanCandidates(_scanId: string, offset: number, limit: number) {
@@ -5585,7 +5587,12 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       if (useMultipart) {
         const form = new FormData();
         const multipartPayload = usePageImage
-          ? { ...basePayload, items: itemPayloads, pageImage: { width: pageImage!.width, height: pageImage!.height } }
+          ? {
+            ...basePayload,
+            items: itemPayloads,
+            pageImage: { width: pageImage!.width, height: pageImage!.height },
+            binderLayout: pageImage!.layout ?? undefined,
+          }
           : { ...basePayload, items: itemPayloads };
         form.append('payload', JSON.stringify(multipartPayload));
         if (usePageImage) {
@@ -5640,7 +5647,12 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         return this.requestJson<ScanMatchBatchResponseDTO>(
           `${this.baseUrl}/${endpointPath}`,
           {
-            body: JSON.stringify({ ...basePayload, items: itemPayloads, pageImage: materializedPage }),
+            body: JSON.stringify({
+              ...basePayload,
+              items: itemPayloads,
+              pageImage: materializedPage,
+              binderLayout: pageImage!.layout ?? undefined,
+            }),
             headers: {
               'Content-Type': 'application/json',
             },
@@ -5786,7 +5798,10 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         const form = new FormData();
         form.append(
           'payload',
-          JSON.stringify({ image: { width: pageImage.width, height: pageImage.height } }),
+          JSON.stringify({
+            image: { width: pageImage.width, height: pageImage.height },
+            binderLayout: pageImage.layout ?? undefined,
+          }),
         );
         appendMultipartJpegPart(form, 'page_image', pageImageFileUri, 'page.jpg');
         const multipartResponse = await this.requestJson<BinderPagePrepareResponseDTO>(
@@ -5836,7 +5851,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       return this.requestJson<BinderPagePrepareResponseDTO>(
         `${this.baseUrl}/${endpointPath}`,
         {
-          body: JSON.stringify({ pageImage: materializedPage }),
+          body: JSON.stringify({ pageImage: materializedPage, binderLayout: pageImage.layout ?? undefined }),
           headers: {
             'Content-Type': 'application/json',
           },
@@ -7094,13 +7109,16 @@ export class HttpSpotlightRepository implements SpotlightRepository {
   // getPortfolioPerformance) so the caller keeps its last-good rail instead of
   // rendering an empty one. Defensive mapping: games → [], sparkPoints → [],
   // numbers coerced via Number() and non-finite values dropped.
-  async getTopMovers(windowDays = 30): Promise<TopMovers> {
+  async getTopMovers(windowDays?: number): Promise<TopMovers> {
+    // The window is the DEPLOYMENT's setting (MARKET_MOVERS_WINDOW_DAYS);
+    // only pass one when a caller explicitly wants to assert it.
+    const query = windowDays != null ? `?window=${encodeURIComponent(String(windowDays))}` : '';
     const response = await this.requestJsonRead<{
       windowDays?: unknown;
       computedAt?: unknown;
       asOfDate?: unknown;
       games?: Array<{ game?: unknown; items?: Array<Record<string, unknown>> }>;
-    }>(`${this.baseUrl}/api/v1/market/top-movers?window=${encodeURIComponent(String(windowDays))}`);
+    }>(`${this.baseUrl}/api/v1/market/top-movers${query}`);
     if (response.kind !== 'success' || !response.data) {
       throw new Error('top movers read failed');
     }
@@ -7133,7 +7151,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       return { game, items };
     });
     return {
-      windowDays: num(raw.windowDays) || windowDays,
+      windowDays: num(raw.windowDays) || windowDays || 30,
       computedAt: str(raw.computedAt) ?? '',
       asOfDate: str(raw.asOfDate),
       games,

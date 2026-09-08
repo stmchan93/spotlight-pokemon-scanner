@@ -165,11 +165,24 @@ export type ScannerMatchConfidence = 'high' | 'medium' | 'low';
  * nine pocket JPEGs — a third of the upload bytes. The server splits it into
  * pockets with the same thirds-plus-inset math the client uses.
  */
+/**
+ * How a binder page is gridded for server-side cropping. Mirrors the app's
+ * `BinderPageLayout`; omitted = the original 3×3 upright page.
+ * `cropRotationDegrees` 90 = the cards lie sideways (tops to the left) and
+ * each pocket crop is rotated clockwise to upright before matching.
+ */
+export type BinderPageLayoutSpec = {
+  columns: number;
+  rows: number;
+  cropRotationDegrees: 0 | 90;
+};
+
 export type ScannerBatchPageImage = {
   fileUri?: string | null;
   jpegBase64?: string | null;
   width: number;
   height: number;
+  layout?: BinderPageLayoutSpec | null;
 };
 
 export type ScannerMatchOptions = {

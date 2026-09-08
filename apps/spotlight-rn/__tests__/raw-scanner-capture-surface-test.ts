@@ -45,6 +45,29 @@ describe('raw scanner capture layout', () => {
     })).toBe(121);
   });
 
+  it('fits a taller binder layout inside the page frame instead of running into the controls', () => {
+    const trayReservedHeight = getRawScannerCollapsedTrayReservedHeight({ bottomInset: 34 });
+    const base = { containerHeight: 852, containerWidth: 393, safeAreaTop: 59, trayReservedHeight };
+    const threeByThree = makeRawScannerCaptureLayout({ ...base, mode: 'page', pageAspectRatio: 880 / 630 });
+    const threeByFour = makeRawScannerCaptureLayout({ ...base, mode: 'page', pageAspectRatio: (4 * 880) / (3 * 630) });
+
+    // 3×3 is full width; the taller 3×4 page can't be, so it narrows and
+    // stays centered and inside the visible frame box.
+    expect(threeByThree.captureCropRect.width).toBe(threeByThree.reticle.width);
+    expect(threeByFour.captureCropRect.width).toBeLessThan(threeByThree.captureCropRect.width);
+    // Never taller than the 3×3 page's crop, which is the tuned overhang.
+    expect(threeByFour.captureCropRect.height).toBeLessThanOrEqual(threeByThree.captureCropRect.height);
+    expect(threeByFour.captureCropRect.y).toBeGreaterThanOrEqual(threeByThree.captureCropRect.y);
+    const centerX = threeByFour.captureCropRect.x + threeByFour.captureCropRect.width / 2;
+    expect(Math.abs(centerX - (threeByFour.reticle.x + threeByFour.reticle.width / 2))).toBeLessThanOrEqual(1);
+    expect(threeByFour.captureCropRect.height / threeByFour.captureCropRect.width).toBeCloseTo((4 * 880) / (3 * 630), 1);
+
+    // Single-card layout is byte-identical with or without the page aspect.
+    const card = makeRawScannerCaptureLayout(base);
+    const cardWithAspect = makeRawScannerCaptureLayout({ ...base, pageAspectRatio: 2 });
+    expect(cardWithAspect).toEqual(card);
+  });
+
   it('reserves enough height for the first scan row without covering the mode toggle', () => {
     const trayReservedHeight = getRawScannerCollapsedTrayReservedHeight({
       bottomInset: 48,

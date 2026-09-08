@@ -9,7 +9,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -231,6 +231,34 @@ class MarketMoversTests(unittest.TestCase):
         self.assertEqual(items["zoro"]["imageUrl"], "https://img/zoro.png")
         self.assertEqual(items["zoro"]["name"], "Roronoa Zoro")
         self.assertEqual(items["noexp"]["setCode"], "PTC")
+
+    def test_window_comes_from_env_with_a_30_day_default(self) -> None:
+        from unittest import mock
+
+        from server import _market_movers_window_days
+
+        with mock.patch.dict("os.environ", {}, clear=False):
+            import os
+            os.environ.pop("MARKET_MOVERS_WINDOW_DAYS", None)
+            self.assertEqual(_market_movers_window_days(), 30)
+        with mock.patch.dict("os.environ", {"MARKET_MOVERS_WINDOW_DAYS": "10"}):
+            self.assertEqual(_market_movers_window_days(), 10)
+        with mock.patch.dict("os.environ", {"MARKET_MOVERS_WINDOW_DAYS": "junk"}):
+            self.assertEqual(_market_movers_window_days(), 30)
+        # The service honours it: a 10-day window pairs a card that only has
+        # 10 days of history.
+        self._card("short")
+        for days_ago in range(10, -1, -1):
+            self._daily("short", days_ago, default=10.0 + (10 - days_ago))
+        self.connection.commit()
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        self.addCleanup(service.connection.close)
+        with mock.patch.dict("os.environ", {"MARKET_MOVERS_WINDOW_DAYS": "10"}):
+            with mock.patch("market_movers.datetime") as fake_dt:
+                fake_dt.now.return_value = datetime(TODAY.year, TODAY.month, TODAY.day, tzinfo=timezone.utc)
+                payload = service.market_top_movers()
+        self.assertEqual(payload["windowDays"], 10)
+        self.assertEqual([i["cardId"] for i in self._items(payload)], ["short"])
 
     def test_service_cache_invalidates_on_new_price_date_or_generation(self) -> None:
         self._card("svc")

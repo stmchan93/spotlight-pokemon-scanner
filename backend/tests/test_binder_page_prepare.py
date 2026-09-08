@@ -70,14 +70,20 @@ def _cell_color(row: int, column: int) -> tuple[int, int, int]:
     return (row * 80 + 10, column * 80 + 10, 40)
 
 
-def _color_page_jpeg() -> bytes:
-    """A 3x3 page whose cells are distinct solid colors, so a sampled pixel
-    identifies which cell a pocket crop came from."""
-    page = Image.new("RGB", (1890, 2640))
-    for row in range(3):
-        for column in range(3):
-            cell = Image.new("RGB", (630, 880), color=_cell_color(row, column))
-            page.paste(cell, (column * 630, row * 880))
+def _color_page_jpeg(columns: int = 3, rows: int = 3, *, sideways: bool = False) -> bytes:
+    """A page whose cells are distinct solid colors, so a sampled pixel
+    identifies which cell a pocket crop came from. `sideways` lays each cell
+    out landscape (the card on its side) and paints a dark band along the
+    cell's LEFT edge — where the card's top is when the binder is turned with
+    card tops to the left — so a test can check the crop was stood upright."""
+    cell_w, cell_h = (880, 630) if sideways else (630, 880)
+    page = Image.new("RGB", (cell_w * columns, cell_h * rows))
+    for row in range(rows):
+        for column in range(columns):
+            cell = Image.new("RGB", (cell_w, cell_h), color=_cell_color(row, column))
+            if sideways:
+                cell.paste(Image.new("RGB", (cell_w // 8, cell_h), color=(0, 0, 0)), (0, 0))
+            page.paste(cell, (column * cell_w, row * cell_h))
     buffer = io.BytesIO()
     page.save(buffer, format="JPEG", quality=90)
     return buffer.getvalue()
@@ -165,6 +171,55 @@ class BinderPagePrepareServiceTests(BinderPageStoreTestCase):
         for pocket_jpeg in entry["pockets"]:
             with Image.open(io.BytesIO(pocket_jpeg)) as decoded:
                 self.assertEqual(decoded.size, (630, 880))
+
+    def test_prepare_honours_a_3x4_layout(self) -> None:
+        response = self.service.prepare_binder_page(
+            {
+                "pageImage": {"jpegBase64": base64.b64encode(_color_page_jpeg(3, 4)).decode("ascii")},
+                "binderLayout": {"columns": 3, "rows": 4, "cropRotationDegrees": 0},
+            }
+        )
+        self.assertEqual(response["pocketCount"], 12)
+        pockets = server_module._binder_page_store[response["pageToken"]]["pockets"]
+        self.assertEqual(len(pockets), 12)
+        # Row-major reading order: pocket 9 is row 3, column 0.
+        with Image.open(io.BytesIO(pockets[9])) as decoded:
+            self.assertEqual(decoded.size, (630, 880))
+            center = decoded.getpixel((315, 440))
+            for channel, expected in zip(center, _cell_color(3, 0), strict=True):
+                self.assertLess(abs(channel - expected), 30)
+
+    def test_prepare_stands_sideways_pockets_upright(self) -> None:
+        # 18-card layout: an open binder turned so card tops point LEFT. Each
+        # landscape cell carries a dark band on its left edge (the card top);
+        # after the clockwise quarter turn that band must sit along the TOP.
+        response = self.service.prepare_binder_page(
+            {
+                "pageImage": {"jpegBase64": base64.b64encode(_color_page_jpeg(3, 6, sideways=True)).decode("ascii")},
+                "binderLayout": {"columns": 3, "rows": 6, "cropRotationDegrees": 90},
+            }
+        )
+        self.assertEqual(response["pocketCount"], 18)
+        pockets = server_module._binder_page_store[response["pageToken"]]["pockets"]
+        with Image.open(io.BytesIO(pockets[17])) as decoded:
+            self.assertEqual(decoded.size, (630, 880))
+            top_band = decoded.getpixel((315, 20))
+            self.assertTrue(all(channel < 40 for channel in top_band), top_band)
+        # Reading order survives the rotate: pocket 5 is row 1, column 2
+        # (rows past 2 overflow the 8-bit cell palette, so sample a low row).
+        with Image.open(io.BytesIO(pockets[5])) as decoded:
+            body = decoded.getpixel((315, 600))
+            for channel, expected in zip(body, _cell_color(1, 2), strict=True):
+                self.assertLess(abs(channel - expected), 30)
+
+    def test_prepare_rejects_bad_layouts(self) -> None:
+        page = {"jpegBase64": base64.b64encode(_color_page_jpeg()).decode("ascii")}
+        with self.assertRaisesRegex(ValueError, "at most 18 pockets"):
+            self.service.prepare_binder_page({"pageImage": page, "binderLayout": {"columns": 6, "rows": 6}})
+        with self.assertRaisesRegex(ValueError, "0 or 90"):
+            self.service.prepare_binder_page(
+                {"pageImage": page, "binderLayout": {"columns": 3, "rows": 3, "cropRotationDegrees": 45}}
+            )
 
     def test_prepare_rejects_undecodable_page(self) -> None:
         with self.assertRaisesRegex(ValueError, "pageImage could not be decoded"):

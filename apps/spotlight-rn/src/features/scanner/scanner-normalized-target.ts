@@ -83,20 +83,26 @@ function centerAdjustedOrigin(origin: number, currentLength: number, nextLength:
 function makeCanonicalCropRect(
   crop: ScanSourceImageCrop,
   sourceImageDimensions: ScanSourceImageDimensions,
+  // 'landscape' = the card lies on its side in this rect (sideways binder
+  // layouts); the canonical aspect is the card's, turned 90°.
+  orientation: 'portrait' | 'landscape' = 'portrait',
 ): ScanSourceImageCrop {
   let width = crop.width;
   let height = crop.height;
   let x = crop.x;
   let y = crop.y;
+  const targetRatio = orientation === 'landscape'
+    ? 1 / rawCardTargetWidthToHeightRatio
+    : rawCardTargetWidthToHeightRatio;
 
   const currentRatio = width / height;
-  if (Math.abs(currentRatio - rawCardTargetWidthToHeightRatio) > 0.0001) {
-    if (currentRatio > rawCardTargetWidthToHeightRatio) {
-      const nextWidth = height * rawCardTargetWidthToHeightRatio;
+  if (Math.abs(currentRatio - targetRatio) > 0.0001) {
+    if (currentRatio > targetRatio) {
+      const nextWidth = height * targetRatio;
       x = centerAdjustedOrigin(x, width, nextWidth, sourceImageDimensions.width);
       width = nextWidth;
     } else {
-      const nextHeight = width / rawCardTargetWidthToHeightRatio;
+      const nextHeight = width / targetRatio;
       y = centerAdjustedOrigin(y, height, nextHeight, sourceImageDimensions.height);
       height = nextHeight;
     }
@@ -156,34 +162,101 @@ export function makeReticleSourceImageCrop({
 }
 
 export const binderPageGridSize = 3;
+
+export type BinderPageLayoutId = 'pockets-9' | 'pockets-12' | 'pockets-18';
+
+/**
+ * One binder-page framing. The phone is always portrait and the sensor's short
+ * side spans the reticle, so COLUMNS are what spend resolution: three columns
+ * keep every pocket above the 360px zero-loss line measured in
+ * docs/binder-scan-feasibility-2026-08-28.md, which is why every layout is
+ * three across and only the row count grows.
+ *
+ * `cropRotationDegrees` = 90 means the cards lie SIDEWAYS in the frame (an open
+ * binder turned so the card tops point left); each pocket cell is landscape
+ * and the crop is rotated clockwise to upright before matching. An exact
+ * 90° rotate is a pixel transpose, so it costs the matcher nothing.
+ */
+export type BinderPageLayout = {
+  id: BinderPageLayoutId;
+  /** Pocket count as the user thinks of it — "12 cards", never "3×4". */
+  label: string;
+  columns: number;
+  rows: number;
+  cropRotationDegrees: 0 | 90;
+  /** Framing hint shown in place of "Tap to scan" while this layout is armed. */
+  hint: string | null;
+};
+
+export const binderPageLayouts: readonly BinderPageLayout[] = [
+  // The classic 9-pocket page.
+  { id: 'pockets-9', label: '9 cards', columns: 3, rows: 3, cropRotationDegrees: 0, hint: null },
+  // Ultra Pro-style 12-pocket page: 3 across, 4 down, upright.
+  { id: 'pockets-12', label: '12 cards', columns: 3, rows: 4, cropRotationDegrees: 0, hint: null },
+  // An open binder (two 9-pocket pages) turned sideways: 6 across upright would
+  // land at ~360px per pocket in portrait, right on the threshold, so the
+  // spread is framed as 3 across × 6 down with the cards on their side.
+  {
+    id: 'pockets-18',
+    label: '18 cards',
+    columns: 3,
+    rows: 6,
+    cropRotationDegrees: 90,
+    hint: 'Turn the binder sideways, card tops to the left',
+  },
+];
+
+export const defaultBinderPageLayoutId: BinderPageLayoutId = 'pockets-9';
+
+export function binderPageLayoutById(id: string | null | undefined): BinderPageLayout {
+  return binderPageLayouts.find((layout) => layout.id === id) ?? binderPageLayouts[0];
+}
+
+export function binderPagePocketCount(layout: BinderPageLayout): number {
+  return layout.columns * layout.rows;
+}
+
+/**
+ * Height ÷ width of the page crop for a layout: cells are card-aspect when
+ * upright and the inverse when the cards lie sideways.
+ */
+export function binderPageAspectRatio(layout: BinderPageLayout): number {
+  const cellAspect = layout.cropRotationDegrees === 90
+    ? 1 / rawCardReticleAspectRatio
+    : rawCardReticleAspectRatio;
+  return (layout.rows * cellAspect) / layout.columns;
+}
+
 // Inset each pocket crop by this fraction of the cell so sleeve edges and
 // inter-pocket gaps stay out of the matcher input. Thirds-plus-inset scored
 // 8/8 exact printings on a real page — docs/binder-scan-feasibility-2026-08-28.md.
 const binderPocketInsetFraction = 0.025;
 
 /**
- * The nine pocket crop rects for a binder page. A 3x3 page of cards shares the
- * single card's 63:88 aspect, so the SAME canonical page rect the reticle
- * produces subdivides into card-aspect cells; each cell is then re-canonicalized
- * so rounding never drifts the aspect.
+ * The pocket crop rects for a binder page, row-major from the top-left. The
+ * canonical page rect the reticle produces subdivides into cells of the
+ * layout's aspect; each cell is then re-canonicalized so rounding never drifts
+ * the aspect. Sideways layouts produce landscape cells — the rotate to upright
+ * happens on the rendered crop, not here.
  */
 export function makeBinderPocketCropRects(
   pageCrop: ScanSourceImageCrop,
   sourceImageDimensions: ScanSourceImageDimensions,
+  layout: BinderPageLayout = binderPageLayouts[0],
 ): ScanSourceImageCrop[] {
-  const cellWidth = pageCrop.width / binderPageGridSize;
-  const cellHeight = pageCrop.height / binderPageGridSize;
+  const cellWidth = pageCrop.width / layout.columns;
+  const cellHeight = pageCrop.height / layout.rows;
   const insetX = cellWidth * binderPocketInsetFraction;
   const insetY = cellHeight * binderPocketInsetFraction;
   const rects: ScanSourceImageCrop[] = [];
-  for (let row = 0; row < binderPageGridSize; row++) {
-    for (let column = 0; column < binderPageGridSize; column++) {
+  for (let row = 0; row < layout.rows; row++) {
+    for (let column = 0; column < layout.columns; column++) {
       rects.push(makeCanonicalCropRect({
         height: cellHeight - insetY * 2,
         width: cellWidth - insetX * 2,
         x: pageCrop.x + column * cellWidth + insetX,
         y: pageCrop.y + row * cellHeight + insetY,
-      }, sourceImageDimensions));
+      }, sourceImageDimensions, layout.cropRotationDegrees === 90 ? 'landscape' : 'portrait'));
     }
   }
   return rects;
@@ -202,10 +275,15 @@ export type BinderPageTargets = {
   targets: NormalizedScannerTarget[];
 };
 
-// Sized for SERVER-SIDE cropping: 1890px / 3 pockets = 630px, the matcher's
-// input width, so the server's thirds-split loses nothing. Capped at the
-// source crop width so a smaller reticle never upscales.
-const binderPageImageWidth = 1890;
+// Sized for SERVER-SIDE cropping: columns × the matcher's input width (630px)
+// upright, or columns × its input height (880px) when the cards lie sideways
+// (the cell's long side becomes the card's height). Capped at the source crop
+// width so a smaller reticle never upscales.
+function binderPageImageWidth(layout: BinderPageLayout): number {
+  return layout.columns * (layout.cropRotationDegrees === 90
+    ? rawCardNormalizedTargetHeight
+    : rawCardNormalizedTargetWidth);
+}
 
 /**
  * Binder-page capture: ONE full-res decode, nine pocket crops in reading order
@@ -215,12 +293,14 @@ const binderPageImageWidth = 1890;
  * nine crops share the rotated ref, not nine rotate passes.
  */
 export async function buildBinderPocketTargets({
+  layout = binderPageLayouts[0],
   onPageImageReady,
   previewLayout,
   reticle,
   sourceImageDimensions,
   sourceImageUri,
 }: {
+  layout?: BinderPageLayout;
   /**
    * Fired the moment the page image file exists — BEFORE the nine pocket crop
    * renders (~several seconds of on-device 4K work). The caller starts the
@@ -283,7 +363,7 @@ export async function buildBinderPocketTargets({
       width: pageCrop.width,
       height: pageCrop.height,
     });
-    const pageRenderWidth = Math.min(binderPageImageWidth, Math.round(pageCrop.width));
+    const pageRenderWidth = Math.min(binderPageImageWidth(layout), Math.round(pageCrop.width));
     pageContext.resize({
       width: pageRenderWidth,
       height: Math.round((pageRenderWidth * pageCrop.height) / pageCrop.width),
@@ -309,7 +389,7 @@ export async function buildBinderPocketTargets({
     };
     onPageImageReady?.(pageImage);
 
-    const pocketCrops = makeBinderPocketCropRects(pageCrop, cropBasisDimensions);
+    const pocketCrops = makeBinderPocketCropRects(pageCrop, cropBasisDimensions, layout);
     const targets: NormalizedScannerTarget[] = [];
     for (const pocketCrop of pocketCrops) {
       const cropContext = ImageManipulator.manipulate(cropSource);
@@ -320,6 +400,11 @@ export async function buildBinderPocketTargets({
         width: pocketCrop.width,
         height: pocketCrop.height,
       });
+      if (layout.cropRotationDegrees === 90) {
+        // Card tops point LEFT in the frame; a clockwise quarter turn stands
+        // the card up. Positive = clockwise in expo-image-manipulator.
+        cropContext.rotate(90);
+      }
       cropContext.resize({
         width: rawCardNormalizedTargetWidth,
         height: rawCardNormalizedTargetHeight,

@@ -20,6 +20,7 @@ import {
 
 import { analyzePSASlabCapture } from '@/features/scanner/slab-native-analysis';
 
+import type { BinderPageLayoutId } from '@/features/scanner/scanner-normalized-target';
 import type { RecentCapture, ScannerMode } from './scanner-screen-types';
 
 export const unsupportedSlabTitle = 'Slab type is currently not supported';
@@ -716,6 +717,7 @@ export function insertBinderPocketRows(
   current: RecentCapture[],
   pageId: string,
   pocketCount: number,
+  layoutId?: BinderPageLayoutId,
 ): RecentCapture[] {
   const placeholder = current.find((capture) => capture.id === pageId);
   if (!placeholder) {
@@ -725,7 +727,7 @@ export function insertBinderPocketRows(
   const pockets = Array.from({ length: pocketCount }, (_, pocketIndex) => ({
     ...placeholder,
     id: binderPocketRowId(pageId, pocketIndex),
-    binderPage: { pageId, pocketIndex },
+    binderPage: { pageId, pocketIndex, ...(layoutId ? { layoutId } : {}) },
     // No image until the pocket's own crop exists: inheriting the shutter
     // placeholder's full-res page photo made NINE tiles + NINE tray rows
     // decode the same 4K frame at once — the overlay-open jank.
