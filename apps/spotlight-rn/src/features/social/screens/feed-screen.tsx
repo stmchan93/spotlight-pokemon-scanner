@@ -33,6 +33,10 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { HOME_HEADER_BAR_HEIGHT, HomeHeader } from '@/components/home-header';
 import { PostCard } from '@/features/social/components/post-card';
 import { RepostAttribution } from '@/features/social/components/repost-attribution';
+import {
+  TopTrendsBlock,
+  hasTopTrendsContent,
+} from '@/features/social/components/top-trends-block';
 import { getFeedRefreshVersion } from '@/features/social/screens/new-post-screen';
 import {
   type FeedItem,
@@ -40,6 +44,7 @@ import {
   type FeedPostAuthor,
   fetchGlobalFeedItems,
 } from '@/features/social/social-service';
+import { useTopMovers } from '@/features/social/use-top-movers';
 import { useUnreadNotificationCount } from '@/features/social/use-unread-notification-count';
 import { usePostDeletion } from '@/features/social/use-post-deletion';
 import { getUserInitials } from '@/features/auth/auth-models';
@@ -131,6 +136,14 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   // before the feed existed is already reflected in its first load.
   const seenRefreshVersionRef = useRef(getFeedRefreshVersion());
   const unreadCount = useUnreadNotificationCount();
+  // Top Trends rail data: shared cache + its own (30 min) staleness window.
+  const {
+    movers: topMovers,
+    loading: topMoversLoading,
+    refresh: refreshTopMovers,
+    refreshIfStale: refreshTopMoversIfStale,
+  } = useTopMovers();
+  const topTrendsVisible = hasTopTrendsContent(topMovers, topMoversLoading);
 
   /*
     "Back to top", the same FAB Collection / Wishlist / Insights already carry.
@@ -332,6 +345,9 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   */
   useFocusEffect(
     useCallback(() => {
+      // Top Trends has its own, much wider window (movers change daily); it
+      // is checked on every focus regardless of which branch the feed takes.
+      refreshTopMoversIfStale();
       // Compare-and-record rather than read-and-clear: the owner's Activity tab
       // watches the same counter and must see this signal too.
       if (seenRefreshVersionRef.current !== getFeedRefreshVersion()) {
@@ -342,13 +358,17 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
       if (Date.now() - lastLoadedAtRef.current >= FEED_STALE_AFTER_MS) {
         refetchFeedQuietly();
       }
-    }, [loadFeed, refetchFeedQuietly]),
+    }, [loadFeed, refetchFeedQuietly, refreshTopMoversIfStale]),
   );
 
   const handleRefresh = useCallback(() => {
     const token = ++loadTokenRef.current;
     setRefreshing(true);
     loadingMoreRef.current = false;
+    // Pull-to-refresh is the one place the movers refetch unconditionally.
+    // Not awaited: the spinner tracks the feed read, and a slow movers read
+    // keeps the cached rail up rather than holding the control open.
+    void refreshTopMovers();
     void (async () => {
       try {
         const page = await readFeed();
@@ -368,7 +388,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         }
       }
     })();
-  }, []);
+  }, [refreshTopMovers]);
 
   const handleLoadMore = useCallback(() => {
     if (!hasMore || loadingMoreRef.current || status !== 'ready' || items.length === 0) {
@@ -436,11 +456,15 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
 
     The row closes with the SAME full-bleed 4pt `gray100` band every post card
     closes with (Figma 4299:94902), so the composer reads as its own section
-    rather than the first post's header. Spacing is 16 / band / 16: the row
-    pads 16 below itself, and the 16 under the band is the first-cell band's
-    4pt bottom margin plus the first PostCard's own 12pt top inset — the one
-    seam where two values sum, because the under-composer gap (16) is wider
-    than the inter-post gap (12).
+    rather than the first post's header — but ONLY when it is the last thing
+    in the header. With the Top Trends block below it (Figma 4969:4101) the
+    16 under the composer is simply the row's own paddingBottom, the block
+    draws its own closing band, and the seam to the first post is the block
+    band (4) + the first PostCard's own 12pt top inset. Without the block,
+    spacing is 16 / band / 16: the 16 under the band is the first-cell band's
+    4pt bottom margin plus the PostCard's 12 — the one seam where two values
+    sum, because the under-composer gap (16) is wider than the inter-post
+    gap (12).
   */
   const composePrompt = (
     <View
@@ -448,11 +472,13 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         styles.composeSection,
         {
           borderBottomColor: theme.colors.gray100,
-          // Only while the list is EMPTY. Once posts exist, the FIRST CELL
-          // draws this band (see renderItem): Android lays cell 0 over the
-          // header's bottom edge, and anything drawn from the header's side
-          // got shaved by the cell's background.
-          borderBottomWidth: items.length > 0 ? 0 : 4,
+          // Only while the list is EMPTY and nothing sits below the row. Once
+          // posts exist, the FIRST CELL draws this band (see renderItem):
+          // Android lays cell 0 over the header's bottom edge, and anything
+          // drawn from the header's side got shaved by the cell's background.
+          // With Top Trends below, the block is the header's last section and
+          // closes itself; the composer's 16pt paddingBottom is the whole gap.
+          borderBottomWidth: items.length > 0 || topTrendsVisible ? 0 : 4,
         },
       ]}
       testID={`${testID}-compose-divider`}
@@ -478,6 +504,23 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         </Text>
       </Pressable>
     </View>
+  );
+
+  /*
+    Top Trends (Figma 4969:4101): market movers per game, BELOW the composer
+    and ABOVE the first post. Renders null with nothing to show, in which case
+    the composer/first-cell seam is exactly what it was without it. The band
+    follows the composer's rule — drawn by the block only while the list is
+    empty; the first cell owns it once posts exist (same Android shave).
+  */
+  const topTrendsBlock = (
+    <TopTrendsBlock
+      loading={topMoversLoading}
+      movers={topMovers}
+      onPressCard={handleOpenCard}
+      showBand={items.length === 0}
+      testID={`${testID}-top-trends`}
+    />
   );
 
   const openSearch = useCallback(() => {
@@ -604,7 +647,12 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         keyExtractor={(item: FeedItem) => item.key}
         ListEmptyComponent={listEmpty}
         ListFooterComponent={listFooter}
-        ListHeaderComponent={composePrompt}
+        ListHeaderComponent={
+          <>
+            {composePrompt}
+            {topTrendsBlock}
+          </>
+        }
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.5}
         // Measures the viewport the "Back to top" FAB uses as its threshold —
@@ -630,20 +678,23 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         renderItem={({ item, index }: { item: FeedItem; index: number }) => (
           <>
             {/*
-              The composer's closing band, drawn BY THE FIRST CELL rather than
+              The header's closing band, drawn BY THE FIRST CELL rather than
               by the header above it: cell 0 paints over the header's bottom
               edge on Android, so anything the header drew on the seam was
               shaved the moment posts loaded. Owned by the very view that was
-              doing the shaving, it has nothing left to lose. The 4pt bottom
-              margin plus the card's own 12pt top inset makes the 16pt
-              under-composer gap (Figma 4299:94902).
+              doing the shaving, it has nothing left to lose. Under the
+              composer, the 4pt bottom margin plus the card's own 12pt top
+              inset makes the 16pt under-composer gap (Figma 4299:94902).
+              Under the Top Trends block the seam is the plain inter-section
+              rhythm — band + the card's 12 (Figma 4969:4101) — so the margin
+              drops.
             */}
             {index === 0 ? (
               <View
                 style={{
                   backgroundColor: theme.colors.gray100,
                   height: 4,
-                  marginBottom: 4,
+                  marginBottom: topTrendsVisible ? 0 : 4,
                 }}
                 testID={`${testID}-first-cell-rule`}
               />

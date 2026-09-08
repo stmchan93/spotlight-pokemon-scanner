@@ -110,6 +110,33 @@
       ]
     },
     {
+      "figmaNodeId": "4969:4101",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=4969-4101",
+      "screenName": "TopTrends",
+      "componentPaths": [
+        "apps/spotlight-rn/src/features/social/components/top-trends-block.tsx",
+        "apps/spotlight-rn/src/features/social/use-top-movers.ts",
+        "apps/spotlight-rn/src/features/social/screens/feed-screen.tsx",
+        "packages/design-system/src/components/top-trends-rail.tsx",
+        "packages/design-system/src/components/top-mover-tile.tsx"
+      ],
+      "deepLink": "spotlight://dev/top-trends",
+      "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts (devTopMovers)",
+      "notes": "Home feed section between the compose prompt and the first post: title row + one horizontal rail of 354x142 mover tiles per game (CARD_GAMES order, empty games skipped). Dev route renders the block alone on white with a 59pt status-bar inset — crop to the block for diffs. In the feed the closing 4pt band is drawn by the first post cell once posts exist (Android seam shave), by the block itself otherwise.",
+      "states": [
+        {
+          "name": "title-content",
+          "figmaNodeId": "4969:4101",
+          "how": "the section frame ('Title content'): title row + rails"
+        },
+        {
+          "name": "tile",
+          "figmaNodeId": "4969:4105",
+          "how": "a single mover tile (TopMoverTile) — compare any tile in the rail"
+        }
+      ]
+    },
+    {
       "figmaNodeId": "1041:3488",
       "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=1041-3488",
       "screenName": "Scanner",

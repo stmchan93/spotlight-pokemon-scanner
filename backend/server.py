@@ -152,6 +152,11 @@ from fx_rates import (
     convert_price_trend_list_with_fx,
     decorate_pricing_summary_with_fx,
 )
+from market_movers import (
+    DEFAULT_WINDOW_DAYS as MARKET_MOVERS_WINDOW_DAYS,
+    compute_top_movers,
+    market_movers_version_token,
+)
 from ebay_comps import (
     DEFAULT_RESULT_LIMIT as DEFAULT_EBAY_LISTING_LIMIT,
     MAX_RESULT_LIMIT as MAX_EBAY_LISTING_LIMIT,
@@ -1538,6 +1543,8 @@ SINCE_ADDED_SPARK_MAX_CONTEXTS = 800
 ADDED_BASELINE_BACKFILL_FLAG = "added_baseline_backfilled"
 
 PORTFOLIO_DASHBOARD_PREWARM_ENV = "PORTFOLIO_DASHBOARD_PREWARM"
+# Catalog-wide "Top Trends" (feed) prewarm — same shape as the portfolio one.
+MARKET_MOVERS_PREWARM_ENV = "MARKET_MOVERS_PREWARM"
 PORTFOLIO_DASHBOARD_PREWARM_MAX_OWNERS_ENV = "PORTFOLIO_DASHBOARD_PREWARM_MAX_OWNERS"
 PORTFOLIO_DASHBOARD_PREWARM_DELAY_ENV = "PORTFOLIO_DASHBOARD_PREWARM_DELAY_SECONDS"
 DEFAULT_PORTFOLIO_DASHBOARD_PREWARM_MAX_OWNERS = 50
@@ -1763,6 +1770,11 @@ class SpotlightScanService:
         self._deck_entries_cache: dict[tuple[Any, ...], tuple[str, dict[str, Any]]] = {}
         self._deck_entries_cache_locks: dict[tuple[Any, ...], threading.Lock] = {}
         self._deck_entries_cache_max_entries = 512
+        # Catalog-wide Top Trends payload (one per window), version-keyed on
+        # MAX(price_date) + pricing_sync_generation; single dogpile lock since
+        # there is exactly one payload to compute.
+        self._market_movers_cache: dict[int, tuple[str, dict[str, Any]]] = {}
+        self._market_movers_lock = threading.Lock()
         self.artifact_store = build_scan_artifact_store(
             repo_root=repo_root,
             storage_override=os.environ.get(SCAN_ARTIFACTS_STORAGE_ENV),
@@ -18522,6 +18534,66 @@ class SpotlightScanService:
         )
         return [round(float(values[i]), 2) for i in indices]
 
+    def market_top_movers(self, *, window_days: int = MARKET_MOVERS_WINDOW_DAYS) -> dict[str, Any]:
+        """Catalog-wide Top Trends (biggest raw gainers per game). Same
+        cache-and-dogpile shape as portfolio_performance, but owner-independent:
+        the payload is a pure function of the daily price history, so one
+        version token (MAX(price_date) + sync generation) serves everyone and
+        auto-invalidates after each daily sync."""
+        started_at = perf_counter()
+        try:
+            version = market_movers_version_token(self.connection, window_days=window_days)
+        except Exception:  # noqa: BLE001 - cache bookkeeping must never break the feed
+            traceback.print_exc()
+            version = None
+        cached = self._market_movers_cache.get(window_days)
+        if version is not None and cached is not None and cached[0] == version:
+            self._log_market_movers_timing(started_at, outcome="hit")
+            return cached[1]
+        with self._market_movers_lock:
+            cached = self._market_movers_cache.get(window_days)
+            if version is not None and cached is not None and cached[0] == version:
+                self._log_market_movers_timing(started_at, outcome="hit_after_wait")
+                return cached[1]
+            payload = compute_top_movers(self.connection, window_days=window_days)
+            if version is not None:
+                self._market_movers_cache[window_days] = (version, payload)
+            self._log_market_movers_timing(started_at, outcome="miss")
+            return payload
+
+    def _log_market_movers_timing(self, started_at: float, *, outcome: str) -> None:
+        self._emit_structured_log(
+            {
+                "event": "market_top_movers_request",
+                "outcome": outcome,
+                "elapsedMs": round((perf_counter() - started_at) * 1000.0, 1),
+            }
+        )
+
+    def prewarm_market_movers(
+        self, *, delay_seconds: float = 0.0, source: str = "startup"
+    ) -> dict[str, Any]:
+        """Best-effort warm of the Top Trends cache (boot + after each daily
+        sync via the ops prewarm hook) so the first feed open after a sync is a
+        cache hit instead of a cold 45k-row scan. Never raises."""
+        if delay_seconds > 0:
+            threading.Event().wait(delay_seconds)
+        started_at = perf_counter()
+        warmed = False
+        try:
+            self.market_top_movers(window_days=MARKET_MOVERS_WINDOW_DAYS)
+            warmed = True
+        except Exception:  # noqa: BLE001 - prewarm is best-effort
+            traceback.print_exc()
+        result = {
+            "event": "market_movers_prewarm",
+            "source": source,
+            "warmed": warmed,
+            "elapsedMs": round((perf_counter() - started_at) * 1000.0, 1),
+        }
+        self._emit_structured_log(result)
+        return result
+
     def portfolio_performance(self) -> dict[str, Any]:
         """Cache-and-dogpile wrapper over the heavy performance-table compute,
         the same pattern as portfolio_dashboard / transaction_insights /
@@ -20982,6 +21054,38 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, payload)
             return
 
+        if parsed.path == "/api/v1/market/top-movers":
+            query_params = parse_qs(parsed.query)
+            try:
+                window_days = int(query_params.get("window", [str(MARKET_MOVERS_WINDOW_DAYS)])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "window must be an integer"})
+                return
+            if window_days != MARKET_MOVERS_WINDOW_DAYS:
+                # v1 serves the single cached window; other windows would each
+                # cost a catalog scan per version.
+                self._write_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": f"window must be {MARKET_MOVERS_WINDOW_DAYS}"},
+                )
+                return
+            # The slot only bites on a cache miss (the 45k-row scan); hits are ~1ms.
+            if not self._acquire_heavy_read_slot():
+                return
+            try:
+                payload = self.service.market_top_movers(window_days=window_days)
+            except Exception as error:  # noqa: BLE001 - surface as a 500, never a hang
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"Top movers failed: {error}"},
+                )
+                return
+            finally:
+                _heavy_read_semaphore.release()
+            self._write_json(HTTPStatus.OK, payload)
+            return
+
         if parsed.path == "/api/v1/cards/search":
             query_params = parse_qs(parsed.query)
             query = query_params.get("q", [""])[0]
@@ -21358,6 +21462,14 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 target=self.service.prewarm_portfolio_dashboards,
                 kwargs={"source": "ops"},
                 name="portfolio-dashboard-prewarm-ops",
+                daemon=True,
+            ).start()
+            # The daily sync moves MAX(price_date), which invalidates the Top
+            # Trends cache too — warm it on the same hook, no cron change.
+            threading.Thread(
+                target=self.service.prewarm_market_movers,
+                kwargs={"source": "ops"},
+                name="market-movers-prewarm-ops",
                 daemon=True,
             ).start()
             self._write_json(HTTPStatus.OK, {"status": "started"})
@@ -23129,6 +23241,15 @@ def main() -> None:
             target=SpotlightRequestHandler.service.prewarm_portfolio_dashboards,
             kwargs={"delay_seconds": prewarm_delay},
             name="portfolio-dashboard-prewarm",
+            daemon=True,
+        ).start()
+
+    if _env_flag(MARKET_MOVERS_PREWARM_ENV, default=True):
+        threading.Thread(
+            target=SpotlightRequestHandler.service.prewarm_market_movers,
+            # After the portfolio prewarm has had its head start on the disk.
+            kwargs={"delay_seconds": DEFAULT_PORTFOLIO_DASHBOARD_PREWARM_DELAY_SECONDS + 5.0},
+            name="market-movers-prewarm",
             daemon=True,
         ).start()
 

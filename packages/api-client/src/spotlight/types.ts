@@ -1374,6 +1374,39 @@ export type CardPriceTrendList = {
   rows: CardPriceTrendRow[];
 };
 
+// --- Market top movers (home "Top trends" rail) ---
+export type TopMoverItem = {
+  cardId: string;
+  game: CardGame;
+  name: string;
+  number: string | null;
+  setCode: string | null;
+  setName: string | null;
+  language: string | null;
+  imageUrl: string | null;
+  /** Latest market price in `currencyCode`. */
+  priceNow: number;
+  /** Market price `windowDays` ago. */
+  priceThen: number;
+  /** Signed percent change from `priceThen` to `priceNow`. */
+  changePercent: number;
+  currencyCode: string;
+  /** Market-price series, oldest → newest, for the sparkline. */
+  sparkPoints: number[];
+};
+
+export type TopMoversGame = {
+  game: CardGame;
+  items: TopMoverItem[];
+};
+
+export type TopMovers = {
+  windowDays: number;
+  computedAt: string;
+  asOfDate: string | null;
+  games: TopMoversGame[];
+};
+
 export type CardPriceTrendsQuery = {
   cardId: string;
   mode: CardPriceTrendMode;

@@ -102,6 +102,9 @@ import type {
   PortfolioDashboard,
   PortfolioInsights,
   PortfolioPerformance,
+  TopMovers,
+  TopMoversGame,
+  TopMoverItem,
   PortfolioPerformanceRow,
   TransactionInsights,
   PortfolioSaleRequestPayload,
@@ -294,6 +297,12 @@ export interface SpotlightRepository {
     variant?: string | null;
   }): Promise<CardDetailRecord['marketHistory'] | null>;
   getCardPriceTrends(query: CardPriceTrendsQuery): Promise<CardPriceTrendList | null>;
+  /**
+   * Biggest market movers per game over `windowDays` (default 30) for the home
+   * "Top trends" rail. THROWS on transport/HTTP failure so callers can keep a
+   * last-good cache instead of flashing an empty rail.
+   */
+  getTopMovers(windowDays?: number): Promise<TopMovers>;
   getCardConditionHistory(query: CardConditionHistoryQuery): Promise<CardConditionHistory | null>;
   getRawPricingMatrix(cardId: string): Promise<RawPricingMatrix>;
   getCardEbayListings(query: CardDetailQuery & {
@@ -3351,6 +3360,50 @@ export class MockSpotlightRepository implements SpotlightRepository {
       currencyCode: entries[0]?.currencyCode ?? 'USD',
       refreshedAt: new Date(0).toISOString(),
       rows,
+    };
+  }
+
+  // Deterministic movers derived from the seeded inventory: a fixed rise per
+  // slot so tests/dev get a stable, non-empty "Top trends" rail.
+  async getTopMovers(windowDays = 30): Promise<TopMovers> {
+    const games = new Map<CardGame, TopMoverItem[]>();
+    const seen = new Set<string>();
+    for (const entry of this.inventoryEntriesForQuery()) {
+      if (!entry.hasMarketPrice || seen.has(entry.cardId)) {
+        continue;
+      }
+      seen.add(entry.cardId);
+      const game = entry.game ?? DEFAULT_CARD_GAME;
+      const items = games.get(game) ?? [];
+      const changePercent = Math.max(12, 120 - items.length * 25);
+      const priceNow = entry.marketPrice;
+      const priceThen = Number((priceNow / (1 + changePercent / 100)).toFixed(2));
+      const steps = 7;
+      const sparkPoints = Array.from({ length: steps }, (_, index) =>
+        Number((priceThen + ((priceNow - priceThen) * index) / (steps - 1)).toFixed(2)),
+      );
+      items.push({
+        cardId: entry.cardId,
+        game,
+        name: entry.name,
+        number: entry.cardNumber || null,
+        setCode: null,
+        setName: entry.setName || null,
+        language: null,
+        imageUrl: entry.smallImageUrl ?? entry.imageUrl ?? null,
+        priceNow,
+        priceThen,
+        changePercent,
+        currencyCode: entry.currencyCode,
+        sparkPoints,
+      });
+      games.set(game, items.slice(0, 5));
+    }
+    return {
+      windowDays,
+      computedAt: new Date(0).toISOString(),
+      asOfDate: null,
+      games: [...games.entries()].map(([game, items]): TopMoversGame => ({ game, items })),
     };
   }
 
@@ -7033,6 +7086,57 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       currencyCode: raw.currencyCode ?? 'USD',
       refreshedAt: raw.refreshedAt ?? '',
       rows,
+    };
+  }
+
+  // Home "Top trends" rail. Routed through requestJsonRead so a backpressure
+  // 503 retries silently. THROWS on transport failure (same contract as
+  // getPortfolioPerformance) so the caller keeps its last-good rail instead of
+  // rendering an empty one. Defensive mapping: games → [], sparkPoints → [],
+  // numbers coerced via Number() and non-finite values dropped.
+  async getTopMovers(windowDays = 30): Promise<TopMovers> {
+    const response = await this.requestJsonRead<{
+      windowDays?: unknown;
+      computedAt?: unknown;
+      asOfDate?: unknown;
+      games?: Array<{ game?: unknown; items?: Array<Record<string, unknown>> }>;
+    }>(`${this.baseUrl}/api/v1/market/top-movers?window=${encodeURIComponent(String(windowDays))}`);
+    if (response.kind !== 'success' || !response.data) {
+      throw new Error('top movers read failed');
+    }
+    const raw = response.data;
+    const num = (value: unknown): number => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+    const str = (value: unknown): string | null =>
+      value != null && value !== '' ? String(value) : null;
+    const games: TopMoversGame[] = (Array.isArray(raw.games) ? raw.games : []).map((group) => {
+      const game = (str(group.game) ?? DEFAULT_CARD_GAME) as CardGame;
+      const items: TopMoverItem[] = (Array.isArray(group.items) ? group.items : []).map((item) => ({
+        cardId: String(item.cardId ?? ''),
+        game: (str(item.game) as CardGame | null) ?? game,
+        name: String(item.name ?? ''),
+        number: str(item.number),
+        setCode: str(item.setCode),
+        setName: str(item.setName),
+        language: str(item.language),
+        imageUrl: str(item.imageUrl),
+        priceNow: num(item.priceNow),
+        priceThen: num(item.priceThen),
+        changePercent: num(item.changePercent),
+        currencyCode: str(item.currencyCode) ?? 'USD',
+        sparkPoints: Array.isArray(item.sparkPoints)
+          ? item.sparkPoints.map(Number).filter((v) => Number.isFinite(v))
+          : [],
+      }));
+      return { game, items };
+    });
+    return {
+      windowDays: num(raw.windowDays) || windowDays,
+      computedAt: str(raw.computedAt) ?? '',
+      asOfDate: str(raw.asOfDate),
+      games,
     };
   }
 

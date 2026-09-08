@@ -527,7 +527,58 @@ Current API concepts:
 - optional `trendPct` — percent change across the series; `>= 0` tints
   `green400`, `< 0` tints `red400` (defaults to green when omitted)
 - optional `width`/`height` — defaults 62×22 (the list-row size)
+- optional `backgroundColor` — fill behind the chart while the SVG paints;
+  defaults to `gray0` (white rows). Pass the host surface when the sparkline
+  sits on a tinted card (`TopMoverTile` passes `gray50`)
 - requires `react-native-svg` (already a package peer dependency)
+
+### TopMoverTile
+
+File: `src/components/top-mover-tile.tsx`
+
+One card in the home "Top trends" rail (Figma 4969:4105 "Card container"): a
+fixed 354×142 `gray50` tile at `radii.sm` with the card art on the left
+(90×126, radius 6, `gray200` fill when there is no image) and a 232-wide
+details column — name over subtitle, the signed change beside a 62×22
+`PriceSparkline`, then the current price beside the "from" price. Presentation
+only: every string arrives preformatted so currency/percent formatting stays in
+the app.
+
+Use it inside `TopTrendsRail`; reach for `CardListRow` for vertical lists and
+`InventoryCardTile` for the collection grid.
+
+| Prop | Type | Notes |
+| --- | --- | --- |
+| `imageUrl` | `string \| null` | Card art; `null` renders the `gray200` fallback fill |
+| `name` | `string` | `titleSmall` gray-900, one line, tail-ellipsized |
+| `subtitle` | `string` | `bodyMedium` gray-600, one line (set · number) |
+| `changeLabel` | `string` | Preformatted signed percent, e.g. `+218%` |
+| `changePercent` | `number \| null` | `>= 0` tints `green500`, `< 0` `red500`, `null` gray-600; also feeds the sparkline tint |
+| `priceLabel` | `string` | Current price, `bodyStrong` gray-900 |
+| `fromLabel` | `string` | Prior price, `bodyMedium` gray-600, e.g. `from $12.95` |
+| `sparkPoints` | `number[]` | Market series oldest → newest |
+| `onPress` | `() => void` | Optional; pressed state is opacity 0.7 |
+| `testID` | `string` | Derives `-art`, `-image`, `-change`, `-sparkline` |
+
+Also exports `TOP_MOVER_TILE_WIDTH` (354) and `TOP_MOVER_TILE_HEIGHT` (142) so
+rails and skeletons stay in step with the tile.
+
+### TopTrendsRail
+
+File: `src/components/top-trends-rail.tsx`
+
+Horizontal, paging rail of `TopMoverTile`s under a `captionMedium` gray-600
+caption (16pt gutters, 8pt between tiles, snaps every 362pt). Renders two
+354×142 `SkeletonBlock`s while `loading` with no items yet, and renders
+nothing at all when there is nothing to show — the host screen should not
+reserve space for it.
+
+| Prop | Type | Notes |
+| --- | --- | --- |
+| `caption` | `string` | Line above the rail, e.g. `TOP TRENDS · 30 DAYS` |
+| `items` | `TopTrendsRailItem[]` | `TopMoverTileProps & { key: string }` |
+| `loading` | `boolean` | Skeletons only while `items` is empty |
+| `testID` | `string` | Derives `-scroll`, `-skeleton-<n>`, and `-<key>` per tile |
 
 ### ScrollToTopButton
 

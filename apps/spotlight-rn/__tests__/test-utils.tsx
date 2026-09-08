@@ -190,6 +190,10 @@ export function createTestSpotlightRepository(
       return overrides.getCardPriceTrends?.(...args)
         ?? baseRepository.getCardPriceTrends(...args);
     },
+    getTopMovers: (...args) => {
+      return overrides.getTopMovers?.(...args)
+        ?? baseRepository.getTopMovers(...args);
+    },
     getCardConditionHistory: (...args) => {
       return overrides.getCardConditionHistory?.(...args)
         ?? baseRepository.getCardConditionHistory(...args);

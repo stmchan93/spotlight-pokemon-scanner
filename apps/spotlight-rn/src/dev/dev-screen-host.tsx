@@ -1,5 +1,5 @@
 import { type ReactElement, useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 
 import type { SpotlightRepository } from '@spotlight/api-client';
@@ -10,8 +10,10 @@ import { clearCardDetailCache } from '@/features/cards/card-detail-prefetch';
 import { CardDetailScreen } from '@/features/cards/screens/card-detail-screen';
 import { InsightsScreen } from '@/features/insights/screens/insights-screen';
 import { PortfolioScreen } from '@/features/portfolio/screens/portfolio-screen';
+import { TopTrendsBlock } from '@/features/social/components/top-trends-block';
 import { FeedScreen } from '@/features/social/screens/feed-screen';
 import { setDevFeedItemsOverride } from '@/features/social/social-service';
+import { useTopMovers } from '@/features/social/use-top-movers';
 import { WishlistScreen } from '@/features/wishlist/screens/wishlist-screen';
 import { createDevRepository } from '@/dev/dev-repository';
 import { devFeedItems } from '@/dev/dev-feed-data';
@@ -44,8 +46,25 @@ const devScreens: Record<string, () => ReactElement> = {
   'feed-empty': () => <FeedScreen />,
   insights: () => <InsightsScreen />,
   portfolio: () => <PortfolioScreen />,
+  // The Top Trends section alone (Figma 4969:4101), fed by the dev
+  // repository's `getTopMovers` — the feed route also carries it, but this
+  // isolates the block for a tight diff against the "Title content" frame.
+  'top-trends': () => <DevTopTrendsScreen />,
   wishlist: () => <WishlistScreen />,
 };
+
+function DevTopTrendsScreen() {
+  const { movers, loading } = useTopMovers();
+  return (
+    <ScrollView
+      contentContainerStyle={styles.topTrendsContent}
+      style={styles.topTrends}
+      testID="dev-top-trends"
+    >
+      <TopTrendsBlock loading={loading} movers={movers} onPressCard={() => undefined} />
+    </ScrollView>
+  );
+}
 
 export function DevScreenHost({ screen }: { screen: string }) {
   const [repository, setRepository] = useState<SpotlightRepository | null>(null);
@@ -116,5 +135,13 @@ const styles = StyleSheet.create({
     ...textStyles.body,
     color: colors.gray600,
     textAlign: 'center',
+  },
+  topTrends: {
+    backgroundColor: colors.gray0,
+    flex: 1,
+  },
+  // Clear the pinned status bar so the title row lands where the feed puts it.
+  topTrendsContent: {
+    paddingTop: 59,
   },
 });

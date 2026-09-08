@@ -41,6 +41,8 @@ export * from './components/state-card';
 export * from './components/surface-card';
 export * from './components/text-field';
 export * from './components/toast';
+export * from './components/top-mover-tile';
+export * from './components/top-trends-rail';
 export * from './components/trend-pill';
 export * from './components/trend-triangle';
 export * from './theme';

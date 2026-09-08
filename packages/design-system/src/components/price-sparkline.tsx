@@ -13,6 +13,12 @@ export type PriceSparklineProps = {
   trendPct?: number | null;
   width?: number;
   height?: number;
+  /**
+   * Fill behind the chart while the SVG paints. Defaults to `gray0` (white
+   * rows); pass the host surface color when the sparkline sits on a tinted
+   * card (e.g. `gray50` inside `TopMoverTile`).
+   */
+  backgroundColor?: string;
   testID?: string;
 };
 
@@ -73,6 +79,7 @@ export function PriceSparkline({
   trendPct,
   width = DEFAULT_WIDTH,
   height = DEFAULT_HEIGHT,
+  backgroundColor = colors.gray0,
   testID,
 }: PriceSparklineProps) {
   const theme = useSpotlightTheme();
@@ -90,7 +97,7 @@ export function PriceSparkline({
   const areaPath = buildAreaPath(plotted, height);
 
   return (
-    <View style={[styles.container, { width, height }]} testID={testID}>
+    <View style={[styles.container, { width, height, backgroundColor }]} testID={testID}>
       <Svg height={height} viewBox={`0 0 ${width} ${height}`} width={width}>
         <Defs>
           <LinearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
@@ -113,8 +120,7 @@ export function PriceSparkline({
 }
 
 const styles = StyleSheet.create({
-  container: {
-    // Keep the box reserved even while the SVG paints, so rows stay aligned.
-    backgroundColor: colors.gray0,
-  },
+  // Keep the box reserved even while the SVG paints, so rows stay aligned.
+  // The fill itself comes from the `backgroundColor` prop.
+  container: {},
 });

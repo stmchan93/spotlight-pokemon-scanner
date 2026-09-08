@@ -83,6 +83,8 @@ TEST_MODULES=(
   backend.tests.test_main_raw_price_serving
   backend.tests.test_raw_condition_surface_coherence
   backend.tests.test_main_raw_trend_series
+  # Top Trends ranking — guards the same-source (no Scrydex-JPY vs TCGCSV) rule.
+  backend.tests.test_market_movers
   backend.tests.test_seed_condition_history_from_snapshots
 )
 

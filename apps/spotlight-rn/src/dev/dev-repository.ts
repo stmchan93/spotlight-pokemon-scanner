@@ -4,6 +4,7 @@ import {
   type PortfolioPerformance,
   type PortfolioPerformanceRow,
   type SpotlightRepository,
+  type TopMovers,
 } from '@spotlight/api-client';
 
 import { devImageUriForUrl } from '@/dev/dev-fixtures';
@@ -96,6 +97,119 @@ const devPerformanceRowOverrides: Record<string, Partial<PortfolioPerformanceRow
   },
 };
 
+// Top Trends (Figma 4969:4101): two games x three movers, covering the label
+// shapes the tiles must handle — a three-digit move (no decimal), a modest
+// one (one decimal), a decline, a JP printing (" · JP" marker), a set with no
+// code, and a whole-dollar price. Card ids reuse the mock catalog so a tap
+// lands on a PDP that resolves.
+const devTopMovers: TopMovers = {
+  windowDays: 30,
+  computedAt: '2026-04-21T18:00:00.000Z',
+  asOfDate: '2026-04-21',
+  games: [
+    {
+      game: 'pokemon',
+      items: [
+        {
+          cardId: 'sm7-1',
+          game: 'pokemon',
+          name: 'Celebi',
+          number: '1',
+          setCode: 'SM7',
+          setName: 'Celestial Storm',
+          language: 'English',
+          imageUrl: 'https://images.pokemontcg.io/sm7/1.png',
+          priceNow: 12.4,
+          priceThen: 3.9,
+          changePercent: 217.9,
+          currencyCode: 'USD',
+          sparkPoints: [3.9, 4.2, 4.1, 6.8, 9.3, 11.0, 12.4],
+        },
+        {
+          cardId: 'xyp-111',
+          game: 'pokemon',
+          name: 'Celebi',
+          number: 'XY111',
+          setCode: 'XYP',
+          setName: 'XY Black Star Promos',
+          language: 'English',
+          imageUrl: 'https://images.pokemontcg.io/xyp/XY111.png',
+          priceNow: 37.54,
+          priceThen: 33.36,
+          changePercent: 12.5,
+          currencyCode: 'USD',
+          sparkPoints: [33.36, 34.1, 33.9, 35.2, 36.4, 37.54],
+        },
+        {
+          cardId: 'mcdonalds25-21',
+          game: 'pokemon',
+          name: 'Oshawott',
+          number: '21',
+          setCode: null,
+          setName: "McDonald's Collection 2021",
+          language: 'Japanese',
+          imageUrl: 'https://images.pokemontcg.io/mcdonalds25/21.png',
+          priceNow: 1100,
+          priceThen: 1240.5,
+          changePercent: -11.3,
+          currencyCode: 'USD',
+          sparkPoints: [1240.5, 1210, 1180.25, 1150, 1120, 1100],
+        },
+      ],
+    },
+    {
+      game: 'onepiece',
+      items: [
+        {
+          cardId: 'sm7-1',
+          game: 'onepiece',
+          name: 'Monkey.D.Luffy',
+          number: 'OP05-119',
+          setCode: 'OP05',
+          setName: 'Awakening of the New Era',
+          language: 'English',
+          imageUrl: 'https://images.pokemontcg.io/sm7/1.png',
+          priceNow: 486,
+          priceThen: 312.75,
+          changePercent: 55.4,
+          currencyCode: 'USD',
+          sparkPoints: [312.75, 330, 358.5, 401, 455.2, 486],
+        },
+        {
+          cardId: 'xyp-111',
+          game: 'onepiece',
+          name: 'Shanks',
+          number: 'OP01-120',
+          setCode: 'OP01',
+          setName: 'Romance Dawn',
+          language: 'English',
+          imageUrl: 'https://images.pokemontcg.io/xyp/XY111.png',
+          priceNow: 129.99,
+          priceThen: 98.4,
+          changePercent: 32.1,
+          currencyCode: 'USD',
+          sparkPoints: [98.4, 101.2, 110.9, 118, 124.5, 129.99],
+        },
+        {
+          cardId: 'mcdonalds25-21',
+          game: 'onepiece',
+          name: 'Nami',
+          number: 'OP03-040',
+          setCode: 'OP03',
+          setName: 'Pillars of Strength',
+          language: 'English',
+          imageUrl: 'https://images.pokemontcg.io/mcdonalds25/21.png',
+          priceNow: 42.1,
+          priceThen: 51.3,
+          changePercent: -17.9,
+          currencyCode: 'USD',
+          sparkPoints: [51.3, 49.8, 47.2, 45.9, 43.5, 42.1],
+        },
+      ],
+    },
+  ],
+};
+
 const imageUrlKeyPattern = /image.*url|url.*image|avatarurl/i;
 
 function rewriteImageUrls<T>(value: T): T {
@@ -121,6 +235,12 @@ function rewriteImageUrls<T>(value: T): T {
 function withLocalImages(repository: SpotlightRepository): SpotlightRepository {
   return new Proxy(repository, {
     get(target, property, receiver) {
+      // Served wholesale rather than derived from the mock's catalog: the mock
+      // has no price history to compute movers from, and the rail needs fixed
+      // numbers anyway (see devTopMovers).
+      if (property === 'getTopMovers') {
+        return async () => rewriteImageUrls(devTopMovers);
+      }
       const original = Reflect.get(target, property, receiver);
       if (typeof original !== 'function') {
         return original;

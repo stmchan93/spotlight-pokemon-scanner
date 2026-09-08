@@ -11,7 +11,7 @@ import {
 import { FeedScreen } from '@/features/social/screens/feed-screen';
 import { getFeedRefreshVersion, signalFeedNeedsRefresh } from '@/features/social/screens/new-post-screen';
 
-import { renderWithProviders } from '../test-utils';
+import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
 
 jest.mock('expo-router', () => ({
   useRouter: jest.fn(),
@@ -83,6 +83,49 @@ function buildPost(overrides: { id: string } & Record<string, unknown>) {
 
 const push = jest.fn();
 
+/**
+ * The Top Trends read, controlled per test. Rejects by default so the block
+ * stays OUT of the tree: the stock mock repository derives movers from its
+ * seeded inventory, which would put a rail into every layout assertion below.
+ * The Top Trends tests resolve it explicitly.
+ */
+const getTopMovers = jest.fn<Promise<unknown>, [number?]>();
+
+function buildMovers() {
+  const item = (game: 'pokemon' | 'onepiece', cardId: string, name: string) => ({
+    cardId,
+    game,
+    name,
+    number: '1',
+    setCode: 'SET',
+    setName: 'Some Set',
+    language: 'English',
+    imageUrl: null,
+    priceNow: 12.4,
+    priceThen: 3.9,
+    changePercent: 217.9,
+    currencyCode: 'USD',
+    sparkPoints: [3.9, 6.8, 12.4],
+  });
+  return {
+    windowDays: 30,
+    computedAt: '2026-05-01T00:00:00.000Z',
+    asOfDate: '2026-05-01',
+    games: [
+      { game: 'pokemon', items: [item('pokemon', 'sm7-1', 'Celebi')] },
+      { game: 'onepiece', items: [item('onepiece', 'op05-119', 'Luffy')] },
+    ],
+  };
+}
+
+function renderFeed() {
+  return renderWithProviders(<FeedScreen />, {
+    spotlightRepository: createTestSpotlightRepository({
+      getTopMovers: getTopMovers as unknown as () => Promise<never>,
+    }),
+  });
+}
+
 describe('FeedScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -90,6 +133,9 @@ describe('FeedScreen', () => {
     (fetchGlobalFeed as jest.Mock).mockResolvedValue([
       buildPost({ id: '1', body: 'Feed post' }),
     ]);
+    getTopMovers.mockRejectedValue(new Error('no movers'));
+    // The hook logs the rejection; keep the default-rejecting reads quiet.
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
   });
 
   // Home is ONE feed: every visible post, newest first. The screen carried a
@@ -97,7 +143,7 @@ describe('FeedScreen', () => {
   // remaining read is the global one and that the follow graph no longer gates
   // what you see, which is the whole behavioural change.
   it('reads the global feed, and only the global feed, on first load', async () => {
-    renderWithProviders(<FeedScreen />);
+    renderFeed();
 
     await waitFor(() => {
       expect(screen.getByText('Feed post')).toBeTruthy();
@@ -155,7 +201,7 @@ describe('FeedScreen', () => {
     it('captions a reposted row with who passed it on', async () => {
       mockFeedWithRepost();
 
-      renderWithProviders(<FeedScreen />);
+      renderFeed();
 
       await waitFor(() => {
         expect(screen.getByTestId('feed-repost-attribution')).toBeTruthy();
@@ -168,7 +214,7 @@ describe('FeedScreen', () => {
     it('renders the repost and the original as two separate rows', async () => {
       mockFeedWithRepost();
 
-      renderWithProviders(<FeedScreen />);
+      renderFeed();
 
       await waitFor(() => {
         expect(screen.getAllByTestId('feed-post-body')).toHaveLength(2);
@@ -191,7 +237,7 @@ describe('FeedScreen', () => {
       buildPost({ id: '2', body: 'Second post' }),
     ]);
 
-    renderWithProviders(<FeedScreen />);
+    renderFeed();
     await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
     // ABOVE the feed: a `ListHeaderComponent`, so it precedes every post row in
@@ -215,7 +261,7 @@ describe('FeedScreen', () => {
     the Figma (4299:94902) separates sections with.
   */
   it('hands the compose band to the first cell once posts load', async () => {
-    renderWithProviders(<FeedScreen />);
+    renderFeed();
     await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
     // The header's own border is OFF — a band here would be shaved on Android
@@ -238,7 +284,7 @@ describe('FeedScreen', () => {
 
   it('keeps the compose band as a header border while the feed is empty', async () => {
     (fetchGlobalFeed as jest.Mock).mockResolvedValue([]);
-    renderWithProviders(<FeedScreen />);
+    renderFeed();
     await waitFor(() => expect(screen.getByTestId('feed-compose-divider')).toBeTruthy());
     await waitFor(() => expect(screen.queryByTestId('feed-first-cell-rule')).not.toBeOnTheScreen());
 
@@ -247,10 +293,112 @@ describe('FeedScreen', () => {
     expect(style.borderBottomColor).toBe('#F2F2F2');
   });
 
+  /*
+    TOP TRENDS (Figma 4969:4101): market movers per game, as a list-header
+    section BELOW the composer and ABOVE the first post. It is decoration on
+    the feed, so a failed read leaves no trace — no error card, no empty rail.
+  */
+  describe('the Top Trends section', () => {
+    it('renders below the composer, one rail per game, once the movers resolve', async () => {
+      getTopMovers.mockResolvedValue(buildMovers());
+
+      renderFeed();
+      await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
+      await waitFor(() => expect(screen.getByTestId('feed-top-trends')).toBeTruthy());
+
+      // Tree order: composer, then the block, then the first post.
+      const rows = screen.getAllByTestId(/^feed-(compose-prompt|top-trends|post-body)$/);
+      expect(rows.map((row) => row.props.testID)).toEqual([
+        'feed-compose-prompt',
+        'feed-top-trends',
+        'feed-post-body',
+      ]);
+      expect(screen.getByText('Top Trends')).toBeTruthy();
+      expect(screen.getByText('past 30 days')).toBeTruthy();
+
+      // One rail per game that has movers, in CARD_GAMES order.
+      const rails = screen.getAllByTestId(/^feed-top-trends-rail-[a-z]+$/);
+      expect(rails.map((rail) => rail.props.testID)).toEqual([
+        'feed-top-trends-rail-pokemon',
+        'feed-top-trends-rail-onepiece',
+      ]);
+      expect(screen.getByText('Pokémon')).toBeTruthy();
+      expect(screen.getByText('One Piece')).toBeTruthy();
+
+      // With the block as the header's last section, the composer's own band
+      // is off and the first cell's band carries no extra margin: the seam to
+      // the first post is band (4) + the card's 12 (Figma 4969:4101).
+      const composer = StyleSheet.flatten(screen.getByTestId('feed-compose-divider').props.style);
+      expect(composer.borderBottomWidth).toBe(0);
+      const band = StyleSheet.flatten(screen.getByTestId('feed-first-cell-rule').props.style);
+      expect(band.height).toBe(4);
+      expect(band.marginBottom).toBe(0);
+      // And the block itself does NOT double the band while posts exist.
+      const block = StyleSheet.flatten(screen.getByTestId('feed-top-trends').props.style);
+      expect(block.borderBottomWidth).toBe(0);
+    });
+
+    it('closes itself with the band while the feed is empty, in place of the composer', async () => {
+      (fetchGlobalFeed as jest.Mock).mockResolvedValue([]);
+      getTopMovers.mockResolvedValue(buildMovers());
+
+      renderFeed();
+      await waitFor(() => expect(screen.getByTestId('feed-empty')).toBeTruthy());
+      await waitFor(() => expect(screen.getByTestId('feed-top-trends')).toBeTruthy());
+
+      const composer = StyleSheet.flatten(screen.getByTestId('feed-compose-divider').props.style);
+      expect(composer.borderBottomWidth).toBe(0);
+      const block = StyleSheet.flatten(screen.getByTestId('feed-top-trends').props.style);
+      expect(block.borderBottomWidth).toBe(4);
+      expect(block.borderBottomColor).toBe('#F2F2F2');
+    });
+
+    it('is absent, silently, when the read fails and nothing is cached', async () => {
+      getTopMovers.mockRejectedValue(new Error('backend down'));
+
+      renderFeed();
+      await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
+      await waitFor(() => expect(getTopMovers).toHaveBeenCalled());
+
+      expect(screen.queryByTestId('feed-top-trends')).toBeNull();
+      expect(screen.queryByText('Top Trends')).toBeNull();
+      // The composer/first-post seam is exactly what it was without the block.
+      const band = StyleSheet.flatten(screen.getByTestId('feed-first-cell-rule').props.style);
+      expect(band.marginBottom).toBe(4);
+    });
+
+    it('opens the card detail for a tapped mover', async () => {
+      getTopMovers.mockResolvedValue(buildMovers());
+
+      renderFeed();
+      await waitFor(() => expect(screen.getByTestId('feed-top-trends-tile-op05-119')).toBeTruthy());
+
+      fireEvent.press(screen.getByTestId('feed-top-trends-tile-op05-119'));
+      expect(push).toHaveBeenCalledWith({
+        pathname: '/cards/[cardId]',
+        params: { cardId: 'op05-119' },
+      });
+    });
+
+    it('refetches the movers on pull-to-refresh', async () => {
+      getTopMovers.mockResolvedValue(buildMovers());
+
+      renderFeed();
+      await waitFor(() => expect(screen.getByTestId('feed-top-trends')).toBeTruthy());
+      expect(getTopMovers).toHaveBeenCalledTimes(1);
+
+      // The RN RefreshControl mock drops its testID; reach it via the list.
+      await act(async () => {
+        screen.getByTestId('feed-list').props.refreshControl.props.onRefresh();
+      });
+      await waitFor(() => expect(getTopMovers).toHaveBeenCalledTimes(2));
+    });
+  });
+
   it('shows an empty state when there are no posts', async () => {
     (fetchGlobalFeed as jest.Mock).mockResolvedValue([]);
 
-    renderWithProviders(<FeedScreen />);
+    renderFeed();
 
     await waitFor(() => {
       expect(screen.getByTestId('feed-empty')).toBeTruthy();
@@ -266,7 +414,7 @@ describe('FeedScreen', () => {
   it('keeps the header actions reachable when there are no posts', async () => {
     (fetchGlobalFeed as jest.Mock).mockResolvedValue([]);
 
-    renderWithProviders(<FeedScreen />);
+    renderFeed();
 
     await waitFor(() => {
       expect(screen.getByTestId('feed-empty')).toBeTruthy();
@@ -303,7 +451,7 @@ describe('FeedScreen', () => {
   // solid buttons stacked above the list, then one bar that scrolled away
   // whole — so the shape is pinned here.
   it('keeps the bar pinned over the list with both trailing actions live', async () => {
-    renderWithProviders(<FeedScreen />);
+    renderFeed();
     await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
     // Floating chrome: absolutely positioned, painted over the list.
@@ -333,7 +481,7 @@ describe('FeedScreen', () => {
     own bottom padding plus the composer section's top inset is the whole gap.
   */
   it('draws no hairline under the bar — not in the list, not in the bar', async () => {
-    renderWithProviders(<FeedScreen />);
+    renderFeed();
     await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
     expect(screen.queryByTestId('feed-header-rule')).toBeNull();
@@ -342,7 +490,7 @@ describe('FeedScreen', () => {
   });
 
   it('opens the app drawer from the header menu', async () => {
-    renderWithProviders(<FeedScreen />);
+    renderFeed();
     await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
     fireEvent.press(screen.getByTestId('feed-header-menu'));
@@ -359,7 +507,7 @@ describe('FeedScreen', () => {
   // `drawer-edge-swipe-test` drives the recogniser's own thresholds; all this
   // asserts is that the feed is still wrapped in one.
   it('also opens the drawer by dragging in from the left edge, not only from the button', async () => {
-    renderWithProviders(<FeedScreen />);
+    renderFeed();
     await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
     expect(screen.getByTestId('drawer-edge-swipe')).toBeTruthy();
@@ -388,7 +536,7 @@ describe('FeedScreen', () => {
 
     it('refetches when the feed has gone stale, without blanking what is on screen', async () => {
       const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(0);
-      renderWithProviders(<FeedScreen />);
+      renderFeed();
       await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
       expect(fetchGlobalFeed).toHaveBeenCalledTimes(1);
 
@@ -415,7 +563,7 @@ describe('FeedScreen', () => {
 
     it('does not refetch when the feed is still fresh', async () => {
       const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(0);
-      renderWithProviders(<FeedScreen />);
+      renderFeed();
       await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
       expect(fetchGlobalFeed).toHaveBeenCalledTimes(1);
 
@@ -430,7 +578,7 @@ describe('FeedScreen', () => {
 
     it('still reloads immediately after composing, however fresh the feed is', async () => {
       const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(0);
-      renderWithProviders(<FeedScreen />);
+      renderFeed();
       await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
       // Your own new post appearing at the top must never wait on a staleness
@@ -461,7 +609,7 @@ describe('FeedScreen', () => {
     // this pins is that only YOUR ⋯ can reach the delete confirmation.
     it('only offers delete on the post you wrote', async () => {
       const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-      renderWithProviders(<FeedScreen />);
+      renderFeed();
       await waitFor(() => expect(screen.getByText('My own post')).toBeTruthy());
 
       expect(screen.getAllByTestId('feed-post-more-button')).toHaveLength(2);
@@ -485,7 +633,7 @@ describe('FeedScreen', () => {
     });
 
     it('asks for confirmation before deleting anything', async () => {
-      renderWithProviders(<FeedScreen />);
+      renderFeed();
       await waitFor(() => expect(screen.getByText('My own post')).toBeTruthy());
 
       await act(async () => {
@@ -508,7 +656,7 @@ describe('FeedScreen', () => {
     });
 
     it('removes the post optimistically on confirm and leaves the rest of the feed alone', async () => {
-      renderWithProviders(<FeedScreen />);
+      renderFeed();
       await waitFor(() => expect(screen.getByText('My own post')).toBeTruthy());
 
       await act(async () => {
@@ -541,7 +689,7 @@ describe('FeedScreen', () => {
     it('signals the other list so the deleted post cannot linger on the profile', async () => {
       const versionBefore = getFeedRefreshVersion();
 
-      renderWithProviders(<FeedScreen />);
+      renderFeed();
       await waitFor(() => expect(screen.getByText('My own post')).toBeTruthy());
 
       await act(async () => {
@@ -565,7 +713,7 @@ describe('FeedScreen', () => {
       (deletePost as jest.Mock).mockResolvedValue(false);
       const versionBefore = getFeedRefreshVersion();
 
-      renderWithProviders(<FeedScreen />);
+      renderFeed();
       await waitFor(() => expect(screen.getByText('My own post')).toBeTruthy());
 
       await act(async () => {
@@ -588,7 +736,7 @@ describe('FeedScreen', () => {
       const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
       (deletePost as jest.Mock).mockResolvedValue(false);
 
-      renderWithProviders(<FeedScreen />);
+      renderFeed();
       await waitFor(() => expect(screen.getByText('My own post')).toBeTruthy());
 
       await act(async () => {
@@ -648,7 +796,7 @@ describe('FeedScreen', () => {
       { key: 'post:other', post: someoneElse, repostedBy: null, repostedById: null, repostedAt: null, activityAt: someoneElse.createdAt },
     ]);
 
-    renderWithProviders(<FeedScreen />);
+    renderFeed();
     await waitFor(() => expect(screen.getByText('Their own post')).toBeTruthy());
     // Their post, their repost, and the unrelated original.
     expect(screen.getAllByTestId('feed-post-body')).toHaveLength(3);
@@ -681,7 +829,7 @@ describe('FeedScreen', () => {
       buildPost({ id: '1', body: 'Card post', cardId: 'card-xyz' }),
     ]);
 
-    renderWithProviders(<FeedScreen />);
+    renderFeed();
 
     await waitFor(() => {
       expect(screen.getByTestId('feed-post-card-chip')).toBeTruthy();
@@ -770,7 +918,7 @@ describe('FeedScreen', () => {
     // what exercise it.
 
     it('does not appear while the feed is at rest', async () => {
-      renderWithProviders(<FeedScreen />);
+      renderFeed();
       await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
       await measureViewport();
 
@@ -782,7 +930,7 @@ describe('FeedScreen', () => {
     });
 
     it('appears once the feed has been scrolled past one viewport', async () => {
-      renderWithProviders(<FeedScreen />);
+      renderFeed();
       await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
       await measureViewport();
 
@@ -795,7 +943,7 @@ describe('FeedScreen', () => {
         .spyOn(FlatList.prototype, 'scrollToOffset')
         .mockImplementation(() => {});
 
-      renderWithProviders(<FeedScreen />);
+      renderFeed();
       await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
       await measureViewport();
       await scrollFeed(PAST_ONE_VIEWPORT);
@@ -813,7 +961,7 @@ describe('FeedScreen', () => {
     // on the list, not on the FAB, so it is asserted separately — without it the
     // offset above is computed correctly and then thrown away.
     it('lets the list accept that negative target', async () => {
-      renderWithProviders(<FeedScreen />);
+      renderFeed();
       await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
 
       expect(feedList().props.scrollToOverflowEnabled).toBe(true);
@@ -825,7 +973,7 @@ describe('FeedScreen', () => {
         .spyOn(FlatList.prototype, 'scrollToOffset')
         .mockImplementation(() => {});
 
-      renderWithProviders(<FeedScreen />);
+      renderFeed();
       await waitFor(() => expect(screen.getByText('Feed post')).toBeTruthy());
       await measureViewport();
       // Android reserves the bar with `paddingTop` instead, so it rests at 0 and
@@ -847,7 +995,7 @@ describe('FeedScreen', () => {
     // three screens carrying this FAB rely on the same property.
     it('never appears over an empty feed', async () => {
       (fetchGlobalFeed as jest.Mock).mockResolvedValue([]);
-      renderWithProviders(<FeedScreen />);
+      renderFeed();
       await waitFor(() => expect(screen.getByTestId('feed-empty')).toBeTruthy());
       await measureViewport();
 

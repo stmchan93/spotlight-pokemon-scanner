@@ -19,6 +19,7 @@ import {
   type PortfolioDashboard,
   type PortfolioPerformance,
   type SpotlightRepository,
+  type TopMovers,
 } from '@spotlight/api-client';
 
 import { TabBarChromeProvider } from '@/contexts/tab-bar-chrome-context';
@@ -187,6 +188,14 @@ type AppServices = {
   portfolioPerformanceCache: PortfolioPerformance | null;
   setPortfolioPerformanceCache: Dispatch<SetStateAction<PortfolioPerformance | null>>;
   /**
+   * Last successful Top Trends (market top movers) read for the Home feed.
+   * NOT owner-scoped: the payload is catalog-wide market data, identical for
+   * every account, so it survives sign-in/out and paints instantly on the
+   * feed's next mount while a fresh read is in flight.
+   */
+  topMoversCache: TopMovers | null;
+  setTopMoversCache: Dispatch<SetStateAction<TopMovers | null>>;
+  /**
    * Optimistically surface a just-added card at the top of the Collection
    * without waiting on the slow portfolio dashboard refetch. Prepends (deduping
    * by id) into both the shared inventory cache and the dashboard cache, and
@@ -253,6 +262,8 @@ export function AppProviders({
   const [portfolioDashboardCacheState, setPortfolioDashboardCacheState] = useState<ScopedCache<PortfolioDashboard> | null>(null);
   const [portfolioPerformanceCacheState, setPortfolioPerformanceCacheState] = useState<ScopedCache<PortfolioPerformance> | null>(null);
   const [activeCollectionState, setActiveCollectionState] = useState<ScopedCache<string> | null>(null);
+  // Plain state, not ScopedCache — see the AppServices doc comment.
+  const [topMoversCache, setTopMoversCache] = useState<TopMovers | null>(null);
   // Owner-scoped like the value itself: on an account switch this reverts to
   // "not restored yet" for free, rather than reporting the previous account's
   // read as if it answered for the new one.
@@ -446,6 +457,8 @@ export function AppProviders({
       setPortfolioDashboardCache,
       portfolioPerformanceCache,
       setPortfolioPerformanceCache,
+      topMoversCache,
+      setTopMoversCache,
       prependOptimisticInventoryEntry,
       removeOptimisticInventoryEntries,
       activeCollectionID,
@@ -462,6 +475,7 @@ export function AppProviders({
     portfolioDashboardCache,
     portfolioPerformanceCache,
     setPortfolioPerformanceCache,
+    topMoversCache,
     prependOptimisticInventoryEntry,
     removeOptimisticInventoryEntries,
     refreshData,

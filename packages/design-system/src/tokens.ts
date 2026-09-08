@@ -303,12 +303,12 @@ export const textStyles = {
     lineHeight: 23.4,
     color: colors.gray900,
   } satisfies TextStyle,
-  // Figma "Title-small" — 16/600/135% gray-900
+  // Figma "Title-small" — 17/600/135% gray-900
   titleSmall: {
     ...numericFontVariant,
     fontFamily: fontFamilies.bodySemiBold,
-    fontSize: 16,
-    lineHeight: 21.6,
+    fontSize: 17,
+    lineHeight: 22.95,
     color: colors.gray900,
   } satisfies TextStyle,
   // Compact sheet title — 14/600 gray-900 (Figma New Post header 3147:10838).
