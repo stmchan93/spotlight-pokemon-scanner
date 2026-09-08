@@ -11,13 +11,12 @@ import {
 } from '@/features/scanner/scanner-normalized-target';
 
 describe('binder page layouts', () => {
-  it('offers 9, 12 and 18 pockets, all three columns wide', () => {
+  it('offers 9 and 12 pockets, both three columns wide', () => {
     // Three across keeps every pocket above the 360px zero-loss line in
     // portrait; only the row count grows (docs/binder-scan-feasibility).
     expect(binderPageLayouts.map((layout) => [layout.label, layout.columns * layout.rows])).toEqual([
       ['9 cards', 9],
       ['12 cards', 12],
-      ['18 cards', 18],
     ]);
     expect(binderPageLayouts.every((layout) => layout.columns === 3)).toBe(true);
     // Unknown/legacy ids (rows persisted before layouts) resolve to 3×3.
@@ -38,9 +37,17 @@ describe('binder page layouts', () => {
     }
   });
 
-  it('cuts a sideways 18-card spread into landscape cells the crop then stands up', () => {
-    const layout = binderPageLayoutById('pockets-18');
-    expect(layout.cropRotationDegrees).toBe(90);
+  it('cuts a sideways spread into landscape cells the crop then stands up', () => {
+    // Not offered in the dropdown today, but the crop path stays exercised so
+    // a future wide (4 × 3) binder layout is a table entry, not a rebuild.
+    const layout = {
+      id: 'pockets-9' as const,
+      label: 'sideways test',
+      columns: 3,
+      rows: 6,
+      cropRotationDegrees: 90 as const,
+      hint: null,
+    };
     // 3 across × 6 down of sideways cards: page aspect is 6·(630/880) / 3.
     expect(binderPageAspectRatio(layout)).toBeCloseTo((6 * (630 / 880)) / 3, 4);
     const pageWidth = 2640;

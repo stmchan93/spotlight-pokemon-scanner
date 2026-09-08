@@ -163,7 +163,7 @@ export function makeReticleSourceImageCrop({
 
 export const binderPageGridSize = 3;
 
-export type BinderPageLayoutId = 'pockets-9' | 'pockets-12' | 'pockets-18';
+export type BinderPageLayoutId = 'pockets-9' | 'pockets-12';
 
 /**
  * One binder-page framing. The phone is always portrait and the sensor's short
@@ -193,17 +193,10 @@ export const binderPageLayouts: readonly BinderPageLayout[] = [
   { id: 'pockets-9', label: '9 cards', columns: 3, rows: 3, cropRotationDegrees: 0, hint: null },
   // Ultra Pro-style 12-pocket page: 3 across, 4 down, upright.
   { id: 'pockets-12', label: '12 cards', columns: 3, rows: 4, cropRotationDegrees: 0, hint: null },
-  // An open binder (two 9-pocket pages) turned sideways: 6 across upright would
-  // land at ~360px per pocket in portrait, right on the threshold, so the
-  // spread is framed as 3 across × 6 down with the cards on their side.
-  {
-    id: 'pockets-18',
-    label: '18 cards',
-    columns: 3,
-    rows: 6,
-    cropRotationDegrees: 90,
-    hint: 'Turn the binder sideways, card tops to the left',
-  },
+  // No 18: it was an open binder turned sideways (3 × 6, cropRotationDegrees
+  // 90, "card tops to the left"), and asking for that at a show table costs
+  // more scans than it gains. The sideways crop path stays built and tested
+  // for a future wide 12-pocket binder (4 across × 3 down).
 ];
 
 export const defaultBinderPageLayoutId: BinderPageLayoutId = 'pockets-9';
