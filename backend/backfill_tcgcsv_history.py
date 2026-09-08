@@ -70,6 +70,14 @@ def main(argv: list[str] | None = None) -> int:
     connection = sqlite3.connect(args.database_path, timeout=60.0)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA journal_mode=WAL")
+    # A replay is ~1.4M cell inserts per 32 days into a 40M+-row table; fsync
+    # on every 500-card commit made it I/O-bound (~9 min/day on staging).
+    # NORMAL is the WAL-safe setting (a crash loses at most the last commits,
+    # never corrupts) and the re-run is idempotent, so trade durability for
+    # throughput here only. Bigger page cache keeps the cell index hot.
+    connection.execute("PRAGMA synchronous=NORMAL")
+    connection.execute("PRAGMA cache_size=-262144")  # 256 MB
+    connection.execute("PRAGMA temp_store=MEMORY")
     started = perf_counter()
     try:
         for price_date in dates:
