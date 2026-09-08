@@ -299,7 +299,7 @@ describe('FeedScreen', () => {
     the feed, so a failed read leaves no trace — no error card, no empty rail.
   */
   describe('the Top Trends section', () => {
-    it('renders below the composer, one rail per game, once the movers resolve', async () => {
+    it('renders below the composer, one carousel of per-game top gainers, once the movers resolve', async () => {
       getTopMovers.mockResolvedValue(buildMovers());
 
       renderFeed();
@@ -316,14 +316,12 @@ describe('FeedScreen', () => {
       expect(screen.getByText('Top Trends')).toBeTruthy();
       expect(screen.getByText('past 30 days')).toBeTruthy();
 
-      // One rail per game that has movers, in CARD_GAMES order.
-      const rails = screen.getAllByTestId(/^feed-top-trends-rail-[a-z]+$/);
-      expect(rails.map((rail) => rail.props.testID)).toEqual([
-        'feed-top-trends-rail-pokemon',
-        'feed-top-trends-rail-onepiece',
-      ]);
-      expect(screen.getByText('Pokémon')).toBeTruthy();
-      expect(screen.getByText('One Piece')).toBeTruthy();
+      // ONE carousel: each game's top gainer, biggest first; the caption
+      // names the game on screen.
+      expect(screen.getAllByTestId(/^feed-top-trends-rail$/)).toHaveLength(1);
+      const tiles = screen.getAllByTestId(/^feed-top-trends-tile-(?!.*-(art|image|change|sparkline)$).+$/);
+      expect(tiles).toHaveLength(2);
+      expect(screen.getByTestId('feed-top-trends-rail-caption')).toBeTruthy();
 
       // With the block as the header's last section, the composer's own band
       // is off and the first cell's band carries no extra margin: the seam to

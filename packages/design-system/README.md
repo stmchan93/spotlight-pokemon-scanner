@@ -567,18 +567,20 @@ rails and skeletons stay in step with the tile.
 
 File: `src/components/top-trends-rail.tsx`
 
-Horizontal, paging rail of `TopMoverTile`s under a `captionMedium` gray-600
-caption (16pt gutters, 8pt between tiles, snaps every 362pt). Renders two
-354×142 `SkeletonBlock`s while `loading` with no items yet, and renders
-nothing at all when there is nothing to show — the host screen should not
-reserve space for it.
+Horizontal, snapping carousel of `TopMoverTile`s (16pt gutters, 8pt between
+tiles, snaps every 362pt) with an optional `captionMedium` gray-600 caption
+above it. With `autoAdvanceIntervalMs` set it moves one tile on every tick,
+wrapping after the last, pausing while the user drags and resuming from
+wherever they let go. Renders nothing when `items` is empty — the host screen
+should not reserve space for it.
 
 | Prop | Type | Notes |
 | --- | --- | --- |
-| `caption` | `string` | Line above the rail, e.g. `TOP TRENDS · 30 DAYS` |
+| `caption` | `string` | Optional line above the rail, e.g. the active slide's game |
 | `items` | `TopTrendsRailItem[]` | `TopMoverTileProps & { key: string }` |
-| `loading` | `boolean` | Skeletons only while `items` is empty |
-| `testID` | `string` | Derives `-scroll`, `-skeleton-<n>`, and `-<key>` per tile |
+| `autoAdvanceIntervalMs` | `number` | Auto-advance period; omit / 0 for a static rail |
+| `onActiveIndexChange` | `(index: number) => void` | Settled slide changed (tick or swipe) |
+| `testID` | `string` | Derives `-caption`, `-scroll`, and `-<key>` per tile |
 
 ### ScrollToTopButton
 

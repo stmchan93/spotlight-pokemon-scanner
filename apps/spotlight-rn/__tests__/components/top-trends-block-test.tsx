@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
 import type { TopMoverItem, TopMovers } from '@spotlight/api-client';
@@ -10,6 +10,7 @@ import {
   formatMoverSubtitle,
   hasTopTrendsContent,
   toTopMoverTileProps,
+  topTrendsSlides,
 } from '@/features/social/components/top-trends-block';
 
 function buildItem(overrides: Partial<TopMoverItem> = {}): TopMoverItem {
@@ -121,36 +122,81 @@ describe('TopTrendsBlock', () => {
     expect(hasTopTrendsContent(movers, false)).toBe(false);
   });
 
-  it('holds a loading rail for every game while the first read is in flight', () => {
+  it('renders nothing while the first read is in flight — no placeholder that can vanish', () => {
     renderBlock(<TopTrendsBlock loading movers={null} testID="trends" />);
-    expect(screen.getByText('Top Trends')).toBeTruthy();
-    expect(screen.getAllByTestId(/^trends-rail-[a-z]+$/)).toHaveLength(5);
-    expect(hasTopTrendsContent(null, true)).toBe(true);
+    expect(screen.queryByTestId('trends')).toBeNull();
+    expect(screen.queryByText('Top Trends')).toBeNull();
+    expect(hasTopTrendsContent(null, true)).toBe(false);
   });
 
-  it('lists games in CARD_GAMES order, skipping the empty ones', () => {
+  it('shows ONE carousel: each game\'s top gainer, biggest gain first', () => {
     const movers = buildMovers([
-      { game: 'lorcana', items: [buildItem({ game: 'lorcana', cardId: 'lor-1' })] },
+      { game: 'pokemon', items: [buildItem({ changePercent: 40 }), buildItem({ cardId: 'p2', changePercent: 30 })] },
       { game: 'onepiece', items: [] },
-      { game: 'pokemon', items: [buildItem()] },
+      { game: 'lorcana', items: [buildItem({ game: 'lorcana', cardId: 'lor-1', changePercent: 90 })] },
+      { game: 'gundam', items: [buildItem({ game: 'gundam', cardId: 'gd-1', changePercent: 55 })] },
     ]);
-    renderBlock(<TopTrendsBlock loading={false} movers={movers} testID="trends" />);
+    expect(topTrendsSlides(movers).map((slide) => `${slide.game}:${slide.item.cardId}`)).toEqual([
+      'lorcana:lor-1',
+      'gundam:gd-1',
+      'pokemon:sv8-238',
+    ]);
 
-    const rails = screen.getAllByTestId(/^trends-rail-[a-z]+$/);
-    expect(rails.map((rail) => rail.props.testID)).toEqual([
-      'trends-rail-pokemon',
-      'trends-rail-lorcana',
+    renderBlock(<TopTrendsBlock autoAdvanceIntervalMs={0} loading={false} movers={movers} testID="trends" />);
+    expect(screen.getAllByTestId(/^trends-rail$/)).toHaveLength(1);
+    const tiles = screen.getAllByTestId(/^trends-tile-(?!.*-(art|image|change|sparkline)$).+$/);
+    expect(tiles.map((tile) => tile.props.testID)).toEqual([
+      'trends-tile-lor-1',
+      'trends-tile-gd-1',
+      'trends-tile-sv8-238',
     ]);
-    expect(screen.getByText('Pokémon')).toBeTruthy();
-    expect(screen.getByText('Disney Lorcana')).toBeTruthy();
+    // The caption names the game on screen — the biggest mover's, to start.
+    expect(screen.getByTestId('trends-rail-caption').props.children).toBe('Disney Lorcana');
     expect(screen.queryByText('One Piece')).toBeNull();
     expect(screen.getByText('past 30 days')).toBeTruthy();
+  });
+
+  it('flips to the next game every interval and wraps, with the caption following', () => {
+    jest.useFakeTimers();
+    try {
+      const movers = buildMovers([
+        { game: 'pokemon', items: [buildItem({ changePercent: 40 })] },
+        { game: 'onepiece', items: [buildItem({ game: 'onepiece', cardId: 'op-1', changePercent: 80 })] },
+      ]);
+      renderBlock(
+        <TopTrendsBlock autoAdvanceIntervalMs={5_000} loading={false} movers={movers} testID="trends" />,
+      );
+      const caption = () => screen.getByTestId('trends-rail-caption').props.children;
+      expect(caption()).toBe('One Piece');
+      act(() => {
+        jest.advanceTimersByTime(5_000);
+      });
+      expect(caption()).toBe('Pokémon');
+      act(() => {
+        jest.advanceTimersByTime(5_000);
+      });
+      expect(caption()).toBe('One Piece');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('follows a manual swipe', () => {
+    const movers = buildMovers([
+      { game: 'pokemon', items: [buildItem({ changePercent: 40 })] },
+      { game: 'onepiece', items: [buildItem({ game: 'onepiece', cardId: 'op-1', changePercent: 80 })] },
+    ]);
+    renderBlock(<TopTrendsBlock autoAdvanceIntervalMs={0} loading={false} movers={movers} testID="trends" />);
+    fireEvent(screen.getByTestId('trends-rail-scroll'), 'momentumScrollEnd', {
+      nativeEvent: { contentOffset: { x: 362, y: 0 } },
+    });
+    expect(screen.getByTestId('trends-rail-caption').props.children).toBe('Pokémon');
   });
 
   it('closes with the 4pt gray100 band by default, and not when told to hand it off', () => {
     const movers = buildMovers([{ game: 'pokemon', items: [buildItem()] }]);
     const { rerender } = renderBlock(
-      <TopTrendsBlock loading={false} movers={movers} testID="trends" />,
+      <TopTrendsBlock autoAdvanceIntervalMs={0} loading={false} movers={movers} testID="trends" />,
     );
     let style = StyleSheet.flatten(screen.getByTestId('trends').props.style);
     expect(style.borderBottomWidth).toBe(4);
@@ -160,7 +206,7 @@ describe('TopTrendsBlock', () => {
 
     rerender(
       <SpotlightThemeProvider>
-        <TopTrendsBlock loading={false} movers={movers} showBand={false} testID="trends" />
+        <TopTrendsBlock autoAdvanceIntervalMs={0} loading={false} movers={movers} showBand={false} testID="trends" />
       </SpotlightThemeProvider>,
     );
     style = StyleSheet.flatten(screen.getByTestId('trends').props.style);
@@ -171,7 +217,7 @@ describe('TopTrendsBlock', () => {
     const onPressCard = jest.fn();
     const movers = buildMovers([{ game: 'pokemon', items: [buildItem()] }]);
     renderBlock(
-      <TopTrendsBlock loading={false} movers={movers} onPressCard={onPressCard} testID="trends" />,
+      <TopTrendsBlock autoAdvanceIntervalMs={0} loading={false} movers={movers} onPressCard={onPressCard} testID="trends" />,
     );
 
     fireEvent.press(screen.getByTestId('trends-tile-sv8-238'));

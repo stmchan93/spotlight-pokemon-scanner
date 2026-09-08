@@ -1,8 +1,7 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import {
-  CARD_GAMES,
   gameDisplayName,
   type CardGame,
   type TopMoverItem,
@@ -19,6 +18,8 @@ import { formatCurrency } from '@/features/portfolio/components/portfolio-format
 
 /** The window the copy promises when no payload has landed yet. */
 const DEFAULT_WINDOW_DAYS = 30;
+/** One slide per game; the carousel moves on by itself every 5s. */
+export const TOP_TRENDS_AUTO_ADVANCE_MS = 5_000;
 
 /**
  * Signed percent for the tile's change chip. One decimal in the normal range
@@ -64,6 +65,22 @@ export function toTopMoverTileProps(
   };
 }
 
+export type TopTrendsSlide = { game: CardGame; item: TopMoverItem };
+
+/**
+ * One slide per game — that game's biggest gainer — ordered by the size of
+ * the gain, so the first thing on screen is the biggest mover across the
+ * whole catalog. Games with no eligible mover contribute no slide.
+ */
+export function topTrendsSlides(movers: TopMovers | null): TopTrendsSlide[] {
+  if (!movers) {
+    return [];
+  }
+  return movers.games
+    .flatMap((entry) => (entry.items[0] ? [{ game: entry.game, item: entry.items[0] }] : []))
+    .sort((a, b) => b.item.changePercent - a.item.changePercent);
+}
+
 export type TopTrendsBlockProps = {
   movers: TopMovers | null;
   loading: boolean;
@@ -74,61 +91,49 @@ export type TopTrendsBlockProps = {
    * so it turns this off there; everywhere else the block closes itself.
    */
   showBand?: boolean;
+  /** Auto-advance period; 0 disables (tests, screenshots). */
+  autoAdvanceIntervalMs?: number;
   testID?: string;
-};
-
-type RailSpec = {
-  game: CardGame;
-  items: TopMoverItem[];
 };
 
 /**
  * Whether `TopTrendsBlock` will render anything for this input. Exposed so the
  * feed can lay out the seams around the block (which band draws, and where)
- * from the same rule the block itself uses, instead of guessing.
+ * from the same rule the block itself uses, instead of guessing. Loading
+ * never counts: the section appears only once there is a mover to show, so it
+ * can't flash a placeholder and then vanish on an empty payload.
  */
-export function hasTopTrendsContent(movers: TopMovers | null, loading: boolean): boolean {
-  if (!movers) {
-    return loading;
-  }
-  return movers.games.some((entry) => entry.items.length > 0);
+export function hasTopTrendsContent(movers: TopMovers | null, _loading: boolean): boolean {
+  return topTrendsSlides(movers).length > 0;
 }
 
 /**
- * Home "Top Trends" (Figma 4969:4101 "Title content"): a title row, then one
- * horizontal rail of movers per game, in `CARD_GAMES` order. Games with no
- * movers are skipped rather than shown empty; while the FIRST read is in
- * flight (no cached payload) every game gets a loading rail so the section
- * holds its height instead of popping in.
+ * Home "Top Trends" (Figma 4969:4101 "Title content"): a title row, a caption
+ * naming the game on screen, and ONE carousel with a slide per game — each
+ * game's top gainer, biggest first — that flips to the next game every 5s
+ * and can be swiped by hand.
  *
  * Renders nothing when there is nothing to show — the feed treats a null block
  * as "no section", so the composer/post seam falls back to its usual form.
  */
 export function TopTrendsBlock({
   movers,
-  loading,
+  loading: _loading,
   onPressCard,
   showBand = true,
+  autoAdvanceIntervalMs = TOP_TRENDS_AUTO_ADVANCE_MS,
   testID = 'top-trends',
 }: TopTrendsBlockProps) {
   const theme = useSpotlightTheme();
+  const slides = useMemo(() => topTrendsSlides(movers), [movers]);
+  const [activeIndex, setActiveIndex] = useState(0);
 
-  const rails = useMemo<RailSpec[]>(() => {
-    if (!movers) {
-      return loading ? CARD_GAMES.map((game) => ({ game, items: [] })) : [];
-    }
-    const byGame = new Map(movers.games.map((entry) => [entry.game, entry.items]));
-    return CARD_GAMES.flatMap((game) => {
-      const items = byGame.get(game) ?? [];
-      return items.length > 0 ? [{ game, items }] : [];
-    });
-  }, [loading, movers]);
-
-  if (rails.length === 0) {
+  if (slides.length === 0) {
     return null;
   }
 
   const windowDays = movers?.windowDays ?? DEFAULT_WINDOW_DAYS;
+  const activeSlide = slides[Math.min(activeIndex, slides.length - 1)];
 
   return (
     <View
@@ -152,36 +157,29 @@ export function TopTrendsBlock({
           past {windowDays} days
         </Text>
       </View>
-      <View style={styles.rails}>
-        {rails.map(({ game, items }) => (
-          <TopTrendsRail
-            caption={gameDisplayName(game)}
-            items={items.map((item) => toTopMoverTileProps(item, onPressCard, testID))}
-            key={game}
-            loading={!movers && loading}
-            testID={`${testID}-rail-${game}`}
-          />
-        ))}
-      </View>
+      <TopTrendsRail
+        autoAdvanceIntervalMs={autoAdvanceIntervalMs}
+        caption={gameDisplayName(activeSlide.game)}
+        items={slides.map(({ item }) => toTopMoverTileProps(item, onPressCard, testID))}
+        onActiveIndexChange={setActiveIndex}
+        testID={`${testID}-rail`}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   // Its own section between the composer and the first post: 16 above the
-  // title, 16 between the last rail and the closing band. The band is a
-  // BORDER, not a sibling — same reason as the composer's (post-card.tsx).
+  // title, 16 between the rail and the closing band. The band is a BORDER,
+  // not a sibling — same reason as the composer's (post-card.tsx).
   section: {
     alignSelf: 'stretch',
     paddingBottom: 16,
     paddingTop: 16,
     width: '100%',
   },
-  rails: {
-    gap: 16,
-  },
   // Title left, window caption right, on the feed's 16 page gutter (the list
-  // itself is unpadded — rails bleed to the edge and inset their own tiles).
+  // itself is unpadded — the rail bleeds to the edge and insets its own tiles).
   titleRow: {
     alignItems: 'baseline',
     flexDirection: 'row',
