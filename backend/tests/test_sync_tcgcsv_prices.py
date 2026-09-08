@@ -534,6 +534,30 @@ class SyncTcgcsvPricesTests(unittest.TestCase):
         self.assertEqual(stats["priced"], 1)
         self.assertEqual(self._snapshot_row()["main_raw_market_price"], 2276.45)
 
+    def test_history_only_writes_the_day_but_never_the_snapshot(self):
+        # Backfill replay of a PAST date: daily row + raw_main cell land, the
+        # snapshot (today's price) is untouched, no marker, no generation bump.
+        self._seed_scrydex_snapshot()
+        stats = self._sync(price_date="2026-07-01", history_only=True,
+                           last_updated="2026-07-01T20:00:00Z")
+        self.assertEqual(stats["priced"], 1)
+        self.assertNotIn("generation", stats)
+        after = self._snapshot_row()
+        self.assertIsNone(after["main_raw_market_price"])
+        self.assertEqual(after["default_raw_market_price"], 2200.0)
+        daily = self.connection.execute(
+            "SELECT main_raw_market_price, main_raw_variant FROM card_price_history_daily "
+            "WHERE card_id='swsh7-215' AND price_date='2026-07-01'"
+        ).fetchone()
+        self.assertEqual(tuple(daily), (2276.45, "Holofoil"))
+        cells = self.connection.execute(
+            "SELECT COUNT(*) FROM card_price_history_cell WHERE card_id='swsh7-215' "
+            "AND price_date='2026-07-01' AND lane='raw_main'"
+        ).fetchone()[0]
+        self.assertEqual(cells, 1)
+        self.assertIsNone(runtime_setting(self.connection, "tcgcsv_last_updated_marker"))
+        self.assertIsNone(runtime_setting(self.connection, PRICING_SYNC_GENERATION_KEY))
+
     def test_manual_override_beats_payload_collision_and_verification(self):
         # The override replaces the payload's product id and skips the number
         # check (a human verified it) — the svp-222 -> 664827 shape.

@@ -289,9 +289,11 @@ def _printings_from_override(
 
 
 def _clear_card_main_price(
-    connection: sqlite3.Connection, *, card_id: str, price_date: str
+    connection: sqlite3.Connection, *, card_id: str, price_date: str,
+    write_snapshot: bool = True,
 ) -> None:
-    connection.execute(
+    if write_snapshot:
+        connection.execute(
         """
         UPDATE card_price_snapshots SET
             main_raw_market_price = NULL, main_raw_low_price = NULL,
@@ -301,7 +303,7 @@ def _clear_card_main_price(
         WHERE card_id = ? AND main_raw_market_price IS NOT NULL
         """,
         (card_id,),
-    )
+        )
     connection.execute(
         "UPDATE card_price_history_daily SET main_raw_market_price = NULL, main_raw_variant = NULL "
         "WHERE card_id = ? AND price_date = ? AND main_raw_market_price IS NOT NULL",
@@ -322,6 +324,7 @@ def _write_card_main_price(
     price_date: str,
     now: str,
     printings: dict[str, dict[str, Any]] | None = None,
+    write_snapshot: bool = True,
 ) -> None:
     market = cleaned_price(prices.get("marketPrice"))
     low = cleaned_price(prices.get("lowPrice"))
@@ -332,7 +335,10 @@ def _write_card_main_price(
 
     # Snapshot: the DO UPDATE branch sets ONLY the main lane — an existing Scrydex
     # row keeps provider/display_currency_code/default_raw_*/contexts/updated_at.
-    connection.execute(
+    # A history backfill (past dates) must never touch the snapshot: that is
+    # today's price, and an older archive would clobber it.
+    if write_snapshot:
+        connection.execute(
         """
         INSERT INTO card_price_snapshots (
             card_id, provider, display_currency_code,
@@ -353,7 +359,7 @@ def _write_card_main_price(
         """,
         (card_id, TCGCSV_PROVIDER, "USD", market, low, mid, high, direct_low,
          sub_type_name, now, json.dumps(printings), now),
-    )
+        )
 
     # Daily: INSERT-branch provider must be pricing_provider() (NOT 'tcgcsv') so the
     # history readers' WHERE provider = ? filters still see the row.
@@ -427,7 +433,12 @@ def run_tcgcsv_price_sync(
     group_by_product: dict[str, tuple[int, int]] | None = None,
     product_number_map: dict[str, str] | None = None,
     force: bool = False,
+    history_only: bool = False,
 ) -> dict[str, int]:
+    """``history_only``: write the daily row + raw_main cells for ``price_date``
+    only — no snapshot, no publish marker, no generation bump (the backfill
+    caller bumps once at the end). Used by backfill_tcgcsv_history.py to replay
+    TCGCSV's daily archives; the join/verification logic is identical."""
     price_date = price_date or _today_price_date()
 
     # Publish-marker guard (their docs: check last-updated.txt first; one pull per
@@ -454,7 +465,7 @@ def run_tcgcsv_price_sync(
         run_id = start_provider_sync_run(
             connection,
             provider=TCGCSV_PROVIDER,
-            sync_scope=TCGCSV_SYNC_SCOPE,
+            sync_scope=f"{TCGCSV_SYNC_SCOPE}-backfill" if history_only else TCGCSV_SYNC_SCOPE,
             page_size=0,
             scheduled_for=scheduled_for,
         )
@@ -533,6 +544,7 @@ def run_tcgcsv_price_sync(
                         connection, card_id=card_id, prices=prices,
                         sub_type_name=sub_type_name, price_date=price_date, now=now,
                         printings=_printings_from_override(override_pid, product_price_map),
+                        write_snapshot=not history_only,
                     )
                     pending += 1
                     if pending % commit_every == 0:
@@ -574,7 +586,10 @@ def run_tcgcsv_price_sync(
                         # A CONFIRMED mismatch clears any previously-written main
                         # lane immediately — a known-bad join must not keep
                         # serving until the staleness window expires.
-                        _clear_card_main_price(connection, card_id=card_id, price_date=price_date)
+                        _clear_card_main_price(
+                            connection, card_id=card_id, price_date=price_date,
+                            write_snapshot=not history_only,
+                        )
                         pending += 1
                     continue
             stats["priced"] += 1
@@ -589,6 +604,7 @@ def run_tcgcsv_price_sync(
                     variant_product_ids, blocked, product_price_map,
                     product_number_map, card_numbers.get(card_id, ""), verify_numbers,
                 ),
+                write_snapshot=not history_only,
             )
             pending += 1
             if pending % commit_every == 0:
@@ -602,10 +618,11 @@ def run_tcgcsv_price_sync(
         # Store the publish marker only after a FULLY clean crawl: with failed
         # groups left un-marked, the next catch-up cron attempt re-crawls and
         # fills the gap instead of waiting for tomorrow.
-        if last_updated and not failed_groups:
+        if last_updated and not failed_groups and not history_only:
             upsert_runtime_setting(connection, key=TCGCSV_LAST_UPDATED_KEY, value=last_updated)
         stats["failed_groups"] = len(failed_groups)
-        stats["generation"] = _bump_pricing_sync_generation(connection)
+        if not history_only:
+            stats["generation"] = _bump_pricing_sync_generation(connection)
         update_provider_sync_run(
             connection,
             run_id,
