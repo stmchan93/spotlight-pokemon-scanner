@@ -140,10 +140,11 @@ export const colors = {
    * backdrop, so over a black slab a puck vanished (2026-09-04). ONE value for
    * every puck: at 60% the pucks still swung from mid-gray to white as the
    * camera panned and sat at three different grays in one row ("keeps
-   * changing from light to dark", 2026-09-08). 85% leaves the backdrop a 15%
-   * say — frost at the edges and in the blur, a near-constant white face.
+   * changing from light to dark", 2026-09-08). 85% then read too flat, so
+   * 72% splits the difference: the backdrop gets ~28% say — visible frost,
+   * a face that drifts only between light gray and white.
    */
-  frostTint: 'rgba(255, 255, 255, 0.85)',
+  frostTint: 'rgba(255, 255, 255, 0.72)',
   // Tappable link text over dark/photo backgrounds (profile header cover).
   linkOnDark: '#D6E8FF',
 } as const;
