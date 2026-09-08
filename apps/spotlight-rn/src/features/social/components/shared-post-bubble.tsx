@@ -236,6 +236,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   card: {
+    borderCurve: 'continuous',
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
     // Fixed rather than max: the photo arrives after the card is on screen, and

@@ -1611,7 +1611,20 @@ export function PortfolioScreen({
   const statusBar = <StatusBar style={isBarOverCover ? 'light' : 'dark'} />;
 
   const pagerTabBar = (
-    <View style={{ backgroundColor: theme.colors.gray0 }}>
+    // paddingTop 16 = the designed gap above the labels, OPAQUE so nothing
+    // slides through it pinned. The rounded top corners live HERE (Figma
+    // 4157:74399): at rest the bar is pulled 16 up over the cover's bottom
+    // edge (pinnedBlock's negative margin), so the corners notch into the
+    // cover; pinned they sit white-on-white under the toolbar backdrop.
+    <View
+      style={{
+        backgroundColor: theme.colors.gray0,
+        borderCurve: 'continuous',
+        borderTopLeftRadius: 16,
+        borderTopRightRadius: 16,
+        paddingTop: 16,
+      }}
+    >
       <PageTabs
         onChange={setActiveProfileTab}
         tabs={PROFILE_TABS}
@@ -2047,20 +2060,11 @@ export function PortfolioScreen({
     {/* Overrides the route's static style: white glyphs over the cover, dark
         once the bar pins — mirrors the header's own contrast flip. */}
     {statusBar}
-    {/* Top/bottom white fades (Figma 4134:49489 / 49749): white 70% -> clear
-        under the status area, mirrored above the tab bar (the frame's 4px
-        bottom blur is skipped — no gradient-masked blur in RN). */}
-    <View pointerEvents="none" style={styles.profileTopFade}>
-      <Svg height="100%" width="100%">
-        <Defs>
-          <SvgLinearGradient id="profileTopFade" x1="0" x2="0" y1="0" y2="1">
-            <Stop offset="0" stopColor="#FFFFFF" stopOpacity="0.7" />
-            <Stop offset="1" stopColor="#FFFFFF" stopOpacity="0" />
-          </SvgLinearGradient>
-        </Defs>
-        <Rect fill="url(#profileTopFade)" height="100%" width="100%" x="0" y="0" />
-      </Svg>
-    </View>
+    {/* Bottom white fade above the tab bar (Figma 4134:49749): white 70% ->
+        clear (the frame's 4px bottom blur is skipped — no gradient-masked blur
+        in RN). No top fade: the cover's own scrim in ProfileHeader (Figma
+        4134:49492) handles status-bar contrast, and a white wash there read as
+        a gray band over the photo. */}
     <View pointerEvents="none" style={styles.profileBottomFade}>
       <Svg height="100%" width="100%">
         <Defs>
@@ -2101,9 +2105,11 @@ export function PortfolioScreen({
         pageRefs={pageScrollRefs}
         // Park the tab bar under the floating bubbles instead of at y=0, where
         // "Collection / For Sale / Activity" ended up drawn behind the clock.
-        // +16: the tab container's top edge sits 16 below the toolbar
-        // (Figma 4134:23879 -> 51191), not flush against it.
-        pinnedTopInset={insets.top + HOME_HEADER_ROW_HEIGHT + 16}
+        // FLUSH against the toolbar, no +16: the toolbar backdrop only covers
+        // its own height, so a parked gap is a see-through strip with cards
+        // sliding through it. The designed 16 below the toolbar is the tab-bar
+        // wrapper's own OPAQUE paddingTop instead (Figma 4134:51191).
+        pinnedTopInset={insets.top + HOME_HEADER_ROW_HEIGHT}
         renderPage={renderProfilePage}
         scrollY={pagerScrollY}
         shouldStandDown={isSearchFieldFocused}
@@ -2322,15 +2328,6 @@ const styles = StyleSheet.create({
     right: 0,
     zIndex: 6,
   },
-  profileTopFade: {
-    height: 59,
-    left: 0,
-    position: 'absolute',
-    right: 0,
-    top: 0,
-    // Above the pager chrome (zIndex 5) but tap-transparent.
-    zIndex: 6,
-  },
   chartWrap: {
     // Gap from the % change line down to the time filter (7D/1M/…) is tuned to
     // 32px per feedback. The chrome wrapper already adds a 16px inter-child gap,
@@ -2347,11 +2344,12 @@ const styles = StyleSheet.create({
     gap: 16,
     paddingBottom: 16,
   },
-  // The profile block inside the pinned chrome. It carries the 16px that the
-  // shared header wrapper's `gap` used to put between it and the tab bar.
+  // The profile block inside the pinned chrome. Pulls the tab-bar wrapper's
+  // rounded, opaque 16pt top band UP over this header's cover bottom, so the
+  // sheet-top -> label gap is 16 once (not stacked) and the bar's corners
+  // notch into the cover. The bar paints above this sibling by tree order.
   pinnedBlock: {
-    // No bottom padding: PageTabs below owns the 16pt above its labels
-    // (Figma 4067:26806).
+    marginBottom: -16,
   },
   activityEmptyText: {
     // Empty-Activity message: plain centered text, no card chrome and no press

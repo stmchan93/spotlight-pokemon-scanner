@@ -110,6 +110,7 @@ export function PillButton({
 const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 999,
     borderWidth: 1,
     flexDirection: 'row',
@@ -120,6 +121,7 @@ const styles = StyleSheet.create({
   },
   filterContainer: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 8,
     borderWidth: 1,
     flexDirection: 'row',
@@ -137,6 +139,7 @@ const styles = StyleSheet.create({
   // content rather than by a stroked shell.
   softContainer: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: radii.sm,
     borderWidth: 0,
     flexDirection: 'row',

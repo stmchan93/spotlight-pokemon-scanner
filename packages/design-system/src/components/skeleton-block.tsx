@@ -27,6 +27,7 @@ export function SkeletonBlock({
         {
           width,
           height,
+          borderCurve: 'continuous',
           borderRadius: radius ?? theme.radii.md,
           backgroundColor: theme.colors.field,
         },

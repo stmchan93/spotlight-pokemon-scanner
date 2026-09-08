@@ -71,7 +71,7 @@ function ConfidencePill({ confidence, testID }: { confidence: number; testID?: s
     <View
       style={[
         styles.confidencePill,
-        { backgroundColor: level.chipBg, borderRadius: theme.radii.pill },
+        { backgroundColor: level.chipBg, borderCurve: 'continuous', borderRadius: theme.radii.pill },
       ]}
       testID={testID}
     >
@@ -288,6 +288,7 @@ const styles = StyleSheet.create({
     width: 76,
   },
   compareThumb: {
+    borderCurve: 'continuous',
     borderRadius: radii.md,
     height: 64,
     width: 64,

@@ -44,6 +44,7 @@ export function Badge({
         {
           backgroundColor: toneStyle.backgroundColor,
           borderColor: toneStyle.borderColor,
+          borderCurve: 'continuous',
           borderRadius: theme.radii.pill,
         },
         style,

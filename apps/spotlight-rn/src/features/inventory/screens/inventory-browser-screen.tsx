@@ -432,6 +432,7 @@ const styles = StyleSheet.create({
   },
   filterOption: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 12,
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -439,6 +440,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   filterSheet: {
+    borderCurve: 'continuous',
     borderRadius: 0,
     borderWidth: 1,
     gap: 4,

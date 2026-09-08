@@ -199,6 +199,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   sheet: {
+    borderCurve: 'continuous',
     borderTopLeftRadius: 0,
     borderTopRightRadius: 0,
     paddingTop: 10,

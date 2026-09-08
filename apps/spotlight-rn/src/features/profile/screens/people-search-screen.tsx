@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { FlatList, Pressable, StyleSheet, View, type TextInput } from 'react-native';
+import { useNavigation, useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CheckCircle } from 'iconoir-react-native';
@@ -33,6 +33,28 @@ export function PeopleSearchScreen({ testID = 'people-search' }: { testID?: stri
   const [results, setResults] = useState<UserProfile[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const searchTokenRef = useRef(0);
+
+  /*
+    Focus AFTER the push transition, not `autoFocus`: an autofocused input
+    starts presenting the keyboard at mount — mid push animation — and the two
+    native animations fight (keyboard begins, is interrupted as the screen
+    attaches, presents again). That read as the keyboard opening twice and the
+    screen "opening two pages". `transitionEnd` fires once the native stack has
+    settled; the once-flag keeps the keyboard from re-popping when a profile
+    row pops back to this screen.
+  */
+  const navigation = useNavigation();
+  const searchFieldRef = useRef<TextInput>(null);
+  const didAutoFocusRef = useRef(false);
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('transitionEnd' as never, () => {
+      if (!didAutoFocusRef.current) {
+        didAutoFocusRef.current = true;
+        searchFieldRef.current?.focus();
+      }
+    });
+    return unsubscribe;
+  }, [navigation]);
 
   const trimmedQuery = query.trim();
   const isSearching = trimmedQuery.length > 0;
@@ -123,9 +145,9 @@ export function PeopleSearchScreen({ testID = 'people-search' }: { testID?: stri
       </View>
       <View style={[styles.searchRow, { paddingHorizontal: theme.layout.pageGutter }]}>
         <SearchField
+          ref={searchFieldRef}
           autoCapitalize="none"
           autoCorrect={false}
-          autoFocus
           containerTestID={`${testID}-field`}
           onChangeText={setQuery}
           placeholder="Search collectors"

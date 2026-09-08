@@ -84,6 +84,7 @@ export function SegmentedControl<T extends string>({
         {
           backgroundColor: shell.backgroundColor,
           borderColor: shell.borderColor,
+          borderCurve: 'continuous',
           borderRadius: shell.containerBorderRadius,
           borderWidth: shell.borderWidth,
           gap: shell.gap,
@@ -104,6 +105,7 @@ export function SegmentedControl<T extends string>({
               styles.segment,
               {
                 backgroundColor: selected ? shell.selectedBackgroundColor : 'transparent',
+                borderCurve: 'continuous',
                 borderRadius: shell.segmentBorderRadius,
                 opacity: pressed ? 0.86 : 1,
                 paddingHorizontal: metrics.paddingHorizontal,

@@ -361,6 +361,7 @@ const styles = StyleSheet.create({
   // around the 20px icon (Figma 1768:4057/4061).
   captureActionCircle: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: recentCaptureActionCircleSize / 2,
     height: recentCaptureActionCircleSize,
     justifyContent: 'center',

@@ -1079,6 +1079,7 @@ const styles = StyleSheet.create({
   },
   tooltip: {
     alignItems: 'flex-start',
+    borderCurve: 'continuous',
     borderRadius: 8,
     gap: 4,
     paddingHorizontal: 10,
@@ -1097,6 +1098,7 @@ const styles = StyleSheet.create({
   },
   rangePill: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 4,
     justifyContent: 'center',
     paddingHorizontal: 6,
@@ -1104,6 +1106,7 @@ const styles = StyleSheet.create({
   },
   rangePillSelected: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 8,
     justifyContent: 'center',
     paddingHorizontal: 12,
@@ -1120,6 +1123,7 @@ const styles = StyleSheet.create({
     lineHeight: 18.2,
   },
   skeletonBar: {
+    borderCurve: 'continuous',
     borderRadius: 6,
     width: 12,
   },

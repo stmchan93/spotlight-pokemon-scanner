@@ -91,6 +91,7 @@ const styles = StyleSheet.create({
   },
   button: {
     backgroundColor: '#0F0F12',
+    borderCurve: 'continuous',
     borderRadius: 12,
     marginTop: 8,
     paddingHorizontal: 28,

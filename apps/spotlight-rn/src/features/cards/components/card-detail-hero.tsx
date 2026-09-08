@@ -87,7 +87,7 @@ export function CardDetailHero({
             frameW.value = event.nativeEvent.layout.width;
             frameH.value = event.nativeEvent.layout.height;
           }}
-          style={[styles.imageWrapper, { borderRadius: theme.layout.heroArtRadius }, animatedStyle]}
+          style={[styles.imageWrapper, { borderCurve: 'continuous', borderRadius: theme.layout.heroArtRadius }, animatedStyle]}
         >
           <CachedImage
             accessibilityLabel={name}
@@ -131,6 +131,7 @@ export function CardDetailHero({
 const styles = StyleSheet.create({
   favorite: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 999,
     borderWidth: 1,
     // 36×36 to match the header's share/back IconButtons (size 36) — same right

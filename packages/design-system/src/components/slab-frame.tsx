@@ -294,6 +294,7 @@ function TemplateSlab({
         style={[
           boxStyle(template.cardWindow, WINDOW_BLEED),
           {
+            borderCurve: 'continuous',
             borderRadius: Math.max(
               2,
               width * template.cardWindow.w * template.cardCornerRadiusFrac,
@@ -526,6 +527,7 @@ const styles = StyleSheet.create({
   case: {
     backgroundColor: colors.gray100,
     borderColor: 'rgba(0, 0, 0, 0.14)',
+    borderCurve: 'continuous',
     borderRadius: 5,
     borderWidth: StyleSheet.hairlineWidth,
     flex: 1,
@@ -533,6 +535,7 @@ const styles = StyleSheet.create({
     padding: 3,
   },
   caseSmall: {
+    borderCurve: 'continuous',
     borderRadius: 4,
     padding: 2,
   },
@@ -573,6 +576,7 @@ const styles = StyleSheet.create({
   label: {
     alignItems: 'center',
     backgroundColor: colors.gray0,
+    borderCurve: 'continuous',
     borderRadius: 1.5,
     borderWidth: 1.25,
     flexDirection: 'row',

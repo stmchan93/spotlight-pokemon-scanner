@@ -192,10 +192,12 @@ const styles = StyleSheet.create({
   pill: {
     alignSelf: 'center',
     // Fully rounded ends → the "long oval" / stadium shape.
+    borderCurve: 'continuous',
     borderRadius: 999,
     overflow: 'visible',
   },
   pillGlass: {
+    borderCurve: 'continuous',
     borderRadius: 999,
     bottom: 0,
     left: 0,
@@ -230,6 +232,7 @@ const styles = StyleSheet.create({
   tabSelected: {
     // Light-grey stadium wrapping the active tab's icon + label together
     // (Reddit-style). Fully-rounded ends read as an oval around the column.
+    borderCurve: 'continuous',
     borderRadius: 999,
     paddingHorizontal: 18,
     paddingVertical: 6,

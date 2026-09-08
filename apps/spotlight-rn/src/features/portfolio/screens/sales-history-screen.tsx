@@ -450,12 +450,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   saleArt: {
+    borderCurve: 'continuous',
     borderRadius: 12,
     height: 96,
     resizeMode: 'contain',
     width: 72,
   },
   saleArtSkeleton: {
+    borderCurve: 'continuous',
     borderRadius: 12,
     height: 96,
     width: 72,
@@ -466,6 +468,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   saleCardPressable: {
+    borderCurve: 'continuous',
     borderRadius: 16,
   },
   saleCopy: {
@@ -528,16 +531,19 @@ const styles = StyleSheet.create({
     letterSpacing: 1.8,
   },
   skeletonLineMedium: {
+    borderCurve: 'continuous',
     borderRadius: 999,
     height: 12,
     width: '62%',
   },
   skeletonLineNarrow: {
+    borderCurve: 'continuous',
     borderRadius: 999,
     height: 10,
     width: '42%',
   },
   skeletonLineWide: {
+    borderCurve: 'continuous',
     borderRadius: 999,
     height: 16,
     width: '80%',

@@ -2566,6 +2566,7 @@ export function CommentsSheet({
                 styles.sendButton,
                 {
                   backgroundColor: canSend ? theme.colors.purple500 : theme.colors.gray200,
+                  borderCurve: 'continuous',
                   borderRadius: theme.radii.pill,
                 },
               ]}
@@ -2739,6 +2740,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   handleBar: {
+    borderCurve: 'continuous',
     borderRadius: 2,
     height: 4,
     width: 36,
@@ -2797,6 +2799,7 @@ const styles = StyleSheet.create({
     width: MORE_BUTTON_SIZE,
   },
   repliesDash: {
+    borderCurve: 'continuous',
     borderRadius: 1,
     height: 1,
     width: 16,
@@ -2810,6 +2813,7 @@ const styles = StyleSheet.create({
   },
   replyBanner: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 10,
     flexDirection: 'row',
     gap: 8,
@@ -2836,6 +2840,7 @@ const styles = StyleSheet.create({
     width: 40,
   },
   sheet: {
+    borderCurve: 'continuous',
     borderTopLeftRadius: 0,
     borderTopRightRadius: 0,
     // height is applied inline — it animates between the resting and

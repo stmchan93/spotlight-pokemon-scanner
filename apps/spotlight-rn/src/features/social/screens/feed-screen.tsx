@@ -465,6 +465,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
           styles.composePrompt,
           {
             backgroundColor: theme.colors.gray100,
+            borderCurve: 'continuous',
             borderRadius: theme.radii.pill,
             opacity: pressed ? 0.7 : 1,
           },
@@ -689,16 +690,23 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         </Svg>
       </View>
       {/*
-        Bottom gradient (Figma 4299:95240): white 70% at the edge -> clear by
-        ~94% up, fading the feed out under the floating tab bar. The frame's
-        4px backdrop-blur is intentionally skipped: expo-blur can't do partial-
-        opacity gradient blur and a full BlurView reads as a hard band.
+        Bottom gradient (Figma 4407:283): solid white at the edge -> clear by
+        ~94% up a 95pt band, fading the feed out under the floating tab bar.
+
+        95 FLAT, not `insets.bottom + 95`: the mock's frame is drawn on a
+        home-indicator device, so its 95 already includes the bottom inset.
+        Adding the inset again pushed the fade ~34pt higher than designed and
+        it read as a haze over the content ("the gradient needs to be lower").
+
+        The frame's progressive 0->8 backdrop-blur is intentionally skipped:
+        expo-blur can't do gradient blur and a full BlurView reads as a hard
+        band.
       */}
-      <View pointerEvents="none" style={[styles.bottomGradient, { height: insets.bottom + 95 }]}>
+      <View pointerEvents="none" style={[styles.bottomGradient, { height: 95 }]}>
         <Svg height="100%" width="100%">
           <Defs>
             <LinearGradient id="homeBottomFade" x1="0" x2="0" y1="1" y2="0">
-              <Stop offset="0" stopColor="#FFFFFF" stopOpacity="0.7" />
+              <Stop offset="0" stopColor="#FFFFFF" stopOpacity="1" />
               <Stop offset="0.93684" stopColor="#FFFFFF" stopOpacity="0" />
             </LinearGradient>
           </Defs>

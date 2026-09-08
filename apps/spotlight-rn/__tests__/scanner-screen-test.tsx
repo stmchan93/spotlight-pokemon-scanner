@@ -1291,11 +1291,11 @@ describe('ScannerScreen', () => {
         >
       )?.backgroundColor;
 
-    // Top-bar pill: shared light glass fallback (Figma 4299:93955). Selected
-    // zoom: solid white chip; the other factors are bare labels.
-    expect(fillOf('scanner-target-pill-surface')).toBe('rgba(255, 255, 255, 0.10)');
-    expect(fillOf('scanner-zoom-1x-surface')).toBe('rgba(255, 255, 255, 0.10)');
-    expect(screen.queryByTestId('scanner-zoom-2x-surface')).toBeNull();
+    // Frost chrome with no glass to tint: the top-bar pill and the selected
+    // zoom chip fall back to solid gray0; unselected zoom chips to faint white.
+    expect(fillOf('scanner-target-pill-surface')).toBe(colors.gray0);
+    expect(fillOf('scanner-zoom-1x-surface')).toBe(colors.gray0);
+    expect(fillOf('scanner-zoom-2x-surface')).toBe(colors.frostTintFaint);
 
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
@@ -1303,9 +1303,10 @@ describe('ScannerScreen', () => {
       expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
     });
 
-    // Collapsed tray chips: translucent white over the camera (Figma 4299:93955).
-    expect(fillOf('scanner-recent-title-surface')).toBe('rgba(255, 255, 255, 0.10)');
-    expect(fillOf('scanner-value-pill-surface')).toBe('rgba(255, 255, 255, 0.10)');
+    // Collapsed tray chips: frost over the camera, solid gray0 on fallback
+    // targets (no glass to tint).
+    expect(fillOf('scanner-recent-title-surface')).toBe(colors.gray0);
+    expect(fillOf('scanner-value-pill-surface')).toBe(colors.gray0);
 
     /*
       The tray backdrop is the SAME frosted dim on every platform now (Figma

@@ -124,6 +124,7 @@ const styles = StyleSheet.create({
   },
   chevronStem: {
     backgroundColor: 'rgba(15, 15, 18, 0.58)',
+    borderCurve: 'continuous',
     borderRadius: 999,
     height: 2.2,
     position: 'absolute',

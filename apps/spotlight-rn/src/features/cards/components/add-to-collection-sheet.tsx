@@ -360,6 +360,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   handleBar: {
+    borderCurve: 'continuous',
     borderRadius: 2,
     height: 4,
     width: 36,
@@ -385,6 +386,7 @@ const styles = StyleSheet.create({
   },
   selector: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 8,
     flexDirection: 'row',
     height: 32,
@@ -393,6 +395,7 @@ const styles = StyleSheet.create({
     width: 160,
   },
   sheet: {
+    borderCurve: 'continuous',
     borderTopLeftRadius: 0,
     borderTopRightRadius: 0,
     maxHeight: '88%',
@@ -406,6 +409,7 @@ const styles = StyleSheet.create({
   },
   stepperButton: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 999,
     justifyContent: 'center',
     padding: 6,

@@ -114,7 +114,7 @@ export type GlassNavBubbleGroupProps = {
   /** Same meaning as on `GlassNavBubble`: what is UNDERNEATH, not the material. */
   surface?: GlassNavBubbleSurface;
   /** 'solid' = opaque gray0 capsule instead of Liquid Glass (see GlassNavBubble). */
-  material?: 'glass' | 'solid';
+  material?: 'glass' | 'solid' | 'frost';
   /** Positioning/layout is the consumer's; the primitive only draws the shell. */
   style?: StyleProp<ViewStyle>;
   testID?: string;
@@ -178,6 +178,7 @@ export function GlassNavBubbleGroup({
       style={[
         styles.group,
         {
+          borderCurve: 'continuous',
           borderRadius: radius,
           gap: metrics.gap,
           height: metrics.height,
@@ -190,12 +191,14 @@ export function GlassNavBubbleGroup({
       testID={testID}
     >
       <GlassSurface
-        fallbackColor={material === 'solid' ? theme.colors.gray0 : onDark ? 'transparent' : theme.colors.glassFallback}
+        fallbackColor={material === 'glass' ? (onDark ? 'transparent' : theme.colors.glassFallback) : theme.colors.gray0}
         forceFallback={material === 'solid'}
-        glassColorScheme={onDark ? 'dark' : 'auto'}
+        glassColorScheme={material === 'frost' ? 'light' : onDark ? 'dark' : 'auto'}
         glassEffectStyle="regular"
+        glassTintColor={material === 'frost' ? theme.colors.frostTint : undefined}
+        // 'frost' pins light + white tint: see GlassNavBubble.
         pointerEvents="none"
-        style={[styles.glass, { borderRadius: radius }]}
+        style={[styles.glass, { borderCurve: 'continuous', borderRadius: radius }]}
       />
       {items.map((item, index) => (
         <Pressable

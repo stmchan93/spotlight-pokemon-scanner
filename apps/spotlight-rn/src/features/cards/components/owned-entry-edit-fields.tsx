@@ -230,6 +230,7 @@ const styles = StyleSheet.create({
   },
   gainPill: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 4,
     flexDirection: 'row',
     // The pill keeps its size; the input yields (down to its minWidth).
@@ -252,6 +253,7 @@ const styles = StyleSheet.create({
   },
   selector: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 8,
     flexDirection: 'row',
     height: 32,
@@ -267,6 +269,7 @@ const styles = StyleSheet.create({
   },
   stepperButton: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 999,
     justifyContent: 'center',
     padding: 6,

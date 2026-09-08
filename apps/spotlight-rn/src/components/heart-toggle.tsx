@@ -267,6 +267,7 @@ export function HeartToggle({
             height: ringSize,
             marginLeft: -ringSize / 2,
             marginTop: -ringSize / 2,
+            borderCurve: 'continuous',
             borderRadius: ringSize / 2,
             borderColor: fill,
           },

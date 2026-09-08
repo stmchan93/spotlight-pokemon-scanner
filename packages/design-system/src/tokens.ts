@@ -134,6 +134,17 @@ export const colors = {
    * pages; this one stays visible without imitating glass.
    */
   glassFallback: '#F3F3F3',
+  /**
+   * White tint painted INTO real Liquid Glass on chrome that floats over live
+   * camera / photos. Untinted glass has no floor — it is only as bright as its
+   * backdrop, so over a black slab a puck vanished (2026-09-04). 60% white is
+   * the darkest-case guard (≈4.8:1 for gray900 labels over pure black) and
+   * matches Figma's stacked 40%+40% chip fills (4911:8865). Strong/faint are
+   * the selected/unselected zoom-pill pair.
+   */
+  frostTint: 'rgba(255, 255, 255, 0.6)',
+  frostTintStrong: 'rgba(255, 255, 255, 0.75)',
+  frostTintFaint: 'rgba(255, 255, 255, 0.4)',
   // Tappable link text over dark/photo backgrounds (profile header cover).
   linkOnDark: '#D6E8FF',
 } as const;
@@ -165,6 +176,10 @@ export const spacing = {
   xxxl: 40,
 } as const;
 
+// Every rounded surface pairs its radius with `borderCurve: 'continuous'`
+// (iOS squircle ≈ Figma 60% corner smoothing; Android ignores the prop).
+// Keep the pair together in new styles — View/Pressable styles only, the
+// RN/expo Image style types don't accept borderCurve (clip via the wrapper).
 export const radii = {
   sm: 8,
   md: 12,

@@ -198,6 +198,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.4)',
   },
   sheet: {
+    borderCurve: 'continuous',
     borderTopLeftRadius: 0,
     borderTopRightRadius: 0,
     maxHeight: '70%',

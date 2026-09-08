@@ -51,11 +51,13 @@ describe('WishlistHeader', () => {
     not arithmetic against the same constants that produce it, or the assertion
     is tautological.
 
-    8pt of padding above a 44pt control row. NO bottom padding, unlike Home's 56:
-    the first thing in this list carries its own 24pt top margin.
+    NO padding above the 44pt control row — the bar hangs straight off the
+    safe-area inset so the bubbles sit at the same height as Home's (an 8 here
+    read as "the Wishlist bar is lower"). NO bottom padding either, unlike
+    Home's 56: the first thing in this list carries its own 24pt top margin.
   */
-  it('reserves 8pt above a 44pt control row, and nothing below it', () => {
-    expect(WISHLIST_HEADER_BAR_HEIGHT).toBe(52);
+  it('reserves a bare 44pt control row: nothing above it, nothing below it', () => {
+    expect(WISHLIST_HEADER_BAR_HEIGHT).toBe(44);
     expect(glassNavBubbleSizes.compact).toBe(40);
   });
 

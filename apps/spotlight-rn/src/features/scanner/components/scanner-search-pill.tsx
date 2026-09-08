@@ -70,11 +70,13 @@ export function ScannerSearchPill({
 const styles = StyleSheet.create({
   // The pill takes the rest of the toolbar row.
   pressable: {
+    borderCurve: 'continuous',
     borderRadius: 999,
     flex: 1,
   },
   pill: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 999,
     flexDirection: 'row',
     gap: CONTENT_INSET,

@@ -131,6 +131,7 @@ const styles = StyleSheet.create({
   },
   headerButton: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 100,
     height: HEADER_BUTTON_SIZE,
     justifyContent: 'center',

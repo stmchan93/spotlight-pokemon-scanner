@@ -54,6 +54,7 @@ const styles = StyleSheet.create({
   },
   pill: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 999,
     height: 44,
     justifyContent: 'center',

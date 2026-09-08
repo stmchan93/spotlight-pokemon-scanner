@@ -38,7 +38,7 @@ export function Avatar({
     <View
       style={[
         styles.container,
-        { borderRadius: size / 2, height: size, width: size },
+        { borderCurve: 'continuous', borderRadius: size / 2, height: size, width: size },
         hasImage ? null : { backgroundColor: theme.colors.purple500 },
         ringStyle,
         style,

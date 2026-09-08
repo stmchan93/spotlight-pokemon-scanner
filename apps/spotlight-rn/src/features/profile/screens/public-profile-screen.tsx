@@ -838,7 +838,11 @@ export function PublicProfileScreen({
   );
 
   const pagerHeader = (
-    <View style={[styles.chrome, { backgroundColor: theme.colors.gray0 }]}>
+    // marginBottom -16: the tab-bar wrapper (rounded top, opaque 16) slides up
+    // OVER this header's cover bottom, so the sheet-top -> label gap is 16
+    // once and the corners notch into the cover. NO zIndex — the bar must
+    // paint above this sibling.
+    <View style={[styles.chrome, { backgroundColor: theme.colors.gray0, marginBottom: -16 }]}>
       <ProfileHeader
         // 22 between the floating back bubble and the avatar (Figma
         // 4157:74176 -> 74405): bubble spans insets.top+8..+52, so 52+22 = 74.
@@ -867,7 +871,18 @@ export function PublicProfileScreen({
   );
 
   const pagerTabBar = (
-    <View style={{ backgroundColor: theme.colors.gray0 }}>
+    // Same decomposition as Portfolio: opaque 16 above the labels, pulled 16
+    // up over the cover at rest, with the sheet's rounded top corners on the
+    // bar itself (Figma 4157:74399).
+    <View
+      style={{
+        backgroundColor: theme.colors.gray0,
+        borderCurve: 'continuous',
+        borderTopLeftRadius: 16,
+        borderTopRightRadius: 16,
+        paddingTop: 16,
+      }}
+    >
       <PageTabs
         onChange={setActiveTab}
         tabs={PROFILE_TABS}

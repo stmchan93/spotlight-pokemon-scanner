@@ -1120,6 +1120,7 @@ function RowCard({ row, onResolve }: RowCardProps) {
 
 const styles = StyleSheet.create({
   candidateArt: {
+    borderCurve: 'continuous',
     borderRadius: 12,
     height: 74,
     resizeMode: 'contain',
@@ -1127,12 +1128,14 @@ const styles = StyleSheet.create({
   },
   candidateArtFallback: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 12,
     height: 74,
     justifyContent: 'center',
     width: 54,
   },
   candidateButton: {
+    borderCurve: 'continuous',
     borderRadius: 18,
     borderWidth: 1,
     flexDirection: 'row',
@@ -1157,6 +1160,7 @@ const styles = StyleSheet.create({
   },
   commitButton: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 18,
     justifyContent: 'center',
     minHeight: 52,
@@ -1195,6 +1199,7 @@ const styles = StyleSheet.create({
   },
   inlinePill: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 999,
     justifyContent: 'center',
     minHeight: 30,
@@ -1207,6 +1212,7 @@ const styles = StyleSheet.create({
   },
   matchedCard: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 18,
     borderWidth: 1,
     flexDirection: 'row',
@@ -1214,6 +1220,7 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   matchedCardArt: {
+    borderCurve: 'continuous',
     borderRadius: 12,
     height: 76,
     resizeMode: 'contain',
@@ -1226,6 +1233,7 @@ const styles = StyleSheet.create({
   },
   matchedCardFallback: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 12,
     height: 76,
     justifyContent: 'center',
@@ -1309,6 +1317,7 @@ const styles = StyleSheet.create({
   statusBadge: {
     alignItems: 'center',
     alignSelf: 'flex-start',
+    borderCurve: 'continuous',
     borderRadius: 999,
     justifyContent: 'center',
     minHeight: 30,

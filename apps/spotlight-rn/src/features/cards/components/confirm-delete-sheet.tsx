@@ -258,6 +258,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.4)',
   },
   handleBar: {
+    borderCurve: 'continuous',
     borderRadius: 2,
     height: 4,
     width: 36,
@@ -287,6 +288,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   sheet: {
+    borderCurve: 'continuous',
     borderTopLeftRadius: 0,
     borderTopRightRadius: 0,
     paddingTop: 10,

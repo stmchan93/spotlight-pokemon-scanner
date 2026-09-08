@@ -122,12 +122,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 40,
     backgroundColor: 'transparent',
-    // The bar owns the space above its labels INSIDE the container: Figma
-    // 4134:51191 puts 16 from the container's top edge to the word cap. RN's
-    // 19pt line box floats the 15pt glyphs ~4pt lower, so 12 lands the visible
-    // gap on the designed 16. The 16pt gap between the TOOLBAR and this
-    // container is the screen's job (pinnedTopInset), not this padding.
-    paddingTop: 12,
+    // NO top padding: Figma 4157:74399 measures 16 from the sheet's top edge
+    // to the label box, and on both consumers (profile + portfolio) that 16 is
+    // supplied by the header's white SHEET LIP directly above this bar. Any
+    // padding here stacks on top of the lip — 16 + 16 read as ~32 of dead
+    // white above "Collection", which is the bug this zero fixes.
+    paddingTop: 0,
   },
   tab: {
     alignItems: 'center',

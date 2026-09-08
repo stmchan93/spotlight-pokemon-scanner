@@ -247,6 +247,7 @@ export function InventoryCardTile({
           backgroundColor: bordered ? theme.colors.gray50 : 'transparent',
           borderColor: bordered ? theme.colors.gray300 : 'transparent',
           borderWidth: bordered ? 1 : 0,
+          borderCurve: 'continuous',
           borderRadius: bordered ? theme.radii.md : 0,
           opacity: pressed ? 0.92 : 1,
         },
@@ -258,7 +259,7 @@ export function InventoryCardTile({
           style={[
             styles.imageFrame,
             artAspect === 'card' ? styles.imageFrameCard : null,
-            { borderRadius: artRadius },
+            { borderCurve: 'continuous', borderRadius: artRadius },
           ]}
           testID={testID ? `${testID}-image-frame` : undefined}
         >
@@ -625,6 +626,7 @@ const styles = StyleSheet.create({
     paddingTop: 10,
   },
   ebayDot: {
+    borderCurve: 'continuous',
     borderRadius: 999,
     height: 6,
     width: 6,

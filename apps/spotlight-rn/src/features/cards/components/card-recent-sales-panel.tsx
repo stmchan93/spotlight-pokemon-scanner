@@ -1,3 +1,4 @@
+import { Image } from 'expo-image';
 import { useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, StyleSheet, View } from 'react-native';
 
@@ -40,6 +41,11 @@ type CardRecentSalesPanelProps = {
 // page (up to the 20 the screen requests) → "See all on eBay" deep link past
 // that. All served from the same cached Scrydex page, zero extra credits.
 const INITIAL_VISIBLE_SALES = 5;
+
+// Listing-photo thumbnail: sellers shoot slabs portrait, so a 3:4 tile. The
+// eBay Browse `s-l1600` original is downscaled by expo-image.
+const THUMB_WIDTH = 48;
+const THUMB_HEIGHT = 64;
 
 // Sellers often lead titles with the raw cert number ("140550170 Suicune…"),
 // which is pure noise on a one-line row — strip a leading 7+ digit run (with
@@ -96,18 +102,36 @@ function SaleRow({
 
   const content = (
     <>
+      {/* Photo first: the listing's own picture is the fastest read of what
+          actually sold (centering, slab label, seller's lighting). Empty tile
+          when Browse had no image for the row. */}
+      <View
+        style={[styles.thumb, { backgroundColor: theme.colors.gray100 }]}
+        testID={testID ? `${testID}-thumb` : undefined}
+      >
+        {sale.imageUrl ? (
+          <Image
+            accessibilityIgnoresInvertColors
+            cachePolicy="memory-disk"
+            contentFit="cover"
+            source={{ uri: sale.imageUrl }}
+            style={StyleSheet.absoluteFill}
+            transition={120}
+          />
+        ) : null}
+      </View>
       <View style={styles.saleLeft}>
+        <Text
+          numberOfLines={2}
+          style={[theme.typography.label, styles.saleTitle, { color: theme.colors.gray700 }]}
+        >
+          {displayTitle}
+        </Text>
         {dateText ? (
           <Text style={[theme.typography.label, { color: theme.colors.gray500 }]}>
             {dateText}
           </Text>
         ) : null}
-        <Text
-          numberOfLines={1}
-          style={[theme.typography.label, styles.saleTitle, { color: theme.colors.gray700 }]}
-        >
-          {displayTitle}
-        </Text>
       </View>
       <Text style={[theme.typography.bodyMedium, { color: theme.colors.gray900 }]}>
         {sale.priceAmount == null ? '—' : formatCurrency(sale.priceAmount, sale.currencyCode)}
@@ -278,10 +302,8 @@ const styles = StyleSheet.create({
     paddingTop: 4,
   },
   saleLeft: {
-    alignItems: 'center',
     flex: 1,
-    flexDirection: 'row',
-    gap: 8,
+    gap: 2,
     minWidth: 0,
   },
   saleRow: {
@@ -289,10 +311,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     justifyContent: 'space-between',
-    minHeight: 34,
+    // Tall enough for the 64pt photo plus breathing room; two-line titles fit.
+    minHeight: THUMB_HEIGHT + 8,
+    paddingVertical: 4,
   },
   saleTitle: {
     flexShrink: 1,
+  },
+  thumb: {
+    borderCurve: 'continuous',
+    borderRadius: 6,
+    height: THUMB_HEIGHT,
+    overflow: 'hidden',
+    width: THUMB_WIDTH,
   },
   showMore: {
     alignItems: 'center',

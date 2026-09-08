@@ -432,6 +432,7 @@ const styles = StyleSheet.create({
   headerButton: {
     alignItems: 'center',
     backgroundColor: colors.gray50,
+    borderCurve: 'continuous',
     borderRadius: 18,
     height: 36,
     justifyContent: 'center',
@@ -471,6 +472,7 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   sortAppliedDot: {
+    borderCurve: 'continuous',
     borderRadius: 5,
     height: 10,
     position: 'absolute',

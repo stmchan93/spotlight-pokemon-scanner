@@ -21,6 +21,8 @@ from catalog_tools import (  # noqa: E402
     resolve_raw_summary_from_cells,
 )
 from ppt_adapter import (  # noqa: E402
+    ebay_item_id_from_url,
+    reconcile_recent_sales_prices,
     build_card_population,
     build_population_entry,
     build_ppt_graded_contexts,
@@ -212,3 +214,60 @@ class PptPopulationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RecentSalesReconciliationTests(unittest.TestCase):
+    def test_ebay_item_id_from_url(self):
+        self.assertEqual(ebay_item_id_from_url("https://www.ebay.com/itm/366618245287?nordt=true"), "366618245287")
+        self.assertIsNone(ebay_item_id_from_url("https://www.ebay.com/sch/i.html?_nkw=rayquaza"))
+        self.assertIsNone(ebay_item_id_from_url(None))
+
+    def test_precedence_ppt_then_fx_then_scrydex(self):
+        sales = [
+            {"price": 5900.0, "currencyCode": "USD", "listingURL": "https://www.ebay.com/itm/1", "sourcePayload": {}},
+            {"price": 5900.0, "currencyCode": "AUD", "listingURL": "https://www.ebay.com/itm/2", "sourcePayload": {}},
+            {"price": 100.0, "currencyCode": "USD", "listingURL": "https://www.ebay.com/itm/3", "sourcePayload": {}},
+            {"price": 80.0, "currencyCode": "GBP", "listingURL": "https://www.ebay.com/itm/4", "sourcePayload": {}},
+        ]
+        ppt = {
+            "1": {"listingId": "1", "price": 4230.3, "currency": "USD"},
+            # A PPT row in a foreign currency is NOT trusted over Scrydex.
+            "3": {"listingId": "3", "price": 150.0, "currency": "AUD"},
+        }
+        counts = reconcile_recent_sales_prices(
+            sales, ppt, to_usd=lambda amount, code: amount * 0.72 if code == "AUD" else None
+        )
+        self.assertEqual(counts, {"ebay": 0, "ppt": 1, "fx": 1, "scrydex": 1, "unconverted": 1})
+        self.assertEqual((sales[0]["price"], sales[0]["currencyCode"]), (4230.3, "USD"))
+        self.assertEqual((sales[1]["price"], sales[1]["currencyCode"]), (4248.0, "USD"))
+        self.assertEqual((sales[2]["price"], sales[2]["currencyCode"]), (100.0, "USD"))
+        self.assertEqual((sales[3]["price"], sales[3]["currencyCode"]), (80.0, "GBP"))
+        # Provenance survives into the cached payload.
+        self.assertEqual(sales[0]["sourcePayload"]["_spotlight"]["priceSource"], "ppt")
+        self.assertEqual(sales[0]["sourcePayload"]["_spotlight"]["scrydexPrice"], 5900.0)
+        self.assertEqual(sales[3]["sourcePayload"]["_spotlight"]["priceSource"], "unconverted")
+
+    def test_ebay_converted_price_beats_ppt_and_supplies_the_photo(self):
+        sales = [
+            {"price": 5900.0, "currencyCode": "USD", "listingURL": "https://www.ebay.com/itm/1", "sourcePayload": {}},
+            {"price": 100.0, "currencyCode": "USD", "listingURL": "https://www.ebay.com/itm/2", "sourcePayload": {}},
+        ]
+        ebay = {
+            # Ended AU auction: eBay reports USD converted from AUD + location.
+            "1": {"priceAmount": 4258.62, "priceCurrency": "USD", "convertedFromAmount": 5900.0,
+                  "convertedFromCurrency": "AUD", "itemLocationCountry": "AU",
+                  "imageURL": "https://i.ebayimg.com/images/g/x/s-l1600.jpg"},
+            # Plain US sale: no conversion -> eBay does NOT override the price
+            # (BIN + best-offer rows show the ask, not the accepted offer).
+            "2": {"priceAmount": 120.0, "priceCurrency": "USD", "convertedFromAmount": None,
+                  "convertedFromCurrency": None, "itemLocationCountry": "US", "imageURL": "https://i.ebayimg.com/2.jpg"},
+        }
+        ppt = {"1": {"listingId": "1", "price": 4230.3, "currency": "USD"}}
+        counts = reconcile_recent_sales_prices(sales, ppt, to_usd=lambda a, c: None, ebay_items_by_item_id=ebay)
+        self.assertEqual(counts, {"ebay": 1, "ppt": 0, "fx": 0, "scrydex": 1, "unconverted": 0})
+        self.assertEqual((sales[0]["price"], sales[0]["currencyCode"]), (4258.62, "USD"))
+        self.assertEqual(sales[0]["imageURL"], "https://i.ebayimg.com/images/g/x/s-l1600.jpg")
+        self.assertEqual(sales[0]["sourcePayload"]["_spotlight"]["itemLocationCountry"], "AU")
+        self.assertEqual(sales[0]["sourcePayload"]["_spotlight"]["ebayConvertedFrom"], {"amount": 5900.0, "currency": "AUD"})
+        self.assertEqual(sales[1]["price"], 100.0)
+        self.assertEqual(sales[1]["imageURL"], "https://i.ebayimg.com/2.jpg")

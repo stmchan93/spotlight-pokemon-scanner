@@ -689,7 +689,7 @@ export function PostCard({
           <Pressable
             accessibilityRole="button"
             onPress={() => (post.cardId ? onPressCard?.(post.cardId) : undefined)}
-            style={[styles.cardChip, { backgroundColor: theme.colors.surfaceMuted, borderRadius: theme.radii.pill }]}
+            style={[styles.cardChip, { backgroundColor: theme.colors.surfaceMuted, borderCurve: 'continuous', borderRadius: theme.radii.pill }]}
             testID={`${testID}-card-chip`}
           >
             <MediaImage color={theme.colors.purple500} height={14} width={14} />

@@ -211,6 +211,7 @@ function ControlChip({
         styles.controlChip,
         {
           backgroundColor: theme.colors.gray50,
+          borderCurve: 'continuous',
           borderRadius: theme.radii.sm,
           opacity: pressed ? 0.85 : 1,
         },
@@ -643,6 +644,7 @@ export function NewPostScreen({ testID = 'new-post' }: { testID?: string }) {
               body.length > 0 ? theme.typography.bodyMedium : theme.typography.bodySmall,
               {
                 backgroundColor: theme.colors.gray50,
+                borderCurve: 'continuous',
                 borderRadius: theme.radii.md,
                 color: theme.colors.gray800,
               },
@@ -815,6 +817,7 @@ const styles = StyleSheet.create({
   },
   imageRemove: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 14,
     height: 28,
     justifyContent: 'center',

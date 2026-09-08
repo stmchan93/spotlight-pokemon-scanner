@@ -118,10 +118,13 @@ type WishlistHeaderProps = {
 const BUTTON_ICON_SIZE = glassNavBubbleGlyphSize;
 const BUTTON_ICON_STROKE = glassNavBubbleGlyphStrokeWidth;
 /**
- * Figma's toolbar (3567:22969) pads 8pt above the control row; the safe-area
- * inset supplies the rest.
+ * 0 to match `HomeHeader`: every tab bar hangs its control row directly off the
+ * safe-area inset, so the bubbles sit at the same height on every tab. (Figma's
+ * toolbar node 3567:22969 shows 8pt above the row, but Home ships 0 — matching
+ * the live app wins over the mock; an 8 here read as "the Wishlist bar is
+ * lower".)
  */
-const BAR_PADDING_TOP = 8;
+const BAR_PADDING_TOP = 0;
 /**
  * Height of the control row. Every control in this bar is 40 tall — the menu
  * bubble (`size="medium"`), the `GlassButtonGroup`, and the `EditDoneButton`

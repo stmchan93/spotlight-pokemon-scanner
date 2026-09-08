@@ -91,6 +91,7 @@ const styles = StyleSheet.create({
   },
   viewMore: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 8,
     justifyContent: 'center',
     paddingHorizontal: 12,

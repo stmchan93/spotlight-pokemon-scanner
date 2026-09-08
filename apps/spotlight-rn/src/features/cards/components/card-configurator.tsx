@@ -50,6 +50,7 @@ function OptionChip({
       style={({ pressed }) => [
         styles.chip,
         {
+          borderCurve: 'continuous',
           borderRadius: theme.radii.sm,
           backgroundColor: selected ? theme.colors.gray900 : theme.colors.gray50,
           borderColor: selected ? theme.colors.gray900 : theme.colors.gray50,

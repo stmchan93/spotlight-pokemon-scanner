@@ -228,6 +228,7 @@ const styles = StyleSheet.create({
   },
   reticleFrame: {
     aspectRatio: 3 / 4,
+    borderCurve: 'continuous',
     borderRadius: radii.xl,
     overflow: 'hidden',
     width: '72%',
@@ -292,6 +293,7 @@ const styles = StyleSheet.create({
   },
   swatch: {
     borderColor: colors.scannerOutline,
+    borderCurve: 'continuous',
     borderRadius: radii.pill,
     borderWidth: 1,
     height: 26,

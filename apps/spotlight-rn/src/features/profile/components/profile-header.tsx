@@ -60,8 +60,13 @@ type ProfileHeaderProps = {
 const CONTENT_HEIGHT = 286;
 const DEFAULT_AVATAR_TOP = 66;
 const AVATAR_SIZE = 80;
-const SHEET_LIP_HEIGHT = 22;
-const SHEET_LIP_RADIUS = 16;
+/**
+ * The lip IS the 16pt gap Figma 4157:74399 draws between the sheet's top edge
+ * and the tab labels — `PageTabs` adds no padding of its own on these screens.
+ * The old 22 stacked with the bar's former 16 into ~38 of dead white above
+ * "Collection". 16 also lets the 16pt corner radius span the full lip.
+ */
+const SHEET_LIP_HEIGHT = 16;
 
 const COVER_TRANSITION_MS = 180;
 
@@ -137,9 +142,12 @@ export function ProfileHeader({
       <Svg pointerEvents="none" style={StyleSheet.absoluteFill} testID={`${testID}-scrim`}>
         <Defs>
           <LinearGradient id="profileScrim" x1="0" x2="0" y1="0" y2="1">
-            <Stop offset="0" stopColor="#000000" stopOpacity="0.6" />
-            <Stop offset="0.7" stopColor="#414141" stopOpacity="0.35" />
-            <Stop offset="1" stopColor="#666666" stopOpacity="0" />
+            {/* Figma 4134:49492 "Header Overlay": clear at the top, black 50%
+                at the bottom — the pucks carry status-bar contrast, the sheet
+                edge gets the weight. */}
+            <Stop offset="0" stopColor="#666666" stopOpacity="0" />
+            <Stop offset="0.3" stopColor="#414141" stopOpacity="0.25" />
+            <Stop offset="1" stopColor="#000000" stopOpacity="0.5" />
           </LinearGradient>
         </Defs>
         <Rect fill="url(#profileScrim)" height="100%" width="100%" />
@@ -152,9 +160,9 @@ export function ProfileHeader({
         ]}
       >
         <View style={styles.identityRow}>
+          {/* No ring: the white border read as a sticker over the cover photo. */}
           <Avatar
             initials={initials}
-            ring
             size={AVATAR_SIZE}
             testID={`${testID}-avatar`}
             uri={avatarUrl}
@@ -244,11 +252,13 @@ export function ProfileHeader({
         {actionRow ? <View style={styles.actionRowSlot}>{actionRow}</View> : null}
       </View>
 
-      <View
-        pointerEvents="none"
-        style={[styles.sheetLip, { backgroundColor: theme.colors.gray0 }]}
-        testID={`${testID}-sheet-lip`}
-      />
+      {/*
+        The white sheet lip that used to render here moved onto the tab-bar
+        wrapper in both consumer screens: they pull the bar's rounded, opaque
+        16pt top band up over this block's bottom edge, and a lip under it was
+        invisible dead paint. `SHEET_LIP_HEIGHT` survives as the overlap the
+        action row's bottom margin must clear.
+      */}
     </View>
   );
 }
@@ -339,7 +349,12 @@ function StatText({
 
 const styles = StyleSheet.create({
   actionRowSlot: {
-    marginTop: 12,
+    // 20 above AND below the Follow/Message row (Figma 4157:74906). The
+    // VISIBLE gap below is measured to the white sheet's top edge — and the
+    // 22pt sheet lip is drawn absolutely OVER the block's last 22pt, so the
+    // margin must clear the lip first or the sheet swallows the buttons.
+    marginBottom: SHEET_LIP_HEIGHT + 20,
+    marginTop: 20,
   },
   bio: {
     marginTop: 8,
@@ -369,15 +384,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: 4,
-  },
-  sheetLip: {
-    borderTopLeftRadius: SHEET_LIP_RADIUS,
-    borderTopRightRadius: SHEET_LIP_RADIUS,
-    bottom: 0,
-    height: SHEET_LIP_HEIGHT,
-    left: 0,
-    position: 'absolute',
-    right: 0,
   },
   statCount: {
     fontSize: 16,

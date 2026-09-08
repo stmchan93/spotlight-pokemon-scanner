@@ -21,8 +21,13 @@ Mapping (from the real PPT v2 schema + a live Moonbreon probe):
 
 from __future__ import annotations
 
+import json
+import os
 import re
-from typing import Any
+import urllib.error
+import urllib.parse
+import urllib.request
+from typing import Any, Callable
 
 from catalog_tools import (
     _empty_graded_contexts,
@@ -288,3 +293,160 @@ def build_card_population(gemrate_data: dict[str, Any]) -> dict[str, Any]:
         if entry is not None:
             out[_normalize_grader_key(grader)] = entry
     return out
+
+
+# ---------------------------------------------------------------------------
+# eBay sold-comps price reconciliation (Scrydex identity + PPT USD amounts)
+# ---------------------------------------------------------------------------
+
+PPT_API_BASE = "https://www.pokemonpricetracker.com/api/v2"
+PPT_SOLD_LISTINGS_TIMEOUT_SECONDS = 6
+_EBAY_ITEM_ID_RE = re.compile(r"/itm/(\d+)")
+
+
+def ebay_item_id_from_url(url: object) -> str | None:
+    """The numeric eBay item id both vendors carry: Scrydex in `url`, PPT as `listingId`."""
+    match = _EBAY_ITEM_ID_RE.search(str(url or ""))
+    return match.group(1) if match else None
+
+
+def fetch_ppt_sold_listings_by_ebay_item_id(
+    tcgplayer_id: str,
+    *,
+    language: str = "english",
+    api_key: str | None = None,
+    timeout: float = PPT_SOLD_LISTINGS_TIMEOUT_SECONDS,
+) -> dict[str, dict[str, Any]]:
+    """PPT's per-sale eBay rows for one card, keyed by eBay item id.
+
+    `GET /cards?tcgPlayerId=…&includeEbay=true` returns `ebay.soldListings`
+    as `{"psa9": [row, …], "cgc9_5": […], …}`; every row carries `listingId`,
+    `price` (already converted to USD at scrape time) and `currency`. Flattened
+    across grades because item ids are globally unique. Empty dict on any
+    failure — the caller must degrade to Scrydex-only rows, never error.
+    """
+    key = str(api_key or os.environ.get("PPT_API_KEY") or "").strip()
+    product_id = str(tcgplayer_id or "").strip()
+    if not key or not product_id:
+        return {}
+    params = {"tcgPlayerId": product_id, "language": language, "includeEbay": "true"}
+    request = urllib.request.Request(
+        f"{PPT_API_BASE}/cards?{urllib.parse.urlencode(params)}",
+        headers={"Authorization": f"Bearer {key}", "Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8", "replace"))
+    except (urllib.error.URLError, OSError, ValueError):
+        return {}
+    data = payload.get("data") if isinstance(payload, dict) else None
+    card = data[0] if isinstance(data, list) and data else data
+    if not isinstance(card, dict):
+        return {}
+    ebay = card.get("ebay") if isinstance(card.get("ebay"), dict) else {}
+    sold = ebay.get("soldListings") if isinstance(ebay.get("soldListings"), dict) else {}
+    by_item_id: dict[str, dict[str, Any]] = {}
+    for rows in sold.values():
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            item_id = str(row.get("listingId") or "").strip()
+            if item_id and item_id not in by_item_id:
+                by_item_id[item_id] = row
+    return by_item_id
+
+
+def reconcile_recent_sales_prices(
+    sales: list[dict[str, Any]],
+    ppt_rows_by_item_id: dict[str, dict[str, Any]],
+    *,
+    to_usd: Callable[[float | None, str | None], float | None],
+    ebay_items_by_item_id: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, int]:
+    """Rewrite each Scrydex sale's price/currency in place so every row is USD.
+
+    Scrydex decides WHICH sales belong to the card (tight identity) but stamps
+    foreign-currency sales as USD without converting — an AU $5,900 Rayquaza ex
+    PSA 9 came back as `5900 USD` (2026-09-07). PPT has the same eBay item with
+    the amount already converted (4230.30 USD) but matches cards loosely, so its
+    rows are only trusted where Scrydex already claims the item. eBay's own
+    Browse `getItem` (`ebay_items_by_item_id`, see `ebay_comps`) reports a
+    foreign sale as `convertedFromCurrency` + the USD figure, which beats both.
+    Precedence:
+      1. eBay says the sale was foreign-currency -> eBay's converted USD amount
+      2. PPT row for the same item id, in USD    -> take PPT's amount
+      3. Scrydex tagged non-USD                  -> FX-convert via `to_usd`
+      4. otherwise                               -> Scrydex's number stands
+    A Scrydex row neither eBay nor PPT can vouch for that was mislabelled USD
+    is undetectable here. The eBay row also supplies the listing photo
+    (`imageURL`). Provenance lands in `sourcePayload["_spotlight"]` so the
+    cache keeps it. Returns counts per source for logging.
+    """
+    counts = {"ebay": 0, "ppt": 0, "fx": 0, "scrydex": 0, "unconverted": 0}
+    ebay_items = ebay_items_by_item_id or {}
+    for sale in sales:
+        if not isinstance(sale, dict):
+            continue
+        original_price = sale.get("price")
+        original_currency = str(sale.get("currencyCode") or "USD").strip().upper() or "USD"
+        item_id = ebay_item_id_from_url(sale.get("listingURL"))
+        ebay_row = ebay_items.get(item_id) if item_id else None
+        ebay_price = _coerce_price(ebay_row.get("priceAmount")) if isinstance(ebay_row, dict) else None
+        ebay_currency = str(ebay_row.get("priceCurrency") or "").upper() if isinstance(ebay_row, dict) else ""
+        ebay_converted_from = (
+            str(ebay_row.get("convertedFromCurrency") or "").upper() if isinstance(ebay_row, dict) else ""
+        )
+        image_url = str(ebay_row.get("imageURL") or "").strip() if isinstance(ebay_row, dict) else ""
+        if image_url:
+            sale["imageURL"] = image_url
+        ppt_row = ppt_rows_by_item_id.get(item_id) if item_id else None
+        ppt_price = _coerce_price(ppt_row.get("price")) if isinstance(ppt_row, dict) else None
+        ppt_currency = (
+            str(ppt_row.get("currency") or "USD").strip().upper() or "USD"
+            if isinstance(ppt_row, dict)
+            else None
+        )
+        if (
+            ebay_price is not None
+            and ebay_currency == "USD"
+            and ebay_converted_from
+            and ebay_converted_from != "USD"
+        ):
+            sale["price"] = ebay_price
+            sale["currencyCode"] = "USD"
+            source = "ebay"
+        elif ppt_price is not None and ppt_currency == "USD":
+            sale["price"] = ppt_price
+            sale["currencyCode"] = "USD"
+            source = "ppt"
+        elif original_currency != "USD":
+            converted = to_usd(original_price, original_currency)
+            if converted is None:
+                source = "unconverted"
+            else:
+                sale["price"] = converted
+                sale["currencyCode"] = "USD"
+                source = "fx"
+        else:
+            source = "scrydex"
+        counts[source] += 1
+        payload = sale.get("sourcePayload")
+        if not isinstance(payload, dict):
+            payload = {}
+            sale["sourcePayload"] = payload
+        payload["_spotlight"] = {
+            "priceSource": source,
+            "scrydexPrice": original_price,
+            "scrydexCurrency": original_currency,
+            "ebayItemID": item_id,
+            "imageURL": image_url or None,
+            "itemLocationCountry": (ebay_row or {}).get("itemLocationCountry") if isinstance(ebay_row, dict) else None,
+            "ebayConvertedFrom": (
+                {"amount": ebay_row.get("convertedFromAmount"), "currency": ebay_converted_from}
+                if isinstance(ebay_row, dict) and ebay_converted_from
+                else None
+            ),
+        }
+    return counts

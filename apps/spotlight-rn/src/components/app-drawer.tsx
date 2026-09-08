@@ -489,6 +489,7 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   avatar: {
+    borderCurve: 'continuous',
     borderRadius: 21,
     height: 42,
     width: 42,
@@ -524,6 +525,7 @@ const styles = StyleSheet.create({
   },
   statTile: {
     backgroundColor: colors.gray50,
+    borderCurve: 'continuous',
     borderRadius: 12,
     flex: 1,
     gap: 4,
@@ -560,6 +562,7 @@ const styles = StyleSheet.create({
   navBadge: {
     alignItems: 'center',
     backgroundColor: colors.purple500,
+    borderCurve: 'continuous',
     borderRadius: radii.pill,
     justifyContent: 'center',
     // Same footprint as the inbox's per-thread badge, so the total and the rows
@@ -574,6 +577,7 @@ const styles = StyleSheet.create({
   },
   activeDot: {
     backgroundColor: colors.brand,
+    borderCurve: 'continuous',
     borderRadius: 999,
     height: 6,
     marginLeft: 4,

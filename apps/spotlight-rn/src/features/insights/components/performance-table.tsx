@@ -484,6 +484,7 @@ const styles = StyleSheet.create({
     // Chart header sits exactly one CELL_GAP to the tag's right, not past the
     // (much wider) column edge.
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: radii.pill,
     paddingHorizontal: 4,
     paddingVertical: 2,
@@ -507,6 +508,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   thumb: {
+    borderCurve: 'continuous',
     borderRadius: 2,
     height: THUMB_H,
     width: THUMB_W,
@@ -526,10 +528,12 @@ const styles = StyleSheet.create({
     width: CELL_W,
   },
   skeletonLine: {
+    borderCurve: 'continuous',
     borderRadius: 4,
     height: 12,
   },
   skeletonCell: {
+    borderCurve: 'continuous',
     borderRadius: 4,
     height: 14,
     width: CELL_W,

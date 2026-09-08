@@ -382,6 +382,7 @@ export function SharedProfileBubble({
 
 const styles = StyleSheet.create({
   card: {
+    borderCurve: 'continuous',
     borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: 'hidden',
@@ -425,11 +426,13 @@ const styles = StyleSheet.create({
   },
   // Skeleton pieces, sized to match what replaces them so nothing reflows.
   skeletonAvatar: {
+    borderCurve: 'continuous',
     borderRadius: 12,
     height: 24,
     width: 24,
   },
   skeletonFooter: {
+    borderCurve: 'continuous',
     borderRadius: 4,
     // 16, not 14: the resolved footer is `typography.caption`, whose lineHeight
     // is 16. Two off is invisible on one card and a 2pt nudge per card once a
@@ -438,6 +441,7 @@ const styles = StyleSheet.create({
     width: 64,
   },
   skeletonLine: {
+    borderCurve: 'continuous',
     borderRadius: 4,
     flexShrink: 1,
     height: 14,
@@ -447,6 +451,7 @@ const styles = StyleSheet.create({
     // 48% each leaves a 4% gutter between the pair — always two per row.
     // Card-shaped, not square: squaring the tile crops the art.
     aspectRatio: 5 / 7,
+    borderCurve: 'continuous',
     borderRadius: 4,
     overflow: 'hidden',
     width: '48%',

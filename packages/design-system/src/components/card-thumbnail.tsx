@@ -35,6 +35,7 @@ export function CardThumbnail({
         {
           width: metrics.width,
           height: metrics.height,
+          borderCurve: 'continuous',
           borderRadius: metrics.radius,
           backgroundColor: theme.colors.field,
           borderColor: theme.colors.outlineSubtle,

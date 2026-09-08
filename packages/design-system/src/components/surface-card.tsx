@@ -40,6 +40,7 @@ export function SurfaceCard({
         theme.shadows.card,
         {
           padding,
+          borderCurve: 'continuous',
           borderRadius: radius ?? theme.radii.lg,
           backgroundColor,
           borderColor: theme.colors.outlineSubtle,

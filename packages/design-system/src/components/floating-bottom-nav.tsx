@@ -109,6 +109,7 @@ export function FloatingBottomNav({
       borderColor: metrics.borderColor,
       bottom: metrics.bottom,
       height: metrics.navHeight,
+      borderCurve: 'continuous',
       borderRadius: metrics.shellRadius,
       shadowColor: theme.shadows.card.shadowColor,
       shadowOffset: theme.shadows.card.shadowOffset,
@@ -162,6 +163,7 @@ export function FloatingBottomNav({
                         borderColor: selected
                           ? metrics.itemShellSelectedBorderColor
                           : 'transparent',
+                        borderCurve: 'continuous',
                         borderRadius: metrics.itemShellRadius,
                         minHeight: metrics.itemShellMinHeight,
                       },
@@ -169,6 +171,7 @@ export function FloatingBottomNav({
                 isScannerSurface && item.emphasized ? styles.iconPlate : null,
                 isScannerSurface && !item.emphasized
                   ? {
+                      borderCurve: 'continuous',
                       borderRadius: 16,
                       height: metrics.regularPlateSize,
                       width: metrics.regularPlateSize,
@@ -279,6 +282,7 @@ const styles = StyleSheet.create({
   },
   iconPlate: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 16,
     height: 44,
     justifyContent: 'center',
@@ -299,6 +303,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   selectedRegularIconSlot: {
+    borderCurve: 'continuous',
     borderRadius: 16,
   },
   shell: {

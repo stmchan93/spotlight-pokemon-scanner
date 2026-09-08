@@ -42,6 +42,7 @@ export function SheetSurface({
           padding,
           backgroundColor: surfaceColor,
           borderColor,
+          borderCurve: 'continuous',
           borderTopLeftRadius: 0,
           borderTopRightRadius: 0,
         },
@@ -55,6 +56,7 @@ export function SheetSurface({
             styles.handle,
             {
               backgroundColor: handleColor,
+              borderCurve: 'continuous',
               borderRadius: theme.radii.pill,
             },
           ]}

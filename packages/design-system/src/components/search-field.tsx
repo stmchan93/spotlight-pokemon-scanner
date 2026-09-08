@@ -125,12 +125,14 @@ const styles = StyleSheet.create({
     borderWidth: 0,
   },
   containerDefault: {
+    borderCurve: 'continuous',
     borderRadius: 16,
     gap: 12,
     minHeight: 48,
     paddingHorizontal: 16,
   },
   containerCompact: {
+    borderCurve: 'continuous',
     borderRadius: 999,
     gap: 8,
     height: 44,
@@ -138,6 +140,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   containerCollection: {
+    borderCurve: 'continuous',
     borderRadius: radii.sm,
     gap: 8,
     height: 40,

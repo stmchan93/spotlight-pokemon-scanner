@@ -74,6 +74,7 @@ export function ScrollToTopButton({
           styles.button,
           {
             backgroundColor: theme.colors.gray100,
+            borderCurve: 'continuous',
             borderRadius: theme.radii.sm,
             opacity: pressed ? 0.84 : 1,
           },

@@ -880,6 +880,7 @@ type EbayCompsTransactionDTO = {
   currencyCode?: string | null;
   listingURL?: string | null;
   link?: string | null;
+  imageURL?: string | null;
 };
 
 type EbayCompsDTO = {
@@ -899,6 +900,7 @@ type CardRecentSaleDTO = {
   price?: EbayCompsPriceDTO | null;
   currencyCode?: string | null;
   listingURL?: string | null;
+  imageURL?: string | null;
 };
 
 type CardRecentSalesDTO = {
@@ -3019,6 +3021,7 @@ function buildCardEbayListingRecord(
     priceAmount: normalizeNumber(listing.price?.amount),
     currencyCode: normalizeCurrencyCode(listing.currencyCode ?? nestedCurrencyCode ?? fallbackCurrencyCode),
     listingUrl: normalizeString(listing.listingURL ?? listing.link),
+    imageUrl: normalizeString(listing.imageURL),
   };
 }
 
@@ -3086,6 +3089,7 @@ function buildCardRecentSaleRecord(
     priceAmount: normalizeNumber(sale.price?.amount),
     currencyCode: normalizeCurrencyCode(sale.currencyCode ?? nestedCurrencyCode ?? fallbackCurrencyCode),
     saleUrl: normalizeString(sale.listingURL),
+    imageUrl: normalizeString(sale.imageURL),
   };
 }
 

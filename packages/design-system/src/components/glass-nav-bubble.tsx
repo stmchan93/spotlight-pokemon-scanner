@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Pressable, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
+import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { useSpotlightTheme } from '../theme';
 import { GlassSurface, isLiquidGlassAvailable } from './glass-surface';
@@ -66,12 +66,12 @@ export type GlassNavBubbleProps = {
   size?: GlassNavBubbleSize;
   surface?: GlassNavBubbleSurface;
   /**
-   * 'solid' skips Liquid Glass entirely and paints an opaque gray0 puck —
-   * glass borrows brightness from what's behind it, and over a live camera or
-   * dark cover photo it reads muddy/near-black (2026-09-04 report). Solid is
-   * legible over anything; matches the scanner's zoom/mode pills.
+   * 'frost' = real Liquid Glass pinned to the LIGHT scheme with a white tint
+   * floor (`colors.frostTint`) — for chrome over live camera / photos, where
+   * untinted glass borrowed a dark backdrop and vanished (2026-09-04). Solid
+   * gray0 on fallback targets. 'solid' paints opaque gray0 everywhere.
    */
-  material?: 'glass' | 'solid';
+  material?: 'glass' | 'solid' | 'frost';
   /**
    * Positioning is owned by the consumer (typically absolute, pinned to a
    * corner). The primitive only renders the circular shell + its content.
@@ -143,7 +143,7 @@ export function GlassNavBubble({
       onPress={onPress}
       style={({ pressed }) => [
         styles.bubble,
-        { borderRadius: radius, height: diameter, width: diameter },
+        { borderCurve: 'continuous', borderRadius: radius, height: diameter, width: diameter },
         hasGlass ? null : fallbackShell,
         { opacity: disabled ? 0.45 : pressed ? 0.84 : 1 },
         style,
@@ -166,6 +166,7 @@ export function GlassNavBubble({
             {
               alignItems: 'center',
               backgroundColor: theme.colors.gray0,
+              borderCurve: 'continuous',
               borderRadius: radius,
               height: diameter,
               justifyContent: 'center',
@@ -175,12 +176,26 @@ export function GlassNavBubble({
         >
           {children}
         </View>
+      ) : material === 'frost' ? (
+        <GlassSurface
+          fallbackColor={theme.colors.gray0}
+          glassColorScheme="light"
+          glassEffectStyle="regular"
+          glassTintColor={theme.colors.frostTint}
+          style={[
+            styles.glass,
+            hasGlass ? null : theme.shadows.glassPill,
+            { borderCurve: 'continuous', borderRadius: radius, height: diameter, width: diameter },
+          ]}
+        >
+          {children}
+        </GlassSurface>
       ) : (
         <GlassSurface
           fallbackColor={onDark ? 'transparent' : theme.colors.glassFallback}
           glassColorScheme={onDark ? 'dark' : 'auto'}
           glassEffectStyle="regular"
-          style={[styles.glass, { borderRadius: radius, height: diameter, width: diameter }]}
+          style={[styles.glass, { borderCurve: 'continuous', borderRadius: radius, height: diameter, width: diameter }]}
         >
           {children}
         </GlassSurface>

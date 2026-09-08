@@ -250,6 +250,7 @@ const styles = StyleSheet.create({
   comingSoonTag: {
     alignItems: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    borderCurve: 'continuous',
     borderRadius: 999,
     justifyContent: 'center',
     paddingHorizontal: 8,
@@ -257,6 +258,7 @@ const styles = StyleSheet.create({
   },
   handleBar: {
     backgroundColor: colors.gray100,
+    borderCurve: 'continuous',
     borderRadius: 999,
     height: 4,
     width: 48,
@@ -273,6 +275,7 @@ const styles = StyleSheet.create({
   headerPill: {
     alignItems: 'center',
     backgroundColor: colors.gray900,
+    borderCurve: 'continuous',
     borderRadius: 999,
     justifyContent: 'center',
     paddingHorizontal: 10,

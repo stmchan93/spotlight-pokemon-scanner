@@ -27,9 +27,9 @@ describe('ScanTargetPill', () => {
   it('falls back to the shared light glass fill when glass is unavailable', () => {
     render(<ScanTargetPill flag="en" label="Pokémon EN" onPress={jest.fn()} testID="pill" />);
 
-    // The pill lives in the top toolbar now (Figma 4299:93955) and shares the
-    // light glass fallback with every other toolbar control.
-    expect(surfaceFill('pill-surface')).toBe(colors.glassFallback);
+    // Frost chrome over the camera falls back to solid gray0 (the white tint
+    // floor with nothing to see through), like every scanner chip.
+    expect(surfaceFill('pill-surface')).toBe(colors.gray0);
   });
 
   it('is 44pt tall, level with the toolbar bubbles beside it', () => {

@@ -82,6 +82,7 @@ const styles = StyleSheet.create({
   expansionImageFrame: {
     alignItems: 'center',
     aspectRatio: 16 / 10,
+    borderCurve: 'continuous',
     borderRadius: 12,
     borderWidth: 1,
     justifyContent: 'center',

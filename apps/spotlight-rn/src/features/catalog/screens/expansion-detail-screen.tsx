@@ -271,6 +271,7 @@ const styles = StyleSheet.create({
   cardImageFrame: {
     alignItems: 'center',
     aspectRatio: 0.72,
+    borderCurve: 'continuous',
     borderRadius: 8,
     borderWidth: 1,
     justifyContent: 'center',

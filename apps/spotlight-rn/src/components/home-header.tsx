@@ -448,7 +448,7 @@ export function HomeHeader({
             },
           ] satisfies GlassNavBubbleGroupItem[]
         }
-        material="solid"
+        material="frost"
         size="medium"
         surface={chromeSurface}
         testID={`${testID}-trailing`}
@@ -492,7 +492,7 @@ export function HomeHeader({
         <View style={styles.leadingGroup}>
           <GlassNavBubble
             accessibilityLabel="Open menu"
-            material={trailing.kind === 'profile' ? 'solid' : 'glass'}
+            material={trailing.kind === 'profile' ? 'frost' : 'glass'}
             onPress={onOpenMenu}
             size="medium"
             surface={chromeSurface}
@@ -556,6 +556,7 @@ const styles = StyleSheet.create({
   // shaves it.
   notificationBadge: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 9,
     height: 18,
     justifyContent: 'center',

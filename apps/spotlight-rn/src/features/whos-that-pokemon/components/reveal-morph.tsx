@@ -251,6 +251,7 @@ function BurstParticle({
         styles.particle,
         {
           backgroundColor: color,
+          borderCurve: 'continuous',
           borderRadius: particleSize / 2,
           height: particleSize,
           marginLeft: -particleSize / 2,

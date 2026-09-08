@@ -253,6 +253,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   scanReviewSourceImageFrame: {
+    borderCurve: 'continuous',
     borderRadius: 34,
     overflow: 'hidden',
   },
@@ -280,6 +281,7 @@ const styles = StyleSheet.create({
     opacity: 0.8,
   },
   scanCandidateArt: {
+    borderCurve: 'continuous',
     borderRadius: 14,
     height: 84,
     width: 84,

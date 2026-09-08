@@ -321,6 +321,7 @@ export function AuthErrorLine({ message }: { message: string }) {
 const styles = StyleSheet.create({
   button: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 8,
     flexDirection: 'row',
     gap: 8,

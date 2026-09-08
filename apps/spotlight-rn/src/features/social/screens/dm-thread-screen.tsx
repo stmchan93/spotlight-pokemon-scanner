@@ -850,7 +850,7 @@ export function DmThreadScreen({
                 */
                 hasAttachment
                   ? styles.attachment
-                  : [styles.bubble, { backgroundColor: bubbleColor, borderRadius: theme.radii.lg }],
+                  : [styles.bubble, { backgroundColor: bubbleColor, borderCurve: 'continuous', borderRadius: theme.radii.lg }],
                 {
                   // A pending bubble is dimmed rather than replaced by a spinner:
                   // the text stays readable and the row doesn't reflow when it lands.
@@ -1198,6 +1198,7 @@ export function DmThreadScreen({
                 styles.sendButton,
                 {
                   backgroundColor: canSend ? theme.colors.purple500 : theme.colors.gray200,
+                  borderCurve: 'continuous',
                   borderRadius: theme.radii.pill,
                 },
               ]}

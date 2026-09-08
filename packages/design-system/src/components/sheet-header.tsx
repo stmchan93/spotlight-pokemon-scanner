@@ -102,6 +102,7 @@ const styles = StyleSheet.create({
   },
   handle: {
     alignSelf: 'center',
+    borderCurve: 'continuous',
     borderRadius: 999,
     height: 4,
     width: 48,

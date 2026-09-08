@@ -905,6 +905,7 @@ const styles = StyleSheet.create({
   shutterOuter: {
     alignItems: 'center',
     borderColor: colors.scannerTextPrimary,
+    borderCurve: 'continuous',
     borderRadius: radii.pill,
     borderWidth: 4,
     height: 76,
@@ -916,6 +917,7 @@ const styles = StyleSheet.create({
   },
   shutterInner: {
     backgroundColor: colors.scannerTextPrimary,
+    borderCurve: 'continuous',
     borderRadius: radii.pill,
     height: 58,
     width: 58,

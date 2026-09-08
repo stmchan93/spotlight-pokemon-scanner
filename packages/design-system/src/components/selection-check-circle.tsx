@@ -38,6 +38,7 @@ export function SelectionCheckCircle({
         {
           width: size,
           height: size,
+          borderCurve: 'continuous',
           borderRadius: size / 2,
           backgroundColor: selected ? theme.colors.purple500 : theme.colors.gray0,
           borderWidth: selected ? 0 : 1.5,

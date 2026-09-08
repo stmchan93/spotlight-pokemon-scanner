@@ -740,6 +740,7 @@ const styles = StyleSheet.create({
   avatarBadge: {
     // Figma 4167:78756 — gray50 circle, black glyph, flush to the avatar's edge.
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 14,
     bottom: -1,
     height: 28,
@@ -763,6 +764,7 @@ const styles = StyleSheet.create({
   bioInput: {
     // Figma "Bio Text Container": radius 12, even 16 padding, 104 tall, 14px
     // Regular body on a flat fill (no border).
+    borderCurve: 'continuous',
     borderRadius: 12,
     fontFamily: 'SpotlightBodyRegular',
     fontSize: 14,
@@ -836,6 +838,7 @@ const styles = StyleSheet.create({
   coverCameraBadge: {
     // Figma 4167:78756 — a plain gray50 circle, no ring, 36pt with a 21pt glyph.
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 18,
     bottom: 16,
     height: 36,
@@ -869,6 +872,7 @@ const styles = StyleSheet.create({
     // Figma 4167:78756 — white card on a 0.5px gray400 hairline, radius 12, even
     // 12 padding, badge left / chevron right.
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 12,
     flexDirection: 'row',
     justifyContent: 'space-between',

@@ -36,6 +36,7 @@ export function ListRow({
           {
             backgroundColor: theme.colors.canvasElevated,
             borderColor: theme.colors.outlineSubtle,
+            borderCurve: 'continuous' as const,
             borderRadius: theme.radii.lg,
             opacity: pressed ? 0.82 : 1,
           },
@@ -49,6 +50,7 @@ export function ListRow({
           {
             backgroundColor: theme.colors.canvasElevated,
             borderColor: theme.colors.outlineSubtle,
+            borderCurve: 'continuous' as const,
             borderRadius: theme.radii.lg,
           },
           style,

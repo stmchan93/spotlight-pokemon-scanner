@@ -54,6 +54,7 @@ export function SheetDismissHandle({
 
 const styles = StyleSheet.create({
   bar: {
+    borderCurve: 'continuous',
     borderRadius: 2,
     height: 4,
     width: 36,

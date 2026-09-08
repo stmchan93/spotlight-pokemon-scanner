@@ -66,7 +66,7 @@ export function GlassButtonGroup({
     <GlassSurface
       fallbackColor={fallbackColor ?? theme.colors.glassFallback}
       glassEffectStyle="regular"
-      style={[styles.group, { borderRadius: theme.radii.pill }, fallbackShell, style]}
+      style={[styles.group, { borderCurve: 'continuous', borderRadius: theme.radii.pill }, fallbackShell, style]}
       {...rest}
     >
       {children}

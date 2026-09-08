@@ -42,7 +42,7 @@ Defined in `src/tokens.ts`:
 - `fontFamilies`
 - `colors`
 - `spacing`
-- `radii`
+- `radii` — always paired with `borderCurve: 'continuous'` (iOS smooth corners ≈ Figma 60% smoothing; not valid on Image styles — clip via the wrapper View)
 - `layout`
 - `shadows`
 - `textStyles`

@@ -424,6 +424,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   colorSwatch: {
+    borderCurve: 'continuous',
     borderRadius: 14,
     height: 52,
     width: '100%',
@@ -466,6 +467,7 @@ const styles = StyleSheet.create({
   },
   scannerSegmentWrap: {
     backgroundColor: '#050505',
+    borderCurve: 'continuous',
     borderRadius: 24,
     padding: 16,
   },

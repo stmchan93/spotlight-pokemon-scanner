@@ -462,6 +462,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   handleBar: {
+    borderCurve: 'continuous',
     borderRadius: 2,
     height: 4,
     width: 36,

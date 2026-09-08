@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from base64 import b64encode
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import os
@@ -392,11 +393,13 @@ def _transaction_payload(
     grader: str | None,
     grade: str | None,
     sale_type: str | None,
+    image_url: str | None = None,
 ) -> dict[str, Any] | None:
     normalized_title = _strip_html(title)
     if not normalized_title:
         return None
     payload = {
+        "imageURL": image_url,
         "id": _stable_transaction_id(
             item_id=item_id,
             link=link,
@@ -437,6 +440,7 @@ def _parse_browse_items(items: object, *, selected_grade: str | None) -> list[di
         link = str(item.get("itemWebUrl") or item.get("itemHref") or "").strip() or None
         listing_date = _normalize_listing_date(item.get("itemCreationDate") or item.get("itemOriginDate"))
         price_amount, price_currency_code, price_display = _browse_item_price(item)
+        image_url = _browse_item_image_url(item)
         sale_type = _browse_item_sale_type(item)
         parsed_grade = _normalize_grade_label(selected_grade) or None
         transaction = _transaction_payload(
@@ -450,10 +454,105 @@ def _parse_browse_items(items: object, *, selected_grade: str | None) -> list[di
             grader="PSA" if parsed_grade else None,
             grade=parsed_grade,
             sale_type=sale_type,
+            image_url=image_url,
         )
         if transaction is not None:
             transactions.append(transaction)
     return transactions
+
+
+def _browse_item_image_url(item: dict[str, Any]) -> str | None:
+    """Primary photo, falling back to the first thumbnail. Browse serves the
+    seller's `s-l1600` original; the client scales it."""
+    image = item.get("image")
+    if isinstance(image, dict):
+        url = str(image.get("imageUrl") or "").strip()
+        if url:
+            return url
+    thumbnails = item.get("thumbnailImages")
+    if isinstance(thumbnails, list):
+        for thumbnail in thumbnails:
+            if isinstance(thumbnail, dict):
+                url = str(thumbnail.get("imageUrl") or "").strip()
+                if url:
+                    return url
+    return None
+
+
+def _normalize_browse_item(item: dict[str, Any]) -> dict[str, Any]:
+    """The slice of a Browse `getItem` response the sold-comps lane uses.
+
+    For an ENDED foreign-currency auction eBay reports the final price already
+    converted to the marketplace currency plus the seller's original
+    (`convertedFromValue` / `convertedFromCurrency`) and the item location —
+    the currency ground truth Scrydex lost (AU $5,900 Rayquaza, 2026-09-07)."""
+    price_amount, price_currency_code, _ = _browse_item_price(item)
+    price = item.get("price") if isinstance(item.get("price"), dict) else {}
+    converted_from_amount: float | None = None
+    raw_converted = price.get("convertedFromValue")
+    try:
+        if raw_converted is not None and str(raw_converted).strip():
+            converted_from_amount = float(str(raw_converted).replace(",", ""))
+    except ValueError:
+        converted_from_amount = None
+    location = item.get("itemLocation") if isinstance(item.get("itemLocation"), dict) else {}
+    return {
+        "itemID": str(item.get("legacyItemId") or "").strip() or None,
+        "imageURL": _browse_item_image_url(item),
+        "priceAmount": price_amount,
+        "priceCurrency": (price_currency_code or "").upper() or None,
+        "convertedFromAmount": converted_from_amount,
+        "convertedFromCurrency": str(price.get("convertedFromCurrency") or "").strip().upper() or None,
+        "itemLocationCountry": str(location.get("country") or "").strip().upper() or None,
+        "itemEndDate": str(item.get("itemEndDate") or "").strip() or None,
+    }
+
+
+def fetch_ebay_items_by_legacy_ids(
+    item_ids: Iterable[str],
+    *,
+    timeout_seconds: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    max_workers: int = 6,
+    fetch_json: Callable[..., dict[str, Any]] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Browse `get_item_by_legacy_id` for each eBay item id, in parallel, keyed
+    by id. Works for ended/sold listings too (verified on 366618245287). Any
+    failure — Browse disabled, no credentials, token error, per-item 404 —
+    yields no entry for that id; callers treat the map as best-effort.
+    Free app-token calls, so a 25-row comps refresh costs no credits."""
+    ids = [str(item_id or "").strip() for item_id in item_ids]
+    ids = list(dict.fromkeys(item_id for item_id in ids if item_id))
+    if not ids or _browse_search_ready_reason() is not None:
+        return {}
+    fetch_json_fn = fetch_json or _request_json
+    try:
+        access_token = _ebay_app_access_token(timeout_seconds=timeout_seconds, request_json=fetch_json_fn)
+    except Exception:  # noqa: BLE001
+        return {}
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "X-EBAY-C-MARKETPLACE-ID": _ebay_marketplace_id(),
+    }
+    base_url = _ebay_api_base_url().rstrip("/")
+
+    def fetch_one(item_id: str) -> tuple[str, dict[str, Any] | None]:
+        url = f"{base_url}/buy/browse/v1/item/get_item_by_legacy_id?{urlencode({'legacy_item_id': item_id})}"
+        try:
+            payload = fetch_json_fn(url, headers=headers, timeout_seconds=timeout_seconds)
+        except Exception:  # noqa: BLE001
+            return item_id, None
+        if not isinstance(payload, dict) or not payload.get("itemId"):
+            return item_id, None
+        normalized = _normalize_browse_item(payload)
+        normalized["itemID"] = normalized.get("itemID") or item_id
+        return item_id, normalized
+
+    results: dict[str, dict[str, Any]] = {}
+    with ThreadPoolExecutor(max_workers=max(1, min(max_workers, len(ids)))) as pool:
+        for item_id, normalized in pool.map(fetch_one, ids):
+            if normalized is not None:
+                results[item_id] = normalized
+    return results
 
 
 def _dedupe_transactions(transactions: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:

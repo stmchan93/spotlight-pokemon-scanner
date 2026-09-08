@@ -435,6 +435,7 @@ const styles = StyleSheet.create({
   iconCircle: {
     alignItems: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.35)',
+    borderCurve: 'continuous',
     borderRadius: 999,
     height: 36,
     justifyContent: 'center',
@@ -461,6 +462,7 @@ const styles = StyleSheet.create({
   handle: {
     alignSelf: 'center',
     backgroundColor: colors.gray100,
+    borderCurve: 'continuous',
     borderRadius: 2,
     height: 4,
     width: 40,
@@ -472,6 +474,7 @@ const styles = StyleSheet.create({
   },
   infoPill: {
     backgroundColor: colors.gray900,
+    borderCurve: 'continuous',
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 4,
@@ -485,6 +488,7 @@ const styles = StyleSheet.create({
   heroBox: {
     backgroundColor: 'rgba(243, 235, 255, 0.15)',
     borderColor: colors.purple300,
+    borderCurve: 'continuous',
     borderRadius: 8,
     borderWidth: 1.5,
     marginTop: 16,
@@ -505,6 +509,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   heroImage: {
+    borderCurve: 'continuous',
     borderRadius: 8,
     height: HERO_IMAGE_HEIGHT,
     width: '100%',
@@ -515,6 +520,7 @@ const styles = StyleSheet.create({
   matchImageFrame: {
     alignItems: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.15)',
+    borderCurve: 'continuous',
     borderRadius: 8,
     height: HERO_IMAGE_HEIGHT,
     justifyContent: 'center',
@@ -539,6 +545,7 @@ const styles = StyleSheet.create({
   },
   cardRow: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 8,
     flexDirection: 'row',
     gap: 12,
@@ -556,6 +563,7 @@ const styles = StyleSheet.create({
     opacity: 0.88,
   },
   thumb: {
+    borderCurve: 'continuous',
     borderRadius: 3,
     height: 80,
     width: 58,
@@ -581,6 +589,7 @@ const styles = StyleSheet.create({
   },
   matchChip: {
     alignSelf: 'flex-start',
+    borderCurve: 'continuous',
     borderRadius: 999,
     paddingHorizontal: 8,
     paddingVertical: 3,
@@ -593,6 +602,7 @@ const styles = StyleSheet.create({
   loadMoreButton: {
     alignSelf: 'center',
     borderColor: colors.purple300,
+    borderCurve: 'continuous',
     borderRadius: 999,
     borderWidth: 1,
     paddingHorizontal: 16,

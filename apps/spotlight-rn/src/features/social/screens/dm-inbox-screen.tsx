@@ -286,7 +286,7 @@ export function DmInboxScreen({ testID = 'dm-inbox' }: { testID?: string }) {
               <View
                 style={[
                   styles.unreadBadge,
-                  { backgroundColor: theme.colors.purple500, borderRadius: theme.radii.pill },
+                  { backgroundColor: theme.colors.purple500, borderCurve: 'continuous', borderRadius: theme.radii.pill },
                 ]}
                 testID={`${testID}-unread-${item.id}`}
               >

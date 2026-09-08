@@ -310,6 +310,7 @@ const styles = StyleSheet.create({
     aspectRatio: cardAspect,
     backgroundColor: colors.scannerSurfaceStrong,
     borderColor: 'rgba(255, 255, 255, 0.9)',
+    borderCurve: 'continuous',
     borderRadius: 4,
     borderWidth: 1,
     overflow: 'hidden',
@@ -329,6 +330,7 @@ const styles = StyleSheet.create({
   pocketNumber: {
     alignItems: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.72)',
+    borderCurve: 'continuous',
     borderRadius: 9,
     height: 18,
     justifyContent: 'center',

@@ -254,6 +254,7 @@ export function CardListRow({
             styles.thumbnail,
             {
               backgroundColor: theme.colors.field,
+              borderCurve: 'continuous',
               borderRadius: THUMBNAIL_RADIUS,
             },
           ]}

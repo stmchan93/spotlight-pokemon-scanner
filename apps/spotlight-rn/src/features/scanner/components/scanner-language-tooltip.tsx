@@ -99,6 +99,7 @@ export function ScannerLanguageTooltip({
 const styles = StyleSheet.create({
   bubble: {
     backgroundColor: BUBBLE_BACKGROUND,
+    borderCurve: 'continuous',
     borderRadius: 16,
     // Soft floating shadow (Figma: 0 0 50 @ 30%).
     elevation: 10,

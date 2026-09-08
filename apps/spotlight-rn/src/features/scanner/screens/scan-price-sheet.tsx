@@ -449,6 +449,7 @@ const styles = StyleSheet.create({
   },
   row: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 14,
     flexDirection: 'row',
     gap: 12,
@@ -491,6 +492,7 @@ const styles = StyleSheet.create({
   },
   singleRow: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 14,
     flexDirection: 'row',
     gap: 12,

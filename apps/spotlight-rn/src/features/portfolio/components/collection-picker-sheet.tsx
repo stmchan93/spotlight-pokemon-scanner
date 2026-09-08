@@ -667,6 +667,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.gray200,
     // Figma Handle 3357:8970 — 36x4 at radius 2, NOT the 48x4 pill the shared
     // SheetHeader draws.
+    borderCurve: 'continuous',
     borderRadius: 2,
     height: HANDLE_HEIGHT,
     width: 36,

@@ -158,6 +158,7 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
   },
   card: {
+    borderCurve: 'continuous',
     borderRadius: CARD_RADIUS,
     minWidth: CARD_WIDTH,
     // Clip the blur layers + row press-highlights to the rounded corners so it
@@ -183,6 +184,7 @@ const styles = StyleSheet.create({
   },
   row: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 12,
     flexDirection: 'row',
     height: 40,

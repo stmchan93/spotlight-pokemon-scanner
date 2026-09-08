@@ -866,6 +866,7 @@ const styles = StyleSheet.create({
   },
   anglePill: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 999,
     borderWidth: 1,
     minHeight: 32,
@@ -887,6 +888,7 @@ const styles = StyleSheet.create({
   },
   cardArtFrame: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 12,
     borderWidth: 1,
     height: 104,
@@ -919,6 +921,7 @@ const styles = StyleSheet.create({
     zIndex: 5,
   },
   captureBottomPanel: {
+    borderCurve: 'continuous',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     gap: 12,
@@ -959,6 +962,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   resultImage: {
+    borderCurve: 'continuous',
     borderRadius: 10,
     borderWidth: 1,
     height: 72,
@@ -966,6 +970,7 @@ const styles = StyleSheet.create({
   },
   resultRow: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 16,
     borderWidth: 1,
     flexDirection: 'row',
@@ -989,6 +994,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   reviewThumb: {
+    borderCurve: 'continuous',
     borderRadius: 10,
     height: 72,
     width: 52,

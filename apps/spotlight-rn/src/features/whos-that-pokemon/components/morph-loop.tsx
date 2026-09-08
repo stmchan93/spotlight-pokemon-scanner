@@ -411,6 +411,7 @@ const styles = StyleSheet.create({
   root: {
     aspectRatio: 1,
     backgroundColor: colors.scannerCanvas,
+    borderCurve: 'continuous',
     borderRadius: radii.xl,
     overflow: 'hidden',
     width: '100%',

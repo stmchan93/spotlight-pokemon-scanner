@@ -105,7 +105,7 @@ export function SearchEntryPill({
       onPress={onPress}
       style={({ pressed }) => [
         styles.pill,
-        { borderRadius: theme.radii.pill },
+        { borderCurve: 'continuous', borderRadius: theme.radii.pill },
         shell,
         { opacity: pressed ? 0.84 : 1 },
         style,
@@ -118,7 +118,7 @@ export function SearchEntryPill({
           glassColorScheme={onDark ? 'dark' : 'auto'}
           glassEffectStyle={onDark ? 'clear' : 'regular'}
           pointerEvents="none"
-          style={[styles.glass, { borderRadius: theme.radii.pill }]}
+          style={[styles.glass, { borderCurve: 'continuous', borderRadius: theme.radii.pill }]}
         />
       ) : null}
       {leading ? <View style={styles.leading}>{leading}</View> : null}

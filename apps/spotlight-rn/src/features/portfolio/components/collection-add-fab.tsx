@@ -78,6 +78,7 @@ export function CollectionAddFab({
 const styles = StyleSheet.create({
   fab: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 999,
     height: 48,
     justifyContent: 'center',
@@ -86,6 +87,7 @@ const styles = StyleSheet.create({
     width: 48,
   },
   fabGlass: {
+    borderCurve: 'continuous',
     borderRadius: 999,
     bottom: 0,
     left: 0,

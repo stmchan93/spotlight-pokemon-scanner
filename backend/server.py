@@ -155,6 +155,7 @@ from fx_rates import (
 from ebay_comps import (
     DEFAULT_RESULT_LIMIT as DEFAULT_EBAY_LISTING_LIMIT,
     MAX_RESULT_LIMIT as MAX_EBAY_LISTING_LIMIT,
+    fetch_ebay_items_by_legacy_ids,
     fetch_graded_card_ebay_comps,
 )
 from anthropic_adapter import identify_pokemon_lookalike
@@ -184,6 +185,11 @@ from scrydex_adapter import (
     search_remote_scrydex_slab_candidates,
     raw_evidence_looks_japanese,
     search_remote_scrydex_japanese_raw_candidates,
+)
+from ppt_adapter import (
+    ebay_item_id_from_url,
+    fetch_ppt_sold_listings_by_ebay_item_id,
+    reconcile_recent_sales_prices,
 )
 from slab_cert_resolver import resolve_psa_cert_from_scan_cache
 from tcgcsv_adapter import scrydex_variant_label_for_subtype
@@ -526,6 +532,13 @@ def _filter_recent_sales_rows(
     return filtered
 
 
+def _recent_sale_image_url(row: dict[str, Any]) -> str | None:
+    payload = row.get("sourcePayload")
+    spotlight = payload.get("_spotlight") if isinstance(payload, dict) else None
+    url = str((spotlight or {}).get("imageURL") or "").strip() if isinstance(spotlight, dict) else ""
+    return url or None
+
+
 def _recent_sales_payload(
     cached: dict[str, Any] | None,
     *,
@@ -576,6 +589,9 @@ def _recent_sales_payload(
                 },
                 "currencyCode": str(row.get("currencyCode") or "USD").strip().upper() or "USD",
                 "listingURL": str(row.get("listingURL") or row.get("listing_url") or "").strip() or None,
+                # Listing photo from eBay Browse, captured at refresh time and
+                # kept in the row's source payload (no schema change).
+                "imageURL": _recent_sale_image_url(row),
             }
             for row in sale_rows
         ],
@@ -13998,6 +14014,45 @@ class SpotlightScanService:
                 pass
         return payload
 
+    def _reconcile_recent_sales_prices(
+        self,
+        card: dict[str, Any],
+        card_id: str,
+        sales: list[dict[str, Any]],
+    ) -> None:
+        """Make every fetched comp USD and attach its eBay photo before it is
+        cached (see `ppt_adapter.reconcile_recent_sales_prices`). Per refresh:
+        one Browse `getItem` per row (free app token, parallel) and one PPT
+        call, the latter skipped when the card has no TCGplayer id or no PPT
+        key is configured. Any vendor failure leaves the Scrydex rows as they
+        came."""
+        if not sales:
+            return
+        ebay_items = fetch_ebay_items_by_legacy_ids(
+            ebay_item_id_from_url(sale.get("listingURL")) or "" for sale in sales if isinstance(sale, dict)
+        )
+        try:
+            row = self.connection.execute(
+                "SELECT tcgplayer_id FROM cards WHERE id = ?", (card_id,)
+            ).fetchone()
+        except sqlite3.OperationalError:
+            row = None
+        tcgplayer_id = str(row[0] or "").strip() if row is not None else ""
+        language = "japanese" if str(card.get("language") or "").strip().lower().startswith("jap") else "english"
+        ppt_rows = (
+            fetch_ppt_sold_listings_by_ebay_item_id(tcgplayer_id, language=language)
+            if tcgplayer_id
+            else {}
+        )
+        counts = reconcile_recent_sales_prices(
+            sales,
+            ppt_rows,
+            to_usd=lambda amount, code: _amount_to_usd(self.connection, amount, code),
+            ebay_items_by_item_id=ebay_items,
+        )
+        if counts.get("ebay") or counts.get("fx") or counts.get("unconverted"):
+            print(f"[recent-sales] {card_id}: non-USD comps reconciled {counts}", flush=True)
+
     def card_recent_sales(
         self,
         card_id: str,
@@ -14104,13 +14159,15 @@ class SpotlightScanService:
             grade=normalized_grade,
             limit=RECENT_SALES_MAX_LIMIT,
         )
+        remote_sales = list(remote_payload.get("sales") or [])
+        self._reconcile_recent_sales_prices(card, card_id, remote_sales)
         cached = replace_slab_recent_sales_cache(
             self.connection,
             card_id=card_id,
             grader=normalized_grader,
             grade=normalized_grade,
             source=normalized_source,
-            sales=list(remote_payload.get("sales") or []),
+            sales=remote_sales,
             fetched_at=utc_now(),
             source_url=str(remote_payload.get("sourceURL") or "").strip() or None,
             source_payload=dict(remote_payload.get("sourcePayload") or {}),

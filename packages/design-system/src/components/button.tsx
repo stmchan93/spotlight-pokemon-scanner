@@ -164,6 +164,7 @@ export function Button({
           minHeight: metrics.minHeight,
           paddingHorizontal: metrics.paddingHorizontal,
           paddingVertical: metrics.paddingVertical,
+          borderCurve: 'continuous',
           borderRadius: shape === 'rounded' ? theme.radii.sm : 999,
           backgroundColor: resolvedColors.backgroundColor,
           borderColor: resolvedColors.borderColor,

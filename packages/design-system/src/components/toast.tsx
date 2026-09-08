@@ -153,6 +153,7 @@ export function Toast({
 const styles = StyleSheet.create({
   toast: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 12,
     flexDirection: 'row',
     gap: 10,

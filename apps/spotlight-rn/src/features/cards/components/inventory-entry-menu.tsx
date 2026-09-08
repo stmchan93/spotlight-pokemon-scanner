@@ -130,6 +130,7 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
   },
   card: {
+    borderCurve: 'continuous',
     borderRadius: CARD_RADIUS,
     minWidth: CARD_WIDTH,
     overflow: 'hidden',
@@ -151,6 +152,7 @@ const styles = StyleSheet.create({
   },
   row: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 12,
     flexDirection: 'row',
     height: 40,

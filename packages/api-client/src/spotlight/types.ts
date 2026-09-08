@@ -1120,6 +1120,8 @@ export type CardEbayListingRecord = {
   priceAmount?: number | null;
   currencyCode: string;
   listingUrl?: string | null;
+  /** The listing's primary eBay photo (Browse item summary), when present. */
+  imageUrl?: string | null;
 };
 
 export type CardEbayListingsRecord = {
@@ -1140,6 +1142,8 @@ export type CardRecentSaleRecord = {
   priceAmount?: number | null;
   currencyCode: string;
   saleUrl?: string | null;
+  /** The listing's primary eBay photo (Browse getItem), when captured. */
+  imageUrl?: string | null;
 };
 
 export type CardRecentSalesRecord = {

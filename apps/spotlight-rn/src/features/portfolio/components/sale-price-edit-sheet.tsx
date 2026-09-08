@@ -169,6 +169,7 @@ const styles = StyleSheet.create({
     lineHeight: 40,
   },
   saleArt: {
+    borderCurve: 'continuous',
     borderRadius: 10,
     borderWidth: 1,
     height: 72,

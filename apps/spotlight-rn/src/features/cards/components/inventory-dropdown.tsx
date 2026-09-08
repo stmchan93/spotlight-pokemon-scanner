@@ -249,6 +249,7 @@ const styles = StyleSheet.create({
   entryImage: {
     alignSelf: 'stretch',
     aspectRatio: 16 / 22,
+    borderCurve: 'continuous',
     borderRadius: 2,
   },
   entryQuantity: {
@@ -264,6 +265,7 @@ const styles = StyleSheet.create({
   // Figma 2472-7659 delta pill: green/100 (or red) fill, 4px radius, arrow + amount.
   deltaPill: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 4,
     flexDirection: 'row',
     gap: 3.5,
@@ -300,6 +302,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   shell: {
+    borderCurve: 'continuous',
     borderRadius: radii.md,
     borderWidth: borderWidths.containerRule,
     gap: 12,

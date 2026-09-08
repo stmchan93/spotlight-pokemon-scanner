@@ -32,10 +32,12 @@ export function ScanTargetPill({
       testID={testID}
     >
       <GlassSurface
+        // Light frost with a white tint floor (see colors.frostTint); regular,
+        // not clear — clear glass is what vanished over dark scenes.
         fallbackColor={colors.gray0}
-        forceFallback
         glassColorScheme="light"
-        glassEffectStyle="clear"
+        glassEffectStyle="regular"
+        glassTintColor={colors.frostTint}
         style={styles.pill}
         testID={testID ? `${testID}-surface` : undefined}
       >
@@ -54,10 +56,12 @@ const styles = StyleSheet.create({
   },
   pressable: {
     alignSelf: 'stretch',
+    borderCurve: 'continuous',
     borderRadius: 999,
   },
   pill: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 999,
     flexDirection: 'row',
     gap: 6,

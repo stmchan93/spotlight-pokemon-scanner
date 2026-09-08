@@ -332,6 +332,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   thumbnail: {
+    borderCurve: 'continuous',
     borderRadius: 6,
     height: 44,
     width: 44,

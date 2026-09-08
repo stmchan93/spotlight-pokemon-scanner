@@ -126,6 +126,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   cellFirst: {
+    borderCurve: 'continuous',
     borderBottomLeftRadius: radii.sm,
     borderLeftWidth: borderWidths.containerRule,
     borderTopLeftRadius: radii.sm,
@@ -143,6 +144,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   cellLast: {
+    borderCurve: 'continuous',
     borderBottomRightRadius: radii.sm,
     borderTopRightRadius: radii.sm,
   },
@@ -153,6 +155,7 @@ const styles = StyleSheet.create({
   // Inset rounded card (Figma 2489:7486) — no more full-bleed negative margins;
   // radius 10 comes from the Figma frame (between radii.sm 8 and radii.md 12).
   container: {
+    borderCurve: 'continuous',
     borderRadius: 10,
     gap: 10,
     padding: 16,

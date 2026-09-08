@@ -55,6 +55,7 @@ export function RadioDot({
         {
           width: size,
           height: size,
+          borderCurve: 'continuous',
           borderRadius: size / 2,
           borderWidth: 1,
           borderColor,
@@ -68,6 +69,7 @@ export function RadioDot({
           style={{
             width: innerSize,
             height: innerSize,
+            borderCurve: 'continuous',
             borderRadius: innerSize / 2,
             backgroundColor: activeColor,
           }}

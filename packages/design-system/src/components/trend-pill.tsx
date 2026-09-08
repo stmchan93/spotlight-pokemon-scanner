@@ -78,6 +78,7 @@ export function TrendPill({
 const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 4,
     flexDirection: 'row',
     gap: 2,

@@ -38,6 +38,7 @@ export function QuantityStepper({
         {
           backgroundColor: theme.colors.field,
           borderColor: theme.colors.outlineSubtle,
+          borderCurve: 'continuous',
           borderRadius: theme.radii.pill,
         },
         style,
