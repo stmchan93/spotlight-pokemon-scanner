@@ -22,6 +22,8 @@ import {
   usePhotoOutput,
 } from 'react-native-vision-camera';
 
+import { resolveScannerCameraDevice } from '@/features/scanner/scanner-camera-lens';
+
 import {
   Text,
   colors,
@@ -163,6 +165,12 @@ type RawScannerCaptureSurfaceProps = {
    * stop burning CPU behind the blur but reopening is instant.
    */
   suspendPreview?: boolean;
+  /**
+   * Scan from the ultra-wide lens only (see scanner-camera-lens.ts). Removes
+   * the Auto-Macro lens hand-off "snap" on Pro iPhones; ignored where the
+   * ultra-wide has no autofocus.
+   */
+  lockMacroLens?: boolean;
   showSlabGuide?: boolean;
   testIDPrefix: string;
   /**
@@ -285,6 +293,7 @@ export function RawScannerCaptureSurface({
   reticleLockProgress,
   shouldMountCamera,
   suspendPreview = false,
+  lockMacroLens = false,
   showSlabGuide = false,
   testIDPrefix,
   zoomFactor = 1,
@@ -313,8 +322,19 @@ export function RawScannerCaptureSurface({
   // factor makes "1x" super-wide. v5 dropped `device.neutralZoom`, so we re-anchor
   // below: the normal wide lens sits at ~2x the ultra-wide baseline. Net result —
   // "1x" is the normal wide, 1.5x/2x are real magnification, AND macro still works.
-  const device = useCameraDevice('back', {
+  const multiLensDevice = useCameraDevice('back', {
     physicalDevices: ['ultra-wide-angle', 'wide-angle', 'telephoto'],
+  });
+  // Macro lens lock: the ultra-wide alone. No lens hand-off means no preview
+  // "snap" as a card comes close; the ×2 re-anchor below still lands "1x" on
+  // the normal field of view (digitally, off the ultra-wide sensor).
+  const ultraWideDevice = useCameraDevice('back', {
+    physicalDevices: ['ultra-wide-angle'],
+  });
+  const device = resolveScannerCameraDevice({
+    lockMacroLens,
+    multiLensDevice,
+    ultraWideDevice,
   });
 
   // 'balanced' on BOTH platforms. We A/B'd Android 'speed'

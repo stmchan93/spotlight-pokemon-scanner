@@ -137,6 +137,7 @@ import {
   scanTargetPillLabel,
   useScannerTargetConfig,
 } from '@/features/scanner/use-scanner-target-config';
+import { useScannerMacroLensLock } from '@/features/scanner/scanner-camera-lens';
 
 import { BinderPageReview } from './binder-page-review';
 import { ChangeCardPicker } from './change-card-picker';
@@ -906,6 +907,7 @@ export function ScannerScreen({
   const lastBulkActionRef = useRef<AddAllMenuAction>('collection');
   const { lane: scanLane, setLane: setScanLane } = useScannerTargetConfig();
   const [zoomFactor, setZoomFactor, zoomHydrated] = useScannerZoomFactor();
+  const [macroLensLock] = useScannerMacroLensLock();
   const [isScanTargetSheetOpen, setIsScanTargetSheetOpen] = useState(false);
   const [ebayTrayState, setEbayTrayState] = useState<Map<string, { loading: boolean; url: string | null }>>(new Map());
   const [priceSelection, setPriceSelection] = useState<Map<string, ScanPriceSheetSelection>>(new Map());
@@ -3906,6 +3908,7 @@ export function ScannerScreen({
         prompt={promptCopy}
         shouldMountCamera={shouldMountCamera}
         suspendPreview={activeBinderPageId != null}
+        lockMacroLens={macroLensLock}
         showSlabGuide={false}
         testIDPrefix="scanner"
         zoomFactor={zoomFactor}
@@ -3968,23 +3971,23 @@ export function ScannerScreen({
           the old one read as chrome.
         */}
         {/*
-          Camera fades (Figma 4911:8741): black 30% -> clear from the top edge,
-          mirrored at the bottom, so the light glass chrome always sits on a
-          gently darkened backdrop instead of raw camera noise.
+          Camera fades (Figma 4911:8741 / 8693): black 15% -> clear from each
+          screen edge, so the white chrome sits on a gently darkened backdrop
+          instead of raw camera noise.
         */}
         <View pointerEvents="none" style={styles.cameraTopFade}>
           <Svg height="100%" width="100%">
             <Defs>
               {/*
-                Figma 4911:8741: solid black at the top edge -> clear over a
-                118pt band (the frame's progressive backdrop-blur is skipped,
-                as everywhere — expo-blur can't do gradient blur). Was 30%
-                over 160pt, which left the status region washed instead of
-                anchored.
+                Figma 4911:8741: black 15% at the top edge -> clear over a
+                118pt band. Deliberately faint — the white pucks carry their
+                own contrast; this only takes the edge off raw camera noise
+                under the status bar. (The frame's backdrop-blur is skipped,
+                as everywhere — expo-blur can't do gradient blur.)
               */}
               <SvgLinearGradient id="scannerTopFade" x1="0" x2="0" y1="0" y2="1">
-                <Stop offset="0" stopColor="#000000" stopOpacity="1" />
-                <Stop offset="1" stopColor="#000000" stopOpacity="0" />
+                <Stop offset="0" stopColor="#000000" stopOpacity="0.15" />
+                <Stop offset="1" stopColor="#FFFFFF" stopOpacity="0" />
               </SvgLinearGradient>
             </Defs>
             <Rect fill="url(#scannerTopFade)" height="100%" width="100%" x="0" y="0" />
@@ -3994,15 +3997,15 @@ export function ScannerScreen({
           <Svg height="100%" width="100%">
             <Defs>
               {/*
-                Figma 4911:8693: solid black at the bottom edge -> #5C5C5C at
-                74% by the 60% mark -> clear at the top of a 258pt band, the
-                heavy scrim the zoom controls + shutter sit on. The frame's
-                progressive 32pt backdrop-blur is skipped as everywhere.
+                Figma 4911:8693: black 15% at the bottom edge -> #5D5D5D 11%
+                by the 60% mark -> clear at the top of a 258pt band under the
+                zoom controls. Faint by design, same as the top fade. The
+                frame's 16pt backdrop-blur is skipped as everywhere.
               */}
               <SvgLinearGradient id="scannerBottomFade" x1="0" x2="0" y1="1" y2="0">
-                <Stop offset="0" stopColor="#000000" stopOpacity="1" />
-                <Stop offset="0.6" stopColor="#5C5C5C" stopOpacity="0.74" />
-                <Stop offset="1" stopColor="#5C5C5C" stopOpacity="0" />
+                <Stop offset="0" stopColor="#000000" stopOpacity="0.15" />
+                <Stop offset="0.6" stopColor="#5D5D5D" stopOpacity="0.11" />
+                <Stop offset="1" stopColor="#FFFFFF" stopOpacity="0" />
               </SvgLinearGradient>
             </Defs>
             <Rect fill="url(#scannerBottomFade)" height="100%" width="100%" x="0" y="0" />
@@ -4022,7 +4025,7 @@ export function ScannerScreen({
             accessibilityLabel="Exit scanner"
             onPress={gate(handleExitScanner)}
             size="medium"
-            material="solid"
+            material="frost"
             surface="onLight"
             testID="scanner-back-button"
           >
@@ -4045,7 +4048,7 @@ export function ScannerScreen({
             accessibilityLabel="Search the card catalog"
             onPress={gate(handleOpenCatalogSearch)}
             size="medium"
-            material="solid"
+            material="frost"
             surface="onLight"
             testID="scanner-search-button"
           >
@@ -4112,10 +4115,13 @@ export function ScannerScreen({
                     keeps sizing the pill; zoom pills can nest theirs because
                     they're fixed-width circles). */}
                 <GlassSurface
-                  // The SCAN/TOTAL pill recipe — see the zoom chip note.
-                  fallbackColor="rgba(255, 255, 255, 0.10)"
-                  glassColorScheme="dark"
-                  glassEffectStyle="clear"
+                  // The SCAN/TOTAL pill recipe: light frost with a white tint
+                  // floor + dark label. Untinted glass vanished over dark
+                  // scenes (2026-09-04); solid gray0 on fallback targets.
+                  fallbackColor={colors.gray0}
+                  glassColorScheme="light"
+                  glassEffectStyle="regular"
+                  glassTintColor={colors.frostTint}
                   pointerEvents="none"
                   style={styles.binderModePillSurface}
                   testID="scanner-binder-mode-toggle-surface"
@@ -4142,30 +4148,24 @@ export function ScannerScreen({
                     testID={`scanner-zoom-${factor}x`}
                   >
                     {/*
-                      Only the SELECTED factor has a surface; the others are bare
-                      labels, as in Figma 1041-4238. Glass on iOS 26, the same
-                      dark scrim as before everywhere else — see `ScanTargetPill`
-                      for why the scheme is pinned `dark` rather than `auto`.
+                      EVERY factor is a light-frost chip, matching the
+                      SCAN/TOTAL pills (Figma 4911:8717 selected / 8720
+                      unselected). Labels are dark on both; selection reads
+                      from the white tint going strong vs faint. Fallback
+                      targets get solid gray0 / 40% white.
                     */}
-                    {selected ? (
-                      // The SCAN/TOTAL pill recipe: DARK-pinned clear glass
-                      // with a white label. Light glass borrows brightness
-                      // from the backdrop and went near-black over night
-                      // scenes; dark glass + white text reads over anything.
-                      <GlassSurface
-                        fallbackColor="rgba(255, 255, 255, 0.10)"
-                        glassColorScheme="dark"
-                        glassEffectStyle="clear"
-                        style={styles.zoomPillSurface}
-                        testID={`scanner-zoom-${factor}x-surface`}
-                      >
-                        <Text style={styles.zoomPillLabel}>
-                          {`${factor}x`}
-                        </Text>
-                      </GlassSurface>
-                    ) : (
-                      <Text style={styles.zoomPillLabel}>{`${factor}x`}</Text>
-                    )}
+                    <GlassSurface
+                      fallbackColor={selected ? colors.gray0 : colors.frostTintFaint}
+                      glassColorScheme="light"
+                      glassEffectStyle="regular"
+                      glassTintColor={selected ? colors.frostTintStrong : colors.frostTintFaint}
+                      style={styles.zoomPillSurface}
+                      testID={`scanner-zoom-${factor}x-surface`}
+                    >
+                      <Text style={styles.zoomPillLabel}>
+                        {`${factor}x`}
+                      </Text>
+                    </GlassSurface>
                   </Pressable>
                 );
               })}
@@ -4191,29 +4191,6 @@ export function ScannerScreen({
           </View>
         )}
 
-        {/*
-          Bottom gradient behind the collapsed footer chrome (Figma 4062:21146:
-          350pt, black at the screen edge fading out by the top). The expanded
-          tray swaps it for the flat 40% scrim below (Figma 4046:20417).
-        */}
-        {isTrayExpanded ? null : (
-          <Svg
-            height={350}
-            pointerEvents="none"
-            style={styles.bottomGradient}
-            testID="scanner-bottom-gradient"
-            width="100%"
-          >
-            <Defs>
-              <SvgLinearGradient id="scannerBottomGradient" x1="0" x2="0" y1="0" y2="1">
-                <Stop offset="0" stopColor="#5D5D5D" stopOpacity="0" />
-                <Stop offset="0.4" stopColor="#5D5D5D" stopOpacity="0.19" />
-                <Stop offset="1" stopColor="#000000" stopOpacity="0.3" />
-              </SvgLinearGradient>
-            </Defs>
-            <Rect fill="url(#scannerBottomGradient)" height="100%" width="100%" />
-          </Svg>
-        )}
         <GestureDetector gesture={trayPanGesture}>
         <View style={styles.trayShell} testID="scanner-tray">
           {/*
@@ -4273,12 +4250,12 @@ export function ScannerScreen({
                   the pill changing identity mid-swipe.
                 */}
                 <GlassSurface
-                  // Solid white like the zoom/mode pills — real glass turned
-                  // muddy over the camera (2026-09-04 TestFlight report).
+                  // Light frost with a white tint floor, like the zoom/mode
+                  // pills; solid gray0 on fallback targets.
                   fallbackColor={colors.gray0}
-                  forceFallback
                   glassColorScheme="light"
                   glassEffectStyle="regular"
+                  glassTintColor={colors.frostTint}
                   style={styles.trayInfoPill}
                   testID="scanner-recent-title-surface"
                 >
@@ -4311,11 +4288,11 @@ export function ScannerScreen({
                 ) : null}
               </View>
               <GlassSurface
-                // Solid white like the zoom/mode pills (see above).
+                // Same frost recipe as the SCAN chip beside it.
                 fallbackColor={colors.gray0}
-                forceFallback
                 glassColorScheme="light"
                 glassEffectStyle="regular"
+                glassTintColor={colors.frostTint}
                 style={styles.trayInfoPill}
                 testID="scanner-value-pill-surface"
               >
@@ -4699,6 +4676,7 @@ const styles = StyleSheet.create({
   },
   binderPageHeaderButton: {
     backgroundColor: colors.scannerConditionPill,
+    borderCurve: 'continuous',
     borderRadius: 6,
     paddingHorizontal: 10,
     paddingVertical: 6,
@@ -4746,6 +4724,7 @@ const styles = StyleSheet.create({
   // it shows the CURRENT mode, so it always reads as the highlighted choice.
   binderModePill: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 999,
     height: 30,
     justifyContent: 'center',
@@ -4755,12 +4734,15 @@ const styles = StyleSheet.create({
   },
   binderModePillSurface: {
     ...StyleSheet.absoluteFillObject,
+    borderCurve: 'continuous',
     borderRadius: 999,
     overflow: 'hidden',
   },
   binderModePillLabel: {
-    ...textStyles.label,
-    color: colors.gray0,
+    // labelStrong to match the SCAN/TOTAL pill weight.
+    ...textStyles.labelStrong,
+    // Dark on the white chip (was white on dark glass).
+    color: colors.gray900,
     fontSize: 12,
   },
   zoomDock: {
@@ -4771,24 +4753,29 @@ const styles = StyleSheet.create({
   zoomPill: {
     alignItems: 'center',
     backgroundColor: 'transparent',
+    borderCurve: 'continuous',
     borderRadius: 999,
-    height: 32,
     justifyContent: 'center',
-    width: 32,
   },
   // The glass fills the whole 36pt circle, so the material clips the label
   // rather than sitting behind it.
+  // CAPSULES, not 32pt circles — same shape family as the Single/3×3 toggle,
+  // the SCAN/TOTAL pills, and the top scan-target pill ("it should match
+  // Pokemon EN and SCAN/TOTAL", 2026-09-04). Width follows the label.
   zoomPillSurface: {
     alignItems: 'center',
+    borderCurve: 'continuous',
     borderRadius: 999,
-    height: 32,
+    height: 30,
     justifyContent: 'center',
     overflow: 'hidden',
-    width: 32,
+    paddingHorizontal: 14,
   },
   zoomPillLabel: {
-    ...textStyles.label,
-    color: colors.gray0,
+    // labelStrong to match the SCAN/TOTAL pill weight (was plain label).
+    ...textStyles.labelStrong,
+    // Dark on the white chips (was white on dark glass).
+    color: colors.gray900,
     fontSize: 12,
   },
   captureCopy: {
@@ -4861,6 +4848,7 @@ const styles = StyleSheet.create({
     // scaled to thumbnail size, not a UI radius. The old 6 rounded it like a
     // tile and read as a rounded button rather than a card.
     backgroundColor: colors.scannerSurfaceStrong,
+    borderCurve: 'continuous',
     borderRadius: 2.695,
     height: 80,
     width: 58,
@@ -4873,6 +4861,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     alignSelf: 'stretch',
     backgroundColor: colors.scannerConditionPill,
+    borderCurve: 'continuous',
     borderRadius: 4,
     height: 18,
     justifyContent: 'center',
@@ -4889,6 +4878,7 @@ const styles = StyleSheet.create({
   },
   captureGradedRefChip: {
     backgroundColor: colors.scannerConditionPill,
+    borderCurve: 'continuous',
     borderRadius: 4,
     color: colors.scannerTextPrimary,
     fontFamily: fontFamilies.bodyMedium,
@@ -4916,6 +4906,7 @@ const styles = StyleSheet.create({
     // node is the later of the two.
     alignItems: 'center',
     backgroundColor: colors.scannerAddPurple,
+    borderCurve: 'continuous',
     borderRadius: radii.sm,
     flexDirection: 'row',
     gap: 2,
@@ -4948,6 +4939,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   trayInfoPill: {
+    borderCurve: 'continuous',
     borderRadius: radii.pill,
     // Clips the glass to the pill shape.
     overflow: 'hidden',
@@ -4976,6 +4968,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     backgroundColor: 'transparent',
     borderColor: colors.dangerStrong,
+    borderCurve: 'continuous',
     borderRadius: radii.pill,
     borderWidth: 1,
     paddingHorizontal: 16,
@@ -4998,6 +4991,7 @@ const styles = StyleSheet.create({
   matchesPanel: {
     backgroundColor: colors.scannerSurfaceMuted,
     borderColor: colors.scannerOutlineSubtle,
+    borderCurve: 'continuous',
     borderRadius: 18,
     borderWidth: 1,
     gap: 10,
@@ -5025,6 +5019,7 @@ const styles = StyleSheet.create({
   matchOptionRow: {
     alignItems: 'center',
     backgroundColor: colors.scannerSurfaceStrong,
+    borderCurve: 'continuous',
     borderRadius: 14,
     flexDirection: 'row',
     gap: 10,
@@ -5036,6 +5031,7 @@ const styles = StyleSheet.create({
   },
   matchOptionThumb: {
     backgroundColor: colors.scannerSurface,
+    borderCurve: 'continuous',
     borderRadius: 10,
     height: 52,
     width: 40,
@@ -5071,6 +5067,7 @@ const styles = StyleSheet.create({
   trayHandle: {
     // Figma 3594:26001 — 36x4, radius 2, gray/100.
     backgroundColor: colors.gray100,
+    borderCurve: 'continuous',
     borderRadius: 2,
     height: 4,
     width: 36,
@@ -5117,12 +5114,5 @@ const styles = StyleSheet.create({
   trayBackdropOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0, 0, 0, 0.40)',
-  },
-  bottomGradient: {
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
-    right: 0,
-    zIndex: 3,
   },
 });
