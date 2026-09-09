@@ -11,12 +11,11 @@ import {
 } from '@/features/scanner/scanner-normalized-target';
 
 describe('binder page layouts', () => {
-  it('offers 9 and 12 pockets, both three columns wide', () => {
+  it('offers the 9-pocket page only, three columns wide', () => {
     // Three across keeps every pocket above the 360px zero-loss line in
-    // portrait; only the row count grows (docs/binder-scan-feasibility).
+    // portrait (docs/binder-scan-feasibility). 12 and 18 were pulled 2026-09-08.
     expect(binderPageLayouts.map((layout) => [layout.label, layout.columns * layout.rows])).toEqual([
       ['9 cards', 9],
-      ['12 cards', 12],
     ]);
     expect(binderPageLayouts.every((layout) => layout.columns === 3)).toBe(true);
     // Unknown/legacy ids (rows persisted before layouts) resolve to 3×3.
@@ -25,7 +24,8 @@ describe('binder page layouts', () => {
   });
 
   it('cuts a 3x4 page into 12 upright card-aspect cells in reading order', () => {
-    const layout = binderPageLayoutById('pockets-12');
+    // Not offered today; the layout-driven crop stays exercised (see the table note).
+    const layout = { ...binderPageLayoutById('pockets-9'), rows: 4 };
     const page = { height: 3520, width: 1890, x: 0, y: 0 };
     const rects = makeBinderPocketCropRects(page, { height: 3520, width: 1890 }, layout);
     expect(rects).toHaveLength(12);

@@ -189,14 +189,16 @@ export type BinderPageLayout = {
 };
 
 export const binderPageLayouts: readonly BinderPageLayout[] = [
-  // The classic 9-pocket page.
+  // The classic 9-pocket page — the only layout offered (2026-09-08).
   { id: 'pockets-9', label: '9 cards', columns: 3, rows: 3, cropRotationDegrees: 0, hint: null },
-  // Ultra Pro-style 12-pocket page: 3 across, 4 down, upright.
-  { id: 'pockets-12', label: '12 cards', columns: 3, rows: 4, cropRotationDegrees: 0, hint: null },
-  // No 18: it was an open binder turned sideways (3 × 6, cropRotationDegrees
-  // 90, "card tops to the left"), and asking for that at a show table costs
-  // more scans than it gains. The sideways crop path stays built and tested
-  // for a future wide 12-pocket binder (4 across × 3 down).
+  // 12 (3 × 4 upright) and 18 (an open binder sideways, 3 × 6 with the crops
+  // rotated) were both built and pulled the same day: a 12-pocket page is
+  // ~25% taller than a 9 for the same width and never framed as smoothly on
+  // a portrait phone even with the tray collapsed to its header; 18 needed
+  // a "turn it sideways" instruction. Everything they needed — layout-driven
+  // crops and grid, `binderLayout` on the page endpoints, the header-only
+  // tray for tall layouts, the sideways crop rotation — stays in place and
+  // tested, so either is one table entry away if a real request shows up.
 ];
 
 export const defaultBinderPageLayoutId: BinderPageLayoutId = 'pockets-9';
