@@ -228,10 +228,14 @@ export function makeRawScannerCaptureLayout({
   // tray. The reticle bottom keeps `inset` clearance above it.
   const controlsRowTop = trayTop - rawScannerControlsRowLift - rawScannerControlsRowHeight;
 
+  // Page mode trims the vertical insets: the frame IS the crop there and every
+  // point of height is page width for the taller layouts (a 3 × 4 page needs
+  // ~1.86× its width). Single-card keeps the uniform 40.
+  const verticalInset = mode === 'page' ? 16 : inset;
   const x = inset;
   const width = Math.max(284, containerWidth - inset * 2);
-  const y = headerHeight + inset;
-  const height = Math.max(240, controlsRowTop - inset - y);
+  const y = headerHeight + verticalInset;
+  const height = Math.max(240, controlsRowTop - verticalInset - y);
 
   // Crop sent to matching keeps the TRUE card aspect (no stretch): same width and
   // horizontal center as the visible frame, centered vertically on it, so it

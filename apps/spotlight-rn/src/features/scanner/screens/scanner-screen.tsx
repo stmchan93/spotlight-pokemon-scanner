@@ -1066,11 +1066,18 @@ export function ScannerScreen({
   const emptyTrayVisualHeight = getRawScannerEmptyTrayVisualHeight({
     bottomInset: trayBottomInset,
   });
-  // Page mode reserves only the tray header so the full-width page reticle fits.
-  // Page mode reserves the same footer as single mode: the collapsed tray pops
-  // up with the newest rows exactly like a single scan (user decision — UX
-  // parity beats the ~10% pocket-resolution gain of a header-only footer).
-  const footerReservedHeight = collapsedTrayReservedHeight;
+  // 9-card page mode reserves the same footer as single mode: the collapsed
+  // tray pops up with the newest rows exactly like a single scan (user
+  // decision — UX parity beats the ~10% pocket-resolution gain). TALLER page
+  // layouts (12 cards: 3 across × 4 down) can't afford that: between the top
+  // pucks and the controls row there is ~480pt and the page wants ~580 at full
+  // width, so the frame squeezed to ~60% width ("the window is too small",
+  // 2026-09-08). In those layouts the tray collapses to its HEADER only
+  // (SCAN / TOTAL bar, rows one pull away) and the frame takes the row's space.
+  const trayCollapsesToHeader = isBinderPageMode && binderPageLayout.rows > 3;
+  const footerReservedHeight = trayCollapsesToHeader
+    ? rawScannerTrayHeaderHeight + trayBottomInset
+    : collapsedTrayReservedHeight;
   const captureSurfaceLayout = makeRawScannerCaptureLayout({
     containerHeight: windowHeight,
     containerWidth: windowWidth,
@@ -1150,7 +1157,10 @@ export function ScannerScreen({
     ? Math.min(trayContentHeight, trayExpandedBodyHeight)
     : Math.max(140, trayExpandedBodyHeight);
   const trayScrollEnabled = trayContentHeight > trayScrollViewportHeight;
-  const collapsedViewportHeight = captureRowHeight;
+  // Header-only collapse for tall page layouts (see trayCollapsesToHeader):
+  // a zero-height row viewport under the header; every retarget below follows
+  // this value, so switching layouts animates the tray between the two.
+  const collapsedViewportHeight = trayCollapsesToHeader ? 0 : captureRowHeight;
   // Binder page headers stay MOUNTED in both tray states (mounting them inside
   // the expand commit shoved every visible row down ~64px mid-animation — the
   // "awkward" binder expand). The collapsed tray instead anchors its scroll
@@ -4135,7 +4145,7 @@ export function ScannerScreen({
               {
                 left: 16,
                 right: 16,
-                bottom: (recentCaptures.length > 0 ? collapsedTrayReservedHeight : emptyTrayVisualHeight) + 16,
+                bottom: (recentCaptures.length > 0 ? footerReservedHeight : emptyTrayVisualHeight) + 16,
               },
             ]}
           >

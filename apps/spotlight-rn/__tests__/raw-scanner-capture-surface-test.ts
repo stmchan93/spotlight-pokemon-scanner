@@ -55,9 +55,11 @@ describe('raw scanner capture layout', () => {
     // stays centered and inside the visible frame box.
     expect(threeByThree.captureCropRect.width).toBe(threeByThree.reticle.width);
     expect(threeByFour.captureCropRect.width).toBeLessThan(threeByThree.captureCropRect.width);
-    // Never taller than the 3×3 page's crop, which is the tuned overhang.
-    expect(threeByFour.captureCropRect.height).toBeLessThanOrEqual(threeByThree.captureCropRect.height);
-    expect(threeByFour.captureCropRect.y).toBeGreaterThanOrEqual(threeByThree.captureCropRect.y);
+    // Stays inside the visible frame box (page mode trims the vertical insets
+    // to 16 so the taller page gets every point it can), never into the
+    // controls row or the top chrome.
+    expect(threeByFour.captureCropRect.height).toBeLessThanOrEqual(threeByFour.reticle.height);
+    expect(threeByFour.captureCropRect.y).toBeGreaterThanOrEqual(threeByFour.reticle.y);
     const centerX = threeByFour.captureCropRect.x + threeByFour.captureCropRect.width / 2;
     expect(Math.abs(centerX - (threeByFour.reticle.x + threeByFour.reticle.width / 2))).toBeLessThanOrEqual(1);
     expect(threeByFour.captureCropRect.height / threeByFour.captureCropRect.width).toBeCloseTo((4 * 880) / (3 * 630), 1);
