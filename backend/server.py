@@ -17319,6 +17319,24 @@ class SpotlightScanService:
                 self._dashboard_cache.pop(next(iter(self._dashboard_cache)), None)
             self._dashboard_cache[cache_key] = (version, payload)
 
+    def _log_card_read_timing(self, event: str, started_at: float, *, outcome: str, card_id: str = "") -> None:
+        """Card-page reads (detail / price-trends / condition-history /
+        market-history) had NO timing log, so a slow spell was invisible except
+        as "client disconnected" lines (2026-09-09 staging: 7-13s per call for
+        ~10 min, cause never attributed). Same shape as the dashboard log; the
+        slow flag is 2s because these normally serve in <500ms."""
+        elapsed_ms = round((perf_counter() - started_at) * 1000.0, 1)
+        self._emit_structured_log(
+            {
+                "severity": "INFO",
+                "event": event,
+                "outcome": outcome,
+                "cardId": card_id,
+                "elapsedMs": elapsed_ms,
+                "slow": elapsed_ms >= 2000.0,
+            }
+        )
+
     def _log_dashboard_timing(self, started_at: float, *, outcome: str) -> None:
         elapsed_ms = round((perf_counter() - started_at) * 1000.0, 1)
         self._emit_structured_log(
@@ -21346,6 +21364,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             variant = query.get("variant", [""])[0].strip() or None
             grader = query.get("grader", [""])[0].strip() or None
 
+            started_at = perf_counter()
             try:
                 payload = self.service.card_price_trends(
                     card_id,
@@ -21354,8 +21373,13 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                     grader=grader,
                 )
             except Exception as error:
+                self.service._log_card_read_timing("card_price_trends_request", started_at, outcome="error", card_id=card_id)
                 self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"Price trends failed: {error}"})
                 return
+            self.service._log_card_read_timing(
+                "card_price_trends_request", started_at,
+                outcome="ok" if payload is not None else "not_found", card_id=card_id,
+            )
 
             if payload is None:
                 self._write_json(HTTPStatus.NOT_FOUND, {"error": "Card not found"})
@@ -21380,11 +21404,17 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 days = int(query.get("days", ["365"])[0])
             except ValueError:
                 days = 365
+            started_at = perf_counter()
             try:
                 payload = self.service.card_condition_history(card_id, lane=lane, days=days)
             except Exception as error:
+                self.service._log_card_read_timing("card_condition_history_request", started_at, outcome="error", card_id=card_id)
                 self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"Condition history failed: {error}"})
                 return
+            self.service._log_card_read_timing(
+                "card_condition_history_request", started_at,
+                outcome="ok" if payload is not None else "not_found", card_id=card_id,
+            )
             if payload is None:
                 self._write_json(HTTPStatus.NOT_FOUND, {"error": "Card not found"})
                 return
@@ -21409,6 +21439,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": "days must be an integer"})
                 return
 
+            started_at = perf_counter()
             try:
                 payload = self.service.card_market_history(
                     card_id,
@@ -21420,8 +21451,13 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                     condition=condition,
                 )
             except Exception as error:
+                self.service._log_card_read_timing("card_market_history_request", started_at, outcome="error", card_id=card_id)
                 self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"Market history failed: {error}"})
                 return
+            self.service._log_card_read_timing(
+                "card_market_history_request", started_at,
+                outcome="ok" if payload is not None else "not_found", card_id=card_id,
+            )
 
             if payload is None:
                 self._write_json(HTTPStatus.NOT_FOUND, {"error": "Card not found"})
@@ -21453,6 +21489,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 except RequestAuthError:
                     identity = None
 
+            started_at = perf_counter()
             with self.service.request_identity_context(identity):
                 payload = self.service.card_detail(
                     card_id,
@@ -21461,6 +21498,10 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                     cert_number=cert_number,
                     preferred_variant=preferred_variant,
                 )
+            self.service._log_card_read_timing(
+                "card_detail_request", started_at,
+                outcome="ok" if payload is not None else "not_found", card_id=card_id,
+            )
             if payload is None:
                 self._write_json(HTTPStatus.NOT_FOUND, {"error": "Card not found"})
                 return

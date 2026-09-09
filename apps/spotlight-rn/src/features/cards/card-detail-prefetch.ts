@@ -27,6 +27,19 @@ import { prefetchImageUrls } from '@/lib/card-images';
 const cacheTtlMs = 60_000;
 const maxDetailEntries = 50;
 const maxTrendEntries = 80;
+// One retry after a short pause for the PDP's two critical reads. The client
+// aborts at 12s (defaultHttpRequestTimeoutMs); a server that is briefly
+// contended answers the retry in <1s far more often than it stays slow, and a
+// page with no detail keeps every control disabled (2026-09-09: staging served
+// card reads at 7-13s for ~10 min and the PDP sat grayed out). Same shape as
+// the dashboard's retry; 0 in tests so nothing waits on a timer.
+export const cardReadRetryBackoffMs = process.env.NODE_ENV === 'test' ? 0 : 1200;
+
+function withOneRetry<T>(read: () => Promise<T>): Promise<T> {
+  return read().catch(() =>
+    new Promise<void>((resolve) => setTimeout(resolve, cardReadRetryBackoffMs)).then(read),
+  );
+}
 
 export type CardDetailLane = {
   mode: 'raw' | 'graded';
@@ -125,7 +138,7 @@ export function getCardDetailCached(
     // Skip the heavy full-collection fetch on the detail critical path so the
     // card image + variants paint as soon as card + market-history resolve. The
     // PDP sources owned context from the already-loaded inventory cache instead.
-    repository.getCardDetail({ cardId }, { includeOwnedEntries: false }),
+    withOneRetry(() => repository.getCardDetail({ cardId }, { includeOwnedEntries: false })),
   );
 }
 
@@ -147,7 +160,7 @@ export function getCardPriceTrendsCached(
     trendCache,
     maxTrendEntries,
     key,
-    repository.getCardPriceTrends({
+    withOneRetry(() => repository.getCardPriceTrends({
       cardId,
       mode: lane.mode,
       // Forward the printing on BOTH lanes. In graded mode the backend resolves
@@ -155,7 +168,7 @@ export function getCardPriceTrendsCached(
       // return the base printing (e.g. Unlimited) regardless of the selection.
       variant: lane.variant,
       grader: lane.mode === 'raw' ? null : lane.grader,
-    }),
+    })),
   );
 }
 
