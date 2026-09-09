@@ -14,7 +14,7 @@ import {
   type GlassNavBubbleGroupItem,
 } from '@spotlight/design-system';
 
-import { EkalightLogoIntro } from '@/components/ekalight-logo-intro';
+import { EkalightMark } from '@/components/ekalight-mark';
 
 /**
  * WHAT THE BAR'S TRAILING CONTROL IS — the ONE thing that differs between the
@@ -510,7 +510,14 @@ export function HomeHeader({
               pointerEvents="none"
               style={homeMarkOpacity ? { opacity: homeMarkOpacity } : null}
             >
-              <EkalightLogoIntro testID={`${testID}-home-mark`} />
+              {/* Static mark. The launch intro (wordmark collapsing into the
+                  mark) was removed 2026-09-09 — user: "remove the animation". */}
+              <EkalightMark
+                color={theme.colors.purple500}
+                height={HOME_MARK_HEIGHT}
+                testID={`${testID}-home-mark`}
+                width={HOME_MARK_WIDTH}
+              />
             </Animated.View>
           ) : null}
         </View>
