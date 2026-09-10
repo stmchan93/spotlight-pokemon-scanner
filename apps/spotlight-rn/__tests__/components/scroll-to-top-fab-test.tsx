@@ -2,7 +2,7 @@ import { useRef } from 'react';
 import { Pressable, Text, View, type ScrollView } from 'react-native';
 import { fireEvent, screen } from '@testing-library/react-native';
 
-import { ScrollToTopFab, useScrollToTop } from '@/components/scroll-to-top-fab';
+import { useScrollToTop } from '@/components/scroll-to-top-fab';
 
 import { renderWithProviders } from '../test-utils';
 
@@ -120,17 +120,5 @@ describe('useScrollToTop', () => {
       fireEvent.press(screen.getByTestId('to-top'));
       expect(scrollTo).toHaveBeenCalledWith({ y: 0, animated: true });
     });
-  });
-});
-
-describe('ScrollToTopFab', () => {
-  it('invokes onPress when visible', () => {
-    const onPress = jest.fn();
-    renderWithProviders(
-      <ScrollToTopFab onPress={onPress} testID="fab-visible" visible />,
-    );
-
-    fireEvent.press(screen.getByTestId('fab-visible'));
-    expect(onPress).toHaveBeenCalledTimes(1);
   });
 });

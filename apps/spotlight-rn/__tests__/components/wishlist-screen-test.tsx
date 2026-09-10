@@ -1,5 +1,5 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
-import { Animated, FlatList, Share, StyleSheet } from 'react-native';
+import {Animated, Share, StyleSheet} from 'react-native';
 import { useRouter } from 'expo-router';
 
 import type { CardFavoriteEntry } from '@spotlight/api-client';
@@ -805,27 +805,14 @@ describe('WishlistScreen', () => {
     // The FAB rides on the SAME listener. Passing the animated event through
     // `useScrollToTop` is what would have broken the native driver, so this is
     // the assertion that the alternative wiring actually kept the FAB working.
-    it('keeps "Back to top" working, and lands it on the true top', async () => {
-      const scrollToOffset = jest
-        .spyOn(FlatList.prototype, 'scrollToOffset')
-        .mockImplementation(() => {});
-
+    it('has no "Back to top" button — the FAB was removed app-wide', async () => {
       renderWishlistScreen();
       await screen.findByTestId('wishlist-header-title');
       await measureViewport();
 
+      // Scrolling a full viewport used to reveal it; nothing should now.
       await scrollList(VIEWPORT + 1);
-      await act(async () => {
-        fireEvent.press(screen.getByTestId('wishlist-scroll-to-top'));
-      });
-
-      // 0, not `-insets.top`: this list is not inset by UIKit, so 0 IS its top —
-      // and a target of 0 needs no `scrollToOverflowEnabled` to survive RN's
-      // clamp, which is why the prop is absent here but required on Home.
-      expect(scrollToOffset).toHaveBeenCalledWith({ offset: 0, animated: true });
-      expect(wishlistList().props.scrollToOverflowEnabled).toBeUndefined();
-
-      scrollToOffset.mockRestore();
+      expect(screen.queryByTestId('wishlist-scroll-to-top')).toBeNull();
     });
   });
 

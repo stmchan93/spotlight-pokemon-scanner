@@ -2,7 +2,6 @@ import { Platform, StyleSheet } from 'react-native';
 import { screen } from '@testing-library/react-native';
 import { useRouter } from 'expo-router';
 
-import { ScrollToTopFab } from '@/components/scroll-to-top-fab';
 import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
 import {
   NativeTabScreenProvider,
@@ -35,20 +34,6 @@ function flattenStyle(node: { props: { style: unknown } } | null) {
  * Walk up to the nearest absolutely-positioned one rather than hard-coding a
  * depth, which would break on any wrapper the primitive gains later.
  */
-function scrollToTopFabStyle(testID: string) {
-  let node: { props: { style: unknown }; parent: unknown } | null = screen.getByTestId(testID);
-
-  while (node) {
-    const style = flattenStyle(node) as { position?: string; bottom?: number };
-    if (style.position === 'absolute') {
-      return style;
-    }
-    node = node.parent as typeof node;
-  }
-
-  throw new Error(`No absolutely-positioned ancestor of "${testID}" — nothing places the FAB.`);
-}
-
 /*
   THE REGRESSION THIS FILE EXISTS FOR — twice now.
 
@@ -121,16 +106,6 @@ describe('floating affordance placement', () => {
     });
   });
 
-  describe('ScrollToTopFab', () => {
-    it('rests exactly one gap above the chrome the safe area reports', () => {
-      renderWithProviders(<ScrollToTopFab onPress={jest.fn()} testID="fab" visible />);
-
-      expect(scrollToTopFabStyle('fab').bottom).toBe(
-        TEST_SAFE_AREA_BOTTOM + floatingAffordanceGap,
-      );
-    });
-  });
-
   describe('CollectionAddFab', () => {
     it('rests exactly one gap above the chrome the safe area reports', () => {
       renderWithProviders(<CollectionAddFab />);
@@ -153,11 +128,11 @@ describe('floating affordance placement', () => {
 
       renderWithProviders(
         <NativeTabScreenProvider>
-          <ScrollToTopFab onPress={jest.fn()} testID="fab-android-tab" visible />
+          <CollectionAddFab />
         </NativeTabScreenProvider>,
       );
 
-      expect(scrollToTopFabStyle('fab-android-tab').bottom).toBe(
+      expect(flattenStyle(screen.getByTestId('collection-add-fab')).bottom).toBe(
         floatingAffordanceGap,
       );
     });
@@ -165,9 +140,9 @@ describe('floating affordance placement', () => {
     it('keeps it outside one, where nothing has pre-inset the container', () => {
       Object.defineProperty(Platform, 'OS', { value: 'android', configurable: true });
 
-      renderWithProviders(<ScrollToTopFab onPress={jest.fn()} testID="fab-android-stack" visible />);
+      renderWithProviders(<CollectionAddFab />);
 
-      expect(scrollToTopFabStyle('fab-android-stack').bottom).toBe(
+      expect(flattenStyle(screen.getByTestId('collection-add-fab')).bottom).toBe(
         TEST_SAFE_AREA_BOTTOM + floatingAffordanceGap,
       );
     });

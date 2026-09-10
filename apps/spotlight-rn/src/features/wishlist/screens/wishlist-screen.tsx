@@ -36,7 +36,7 @@ import {
 } from '@spotlight/design-system';
 
 import { AnimatedFlatList } from '@/components/page-tab-pager';
-import { ScrollToTopFab, useScrollToTop } from '@/components/scroll-to-top-fab';
+import { useScrollToTop } from '@/components/scroll-to-top-fab';
 import { GridViewIcon, ListViewIcon } from '@/components/view-toggle-icons';
 import { ConfirmDeleteSheet } from '@/features/cards/components/confirm-delete-sheet';
 import { saveCardDetailPreviewFromFavorite } from '@/features/cards/card-detail-preview-session';
@@ -250,11 +250,11 @@ export function WishlistScreen() {
     handler, and its `handleScroll` is invoked from INSIDE the listener that
     already rides on the native event — the same shape `feed-screen` uses.
   */
+  // No "Back to top" FAB — removed app-wide 2026-09-10 (user request). The hook
+  // stays for the scroll/layout trackers the list still feeds.
   const {
-    isVisible: showScrollTop,
     handleScroll: trackScrollTopVisibility,
     handleLayout,
-    scrollToTop,
   } = useScrollToTop(scrollRef, undefined, LIST_REST_OFFSET);
 
   const handleScroll = useMemo(
@@ -704,12 +704,6 @@ export function WishlistScreen() {
         scrollRestOffset={LIST_REST_OFFSET}
         scrollY={scrollY}
         titleVisible={!isTitleHidden}
-      />
-
-      <ScrollToTopFab
-        onPress={scrollToTop}
-        testID="wishlist-scroll-to-top"
-        visible={showScrollTop}
       />
 
       {/* No floating catalog-search FAB here either. It was a magnifier circle

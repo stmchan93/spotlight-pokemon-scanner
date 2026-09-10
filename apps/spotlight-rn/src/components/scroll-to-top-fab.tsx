@@ -1,14 +1,11 @@
 import { useCallback, useRef, useState, type RefObject } from 'react';
 import {
-  StyleSheet,
   type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
 
-import { ScrollToTopButton } from '@spotlight/design-system';
 
-import { useFloatingAffordanceBottom } from '@/lib/tab-bar-insets';
 
 type ScrollEvent = NativeSyntheticEvent<NativeScrollEvent>;
 
@@ -83,42 +80,3 @@ export function useScrollToTop(
   return { isVisible, handleScroll, handleLayout, scrollToTop };
 }
 
-type ScrollToTopFabProps = {
-  visible: boolean;
-  onPress: () => void;
-  testID?: string;
-};
-
-/**
- * Positions the shared `ScrollToTopButton` at the bottom-RIGHT of the
- * collection / sales / wishlist screens, sitting where the old search FAB used
- * to be (that FAB is gone — the catalog search moved into the top search row).
- * The bottom-LEFT corner is the Reddit-style collapsed tab circle.
- */
-export function ScrollToTopFab({ visible, onPress, testID }: ScrollToTopFabProps) {
-  // Sit exactly where the removed search/add FAB was anchored: one gap above the
-  // bottom chrome. (No longer stacked above another FAB — there isn't one.)
-  //
-  // This used to add the design system's `bottomTabBarHeight` (44) on top of the
-  // inset. That constant is the RETIRED JS nav pill's height, and the app draws
-  // `NativeTabs` now — so the FAB floated ~44pt too high on every screen, and on
-  // the pushed Insights screen it cleared a bar that is not even there.
-  // `@/lib/tab-bar-insets` is the one place that knows the real arithmetic.
-  const bottom = useFloatingAffordanceBottom();
-
-  return (
-    <ScrollToTopButton
-      onPress={onPress}
-      style={[styles.fab, { bottom }]}
-      testID={testID}
-      visible={visible}
-    />
-  );
-}
-
-const styles = StyleSheet.create({
-  fab: {
-    position: 'absolute',
-    right: 16,
-  },
-});

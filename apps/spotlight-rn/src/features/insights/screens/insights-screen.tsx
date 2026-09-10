@@ -17,7 +17,7 @@ import { IconButton, SearchField, Text, colors, textStyles, useSpotlightTheme } 
 
 import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { useAppServices } from '@/providers/app-providers';
-import { ScrollToTopFab, useScrollToTop } from '@/components/scroll-to-top-fab';
+import { useScrollToTop } from '@/components/scroll-to-top-fab';
 import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
 import { prefetchCardDetail } from '@/features/cards/card-detail-prefetch';
 import { saveCardDetailPreviewFromCatalogResult } from '@/features/cards/card-detail-preview-session';
@@ -153,7 +153,9 @@ export function InsightsScreen() {
   const [sortSheetVisible, setSortSheetVisible] = useState(false);
 
   const listRef = useRef<FlatList<PortfolioPerformanceRow>>(null);
-  const { isVisible: showScrollTop, handleScroll, handleLayout, scrollToTop } = useScrollToTop(
+  // No "Back to top" FAB — removed app-wide 2026-09-10 (user request). The
+  // hook stays for the scroll/layout trackers this screen still feeds.
+  const { handleScroll, handleLayout } = useScrollToTop(
     listRef,
   );
 
@@ -402,7 +404,6 @@ export function InsightsScreen() {
         visible={sortSheetVisible}
       />
 
-      <ScrollToTopFab onPress={scrollToTop} testID="insights-scroll-to-top" visible={showScrollTop} />
       <CollectionAddFab />
     </SafeAreaView>
   );
