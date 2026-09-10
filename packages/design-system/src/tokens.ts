@@ -31,6 +31,9 @@ export const colors = {
   // Color/purple/50 from Figma — the pale lavender fill behind the SELECTED row
   // in the grade/condition picker (Figma 1664:2597). Lighter than `brand`.
   purple50: '#F7EEFF',
+  // Color/purple/200 from Figma — the pale lilac of the multi-scan reticle's
+  // outline and its thirds grid (5085:15376). One step lighter than purple300.
+  purple200: '#D9AEFF',
   // Color/purple/300 from Figma — the lilac used for the change-card modal's
   // hero/selected-row borders and the "LOAD MORE" outline. Brighter than the
   // pale `brand` fill, dimmer than `brandStrong`.

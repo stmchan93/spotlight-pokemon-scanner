@@ -630,21 +630,36 @@ export function RawScannerCaptureSurface({
           ) : null}
 
 
-          {/* Resting white corners and the capture-pulse purple set crossfade on
-              the shared lock progress (opacity+scale only → native driver). */}
-          <Reanimated.View
-            pointerEvents="none"
-            style={[StyleSheet.absoluteFillObject, whiteCornersStyle]}
-          >
-            <ReticleCornerBrackets />
-          </Reanimated.View>
-          <Reanimated.View
-            pointerEvents="none"
-            style={[StyleSheet.absoluteFillObject, purpleCornersStyle]}
-            testID={`${testIDPrefix}-reticle-lock`}
-          >
-            <ReticleCornerBrackets locked />
-          </Reanimated.View>
+          {captureResolution === 'page' ? (
+            /* Multi-scan (Figma 5085:15171/15376): a full rounded outline, not
+               corner brackets — the frame IS the page, and the thirds grid the
+               screen draws inside it reads as one object with this edge. The
+               frame's translucent white fill is deliberately not drawn: it
+               would frost the cards being scanned. */
+            <View
+              pointerEvents="none"
+              style={styles.pageOutline}
+              testID={`${testIDPrefix}-page-outline`}
+            />
+          ) : (
+            <>
+              {/* Resting white corners and the capture-pulse purple set crossfade on
+                  the shared lock progress (opacity+scale only → native driver). */}
+              <Reanimated.View
+                pointerEvents="none"
+                style={[StyleSheet.absoluteFillObject, whiteCornersStyle]}
+              >
+                <ReticleCornerBrackets />
+              </Reanimated.View>
+              <Reanimated.View
+                pointerEvents="none"
+                style={[StyleSheet.absoluteFillObject, purpleCornersStyle]}
+                testID={`${testIDPrefix}-reticle-lock`}
+              >
+                <ReticleCornerBrackets locked />
+              </Reanimated.View>
+            </>
+          )}
         </Reanimated.View>
         )}
       </View>
@@ -689,6 +704,13 @@ const styles = StyleSheet.create({
   previewCanvas: {
     flex: 1,
     overflow: 'hidden',
+  },
+  pageOutline: {
+    ...StyleSheet.absoluteFillObject,
+    borderColor: colors.purple200,
+    borderCurve: 'continuous',
+    borderRadius: 12,
+    borderWidth: 1,
   },
   reticleBottomLeftPosition: {
     bottom: 0,

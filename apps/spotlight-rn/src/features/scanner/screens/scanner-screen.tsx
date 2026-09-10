@@ -4026,7 +4026,7 @@ export function ScannerScreen({
                   left: captureSurfaceLayout.captureCropRect.x
                     + (captureSurfaceLayout.captureCropRect.width / binderPageLayout.columns) * column,
                   top: captureSurfaceLayout.captureCropRect.y,
-                  width: 2,
+                  width: 1,
                 }]}
               />
             ))}
@@ -4034,7 +4034,7 @@ export function ScannerScreen({
               <View
                 key={`binder-grid-h${row}`}
                 style={[styles.binderGridLine, {
-                  height: 2,
+                  height: 1,
                   left: captureSurfaceLayout.captureCropRect.x,
                   top: captureSurfaceLayout.captureCropRect.y
                     + (captureSurfaceLayout.captureCropRect.height / binderPageLayout.rows) * row,
@@ -4191,7 +4191,7 @@ export function ScannerScreen({
             */}
             {__DEV__ || runtimeAppEnv === 'staging' ? (
               <Pressable
-                accessibilityLabel={isBinderPageMode ? `Scanning ${binderPageLayout.label} per page. Change scan mode` : 'Scanning single cards. Change scan mode'}
+                accessibilityLabel={isBinderPageMode ? `${binderPageLayout.label}: a whole binder page at once. Change scan mode` : 'Scanning single cards. Change scan mode'}
                 accessibilityRole="button"
                 accessibilityState={{ selected: isBinderPageMode }}
                 hitSlop={6}
@@ -4760,9 +4760,7 @@ const styles = StyleSheet.create({
     zIndex: 5,
   },
   binderGridLine: {
-    // The reticle corners' resting purple (reticleRestingCornerColor) — the
-    // white lines washed out over bright scenes.
-    backgroundColor: colors.purple300,
+    backgroundColor: colors.purple200,
     position: 'absolute',
     zIndex: 3,
   },

@@ -15,7 +15,7 @@ describe('binder page layouts', () => {
     // Three across keeps every pocket above the 360px zero-loss line in
     // portrait (docs/binder-scan-feasibility). 12 and 18 were pulled 2026-09-08.
     expect(binderPageLayouts.map((layout) => [layout.label, layout.columns * layout.rows])).toEqual([
-      ['9 cards', 9],
+      ['Multi-Scan', 9],
     ]);
     expect(binderPageLayouts.every((layout) => layout.columns === 3)).toBe(true);
     // Unknown/legacy ids (rows persisted before layouts) resolve to 3×3.

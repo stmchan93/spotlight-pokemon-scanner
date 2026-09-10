@@ -179,7 +179,7 @@ export type BinderPageLayoutId = 'pockets-9' | 'pockets-12';
  */
 export type BinderPageLayout = {
   id: BinderPageLayoutId;
-  /** Pocket count as the user thinks of it — "12 cards", never "3×4". */
+  /** What the mode pill and its menu row read, e.g. "Multi-Scan". */
   label: string;
   columns: number;
   rows: number;
@@ -190,7 +190,7 @@ export type BinderPageLayout = {
 
 export const binderPageLayouts: readonly BinderPageLayout[] = [
   // The classic 9-pocket page — the only layout offered (2026-09-08).
-  { id: 'pockets-9', label: '9 cards', columns: 3, rows: 3, cropRotationDegrees: 0, hint: null },
+  { id: 'pockets-9', label: 'Multi-Scan', columns: 3, rows: 3, cropRotationDegrees: 0, hint: null },
   // 12 (3 × 4 upright) and 18 (an open binder sideways, 3 × 6 with the crops
   // rotated) were both built and pulled the same day: a 12-pocket page is
   // ~25% taller than a 9 for the same width and never framed as smoothly on

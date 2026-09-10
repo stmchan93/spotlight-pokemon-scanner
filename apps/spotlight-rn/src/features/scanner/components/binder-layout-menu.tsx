@@ -33,10 +33,9 @@ const FALLBACK_LEFT = 16;
 
 /**
  * Scan-mode dropdown for the scanner's controls row: Single, then one row per
- * binder layout worded as a pocket count ("9 cards", never "3×4" — people know
- * how many pockets their page has, not its grid). Same anchored glass card as
- * the tray's ADD ALL menu; pops UP because the trigger sits just above the
- * tray.
+ * binder layout ("Multi-Scan", Figma 5085:15256 — what it does, never its
+ * grid). Same anchored glass card as the tray's ADD ALL menu; pops UP because
+ * the trigger sits just above the tray.
  */
 export function BinderLayoutMenu({
   visible,
@@ -93,7 +92,7 @@ export function BinderLayoutMenu({
           const isSelected = row.id === selected;
           return (
             <Pressable
-              accessibilityLabel={row.id === 'single' ? 'Scan one card at a time' : `Scan a ${row.label} binder page`}
+              accessibilityLabel={row.id === 'single' ? 'Scan one card at a time' : `${row.label}: scan a whole binder page at once`}
               accessibilityRole="button"
               accessibilityState={{ selected: isSelected }}
               key={row.id}
