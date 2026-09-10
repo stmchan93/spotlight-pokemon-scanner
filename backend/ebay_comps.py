@@ -496,8 +496,20 @@ def _normalize_browse_item(item: dict[str, Any]) -> dict[str, Any]:
     except ValueError:
         converted_from_amount = None
     location = item.get("itemLocation") if isinstance(item.get("itemLocation"), dict) else {}
+    # Seller-entered item specifics ("Card Number", "Grade", "Set", ...): the
+    # structured identity check for comps that only PPT's title match vouches for.
+    aspects: dict[str, str] = {}
+    for aspect in item.get("localizedAspects") or []:
+        if not isinstance(aspect, dict):
+            continue
+        name = str(aspect.get("name") or "").strip()
+        value = str(aspect.get("value") or "").strip()
+        if name and value and name not in aspects:
+            aspects[name] = value
     return {
         "itemID": str(item.get("legacyItemId") or "").strip() or None,
+        "title": str(item.get("title") or "").strip() or None,
+        "aspects": aspects,
         "imageURL": _browse_item_image_url(item),
         "priceAmount": price_amount,
         "priceCurrency": (price_currency_code or "").upper() or None,

@@ -191,6 +191,13 @@ from scrydex_adapter import (
     raw_evidence_looks_japanese,
     search_remote_scrydex_japanese_raw_candidates,
 )
+from recent_sales_merge import (
+    SHOWN_VERIFICATION_TIERS,
+    merge_ppt_sold_listings,
+    ppt_only_rows_for_grade,
+    sale_sort_date,
+    sale_verification,
+)
 from ppt_adapter import (
     ebay_item_id_from_url,
     fetch_ppt_sold_listings_by_ebay_item_id,
@@ -432,6 +439,14 @@ RECENT_SALES_DEFAULT_LIMIT = 5
 RECENT_SALES_MAX_LIMIT = 25
 RECENT_SALES_FRESHNESS_HOURS = 24
 RECENT_SALES_EMPTY_REFRESH_HOURS = 48
+# PPT-only comps: eBay getItem reach (days) for photos/aspects, and how many
+# of those rows to look up per refresh (free calls, but ~200ms each).
+RECENT_SALES_PPT_LOOKUP_DAYS = 90
+RECENT_SALES_PPT_LOOKUP_CAP = 40
+# "Recent average" headline: newest 3 (or 2, or 1) verified USD sales no older
+# than this. Older sales stay listed but never become a price.
+RECENT_SALES_AVERAGE_SAMPLE = 3
+RECENT_SALES_AVERAGE_MAX_AGE_DAYS = 180
 
 # "Lowest Listed" = CURRENT active eBay listings (Browse API, a free rate-limited
 # token — NOT Scrydex credits). Prices are volatile and the cheapest listing sells
@@ -528,6 +543,9 @@ def _filter_recent_sales_rows(
             row_variant = _recent_sales_variant_match_key(sale.get("variant"))
             if row_variant and row_variant != requested:
                 continue
+        # PPT-only rows are cached whole but served only once verified.
+        if sale_verification(sale) not in SHOWN_VERIFICATION_TIERS:
+            continue
         kept.append(sale)
         if len(kept) >= limit:
             break
@@ -535,6 +553,36 @@ def _filter_recent_sales_rows(
     filtered["sales"] = kept
     filtered["resultCount"] = len(kept)
     return filtered
+
+
+def _recent_sales_average(sale_rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Mean of the newest USD sales (3 if there are 3, else 2, else 1) that
+    fall inside RECENT_SALES_AVERAGE_MAX_AGE_DAYS. None when nothing recent
+    exists so the caller falls back to the provider's graded price."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=RECENT_SALES_AVERAGE_MAX_AGE_DAYS)
+    priced: list[tuple[datetime, float]] = []
+    for row in sale_rows:
+        currency = str(row.get("currencyCode") or "USD").strip().upper() or "USD"
+        try:
+            amount = float(row.get("price")) if row.get("price") is not None else None
+        except (TypeError, ValueError):
+            amount = None
+        sold_at = sale_sort_date(row.get("soldAt") or row.get("sold_at"))
+        if amount is None or amount <= 0 or currency != "USD" or sold_at < cutoff:
+            continue
+        priced.append((sold_at, amount))
+    priced.sort(key=lambda item: item[0], reverse=True)
+    sample = priced[:RECENT_SALES_AVERAGE_SAMPLE]
+    if not sample:
+        return None
+    return {
+        "amount": round(sum(amount for _, amount in sample) / len(sample), 2),
+        "currencyCode": "USD",
+        "sampleSize": len(sample),
+        "windowDays": RECENT_SALES_AVERAGE_MAX_AGE_DAYS,
+        "latestSoldAt": sample[0][0].strftime("%Y/%m/%d"),
+        "oldestSoldAt": sample[-1][0].strftime("%Y/%m/%d"),
+    }
 
 
 def _recent_sale_image_url(row: dict[str, Any]) -> str | None:
@@ -574,6 +622,7 @@ def _recent_sales_payload(
     sale_rows = list(cached.get("sales") or [])
     unavailable = status != "available"
     return {
+        "recentAverage": _recent_sales_average(sale_rows),
         "source": str(cached.get("source") or source).strip().lower() or source,
         "grader": str(cached.get("grader") or grader).strip().upper() or grader,
         "grade": str(cached.get("grade") or grade).strip().upper() or grade,
@@ -10654,6 +10703,15 @@ class SpotlightScanService:
                 )
                 if pricing is not None:
                     card["pricing"] = pricing
+                # The client reads ONLY `sourcePayload.variants[].marketplaces`
+                # (per-printing TCGplayer ids for deep links) — the same compact
+                # subset the card-detail response ships. The full Scrydex blob
+                # was ~18KB per card, 96% of a 900KB search response; trimmed
+                # AFTER the finish picker above, which still reads the blob.
+                card["sourcePayload"] = tcgplayer_variants_subset(
+                    card.get("sourcePayload"),
+                    collision_guard(self.connection)["colliding_product_ids"],
+                )
         payload: dict[str, Any] = {"results": results, "hasMore": has_more}
         # Typo-corrected retry fired: surface what was actually searched.
         # Additive field — clients ignore unknown keys.
@@ -12782,7 +12840,7 @@ class SpotlightScanService:
             "expiresInSeconds": BINDER_PAGE_STORE_TTL_SECONDS,
         }
 
-    def _inject_binder_page_pocket(self, payload: dict[str, Any]) -> None:
+    def _inject_binder_page_pocket(self, payload: dict[str, Any]) -> dict[str, Any] | None:
         """Streamed binder lane, step 2: when the payload references a stored
         binder-page pocket and carries no image bytes of its own, inject the
         pocket JPEG into ``image.jpegBase64`` so the scan proceeds exactly as a
@@ -14234,18 +14292,18 @@ class SpotlightScanService:
         card: dict[str, Any],
         card_id: str,
         sales: list[dict[str, Any]],
+        *,
+        grader: str | None = None,
+        grade: str | None = None,
     ) -> None:
-        """Make every fetched comp USD and attach its eBay photo before it is
-        cached (see `ppt_adapter.reconcile_recent_sales_prices`). Per refresh:
-        one Browse `getItem` per row (free app token, parallel) and one PPT
-        call, the latter skipped when the card has no TCGplayer id or no PPT
-        key is configured. Any vendor failure leaves the Scrydex rows as they
-        came."""
-        if not sales:
-            return
-        ebay_items = fetch_ebay_items_by_legacy_ids(
-            ebay_item_id_from_url(sale.get("listingURL")) or "" for sale in sales if isinstance(sale, dict)
-        )
+        """Make every fetched comp USD, attach its eBay photo, and fill the list
+        from PPT's per-grade sold listings before it is cached (see
+        `ppt_adapter.reconcile_recent_sales_prices` and `recent_sales_merge`).
+        Per refresh: one PPT call (skipped without a TCGplayer id or key) and
+        one free Browse `getItem` per Scrydex row plus per recent PPT-only row
+        (capped, see RECENT_SALES_PPT_LOOKUP_CAP). Any vendor failure leaves
+        the Scrydex rows as they came; PPT-only rows are appended with a
+        verification tier and only the verified ones are ever served."""
         try:
             row = self.connection.execute(
                 "SELECT tcgplayer_id FROM cards WHERE id = ?", (card_id,)
@@ -14259,6 +14317,27 @@ class SpotlightScanService:
             if tcgplayer_id
             else {}
         )
+        scrydex_item_ids = {
+            item_id
+            for item_id in (ebay_item_id_from_url(sale.get("listingURL")) for sale in sales if isinstance(sale, dict))
+            if item_id
+        }
+        ppt_only: list[dict[str, Any]] = []
+        if grader and grade and ppt_rows:
+            ppt_only = ppt_only_rows_for_grade(
+                ppt_rows, grader=grader, grade=grade, scrydex_item_ids=scrydex_item_ids
+            )
+        if not sales and not ppt_only:
+            return
+        # eBay only answers getItem for ~90 days of ended listings, so look up
+        # the newest PPT-only rows inside that window and skip the rest.
+        lookup_cutoff = datetime.now(timezone.utc) - timedelta(days=RECENT_SALES_PPT_LOOKUP_DAYS)
+        ppt_lookup_ids = [
+            str(r.get("listingId") or "").strip()
+            for r in ppt_only
+            if sale_sort_date(str(r.get("soldDate") or "")[:10].replace("-", "/")) >= lookup_cutoff
+        ][:RECENT_SALES_PPT_LOOKUP_CAP]
+        ebay_items = fetch_ebay_items_by_legacy_ids([*scrydex_item_ids, *ppt_lookup_ids])
         counts = reconcile_recent_sales_prices(
             sales,
             ppt_rows,
@@ -14267,6 +14346,12 @@ class SpotlightScanService:
         )
         if counts.get("ebay") or counts.get("fx") or counts.get("unconverted"):
             print(f"[recent-sales] {card_id}: non-USD comps reconciled {counts}", flush=True)
+        if grader and grade:
+            tiers = merge_ppt_sold_listings(
+                sales, ppt_only, card=card, grader=grader, grade=grade, ebay_items_by_item_id=ebay_items
+            )
+            if ppt_only:
+                print(f"[recent-sales] {card_id} {grader} {grade}: merged PPT rows {tiers}", flush=True)
 
     def card_recent_sales(
         self,
@@ -14375,7 +14460,9 @@ class SpotlightScanService:
             limit=RECENT_SALES_MAX_LIMIT,
         )
         remote_sales = list(remote_payload.get("sales") or [])
-        self._reconcile_recent_sales_prices(card, card_id, remote_sales)
+        self._reconcile_recent_sales_prices(
+            card, card_id, remote_sales, grader=normalized_grader, grade=normalized_grade
+        )
         cached = replace_slab_recent_sales_cache(
             self.connection,
             card_id=card_id,

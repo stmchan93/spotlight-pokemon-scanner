@@ -346,7 +346,7 @@ def fetch_ppt_sold_listings_by_ebay_item_id(
     ebay = card.get("ebay") if isinstance(card.get("ebay"), dict) else {}
     sold = ebay.get("soldListings") if isinstance(ebay.get("soldListings"), dict) else {}
     by_item_id: dict[str, dict[str, Any]] = {}
-    for rows in sold.values():
+    for grade_key, rows in sold.items():
         if not isinstance(rows, list):
             continue
         for row in rows:
@@ -354,6 +354,9 @@ def fetch_ppt_sold_listings_by_ebay_item_id(
                 continue
             item_id = str(row.get("listingId") or "").strip()
             if item_id and item_id not in by_item_id:
+                # Keep the bucket the row came from: the merge lane needs
+                # "which grader/grade did PPT file this sale under".
+                row["gradeKey"] = str(grade_key or "").strip()
                 by_item_id[item_id] = row
     return by_item_id
 
