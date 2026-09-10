@@ -318,9 +318,19 @@ describe('PortfolioScreen', () => {
     // Figma 2749:4749 — collection picker on the left, running total on the right.
     expect(screen.getByTestId('collection-search-row-collection')).toBeTruthy();
     expect(screen.getByText('Main Collection')).toBeTruthy();
-    expect(screen.getByTestId('collection-search-row-total-value').props.children).toMatch(
-      /^Total Value: \$[\d.,]+k?$/,
-    );
+    /*
+      The total is a PLACEHOLDER until it is real, and only then a number. The
+      old assertion allowed either, because `$0` satisfies a currency pattern —
+      which is exactly how "$0" shipped as the thing shown for the seconds
+      between switching collections and the refetch landing.
+    */
+    expect(screen.getByTestId('collection-search-row-total-value').props.children)
+      .toBe('Total Value: —');
+    await waitFor(() => {
+      expect(screen.getByTestId('collection-search-row-total-value').props.children).toMatch(
+        /^Total Value: \$[\d.,]+k?$/,
+      );
+    });
     expect(screen.queryByText('My Portfolio')).toBeNull();
     // The Select / Done edit-mode toggle was removed from the search row.
     expect(screen.queryByTestId('portfolio-select-toggle')).toBeNull();

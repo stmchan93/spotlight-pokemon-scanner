@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
-  Pressable,
   RefreshControl,
   Share,
   StyleSheet,
@@ -13,7 +12,17 @@ import { useRouter } from 'expo-router';
 import { Filter, NavArrowLeft, ShareIos } from 'iconoir-react-native';
 
 import type { PortfolioPerformance, PortfolioPerformanceRow } from '@spotlight/api-client';
-import { IconButton, SearchField, Text, colors, textStyles, useSpotlightTheme } from '@spotlight/design-system';
+import {
+  GlassNavBubble,
+  IconButton,
+  SearchField,
+  Text,
+  colors,
+  glassNavBubbleGlyphSize,
+  glassNavBubbleGlyphStrokeWidth,
+  textStyles,
+  useSpotlightTheme,
+} from '@spotlight/design-system';
 
 import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { useAppServices } from '@/providers/app-providers';
@@ -255,29 +264,42 @@ export function InsightsScreen() {
           },
         ]}
       >
-        <Pressable
+        {/*
+          Home's top-bar chrome (Figma 4299:94902): 44pt frosted glass bubbles,
+          24pt glyphs at stroke 2 — not the flat 36pt gray circles this header
+          drew before (user, 2026-09-10).
+        */}
+        <GlassNavBubble
           accessibilityLabel="Go back"
-          accessibilityRole="button"
-          hitSlop={12}
+          material="frost"
           onPress={handleBack}
-          style={styles.headerButton}
+          size="medium"
           testID="insights-header-back"
         >
-          <NavArrowLeft color={colors.gray900} height={24} strokeWidth={2} width={24} />
-        </Pressable>
+          <NavArrowLeft
+            color={colors.gray900}
+            height={glassNavBubbleGlyphSize}
+            strokeWidth={glassNavBubbleGlyphStrokeWidth}
+            width={glassNavBubbleGlyphSize}
+          />
+        </GlassNavBubble>
         <Text style={styles.headerTitle} testID="insights-header-title">
           Insights
         </Text>
-        <Pressable
+        <GlassNavBubble
           accessibilityLabel="Share insights"
-          accessibilityRole="button"
-          hitSlop={12}
+          material="frost"
           onPress={handleShare}
-          style={styles.headerButton}
+          size="medium"
           testID="insights-header-share"
         >
-          <ShareIos color={colors.gray900} height={24} strokeWidth={2} width={24} />
-        </Pressable>
+          <ShareIos
+            color={colors.gray900}
+            height={glassNavBubbleGlyphSize}
+            strokeWidth={glassNavBubbleGlyphStrokeWidth}
+            width={glassNavBubbleGlyphSize}
+          />
+        </GlassNavBubble>
       </View>
 
       <View style={styles.pageBody}>
@@ -429,15 +451,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
-  },
-  headerButton: {
-    alignItems: 'center',
-    backgroundColor: colors.gray50,
-    borderCurve: 'continuous',
-    borderRadius: 18,
-    height: 36,
-    justifyContent: 'center',
-    width: 36,
   },
   headerTitle: {
     ...textStyles.titleMedium,

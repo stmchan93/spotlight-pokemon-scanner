@@ -78,3 +78,9 @@ export function formatAbbreviatedCurrency(value: number, currencyCode = 'USD') {
 
   return formatCompactCurrency(value, currencyCode);
 }
+
+/**
+ * Stands in for a value that is not known YET — never for a real zero. Printing
+ * "$0" while a total is still loading reads as the money having disappeared.
+ */
+export const UNKNOWN_VALUE_MASK = '—';

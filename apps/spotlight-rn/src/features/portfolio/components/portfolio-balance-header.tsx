@@ -12,16 +12,33 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
-import { HIDDEN_VALUE_MASK as hiddenValueMask, formatCurrency } from './portfolio-formatting';
+import {
+  HIDDEN_VALUE_MASK as hiddenValueMask,
+  UNKNOWN_VALUE_MASK as unknownValueMask,
+  formatCurrency,
+} from './portfolio-formatting';
 import type { PortfolioChartActivePoint } from './portfolio-chart-card';
 
 type PortfolioBalanceHeaderProps = {
   summary: PortfolioSummary;
   activeChartPoint: PortfolioChartActivePoint | null;
   isSummaryHidden: boolean;
+  /**
+   * Whether `summary` is this collection's real total yet.
+   *
+   * ZERO IS A CLAIM, NOT A PLACEHOLDER. Switching collections drops the
+   * dashboard to an empty one on purpose (the previous collection's balance
+   * under the new collection's name is worse than nothing), and an empty
+   * dashboard's `currentValue` is 0 — which rendered as "$0.00" for the whole
+   * 5-10s refetch and read as a portfolio that had just vanished. An empty
+   * collection really is $0, so "not loaded" has to be its own state rather
+   * than something inferred from the number.
+   */
+  isValueKnown?: boolean;
   onToggleHidden: () => void;
   testIDPrefix?: string;
 };
+
 
 type ChangeDirection = 'up' | 'down' | 'flat';
 
@@ -39,12 +56,16 @@ export function PortfolioBalanceHeader({
   summary,
   activeChartPoint,
   isSummaryHidden,
+  isValueKnown = true,
   onToggleHidden,
   testIDPrefix = 'portfolio',
 }: PortfolioBalanceHeaderProps) {
   const theme = useSpotlightTheme();
 
-  const rawValueLabel = activeChartPoint?.valueLabel ?? formatCurrency(summary.currentValue);
+  // Scrubbing the chart always shows the scrubbed point — you cannot scrub a
+  // chart that has not loaded.
+  const rawValueLabel = activeChartPoint?.valueLabel
+    ?? (isValueKnown ? formatCurrency(summary.currentValue) : unknownValueMask);
   const valueLabel = isSummaryHidden ? hiddenValueMask : rawValueLabel;
 
   // Per Figma the resting delta row omits the date; the label only appears
@@ -55,12 +76,17 @@ export function PortfolioBalanceHeader({
   const changePercent = activeChartPoint?.changePercent ?? summary.changePercent;
   const direction = directionFromValue(changeAmount);
 
+  const showChange = isValueKnown || activeChartPoint != null;
   const amountLabel = isSummaryHidden
     ? hiddenValueMask
-    : formatCurrency(Math.abs(changeAmount));
+    : showChange
+      ? formatCurrency(Math.abs(changeAmount))
+      : unknownValueMask;
   const percentLabel = isSummaryHidden
     ? hiddenValueMask
-    : formatUnsignedPercent(changePercent);
+    : showChange
+      ? formatUnsignedPercent(changePercent)
+      : unknownValueMask;
 
   const changeColor =
     direction === 'down'

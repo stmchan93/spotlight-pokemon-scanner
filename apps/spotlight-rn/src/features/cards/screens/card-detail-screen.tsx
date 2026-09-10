@@ -33,15 +33,14 @@ import {
 } from '@spotlight/api-client';
 import {
   Button,
-  GlassButtonGroup,
+  GlassNavBubble,
+  GlassNavBubbleGroup,
   glassNavBubbleGlyphSize,
   glassNavBubbleGlyphStrokeWidth,
-  IconButton,
   Text,
   TrendTriangle,
   colors,
   fontFamilies,
-  glassButtonGroupControlSize,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 import { NavArrowLeft, ShareIos, Trash } from 'iconoir-react-native';
@@ -2432,23 +2431,20 @@ export function CardDetailScreen({
               on the right (the extra Delete icon used to shove it left). */}
           <View style={styles.headerSide}>
             {/*
-              A group of ONE. The trailing pair opposite is a single glass pill,
-              and a leading circle in a different material would read as two
-              unrelated chrome styles across one bar — so back sits in the same
-              surface (Figma 3686:55168, a 40pt glass circle).
+              The SAME chrome as Home's top bar (Figma 4299:94902): a 44pt
+              frosted glass bubble leading and one frosted capsule trailing.
+              This bar used to draw its own 40pt "regular" glass pills, which
+              read as a different app next to Home (user, 2026-09-10).
             */}
-            <GlassButtonGroup style={styles.headerBackGroup} testID="detail-back-group">
-              <IconButton
-                accessibilityLabel="Go back"
-                onPress={onBack}
-                shape="circle"
-                size={glassButtonGroupControlSize}
-                testID="detail-back"
-                variant="ghost"
-              >
-                <NavArrowLeft color={theme.colors.gray900} height={glassNavBubbleGlyphSize} strokeWidth={glassNavBubbleGlyphStrokeWidth} width={glassNavBubbleGlyphSize} />
-              </IconButton>
-            </GlassButtonGroup>
+            <GlassNavBubble
+              accessibilityLabel="Go back"
+              material="frost"
+              onPress={onBack}
+              size="medium"
+              testID="detail-back"
+            >
+              <NavArrowLeft color={theme.colors.gray900} height={glassNavBubbleGlyphSize} strokeWidth={glassNavBubbleGlyphStrokeWidth} width={glassNavBubbleGlyphSize} />
+            </GlassNavBubble>
           </View>
           <Text
             numberOfLines={1}
@@ -2458,37 +2454,34 @@ export function CardDetailScreen({
             {displayName}
           </Text>
           <View style={[styles.headerSide, styles.headerSideRight]}>
-            {/*
-              Delete and share share ONE pill (Figma 3686:55175). They were two
-              separate `subtle` circles, which read as two unrelated buttons
-              that happened to be adjacent rather than one set of actions for
-              this card. The children are `ghost` on purpose — a filled child
-              inside the group puts a circle inside a pill.
-            */}
-            <GlassButtonGroup testID="detail-header-actions">
-              {selectedEntry ? (
-                <IconButton
-                  accessibilityLabel="Delete from collection"
-                  onPress={gate(() => setConfirmDeleteOpen(true))}
-                  shape="circle"
-                  size={glassButtonGroupControlSize}
-                  testID="detail-delete"
-                  variant="ghost"
-                >
-                  <Trash color={theme.colors.gray900} height={glassNavBubbleGlyphSize} strokeWidth={glassNavBubbleGlyphStrokeWidth} width={glassNavBubbleGlyphSize} />
-                </IconButton>
-              ) : null}
-              <IconButton
-                accessibilityLabel="Share this card"
-                onPress={gate(handleShare)}
-                shape="circle"
-                size={glassButtonGroupControlSize}
-                testID="detail-share"
-                variant="ghost"
-              >
-                <ShareIos color={theme.colors.gray900} height={glassNavBubbleGlyphSize} strokeWidth={glassNavBubbleGlyphStrokeWidth} width={glassNavBubbleGlyphSize} />
-              </IconButton>
-            </GlassButtonGroup>
+            {/* Delete and share share ONE capsule, as Home's edit/share do. */}
+            <GlassNavBubbleGroup
+              items={[
+                ...(selectedEntry
+                  ? [
+                      {
+                        accessibilityLabel: 'Delete from collection',
+                        children: (
+                          <Trash color={theme.colors.gray900} height={glassNavBubbleGlyphSize} strokeWidth={glassNavBubbleGlyphStrokeWidth} width={glassNavBubbleGlyphSize} />
+                        ),
+                        onPress: gate(() => setConfirmDeleteOpen(true)),
+                        testID: 'detail-delete',
+                      },
+                    ]
+                  : []),
+                {
+                  accessibilityLabel: 'Share this card',
+                  children: (
+                    <ShareIos color={theme.colors.gray900} height={glassNavBubbleGlyphSize} strokeWidth={glassNavBubbleGlyphStrokeWidth} width={glassNavBubbleGlyphSize} />
+                  ),
+                  onPress: gate(handleShare),
+                  testID: 'detail-share',
+                },
+              ]}
+              material="frost"
+              size="medium"
+              testID="detail-header-actions"
+            />
           </View>
         </View>
       </Animated.View>
@@ -2610,10 +2603,6 @@ const styles = StyleSheet.create({
     // Equal-width flanks → the title between them lands on the true center.
     flex: 1,
     gap: 8,
-  },
-  headerBackGroup: {
-    // A single 40pt circle rather than a pill: no extra inset around one child.
-    paddingHorizontal: 2,
   },
   headerSideRight: {
     justifyContent: 'flex-end',

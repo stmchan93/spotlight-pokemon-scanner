@@ -57,6 +57,7 @@ import {
 import { PortfolioBalanceHeader } from '@/features/portfolio/components/portfolio-balance-header';
 import {
   HIDDEN_VALUE_MASK,
+  UNKNOWN_VALUE_MASK,
   formatAbbreviatedCurrency,
 } from '@/features/portfolio/components/portfolio-formatting';
 import { SalePriceEditSheet } from '@/features/portfolio/components/sale-price-edit-sheet';
@@ -572,9 +573,28 @@ export function PortfolioScreen({
   // backdrop fade — the bar's own controls (pill included) are static.
   const pagerScrollY = useRef(new Animated.Value(0)).current;
 
+  /*
+    IS THIS TOTAL A REAL NUMBER YET?
+
+    Not the same question as "has the dashboard endpoint answered". The screen
+    also runs off an inventory-only fallback total, which is a real number with
+    `hasLoadedDashboard` still false — masking that would blank a total we
+    genuinely have. So: loaded, or backed by inventory we hold.
+
+    The window this exists for is a collection switch, which drops the
+    dashboard to an empty one on purpose (the previous collection's balance
+    under the new name is worse than nothing). An empty dashboard's value is 0,
+    and 0 printed for 5-10s reads as a portfolio that just vanished — the
+    422k → 0 → 424k flash. An empty collection really is $0, so "not known yet"
+    has to be its own state rather than inferred from the number.
+  */
+  const isTotalKnown = model.hasLoadedDashboard || model.dashboard.inventoryItems.length > 0;
+
   const collectionTotalLabel = isSummaryHidden
     ? HIDDEN_VALUE_MASK
-    : formatAbbreviatedCurrency(summary.currentValue);
+    : isTotalKnown
+      ? formatAbbreviatedCurrency(summary.currentValue)
+      : UNKNOWN_VALUE_MASK;
 
   // Name shown on the picker. Falls back to "All Collections" for the aggregate,
   // and to the plain label until the collections read lands.
@@ -1651,6 +1671,7 @@ export function PortfolioScreen({
               summary={summary}
               activeChartPoint={isChartScrubbing ? activeChartPoint : null}
               isSummaryHidden={isSummaryHidden}
+              isValueKnown={isTotalKnown}
               onToggleHidden={toggleSummaryHidden}
             />
           </View>

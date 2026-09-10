@@ -92,10 +92,8 @@ describe('CardDetailScreen', () => {
     */
     const headerActions = screen.getByTestId('detail-header-actions');
     expect(within(headerActions).getByTestId('detail-share')).toBeTruthy();
-    expect(screen.getByTestId('detail-back-group')).toBeTruthy();
-    expect(
-      within(screen.getByTestId('detail-back-group')).getByTestId('detail-back'),
-    ).toBeTruthy();
+    // Back is a lone 44pt bubble, the same shape as Home's menu bubble.
+    expect(screen.getByTestId('detail-back')).toBeTruthy();
     expect(screen.getByTestId('detail-hero-card')).toBeTruthy();
     expect(screen.getByTestId('detail-hero-card-favorite')).toBeTruthy();
 
