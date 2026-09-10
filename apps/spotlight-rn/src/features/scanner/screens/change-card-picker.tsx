@@ -101,13 +101,21 @@ export function ChangeCardPicker({
   const [pendingSelection, setPendingSelection] = useState<number | null>(null);
   const translateY = useRef(new Animated.Value(0)).current;
 
+  // Reset the paged list only when the sheet OPENS. Picking a row changes
+  // `activeCandidateIndex` while the sheet stays up, and that must not
+  // collapse the list back to the first page after a "load more".
   useEffect(() => {
     if (visible) {
       setVisibleCount(INITIAL_VISIBLE_COUNT);
-      setPendingSelection(activeCandidateIndex);
       translateY.setValue(0);
     }
-  }, [activeCandidateIndex, translateY, visible]);
+  }, [translateY, visible]);
+
+  useEffect(() => {
+    if (visible) {
+      setPendingSelection(activeCandidateIndex);
+    }
+  }, [activeCandidateIndex, visible]);
 
   const dismissWithAnimation = () => {
     Animated.timing(translateY, {
