@@ -1,6 +1,6 @@
 # Centering, AI grading, and collecting-app complaints — competitive research (2026-09-09)
 
-STATUS: RESEARCH. Two agent reports, verbatim. The Collectr / TCGplayer-app complaint pass did not complete (spend limit) — TODO rerun.
+STATUS: RESEARCH. Three agent reports, verbatim (Parts A, B, C). ~2,100 recent store reviews read across seven apps; Reddit was bot-walled throughout, so Reddit discourse is inferred from reviews + YouTube only.
 
 ## Executive summary (written from Parts A and B)
 
@@ -19,7 +19,9 @@ STATUS: RESEARCH. Two agent reports, verbatim. The Collectr / TCGplayer-app comp
 
 **Praise to match (table stakes):** fast comps at shows, cert-number lookup (Card Ladder), sealed prices + PSA pops (PokéData), EN+JP+CN coverage, real-sales grounding (PriceCharting), free-tier generosity, dark mode, folder totals per physical case.
 
-**Not covered (spend limit):** Collectr and the TCGplayer app — the two biggest. Rerun that pass; Collectr's "inflated market pricing" reputation shows up in *other* apps' reviews already ("Screw Collectr, with their made up and inflated market pricing").
+**Collectr + TCGplayer (Part C, 1,055 negative reviews read):** Collectr's lifetime average is 4.88★ but 29–31% of the last 12 months' reviews are ≤3★. Its single biggest gripe (26% of negatives) is the **~35 lifetime free scans**, with failed scans still charged; next is the scanner defaulting vintage to 1st Edition and everything to foil (13% + 7%), then JP/CN/KR handling ("scanned a gold Japanese Counter Catcher and it said it was English"; language filter is Pro-only), then "inflated" / condition-blind prices — Collectr's own help page confirms non-NM prices are a fixed haircut off NM (LP −15%, MP −25%, HP −40%, DMG −60%), not comps, and users report price history being silently rewritten. Pro subscribers still see ads. TCGplayer's app is free with no scan cap but 69% of recent reviews are ≤3★: the Aug-2025 v5 rewrite wiped locally-stored collections of 5–7k cards, the scanner "never locks" (16%), login loops, and it is a webview shell (22% crashes/bugs); marketplace/checkout complaints (28%) drag the rating regardless. Neither app does condition comps for raw cards, scan-first for non-English, bulk-correct after a batch, physical location (binder/box), real CSV import, or offline access.
+
+**Pricing-model lessons (Part C):** a lifetime cap on the hero feature is the #1 one-star generator for an otherwise-loved app; users explicitly accept a daily cap or scan packs. Charging for a miss reads as fraud — never charge for a failed match. Don't paywall hygiene (language filter, export, price-range, 3-month history). Ads to paying subscribers flip 5★ to 1★. $4.99–$7.99/mo is the accepted ceiling.
 
 ---
 
@@ -291,3 +293,151 @@ If useful, I can turn this into a shareable page (artifact) with the tables — 
 8. **Sealed products and PSA pops** are PokeData's moat; graded cert lookup is Card Ladder's; master-set checklist + shareable wishlists are Pokellector/TCG Collector's (both essentially unmaintained: last updates 2024-10 and 2025-08).
 
 **Could not verify:** any 2026 Reddit thread bodies; Card Ladder web pricing page and blog; TCG Collector live pages; Pokellector IAP prices (scrape only); pokemonprices.com; YouTube comments; PriceCharting "data breach" claim.
+
+---
+
+# Part C — Collectr + TCGplayer app complaints (rerun after spend-limit reset)
+
+## Collectr + TCGplayer app: complaint/praise profile (evidence pass, 2026-09-09)
+
+**Corpus actually read:** 804 Collectr iOS reviews + 624 Google Play reviews; 895 TCGplayer iOS + 667 Google Play (App Store RSS pages 1–10 × mostrecent + mosthelpful; Play via `google-play-scraper`, newest + most-relevant, 400 each). Filtered to 2025-09-01 → 2026-09-08: **Collectr 1,014 recent (305 rated ≤3★), TCGplayer 1,082 recent (750 rated ≤3★)**. I read every ≤3★ review in that window for both apps plus ~35 five-star samples each. Theme percentages below are regex-tagged over the ≤3★ set, so treat them as ±3–5 pts.
+
+Sources that worked: iTunes Search/Lookup, App Store review RSS, Google Play (listing + scraper), getcollectr.com + Wayback CDX/snapshots, Collectr's Notion help center, Discord invite API, YouTube page metadata, TCGplayer help center (only via the r.jina.ai renderer; direct curl is 403), Elite Fourum thread. Reddit was blocked at every path (direct, old.reddit, jina proxy, Wayback CDX timed out). WebSearch budget was exhausted before this task, so no search-engine snippets.
+
+---
+
+### 1. Per-app profiles
+
+#### Collectr (Collectr Inc)
+- **Store facts (2026-09-09):** iOS id 1603892248 "Collectr - TCG Collector App" — **4.88★, 64,347 ratings**, v2.5.6 (2026-08-15), first release 2022-01-31, iOS 15.6+. Android `com.collectrinc.collectr` — **4.80★, 41,820 ratings** (histogram 1★ 724 / 2★ 297 / 3★ 659 / 4★ 3,323 / 5★ 36,813), 1,991 text reviews, ~3.04M installs, IAP "$7.99–$59.99". Recent-window rating mix is far worse than the lifetime average: iOS 74/32/45/79/283 (29% ≤3★), Android 69/34/51/70/277 (31% ≤3★).
+  https://apps.apple.com/us/app/collectr-tcg-collector-app/id1603892248 · https://play.google.com/store/apps/details?id=com.collectrinc.collectr
+- **Audience claims are inconsistent:** Play description says "2M+ users", Discord description says "8 million users", getcollectr.com says "10M+ collectors" and "100,000+ reviews". Discord: 21,945 members / 3,383 online (invite `discord.gg/x7VyUY7d4Y`).
+- **Price model:** Free tier + **PRO $4.99/mo billed annually ($59.99/yr) or $7.99 monthly.** Wayback shows the /pro price unchanged from 2024-11-27 through 2026-07-29 (identical page digest across 7 snapshots); the page was redesigned by July 2026 with "Reduced price for a limited time" and "SAVE 38%" copy, and the marketing claim moved from "2+ years of pricing data" (June 2025) to "5+ years". https://getcollectr.com/pro · https://web.archive.org/web/20250617135443/https://www.getcollectr.com/pro
+  - **Paywalled:** unlimited scanning, in-depth price history (5+ yrs), "exclusive" filters (reviews say this includes price-range and *language* filters), export (one Android reviewer was told export caps at 10,000 entries "to prevent bad actors"), search history, custom backgrounds, app icons, partner perks; "priority support & broadcast DMs" still "coming soon" since Nov 2024.
+  - **Free scan quota:** reviews consistently cite **~35 lifetime scans** (numbers quoted: 32, 33, 35, 36, 40) since at least Nov 2024. A minority (Jan/May/Jul 2026) describe "30 scans per day" and one (Dec 2025) asks to "give us back the monthly refresh" — the exact policy is not documented anywhere on the site; **unverified**. Failed/incorrect scans still consume quota (multiple reviews).
+  - Pro subscribers still get in-app ads/sponsor pop-ups (PSA, mystery packs, AI services) — 4+ reviews Mar–Jun 2026.
+- **Price sources (Notion help):** "TCG Player, eBay, Cardmarket and potentially secondary markets"; product prices "pulled every 1–2 days"; **non-NM conditions are a fixed haircut off NM (LP −15%, MP −25%, HP −40%, DMG −60%)**, not condition comps. eBay affiliate disclosure page exists. Manual price override per item. https://getcollectr.notion.site/Everything-You-Wanted-to-Know-About-Prices-f64d490171a549a2bcd1a037e7f74602 · https://getcollectr.notion.site/Price-Paid-Card-Conditions-b0de3e516ba04bdfabf2a6318264e880
+- **Core features:** portfolio value + history chart, gains/losses, cost basis and realized gains, multi-currency incl. crypto, raw/graded (PSA/BGS/CGC/TAG) and sealed, pop reports, sold listings, marketplace (eBay + TCGplayer listings side by side, watchlist, auctions ending soon), social (profiles, showcases, verified creators), Trade Analyzer (saved trades as of 2.5.6), set analytics/progress, widgets, desktop web app (app.getcollectr.com), Discord bot, API, merch shop. 25+ games (Pokémon, MTG, YGO, Lorcana, One Piece, Vanguard, FoW, Weiss, FF, SWU, DBS/Fusion World, Union Arena, Sorcery, Grand Archive, Digimon, FaB, Gundam, MetaZoo, Funko; sports "coming soon", NBA in beta).
+- **Scanner:** photo/snapshot mode (tap shutter, batch, then a "Review Your Matches" screen), claims set + number + variant detection. Help doc: https://getcollectr.notion.site/Scanning-for-Products-130f17a424d480f39648e43114688c76
+- **Import/export:** import only from a TCGplayer CSV emailed to import@getcollectr.com, "2–3 business days"; export Pro-only, by email. https://getcollectr.notion.site/Import-Export-Your-Collection-9aa6e5f4d0cd4efb995dadc992760c8e
+- **2026 changelog (what I could recover):** 2.5.6 (Aug 15): Trade Analyzer save/revisit, deep links for Showcases/Sets, long-press quick-add, Compare Grades view, "scan camera flash fixes". Reviews reference an Aug 2026 change that gates the portfolio value chart behind adding photos/cert numbers for graded cards ("took away the chart … until you do"), AI-generated images (Dec 2025 complaint), "AI grading" behind paywall (Mar 2026), Gundam added, Palworld TCG missing (Jul/Aug 2026). Full App Store version history isn't server-rendered; Play "What's new" is null — **not fully verifiable**.
+- **Top complaint themes, Collectr, 305 ≤3★ reviews (Sep 2025–Sep 2026):**
+  1. Paywall / subscription / billing — 78 (26%) [scan quota specifically 37–42 (12–14%)]
+  2. Scanner wrong card/variant — 41 (13%); scanner UX (shutter, focus, battery, quota burn) — 21 (7%); *any* scanner mention 132 (43%)
+  3. Search/UI/navigation — 34 (11%)
+  4. Missing sets / cards / languages / sealed — 30–32 (10%); JP/CN/KR language specifically 22 (7%)
+  5. Price accuracy / "inflated" — 23–25 (8%)
+  6. Crashes/bugs/lag — 17–25 (6–8%)
+  7. Graded pricing gaps (BGS/CGC, auto sub-grades) — 18 (6%)
+  8. Vintage → "1st Edition" / foil default — 17 (6%)
+  9. Support unresponsive / reports ignored — 14 (5%)
+  10. Billing/refund/cancel problems — 10 (3%); import/export/bulk — 9 (3%); login — 8; ads — 4
+
+#### TCGplayer app (TCGplayer Inc / eBay)
+- **Store facts:** iOS id 1247645833 — **4.11★, 14,052 ratings**, v5.1.0 (2026-09-07), first release 2017-07-21, iOS 17+, free, no IAP. Android `com.tcgplayer.tcgplayer` — **4.48★, 12,864 ratings** (844/349/530/1,254/9,883), 4,905 text reviews, ~3.08M installs. **Recent window is brutal: iOS 248 one-star of 572 (43%; 69% ≤3★), Android 229 of 510 (45%; 69% ≤3★).** Lifetime iOS distribution is 372/154/136/88/145 — the app has *never* had a good written-review profile.
+  https://apps.apple.com/us/app/tcgplayer/id1247645833 · https://play.google.com/store/apps/details?id=com.tcgplayer.tcgplayer
+- **Price model:** app is 100% free. Adjacent paid thing users blame in reviews: **TCGplayer Subscription $8.99/mo** (free tracked shipping on Direct orders, up to 3% store credit, US only) — reviewers read it as "pay $8/mo to get tracking". https://www.tcgplayer.com/subscription. Seller list-import from the app requires **Level 4 seller** status. Reviews (Aug 2026) say TCGplayer "no longer purchase cards from you and get store credit" (buylist ended) — **date unverified**.
+- **Core features (help-center FAQ, updated 2025-07-11):** scan cards from every game on the marketplace (~45 games incl. CookieRun added Sep 2026); shows TCGplayer Market Price, Listed Median, Most Recent Sale; condition/language/printing selectable before or after scan; collections/lists (cloud-synced since v5.0, **max 5,000 cards per collection**); export plaintext/CSV via email/share; marketplace browsing, cart optimizer, Direct, seller portal (in-app webview). No wishlist, no dark mode (help doc literally says switch phone to light mode or settings are unreadable), USD only. https://help.tcgplayer.com/hc/en-us/articles/115009506407-TCGplayer-App-FAQ
+- **Scanner design (from FAQ):** live-camera framing, no shutter, one card at a time, "primarily focuses on the artwork"; explicitly admits it can't separate same-art printings (Alpha/Beta/Unlimited) and recommends white background, 6–8 in distance, no glare. https://help.tcgplayer.com/hc/en-us/articles/23531246396183-How-to-Setup-and-Use-the-TCGplayer-App-for-Card-Scanning
+- **The v5.0 rewrite (Aug/Sep 2025) is the defining event.** Legacy app stored collections *locally*; the migration doc (2025-07-29) warns "Never uninstall the previous version … until you have migrated or exported" — and dozens of reviews say collections of 5–7k cards vanished anyway. https://help.tcgplayer.com/hc/en-us/articles/33797162920599-How-to-Migrate-Your-Data-from-the-Previous-Version-of-the-TCGplayer-App. A YouTube guide to sideload the old APK and block updates got 1.2k views (EpicDroid, 2025-10-01, https://youtu.be/dnIwaSveyaQ). 55 negative reviews explicitly say "old app / bring back / update ruined".
+- **2026 changelog highlights (reconstructed from reviews + notes):** Dec 2025 update removed per-card prices from lists (reverted by Dec 31 — "WE'RE BACK BABY"); Feb 2026 top search bar removed; Apr 2026 sealed products stopped being addable to collections (multiple reviews Apr 4–21); Jun 2026 scans/manual adds randomly assigned Heavily Played/Damaged conditions; Aug–Sep 2026 "$err" prices, white-screen bug on messaging/order history; Sep 7 2026 v5.1.0 adds CookieRun scanning. Per-release notes not retrievable (help-center release-notes section stops at v3.3.0).
+- **Top complaint themes, TCGplayer, 750 ≤3★ reviews:**
+  1. Cart / checkout / orders / shipping / sellers / refunds — 207 (28%)
+  2. Crashes / bugs / white screens / spinners — 163 (22%) [white/blank screen 22]
+  3. UI / "it's a webview" / navigation / filters — 133 (18%) ["browser/website/webview" 99]
+  4. Scanner doesn't scan or wrong card — 119 (16%); scanner UX (slow, overheats, framing) — 31 (4%); *any* scanner mention 315 (42%)
+  5. Login loop ("stay signed in" does nothing, email codes) — 112 mention sign-in; data loss/sync 85 (11%)
+  6. "Old app was better / update ruined it" — 55 (7%)
+  7. Paid/billing (subscription for tracking, refunds, double charges) — 54 (7%)
+  8. Missing games/sealed/languages (Palworld, Hobbit MTG, Chinese Pokémon, sealed in collections) — 33 (4%)
+  9. Bulk/import/export broken (bracket format mismatch, CSV garbage, Level-4 gate) — 25 (3%)
+  10. Support useless/AI bot — 18 (2%); variant/condition randomization 16; "prices too low / market-price confusion" 10; review-prompt nag 5
+
+---
+
+### 2. Cross-app complaint frequency (theme × app), merged with prior pass
+
+| Theme | Prior-pass rank (Pokellector/TCG Collector/PokéData/Card Ladder/PriceCharting) | Collectr (% of 305 neg) | TCGplayer (% of 750 neg) | Note |
+|---|---|---|---|---|
+| Scanner accuracy / fails | #1 | 13% wrong-card + 7% UX (43% mention scanning) | 16% + 4% (42% mention) | Universal #1. Collectr = wrong *variant/language*; TCGplayer = *won't lock/detect at all* |
+| Data loss / sync / login | #2 | 2% (crash loses unsaved batch; Apr 2026 "collections gone" after update) | 11% + login-loop 15% | TCGplayer v5 migration wiped local collections |
+| Pricing trust | #3 | 8% ("inflated", vintage, JP, BGS/CGC, stale) | 1% ("too low", "price jumps at checkout") | Opposite directions: Collectr *high*, TCGplayer *low* |
+| Paywall creep | #4 | **26%** (top theme) | 7% (tracking sub, seller gates) | Collectr's 35-scan cap is the single most-quoted gripe |
+| Bulk entry / import / export | #5 | 3% | 3% | Both weak; Collectr import = email a TCGplayer CSV, wait 2–3 days |
+| Multi-game / set / language gaps | #6 | 10% (JP/CN/KR, sealed, promos, Funko, Palworld, minor TCGs) | 4% (Palworld, Hobbit, CN Pokémon, sealed bug) | Collectr's breadth is shallow outside PKM/OP |
+| Support silence | #7 | 5% (bot replies, reports ignored, refund fights) | 2% + shows up inside the 28% marketplace bucket | |
+| Crashes / bugs / perf | — | 6–8% (battery drain, freeze) | **22%** | TCGplayer is a webview shell; 99 reviews say so |
+| Marketplace/cart/orders | — | n/a | **28%** | Contaminates TCGplayer's app rating; not a collection-app problem |
+| UI clutter / social push | — | 11% (+ ads to paying users, "Investr not Collectr") | 18% | |
+| Variant/condition defaults | — | 6% (vintage→1st Ed, foil default) | 2% (random HP/DMG, 1st Ed default) | Both bury the user in per-card edits |
+
+---
+
+### 3. The 10 gripes, with quotes (source + date; no usernames)
+
+1. **Pay-to-scan with a tiny lifetime quota (Collectr).** "The fact that you get 35 scans and that's it? … I could understand 35 a day, but 35 total unless you pay?" (App Store, 2026-08-23). "scanned a few cards … it deleted my progress … but didnt refund the scans" (Play, 2026-09-07). "Even if … it shows the incorrect card, when you delete the obviously wrong card, that counts as 1 of your allocated scans" (Play, 2026-05-01).
+2. **Scanner picks the wrong variant/era (Collectr).** "when everything vintage scans as 1st edition and I have to go in and edit it anyways what's the point" (App Store, 2026-08-23). "the scan almost always defaults to a 'foil' when it very obviously isn't. There is also no way to make all the cards scanned in the batch non-foil" (Play, 2026-03-15). "Scanner got my base set mew wrong, said it wasn't a holo so I sold for 12.00 when it was suppose to be over 160.00" (Play, 2026-06-17).
+3. **Scanner won't lock at all (TCGplayer).** "You just hold your camera over the card and watch as the app puts a border around the card but never finds a match. After 10 minutes … I gave up" (App Store, 2026-06-01). "Went from nearly instantly scanning cards in the old app to taking a full 5-10 seconds under identical lighting … and just flat out refusing to scan some cards" (App Store, 2026-02-12). "wont scan cards that are sleeved" (Play, 2026-08-27).
+4. **Inflated / stale / condition-blind prices (Collectr).** "Pricing based on condition only goes off NM %, not actual comps of LP-MP-HP sales. So it's almost never correct" (App Store, 2026-08-23 — matches the documented −15/−25/−40/−60% rule). "Collectr pulls prices out of thin air when it comes to vintage … They group MP/HP/DMG prices with NM … a NM $2000 raw card being $500 due to last sold in HP" (App Store, 2026-06-15). "when a new set comes out and the pc etb gets added, the price is double what it actually is on the app for months. reporting something … means nothing" (Play, 2026-08-17). "a card has been reported at a specific price point for at least 24 hours, and days later it will drop … but collectr removes any history of that higher price point" (App Store, 2026-04-29). YouTube echoes it: "I Tested Collectr… The Numbers Don't Add Up" (Caps Collectibles, 2026-04-19, https://youtu.be/CPekUaJo2g8) and "Is the Collectr App Hurting the Pokemon Card Hobby?" (2026-03-16, https://youtu.be/FGWSJofRhPc).
+5. **Non-English cards (Collectr).** "scanned a gold Japanese counter catcher and it said it was English" (App Store, 2026-06-17). "All the other scan apps are scanning and reading Chinese and Japanese cards, I can't keep paying for premium and then manually entering" (App Store, 2026-03-18). "Missing Simplified Chinese and Korean option" (App Store, 2026-08-21). "need pro just to change language? greedy much" (Play, 2026-06-25).
+6. **Lost collections after a rewrite (TCGplayer).** "I used this app to document my whole collection. between 6000 and 7000 cards … Fast forward to today and my entire collection is gone" (Play, 2025-11-15). "all four of my collections are gone. Thousands of cards gone" (App Store, 2025-10-25). "The legacy data has everything in product ID's so you can't use it without making an account" (App Store, 2026-02-22).
+7. **Login loop / webview shell (TCGplayer).** "What is the point of a 'Don't ask me on this device again' … I have to sign in every dang time" (App Store, 2026-09-08). "This isn't an app, it's a web browser with a skin on it" (App Store, 2026-07-12). "ive never seen such an unresponsive webview in an android app. time to invest in building it native" (Play, 2026-07-18).
+8. **Updates that regress (TCGplayer).** "this most recent update forces everything into 'Heavily Played' or 'Damaged' condition and when you go to edit it … it still reflects the damaged price" (App Store, 2026-06-11). "Why would you remove the prices for individual cards in a list" (App Store, 2025-12-20). "I can no longer add sealed pokemon products on my collection and instead just shows me cards" (App Store, 2026-04-17).
+9. **Graded pricing gaps (Collectr).** "Prices for BGS and CGC slabs are very inaccurate and missing lots of data points … psa 10 seems to be tracked okay" (App Store, 2026-01-01). "Every time I compare CGC to PSA, the PSA slabs are valued way higher even when the CGC card is the same grade" (App Store, 2025-09-19). "Terrible experience trying to report a defect in how the app prices graded cards with auto sub grades" (Play, 2026-07-29).
+10. **Paying and still getting ads / support that doesn't answer (Collectr).** "Why am I paying for a subscription to still see ads?" (App Store, 2026-06-01). "The support team seems like just automated robots email you the same things" (App Store, 2026-05-01). "Paid for pro, not able to access anything. Just sends me to page to upgrade but then says already subscribed" (App Store, 2025-12-28). "charged me for a full year when I selected the month option" (Play, 2026-07-24).
+
+Bonus scanner-UX quotes worth keeping: "Other card scanning apps don't even need you to press a shutter button … I'm not trying to tap my phone to take pictures" (Collectr, App Store 2025-11-07); "it absolutely destroyed our battery power … No other scanning app consumes battery like this one" (Collectr, App Store 2026-06-24); "The scanner is also not great, if your card is holo or dark it will not scan" (TCGplayer, Play 2026-06-18).
+
+---
+
+### 4. Praise = table stakes
+- **Collectr:** one place for every game ("Why use multiple apps"); clean, fast, aesthetic UI (Elite Fourum thread, Mar 2025: "really clean UI and UX experience … neat social aspect" — https://www.elitefourum.com/t/does-anybody-use-portfolio-management-apps-collectr-pokellector-alt-etc/54766); portfolio value chart "like stock"; raw + graded + sealed in one portfolio; one-tap to eBay; useful at card shows even free; separate portfolios/folders; Japanese + Chinese catalog exists at all; several 5★ reviews say the scanner "was able to pick up the exact card each time" — accuracy is bimodal, modern EN Pokémon works, everything else doesn't.
+- **TCGplayer:** *the* price reference ("TCGplayer is decidedly market rates", "gold standard for price checking"); free with no scan cap; every game on the marketplace; holo/reverse/condition/language price toggles; lists for deck-building; buy the card right there; sound cue on scan success in the old app was loved ("Hearing the different noises for the value of cards was nice").
+- Common table stakes both prove: instant price on identify, multi-game, condition-aware price, cloud-synced collection, export.
+
+### 5. Unmet needs neither app serves
+- **Condition-comp pricing for raw cards** (both use NM × fixed %; users with LP/MP vintage get nonsense either way).
+- **Scan-first for non-English** (JP/CN/KR/Indonesian) with correct language attribution and JP pricing — Collectr's help page literally says "add JP to the end of your search".
+- **Bulk-correct after batch scan** ("set all to non-foil / unlimited", filter-by-set during scan, editable review screen).
+- **Physical location tracking** (binder/box/deck) — "If I want to know what box or binder or deck has a card in it, I'm not going to use this app" (Collectr, Play 2026-03-21).
+- **Sealed promos / graded packs / sealed-vs-opened promo pricing**; BGS/CGC/TAG comps; auto-subgrade handling.
+- **Wishlist/want-list** (TCGplayer has none; Collectr's watchlist is for market items, not "cards I need").
+- **Real CSV import from any source** (Collectr: TCGplayer-CSV-by-email only; TCGplayer: rejects its own website's export format).
+- **Offline read access** to your own collection (lost in TCGplayer v5).
+- **Local-currency markets** (GBP/CAD users see translated USD; CAD listings double-converted).
+- **Transparent price provenance** (which sales, when, shipping included?) and a price-history that doesn't get silently rewritten.
+- Set-ordered vintage browsing, illustrator search, quantity sort — small but repeated.
+
+### 6. Pricing-model lessons
+- A hard **lifetime** cap on the hero feature (35 scans) generates the single largest bucket of 1★ reviews for an otherwise-loved app; users explicitly say they'd accept a *daily* cap or a *scan pack* ("option to buy scans in quantity would be nice for casual collectors", App Store 2026-04-18).
+- Charging for a scanner that misfires is read as fraud ("Requested a refund for false advertising"); **charge only for successful matches** or don't gate accuracy-sensitive features.
+- Don't paywall hygiene features (language filter, export, price-range filter, 3-month history) — each is cited as "greedy".
+- Ads to paying subscribers and giveaway/PSA push notifications convert 5★ to 1★.
+- Annual-only auto-billing and no in-app cancel path produce chargeback/lawsuit-tone reviews on Android.
+- Free + marketplace-funded (TCGplayer) avoids paywall anger entirely but the marketplace's failures (refunds, shipping, sellers) then drag the app rating to 4.1.
+- $4.99–$7.99/mo is the accepted ceiling; several reviews benchmark against free competitors (Rare Candy, ManaBox, PriceCharting, TCGplayer).
+
+### 7. What a scanner-first app must nail (from these two)
+1. **Continuous auto-capture with a visible lock**, no shutter, no "green box that never turns blue"; fall back to photo-upload for damaged cameras (TCGplayer users asked for upload; Collectr users asked for auto).
+2. **Variant/era discrimination on top of art match**: 1st Ed vs Unlimited stamp, holo vs reverse vs non-holo, foil vs non-foil, prerelease, set symbol/number — both apps default wrong and force per-card edits.
+3. **Language detection** and JP/CN/KR catalogs with correct language-specific pricing.
+4. **Sleeved, top-loader, slab and binder-page tolerance**; glare handling on holos; dark cards.
+5. **Speed and thermals**: users abandon at 5–10 s/card, and Collectr's battery/overheat complaints are recurring.
+6. **Batch flow that survives crashes and back-button** (autosave scans; "hit NEXT or lose 2 hours" is a real Collectr review) and a review screen that lets you edit variant/condition in place and apply to all.
+7. **Never charge for a miss**; show top-N alternates when confidence is low instead of a confident wrong "MATCH FOUND".
+8. **Scan pipeline decoupled from marketplace/login** — TCGplayer's login loop and webview kill the scanner even when recognition works.
+9. **Honest price display at identify time**: source, last-sale date, condition basis — the credibility gap ("how exactly this app is getting its data") is the moat.
+
+---
+
+### Could not verify / caveats
+- Reddit inaccessible via every route; Reddit-sourced "inflated Collectr" discourse is inferred from store reviews + YouTube only.
+- Collectr's exact free-scan policy (35 lifetime vs 30/day vs monthly refresh) is undocumented; reviews conflict.
+- Wayback has no /pricing page and /pro only from 2024-11; pre-Nov-2024 Collectr pricing (and whether scanning was ever free/unlimited) unverified. Reviews assert "a few years ago this app would have been a single purchase" — unverified.
+- App Store version history only exposes the latest entry server-side; Play "recent changes" is null for both. 2026 changelog above is reconstructed from reviews.
+- TCGplayer buylist shutdown date and whether the login loop is iOS-only or both (reviews say both) unverified.
+- Google Play "ratings" counts are star ratings; text-review counts are far smaller (1,991 / 4,905).
+- Theme percentages come from regex tagging of ≤3★ reviews; manual reading confirms the ranking but individual counts are approximate.
+- Elite Fourum thread is Mar 2025 (older than the 12-month window) and only contains praise for Collectr.
+
+Raw data kept in `/private/tmp/claude-501/-Users-stephenchan-Code-spotlight/c0c02c54-c470-46e7-96c3-817cba0d1878/scratchpad/reviews/` (`collectr_ios.json`, `collectr_android.json`, `tcgplayer_ios.json`, `tcgplayer_android.json`) plus the negative-review dumps `q_*.txt` and `refined.py` if you want to re-cut the counts.
