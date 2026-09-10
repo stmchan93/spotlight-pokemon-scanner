@@ -4725,9 +4725,11 @@ const styles = StyleSheet.create({
   topChromeRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    // 8, matching the frame's spacers — the search pill takes the remaining
-    // width, so `justifyContent` no longer decides anything here.
-    gap: 8,
+    // 16 between the back bubble, the target pill and the search bubble
+    // (Figma 5084:6993). It was 8 here PLUS 16 of horizontal padding on the
+    // centre slot, which read as 24. The pill takes the remaining width, so
+    // `justifyContent` no longer decides anything.
+    gap: 16,
     justifyContent: 'space-between',
     position: 'absolute',
     zIndex: 5,
@@ -4746,8 +4748,9 @@ const styles = StyleSheet.create({
     zIndex: 4,
   },
   topChromeCenter: {
+    // No padding: the row's 16pt gap IS the spacing on both sides, so the
+    // pill's glass edge sits exactly 16 from each bubble.
     flex: 1,
-    paddingHorizontal: 16,
   },
   languageTooltipWrap: {
     alignItems: 'center',
