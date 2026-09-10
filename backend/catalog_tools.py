@@ -3189,7 +3189,14 @@ def _card_row_to_dict(
     row: sqlite3.Row | None,
     *,
     title_aliases: Iterable[str] = (),
+    include_source_payload: bool = True,
 ) -> dict[str, Any] | None:
+    """`include_source_payload=False` leaves `sourcePayload` as `{}` instead of
+    parsing the ~18KB Scrydex blob. Manual search hydrates ~500 candidates per
+    query only to SCORE them, and that parse was half the search's server time;
+    the scorer needs nothing from the blob that `titleAliases` does not already
+    carry (see `derive_card_title_aliases`). Anything returned to a caller must
+    still be hydrated in full."""
     if row is None:
         return None
     # `SELECT *` gives us the column when it exists; older callers that build a
@@ -3220,7 +3227,7 @@ def _card_row_to_dict(
         "nationalPokedexNumbers": _json_load(row["national_pokedex_numbers_json"], []),
         "imageURL": row["image_url"],
         "imageSmallURL": row["image_small_url"],
-        "sourcePayload": _json_load(row["source_payload_json"], {}),
+        "sourcePayload": _json_load(row["source_payload_json"], {}) if include_source_payload else {},
         "titleAliases": list(title_aliases),
     }
 
@@ -3675,7 +3682,12 @@ def card_by_id(connection: sqlite3.Connection, card_id: str) -> dict[str, Any] |
     return _card_row_to_dict(row, title_aliases=alias_map.get(card_id, ()))
 
 
-def cards_by_ids(connection: sqlite3.Connection, card_ids: Iterable[str]) -> dict[str, dict[str, Any]]:
+def cards_by_ids(
+    connection: sqlite3.Connection,
+    card_ids: Iterable[str],
+    *,
+    include_source_payload: bool = True,
+) -> dict[str, dict[str, Any]]:
     normalized_ids: list[str] = []
     seen_ids: set[str] = set()
     for raw_card_id in card_ids:
@@ -3699,7 +3711,11 @@ def cards_by_ids(connection: sqlite3.Connection, card_ids: Iterable[str]) -> dic
         )
     alias_map = _card_title_aliases_by_card_ids(connection, normalized_ids)
     return {
-        str(row["id"]): _card_row_to_dict(row, title_aliases=alias_map.get(str(row["id"]), ()))
+        str(row["id"]): _card_row_to_dict(
+            row,
+            title_aliases=alias_map.get(str(row["id"]), ()),
+            include_source_payload=include_source_payload,
+        )
         for row in rows
     }
 
@@ -4940,7 +4956,10 @@ def _search_cards_attempt(
             ),
         )[:_MANUAL_SEARCH_POOL_CEILING]
 
-    candidate_map = cards_by_ids(connection, candidate_order)
+    # LITE hydration for scoring: the scorer reads names/aliases/set/number,
+    # never the Scrydex payload blob, and parsing ~500 of those blobs was half
+    # the search's server time. The returned page is re-hydrated in full below.
+    candidate_map = cards_by_ids(connection, candidate_order, include_source_payload=False)
     scored_cards: list[tuple[float, dict[str, Any]]] = []
     for card_id in candidate_order:
         card = candidate_map.get(card_id)
@@ -5033,7 +5052,9 @@ def _search_cards_attempt(
             str(item[1]["number"]),
         )
     )
-    return [card for _, card in scored_cards[offset : offset + requested_limit]], False
+    page = [card for _, card in scored_cards[offset : offset + requested_limit]]
+    full_map = cards_by_ids(connection, [str(card.get("id") or "") for card in page])
+    return [full_map.get(str(card.get("id") or ""), card) for card in page], False
 
 
 def search_cards_local(

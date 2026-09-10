@@ -648,6 +648,14 @@ CREATE INDEX IF NOT EXISTS idx_cards_number
 CREATE INDEX IF NOT EXISTS idx_cards_number_upper
     ON cards(UPPER(number), language, set_release_date, id);
 
+-- Manual search compares `number = ? COLLATE NOCASE` (promo codes are stored
+-- uppercase, typed lowercase). A BINARY index cannot serve a NOCASE comparison,
+-- so without this every one of those tiers was a full scan of `cards` (~140ms
+-- each, three per phrase; "umbreon vmax" = nine scans ≈ 1.3s of a 1.5s search).
+-- Builds in ~55ms on 54k rows.
+CREATE INDEX IF NOT EXISTS idx_cards_number_nocase
+    ON cards(number COLLATE NOCASE);
+
 CREATE INDEX IF NOT EXISTS idx_cards_set_id
     ON cards(set_id);
 
