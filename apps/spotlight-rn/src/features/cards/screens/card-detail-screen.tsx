@@ -1937,6 +1937,14 @@ export function CardDetailScreen({
           conditionShortLabel: conditionOption?.shortLabel ?? null,
           slabContext: savedSlabContext,
           isFavorite: selectedEntry.isFavorite,
+          // The cost basis was written by the call above, and it has to ride
+          // into the cache with everything else. Omitted, this optimistic row
+          // REPLACED the real one with the field missing — so the save landed
+          // on the server and the screen you popped back to still showed the
+          // old number until a full refetch reconciled it, which reads as the
+          // edit having done nothing.
+          costBasisPerUnit: costBasis,
+          costBasisTotal: costBasis == null ? null : Number((costBasis * editQuantity).toFixed(2)),
         });
         refreshData();
         // Same handoff as the add flow: this page cannot toast while

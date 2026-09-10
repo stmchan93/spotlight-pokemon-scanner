@@ -1,9 +1,10 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
-import { Keyboard, Linking, StyleSheet, Share } from 'react-native';
+import { Keyboard, Linking, StyleSheet, Share, Text } from 'react-native';
 import { useRouter } from 'expo-router';
 
 import type { CardDetailRecord, CardText, InventoryCardEntry } from '@spotlight/api-client';
 import { CardDetailScreen } from '@/features/cards/screens/card-detail-screen';
+import { useAppServices } from '@/providers/app-providers';
 import { clearCardAddedNotice, consumeCardAddedNotice } from '@/features/cards/card-added-notice';
 import {
   clearCardDetailPreviewSessions,
@@ -1536,13 +1537,29 @@ describe('CardDetailScreen', () => {
     };
   }
 
+  function InventoryCacheProbe({ entryId }: { entryId: string }) {
+    const { inventoryEntriesCache } = useAppServices();
+    const entry = (inventoryEntriesCache ?? []).find((row) => row.id === entryId);
+    return (
+      <>
+        <Text testID="cache-probe-cost-basis">{String(entry?.costBasisPerUnit ?? '')}</Text>
+        <Text testID="cache-probe-cost-basis-total">{String(entry?.costBasisTotal ?? '')}</Text>
+      </>
+    );
+  }
+
   function renderOwnedGraded(
     overrides: Partial<React.ComponentProps<typeof CardDetailScreen>>,
     repoOverrides: Parameters<typeof createTestSpotlightRepository>[0],
   ) {
     const baseRepository = createTestSpotlightRepository();
     renderWithProviders(
-      <CardDetailScreen cardId="sm7-1" entryId="graded-treecko-psa10" onBack={jest.fn()} {...overrides} />,
+      <>
+        <CardDetailScreen cardId="sm7-1" entryId="graded-treecko-psa10" onBack={jest.fn()} {...overrides} />
+        {/* Reads the shared inventory cache the save writes into, which is
+            otherwise invisible from this screen once it pops back. */}
+        <InventoryCacheProbe entryId="graded-treecko-psa10" />
+      </>,
       {
         spotlightRepository: createTestSpotlightRepository({
           getCardDetail: async (query) => {
@@ -1614,6 +1631,17 @@ describe('CardDetailScreen', () => {
       ),
     );
     await waitFor(() => expect(onBack).toHaveBeenCalled());
+
+    /*
+      And the saved basis reaches the shared inventory cache. It did not: the
+      optimistic row this save prepends carried quantity, condition and price
+      but not the cost basis, so it REPLACED the real row with the field
+      missing — the write landed on the server and the screen you popped back
+      to still showed the old number until a full refetch reconciled it, which
+      reads as the edit having done nothing.
+    */
+    expect(screen.getByTestId('cache-probe-cost-basis')).toHaveTextContent('40');
+    expect(screen.getByTestId('cache-probe-cost-basis-total')).toHaveTextContent('240');
   });
 
   it('Raw→Graded conversion carries the raw print variant onto the slab (per-printing pricing)', async () => {
