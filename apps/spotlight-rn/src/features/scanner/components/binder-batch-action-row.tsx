@@ -9,22 +9,24 @@ import {
   type AnchoredMenuAnchor,
   type AnchoredOption,
 } from '@/features/scanner/components/printing-menu';
-import type { SetAllConditionOption } from '@/features/scanner/scan-batch-pricing';
-
-type OpenMenu = 'variant' | 'condition' | null;
 
 export type BinderBatchActionRowProps = {
   /** Variant labels ("Normal", "Holofoil", …) the dropdown offers. */
   printingOptions: readonly string[];
-  conditionOptions: readonly SetAllConditionOption[];
   onSelectPrinting: (printingLabel: string) => void;
-  onSelectCondition: (conditionCode: string) => void;
   /** How many pockets the user is holding-to-select. The row only exists while this is > 0. */
   selectedCount: number;
   /** Leave selection mode. */
   onDone: () => void;
   /** True while a batch apply is resolving pricing matrices. */
   busy: boolean;
+  /**
+   * Left inset in px. The grid below centers its columns inside the page
+   * gutter, so on most phones the first card starts well right of that gutter;
+   * the caller passes the measured column offset to line this row up with the
+   * card edge rather than the screen edge.
+   */
+  insetLeft?: number;
   testID?: string;
 };
 
@@ -34,8 +36,14 @@ const slug = (label: string) => label.toLowerCase().replace(/\s+/g, '-');
 const PILL_HEIGHT = 30;
 
 /**
- * The binder page's selection toolbar: a VARIANT dropdown, a CONDITION
- * dropdown, and Done — nothing else.
+ * The binder page's selection toolbar: a VARIANT dropdown and Done — nothing
+ * else.
+ *
+ * VARIANT ONLY. A second CONDITION dropdown sat beside it until 2026-09-10.
+ * Every scan already starts on NM, so it mostly restated the default, and the
+ * per-pocket confirmation two batch fields needed was what made the grid move
+ * (user: "it kinda makes the ui kinda like moves"). Condition stays on the
+ * card's own price sheet, where one card is being priced at a time.
  *
  * ONLY WHILE SELECTING. This row used to sit on the page permanently as
  * "Set all · Printing ▾ · Condition ▾", addressing the whole page when nothing
@@ -60,29 +68,27 @@ const PILL_HEIGHT = 30;
  */
 export function BinderBatchActionRow({
   busy,
-  conditionOptions,
+  insetLeft,
   onDone,
-  onSelectCondition,
   onSelectPrinting,
   printingOptions,
   selectedCount,
   testID = 'binder-batch-actions',
 }: BinderBatchActionRowProps) {
-  const [open, setOpen] = useState<OpenMenu>(null);
+  const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<AnchoredMenuAnchor | null>(null);
   const variantRef = useRef<View | null>(null);
-  const conditionRef = useRef<View | null>(null);
 
   // Open at once, then hang the menu off the pill once its window coords
   // arrive. Opening only INSIDE the measure callback would leave a pill that
   // never measures (a detached node, the test renderer) with a dead dropdown.
-  const openMenu = (menu: Exclude<OpenMenu, null>) => {
-    if (open === menu) {
-      setOpen(null);
+  const openMenu = () => {
+    if (open) {
+      setOpen(false);
       return;
     }
-    setOpen(menu);
-    const node = menu === 'variant' ? variantRef.current : conditionRef.current;
+    setOpen(true);
+    const node = variantRef.current;
     if (node && typeof node.measureInWindow === 'function') {
       node.measureInWindow((x, y, width, height) => {
         setAnchor({ x, y, width, height });
@@ -91,39 +97,26 @@ export function BinderBatchActionRow({
   };
 
   const variantOptions: AnchoredOption[] = printingOptions.map((label) => ({ key: slug(label), label }));
-  const conditionMenuOptions: AnchoredOption[] = conditionOptions.map((condition) => ({
-    key: condition.code.toLowerCase(),
-    label: condition.label,
-  }));
-
-  const trigger = (
-    kind: Exclude<OpenMenu, null>,
-    label: string,
-    ref: React.RefObject<View | null>,
-  ) => (
-    <View collapsable={false} key={kind} ref={ref}>
-      <Pressable
-        accessibilityLabel={`${label} for the selected cards`}
-        accessibilityRole="button"
-        accessibilityState={{ expanded: open === kind }}
-        onPress={() => openMenu(kind)}
-        style={({ pressed }) => [
-          styles.pill,
-          open === kind || pressed ? styles.pillActive : null,
-        ]}
-        testID={`${testID}-${kind}`}
-      >
-        <Text style={styles.pillLabel}>{label}</Text>
-        <IconChevronDown color={colors.gray900} size={14} strokeWidth={2.2} />
-      </Pressable>
-    </View>
-  );
 
   return (
-    <View style={styles.root} testID={testID}>
+    <View
+      style={[styles.root, insetLeft != null ? { paddingLeft: insetLeft } : null]}
+      testID={testID}
+    >
       <View style={styles.headerRow}>
-        {trigger('variant', 'Variant', variantRef)}
-        {trigger('condition', 'Condition', conditionRef)}
+        <View collapsable={false} ref={variantRef}>
+          <Pressable
+            accessibilityLabel="Variant for the selected cards"
+            accessibilityRole="button"
+            accessibilityState={{ expanded: open }}
+            onPress={openMenu}
+            style={({ pressed }) => [styles.pill, open || pressed ? styles.pillActive : null]}
+            testID={`${testID}-variant`}
+          >
+            <Text style={styles.pillLabel}>Variant</Text>
+            <IconChevronDown color={colors.gray900} size={14} strokeWidth={2.2} />
+          </Pressable>
+        </View>
         <Pressable
           accessibilityLabel="Stop selecting"
           accessibilityRole="button"
@@ -138,9 +131,9 @@ export function BinderBatchActionRow({
       <AnchoredOptionMenu
         accessibilityLabelFor={(option) => `Set the variant to ${option.label}`}
         anchor={anchor}
-        onClose={() => setOpen(null)}
+        onClose={() => setOpen(false)}
         onSelect={(option) => {
-          setOpen(null);
+          setOpen(false);
           const label = printingOptions.find((candidate) => slug(candidate) === option.key);
           if (label) {
             onSelectPrinting(label);
@@ -149,23 +142,7 @@ export function BinderBatchActionRow({
         options={variantOptions}
         selectedKey={null}
         testID={`${testID}-variant-menu`}
-        visible={open === 'variant'}
-      />
-      <AnchoredOptionMenu
-        accessibilityLabelFor={(option) => `Set the condition to ${option.label}`}
-        anchor={anchor}
-        onClose={() => setOpen(null)}
-        onSelect={(option) => {
-          setOpen(null);
-          const condition = conditionOptions.find((candidate) => candidate.code.toLowerCase() === option.key);
-          if (condition) {
-            onSelectCondition(condition.code);
-          }
-        }}
-        options={conditionMenuOptions}
-        selectedKey={null}
-        testID={`${testID}-condition-menu`}
-        visible={open === 'condition'}
+        visible={open}
       />
     </View>
   );
@@ -217,8 +194,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   root: {
-    // 16 clear of the header above and the first row of pockets below, and the
-    // controls start on the page's own 16 gutter.
+    // 16 clear of the header above and the first row of pockets below. The left
+    // gutter is the page's 16 only until `insetLeft` supplies the real column
+    // offset of the grid underneath.
     paddingHorizontal: 16,
     paddingVertical: 16,
   },

@@ -64,17 +64,6 @@ export const standardPrintingOptions = [
   '1st Edition',
 ] as const;
 
-export type SetAllConditionOption = { code: string; label: string };
-
-/** Conditions "Set all" offers — every pocket has every condition. */
-export const setAllConditionOptions: readonly SetAllConditionOption[] = [
-  { code: 'NM', label: 'NM' },
-  { code: 'LP', label: 'LP' },
-  { code: 'MP', label: 'MP' },
-  { code: 'HP', label: 'HP' },
-  { code: 'DM', label: 'DMG' },
-];
-
 function normalizePrintingLabel(label: string): string {
   return label.trim().toLowerCase().replace(/\s+/g, ' ');
 }
@@ -121,31 +110,80 @@ export function selectionForPrinting(
   if (!condition) {
     return null;
   }
-  return buildScanPriceSelection(variant, condition.code, condition.market ?? null);
+  return {
+    ...buildScanPriceSelection(variant, condition.code, condition.market ?? null),
+    variantIsNonDefault: isNonDefaultVariant(matrix, variant.variantKey),
+  };
 }
 
 /**
- * A pocket's selection after "Set all → <condition>": the pocket's current
- * printing (or the matrix's first — what the tray price already reflects) at
- * the requested condition. Null only when the card has no matrix at all.
+ * The card's OWN printing is the matrix's first variant — the one the scanned
+ * price already reflects. Anything else is a printing the user chose, and only
+ * those earn a line on the binder tile (user, 2026-09-10).
  */
-export function selectionForCondition(
+function isNonDefaultVariant(
   matrix: RawPricingMatrix | null | undefined,
-  conditionCode: string,
-  current: ScanPriceSheetSelection | null | undefined,
-): ScanPriceSheetSelection | null {
-  if (!matrix || matrix.variants.length === 0) {
-    return null;
+  variantKey: string,
+): boolean {
+  const defaultKey = matrix?.variants[0]?.variantKey;
+  return !!defaultKey && defaultKey !== variantKey;
+}
+
+/**
+ * Word-level shorthands for a printing name. The binder tile names a printing
+ * on the SAME line as the price, which leaves it roughly half a ~100pt tile —
+ * so the label is abbreviated rather than left to ellipsize into something the
+ * user can't read ("Reverse Holof…", user 2026-09-10).
+ */
+const printingWordShorthands: Record<string, string> = {
+  '1st': '1st',
+  cracked: 'Crk',
+  edition: 'Ed',
+  first: '1st',
+  foil: 'Foil',
+  holo: 'Holo',
+  holofoil: 'Holo',
+  ice: 'Ice',
+  rainbow: 'Rnbw',
+  reverse: 'Rev',
+  shadowless: 'Shdwls',
+  unlimited: 'Unltd',
+};
+
+/** How wide the abbreviation is allowed to get before words are dropped. */
+const printingAbbreviationMaxLength = 9;
+
+/**
+ * "Reverse Holofoil" → "Rev Holo", "1st Edition" → "1st Ed",
+ * "Cracked Ice Holofoil" → "Crk Ice".
+ *
+ * Words are shortened, then kept only while the result still fits — dropping a
+ * trailing word beats truncating mid-word, because the words that survive stay
+ * readable. A single word longer than the budget is cut with an explicit
+ * period so it reads as an abbreviation rather than as clipped text.
+ */
+export function printingAbbreviation(label: string): string {
+  const words = label.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) {
+    return '';
   }
-  const variant = (current ? matrix.variants.find((entry) => entry.variantKey === current.variantKey) : undefined)
-    ?? matrix.variants[0];
-  const condition = variant.conditions.find((entry) => entry.code === conditionCode)
-    ?? variant.conditions.find((entry) => entry.code === defaultPrintingConditionCode)
-    ?? variant.conditions[0];
-  if (!condition) {
-    return null;
+  const short = words.map((word) => {
+    const key = word.toLowerCase().replace(/[^a-z0-9]/g, '');
+    return printingWordShorthands[key] ?? word;
+  });
+
+  let result = short[0];
+  if (result.length > printingAbbreviationMaxLength) {
+    return `${result.slice(0, printingAbbreviationMaxLength - 1)}.`;
   }
-  return buildScanPriceSelection(variant, condition.code, condition.market ?? null);
+  for (const word of short.slice(1)) {
+    const next = `${result} ${word}`;
+    if (next.length > printingAbbreviationMaxLength) {
+      break;
+    }
+    result = next;
+  }
+  return result;
 }
 
 /**
@@ -174,9 +212,12 @@ export function fetchRawPricingMatrixCached(
   return request;
 }
 
-export type BatchPriceSelectionRequest =
-  | { kind: 'printing'; printingLabel: string }
-  | { kind: 'condition'; conditionCode: string };
+/**
+ * Printing only. Condition was a second dropdown here until 2026-09-10: it
+ * doubled the toolbar and the per-pocket confirmation it needed, for a value
+ * every scan already starts on. It lives on the card's own price sheet.
+ */
+export type BatchPriceSelectionRequest = { kind: 'printing'; printingLabel: string };
 
 export type BatchPriceSelectionResult = {
   /** Selections to merge into the tray's price-selection map. */
@@ -214,9 +255,7 @@ export async function resolveBatchPriceSelections(
   let skipped = 0;
   targets.forEach(({ capture }, index) => {
     const current = currentSelections.get(capture.id) ?? null;
-    const selection = request.kind === 'printing'
-      ? selectionForPrinting(matrices[index], request.printingLabel, current)
-      : selectionForCondition(matrices[index], request.conditionCode, current);
+    const selection = selectionForPrinting(matrices[index], request.printingLabel, current);
     if (selection) {
       entries.push({ captureId: capture.id, selection });
     } else {
@@ -237,8 +276,6 @@ export function describeBatchPriceResult(
   if (result.skipped === 0) {
     return head;
   }
-  const reason = request.kind === 'printing'
-    ? `${result.skipped} ${result.skipped === 1 ? 'has' : 'have'} no ${request.printingLabel} variant`
-    : `${result.skipped} ${result.skipped === 1 ? 'has' : 'have'} no detailed pricing`;
-  return `${head} · ${reason}`;
+  const has = result.skipped === 1 ? 'has' : 'have';
+  return `${head} · ${result.skipped} ${has} no ${request.printingLabel} variant`;
 }

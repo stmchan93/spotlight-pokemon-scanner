@@ -56,6 +56,13 @@ export type ScanPriceSheetMode = 'raw' | 'slabs';
 export type ScanPriceSheetSelection = {
   variantKey: string;
   variantLabel: string;
+  /**
+   * True when this printing is NOT the card's own default one. Surfaces that
+   * only name a printing the user actually moved off the default (the binder
+   * tile) read this; absent on older persisted rows, which is why it is
+   * optional and read as "not known to differ".
+   */
+  variantIsNonDefault?: boolean;
   conditionCode: DeckConditionCode;
   conditionShortLabel: string;
   marketPrice: number | null;
