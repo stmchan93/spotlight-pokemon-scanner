@@ -92,12 +92,10 @@ function chunkResultRows(entries: CatalogSearchResult[]): CatalogSearchResult[][
 /**
  * Whether these results need a per-tile game tag.
  *
- * Search is scoped to one game — the lane's — so in practice this is false and
- * no tag renders. It is kept because the scoping lives in the REQUEST, not in
- * the row shape: a caller that omits the game (or a future cross-game search)
- * gets mixed results, and then a tile saying only "Ace" cannot say which game
- * it came from. Tagging every tile of a single-game set would just repeat one
- * word down the page, so the tag appears only when the results SPAN games.
+ * A TYPED QUERY SEARCHES EVERY GAME, so mixed results are the normal case and
+ * a tile saying only "Ace" has to say which game it came from. Tagging every
+ * tile when they all happen to share one game would just repeat one word down
+ * the page, so the tag appears only when the results SPAN games.
  */
 export function resultsSpanMultipleGames(results: CatalogSearchResult[]): boolean {
   const games = new Set<CardGame>();
@@ -290,7 +288,15 @@ export function CatalogSearchScreen({
         trimmed,
         CATALOG_PAGE_SIZE,
         0,
-        { game, ...(activeRarity ? { rarityBucket: activeRarity } : {}) },
+        /*
+          EVERY GAME. Typed queries were scoped to the SCANNER's lane, so
+          searching "Darkrai" with the lane on One Piece returned "No matching
+          cards" — with nothing on screen saying a filter was applied. A typed
+          name is the user naming the card; the lane is about what the camera is
+          pointed at. `game` still scopes the BROWSE grid below, where picking a
+          set by game is the whole point.
+        */
+        { game: 'all', ...(activeRarity ? { rarityBucket: activeRarity } : {}) },
       )
         .then((page) => {
           if (isCancelled) {
@@ -338,9 +344,7 @@ export function CatalogSearchScreen({
       isCancelled = true;
       clearTimeout(timeout);
     };
-    // `game` is a dependency: switching lanes has to re-run the search, not
-    // leave the previous game's results on screen.
-  }, [activeRarity, game, query, searchRevision, spotlightRepository]);
+  }, [activeRarity, query, searchRevision, spotlightRepository]);
 
   const trimmedQuery = query.trim();
   const hasActiveQuery = trimmedQuery.length >= 2 || activeRarity != null;
@@ -387,7 +391,8 @@ export function CatalogSearchScreen({
       trimmed,
       CATALOG_PAGE_SIZE,
       offset,
-      { game, ...(activeRarity ? { rarityBucket: activeRarity } : {}) },
+      // Every game, as the first page — see the note there.
+      { game: 'all', ...(activeRarity ? { rarityBucket: activeRarity } : {}) },
     )
       .then((page) => {
         // Drop the page if the query/chip changed while it was in flight.
@@ -409,7 +414,7 @@ export function CatalogSearchScreen({
         setHasMore(false);
         setIsLoadingMore(false);
       });
-  }, [query, activeRarity, game, isLoading, isLoadingMore, hasMore, results.length, spotlightRepository]);
+  }, [query, activeRarity, isLoading, isLoadingMore, hasMore, results.length, spotlightRepository]);
 
   // Recomputed per results change (cheap: it short-circuits on the second
   // distinct game), so a "load more" page that brings in a second game turns

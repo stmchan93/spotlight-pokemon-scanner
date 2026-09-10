@@ -121,6 +121,7 @@ from catalog_tools import (
     game_has_graded_pricing,
     game_has_listings,
     normalize_game,
+    SUPPORTED_GAMES,
     search_cards,
     search_cards_local,
     search_cards_local_collector_only,
@@ -4066,6 +4067,62 @@ class SpotlightScanService:
         }
         return mapping.get(normalized, normalized or "Unknown")
 
+    def _portfolio_live_price_for_snapshot(
+        self,
+        snapshot: dict[str, Any],
+        condition: object,
+    ) -> float | None:
+        """Today's price for a holding the newest history day has no cell for.
+
+        The chart prices each day from that day's stored `card_price_history_cell`
+        rows, and a holding with no cell that day is DROPPED from the day's
+        total. On the NEWEST day that is wrong twice over: that point is the
+        headline "what is this worth right now", and the live snapshot already
+        knows the answer — it is the number the Collection list and the
+        collection picker show. A whole lane can be missing from history
+        (staging writes no graded cells at all, to spare Scrydex credits) and
+        the headline would silently read a fraction of the real value: one PSA
+        10 holding worth $409k landed in the balance as its $897 raw price.
+
+        Only the newest day gets this. A price we have today is not evidence of
+        what the card was worth a month ago, so older days keep history-only
+        pricing and their drops stay counted in `excludedCardCount`.
+
+        Mirrors the pricing the Collection read does per row
+        (`_compute_deck_entries_for_owner`) so the two totals agree by
+        construction rather than by coincidence.
+        """
+        card_id = str(snapshot.get("cardID") or "").strip()
+        if not card_id:
+            return None
+        grader = snapshot.get("grader")
+        grade = snapshot.get("grade")
+        variant_name = snapshot.get("variantName")
+        pricing_context = (
+            self._slab_pricing_context(
+                grader=grader,
+                grade=grade,
+                cert_number=snapshot.get("certNumber"),
+                preferred_variant=variant_name,
+            )
+            if grader or grade
+            else self._raw_pricing_context(
+                preferred_variant=variant_name,
+                preferred_condition=self._normalized_deck_card_condition(condition),
+            )
+        )
+        pricing = self._display_pricing_summary_for_context(
+            card_id,
+            pricing_context=pricing_context,
+        )
+        if not pricing:
+            return None
+        for key in ("market", "mid", "low", "trend"):
+            value = pricing.get(key)
+            if isinstance(value, (int, float)):
+                return float(value)
+        return None
+
     @staticmethod
     def _portfolio_condition_code(condition: str | None) -> str | None:
         normalized = str(condition or "").strip().lower()
@@ -6286,6 +6343,8 @@ class SpotlightScanService:
                 )
 
         for day_index, current_day in enumerate(day_dates):
+            # Only the last plotted day may fall back to live pricing.
+            is_newest_day = day_index == len(day_dates) - 1
             day_start_utc = self._portfolio_day_start(current_day, time_zone).astimezone(timezone.utc)
             next_day_start_utc = self._portfolio_day_start(current_day + timedelta(days=1), time_zone).astimezone(timezone.utc)
             # Per-day rollup of the owner's ADDS (the chart's buy markers).
@@ -6382,10 +6441,14 @@ class SpotlightScanService:
                         )
                         price_series_by_context[context_key] = series
                     row = series[day_index]
-                if row is None:
-                    unpriced_count += 1
-                    continue
-                primary_price = self._history_primary_price_value(row)
+                primary_price = self._history_primary_price_value(row) if row is not None else None
+                if primary_price is None and is_newest_day:
+                    # No cell for this holding TODAY — price it live rather than
+                    # dropping it out of the headline value. See the helper.
+                    primary_price = self._portfolio_live_price_for_snapshot(
+                        snapshot,
+                        state.get("condition"),
+                    )
                 if primary_price is None:
                     unpriced_count += 1
                     continue
@@ -10658,11 +10721,68 @@ class SpotlightScanService:
             "items": items,
         }
 
+    def _search_every_game(
+        self,
+        query: str,
+        *,
+        limit: int,
+        offset: int,
+        rarity_bucket_filter: str | None,
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """Cross-game search: ask each game separately, then round-robin them.
+
+        ONE SEARCH PER GAME rather than one unscoped query. `search_cards` is
+        game-scoped all the way down — its retrieval tiers key set-id and alias
+        bounds off the game's id namespace — so "no game" is not a value that
+        function can take without unpicking the part of it that makes a
+        keystroke cheap. Running it per game leaves every one of those paths
+        exactly as it is, and as fast as it is.
+
+        ROUND-ROBIN, not concatenation. Taking Pokémon's whole page first would
+        bury the card someone actually searched for under every weak Pokémon
+        match of the same name — "luffy" finds two Pokémon before any Luffy.
+        Interleaving puts each game's best match on the first screen and lets
+        the per-tile game tag do the rest.
+
+        Paging recomputes from zero every time: the merge order depends on how
+        many results each game returned, so a per-game `offset` would slide rows
+        between pages.
+        """
+        depth = offset + limit + 1
+        per_game: list[list[dict[str, Any]]] = []
+        for candidate_game in SUPPORTED_GAMES:
+            found = search_cards(
+                self.connection,
+                query,
+                limit=depth,
+                game=candidate_game,
+                offset=0,
+                pool_ceiling=_MANUAL_SEARCH_POOL_CEILING,
+                rarity_bucket_filter=rarity_bucket_filter,
+            )
+            if found:
+                per_game.append(list(found))
+        merged: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for rank in range(depth):
+            if len(merged) > offset + limit:
+                break
+            for game_results in per_game:
+                if rank >= len(game_results):
+                    continue
+                card = game_results[rank]
+                card_id = str(card.get("id") or "")
+                if card_id and card_id in seen:
+                    continue
+                seen.add(card_id)
+                merged.append(card)
+        return merged[offset : offset + limit], len(merged) > offset + limit
+
     def search(
         self,
         query: str,
         *,
-        game: str,
+        game: str | None,
         limit: int = 20,
         offset: int = 0,
         rarity_bucket_filter: str | None = None,
@@ -10670,22 +10790,32 @@ class SpotlightScanService:
         # No default: the HTTP handler owns "absent means Pokémon". A default
         # here would put that decision in two places, and the service layer is
         # the wrong one — it cannot see whether the client sent a lane or not.
+        # `None` is that handler's OTHER decision (`?game=all`): every game.
         offset = max(0, int(offset or 0))
-        # Fetch one extra past the page to detect whether more results exist
-        # (hasMore) without a second query. pool_ceiling switches search_cards
-        # into paginated mode: a stable, complete candidate pool so offset pages
-        # don't overlap or skip as the client scrolls.
-        raw = search_cards(
-            self.connection,
-            query,
-            limit=limit + 1,
-            game=game,
-            offset=offset,
-            pool_ceiling=_MANUAL_SEARCH_POOL_CEILING,
-            rarity_bucket_filter=rarity_bucket_filter,
-        )
-        has_more = len(raw) > limit
-        results = raw[:limit]
+        if game is None:
+            results, has_more = self._search_every_game(
+                query,
+                limit=limit,
+                offset=offset,
+                rarity_bucket_filter=rarity_bucket_filter,
+            )
+            raw: Any = results
+        else:
+            # Fetch one extra past the page to detect whether more results exist
+            # (hasMore) without a second query. pool_ceiling switches search_cards
+            # into paginated mode: a stable, complete candidate pool so offset pages
+            # don't overlap or skip as the client scrolls.
+            raw = search_cards(
+                self.connection,
+                query,
+                limit=limit + 1,
+                game=game,
+                offset=offset,
+                pool_ceiling=_MANUAL_SEARCH_POOL_CEILING,
+                rarity_bucket_filter=rarity_bucket_filter,
+            )
+            has_more = len(raw) > limit
+            results = raw[:limit]
         # Attach holo-finish options (Normal / Reverse / Poké Ball / Master Ball …)
         # so the review tool can offer a finish picker on a searched card. Additive
         # field — existing consumers ignore it.
@@ -21422,7 +21552,14 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             # Every pre-multi-game client sends no `game`, and normalize_game
             # maps that (and any junk) to pokemon — so their results are exactly
             # what they were. Everything below this line is told, never guesses.
-            game = normalize_game(query_params.get("game", [""])[0])
+            #
+            # `all` is the one way to ask for EVERY game, and it has to be
+            # spelled: an absent param still means Pokémon, so no old client can
+            # fall into a cross-game search by saying nothing. The catalog
+            # search sends it for TYPED queries — someone typing a card's name
+            # is naming the card, not the lane their camera is pointed at.
+            raw_game = query_params.get("game", [""])[0].strip().lower()
+            game = None if raw_game == "all" else normalize_game(raw_game)
             self._write_json(
                 HTTPStatus.OK,
                 self.service.search(

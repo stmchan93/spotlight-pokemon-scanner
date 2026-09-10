@@ -273,29 +273,37 @@ describe('CatalogSearchScreen', () => {
     fireEvent.press(screen.getByTestId('catalog-rarity-chip-sir'));
     await advanceDebounce();
 
-    // The screen always names its game — search is scoped to ONE game, and the
-    // screen is the outermost caller that knows which lane it is in. It defaults
-    // to Pokémon, which is also what the backend infers from an absent `game`.
-    expect(searchSpy).toHaveBeenCalledWith('', expect.any(Number), 0, { game: 'pokemon', rarityBucket: 'sir' });
+    // A typed/chip search asks for EVERY game — see the next test.
+    expect(searchSpy).toHaveBeenCalledWith('', expect.any(Number), 0, { game: 'all', rarityBucket: 'sir' });
     expect(await screen.findByTestId('catalog-result-sm7-1')).toBeTruthy();
 
     // Text + chip combine into one search request.
     fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'tree');
     await advanceDebounce();
-    expect(searchSpy).toHaveBeenCalledWith('tree', expect.any(Number), 0, { game: 'pokemon', rarityBucket: 'sir' });
+    expect(searchSpy).toHaveBeenCalledWith('tree', expect.any(Number), 0, { game: 'all', rarityBucket: 'sir' });
 
     // Tapping the active chip again clears it; with text present the next
-    // search goes out with the game alone and no rarity option.
+    // search goes out cross-game with no rarity option.
     fireEvent.press(screen.getByTestId('catalog-rarity-chip-sir'));
     await advanceDebounce();
-    expect(searchSpy).toHaveBeenCalledWith('tree', expect.any(Number), 0, { game: 'pokemon' });
+    expect(searchSpy).toHaveBeenCalledWith('tree', expect.any(Number), 0, { game: 'all' });
   });
 
-  it('searches the lane it was opened in, not always Pokémon', async () => {
-    // The bug this pins: the screen had `game` (it used it for set browsing) but
-    // the SEARCH call dropped it, so the backend applied its "absent means
-    // Pokémon" boundary rule and a One Piece lane searched the Pokémon catalog.
-    // Every One Piece search came back empty.
+  it('searches every game, whatever lane it was opened in', async () => {
+    /*
+      Both bugs this pins, in order.
+
+      First the SEARCH call dropped `game` entirely, so the backend applied its
+      "absent means Pokémon" rule and a One Piece lane searched the Pokémon
+      catalog — every One Piece search came back empty. That was fixed by
+      passing the lane's game.
+
+      Then the fix became the bug: searching "Darkrai" with the lane sat on One
+      Piece returned "No matching cards", with nothing on screen saying a filter
+      was applied at all. A typed name is the user naming the CARD; the lane is
+      about what the camera is pointed at. So a typed query asks for `all` and
+      the backend interleaves the games.
+    */
     const searchSpy = jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage')
       .mockResolvedValue({ cards: [], hasMore: false });
 
@@ -303,10 +311,10 @@ describe('CatalogSearchScreen', () => {
       <CatalogSearchScreen game="onepiece" onClose={jest.fn()} onOpenCard={jest.fn()} />,
     );
 
-    fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'luffy');
+    fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'darkrai');
     await advanceDebounce();
 
-    expect(searchSpy).toHaveBeenCalledWith('luffy', expect.any(Number), 0, { game: 'onepiece' });
+    expect(searchSpy).toHaveBeenCalledWith('darkrai', expect.any(Number), 0, { game: 'all' });
   });
 
   it('never shows a per-row rarity tag, whatever the payload carries', async () => {

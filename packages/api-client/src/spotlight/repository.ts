@@ -168,11 +168,16 @@ export type CatalogSearchOptions = {
    * the backend's boundary already infers from an absent `game` — so a caller
    * that predates multi-game keeps its exact results.
    *
-   * Search is scoped, not cross-game: the backend takes one game per query.
-   * Without this a One Piece lane searched the POKÉMON catalog and came back
-   * empty for every One Piece card.
+   * `'all'` searches EVERY game and interleaves them, and is what a TYPED query
+   * should send: a person typing a card's name is naming the card, not the lane
+   * their camera is in. Scoping typed queries to the scanner's lane is what
+   * made "Darkrai" return nothing while the lane sat on One Piece, with nothing
+   * on screen saying a filter was applied at all.
+   *
+   * Naming one game still scopes the query — the browse grid wants that, since
+   * picking a set by game is the whole point there.
    */
-  game?: CardGame;
+  game?: CardGame | 'all';
 };
 
 export interface SpotlightRepository {
@@ -3523,8 +3528,9 @@ export class MockSpotlightRepository implements SpotlightRepository {
         return false;
       }
       // Same scoping the HTTP repository gets from the backend. A fixture with
-      // no game is Pokémon, matching how the backend reads an absent column.
-      if (game && (result.game ?? DEFAULT_CARD_GAME) !== game) {
+      // no game is Pokémon, matching how the backend reads an absent column;
+      // `'all'` skips the filter, as the backend's `?game=all` does.
+      if (game && game !== 'all' && (result.game ?? DEFAULT_CARD_GAME) !== game) {
         return false;
       }
       if (normalized.length === 0) {

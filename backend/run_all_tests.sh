@@ -27,6 +27,7 @@ TEST_MODULES=(
   backend.tests.test_fx_rates
   backend.tests.test_ebay_comps
   backend.tests.test_portfolio_imports
+  backend.tests.test_portfolio_history_live_newest_day
   backend.tests.test_sync_scrydex_catalog
   backend.tests.test_raw_visual_index
   backend.tests.test_raw_visual_model
@@ -66,6 +67,7 @@ TEST_MODULES=(
   backend.tests.test_multi_game_visual_index
   backend.tests.test_synthetic_capture
   backend.tests.test_game_registry
+  backend.tests.test_cross_game_search
   backend.tests.test_multi_game_catalog_scoping
   backend.tests.test_catalog_id_namespacing
   backend.tests.test_multi_game_pricing_paths
