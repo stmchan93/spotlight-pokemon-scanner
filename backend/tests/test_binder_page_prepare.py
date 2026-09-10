@@ -70,17 +70,41 @@ def _cell_color(row: int, column: int) -> tuple[int, int, int]:
     return (row * 80 + 10, column * 80 + 10, 40)
 
 
-def _color_page_jpeg(columns: int = 3, rows: int = 3, *, sideways: bool = False) -> bytes:
-    """A page whose cells are distinct solid colors, so a sampled pixel
-    identifies which cell a pocket crop came from. `sideways` lays each cell
-    out landscape (the card on its side) and paints a dark band along the
-    cell's LEFT edge — where the card's top is when the binder is turned with
-    card tops to the left — so a test can check the crop was stood upright."""
+def _texture_cell(cell: Image.Image) -> None:
+    """Paint fine stripes around the cell's border band so it carries card-like
+    edge energy (the empty-pocket gate keys on edges); the centre stays the
+    solid identity colour the pocket-order tests sample."""
+    width, height = cell.size
+    band_x, band_y = width // 6, height // 6
+    px = cell.load()
+    for y in range(height):
+        for x in range(width):
+            in_band = x < band_x or x >= width - band_x or y < band_y or y >= height - band_y
+            if in_band and ((x // 6) + (y // 6)) % 2 == 0:
+                px[x, y] = (255, 255, 255)
+
+
+def _color_page_jpeg(
+    columns: int = 3,
+    rows: int = 3,
+    *,
+    sideways: bool = False,
+    empty_cells: frozenset[int] = frozenset(),
+) -> bytes:
+    """A page whose cells are distinct solid colors (with a striped border band
+    so they read as "a card" to the empty-pocket gate), so a sampled centre
+    pixel identifies which cell a pocket crop came from. `sideways` lays each
+    cell out landscape (the card on its side) and paints a dark band along
+    the cell's LEFT edge — where the card's top is when the binder is turned
+    with card tops to the left — so a test can check the crop was stood
+    upright. `empty_cells` (row-major indexes) are left FLAT: an empty pocket."""
     cell_w, cell_h = (880, 630) if sideways else (630, 880)
     page = Image.new("RGB", (cell_w * columns, cell_h * rows))
     for row in range(rows):
         for column in range(columns):
             cell = Image.new("RGB", (cell_w, cell_h), color=_cell_color(row, column))
+            if row * columns + column not in empty_cells:
+                _texture_cell(cell)
             if sideways:
                 cell.paste(Image.new("RGB", (cell_w // 8, cell_h), color=(0, 0, 0)), (0, 0))
             page.paste(cell, (column * cell_w, row * cell_h))
@@ -211,6 +235,33 @@ class BinderPagePrepareServiceTests(BinderPageStoreTestCase):
             body = decoded.getpixel((315, 600))
             for channel, expected in zip(body, _cell_color(1, 2), strict=True):
                 self.assertLess(abs(channel - expected), 30)
+
+    def test_prepare_flags_flat_pockets_as_empty(self) -> None:
+        # Pockets 4 and 8 are flat colour (an empty sleeve / page background);
+        # the rest carry card-like edges. Only the flat ones are reported.
+        response = self.service.prepare_binder_page(
+            {"pageImage": {"jpegBase64": base64.b64encode(
+                _color_page_jpeg(empty_cells=frozenset({4, 8}))).decode("ascii")}}
+        )
+        self.assertEqual(response["emptyPocketIndexes"], [4, 8])
+        self.assertEqual(response["pocketCount"], 9)
+        # The store still holds all nine so a stale client asking for an
+        # empty pocket gets an image, not an error.
+        self.assertEqual(len(server_module._binder_page_store[response["pageToken"]]["pockets"]), 9)
+
+    def test_edge_energy_separates_flat_from_textured(self) -> None:
+        flat = Image.new("RGB", (630, 880), color=(200, 200, 200))
+        textured = Image.new("RGB", (630, 880), color=(200, 200, 200))
+        _texture_cell(textured)
+        buffers = []
+        for image in (flat, textured):
+            buffer = io.BytesIO()
+            image.save(buffer, format="JPEG", quality=85)
+            buffers.append(buffer.getvalue())
+        flat_energy = server_module._pocket_edge_energy(buffers[0])
+        textured_energy = server_module._pocket_edge_energy(buffers[1])
+        self.assertLess(flat_energy, server_module.BINDER_EMPTY_POCKET_EDGE_ENERGY_MAX)
+        self.assertGreater(textured_energy, server_module.BINDER_EMPTY_POCKET_EDGE_ENERGY_MAX)
 
     def test_prepare_rejects_bad_layouts(self) -> None:
         page = {"jpegBase64": base64.b64encode(_color_page_jpeg()).decode("ascii")}

@@ -27,6 +27,8 @@ import type { RecentCapture } from './scanner-screen-types';
 export type BinderPageReviewProps = {
   /** Rows of this page in pocket order (may be shorter than nine after adds/swipes). */
   pockets: readonly RecentCapture[];
+  /** Pockets the backend judged to hold no card; drawn as "Empty" tiles. */
+  emptyPocketIndexes?: readonly number[];
   /** Formatted market price for the row's active candidate, or null when unpriced. */
   priceLabelFor: (capture: RecentCapture) => string | null;
   isAddingAll: boolean;
@@ -56,6 +58,7 @@ const captionHeight = 50;
  * above it.
  */
 export function BinderPageReview({
+  emptyPocketIndexes = [],
   isAddingAll,
   onAddAll,
   onClose,
@@ -92,6 +95,7 @@ export function BinderPageReview({
   };
 
   const byPocket = new Map(pockets.map((capture) => [capture.binderPage?.pocketIndex ?? -1, capture]));
+  const emptyPockets = new Set(emptyPocketIndexes);
   const pocketCount = binderPagePocketCount(layout);
   const pending = pockets.filter((capture) => capture.isLoadingCandidates).length;
   const addable = pockets.filter((capture) => !capture.isLoadingCandidates && !!activeCandidateForCapture(capture));
@@ -134,6 +138,7 @@ export function BinderPageReview({
               {Array.from({ length: pocketCount }, (_, pocketIndex) => (
                 <PocketTile
                   capture={byPocket.get(pocketIndex) ?? null}
+                  isEmpty={emptyPockets.has(pocketIndex)}
                   key={`pocket-${pocketIndex}`}
                   onPress={onPressPocket}
                   pocketIndex={pocketIndex}
@@ -162,6 +167,7 @@ export function BinderPageReview({
 
 function PocketTile({
   capture,
+  isEmpty = false,
   onPress,
   pocketIndex,
   priceLabelFor,
@@ -169,6 +175,8 @@ function PocketTile({
   width,
 }: {
   capture: RecentCapture | null;
+  /** The backend found no card in this pocket: no spinner, an "Empty" caption. */
+  isEmpty?: boolean;
   onPress: (captureId: string) => void;
   pocketIndex: number;
   priceLabelFor: (capture: RecentCapture) => string | null;
@@ -222,7 +230,7 @@ function PocketTile({
             uri={artUri}
           />
         ) : null}
-        {isLoading || !capture ? (
+        {(isLoading || !capture) && !isEmpty ? (
           <View style={styles.artScrim}>
             <ActivityIndicator color={colors.scannerTextPrimary} size="small" />
           </View>
@@ -242,6 +250,8 @@ function PocketTile({
           </>
         ) : capture ? (
           <Text numberOfLines={2} style={styles.captionMeta}>No match · tap to search</Text>
+        ) : isEmpty ? (
+          <Text numberOfLines={1} style={styles.captionMeta}>Empty</Text>
         ) : (
           <Text numberOfLines={1} style={styles.captionMeta}>Identifying…</Text>
         )}

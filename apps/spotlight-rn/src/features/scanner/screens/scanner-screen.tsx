@@ -780,6 +780,9 @@ export function ScannerScreen({
     setIsBinderPageMode(true);
   }, []);
   const [activeBinderPageId, setActiveBinderPageId] = useState<string | null>(null);
+  // Pockets the backend judged empty, per page — the review overlay labels
+  // them "Empty" instead of leaving a hole where a row was never created.
+  const binderPageEmptyPocketsRef = useRef<Map<string, readonly number[]>>(new Map());
   const [isAddingBinderPage, setIsAddingBinderPage] = useState(false);
   // SYNCHRONOUS capture lock. `isCapturing` is React state, so two burst taps
   // fired within the same tick BOTH read the stale `false` before the setState
@@ -2244,6 +2247,7 @@ export function ScannerScreen({
     const emitPageScanCompleted = (
       lane: 'streamed' | 'batch' | 'pocket_fallback',
       batchMs: number,
+      emptyCount = 0,
     ) => {
       // Stage telemetry from ANY build (TestFlight included): where a page
       // scan's wall-clock actually goes, queryable in PostHog.
@@ -2258,6 +2262,7 @@ export function ScannerScreen({
         }
         capturePostHogEvent('binder_page_scan_completed', {
           batch_ms: batchMs,
+          empty_count: emptyCount,
           capture_ms: captureMs,
           lane,
           mode: 'raw',
@@ -2425,7 +2430,16 @@ export function ScannerScreen({
       return;
     }
 
-    const { pageToken } = prepareOutcome.prepared;
+    const { pageToken, emptyPocketIndexes } = prepareOutcome.prepared;
+    // Empty pockets (no card — flat crop, judged server-side at prepare):
+    // drop their placeholder rows and never spend a match on them. A page
+    // with 6 cards produces 6 rows, not 9 with three "no match" rows.
+    const emptyPockets = new Set(emptyPocketIndexes.filter((index) => index < pocketCount));
+    if (emptyPockets.size > 0) {
+      binderPageEmptyPocketsRef.current.set(captureId, [...emptyPockets].sort((a, b) => a - b));
+      const emptyRowIds = new Set([...emptyPockets].map((index) => pocketRowId(index)));
+      setRecentCaptures((current) => current.filter((capture) => !emptyRowIds.has(capture.id)));
+    }
     // A 400 naming BinderPageTokenUnknown means the stored page is gone
     // (expired token / restarted server). The raw HTTP error body rides
     // verbatim in error.message, so key on the errorType string.
@@ -2443,6 +2457,9 @@ export function ScannerScreen({
     await enqueueBinderBatch(async () => {
       streamStartedAt = Date.now();
       for (let index = 0; index < pocketCount; index += 1) {
+        if (emptyPockets.has(index)) {
+          continue;
+        }
         const matchError = await runMatchForCapture({
           captureId: pocketRowId(index),
           captureMs,
@@ -2474,7 +2491,7 @@ export function ScannerScreen({
       return;
     }
     logScannerDiagnostic(`[SCANNER PAGE] streamMs=${Date.now() - streamStartedAt} totalMs=${Date.now() - scanStartedAt}`);
-    emitPageScanCompleted('streamed', Date.now() - streamStartedAt);
+    emitPageScanCompleted('streamed', Date.now() - streamStartedAt, emptyPockets.size);
   }, [
     applyMatchFailureForCapture,
     applyMatchSuccessForCapture,
@@ -4597,6 +4614,7 @@ export function ScannerScreen({
         }
         return (
           <BinderPageReview
+            emptyPocketIndexes={binderPageEmptyPocketsRef.current.get(activeBinderPageId) ?? []}
             isAddingAll={isAddingBinderPage}
             onAddAll={gate(() => handleAddBinderPage(activeBinderPageId))}
             onClose={closeBinderPageReview}

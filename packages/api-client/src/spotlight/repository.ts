@@ -702,6 +702,7 @@ type ScanMatchBatchResponseDTO = {
 type BinderPagePrepareResponseDTO = {
   pageToken?: string | null;
   pocketCount?: number | null;
+  emptyPocketIndexes?: unknown;
   expiresInSeconds?: number | null;
 };
 
@@ -3559,7 +3560,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
   ): Promise<BinderPagePrepareResult> {
     const layout = pageImage.layout;
     const pocketCount = layout ? layout.columns * layout.rows : 9;
-    return { pageToken: createPseudoUUID(), pocketCount, expiresInSeconds: 600 };
+    return { pageToken: createPseudoUUID(), pocketCount, expiresInSeconds: 600, emptyPocketIndexes: [] };
   }
 
   async fetchScanCandidates(_scanId: string, offset: number, limit: number) {
@@ -5872,10 +5873,16 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         'invalid_response',
       );
     }
+    const emptyPocketIndexes = Array.isArray(response.data?.emptyPocketIndexes)
+      ? response.data.emptyPocketIndexes
+        .map((value) => normalizeNumber(value))
+        .filter((value): value is number => value != null && Number.isInteger(value) && value >= 0)
+      : [];
     return {
       pageToken,
       pocketCount: normalizeNumber(response.data?.pocketCount) ?? 9,
       expiresInSeconds: normalizeNumber(response.data?.expiresInSeconds) ?? 600,
+      emptyPocketIndexes,
     } satisfies BinderPagePrepareResult;
   }
 

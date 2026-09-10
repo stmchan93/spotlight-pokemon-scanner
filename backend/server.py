@@ -694,6 +694,52 @@ def _binder_layout_from_payload(payload: dict[str, Any]) -> tuple[int, int, int]
     return columns, rows, rotation
 
 
+# Empty-pocket gate for binder pages. Mean |Laplacian| of the pocket crop
+# downscaled to 96×134 grayscale. Calibrated 2026-09-09 on 184 real card crops
+# (min 5.6, median 19.7) vs synthetic empties — flat white/black, gray noise,
+# sleeve glare gradients, white page with a shadow (all ≤ 2.5). Contrast alone
+# does NOT separate them (a glare gradient has high std-dev), edge energy does.
+# Conservative on purpose: skipping a real card is the failure to avoid, so
+# only clearly flat pockets are called empty; borderline ones go to the matcher.
+BINDER_EMPTY_POCKET_EDGE_ENERGY_MAX = 3.0
+
+
+def _pocket_edge_energy(pocket_jpeg: bytes) -> float | None:
+    """Mean absolute Laplacian of the crop's downscaled grayscale (see the
+    constant above). None when it cannot be computed, which never marks a
+    pocket empty."""
+    import io  # local import: this lane only
+
+    try:
+        import numpy as np  # noqa: PLC0415
+        from PIL import Image  # noqa: PLC0415
+
+        with Image.open(io.BytesIO(pocket_jpeg)) as decoded:
+            gray = decoded.convert("L").resize((96, 134), Image.BILINEAR)
+            pixels = np.asarray(gray, dtype=np.float32)
+        laplacian = (
+            4 * pixels[1:-1, 1:-1]
+            - pixels[:-2, 1:-1]
+            - pixels[2:, 1:-1]
+            - pixels[1:-1, :-2]
+            - pixels[1:-1, 2:]
+        )
+        return float(np.abs(laplacian).mean())
+    except Exception:  # noqa: BLE001 - diagnostics only; never fail a page on this
+        return None
+
+
+def _binder_empty_pocket_indexes(pockets: list[bytes]) -> tuple[list[int], list[float | None]]:
+    """(indexes of pockets that hold no card, per-pocket edge energies)."""
+    energies = [_pocket_edge_energy(pocket) for pocket in pockets]
+    empty = [
+        index
+        for index, energy in enumerate(energies)
+        if energy is not None and energy < BINDER_EMPTY_POCKET_EDGE_ENERGY_MAX
+    ]
+    return empty, energies
+
+
 def _binder_pocket_jpegs_from_page(
     page_jpeg: bytes,
     *,
@@ -12661,6 +12707,15 @@ class SpotlightScanService:
             )
         except Exception as exc:  # noqa: BLE001 - a bad page image fails the request cleanly
             raise ValueError(f"pageImage could not be decoded: {exc}") from exc
+        empty_pocket_indexes, pocket_edge_energies = _binder_empty_pocket_indexes(pockets)
+        self._emit_structured_log({
+            "event": "binder_page_prepare",
+            "pocketCount": len(pockets),
+            "emptyPocketIndexes": empty_pocket_indexes,
+            # Per-pocket energies ride along so the threshold can be re-tuned
+            # from real pages without a redeploy-and-guess loop.
+            "pocketEdgeEnergy": [None if e is None else round(e, 2) for e in pocket_edge_energies],
+        })
         token = uuid.uuid4().hex
         now = monotonic()
         with _binder_page_store_lock:
@@ -12687,6 +12742,10 @@ class SpotlightScanService:
         return {
             "pageToken": token,
             "pocketCount": len(pockets),
+            # Pockets with no card in them (flat crop — see
+            # BINDER_EMPTY_POCKET_EDGE_ENERGY_MAX). The client skips these:
+            # no tray row, no inference slot.
+            "emptyPocketIndexes": empty_pocket_indexes,
             "expiresInSeconds": BINDER_PAGE_STORE_TTL_SECONDS,
         }
 

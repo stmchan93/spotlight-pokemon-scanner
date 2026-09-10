@@ -229,6 +229,12 @@ export type BinderPagePrepareResult = {
   pageToken: string;
   pocketCount: number;
   expiresInSeconds: number;
+  /**
+   * Pockets the backend judged to hold no card (a flat crop: empty sleeve,
+   * page background). The client skips them — no tray row, no match call.
+   * Empty on older backends.
+   */
+  emptyPocketIndexes: number[];
 };
 
 export type BinderPagePrepareOptions = {
