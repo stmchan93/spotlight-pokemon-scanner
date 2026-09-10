@@ -10,6 +10,12 @@ type AddAllMenuAnchor = { x: number; y: number; width: number; height: number };
 
 type AddAllMenuProps = {
   visible: boolean;
+  /**
+   * Which rows to show, in order. Defaults to all three. The tray HEADER
+   * passes only the adds — its trigger clears on tap, so a Delete row there
+   * would repeat the button it hangs off.
+   */
+  actions?: readonly AddAllMenuAction[];
   /** Measured screen coords of the trigger (measureInWindow); null until measured. */
   anchor: AddAllMenuAnchor | null;
   onSelect: (action: AddAllMenuAction) => void;
@@ -40,6 +46,7 @@ const FALLBACK_LEFT = 16;
 export function AddAllMenu({
   visible,
   anchor,
+  actions = ['collection', 'wishlist', 'remove'],
   onSelect,
   onClose,
   testID = 'add-all-menu',
@@ -97,6 +104,7 @@ export function AddAllMenu({
           ]}
         />
 
+        {actions.includes('collection') ? (
         <Pressable
           accessibilityLabel="Add to collection"
           accessibilityRole="button"
@@ -112,7 +120,9 @@ export function AddAllMenu({
             Collection
           </Text>
         </Pressable>
+        ) : null}
 
+        {actions.includes('wishlist') ? (
         <Pressable
           accessibilityLabel="Add to wishlist"
           accessibilityRole="button"
@@ -128,7 +138,9 @@ export function AddAllMenu({
             Wishlist
           </Text>
         </Pressable>
+        ) : null}
 
+        {actions.includes('remove') ? (
         <Pressable
           accessibilityLabel="Delete"
           accessibilityRole="button"
@@ -144,6 +156,7 @@ export function AddAllMenu({
             Delete
           </Text>
         </Pressable>
+        ) : null}
       </View>
     </Modal>
   );

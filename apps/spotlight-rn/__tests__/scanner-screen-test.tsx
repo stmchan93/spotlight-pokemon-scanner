@@ -184,6 +184,8 @@ describe('ScannerScreen', () => {
 
     expect(screen.getByTestId('scanner-camera')).toBeTruthy();
     expect(screen.getByTestId('scanner-preview')).toBeTruthy();
+    // The frame's own treatment (closed outline, colours, the pocket grid
+    // nested inside it) is covered in `scanner-reticle-frame-test.tsx`.
     expect(screen.getByTestId('scanner-reticle')).toBeTruthy();
     expect(screen.getByTestId('scanner-back-button')).toBeTruthy();
     expect(screen.queryByTestId('scanner-account-button')).toBeNull();
@@ -201,37 +203,6 @@ describe('ScannerScreen', () => {
     expect(previewStyle.right).toBeUndefined();
   });
 
-  it('frames the single card with one closed rounded outline, not corner brackets', () => {
-    /*
-      Figma 5085:15171. The single-card frame used to be four detached L-shaped
-      brackets; it is the same closed outline the binder page draws now, only at
-      a different size. Pinned because this frame drifts — it has been purple,
-      white, purple again, and brackets before this — and every past flip went
-      unnoticed until someone looked at a phone.
-    */
-    renderScannerScreen();
-
-    const outline = StyleSheet.flatten(
-      screen.getByTestId('scanner-reticle-outline').props.style,
-    );
-    expect(outline).toMatchObject({
-      borderColor: colors.purple200,
-      borderRadius: 12,
-      borderWidth: 1,
-    });
-    // The lock pulse is the SAME outline in the saturated purple, stacked on top
-    // and crossfaded by opacity — the one form a native driver can carry.
-    expect(
-      StyleSheet.flatten(screen.getByTestId('scanner-reticle-lock').props.style),
-    ).toMatchObject({
-      borderColor: colors.purple500,
-      borderRadius: 12,
-      borderWidth: 1,
-    });
-    // No translucent white fill: Figma composites that over flat artwork, but
-    // over a live viewfinder it scrims the card being scanned.
-    expect(outline.backgroundColor).toBeUndefined();
-  });
 
   it('keeps the camera mounted (inactive) offscreen with granted permission, without a permission card', () => {
     // Regression guard: the camera must stay MOUNTED when the scanner is paged
@@ -939,15 +910,19 @@ describe('ScannerScreen', () => {
       expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
     });
 
-    // Collapsed with a scan: CLEAR ALL lives at the bottom of the expanded list, not here.
+    // Collapsed with a scan: the LIST's CLEAR ALL is still expanded-only (the
+    // header carries its own, reachable in both states — asserted below).
     expect(screen.queryByTestId('scanner-tray-clear-all')).toBeNull();
+    expect(screen.getByTestId('scanner-tray-clear-all-header')).toBeTruthy();
 
     fireEvent.press(screen.getByTestId('scanner-tray-header'));
 
     await waitFor(() => {
       expect(screen.getByTestId('scanner-tray-clear-all')).toBeTruthy();
     });
-    expect(screen.getByText('CLEAR ALL')).toBeTruthy();
+    // Both carry the same label: the header's (always reachable) and the
+    // list's (expanded only).
+    expect(screen.getAllByText('CLEAR ALL')).toHaveLength(2);
   });
 
   const froakieAddAllRepository = (

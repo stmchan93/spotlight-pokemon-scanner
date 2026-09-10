@@ -1026,6 +1026,8 @@ export function ScannerScreen({
   const [rowMenuAnchor, setRowMenuAnchor] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const addAllTriggerRef = useRef<View | null>(null);
   const lastBulkActionRef = useRef<AddAllMenuAction>('collection');
+  // The header trigger clears on tap, so its menu carries only the adds.
+  const headerBulkActions = useMemo<AddAllMenuAction[]>(() => ['collection', 'wishlist'], []);
   const { lane: scanLane, setLane: setScanLane } = useScannerTargetConfig();
   const [zoomFactor, setZoomFactor, zoomHydrated] = useScannerZoomFactor();
   const [macroLensLock] = useScannerMacroLensLock();
@@ -3681,6 +3683,12 @@ export function ScannerScreen({
 
   // Menu pick -> close the menu, open the matching confirm sheet. The ref keeps
   // the sheet's copy stable through its slide-out after `addAllConfirm` clears.
+  // The split trigger's label: straight to the clear confirm, no menu.
+  const handleClearAllFromHeader = useCallback(() => {
+    lastBulkActionRef.current = 'remove';
+    setAddAllConfirm('remove');
+  }, []);
+
   const handleAddAllSelect = useCallback((action: AddAllMenuAction) => {
     lastBulkActionRef.current = action;
     setAddAllMenuOpen(false);
@@ -4533,28 +4541,38 @@ export function ScannerScreen({
                     {`SCAN: ${recentCaptures.filter((capture) => !capture.binderPage?.empty).length}`}
                   </Text>
                 </GlassSurface>
-                {/* ADD ALL shows in BOTH tray states — collapsed too, so a
-                    burst scanner can bulk-add without first swiping the tray
-                    up. The dropdown flips above its anchor near the screen
-                    bottom, which covers the collapsed position. */}
+                {/* Shows in BOTH tray states — collapsed too, so a burst
+                    scanner can end a deal without first swiping the tray up.
+                    A SPLIT control: the label clears the tray (the between-
+                    customers action, once per deal), the chevron opens the
+                    two bulk adds. Clearing used to live only at the BOTTOM of
+                    the expanded list, which meant scrolling past a stack of
+                    scans to start the next deal. */}
                 {recentCaptures.length > 0 ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Add all scans"
-                    hitSlop={8}
-                    onPress={gate(handleOpenAddAllMenu)}
-                    ref={addAllTriggerRef}
-                    testID="scanner-tray-add-all"
-                  >
-                    <View style={styles.trayAddAllRow}>
-                      <Text style={styles.trayAddAllLabel}>ADD ALL</Text>
+                  <View style={styles.trayAddAllRow} ref={addAllTriggerRef}>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Clear all scans"
+                      hitSlop={8}
+                      onPress={gate(handleClearAllFromHeader)}
+                      testID="scanner-tray-clear-all-header"
+                    >
+                      <Text style={styles.trayAddAllLabel}>CLEAR ALL</Text>
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Add all scans to a collection or wishlist"
+                      hitSlop={8}
+                      onPress={gate(handleOpenAddAllMenu)}
+                      testID="scanner-tray-add-all"
+                    >
                       <IconChevronDown
                         color={colors.purple500}
                         size={15}
                         strokeWidth={2}
                       />
-                    </View>
-                  </Pressable>
+                    </Pressable>
+                  </View>
                 ) : null}
               </View>
               <GlassSurface
@@ -4789,6 +4807,7 @@ export function ScannerScreen({
       <AddAllMenu
         anchor={addAllAnchor}
         onClose={() => setAddAllMenuOpen(false)}
+        actions={headerBulkActions}
         onSelect={handleAddAllSelect}
         visible={addAllMenuOpen}
       />
@@ -4831,8 +4850,6 @@ export function ScannerScreen({
             onAddAll={gate(() => handleAddBinderPage(activeBinderPageId))}
             onClose={closeBinderPageReview}
             onPressPocket={gate(openChangeCardPicker)}
-            onPressPocketPrice={gatedShowRowPrice}
-            onSelectPocketCandidate={setActiveCandidate}
             onApplyPriceSelections={handlePriceSelections}
             priceSelections={priceSelection}
             pockets={binderPageRows(recentCaptures, activeBinderPageId)}
