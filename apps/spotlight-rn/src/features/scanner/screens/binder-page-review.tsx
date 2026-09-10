@@ -243,7 +243,9 @@ function PocketTile({
             <Text numberOfLines={1} style={styles.captionPrice}>{priceLabel ?? '—'}</Text>
           </>
         ) : isEmpty ? (
-          <Text numberOfLines={1} style={styles.captionMeta}>Empty</Text>
+          // Same weight as a matched card's name — the pocket's state is the
+          // headline here, not a footnote.
+          <Text numberOfLines={1} style={styles.captionTitle}>Empty</Text>
         ) : capture ? (
           <Text numberOfLines={2} style={styles.captionMeta}>No match · tap to search</Text>
         ) : (
