@@ -2,11 +2,11 @@ import { render, screen } from '@testing-library/react-native';
 import { Platform } from 'react-native';
 
 /**
- * The `You` tab's icon: the signed-in user's face on iOS, a glyph on Android.
+ * The `Social` tab's icon (the old `You` tab, which kept the avatar): the signed-in user's face on iOS, a glyph on Android.
  *
  * THE ANDROID HALF IS NOT AN OVERSIGHT, AND THIS TEST EXISTS TO STOP IT BEING
  * "FIXED" BY DELETING THE PLATFORM CHECK. Full derivation is in the comment on
- * the `you` trigger in `src/app/(tabs)/_layout.tsx`; the short version is that
+ * the `social` trigger in `src/app/(tabs)/_layout.tsx`; the short version is that
  * every Android tab icon in this bar is a BITMAP that Material tints SRC_IN
  * (`NavigationBarItemView.setIcon` applies `iconTint` whenever the tint list is
  * non-null, and react-native-screens always sets one), so a photograph comes
@@ -98,14 +98,14 @@ function renderTabsLayout() {
   return render(<TabsLayout />);
 }
 
-function youIconProps() {
-  return JSON.parse(screen.getByTestId('icon-props-you').props.children as string) as Record<
+function socialIconProps() {
+  return JSON.parse(screen.getByTestId('icon-props-social').props.children as string) as Record<
     string,
     unknown
   >;
 }
 
-describe('tabs layout — the You icon', () => {
+describe('tabs layout — the Social icon', () => {
   const originalOS = Platform.OS;
 
   afterEach(() => {
@@ -119,7 +119,7 @@ describe('tabs layout — the You icon', () => {
     mockAvatarIcon.current = AVATAR_SOURCE;
     renderTabsLayout();
 
-    const props = youIconProps();
+    const props = socialIconProps();
     expect(props.src).toEqual(AVATAR_SOURCE);
     // `tintColor` on <NativeTabs> makes expo-router default images to
     // `template`, and a templated photograph is a flat silhouette.
@@ -133,7 +133,7 @@ describe('tabs layout — the You icon', () => {
     mockAvatarIcon.current = null;
     renderTabsLayout();
 
-    const props = youIconProps();
+    const props = socialIconProps();
     expect(props.src).toBeUndefined();
     expect(props.sf).toEqual({
       default: 'person.crop.circle',
@@ -150,7 +150,7 @@ describe('tabs layout — the You icon', () => {
     mockAvatarIcon.current = AVATAR_SOURCE;
     renderTabsLayout();
 
-    const props = youIconProps();
+    const props = socialIconProps();
     expect(props.src).toBeUndefined();
     expect(props.md).toBe('account_circle');
   });
@@ -160,6 +160,6 @@ describe('tabs layout — the You icon', () => {
     mockAvatarIcon.current = null;
     renderTabsLayout();
 
-    expect(youIconProps().md).toBe('account_circle');
+    expect(socialIconProps().md).toBe('account_circle');
   });
 });

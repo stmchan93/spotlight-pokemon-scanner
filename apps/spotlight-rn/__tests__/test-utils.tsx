@@ -415,9 +415,16 @@ export function renderAppRouter(
       { key: 'index', modulePath: '@/app/index' },
     ],
   });
-  // Collection. It was `(tabs)/index` until Home (the feed) took the tabs root;
-  // `(tabs)/portfolio` is now a redirect HERE rather than to `/`, so both have
-  // to be registered or the redirect resolves to expo-router's Unmatched.
+  // The feed. It held `(tabs)/index` for a while under the name Home; the tabs
+  // were reordered so the app opens on Collection, and the feed moved here.
+  registerRoute(routeMap, routeAliases, {
+    candidates: [
+      { key: '(tabs)/social', modulePath: '@/app/(tabs)/social' },
+      { key: 'social', modulePath: '@/app/social' },
+    ],
+  });
+  // `/you` and `/portfolio` are both redirects to `/` (Collection). They have to
+  // be registered or the redirect resolves to expo-router's Unmatched.
   registerRoute(routeMap, routeAliases, {
     candidates: [
       { key: '(tabs)/you', modulePath: '@/app/(tabs)/you' },

@@ -155,17 +155,20 @@ export function AppDrawer() {
   // Derive the active nav key from the current route so the yellow indicator
   // dot updates when the user navigates between drawer destinations.
   const normalizedPathname = pathname ?? '';
-  let activeKey: 'collection' | 'home' | 'insights' | 'wishlist' | 'scan' | null;
-  // `/` is the FEED now, not the collection — Home took the tabs root and
-  // Collection moved to `/you`. Matching `/` as 'collection' would light the
-  // Portfolio dot while the user is looking at the feed, and would make the
-  // Portfolio item a no-op from Home (see the early return in
-  // `navigateToCollection`). 'home' has no drawer item of its own; it exists so
-  // the tab root is not mistaken for a pushed screen below.
-  if (normalizedPathname === '/you' || normalizedPathname.startsWith('/portfolio')) {
+  let activeKey: 'collection' | 'social' | 'insights' | 'wishlist' | 'scan' | null;
+  // `/` is the COLLECTION — it was the feed for the stretch when Home held the
+  // tabs root, and the feed is at `/social` now. `/you` and `/portfolio` are
+  // redirects to `/` and can be seen for a frame, so all three light the same
+  // dot. 'social' has no drawer item of its own; it exists so that tab root is
+  // not mistaken for a pushed screen below.
+  if (
+    normalizedPathname === '/'
+    || normalizedPathname === '/you'
+    || normalizedPathname.startsWith('/portfolio')
+  ) {
     activeKey = 'collection';
-  } else if (normalizedPathname === '/') {
-    activeKey = 'home';
+  } else if (normalizedPathname.startsWith('/social')) {
+    activeKey = 'social';
   } else if (normalizedPathname.startsWith('/insights')) {
     activeKey = 'insights';
   } else if (normalizedPathname.startsWith('/wishlist')) {
@@ -180,8 +183,9 @@ export function AppDrawer() {
     True only when we are sitting on a real PUSHED route — something above the
     tabs entry in the root stack — so that `goTo` may safely `replace` it.
 
-    Every key below lives in `app/(tabs)`: Home (`/`), Collection (`/you`),
-    Wishlist and Scan. Navigating away from ANY of them must push, because
+    Every key below lives in `app/(tabs)`: Collection (`/`), Social
+    (`/social`), Wishlist and Scan. Navigating away from ANY of them must push,
+    because
     `replace` on a tab root swaps the whole `(tabs)` entry out of the root
     stack — leaving the destination with nothing behind it, and a back button
     that does nothing.
@@ -194,7 +198,7 @@ export function AppDrawer() {
     Keep this in sync with `app/(tabs)/` — a new tab added here without its key
     reintroduces exactly that bug.
   */
-  const TAB_ROOT_KEYS: readonly (typeof activeKey)[] = ['collection', 'home', 'wishlist', 'scan'];
+  const TAB_ROOT_KEYS: readonly (typeof activeKey)[] = ['collection', 'social', 'wishlist', 'scan'];
   const isOnStackRoute = activeKey != null && !TAB_ROOT_KEYS.includes(activeKey);
 
   /**
@@ -234,7 +238,7 @@ export function AppDrawer() {
     POP_TO, which `NativeBottomTabsRouter` cannot handle. It worked from a pushed
     screen and silently did nothing from any tab.
 
-    The duplicates also bought no reach: the drawer opens from Home, You and
+    The duplicates also bought no reach: the drawer opens from Home, Social and
     Wishlist only, and on every one of those the bottom bar is drawn with all
     four tabs one tap away.
 

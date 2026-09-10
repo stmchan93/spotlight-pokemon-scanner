@@ -579,7 +579,7 @@ describe('PostCard author links', () => {
   });
 
   // The mocked auth context signs in as `me`.
-  it('sends you to the You tab when the author is you, not to your public profile', async () => {
+  it('sends you to the Home tab (your collection) when the author is you, not to your public profile', async () => {
     await renderCard(
       buildPost({
         authorId: 'me',
@@ -590,7 +590,7 @@ describe('PostCard author links', () => {
     fireEvent.press(screen.getByTestId('post-card-author-name-button'));
     // NOT `/u/ash` — that is a read-only copy of your own profile pushed on top
     // of the feed, with no Edit and a back button out of somewhere you live.
-    expect(mockNavigate).toHaveBeenLastCalledWith('/you');
+    expect(mockNavigate).toHaveBeenLastCalledWith('/');
     expect(mockPush).not.toHaveBeenCalledWith('/u/ash');
   });
 

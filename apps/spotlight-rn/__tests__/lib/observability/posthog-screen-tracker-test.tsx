@@ -15,14 +15,14 @@ jest.mock('@/lib/observability/posthog', () => ({
 
 describe('PostHogScreenTracker', () => {
   beforeEach(() => {
-    mockedPathname = '/';
+    mockedPathname = '/social';
     mockCapturePostHogScreen.mockClear();
   });
 
   it('maps tracked routes to normalized screen names', async () => {
-    // `/` is the Home FEED now. It reported as 'scan' for as long as the tabs
-    // root landed on the scanner; keeping that would have counted every app
-    // open as a scanner view.
+    // The feed is `/social` now. It reported as 'scan' while the tabs root
+    // landed on the scanner, then as `/` while it was Home — read this series
+    // by NAME, since the pathname behind it has moved twice.
     const view = render(<PostHogScreenTracker />);
 
     await waitFor(() => {
@@ -42,10 +42,10 @@ describe('PostHogScreenTracker', () => {
     });
   });
 
-  it('reports Collection as portfolio from both of its paths', async () => {
-    // Collection moved to `/you`; `/portfolio` is a redirect to it that can
-    // still be observed in passing. Both must report the same name or the
-    // series splits in two at the migration.
+  it('reports Collection as portfolio from all of its paths', async () => {
+    // Collection is the tabs root; `/you` and `/portfolio` are redirects to it
+    // that can still be observed in passing. All three must report the same
+    // name or the series splits at the migration.
     mockedPathname = '/you';
     const view = render(<PostHogScreenTracker />);
 
@@ -53,11 +53,13 @@ describe('PostHogScreenTracker', () => {
       expect(mockCapturePostHogScreen).toHaveBeenCalledWith('portfolio');
     });
 
-    mockedPathname = '/portfolio';
-    view.rerender(<PostHogScreenTracker />);
-    await waitFor(() => {
-      expect(mockCapturePostHogScreen).toHaveBeenCalledTimes(1);
-    });
+    for (const path of ['/portfolio', '/']) {
+      mockedPathname = path;
+      view.rerender(<PostHogScreenTracker />);
+      await waitFor(() => {
+        expect(mockCapturePostHogScreen).toHaveBeenCalledTimes(1);
+      });
+    }
   });
 
   it('deduplicates repeated screen names and skips untracked routes', async () => {

@@ -16,14 +16,14 @@
  */
 
 /** The tab route names that can be returned to. Scan is deliberately not one. */
-export type ReturnableTabName = 'index' | 'wishlist' | 'you';
+export type ReturnableTabName = 'index' | 'social' | 'wishlist';
 
-const RETURNABLE_TABS: readonly string[] = ['index', 'wishlist', 'you'];
+const RETURNABLE_TABS: readonly string[] = ['index', 'social', 'wishlist'];
 
 /**
- * Home. Used before anything has been recorded — a cold launch straight into
- * the Scanner (via a deep link or the tab itself) has no previous tab, and Home
- * is the app's landing surface.
+ * Home, i.e. the collection. Used before anything has been recorded — a cold
+ * launch straight into the Scanner (via a deep link or the tab itself) has no
+ * previous tab, and Home is the app's landing surface.
  */
 const DEFAULT_TAB: ReturnableTabName = 'index';
 

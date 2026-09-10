@@ -5,14 +5,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   AppText,
-  GlassButtonGroup,
   GlassNavBubble,
-  IconButton,
-  glassButtonGroupControlSize,
+  GlassNavBubbleGroup,
   glassNavBubbleGlyphSize,
   glassNavBubbleGlyphStrokeWidth,
   glassNavBubbleSizes,
   useSpotlightTheme,
+  type GlassNavBubbleGroupItem,
 } from '@spotlight/design-system';
 
 import { EditDoneButton } from '@/components/edit-done-button';
@@ -99,12 +98,10 @@ type WishlistHeaderProps = {
 // whose catalog search is the top-bar "Search Cards" pill rather than anything
 // floating (the in-page magnifier there was removed as a duplicate).
 //
-// LAYOUT — the left and right slots are equal-flex, with the title sized to its
-// own content between them, so "Wishlist" stays on the true centre of the bar no
-// matter how many controls the right slot carries. The title used to be the
-// `flex: 1` element, which centres it in whatever is LEFT OVER — with one bubble
-// on the left and two on the right that is ~24pt off-centre (and it already
-// drifted when the wider "Done" pill swapped in).
+// LAYOUT — the side slots are content-sized and the title is centred in what
+// is left between them (see `styles.headerSlot`). It was centred on the bar's
+// true centre for a while, which only works while the two slots are close in
+// width; the profile-matched 160pt capsule made that impossible on a phone.
 //
 // SCROLL — the bubbles PIN, the title LEAVES, exactly as Home's bubbles pin
 // while its search pill leaves (`HomeHeader`). Mounted `floating`, the bar is
@@ -117,6 +114,12 @@ type WishlistHeaderProps = {
 // see glassNavBubbleGlyphSize's doc for why 20 here would look small and thin.
 const BUTTON_ICON_SIZE = glassNavBubbleGlyphSize;
 const BUTTON_ICON_STROKE = glassNavBubbleGlyphStrokeWidth;
+// Share glyph ratio lifted from the profile bar (`HomeHeader`): iconoir's
+// ShareIos is a tall glyph, drawn 0.9× wide so it sits optically level with
+// the pencil beside it. Same numbers there and here, or the two bars' share
+// glyphs read as two sizes.
+const SHARE_ICON_WIDTH = Math.round(BUTTON_ICON_SIZE * 0.9);
+const SHARE_ICON_HEIGHT = BUTTON_ICON_SIZE;
 /**
  * 0 to match `HomeHeader`: every tab bar hangs its control row directly off the
  * safe-area inset, so the bubbles sit at the same height on every tab. (Figma's
@@ -127,7 +130,7 @@ const BUTTON_ICON_STROKE = glassNavBubbleGlyphStrokeWidth;
 const BAR_PADDING_TOP = 0;
 /**
  * Height of the control row. Every control in this bar is 40 tall — the menu
- * bubble (`size="medium"`), the `GlassButtonGroup`, and the `EditDoneButton`
+ * bubble (`size="medium"`), the `GlassNavBubbleGroup`, and the `EditDoneButton`
  * that swaps in for it — so the shared bubble token IS the row height, and it
  * does not change when edit mode swaps the wider "Done" pill in. The title
  * (`titleMedium`, 23.4pt tall) never sets it.
@@ -224,6 +227,7 @@ export function WishlistHeader({
       <View style={styles.headerSlot}>
         <GlassNavBubble
           accessibilityLabel="Open menu"
+          material="frost"
           onPress={onOpenMenu}
           size="medium"
           surface="onLight"
@@ -276,58 +280,82 @@ export function WishlistHeader({
           ) : null
         ) : (
           /*
-            Add / edit / share in ONE pill (Figma 3725:59578), the same
-            `GlassButtonGroup` card detail uses. Three separate bubbles read as
-            three unrelated buttons; one pill reads as this list's actions.
+            Add / edit / share in ONE capsule — the SAME `GlassNavBubbleGroup`
+            (medium, frost) the You/profile bar draws its search / edit / share
+            in (`HomeHeader`), so the two tabs' trailing controls are one
+            object: same 44pt capsule, same 36pt slots on a 20pt gap, same
+            frosted material, same glyph size and weight. This used to be a
+            `GlassButtonGroup` of ghost `IconButton`s, which was the same
+            height but a 6pt gap and plain glass — "the wishlist icons don't
+            match the profile ones".
           */
-          <GlassButtonGroup testID="wishlist-header-actions">
-            {onOpenSearch ? (
-              <IconButton
-                accessibilityLabel="Search the card catalog"
-                onPress={onOpenSearch}
-                shape="circle"
-                size={glassButtonGroupControlSize}
-                testID="wishlist-header-search"
-                variant="ghost"
-              >
-                {/* A plus, not a magnifier: the destination is the same catalog
-                    search, but from here the INTENT is "add a card". */}
-                <Plus color={theme.colors.gray900} height={BUTTON_ICON_SIZE} strokeWidth={BUTTON_ICON_STROKE} width={BUTTON_ICON_SIZE} />
-              </IconButton>
-            ) : null}
-            {onToggleEditMode ? (
-              <IconButton
-                accessibilityLabel="Edit wishlist"
-                onPress={onToggleEditMode}
-                shape="circle"
-                size={glassButtonGroupControlSize}
-                testID="wishlist-header-edit"
-                variant="ghost"
-              >
-                <EditPencil color={theme.colors.gray900} height={BUTTON_ICON_SIZE} strokeWidth={BUTTON_ICON_STROKE} width={BUTTON_ICON_SIZE} />
-              </IconButton>
-            ) : null}
-            {/*
-              Shares the LIST — "here is what I'm hunting" — as text. The macro
-              counterpart to card detail's per-card share.
-
-              No link, because there is nothing to link to: the wishlist is
-              private and the public profile has no Wishlist tab. A URL that
-              404s for the recipient would be worse than plain text.
-            */}
-            {onShare ? (
-              <IconButton
-                accessibilityLabel="Share wishlist"
-                onPress={onShare}
-                shape="circle"
-                size={glassButtonGroupControlSize}
-                testID="wishlist-header-share"
-                variant="ghost"
-              >
-                <ShareIos color={theme.colors.gray900} height={BUTTON_ICON_SIZE} strokeWidth={BUTTON_ICON_STROKE} width={BUTTON_ICON_SIZE} />
-              </IconButton>
-            ) : null}
-          </GlassButtonGroup>
+          <GlassNavBubbleGroup
+            items={
+              [
+                ...(onOpenSearch
+                  ? [
+                      {
+                        accessibilityLabel: 'Search the card catalog',
+                        // A plus, not a magnifier: the destination is the same
+                        // catalog search, but from here the INTENT is "add a card".
+                        children: (
+                          <Plus
+                            color={theme.colors.gray900}
+                            height={BUTTON_ICON_SIZE}
+                            strokeWidth={BUTTON_ICON_STROKE}
+                            width={BUTTON_ICON_SIZE}
+                          />
+                        ),
+                        onPress: onOpenSearch,
+                        testID: 'wishlist-header-search',
+                      },
+                    ]
+                  : []),
+                ...(onToggleEditMode
+                  ? [
+                      {
+                        accessibilityLabel: 'Edit wishlist',
+                        children: (
+                          <EditPencil
+                            color={theme.colors.gray900}
+                            height={BUTTON_ICON_SIZE}
+                            strokeWidth={BUTTON_ICON_STROKE}
+                            width={BUTTON_ICON_SIZE}
+                          />
+                        ),
+                        onPress: onToggleEditMode,
+                        testID: 'wishlist-header-edit',
+                      },
+                    ]
+                  : []),
+                // Shares the LIST — "here is what I'm hunting" — as text. The
+                // macro counterpart to card detail's per-card share. No link,
+                // because there is nothing to link to: the wishlist is private
+                // and the public profile has no Wishlist tab.
+                ...(onShare
+                  ? [
+                      {
+                        accessibilityLabel: 'Share wishlist',
+                        children: (
+                          <ShareIos
+                            color={theme.colors.gray900}
+                            height={SHARE_ICON_HEIGHT}
+                            strokeWidth={BUTTON_ICON_STROKE}
+                            width={SHARE_ICON_WIDTH}
+                          />
+                        ),
+                        onPress: onShare,
+                        testID: 'wishlist-header-share',
+                      },
+                    ]
+                  : []),
+              ] satisfies GlassNavBubbleGroupItem[]
+            }
+            material="frost"
+            size="medium"
+            surface="onLight"
+            testID="wishlist-header-actions"
+          />
         )}
       </View>
     </View>
@@ -350,13 +378,15 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 16,
   },
-  // Equal-flex side slots keep the title on the bar's true centre; the bubbles
-  // never shrink because each slot is wider than the controls it holds even at
-  // 320pt.
+  // Content-sized side slots, title in the space between. The slots USED to be
+  // equal-flex with the title on the bar's true centre — but the trailing
+  // capsule is now the profile bar's 3-slot, 20pt-gap capsule (160pt), and a
+  // true-centre title on a 402pt phone lands under it ("Wishlis…"). UIKit's
+  // own rule for a title that cannot centre: centre it between the bar items.
   headerSlot: {
     alignItems: 'center',
-    flex: 1,
     flexDirection: 'row',
+    flexShrink: 0,
     gap: 12,
   },
   headerSlotRight: {
@@ -365,9 +395,12 @@ const styles = StyleSheet.create({
   headerTitle: {
     textAlign: 'center',
   },
-  // Sized to the title's own content, exactly as the bare `AppText` was, so the
-  // equal-flex side slots still put "Wishlist" on the bar's true centre.
+  // Takes the room the side slots leave, and centres the title inside it.
+  // `minWidth: 0` so the clip can shrink rather than push the capsule out.
   headerTitleClip: {
+    alignItems: 'center',
+    flex: 1,
+    minWidth: 0,
     overflow: 'hidden',
   },
 });

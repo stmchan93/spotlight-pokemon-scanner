@@ -1,66 +1,14 @@
-import { useRouter } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-
-import { NativeTabsPageBridge } from '@/components/native-tabs-page-bridge';
-import { GuestScannerRedirect } from '@/features/auth/components/guest-scanner-redirect';
-import {
-  cardDetailPreviewFromInventoryEntry,
-  saveCardDetailPreviewFromInventoryEntry,
-} from '@/features/cards/card-detail-preview-session';
-import {
-  defaultLaneFromPreview,
-  prefetchCardDetail,
-} from '@/features/cards/card-detail-prefetch';
-import { PortfolioScreen } from '@/features/portfolio/screens/portfolio-screen';
-import { useAppServices } from '@/providers/app-providers';
-import { useAuth } from '@/providers/auth-provider';
+import { Redirect } from 'expo-router';
 
 /**
- * You — your own collection, and the last tab in the bar.
+ * `/you` means "my collection", and the collection is the tabs root again, so
+ * this points at `/`. It exists because `/you` was the collection's real route
+ * for the stretch when the feed held Home, and both deep links and in-app
+ * navigation (tapping your own name in the feed) still reach for it.
  *
- * This screen WAS the tabs root (`(tabs)/index`), back when Collection was the
- * landing surface. Home (the feed) took that slot, so the screen moved here
- * unchanged; only the route moved. `(tabs)/portfolio` redirects here rather than
- * to `/`, so `/portfolio` still means "my collection" and not "the feed".
- *
- * `<StatusBar>` is owned per-screen. The retired pager kept exactly one and
- * flipped it with the active page; with real tabs each screen has to declare its
- * own, or the scanner's "light" style survives onto this light surface and the
- * time/battery/Wi-Fi icons go white-on-white.
+ * NOT pointed at `/social`: the feed is what lives at the OLD `/you` slot in the
+ * tab bar, but "you" has never meant the feed.
  */
-export default function YouRoute() {
-  const router = useRouter();
-  const { spotlightRepository } = useAppServices();
-  const { isGuest } = useAuth();
-
-  // Collection is gated for guests, so there is nothing to show them here. Send
-  // them to the scanner, which is the whole of the guest experience.
-  if (isGuest) {
-    return <GuestScannerRedirect />;
-  }
-
-  return (
-    <NativeTabsPageBridge page="portfolio">
-      <StatusBar style="dark" />
-      <PortfolioScreen
-        onOpenInventoryEntry={(entry) => {
-          const preview = cardDetailPreviewFromInventoryEntry(entry);
-          prefetchCardDetail(
-            spotlightRepository,
-            entry.cardId,
-            defaultLaneFromPreview(preview),
-            preview.largeImageUrl ?? preview.imageUrl,
-          );
-          router.push({
-            pathname: '/cards/[cardId]',
-            params: {
-              cardId: entry.cardId,
-              entryId: entry.id,
-              previewId: saveCardDetailPreviewFromInventoryEntry(entry),
-            },
-          });
-        }}
-      />
-    </NativeTabsPageBridge>
-  );
+export default function YouRedirect() {
+  return <Redirect href={'/' as never} />;
 }

@@ -8,19 +8,21 @@ function resolveScreenName(pathname: string) {
     return 'scan';
   }
 
-  // `/` used to be the tabs root that landed on the scanner, which is why it
-  // reported as 'scan'. It is the FEED now, so leaving it mapped that way would
-  // quietly inflate scanner screen-views with every app open. New name — expect
-  // a step change in the split, not a continuous series.
-  if (pathname === '/' || pathname === '/index') {
+  // The feed moved to `/social` when the tabs were reordered; `/` is the
+  // collection again. Both series see a step change at that release — this is
+  // the second time these two names have traded pathnames, so read the split by
+  // NAME and not by path.
+  if (pathname === '/social' || pathname.startsWith('/social/')) {
     return 'feed';
   }
 
-  // Collection lives at `/you` since Home took the tabs root. `/portfolio` is a
-  // redirect to it and may still be seen briefly, so both map to the same name
-  // and the existing series stays continuous.
+  // Collection is the tabs root. `/you` and `/portfolio` are redirects to it
+  // and may still be seen briefly, so all three map to the same name and the
+  // existing series stays continuous.
   if (
-    pathname === '/you'
+    pathname === '/'
+    || pathname === '/index'
+    || pathname === '/you'
     || pathname === '/portfolio'
     || pathname.startsWith('/portfolio/')
   ) {

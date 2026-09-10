@@ -14,6 +14,7 @@ import LabelingSessionRoute from '@/app/(stack)/labeling/session';
 import SalesHistoryRoute from '@/app/(stack)/sales-history';
 import TabsLayout from '@/app/(tabs)/_layout';
 import PortfolioRedirect from '@/app/(tabs)/portfolio';
+import YouRedirect from '@/app/(tabs)/you';
 import LoginCallbackScreen from '@/app/login-callback';
 
 const mockBack = jest.fn();
@@ -321,18 +322,20 @@ describe('misc route wrappers', () => {
     browse.unmount();
 
     // The tabs layout is Apple's native tab bar now, not a Slot. Four tabs:
-    // Home / Scan / Wishlist / You, and the ORDER is part of the contract —
-    // `index` is the feed and Collection sits last as `you`.
+    // Home / Scan / Wishlist / Social, and the ORDER is part of the contract —
+    // `index` is Collection, so the app opens on your own cards, and the feed
+    // sits last as `social`. These two have traded places once already; the
+    // assertion below is what stops a third swap going unnoticed.
     mockPathname.mockReturnValue('/');
     const tabs = render(<TabsLayout />);
     expect(screen.getByTestId('native-tabs-minimize').props.children).toBe('onScrollDown');
     expect(screen.getByTestId('native-tab-index')).toBeTruthy();
     expect(screen.getByTestId('native-tab-scan')).toBeTruthy();
     expect(screen.getByTestId('native-tab-wishlist')).toBeTruthy();
-    expect(screen.getByTestId('native-tab-you')).toBeTruthy();
+    expect(screen.getByTestId('native-tab-social')).toBeTruthy();
     expect(
       screen.getAllByTestId(/^native-tab-/).map((node) => node.props.children),
-    ).toEqual(['index', 'scan', 'wishlist', 'you']);
+    ).toEqual(['index', 'scan', 'wishlist', 'social']);
     expect(screen.getByTestId('native-tabs-hidden').props.children).toBe('false');
 
     // On the Scanner the BAR is hidden so the camera keeps the full screen —
@@ -441,8 +444,9 @@ describe('misc route wrappers', () => {
     ).toBe(false);
 
     const tabRoutes = fs.readdirSync(tabsDir).filter((name: string) => name.endsWith('.tsx'));
-    // Home / Scan / Wishlist / You, plus the layout and the /portfolio alias.
-    expect(tabRoutes).toHaveLength(6);
+    // Home / Scan / Wishlist / Social, plus the layout and the two aliases
+    // (/portfolio and /you, both redirecting to Collection at the tabs root).
+    expect(tabRoutes).toHaveLength(7);
 
     for (const name of tabRoutes) {
       const source: string = fs.readFileSync(path.join(tabsDir, name), 'utf8');
@@ -562,16 +566,21 @@ describe('misc route wrappers', () => {
     expect(mockBack).toHaveBeenCalledTimes(1);
   });
 
-  it('redirects /portfolio to the You tab, not the tabs root', () => {
+  it('redirects /portfolio and /you to Collection at the tabs root', () => {
     // `page` params are gone with the pager: Collection and Scan are real tab
     // routes now, so /portfolio is a plain alias and /scan is a SCREEN, not a
     // redirect (which is why it is no longer asserted here).
     //
-    // The target is `/you`. It was `/` right up until Home (the feed) took the
-    // tabs root — this asserts the alias followed Collection to its new route
-    // instead of silently pointing every old portfolio link at the feed.
+    // Both aliases point at `/`, which is Collection again now that the feed
+    // has moved to `/social`. The load-bearing part is that neither may point
+    // at `/social`: `/portfolio` and `/you` have always meant "my collection",
+    // and aiming them at the feed would silently break every old link.
     render(<PortfolioRedirect />);
-    expect(screen.getByTestId('redirect-target').props.children).toBe(JSON.stringify('/you'));
+    expect(screen.getByTestId('redirect-target').props.children).toBe(JSON.stringify('/'));
+    screen.unmount();
+
+    render(<YouRedirect />);
+    expect(screen.getByTestId('redirect-target').props.children).toBe(JSON.stringify('/'));
   });
 
   it('wires inventory back and card detail navigation', () => {

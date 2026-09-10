@@ -409,8 +409,8 @@ describe('AppDrawer', () => {
     it.each([
       ['the Wishlist tab', '/wishlist'],
       ['the Scan tab', '/scan'],
-      ['the Home feed', '/'],
-      ['the Collection tab', '/you'],
+      ['the Home collection', '/'],
+      ['the Social feed tab', '/social'],
     ])('pushes from %s, so back returns to it', (_label, pathname) => {
       openInsightsFrom(pathname);
 

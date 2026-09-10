@@ -279,7 +279,7 @@ describe('FeedScreen', () => {
     const bandStyle = StyleSheet.flatten(band.props.style);
     expect(bandStyle.height).toBe(4);
     expect(bandStyle.backgroundColor).toBe('#F2F2F2');
-    expect(bandStyle.marginBottom).toBe(4);
+    expect(bandStyle.marginBottom).toBe(8);
   });
 
   it('keeps the compose band as a header border while the feed is empty', async () => {
@@ -362,7 +362,7 @@ describe('FeedScreen', () => {
       expect(screen.queryByText('Top Trends')).toBeNull();
       // The composer/first-post seam is exactly what it was without the block.
       const band = StyleSheet.flatten(screen.getByTestId('feed-first-cell-rule').props.style);
-      expect(band.marginBottom).toBe(4);
+      expect(band.marginBottom).toBe(8);
     });
 
     it('opens the card detail for a tapped mover', async () => {

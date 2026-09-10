@@ -1,28 +1,44 @@
+import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 
 import { NativeTabsPageBridge } from '@/components/native-tabs-page-bridge';
 import { GuestScannerRedirect } from '@/features/auth/components/guest-scanner-redirect';
-import { FeedScreen } from '@/features/social/screens/feed-screen';
+import {
+  cardDetailPreviewFromInventoryEntry,
+  saveCardDetailPreviewFromInventoryEntry,
+} from '@/features/cards/card-detail-preview-session';
+import {
+  defaultLaneFromPreview,
+  prefetchCardDetail,
+} from '@/features/cards/card-detail-prefetch';
+import { PortfolioScreen } from '@/features/portfolio/screens/portfolio-screen';
+import { useAppServices } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
 
 /**
- * Home — the social feed, and the landing tab after login.
+ * Home — your own collection, and the landing surface after login.
  *
- * Collection used to be this route; it moved to `(tabs)/you` unchanged. The feed
- * itself was already built (71d58fd) but was only reachable at `/feed`, a pushed
- * stack route that nothing in the app linked to. Promoting it to the tabs root
- * is the whole change here — the screen is untouched.
+ * This screen has been here twice. It was the tabs root originally, moved to
+ * `(tabs)/you` when the feed was promoted to Home, and came back when the tabs
+ * were reordered so the app opens on your cards again. The feed went the other
+ * way and now lives at `(tabs)/social`, last in the bar. Only the routes moved
+ * in either direction — `PortfolioScreen` and `FeedScreen` are untouched.
  *
- * Bridged as 'portfolio', not because this screen is the portfolio, but because
- * `activePage` only distinguishes "the scanner is live" from "it isn't", and
- * here it isn't. Passing 'scanner' would mount the camera from the Home tab.
- * Wishlist is bridged the same way for the same reason.
+ * `(tabs)/you` and `(tabs)/portfolio` are redirects here, so old links and the
+ * "tapped my own name in the feed" navigation still land on the collection.
+ *
+ * `<StatusBar>` is owned per-screen. The retired pager kept exactly one and
+ * flipped it with the active page; with real tabs each screen has to declare its
+ * own, or the scanner's "light" style survives onto this light surface and the
+ * time/battery/Wi-Fi icons go white-on-white.
  */
 export default function HomeRoute() {
-  // Guests land on the scanner, which is the whole of the guest experience: the
-  // feed reads are scoped to `auth.uid()` by RLS, so a guest would get an empty
-  // list rather than a first-launch surface worth seeing.
+  const router = useRouter();
+  const { spotlightRepository } = useAppServices();
   const { isGuest } = useAuth();
+
+  // Collection is gated for guests, so there is nothing to show them here. Send
+  // them to the scanner, which is the whole of the guest experience.
   if (isGuest) {
     return <GuestScannerRedirect />;
   }
@@ -30,7 +46,25 @@ export default function HomeRoute() {
   return (
     <NativeTabsPageBridge page="portfolio">
       <StatusBar style="dark" />
-      <FeedScreen />
+      <PortfolioScreen
+        onOpenInventoryEntry={(entry) => {
+          const preview = cardDetailPreviewFromInventoryEntry(entry);
+          prefetchCardDetail(
+            spotlightRepository,
+            entry.cardId,
+            defaultLaneFromPreview(preview),
+            preview.largeImageUrl ?? preview.imageUrl,
+          );
+          router.push({
+            pathname: '/cards/[cardId]',
+            params: {
+              cardId: entry.cardId,
+              entryId: entry.id,
+              previewId: saveCardDetailPreviewFromInventoryEntry(entry),
+            },
+          });
+        }}
+      />
     </NativeTabsPageBridge>
   );
 }

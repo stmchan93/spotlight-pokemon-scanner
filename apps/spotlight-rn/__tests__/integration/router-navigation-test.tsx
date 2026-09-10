@@ -13,16 +13,17 @@ function WishlistTabStub() {
 }
 
 describe('mobile app routing', () => {
-  it('boots into the Home feed and navigates to the Scanner tab', async () => {
-    // `/` is the FEED now. Collection held this route until Home took it, which
-    // is the one assertion here worth being explicit about: booting the app
-    // must land on the feed, not the collection.
+  it('boots into the Home collection and navigates to the Scanner tab', async () => {
+    // `/` is COLLECTION. The feed held this route for a while under the name
+    // Home; the tabs were reordered so the app opens on your own cards, and the
+    // feed moved to `/social`. That is the one assertion here worth being
+    // explicit about: booting the app must land on the collection.
     const app = renderAppRouter('/', { '(tabs)/scan': ScanTabStub });
 
     await waitFor(() => {
-      expect(screen.getByTestId('feed-header')).toBeTruthy();
+      expect(screen.getByTestId('portfolio-header-menu')).toBeTruthy();
     });
-    expect(screen.queryByTestId('portfolio-header-menu')).toBeNull();
+    expect(screen.queryByTestId('feed-header')).toBeNull();
 
     // The pager is gone: Collection and Scan are separate ROUTES now, not two
     // slots mounted side-by-side behind a translate.
@@ -72,25 +73,34 @@ describe('mobile app routing', () => {
     expect(await screen.findByText('All Transactions')).toBeTruthy();
   });
 
-  it('redirects the legacy /portfolio route onto the You tab', async () => {
+  it('redirects the legacy /portfolio and /you routes onto Collection', async () => {
     const app = renderAppRouter('/portfolio');
 
     await waitFor(() => {
       expect(screen.getByTestId('portfolio-header-menu')).toBeTruthy();
     });
-    // Selected-tab state is UIKit's now, so the assertion that survives is
-    // that the legacy path still lands on Collection — which is `/you` since
-    // Home took the tabs root, NOT `/`.
-    expect(app.getPathname()).toBe('/you');
+    // Selected-tab state is UIKit's now, so the assertion that survives is that
+    // the legacy paths still land on Collection — back at `/` since the feed
+    // moved to `/social`, and NOT on the feed.
+    expect(app.getPathname()).toBe('/');
   });
 
-  it('serves Collection from the You tab', async () => {
+  it('redirects /you onto Collection rather than the feed', async () => {
     const app = renderAppRouter('/you');
 
     await waitFor(() => {
       expect(screen.getByTestId('portfolio-header-menu')).toBeTruthy();
     });
-    expect(app.getPathname()).toBe('/you');
+    expect(app.getPathname()).toBe('/');
+  });
+
+  it('serves the feed from the Social tab', async () => {
+    const app = renderAppRouter('/social');
+
+    await waitFor(() => {
+      expect(screen.getByTestId('feed-header')).toBeTruthy();
+    });
+    expect(app.getPathname()).toBe('/social');
   });
 
   it('renders the labeler session route directly', async () => {

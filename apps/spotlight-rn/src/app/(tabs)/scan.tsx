@@ -91,9 +91,10 @@ export default function ScanRoute() {
 
   const goBack = useCallback(() => {
     // BACK to where you came from, not to a fixed destination. Leaving the
-    // Scanner always went to Home, so scanning from You — the tab your cards are
-    // on, and the one people scan from — dumped you on the feed and made you
-    // navigate back to see what you had just added.
+    // Scanner always went to the tabs root, so scanning from the tab your cards
+    // are on — the one people scan from — dumped you somewhere else and made you
+    // navigate back to see what you had just added. (Collection and the feed
+    // have since traded routes; the rule is route-agnostic on purpose.)
     //
     // Still a TAB SWITCH, not a pop: `useNavigation()` inside a native tab
     // screen already returns the (tabs) navigator, so this dispatches to the

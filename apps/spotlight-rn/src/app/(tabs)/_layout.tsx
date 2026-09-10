@@ -182,7 +182,7 @@ export default function TabsLayout() {
       /*
         Material's default is LABEL_VISIBILITY_AUTO, which shows labels only
         while there are THREE OR FEWER tabs and drops them at four or more.
-        We have exactly four (Home/Scan/Wishlist/You), so Android silently
+        We have exactly four (Home/Scan/Wishlist/Social), so Android silently
         landed on the wrong side of that threshold and showed bare icons while
         iOS showed labels. Pin it rather than sit one tab away from a
         behaviour change.
@@ -193,11 +193,13 @@ export default function TabsLayout() {
       tintColor={colors.gray900}
     >
       {/*
-        Home / Scan / Wishlist / You, in that order.
+        Home / Scan / Wishlist / Social, in that order.
 
-        `index` is the FEED now, not Collection — the app's landing surface is
-        social. Collection moved to `you` and kept its screen unchanged; the
-        legacy `/portfolio` path redirects there so old links still resolve.
+        `index` is COLLECTION — the app opens on your own cards. The feed had
+        this slot for a while under the name Home; it moved to `social`, last in
+        the bar, and the two screens swapped routes without either being
+        rewritten. `/you` and `/portfolio` both redirect to `/` so old links and
+        deep links still land on the collection.
 
         ─────────────────────────────────────────────────────────────────────
         THE FIGMA VECTORS ARE THE SOURCE OF TRUTH FOR THESE GLYPHS.
@@ -313,12 +315,16 @@ export default function TabsLayout() {
         />
         <Label>Wishlist</Label>
       </Trigger>
-      <Trigger name="you">
+      <Trigger name="social">
         {/*
-          Your own face, once there is one to draw. `renderingMode="original"` is
-          not optional: `tintColor` above configures an icon colour, which makes
-          expo-router default images to `template` — and a templated photograph
-          is a flat silhouette in the tint colour, not a portrait.
+          Your own face, once there is one to draw. The avatar stayed on this
+          tab when it stopped being You and became Social — that was a call, not
+          an oversight: the feed is where your posts and your name live.
+
+          `renderingMode="original"` is not optional: `tintColor` above
+          configures an icon colour, which makes expo-router default images to
+          `template` — and a templated photograph is a flat silhouette in the
+          tint colour, not a portrait.
 
           `sf` and `src` are mutually exclusive here rather than a pair, because
           iOS resolves them in the order `sf` > `xcasset` > `src`; passing both
@@ -329,7 +335,7 @@ export default function TabsLayout() {
         {/*
           ANDROID GETS THE GLYPH, NOT THE PHOTO — AND THIS IS NOT A GATE THAT
           CAN JUST BE DELETED. Re-checked 2026-08-09 against the installed
-          source; pinned by `__tests__/routes/tabs-layout-you-avatar-test.tsx`.
+          source; pinned by `__tests__/routes/tabs-layout-social-avatar-test.tsx`.
 
           `renderingMode="original"` is a UIKit concept (UIImage.RenderingMode)
           with no Android counterpart, and Android's whole icon pipeline here is
@@ -366,7 +372,7 @@ export default function TabsLayout() {
         ) : (
           <Icon md="account_circle" sf={{ default: 'person.crop.circle', selected: 'person.crop.circle.fill' }} />
         )}
-        <Label>You</Label>
+        <Label>Social</Label>
       </Trigger>
     </NativeTabs>
     </NativeTabScreenProvider>

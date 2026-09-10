@@ -64,7 +64,7 @@
       "screenName": "Portfolio",
       "componentPaths": [
         "apps/spotlight-rn/src/features/portfolio/screens/portfolio-screen.tsx",
-        "apps/spotlight-rn/src/app/(tabs)/you.tsx"
+        "apps/spotlight-rn/src/app/(tabs)/index.tsx"
       ],
       "deepLink": "spotlight://dev/portfolio",
       "mockData": "apps/spotlight-rn/src/dev/dev-repository.ts",
@@ -83,19 +83,19 @@
       "notes": "Already deterministic (renders tokens/primitives with inline samples); no dev route needed."
     },
     {
-      "figmaNodeId": "4299:95117",
-      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=4299-95117",
+      "figmaNodeId": "5085:15398",
+      "figmaUrl": "https://www.figma.com/design/XRUD89H31ESUrvf9fGMtjW/Spotlight-App?node-id=5085-15398",
       "screenName": "Feed",
       "componentPaths": [
         "apps/spotlight-rn/src/features/social/screens/feed-screen.tsx",
-        "apps/spotlight-rn/src/app/(tabs)/index.tsx",
+        "apps/spotlight-rn/src/app/(tabs)/social.tsx",
         "apps/spotlight-rn/src/features/social/components/post-card.tsx",
         "apps/spotlight-rn/src/features/social/components/repost-attribution.tsx",
         "apps/spotlight-rn/src/components/home-header.tsx"
       ],
       "deepLink": "spotlight://dev/feed",
       "mockData": "apps/spotlight-rn/src/dev/dev-feed-data.ts",
-      "notes": "CONFIRMED 2026-08-19: 4299:95117 = current resting Home (icon-only purple Ekalight mark). 4299:94902 = same design with the full wordmark (logo-form alternate, not a state). 4037:15535 stale. Frame text line-heights are Auto/intrinsic — token line heights are NOT mismatches. Post photos are mock content; crop 3:4 image regions and the bottom 95pt (no tab bar in dev route). Logo intro (mp4 handoff, node 4299:94915): wordmark holds 1.5s then letters wipe right-to-left to the resting mark — EkalightLogoIntro, once per app launch, Reduce Motion renders mark only; screenshots of the resting state only (crop or relaunch-and-wait for deterministic diffs).",
+      "notes": "CURRENT 2026-09-10: 5085:15398 (Home with Top Trends). Supersedes 4299:95117 for spacing — the post rhythm changed from a flat 10 to header→body 8 / body→image 8 / image→metrics 10, and the band seams from 12/12 to content-bottom 10 / band 4 / next-content 8. NOT BUILT from this frame: the carousel pagination dots under the rail (5085:15541, replacing our game caption above it) and the per-post Follow button (5085:15452). Frame text line-heights are Auto/intrinsic — token line heights are NOT mismatches. Post photos are mock content; crop 3:4 image regions and the bottom 95pt (no tab bar in dev route). 4299:94902 = wordmark logo-form alternate; 4037:15535 stale.",
       "states": [
         {
           "name": "resting",
@@ -142,11 +142,12 @@
       "screenName": "Scanner",
       "componentPaths": [
         "apps/spotlight-rn/src/features/scanner/screens/scanner-screen.tsx",
+        "apps/spotlight-rn/src/features/scanner/raw-scanner-capture-surface.tsx",
         "apps/spotlight-rn/src/app/(tabs)/scan.tsx"
       ],
       "deepLink": "TODO(dev route)",
       "mockData": null,
-      "notes": "Live camera feed — not pixel-reproducible. A dev route would need shouldMountCamera=false and would only verify overlay chrome. 'Scan-1' in the 'Scan' section. Scan-0 (pre-scan) alternate: 1041:4238."
+      "notes": "Live camera feed — not pixel-reproducible. A dev route would need shouldMountCamera=false and would only verify overlay chrome. 'Scan-1' in the 'Scan' section. Scan-0 (pre-scan) alternate: 1041:4238. RETICLE 2026-09-09: one closed rounded outline at both scales — 1px Color/purple/200, radius 12 (5085:15171); the four corner brackets are gone. The binder page's interior thirds lines are drawn in the SAME Color/purple/200 1px as the frame — Figma draws them Color/purple/50 (5085:15377 vertical, 5085:15380 horizontal) and we depart: that value is near-white and vanishes over a live viewfinder, and it left the frame dominant with the 3x3 reading as a faint hint (the corner-bracket era it replaced drew a 2pt purple300 grid). Figma's 40% white fill inside the frame is intentionally not drawn — it scrims the live viewfinder."
     },
     {
       "figmaNodeId": "TODO",

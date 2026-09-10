@@ -14,9 +14,9 @@ describe('last active tab', () => {
     expect(returnableTabFromPathname('/')).toBe('index');
     expect(returnableTabFromPathname('')).toBe('index');
     expect(returnableTabFromPathname('/wishlist')).toBe('wishlist');
-    expect(returnableTabFromPathname('/you')).toBe('you');
+    expect(returnableTabFromPathname('/social')).toBe('social');
     // Trailing slashes and query strings are the same tab.
-    expect(returnableTabFromPathname('/you/')).toBe('you');
+    expect(returnableTabFromPathname('/social/')).toBe('social');
     expect(returnableTabFromPathname('/wishlist?filter=all')).toBe('wishlist');
   });
 
@@ -26,9 +26,9 @@ describe('last active tab', () => {
   it('does not treat the Scanner as somewhere to go back to', () => {
     expect(returnableTabFromPathname('/scan')).toBeNull();
 
-    rememberActiveTab('/you');
+    rememberActiveTab('/social');
     rememberActiveTab('/scan');
-    expect(getLastActiveTab()).toBe('you');
+    expect(getLastActiveTab()).toBe('social');
   });
 
   it('ignores pushed routes, so a detour does not become the destination', () => {
@@ -48,8 +48,8 @@ describe('last active tab', () => {
   it('follows the most recent tab', () => {
     rememberActiveTab('/');
     expect(getLastActiveTab()).toBe('index');
-    rememberActiveTab('/you');
-    expect(getLastActiveTab()).toBe('you');
+    rememberActiveTab('/social');
+    expect(getLastActiveTab()).toBe('social');
     rememberActiveTab('/wishlist');
     expect(getLastActiveTab()).toBe('wishlist');
   });

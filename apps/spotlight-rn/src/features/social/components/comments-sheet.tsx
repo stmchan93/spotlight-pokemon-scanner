@@ -2061,11 +2061,12 @@ export function CommentsSheet({
       const openAuthorProfile = () => {
         // Closing FIRST in both branches: this sheet is a `Modal`, and routing
         // underneath one leaves it presented over wherever you just landed.
-        // Tapping YOURSELF goes to the You tab rather than a read-only public
-        // copy of your own profile — same rule as the post card.
+        // Tapping YOURSELF goes to the Home tab — your own collection — rather
+        // than a read-only public copy of your own profile. Same rule as the
+        // post card.
         if (currentUser?.id && comment.authorId === currentUser.id) {
           onClose();
-          router.navigate('/you' as never);
+          router.navigate('/' as never);
           return;
         }
         if (authorLink) {
