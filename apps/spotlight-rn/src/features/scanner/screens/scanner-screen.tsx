@@ -239,6 +239,7 @@ function buildInventoryEntryArgs(
   addedAt: string,
   conditionCode: DeckConditionCode,
   collectionID: string,
+  rawVariantLabel: string | null,
 ): InventoryEntryCreateRequestPayload {
   return {
     addedAt,
@@ -252,7 +253,14 @@ function buildInventoryEntryArgs(
     selectionSource: capture.activeCandidateIndex === 0 ? 'top' : 'alternate',
     slabContext: capture.slabContext,
     sourceScanID: capture.scanID ?? null,
-    variantName: capture.slabContext?.variantName ?? null,
+    // The PRINTING the row shows — the same field the PDP sends. The backend
+    // merges holdings on card + printing + condition + grade, so a tray add
+    // that omitted it could never merge with a PDP add of the same printing:
+    // one Maui landed as "Normal" and the other as blank, two rows for one
+    // card (2026-09-10). Slabs keep taking it from their slab context.
+    variantName: capture.mode === 'slabs'
+      ? capture.slabContext?.variantName ?? null
+      : rawVariantLabel,
     wasTopPrediction: capture.activeCandidateIndex === 0,
   };
 }
@@ -1148,6 +1156,22 @@ export function ScannerScreen({
       schedulePersist(recentCaptures, priceSelection);
     }
   }, [priceSelection, recentCaptures]);
+
+  // What the row SHOWS as its printing: the user's pick, else the first
+  // printing (which is what the pill names and what the price already uses).
+  // Writes have to agree with the row or the collection gets a holding whose
+  // printing is blank while the row claimed one.
+  const rawVariantLabelFor = useCallback(
+    (capture: RecentCapture, candidate: CatalogSearchResult | null): string | null => {
+      const picked = priceSelectionRef.current.get(capture.id)?.variantLabel;
+      if (picked) {
+        return picked;
+      }
+      const list = candidate ? variantsRef.current.get(candidate.cardId) : null;
+      return list?.[0]?.variant ?? null;
+    },
+    [],
+  );
 
   // Flush the live tray on unmount so navigating away (which tears this screen
   // down) persists the most recent state. We pass the current tray explicitly:
@@ -3367,7 +3391,14 @@ export function ScannerScreen({
       trackCandidateSelectionIfNeeded(capture);
       const selectedCondition: DeckConditionCode = priceSelection.get(capture.id)?.conditionCode ?? 'near_mint';
       const createResponse = await spotlightRepository.createInventoryEntry(
-        buildInventoryEntryArgs(capture, activeCandidate, addedAt, selectedCondition, activeCollectionID),
+        buildInventoryEntryArgs(
+          capture,
+          activeCandidate,
+          addedAt,
+          selectedCondition,
+          activeCollectionID,
+          rawVariantLabelFor(capture, activeCandidate),
+        ),
       );
       capturePostHogEvent('scan_inventory_add_succeeded', {
         mode: capture.mode,
@@ -3432,7 +3463,7 @@ export function ScannerScreen({
         recentlyAddedTimersRef.current.set(captureId, timerId);
       }
     }
-  }, [activeCollectionID, prependOptimisticInventoryEntry, priceSelection, recentCaptures, refreshData, removeCaptureAfterAdd, spotlightRepository, trackCandidateSelectionIfNeeded]);
+  }, [activeCollectionID, rawVariantLabelFor, prependOptimisticInventoryEntry, priceSelection, recentCaptures, refreshData, removeCaptureAfterAdd, spotlightRepository, trackCandidateSelectionIfNeeded]);
 
   // Stable wrapper for the swipe row's "Collection" action so React.memo doesn't
   // re-render every row when handleAddToInventory re-creates on recentCaptures
@@ -3527,7 +3558,14 @@ export function ScannerScreen({
           const addedAt = new Date().toISOString();
           const condition: DeckConditionCode = priceSelection.get(capture.id)?.conditionCode ?? 'near_mint';
           const createResponse = await spotlightRepository.createInventoryEntry(
-            buildInventoryEntryArgs(capture, candidate, addedAt, condition, activeCollectionID),
+            buildInventoryEntryArgs(
+              capture,
+              candidate,
+              addedAt,
+              condition,
+              activeCollectionID,
+              rawVariantLabelFor(capture, candidate),
+            ),
           );
           prependOptimisticInventoryEntry(
             buildOptimisticInventoryEntry(
@@ -3550,6 +3588,7 @@ export function ScannerScreen({
       refreshData();
     })();
   }, [
+    rawVariantLabelFor,
     activeCollectionID,
     performClearAllCaptures,
     priceSelection,
@@ -3599,7 +3638,14 @@ export function ScannerScreen({
       };
       const entryArgs = (capture: RecentCapture, candidate: CatalogSearchResult) => {
         const condition: DeckConditionCode = priceSelection.get(capture.id)?.conditionCode ?? 'near_mint';
-        return buildInventoryEntryArgs(capture, candidate, addedAt, condition, activeCollectionID);
+        return buildInventoryEntryArgs(
+          capture,
+          candidate,
+          addedAt,
+          condition,
+          activeCollectionID,
+          rawVariantLabelFor(capture, candidate),
+        );
       };
       // Older-backend fallback: the original per-entry creates, 3 in flight.
       const runPerEntryFallback = async () => {
@@ -3658,6 +3704,7 @@ export function ScannerScreen({
       refreshData();
     })();
   }, [
+    rawVariantLabelFor,
     activeCollectionID,
     isAddingBinderPage,
     priceSelection,
@@ -3698,6 +3745,7 @@ export function ScannerScreen({
       : trayPriceSummary),
     [discountPercent, trayPriceSummary],
   );
+
 
   const handleOpenDiscountMenu = useCallback(() => {
     setDiscountMenuOpen(true);

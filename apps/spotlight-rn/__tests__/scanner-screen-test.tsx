@@ -983,6 +983,80 @@ describe('ScannerScreen', () => {
     });
   });
 
+  // The tray used to write a holding with NO printing while the row named one,
+  // so a scan could never merge with the same printing added from the card
+  // page — one Maui landed as "Normal", the other blank, two rows for one card.
+  it('writes the printing the row shows when a scan is added', async () => {
+    const addPayloads: any[] = [];
+    const spotlightRepository = createTestSpotlightRepository({
+      createInventoryEntry: async (payload: any) => {
+        addPayloads.push(payload);
+        return {
+          deckEntryID: 'entry-1',
+          cardID: payload.cardID,
+          variantName: payload.variantName ?? null,
+          condition: payload.condition,
+          confirmationID: 'confirmation-1',
+          sourceScanID: payload.sourceScanID,
+          addedAt: payload.addedAt,
+        };
+      },
+      matchScannerCapture: async () => ({
+        scanID: 'scan-maui',
+        candidates: [{
+          id: 'maui-candidate',
+          cardId: 'lorcana~FBL-106',
+          name: 'Maui',
+          cardNumber: '106/204',
+          setName: 'Fabled',
+          imageUrl: 'https://cdn.spotlight.test/maui.png',
+          marketPrice: 12,
+          currencyCode: 'USD',
+        }],
+      }),
+      getRawPricingMatrix: async () => ({
+        cardID: 'lorcana~FBL-106',
+        currencyCode: 'USD',
+        variants: [
+          {
+            variant: 'Normal',
+            variantKey: 'normal',
+            conditions: [{ code: 'NM', label: 'Near Mint', market: 12, low: null, mid: null, high: null }],
+          },
+          {
+            variant: 'Cold Foil',
+            variantKey: 'coldFoil',
+            conditions: [{ code: 'NM', label: 'Near Mint', market: 40, low: null, mid: null, high: null }],
+          },
+        ],
+      }),
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+    expect(await screen.findByText('Maui')).toBeTruthy();
+
+    // Untouched row: the write carries the printing the pill names.
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-printing-0-label').props.children).toBe('Normal');
+    });
+    fireEvent.press(screen.getByTestId('scanner-tray-add-0'), {
+      nativeEvent: { pageX: 180, pageY: 640 },
+      currentTarget: {
+        measureInWindow: (cb: (x: number, y: number, w: number, h: number) => void) =>
+          cb(0, 0, 0, 0),
+      },
+    });
+    fireEvent.press(await screen.findByTestId('scanner-row-add-menu-collection'));
+
+    await waitFor(() => {
+      expect(addPayloads).toHaveLength(1);
+    });
+    expect(addPayloads[0].variantName).toBe('Normal');
+  });
+
   const froakieAddAllRepository = (
     favoritePayloads: { cardId: string; isFavorite: boolean }[],
   ) => createTestSpotlightRepository({
