@@ -597,7 +597,7 @@ export function RawScannerCaptureSurface({
 
 
       <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
-        {isTrayExpanded ? null : (
+        {isTrayExpanded || !prompt ? null : (
           <Text style={[styles.scanPrompt, { top: layout.promptTop }]} testID={`${testIDPrefix}-prompt`}>
             {prompt}
           </Text>

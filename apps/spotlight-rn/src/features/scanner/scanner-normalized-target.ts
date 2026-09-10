@@ -184,7 +184,7 @@ export type BinderPageLayout = {
   columns: number;
   rows: number;
   cropRotationDegrees: 0 | 90;
-  /** Framing hint shown in place of "Tap to scan" while this layout is armed. */
+  /** Framing hint shown on the viewfinder while this layout is armed. */
   hint: string | null;
 };
 

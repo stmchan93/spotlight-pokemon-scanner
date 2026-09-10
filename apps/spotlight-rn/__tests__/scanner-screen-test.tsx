@@ -339,10 +339,8 @@ describe('ScannerScreen', () => {
   it('captures a scan photo when the preview is tapped', async () => {
     renderScannerScreen();
 
-    expect(StyleSheet.flatten(screen.getByTestId('scanner-prompt').props.style)).toMatchObject({
-      fontSize: 16,
-      lineHeight: 21.6,
-    });
+    // No idle prompt over the viewfinder: the reticle carries the instruction.
+    expect(screen.queryByTestId('scanner-prompt')).toBeNull();
 
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
