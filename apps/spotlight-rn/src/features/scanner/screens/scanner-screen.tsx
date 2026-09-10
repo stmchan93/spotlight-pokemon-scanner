@@ -5210,11 +5210,13 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   captureChangeChip: {
-    // Figma 5085:10671 — CHANGE reads as an action, so it takes the scanner's
-    // purple action fill with a white label, not the brown condition-pill tone.
+    // Recessive dark gray, not the scanner's purple action fill: the row's
+    // purple now belongs to the printing link and the ADD pill, and CHANGE is
+    // the rarer path — the printing that used to send people to the change
+    // screen is editable in the row itself. White on gray800 still clears AA.
     alignItems: 'center',
     alignSelf: 'stretch',
-    backgroundColor: colors.scannerAddPurple,
+    backgroundColor: colors.gray800,
     borderCurve: 'continuous',
     borderRadius: 4,
     height: 18,
