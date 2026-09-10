@@ -705,14 +705,15 @@ describe('CardDetailScreen', () => {
     // this link removed the first time.
     expect(screen.getByTestId('detail-recent-sales-see-more')).toBeTruthy();
 
-    // The accordion chevron points DOWN while open, UP once collapsed.
-    expect(screen.getByTestId('detail-price-trends-row-PSA 10-chevron-open')).toBeTruthy();
+    // The accordion chevron points DOWN while open, UP once collapsed. (The
+    // Tabler icon repeats its testID on its SVG children, hence *All.)
+    expect(screen.getAllByTestId('detail-price-trends-row-PSA 10-chevron-open').length).toBeGreaterThan(0);
 
     // Second tap on the row collapses the accordion.
     fireEvent.press(screen.getByTestId('detail-price-trends-row-PSA 10'));
     expect(screen.queryByTestId('detail-recent-sales')).toBeNull();
-    expect(screen.getByTestId('detail-price-trends-row-PSA 10-chevron-closed')).toBeTruthy();
-    expect(screen.queryByTestId('detail-price-trends-row-PSA 10-chevron-open')).toBeNull();
+    expect(screen.getAllByTestId('detail-price-trends-row-PSA 10-chevron-closed').length).toBeGreaterThan(0);
+    expect(screen.queryAllByTestId('detail-price-trends-row-PSA 10-chevron-open')).toHaveLength(0);
 
     // Re-expand: served from the per-row cache — no second fetch.
     fireEvent.press(screen.getByTestId('detail-price-trends-row-PSA 10'));
