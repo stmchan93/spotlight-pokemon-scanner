@@ -653,10 +653,12 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                     </Text>
                   ) : null}
                   {showPrintingPicker ? (
-                    // The printing the price assumes, filled purple so it reads
-                    // as the answer the scan chose. Tapping opens the list of
-                    // this card's other printings; picking one reprices the
-                    // row, the tray TOTAL and what gets added.
+                    // The printing the price assumes, as a purple text link
+                    // rather than a filled pill — a tray row already carries
+                    // the CHANGE and ADD chips, and a third filled shape read
+                    // as another button. Tapping opens the list of this card's
+                    // other printings; picking one reprices the row, the tray
+                    // TOTAL and what gets added.
                     <ArenaPressable
                       accessibilityHint="Opens this card's other printings"
                       accessibilityLabel={`Printing: ${activeVariantLabel ?? 'Default'}`}
@@ -699,7 +701,7 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                       >
                         {activeVariantLabel ?? 'Default'}
                       </Text>
-                      <IconChevronDown color={colors.gray0} size={14} strokeWidth={2.2} />
+                      <IconChevronDown color={colors.purple500} size={14} strokeWidth={2.2} />
                     </ArenaPressable>
                   ) : modeTagLine ? (
                     <Text numberOfLines={1} style={styles.captureSubtitle}>
@@ -4168,6 +4170,7 @@ export function ScannerScreen({
         canCapture={canCapture}
         captureResolution={isBinderPageMode ? 'page' : 'card'}
         hasCameraPermission={hasCameraPermission}
+        pageGrid={isBinderPageMode ? binderPageLayout : null}
         isTrayExpanded={isTrayExpanded}
         layout={captureSurfaceLayout}
         reticleLockProgress={reticleLockProgress}
@@ -4961,18 +4964,6 @@ const styles = StyleSheet.create({
     right: 0,
     zIndex: 5,
   },
-  /*
-    The interior thirds lines (Figma 5085:15377 vertical / 5085:15380
-    horizontal): a 1px `Color/purple/50` hairline, one step paler than the
-    `purple200` outline around the page. The two are deliberately different —
-    the outline is the frame you aim, the grid is only a seating guide, so it
-    must not compete with the edge or with the cards behind it.
-  */
-  binderGridLine: {
-    backgroundColor: colors.purple50,
-    position: 'absolute',
-    zIndex: 3,
-  },
   // POC chrome (dev builds only) — the UX pass owns the real treatment.
   binderPageHeader: {
     alignItems: 'center',
@@ -5182,28 +5173,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 6,
   },
-  // The printing pill stands where the "RAW" tag was: filled purple with a
-  // white label, so the printing the price assumes reads as a decision the
-  // user can change rather than a passive tag.
+  // The printing stands where the "RAW" tag was, as a purple text link with a
+  // chevron: it names the printing the price assumes and reads as tappable
+  // without adding a third filled shape to a row that already has CHANGE and
+  // ADD. No container, so it keeps the subtitle's left edge.
   capturePrintingPill: {
     alignItems: 'center',
     alignSelf: 'flex-start',
-    backgroundColor: colors.purple500,
-    borderCurve: 'continuous',
-    borderRadius: radii.pill,
     flexDirection: 'row',
-    gap: 4,
+    gap: 2,
     marginTop: 2,
     maxWidth: 200,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 2,
   },
   capturePrintingPillPressed: {
-    opacity: 0.7,
+    opacity: 0.6,
   },
   capturePrintingLabel: {
     ...textStyles.labelStrong,
-    color: colors.gray0,
+    color: colors.purple500,
     flexShrink: 1,
     fontSize: 12,
   },
