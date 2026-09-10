@@ -6022,12 +6022,20 @@ _PORTFOLIO_CELL_COLUMNS = (
 )
 
 
+# Every lane that is NOT a graded price. A holding with no grader never reads a
+# graded cell, and graded cells are over half the table (25.3M of 45.2M on
+# staging), so telling the query that is the difference between reading them and
+# throwing them away in Python.
+_RAW_CELL_LANES = ("raw", "raw_main")
+
+
 def price_history_cell_portfolio_rows_by_card_date(
     connection: sqlite3.Connection,
     *,
     provider: str,
     card_ids: Iterable[str],
     price_dates: Iterable[str],
+    graded_card_ids: Iterable[str] | None = None,
 ) -> dict[str, dict[str, list[Any]]]:
     """Batched, projected cell read for the portfolio dashboard's range-scoped
     prefetch. Replaces the per-card N+1 (``price_history_cell_rows_by_date`` called
@@ -6036,7 +6044,25 @@ def price_history_cell_portfolio_rows_by_card_date(
     queries served by the ``(card_id, price_date, cell_key)`` unique index. Daily
     snapshot dates are shared across cards, so the union of needed dates is small.
     Returns ``{card_id: {price_date: [rows]}}`` — the same shape the resolver
-    consumes — projected to ``_PORTFOLIO_CELL_COLUMNS``."""
+    consumes — projected to ``_PORTFOLIO_CELL_COLUMNS``.
+
+    ``graded_card_ids`` names the cards that actually have a GRADED holding. Every
+    other card is read with ``lane IN (raw, raw_main)``: a raw holding never looks
+    at a graded cell, and pulling them anyway dominated this read. Measured on
+    staging for a 192-holding owner (180 raw cards, 8 slabs), one year of dates:
+    428,739 rows in 2,979ms unfiltered versus 142,423 rows in 944ms split by
+    lane. Omit it and every card is read on every lane, which is the old
+    behaviour.
+
+    Writer order is restored PER BUCKET in Python, not by an ``ORDER BY``. The
+    single-day readers sort with ``ORDER BY +rowid`` (e824f159) because a plain
+    ``ORDER BY rowid`` made the planner scan the date-only index; the unary plus
+    bars that at the cost of a temp B-tree, which is free on ~40 rows. This
+    reader is the opposite shape — a whole year of dates for every owned card —
+    and that temp B-tree sorts the ENTIRE result: measured on staging for a
+    192-holding owner, 23.6s with the ORDER BY and 4.2s without, which was most
+    of a ~25s Insights cold load. The buckets it sorts instead hold a handful of
+    cells each, so the order is identical and the sort is free."""
     if not _table_exists(connection, "card_price_history_cell"):
         return {}
     ids = [str(c) for c in card_ids if str(c or "").strip()]
@@ -6044,26 +6070,48 @@ def price_history_cell_portfolio_rows_by_card_date(
     result: dict[str, dict[str, list[Any]]] = {}
     if not ids or not dates:
         return result
+    # None = caller can't say which cards are graded, so read every lane.
+    if graded_card_ids is None:
+        id_groups: list[tuple[list[str], tuple[str, ...] | None]] = [(ids, None)]
+    else:
+        graded = {str(c) for c in graded_card_ids if str(c or "").strip()}
+        id_groups = [
+            ([cid for cid in ids if cid in graded], None),
+            ([cid for cid in ids if cid not in graded], _RAW_CELL_LANES),
+        ]
     for date_start in range(0, len(dates), 400):
         date_chunk = dates[date_start : date_start + 400]
         date_placeholders = ",".join("?" for _ in date_chunk)
-        for id_start in range(0, len(ids), 400):
-            id_chunk = ids[id_start : id_start + 400]
-            id_placeholders = ",".join("?" for _ in id_chunk)
-            rows = connection.execute(
-                f"""
-                SELECT {_PORTFOLIO_CELL_COLUMNS} FROM card_price_history_cell
-                WHERE provider = ?
-                  AND card_id IN ({id_placeholders})
-                  AND price_date IN ({date_placeholders})
-                ORDER BY +rowid
-                """,
-                (provider, *id_chunk, *date_chunk),
-            ).fetchall()
-            for row in rows:
-                card_id = str(_cell_field(row, "card_id"))
-                price_date = str(_cell_field(row, "price_date"))
-                result.setdefault(card_id, {}).setdefault(price_date, []).append(row)
+        for group_ids, lanes in id_groups:
+            if not group_ids:
+                continue
+            lane_clause = ""
+            lane_params: tuple[str, ...] = ()
+            if lanes:
+                lane_clause = f" AND lane IN ({','.join('?' for _ in lanes)})"
+                lane_params = lanes
+            for id_start in range(0, len(group_ids), 400):
+                id_chunk = group_ids[id_start : id_start + 400]
+                id_placeholders = ",".join("?" for _ in id_chunk)
+                rows = connection.execute(
+                    f"""
+                    SELECT rowid AS cell_rowid, {_PORTFOLIO_CELL_COLUMNS}
+                    FROM card_price_history_cell
+                    WHERE provider = ?
+                      AND card_id IN ({id_placeholders})
+                      AND price_date IN ({date_placeholders})
+                      {lane_clause}
+                    """,
+                    (provider, *id_chunk, *date_chunk, *lane_params),
+                ).fetchall()
+                for row in rows:
+                    card_id = str(_cell_field(row, "card_id"))
+                    price_date = str(_cell_field(row, "price_date"))
+                    result.setdefault(card_id, {}).setdefault(price_date, []).append(row)
+    # Writer order, restored per bucket — see the docstring for why not in SQL.
+    for by_date in result.values():
+        for bucket in by_date.values():
+            bucket.sort(key=lambda row: _cell_field(row, "cell_rowid") or 0)
     return result
 
 
@@ -6708,11 +6756,21 @@ def price_history_rows_for_cards_batched(
         needed_dates = sorted(
             {str(row["price_date"]) for card_rows in daily_by_card.values() for row in card_rows}
         )
+        # Only cards with a graded holding need the graded lane read.
+        graded_card_ids = {
+            str(req["card_id"] or "").strip()
+            for req in requests
+            if (
+                req.get("pricing_mode")
+                or (PSA_GRADE_PRICING_MODE if req.get("grader") or req.get("grade") else RAW_PRICING_MODE)
+            ) == PSA_GRADE_PRICING_MODE
+        }
         cells_by_card_date = price_history_cell_portfolio_rows_by_card_date(
             connection,
             provider=provider,
             card_ids=daily_by_card.keys(),
             price_dates=needed_dates,
+            graded_card_ids=graded_card_ids,
         )
 
     results: dict[Any, list[dict[str, Any]]] = {}

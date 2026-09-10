@@ -28,6 +28,7 @@ TEST_MODULES=(
   backend.tests.test_ebay_comps
   backend.tests.test_portfolio_imports
   backend.tests.test_portfolio_history_live_newest_day
+  backend.tests.test_portfolio_cell_lane_scope
   backend.tests.test_sync_scrydex_catalog
   backend.tests.test_raw_visual_index
   backend.tests.test_raw_visual_model

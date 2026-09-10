@@ -5991,6 +5991,7 @@ class SpotlightScanService:
         *,
         start_date: date,
         end_date: date,
+        graded_card_ids: set[str] | None = None,
     ) -> dict[str, dict[str, list[Any]]] | None:
         """Bulk-prefetch the price-history cells the series resolver will touch for
         THIS range only, so a single range (the dashboard's open range, or an
@@ -5998,7 +5999,12 @@ class SpotlightScanService:
         history. The dates the resolver actually hits for [start, end] are the
         daily-row dates inside the window PLUS the one carry-in row just before the
         window (it prices the range's early days). Returns None in JSON mode so the
-        resolver keeps its per-day-query fallback."""
+        resolver keeps its per-day-query fallback.
+
+        ``graded_card_ids`` names the cards with a GRADED holding; every other card
+        is read on the raw lanes only. Graded cells are over half the cell table,
+        and a chart of raw holdings never reads one — see
+        `price_history_cell_portfolio_rows_by_card_date`."""
         if not price_history_cells_enabled():
             return None
         start_iso = start_date.isoformat()
@@ -6033,6 +6039,7 @@ class SpotlightScanService:
             provider=pricing_provider(),
             card_ids=needed_by_card.keys(),
             price_dates=all_dates,
+            graded_card_ids=graded_card_ids,
         )
         # Re-scope each card to its OWN needed dates so the output is identical to the
         # per-card read (extra union dates a card may carry are never looked up anyway).
@@ -6321,8 +6328,20 @@ class SpotlightScanService:
         # Bulk-prefetch ONLY this range's cells (window + carry-in) so a single
         # range loads ~range-window days of cells, not all of history. None in JSON
         # mode → the resolver falls back to its per-day query.
+        # Only the cards actually held as slabs need the graded lane read.
+        graded_card_ids = {
+            str(snapshot.get("cardID") or "").strip()
+            for snapshot in snapshot_by_id.values()
+            if snapshot.get("grader")
+            or snapshot.get("grade")
+            or str(snapshot.get("itemKind") or "").strip().lower() == "slab"
+        }
+        graded_card_ids.discard("")
         cells_by_card_date = self._range_scoped_cells_by_card_date(
-            history_rows_by_card_id, start_date=start_date, end_date=end_date
+            history_rows_by_card_id,
+            start_date=start_date,
+            end_date=end_date,
+            graded_card_ids=graded_card_ids,
         )
         price_series_by_context: dict[tuple[str, str, str, str, str, str], list[dict[str, Any] | None]] = {}
         for deck_entry_id, snapshot in snapshot_by_id.items():
