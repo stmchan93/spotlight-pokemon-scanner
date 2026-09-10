@@ -695,13 +695,23 @@ def _binder_layout_from_payload(payload: dict[str, Any]) -> tuple[int, int, int]
 
 
 # Empty-pocket gate for binder pages. Mean |Laplacian| of the pocket crop
-# downscaled to 96×134 grayscale. Calibrated 2026-09-09 on 184 real card crops
-# (min 5.6, median 19.7) vs synthetic empties — flat white/black, gray noise,
-# sleeve glare gradients, white page with a shadow (all ≤ 2.5). Contrast alone
-# does NOT separate them (a glare gradient has high std-dev), edge energy does.
-# Conservative on purpose: skipping a real card is the failure to avoid, so
-# only clearly flat pockets are called empty; borderline ones go to the matcher.
-BINDER_EMPTY_POCKET_EDGE_ENERGY_MAX = 3.0
+# downscaled to 96×134 grayscale. Contrast alone does NOT separate a card from
+# an empty sleeve (a glare gradient has high std-dev); edge energy does.
+#
+# Calibration: 184 real card crops score 5.6–90 (median 19.7); synthetic
+# empties ≤ 2.5. The first REAL empty sleeve (2026-09-10, staging) scored
+# 5.7 / 6.0 while the eight cards on the same page scored 17–29 — sleeve
+# texture, page rings and 4K JPEG grain carry more energy than a synthetic
+# flat. So two rules, both required unless the crop is essentially flat:
+#   - absolute: below BINDER_EMPTY_POCKET_EDGE_ENERGY_MAX (8.0), and
+#   - relative: below BINDER_EMPTY_POCKET_RELATIVE_MAX × the page's median
+#     energy, so one low-texture card on an otherwise normal page is only
+#     skipped when it is clearly the odd one out, and a page of uniformly
+#     dim crops (bad light) skips nothing.
+# Below BINDER_EMPTY_POCKET_FLAT_MAX the crop is flat and empty regardless.
+BINDER_EMPTY_POCKET_EDGE_ENERGY_MAX = 8.0
+BINDER_EMPTY_POCKET_RELATIVE_MAX = 0.45
+BINDER_EMPTY_POCKET_FLAT_MAX = 3.0
 
 
 def _pocket_edge_energy(pocket_jpeg: bytes) -> float | None:
@@ -730,12 +740,20 @@ def _pocket_edge_energy(pocket_jpeg: bytes) -> float | None:
 
 
 def _binder_empty_pocket_indexes(pockets: list[bytes]) -> tuple[list[int], list[float | None]]:
-    """(indexes of pockets that hold no card, per-pocket edge energies)."""
+    """(indexes of pockets that hold no card, per-pocket edge energies) — see
+    the constants above for the rule."""
     energies = [_pocket_edge_energy(pocket) for pocket in pockets]
+    known = sorted(energy for energy in energies if energy is not None)
+    median = known[len(known) // 2] if known else 0.0
+    relative_max = median * BINDER_EMPTY_POCKET_RELATIVE_MAX
     empty = [
         index
         for index, energy in enumerate(energies)
-        if energy is not None and energy < BINDER_EMPTY_POCKET_EDGE_ENERGY_MAX
+        if energy is not None
+        and (
+            energy < BINDER_EMPTY_POCKET_FLAT_MAX
+            or (energy < BINDER_EMPTY_POCKET_EDGE_ENERGY_MAX and energy < relative_max)
+        )
     ]
     return empty, energies
 

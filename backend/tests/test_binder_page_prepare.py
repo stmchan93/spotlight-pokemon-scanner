@@ -18,7 +18,7 @@ import unittest
 from http import HTTPStatus
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from PIL import Image
 
@@ -248,6 +248,27 @@ class BinderPagePrepareServiceTests(BinderPageStoreTestCase):
         # The store still holds all nine so a stale client asking for an
         # empty pocket gets an image, not an error.
         self.assertEqual(len(server_module._binder_page_store[response["pageToken"]]["pockets"]), 9)
+
+    def test_empty_rule_matches_the_first_real_page(self) -> None:
+        # Energies logged from the first real staging page with one empty
+        # sleeve (2026-09-10): the empty pocket scored ~6 against cards at
+        # 17–29. Below the 8.0 absolute cap AND under 45% of the page median.
+        with patch.object(
+            server_module, "_pocket_edge_energy",
+            side_effect=[18.22, 20.17, 17.17, 22.87, 25.56, 21.57, 21.31, 5.71, 22.22],
+        ):
+            empty, _ = server_module._binder_empty_pocket_indexes([b""] * 9)
+        self.assertEqual(empty, [7])
+
+    def test_empty_rule_keeps_a_dim_card_on_a_uniformly_dim_page(self) -> None:
+        # Every pocket weak (bad light): nothing is under 45% of the median,
+        # so nothing is skipped — only a truly flat crop (< 3) would be.
+        with patch.object(
+            server_module, "_pocket_edge_energy",
+            side_effect=[6.0, 6.5, 7.0, 6.2, 5.9, 7.5, 6.8, 6.1, 2.4],
+        ):
+            empty, _ = server_module._binder_empty_pocket_indexes([b""] * 9)
+        self.assertEqual(empty, [8])
 
     def test_edge_energy_separates_flat_from_textured(self) -> None:
         flat = Image.new("RGB", (630, 880), color=(200, 200, 200))
