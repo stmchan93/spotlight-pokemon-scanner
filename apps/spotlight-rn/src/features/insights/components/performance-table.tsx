@@ -3,7 +3,7 @@ import { FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import type { ListRenderItemInfo, NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 
 import { borderWidths, PriceSparkline, radii, Text, useSpotlightTheme } from '@spotlight/design-system';
-import { deckConditionOptions, type PortfolioPerformanceRow } from '@spotlight/api-client';
+import type { PortfolioPerformanceRow } from '@spotlight/api-client';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { getCardImageUrl } from '@/lib/card-images';
@@ -63,36 +63,15 @@ export function allTimeGainDollar(row: PortfolioPerformanceRow): number | null {
   return row.currentValue - row.costBasisTotal;
 }
 
-// The backend emits `condition` as a deck-condition token (e.g. "near_mint"),
-// not a human label — map it to the shared label ("Near Mint"), falling back to
-// a Title-Cased version of the token if it's unrecognized.
-function humanizeCondition(condition: string): string {
-  const label = deckConditionOptions.find((option) => option.code === condition)?.label;
-  if (label) {
-    return label;
-  }
-  return condition
-    .split(/[_\s]+/)
-    .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
-
 // Subtitle under the card name, on TWO lines: the printing/variant on its own
-// line, then the "type" (grade for graded / condition for raw) with the quantity.
-// (They used to be crammed onto one ` · `-joined line.) When there's no variant
-// the type falls up to the first line so we never render a blank line.
+// line, then the grade (graded rows only) with the quantity. Raw condition is
+// deliberately absent — the printing is what distinguishes the holdings here.
 function rowSubtitleLines(row: PortfolioPerformanceRow): {
   primary: string | null;
   secondary: string | null;
 } {
   const quantity = row.quantity > 1 ? `×${row.quantity}` : null;
-  const typeLabel =
-    row.kind === 'graded'
-      ? row.grade || null
-      : row.condition
-        ? humanizeCondition(row.condition)
-        : null;
+  const typeLabel = row.kind === 'graded' ? row.grade || null : null;
   const variant = row.variantName || null;
   const typeWithQuantity = [typeLabel, quantity].filter(Boolean).join(' · ') || null;
   if (!variant) {

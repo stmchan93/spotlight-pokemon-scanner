@@ -118,9 +118,9 @@ describe('InsightsScreen — performance tracker', () => {
     // % Total (all-time growth vs cost): (300 - 100) / 100 = 200%.
     expect(screen.getByText('200%')).toBeTruthy();
     expect(screen.getAllByText('—').length).toBeGreaterThan(0);
-    // Row subtitle surfaces variant + condition (raw) on SEPARATE lines.
+    // Row subtitle surfaces the printing; raw condition is not shown here.
     expect(screen.getByText('Reverse Holofoil')).toBeTruthy();
-    expect(screen.getByText('Near Mint')).toBeTruthy();
+    expect(screen.queryByText('Near Mint')).toBeNull();
     // Graded Gengar (qty 2) shows its grade + quantity.
     expect(screen.getByText('PSA 10 · ×2')).toBeTruthy();
   });
