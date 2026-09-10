@@ -8,10 +8,10 @@ import { Text, colors, textStyles } from '@spotlight/design-system';
 export const printingChipHeight = 18;
 
 export type PrintingChipProps = {
-  /** e.g. "Holofoil · NM" — see `printingChipLabel`. */
+  /** e.g. "Holofoil" — see `printingChipLabel`. */
   label: string;
   /**
-   * True once the user picked the printing/condition; false while the chip
+   * True once the user picked the printing; false while the chip
    * shows the catalog DEFAULT the price is based on. A guess renders muted
    * (gray-600) so it reads as a guess; a choice renders gray-900.
    */
@@ -28,7 +28,7 @@ export type PrintingChipProps = {
 };
 
 /**
- * The printing + condition the shown price assumes, one tap from the price
+ * The printing the shown price assumes, one tap from the price
  * sheet. Reads "Holofoil · NM" (chosen) or "Default · NM" (the catalog's own
  * default, unconfirmed). Kept the height of its sibling row chips so it adds
  * no row height to the windowed tray.
@@ -45,7 +45,7 @@ export function PrintingChip({
   const color = confirmed ? colors.gray900 : colors.gray600;
   return (
     <Touchable
-      accessibilityLabel={accessibilityLabel ?? `Printing and condition: ${label}. Change`}
+      accessibilityLabel={accessibilityLabel ?? `Printing: ${label}. Change`}
       accessibilityRole="button"
       accessibilityState={{ selected: confirmed }}
       hitSlop={6}

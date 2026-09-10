@@ -17,7 +17,7 @@ import { createTestSpotlightRepository, renderWithProviders } from './test-utils
 
 /*
   Binder page review as a BATCH EDITOR. The #2 wish across ~2,100 competitor
-  reviews: fix a whole binder page's printings/conditions at once instead of
+  reviews: fix a whole binder page's printings at once instead of
   nine cards one by one. These drive the real scanner screen against a tray
   rehydrated from storage (a page scanned earlier), so the review, the price
   selection map, and persistence are all exercised together.
@@ -224,7 +224,7 @@ describe('ScannerScreen binder page review — batch editing', () => {
     renderScannerWithPage();
     await openPageReview();
 
-    expect(screen.getByTestId(`${REVIEW}-pocket-0-printing-label`).props.children).toBe('Default · NM');
+    expect(screen.getByTestId(`${REVIEW}-pocket-0-printing-label`).props.children).toBe('Default');
     expect(StyleSheet.flatten(screen.getByTestId(`${REVIEW}-pocket-0-printing-label`).props.style).color)
       .toBe(colors.gray600);
 
@@ -232,7 +232,7 @@ describe('ScannerScreen binder page review — batch editing', () => {
     fireEvent.press(await screen.findByTestId('scan-price-sheet-row-holofoil-LP'));
 
     await waitFor(() => {
-      expect(screen.getByTestId(`${REVIEW}-pocket-0-printing-label`).props.children).toBe('Holofoil · LP');
+      expect(screen.getByTestId(`${REVIEW}-pocket-0-printing-label`).props.children).toBe('Holofoil');
     });
     expect(StyleSheet.flatten(screen.getByTestId(`${REVIEW}-pocket-0-printing-label`).props.style).color)
       .toBe(colors.gray900);
@@ -240,22 +240,22 @@ describe('ScannerScreen binder page review — batch editing', () => {
     expect(screen.getByTestId(`${REVIEW}-add-all`)).toHaveTextContent('Add 3 · $61.00');
   });
 
-  it('"Set all → Condition" updates every pocket and persists the choices', async () => {
+  it('"Set all → Printing" updates every pocket that has it and persists the choices', async () => {
     await seedPersistedPage();
     const view = renderScannerWithPage();
     await openPageReview();
 
-    fireEvent.press(screen.getByTestId(`${REVIEW}-set-all-condition`));
-    fireEvent.press(await screen.findByTestId(`${REVIEW}-set-all-condition-LP`));
+    fireEvent.press(screen.getByTestId(`${REVIEW}-set-all-printing`));
+    fireEvent.press(await screen.findByTestId(`${REVIEW}-set-all-printing-normal`));
 
     await waitFor(() => {
-      expect(screen.getByTestId(`${REVIEW}-pocket-0-printing-label`).props.children).toBe('Normal · LP');
-      expect(screen.getByTestId(`${REVIEW}-pocket-1-printing-label`).props.children).toBe('Normal · LP');
-      expect(screen.getByTestId(`${REVIEW}-pocket-2-printing-label`).props.children).toBe('Normal · LP');
+      expect(screen.getByTestId(`${REVIEW}-pocket-0-printing-label`).props.children).toBe('Normal');
+      expect(screen.getByTestId(`${REVIEW}-pocket-1-printing-label`).props.children).toBe('Normal');
+      expect(screen.getByTestId(`${REVIEW}-pocket-2-printing-label`).props.children).toBe('Normal');
     });
     expect(await screen.findByText('Applied to 3 of 3')).toBeTruthy();
-    // LP prices: 8 + 16 + 0.5
-    expect(screen.getByTestId(`${REVIEW}-add-all`)).toHaveTextContent('Add 3 · $24.50');
+    // NM prices for the Normal printing: 10 + 20 + 1
+    expect(screen.getByTestId(`${REVIEW}-add-all`)).toHaveTextContent('Add 3 · $31.00');
     // One matrix fetch per distinct card, in parallel.
     expect([...matrixCalls].sort()).toEqual(['card-a', 'card-b', 'card-c']);
 
@@ -263,7 +263,7 @@ describe('ScannerScreen binder page review — batch editing', () => {
     await waitFor(async () => {
       const persisted = await readPersistedSelections();
       expect(Object.keys(persisted).sort()).toEqual([PAGE_ID, `${PAGE_ID}-p1`, `${PAGE_ID}-p2`]);
-      expect(persisted[PAGE_ID]).toEqual(expect.objectContaining({ variantLabel: 'Normal', conditionShortLabel: 'LP' }));
+      expect(persisted[PAGE_ID]).toEqual(expect.objectContaining({ variantLabel: 'Normal', conditionShortLabel: 'NM' }));
     }, { timeout: 3000 });
 
     // Round-trip: a fresh scanner mount (crash / back out) shows the same choices.
@@ -271,7 +271,7 @@ describe('ScannerScreen binder page review — batch editing', () => {
     __resetRecentCapturesPersistenceForTests();
     renderScannerWithPage();
     await openPageReview();
-    expect(screen.getByTestId(`${REVIEW}-pocket-1-printing-label`).props.children).toBe('Normal · LP');
+    expect(screen.getByTestId(`${REVIEW}-pocket-1-printing-label`).props.children).toBe('Normal');
   });
 
   it('"Set all → Printing" applies only where that printing exists and reports the skips', async () => {
@@ -283,23 +283,22 @@ describe('ScannerScreen binder page review — batch editing', () => {
     fireEvent.press(await screen.findByTestId(`${REVIEW}-set-all-printing-holofoil`));
 
     await waitFor(() => {
-      expect(screen.getByTestId(`${REVIEW}-pocket-0-printing-label`).props.children).toBe('Holofoil · NM');
-      expect(screen.getByTestId(`${REVIEW}-pocket-1-printing-label`).props.children).toBe('Holofoil · NM');
+      expect(screen.getByTestId(`${REVIEW}-pocket-0-printing-label`).props.children).toBe('Holofoil');
+      expect(screen.getByTestId(`${REVIEW}-pocket-1-printing-label`).props.children).toBe('Holofoil');
     });
     // Charmander has no Holofoil printing: left on its default, and counted.
-    expect(screen.getByTestId(`${REVIEW}-pocket-2-printing-label`).props.children).toBe('Default · NM');
+    expect(screen.getByTestId(`${REVIEW}-pocket-2-printing-label`).props.children).toBe('Default');
     expect(await screen.findByText('Applied to 2 of 3 · 1 has no Holofoil printing')).toBeTruthy();
     // 50 + 100 + 1
     expect(screen.getByTestId(`${REVIEW}-add-all`)).toHaveTextContent('Add 3 · $151.00');
 
     // A second batch reuses the cached matrices — no refetch.
     const callsAfterFirst = matrixCalls.length;
-    fireEvent.press(screen.getByTestId(`${REVIEW}-set-all-condition`));
-    fireEvent.press(await screen.findByTestId(`${REVIEW}-set-all-condition-LP`));
+    fireEvent.press(screen.getByTestId(`${REVIEW}-set-all-printing`));
+    fireEvent.press(await screen.findByTestId(`${REVIEW}-set-all-printing-normal`));
     await waitFor(() => {
-      // The printing chosen by the batch is kept; only the condition moves.
-      expect(screen.getByTestId(`${REVIEW}-pocket-0-printing-label`).props.children).toBe('Holofoil · LP');
-      expect(screen.getByTestId(`${REVIEW}-pocket-2-printing-label`).props.children).toBe('Normal · LP');
+      expect(screen.getByTestId(`${REVIEW}-pocket-0-printing-label`).props.children).toBe('Normal');
+      expect(screen.getByTestId(`${REVIEW}-pocket-2-printing-label`).props.children).toBe('Normal');
     });
     expect(matrixCalls.length).toBe(callsAfterFirst);
   });

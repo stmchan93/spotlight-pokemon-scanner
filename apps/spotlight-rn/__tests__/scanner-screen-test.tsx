@@ -1832,7 +1832,7 @@ describe('ScannerScreen', () => {
     // Unconfirmed: the chip names the catalog default the price is based on,
     // muted so it reads as a guess.
     const chipLabel = screen.getByTestId('scanner-tray-printing-0-label');
-    expect(chipLabel.props.children).toBe('Default · NM');
+    expect(chipLabel.props.children).toBe('Default');
     expect(StyleSheet.flatten(chipLabel.props.style).color).toBe(colors.gray600);
     expect(screen.getByTestId('scanner-tray-printing-0').props.accessibilityState).toEqual(
       expect.objectContaining({ selected: false }),
@@ -1843,7 +1843,7 @@ describe('ScannerScreen', () => {
     fireEvent.press(await screen.findByTestId('scan-price-sheet-row-holofoil-LP'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-printing-0-label').props.children).toBe('Holofoil · LP');
+      expect(screen.getByTestId('scanner-tray-printing-0-label').props.children).toBe('Holofoil');
     });
     expect(StyleSheet.flatten(screen.getByTestId('scanner-tray-printing-0-label').props.style).color)
       .toBe(colors.gray900);

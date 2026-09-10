@@ -21,7 +21,6 @@ import {
   describeBatchPriceResult,
   printingChipLabel,
   resolveBatchPriceSelections,
-  setAllConditionOptions,
   standardPrintingOptions,
   type BatchPriceSelectionRequest,
   type RawPricingMatrixCache,
@@ -178,9 +177,6 @@ export function BinderPageReview({
   const handleSelectPrinting = useCallback((printingLabel: string) => {
     applyToPage({ kind: 'printing', printingLabel });
   }, [applyToPage]);
-  const handleSelectCondition = useCallback((conditionCode: string) => {
-    applyToPage({ kind: 'condition', conditionCode });
-  }, [applyToPage]);
 
   const expandedPocket = expandedPocketId
     ? pockets.find((capture) => capture.id === expandedPocketId) ?? null
@@ -217,8 +213,6 @@ export function BinderPageReview({
 
         <BinderSetAllRow
           busy={isApplying}
-          conditionOptions={setAllConditionOptions}
-          onSelectCondition={handleSelectCondition}
           onSelectPrinting={handleSelectPrinting}
           printingOptions={standardPrintingOptions}
           testID={`${testID}-set-all`}

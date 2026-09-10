@@ -14,10 +14,10 @@ import { activeCandidateForCapture } from './screens/scanner-screen-helpers';
 import type { RecentCapture } from './screens/scanner-screen-types';
 
 /**
- * Printing + condition chip copy for a tray row / binder pocket.
+ * Printing chip copy for a tray row / binder pocket (printing only).
  *
  * With no user choice the chip still names WHAT the shown price assumes —
- * "Default · NM" — so a guessed printing reads as a guess instead of a fact.
+ * "Default" — so a guessed printing reads as a guess instead of a fact.
  * (The #1 complaint across competitor scanners is a card silently landing on
  * 1st Edition / holo / non-holo and the user never seeing it.)
  */
@@ -42,10 +42,12 @@ export function printingChipLabel(
   candidate: CatalogSearchResult | null,
   selection: ScanPriceSheetSelection | null | undefined,
 ): string {
+  // Printing ONLY (user 2026-09-09: "it's just supposed to be the variants
+  // there, not LP and stuff"). Condition lives in the price sheet the chip opens.
   if (selection) {
-    return `${selection.variantLabel} · ${selection.conditionShortLabel}`;
+    return selection.variantLabel;
   }
-  return `${defaultPrintingLabel(candidate)} · ${defaultPrintingConditionCode}`;
+  return defaultPrintingLabel(candidate);
 }
 
 /**

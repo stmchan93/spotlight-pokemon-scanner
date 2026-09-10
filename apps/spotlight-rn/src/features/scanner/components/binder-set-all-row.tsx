@@ -3,22 +3,19 @@ import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 
 import { PillButton, Text, colors, spacing, textStyles } from '@spotlight/design-system';
 
-import type { SetAllConditionOption } from '@/features/scanner/scan-batch-pricing';
-
-type OpenRail = 'printing' | 'condition' | null;
+type OpenRail = 'printing' | null;
 
 export type BinderSetAllRowProps = {
   printingOptions: readonly string[];
-  conditionOptions: readonly SetAllConditionOption[];
   onSelectPrinting: (printingLabel: string) => void;
-  onSelectCondition: (conditionCode: string) => void;
   /** True while a batch apply is resolving pricing matrices. */
   busy: boolean;
   testID?: string;
 };
 
 /**
- * Batch correction for a binder page: "Set all" → Printing ▾ / Condition ▾.
+ * Batch correction for a binder page: "Set all" → Printing ▾ (printing only —
+ * condition is per card in the price sheet, by user decision 2026-09-09).
  * Tapping a header chip opens a rail of options beneath it; picking one
  * applies to every pocket the page can price that way (the caller reports
  * "Applied to 7 of 9 · 2 have no Holofoil printing"). Nobody in the category
@@ -26,8 +23,6 @@ export type BinderSetAllRowProps = {
  */
 export function BinderSetAllRow({
   busy,
-  conditionOptions,
-  onSelectCondition,
   onSelectPrinting,
   printingOptions,
   testID = 'binder-set-all',
@@ -46,13 +41,6 @@ export function BinderSetAllRow({
           testID={`${testID}-printing`}
           tone="option"
         />
-        <PillButton
-          label="Condition ▾"
-          onPress={() => toggle('condition')}
-          selected={open === 'condition'}
-          testID={`${testID}-condition`}
-          tone="option"
-        />
         {busy ? <ActivityIndicator color={colors.scannerTextPrimary} size="small" /> : null}
       </View>
       {open ? (
@@ -63,31 +51,18 @@ export function BinderSetAllRow({
           showsHorizontalScrollIndicator={false}
           testID={`${testID}-${open}-rail`}
         >
-          {open === 'printing'
-            ? printingOptions.map((printing) => (
-              <PillButton
-                key={printing}
-                label={printing}
-                onPress={() => {
-                  setOpen(null);
-                  onSelectPrinting(printing);
-                }}
-                testID={`${testID}-printing-${printing.toLowerCase().replace(/\s+/g, '-')}`}
-                tone="option"
-              />
-            ))
-            : conditionOptions.map((condition) => (
-              <PillButton
-                key={condition.code}
-                label={condition.label}
-                onPress={() => {
-                  setOpen(null);
-                  onSelectCondition(condition.code);
-                }}
-                testID={`${testID}-condition-${condition.code}`}
-                tone="option"
-              />
-            ))}
+          {printingOptions.map((printing) => (
+            <PillButton
+              key={printing}
+              label={printing}
+              onPress={() => {
+                setOpen(null);
+                onSelectPrinting(printing);
+              }}
+              testID={`${testID}-printing-${printing.toLowerCase().replace(/\s+/g, '-')}`}
+              tone="option"
+            />
+          ))}
         </ScrollView>
       ) : null}
     </View>
