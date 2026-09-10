@@ -1078,6 +1078,14 @@ export type CatalogSearchResult = {
   priceIsGradedReference?: boolean;
   /** Grade tag to show next to a graded-reference price, e.g. "PSA 10"; null otherwise. */
   gradedReferenceLabel?: string | null;
+  /**
+   * The printing the backend priced `marketPrice` from (its default raw
+   * variant, e.g. "Holofoil", "Unlimited"). The scanner shows it on the tray
+   * row so a guessed printing is visible — the #1 complaint across card
+   * scanners is a card silently landing on 1st Edition / non-holo. Undefined
+   * on older payloads and on catalog search.
+   */
+  defaultVariantLabel?: string | null;
 };
 
 export type ExpansionRecord = {
@@ -1170,6 +1178,20 @@ export type CardRecentSaleRecord = {
   imageUrl?: string | null;
 };
 
+/**
+ * Mean of the newest verified USD sales (up to 3) inside the backend's
+ * recency window. Null when nothing recent sold, so callers fall back to the
+ * provider's graded price.
+ */
+export type CardRecentSalesAverage = {
+  amount: number;
+  currencyCode: string;
+  sampleSize: number;
+  windowDays?: number | null;
+  latestSoldAt?: string | null;
+  oldestSoldAt?: string | null;
+};
+
 export type CardRecentSalesRecord = {
   source: CardRecentSaleSource;
   status: 'available' | 'unavailable';
@@ -1178,6 +1200,7 @@ export type CardRecentSalesRecord = {
   fetchedAt?: string | null;
   canRefresh: boolean;
   saleCount: number;
+  recentAverage?: CardRecentSalesAverage | null;
   sales: CardRecentSaleRecord[];
 };
 

@@ -114,7 +114,7 @@ import {
   deleteScanFile,
   ensureScansDir,
   flushPersist,
-  loadPersistedTray,
+  loadPersistedTraySnapshot,
   RECENT_CAPTURES_MAX,
   schedulePersist,
   setRecentCapturesOwner,
@@ -131,6 +131,8 @@ import { resolveRuntimeBoolean, resolveRuntimeValue, resolveStagingSmokeModeEnab
 import { useAppServices } from '@/providers/app-providers';
 
 import { AddAllMenu, type AddAllMenuAction } from '@/features/scanner/components/add-all-menu';
+import { PrintingChip } from '@/features/scanner/components/printing-chip';
+import { printingChipLabel } from '@/features/scanner/scan-batch-pricing';
 import { ScanBulkConfirmSheet } from '@/features/scanner/components/scan-bulk-confirm-sheet';
 import { ScanTargetPill } from '@/features/scanner/components/scan-target-pill';
 import { ScannerLanguageTooltip } from '@/features/scanner/components/scanner-language-tooltip';
@@ -626,9 +628,23 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                       {setAndNumberLine}
                     </Text>
                   ) : null}
-                  <Text numberOfLines={1} style={styles.captureSubtitle}>
-                    {modeTagLine}
-                  </Text>
+                  <View style={styles.captureModeRow}>
+                    <Text numberOfLines={1} style={styles.captureSubtitle}>
+                      {modeTagLine}
+                    </Text>
+                    {capture.mode === 'raw' ? (
+                      // The printing + condition the shown price assumes, one
+                      // tap from the price sheet. Same height as the CHANGE
+                      // chip so the windowed tray's row geometry is untouched.
+                      <PrintingChip
+                        arena
+                        confirmed={!!selection}
+                        label={printingChipLabel(candidate, selection)}
+                        onPress={() => onShowPrice(capture.id)}
+                        testID={`scanner-tray-printing-${index}`}
+                      />
+                    ) : null}
+                  </View>
                   {capture.binderPage ? <PocketBadge binderPage={capture.binderPage} /> : null}
                 </>
               ) : (
@@ -994,7 +1010,7 @@ export function ScannerScreen({
     void (async () => {
       try {
         await ensureScansDir();
-        const loaded = await loadPersistedTray();
+        const { items: loaded, priceSelections: loadedSelections } = await loadPersistedTraySnapshot();
         if (cancelled) {
           return;
         }
@@ -1003,6 +1019,12 @@ export function ScannerScreen({
           return;
         }
         setRecentCaptures((current) => (current.length > 0 ? current : loaded));
+        // The printing/condition choices ride with the rows they belong to —
+        // a corrected printing must survive backing out / a crash exactly like
+        // the scan itself does.
+        if (loadedSelections.size > 0) {
+          setPriceSelection((current) => (current.size > 0 ? current : new Map(loadedSelections)));
+        }
         void sweepOrphanScans(new Set(loaded.map((item) => item.id)));
       } catch {
         // Persistence errors are reported inside the module via PostHog.
@@ -1021,12 +1043,14 @@ export function ScannerScreen({
   // happens after the match resolves. The ref mirrors the latest tray so the
   // unmount flush below can persist it without a stale closure. Gated on
   // hydration so a fresh instance's empty initial state never clobbers disk.
+  const priceSelectionRef = useRef(priceSelection);
   useEffect(() => {
     recentCapturesRef.current = recentCaptures;
+    priceSelectionRef.current = priceSelection;
     if (hasHydratedTrayRef.current) {
-      schedulePersist(recentCaptures);
+      schedulePersist(recentCaptures, priceSelection);
     }
-  }, [recentCaptures]);
+  }, [priceSelection, recentCaptures]);
 
   // Flush the live tray on unmount so navigating away (which tears this screen
   // down) persists the most recent state. We pass the current tray explicitly:
@@ -1035,7 +1059,7 @@ export function ScannerScreen({
   // skips the flush entirely — its [] is initial state, not user intent.
   useEffect(() => () => {
     if (hasHydratedTrayRef.current) {
-      void flushPersist(recentCapturesRef.current);
+      void flushPersist(recentCapturesRef.current, priceSelectionRef.current);
     }
   }, []);
 
@@ -3101,6 +3125,16 @@ export function ScannerScreen({
       }
       return { ...capture, activeCandidateIndex: safeIndex };
     }));
+    // The stored variant/condition was priced against the PREVIOUS card. Keeping
+    // it would show one card's Reverse Holofoil price under another card's name.
+    setPriceSelection((current) => {
+      if (!current.has(captureId)) {
+        return current;
+      }
+      const next = new Map(current);
+      next.delete(captureId);
+      return next;
+    });
   }, []);
 
   const loadMoreCandidates = useCallback(async (captureId: string) => {
@@ -3732,6 +3766,22 @@ export function ScannerScreen({
       setPriceSelection((current) => {
         const next = new Map(current);
         next.set(captureId, selection);
+        return next;
+      });
+    },
+    [],
+  );
+
+  // Binder "Set all": one state commit for the whole page, the same shape the
+  // price sheet's onSelect produces per row.
+  const handlePriceSelections = useCallback(
+    (entries: { captureId: string; selection: ScanPriceSheetSelection }[]) => {
+      if (entries.length === 0) {
+        return;
+      }
+      setPriceSelection((current) => {
+        const next = new Map(current);
+        entries.forEach(({ captureId, selection }) => next.set(captureId, selection));
         return next;
       });
     },
@@ -4638,6 +4688,10 @@ export function ScannerScreen({
             onAddAll={gate(() => handleAddBinderPage(activeBinderPageId))}
             onClose={closeBinderPageReview}
             onPressPocket={gate(openChangeCardPicker)}
+            onPressPocketPrice={gatedShowRowPrice}
+            onSelectPocketCandidate={setActiveCandidate}
+            onApplyPriceSelections={handlePriceSelections}
+            priceSelections={priceSelection}
             pockets={binderPageRows(recentCaptures, activeBinderPageId)}
             priceLabelFor={(capture) => {
               const { amount, currencyCode } = resolveCaptureTrayPrice(capture, priceSelection.get(capture.id) ?? null);
@@ -4669,7 +4723,11 @@ export function ScannerScreen({
             totalCount={changeCapture.totalCandidateCount}
             isLoadingMore={changeCapture.isLoadingMoreCandidates}
             onLoadMoreCandidates={() => loadMoreCandidates(changeCapture.id)}
+            mode={changeCapture.mode === 'slabs' ? 'slabs' : 'raw'}
+            selectedVariantKey={priceSelection.get(changeCapture.id)?.variantKey ?? null}
+            selectedConditionCode={priceSelection.get(changeCapture.id)?.conditionCode ?? null}
             onSelectCandidate={(index) => setActiveCandidate(changeCapture.id, index)}
+            onSelectVariant={(selection) => handlePriceSelection(changeCapture.id, selection)}
             onOpenMatchedCard={(candidate) => {
               if (!candidate.cardId) {
                 return;
@@ -4763,8 +4821,15 @@ const styles = StyleSheet.create({
     right: 0,
     zIndex: 5,
   },
+  /*
+    The interior thirds lines (Figma 5085:15377 vertical / 5085:15380
+    horizontal): a 1px `Color/purple/50` hairline, one step paler than the
+    `purple200` outline around the page. The two are deliberately different —
+    the outline is the frame you aim, the grid is only a seating guide, so it
+    must not compete with the edge or with the cards behind it.
+  */
   binderGridLine: {
-    backgroundColor: colors.purple200,
+    backgroundColor: colors.purple50,
     position: 'absolute',
     zIndex: 3,
   },
@@ -4971,6 +5036,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 16.4,
   },
+  captureModeRow: {
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    gap: 6,
+  },
   captureThumb: {
     // Figma 3594:25986 — 58x80 at radius 2.695, which is a real card's corner
     // scaled to thumbnail size, not a UI radius. The old 6 rounded it like a
@@ -4986,9 +5057,11 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   captureChangeChip: {
+    // Figma 5085:10671 — CHANGE reads as an action, so it takes the scanner's
+    // purple action fill with a white label, not the brown condition-pill tone.
     alignItems: 'center',
     alignSelf: 'stretch',
-    backgroundColor: colors.scannerConditionPill,
+    backgroundColor: colors.scannerAddPurple,
     borderCurve: 'continuous',
     borderRadius: 4,
     height: 18,

@@ -53,6 +53,7 @@ import type {
   CardPriceTrendsQuery,
   CardRecentSaleRecord,
   CardRecentSalesQuery,
+  CardRecentSalesAverage,
   CardRecentSalesRecord,
   CardText,
   CardTextAbility,
@@ -922,6 +923,14 @@ type CardRecentSalesDTO = {
   fetchedAt?: string | null;
   canRefresh?: boolean | null;
   saleCount?: number | null;
+  recentAverage?: {
+    amount?: number | null;
+    currencyCode?: string | null;
+    sampleSize?: number | null;
+    windowDays?: number | null;
+    latestSoldAt?: string | null;
+    oldestSoldAt?: string | null;
+  } | null;
   sales?: CardRecentSaleDTO[] | null;
 };
 
@@ -2176,6 +2185,9 @@ function mapScannerMatchCandidates(
       largeImageUrl: pickImageUrl([card.imageLargeURL], baseUrl) || null,
       marketPrice: card.pricing.market,
       currencyCode: card.pricing.currencyCode,
+      // The printing the backend priced this candidate from — the tray chip
+      // shows it so a guessed 1st Edition / non-holo is never silent.
+      defaultVariantLabel: normalizeString(card.pricing.variant),
       ownedQuantity: 0,
       isFavorite: card.isFavorite,
       matchScore: normalizeNumber(entry?.finalScore) ?? normalizeNumber(entry?.imageScore),
@@ -3093,10 +3105,14 @@ function buildCardRecentSaleRecord(
   }
 
   const nestedCurrencyCode = normalizeString(sale.price?.currencyCode);
+  // Scrydex dates arrive as "2026/09/07"; Hermes' Date.parse rejects the slash
+  // form, which silently turned the newest-first sort below into a
+  // highest-price-first sort. Normalize to ISO so both platforms parse it.
+  const soldAt = normalizeString(sale.soldAt)?.replace(/^(\d{4})\/(\d{2})\/(\d{2})/, '$1-$2-$3') ?? null;
   return {
     id,
     title,
-    soldAt: normalizeString(sale.soldAt),
+    soldAt,
     priceAmount: normalizeNumber(sale.price?.amount),
     currencyCode: normalizeCurrencyCode(sale.currencyCode ?? nestedCurrencyCode ?? fallbackCurrencyCode),
     saleUrl: normalizeString(sale.listingURL),
@@ -3145,11 +3161,26 @@ function buildCardRecentSalesRecord(
       })
     : [];
 
+  const averageAmount = normalizeNumber(payload.recentAverage?.amount);
+  const averageSample = normalizeNumber(payload.recentAverage?.sampleSize);
+  const recentAverage: CardRecentSalesAverage | null =
+    averageAmount != null && averageSample != null && averageSample > 0
+      ? {
+        amount: averageAmount,
+        currencyCode: normalizeCurrencyCode(payload.recentAverage?.currencyCode ?? fallbackCurrencyCode),
+        sampleSize: averageSample,
+        windowDays: normalizeNumber(payload.recentAverage?.windowDays),
+        latestSoldAt: normalizeString(payload.recentAverage?.latestSoldAt),
+        oldestSoldAt: normalizeString(payload.recentAverage?.oldestSoldAt),
+      }
+      : null;
+
   return {
     source: normalizeString(payload.source) === 'ebay' ? 'ebay' : 'ebay',
     status: normalizeString(payload.status) === 'available' ? 'available' : 'unavailable',
     statusReason: normalizeString(payload.statusReason),
     unavailableReason: normalizeString(payload.unavailableReason),
+    recentAverage,
     fetchedAt: normalizeString(payload.fetchedAt),
     canRefresh: normalizeBoolean(payload.canRefresh) ?? false,
     saleCount: normalizeNumber(payload.saleCount) ?? sales.length,
@@ -4635,6 +4666,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           largeImageUrl: pickImageUrl([card.imageLargeURL], this.baseUrl) || null,
           marketPrice: card.pricing.market,
           currencyCode: card.pricing.currencyCode,
+          defaultVariantLabel: normalizeString(card.pricing.variant),
           ownedQuantity: 0,
           isFavorite: card.isFavorite,
           rarityBucket: card.rarityBucket,
@@ -5305,6 +5337,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           largeImageUrl: pickImageUrl([card.imageLargeURL], this.baseUrl) || null,
           marketPrice: card.pricing.market,
           currencyCode: card.pricing.currencyCode,
+          defaultVariantLabel: normalizeString(card.pricing.variant),
           ownedQuantity: inventoryEntries
             .filter((entry: InventoryCardEntry) => entry.cardId === card.id)
             .reduce((sum: number, entry: InventoryCardEntry) => sum + entry.quantity, 0),

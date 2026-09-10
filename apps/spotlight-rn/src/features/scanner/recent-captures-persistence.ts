@@ -3,6 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 
+import type { ScanPriceSheetSelection } from './screens/scan-price-sheet';
 import type { RecentCapture } from './screens/scanner-screen-types';
 
 export const RECENT_CAPTURES_STORAGE_KEY = '@spotlight/scanner/recent-captures';
@@ -71,22 +72,50 @@ type PersistedTrayEnvelope = {
   // adopted by whatever account first loads them, then re-stamped.
   ownerKey?: string | null;
   items: PersistedCapture[];
+  /**
+   * The user's printing/condition choices, keyed by capture id. Lives in the
+   * SAME envelope as the rows (same owner stamp, same write) so backing out of
+   * a binder review or a crash never loses a corrected printing, and an
+   * account switch clears them with the rows. Only ids present in `items` are
+   * written — pruning is structural, not a sweep. Absent on older envelopes.
+   */
+  priceSelections?: Record<string, ScanPriceSheetSelection>;
+};
+
+/** The tray plus its price choices — what one persisted write captures. */
+export type PersistedTraySnapshot = {
+  items: RecentCapture[];
+  priceSelections: ReadonlyMap<string, ScanPriceSheetSelection>;
 };
 
 let scansDirReady = false;
 let scansDirPromise: Promise<void> | null = null;
 let pendingDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-let pendingSnapshot: RecentCapture[] | null = null;
+let pendingSnapshot: PersistedTraySnapshot | null = null;
 let isWriting = false;
 // Snapshot handed to `writePersistedTray` while another write was already in
 // flight. Depth-1 on purpose: a newer snapshot supersedes an older one (each
 // snapshot is the FULL tray, not a delta), so this can never grow. The
 // in-flight write drains it when it resolves — see `writePersistedTray`.
-let queuedSnapshot: RecentCapture[] | null = null;
+let queuedSnapshot: PersistedTraySnapshot | null = null;
 let queuedWaiters: (() => void)[] = [];
 // The owner the tray currently belongs to. Set by the scanner before it loads
 // (so a write/stamp uses the right account) and compared on load.
 let currentOwnerKey: string | null = null;
+// Last price-selection map handed to schedule/flush. Callers that only know
+// the rows (Clear All passes [], the legacy re-stamp on load) reuse it so a
+// rows-only write never silently drops the user's printing choices.
+let lastPriceSelections: ReadonlyMap<string, ScanPriceSheetSelection> = new Map();
+
+function snapshotOf(
+  items: RecentCapture[],
+  priceSelections?: ReadonlyMap<string, ScanPriceSheetSelection>,
+): PersistedTraySnapshot {
+  if (priceSelections) {
+    lastPriceSelections = priceSelections;
+  }
+  return { items, priceSelections: lastPriceSelections };
+}
 
 function normalizeOwnerKey(ownerKey: string | null | undefined): string | null {
   const trimmed = (ownerKey ?? '').trim();
@@ -281,15 +310,23 @@ function isPersistableItem(capture: RecentCapture): boolean {
  * construction and serialization — is reported and swallowed. `writePersistedTray`
  * depends on this so its drain loop cannot be aborted mid-queue.
  */
-async function performTrayWrite(items: RecentCapture[]): Promise<void> {
+async function performTrayWrite(snapshot: PersistedTraySnapshot): Promise<void> {
   let envelope: PersistedTrayEnvelope;
   let serialized: string;
   try {
-    const persistable = items.filter(isPersistableItem);
+    const persistable = snapshot.items.filter(isPersistableItem);
+    const priceSelections: Record<string, ScanPriceSheetSelection> = {};
+    persistable.forEach((capture) => {
+      const selection = snapshot.priceSelections.get(capture.id);
+      if (selection) {
+        priceSelections[capture.id] = selection;
+      }
+    });
     envelope = {
       version: PERSIST_ENVELOPE_VERSION,
       ownerKey: currentOwnerKey,
       items: persistable.map(toPersistedCapture),
+      priceSelections,
     };
     serialized = JSON.stringify(envelope);
   } catch (error) {
@@ -324,16 +361,16 @@ async function performTrayWrite(items: RecentCapture[]): Promise<void> {
  * exits as soon as no new snapshot arrived during the previous write. Nothing
  * inside this function ever enqueues — only external callers do.
  */
-async function writePersistedTray(items: RecentCapture[]): Promise<void> {
+async function writePersistedTray(snapshot: PersistedTraySnapshot): Promise<void> {
   if (isWriting) {
-    queuedSnapshot = items;
+    queuedSnapshot = snapshot;
     return new Promise<void>((resolve) => {
       queuedWaiters.push(resolve);
     });
   }
   isWriting = true;
   try {
-    await performTrayWrite(items);
+    await performTrayWrite(snapshot);
     while (queuedSnapshot) {
       const nextSnapshot = queuedSnapshot;
       const waiters = queuedWaiters;
@@ -354,8 +391,11 @@ async function writePersistedTray(items: RecentCapture[]): Promise<void> {
   }
 }
 
-export function schedulePersist(items: RecentCapture[]): void {
-  pendingSnapshot = items;
+export function schedulePersist(
+  items: RecentCapture[],
+  priceSelections?: ReadonlyMap<string, ScanPriceSheetSelection>,
+): void {
+  pendingSnapshot = snapshotOf(items, priceSelections);
   if (pendingDebounceTimer) {
     return;
   }
@@ -370,14 +410,17 @@ export function schedulePersist(items: RecentCapture[]): void {
   }, PERSIST_DEBOUNCE_MS);
 }
 
-export async function flushPersist(explicit?: RecentCapture[]): Promise<void> {
+export async function flushPersist(
+  explicit?: RecentCapture[],
+  priceSelections?: ReadonlyMap<string, ScanPriceSheetSelection>,
+): Promise<void> {
   if (pendingDebounceTimer) {
     clearTimeout(pendingDebounceTimer);
     pendingDebounceTimer = null;
   }
   // Prefer an explicit snapshot when the caller knows exactly what storage
   // should hold (e.g. unmount passes the live tray; Clear All passes []).
-  const snapshot = explicit !== undefined ? explicit : pendingSnapshot;
+  const snapshot = explicit !== undefined ? snapshotOf(explicit, priceSelections) : pendingSnapshot;
   pendingSnapshot = null;
   if (snapshot == null) {
     // Nothing pending and no explicit state: the last debounced write already
@@ -401,16 +444,56 @@ function isPersistedCapture(value: unknown): value is PersistedCapture {
   );
 }
 
+function isPersistedPriceSelection(value: unknown): value is ScanPriceSheetSelection {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const selection = value as ScanPriceSheetSelection;
+  return (
+    typeof selection.variantKey === 'string'
+    && typeof selection.variantLabel === 'string'
+    && typeof selection.conditionCode === 'string'
+    && typeof selection.conditionShortLabel === 'string'
+    && (selection.marketPrice === null || typeof selection.marketPrice === 'number')
+  );
+}
+
+/** Price choices from an envelope, restricted to the rows that survived load. */
+function priceSelectionsFor(
+  envelope: PersistedTrayEnvelope,
+  survivors: readonly RecentCapture[],
+): Map<string, ScanPriceSheetSelection> {
+  const selections = new Map<string, ScanPriceSheetSelection>();
+  const stored = envelope.priceSelections;
+  if (!stored || typeof stored !== 'object') {
+    return selections;
+  }
+  survivors.forEach((capture) => {
+    const selection = stored[capture.id];
+    if (isPersistedPriceSelection(selection)) {
+      selections.set(capture.id, selection);
+    }
+  });
+  return selections;
+}
+
+const emptySnapshot = (): PersistedTraySnapshot => ({ items: [], priceSelections: new Map() });
+
+/** Rows only — see `loadPersistedTraySnapshot` for the rows plus price choices. */
 export async function loadPersistedTray(): Promise<RecentCapture[]> {
+  return (await loadPersistedTraySnapshot()).items;
+}
+
+export async function loadPersistedTraySnapshot(): Promise<PersistedTraySnapshot> {
   let raw: string | null = null;
   try {
     raw = await AsyncStorage.getItem(RECENT_CAPTURES_STORAGE_KEY);
   } catch (error) {
     reportError('read', error);
-    return [];
+    return emptySnapshot();
   }
   if (!raw) {
-    return [];
+    return emptySnapshot();
   }
   let envelope: PersistedTrayEnvelope | null = null;
   try {
@@ -429,7 +512,7 @@ export async function loadPersistedTray(): Promise<RecentCapture[]> {
     } catch (error) {
       reportError('write', error);
     }
-    return [];
+    return emptySnapshot();
   }
   // Account switch: if this tray was explicitly stamped for a DIFFERENT account,
   // clear it (and its on-disk images) so the new account starts from an empty
@@ -443,7 +526,7 @@ export async function loadPersistedTray(): Promise<RecentCapture[]> {
       reportError('write', error);
     }
     await sweepOrphanScans(new Set());
-    return [];
+    return emptySnapshot();
   }
 
   const validItems = envelope.items.filter(isPersistedCapture);
@@ -471,10 +554,14 @@ export async function loadPersistedTray(): Promise<RecentCapture[]> {
   });
   // Legacy (unstamped) tray adopted by the current account: re-stamp it now so a
   // later switch to another account detects the mismatch and clears it.
+  const priceSelections = priceSelectionsFor(envelope, survivors);
+  // What we just loaded IS the current choice set until the scanner hands us a
+  // newer map — so a rows-only write in between cannot wipe it.
+  lastPriceSelections = priceSelections;
   if (envelope.ownerKey === undefined && survivors.length > 0) {
-    void writePersistedTray(survivors);
+    void writePersistedTray({ items: survivors, priceSelections });
   }
-  return survivors;
+  return { items: survivors, priceSelections };
 }
 
 export async function sweepOrphanScans(keepIds: Set<string>): Promise<void> {
@@ -514,4 +601,5 @@ export function __resetRecentCapturesPersistenceForTests(): void {
   queuedWaiters.forEach((resolve) => resolve());
   queuedWaiters = [];
   currentOwnerKey = null;
+  lastPriceSelections = new Map();
 }

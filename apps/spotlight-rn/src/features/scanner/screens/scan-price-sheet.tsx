@@ -43,7 +43,7 @@ const conditionShortLabels: Record<string, string> = {
   DM: 'DMG',
 };
 
-const conditionCodeToDeckCondition: Record<string, DeckConditionCode> = {
+export const conditionCodeToDeckCondition: Record<string, DeckConditionCode> = {
   NM: 'near_mint',
   LP: 'lightly_played',
   MP: 'moderately_played',
@@ -60,6 +60,25 @@ export type ScanPriceSheetSelection = {
   conditionShortLabel: string;
   marketPrice: number | null;
 };
+
+/**
+ * Builds the tray's per-capture price selection from a pricing-matrix row.
+ * Shared with the change-card picker's variant chips so a printing picked there
+ * lands on the tray in exactly the shape the price sheet produces.
+ */
+export function buildScanPriceSelection(
+  variant: RawPricingMatrixVariant,
+  conditionCode: string,
+  marketPrice: number | null,
+): ScanPriceSheetSelection {
+  return {
+    variantKey: variant.variantKey,
+    variantLabel: variant.variant,
+    conditionCode: conditionCodeToDeckCondition[conditionCode] ?? 'near_mint',
+    conditionShortLabel: conditionShortLabels[conditionCode] ?? conditionCode,
+    marketPrice,
+  };
+}
 
 export type ScanPriceSheetProps = {
   visible: boolean;
@@ -160,14 +179,7 @@ export function ScanPriceSheet({
 
   const handleSelectRow = useCallback(
     (variant: RawPricingMatrixVariant, conditionCode: string, marketPrice: number | null) => {
-      const deckCondition = conditionCodeToDeckCondition[conditionCode] ?? 'near_mint';
-      onSelect({
-        variantKey: variant.variantKey,
-        variantLabel: variant.variant,
-        conditionCode: deckCondition,
-        conditionShortLabel: conditionShortLabels[conditionCode] ?? conditionCode,
-        marketPrice,
-      });
+      onSelect(buildScanPriceSelection(variant, conditionCode, marketPrice));
       onClose();
     },
     [onClose, onSelect],

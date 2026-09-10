@@ -9,6 +9,7 @@ import {
   flushPersist,
   FS_CONCURRENCY_LIMIT,
   loadPersistedTray,
+  loadPersistedTraySnapshot,
   PERSIST_DEBOUNCE_MS,
   PERSIST_ENVELOPE_VERSION,
   PERSISTED_CANDIDATES_MAX,
@@ -155,6 +156,80 @@ describe('recent-captures-persistence', () => {
 
   afterEach(() => {
     jest.useRealTimers();
+  });
+
+  describe('price selections (printing + condition)', () => {
+    const holofoilLP = {
+      variantKey: 'holofoil',
+      variantLabel: 'Holofoil',
+      conditionCode: 'lightly_played' as const,
+      conditionShortLabel: 'LP',
+      marketPrice: 4.2,
+    };
+
+    it('round-trips the choices with the rows and prunes ids that no longer exist', async () => {
+      const kept = makeCapture({ id: 'kept', normalizedImageUri: `${RECENT_CAPTURES_DIR}kept.jpg` });
+      mockedFs.__seedFile(kept.normalizedImageUri!);
+      setRecentCapturesOwner('user-a');
+
+      const selections = new Map([
+        ['kept', holofoilLP],
+        // A row that was swiped away (or never persisted): its choice must not
+        // linger in storage forever.
+        ['gone', { ...holofoilLP, variantKey: 'normal', variantLabel: 'Normal' }],
+      ]);
+      schedulePersist([kept], selections);
+      jest.advanceTimersByTime(PERSIST_DEBOUNCE_MS);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const envelope = await readEnvelope();
+      expect(envelope.ownerKey).toBe('user-a');
+      expect((envelope as { priceSelections?: Record<string, unknown> }).priceSelections).toEqual({
+        kept: holofoilLP,
+      });
+
+      __resetRecentCapturesPersistenceForTests();
+      setRecentCapturesOwner('user-a');
+      const loaded = await loadPersistedTraySnapshot();
+      expect(loaded.items.map((item) => item.id)).toEqual(['kept']);
+      expect(loaded.priceSelections.get('kept')).toEqual(holofoilLP);
+      expect(loaded.priceSelections.has('gone')).toBe(false);
+    });
+
+    it('keeps the last known choices on a rows-only write (Clear All / legacy re-stamp paths)', async () => {
+      const kept = makeCapture({ id: 'kept', normalizedImageUri: `${RECENT_CAPTURES_DIR}kept.jpg` });
+      mockedFs.__seedFile(kept.normalizedImageUri!);
+      setRecentCapturesOwner('user-a');
+
+      schedulePersist([kept], new Map([['kept', holofoilLP]]));
+      jest.advanceTimersByTime(PERSIST_DEBOUNCE_MS);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Same rows, no selections argument: nothing is dropped.
+      await flushPersist([kept]);
+      const envelope = await readEnvelope();
+      expect((envelope as { priceSelections?: Record<string, unknown> }).priceSelections).toEqual({
+        kept: holofoilLP,
+      });
+    });
+
+    it('does not rehydrate another account\'s choices', async () => {
+      const kept = makeCapture({ id: 'kept', normalizedImageUri: `${RECENT_CAPTURES_DIR}kept.jpg` });
+      mockedFs.__seedFile(kept.normalizedImageUri!);
+      setRecentCapturesOwner('user-a');
+      schedulePersist([kept], new Map([['kept', holofoilLP]]));
+      jest.advanceTimersByTime(PERSIST_DEBOUNCE_MS);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      __resetRecentCapturesPersistenceForTests();
+      setRecentCapturesOwner('user-b');
+      const loaded = await loadPersistedTraySnapshot();
+      expect(loaded.items).toHaveLength(0);
+      expect(loaded.priceSelections.size).toBe(0);
+    });
   });
 
   describe('schedulePersist + flushPersist', () => {

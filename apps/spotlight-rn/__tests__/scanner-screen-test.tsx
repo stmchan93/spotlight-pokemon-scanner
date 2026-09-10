@@ -196,6 +196,38 @@ describe('ScannerScreen', () => {
     expect(previewStyle.right).toBeUndefined();
   });
 
+  it('frames the single card with one closed rounded outline, not corner brackets', () => {
+    /*
+      Figma 5085:15171. The single-card frame used to be four detached L-shaped
+      brackets; it is the same closed outline the binder page draws now, only at
+      a different size. Pinned because this frame drifts — it has been purple,
+      white, purple again, and brackets before this — and every past flip went
+      unnoticed until someone looked at a phone.
+    */
+    renderScannerScreen();
+
+    const outline = StyleSheet.flatten(
+      screen.getByTestId('scanner-reticle-outline').props.style,
+    );
+    expect(outline).toMatchObject({
+      borderColor: colors.purple200,
+      borderRadius: 12,
+      borderWidth: 1,
+    });
+    // The lock pulse is the SAME outline in the saturated purple, stacked on top
+    // and crossfaded by opacity — the one form a native driver can carry.
+    expect(
+      StyleSheet.flatten(screen.getByTestId('scanner-reticle-lock').props.style),
+    ).toMatchObject({
+      borderColor: colors.purple500,
+      borderRadius: 12,
+      borderWidth: 1,
+    });
+    // No translucent white fill: Figma composites that over flat artwork, but
+    // over a live viewfinder it scrims the card being scanned.
+    expect(outline.backgroundColor).toBeUndefined();
+  });
+
   it('keeps the camera mounted (inactive) offscreen with granted permission, without a permission card', () => {
     // Regression guard: the camera must stay MOUNTED when the scanner is paged
     // offscreen (activePage=portfolio) and only pause via isActive. Conditionally
@@ -1157,6 +1189,156 @@ describe('ScannerScreen', () => {
     expect(mockPush).not.toHaveBeenCalled();
   });
 
+  it('shows the match percentage on the top match only, and prices the tray on a picked printing', async () => {
+    const repository = createTestSpotlightRepository({
+      matchScannerCapture: async () => ({
+        scanID: 'scan-oshawott',
+        candidates: [
+          {
+            id: 'mcdonalds25-21',
+            cardId: 'mcdonalds25-21',
+            name: 'Oshawott',
+            cardNumber: '#21/25',
+            setName: "McDonald's Collection 2021",
+            imageUrl: 'https://images.pokemontcg.io/mcdonalds25/21.png',
+            marketPrice: 0.56,
+            currencyCode: 'USD',
+            matchScore: 0.91,
+          },
+          {
+            id: 'mcdonalds25-16',
+            cardId: 'mcdonalds25-16',
+            name: 'Scorbunny',
+            cardNumber: '#16/25',
+            setName: "McDonald's Collection 2021",
+            imageUrl: 'https://images.pokemontcg.io/mcdonalds25/16.png',
+            marketPrice: 0.38,
+            currencyCode: 'USD',
+            matchScore: 0.44,
+          },
+        ],
+      }),
+      getRawPricingMatrix: async (cardId: string) => ({
+        cardID: cardId,
+        currencyCode: 'USD',
+        variants: [
+          {
+            variant: 'Normal',
+            variantKey: 'normal',
+            conditions: [
+              { code: 'NM', label: 'Near Mint', low: null, mid: null, market: 0.56, high: null },
+            ],
+          },
+          {
+            variant: 'Reverse Holofoil',
+            variantKey: 'reverseholofoil',
+            conditions: [
+              { code: 'NM', label: 'Near Mint', low: null, mid: null, market: 4.2, high: null },
+            ],
+          },
+        ],
+      }),
+    });
+
+    renderScannerScreen({ spotlightRepository: repository });
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    expect(await screen.findByText('Oshawott')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('scanner-tray-change-0'));
+
+    // The sheet reads CHANGE, not SWITCH.
+    expect(await screen.findByText('CHANGE')).toBeTruthy();
+    expect(screen.queryByText('SWITCH')).toBeNull();
+
+    // Exactly one percentage on screen: the hero. The 44% candidate row below
+    // it carries no badge of its own.
+    expect(screen.getAllByText(/% Match$/)).toHaveLength(1);
+    expect(screen.getByText('91% Match')).toBeTruthy();
+    expect(screen.queryByText('44% Match')).toBeNull();
+
+    // Printing chips hang off the selected row only.
+    expect(await screen.findByTestId('change-card-picker-variants-0')).toBeTruthy();
+    expect(screen.queryByTestId('change-card-picker-variants-1')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('change-card-picker-variant-reverseholofoil'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $4.20');
+    });
+  });
+
+  it('drops a picked printing when the matched card itself is changed', async () => {
+    const repository = createTestSpotlightRepository({
+      matchScannerCapture: async () => ({
+        scanID: 'scan-oshawott',
+        candidates: [
+          {
+            id: 'mcdonalds25-21',
+            cardId: 'mcdonalds25-21',
+            name: 'Oshawott',
+            cardNumber: '#21/25',
+            setName: "McDonald's Collection 2021",
+            imageUrl: 'https://images.pokemontcg.io/mcdonalds25/21.png',
+            marketPrice: 0.56,
+            currencyCode: 'USD',
+          },
+          {
+            id: 'mcdonalds25-16',
+            cardId: 'mcdonalds25-16',
+            name: 'Scorbunny',
+            cardNumber: '#16/25',
+            setName: "McDonald's Collection 2021",
+            imageUrl: 'https://images.pokemontcg.io/mcdonalds25/16.png',
+            marketPrice: 0.38,
+            currencyCode: 'USD',
+          },
+        ],
+      }),
+      getRawPricingMatrix: async (cardId: string) => ({
+        cardID: cardId,
+        currencyCode: 'USD',
+        variants: [
+          {
+            variant: 'Normal',
+            variantKey: 'normal',
+            conditions: [
+              { code: 'NM', label: 'Near Mint', low: null, mid: null, market: 0.56, high: null },
+            ],
+          },
+          {
+            variant: 'Reverse Holofoil',
+            variantKey: 'reverseholofoil',
+            conditions: [
+              { code: 'NM', label: 'Near Mint', low: null, mid: null, market: 4.2, high: null },
+            ],
+          },
+        ],
+      }),
+    });
+
+    renderScannerScreen({ spotlightRepository: repository });
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    expect(await screen.findByText('Oshawott')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('scanner-tray-change-0'));
+
+    fireEvent.press(await screen.findByTestId('change-card-picker-variant-reverseholofoil'));
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $4.20');
+    });
+
+    // Swapping the matched card must not carry the old card's printing price.
+    fireEvent.press(screen.getByTestId('change-card-picker-row-1'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.38');
+    });
+  });
+
   it('opens card detail when the recent scan text area is tapped', async () => {
     renderScannerScreen();
 
@@ -1598,6 +1780,69 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-back-button'));
 
     expect(mockDismissTo).toHaveBeenCalledWith('/');
+  });
+
+  // The #1 complaint across competitor scanners: a card silently lands on the
+  // wrong printing (1st Edition / holo / non-holo) and the user never sees it.
+  // Every raw row names the printing + condition its price assumes; a
+  // catalog default reads as a guess until the user picks one.
+  it('shows the assumed printing on the tray row and opens the price sheet from it', async () => {
+    const spotlightRepository = createTestSpotlightRepository({
+      matchScannerCapture: async () => ({
+        scanID: 'scan-froakie',
+        candidates: [{
+          id: 'froakie-candidate',
+          cardId: 'mcdonalds25-22',
+          name: 'Froakie',
+          cardNumber: '#22/25',
+          setName: "McDonald's Collection 2021",
+          imageUrl: 'https://cdn.spotlight.test/froakie.png',
+          marketPrice: 0.55,
+          currencyCode: 'USD',
+        }],
+      }),
+      getRawPricingMatrix: async () => ({
+        cardID: 'mcdonalds25-22',
+        currencyCode: 'USD',
+        variants: [
+          {
+            variant: 'Holofoil',
+            variantKey: 'holofoil',
+            conditions: [
+              { code: 'NM', label: 'Near Mint', market: 0.55, low: null, mid: null, high: null },
+              { code: 'LP', label: 'Lightly Played', market: 0.42, low: null, mid: null, high: null },
+            ],
+          },
+        ],
+      }),
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    expect(await screen.findByText('Froakie')).toBeTruthy();
+
+    // Unconfirmed: the chip names the catalog default the price is based on,
+    // muted so it reads as a guess.
+    const chipLabel = screen.getByTestId('scanner-tray-printing-0-label');
+    expect(chipLabel.props.children).toBe('Default · NM');
+    expect(StyleSheet.flatten(chipLabel.props.style).color).toBe(colors.gray600);
+    expect(screen.getByTestId('scanner-tray-printing-0').props.accessibilityState).toEqual(
+      expect.objectContaining({ selected: false }),
+    );
+
+    // One tap opens the SAME price sheet the price cell opens.
+    fireEvent.press(screen.getByTestId('scanner-tray-printing-0'));
+    fireEvent.press(await screen.findByTestId('scan-price-sheet-row-holofoil-LP'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-printing-0-label').props.children).toBe('Holofoil · LP');
+    });
+    expect(StyleSheet.flatten(screen.getByTestId('scanner-tray-printing-0-label').props.style).color)
+      .toBe(colors.gray900);
+    expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.42');
   });
 
   it('passes the condition selected in the price sheet through to inventory add', async () => {
