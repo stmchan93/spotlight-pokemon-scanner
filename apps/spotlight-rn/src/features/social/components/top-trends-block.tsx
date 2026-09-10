@@ -18,8 +18,13 @@ import { formatCurrency } from '@/features/portfolio/components/portfolio-format
 
 /** The window the copy promises when no payload has landed yet. */
 const DEFAULT_WINDOW_DAYS = 30;
-/** One slide per game; the carousel moves on by itself every 10s (was 5 — too quick to read a tile). */
-export const TOP_TRENDS_AUTO_ADVANCE_MS = 10_000;
+/**
+ * One slide per game. The carousel no longer moves on its own (user request
+ * 2026-09-10 — 5s then 10s both felt like it was yanking the tile away); the
+ * user swipes, and the pagination sits solid. The rail keeps the timer so a
+ * caller can still opt in.
+ */
+export const TOP_TRENDS_AUTO_ADVANCE_MS = 0;
 
 /**
  * Signed percent for the tile's change chip. One decimal in the normal range
