@@ -1,6 +1,6 @@
 import { Fragment, type ReactNode } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, View } from 'react-native';
-import { IconChevronDown, IconChevronRight } from '@tabler/icons-react-native';
+import { IconChevronDown, IconChevronRight, IconChevronUp } from '@tabler/icons-react-native';
 
 import { borderWidths, colors, PriceSparkline, Text, useSpotlightTheme } from '@spotlight/design-system';
 import type {
@@ -58,6 +58,8 @@ export function CardPriceTrendList({
   // Official brand logos at the Figma PDP sizes: eBay 50×20 (992-7804),
   // TCGplayer 27×20 (992-7802).
   const logoStyle = list.provider === 'ebay' ? styles.logoEbay : styles.logoTcg;
+  // Only the graded lane expands in place; the raw lane's rows navigate.
+  const isAccordion = list.mode === 'graded';
 
   return (
     <View style={styles.root} testID={testID}>
@@ -130,14 +132,23 @@ export function CardPriceTrendList({
             </View>
             {onRowPress ? (
               // Larger (20px) + darker (gray-600 / #717171) chevron per Figma
-              // 2566:5298 so the tappable marketplace rows clearly read as
-              // clickable. Expanded accordion rows point DOWN.
+              // 2566:5298 so the tappable rows clearly read as clickable.
+              // Graded rows are an accordion: UP while collapsed, DOWN once
+              // expanded (user request 2026-09-10). Raw rows deep-link to the
+              // marketplace, so they keep the "leads somewhere" RIGHT chevron.
               isExpanded ? (
                 <IconChevronDown
                   color={theme.colors.gray600}
                   size={20}
                   strokeWidth={2}
                   testID={rowTestID ? `${rowTestID}-chevron-open` : undefined}
+                />
+              ) : isAccordion ? (
+                <IconChevronUp
+                  color={theme.colors.gray600}
+                  size={20}
+                  strokeWidth={2}
+                  testID={rowTestID ? `${rowTestID}-chevron-closed` : undefined}
                 />
               ) : (
                 <IconChevronRight color={theme.colors.gray600} size={20} strokeWidth={2} />
