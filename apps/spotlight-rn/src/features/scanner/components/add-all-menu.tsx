@@ -142,7 +142,7 @@ export function AddAllMenu({
 
         {actions.includes('remove') ? (
         <Pressable
-          accessibilityLabel="Delete"
+          accessibilityLabel="Clear all scans"
           accessibilityRole="button"
           onPress={() => onSelect('remove')}
           style={({ pressed }) => [
@@ -153,7 +153,7 @@ export function AddAllMenu({
         >
           <Trash color={theme.colors.deltaDownText} height={20} width={20} />
           <Text style={[theme.typography.body, styles.label, { color: theme.colors.deltaDownText }]}>
-            Delete
+            Clear
           </Text>
         </Pressable>
         ) : null}

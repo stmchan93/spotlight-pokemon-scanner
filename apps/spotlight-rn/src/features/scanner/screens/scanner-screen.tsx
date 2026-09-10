@@ -8,6 +8,7 @@ import {
   IconChevronDown,
   IconChevronLeft,
   IconSearch,
+  IconX,
 } from '@tabler/icons-react-native';
 import {
   ActivityIndicator,
@@ -146,7 +147,7 @@ import { useScannerMacroLensLock } from '@/features/scanner/scanner-camera-lens'
 
 import { BinderPageReview } from './binder-page-review';
 import { BinderLayoutMenu, type BinderLayoutMenuSelection } from '@/features/scanner/components/binder-layout-menu';
-import { PrintingMenu } from '@/features/scanner/components/printing-menu';
+import { AnchoredOptionMenu, PrintingMenu } from '@/features/scanner/components/printing-menu';
 import { ChangeCardPicker } from './change-card-picker';
 import { RecentCaptureSwipeRow } from './recent-capture-swipe-row';
 import {
@@ -1020,14 +1021,29 @@ export function ScannerScreen({
   const [addAllMenuOpen, setAddAllMenuOpen] = useState(false);
   const [addAllAnchor, setAddAllAnchor] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [addAllConfirm, setAddAllConfirm] = useState<AddAllMenuAction | null>(null);
+  // Deal discount: a percentage off the tray TOTAL for the customer in front of
+  // you. DISPLAY ONLY — it never touches what a card is worth, what gets added
+  // to a collection, or any cost basis. Cleared with the tray, so last
+  // customer's 20% can never ride into the next deal.
+  const [discountPercent, setDiscountPercent] = useState(0);
+  const [discountMenuOpen, setDiscountMenuOpen] = useState(false);
+  const [discountMenuAnchor, setDiscountMenuAnchor] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const totalPillRef = useRef<View>(null);
   const [printingMenuCaptureId, setPrintingMenuCaptureId] = useState<string | null>(null);
   const [printingMenuAnchor, setPrintingMenuAnchor] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [rowMenuCaptureId, setRowMenuCaptureId] = useState<string | null>(null);
   const [rowMenuAnchor, setRowMenuAnchor] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const addAllTriggerRef = useRef<View | null>(null);
   const lastBulkActionRef = useRef<AddAllMenuAction>('collection');
-  // The header trigger clears on tap, so its menu carries only the adds.
-  const headerBulkActions = useMemo<AddAllMenuAction[]>(() => ['collection', 'wishlist'], []);
+  // Show-floor discounts land on round numbers; anything finer is haggling the
+  // per-card price, which the row's own printing/condition already covers.
+  const discountOptions = useMemo(
+    () => [0, 5, 10, 15, 20, 25].map((percent) => ({
+      key: String(percent),
+      label: percent === 0 ? 'No discount' : `${percent}% off`,
+    })),
+    [],
+  );
   const { lane: scanLane, setLane: setScanLane } = useScannerTargetConfig();
   const [zoomFactor, setZoomFactor, zoomHydrated] = useScannerZoomFactor();
   const [macroLensLock] = useScannerMacroLensLock();
@@ -1735,6 +1751,9 @@ export function ScannerScreen({
   }, []);
 
   const performClearAllCaptures = useCallback(() => {
+    // A deal's discount dies with its deal — 20% off the last customer must
+    // never ride into the next one.
+    setDiscountPercent(0);
     // One event carrying how many rows went, not one event per row — a tray
     // wiped at the cap would otherwise cost as much as the scans themselves.
     capturePostHogEvent('scan_row_dismissed', {
@@ -3683,7 +3702,28 @@ export function ScannerScreen({
 
   // Menu pick -> close the menu, open the matching confirm sheet. The ref keeps
   // the sheet's copy stable through its slide-out after `addAllConfirm` clears.
-  // The split trigger's label: straight to the clear confirm, no menu.
+  // What the customer pays: the tray total less this deal's discount. Display
+  // only — `trayPriceSummary` stays the cards' worth, and it is what
+  // add-to-collection and every cost basis keep using.
+  const discountedTraySummary = useMemo(
+    () => (discountPercent > 0
+      ? { ...trayPriceSummary, total: trayPriceSummary.total * (1 - discountPercent / 100) }
+      : trayPriceSummary),
+    [discountPercent, trayPriceSummary],
+  );
+
+  const handleOpenDiscountMenu = useCallback(() => {
+    setDiscountMenuOpen(true);
+    const node = totalPillRef.current;
+    if (node && typeof node.measureInWindow === 'function') {
+      node.measureInWindow((x, y, width, height) => {
+        setDiscountMenuAnchor({ x, y, width, height });
+      });
+    }
+  }, []);
+
+  // The SCAN pill's ✕: the SAME confirm the menu's Clear row opens, so one
+  // wipe is one dialog however you reach it.
   const handleClearAllFromHeader = useCallback(() => {
     lastBulkActionRef.current = 'remove';
     setAddAllConfirm('remove');
@@ -3731,7 +3771,7 @@ export function ScannerScreen({
   const itemWord = (count: number) => (count === 1 ? 'item' : 'items');
   const bulkConfirmConfig = activeBulkAction === 'remove'
     ? {
-        title: `Delete ${removeCount} ${itemWord(removeCount)}?`,
+        title: `Clear ${removeCount} ${itemWord(removeCount)}?`,
         description: 'These items will be removed from this scan session.',
         confirmLabel: 'Remove',
         confirmVariant: 'destructive' as const,
@@ -4540,39 +4580,50 @@ export function ScannerScreen({
                   <Text style={styles.trayInfoPillLabel} testID="scanner-recent-title">
                     {`SCAN: ${recentCaptures.filter((capture) => !capture.binderPage?.empty).length}`}
                   </Text>
-                </GlassSurface>
-                {/* Shows in BOTH tray states — collapsed too, so a burst
-                    scanner can end a deal without first swiping the tray up.
-                    A SPLIT control: the label clears the tray (the between-
-                    customers action, once per deal), the chevron opens the
-                    two bulk adds. Clearing used to live only at the BOTTOM of
-                    the expanded list, which meant scrolling past a stack of
-                    scans to start the next deal. */}
-                {recentCaptures.length > 0 ? (
-                  <View style={styles.trayAddAllRow} ref={addAllTriggerRef}>
+                  {/* Ends the deal in one tap from either tray state. It lives
+                      HERE, on the pill that counts this deal's scans and as far
+                      from ADD ALL as the row allows, so a fat finger between
+                      customers cannot post a stack to the collection instead.
+                      Opens the same confirm the menu's Clear row does. */}
+                  {recentCaptures.length > 0 ? (
                     <Pressable
-                      accessibilityRole="button"
                       accessibilityLabel="Clear all scans"
-                      hitSlop={8}
+                      accessibilityRole="button"
+                      hitSlop={10}
                       onPress={gate(handleClearAllFromHeader)}
+                      style={({ pressed }) => [
+                        styles.trayInfoPillClear,
+                        pressed ? styles.trayInfoPillClearPressed : null,
+                      ]}
                       testID="scanner-tray-clear-all-header"
                     >
-                      <Text style={styles.trayAddAllLabel}>CLEAR ALL</Text>
+                      <IconX color={colors.gray600} size={13} strokeWidth={2.4} />
                     </Pressable>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel="Add all scans to a collection or wishlist"
-                      hitSlop={8}
-                      onPress={gate(handleOpenAddAllMenu)}
-                      testID="scanner-tray-add-all"
-                    >
+                  ) : null}
+                </GlassSurface>
+                {/* ADD ALL shows in BOTH tray states — collapsed too, so a
+                    burst scanner can bulk-add without first swiping the tray
+                    up. The dropdown flips above its anchor near the screen
+                    bottom, which covers the collapsed position. Its Clear row
+                    is the same wipe the SCAN pill's ✕ runs. */}
+                {recentCaptures.length > 0 ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Add all scans"
+                    hitSlop={8}
+                    onPress={gate(handleOpenAddAllMenu)}
+                    ref={addAllTriggerRef}
+                    testID="scanner-tray-add-all"
+                  >
+                    <View style={styles.trayAddAllRow}>
+                      <Text style={styles.trayAddAllLabel}>ADD ALL</Text>
                       <IconChevronDown
                         color={colors.purple500}
                         size={15}
                         strokeWidth={2}
                       />
-                    </Pressable>
-                  </View>
+                    </View>
+                  </Pressable>
                 ) : null}
               </View>
               <GlassSurface
@@ -4584,9 +4635,28 @@ export function ScannerScreen({
                 style={styles.trayInfoPill}
                 testID="scanner-value-pill-surface"
               >
-                <Text style={styles.trayInfoPillLabel} testID="scanner-value-pill-text">
-                  {`TOTAL: ${formatTrayTotal(trayPriceSummary)}`}
-                </Text>
+                <Pressable
+                  accessibilityHint="Applies a percentage off this deal's total"
+                  accessibilityLabel={discountPercent > 0
+                    ? `Total ${formatTrayTotal(discountedTraySummary)}, ${discountPercent} percent off. Change discount`
+                    : `Total ${formatTrayTotal(trayPriceSummary)}. Apply a discount`}
+                  accessibilityRole="button"
+                  hitSlop={8}
+                  onPress={gate(handleOpenDiscountMenu)}
+                  ref={totalPillRef}
+                  style={styles.trayInfoPillRow}
+                  testID="scanner-tray-discount-trigger"
+                >
+                  <Text style={styles.trayInfoPillLabel} testID="scanner-value-pill-text">
+                    {`TOTAL: ${formatTrayTotal(discountedTraySummary)}`}
+                  </Text>
+                  {discountPercent > 0 ? (
+                    <Text style={styles.trayDiscountTag} testID="scanner-tray-discount-tag">
+                      {`−${discountPercent}%`}
+                    </Text>
+                  ) : null}
+                  <IconChevronDown color={colors.gray600} size={13} strokeWidth={2.4} />
+                </Pressable>
               </GlassSurface>
             </View>
           </Pressable>
@@ -4767,6 +4837,19 @@ export function ScannerScreen({
         );
       })()}
 
+      <AnchoredOptionMenu
+        anchor={discountMenuAnchor}
+        onClose={() => setDiscountMenuOpen(false)}
+        onSelect={(option) => {
+          setDiscountPercent(Number(option.key));
+          setDiscountMenuOpen(false);
+        }}
+        options={discountOptions}
+        selectedKey={String(discountPercent)}
+        testID="discount-menu"
+        visible={discountMenuOpen}
+      />
+
       <PrintingMenu
         anchor={printingMenuAnchor}
         onClose={() => setPrintingMenuCaptureId(null)}
@@ -4807,7 +4890,6 @@ export function ScannerScreen({
       <AddAllMenu
         anchor={addAllAnchor}
         onClose={() => setAddAllMenuOpen(false)}
-        actions={headerBulkActions}
         onSelect={handleAddAllSelect}
         visible={addAllMenuOpen}
       />
@@ -5312,8 +5394,12 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   trayInfoPill: {
+    // Row: the SCAN pill carries its clear ✕ beside the count, and the TOTAL
+    // pill its discount chevron.
+    alignItems: 'center',
     borderCurve: 'continuous',
     borderRadius: radii.pill,
+    flexDirection: 'row',
     // Clips the glass to the pill shape.
     overflow: 'hidden',
     paddingHorizontal: 10,
@@ -5322,6 +5408,23 @@ const styles = StyleSheet.create({
   trayInfoPillLabel: {
     ...textStyles.labelStrong,
     color: colors.gray900,
+  },
+  trayInfoPillRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 4,
+  },
+  trayDiscountTag: {
+    ...textStyles.labelStrong,
+    color: colors.purple500,
+  },
+  trayInfoPillClear: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 4,
+  },
+  trayInfoPillClearPressed: {
+    opacity: 0.55,
   },
   trayAddAllRow: {
     alignItems: 'center',

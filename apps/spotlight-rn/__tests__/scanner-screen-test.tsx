@@ -910,8 +910,8 @@ describe('ScannerScreen', () => {
       expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
     });
 
-    // Collapsed with a scan: the LIST's CLEAR ALL is still expanded-only (the
-    // header carries its own, reachable in both states — asserted below).
+    // Collapsed with a scan: the LIST's CLEAR ALL is still expanded-only. The
+    // SCAN pill's ✕ is the always-reachable one.
     expect(screen.queryByTestId('scanner-tray-clear-all')).toBeNull();
     expect(screen.getByTestId('scanner-tray-clear-all-header')).toBeTruthy();
 
@@ -920,9 +920,43 @@ describe('ScannerScreen', () => {
     await waitFor(() => {
       expect(screen.getByTestId('scanner-tray-clear-all')).toBeTruthy();
     });
-    // Both carry the same label: the header's (always reachable) and the
-    // list's (expanded only).
-    expect(screen.getAllByText('CLEAR ALL')).toHaveLength(2);
+    expect(screen.getByText('CLEAR ALL')).toBeTruthy();
+  });
+
+  // Vending at a show: a stack gets a percentage off for the customer in front
+  // of you, and the deal ends with one tap so the next customer's total starts
+  // at zero. Neither touches what a card is worth.
+  it('discounts the tray TOTAL for a deal and clears it with the scans', async () => {
+    renderScannerScreen();
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    });
+
+    const fullTotal = screen.getByTestId('scanner-value-pill-text').props.children;
+    expect(screen.queryByTestId('scanner-tray-discount-tag')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('scanner-tray-discount-trigger'));
+    fireEvent.press(await screen.findByTestId('discount-menu-20'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-discount-tag').props.children).toBe('−20%');
+    });
+    expect(screen.getByTestId('scanner-value-pill-text').props.children).not.toBe(fullTotal);
+
+    // Clearing the deal clears its discount: the next customer starts clean.
+    fireEvent.press(screen.getByTestId('scanner-tray-clear-all-header'));
+    // The SAME confirm the ADD ALL menu's Clear row opens.
+    expect((await screen.findByTestId('scan-bulk-confirm-sheet-title')).props.children)
+      .toContain('Clear');
+    fireEvent.press(screen.getByTestId('scan-bulk-confirm-sheet-confirm'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('scanner-tray-row-0')).not.toBeOnTheScreen();
+    });
+    expect(screen.queryByTestId('scanner-tray-discount-tag')).toBeNull();
   });
 
   const froakieAddAllRepository = (
