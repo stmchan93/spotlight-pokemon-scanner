@@ -279,6 +279,9 @@ export function CardDetailScreen({
   const [editGradePickerOpen, setEditGradePickerOpen] = useState(false);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const seededEditEntryIdRef = useRef<string | null>(null);
+  // The stored cost basis the field was last seeded from, so a later, fresher
+  // read of the same entry can correct a field seeded off a stale cached row.
+  const seededCostBasisRef = useRef<number | null>(null);
   // Once the user edits Cost Basis, a background data refresh (which can swap the
   // selectedEntry reference / id) must not silently reset what they typed.
   const editCostBasisDirtyRef = useRef(false);
@@ -1736,16 +1739,38 @@ export function CardDetailScreen({
   // the owned entry); we only add Quantity + Cost Basis here.
   const isOwnedEdit = selectedEntry != null;
 
+  /*
+    SEEDS ON A NEW ENTRY, AND AGAIN WHEN THE STORED BASIS ITSELF CHANGES.
+
+    Seeding once per entry id was not enough. `selectedEntry` resolves from the
+    first source that has the row — the card-detail response, then the shared
+    inventory cache, then the preview the tapped row saved — so the FIRST
+    resolution can be a cached row that predates a save. The field seeded off
+    that stale row and then never re-seeded, because the id had not changed:
+    the value only appeared once something else forced a remount, which is the
+    "empty for ten or twenty seconds, then it shows up" report.
+
+    A dirty field still wins — this must never overwrite what someone is
+    typing — so the re-seed is limited to the case where the field is untouched
+    and the stored number has actually moved.
+  */
   useEffect(() => {
-    if (!selectedEntry || seededEditEntryIdRef.current === selectedEntry.id) {
+    if (!selectedEntry) {
+      return;
+    }
+    const isNewEntry = seededEditEntryIdRef.current !== selectedEntry.id;
+    const storedCostBasis = selectedEntry.costBasisPerUnit ?? null;
+    const storedChanged = seededCostBasisRef.current !== storedCostBasis;
+    if (!isNewEntry && !storedChanged) {
       return;
     }
     seededEditEntryIdRef.current = selectedEntry.id;
-    setEditQuantity(Math.max(1, selectedEntry.quantity || 1));
+    seededCostBasisRef.current = storedCostBasis;
+    if (isNewEntry) {
+      setEditQuantity(Math.max(1, selectedEntry.quantity || 1));
+    }
     if (!editCostBasisDirtyRef.current) {
-      setEditCostBasisText(
-        selectedEntry.costBasisPerUnit != null ? String(selectedEntry.costBasisPerUnit) : '',
-      );
+      setEditCostBasisText(storedCostBasis != null ? String(storedCostBasis) : '');
     }
   }, [selectedEntry]);
 
