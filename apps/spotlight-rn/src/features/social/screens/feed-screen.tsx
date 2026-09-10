@@ -593,7 +593,10 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   );
 
   const openSearch = useCallback(() => {
-    router.push('/catalog/search' as never);
+    // THIS SCREEN IS THE SOCIAL TAB, so its magnifier finds PEOPLE. Card search
+    // lives on Home's bar and in the scanner; on a feed of posts the thing you
+    // are looking for is a person.
+    router.push('/search/people' as never);
   }, [router]);
 
   const openNotifications = useCallback(() => {

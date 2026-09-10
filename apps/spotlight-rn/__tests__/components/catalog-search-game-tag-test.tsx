@@ -77,9 +77,10 @@ describe('catalog search game tags', () => {
     });
 
     // Both rows, not just the non-Pokémon one: a tag on one side only reads as
-    // an annotation on that row rather than as the column it is.
-    expect(screen.getByTestId('catalog-result-game-luffy')).toHaveTextContent('One Piece');
-    expect(screen.getByTestId('catalog-result-game-ace')).toHaveTextContent('Pokémon');
+    // an annotation on that row rather than as the column it is. It rides on
+    // the tile's own caption (under the price), so the id is the tile's.
+    expect(screen.getByTestId('catalog-result-smoke-op16-001-footnote')).toHaveTextContent('One Piece');
+    expect(screen.getByTestId('catalog-result-smoke-sv1-1-footnote')).toHaveTextContent('Pokémon');
   });
 
   it('leaves single-game results untagged', async () => {
@@ -100,7 +101,7 @@ describe('catalog search game tags', () => {
       await Promise.resolve();
     });
 
-    expect(screen.queryByTestId('catalog-result-game-a')).toBeNull();
-    expect(screen.queryByTestId('catalog-result-game-b')).toBeNull();
+    expect(screen.queryByTestId('catalog-result-smoke-sv1-1-footnote')).toBeNull();
+    expect(screen.queryByTestId('catalog-result-smoke-sv1-2-footnote')).toBeNull();
   });
 });

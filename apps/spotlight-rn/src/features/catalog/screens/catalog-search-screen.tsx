@@ -27,7 +27,6 @@ import {
   ScreenHeader,
   SearchField,
   StateCard,
-  Text,
   Toast,
   colors,
   useSpotlightTheme,
@@ -117,12 +116,18 @@ function SearchResultTile({
   onPress: () => void;
   showGameTag?: boolean;
 }) {
-  const theme = useSpotlightTheme();
   return (
     <View style={styles.gridCell} testID={`catalog-result-${result.id}`}>
       <InventoryCardTile
         artAspect="card"
         cardNumber={result.cardNumber}
+        /*
+          Game UNDER THE PRICE, inside the tile's caption — it used to render
+          after the tile entirely, which put it past the tile's padding where it
+          read as a label on the row rather than on the card. Renders only when
+          the result set spans games (see `resultsSpanMultipleGames`).
+        */
+        footnote={showGameTag ? gameDisplayName(result.game) : null}
         imageUrl={result.smallImageUrl ?? result.imageUrl ?? null}
         isFavorite={false}
         kind="raw"
@@ -142,20 +147,6 @@ function SearchResultTile({
         showQuantity={Boolean(result.ownedQuantity)}
         testID={`catalog-result-smoke-${result.cardId}`}
       />
-      {/*
-        Game tag BELOW the tile, not inside it: `InventoryCardTile` is a shared
-        primitive and a search-only concern doesn't belong on its prop surface.
-        Renders only when the result set spans games — see
-        `resultsSpanMultipleGames`.
-      */}
-      {showGameTag ? (
-        <Text
-          style={[theme.typography.caption, { color: theme.colors.textSecondary }]}
-          testID={`catalog-result-game-${result.id}`}
-        >
-          {gameDisplayName(result.game)}
-        </Text>
-      ) : null}
     </View>
   );
 }

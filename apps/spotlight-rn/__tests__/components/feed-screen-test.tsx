@@ -425,8 +425,9 @@ describe('FeedScreen', () => {
     fireEvent.press(screen.getByTestId('feed-compose-prompt'));
     expect(push).toHaveBeenCalledWith('/new-post');
 
+    // The Social tab's magnifier finds PEOPLE; cards are Home's bar.
     fireEvent.press(screen.getByTestId('feed-header-search'));
-    expect(push).toHaveBeenCalledWith('/catalog/search');
+    expect(push).toHaveBeenCalledWith('/search/people');
 
     fireEvent.press(screen.getByTestId('feed-header-notifications'));
     expect(push).toHaveBeenCalledWith('/notifications');
@@ -458,7 +459,7 @@ describe('FeedScreen', () => {
 
     push.mockClear();
     fireEvent.press(screen.getByTestId('feed-header-search'));
-    expect(push).toHaveBeenLastCalledWith('/catalog/search');
+    expect(push).toHaveBeenLastCalledWith('/search/people');
 
     fireEvent.press(screen.getByTestId('feed-header-notifications'));
     expect(push).toHaveBeenLastCalledWith('/notifications');

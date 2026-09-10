@@ -127,8 +127,10 @@ describe('HomeHeader', () => {
       // field, so the pill's copy must not render anywhere.
       expect(screen.queryByText('Search Cards')).toBeNull();
 
+      // The `home` variant is the FEED, which is the Social tab — its
+      // magnifier finds people, not cards.
       const search = screen.getByTestId('home-header-search');
-      expect(search.props.accessibilityLabel).toBe('Search cards');
+      expect(search.props.accessibilityLabel).toBe('Search people');
       fireEvent.press(search);
       expect(onOpenSearch).toHaveBeenCalledTimes(1);
 

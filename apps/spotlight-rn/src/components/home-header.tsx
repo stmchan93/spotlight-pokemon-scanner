@@ -329,7 +329,9 @@ export function HomeHeader({
         items={
           [
             {
-              accessibilityLabel: 'Search cards',
+              // `kind: 'home'` is the FEED, which is the Social tab now — the
+              // variant name predates the swap. Its magnifier finds PEOPLE.
+              accessibilityLabel: 'Search people',
               children: (
                 <Search
                   color={glyphColor}
@@ -386,6 +388,8 @@ export function HomeHeader({
         items={
           [
             {
+              // `kind: 'profile'` is the collection screen, which is the HOME
+              // tab now — the variant name predates the swap. Cards, then.
               accessibilityLabel: 'Search cards',
               children: (
                 <Search

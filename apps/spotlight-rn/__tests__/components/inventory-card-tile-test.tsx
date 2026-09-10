@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
-import { InventoryCardTile, SpotlightThemeProvider } from '@spotlight/design-system';
+import { InventoryCardTile, SpotlightThemeProvider, colors } from '@spotlight/design-system';
 
 import * as mockApiClient from '../mock-api-client';
 
@@ -234,7 +234,7 @@ describe('InventoryCardTile', () => {
     expect(frame.aspectRatio).toBe(0.716);
   });
 
-  it('renders a 1px #F2F2F2 hairline border around the tile', () => {
+  it('renders a 1px gray/300 hairline border around the tile', () => {
     renderTile();
 
     const tile = screen.getByTestId('tile');
@@ -246,7 +246,8 @@ describe('InventoryCardTile', () => {
     );
 
     expect(flattened.borderWidth).toBe(1);
-    expect(flattened.borderColor).toBe('#F2F2F2');
+    // gray/300 — the same stroke the card grids and the filter chips carry.
+    expect(flattened.borderColor).toBe(colors.gray300);
   });
 
   it('renders a plain tile with no border or rounding when bordered={false}', () => {

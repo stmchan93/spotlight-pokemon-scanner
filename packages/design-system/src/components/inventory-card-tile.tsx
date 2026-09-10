@@ -53,6 +53,16 @@ export type InventoryCardTileProps = {
   quantity?: number;
   priceLabel: string | null;
   /**
+   * One extra caption line UNDER the price, for a fact about the card that is
+   * not part of its identity — the catalog search puts the game here when
+   * results span more than one.
+   *
+   * Under the price, not under the art: the caption reads name → set → price,
+   * and anything appended outside the tile lands past its padding and reads as
+   * belonging to the row rather than to the card.
+   */
+  footnote?: string | null;
+  /**
    * Numeric market price backing `priceLabel`. Used ONLY for the penny guard:
    * when present and < $1 the trend line is suppressed entirely (a −50% on a
    * $0.04 card is technically true but misleads — pennies aren't investment
@@ -171,6 +181,7 @@ export function InventoryCardTile({
   showQualityLine = true,
   quantity = 1,
   priceLabel,
+  footnote = null,
   marketPrice,
   trendChangePercent,
   isFavorite,
@@ -425,6 +436,17 @@ export function InventoryCardTile({
               </View>
             ) : null}
           </View>
+
+          {footnote?.trim() ? (
+            <AppText
+              color="gray600"
+              numberOfLines={1}
+              testID={testID ? `${testID}-footnote` : undefined}
+              variant="label"
+            >
+              {footnote.trim()}
+            </AppText>
+          ) : null}
 
           {liveOnEbay ? (
             <Pressable

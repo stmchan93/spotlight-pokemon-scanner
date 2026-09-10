@@ -559,6 +559,7 @@ Use it inside `TopTrendsRail`; reach for `CardListRow` for vertical lists and
 | `changeLabel` | `string` | Preformatted signed percent, e.g. `+218%` |
 | `changePercent` | `number \| null` | `>= 0` tints `green500`, `< 0` `red500`, `null` gray-600; also feeds the sparkline tint |
 | `priceLabel` | `string` | Current price, `bodyStrong` gray-900 |
+| `footnote` | `string` | One extra caption line UNDER the price — a fact about the card that is not part of its identity (the catalog search puts the game here when results span games). Renders nothing when empty; derives `-footnote` from `testID` |
 | `fromLabel` | `string` | Prior price, `bodyMedium` gray-600, e.g. `from $12.95` |
 | `sparkPoints` | `number[]` | Market series oldest → newest |
 | `onPress` | `() => void` | Optional; pressed state is opacity 0.7 |

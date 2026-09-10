@@ -1249,9 +1249,11 @@ export function PortfolioScreen({
   // which reads as the same affordance as the search row already on the page —
   // the top bar is for finding a card, not for filtering what you own.
   const handleTopSearchPress = useCallback(() => {
-    // The profile magnifier finds PEOPLE (2026-09-04): card search lives on
-    // Home's bar + the scanner; from your own profile the intent is collectors.
-    router.push('/search/people' as never);
+    // THIS SCREEN IS HOME, so its magnifier finds CARDS. It briefly searched
+    // people, from back when the feed was Home and this was your profile tab —
+    // the tabs swapped and the searches did not follow. People search lives on
+    // the Social tab's bar, where looking for a person is the intent.
+    router.push('/catalog/search' as never);
   }, [router]);
 
   /*
