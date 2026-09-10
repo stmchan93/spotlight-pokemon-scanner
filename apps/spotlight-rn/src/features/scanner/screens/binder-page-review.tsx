@@ -11,16 +11,15 @@ import { BlurView } from 'expo-blur';
 import { IconChevronLeft } from '@tabler/icons-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import type { CatalogSearchResult } from '@spotlight/api-client';
 import { Button, Text, Toast, colors, fontFamilies, spacing, textStyles } from '@spotlight/design-system';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
-import { BinderSetAllRow } from '@/features/scanner/components/binder-set-all-row';
-import { PrintingChip, printingChipHeight } from '@/features/scanner/components/printing-chip';
+import { BinderBatchActionRow } from '@/features/scanner/components/binder-batch-action-row';
 import {
   describeBatchPriceResult,
   printingChipLabel,
   resolveBatchPriceSelections,
+  setAllConditionOptions,
   standardPrintingOptions,
   type BatchPriceSelectionRequest,
   type RawPricingMatrixCache,
@@ -49,11 +48,7 @@ export type BinderPageReviewProps = {
   onClose: () => void;
   /** Opens the ordinary change-card picker for that pocket's row. */
   onPressPocket: (captureId: string) => void;
-  /** Opens the price sheet (printing + condition) for that pocket's row. */
-  onPressPocketPrice: (captureId: string) => void;
-  /** "Not sure?" alternate tapped — same setter the change-card picker uses. */
-  onSelectPocketCandidate: (captureId: string, candidateIndex: number) => void;
-  /** "Set all" resolved: merge these into the tray's price-selection map. */
+  /** A selection batch resolved: merge these into the tray's price-selection map. */
   onApplyPriceSelections: (entries: { captureId: string; selection: ScanPriceSheetSelection }[]) => void;
   /** Formatted total of this page's shown prices (tray TOTAL formatting). */
   totalLabel: string;
@@ -63,20 +58,29 @@ export type BinderPageReviewProps = {
 const cardAspect = rawCardNormalizedTargetWidth / rawCardNormalizedTargetHeight;
 const gridGap = 10;
 // name 15 + set 13 + price 15 + chip 18 + 3 gaps of 2 (+ slack).
-const captionHeight = 15 + 13 + 15 + printingChipHeight + 6 + 2;
-const alternatesStripHeight = 92;
-const alternateThumbWidth = 40;
-
-type AlternateCandidate = { candidate: CatalogSearchResult; index: number };
-
+// Name + set line + price row. The printing chip that used to sit under them
+// is gone (its controls moved to the batch row), and the tiles got its height
+// back — which is the point: the page is for eyeballing nine pockets against a
+// real binder.
+const captionHeight = 15 + 13 + 15 + 6 + 2;
 /**
  * The binder page as the scan result — but drawn with what we MATCHED, not
  * what we photographed. The user is holding the real page; the photo tells
  * them nothing new. A 3x3 of catalog art in pocket order lets them glance
  * between phone and binder and see any pocket that doesn't look like the card
  * sitting in it. Tap a tile to fix it (the ordinary change-card picker);
- * long-press to peek at the crop we actually scanned; tap the printing chip
- * to fix the printing/condition; "Set all" fixes the whole page at once.
+ * HOLD a tile to start selecting, then tap the rest (or "All") and set their
+ * variant or condition together from the toolbar that appears. Nothing but the
+ * hint sits over the page until then — the always-on "Set all" row with its two
+ * dropdowns was removed (user, 2026-09-09).
+ *
+ * The tiles carry no controls of their own. They had two — a "Not sure?" link
+ * opening a strip of alternates, and a printing chip opening the price sheet —
+ * and nine of each left the art too small to check against the binder in your
+ * hand (user, 2026-09-09). Both capabilities survive off the tile: the
+ * alternates are the first thing in the change-card picker a tap already opens,
+ * and variant/condition are the selection toolbar's two dropdowns, over a
+ * selection of one where they used to be per card.
  *
  * In-tree overlay for the same reason as the change-card picker: an RN Modal
  * would sit in its own window and the picker (also in-tree) could not stack
@@ -88,8 +92,6 @@ export function BinderPageReview({
   onApplyPriceSelections,
   onClose,
   onPressPocket,
-  onPressPocketPrice,
-  onSelectPocketCandidate,
   pockets,
   priceLabelFor,
   priceSelections,
@@ -118,8 +120,14 @@ export function BinderPageReview({
     ));
   };
 
-  // "Not sure?" — which pocket's top-3 alternates are expanded (one at a time).
-  const [expandedPocketId, setExpandedPocketId] = useState<string | null>(null);
+  /*
+    HOLD-TO-SELECT. Empty = not selecting at all, and the page behaves as it
+    always did (tap fixes a match). Non-empty and every tap toggles instead,
+    which is why the set is the mode rather than a separate boolean: the two
+    can never disagree about whether a tap means "fix this" or "pick this".
+  */
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const selecting = selectedIds.size > 0;
 
   const tileWidth = useMemo(() => {
     if (!frameSize) {
@@ -127,12 +135,11 @@ export function BinderPageReview({
     }
     const usableWidth = frameSize.width - 32;
     const widthDriven = (usableWidth - (layout.columns - 1) * gridGap) / layout.columns;
-    const stripHeight = expandedPocketId ? alternatesStripHeight + gridGap : 0;
-    const rowHeight = (frameSize.height - stripHeight - (layout.rows - 1) * gridGap) / layout.rows;
+    const rowHeight = (frameSize.height - (layout.rows - 1) * gridGap) / layout.rows;
     const artHeight = rowHeight - captionHeight - 4;
     const heightDriven = artHeight * cardAspect;
     return Math.floor(Math.max(0, Math.min(widthDriven, heightDriven)));
-  }, [expandedPocketId, frameSize, layout.columns, layout.rows]);
+  }, [frameSize, layout.columns, layout.rows]);
 
   const byPocket = new Map(pockets.map((capture) => [capture.binderPage?.pocketIndex ?? -1, capture]));
   const pocketCount = binderPagePocketCount(layout);
@@ -154,11 +161,22 @@ export function BinderPageReview({
     mountedRef.current = false;
   }, []);
 
-  const applyToPage = useCallback((request: BatchPriceSelectionRequest) => {
+  const selectedIdsRef = useRef(selectedIds);
+  selectedIdsRef.current = selectedIds;
+
+  // Applies to the SELECTION only — the toolbar exists only while there is
+  // one. `resolveBatchPriceSelections` only ever sees the pockets it should
+  // touch, so its "applied to 7 of 9" count is already scoped correctly.
+  const applyToTargets = useCallback((request: BatchPriceSelectionRequest) => {
+    const chosen = selectedIdsRef.current;
+    const targets = pocketsRef.current.filter((capture) => chosen.has(capture.id));
+    if (targets.length === 0) {
+      return;
+    }
     setIsApplying(true);
     void (async () => {
       const result = await resolveBatchPriceSelections(
-        pocketsRef.current,
+        targets,
         request,
         selectionsRef.current,
         matrixCacheRef.current,
@@ -175,15 +193,26 @@ export function BinderPageReview({
   }, [onApplyPriceSelections, spotlightRepository]);
 
   const handleSelectPrinting = useCallback((printingLabel: string) => {
-    applyToPage({ kind: 'printing', printingLabel });
-  }, [applyToPage]);
+    applyToTargets({ kind: 'printing', printingLabel });
+  }, [applyToTargets]);
 
-  const expandedPocket = expandedPocketId
-    ? pockets.find((capture) => capture.id === expandedPocketId) ?? null
-    : null;
-  const expandedRow = expandedPocket
-    ? Math.floor((expandedPocket.binderPage?.pocketIndex ?? 0) / layout.columns)
-    : -1;
+  const handleSelectCondition = useCallback((conditionCode: string) => {
+    applyToTargets({ kind: 'condition', conditionCode });
+  }, [applyToTargets]);
+
+  // Holding a tile starts selecting; tapping one while selecting toggles it.
+  // Emptying the set by hand leaves selection mode, so there is no way to be
+  // "selecting nothing" with the page's ordinary taps disabled.
+  const toggleSelected = useCallback((captureId: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (!next.delete(captureId)) {
+        next.add(captureId);
+      }
+      return next;
+    });
+  }, []);
+
 
   return (
     <View style={styles.root} testID={testID}>
@@ -203,29 +232,44 @@ export function BinderPageReview({
           </Pressable>
           <View style={styles.headerCopy}>
             <Text style={styles.title}>Binder page</Text>
+            {/*
+              The hold gesture is the only way to the variant/condition
+              dropdowns, so the screen says so out loud — while it is still
+              worth saying. Once someone is selecting, the toolbar below is
+              showing them the count and the dropdowns, and repeating the
+              instruction would just be noise.
+            */}
             {pending > 0 ? (
               <Text style={styles.subtitle} testID={`${testID}-status`}>
                 {`Identifying ${pending} of ${pocketCount}…`}
               </Text>
-            ) : null}
+            ) : selecting ? null : (
+              <Text style={styles.subtitle} testID={`${testID}-hint`}>
+                Hold to edit
+              </Text>
+            )}
           </View>
         </View>
 
-        <BinderSetAllRow
-          busy={isApplying}
-          onSelectPrinting={handleSelectPrinting}
-          printingOptions={standardPrintingOptions}
-          testID={`${testID}-set-all`}
-        />
+        {selecting ? (
+          <BinderBatchActionRow
+            busy={isApplying}
+            conditionOptions={setAllConditionOptions}
+            onDone={() => setSelectedIds(new Set())}
+            onSelectCondition={handleSelectCondition}
+            onSelectPrinting={handleSelectPrinting}
+            printingOptions={standardPrintingOptions}
+            selectedCount={selectedIds.size}
+            testID={`${testID}-batch`}
+          />
+        ) : null}
 
         {/*
           No ScrollView: all nine pockets must fit the viewport at once, so the
           tile width is DERIVED from the measured frame — three rows of
           art + caption plus the grid gaps (and the alternates strip when one
           is open) — and clamped to the width-driven three-column size. Small
-          screens get smaller tiles, never a scroll. Rows are laid out
-          explicitly (not flexWrap) so the "Not sure?" strip can sit directly
-          under the row that owns it.
+          screens get smaller tiles, never a scroll.
         */}
         <View onLayout={handleFrameLayout} style={styles.frame} testID={`${testID}-frame`}>
           {tileWidth > 0 ? (
@@ -242,15 +286,13 @@ export function BinderPageReview({
                       return (
                         <PocketTile
                           capture={capture}
-                          isExpanded={!!capture && capture.id === expandedPocketId}
+                          isSelected={!!capture && selectedIds.has(capture.id)}
                           key={`pocket-${pocketIndex}`}
                           onPress={onPressPocket}
-                          onPressPrice={onPressPocketPrice}
-                          onToggleAlternates={(captureId) => {
-                            setExpandedPocketId((current) => (current === captureId ? null : captureId));
-                          }}
+                          onToggleSelected={toggleSelected}
                           pocketIndex={pocketIndex}
                           priceLabelFor={priceLabelFor}
+                          selecting={selecting}
                           selection={capture ? priceSelections.get(capture.id) ?? null : null}
                           testID={`${testID}-pocket-${pocketIndex}`}
                           width={tileWidth}
@@ -258,16 +300,6 @@ export function BinderPageReview({
                       );
                     })}
                   </View>
-                  {expandedPocket && expandedRow === rowIndex ? (
-                    <AlternatesStrip
-                      capture={expandedPocket}
-                      onSelect={(index) => {
-                        onSelectPocketCandidate(expandedPocket.id, index);
-                        setExpandedPocketId(null);
-                      }}
-                      testID={`${testID}-alternates`}
-                    />
-                  ) : null}
                 </View>
               ))}
             </View>
@@ -282,7 +314,7 @@ export function BinderPageReview({
             onDismiss={() => setNotice(null)}
             showDismiss={false}
             style={styles.notice}
-            testID={`${testID}-set-all-notice`}
+            testID={`${testID}-batch-notice`}
             visible={notice != null}
           />
           <Button
@@ -300,63 +332,90 @@ export function BinderPageReview({
 
 function PocketTile({
   capture,
-  isExpanded,
+  isSelected,
   onPress,
-  onPressPrice,
-  onToggleAlternates,
+  onToggleSelected,
   pocketIndex,
   priceLabelFor,
+  selecting,
   selection,
   testID,
   width,
 }: {
   capture: RecentCapture | null;
-  isExpanded: boolean;
+  isSelected: boolean;
   onPress: (captureId: string) => void;
-  onPressPrice: (captureId: string) => void;
-  onToggleAlternates: (captureId: string) => void;
+  onToggleSelected: (captureId: string) => void;
   pocketIndex: number;
   priceLabelFor: (capture: RecentCapture) => string | null;
+  selecting: boolean;
   selection: ScanPriceSheetSelection | null;
   testID: string;
   width: number;
 }) {
-  // Long-press shows the crop we scanned instead of the matched art.
-  const [peeking, setPeeking] = useState(false);
   const candidate = capture ? activeCandidateForCapture(capture) : null;
   // The backend found no card here: no spinner, no picker, an "Empty" caption.
   const isEmpty = !!capture?.binderPage?.empty;
   const isLoading = !!capture?.isLoadingCandidates;
+  // NO ROW for this pocket. Every pocket gets a loading row the moment the
+  // page is captured, and in-flight rows are deliberately not persisted
+  // (`isPersistableItem`) — so after a force-quit mid-page the pockets that
+  // never finished come back with nothing behind them. That used to draw as a
+  // spinner + "Identifying…" that could never resolve (user, 2026-09-09). It is
+  // a result now: the pocket was not identified, and there is nothing to wait
+  // for or to tap.
+  const isLost = !capture;
   const cropUri = capture?.normalizedImageUri ?? capture?.uri ?? null;
   const matchedUri = capture ? scannerCaptureThumbUri(capture, candidate) : null;
-  const artUri = peeking || isLoading || !candidate ? cropUri : matchedUri;
+  // The scanned crop stands in until the match lands. Peeking at it by
+  // long-press is gone — the hold gesture belongs to selection now.
+  const artUri = isLoading || !candidate ? cropUri : matchedUri;
   const priceLabel = capture && candidate ? priceLabelFor(capture) : null;
   const setLine = candidate
     ? [candidate.setName, candidate.cardNumber ? `#${candidate.cardNumber.replace(/^#/, '')}` : null]
       .filter(Boolean)
       .join(' · ')
     : '';
-  // Anything short of a high-confidence match gets the "Not sure?" affordance
-  // (needs at least one alternate to offer).
-  const isUncertain = !!capture && !!candidate && capture.matchConfidence !== 'high' && capture.candidates.length > 1;
-  const showPrintingChip = !!capture && !!candidate && capture.mode === 'raw';
+  // The printing only earns a line once the user has actually set one — it is
+  // confirmation that a batch landed, not a control. Unset, the price alone
+  // says everything the default printing would.
+  const printingLabel = selection && capture?.mode === 'raw'
+    ? printingChipLabel(candidate, selection)
+    : null;
+  const selectable = !!capture && !isLoading && !isEmpty;
 
   return (
     <Pressable
       accessibilityLabel={candidate
-        ? `Pocket ${pocketIndex + 1}: ${candidate.name}. Change match`
+        ? `Pocket ${pocketIndex + 1}: ${candidate.name}. ${selecting ? 'Select' : 'Change match'}`
         : `Pocket ${pocketIndex + 1}`}
-      accessibilityRole="button"
+      accessibilityRole={selecting ? 'checkbox' : 'button'}
+      accessibilityState={selecting ? { checked: isSelected } : undefined}
       delayLongPress={220}
-      disabled={!capture || isLoading || isEmpty}
-      onLongPress={() => setPeeking(true)}
-      onPress={() => {
-        if (capture) {
-          onPress(capture.id);
+      disabled={!selectable}
+      // Hold anywhere on the page to start selecting; from then on a plain tap
+      // picks rather than opens, which is the convention every photo grid uses.
+      onLongPress={() => {
+        if (capture && !selecting) {
+          onToggleSelected(capture.id);
         }
       }}
-      onPressOut={() => setPeeking(false)}
-      style={({ pressed }) => [styles.tile, { width }, pressed ? styles.tilePressed : null]}
+      onPress={() => {
+        if (!capture) {
+          return;
+        }
+        if (selecting) {
+          onToggleSelected(capture.id);
+          return;
+        }
+        onPress(capture.id);
+      }}
+      style={({ pressed }) => [
+        styles.tile,
+        { width },
+        pressed ? styles.tilePressed : null,
+        selecting && !isSelected ? styles.tileDeselected : null,
+      ]}
       testID={testID}
     >
       <View style={styles.art}>
@@ -368,13 +427,13 @@ function PocketTile({
             // crossfade when it lands — the tray thumbnail does the same swap.
             placeholder={cropUri ? { uri: cropUri } : undefined}
             placeholderContentFit="cover"
-            recyclingKey={`${capture?.id ?? 'empty'}-${peeking ? 'crop' : 'match'}`}
+            recyclingKey={`${capture?.id ?? 'empty'}-${candidate ? 'match' : 'crop'}`}
             style={StyleSheet.absoluteFill}
             transition={120}
             uri={artUri}
           />
         ) : null}
-        {(isLoading || !capture) && !isEmpty ? (
+        {isLoading && !isEmpty ? (
           <View style={styles.artScrim}>
             <ActivityIndicator color={colors.scannerTextPrimary} size="small" />
           </View>
@@ -382,6 +441,14 @@ function PocketTile({
         <View style={styles.pocketNumber}>
           <Text style={styles.pocketNumberLabel}>{pocketIndex + 1}</Text>
         </View>
+        {selecting && selectable ? (
+          <View
+            style={[styles.selectTick, isSelected ? styles.selectTickOn : null]}
+            testID={`${testID}-tick`}
+          >
+            {isSelected ? <Text style={styles.selectTickMark}>✓</Text> : null}
+          </View>
+        ) : null}
       </View>
       <View style={styles.caption}>
         {isLoading ? (
@@ -392,107 +459,27 @@ function PocketTile({
             <Text numberOfLines={1} style={styles.captionMeta}>{setLine}</Text>
             <View style={styles.captionPriceRow}>
               <Text numberOfLines={1} style={styles.captionPrice}>{priceLabel ?? '—'}</Text>
-              {isUncertain ? (
-                <Pressable
-                  accessibilityLabel={isExpanded ? 'Hide other matches' : 'Not sure? Show other matches'}
-                  accessibilityRole="button"
-                  hitSlop={6}
-                  onPress={() => {
-                    if (capture) {
-                      onToggleAlternates(capture.id);
-                    }
-                  }}
-                  testID={`${testID}-not-sure`}
-                >
-                  <Text style={styles.notSure}>{isExpanded ? 'Hide' : 'Not sure?'}</Text>
-                </Pressable>
+              {printingLabel ? (
+                <Text numberOfLines={1} style={styles.captionPrinting} testID={`${testID}-printing`}>
+                  {printingLabel}
+                </Text>
               ) : null}
             </View>
-            {showPrintingChip ? (
-              <PrintingChip
-                confirmed={!!selection}
-                label={printingChipLabel(candidate, selection)}
-                onPress={() => {
-                  if (capture) {
-                    onPressPrice(capture.id);
-                  }
-                }}
-                testID={`${testID}-printing`}
-              />
-            ) : null}
           </>
         ) : isEmpty ? (
           // Same weight as a matched card's name — the pocket's state is the
           // headline here, not a footnote.
           <Text numberOfLines={1} style={styles.captionTitle}>Empty</Text>
-        ) : capture ? (
-          <Text numberOfLines={2} style={styles.captionMeta}>No match · tap to search</Text>
+        ) : isLost ? (
+          // Headline weight, like "Empty": this is the pocket's state.
+          <Text numberOfLines={2} style={styles.captionTitle} testID={`${testID}-unidentified`}>
+            Couldn&apos;t identify
+          </Text>
         ) : (
-          <Text numberOfLines={1} style={styles.captionMeta}>Identifying…</Text>
+          <Text numberOfLines={2} style={styles.captionMeta}>No match · tap to search</Text>
         )}
       </View>
     </Pressable>
-  );
-}
-
-/**
- * The top-3 alternates for an uncertain pocket, inline under its grid row.
- * Tapping one is the same selection the change-card picker makes.
- */
-function AlternatesStrip({
-  capture,
-  onSelect,
-  testID,
-}: {
-  capture: RecentCapture;
-  onSelect: (candidateIndex: number) => void;
-  testID: string;
-}) {
-  const alternates: AlternateCandidate[] = capture.candidates
-    .slice(0, 3)
-    .map((candidate, index) => ({ candidate, index }));
-  const pocketNumber = (capture.binderPage?.pocketIndex ?? 0) + 1;
-  return (
-    <View style={styles.alternates} testID={testID}>
-      <Text numberOfLines={1} style={styles.alternatesTitle}>{`Pocket ${pocketNumber} · other matches`}</Text>
-      <View style={styles.alternatesRow}>
-        {alternates.map(({ candidate, index }) => {
-          const isActive = index === capture.activeCandidateIndex;
-          const thumbUri = candidate.smallImageUrl ?? candidate.imageUrl;
-          return (
-            <Pressable
-              accessibilityLabel={`Use ${candidate.name}`}
-              accessibilityRole="button"
-              accessibilityState={{ selected: isActive }}
-              key={candidate.id}
-              onPress={() => onSelect(index)}
-              style={({ pressed }) => [
-                styles.alternate,
-                isActive ? styles.alternateActive : null,
-                pressed ? styles.tilePressed : null,
-              ]}
-              testID={`${testID}-${index}`}
-            >
-              <View style={styles.alternateThumb}>
-                {thumbUri ? (
-                  <CachedImage
-                    cachePolicy={imageCachePolicy.thumbnail}
-                    contentFit="cover"
-                    recyclingKey={`${capture.id}-alt-${candidate.id}`}
-                    style={StyleSheet.absoluteFill}
-                    uri={thumbUri}
-                  />
-                ) : null}
-              </View>
-              <View style={styles.alternateCopy}>
-                <Text numberOfLines={1} style={styles.captionTitle}>{candidate.name}</Text>
-                <Text numberOfLines={1} style={styles.captionMeta}>{candidate.setName}</Text>
-              </View>
-            </Pressable>
-          );
-        })}
-      </View>
-    </View>
   );
 }
 
@@ -618,60 +605,44 @@ const styles = StyleSheet.create({
     gap: spacing.xxxs,
     justifyContent: 'space-between',
   },
+  captionPrinting: {
+    ...textStyles.overline,
+    color: colors.scannerTextSecondary,
+    flexShrink: 1,
+  },
+  // The tick sits opposite the pocket number so the two never collide.
+  selectTick: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    borderColor: colors.scannerTextPrimary,
+    borderCurve: 'continuous',
+    borderRadius: 11,
+    borderWidth: 1.5,
+    bottom: 4,
+    height: 22,
+    justifyContent: 'center',
+    position: 'absolute',
+    right: 4,
+    width: 22,
+  },
+  selectTickOn: {
+    backgroundColor: colors.scannerAddPurple,
+    borderColor: colors.scannerAddPurple,
+  },
+  selectTickMark: {
+    ...textStyles.overline,
+    color: colors.scannerTextPrimary,
+  },
+  // Unpicked tiles recede while selecting so the picked ones read at a glance.
+  tileDeselected: {
+    opacity: 0.45,
+  },
   captionPrice: {
     color: colors.scannerTextPrimary,
     flexShrink: 1,
     fontFamily: fontFamilies.bodySemiBold,
     fontSize: 12,
     lineHeight: 15,
-  },
-  notSure: {
-    ...textStyles.overline,
-    color: colors.warning,
-    textDecorationLine: 'underline',
-  },
-  alternates: {
-    backgroundColor: colors.scannerSurfaceStrong,
-    borderCurve: 'continuous',
-    borderRadius: spacing.xs,
-    gap: spacing.xxxs,
-    height: alternatesStripHeight,
-    paddingHorizontal: spacing.xs,
-    paddingVertical: spacing.xxs,
-  },
-  alternatesTitle: {
-    ...textStyles.overline,
-    color: colors.scannerTextPrimary,
-    opacity: 0.8,
-  },
-  alternatesRow: {
-    flexDirection: 'row',
-    gap: spacing.xxs,
-  },
-  alternate: {
-    alignItems: 'center',
-    borderColor: 'transparent',
-    borderCurve: 'continuous',
-    borderRadius: spacing.xxs,
-    borderWidth: 1,
-    flex: 1,
-    flexDirection: 'row',
-    gap: spacing.xxxs,
-    padding: 2,
-  },
-  alternateActive: {
-    borderColor: colors.scannerTextPrimary,
-  },
-  alternateThumb: {
-    aspectRatio: cardAspect,
-    backgroundColor: colors.scannerSurfaceStrong,
-    borderCurve: 'continuous',
-    borderRadius: 2,
-    overflow: 'hidden',
-    width: alternateThumbWidth,
-  },
-  alternateCopy: {
-    flex: 1,
   },
   footer: {
     gap: 10,

@@ -7,28 +7,28 @@ import {
   rawScannerControlsRowHeight,
   rawScannerControlsRowLift,
   rawScannerModeToggleGap,
-  reticleLockedCornerColor,
-  reticleRestingCornerColor,
+  reticleLockedOutlineColor,
+  reticleRestingOutlineColor,
 } from '@/features/scanner/raw-scanner-capture-surface';
 
 /*
   The reticle frame has been purple, then white, then purple again. Nothing
   guarded it, so each flip was invisible until someone looked at a phone. These
-  are literals on purpose — asserting `toBe(colors.purple300)` would pass if the
+  are literals on purpose — asserting `toBe(colors.purple200)` would pass if the
   token itself were repointed, which is exactly the drift worth catching.
 */
-describe('reticle corner colours', () => {
-  it('rests on brand purple, per Figma 2227:22484 Color/purple/300', () => {
-    expect(reticleRestingCornerColor).toBe('#C47EFF');
-    expect(reticleRestingCornerColor).not.toBe(colors.scannerTextPrimary);
+describe('reticle outline colours', () => {
+  it('rests on the pale lilac stroke, per Figma 5085:15171 Color/purple/200', () => {
+    expect(reticleRestingOutlineColor).toBe('#D9AEFF');
+    expect(reticleRestingOutlineColor).not.toBe(colors.scannerTextPrimary);
   });
 
   it('pulses to the saturated brand purple on capture', () => {
-    expect(reticleLockedCornerColor).toBe('#A54BFA');
+    expect(reticleLockedOutlineColor).toBe('#A54BFA');
   });
 
   it('keeps the two states distinguishable, or the capture pulse says nothing', () => {
-    expect(reticleLockedCornerColor).not.toBe(reticleRestingCornerColor);
+    expect(reticleLockedOutlineColor).not.toBe(reticleRestingOutlineColor);
   });
 });
 

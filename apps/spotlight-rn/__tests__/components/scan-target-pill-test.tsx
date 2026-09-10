@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
-import { colors } from '@spotlight/design-system';
+import { colors, fontFamilies, textStyles } from '@spotlight/design-system';
 
 import { ScanTargetPill } from '@/features/scanner/components/scan-target-pill';
 
@@ -24,6 +24,25 @@ function surfaceFill(testID: string): unknown {
 }
 
 describe('ScanTargetPill', () => {
+  it('labels the target in REGULAR 16, not the SemiBold every other pill uses', () => {
+    /*
+      Figma 5085:15158 asks for Plus Jakarta Sans Regular 16 here, against the
+      design system's own default that a tappable control takes the SemiBold
+      `control` role. The reason outlives the spec: this label is the NAME of
+      what you are scanning, not a command, so SemiBold reads as an instruction.
+      Pinned because a later sweep that "fixes" pills to `control` would undo it
+      silently.
+    */
+    render(<ScanTargetPill flag="en" label="Pokémon EN" onPress={() => {}} testID="pill" />);
+
+    const label = StyleSheet.flatten(
+      screen.getByText('Pokémon EN').props.style as never,
+    ) as Record<string, unknown>;
+    expect(label.fontFamily).toBe(fontFamilies.bodyRegular);
+    expect(label.fontSize).toBe(16);
+    expect(label.fontFamily).not.toBe(textStyles.control.fontFamily);
+  });
+
   it('falls back to the shared light glass fill when glass is unavailable', () => {
     render(<ScanTargetPill flag="en" label="Pokémon EN" onPress={jest.fn()} testID="pill" />);
 

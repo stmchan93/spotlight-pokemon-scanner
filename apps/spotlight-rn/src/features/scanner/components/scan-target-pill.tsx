@@ -50,8 +50,14 @@ export function ScanTargetPill({
 }
 
 const styles = StyleSheet.create({
+  /*
+    `bodyLarge`, not the `control` role every other pill uses. Figma 5085:15158
+    specifies Plus Jakarta Sans REGULAR 16 here, and the reason survives the
+    spec: this label is the name of what you are scanning, not a command, so the
+    SemiBold that suits "ADD" or "Set all" would read as an instruction.
+  */
   label: {
-    ...textStyles.body,
+    ...textStyles.bodyLarge,
     color: colors.gray900,
   },
   pressable: {

@@ -5,12 +5,26 @@ import { IconCheck } from '@tabler/icons-react-native';
 import type { RawPricingMatrixVariant } from '@spotlight/api-client';
 import { Text, useSpotlightTheme } from '@spotlight/design-system';
 
-type PrintingMenuAnchor = { x: number; y: number; width: number; height: number };
+export type AnchoredMenuAnchor = { x: number; y: number; width: number; height: number };
+
+export type AnchoredOption = { key: string; label: string };
+
+export type AnchoredOptionMenuProps = {
+  visible: boolean;
+  /** Measured screen coords of the trigger pill (measureInWindow); null until measured. */
+  anchor: AnchoredMenuAnchor | null;
+  options: readonly AnchoredOption[];
+  selectedKey: string | null;
+  onSelect: (option: AnchoredOption) => void;
+  onClose: () => void;
+  /** Screen-reader label per row; defaults to the row's label. */
+  accessibilityLabelFor?: (option: AnchoredOption) => string;
+  testID?: string;
+};
 
 type PrintingMenuProps = {
   visible: boolean;
-  /** Measured screen coords of the trigger pill (measureInWindow); null until measured. */
-  anchor: PrintingMenuAnchor | null;
+  anchor: AnchoredMenuAnchor | null;
   variants: readonly RawPricingMatrixVariant[];
   selectedVariantKey: string | null;
   onSelect: (variant: RawPricingMatrixVariant) => void;
@@ -30,9 +44,9 @@ const CARD_RADIUS = 20;
 
 /**
  * The scan tray's printing picker: the row's pill opens this list of the card's
- * printings, the current one checked. Same anchored glass card as the tray's
- * ADD ALL menu, so a dropdown over the tray always looks like one thing.
- * A card with a dozen printings scrolls rather than running off the screen.
+ * printings, the current one checked. A thin mapping over `AnchoredOptionMenu`
+ * so the tray's row dropdown and the binder page's batch dropdowns are ONE
+ * component, not two that drift.
  */
 export function PrintingMenu({
   visible,
@@ -43,13 +57,50 @@ export function PrintingMenu({
   onClose,
   testID = 'printing-menu',
 }: PrintingMenuProps) {
+  const byKey = new Map(variants.map((variant) => [variant.variantKey, variant]));
+  return (
+    <AnchoredOptionMenu
+      accessibilityLabelFor={(option) => `Price this scan as ${option.label}`}
+      anchor={anchor}
+      onClose={onClose}
+      onSelect={(option) => {
+        const variant = byKey.get(option.key);
+        if (variant) {
+          onSelect(variant);
+        }
+      }}
+      options={variants.map((variant) => ({ key: variant.variantKey, label: variant.variant }))}
+      selectedKey={selectedVariantKey}
+      testID={testID}
+      visible={visible}
+    />
+  );
+}
+
+/**
+ * An anchored dropdown list, the current row checked: the same glass card as
+ * the tray's ADD ALL menu, so a dropdown over the scanner always looks like one
+ * thing. Opens below its anchor, or above it when there is no room below (the
+ * tray sits at the bottom, so its dropdowns nearly always open up). A list of
+ * a dozen rows scrolls rather than running off the screen.
+ */
+export function AnchoredOptionMenu({
+  visible,
+  anchor,
+  options,
+  selectedKey,
+  onSelect,
+  onClose,
+  accessibilityLabelFor,
+  testID = 'option-menu',
+}: AnchoredOptionMenuProps) {
   const theme = useSpotlightTheme();
 
-  if (!visible || variants.length === 0) {
+  if (!visible || options.length === 0) {
     return null;
   }
 
-  const visibleRows = Math.min(variants.length, MAX_VISIBLE_ROWS);
+  const visibleRows = Math.min(options.length, MAX_VISIBLE_ROWS);
   const listHeight = visibleRows * ROW_HEIGHT;
   const cardHeight = listHeight + 20;
 
@@ -87,30 +138,30 @@ export function PrintingMenu({
         />
         <ScrollView
           bounces={false}
-          scrollEnabled={variants.length > MAX_VISIBLE_ROWS}
+          scrollEnabled={options.length > MAX_VISIBLE_ROWS}
           showsVerticalScrollIndicator={false}
           style={{ maxHeight: listHeight }}
         >
-          {variants.map((variant) => {
-            const isSelected = variant.variantKey === selectedVariantKey;
+          {options.map((option) => {
+            const isSelected = option.key === selectedKey;
             return (
               <Pressable
-                accessibilityLabel={`Price this scan as ${variant.variant}`}
+                accessibilityLabel={accessibilityLabelFor?.(option) ?? option.label}
                 accessibilityRole="button"
                 accessibilityState={{ selected: isSelected }}
-                key={variant.variantKey}
-                onPress={() => onSelect(variant)}
+                key={option.key}
+                onPress={() => onSelect(option)}
                 style={({ pressed }) => [
                   styles.row,
                   { backgroundColor: pressed ? 'rgba(0, 0, 0, 0.06)' : 'transparent' },
                 ]}
-                testID={`${testID}-${variant.variantKey}`}
+                testID={`${testID}-${option.key}`}
               >
                 <Text
                   numberOfLines={1}
                   style={[theme.typography.body, styles.label, { color: theme.colors.gray900 }]}
                 >
-                  {variant.variant}
+                  {option.label}
                 </Text>
                 {isSelected ? (
                   <IconCheck color={theme.colors.purple500} size={18} strokeWidth={2.2} />

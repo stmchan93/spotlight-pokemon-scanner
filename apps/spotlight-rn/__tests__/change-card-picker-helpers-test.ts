@@ -4,7 +4,6 @@ import {
   matchConfidenceColor,
   matchConfidenceLevel,
   matchPercentFromScore,
-  matchPillColors,
 } from '@/features/scanner/screens/change-card-picker-helpers';
 
 describe('matchPercentFromScore', () => {
@@ -60,28 +59,5 @@ describe('matchConfidenceLevel', () => {
   it('returns green at 67% and above', () => {
     expect(matchConfidenceLevel(67)).toBe('green');
     expect(matchConfidenceLevel(100)).toBe('green');
-  });
-});
-
-describe('matchPillColors', () => {
-  it('returns red chip colors below 34%', () => {
-    expect(matchPillColors(0)).toEqual({
-      backgroundColor: matchConfidence.red.chipBg,
-      color: matchConfidence.red.chipText,
-    });
-  });
-
-  it('returns yellow chip colors from 34% through 66%', () => {
-    expect(matchPillColors(50)).toEqual({
-      backgroundColor: matchConfidence.yellow.chipBg,
-      color: matchConfidence.yellow.chipText,
-    });
-  });
-
-  it('returns green chip colors at 67% and above', () => {
-    expect(matchPillColors(80)).toEqual({
-      backgroundColor: matchConfidence.green.chipBg,
-      color: matchConfidence.green.chipText,
-    });
   });
 });

@@ -238,7 +238,7 @@ export function describeBatchPriceResult(
     return head;
   }
   const reason = request.kind === 'printing'
-    ? `${result.skipped} ${result.skipped === 1 ? 'has' : 'have'} no ${request.printingLabel} printing`
+    ? `${result.skipped} ${result.skipped === 1 ? 'has' : 'have'} no ${request.printingLabel} variant`
     : `${result.skipped} ${result.skipped === 1 ? 'has' : 'have'} no detailed pricing`;
   return `${head} · ${reason}`;
 }

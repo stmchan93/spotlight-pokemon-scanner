@@ -70,17 +70,18 @@ export const rawScannerControlsRowLift = 16;
 export const slabLabelDividerRatio = 0.28;
 export const slabLabelAnalysisBottomRatio = 0.34;
 export const scannerReticleGuideStrokeWidth = 1.7;
-export const scannerReticleCornerSize = 22;
 /**
- * Resting reticle corner colour — Figma 2227:22484 "Default frame scan", whose
- * `Color/purple/300` is exactly this token. Exported so it can be asserted: this
- * frame has gone purple → white → purple, so it drifts, and a value buried in a
- * private `StyleSheet.create` is a value nobody can guard.
+ * Resting reticle outline colour — Figma 5085:15171, whose 1px stroke is
+ * `Color/purple/200` exactly. Exported so it can be asserted: this frame has
+ * gone purple → white → purple and then from four corner brackets to a closed
+ * outline, so it drifts, and a value buried in a private `StyleSheet.create` is
+ * a value nobody can guard.
  */
-export const reticleRestingCornerColor = colors.purple300;
-/** Capture-pulse corner colour — Figma 2227:22140, the "locked" frame. */
-export const reticleLockedCornerColor = colors.purple500;
-export const scannerReticleCornerStrokeWidth = 3;
+export const reticleRestingOutlineColor = colors.purple200;
+/** Capture-pulse outline colour — Figma 2227:22140, the "locked" frame. */
+export const reticleLockedOutlineColor = colors.purple500;
+export const scannerReticleOutlineStrokeWidth = 1;
+export const scannerReticleCornerRadius = 12;
 export const slabGuideHorizontalInset = 8;
 
 /**
@@ -151,6 +152,12 @@ type RawScannerCaptureSurfaceProps = {
    * FHD still (the reticle crop already exceeds 630px there).
    */
   captureResolution?: 'card' | 'page';
+  /**
+   * Binder-page mode: the pocket grid drawn INSIDE the frame, in the armed
+   * layout's columns × rows. Owned here rather than by the screen because the
+   * grid has to share the frame's box exactly — see `pageGridLine`.
+   */
+  pageGrid?: { columns: number; rows: number } | null;
   prompt: string;
   /**
    * Capture "lock-in" pulse (Figma 2227:22138 → 2227:22140): 0 = resting white
@@ -311,6 +318,7 @@ export function RawScannerCaptureSurface({
   onCameraStopped,
   onCapture,
   captureResolution = 'card',
+  pageGrid = null,
   prompt,
   reticleLockProgress,
   shouldMountCamera,
@@ -325,16 +333,19 @@ export function RawScannerCaptureSurface({
   const idleLockProgress = useSharedValue(0);
   const lockProgress = reticleLockProgress ?? idleLockProgress;
   // Contract to ~the Figma locked frame (361→345 wide ≈ 0.956); scale from
-  // center pulls every corner inward evenly, and the white→purple crossfade
-  // rides the same progress so both read as one "lock" gesture. Worklet styles
-  // (UI thread) so the pulse can't stall/replay under burst-scan JS load.
+  // center pulls the whole outline inward evenly, and the lilac→purple
+  // crossfade rides the same progress so both read as one "lock" gesture.
+  // Worklet styles (UI thread) so the pulse can't stall/replay under burst-scan
+  // JS load — which is also why the crossfade is two stacked outlines on
+  // OPACITY rather than one animated `borderColor`, a prop no native driver
+  // can carry.
   const lockShellStyle = useAnimatedStyle(() => ({
     transform: [{ scale: interpolate(lockProgress.value, [0, 1], [1, 0.956]) }],
   }));
-  const whiteCornersStyle = useAnimatedStyle(() => ({
+  const restingOutlineStyle = useAnimatedStyle(() => ({
     opacity: 1 - lockProgress.value,
   }));
-  const purpleCornersStyle = useAnimatedStyle(() => ({
+  const lockedOutlineStyle = useAnimatedStyle(() => ({
     opacity: lockProgress.value,
   }));
   // Keep the ultra-wide in the lens set: on iPhone, only a multi-cam device that
@@ -630,70 +641,82 @@ export function RawScannerCaptureSurface({
           ) : null}
 
 
-          {captureResolution === 'page' ? (
-            /* Multi-scan (Figma 5085:15171/15376): a full rounded outline, not
-               corner brackets — the frame IS the page, and the thirds grid the
-               screen draws inside it reads as one object with this edge. The
-               frame's translucent white fill is deliberately not drawn: it
-               would frost the cards being scanned. */
-            <View
-              pointerEvents="none"
-              style={styles.pageOutline}
-              testID={`${testIDPrefix}-page-outline`}
-            />
-          ) : (
-            <>
-              {/* Resting white corners and the capture-pulse purple set crossfade on
-                  the shared lock progress (opacity+scale only → native driver). */}
-              <Reanimated.View
-                pointerEvents="none"
-                style={[StyleSheet.absoluteFillObject, whiteCornersStyle]}
-              >
-                <ReticleCornerBrackets />
-              </Reanimated.View>
-              <Reanimated.View
-                pointerEvents="none"
-                style={[StyleSheet.absoluteFillObject, purpleCornersStyle]}
-                testID={`${testIDPrefix}-reticle-lock`}
-              >
-                <ReticleCornerBrackets locked />
-              </Reanimated.View>
-            </>
-          )}
+          {/*
+            ONE CLOSED ROUNDED OUTLINE, in single-card mode as well as page mode
+            (Figma 5085:15171). It replaced the four L-shaped corner brackets:
+            the same frame is now drawn at both scales, so the thirds grid the
+            screen paints inside the page reads as one object with its edge
+            instead of floating between detached corners.
+
+            The frame's 40% white fill from that node is deliberately NOT drawn.
+            Figma composites it over flat artwork; over a live viewfinder it is
+            a scrim on the card being scanned, which both washes out what the
+            user is aiming at and frosts the very pixels the crop is cut from.
+
+            Resting lilac and the capture-pulse purple crossfade on the shared
+            lock progress (opacity + scale only → native driver).
+          */}
+          <Reanimated.View
+            pointerEvents="none"
+            style={[styles.reticleOutline, restingOutlineStyle]}
+            testID={`${testIDPrefix}-reticle-outline`}
+          />
+          <Reanimated.View
+            pointerEvents="none"
+            style={[styles.reticleOutline, styles.reticleOutlineLockedTint, lockedOutlineStyle]}
+            testID={`${testIDPrefix}-reticle-lock`}
+          />
+
+          {/*
+            THE POCKET GRID LIVES INSIDE THE FRAME, and that placement is the
+            whole point — it used to be a sibling of this shell, positioned in
+            the preview canvas's own coordinates off the same crop rect.
+
+            Two things went wrong with that, both of them "the grid doesn't line
+            up with the frame":
+              1. the frame's 1px border is drawn INSIDE its box, so dividing the
+                 OUTER rect into thirds left the two outer cells a pixel narrower
+                 than the middle one, and each line met the border at a seam
+                 rather than running into it;
+              2. the capture pulse scales THIS shell ~4% (`lockShellStyle`) and a
+                 sibling does not ride that transform — so at the exact moment
+                 the user is looking hardest, the frame contracted and the grid
+                 stayed put.
+            Nested here, both are structural: `borderInset` divides the interior
+            the border actually leaves behind, and the transform is inherited.
+          */}
+          {pageGrid ? (
+            <View pointerEvents="none" style={styles.pageGrid} testID={`${testIDPrefix}-binder-grid`}>
+              {Array.from({ length: pageGrid.columns - 1 }, (_, index) => index + 1).map((column) => (
+                <View
+                  key={`binder-grid-v${column}`}
+                  style={[styles.pageGridLine, {
+                    bottom: 0,
+                    left: `${(100 / pageGrid.columns) * column}%`,
+                    top: 0,
+                    width: scannerReticleOutlineStrokeWidth,
+                  }]}
+                />
+              ))}
+              {Array.from({ length: pageGrid.rows - 1 }, (_, index) => index + 1).map((row) => (
+                <View
+                  key={`binder-grid-h${row}`}
+                  style={[styles.pageGridLine, {
+                    height: scannerReticleOutlineStrokeWidth,
+                    left: 0,
+                    right: 0,
+                    top: `${(100 / pageGrid.rows) * row}%`,
+                  }]}
+                />
+              ))}
+            </View>
+          ) : null}
         </Reanimated.View>
         )}
       </View>
 
       {children}
     </View>
-  );
-}
-
-/**
- * The reticle's four L-shaped corner brackets. `locked` renders the purple
- * capture-pulse variant (Figma 2227:22140); default is the resting white frame.
- */
-function ReticleCornerBrackets({ locked = false }: { locked?: boolean }) {
-  const edgeTint = locked ? styles.reticleCornerLockedTint : null;
-  return (
-    <>
-      <View style={[styles.reticleCorner, styles.reticleTopLeftPosition]}>
-        <View style={[styles.reticleCornerHorizontal, styles.reticleCornerTopEdge, edgeTint]} />
-        <View style={[styles.reticleCornerVertical, styles.reticleCornerLeftEdge, edgeTint]} />
-      </View>
-      <View style={[styles.reticleCorner, styles.reticleTopRightPosition]}>
-        <View style={[styles.reticleCornerHorizontal, styles.reticleCornerTopEdge, edgeTint]} />
-        <View style={[styles.reticleCornerVertical, styles.reticleCornerRightEdge, edgeTint]} />
-      </View>
-      <View style={[styles.reticleCorner, styles.reticleBottomLeftPosition]}>
-        <View style={[styles.reticleCornerHorizontal, styles.reticleCornerBottomEdge, edgeTint]} />
-        <View style={[styles.reticleCornerVertical, styles.reticleCornerLeftEdge, edgeTint]} />
-      </View>
-      <View style={[styles.reticleCorner, styles.reticleBottomRightPosition]}>
-        <View style={[styles.reticleCornerHorizontal, styles.reticleCornerBottomEdge, edgeTint]} />
-        <View style={[styles.reticleCornerVertical, styles.reticleCornerRightEdge, edgeTint]} />
-      </View>
-    </>
   );
 }
 
@@ -705,79 +728,66 @@ const styles = StyleSheet.create({
     flex: 1,
     overflow: 'hidden',
   },
-  pageOutline: {
-    ...StyleSheet.absoluteFillObject,
-    borderColor: colors.purple200,
-    borderCurve: 'continuous',
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  reticleBottomLeftPosition: {
-    bottom: 0,
-    left: 0,
-  },
-  reticleBottomRightPosition: {
-    bottom: 0,
-    right: 0,
-  },
   reticleCaptureButton: {
     position: 'absolute',
   },
-  reticleCorner: {
-    height: scannerReticleCornerSize,
-    position: 'absolute',
-    width: scannerReticleCornerSize,
-  },
-  reticleCornerBottomEdge: {
-    bottom: 0,
-  },
-  reticleCornerHorizontal: {
-    backgroundColor: reticleRestingCornerColor,
-    height: scannerReticleCornerStrokeWidth,
-    left: 0,
-    position: 'absolute',
-    right: 0,
-  },
-  reticleCornerLeftEdge: {
-    left: 0,
+  /*
+    The reticle frame itself — Figma 5085:15171: a 1px `Color/purple/200`
+    stroke on a 12pt continuous-corner rounded rect, drawn edge to edge of the
+    shell. `borderCurve` is what keeps the corner reading as Figma's smooth
+    squircle rather than iOS's plain circular arc.
+  */
+  reticleOutline: {
+    ...StyleSheet.absoluteFillObject,
+    borderColor: reticleRestingOutlineColor,
+    borderCurve: 'continuous',
+    borderRadius: scannerReticleCornerRadius,
+    borderWidth: scannerReticleOutlineStrokeWidth,
   },
   /*
     Capture-pulse tint (Figma 2227:22140 — the "locked" frame).
 
-    Now that the RESTING corners are purple300, the lock is a shift from a light
-    lilac to the saturated brand purple rather than white→purple. That is a
-    quieter signal than it used to be, so the pulse leans harder on the ~4%
-    contraction that rides the same progress value — see `lockShellStyle`. If the
-    lock stops reading on device, deepen THIS colour rather than putting the
-    resting frame back to white; the resting colour is the part Figma specifies.
+    The lock is a shift from the pale lilac outline to the saturated brand
+    purple. That is a quiet signal on its own, so the pulse leans on the ~4%
+    contraction riding the same progress value — see `lockShellStyle`. If the
+    lock stops reading on device, deepen THIS colour rather than lightening the
+    resting frame; the resting colour is the part Figma specifies.
   */
-  reticleCornerLockedTint: {
-    backgroundColor: reticleLockedCornerColor,
+  reticleOutlineLockedTint: {
+    borderColor: reticleLockedOutlineColor,
   },
-  reticleCornerRightEdge: {
-    right: 0,
+  /*
+    The interior of the frame — the box left over once the 1px border is drawn.
+    Insetting by exactly the stroke width is what makes all three cells the same
+    width and lands each line flush against the frame it divides.
+  */
+  pageGrid: {
+    ...StyleSheet.absoluteFillObject,
+    margin: scannerReticleOutlineStrokeWidth,
   },
-  reticleCornerTopEdge: {
-    top: 0,
-  },
-  reticleCornerVertical: {
-    backgroundColor: reticleRestingCornerColor,
-    bottom: 0,
+  /*
+    The thirds lines themselves — the SAME 1px `Color/purple/200` as the frame
+    they divide, on purpose, so the frame and its grid read as one object and
+    each line runs into the border in the same ink.
+
+    Figma draws these as `Color/purple/50` (5085:15377 vertical / 5085:15380
+    horizontal) and we deliberately don't. Two reasons, and neither is taste:
+      1. that value is very nearly white, and Figma composites it over a flat
+         grey mock. Over a live viewfinder aimed at glossy cards it disappears
+         into the highlights exactly when the user needs it to seat a page;
+      2. it made the frame dominate and left the 3x3 reading as a faint hint,
+         which is a regression from the corner-bracket era this replaced — that
+         drew a 2pt purple300 grid, and the grid was the dominant structure.
+    Matching the border is the quietest thing that still restores the grid as a
+    real object. If it ever needs to shout again, go back to the 2pt weight
+    before reaching for a darker colour.
+  */
+  pageGridLine: {
+    backgroundColor: reticleRestingOutlineColor,
     position: 'absolute',
-    top: 0,
-    width: scannerReticleCornerStrokeWidth,
   },
-  // Corners only per Figma 2227-22390 — no outline between the brackets.
   reticleShell: {
     position: 'absolute',
-  },
-  reticleTopLeftPosition: {
-    left: 0,
-    top: 0,
-  },
-  reticleTopRightPosition: {
-    right: 0,
-    top: 0,
   },
   scanPrompt: {
     ...textStyles.headline,

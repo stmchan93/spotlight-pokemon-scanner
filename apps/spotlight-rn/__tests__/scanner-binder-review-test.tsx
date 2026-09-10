@@ -1,8 +1,5 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { StyleSheet } from 'react-native';
-
-import { colors } from '@spotlight/design-system';
 
 import {
   __resetRecentCapturesPersistenceForTests,
@@ -219,39 +216,54 @@ describe('ScannerScreen binder page review — batch editing', () => {
     await AsyncStorage.clear();
   });
 
-  it('shows each pocket\'s assumed printing and opens the price sheet from the chip', async () => {
+  it('keeps the tiles free of pricing controls — no printing chip, no "Not sure?"', async () => {
     await seedPersistedPage();
     renderScannerWithPage();
     await openPageReview();
 
-    expect(screen.getByTestId(`${REVIEW}-pocket-0-printing-label`).props.children).toBe('Default');
-    expect(StyleSheet.flatten(screen.getByTestId(`${REVIEW}-pocket-0-printing-label`).props.style).color)
-      .toBe(colors.gray600);
-
-    fireEvent.press(screen.getByTestId(`${REVIEW}-pocket-0-printing`));
-    fireEvent.press(await screen.findByTestId('scan-price-sheet-row-holofoil-LP'));
-
-    await waitFor(() => {
-      expect(screen.getByTestId(`${REVIEW}-pocket-0-printing-label`).props.children).toBe('Holofoil');
-    });
-    expect(StyleSheet.flatten(screen.getByTestId(`${REVIEW}-pocket-0-printing-label`).props.style).color)
-      .toBe(colors.gray900);
-    // Add-all reflects the page's shown prices: 40 (Holofoil LP) + 20 + 1.
-    expect(screen.getByTestId(`${REVIEW}-add-all`)).toHaveTextContent('Add 3 · $61.00');
+    /*
+      The tile is art + name + set + price and nothing else. Nine pockets each
+      carrying a printing chip and an alternates link is what made the page
+      unreadable; both moved to the batch row and the change-card picker.
+    */
+    for (const pocket of [0, 1, 2]) {
+      expect(screen.queryByTestId(`${REVIEW}-pocket-${pocket}-printing`)).toBeNull();
+      expect(screen.queryByTestId(`${REVIEW}-pocket-${pocket}-not-sure`)).toBeNull();
+    }
+    // And the hold gesture is advertised, since nothing else hints at it —
+    // the page at rest carries NO dropdowns; they arrive with a selection.
+    expect(screen.getByTestId(`${REVIEW}-hint`)).toHaveTextContent(/Hold to edit/);
+    expect(screen.queryByTestId(`${REVIEW}-batch`)).toBeNull();
   });
 
-  it('"Set all → Printing" updates every pocket that has it and persists the choices', async () => {
+  /*
+    Hold the first pocket, then tap the other two. There is no Select-all
+    button: holding and tapping IS how a page-wide batch is made now, and the
+    ticks on the tiles are the only count there is.
+  */
+  async function selectWholePage() {
+    fireEvent(screen.getByTestId(`${REVIEW}-pocket-0`), 'longPress');
+    await screen.findByTestId(`${REVIEW}-batch`);
+    fireEvent.press(screen.getByTestId(`${REVIEW}-pocket-1`));
+    fireEvent.press(screen.getByTestId(`${REVIEW}-pocket-2`));
+    await waitFor(() => {
+      expect(screen.getByTestId(`${REVIEW}-pocket-2-tick`)).toBeTruthy();
+    });
+  }
+
+  it('"Variant" updates every pocket that has it and persists the choices', async () => {
     await seedPersistedPage();
     const view = renderScannerWithPage();
     await openPageReview();
+    await selectWholePage();
 
-    fireEvent.press(screen.getByTestId(`${REVIEW}-set-all-printing`));
-    fireEvent.press(await screen.findByTestId(`${REVIEW}-set-all-printing-normal`));
+    fireEvent.press(screen.getByTestId(`${REVIEW}-batch-variant`));
+    fireEvent.press(await screen.findByTestId(`${REVIEW}-batch-variant-menu-normal`));
 
     await waitFor(() => {
-      expect(screen.getByTestId(`${REVIEW}-pocket-0-printing-label`).props.children).toBe('Normal');
-      expect(screen.getByTestId(`${REVIEW}-pocket-1-printing-label`).props.children).toBe('Normal');
-      expect(screen.getByTestId(`${REVIEW}-pocket-2-printing-label`).props.children).toBe('Normal');
+      expect(screen.getByTestId(`${REVIEW}-pocket-0-printing`)).toHaveTextContent('Normal');
+      expect(screen.getByTestId(`${REVIEW}-pocket-1-printing`)).toHaveTextContent('Normal');
+      expect(screen.getByTestId(`${REVIEW}-pocket-2-printing`)).toHaveTextContent('Normal');
     });
     expect(await screen.findByText('Applied to 3 of 3')).toBeTruthy();
     // NM prices for the Normal printing: 10 + 20 + 1
@@ -271,58 +283,86 @@ describe('ScannerScreen binder page review — batch editing', () => {
     __resetRecentCapturesPersistenceForTests();
     renderScannerWithPage();
     await openPageReview();
-    expect(screen.getByTestId(`${REVIEW}-pocket-1-printing-label`).props.children).toBe('Normal');
+    expect(screen.getByTestId(`${REVIEW}-pocket-1-printing`)).toHaveTextContent('Normal');
   });
 
-  it('"Set all → Printing" applies only where that printing exists and reports the skips', async () => {
+  it('"Variant" applies only where that variant exists and reports the skips', async () => {
     await seedPersistedPage();
     renderScannerWithPage();
     await openPageReview();
+    await selectWholePage();
 
-    fireEvent.press(screen.getByTestId(`${REVIEW}-set-all-printing`));
-    fireEvent.press(await screen.findByTestId(`${REVIEW}-set-all-printing-holofoil`));
+    fireEvent.press(screen.getByTestId(`${REVIEW}-batch-variant`));
+    fireEvent.press(await screen.findByTestId(`${REVIEW}-batch-variant-menu-holofoil`));
 
     await waitFor(() => {
-      expect(screen.getByTestId(`${REVIEW}-pocket-0-printing-label`).props.children).toBe('Holofoil');
-      expect(screen.getByTestId(`${REVIEW}-pocket-1-printing-label`).props.children).toBe('Holofoil');
+      expect(screen.getByTestId(`${REVIEW}-pocket-0-printing`)).toHaveTextContent('Holofoil');
+      expect(screen.getByTestId(`${REVIEW}-pocket-1-printing`)).toHaveTextContent('Holofoil');
     });
-    // Charmander has no Holofoil printing: left on its default, and counted.
-    expect(screen.getByTestId(`${REVIEW}-pocket-2-printing-label`).props.children).toBe('Default');
-    expect(await screen.findByText('Applied to 2 of 3 · 1 has no Holofoil printing')).toBeTruthy();
+    // Charmander has no Holofoil printing: left on its default (so it shows no
+    // printing line at all), and counted in the notice.
+    expect(screen.queryByTestId(`${REVIEW}-pocket-2-printing`)).toBeNull();
+    expect(await screen.findByText('Applied to 2 of 3 · 1 has no Holofoil variant')).toBeTruthy();
     // 50 + 100 + 1
     expect(screen.getByTestId(`${REVIEW}-add-all`)).toHaveTextContent('Add 3 · $151.00');
 
     // A second batch reuses the cached matrices — no refetch.
     const callsAfterFirst = matrixCalls.length;
-    fireEvent.press(screen.getByTestId(`${REVIEW}-set-all-printing`));
-    fireEvent.press(await screen.findByTestId(`${REVIEW}-set-all-printing-normal`));
+    fireEvent.press(screen.getByTestId(`${REVIEW}-batch-variant`));
+    fireEvent.press(await screen.findByTestId(`${REVIEW}-batch-variant-menu-normal`));
     await waitFor(() => {
-      expect(screen.getByTestId(`${REVIEW}-pocket-0-printing-label`).props.children).toBe('Normal');
-      expect(screen.getByTestId(`${REVIEW}-pocket-2-printing-label`).props.children).toBe('Normal');
+      expect(screen.getByTestId(`${REVIEW}-pocket-0-printing`)).toHaveTextContent('Normal');
+      expect(screen.getByTestId(`${REVIEW}-pocket-2-printing`)).toHaveTextContent('Normal');
     });
     expect(matrixCalls.length).toBe(callsAfterFirst);
   });
 
-  it('"Not sure?" on a low-confidence pocket offers the top alternates inline', async () => {
+  it('hold-to-select scopes a batch to the pockets you picked', async () => {
     await seedPersistedPage();
     renderScannerWithPage();
     await openPageReview();
 
-    // Only the low-confidence pocket carries the affordance.
-    expect(screen.queryByTestId(`${REVIEW}-pocket-0-not-sure`)).toBeNull();
-    fireEvent.press(screen.getByTestId(`${REVIEW}-pocket-1-not-sure`));
+    // Holding starts selection; a plain tap then picks rather than opening the
+    // change-card picker.
+    // Holding brings the toolbar in; a plain tap then picks rather than opening
+    // the change-card picker. The ticks are the count — the toolbar shows none.
+    fireEvent(screen.getByTestId(`${REVIEW}-pocket-0`), 'longPress');
+    await screen.findByTestId(`${REVIEW}-batch`);
+    fireEvent.press(screen.getByTestId(`${REVIEW}-pocket-2`));
+    expect(screen.getByTestId(`${REVIEW}-pocket-0-tick`)).toBeTruthy();
+    expect(screen.getByTestId(`${REVIEW}-pocket-2-tick`)).toBeTruthy();
 
-    const strip = await screen.findByTestId(`${REVIEW}-alternates`);
-    expect(strip).toHaveTextContent(/Pocket 2 · other matches/);
-    expect(screen.getByTestId(`${REVIEW}-alternates-1`)).toHaveTextContent(/Blastoise \(alt\)/);
-
-    fireEvent.press(screen.getByTestId(`${REVIEW}-alternates-1`));
+    fireEvent.press(screen.getByTestId(`${REVIEW}-batch-variant`));
+    fireEvent.press(await screen.findByTestId(`${REVIEW}-batch-variant-menu-normal`));
 
     await waitFor(() => {
-      expect(screen.getByTestId(`${REVIEW}-pocket-1`)).toHaveTextContent(/Blastoise \(alt\)/);
+      expect(screen.getByTestId(`${REVIEW}-pocket-0-printing`)).toHaveTextContent('Normal');
     });
-    expect(screen.queryByTestId(`${REVIEW}-alternates`)).toBeNull();
-    // 10 + 15 + 1
-    expect(screen.getByTestId(`${REVIEW}-add-all`)).toHaveTextContent('Add 3 · $26.00');
+    expect(screen.getByTestId(`${REVIEW}-pocket-2-printing`)).toHaveTextContent('Normal');
+    // The pocket nobody picked is untouched — and the count reports the two.
+    expect(screen.queryByTestId(`${REVIEW}-pocket-1-printing`)).toBeNull();
+    expect(await screen.findByText('Applied to 2 of 2')).toBeTruthy();
+
+    // Done clears the selection and the toolbar leaves with it; the hint is back.
+    fireEvent.press(screen.getByTestId(`${REVIEW}-batch-done`));
+    expect(screen.queryByTestId(`${REVIEW}-batch`)).toBeNull();
+    expect(screen.getByTestId(`${REVIEW}-hint`)).toHaveTextContent(/Hold to edit/);
+  });
+
+  it('condition is a batch action now that the tiles have no price sheet', async () => {
+    await seedPersistedPage();
+    renderScannerWithPage();
+    await openPageReview();
+    await selectWholePage();
+
+    fireEvent.press(screen.getByTestId(`${REVIEW}-batch-condition`));
+    fireEvent.press(await screen.findByTestId(`${REVIEW}-batch-condition-menu-lp`));
+
+    await waitFor(async () => {
+      const persisted = await readPersistedSelections();
+      expect(persisted[PAGE_ID]).toEqual(
+        expect.objectContaining({ conditionShortLabel: 'LP' }),
+      );
+    }, { timeout: 3000 });
   });
 });

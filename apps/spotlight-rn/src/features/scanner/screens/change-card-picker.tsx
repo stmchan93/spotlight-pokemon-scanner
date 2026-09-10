@@ -15,16 +15,25 @@ import { NavArrowLeft, Search as SearchIcon } from 'iconoir-react-native';
 import { BlurView } from 'expo-blur';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import type { CatalogSearchResult } from '@spotlight/api-client';
-import { Text, colors } from '@spotlight/design-system';
+import type {
+  CatalogSearchResult,
+  DeckConditionCode,
+  RawPricingMatrixVariant,
+} from '@spotlight/api-client';
+import { PillButton, Text, colors } from '@spotlight/design-system';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
+import { useAppServices } from '@/providers/app-providers';
 
 import {
   matchConfidenceColor,
   matchPercentFromScore,
-  matchPillColors,
 } from './change-card-picker-helpers';
+import {
+  buildScanPriceSelection,
+  conditionCodeToDeckCondition,
+  type ScanPriceSheetSelection,
+} from './scan-price-sheet';
 
 type ChangeCardPickerProps = {
   visible: boolean;
@@ -42,6 +51,19 @@ type ChangeCardPickerProps = {
   isLoadingMore?: boolean;
   /** Fetch the next page of candidates from the backend and append them. */
   onLoadMoreCandidates?: () => void;
+  /**
+   * Scan lane of the capture being changed. Printings only exist on the raw
+   * lane — a graded slab is priced by its cert, not by its printing — so the
+   * variant chips are skipped (and the pricing-matrix call never made) on
+   * 'slabs'.
+   */
+  mode?: 'raw' | 'slabs';
+  /** Printing currently chosen for this capture, if any (drives chip selection). */
+  selectedVariantKey?: string | null;
+  /** Condition currently chosen for this capture; a printing swap preserves it. */
+  selectedConditionCode?: DeckConditionCode | null;
+  /** A printing chip was tapped — re-prices the tray row on that printing. */
+  onSelectVariant?: (selection: ScanPriceSheetSelection) => void;
   onClose: () => void;
   onSelectCandidate: (candidateIndex: number) => void;
   /** Tap the matched (hero) card image → open that card's detail page. */
@@ -63,13 +85,18 @@ export function ChangeCardPicker({
   capturedImageUri,
   totalCount,
   isLoadingMore = false,
+  mode = 'raw',
+  selectedVariantKey,
+  selectedConditionCode,
   onLoadMoreCandidates,
   onClose,
   onSelectCandidate,
+  onSelectVariant,
   onOpenMatchedCard,
   testID = 'change-card-picker',
 }: ChangeCardPickerProps) {
   const insets = useSafeAreaInsets();
+  const { spotlightRepository } = useAppServices();
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_COUNT);
   const [pendingSelection, setPendingSelection] = useState<number | null>(null);
   const translateY = useRef(new Animated.Value(0)).current;
@@ -159,6 +186,56 @@ export function ChangeCardPicker({
   const handleSelect = (index: number) => {
     setPendingSelection(index);
     onSelectCandidate(index);
+  };
+
+  // Printings for the currently-selected candidate, cached per card id so
+  // toggling between two rows doesn't refetch. Raw lane only — see `mode`.
+  const selectedCardId = mode === 'raw' ? heroCandidate?.cardId ?? null : null;
+  const [variantsByCardId, setVariantsByCardId] = useState<
+    Record<string, RawPricingMatrixVariant[]>
+  >({});
+
+  useEffect(() => {
+    if (!visible || !selectedCardId || variantsByCardId[selectedCardId]) {
+      return undefined;
+    }
+    let isActive = true;
+    void spotlightRepository
+      .getRawPricingMatrix(selectedCardId)
+      .then((matrix) => {
+        if (isActive) {
+          setVariantsByCardId((current) => ({ ...current, [selectedCardId]: matrix.variants }));
+        }
+      })
+      .catch(() => {
+        // No pricing matrix just means no printing chips; cache the empty
+        // answer so a card without one isn't re-requested on every re-render.
+        if (isActive) {
+          setVariantsByCardId((current) => ({ ...current, [selectedCardId]: [] }));
+        }
+      });
+    return () => {
+      isActive = false;
+    };
+  }, [selectedCardId, spotlightRepository, variantsByCardId, visible]);
+
+  const selectedVariants = selectedCardId ? variantsByCardId[selectedCardId] ?? [] : [];
+  // With nothing explicitly chosen the first printing is what the tray price
+  // already reflects, so it reads as the selected chip.
+  const activeVariantKey = selectedVariantKey ?? selectedVariants[0]?.variantKey ?? null;
+
+  const handleSelectVariant = (variant: RawPricingMatrixVariant) => {
+    // Keep the condition the user already picked when it exists on the new
+    // printing; otherwise fall back to NM, then to whatever the printing has.
+    const condition = variant.conditions.find(
+      (entry) => conditionCodeToDeckCondition[entry.code] === selectedConditionCode,
+    )
+      ?? variant.conditions.find((entry) => entry.code === 'NM')
+      ?? variant.conditions[0];
+    if (!condition) {
+      return;
+    }
+    onSelectVariant?.(buildScanPriceSelection(variant, condition.code, condition.market ?? null));
   };
 
   const handleLoadMore = () => {
@@ -253,7 +330,7 @@ export function ChangeCardPicker({
               />
               <View style={styles.infoHeader}>
                 <View style={styles.infoPill}>
-                  <Text style={styles.infoPillText}>SWITCH</Text>
+                  <Text style={styles.infoPillText}>CHANGE</Text>
                 </View>
                 <View style={styles.infoPill}>
                   <Text style={styles.infoPillText}>{`${resolvedTotal} SIMILAR`}</Text>
@@ -323,54 +400,71 @@ export function ChangeCardPicker({
               {visibleCandidates.map((candidate, index) => {
                 const isSelected = index === selectedIndex;
                 const meta = [candidate.cardNumber, candidate.setName].filter(Boolean).join(' · ');
-                const matchPct = matchPercentFromScore(candidate.matchScore);
-                const pillColors = matchPct != null ? matchPillColors(matchPct) : null;
+                // Printings hang off the SELECTED row only: an always-on rail on
+                // every candidate would bury the card names it exists to compare.
+                const showVariants = isSelected && selectedVariants.length > 0;
                 return (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: isSelected }}
+                  <View
                     key={candidate.id ?? candidate.cardId ?? index}
-                    onPress={() => handleSelect(index)}
-                    style={({ pressed }) => [
+                    style={[
                       styles.cardRow,
                       isSelected ? styles.cardRowSelected : styles.cardRowUnselected,
-                      pressed ? styles.cardRowPressed : null,
                     ]}
-                    testID={`${testID}-row-${index}`}
                   >
-                    {candidate.imageUrl ? (
-                      <CachedImage
-                        cachePolicy={imageCachePolicy.thumbnail}
-                        contentFit="cover"
-                        style={styles.thumb}
-                        uri={candidate.smallImageUrl ?? candidate.imageUrl}
-                      />
-                    ) : (
-                      <View style={[styles.thumb, styles.thumbPlaceholder]} />
-                    )}
-                    <View style={styles.rowText}>
-                      <Text numberOfLines={1} style={styles.rowTitle}>
-                        {candidate.name}
-                      </Text>
-                      {meta ? (
-                        <Text numberOfLines={1} style={styles.rowMeta}>
-                          {meta}
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: isSelected }}
+                      onPress={() => handleSelect(index)}
+                      style={({ pressed }) => [
+                        styles.cardRowMain,
+                        pressed ? styles.cardRowPressed : null,
+                      ]}
+                      testID={`${testID}-row-${index}`}
+                    >
+                      {candidate.imageUrl ? (
+                        <CachedImage
+                          cachePolicy={imageCachePolicy.thumbnail}
+                          contentFit="cover"
+                          style={styles.thumb}
+                          uri={candidate.smallImageUrl ?? candidate.imageUrl}
+                        />
+                      ) : (
+                        <View style={[styles.thumb, styles.thumbPlaceholder]} />
+                      )}
+                      <View style={styles.rowText}>
+                        <Text numberOfLines={1} style={styles.rowTitle}>
+                          {candidate.name}
                         </Text>
-                      ) : null}
-                      {pillColors ? (
-                        <View
-                          style={[styles.matchChip, { backgroundColor: pillColors.backgroundColor }]}
-                        >
-                          <Text
-                            style={[styles.matchChipText, { color: pillColors.color }]}
-                            testID={`${testID}-match-${index}`}
-                          >
-                            {`${matchPct}% Match`}
+                        {meta ? (
+                          <Text numberOfLines={1} style={styles.rowMeta}>
+                            {meta}
                           </Text>
-                        </View>
-                      ) : null}
-                    </View>
-                  </Pressable>
+                        ) : null}
+                      </View>
+                    </Pressable>
+
+                    {showVariants ? (
+                      <ScrollView
+                        contentContainerStyle={styles.variantRow}
+                        horizontal
+                        keyboardShouldPersistTaps="handled"
+                        showsHorizontalScrollIndicator={false}
+                        style={styles.variantScroll}
+                        testID={`${testID}-variants-${index}`}
+                      >
+                        {selectedVariants.map((variant) => (
+                          <PillButton
+                            key={variant.variantKey}
+                            label={variant.variant}
+                            onPress={() => handleSelectVariant(variant)}
+                            selected={variant.variantKey === activeVariantKey}
+                            testID={`${testID}-variant-${variant.variantKey}`}
+                            tone="option"
+                          />
+                        ))}
+                      </ScrollView>
+                    ) : null}
+                  </View>
                 );
               })}
 
@@ -544,12 +638,16 @@ const styles = StyleSheet.create({
     paddingTop: 16,
   },
   cardRow: {
-    alignItems: 'center',
     borderCurve: 'continuous',
     borderRadius: 8,
+    padding: 12,
+  },
+  // Thumb + copy. Sits above the printing rail, which is why the row itself is
+  // a column now (Figma 5085:10858 puts the Option List under the card info).
+  cardRowMain: {
+    alignItems: 'center',
     flexDirection: 'row',
     gap: 12,
-    padding: 12,
   },
   cardRowSelected: {
     borderColor: colors.purple300,
@@ -587,17 +685,15 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18.2,
   },
-  matchChip: {
-    alignSelf: 'flex-start',
-    borderCurve: 'continuous',
-    borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+  // Figma 5085:10858 — the Option List starts 8px under the card thumb and
+  // scrolls horizontally; four printings already overflow a 361pt row.
+  variantScroll: {
+    marginTop: 8,
   },
-  matchChipText: {
-    fontFamily: 'SpotlightBodyBold',
-    fontSize: 11,
-    lineHeight: 14.3,
+  variantRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
   },
   loadMoreButton: {
     alignSelf: 'center',
