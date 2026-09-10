@@ -17,6 +17,7 @@ import {
   Linking,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   UIManager,
   View,
@@ -58,6 +59,7 @@ import {
   type DeckConditionCode,
   type InventoryCardEntry,
   type InventoryEntryCreateRequestPayload,
+  type RawPricingMatrixVariant,
   type ScannerCapturePayload,
   type ScannerMatchResult,
   type SlabContext,
@@ -67,6 +69,7 @@ import {
   GlassNavBubble,
   glassNavBubbleGlyphSize,
   GlassSurface,
+  PillButton,
   Text,
   colors,
   fontFamilies,
@@ -120,7 +123,7 @@ import {
   setRecentCapturesOwner,
   sweepOrphanScans,
 } from '@/features/scanner/recent-captures-persistence';
-import { prefetchCardDetail } from '@/features/cards/card-detail-prefetch';
+import { getRawPricingMatrixCached, prefetchCardDetail } from '@/features/cards/card-detail-prefetch';
 import { saveCardDetailPreviewFromCatalogResult } from '@/features/cards/card-detail-preview-session';
 import { useGuestGate } from '@/features/auth/use-guest-gate';
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
@@ -149,7 +152,12 @@ import { BinderPageReview } from './binder-page-review';
 import { BinderLayoutMenu, type BinderLayoutMenuSelection } from '@/features/scanner/components/binder-layout-menu';
 import { ChangeCardPicker } from './change-card-picker';
 import { RecentCaptureSwipeRow } from './recent-capture-swipe-row';
-import { ScanPriceSheet, type ScanPriceSheetSelection } from './scan-price-sheet';
+import {
+  ScanPriceSheet,
+  buildScanPriceSelection,
+  conditionCodeToDeckCondition,
+  type ScanPriceSheetSelection,
+} from './scan-price-sheet';
 import {
   activeCandidateForCapture,
   alignToFourPointGrid,
@@ -474,7 +482,14 @@ type CaptureTrayRowProps = {
   isOwned: boolean;
   renderContent: boolean;
   selection: ScanPriceSheetSelection | null;
+  /** The active candidate's printings; empty until the matrix lands (or none exist). */
+  variants: readonly RawPricingMatrixVariant[];
+  onSelectVariant: (captureId: string, variant: RawPricingMatrixVariant) => void;
 };
+
+// Stable empty list: a fresh [] per render would break CaptureTrayRow's memo
+// for every row that has no printings yet.
+const emptyVariants: readonly RawPricingMatrixVariant[] = [];
 
 // One scan-tray row, extracted from the screen render and memoized: each row
 // carries a CachedImage thumb, a gesture-handler Swipeable and a Reanimated
@@ -496,8 +511,10 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
   onOpenChangeCardPicker,
   onOpenRowMenu,
   onShowPrice,
+  onSelectVariant,
   renderContent,
   selection,
+  variants,
 }: CaptureTrayRowProps) {
   const theme = useSpotlightTheme();
   // Anchor for the row ADD menu — measured by ref because the arena Pressable's
@@ -513,9 +530,15 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
       .filter(Boolean)
       .join(' · ')
     : '';
+  // Raw rows show their PRINTINGS as chips in place of a flat "RAW": tapping
+  // one reprices the row, the tray TOTAL and what gets added, without opening
+  // a sheet. One printing is not a choice, so it renders as its name; none
+  // (or not loaded yet) falls back to the old tag.
+  const activeVariantKey = selection?.variantKey ?? variants[0]?.variantKey ?? null;
+  const showVariantChips = capture.mode === 'raw' && variants.length > 1;
   const modeTagLine = capture.mode === 'slabs'
     ? scannerSlabInlineLabel(capture) || 'GRADED'
-    : 'RAW';
+    : (variants.length === 1 ? variants[0].variant : null) ?? selection?.variantLabel ?? 'RAW';
   // When the shown price is a graded slab comp (card has no raw price), tag it
   // so "$24,824" reads as "$24,824  PSA 10", not the ungraded value.
   const gradedReferenceLabel = candidate?.priceIsGradedReference
@@ -628,23 +651,48 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                       {setAndNumberLine}
                     </Text>
                   ) : null}
-                  <View style={styles.captureModeRow}>
-                    <Text numberOfLines={1} style={styles.captureSubtitle}>
-                      {modeTagLine}
-                    </Text>
-                    {capture.mode === 'raw' ? (
-                      // The printing + condition the shown price assumes, one
-                      // tap from the price sheet. Same height as the CHANGE
-                      // chip so the windowed tray's row geometry is untouched.
-                      <PrintingChip
-                        arena
-                        confirmed={!!selection}
-                        label={printingChipLabel(candidate, selection)}
-                        onPress={() => onShowPrice(capture.id)}
-                        testID={`scanner-tray-printing-${index}`}
-                      />
-                    ) : null}
-                  </View>
+                  {showVariantChips ? (
+                    // Every printing this card has, pickable in place: the tap
+                    // reprices the row, the tray TOTAL and what gets added.
+                    // The price stays tappable for the CONDITION sheet.
+                    <ScrollView
+                      contentContainerStyle={styles.captureVariantRow}
+                      horizontal
+                      keyboardShouldPersistTaps="handled"
+                      showsHorizontalScrollIndicator={false}
+                      style={styles.captureVariantScroll}
+                      testID={`scanner-tray-variants-${index}`}
+                    >
+                      {variants.map((variant) => (
+                        <PillButton
+                          key={variant.variantKey}
+                          label={variant.variant}
+                          onPress={() => onSelectVariant(capture.id, variant)}
+                          selected={variant.variantKey === activeVariantKey}
+                          testID={`scanner-tray-variant-${index}-${variant.variantKey}`}
+                          tone="option"
+                        />
+                      ))}
+                    </ScrollView>
+                  ) : (
+                    <View style={styles.captureModeRow}>
+                      <Text numberOfLines={1} style={styles.captureSubtitle}>
+                        {modeTagLine}
+                      </Text>
+                      {capture.mode === 'raw' ? (
+                        // One printing (or none loaded): the chip is the way
+                        // into the price sheet, same height as CHANGE so the
+                        // windowed tray's row geometry is untouched.
+                        <PrintingChip
+                          arena
+                          confirmed={!!selection}
+                          label={printingChipLabel(candidate, selection)}
+                          onPress={() => onShowPrice(capture.id)}
+                          testID={`scanner-tray-printing-${index}`}
+                        />
+                      ) : null}
+                    </View>
+                  )}
                   {capture.binderPage ? <PocketBadge binderPage={capture.binderPage} /> : null}
                 </>
               ) : (
@@ -967,6 +1015,13 @@ export function ScannerScreen({
   const [isScanTargetSheetOpen, setIsScanTargetSheetOpen] = useState(false);
   const [ebayTrayState, setEbayTrayState] = useState<Map<string, { loading: boolean; url: string | null }>>(new Map());
   const [priceSelection, setPriceSelection] = useState<Map<string, ScanPriceSheetSelection>>(new Map());
+  // Printings per card, for the tray rows' variant chips. Read through the
+  // shared 60s cache, so the price sheet and the change-card picker reuse
+  // whatever a row already fetched (and vice versa).
+  const [variantsByCardId, setVariantsByCardId] = useState<Map<string, RawPricingMatrixVariant[]>>(new Map());
+  // Mirrors the state so the fetch effect can claim a card synchronously
+  // (state lands a render later, which would double-fetch a burst tray).
+  const variantsRef = useRef<Map<string, RawPricingMatrixVariant[]>>(new Map());
   const [activePriceCaptureId, setActivePriceCaptureId] = useState<string | null>(null);
   const [activeChangeCaptureId, setActiveChangeCaptureId] = useState<string | null>(null);
   const hasFocusedScannerRef = useRef(false);
@@ -3761,6 +3816,71 @@ export function ScannerScreen({
     commitTrayExpandedState(!isTrayExpanded);
   }, [canToggleTray, commitTrayExpandedState, isTrayExpanded]);
 
+  // One matrix read per distinct card in the tray, through the shared cache.
+  // Raw rows only — a slab's price comes from its grade, not a printing.
+  const trayVariantCardIds = useMemo(() => {
+    const ids = new Set<string>();
+    recentCaptures.forEach((capture) => {
+      if (capture.mode !== 'raw' || capture.isLoadingCandidates) {
+        return;
+      }
+      const candidate = activeCandidateForCapture(capture);
+      if (candidate) {
+        ids.add(candidate.cardId);
+      }
+    });
+    return [...ids].sort().join(',');
+  }, [recentCaptures]);
+
+  useEffect(() => {
+    const cardIds = trayVariantCardIds ? trayVariantCardIds.split(',') : [];
+    let cancelled = false;
+    cardIds.forEach((cardId) => {
+      if (variantsRef.current.has(cardId)) {
+        return;
+      }
+      // Marked before the await so a re-render mid-flight cannot double-fetch.
+      variantsRef.current.set(cardId, []);
+      void getRawPricingMatrixCached(spotlightRepository, cardId)
+        .then((matrix) => {
+          if (cancelled || matrix.variants.length === 0) {
+            return;
+          }
+          variantsRef.current.set(cardId, matrix.variants);
+          setVariantsByCardId((current) => new Map(current).set(cardId, matrix.variants));
+        })
+        .catch(() => {
+          // Best-effort: the row keeps its RAW tag and the price sheet still works.
+          variantsRef.current.delete(cardId);
+        });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [spotlightRepository, trayVariantCardIds]);
+
+  // A tray chip picks a PRINTING; the condition rides along, preferring the one
+  // the row already shows so switching printing never silently regrades it.
+  const handleSelectRowVariant = useCallback(
+    (captureId: string, variant: RawPricingMatrixVariant) => {
+      const currentCondition = priceSelectionRef.current.get(captureId)?.conditionCode ?? 'near_mint';
+      const condition = variant.conditions.find(
+        (entry) => (conditionCodeToDeckCondition[entry.code] ?? 'near_mint') === currentCondition,
+      )
+        ?? variant.conditions.find((entry) => entry.code === 'NM')
+        ?? variant.conditions[0];
+      if (!condition) {
+        return;
+      }
+      setPriceSelection((current) => {
+        const next = new Map(current);
+        next.set(captureId, buildScanPriceSelection(variant, condition.code, condition.market ?? null));
+        return next;
+      });
+    },
+    [],
+  );
+
   const handlePriceSelection = useCallback(
     (captureId: string, selection: ScanPriceSheetSelection) => {
       setPriceSelection((current) => {
@@ -4009,8 +4129,13 @@ export function ScannerScreen({
         const candidate = activeCandidateForCapture(capture);
         return candidate ? inventoryByCardId.has(candidate.cardId) : false;
       })()}
+      onSelectVariant={handleSelectRowVariant}
       renderContent={trayRowContentVisibility[index] !== false}
       selection={priceSelection.get(capture.id) ?? null}
+      variants={(() => {
+        const candidate = activeCandidateForCapture(capture);
+        return (candidate ? variantsByCardId.get(candidate.cardId) : null) ?? emptyVariants;
+      })()}
     />
   );
 
@@ -5041,6 +5166,17 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     flexDirection: 'row',
     gap: 6,
+  },
+  // The printing chips stand where the "RAW" tag was; four printings already
+  // overflow a tray row, so they scroll like the change-card picker's.
+  captureVariantScroll: {
+    alignSelf: 'stretch',
+    marginTop: 2,
+  },
+  captureVariantRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
   },
   captureThumb: {
     // Figma 3594:25986 — 58x80 at radius 2.695, which is a real card's corner

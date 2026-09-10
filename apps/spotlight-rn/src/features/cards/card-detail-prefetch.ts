@@ -1,6 +1,7 @@
 import type {
   CardDetailRecord,
   CardPriceTrendList as CardPriceTrendListRecord,
+  RawPricingMatrix,
   SpotlightRepository,
 } from '@spotlight/api-client';
 
@@ -27,6 +28,10 @@ import { prefetchImageUrls } from '@/lib/card-images';
 const cacheTtlMs = 60_000;
 const maxDetailEntries = 50;
 const maxTrendEntries = 80;
+// A binder page puts nine cards in the tray at once and each row asks for its
+// printings, so this one is sized past a full page with room for the cards a
+// dealer has already scanned.
+const maxPricingMatrixEntries = 60;
 // One retry after a short pause for the PDP's two critical reads. The client
 // aborts at 12s (defaultHttpRequestTimeoutMs); a server that is briefly
 // contended answers the retry in <1s far more often than it stays slow, and a
@@ -54,6 +59,7 @@ type CacheEntry<T> = {
 
 const detailCache = new Map<string, CacheEntry<CardDetailRecord | null>>();
 const trendCache = new Map<string, CacheEntry<CardPriceTrendListRecord | null>>();
+const pricingMatrixCache = new Map<string, CacheEntry<RawPricingMatrix>>();
 
 /**
  * The default price lane for a card, computed from preview/owned data BEFORE
@@ -218,8 +224,32 @@ export function invalidateCardDetailCache(cardId: string): void {
   }
 }
 
-/** Clear both caches entirely (test cleanup / global data-version bumps). */
+/** Clear every cache entirely (test cleanup / global data-version bumps). */
 export function clearCardDetailCache(): void {
   detailCache.clear();
   trendCache.clear();
+  pricingMatrixCache.clear();
+}
+
+/**
+ * Read-through for a card's raw pricing matrix (its printings and their
+ * per-condition prices). Three surfaces ask for the same card's matrix — the
+ * scan tray's variant chips, the change-card picker's chips, and the price
+ * sheet — and before this each kept its own copy in component state, so every
+ * reopen paid the round trip again.
+ */
+export function getRawPricingMatrixCached(
+  repository: SpotlightRepository,
+  cardId: string,
+): Promise<RawPricingMatrix> {
+  const existing = pricingMatrixCache.get(cardId);
+  if (isFresh(existing)) {
+    return existing.promise;
+  }
+  return storeEntry(
+    pricingMatrixCache,
+    maxPricingMatrixEntries,
+    cardId,
+    repository.getRawPricingMatrix(cardId),
+  );
 }

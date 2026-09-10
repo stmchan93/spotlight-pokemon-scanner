@@ -4,6 +4,8 @@ import type { ComponentProps } from 'react';
 import { AppState, Keyboard, LayoutAnimation, StyleSheet } from 'react-native';
 
 import { SpotlightRepositoryRequestError } from '@spotlight/api-client';
+
+import { clearCardDetailCache } from '@/features/cards/card-detail-prefetch';
 import { colors } from '@spotlight/design-system';
 
 import { TabsPageContext } from '@/contexts/tabs-page-context';
@@ -140,6 +142,9 @@ describe('ScannerScreen', () => {
   const originalScannerSmokeEnv = process.env.EXPO_PUBLIC_SPOTLIGHT_SCANNER_SMOKE_ENABLED;
 
   beforeEach(() => {
+    // The pricing matrix is cached module-wide for 60s, so one test's printings
+    // would otherwise be served to the next one for the same card id.
+    clearCardDetailCache();
     mockIsGuest = false;
     mockEnsureGuestSession.mockClear();
     mockEnsureGuestSession.mockImplementation(async () => mockGuestSession as any);
@@ -1843,6 +1848,63 @@ describe('ScannerScreen', () => {
     expect(StyleSheet.flatten(screen.getByTestId('scanner-tray-printing-0-label').props.style).color)
       .toBe(colors.gray900);
     expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.42');
+  });
+
+  // A card with more than one printing gets the printings themselves as chips,
+  // in place of the flat "RAW" tag: picking one reprices the row and the tray
+  // TOTAL without opening a sheet.
+  it('prices a row from a printing chip picked on the tray', async () => {
+    const spotlightRepository = createTestSpotlightRepository({
+      matchScannerCapture: async () => ({
+        scanID: 'scan-froakie',
+        candidates: [{
+          id: 'froakie-candidate',
+          cardId: 'mcdonalds25-22',
+          name: 'Froakie',
+          cardNumber: '#22/25',
+          setName: "McDonald's Collection 2021",
+          imageUrl: 'https://cdn.spotlight.test/froakie.png',
+          marketPrice: 0.55,
+          currencyCode: 'USD',
+        }],
+      }),
+      getRawPricingMatrix: async () => ({
+        cardID: 'mcdonalds25-22',
+        currencyCode: 'USD',
+        variants: [
+          {
+            variant: 'Holofoil',
+            variantKey: 'holofoil',
+            conditions: [
+              { code: 'NM', label: 'Near Mint', market: 0.55, low: null, mid: null, high: null },
+            ],
+          },
+          {
+            variant: 'Reverse Holofoil',
+            variantKey: 'reverse-holofoil',
+            conditions: [
+              { code: 'NM', label: 'Near Mint', market: 4.2, low: null, mid: null, high: null },
+            ],
+          },
+        ],
+      }),
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+    expect(await screen.findByText('Froakie')).toBeTruthy();
+
+    // Two printings → chips, not the single-printing chip that opens the sheet.
+    await screen.findByTestId('scanner-tray-variants-0');
+    expect(screen.queryByTestId('scanner-tray-printing-0')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('scanner-tray-variant-0-reverse-holofoil'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $4.20');
+    });
   });
 
   it('passes the condition selected in the price sheet through to inventory add', async () => {
