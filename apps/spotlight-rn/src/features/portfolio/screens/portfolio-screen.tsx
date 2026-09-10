@@ -91,7 +91,6 @@ import {
 } from '@/components/page-tab-pager';
 import { EkalightMark } from '@/components/ekalight-mark';
 import { ScanTabIcon } from '@/components/nav-tab-icons';
-import { ScrollToTopFab, useScrollToTop } from '@/components/scroll-to-top-fab';
 import { useFloatingAffordanceBottom } from '@/lib/tab-bar-insets';
 import { usePortfolioScreenModel } from '@/features/portfolio/hooks/use-portfolio-screen-model';
 import { usePortfolioViewMode } from '@/features/portfolio/hooks/use-portfolio-view-mode';
@@ -1076,16 +1075,11 @@ export function PortfolioScreen({
 
   // The Collection page runs `contentInsetAdjustmentBehavior="automatic"`, so it
   // RESTS at `-insets.top` rather than at 0 — the same origin the pager is given
-  // as `contentInsetTop` below. Without this the FAB scrolled to 0, a status bar
-  // short of the real top, and appeared a status bar later than it should.
-  // Negative, and iOS-only, to match that prop exactly.
+  // as `contentInsetTop` below. Negative, and iOS-only, to match that prop.
+  // The "Back to top" FAB that consumed this was removed 2026-09-10 (user
+  // request); the Collection list now feeds the bottom-bar handler directly.
   const pageTopOffset = Platform.OS === 'ios' ? -insets.top : 0;
-  const {
-    isVisible: showScrollTop,
-    handleScroll,
-    handleLayout,
-    scrollToTop,
-  } = useScrollToTop(scrollRef, handleTabBarScroll, pageTopOffset);
+  const handleScroll = handleTabBarScroll;
 
   const handlePressEntry = useCallback(
     (entry: InventoryCardEntry) => {
@@ -1992,7 +1986,6 @@ export function PortfolioScreen({
           ListEmptyComponent={listEmpty}
           ListFooterComponent={listData.length > 0 ? <View style={styles.footerSpacer} /> : null}
           ListHeaderComponent={collectionChrome}
-          onLayout={handleLayout}
           onScroll={page.onScroll}
           refreshControl={(
             <RefreshControl
@@ -2021,9 +2014,8 @@ export function PortfolioScreen({
     );
   };
 
-  // Only the Collection page drives the scroll-to-top FAB and the bottom-bar
-  // minimize signal: it is the only page long enough for either to mean
-  // anything, and `scrollToTop` targets its ref.
+  // Only the Collection page drives the bottom-bar minimize signal: it is the
+  // only page long enough for it to mean anything.
   const handlePageScroll = (tab: ProfileTab, event: NativeSyntheticEvent<NativeScrollEvent>) => {
     if (tab === 'collection') {
       handleScroll(event);
@@ -2126,12 +2118,6 @@ export function PortfolioScreen({
         pinning and left the profile tab bar drawn across the status bar.
       */}
       {homeHeader}
-
-      <ScrollToTopFab
-        onPress={scrollToTop}
-        testID="portfolio-scroll-to-top"
-        visible={showScrollTop}
-      />
 
       {editMode ? (
         <View
