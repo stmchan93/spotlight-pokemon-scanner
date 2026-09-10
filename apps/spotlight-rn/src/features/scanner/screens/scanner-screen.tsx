@@ -1035,12 +1035,15 @@ export function ScannerScreen({
   const [rowMenuAnchor, setRowMenuAnchor] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const addAllTriggerRef = useRef<View | null>(null);
   const lastBulkActionRef = useRef<AddAllMenuAction>('collection');
-  // Show-floor discounts land on round numbers; anything finer is haggling the
-  // per-card price, which the row's own printing/condition already covers.
+  // Worded the way a show floor actually talks: "I'll do 80% of book", never
+  // "20% off". The state stays a discount so the arithmetic reads plainly;
+  // only the labels flip. 5% steps down to 65% of market (35% off) covers the
+  // range people haggle in — finer than that is a per-card argument, which the
+  // row's own printing and condition already settle.
   const discountOptions = useMemo(
-    () => [0, 5, 10, 15, 20, 25].map((percent) => ({
+    () => [0, 5, 10, 15, 20, 25, 30, 35].map((percent) => ({
       key: String(percent),
-      label: percent === 0 ? 'No discount' : `${percent}% off`,
+      label: percent === 0 ? 'Full price' : `${100 - percent}% of market`,
     })),
     [],
   );
@@ -4636,9 +4639,9 @@ export function ScannerScreen({
                 testID="scanner-value-pill-surface"
               >
                 <Pressable
-                  accessibilityHint="Applies a percentage off this deal's total"
+                  accessibilityHint="Prices this deal at a share of market"
                   accessibilityLabel={discountPercent > 0
-                    ? `Total ${formatTrayTotal(discountedTraySummary)}, ${discountPercent} percent off. Change discount`
+                    ? `Total ${formatTrayTotal(discountedTraySummary)}, ${100 - discountPercent} percent of market. Change discount`
                     : `Total ${formatTrayTotal(trayPriceSummary)}. Apply a discount`}
                   accessibilityRole="button"
                   hitSlop={8}
@@ -4652,7 +4655,7 @@ export function ScannerScreen({
                   </Text>
                   {discountPercent > 0 ? (
                     <Text style={styles.trayDiscountTag} testID="scanner-tray-discount-tag">
-                      {`−${discountPercent}%`}
+                      {`${100 - discountPercent}%`}
                     </Text>
                   ) : null}
                   <IconChevronDown color={colors.gray600} size={13} strokeWidth={2.4} />

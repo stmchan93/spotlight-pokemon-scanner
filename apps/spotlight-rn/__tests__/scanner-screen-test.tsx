@@ -942,7 +942,8 @@ describe('ScannerScreen', () => {
     fireEvent.press(await screen.findByTestId('discount-menu-20'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-discount-tag').props.children).toBe('−20%');
+      // Worded as a share of market, the way a show floor talks.
+      expect(screen.getByTestId('scanner-tray-discount-tag').props.children).toBe('80%');
     });
     expect(screen.getByTestId('scanner-value-pill-text').props.children).not.toBe(fullTotal);
 
