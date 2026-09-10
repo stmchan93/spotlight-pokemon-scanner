@@ -27,8 +27,6 @@ import type { RecentCapture } from './scanner-screen-types';
 export type BinderPageReviewProps = {
   /** Rows of this page in pocket order (may be shorter than nine after adds/swipes). */
   pockets: readonly RecentCapture[];
-  /** Pockets the backend judged to hold no card; drawn as "Empty" tiles. */
-  emptyPocketIndexes?: readonly number[];
   /** Formatted market price for the row's active candidate, or null when unpriced. */
   priceLabelFor: (capture: RecentCapture) => string | null;
   isAddingAll: boolean;
@@ -58,7 +56,6 @@ const captionHeight = 50;
  * above it.
  */
 export function BinderPageReview({
-  emptyPocketIndexes = [],
   isAddingAll,
   onAddAll,
   onClose,
@@ -95,7 +92,6 @@ export function BinderPageReview({
   };
 
   const byPocket = new Map(pockets.map((capture) => [capture.binderPage?.pocketIndex ?? -1, capture]));
-  const emptyPockets = new Set(emptyPocketIndexes);
   const pocketCount = binderPagePocketCount(layout);
   const pending = pockets.filter((capture) => capture.isLoadingCandidates).length;
   const addable = pockets.filter((capture) => !capture.isLoadingCandidates && !!activeCandidateForCapture(capture));
@@ -138,7 +134,6 @@ export function BinderPageReview({
               {Array.from({ length: pocketCount }, (_, pocketIndex) => (
                 <PocketTile
                   capture={byPocket.get(pocketIndex) ?? null}
-                  isEmpty={emptyPockets.has(pocketIndex)}
                   key={`pocket-${pocketIndex}`}
                   onPress={onPressPocket}
                   pocketIndex={pocketIndex}
@@ -167,7 +162,6 @@ export function BinderPageReview({
 
 function PocketTile({
   capture,
-  isEmpty = false,
   onPress,
   pocketIndex,
   priceLabelFor,
@@ -175,8 +169,6 @@ function PocketTile({
   width,
 }: {
   capture: RecentCapture | null;
-  /** The backend found no card in this pocket: no spinner, an "Empty" caption. */
-  isEmpty?: boolean;
   onPress: (captureId: string) => void;
   pocketIndex: number;
   priceLabelFor: (capture: RecentCapture) => string | null;
@@ -186,6 +178,8 @@ function PocketTile({
   // Long-press shows the crop we scanned instead of the matched art.
   const [peeking, setPeeking] = useState(false);
   const candidate = capture ? activeCandidateForCapture(capture) : null;
+  // The backend found no card here: no spinner, no picker, an "Empty" caption.
+  const isEmpty = !!capture?.binderPage?.empty;
   const isLoading = !!capture?.isLoadingCandidates;
   const cropUri = capture?.normalizedImageUri ?? capture?.uri ?? null;
   const matchedUri = capture ? scannerCaptureThumbUri(capture, candidate) : null;
@@ -204,7 +198,7 @@ function PocketTile({
         : `Pocket ${pocketIndex + 1}`}
       accessibilityRole="button"
       delayLongPress={220}
-      disabled={!capture || isLoading}
+      disabled={!capture || isLoading || isEmpty}
       onLongPress={() => setPeeking(true)}
       onPress={() => {
         if (capture) {
@@ -248,10 +242,10 @@ function PocketTile({
             <Text numberOfLines={1} style={styles.captionMeta}>{setLine}</Text>
             <Text numberOfLines={1} style={styles.captionPrice}>{priceLabel ?? '—'}</Text>
           </>
-        ) : capture ? (
-          <Text numberOfLines={2} style={styles.captionMeta}>No match · tap to search</Text>
         ) : isEmpty ? (
           <Text numberOfLines={1} style={styles.captionMeta}>Empty</Text>
+        ) : capture ? (
+          <Text numberOfLines={2} style={styles.captionMeta}>No match · tap to search</Text>
         ) : (
           <Text numberOfLines={1} style={styles.captionMeta}>Identifying…</Text>
         )}

@@ -23,6 +23,12 @@ export type BinderPageRef = {
   pageId: string;
   pocketIndex: number;
   layoutId?: BinderPageLayoutId;
+  /**
+   * The backend found no card in this pocket. The row STAYS in the tray
+   * labelled "Empty pocket" (user: "show that it's empty so they know") —
+   * never a match, never added, never counted.
+   */
+  empty?: boolean;
 };
 
 export type RecentCapture = {

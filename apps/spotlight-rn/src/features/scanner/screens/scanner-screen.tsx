@@ -155,6 +155,7 @@ import {
   binderPageRows,
   binderPocketRowId,
   insertBinderPocketRows,
+  markCaptureEmptyPocket,
   buildOptimisticInventoryEntry,
   buildScanMatchFailureProperties,
   buildScanMatchSuccessProperties,
@@ -600,7 +601,13 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
             testID={`scanner-tray-open-card-${index}`}
           >
             <View style={styles.captureCopy}>
-              {capture.isLoadingCandidates ? (
+              {capture.binderPage?.empty ? (
+                <>
+                  <Text numberOfLines={1} style={styles.captureTitle}>Empty pocket</Text>
+                  <Text numberOfLines={1} style={styles.captureSubtitle}>No card found in this pocket</Text>
+                  <PocketBadge binderPage={capture.binderPage} />
+                </>
+              ) : capture.isLoadingCandidates ? (
                 <>
                   <View style={styles.captureLoadingRow}>
                     <ActivityIndicator color={theme.colors.brand} size="small" />
@@ -780,9 +787,6 @@ export function ScannerScreen({
     setIsBinderPageMode(true);
   }, []);
   const [activeBinderPageId, setActiveBinderPageId] = useState<string | null>(null);
-  // Pockets the backend judged empty, per page — the review overlay labels
-  // them "Empty" instead of leaving a hole where a row was never created.
-  const binderPageEmptyPocketsRef = useRef<Map<string, readonly number[]>>(new Map());
   const [isAddingBinderPage, setIsAddingBinderPage] = useState(false);
   // SYNCHRONOUS capture lock. `isCapturing` is React state, so two burst taps
   // fired within the same tick BOTH read the stale `false` before the setState
@@ -1986,14 +1990,13 @@ export function ScannerScreen({
       }
 
       // Binder pocket the backend judged EMPTY (weak best match on the page's
-      // flattest crop): drop the row instead of showing an Energy card at
-      // 0.3 — the pocket had no card in it. The overlay labels it "Empty".
-      const emptyPocketIndex = matchResult.emptyPocket ? matchPayload.binderPage?.pocketIndex : undefined;
-      if (matchResult.emptyPocket && typeof emptyPocketIndex === 'number') {
-        const pageId = captureId.replace(/-p\d+$/, '');
-        const known = binderPageEmptyPocketsRef.current.get(pageId) ?? [];
-        binderPageEmptyPocketsRef.current.set(pageId, [...new Set([...known, emptyPocketIndex])].sort((a, b) => a - b));
-        setRecentCaptures((current) => current.filter((capture) => capture.id !== captureId));
+      // flattest crop): keep the row but mark it — it reads "Empty pocket"
+      // in the tray and the overlay, so the user sees we looked and found
+      // nothing, instead of an Energy card at 0.3 or a silent gap.
+      if (matchResult.emptyPocket && matchPayload.binderPage) {
+        setRecentCaptures((current) => current.map((capture) => (
+          capture.id === captureId ? markCaptureEmptyPocket(capture) : capture
+        )));
         return null;
       }
 
@@ -2444,13 +2447,14 @@ export function ScannerScreen({
 
     const { pageToken, emptyPocketIndexes } = prepareOutcome.prepared;
     // Empty pockets (no card — flat crop, judged server-side at prepare):
-    // drop their placeholder rows and never spend a match on them. A page
-    // with 6 cards produces 6 rows, not 9 with three "no match" rows.
+    // mark their rows "Empty pocket" right away and never spend a match on
+    // them. The row stays so the page reads as nine pockets, some empty.
     const emptyPockets = new Set(emptyPocketIndexes.filter((index) => index < pocketCount));
     if (emptyPockets.size > 0) {
-      binderPageEmptyPocketsRef.current.set(captureId, [...emptyPockets].sort((a, b) => a - b));
       const emptyRowIds = new Set([...emptyPockets].map((index) => pocketRowId(index)));
-      setRecentCaptures((current) => current.filter((capture) => !emptyRowIds.has(capture.id)));
+      setRecentCaptures((current) => current.map((capture) => (
+        emptyRowIds.has(capture.id) ? markCaptureEmptyPocket(capture) : capture
+      )));
     }
     // A 400 naming BinderPageTokenUnknown means the stored page is gone
     // (expired token / restarted server). The raw HTTP error body rides
@@ -4358,7 +4362,7 @@ export function ScannerScreen({
                   testID="scanner-recent-title-surface"
                 >
                   <Text style={styles.trayInfoPillLabel} testID="scanner-recent-title">
-                    {`SCAN: ${recentCaptures.length}`}
+                    {`SCAN: ${recentCaptures.filter((capture) => !capture.binderPage?.empty).length}`}
                   </Text>
                 </GlassSurface>
                 {/* ADD ALL shows in BOTH tray states — collapsed too, so a
@@ -4626,7 +4630,6 @@ export function ScannerScreen({
         }
         return (
           <BinderPageReview
-            emptyPocketIndexes={binderPageEmptyPocketsRef.current.get(activeBinderPageId) ?? []}
             isAddingAll={isAddingBinderPage}
             onAddAll={gate(() => handleAddBinderPage(activeBinderPageId))}
             onClose={closeBinderPageReview}

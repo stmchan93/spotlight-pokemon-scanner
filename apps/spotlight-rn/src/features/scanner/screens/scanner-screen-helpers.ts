@@ -736,6 +736,24 @@ export function insertBinderPocketRows(
   return [...pockets, ...others];
 }
 
+/**
+ * A binder pocket the backend found no card in: the row stays, settled, with
+ * no candidates and `binderPage.empty` set — the tray and overlay render it
+ * as "Empty pocket" and every add/count path skips it.
+ */
+export function markCaptureEmptyPocket(capture: RecentCapture): RecentCapture {
+  return {
+    ...capture,
+    candidates: [],
+    activeCandidateIndex: 0,
+    totalCandidateCount: 0,
+    isLoadingCandidates: false,
+    matchReviewDisposition: null,
+    matchReviewReason: null,
+    binderPage: capture.binderPage ? { ...capture.binderPage, empty: true } : capture.binderPage,
+  };
+}
+
 /** Row id for a pocket: pocket 0 IS the page's capture id (the shutter placeholder). */
 export function binderPocketRowId(pageId: string, pocketIndex: number): string {
   return pocketIndex === 0 ? pageId : `${pageId}-p${pocketIndex}`;
