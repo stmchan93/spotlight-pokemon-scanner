@@ -148,6 +148,7 @@ import { useScannerMacroLensLock } from '@/features/scanner/scanner-camera-lens'
 import { BinderPageReview } from './binder-page-review';
 import { BinderLayoutMenu, type BinderLayoutMenuSelection } from '@/features/scanner/components/binder-layout-menu';
 import { AnchoredOptionMenu, PrintingMenu } from '@/features/scanner/components/printing-menu';
+import { CustomDiscountSheet } from '@/features/scanner/components/custom-discount-sheet';
 import { ChangeCardPicker } from './change-card-picker';
 import { RecentCaptureSwipeRow } from './recent-capture-swipe-row';
 import {
@@ -1027,6 +1028,7 @@ export function ScannerScreen({
   // customer's 20% can never ride into the next deal.
   const [discountPercent, setDiscountPercent] = useState(0);
   const [discountMenuOpen, setDiscountMenuOpen] = useState(false);
+  const [customDiscountOpen, setCustomDiscountOpen] = useState(false);
   const [discountMenuAnchor, setDiscountMenuAnchor] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const totalPillRef = useRef<View>(null);
   const [printingMenuCaptureId, setPrintingMenuCaptureId] = useState<string | null>(null);
@@ -1041,10 +1043,13 @@ export function ScannerScreen({
   // range people haggle in — finer than that is a per-card argument, which the
   // row's own printing and condition already settle.
   const discountOptions = useMemo(
-    () => [0, 5, 10, 15, 20, 25, 30, 35].map((percent) => ({
-      key: String(percent),
-      label: percent === 0 ? 'Full price' : `${100 - percent}% of market`,
-    })),
+    () => [
+      ...[0, 10, 15, 20, 25, 30, 35].map((percent) => ({
+        key: String(percent),
+        label: percent === 0 ? 'Full price' : `${100 - percent}% of market`,
+      })),
+      { key: 'custom', label: 'Custom…' },
+    ],
     [],
   );
   const { lane: scanLane, setLane: setScanLane } = useScannerTargetConfig();
@@ -4840,15 +4845,32 @@ export function ScannerScreen({
         );
       })()}
 
+      <CustomDiscountSheet
+        fullTotalLabel={formatTrayTotal(trayPriceSummary)}
+        initialPercentOfMarket={100 - discountPercent}
+        onApply={(percentOfMarket) => {
+          setDiscountPercent(Math.max(0, Math.min(99, 100 - percentOfMarket)));
+          setCustomDiscountOpen(false);
+        }}
+        onClose={() => setCustomDiscountOpen(false)}
+        visible={customDiscountOpen}
+      />
+
       <AnchoredOptionMenu
         anchor={discountMenuAnchor}
         onClose={() => setDiscountMenuOpen(false)}
         onSelect={(option) => {
-          setDiscountPercent(Number(option.key));
           setDiscountMenuOpen(false);
+          if (option.key === 'custom') {
+            setCustomDiscountOpen(true);
+            return;
+          }
+          setDiscountPercent(Number(option.key));
         }}
         options={discountOptions}
-        selectedKey={String(discountPercent)}
+        selectedKey={discountOptions.some((option) => option.key === String(discountPercent))
+          ? String(discountPercent)
+          : 'custom'}
         testID="discount-menu"
         visible={discountMenuOpen}
       />

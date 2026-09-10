@@ -960,6 +960,29 @@ describe('ScannerScreen', () => {
     expect(screen.queryByTestId('scanner-tray-discount-tag')).toBeNull();
   });
 
+  // The preset rows do not cover every handshake, so a typed share of market
+  // has to land the same way: 80 on a $100 stack means the customer pays $80.
+  it('takes a typed share of market for the deal total', async () => {
+    renderScannerScreen();
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    });
+
+    fireEvent.press(screen.getByTestId('scanner-tray-discount-trigger'));
+    fireEvent.press(await screen.findByTestId('discount-menu-custom'));
+
+    const input = await screen.findByTestId('custom-discount-sheet-input');
+    fireEvent.changeText(input, '72');
+    fireEvent.press(screen.getByTestId('custom-discount-sheet-apply'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-discount-tag').props.children).toBe('72%');
+    });
+  });
+
   const froakieAddAllRepository = (
     favoritePayloads: { cardId: string; isFavorite: boolean }[],
   ) => createTestSpotlightRepository({
