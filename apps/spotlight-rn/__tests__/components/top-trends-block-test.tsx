@@ -187,10 +187,33 @@ describe('TopTrendsBlock', () => {
       { game: 'onepiece', items: [buildItem({ game: 'onepiece', cardId: 'op-1', changePercent: 80 })] },
     ]);
     renderBlock(<TopTrendsBlock autoAdvanceIntervalMs={0} loading={false} movers={movers} testID="trends" />);
+    // Offsets count the head CLONE as slot 0: 362 is the first real tile
+    // (One Piece), 724 the second.
     fireEvent(screen.getByTestId('trends-rail-scroll'), 'momentumScrollEnd', {
-      nativeEvent: { contentOffset: { x: 362, y: 0 } },
+      nativeEvent: { contentOffset: { x: 724, y: 0 } },
     });
     expect(screen.getByTestId('trends-rail-caption').props.children).toBe('Pokémon');
+  });
+
+  it('loops: a swipe past the last tile lands on the first, and past the first on the last', () => {
+    const movers = buildMovers([
+      { game: 'pokemon', items: [buildItem({ changePercent: 40 })] },
+      { game: 'onepiece', items: [buildItem({ game: 'onepiece', cardId: 'op-1', changePercent: 80 })] },
+    ]);
+    renderBlock(<TopTrendsBlock autoAdvanceIntervalMs={0} loading={false} movers={movers} testID="trends" />);
+    const caption = () => screen.getByTestId('trends-rail-caption').props.children;
+    const scroll = screen.getByTestId('trends-rail-scroll');
+    // Rests one slot in, so the clone before the first tile is off screen.
+    expect(scroll.props.contentOffset).toEqual({ x: 362, y: 0 });
+    // Only the two real tiles carry testIDs — the clones are scaffolding.
+    expect(screen.getAllByTestId(/^trends-tile-(?!.*-(art|image|change|sparkline)$).+$/)).toHaveLength(2);
+
+    // Forward off Pokémon (slot 2, the last real tile) onto the tail clone (slot 3) → One Piece.
+    fireEvent(scroll, 'momentumScrollEnd', { nativeEvent: { contentOffset: { x: 3 * 362, y: 0 } } });
+    expect(caption()).toBe('One Piece');
+    // Back off One Piece (slot 1) onto the head clone (slot 0) → Pokémon.
+    fireEvent(scroll, 'momentumScrollEnd', { nativeEvent: { contentOffset: { x: 0, y: 0 } } });
+    expect(caption()).toBe('Pokémon');
   });
 
   it('closes with the 4pt gray100 band by default, and not when told to hand it off', () => {

@@ -30,6 +30,7 @@ import {
   PillButton,
   SearchField,
   Text,
+  cardGridRule,
   colors,
   useSpotlightTheme,
 } from '@spotlight/design-system';
@@ -951,9 +952,15 @@ function WishlistGridRow({
     <View
       style={[
         styles.gridRow,
-        { borderBottomColor: theme.colors.gray100 },
+        // `cardGridRule`, not a local gray: this grid IS the Collection card
+        // view's grid with different rows in it, and the two had drifted to
+        // different colours and widths (Figma 4886:5770 rules the card at
+        // gray/300, the same stroke the filter chips beside it carry).
+        { borderBottomColor: cardGridRule.color },
         // Single hairlines: only the first row draws a top border.
-        isFirstRow ? { borderTopColor: theme.colors.gray100, borderTopWidth: 1 } : null,
+        isFirstRow
+          ? { borderTopColor: cardGridRule.color, borderTopWidth: cardGridRule.width }
+          : null,
       ]}
     >
       {Array.from({ length: GRID_COLUMNS }).map((_, colIndex) => {
@@ -963,9 +970,13 @@ function WishlistGridRow({
             key={entry?.cardId ?? `wishlist-grid-row-${rowIndex}-col-${colIndex}`}
             style={[
               styles.gridCell,
-              // Middle vertical divider between the two columns.
-              colIndex === 1 && entry
-                ? { borderLeftColor: theme.colors.gray100, borderLeftWidth: 1 }
+              // Middle vertical divider between the two columns. NOT gated on
+              // the cell holding an entry — an odd card count leaves the last
+              // row's second cell empty, and skipping the rule there breaks the
+              // centre line for that row alone (same reasoning as the
+              // Collection grid, which this mirrors).
+              colIndex === 1
+                ? { borderLeftColor: cardGridRule.color, borderLeftWidth: cardGridRule.width }
                 : null,
             ]}
           >
@@ -998,7 +1009,7 @@ type WishlistGridSingleRowProps = {
 function WishlistGridSingleRow({ entry, editMode = false, selectedIds, onPress, theme }: WishlistGridSingleRowProps) {
   return (
     <View style={styles.gridSingleRow}>
-      <View style={[styles.gridSingleCell, { borderColor: theme.colors.gray100 }]}>
+      <View style={[styles.gridSingleCell, { borderColor: cardGridRule.color }]}>
         <WishlistGridTile
           entry={entry}
           onPress={() => onPress(entry)}
@@ -1153,7 +1164,7 @@ const styles = StyleSheet.create({
   },
   gridRow: {
     alignItems: 'stretch',
-    borderBottomWidth: 1,
+    borderBottomWidth: cardGridRule.width,
     flexDirection: 'row',
   },
   gridCell: {
@@ -1165,7 +1176,7 @@ const styles = StyleSheet.create({
   gridSingleCell: {
     // Box the lone tile at one column's width with a full hairline border so it
     // reads as a contained card, not a stretched full-width row.
-    borderWidth: 1,
+    borderWidth: cardGridRule.width,
     width: '50%',
   },
 });

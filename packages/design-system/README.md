@@ -46,6 +46,8 @@ Defined in `src/tokens.ts`:
 - `layout`
 - `shadows`
 - `textStyles`
+- `borderWidths`
+- `cardGridRule` — the one rule a CARD-VIEW GRID draws between its cells (`{ color, width }`). Collection and Wishlist render the same tile in the same grid, so they draw the same line; before this token they had drifted to gray-400 at 0.5 and gray-100 at 1 while the frames called for gray-300 at 1. New card grids consume it rather than picking a gray.
 - `MAX_FONT_SIZE_MULTIPLIER`
 
 ## Font Scaling Policy
@@ -59,6 +61,8 @@ Current typography roles:
 - `titleCompact`
 - `headline`
 - `body`
+- `bodyLarge` — Regular at `headline`'s size, for a control whose label names a
+  thing rather than issuing a command (the scanner's scan-target pill)
 - `bodyStrong`
 - `control`
 - `caption`
@@ -574,13 +578,74 @@ wrapping after the last, pausing while the user drags and resuming from
 wherever they let go. Renders nothing when `items` is empty — the host screen
 should not reserve space for it.
 
+From two items up the rail LOOPS: a clone of the last tile is rendered before
+the first and a clone of the first after the last, the rail rests one slot in
+(`contentOffset.x = 362`), and a swipe that settles on a clone jumps
+un-animated to the real tile. So a swipe forward off the last tile shows the
+first, and back off the first shows the last. Clones carry no `testID`;
+`onActiveIndexChange` always reports the real index.
+
 | Prop | Type | Notes |
 | --- | --- | --- |
 | `caption` | `string` | Optional line above the rail, e.g. the active slide's game |
 | `items` | `TopTrendsRailItem[]` | `TopMoverTileProps & { key: string }` |
 | `autoAdvanceIntervalMs` | `number` | Auto-advance period; omit / 0 for a static rail |
 | `onActiveIndexChange` | `(index: number) => void` | Settled slide changed (tick or swipe) |
-| `testID` | `string` | Derives `-caption`, `-scroll`, and `-<key>` per tile |
+| `testID` | `string` | Derives `-caption`, `-scroll`, `-pagination`, and `-<key>` per tile |
+
+From two items up the rail also draws a `CarouselPagination` under itself,
+centred, fed its own `autoAdvanceIntervalMs` so the active bar counts the dwell
+down.
+
+### CarouselPagination
+
+File: `src/components/carousel-pagination.tsx`
+
+Carousel position indicator (Figma 5085:15541). The active slide is a 24x6
+gray-200 track carrying a gray-500 fill; every other slide is a 6pt gray-200
+dot, 4pt apart. Renders nothing below two slides.
+
+The fill SWEEPS across the track over `dwellMs`, restarting on every settle, so
+next to an auto-advancing carousel the bar reads as a countdown to the next
+slide rather than as a wider dot. It is native-driven (a `scaleX` anchored
+left), so it never competes with the host list's scrolling. With `dwellMs` at 0
+the fill sits solid and the indicator degrades to the ordinary pill-and-dots
+shape.
+
+| Prop | Type | Notes |
+| --- | --- | --- |
+| `count` | `number` | Slides; under 2 renders `null` |
+| `activeIndex` | `number` | Which slide is showing |
+| `dwellMs` | `number` | Auto-advance period driving the fill; omit / 0 = solid |
+| `testID` | `string` | Derives `-dot-<i>`, `-active-<i>`, `-fill` |
+
+`carouselPaginationWidth(count)` returns the indicator's width for callers that
+need to reserve space.
+
+### FollowButton
+
+File: `src/components/follow-button.tsx`
+
+Follow control for a person the viewer has come across — a feed author, a search
+result (Figma 5080:6921, 65x30).
+
+ONE-WAY BY DESIGN. `following={false}` is a pressable white button with a
+gray-200 border and a gray-600 "Follow"; `following={true}` is a plain, inert
+`View` — black fill, white "Following". There is deliberately no unfollow here:
+unfollowing belongs on the person's profile, where the consequence is visible.
+The followed state is a `View` rather than a disabled button so it reads as
+settled rather than as broken or greyed out.
+
+The two states deliberately invert each other's weight (quiet invitation, loud
+confirmation), which is the reverse of the usual convention and is what the
+product asked for.
+
+| Prop | Type | Notes |
+| --- | --- | --- |
+| `following` | `boolean` | Which of the two states to draw |
+| `onPress` | `() => void` | Fires only from the un-followed state |
+| `personLabel` | `string` | Name for the accessibility label ("Follow Jamie") |
+| `testID` | `string` | |
 
 ### ScrollToTopButton
 
@@ -621,11 +686,12 @@ Use for compact single-action chips and option toggles.
 
 Current label role:
 
-- `typography.control` (`default` tone) / `typography.label` (`filter` tone) / `typography.bodyMedium` (`soft` tone)
+- `typography.control` (`default` tone) / `typography.label` (`filter` tone) / `typography.bodyMedium` (`soft` tone) / `typography.caption` (`option` tone)
 - tones:
   - `default` — brand-yellow pill (chart range pills, filter modal)
   - `filter` — Collection/Insights chip row: white when inactive, solid gray900 with white label when selected
   - `soft` — borderless gray-50 chip at radius 8 used inside `EmptyStatePrompt` ("Scan to add"); a suggestion, not a toggle, so it ignores `selected`
+  - `option` — compact 24pt printing/variant chip at radius 8 (8/4 padding) for the scanner change-card rail: gray-50 when unselected, purple500 with a white label when selected
 - `leading?: ReactNode` — optional icon before the label (e.g. the Insights Likes heart / Price arrows); caller owns the icon color so it can follow `selected`
 
 ### SegmentedControl

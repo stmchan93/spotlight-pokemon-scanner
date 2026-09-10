@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
-import { SpotlightThemeProvider } from '@spotlight/design-system';
+import { SpotlightThemeProvider, cardGridRule } from '@spotlight/design-system';
 import type { InventoryCardEntry } from '@spotlight/api-client';
 
 import { CollectionMasonryGrid } from '@/features/portfolio/components/collection-masonry-grid';
@@ -83,7 +83,7 @@ describe('CollectionMasonryGrid', () => {
   }
 
   /*
-    Figma 3670:47296 hangs the 0.5pt rule off the TOP of every card, not the
+    Figma 3670:47296 hangs the `cardGridRule` hairline off the TOP of every card, not the
     bottom of every row — which is what stops an interior boundary being drawn
     twice, once by the row above and once by the row below.
 
@@ -94,9 +94,9 @@ describe('CollectionMasonryGrid', () => {
   it('rules interior rows on top only, so no boundary is drawn twice', () => {
     renderGrid(entries);
 
-    expect(ruleOf(0).borderTopWidth).toBe(0.5);
+    expect(ruleOf(0).borderTopWidth).toBe(cardGridRule.width);
     expect(ruleOf(0).borderBottomWidth ?? 0).toBe(0);
-    expect(ruleOf(1).borderTopWidth).toBe(0.5);
+    expect(ruleOf(1).borderTopWidth).toBe(cardGridRule.width);
   });
 
   /*
@@ -113,7 +113,7 @@ describe('CollectionMasonryGrid', () => {
     renderGrid([...entries, makeEntry({ id: 'e' })]);
 
     expect(screen.getByTestId('collection-masonry-grid-row-2')).toBeTruthy();
-    expect(ruleOf(2).borderBottomWidth).toBe(0.5);
+    expect(ruleOf(2).borderBottomWidth).toBe(cardGridRule.width);
     // …and only the final row. An interior bottom rule would double up with the
     // next row's top rule, which is the bug the top-only scheme exists to fix.
     expect(ruleOf(0).borderBottomWidth ?? 0).toBe(0);
@@ -124,8 +124,8 @@ describe('CollectionMasonryGrid', () => {
   it('closes a grid that is only one row tall', () => {
     renderGrid([makeEntry({ id: 'a' }), makeEntry({ id: 'b' })]);
 
-    expect(ruleOf(0).borderTopWidth).toBe(0.5);
-    expect(ruleOf(0).borderBottomWidth).toBe(0.5);
+    expect(ruleOf(0).borderTopWidth).toBe(cardGridRule.width);
+    expect(ruleOf(0).borderBottomWidth).toBe(cardGridRule.width);
   });
 
   it('renders a tile testID for every entry', () => {

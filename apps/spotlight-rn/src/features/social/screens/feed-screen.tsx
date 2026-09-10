@@ -48,6 +48,7 @@ import { useTopMovers } from '@/features/social/use-top-movers';
 import { useUnreadNotificationCount } from '@/features/social/use-unread-notification-count';
 import { usePostDeletion } from '@/features/social/use-post-deletion';
 import { getUserInitials } from '@/features/auth/auth-models';
+import { fetchFollowing, followUser } from '@/features/profile/profile-service';
 import { resolveRepositoryBaseUrl } from '@/providers/app-providers';
 import { DrawerEdgeSwipe } from '@/components/drawer-edge-swipe';
 import { useScrollToTop } from '@/components/scroll-to-top-fab';
@@ -115,6 +116,14 @@ function readFeed(before?: string): Promise<FeedItem[]> {
  * tested — it simply has no caller now, which is the cheap half of putting a
  * follow filter back if one is wanted.
  */
+/**
+ * How many of the viewer's followees to read for the feed's follow controls.
+ * A feed page shows a couple of dozen authors; anyone following past this many
+ * people simply sees "Follow" on a row they already follow, and pressing it is
+ * a no-op upsert rather than a wrong write.
+ */
+const FOLLOW_SET_LIMIT = 500;
+
 export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
@@ -124,6 +133,16 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
   const apiBaseUrl = resolveRepositoryBaseUrl();
   // Lets a row you reposted yourself read "You reposted" rather than your name.
   const viewerHandle = currentUser?.handle?.trim() ?? null;
+
+  /*
+    WHO THE VIEWER ALREADY FOLLOWS — read ONCE for the whole feed, not per card.
+    Every author on screen needs the answer, and the answer is one set; asking
+    per card would be a query per row. `null` means "not read yet", which is
+    what keeps the control off the screen until it can say which state it is in
+    (a button that starts on "Follow" and flips to "Following" a beat later is
+    worse than one that arrives late).
+  */
+  const [followedAuthorIds, setFollowedAuthorIds] = useState<Set<string> | null>(null);
 
   // Feed rows, not bare posts: a repost is its own row carrying who passed it on.
   const [items, setItems] = useState<FeedItem[]>([]);
@@ -318,6 +337,56 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     loadFeed();
   }, [loadFeed]);
 
+  // The follow set, once per signed-in viewer. Signed out there is nobody to
+  // follow FOR, so it stays null and no card draws the control.
+  useEffect(() => {
+    const viewerId = currentUser?.id;
+    if (!viewerId) {
+      setFollowedAuthorIds(null);
+      return undefined;
+    }
+    let cancelled = false;
+    void fetchFollowing(viewerId, FOLLOW_SET_LIMIT).then((profiles) => {
+      if (!cancelled) {
+        setFollowedAuthorIds(new Set(profiles.map((profile) => profile.userID)));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser?.id]);
+
+  /*
+    Follow, optimistically and ONE WAY. The row flips to "Following" on the tap
+    and the write follows; a failure puts it back, because a control that
+    silently keeps a state the server rejected is how someone ends up thinking
+    they follow a person they do not. There is no unfollow here by design — see
+    `FollowButton`.
+  */
+  const handleFollowAuthor = useCallback((authorId: string) => {
+    if (!authorId) {
+      return;
+    }
+    setFollowedAuthorIds((current) => {
+      const next = new Set(current ?? []);
+      next.add(authorId);
+      return next;
+    });
+    void followUser(authorId).then((ok) => {
+      if (ok) {
+        return;
+      }
+      setFollowedAuthorIds((current) => {
+        if (!current) {
+          return current;
+        }
+        const next = new Set(current);
+        next.delete(authorId);
+        return next;
+      });
+    });
+  }, []);
+
   /*
     Refetch on focus, for two different reasons with two different urgencies.
 
@@ -460,11 +529,11 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     in the header. With the Top Trends block below it (Figma 4969:4101) the
     16 under the composer is simply the row's own paddingBottom, the block
     draws its own closing band, and the seam to the first post is the block
-    band (4) + the first PostCard's own 12pt top inset. Without the block,
+    band (4) + the first PostCard's own 8pt top inset. Without the block,
     spacing is 16 / band / 16: the 16 under the band is the first-cell band's
-    4pt bottom margin plus the PostCard's 12 — the one seam where two values
+    8pt bottom margin plus the PostCard's 8 — the one seam where two values
     sum, because the under-composer gap (16) is wider than the inter-post
-    gap (12).
+    gap (8).
   */
   const composePrompt = (
     <View
@@ -637,7 +706,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
               : insets.top + HOME_HEADER_BAR_HEIGHT,
           paddingBottom: insets.bottom + 24,
           // No horizontal padding and no inter-item gap: post cards are
-          // full-bleed and carry their own 12pt top inset, which is exactly the
+          // full-bleed and carry their own 8pt top inset, which is exactly the
           // gap Figma leaves between a card's closing 4pt band and the next
           // avatar. State cards re-inset themselves below.
         }}
@@ -683,10 +752,10 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
               edge on Android, so anything the header drew on the seam was
               shaved the moment posts loaded. Owned by the very view that was
               doing the shaving, it has nothing left to lose. Under the
-              composer, the 4pt bottom margin plus the card's own 12pt top
+              composer, the 8pt bottom margin plus the card's own 8pt top
               inset makes the 16pt under-composer gap (Figma 4299:94902).
               Under the Top Trends block the seam is the plain inter-section
-              rhythm — band + the card's 12 (Figma 4969:4101) — so the margin
+              rhythm — band + the card's 8 (Figma 5085:15398) — so the margin
               drops.
             */}
             {index === 0 ? (
@@ -694,7 +763,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
                 style={{
                   backgroundColor: theme.colors.gray100,
                   height: 4,
-                  marginBottom: topTrendsVisible ? 0 : 4,
+                  marginBottom: topTrendsVisible ? 0 : 8,
                 }}
                 testID={`${testID}-first-cell-rule`}
               />
@@ -713,7 +782,11 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
             <PostCard
               accessToken={accessToken}
               apiBaseUrl={apiBaseUrl}
+              isFollowingAuthor={
+                followedAuthorIds ? followedAuthorIds.has(item.post.authorId) : null
+              }
               onAuthorBlocked={handleAuthorBlocked}
+              onFollowAuthor={handleFollowAuthor}
               onPressCard={handleOpenCard}
               onRequestDelete={requestDelete}
               post={item.post}

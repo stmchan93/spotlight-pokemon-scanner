@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
 import type { InventoryCardEntry } from '@spotlight/api-client';
+import { cardGridRule } from '@spotlight/design-system';
 
 import type { UserProfile } from '@/features/auth/auth-models';
 import {
@@ -315,11 +316,11 @@ describe('PublicProfileScreen', () => {
         ) as { borderTopWidth?: number; borderBottomWidth?: number };
 
       // Three cards → two rows, the second holding one card and one empty cell.
-      expect(rule(1).borderBottomWidth).toBe(0.5);
+      expect(rule(1).borderBottomWidth).toBe(cardGridRule.width);
       // Still no doubled interior boundary — that is what the top-only scheme
       // exists to prevent.
       expect(rule(0).borderBottomWidth ?? 0).toBe(0);
-      expect(rule(0).borderTopWidth).toBe(0.5);
+      expect(rule(0).borderTopWidth).toBe(cardGridRule.width);
     });
 
     it('does not refetch when the tab is re-selected', async () => {

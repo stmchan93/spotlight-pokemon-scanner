@@ -18,8 +18,8 @@ import { formatCurrency } from '@/features/portfolio/components/portfolio-format
 
 /** The window the copy promises when no payload has landed yet. */
 const DEFAULT_WINDOW_DAYS = 30;
-/** One slide per game; the carousel moves on by itself every 5s. */
-export const TOP_TRENDS_AUTO_ADVANCE_MS = 5_000;
+/** One slide per game; the carousel moves on by itself every 10s (was 5 — too quick to read a tile). */
+export const TOP_TRENDS_AUTO_ADVANCE_MS = 10_000;
 
 /**
  * Signed percent for the tile's change chip. One decimal in the normal range
@@ -110,8 +110,8 @@ export function hasTopTrendsContent(movers: TopMovers | null, _loading: boolean)
 /**
  * Home "Top Trends" (Figma 4969:4101 "Title content"): a title row, a caption
  * naming the game on screen, and ONE carousel with a slide per game — each
- * game's top gainer, biggest first — that flips to the next game every 5s
- * and can be swiped by hand.
+ * game's top gainer, biggest first — that flips to the next game every 10s
+ * and can be swiped by hand, looping end to start in both directions.
  *
  * Renders nothing when there is nothing to show — the feed treats a null block
  * as "no section", so the composer/post seam falls back to its usual form.
@@ -184,7 +184,7 @@ const styles = StyleSheet.create({
     alignItems: 'baseline',
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: 6,
     paddingHorizontal: 16,
   },
 });

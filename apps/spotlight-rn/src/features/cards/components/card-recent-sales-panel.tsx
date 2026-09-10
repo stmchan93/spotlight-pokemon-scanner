@@ -44,8 +44,10 @@ const INITIAL_VISIBLE_SALES = 5;
 
 // Listing-photo thumbnail: sellers shoot slabs portrait, so a 3:4 tile. The
 // eBay Browse `s-l1600` original is downscaled by expo-image.
-const THUMB_WIDTH = 48;
-const THUMB_HEIGHT = 64;
+// Big enough to read the slab label and centering at a glance — the photo is
+// how a buyer checks the comp is the real card. 3:4 matches a slab.
+const THUMB_WIDTH = 72;
+const THUMB_HEIGHT = 96;
 
 // Sellers often lead titles with the raw cert number ("140550170 Suicune…"),
 // which is pure noise on a one-line row — strip a leading 7+ digit run (with
@@ -59,30 +61,25 @@ function formatSoldDate(soldAt: string | null | undefined): string | null {
   if (!soldAt) {
     return null;
   }
-  const date = new Date(soldAt);
+  // The backend sends a plain calendar date ("2026/09/07" or "2026-09-07").
+  // Build it as a LOCAL date: `new Date("2026-09-07")` is UTC midnight and
+  // renders as the previous day west of Greenwich, and Hermes does not parse
+  // the slash form at all.
+  const match = /^(\d{4})[-/](\d{2})[-/](\d{2})/.exec(soldAt.trim());
+  const date = match
+    ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+    : new Date(soldAt);
   if (Number.isNaN(date.valueOf())) {
     return null;
   }
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-// "Updated 3h ago" / "Updated just now" — honest about the 24h cache.
-function formatUpdatedAgo(fetchedAt: string | null | undefined): string | null {
-  if (!fetchedAt) {
-    return null;
-  }
-  const then = new Date(fetchedAt).valueOf();
-  if (Number.isNaN(then)) {
-    return null;
-  }
-  const hours = Math.floor((Date.now() - then) / 3_600_000);
-  if (hours <= 0) {
-    return 'Updated just now';
-  }
-  if (hours < 24) {
-    return `Updated ${hours}h ago`;
-  }
-  return `Updated ${Math.floor(hours / 24)}d ago`;
+  // Year only when it isn't this year: thin grades surface sales from years
+  // back, and "Sep 25" alone reads as last week.
+  const thisYear = new Date().getFullYear();
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    ...(date.getFullYear() !== thisYear ? { year: 'numeric' } : {}),
+  });
 }
 
 function SaleRow({
@@ -113,7 +110,7 @@ function SaleRow({
           <Image
             accessibilityIgnoresInvertColors
             cachePolicy="memory-disk"
-            contentFit="cover"
+            contentFit="contain"
             source={{ uri: sale.imageUrl }}
             style={StyleSheet.absoluteFill}
             transition={120}
@@ -122,7 +119,7 @@ function SaleRow({
       </View>
       <View style={styles.saleLeft}>
         <Text
-          numberOfLines={2}
+          numberOfLines={3}
           style={[theme.typography.label, styles.saleTitle, { color: theme.colors.gray700 }]}
         >
           {displayTitle}
@@ -208,7 +205,6 @@ export function CardRecentSalesPanel({
   }
 
   const sales = record?.sales ?? [];
-  const updatedText = formatUpdatedAgo(record?.fetchedAt);
 
   // Degrade gracefully: whether the live Scrydex sold-comps call is unavailable
   // (e.g. staging runs keyless to save credits) or genuinely returned nothing,
@@ -278,24 +274,11 @@ export function CardRecentSalesPanel({
           </Text>
         </Pressable>
       ) : null}
-      {updatedText ? (
-        <View style={styles.footer}>
-          <Text style={[theme.typography.overline, { color: theme.colors.gray400 }]}>
-            {updatedText}
-          </Text>
-        </View>
-      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  footer: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingTop: 10,
-  },
   panel: {
     gap: 2,
     paddingBottom: 12,

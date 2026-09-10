@@ -794,6 +794,25 @@ export function CardDetailScreen({
   // that card+grader+grade via Scrydex (cached 24h on the backend, and per-row here),
   // then open it. The row `key` carries the structured identity:
   //   graded: "<grader>|<grade>|<variantKey>"   raw: "<variantKey>|<condition>"
+  // Graded rows show the recent-sales average once that row's comps have
+  // loaded (Scrydex's graded figure until then). Display only: collection
+  // totals and history keep the provider price.
+  const displayedPriceTrends = useMemo<CardPriceTrendListRecord | null>(() => {
+    if (!priceTrends || priceTrends.mode !== 'graded') {
+      return priceTrends;
+    }
+    let changed = false;
+    const rows = priceTrends.rows.map((row) => {
+      const average = recentSalesByRowKey[row.key]?.recentAverage;
+      if (!average) {
+        return row;
+      }
+      changed = true;
+      return { ...row, currentPrice: average.amount, currencyCode: average.currencyCode };
+    });
+    return changed ? { ...priceTrends, rows } : priceTrends;
+  }, [priceTrends, recentSalesByRowKey]);
+
   const handleTrendRowPress = useCallback((row: CardPriceTrendRow) => {
     if (!detail || !priceTrends) {
       return;
@@ -989,14 +1008,12 @@ export function CardDetailScreen({
       <View key={expandedTrendRowKey}>
         {/* Two stacked sections in the dropdown: sold comps (Scrydex) first,
             then the cheapest live listings (eBay Browse) right under it. */}
-        <View style={[styles.compsSectionHeader, styles.compsSectionHeaderRow]}>
+        {/* No window caption: the list is the newest sales on record for this
+            grade, which reach back years on thin combos. Each row shows its
+            own sold date. */}
+        <View style={styles.compsSectionHeader}>
           <Text style={[theme.typography.labelStrong, { color: theme.colors.gray900 }]}>
             Recent Sales
-          </Text>
-          {/* Transparency: eBay sold comps only go back ~90 days (eBay drops
-              older solds), so we say so rather than implying it's all-time. */}
-          <Text style={[theme.typography.overline, { color: theme.colors.gray400 }]}>
-            Last 90 days
           </Text>
         </View>
         <CardRecentSalesPanel
@@ -2349,7 +2366,7 @@ export function CardDetailScreen({
             <CardPriceTrendList
               expandedContent={expandedTrendContent}
               expandedRowKey={priceTrends.mode === 'graded' ? expandedTrendRowKey : null}
-              list={priceTrends}
+              list={displayedPriceTrends ?? priceTrends}
               // Raw lane only: the TCGplayer logo opens the EXACT product page
               // (accurate). The graded lane's eBay logo opened a broad eBay
               // SEARCH (inaccurate), so its logo is now a static image — no link.

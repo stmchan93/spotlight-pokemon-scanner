@@ -5,7 +5,7 @@ import { Text } from './scaled-text';
 import { useSpotlightTheme } from '../theme';
 import { radii, spacing } from '../tokens';
 
-export type PillButtonTone = 'default' | 'filter' | 'soft';
+export type PillButtonTone = 'default' | 'filter' | 'soft' | 'option';
 
 type PillButtonProps = {
   label: string;
@@ -28,6 +28,10 @@ type PillButtonProps = {
    * 'soft' is the borderless gray-50 chip used inside empty states (Figma
    * "Scan to add", 3370:4175) — a low-emphasis suggestion, not a toggle, so it
    * ignores `selected`.
+   * 'option' is the compact printing/variant chip from the scanner's change-card
+   * list (Figma 5085:10859/10861): gray-50 when unselected, purple-500 with a
+   * white label when selected. Sized for a dense horizontal rail, not a
+   * standalone control.
    */
   tone?: PillButtonTone;
 };
@@ -48,31 +52,41 @@ export function PillButton({
     ? styles.filterContainer
     : tone === 'soft'
       ? styles.softContainer
-      : styles.container;
+      : tone === 'option'
+        ? styles.optionContainer
+        : styles.container;
 
   const labelStyle = tone === 'filter'
     ? theme.typography.label
     : tone === 'soft'
       ? theme.typography.bodyMedium
-      : theme.typography.control;
+      : tone === 'option'
+        ? theme.typography.caption
+        : theme.typography.control;
 
   const backgroundColor = tone === 'filter'
     ? (selected ? theme.colors.gray900 : theme.colors.gray0)
     : tone === 'soft'
       ? theme.colors.gray50
-      : (selected ? theme.colors.brand : theme.colors.field);
+      : tone === 'option'
+        ? (selected ? theme.colors.purple500 : theme.colors.gray50)
+        : (selected ? theme.colors.brand : theme.colors.field);
 
   const borderColor = tone === 'filter'
     ? (selected ? theme.colors.gray900 : theme.colors.gray300)
     : tone === 'soft'
       ? 'transparent'
-      : (selected ? theme.colors.brand : theme.colors.outlineSubtle);
+      : tone === 'option'
+        ? (selected ? theme.colors.purple500 : theme.colors.gray50)
+        : (selected ? theme.colors.brand : theme.colors.outlineSubtle);
 
   const labelColor = tone === 'filter'
     ? (selected ? theme.colors.gray0 : theme.colors.gray900)
     : tone === 'soft'
       ? theme.colors.gray900
-      : theme.colors.textPrimary;
+      : tone === 'option'
+        ? (selected ? theme.colors.gray0 : theme.colors.gray900)
+        : theme.colors.textPrimary;
 
   return (
     <Pressable
@@ -151,5 +165,18 @@ const styles = StyleSheet.create({
   leading: {
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  // Figma scanner "Option Item" (5085:10859): radius 8, 8/4 padding, 12/500
+  // label — a 24pt-tall chip that sits in a scrolling rail under a card row.
+  optionContainer: {
+    alignItems: 'center',
+    borderCurve: 'continuous',
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.xxxs,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.xxs,
+    paddingVertical: spacing.xxxs,
   },
 });

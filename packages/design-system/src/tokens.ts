@@ -31,8 +31,9 @@ export const colors = {
   // Color/purple/50 from Figma — the pale lavender fill behind the SELECTED row
   // in the grade/condition picker (Figma 1664:2597). Lighter than `brand`.
   purple50: '#F7EEFF',
-  // Color/purple/200 from Figma — the pale lilac of the multi-scan reticle's
-  // outline and its thirds grid (5085:15376). One step lighter than purple300.
+  // Color/purple/200 from Figma — the pale lilac stroke of the reticle outline,
+  // at both scales (5085:15171 single card, 5085:15376 binder page), and the
+  // binder's thirds grid inside it. One step lighter than purple300.
   purple200: '#D9AEFF',
   // Color/purple/300 from Figma — the lilac used for the change-card modal's
   // hero/selected-row borders and the "LOAD MORE" outline. Brighter than the
@@ -155,9 +156,9 @@ export const colors = {
 /**
  * Match-confidence palette for the scanner change-card modal (Figma
  * Color/green|yellow|red/200–300). Each level pairs a muted `text` color for
- * the hero "% Match" caption with a pastel chip (`chipBg` + dark `chipText`)
- * for the per-candidate row badge. Thresholds live in change-card-picker
- * helpers (<34 red, 34–66 yellow, ≥67 green).
+ * the hero "% Match" caption with a pastel chip (`chipBg` + dark `chipText`),
+ * now used by the Who's That Pokémon result panel. Thresholds live in
+ * change-card-picker helpers (<34 red, 34–66 yellow, ≥67 green).
  */
 export const matchConfidence = {
   green: { text: '#86C99A', chipBg: '#BBE5C8', chipText: '#0C3D1D' },
@@ -199,6 +200,21 @@ export const borderWidths = {
   rule: 0.5,
   // Standard 1pt container stroke (inventory dropdown shell, pop-report cells).
   containerRule: 1,
+} as const;
+
+/**
+ * The rule between cells of a CARD-VIEW GRID.
+ *
+ * Collection and Wishlist draw the SAME grid of the same tile, so they draw the
+ * same line — and for a while they did not: Collection ruled it gray/400 at
+ * 0.5, Wishlist gray/100 at 1, while the frames (card 4886:5770, and the chip
+ * outline it is meant to sit beside, 1874:21747) both call for gray/300 at 1.
+ * One definition, so the next surface that grows a card grid cannot invent a
+ * fourth.
+ */
+export const cardGridRule = {
+  color: colors.gray300,
+  width: borderWidths.containerRule,
 } as const;
 
 export const layout = {
@@ -377,6 +393,24 @@ export const textStyles = {
     fontFamily: fontFamilies.bodyRegular,
     fontSize: 15,
     lineHeight: 20,
+    color: colors.textPrimary,
+  } satisfies TextStyle,
+  /**
+   * Figma's "Body-large" — `body` one step up, at `headline`'s size but in
+   * Regular rather than SemiBold. Both halves matter: it is what Figma asks for
+   * on a control whose label is a NAME rather than a command (the scanner's
+   * "Pokémon EN" target pill, 5085:15158), where the `control` role's SemiBold
+   * would read as a verb.
+   *
+   * The line height is `headline`'s, not the 100% the frame reports. Figma's
+   * text line-heights are intrinsic and a 1.0 ratio clips descenders on Android
+   * — same reason the rest of this scale sits near 1.35.
+   */
+  bodyLarge: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyRegular,
+    fontSize: 16,
+    lineHeight: 21.6,
     color: colors.textPrimary,
   } satisfies TextStyle,
   bodyStrong: {

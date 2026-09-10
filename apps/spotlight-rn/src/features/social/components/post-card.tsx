@@ -13,7 +13,7 @@ import {
   ThumbsUp,
 } from 'iconoir-react-native';
 
-import { Avatar, Text, useSpotlightTheme } from '@spotlight/design-system';
+import { Avatar, FollowButton, Text, useSpotlightTheme } from '@spotlight/design-system';
 
 import { ConfirmDeleteSheet } from '@/features/cards/components/confirm-delete-sheet';
 import { CommentsSheet } from '@/features/social/components/comments-sheet';
@@ -65,6 +65,22 @@ type PostCardProps = {
    * viewer happened to tap, and the rest stayed until the next read.
    */
   onAuthorBlocked?: (userId: string) => void;
+  /**
+   * Whether the viewer follows this author — `null`/omitted means UNKNOWN, and
+   * the card then draws no follow control at all.
+   *
+   * The card does NOT resolve this itself (unlike `initialLiked`): the answer
+   * is one row in the viewer's follow set, so a list reads the whole set once
+   * and answers for every card, where self-resolution would be a query per
+   * card for a feed's worth of authors.
+   */
+  isFollowingAuthor?: boolean | null;
+  /**
+   * Follow this post's author. Passing it, together with a `false`
+   * `isFollowingAuthor`, is what turns the control on. There is deliberately no
+   * unfollow counterpart — see `FollowButton`.
+   */
+  onFollowAuthor?: (authorId: string) => void;
   /**
    * Open the comment thread as soon as the card mounts. Set by the post-detail
    * screen when a notification about a comment opened it, so the tap lands on
@@ -280,6 +296,8 @@ export function PostCard({
   initialReposted,
   onRequestDelete,
   onAuthorBlocked,
+  isFollowingAuthor = null,
+  onFollowAuthor,
   autoOpenComments = false,
   focusCommentId = null,
   testID = 'post-card',
@@ -295,12 +313,13 @@ export function PostCard({
   // callbacks at all — needs the same behaviour. One rule, one implementation.
   const authorLink = profileRouteSlug(author?.handle, post.authorId);
   const openAuthorProfile = useCallback(() => {
-    // Tapping YOURSELF goes to the You tab, not to `/u/<your handle>`. The
-    // public route would push a read-only copy of your own profile on top of the
-    // feed — no Edit, no Collection tabs, and a back button to get out of a
-    // place you already live. You is the real thing.
+    // Tapping YOURSELF goes to the Home tab — your own collection — not to
+    // `/u/<your handle>`. The public route would push a read-only copy of your
+    // own profile on top of the feed: no Edit, no Collection tabs, and a back
+    // button to get out of a place you already live. Home is the real thing.
+    // (It was `/you` until the tabs were reordered; `/you` still redirects.)
     if (currentUser?.id && post.authorId === currentUser.id) {
-      router.navigate('/you' as never);
+      router.navigate('/' as never);
       return;
     }
     if (authorLink) {
@@ -324,6 +343,17 @@ export function PostCard({
   // safety must not depend on a screen happening to support deletion.
   const canReportPost = viewerId != null && Boolean(post.authorId) && !isOwnPost;
   const showMoreButton = canDeletePost || canReportPost;
+  /*
+    The follow control needs a viewer, someone else's post, and a caller that
+    both knows the answer and can act on it. Any of those missing and the row
+    simply has no button — never a button that cannot say which state it is in.
+  */
+  const showFollowButton =
+    viewerId != null
+    && !isOwnPost
+    && Boolean(post.authorId)
+    && isFollowingAuthor != null
+    && Boolean(onFollowAuthor);
 
   // A block takes effect in Postgres (`public.is_blocked` sits in the RLS select
   // policies for posts/post_media/comments), but the list already in memory
@@ -649,6 +679,14 @@ export function PostCard({
               </Text>
             ) : null}
           </View>
+          {showFollowButton ? (
+            <FollowButton
+              following={Boolean(isFollowingAuthor)}
+              onPress={() => onFollowAuthor?.(post.authorId)}
+              personLabel={displayName}
+              testID={`${testID}-follow-button`}
+            />
+          ) : null}
           {/*
             One ⋯ target, two meanings, decided by whose post this is:
               • your own post  → Delete (straight to its confirmation, unchanged)
@@ -948,13 +986,14 @@ const styles = StyleSheet.create({
     height: 4,
     width: '100%',
   },
-  // Figma 4299:94902 stacks header→body→image→metrics on a 10px rhythm. The
-  // 12s are the gap to the band on each side; the feed's under-composer seam
-  // adds band marginBottom 4 to make 16.
+  // Figma 5085:15398 stacks header→body→image on 8 and image→metrics on 10
+  // (metricsRow adds the extra 2). 8 above the content and 10 below it are the
+  // gaps to the band; the feed's under-composer seam adds band marginBottom 8
+  // to make 16.
   cardContent: {
-    gap: 10,
-    paddingBottom: 12,
-    paddingTop: 12,
+    gap: 8,
+    paddingBottom: 10,
+    paddingTop: 8,
   },
   cardChip: {
     alignItems: 'center',
@@ -1005,6 +1044,8 @@ const styles = StyleSheet.create({
     // glyph lines up with the reaction glyphs rather than floating above them.
     alignItems: 'flex-end',
     flexDirection: 'row',
+    // 10 under the image where the rest of the stack runs on 8.
+    marginTop: 2,
     justifyContent: 'space-between',
     // NO `paddingBottom`. `cardContent.paddingBottom: 12` already supplies the
     // frame's gap between the action glyphs and the band; a pad here is ADDED

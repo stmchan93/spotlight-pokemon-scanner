@@ -43,8 +43,10 @@ type CardLowestListedPanelProps = {
 const INITIAL_VISIBLE_LISTINGS = 5;
 
 // Same 3:4 listing-photo tile as the sold panel above it.
-const THUMB_WIDTH = 48;
-const THUMB_HEIGHT = 64;
+// Big enough to read the slab label and centering at a glance — the photo is
+// how a buyer checks the comp is the real card. 3:4 matches a slab.
+const THUMB_WIDTH = 72;
+const THUMB_HEIGHT = 96;
 
 // Sellers often lead titles with the raw cert number ("140550170 Suicune…").
 // Strip a leading 7+ digit run (matches the sold-panel cleaner).
@@ -90,7 +92,7 @@ function ListingRow({
           <Image
             accessibilityIgnoresInvertColors
             cachePolicy="memory-disk"
-            contentFit="cover"
+            contentFit="contain"
             source={{ uri: listing.imageUrl }}
             style={StyleSheet.absoluteFill}
             transition={120}
@@ -99,7 +101,7 @@ function ListingRow({
       </View>
       <View style={styles.listingLeft}>
         <Text
-          numberOfLines={2}
+          numberOfLines={3}
           style={[theme.typography.label, styles.listingTitle, { color: theme.colors.gray700 }]}
         >
           {displayTitle}

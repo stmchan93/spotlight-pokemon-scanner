@@ -1,6 +1,6 @@
 import { Linking, StyleSheet, View } from 'react-native';
 
-import { InventoryCardTile, borderWidths, useSpotlightTheme } from '@spotlight/design-system';
+import { InventoryCardTile, cardGridRule } from '@spotlight/design-system';
 import type { InventoryCardEntry } from '@spotlight/api-client';
 
 import { getCardImageUrl } from '@/lib/card-images';
@@ -42,8 +42,9 @@ export function chunkCollectionGridRows(entries: InventoryCardEntry[]): Inventor
 /**
  * Collection "card view" grid (Figma node 3670:47296 "Card Container"): two
  * fixed columns of plain tiles. The grid is full-bleed — no horizontal page
- * gutter and no inter-cell gaps — so each row's gray400 0.5pt rules run edge to
- * edge across the whole app width. Tiles render "plain" (no per-card shell
+ * gutter and no inter-cell gaps — so each row's `cardGridRule` hairlines run
+ * edge to edge across the whole app width (the SAME rule Wishlist's card view
+ * draws, which is the point of the shared token). Tiles render "plain" (no per-card shell
  * border/fill); the row draws the dividers.
  */
 export function CollectionMasonryGrid({
@@ -150,15 +151,13 @@ export function CollectionGridRow({
   selectedIds,
   testID = 'collection-masonry-grid',
 }: CollectionGridRowProps) {
-  const theme = useSpotlightTheme();
-
   return (
     <View
       style={[
         styles.row,
-        { borderTopColor: theme.colors.gray400 },
+        { borderTopColor: cardGridRule.color },
         isLastRow
-          ? { borderBottomColor: theme.colors.gray400, borderBottomWidth: borderWidths.rule }
+          ? { borderBottomColor: cardGridRule.color, borderBottomWidth: cardGridRule.width }
           : null,
       ]}
       testID={`${testID}-row-${rowIndex}`}
@@ -178,7 +177,7 @@ export function CollectionGridRow({
               // centre line for that row only — a visible break in a line every
               // other row draws.
               colIndex === 1
-                ? { borderLeftColor: theme.colors.gray400, borderLeftWidth: borderWidths.rule }
+                ? { borderLeftColor: cardGridRule.color, borderLeftWidth: cardGridRule.width }
                 : null,
             ]}
           >
@@ -226,11 +225,9 @@ export function CollectionGridSingleRow({
   selectedIds,
   testID = 'collection-masonry-grid',
 }: CollectionGridSingleRowProps) {
-  const theme = useSpotlightTheme();
-
   return (
     <View style={styles.singleRow}>
-      <View style={[styles.singleCell, { borderColor: theme.colors.gray400 }]}>
+      <View style={[styles.singleCell, { borderColor: cardGridRule.color }]}>
         <CollectionTileSlot
           entry={entry}
           delayLongPress={delayLongPress}
@@ -320,7 +317,7 @@ const styles = StyleSheet.create({
   },
   row: {
     alignItems: 'stretch',
-    borderTopWidth: borderWidths.rule,
+    borderTopWidth: cardGridRule.width,
     flexDirection: 'row',
   },
   cell: {
@@ -332,7 +329,7 @@ const styles = StyleSheet.create({
   singleCell: {
     // Box the lone tile at one column's width with a full rule border so it
     // reads as a contained square, not a stretched full-width row.
-    borderWidth: borderWidths.rule,
+    borderWidth: cardGridRule.width,
     width: '50%',
   },
 });

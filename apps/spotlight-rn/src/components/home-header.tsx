@@ -4,6 +4,7 @@ import { Animated, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
+  EkalightWordmark,
   GlassNavBubble,
   GlassNavBubbleGroup,
   Text,
@@ -13,8 +14,6 @@ import {
   useSpotlightTheme,
   type GlassNavBubbleGroupItem,
 } from '@spotlight/design-system';
-
-import { EkalightMark } from '@/components/ekalight-mark';
 
 /**
  * WHAT THE BAR'S TRAILING CONTROL IS — the ONE thing that differs between the
@@ -162,9 +161,10 @@ const SHARE_ICON_HEIGHT = BUTTON_ICON_SIZE;
  * flattened, so only its outer box is measurable — the mark keeps the badge's
  * existing inner ratio.
  */
-// Home's leading app mark: 36 tall at the mark's intrinsic 56:52 box.
-const HOME_MARK_HEIGHT = 36;
-const HOME_MARK_WIDTH = (HOME_MARK_HEIGHT * 56) / 52;
+// Home's leading brand lockup: the mark + "ekalight" wordmark, 36 tall
+// (Figma 5067:2029 — the shared primitive's own 104.726:32 box scaled to it,
+// which lands on the frame's 117.817 exactly). The width follows the artwork.
+const HOME_WORDMARK_HEIGHT = 36;
 /**
  * Height of the control row itself — the bubbles, the trailing capsule, and the
  * profile bar's search pill are all the same 44 (Figma 4299:94902). Taken from
@@ -209,13 +209,6 @@ export const HOME_HEADER_ROW_HEIGHT = BAR_PADDING_TOP + CONTROL_ROW_HEIGHT;
  * time anything parks behind the bar the backdrop is already solid.
  */
 const HEADER_BACKDROP_FADE_DISTANCE = 56;
-/**
- * How far the page scrolls before Home's decorative app mark has fully faded.
- * Shorter than the backdrop's distance so the mark is gone before content
- * starts parking behind the bar.
- */
-const HOME_MARK_FADE_DISTANCE = 40;
-
 /**
  * The shared top bar (Figma 4299:94902): a 44pt glass menu bubble leading, and
  * ONE 44pt glass capsule trailing. On Home the capsule holds a search glyph and
@@ -321,21 +314,6 @@ export function HomeHeader({
   // status bar via onOverCoverChange, not the chrome material.
   const chromeSurface = 'onLight' as const;
   const glyphColor = theme.colors.gray900;
-
-  // Home's leading app mark is decoration, not a control — so unlike the
-  // bubbles it does NOT hold its place while the page scrolls: it fades out
-  // over the first stretch of travel and returns at rest. Same rest-offset
-  // anchoring as the backdrop above. Without a scrollY it simply stays.
-  const homeMarkOpacity = useMemo(() => {
-    if (!scrollY) {
-      return null;
-    }
-    return scrollY.interpolate({
-      inputRange: [scrollRestOffset, scrollRestOffset + HOME_MARK_FADE_DISTANCE],
-      outputRange: [1, 0],
-      extrapolate: 'clamp',
-    });
-  }, [scrollRestOffset, scrollY]);
 
   /*
     The bar's rightmost control — ONE capsule on both variants, with EXACTLY
@@ -506,19 +484,20 @@ export function HomeHeader({
             />
           </GlassNavBubble>
           {trailing.kind === 'home' ? (
-            <Animated.View
-              pointerEvents="none"
-              style={homeMarkOpacity ? { opacity: homeMarkOpacity } : null}
-            >
-              {/* Static mark. The launch intro (wordmark collapsing into the
-                  mark) was removed 2026-09-09 — user: "remove the animation". */}
-              <EkalightMark
+            /*
+              The brand lockup is PERMANENT chrome, not an entrance. It neither
+              animates in on launch nor fades on scroll — both were removed
+              2026-09-09 ("it should just stay, remove the animation"). It sits
+              beside the menu bubble for the whole scroll, exactly as the frame
+              draws it, so there is deliberately no `scrollY` wiring here.
+            */
+            <View pointerEvents="none">
+              <EkalightWordmark
                 color={theme.colors.purple500}
-                height={HOME_MARK_HEIGHT}
+                height={HOME_WORDMARK_HEIGHT}
                 testID={`${testID}-home-mark`}
-                width={HOME_MARK_WIDTH}
               />
-            </Animated.View>
+            </View>
           ) : null}
         </View>
 
