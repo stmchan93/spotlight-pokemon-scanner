@@ -1791,7 +1791,7 @@ describe('ScannerScreen', () => {
   // wrong printing (1st Edition / holo / non-holo) and the user never sees it.
   // Every raw row shows its printings as chips, so the printing the price
   // assumes is on screen and one tap from being changed.
-  it('shows the printing chips on the tray row and prices from the picked one', async () => {
+  it('shows the printing on the tray row and prices from the sheet condition', async () => {
     const spotlightRepository = createTestSpotlightRepository({
       matchScannerCapture: async () => ({
         scanID: 'scan-froakie',
@@ -1829,8 +1829,10 @@ describe('ScannerScreen', () => {
 
     expect(await screen.findByText('Froakie')).toBeTruthy();
 
-    // The printings replace the old flat "RAW" tag outright.
-    await screen.findByTestId('scanner-tray-variant-0-holofoil');
+    // The printing pill replaces the old flat "RAW" tag outright.
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-printing-0-label').props.children).toBe('Holofoil');
+    });
     expect(screen.queryByText('RAW')).toBeNull();
 
     // The condition still lives in the price sheet, reachable from the price.
@@ -1842,10 +1844,9 @@ describe('ScannerScreen', () => {
     });
   });
 
-  // A card with more than one printing gets the printings themselves as chips,
-  // in place of the flat "RAW" tag: picking one reprices the row and the tray
-  // TOTAL without opening a sheet.
-  it('prices a row from a printing chip picked on the tray', async () => {
+  // The pill names the printing the price assumes; its dropdown lists the
+  // card's other printings and picking one reprices the row and the tray TOTAL.
+  it('prices a row from a printing picked in the tray dropdown', async () => {
     const spotlightRepository = createTestSpotlightRepository({
       matchScannerCapture: async () => ({
         scanID: 'scan-froakie',
@@ -1888,11 +1889,13 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-preview'));
     expect(await screen.findByText('Froakie')).toBeTruthy();
 
-    // Two printings → chips, not the single-printing chip that opens the sheet.
-    await screen.findByTestId('scanner-tray-variants-0');
-    expect(screen.queryByTestId('scanner-tray-printing-0')).toBeNull();
+    // The pill names the printing the price assumes; its menu lists the rest.
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-printing-0-label').props.children).toBe('Holofoil');
+    });
 
-    fireEvent.press(screen.getByTestId('scanner-tray-variant-0-reverse-holofoil'));
+    fireEvent.press(screen.getByTestId('scanner-tray-printing-0'));
+    fireEvent.press(await screen.findByTestId('printing-menu-reverse-holofoil'));
 
     await waitFor(() => {
       expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $4.20');

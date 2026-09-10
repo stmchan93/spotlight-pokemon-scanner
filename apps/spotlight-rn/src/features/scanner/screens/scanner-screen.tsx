@@ -17,7 +17,6 @@ import {
   Linking,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   UIManager,
   View,
@@ -69,7 +68,6 @@ import {
   GlassNavBubble,
   glassNavBubbleGlyphSize,
   GlassSurface,
-  PillButton,
   Text,
   colors,
   fontFamilies,
@@ -148,6 +146,7 @@ import { useScannerMacroLensLock } from '@/features/scanner/scanner-camera-lens'
 
 import { BinderPageReview } from './binder-page-review';
 import { BinderLayoutMenu, type BinderLayoutMenuSelection } from '@/features/scanner/components/binder-layout-menu';
+import { PrintingMenu } from '@/features/scanner/components/printing-menu';
 import { ChangeCardPicker } from './change-card-picker';
 import { RecentCaptureSwipeRow } from './recent-capture-swipe-row';
 import {
@@ -482,7 +481,7 @@ type CaptureTrayRowProps = {
   selection: ScanPriceSheetSelection | null;
   /** The active candidate's printings; empty until the matrix lands (or none exist). */
   variants: readonly RawPricingMatrixVariant[];
-  onSelectVariant: (captureId: string, variant: RawPricingMatrixVariant) => void;
+  onOpenPrintingMenu: (captureId: string, anchor: CaptureRowMenuAnchor) => void;
 };
 
 // Stable empty list: a fresh [] per render would break CaptureTrayRow's memo
@@ -509,7 +508,7 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
   onOpenChangeCardPicker,
   onOpenRowMenu,
   onShowPrice,
-  onSelectVariant,
+  onOpenPrintingMenu,
   renderContent,
   selection,
   variants,
@@ -518,6 +517,7 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
   // Anchor for the row ADD menu — measured by ref because the arena Pressable's
   // press event carries no `currentTarget` to measure.
   const addPillRef = useRef<View>(null);
+  const printingPillRef = useRef<View>(null);
   const candidate = activeCandidateForCapture(capture);
   const canCycleCandidate = !!candidate && capture.candidates.length > 1;
   // Shared with the tray header TOTAL (`trayPriceSummary`) so the rows and the
@@ -533,7 +533,10 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
   // gets added. Until the printings land the row simply has no third line.
   // Slabs keep their grade label — a slab has no printing to pick.
   const activeVariantKey = selection?.variantKey ?? variants[0]?.variantKey ?? null;
-  const showVariantChips = capture.mode === 'raw' && variants.length > 0;
+  const activeVariantLabel = variants.find((entry) => entry.variantKey === activeVariantKey)?.variant
+    ?? selection?.variantLabel
+    ?? null;
+  const showPrintingPicker = capture.mode === 'raw' && variants.length > 0;
   const modeTagLine = capture.mode === 'slabs'
     ? scannerSlabInlineLabel(capture) || 'GRADED'
     : null;
@@ -649,29 +652,55 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                       {setAndNumberLine}
                     </Text>
                   ) : null}
-                  {showVariantChips ? (
-                    // Every printing this card has, pickable in place: the tap
-                    // reprices the row, the tray TOTAL and what gets added.
-                    // The price stays tappable for the CONDITION sheet.
-                    <ScrollView
-                      contentContainerStyle={styles.captureVariantRow}
-                      horizontal
-                      keyboardShouldPersistTaps="handled"
-                      showsHorizontalScrollIndicator={false}
-                      style={styles.captureVariantScroll}
-                      testID={`scanner-tray-variants-${index}`}
+                  {showPrintingPicker ? (
+                    // The printing the price assumes, filled purple so it reads
+                    // as the answer the scan chose. Tapping opens the list of
+                    // this card's other printings; picking one reprices the
+                    // row, the tray TOTAL and what gets added.
+                    <ArenaPressable
+                      accessibilityHint="Opens this card's other printings"
+                      accessibilityLabel={`Printing: ${activeVariantLabel ?? 'Default'}`}
+                      accessibilityRole="button"
+                      hitSlop={6}
+                      onPress={(event) => {
+                        const { pageX = 0, pageY = 0 } = event?.nativeEvent ?? {};
+                        let opened = false;
+                        const open = (anchor: CaptureRowMenuAnchor) => {
+                          if (!opened) {
+                            opened = true;
+                            onOpenPrintingMenu(capture.id, anchor);
+                          }
+                        };
+                        const node = printingPillRef.current as unknown as {
+                          measureInWindow?: (
+                            callback: (x: number, y: number, width: number, height: number) => void,
+                          ) => void;
+                        } | null;
+                        if (node && typeof node.measureInWindow === 'function') {
+                          node.measureInWindow((x, y, width, height) => {
+                            open({ height, width, x, y });
+                          });
+                        }
+                        // Android's measureInWindow can no-op inside a
+                        // Swipeable; the tap point is a good enough anchor.
+                        open({ height: 0, width: 0, x: pageX, y: pageY });
+                      }}
+                      ref={printingPillRef}
+                      style={({ pressed }) => [
+                        styles.capturePrintingPill,
+                        pressed ? styles.capturePrintingPillPressed : null,
+                      ]}
+                      testID={`scanner-tray-printing-${index}`}
                     >
-                      {variants.map((variant) => (
-                        <PillButton
-                          key={variant.variantKey}
-                          label={variant.variant}
-                          onPress={() => onSelectVariant(capture.id, variant)}
-                          selected={variant.variantKey === activeVariantKey}
-                          testID={`scanner-tray-variant-${index}-${variant.variantKey}`}
-                          tone="option"
-                        />
-                      ))}
-                    </ScrollView>
+                      <Text
+                        numberOfLines={1}
+                        style={styles.capturePrintingLabel}
+                        testID={`scanner-tray-printing-${index}-label`}
+                      >
+                        {activeVariantLabel ?? 'Default'}
+                      </Text>
+                      <IconChevronDown color={colors.gray0} size={14} strokeWidth={2.2} />
+                    </ArenaPressable>
                   ) : modeTagLine ? (
                     <Text numberOfLines={1} style={styles.captureSubtitle}>
                       {modeTagLine}
@@ -989,6 +1018,8 @@ export function ScannerScreen({
   const [addAllMenuOpen, setAddAllMenuOpen] = useState(false);
   const [addAllAnchor, setAddAllAnchor] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [addAllConfirm, setAddAllConfirm] = useState<AddAllMenuAction | null>(null);
+  const [printingMenuCaptureId, setPrintingMenuCaptureId] = useState<string | null>(null);
+  const [printingMenuAnchor, setPrintingMenuAnchor] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [rowMenuCaptureId, setRowMenuCaptureId] = useState<string | null>(null);
   const [rowMenuAnchor, setRowMenuAnchor] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const addAllTriggerRef = useRef<View | null>(null);
@@ -4074,6 +4105,11 @@ export function ScannerScreen({
   const handleShowRowPrice = useCallback((captureId: string) => {
     setActivePriceCaptureId(captureId);
   }, []);
+  const handleOpenPrintingMenu = useCallback((captureId: string, anchor: CaptureRowMenuAnchor) => {
+    setPrintingMenuAnchor(anchor);
+    setPrintingMenuCaptureId(captureId);
+  }, []);
+
   const handleOpenRowMenu = useCallback((captureId: string, anchor: CaptureRowMenuAnchor) => {
     setRowMenuAnchor(anchor);
     setRowMenuCaptureId(captureId);
@@ -4087,6 +4123,7 @@ export function ScannerScreen({
   const gatedRowDelete = useMemo(() => gate(deleteRecentCapture), [deleteRecentCapture, gate]);
   const gatedOpenChangeCardPicker = useMemo(() => gate(openChangeCardPicker), [gate, openChangeCardPicker]);
   const gatedShowRowPrice = useMemo(() => gate(handleShowRowPrice), [gate, handleShowRowPrice]);
+  const gatedOpenPrintingMenu = useMemo(() => gate(handleOpenPrintingMenu), [gate, handleOpenPrintingMenu]);
 
   // Collapsed tray: a newly mounted row "advances" in with the slide-from-right
   // enter; expanded: new rows appear in place. Mirrored through a stable ref
@@ -4113,7 +4150,7 @@ export function ScannerScreen({
         const candidate = activeCandidateForCapture(capture);
         return candidate ? inventoryByCardId.has(candidate.cardId) : false;
       })()}
-      onSelectVariant={handleSelectRowVariant}
+      onOpenPrintingMenu={gatedOpenPrintingMenu}
       renderContent={trayRowContentVisibility[index] !== false}
       selection={priceSelection.get(capture.id) ?? null}
       variants={(() => {
@@ -4171,41 +4208,6 @@ export function ScannerScreen({
             style={StyleSheet.absoluteFillObject}
             testID="scanner-tray-collapse-backdrop"
           />
-        ) : null}
-
-        {/*
-          Binder-page mode: a faint pocket grid over the reticle, in the armed
-          layout's columns × rows. Pure alignment guide — the reticle IS the
-          page detector, so helping the user seat each pocket in a cell is
-          what makes the grid split work.
-        */}
-        {isBinderPageMode && !isTrayExpanded ? (
-          <View pointerEvents="none" testID="scanner-binder-grid">
-            {Array.from({ length: binderPageLayout.columns - 1 }, (_, index) => index + 1).map((column) => (
-              <View
-                key={`binder-grid-v${column}`}
-                style={[styles.binderGridLine, {
-                  height: captureSurfaceLayout.captureCropRect.height,
-                  left: captureSurfaceLayout.captureCropRect.x
-                    + (captureSurfaceLayout.captureCropRect.width / binderPageLayout.columns) * column,
-                  top: captureSurfaceLayout.captureCropRect.y,
-                  width: 1,
-                }]}
-              />
-            ))}
-            {Array.from({ length: binderPageLayout.rows - 1 }, (_, index) => index + 1).map((row) => (
-              <View
-                key={`binder-grid-h${row}`}
-                style={[styles.binderGridLine, {
-                  height: 1,
-                  left: captureSurfaceLayout.captureCropRect.x,
-                  top: captureSurfaceLayout.captureCropRect.y
-                    + (captureSurfaceLayout.captureCropRect.height / binderPageLayout.rows) * row,
-                  width: captureSurfaceLayout.captureCropRect.width,
-                }]}
-              />
-            ))}
-          </View>
         ) : null}
 
         {/*
@@ -4744,6 +4746,35 @@ export function ScannerScreen({
         );
       })()}
 
+      <PrintingMenu
+        anchor={printingMenuAnchor}
+        onClose={() => setPrintingMenuCaptureId(null)}
+        onSelect={(variant) => {
+          if (printingMenuCaptureId) {
+            handleSelectRowVariant(printingMenuCaptureId, variant);
+          }
+          setPrintingMenuCaptureId(null);
+        }}
+        selectedVariantKey={(() => {
+          if (!printingMenuCaptureId) {
+            return null;
+          }
+          const capture = recentCaptures.find((entry) => entry.id === printingMenuCaptureId);
+          const candidate = capture ? activeCandidateForCapture(capture) : null;
+          const list = (candidate ? variantsByCardId.get(candidate.cardId) : null) ?? emptyVariants;
+          return priceSelection.get(printingMenuCaptureId)?.variantKey ?? list[0]?.variantKey ?? null;
+        })()}
+        variants={(() => {
+          if (!printingMenuCaptureId) {
+            return emptyVariants;
+          }
+          const capture = recentCaptures.find((entry) => entry.id === printingMenuCaptureId);
+          const candidate = capture ? activeCandidateForCapture(capture) : null;
+          return (candidate ? variantsByCardId.get(candidate.cardId) : null) ?? emptyVariants;
+        })()}
+        visible={printingMenuCaptureId != null}
+      />
+
       <BinderLayoutMenu
         anchor={binderLayoutAnchor}
         onClose={() => setBinderLayoutMenuOpen(false)}
@@ -5151,16 +5182,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 6,
   },
-  // The printing chips stand where the "RAW" tag was; four printings already
-  // overflow a tray row, so they scroll like the change-card picker's.
-  captureVariantScroll: {
-    alignSelf: 'stretch',
-    marginTop: 2,
-  },
-  captureVariantRow: {
+  // The printing pill stands where the "RAW" tag was: filled purple with a
+  // white label, so the printing the price assumes reads as a decision the
+  // user can change rather than a passive tag.
+  capturePrintingPill: {
     alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: colors.purple500,
+    borderCurve: 'continuous',
+    borderRadius: radii.pill,
     flexDirection: 'row',
-    gap: 8,
+    gap: 4,
+    marginTop: 2,
+    maxWidth: 200,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  capturePrintingPillPressed: {
+    opacity: 0.7,
+  },
+  capturePrintingLabel: {
+    ...textStyles.labelStrong,
+    color: colors.gray0,
+    flexShrink: 1,
+    fontSize: 12,
   },
   captureThumb: {
     // Figma 3594:25986 — 58x80 at radius 2.695, which is a real card's corner
