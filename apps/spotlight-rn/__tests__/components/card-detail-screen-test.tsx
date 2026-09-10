@@ -848,13 +848,6 @@ describe('CardDetailScreen', () => {
       lane: 'graded',
       surface: 'pdp_lowest_listed',
     });
-
-    // Closing the chevron is its own event; it used to report nothing.
-    fireEvent.press(screen.getByTestId('detail-price-trends-row-PSA 10'));
-    expect(capturePostHogEvent).toHaveBeenCalledWith('pdp_comps_collapsed', {
-      grader: 'PSA',
-      grade: '10',
-    });
   });
 
   it('5 clear sales, then "Show more" reveals the rest in place (no extra fetch)', async () => {
@@ -905,10 +898,6 @@ describe('CardDetailScreen', () => {
     expect(screen.getByTestId('detail-recent-sales-sale-7')).toBeTruthy();
     expect(screen.queryByTestId('detail-recent-sales-show-more')).toBeNull();
     expect(getCardRecentSales).toHaveBeenCalledTimes(1);
-    expect(capturePostHogEvent).toHaveBeenCalledWith('pdp_recent_sales_show_more', {
-      grader: 'PSA',
-      grade: '10',
-    });
   });
 
   it('shows every recent sale to everyone — there is no paywall', async () => {

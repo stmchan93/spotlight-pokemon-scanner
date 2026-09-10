@@ -846,7 +846,6 @@ export function CardDetailScreen({
       // Accordion: toggle the inline last-solds panel for this row (instead of
       // kicking straight out to the eBay browser search).
       if (expandedTrendRowKey === row.key) {
-        capturePostHogEvent('pdp_comps_collapsed', { grader, grade });
         setExpandedTrendRowKey(null);
         return;
       }
@@ -1019,7 +1018,6 @@ export function CardDetailScreen({
         <CardRecentSalesPanel
           isLoading={recentSalesLoadingKey === expandedTrendRowKey}
           onShowMorePress={() => {
-            capturePostHogEvent('pdp_recent_sales_show_more', { grader, grade });
           }}
           onSalePress={() => {
             capturePostHogEvent('pricing_link_opened', {
@@ -1059,7 +1057,6 @@ export function CardDetailScreen({
         <CardLowestListedPanel
           isLoading={lowestListedLoadingKey === expandedTrendRowKey}
           onShowMorePress={() => {
-            capturePostHogEvent('pdp_lowest_listed_show_more', { grader, grade });
           }}
           onListingPress={() => {
             capturePostHogEvent('pricing_link_opened', {
@@ -1240,10 +1237,6 @@ export function CardDetailScreen({
       setPriceTrends(null);
       setPriceTrendsLoading(true);
       setLanguageOverride(chip);
-      capturePostHogEvent('card_detail_language_switched', {
-        from: currentCardLanguage,
-        to: target,
-      });
       setActiveCardId(counterpartCardId);
     },
     [counterpartCardId, currentCardLanguage, selectedVariantLabel],
@@ -1434,10 +1427,6 @@ export function CardDetailScreen({
       }
       pendingAddVariantLabelRef.current = addVariantLabel;
       setAddLanguageChip(chip);
-      capturePostHogEvent('card_detail_add_language_switched', {
-        from: addSelectedLanguageChip,
-        to: chip,
-      });
     },
     [addSelectedLanguageChip, addVariantLabel],
   );

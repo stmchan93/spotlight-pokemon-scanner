@@ -310,12 +310,6 @@ function applyCapEviction(
       reportedCapEvictionIds.add(item.id);
       // The tray filled up and pushed this scan out untouched — the clearest
       // signal we have that someone scanned a pile and added none of it.
-      capturePostHogEvent('scan_row_dismissed', {
-        count: 1,
-        inserting_mode: insertingMode,
-        mode: item.mode,
-        reason: 'cap_evicted',
-      });
     }
     if (item.normalizedImageUri) {
       void deleteScanFile(item.normalizedImageUri, 'cap_evict');
@@ -859,6 +853,9 @@ export function ScannerScreen({
     }
   }, []);
   const handleSelectBinderLayout = useCallback((selection: BinderLayoutMenuSelection) => {
+    // Which layouts people actually scan in — the 12-card page was pulled once
+    // for being unusable, so the split is a product decision, not trivia.
+    capturePostHogEvent('scan_layout_selected', { layout: selection });
     setBinderLayoutMenuOpen(false);
     if (selection === 'single') {
       setIsBinderPageMode(false);
@@ -1661,11 +1658,6 @@ export function ScannerScreen({
     // Reported from here rather than inside the updater below: this runs once
     // per swipe, whereas an updater can be replayed. Read through the ref so the
     // callback keeps its empty dep list and the memoized swipe rows stay stable.
-    capturePostHogEvent('scan_row_dismissed', {
-      count: 1,
-      mode: recentCapturesRef.current.find((capture) => capture.id === captureId)?.mode ?? null,
-      reason: 'swipe',
-    });
 
     setRecentCaptures((current) => {
       const removed = current.find((capture) => capture.id === captureId);
@@ -1697,11 +1689,6 @@ export function ScannerScreen({
     if (!pageCaptures.length) {
       return;
     }
-    capturePostHogEvent('scan_row_dismissed', {
-      count: pageCaptures.length,
-      mode: 'raw',
-      reason: 'binder_page_delete',
-    });
     const removedIds = new Set(pageCaptures.map((capture) => capture.id));
     pageCaptures.forEach((removed) => {
       void deleteScanFile(removed.normalizedImageUri, 'binder_page_delete');
@@ -1769,10 +1756,6 @@ export function ScannerScreen({
     setDiscountPercent(0);
     // One event carrying how many rows went, not one event per row — a tray
     // wiped at the cap would otherwise cost as much as the scans themselves.
-    capturePostHogEvent('scan_row_dismissed', {
-      count: recentCapturesRef.current.length,
-      reason: 'clear_all',
-    });
 
     setRecentCaptures((current) => {
       const uris: string[] = [];
@@ -2037,11 +2020,6 @@ export function ScannerScreen({
         // Diagnostic (2026-08-31): every staging scan reached the backend with
         // collectorNumber=null and the read event never fired, so this now
         // reports EVERY outcome with the blocking-await cost, not just wins.
-        capturePostHogEvent('scan_raw_collector_number_attempted', {
-          mode,
-          outcome: raced === '__ocr_timeout__' ? 'timeout' : (rawCollectorNumber ? 'read' : 'null'),
-          ocr_await_ms: Date.now() - ocrAwaitStartedAt,
-        });
         if (rawCollectorNumber) {
           resolvedMatchPayload = {
             ...matchPayload,
@@ -2049,15 +2027,10 @@ export function ScannerScreen({
               rawEvidence: { collectorNumberExact: rawCollectorNumber },
             },
           };
-          capturePostHogEvent('scan_raw_collector_number_read', { mode });
         }
       } else if (mode === 'raw') {
         // Distinguishes "flag never reached this bundle" from "read returned
         // null": not_started means the promise was never created.
-        capturePostHogEvent('scan_raw_collector_number_attempted', {
-          mode,
-          outcome: 'not_started',
-        });
       }
       // Base64 no longer exists on the scan hot path (multipart streams the
       // file), so the payload-size estimate is only available when a target
@@ -3221,6 +3194,10 @@ export function ScannerScreen({
   }, []);
 
   const setActiveCandidate = useCallback((captureId: string, nextIndex: number) => {
+    // A hand-picked match means the scanner's top result was wrong — the one
+    // number that says whether the matcher is improving, straight from use
+    // rather than from a holdout set. `rank` is how far down the right card was.
+    capturePostHogEvent('scan_match_corrected', { rank: nextIndex });
     setRecentCaptures((current) => current.map((capture) => {
       if (capture.id !== captureId) {
         return capture;
@@ -3941,6 +3918,9 @@ export function ScannerScreen({
   // the row already shows so switching printing never silently regrades it.
   const handleSelectRowVariant = useCallback(
     (captureId: string, variant: RawPricingMatrixVariant) => {
+      // Does anyone use the row's variant dropdown? It is the QoL control the
+      // tray was rebuilt around, and nothing measured whether it gets tapped.
+      capturePostHogEvent('scan_row_variant_changed', { variant: variant.variant });
       const currentCondition = priceSelectionRef.current.get(captureId)?.conditionCode ?? 'near_mint';
       const condition = variant.conditions.find(
         (entry) => (conditionCodeToDeckCondition[entry.code] ?? 'near_mint') === currentCondition,
@@ -4854,6 +4834,10 @@ export function ScannerScreen({
         fullTotalLabel={formatTrayTotal(trayPriceSummary)}
         initialPercentOfMarket={100 - discountPercent}
         onApply={(percentOfMarket) => {
+          capturePostHogEvent('scan_deal_discount_set', {
+            percentOfMarket,
+            source: 'custom',
+          });
           setDiscountPercent(Math.max(0, Math.min(99, 100 - percentOfMarket)));
           setCustomDiscountOpen(false);
         }}
@@ -4870,6 +4854,12 @@ export function ScannerScreen({
             setCustomDiscountOpen(true);
             return;
           }
+          // `percentOfMarket`, not the stored discount, so the property reads the
+          // way the control is labelled ("80% of market").
+          capturePostHogEvent('scan_deal_discount_set', {
+            percentOfMarket: 100 - Number(option.key),
+            source: 'preset',
+          });
           setDiscountPercent(Number(option.key));
         }}
         options={discountOptions}

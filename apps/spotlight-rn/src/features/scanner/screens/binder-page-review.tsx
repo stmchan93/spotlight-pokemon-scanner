@@ -13,13 +13,15 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button, Text, Toast, colors, fontFamilies, spacing, textStyles } from '@spotlight/design-system';
 
+import { capturePostHogEvent } from '@/lib/observability/posthog';
+
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { BinderBatchActionRow } from '@/features/scanner/components/binder-batch-action-row';
 import {
   describeBatchPriceResult,
+  printingAbbreviation,
   printingChipLabel,
   resolveBatchPriceSelections,
-  setAllConditionOptions,
   standardPrintingOptions,
   type BatchPriceSelectionRequest,
   type RawPricingMatrixCache,
@@ -57,11 +59,10 @@ export type BinderPageReviewProps = {
 
 const cardAspect = rawCardNormalizedTargetWidth / rawCardNormalizedTargetHeight;
 const gridGap = 10;
-// name 15 + set 13 + price 15 + chip 18 + 3 gaps of 2 (+ slack).
-// Name + set line + price row. The printing chip that used to sit under them
-// is gone (its controls moved to the batch row), and the tiles got its height
-// back — which is the point: the page is for eyeballing nine pockets against a
-// real binder.
+// Name 15 + set line 13 + price row 15 + 3 gaps of 2 (+ slack). FIXED: the
+// printing rides on the price row rather than adding a line of its own, so a
+// batch never resizes the cards or pushes the grid into a scroll
+// (user, 2026-09-10: "it kinda makes the ui kinda like moves").
 const captionHeight = 15 + 13 + 15 + 6 + 2;
 /**
  * The binder page as the scan result — but drawn with what we MATCHED, not
@@ -141,6 +142,22 @@ export function BinderPageReview({
     return Math.floor(Math.max(0, Math.min(widthDriven, heightDriven)));
   }, [frameSize, layout.columns, layout.rows]);
 
+  /*
+    Where the FIRST CARD starts, in screen px. The grid rows center themselves
+    inside the 16pt page gutter, and the tile width is usually height-driven
+    rather than width-driven, so the columns sit noticeably inboard of that
+    gutter. The selection toolbar reads as floating loose on the left unless it
+    starts on the same line as the cards it is editing (user, 2026-09-10).
+  */
+  const gridInsetLeft = useMemo(() => {
+    if (!frameSize || tileWidth <= 0) {
+      return null;
+    }
+    const usableWidth = frameSize.width - 32;
+    const contentWidth = layout.columns * tileWidth + (layout.columns - 1) * gridGap;
+    return 16 + Math.max(0, (usableWidth - contentWidth) / 2);
+  }, [frameSize, layout.columns, tileWidth]);
+
   const byPocket = new Map(pockets.map((capture) => [capture.binderPage?.pocketIndex ?? -1, capture]));
   const pocketCount = binderPagePocketCount(layout);
   const pending = pockets.filter((capture) => capture.isLoadingCandidates).length;
@@ -182,6 +199,13 @@ export function BinderPageReview({
         matrixCacheRef.current,
         (cardId) => spotlightRepository.getRawPricingMatrix(cardId),
       );
+      // Do the batch actions earn the toolbar? `selected` vs `applied` also
+      // shows how often a printing simply does not exist on the cards picked.
+      capturePostHogEvent('binder_batch_applied', {
+        kind: request.kind,
+        selected: targets.length,
+        applied: result.entries.length,
+      });
       if (result.entries.length > 0) {
         onApplyPriceSelections(result.entries);
       }
@@ -194,10 +218,6 @@ export function BinderPageReview({
 
   const handleSelectPrinting = useCallback((printingLabel: string) => {
     applyToTargets({ kind: 'printing', printingLabel });
-  }, [applyToTargets]);
-
-  const handleSelectCondition = useCallback((conditionCode: string) => {
-    applyToTargets({ kind: 'condition', conditionCode });
   }, [applyToTargets]);
 
   // Holding a tile starts selecting; tapping one while selecting toggles it.
@@ -254,9 +274,8 @@ export function BinderPageReview({
         {selecting ? (
           <BinderBatchActionRow
             busy={isApplying}
-            conditionOptions={setAllConditionOptions}
+            insetLeft={gridInsetLeft ?? undefined}
             onDone={() => setSelectedIds(new Set())}
-            onSelectCondition={handleSelectCondition}
             onSelectPrinting={handleSelectPrinting}
             printingOptions={standardPrintingOptions}
             selectedCount={selectedIds.size}
@@ -267,9 +286,9 @@ export function BinderPageReview({
         {/*
           No ScrollView: all nine pockets must fit the viewport at once, so the
           tile width is DERIVED from the measured frame — three rows of
-          art + caption plus the grid gaps (and the alternates strip when one
-          is open) — and clamped to the width-driven three-column size. Small
-          screens get smaller tiles, never a scroll.
+          art + caption plus the grid gaps — and clamped to the width-driven
+          three-column size. Small screens get smaller tiles, never a scroll,
+          and the caption is a fixed height so a batch never resizes them.
         */}
         <View onLayout={handleFrameLayout} style={styles.frame} testID={`${testID}-frame`}>
           {tileWidth > 0 ? (
@@ -376,11 +395,12 @@ function PocketTile({
       .filter(Boolean)
       .join(' · ')
     : '';
-  // The printing only earns a line once the user has actually set one — it is
-  // confirmation that a batch landed, not a control. Unset, the price alone
-  // says everything the default printing would.
-  const printingLabel = selection && capture?.mode === 'raw'
-    ? printingChipLabel(candidate, selection)
+  // Only a printing the user MOVED earns a label — it is confirmation that a
+  // batch changed something, not a control. On the card's own printing the
+  // price already says everything the label would. Abbreviated because it
+  // shares the price row.
+  const printingLabel = selection?.variantIsNonDefault && capture?.mode === 'raw'
+    ? printingAbbreviation(printingChipLabel(candidate, selection))
     : null;
   const selectable = !!capture && !isLoading && !isEmpty;
 
