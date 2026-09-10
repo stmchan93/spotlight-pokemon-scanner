@@ -2077,13 +2077,6 @@ export function ScannerScreen({
           }
           if (artifactUpload.status === 'uploaded') {
           } else if (artifactUpload.status === 'failed') {
-            capturePostHogEvent('scan_artifact_upload_failed', {
-              error_kind: artifactUpload.errorKind ?? 'request_failed',
-              mode,
-              ...(typeof artifactUpload.roundTripMs === 'number'
-                ? { upload_ms: artifactUpload.roundTripMs }
-                : {}),
-            });
           }
         },
       });
@@ -2434,14 +2427,6 @@ export function ScannerScreen({
           )),
           onArtifactUploadComplete: (pocketIndex, artifactUpload) => {
             if (artifactUpload?.status === 'failed') {
-              capturePostHogEvent('scan_artifact_upload_failed', {
-                error_kind: artifactUpload.errorKind ?? 'request_failed',
-                mode: 'raw',
-                pocket_index: pocketIndex,
-                ...(typeof artifactUpload.roundTripMs === 'number'
-                  ? { upload_ms: artifactUpload.roundTripMs }
-                  : {}),
-              });
             }
           },
         }));
@@ -2928,10 +2913,6 @@ export function ScannerScreen({
           // drops (the dominant cause of the 2026-05 card-show artifact loss).
           // On the multipart path the OS streams the file natively, so this
           // can only fire when the JSON fallback is actually taken.
-          capturePostHogEvent('scan_source_base64_missing', {
-            mode: isSlab ? 'slabs' : 'raw',
-            had_photo_uri: Boolean(photo.uri),
-          });
         }
         return null;
       };
