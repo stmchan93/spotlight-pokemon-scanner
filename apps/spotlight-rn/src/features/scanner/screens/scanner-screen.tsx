@@ -134,8 +134,6 @@ import { resolveRuntimeBoolean, resolveRuntimeValue, resolveStagingSmokeModeEnab
 import { useAppServices } from '@/providers/app-providers';
 
 import { AddAllMenu, type AddAllMenuAction } from '@/features/scanner/components/add-all-menu';
-import { PrintingChip } from '@/features/scanner/components/printing-chip';
-import { printingChipLabel } from '@/features/scanner/scan-batch-pricing';
 import { ScanBulkConfirmSheet } from '@/features/scanner/components/scan-bulk-confirm-sheet';
 import { ScanTargetPill } from '@/features/scanner/components/scan-target-pill';
 import { ScannerLanguageTooltip } from '@/features/scanner/components/scanner-language-tooltip';
@@ -530,15 +528,15 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
       .filter(Boolean)
       .join(' · ')
     : '';
-  // Raw rows show their PRINTINGS as chips in place of a flat "RAW": tapping
-  // one reprices the row, the tray TOTAL and what gets added, without opening
-  // a sheet. One printing is not a choice, so it renders as its name; none
-  // (or not loaded yet) falls back to the old tag.
+  // A raw row's printings ARE its subtitle: the chips replace the old "RAW"
+  // tag outright, and tapping one reprices the row, the tray TOTAL and what
+  // gets added. Until the printings land the row simply has no third line.
+  // Slabs keep their grade label — a slab has no printing to pick.
   const activeVariantKey = selection?.variantKey ?? variants[0]?.variantKey ?? null;
-  const showVariantChips = capture.mode === 'raw' && variants.length > 1;
+  const showVariantChips = capture.mode === 'raw' && variants.length > 0;
   const modeTagLine = capture.mode === 'slabs'
     ? scannerSlabInlineLabel(capture) || 'GRADED'
-    : (variants.length === 1 ? variants[0].variant : null) ?? selection?.variantLabel ?? 'RAW';
+    : null;
   // When the shown price is a graded slab comp (card has no raw price), tag it
   // so "$24,824" reads as "$24,824  PSA 10", not the ungraded value.
   const gradedReferenceLabel = candidate?.priceIsGradedReference
@@ -674,25 +672,11 @@ const CaptureTrayRow = memo(function CaptureTrayRow({
                         />
                       ))}
                     </ScrollView>
-                  ) : (
-                    <View style={styles.captureModeRow}>
-                      <Text numberOfLines={1} style={styles.captureSubtitle}>
-                        {modeTagLine}
-                      </Text>
-                      {capture.mode === 'raw' ? (
-                        // One printing (or none loaded): the chip is the way
-                        // into the price sheet, same height as CHANGE so the
-                        // windowed tray's row geometry is untouched.
-                        <PrintingChip
-                          arena
-                          confirmed={!!selection}
-                          label={printingChipLabel(candidate, selection)}
-                          onPress={() => onShowPrice(capture.id)}
-                          testID={`scanner-tray-printing-${index}`}
-                        />
-                      ) : null}
-                    </View>
-                  )}
+                  ) : modeTagLine ? (
+                    <Text numberOfLines={1} style={styles.captureSubtitle}>
+                      {modeTagLine}
+                    </Text>
+                  ) : null}
                   {capture.binderPage ? <PocketBadge binderPage={capture.binderPage} /> : null}
                 </>
               ) : (

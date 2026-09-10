@@ -1789,9 +1789,9 @@ describe('ScannerScreen', () => {
 
   // The #1 complaint across competitor scanners: a card silently lands on the
   // wrong printing (1st Edition / holo / non-holo) and the user never sees it.
-  // Every raw row names the printing + condition its price assumes; a
-  // catalog default reads as a guess until the user picks one.
-  it('shows the assumed printing on the tray row and opens the price sheet from it', async () => {
+  // Every raw row shows its printings as chips, so the printing the price
+  // assumes is on screen and one tap from being changed.
+  it('shows the printing chips on the tray row and prices from the picked one', async () => {
     const spotlightRepository = createTestSpotlightRepository({
       matchScannerCapture: async () => ({
         scanID: 'scan-froakie',
@@ -1829,25 +1829,17 @@ describe('ScannerScreen', () => {
 
     expect(await screen.findByText('Froakie')).toBeTruthy();
 
-    // Unconfirmed: the chip names the catalog default the price is based on,
-    // muted so it reads as a guess.
-    const chipLabel = screen.getByTestId('scanner-tray-printing-0-label');
-    expect(chipLabel.props.children).toBe('Default');
-    expect(StyleSheet.flatten(chipLabel.props.style).color).toBe(colors.gray600);
-    expect(screen.getByTestId('scanner-tray-printing-0').props.accessibilityState).toEqual(
-      expect.objectContaining({ selected: false }),
-    );
+    // The printings replace the old flat "RAW" tag outright.
+    await screen.findByTestId('scanner-tray-variant-0-holofoil');
+    expect(screen.queryByText('RAW')).toBeNull();
 
-    // One tap opens the SAME price sheet the price cell opens.
-    fireEvent.press(screen.getByTestId('scanner-tray-printing-0'));
+    // The condition still lives in the price sheet, reachable from the price.
+    fireEvent.press(screen.getByTestId('scanner-tray-price-0'));
     fireEvent.press(await screen.findByTestId('scan-price-sheet-row-holofoil-LP'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-printing-0-label').props.children).toBe('Holofoil');
+      expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.42');
     });
-    expect(StyleSheet.flatten(screen.getByTestId('scanner-tray-printing-0-label').props.style).color)
-      .toBe(colors.gray900);
-    expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.42');
   });
 
   // A card with more than one printing gets the printings themselves as chips,
