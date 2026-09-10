@@ -672,6 +672,7 @@ type ScanMatchCandidateDTO = {
 
 type ScanMatchResponseDTO = {
   scanID?: string | null;
+  emptyPocket?: boolean | null;
   topCandidates?: ScanMatchCandidateDTO[] | null;
   candidatePoolSize?: number | null;
   resolverMode?: string | null;
@@ -5537,6 +5538,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       slabContext: normalizeSlabContext(response.data?.slabContext),
       targetLanguageMismatch: normalizeTargetLanguageMismatch(response.data?.targetLanguageMismatch),
       confidence: normalizeScannerMatchConfidence(response.data?.confidence),
+      emptyPocket: response.data?.emptyPocket === true,
     } satisfies ScannerMatchResult;
   }
 

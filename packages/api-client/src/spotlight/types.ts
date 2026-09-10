@@ -156,6 +156,11 @@ export type ScannerMatchResult = {
   targetLanguageMismatch?: ScannerTargetLanguageMismatch | null;
   /** Backend confidence in the top candidate. Null when the server omits it. */
   confidence?: ScannerMatchConfidence | null;
+  /**
+   * Binder pages only: the backend judged this pocket to hold no card (weak
+   * best match on the page's flattest crop). The client drops the row.
+   */
+  emptyPocket?: boolean;
 };
 
 export type ScannerMatchConfidence = 'high' | 'medium' | 'low';

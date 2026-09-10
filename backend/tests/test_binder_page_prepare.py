@@ -270,6 +270,35 @@ class BinderPagePrepareServiceTests(BinderPageStoreTestCase):
             empty, _ = server_module._binder_empty_pocket_indexes([b""] * 9)
         self.assertEqual(empty, [8])
 
+    def test_weak_match_on_the_flattest_pocket_is_reported_empty(self) -> None:
+        # Post-match gate: pocket 4 is flat (energy ~0 vs textured siblings),
+        # and the matcher returns a weak 0.30 for everything. Only the flat
+        # pocket is reported empty; a textured pocket with the same weak score
+        # is a card the matcher just isn't sure about.
+        class WeakMatcher(CapturingVisualMatcher):
+            def match_payload(self, payload, *, top_k: int = 10, prepared=None, **_kwargs):  # noqa: ARG002
+                super().match_payload(payload, top_k=top_k, prepared=prepared)
+                return [_fake_match("obf-223", similarity=0.30)], {"source": "fake", "timings": {"embeddingMs": 1.0}}
+
+        self.service._raw_visual_matcher = WeakMatcher()
+        response = self.service.prepare_binder_page(
+            {"pageImage": {"jpegBase64": base64.b64encode(
+                _color_page_jpeg(empty_cells=frozenset({4}))).decode("ascii")}}
+        )
+        token = response["pageToken"]
+
+        def reference(pocket_index: int, scan_id: str) -> dict[str, object]:
+            payload = raw_payload(scan_id=scan_id, jpeg_base64=None)
+            payload["binderPage"] = {"pageToken": token, "pocketIndex": pocket_index}
+            return payload
+
+        flat = self.service.visual_match_scan(reference(4, "scan-flat"))
+        textured = self.service.visual_match_scan(reference(0, "scan-textured"))
+        self.assertTrue(flat.get("emptyPocket"))
+        # Candidates stay on the response so an older client still shows a match.
+        self.assertEqual(flat["topCandidates"][0]["candidate"]["id"], "obf-223")
+        self.assertNotIn("emptyPocket", textured)
+
     def test_edge_energy_separates_flat_from_textured(self) -> None:
         flat = Image.new("RGB", (630, 880), color=(200, 200, 200))
         textured = Image.new("RGB", (630, 880), color=(200, 200, 200))

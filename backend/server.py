@@ -712,6 +712,17 @@ def _binder_layout_from_payload(payload: dict[str, Any]) -> tuple[int, int, int]
 BINDER_EMPTY_POCKET_EDGE_ENERGY_MAX = 8.0
 BINDER_EMPTY_POCKET_RELATIVE_MAX = 0.45
 BINDER_EMPTY_POCKET_FLAT_MAX = 3.0
+# Post-match gate (the reliable one). Edge energy alone is NOT separable: the
+# second real page (2026-09-10) had an empty sleeve at 14.8 against cards at
+# 22–43, while real cards elsewhere score down to 5.6. What IS consistent is
+# the matcher: every empty pocket so far came back as an Energy card at
+# 0.32–0.37 with low confidence, while every real card on those pages scored
+# ≥ 0.43. So a binder pocket whose best match is under
+# BINDER_EMPTY_POCKET_MATCH_SCORE_MAX AND whose crop sat under
+# BINDER_EMPTY_POCKET_MATCH_RELATIVE_MAX × its page's median edge energy is
+# reported as `emptyPocket` — both weak, and the flattest thing on the page.
+BINDER_EMPTY_POCKET_MATCH_SCORE_MAX = 0.42
+BINDER_EMPTY_POCKET_MATCH_RELATIVE_MAX = 0.6
 
 
 def _pocket_edge_energy(pocket_jpeg: bytes) -> float | None:
@@ -12752,10 +12763,14 @@ class SpotlightScanService:
                     ),
                 )
                 del _binder_page_store[oldest_token]
+            known_energies = sorted(e for e in pocket_edge_energies if e is not None)
             _binder_page_store[token] = {
                 "owner_user_id": self._current_owner_user_id(),
                 "created_at": now,
                 "pockets": pockets,
+                # For the post-match empty gate: this pocket's energy vs the page's.
+                "pocket_edge_energy": pocket_edge_energies,
+                "energy_median": known_energies[len(known_energies) // 2] if known_energies else None,
             }
         return {
             "pageToken": token,
@@ -12775,10 +12790,10 @@ class SpotlightScanService:
         them); the TTL handles cleanup."""
         reference = payload.get("binderPage")
         if not isinstance(reference, dict):
-            return
+            return None
         image_payload = payload.get("image") if isinstance(payload.get("image"), dict) else {}
         if str(image_payload.get("jpegBase64") or "").strip():
-            return  # explicit bytes win; the reference is ignored
+            return None  # explicit bytes win; the reference is ignored
         pocket_index = reference.get("pocketIndex")
         if isinstance(pocket_index, bool) or not isinstance(pocket_index, int) or not (
             0 <= pocket_index < BINDER_PAGE_MAX_POCKETS
@@ -12802,12 +12817,35 @@ class SpotlightScanService:
                     f"binderPage.pocketIndex must be below this page's pocket count ({len(entry['pockets'])})"
                 )
             pocket_jpeg = entry["pockets"][pocket_index]
+            energies = entry.get("pocket_edge_energy") or []
+            pocket_energy = energies[pocket_index] if pocket_index < len(energies) else None
+            energy_median = entry.get("energy_median")
         payload["image"] = {
             **image_payload,
             "jpegBase64": base64.b64encode(pocket_jpeg).decode("ascii"),
             "width": RAW_NORMALIZED_TARGET_SIZE[0],
             "height": RAW_NORMALIZED_TARGET_SIZE[1],
         }
+        return {"pocketIndex": pocket_index, "edgeEnergy": pocket_energy, "energyMedian": energy_median}
+
+    @staticmethod
+    def _binder_pocket_looks_empty(pocket_context: dict[str, Any] | None, response: dict[str, Any]) -> bool:
+        """Post-match empty gate — see BINDER_EMPTY_POCKET_MATCH_SCORE_MAX."""
+        if not pocket_context:
+            return False
+        energy = pocket_context.get("edgeEnergy")
+        median = pocket_context.get("energyMedian")
+        if not isinstance(energy, (int, float)) or not isinstance(median, (int, float)) or median <= 0:
+            return False
+        candidates = response.get("topCandidates")
+        top = candidates[0] if isinstance(candidates, list) and candidates else None
+        score = top.get("finalScore") if isinstance(top, dict) else None
+        if not isinstance(score, (int, float)):
+            return False
+        return (
+            float(score) < BINDER_EMPTY_POCKET_MATCH_SCORE_MAX
+            and float(energy) < BINDER_EMPTY_POCKET_MATCH_RELATIVE_MAX * float(median)
+        )
 
     def visual_match_scan(
         self,
@@ -12817,7 +12855,7 @@ class SpotlightScanService:
         prepared: Any | None = None,
     ) -> dict[str, Any]:
         handler_started_at = perf_counter()
-        self._inject_binder_page_pocket(payload)
+        binder_pocket_context = self._inject_binder_page_pocket(payload)
         self._emit_structured_log(self._scan_request_log_payload(payload))
         scrydex_before_total = int(scrydex_request_stats_snapshot().get("total") or 0)
         scan_id = str(payload.get("scanID") or "")
@@ -12887,6 +12925,18 @@ class SpotlightScanService:
             started_at=match_started,
             response=response,
         )
+        if self._binder_pocket_looks_empty(binder_pocket_context, response):
+            # The row still carries its candidates (an old client shows the
+            # weak match as before); a current client drops the row instead.
+            response["emptyPocket"] = True
+            self._emit_structured_log({
+                "event": "binder_pocket_empty",
+                "scanID": scan_id,
+                "pocketIndex": (binder_pocket_context or {}).get("pocketIndex"),
+                "edgeEnergy": (binder_pocket_context or {}).get("edgeEnergy"),
+                "energyMedian": (binder_pocket_context or {}).get("energyMedian"),
+                "topScore": ((response.get("topCandidates") or [{}])[0] or {}).get("finalScore"),
+            })
         return response
 
     def visual_match_scan_batch(

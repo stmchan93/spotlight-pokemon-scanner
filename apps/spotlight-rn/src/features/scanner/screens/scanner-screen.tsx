@@ -1985,6 +1985,18 @@ export function ScannerScreen({
         );
       }
 
+      // Binder pocket the backend judged EMPTY (weak best match on the page's
+      // flattest crop): drop the row instead of showing an Energy card at
+      // 0.3 — the pocket had no card in it. The overlay labels it "Empty".
+      const emptyPocketIndex = matchResult.emptyPocket ? matchPayload.binderPage?.pocketIndex : undefined;
+      if (matchResult.emptyPocket && typeof emptyPocketIndex === 'number') {
+        const pageId = captureId.replace(/-p\d+$/, '');
+        const known = binderPageEmptyPocketsRef.current.get(pageId) ?? [];
+        binderPageEmptyPocketsRef.current.set(pageId, [...new Set([...known, emptyPocketIndex])].sort((a, b) => a - b));
+        setRecentCaptures((current) => current.filter((capture) => capture.id !== captureId));
+        return null;
+      }
+
       applyMatchSuccessForCapture({
         captureId,
         captureMs,
