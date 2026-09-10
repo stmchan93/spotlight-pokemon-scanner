@@ -1044,11 +1044,16 @@ export function ScannerScreen({
   // row's own printing and condition already settle.
   const discountOptions = useMemo(
     () => [
-      ...[0, 10, 15, 20, 25, 30, 35].map((percent) => ({
-        key: String(percent),
-        label: percent === 0 ? 'Full price' : `${100 - percent}% of market`,
-      })),
+      { key: '0', label: 'Full price' },
+      // SECOND, not last. At the bottom of an eight-row list it sat below the
+      // menu's six-row fold and went unnoticed for weeks — and it is the row
+      // that covers every deal the presets do not, so it earns the spot next
+      // to the one everyone starts from.
       { key: 'custom', label: 'Custom…' },
+      ...[10, 15, 20, 25, 30, 35].map((percent) => ({
+        key: String(percent),
+        label: `${100 - percent}% of market`,
+      })),
     ],
     [],
   );

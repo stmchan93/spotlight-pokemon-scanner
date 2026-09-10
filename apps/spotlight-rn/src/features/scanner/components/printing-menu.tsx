@@ -100,8 +100,18 @@ export function AnchoredOptionMenu({
     return null;
   }
 
-  const visibleRows = Math.min(options.length, MAX_VISIBLE_ROWS);
-  const listHeight = visibleRows * ROW_HEIGHT;
+  /*
+    A LIST THAT OVERFLOWS SHOWS HALF A ROW. Cutting the last visible row in
+    two is the only cue that says "keep going" while the menu is sitting
+    still — a scroll indicator is transient on iOS, so a full-height list
+    ending flush on a row boundary looks complete, and the option below the
+    fold may as well not exist. That is exactly how the tray's "Custom…" went
+    unnoticed: eighth of eight rows, six of them visible.
+  */
+  const overflows = options.length > MAX_VISIBLE_ROWS;
+  const listHeight = overflows
+    ? (MAX_VISIBLE_ROWS + 0.5) * ROW_HEIGHT
+    : options.length * ROW_HEIGHT;
   const cardHeight = listHeight + 20;
 
   const screen = Dimensions.get('window');
@@ -138,8 +148,10 @@ export function AnchoredOptionMenu({
         />
         <ScrollView
           bounces={false}
-          scrollEnabled={options.length > MAX_VISIBLE_ROWS}
-          showsVerticalScrollIndicator={false}
+          scrollEnabled={overflows}
+          // On during a scroll it confirms how much is left; the half row is
+          // what carries the message at rest.
+          showsVerticalScrollIndicator={overflows}
           style={{ maxHeight: listHeight }}
         >
           {options.map((option) => {
