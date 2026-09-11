@@ -5102,13 +5102,31 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     const safeLedger1y = ledger1y.data ?? buildEmptyPortfolioLedger();
     const safeLedgerAll = ledgerAll.data ?? buildEmptyPortfolioLedger();
 
+    /*
+      The headline follows the OPEN range, not 1W.
+
+      It read the 1W slot unconditionally, so a cold load on any other range
+      showed 1W's change under that range's chart — the same wrong number the
+      per-range summaries fix once they arrive. On a warm backend every range
+      ships its own summary and the header reads that; this is what the header
+      falls back to before then, so it has to be the range actually asked for.
+    */
+    const safeOpenHistory = {
+      '1W': safeHistory1w,
+      '1M': safeHistory1m,
+      '3M': safeHistory3m,
+      YTD: safeHistoryYtd,
+      '1Y': safeHistory1y,
+      ALL: safeHistoryAll,
+    }[criticalRange] ?? safeHistory1w;
+
     const dashboard: PortfolioDashboard = {
       summary: {
-        currentValue: safeHistory1w.summary.currentValue,
-        changeAmount: safeHistory1w.summary.deltaValue,
-        changePercent: safeHistory1w.summary.deltaPercent ?? 0,
-        asOfLabel: safeHistory1w.points.length > 0
-          ? formatShortDate(safeHistory1w.points[safeHistory1w.points.length - 1]?.date ?? '')
+        currentValue: safeOpenHistory.summary.currentValue,
+        changeAmount: safeOpenHistory.summary.deltaValue,
+        changePercent: safeOpenHistory.summary.deltaPercent ?? 0,
+        asOfLabel: safeOpenHistory.points.length > 0
+          ? formatShortDate(safeOpenHistory.points[safeOpenHistory.points.length - 1]?.date ?? '')
           : 'Today',
       },
       inventoryCount: safeInventoryEntries.length,

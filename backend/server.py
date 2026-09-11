@@ -17358,7 +17358,12 @@ class SpotlightScanService:
                         # Collection screen opens on range=1W → key (owner, tz, "1W").
                         with _background_heavy_read_slot() as slot:
                             if slot:
-                                self.portfolio_dashboard(range_key="1W")
+                                # Builds the widest series too, so the ranges a
+                                # user taps are already sliced and waiting. This
+                                # is the one place that should pay for it.
+                                self.portfolio_dashboard(
+                                    range_key="1W", allow_series_compute=True
+                                )
                                 warmed_dashboards += 1
                             else:
                                 skipped_busy += 1
@@ -17713,6 +17718,7 @@ class SpotlightScanService:
         time_zone_name: str | None = None,
         range_key: str | None = None,
         collection_id: str | None = None,
+        allow_series_compute: bool = False,
     ) -> dict[str, Any]:
         """Cache-and-dogpile wrapper over the heavy dashboard computation.
 
@@ -17770,11 +17776,45 @@ class SpotlightScanService:
                 time_zone_name=resolved_tz,
                 range_keys=[range_key] if range_key else None,
                 collection_id=collection_id,
+                allow_series_compute=allow_series_compute,
             )
             if version is not None:
                 self._store_dashboard_cache(cache_key, version, payload)
             self._log_dashboard_timing(started_at, outcome="miss")
             return payload
+
+    def _portfolio_all_history_cache_key(
+        self, *, time_zone_name: str, collection_id: str | None
+    ) -> tuple[str, str, str, str]:
+        return (
+            self._current_owner_user_id(),
+            time_zone_name,
+            "history-series",
+            collection_id or "",
+        )
+
+    def _portfolio_all_history_is_cached(
+        self, *, time_zone_name: str, collection_id: str | None
+    ) -> bool:
+        """Whether the widest series is in hand for the CURRENT data version.
+
+        Asked before any work is scheduled, because building the series is the
+        expensive thing and a request must not be the one to pay for it.
+        """
+        cache_key = self._portfolio_all_history_cache_key(
+            time_zone_name=time_zone_name, collection_id=collection_id
+        )
+        cached = self._dashboard_cache.get(cache_key)
+        if cached is None:
+            return False
+        try:
+            version = self._portfolio_dashboard_version_token(
+                self._current_owner_user_id(), time_zone_name
+            )
+        except Exception:  # noqa: BLE001 - treat bookkeeping failure as "not ready"
+            traceback.print_exc()
+            return False
+        return cached[0] == version
 
     def _portfolio_all_history_cached(
         self,
@@ -17792,7 +17832,9 @@ class SpotlightScanService:
         with them and survives in the same cache.
         """
         owner_user_id = self._current_owner_user_id()
-        cache_key = (owner_user_id, time_zone_name, "history-series", collection_id or "")
+        cache_key = self._portfolio_all_history_cache_key(
+            time_zone_name=time_zone_name, collection_id=collection_id
+        )
         try:
             version = self._portfolio_dashboard_version_token(owner_user_id, time_zone_name)
         except Exception:  # noqa: BLE001 - cache bookkeeping must never break the chart
@@ -18062,6 +18104,7 @@ class SpotlightScanService:
         time_zone_name: str | None = None,
         range_keys: list[str] | None = None,
         collection_id: str | None = None,
+        allow_series_compute: bool = False,
     ) -> dict[str, Any]:
         """Single-call portfolio dashboard: bundles inventory, every history and
         ledger range, and insights into one response so the client makes ONE
@@ -18116,14 +18159,27 @@ class SpotlightScanService:
         }
         # Only compute the requested range(s) — the client fetches the rest on
         # demand. Unknown keys are ignored; None means all six (legacy/prewarm).
-        computed_labels: list[str] | None = None
         if range_keys is None:
             keys_to_compute = list(range_labels.keys())
         else:
             keys_to_compute = [key for key in range_keys if key in range_labels]
-        # The shared inputs must span the WIDEST window, because the series
-        # below is always computed over ALL and every range is sliced from it.
-        computed_labels = None
+
+        # THE SERIES IS A BONUS, NOT A TOLL. Slicing one widest-window series
+        # answers all six ranges, but BUILDING it reads ~136 days of prices where
+        # an open 1W range needs 7 — measured 228ms against 4.9s on staging.
+        # Charging every request for it turned a 3s dashboard into 20-26s misses
+        # and started shedding the card list with 503s (user, 2026-09-11). So the
+        # request path uses the series only when it is ALREADY built; the prewarm
+        # that runs after a restart or a price sync is what builds it, off the
+        # request path.
+        series_is_ready = allow_series_compute or self._portfolio_all_history_is_cached(
+            time_zone_name=resolved_tz, collection_id=collection_id
+        )
+        # Scope the shared price read to what will actually be computed: the
+        # widest window only when the series is being built or sliced.
+        computed_labels = (
+            None if series_is_ready else [range_labels[key] for key in keys_to_compute]
+        )
 
         # Load the range-independent history inputs (entries, events, daily prices)
         # ONCE and share them across the computed range(s) instead of re-reading
@@ -18146,13 +18202,17 @@ class SpotlightScanService:
         # flicking between them cost 20-30s and a cold open close to a minute.
         # The widest window contains every other, and everything the summary
         # needs from the newest day is shared, so the rest are slices.
-        all_history = _section(
-            "history.series",
-            lambda: self._portfolio_all_history_cached(
-                time_zone_name=resolved_tz,
-                shared_inputs=history_shared_inputs,
-                collection_id=collection_id,
-            ),
+        all_history = (
+            _section(
+                "history.series",
+                lambda: self._portfolio_all_history_cached(
+                    time_zone_name=resolved_tz,
+                    shared_inputs=history_shared_inputs,
+                    collection_id=collection_id,
+                ),
+            )
+            if series_is_ready
+            else None
         )
         earliest_activity_at = None
         if all_history is not None:
@@ -18169,7 +18229,10 @@ class SpotlightScanService:
         # scoped to the requested range; it is a real query and the client
         # fetches the others on demand.
         ranges: dict[str, Any] = {}
-        for key in range_labels:
+        # With a series every range is free, so send all six and the client never
+        # refetches. Without one, only what was asked for.
+        keys_to_return = list(range_labels.keys()) if all_history is not None else keys_to_compute
+        for key in keys_to_return:
             label = range_labels[key]
             if all_history is not None:
                 history = _section(

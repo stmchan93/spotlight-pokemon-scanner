@@ -170,6 +170,8 @@ class PortfolioRangeSliceTests(unittest.TestCase):
         Counted at `deck_history`, which is the expensive call — a regression
         that reverted to per-range computation would show up here as six.
         """
+        # Explicit, because a REQUEST never builds the series — see
+        # `test_a_cold_request_never_pays_to_build_the_series`.
         calls: list[str | None] = []
         original = self.service.deck_history
 
@@ -184,6 +186,7 @@ class PortfolioRangeSliceTests(unittest.TestCase):
             payload = self.service._compute_portfolio_dashboard(
                 time_zone_name="UTC",
                 range_keys=["1W", "1M", "3M", "YTD", "1Y", "ALL"],
+                allow_series_compute=True,
             )
 
         self.assertEqual(calls, ["ALL"], f"expected one series computation, got {calls}")
@@ -208,13 +211,72 @@ class PortfolioRangeSliceTests(unittest.TestCase):
 
         with self.service.request_identity_context(self._identity()):
             payload = self.service._compute_portfolio_dashboard(
-                time_zone_name="UTC", range_keys=["1W", "3M"]
+                time_zone_name="UTC", range_keys=["1W", "3M"], allow_series_compute=True
             )
 
         self.assertIn("error", payload["sections"]["history.series"])
         for key in ("1W", "3M"):
             self.assertEqual(payload["sections"][f"history.{key}"], "ok")
             self.assertTrue(payload["ranges"][key]["history"]["points"])
+
+
+class SeriesIsNeverBuiltOnARequestTests(PortfolioRangeSliceTests):
+    """Building the series must never be charged to a user's request.
+
+    Slicing is free, but BUILDING reads the widest window — ~136 days of prices
+    where an open 1W range needs 7 (228ms against 4.9s on staging). Charging
+    every request for it took dashboard misses to 20-26s and made the backend
+    shed the card list with 503s. The prewarm after a restart or a price sync is
+    what pays; a request either finds the series ready or computes only the range
+    it was asked for.
+    """
+
+    def _deck_history_calls(self, **kwargs) -> list[str | None]:
+        calls: list[str | None] = []
+        original = self.service.deck_history
+
+        def counting(*args, **inner):
+            calls.append(inner.get("range_label"))
+            return original(*args, **inner)
+
+        self.service.deck_history = counting  # type: ignore[method-assign]
+        try:
+            with self.service.request_identity_context(self._identity()):
+                self.service._compute_portfolio_dashboard(time_zone_name="UTC", **kwargs)
+        finally:
+            self.service.deck_history = original  # type: ignore[method-assign]
+        return calls
+
+    def test_a_cold_request_never_pays_to_build_the_series(self) -> None:
+        calls = self._deck_history_calls(range_keys=["1W"])
+        self.assertEqual(calls, ["1W"], f"a cold request must compute only 1W, got {calls}")
+
+    def test_a_cold_request_returns_only_what_it_asked_for(self) -> None:
+        with self.service.request_identity_context(self._identity()):
+            payload = self.service._compute_portfolio_dashboard(
+                time_zone_name="UTC", range_keys=["1W"]
+            )
+        self.assertEqual(list(payload["ranges"].keys()), ["1W"])
+
+    def test_once_warm_the_same_request_answers_every_range_for_free(self) -> None:
+        with self.service.request_identity_context(self._identity()):
+            # The prewarm's call is the one allowed to build it.
+            self.service._compute_portfolio_dashboard(
+                time_zone_name="UTC", range_keys=["1W"], allow_series_compute=True
+            )
+
+        calls = self._deck_history_calls(range_keys=["1W"])
+        self.assertEqual(calls, [], f"a warm request must replay nothing, got {calls}")
+
+        with self.service.request_identity_context(self._identity()):
+            payload = self.service._compute_portfolio_dashboard(
+                time_zone_name="UTC", range_keys=["1W"]
+            )
+        self.assertEqual(
+            sorted(payload["ranges"].keys()), ["1M", "1W", "1Y", "3M", "ALL", "YTD"]
+        )
+        for key, bucket in payload["ranges"].items():
+            self.assertTrue(bucket["history"]["points"], f"{key} came back with no points")
 
 
 if __name__ == "__main__":
