@@ -1794,6 +1794,60 @@ describe('PortfolioScreen', () => {
     expect(getPortfolioRange).not.toHaveBeenCalled();
   });
 
+  it('never refetches a range the dashboard already answered', async () => {
+    /*
+      The backend used to compute only the open range, so every switch was a
+      network round trip and the first cold one could cost seconds. It now
+      returns all six — they are slices of one series — so a range that arrived
+      with points redraws from state and touches the network not at all.
+    */
+    const pointFor = (value: number) => ({ isoDate: '2026-06-01', shortLabel: 'Jun 1', value });
+    const dashboard = {
+      ...buildDashboardWithInventory([buildInventoryEntry({ id: 'a', name: 'Alpha' })]),
+      ranges: {
+        '1W': { portfolio: [pointFor(100)], sales: [] },
+        '1M': { portfolio: [pointFor(120)], sales: [] },
+        '3M': { portfolio: [pointFor(140)], sales: [] },
+        YTD: { portfolio: [pointFor(160)], sales: [] },
+        '1Y': { portfolio: [pointFor(180)], sales: [] },
+        // Still empty, so this one MUST still be fetched — otherwise the test
+        // would pass just as well against a client that never fetches at all.
+        ALL: { portfolio: [], sales: [] },
+      },
+    };
+    const getPortfolioRange = jest.fn(async () => ({ portfolio: [pointFor(999)], sales: [] }));
+    const repository = createTestSpotlightRepository({
+      loadInventoryEntries: async () => ({ state: 'success', data: dashboard.inventoryItems, errorMessage: null }),
+      loadPortfolioDashboard: async () => ({ state: 'success', data: dashboard, errorMessage: null }),
+      getPortfolioRange,
+    });
+
+    renderPortfolioScreen({ repository });
+    await screen.findByTestId('portfolio-header-title');
+    // Wait for the LOADED dashboard, not merely for the pills: pressing while
+    // the fetch is still in flight fetches a range the payload was about to
+    // answer, which is a race, not the behaviour under test.
+    await screen.findByText('Alpha');
+    await waitFor(() => {
+      expect(screen.getByTestId('range-3M')).toBeTruthy();
+    });
+
+    for (const range of ['1M', '3M', '1Y'] as const) {
+      await act(async () => {
+        fireEvent.press(screen.getByTestId(`range-${range}`));
+      });
+    }
+    expect(getPortfolioRange).not.toHaveBeenCalled();
+
+    // The range that came back empty is still fetched on demand.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('range-ALL'));
+    });
+    await waitFor(() => {
+      expect(getPortfolioRange).toHaveBeenCalledWith('ALL');
+    });
+  });
+
   // The reported bug: every pill showed the same change, because the header
   // read the open range's summary no matter which range was selected.
   it('rewrites the headline change when a different range is selected', async () => {

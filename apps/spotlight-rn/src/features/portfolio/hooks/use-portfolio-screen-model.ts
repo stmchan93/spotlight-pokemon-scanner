@@ -6,6 +6,7 @@ import {
   useState,
 } from 'react';
 
+import { historyRanges } from '@spotlight/api-client';
 import type {
   ChartMode,
   InventoryCardEntry,
@@ -308,7 +309,9 @@ export function usePortfolioScreenModel({
     dashboardRef.current = next;
     displayedCollectionIDRef.current = activeCollectionID;
     hasUsableDashboardRef.current = cached !== null;
-    loadedRangesRef.current = new Set<PortfolioHistoryRange>([selectedRangeRef.current]);
+    loadedRangesRef.current = cached
+      ? rangesWithData(cached)
+      : new Set<PortfolioHistoryRange>([selectedRangeRef.current]);
     setHasLoadedDashboard(cached !== null);
     setHasLoadedInventory(cached !== null);
     setIsLoadingDashboard(cached === null);
@@ -528,9 +531,10 @@ export function usePortfolioScreenModel({
             }
           : nextDashboard;
       });
-      // A fresh dashboard only carries the open range; drop any previously
-      // on-demand-loaded ranges so a data change can't leave them stale.
-      loadedRangesRef.current = new Set<PortfolioHistoryRange>([openRange]);
+      // Replace, never merge: a data change must not leave an older range's
+      // numbers behind. What the fresh payload answered is what is loaded.
+      loadedRangesRef.current = rangesWithData(nextDashboard);
+      loadedRangesRef.current.add(openRange);
       setPortfolioDashboardCache(nextDashboard);
       setInventoryEntriesCache(nextDashboard.inventoryItems);
       setHasLoadedDashboard(true);
@@ -556,6 +560,24 @@ export function usePortfolioScreenModel({
   // Switch the chart range. If the range hasn't been loaded yet (the dashboard
   // only computed the open range), fetch just that range on demand and merge it
   // in; the chart shows its skeleton via `loadingRange` until it arrives.
+  // Which ranges a payload actually answered.
+  //
+  // The backend used to compute only the open range, so a switch always meant
+  // a network round trip — and after the first cold one that round trip could
+  // cost seconds. It now returns all six (they are slices of one series), so a
+  // range that arrived with points needs no fetch at all and the chart redraws
+  // from state. A range that came back empty stays unloaded so the next tap
+  // still retries it.
+  const rangesWithData = useCallback((source: PortfolioDashboard): Set<PortfolioHistoryRange> => {
+    const loaded = new Set<PortfolioHistoryRange>();
+    for (const range of historyRanges) {
+      if ((source.ranges[range]?.portfolio.length ?? 0) > 0) {
+        loaded.add(range);
+      }
+    }
+    return loaded;
+  }, []);
+
   const selectRange = useCallback((range: PortfolioHistoryRange) => {
     setSelectedRange(range);
     if (loadedRangesRef.current.has(range)) {
