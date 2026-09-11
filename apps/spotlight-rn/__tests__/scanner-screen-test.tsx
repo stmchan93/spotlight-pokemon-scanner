@@ -983,6 +983,35 @@ describe('ScannerScreen', () => {
     });
   });
 
+  it('shows the rate on its own, without naming the tray total', async () => {
+    /*
+      A help line read "What the customer pays, as a share of $90.53", which
+      restated the field and pinned the number to one tray total. It is a RATE
+      — it applies to whatever is in the tray (user, 2026-09-11). The empty
+      field's placeholder also has to read as a placeholder: the default grey
+      was dark enough that "80" looked already typed.
+    */
+    renderScannerScreen();
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    });
+
+    fireEvent.press(screen.getByTestId('scanner-tray-discount-trigger'));
+    fireEvent.press(await screen.findByTestId('discount-menu-custom'));
+
+    expect(await screen.findByText('Percent of market')).toBeTruthy();
+    expect(screen.queryByText(/What the customer pays/)).toBeNull();
+    expect(screen.queryByText(/share of \$/)).toBeNull();
+
+    const input = screen.getByTestId('custom-discount-sheet-input');
+    expect(input.props.placeholder).toBe('80');
+    // Lighter than the body text it sits in, or it reads as a value.
+    expect(input.props.placeholderTextColor).toBe('#BEBEBE');
+  });
+
   // The tray used to write a holding with NO printing while the row named one,
   // so a scan could never merge with the same printing added from the card
   // page — one Maui landed as "Normal", the other blank, two rows for one card.

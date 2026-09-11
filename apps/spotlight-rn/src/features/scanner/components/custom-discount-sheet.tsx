@@ -7,8 +7,6 @@ type CustomDiscountSheetProps = {
   visible: boolean;
   /** Share of market currently applied, 1-100. */
   initialPercentOfMarket: number;
-  /** Preformatted full-price total, shown so the typed share has something to divide. */
-  fullTotalLabel: string;
   /** Receives the SHARE OF MARKET the user typed, 1-100. */
   onApply: (percentOfMarket: number) => void;
   onClose: () => void;
@@ -23,7 +21,6 @@ type CustomDiscountSheetProps = {
 export function CustomDiscountSheet({
   visible,
   initialPercentOfMarket,
-  fullTotalLabel,
   onApply,
   onClose,
   testID = 'custom-discount-sheet',
@@ -64,11 +61,14 @@ export function CustomDiscountSheet({
           style={[styles.card, { backgroundColor: theme.colors.gray0 }]}
           testID={testID}
         >
-          <Text style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}>
+          {/*
+            The title is the whole instruction. A line spelling out "what the
+            customer pays, as a share of $90.53" restated the field and pinned
+            it to one tray total, which is not what the number means — it is a
+            rate (user, 2026-09-11).
+          */}
+          <Text style={[theme.typography.titleSmall, styles.title, { color: theme.colors.gray900 }]}>
             Percent of market
-          </Text>
-          <Text style={[theme.typography.bodyMedium, styles.help, { color: theme.colors.gray600 }]}>
-            {`What the customer pays, as a share of ${fullTotalLabel}. 80 means 80%.`}
           </Text>
 
           <TextField
@@ -83,6 +83,9 @@ export function CustomDiscountSheet({
               }
             }}
             placeholder="80"
+            // Default placeholder grey is dark enough to read as a typed value,
+            // so the empty field looked like it already held 80.
+            placeholderTextColor={theme.colors.gray400}
             returnKeyType="done"
             testID={`${testID}-input`}
             trailing={(
@@ -134,7 +137,7 @@ const styles = StyleSheet.create({
     shadowRadius: 32,
     width: '100%',
   },
-  help: {
+  title: {
     marginBottom: 4,
   },
   actions: {

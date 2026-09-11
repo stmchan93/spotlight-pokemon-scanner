@@ -4900,7 +4900,6 @@ export function ScannerScreen({
       })()}
 
       <CustomDiscountSheet
-        fullTotalLabel={formatTrayTotal(trayPriceSummary)}
         initialPercentOfMarket={100 - discountPercent}
         onApply={(percentOfMarket) => {
           capturePostHogEvent('scan_deal_discount_set', {
