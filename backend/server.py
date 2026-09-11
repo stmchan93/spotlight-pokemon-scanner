@@ -66,7 +66,7 @@ from catalog_tools import (
     RAW_CONDITION_PRIORITY,
     PSA_GRADE_PRICING_MODE,
     RAW_PRICING_MODE,
-    RAW_VARIANT_PRIORITY,
+    raw_variant_sort_key,
     RawDecisionResult,
     RawEvidence,
     RawRetrievalPlan,
@@ -4389,19 +4389,17 @@ class SpotlightScanService:
         variants_payload: list[dict[str, Any]] = []
         currency_code: str | None = None
 
-        def variant_sort_key(label: str) -> tuple[int, int, str]:
-            try:
-                return (0, RAW_VARIANT_PRIORITY.index(label), label)
-            except ValueError:
-                return (1, 0, label)
-
         def condition_sort_key(code: str) -> tuple[int, int, str]:
             try:
                 return (0, RAW_CONDITION_PRIORITY.index(code), code)
             except ValueError:
                 return (1, 0, code)
 
-        ordered_variants = sorted(_raw_context_variants(raw_contexts), key=variant_sort_key)
+        # The SAME ordering the stored default uses — the tray quotes whatever
+        # lands first here, and these two ranking it differently is what showed
+        # a vintage card's First Edition price for a scan that only ever
+        # identified the artwork.
+        ordered_variants = sorted(_raw_context_variants(raw_contexts), key=raw_variant_sort_key)
         for variant_label in ordered_variants:
             ordered_conditions = sorted(
                 _raw_context_conditions(raw_contexts, variant_label),

@@ -159,6 +159,90 @@ class RawPricingMatrixTests(unittest.TestCase):
         variants = payload["variants"]
         self.assertEqual([variant["variant"] for variant in variants], ["Normal"])
 
+    def test_vintage_leads_with_unlimited_not_first_edition(self) -> None:
+        """The tray quotes whatever lands first here.
+
+        Vintage printings are none of Normal / Holofoil / Reverse Holofoil, so
+        this sort used to fall through to the label itself — a plain
+        alphabetical order, where "First Edition" beats "Unlimited". Neo Genesis
+        Wooper stored its default as Unlimited at $3.09 while the scan tray
+        quoted First Edition at $9.12 for the same card (user, 2026-09-10). The
+        scanner reads artwork and cannot see an edition stamp, so a printing it
+        never detected must never be the one quoted, and it errs HIGH, which at
+        a show is what someone gets offered.
+        """
+        self._seed_raw_contexts(
+            {
+                "variants": {
+                    "First Edition": {
+                        "variant": "First Edition",
+                        "variantKey": "firstEdition",
+                        "conditions": {"NM": {"currencyCode": "USD", "market": 9.12}},
+                    },
+                    "Unlimited": {
+                        "variant": "Unlimited",
+                        "variantKey": "unlimited",
+                        "conditions": {"NM": {"currencyCode": "USD", "market": 3.09}},
+                    },
+                },
+            }
+        )
+
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        try:
+            payload = service.raw_pricing_matrix("cl1-15")
+        finally:
+            service.connection.close()
+
+        variants = payload["variants"]
+        self.assertEqual(
+            [variant["variant"] for variant in variants],
+            ["Unlimited", "First Edition"],
+        )
+        # First Edition is still one tap away — suppressed as the DEFAULT, not
+        # hidden from someone who knows what they are holding.
+        self.assertEqual(variants[1]["conditions"][0]["market"], 9.12)
+
+    def test_the_matrix_and_the_stored_default_agree_on_the_leading_printing(self) -> None:
+        """Two rankings for one decision is what let them drift apart.
+
+        Asserted against `_resolve_default_raw_context` rather than against a
+        hard-coded name, so a future change to the ordering has to move BOTH or
+        fail here.
+        """
+        from catalog_tools import _resolve_default_raw_context
+
+        raw_contexts = {
+            "variants": {
+                "First Edition Shadowless Holofoil": {
+                    "variant": "First Edition Shadowless Holofoil",
+                    "variantKey": "firstEditionShadowlessHolofoil",
+                    "conditions": {"NM": {"currencyCode": "USD", "market": 310.0}},
+                },
+                "Unlimited Holofoil": {
+                    "variant": "Unlimited Holofoil",
+                    "variantKey": "unlimitedHolofoil",
+                    "conditions": {"NM": {"currencyCode": "USD", "market": 630.39}},
+                },
+                "Metal": {
+                    "variant": "Metal",
+                    "variantKey": "metal",
+                    "conditions": {"NM": {"currencyCode": "USD", "market": 311.26}},
+                },
+            },
+        }
+        self._seed_raw_contexts(raw_contexts)
+
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        try:
+            payload = service.raw_pricing_matrix("cl1-15")
+        finally:
+            service.connection.close()
+
+        default_variant, _, _ = _resolve_default_raw_context(raw_contexts)
+        self.assertEqual(payload["variants"][0]["variant"], default_variant)
+        self.assertEqual(default_variant, "Unlimited Holofoil")
+
 
 if __name__ == "__main__":
     unittest.main()

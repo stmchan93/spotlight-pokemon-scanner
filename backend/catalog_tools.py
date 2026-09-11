@@ -1657,6 +1657,25 @@ def _raw_variant_fallback_penalty(label: str) -> int:
     if "unlimited" in text:
         penalty -= 5
     return penalty
+
+
+def raw_variant_sort_key(label: str) -> tuple[int, int, str]:
+    """Canonical ordering for a card's raw printings. Lower sorts first.
+
+    THE ONE ORDERING. Two places used to rank printings — the resolver that
+    picks a card's stored default, and the variant x condition matrix the
+    scanner tray reads — and only the first of them consulted the keyword
+    penalty. The second fell through to the label itself, which is a plain
+    alphabetical sort, and alphabetically "First Edition" beats "Unlimited".
+    So a Neo Genesis Wooper stored its default as Unlimited at $3.09 while the
+    tray showed First Edition at $9.12 for the same scan (user, 2026-09-10).
+    The scanner reads artwork and cannot see an edition stamp, so a printing it
+    never detected must never be the one quoted.
+    """
+    try:
+        return (0, RAW_VARIANT_PRIORITY.index(label), label)
+    except ValueError:
+        return (1, _raw_variant_fallback_penalty(label), label)
 # Deck entries store conditions in snake_case ("lightly_played"); raw price
 # contexts are keyed by the two-letter code ("LP"). Map the long forms so a
 # requested condition actually resolves instead of silently falling back to NM.
@@ -2671,16 +2690,7 @@ def _resolve_default_raw_context(raw_contexts: dict[str, Any]) -> tuple[str | No
     if not variants:
         return None, None, None
 
-    def variant_rank(label: str) -> tuple[int, int, str]:
-        try:
-            return (RAW_VARIANT_PRIORITY.index(label), 0, label)
-        except ValueError:
-            # Labels outside the explicit priority (e.g. vintage printings) keep a stable,
-            # intentional order via a keyword penalty instead of falling back to alphabetical,
-            # which would default to "First Edition…" over "Unlimited…".
-            return (len(RAW_VARIANT_PRIORITY), _raw_variant_fallback_penalty(label), label)
-
-    ordered_variants = sorted(variants, key=variant_rank)
+    ordered_variants = sorted(variants, key=raw_variant_sort_key)
     for preferred_condition in RAW_CONDITION_PRIORITY:
         for variant in ordered_variants:
             entry = _raw_context_entry(raw_contexts, variant=variant, condition=preferred_condition)
