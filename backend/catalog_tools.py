@@ -7,6 +7,7 @@ import os
 import re
 import shlex
 import sqlite3
+import threading
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -1278,6 +1279,7 @@ def apply_schema(connection: sqlite3.Connection, schema_path: Path) -> None:
     _backfill_missing_card_title_aliases(connection)
     _backfill_missing_card_artist_aliases(connection)
     connection.commit()
+    _backfill_tcgplayer_product_index(connection)
 
 
 def start_provider_sync_run(
@@ -3421,9 +3423,27 @@ def tcgplayer_variants_subset(
 # phantom "Normal" printing shared an Archeops product id — surfacing Archeops'
 # price AND deep-linking to Archeops). We suppress the offending printing on
 # every card sharing the id so no card ever shows another card's price or link.
-# Computed once per process from the cards table and cached; call
-# ``reset_collision_guard_cache()`` after a catalog sync to force a rebuild.
+# Computed once per process and cached; call ``reset_collision_guard_cache()``
+# after a catalog sync to force a rebuild. The lock is what makes "once" true:
+# without it every request that arrived before the first build finished started
+# its own, and on staging three threads were caught in the same build at once.
 _COLLISION_GUARD_CACHE: dict[str, Any] | None = None
+_COLLISION_GUARD_LOCK = threading.Lock()
+
+# Where the product ids live once they have been extracted, so the guard reads a
+# 50k-row table instead of parsing every card payload. See schema.sql.
+CARD_TCGPLAYER_PRODUCTS_TABLE = "card_tcgplayer_products"
+TCGPLAYER_PRODUCT_INDEX_SETTING_KEY = "tcgplayer_product_index"
+
+_CARD_TCGPLAYER_PRODUCTS_INSERT = (
+    "INSERT INTO card_tcgplayer_products (card_id, ordinal, product_id, variant_label) "
+    "VALUES (?, ?, ?, ?)"
+)
+# Product ids claimed by more than one card — the mis-maps the guard suppresses.
+_COLLIDING_PRODUCT_IDS_SQL = (
+    "SELECT product_id FROM card_tcgplayer_products "
+    "GROUP BY product_id HAVING COUNT(DISTINCT card_id) > 1"
+)
 
 
 def _iter_card_tcgplayer_variants(source_payload: Any):
@@ -3451,9 +3471,140 @@ def _iter_card_tcgplayer_variants(source_payload: Any):
             yield variant.get("name"), str(product_id).strip()
 
 
+def _tcgplayer_product_index_rows(source_payload: Any) -> list[tuple[int, str, str]]:
+    """``(ordinal, product_id, normalized_variant_label)`` for one card's payload.
+
+    Ordinal preserves payload order, which the TCGCSV sync depends on: when two
+    printings normalize to the same label, the first one listed is the one that
+    owns it."""
+    return [
+        (ordinal, product_id, _normalized_variant_label(name))
+        for ordinal, (name, product_id) in enumerate(_iter_card_tcgplayer_variants(source_payload))
+    ]
+
+
+def _replace_card_tcgplayer_products(
+    connection: sqlite3.Connection,
+    *,
+    card_id: str,
+    source_payload: Any,
+) -> None:
+    """Re-derive one card's rows in the product index. Called on every
+    ``upsert_card`` so a catalog sync keeps the index current and nothing has to
+    re-scan payloads afterwards."""
+    if not _table_exists(connection, CARD_TCGPLAYER_PRODUCTS_TABLE):
+        return
+    connection.execute("DELETE FROM card_tcgplayer_products WHERE card_id = ?", (card_id,))
+    rows = _tcgplayer_product_index_rows(source_payload)
+    if not rows:
+        return
+    connection.executemany(
+        _CARD_TCGPLAYER_PRODUCTS_INSERT,
+        [(card_id, ordinal, product_id, label) for ordinal, product_id, label in rows],
+    )
+
+
+def tcgplayer_product_index_is_authoritative(connection: sqlite3.Connection) -> bool:
+    """True when the index table can be trusted to hold every card's product ids.
+
+    Absence is not emptiness: a catalog with no TCGplayer ids at all is a legal
+    empty index, so the marker is a runtime setting written by the rebuild, not a
+    row count. Fixtures and half-migrated databases answer False and fall back to
+    the payload scan."""
+    if not _table_exists(connection, CARD_TCGPLAYER_PRODUCTS_TABLE):
+        return False
+    if not _table_exists(connection, "runtime_settings"):
+        return False
+    return runtime_setting(connection, TCGPLAYER_PRODUCT_INDEX_SETTING_KEY) is not None
+
+
+def rebuild_tcgplayer_product_index(
+    connection: sqlite3.Connection, *, batch_size: int = 2000
+) -> dict[str, int]:
+    """Re-derive the whole product index from stored payloads.
+
+    The one place that still pays the full parse (398 MB across 45,844 cards on
+    staging). Run once when the index is missing; after that ``upsert_card``
+    keeps it current. Returns ``{"scanned","rows"}``."""
+    if not _table_exists(connection, CARD_TCGPLAYER_PRODUCTS_TABLE) or not _table_exists(
+        connection, "cards"
+    ):
+        return {"scanned": 0, "rows": 0}
+    connection.execute("DELETE FROM card_tcgplayer_products")
+    scanned = 0
+    written = 0
+    pending: list[tuple[str, int, str, str]] = []
+    # Read every payload once, in one pass, and never hold more than a batch of
+    # extracted rows — the parsed blobs are what makes this expensive, not the ids.
+    for card_id, payload_json in connection.execute(
+        "SELECT id, source_payload_json FROM cards WHERE source_payload_json LIKE '%tcgplayer%'"
+    ).fetchall():
+        scanned += 1
+        try:
+            payload = json.loads(payload_json) if payload_json else None
+        except (TypeError, ValueError):
+            continue
+        for ordinal, product_id, label in _tcgplayer_product_index_rows(payload):
+            pending.append((str(card_id), ordinal, product_id, label))
+        if len(pending) >= batch_size:
+            connection.executemany(_CARD_TCGPLAYER_PRODUCTS_INSERT, pending)
+            written += len(pending)
+            pending = []
+    if pending:
+        connection.executemany(_CARD_TCGPLAYER_PRODUCTS_INSERT, pending)
+        written += len(pending)
+    if _table_exists(connection, "runtime_settings"):
+        upsert_runtime_setting(
+            connection,
+            key=TCGPLAYER_PRODUCT_INDEX_SETTING_KEY,
+            value={"builtAt": utc_now(), "scannedCards": scanned, "rows": written},
+        )
+    connection.commit()
+    reset_collision_guard_cache()
+    return {"scanned": scanned, "rows": written}
+
+
+def _backfill_tcgplayer_product_index(connection: sqlite3.Connection) -> None:
+    """Build the index on the first startup that finds it missing.
+
+    A failure leaves the marker unset, so the guard keeps its payload-scan
+    fallback and the next boot tries again — a slow catalog must never turn into
+    a crash loop."""
+    if not _table_exists(connection, CARD_TCGPLAYER_PRODUCTS_TABLE):
+        return
+    if tcgplayer_product_index_is_authoritative(connection):
+        return
+    try:
+        rebuild_tcgplayer_product_index(connection)
+    except sqlite3.Error:
+        connection.rollback()
+
+
+def _collision_guard_from_index(connection: sqlite3.Connection) -> dict[str, Any]:
+    colliding = frozenset(
+        str(row[0]) for row in connection.execute(_COLLIDING_PRODUCT_IDS_SQL)
+    )
+    suppressed_labels_by_card: dict[str, set[str]] = {}
+    if colliding:
+        for card_id, label in connection.execute(
+            "SELECT card_id, variant_label FROM card_tcgplayer_products "
+            f"WHERE product_id IN ({_COLLIDING_PRODUCT_IDS_SQL})"
+        ):
+            suppressed_labels_by_card.setdefault(str(card_id), set()).add(str(label))
+    return {
+        "colliding_product_ids": colliding,
+        "suppressed_labels_by_card": suppressed_labels_by_card,
+    }
+
+
 def _build_collision_guard(connection: sqlite3.Connection) -> dict[str, Any]:
     from collections import defaultdict
 
+    if tcgplayer_product_index_is_authoritative(connection):
+        return _collision_guard_from_index(connection)
+
+    # Fallback for a database whose index has not been built yet (and for the
+    # bare fixtures in the tests): the original full-payload scan.
     pid_to_cards: dict[str, set[str]] = defaultdict(set)
     card_pid_labels: dict[str, dict[str, str]] = defaultdict(dict)
     cursor = connection.execute(
@@ -3482,11 +3633,20 @@ def _build_collision_guard(connection: sqlite3.Connection) -> dict[str, Any]:
 
 def collision_guard(connection: sqlite3.Connection) -> dict[str, Any]:
     """Cached ``{colliding_product_ids, suppressed_labels_by_card}`` for the
-    catalog. Built lazily on first use; O(1) thereafter."""
+    catalog. Built lazily on first use; O(1) thereafter.
+
+    Serialized, because the build used to be a stampede: on a cold process every
+    request that needed the guard found the cache empty and started its own
+    build, so N requests paid N full builds and starved each other for CPU. One
+    builds, the rest wait for that answer."""
     global _COLLISION_GUARD_CACHE
-    if _COLLISION_GUARD_CACHE is None:
-        _COLLISION_GUARD_CACHE = _build_collision_guard(connection)
-    return _COLLISION_GUARD_CACHE
+    cached = _COLLISION_GUARD_CACHE
+    if cached is not None:
+        return cached
+    with _COLLISION_GUARD_LOCK:
+        if _COLLISION_GUARD_CACHE is None:
+            _COLLISION_GUARD_CACHE = _build_collision_guard(connection)
+        return _COLLISION_GUARD_CACHE
 
 
 def reset_collision_guard_cache() -> None:
@@ -3634,6 +3794,11 @@ def upsert_card(
         connection,
         card_id=card_id,
         artist=artist,
+    )
+    _replace_card_tcgplayer_products(
+        connection,
+        card_id=card_id,
+        source_payload=source_payload or {},
     )
 
 

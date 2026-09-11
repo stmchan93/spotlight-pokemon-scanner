@@ -31,6 +31,7 @@ from catalog_tools import (
     pricing_provider,
     runtime_setting,
     start_provider_sync_run,
+    tcgplayer_product_index_is_authoritative,
     update_provider_sync_run,
     upsert_runtime_setting,
     utc_now,
@@ -103,8 +104,21 @@ def _today_price_date() -> str:
 
 
 def _card_variant_product_ids(connection: sqlite3.Connection) -> dict[str, dict[str, str]]:
-    """{card_id: {normalized_variant_label: tcgplayer_product_id}} from stored payloads."""
+    """{card_id: {normalized_variant_label: tcgplayer_product_id}}.
+
+    From the derived product index when it is built, which is the same data
+    without re-parsing every payload; from the payloads themselves otherwise.
+    Either way the FIRST printing listed wins a label it shares with a later one,
+    which is why the index carries an ordinal."""
     by_card: dict[str, dict[str, str]] = {}
+    if tcgplayer_product_index_is_authoritative(connection):
+        for card_id, product_id, label in connection.execute(
+            "SELECT card_id, product_id, variant_label FROM card_tcgplayer_products "
+            "ORDER BY card_id, ordinal"
+        ):
+            by_card.setdefault(str(card_id), {}).setdefault(str(label), str(product_id))
+        return by_card
+
     cursor = connection.execute(
         "SELECT id, source_payload_json FROM cards WHERE source_payload_json LIKE '%tcgplayer%'"
     )

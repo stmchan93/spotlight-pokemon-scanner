@@ -86,6 +86,20 @@ CREATE TABLE IF NOT EXISTS card_artist_aliases (
     PRIMARY KEY (card_id, normalized_token)
 );
 
+-- Derived index of every TCGplayer product id a card's Scrydex payload claims:
+-- one row per (card, payload variant), in payload order. It exists so nothing at
+-- serve time has to json.loads the whole cards table to find product ids — that
+-- scan is 45,844 cards / 398 MB on staging and was burning ~89% of a 2-vCPU box,
+-- with concurrent requests each building their own copy. upsert_card keeps this
+-- current; apply_schema builds it once when it is missing.
+CREATE TABLE IF NOT EXISTS card_tcgplayer_products (
+    card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+    ordinal INTEGER NOT NULL,
+    product_id TEXT NOT NULL,
+    variant_label TEXT NOT NULL,
+    PRIMARY KEY (card_id, ordinal)
+);
+
 CREATE TABLE IF NOT EXISTS card_price_snapshots (
     card_id TEXT PRIMARY KEY REFERENCES cards(id) ON DELETE CASCADE,
     provider TEXT NOT NULL,
@@ -673,6 +687,9 @@ CREATE INDEX IF NOT EXISTS idx_card_artist_aliases_normalized_token
 
 CREATE INDEX IF NOT EXISTS idx_card_artist_aliases_card_id
     ON card_artist_aliases(card_id);
+
+CREATE INDEX IF NOT EXISTS idx_card_tcgplayer_products_product_id
+    ON card_tcgplayer_products(product_id);
 
 CREATE INDEX IF NOT EXISTS idx_card_price_snapshots_lookup
     ON card_price_snapshots(card_id, updated_at DESC);
