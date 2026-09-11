@@ -226,3 +226,58 @@ describe('scanner visual-match — retry + deferred raw artifact upload', () => 
     expect(slabAttempts).toBe(1); // unchanged: no retry for slabs
   }, 15000);
 });
+
+/*
+  THE FIRST RAW ATTEMPT MUST OUTLAST A COLD SERVER INDEX.
+
+  Every attempt used to get 10s. After a backend restart the first scan of a
+  non-Pokémon game builds that game's visual index INSIDE the request — measured
+  at 12-16s on staging (2026-09-10). All three attempts then timed out
+  identically, because each retry hit the same cold build, and the user got
+  "Photo captured, but matches could not load" on scans the server had answered
+  200. The backend prewarms every game's index at startup now; this is the belt
+  to that braces.
+
+  Asserted through the abort deadline the request actually arms, since that is
+  the thing that killed the request.
+*/
+describe('scanner visual-match — per-attempt timeout budget', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    jest.restoreAllMocks();
+    jest.useRealTimers();
+  });
+
+  it('gives attempt 1 a cold-index budget and its retries a short one', async () => {
+    const armedTimeouts: number[] = [];
+    const realSetTimeout = global.setTimeout;
+    jest.spyOn(global, 'setTimeout').mockImplementation(((fn: () => void, ms?: number) => {
+      if (typeof ms === 'number' && ms >= 1000) {
+        armedTimeouts.push(ms);
+      }
+      return realSetTimeout(fn, 0);
+    }) as typeof global.setTimeout);
+
+    let matchAttempts = 0;
+    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+      if (callKind(String(url)) !== 'raw-match') {
+        return jsonResponse(200, {});
+      }
+      matchAttempts += 1;
+      if (matchAttempts < 3) {
+        throw new Error('Network request failed');
+      }
+      return jsonResponse(200, { scanID: 's1', candidates: [] });
+    });
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    await repository.matchScannerCapture(rawPayload());
+
+    expect(matchAttempts).toBe(3);
+    // 30s once, then 10s for each retry — never three identical budgets.
+    expect(armedTimeouts.filter((ms) => ms === 30000)).toHaveLength(1);
+    expect(armedTimeouts.filter((ms) => ms === 10000)).toHaveLength(2);
+  });
+});

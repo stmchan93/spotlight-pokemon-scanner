@@ -376,6 +376,16 @@ export class SpotlightRepositoryRequestError extends Error {
     message: string,
     readonly kind: SpotlightRepositoryErrorKind,
     readonly status?: number,
+    /**
+     * The backend's machine-readable `errorType` ("ServerBusy",
+     * "BinderPageTokenUnknown", …) when the body carried one.
+     *
+     * A FIELD, not a substring of `message`: callers used to branch on
+     * `message.includes('BinderPageTokenUnknown')`, which only worked because
+     * the whole JSON envelope was the message — and that envelope was also
+     * being shown to users verbatim. The two needs are separate now.
+     */
+    readonly errorType?: string,
   ) {
     super(message);
     this.name = 'SpotlightRepositoryRequestError';
@@ -410,14 +420,25 @@ const inventoryPageSize = 1000;
  */
 const inventoryMaxPages = 20;
 const scanMatchRequestTimeoutMs = 20000;
-// Raw visual matches return in <1s on a healthy network. Give each raw attempt a short
-// timeout and retry transient transport/timeout/HTTP failures a couple of times, so one
-// stalled upload (weak wifi, a far VPN exit) recovers on the next attempt instead of
-// dead-ending to "Photo captured, but matches could not load". Retrying is safe: the
-// backend upserts by the stable client-generated scanID (idempotent). Slabs are NOT
-// retried here and keep the single long timeout above — their matches take 40-50s and a
-// short timeout would false-fail them.
-const rawMatchPerAttemptTimeoutMs = 10000;
+// Raw visual matches return in <1s on a healthy network. Retry transient
+// transport/timeout/HTTP failures a couple of times, so one stalled upload (weak
+// wifi, a far VPN exit) recovers on the next attempt instead of dead-ending to
+// "Photo captured, but matches could not load". Retrying is safe: the backend
+// upserts by the stable client-generated scanID (idempotent). Slabs are NOT
+// retried here and keep the single long timeout above — their matches take 40-50s
+// and a short timeout would false-fail them.
+//
+// THE FIRST ATTEMPT IS THE ONE THAT CAN PAY A COLD INDEX. Every attempt used to
+// get 10s, and after a backend restart the first scan of a non-Pokémon game
+// builds that game's visual index INSIDE the request — measured at 12-16s on
+// staging. All three attempts then timed out identically (each retry hits the
+// same cold build), so the user waited 30s and got "matches could not load" on
+// scans the server had already answered 200. The backend now prewarms every
+// game's index at startup; this budget is the belt to that braces, and it only
+// costs anything on a scan that would otherwise have failed outright. Retries
+// stay short, because by then a stalled upload is the likelier story.
+const rawMatchFirstAttemptTimeoutMs = 30000;
+const rawMatchRetryTimeoutMs = 10000;
 // A binder page is one request carrying nine images and one batched inference:
 // upload on a slow uplink (~10s for 9 JPEGs) plus a small-VM batch encode (~7s
 // measured on staging) can pass 20s legitimately. Timing out early creates a
@@ -3217,6 +3238,60 @@ async function safeResponseText(response: Response) {
   }
 }
 
+/** Longest raw body we will ever put in front of a user, when it isn't JSON. */
+const maxRawErrorMessageLength = 200;
+
+/**
+ * The human half of a failed response.
+ *
+ * The backend answers errors as `{"error": "…", "errorType": "…", "retryable":
+ * true}`, and the whole JSON blob used to become the error message — so a load
+ * shed under concurrency put `{"error":"The server is busy right now. Please try
+ * again.","errorType":"ServerBusy","retryable":true}` on screen verbatim (user,
+ * 2026-09-11: "when we see this error just show the error don't show the whole
+ * json"). Take the `error` field when the body is the shape we send, and never
+ * hand back an unbounded blob otherwise.
+ */
+async function safeResponseErrorDetail(
+  response: Response,
+): Promise<{ message: string; errorType?: string }> {
+  const raw = (await safeResponseText(response)).trim();
+  if (!raw) {
+    return { message: '' };
+  }
+  if (raw.startsWith('{') || raw.startsWith('[')) {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const field = (parsed as { error?: unknown; errorType?: unknown; message?: unknown });
+        const errorType = typeof field.errorType === 'string' && field.errorType.trim()
+          ? field.errorType.trim()
+          : undefined;
+        const value = typeof field.error === 'string' && field.error.trim()
+          ? field.error
+          : typeof field.message === 'string' && field.message.trim()
+            ? field.message
+            : null;
+        if (value) {
+          return { message: value.trim(), errorType };
+        }
+        if (errorType) {
+          return { message: '', errorType };
+        }
+      }
+    } catch {
+      // Not JSON after all — fall through to the truncated raw body.
+    }
+    // A JSON body we don't recognise is noise to a user, not a message.
+    return { message: '' };
+  }
+  return {
+    message: raw.length > maxRawErrorMessageLength
+      ? `${raw.slice(0, maxRawErrorMessageLength).trimEnd()}…`
+      : raw,
+  };
+}
+
 /** The mock's stand-in for the default collection every real owner is given. */
 const MOCK_DEFAULT_COLLECTION_ID = 'collection:mock-default';
 
@@ -5406,14 +5481,17 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     // capture has a normalized file on disk to stream.
     let useMultipart = isRawMatch && !binderPage && !!normalizedFileUri && canAttemptScanMultipart();
 
+    // Raw attempt 1 gets room for a cold server-side index; its retries give up
+    // fast so a stalled upload can be replaced. Slabs keep the single long
+    // timeout (their matches legitimately take 40-50s).
+    let rawMatchAttemptTimeoutMs = rawMatchFirstAttemptTimeoutMs;
     const matchRequestOptions: JsonRequestOptions = {
       candidateStrategy: 'single_active',
       logTransport: true,
       requestLabel: endpointPath,
-      // Raw matches return in <1s; use a short per-attempt timeout so a stalled
-      // upload gives up fast and a retry can land. Slabs keep the single long timeout
-      // (their matches legitimately take 40-50s).
-      timeoutMs: isRawMatch ? rawMatchPerAttemptTimeoutMs : scanMatchRequestTimeoutMs,
+      get timeoutMs() {
+        return isRawMatch ? rawMatchAttemptTimeoutMs : scanMatchRequestTimeoutMs;
+      },
     };
 
     // JSON+base64 fallback body, built LAZILY (and cached across retries) so
@@ -5543,6 +5621,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         const backoffMs = rawMatchRetryBackoffsMs[attempt - 2]
           ?? rawMatchRetryBackoffsMs[rawMatchRetryBackoffsMs.length - 1];
         await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        rawMatchAttemptTimeoutMs = rawMatchRetryTimeoutMs;
         response = await runMatchRequest();
       }
       // Deferred raw artifact upload: the match is done (success or final failure), so the
@@ -7348,13 +7427,14 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       }
 
       if (!response.ok) {
-        const message = await safeResponseText(response);
+        const detail = await safeResponseErrorDetail(response);
         return {
           kind: 'error',
           error: new SpotlightRepositoryRequestError(
-            message || `Request failed with status ${response.status}`,
+            detail.message || `Request failed with status ${response.status}`,
             'request_failed',
             response.status,
+            detail.errorType,
           ),
           meta: requestMeta,
         };
@@ -7518,11 +7598,12 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       this.promoteSuccessfulBaseUrl(candidateUrl);
 
       if (!response.ok) {
-        const message = await safeResponseText(response);
+        const detail = await safeResponseErrorDetail(response);
         throw new SpotlightRepositoryRequestError(
-          message || `Request failed with status ${response.status}`,
+          detail.message || `Request failed with status ${response.status}`,
           'request_failed',
           response.status,
+          detail.errorType,
         );
       }
 

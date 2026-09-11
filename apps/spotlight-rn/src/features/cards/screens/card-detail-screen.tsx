@@ -470,9 +470,9 @@ export function CardDetailScreen({
     return source.filter((entry) => entry.cardId === activeCardId);
   }, [activeCardId, inventoryEntriesCache, portfolioDashboardCache]);
 
-  // Last entry this mounted screen resolved for `entryId` — survives an EN/JP
-  // swap that empties every live pool (the counterpart detail owns nothing and
-  // the inventory cache may not be loaded yet).
+  // Last owned entry this mounted screen resolved — survives an EN/JP swap that
+  // empties every live pool (the counterpart detail owns nothing and the
+  // inventory cache may not be loaded yet).
   const pinnedEntryRef = useRef<InventoryCardEntry | null>(null);
 
   const selectedEntry = useMemo(() => {
@@ -501,13 +501,38 @@ export function CardDetailScreen({
     }
 
     const previewEntry = detailPreview?.ownedEntry ?? null;
-    if (!previewEntry) {
-      return null;
+    if (previewEntry && (!entryId || previewEntry.id === entryId)) {
+      return previewEntry;
     }
 
-    return !entryId || previewEntry.id === entryId ? previewEntry : null;
+    /*
+      SWAPPED AWAY FROM THE CARD WE OPENED ON, WITH NO `entryId` TO PIN BY.
+
+      The pools above are filtered by `activeCardId`, which the EN/JP toggle has
+      just repointed at the counterpart — a card the owner does NOT own. They
+      come back empty, `selectedEntry` goes null, and the screen silently stops
+      being an EDIT: the owned fields unmount and the CTA becomes ADD, so saving
+      files a SECOND holding instead of moving the one you were editing
+      (user, 2026-09-10: "i changed the toggle to english and it was save
+      instead of update").
+
+      The `entryId` branch at the top already covered this, but only for the
+      entrances that pass one. The Collection tab — the ordinary way to open a
+      card you own — pushes `{ cardId }` alone, so the pin was inert exactly
+      where the bug bites. Hold the entry the screen resolved BEFORE the swap.
+
+      Gated on having actually swapped (`activeCardId !== cardId`) so a card you
+      simply do not own never inherits a stale pin.
+    */
+    if (activeCardId !== cardId && pinnedEntryRef.current) {
+      return pinnedEntryRef.current;
+    }
+
+    return null;
   }, [
+    activeCardId,
     cachedOwnedEntries,
+    cardId,
     detail,
     detailPreview?.ownedEntry,
     entryId,
@@ -518,10 +543,12 @@ export function CardDetailScreen({
   // Record the resolution AFTER the memo so the ref lags one render behind —
   // exactly what the pin fallback above needs when the pools churn.
   useEffect(() => {
-    if (entryId && selectedEntry?.id === entryId) {
+    // Only while the screen is still on the card it opened on: once a swap is in
+    // flight the pin IS the answer, and re-recording from it would be circular.
+    if (selectedEntry && activeCardId === cardId) {
       pinnedEntryRef.current = selectedEntry;
     }
-  }, [entryId, selectedEntry]);
+  }, [activeCardId, cardId, selectedEntry]);
 
   const ownedSlabContext = selectedEntry?.slabContext ?? scanReviewSession?.slabContext ?? null;
 

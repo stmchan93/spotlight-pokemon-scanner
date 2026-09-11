@@ -47,6 +47,16 @@ export function RollingNumberText({
   const digitWidth = Math.round(fontSize * 0.65);
 
   const chars = value.split('');
+  /*
+    Columns are keyed from the RIGHT, not the left.
+
+    With left-indexed keys, a number that grows a digit re-keys every column:
+    "$14,601.58" -> "$424,141.44" turned the hundreds column into the thousands
+    column and so on, so every digit rolled to an unrelated value at once and the
+    whole figure scrambled. Counting from the end keeps the ones column the ones
+    column, so only the digits that actually changed move (user, 2026-09-11).
+  */
+  const lastIndex = chars.length - 1;
 
   return (
     <View style={styles.row} testID={testID}>
@@ -57,7 +67,7 @@ export function RollingNumberText({
               digit={Number.parseInt(char, 10)}
               digitWidth={digitWidth}
               duration={duration}
-              key={`digit-${index}`}
+              key={`digit-${lastIndex - index}`}
               lineHeight={lineHeight}
               style={style}
             />
@@ -66,7 +76,7 @@ export function RollingNumberText({
         return (
           // Digit columns are measured in JS from the unscaled fontSize, so the
           // glyphs must NOT scale with Dynamic Type or they'd clip/misalign.
-          <Text allowFontScaling={false} key={`static-${index}`} style={style}>
+          <Text allowFontScaling={false} key={`static-${lastIndex - index}`} style={style}>
             {char}
           </Text>
         );

@@ -364,7 +364,7 @@ describe('matchScannerCapture with a binderPage reference', () => {
     expect(payload.readFileAsBase64).not.toHaveBeenCalled();
   });
 
-  it('surfaces a BinderPageTokenUnknown 400 with the errorType readable in the message', async () => {
+  it('surfaces a BinderPageTokenUnknown 400 as a field, with a readable message', async () => {
     global.fetch = jest.fn().mockImplementation(async (url: string) => {
       if (String(url).includes('scan-artifacts')) {
         return jsonResponse(200, {});
@@ -380,7 +380,13 @@ describe('matchScannerCapture with a binderPage reference', () => {
       }),
     ).rejects.toMatchObject({
       status: 400,
-      message: expect.stringContaining('BinderPageTokenUnknown'),
+      /*
+        The TYPE is a field and the MESSAGE is what a user reads. They used to
+        be one string, which is why the whole JSON envelope ended up on screen
+        (user, 2026-09-11). The scanner branches on the field now.
+      */
+      errorType: 'BinderPageTokenUnknown',
+      message: 'Unknown binder page token.',
     });
   }, 15000);
 });

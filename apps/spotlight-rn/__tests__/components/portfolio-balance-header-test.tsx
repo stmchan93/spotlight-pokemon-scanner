@@ -74,3 +74,55 @@ describe('PortfolioBalanceHeader', () => {
     expect(screen.getByTestId('portfolio-summary-delta-date')).toBeTruthy();
   });
 });
+
+/*
+  THE HEADLINE MUST NOT PRINT A NUMBER IT IS ABOUT TO REPLACE.
+
+  A cold open used to show three figures in a couple of seconds: the mask, then
+  the inventory-only fallback's estimate, then the authoritative total, with the
+  rolling digits scrambling between the last two (user, 2026-09-11: "it shows
+  like - or 0 or some other value outside of my 424k and then flickers").
+
+  The fallback still earns the headline when the dashboard is NOT coming — an
+  unreachable backend, where an inventory-derived total beats a permanent dash.
+*/
+describe('PortfolioBalanceHeader — what counts as a known total', () => {
+  const summaryOf = (currentValue: number) => ({
+    currentValue,
+    changeAmount: 0,
+    changePercent: 0,
+    asOfLabel: 'Today',
+  });
+
+  it('masks the total while the real one is still loading', () => {
+    render(
+      <PortfolioBalanceHeader
+        activeChartPoint={null}
+        isSummaryHidden={false}
+        isValueKnown={false}
+        onToggleHidden={jest.fn()}
+        summary={summaryOf(14601.58)}
+        testIDPrefix="balance"
+      />,
+    );
+
+    expect(screen.queryByText(/14,601/)).toBeNull();
+  });
+
+  it('shows the total once it is the real one', () => {
+    render(
+      <PortfolioBalanceHeader
+        activeChartPoint={null}
+        isSummaryHidden={false}
+        isValueKnown
+        onToggleHidden={jest.fn()}
+        summary={summaryOf(424141.44)}
+        testIDPrefix="balance"
+      />,
+    );
+
+    // The file mocks RollingNumberText to a plain Text, so the formatted value
+    // is assertable directly.
+    expect(screen.getByText('$424,141.44')).toBeTruthy();
+  });
+});

@@ -1589,12 +1589,18 @@ describe('HttpSpotlightRepository', () => {
     const matchCallCount = () => (global.fetch as jest.Mock).mock.calls
       .filter(([url]) => String(url).includes('/api/v1/scan/visual-match')).length;
 
-    // The first attempt is still in flight just under the ~10s per-attempt timeout.
-    await jest.advanceTimersByTimeAsync(9000);
+    /*
+      Attempt 1 gets a 30s budget, not the 10s its retries get: after a backend
+      restart the first scan of a game builds that game's visual index inside
+      the request (12-16s on staging, 2026-09-10), and a 10s first attempt
+      turned a slow scan into a failed one — all three attempts timed out on the
+      same cold build. Still in flight at 29s.
+    */
+    await jest.advanceTimersByTimeAsync(29000);
     expect(matchCallCount()).toBe(1);
 
-    // Cross the per-attempt timeout → attempt 1 aborts, and after the backoff a SECOND
-    // attempt fires (the retry the old single-attempt path never had).
+    // Cross it → attempt 1 aborts, and after the backoff a SECOND attempt fires
+    // (the retry the old single-attempt path never had), on the short budget.
     await jest.advanceTimersByTimeAsync(3000);
     expect(matchCallCount()).toBeGreaterThanOrEqual(2);
 
@@ -2044,5 +2050,66 @@ describe('HttpSpotlightRepository', () => {
 
       expect(history?.series).toEqual([]);
     });
+  });
+});
+
+/*
+  A BACKEND ERROR BODY IS NOT A USER-FACING MESSAGE.
+
+  Errors come back as `{"error": "…", "errorType": "…", "retryable": true}` and
+  the whole blob used to become the message, so a load shed under concurrency
+  put the raw JSON on screen: `{"error":"The server is busy right now. Please
+  try again.","errorType":"ServerBusy","retryable":true}` (user, 2026-09-11:
+  "just show the error don't show the whole json").
+*/
+describe('HttpSpotlightRepository — error messages shown to users', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    jest.restoreAllMocks();
+  });
+
+  function errorBody(status: number, body: string) {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status,
+      text: async () => body,
+    } as Response);
+    return new HttpSpotlightRepository('http://example.test');
+  }
+
+  it('surfaces the error field alone, not the JSON envelope', async () => {
+    const repository = errorBody(503, JSON.stringify({
+      error: 'The server is busy right now. Please try again.',
+      errorType: 'ServerBusy',
+      retryable: true,
+    }));
+
+    const result = await repository.loadInventoryEntries();
+
+    expect(result.errorMessage).toBe('The server is busy right now. Please try again.');
+    expect(result.errorMessage).not.toContain('errorType');
+    expect(result.errorMessage).not.toContain('{');
+  });
+
+  it('falls back to the status line for a JSON body it does not recognise', async () => {
+    const repository = errorBody(500, JSON.stringify({ detail: 'stack trace here' }));
+
+    const result = await repository.loadInventoryEntries();
+
+    // Unrecognised JSON is noise to a user, so the status line stands in.
+    expect(result.errorMessage).toContain('500');
+    expect(result.errorMessage).not.toContain('stack trace');
+  });
+
+  it('keeps a short plain-text body, and truncates a long one', async () => {
+    const short = errorBody(502, 'upstream unavailable');
+    expect((await short.loadInventoryEntries()).errorMessage).toContain('upstream unavailable');
+
+    const long = errorBody(502, 'x'.repeat(500));
+    const message = (await long.loadInventoryEntries()).errorMessage ?? '';
+    expect(message.length).toBeLessThan(250);
+    expect(message.endsWith('…')).toBe(true);
   });
 });

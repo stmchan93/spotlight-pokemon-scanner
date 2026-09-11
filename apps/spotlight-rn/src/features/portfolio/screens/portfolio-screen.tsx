@@ -588,7 +588,20 @@ export function PortfolioScreen({
     422k → 0 → 424k flash. An empty collection really is $0, so "not known yet"
     has to be its own state rather than inferred from the number.
   */
-  const isTotalKnown = model.hasLoadedDashboard || model.dashboard.inventoryItems.length > 0;
+  const isTotalKnown = model.hasLoadedDashboard
+    /*
+      The inventory-only fallback still counts — but NOT while the real total is
+      on its way. Inventory lands in ~1s and the dashboard behind it, so a cold
+      open printed the mask, then the fallback's estimate, then the authoritative
+      total: three different headline numbers in a couple of seconds, with the
+      rolling digits scrambling between the last two (user, 2026-09-11: "it shows
+      like - or 0 or some other value outside of my 424k and then flickers").
+
+      The fallback exists for the case where the dashboard is NOT coming — an
+      unreachable backend, where an inventory-derived total beats a permanent
+      dash. That case is exactly `!isLoadingDashboard`.
+    */
+    || (model.dashboard.inventoryItems.length > 0 && !model.isLoadingDashboard);
 
   const collectionTotalLabel = isSummaryHidden
     ? HIDDEN_VALUE_MASK

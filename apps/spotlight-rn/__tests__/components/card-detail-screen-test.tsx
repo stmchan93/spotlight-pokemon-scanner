@@ -365,6 +365,118 @@ describe('CardDetailScreen', () => {
     await waitFor(() => expect(onBack).toHaveBeenCalled());
   });
 
+  it('SAVE after an EN→JP swap still MOVES the holding when the screen was opened with no entryId', async () => {
+    /*
+      The Collection tab pushes `{ cardId }` alone — no `entryId`. That made the
+      pin above inert on the ordinary way to open a card you own: after the swap
+      every cardId-filtered pool is empty, the screen stopped being an edit, and
+      the CTA became ADD, so the save filed a SECOND holding instead of moving
+      the one being edited (user, 2026-09-10).
+    */
+    const ownedEnEntry: InventoryCardEntry = {
+      addedAt: '2026-04-27T12:00:00.000Z',
+      cardId: 'sm7-1',
+      cardNumber: '#001/096',
+      conditionCode: null,
+      conditionLabel: 'Near Mint',
+      conditionShortLabel: 'NM',
+      costBasisPerUnit: null,
+      costBasisTotal: null,
+      currencyCode: 'USD',
+      hasMarketPrice: true,
+      id: 'e-owned-en',
+      imageUrl: 'https://cdn.spotlight.test/sm7/treecko.png',
+      kind: 'raw',
+      marketPrice: 12,
+      name: 'Treecko',
+      quantity: 1,
+      setName: 'Sky Stream',
+      slabContext: null,
+      variantName: 'Normal',
+    };
+
+    const baseRepository = createTestSpotlightRepository();
+    const getCardDetail = jest.fn(async (query: { cardId: string }) => {
+      const base = await baseRepository.getCardDetail({ ...query, cardId: 'sm7-1' });
+      if (!base) {
+        return null;
+      }
+      if (query.cardId === 'sm7-1-jp') {
+        return {
+          ...base,
+          cardId: 'sm7-1-jp',
+          name: 'Treecko (JP)',
+          language: 'japanese',
+          counterpartCardId: 'sm7-1',
+          counterpartLanguage: 'english',
+          ownedEntries: [],
+        } satisfies CardDetailRecord;
+      }
+      return {
+        ...base,
+        language: 'english',
+        counterpartCardId: 'sm7-1-jp',
+        counterpartLanguage: 'japanese',
+        ownedEntries: [ownedEnEntry],
+      } satisfies CardDetailRecord;
+    });
+
+    const replacePortfolioEntry = jest.fn(async () => ({
+      previousDeckEntryID: 'e-owned-en',
+      deckEntryID: 'e-owned-en',
+      cardID: 'sm7-1-jp',
+      quantity: 1,
+      unitPrice: null,
+      updatedAt: '2026-04-27T12:00:00.000Z',
+    }));
+    const createInventoryEntry = jest.fn(async () => ({
+      deckEntryID: 'should-not-happen',
+      cardID: 'sm7-1-jp',
+      addedAt: '2026-04-27T12:00:00.000Z',
+    }));
+    const updateDeckEntryCostBasis = jest.fn(async () => ({
+      deckEntryID: 'e-owned-en',
+      cardID: 'sm7-1-jp',
+      costBasisPerUnit: null,
+      costBasisPerUnitCents: null,
+      currencyCode: 'USD',
+      updatedAt: '2026-04-27T12:00:00.000Z',
+    }));
+
+    // No entryId — this is the Collection tab's navigation.
+    renderWithProviders(
+      <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardDetail,
+          replacePortfolioEntry,
+          createInventoryEntry,
+          updateDeckEntryCostBasis,
+        }),
+      },
+    );
+
+    expect((await screen.findByTestId('detail-name')).props.children).toBe('Treecko');
+    await screen.findByTestId('detail-save-edit');
+
+    fireEvent.press(screen.getByTestId('detail-configurator-language-JP'));
+    // The screen must STILL be an edit after the swap, not an add.
+    expect(screen.getByTestId('detail-save-edit')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('detail-save-edit'));
+
+    await waitFor(() => {
+      expect(replacePortfolioEntry).toHaveBeenCalledWith(
+        expect.objectContaining({ deckEntryID: 'e-owned-en', cardID: 'sm7-1-jp' }),
+      );
+    });
+    // Let the save's follow-up settle before unmounting: it writes the moved row
+    // into the SHARED inventory cache, and a save still in flight at teardown
+    // leaks that write into the next test.
+    await waitFor(() => expect(updateDeckEntryCostBasis).toHaveBeenCalled());
+    // One holding, moved — never a second one filed against the JP printing.
+    expect(createInventoryEntry).not.toHaveBeenCalled();
+  });
+
   it('ADD ITEM creates a raw inventory entry with the configured selection and refreshes', async () => {
     const createInventoryEntry = jest.fn(async () => ({
       deckEntryID: 'new-entry',

@@ -2571,7 +2571,11 @@ export function ScannerScreen({
     const isPageTokenUnknownError = (error: unknown) =>
       isSpotlightRepositoryRequestError(error)
       && error.status === 400
-      && error.message.includes('BinderPageTokenUnknown');
+      // The FIELD, not a substring of the message: the message is what the user
+      // reads now, so the machine-readable type rides alongside it. The
+      // substring check stays as a fallback for an older backend shape.
+      && (error.errorType === 'BinderPageTokenUnknown'
+        || error.message.includes('BinderPageTokenUnknown'));
 
     // Pockets run SEQUENTIALLY (one in flight): the server encodes one pocket
     // at a time anyway, and one-at-a-time preserves first-result latency.
