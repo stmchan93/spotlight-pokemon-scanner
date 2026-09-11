@@ -142,71 +142,81 @@ export function GameSetsScreen({
     return null;
   };
 
-  const header = (
-    <View style={styles.contentTop}>
-      <View style={styles.header}>
-        <ChromeBackButton onPress={onClose} style={styles.closeButton} testID="game-sets-back" />
-        <Text style={[theme.typography.display, { color: theme.colors.textPrimary }]}>
-          {`${gameDisplayName(game)} Sets`}
-        </Text>
-      </View>
-      <SearchField
-        ref={searchFieldRef}
-        autoCapitalize="none"
-        autoCorrect={false}
-        containerStyle={{ backgroundColor: theme.colors.surface }}
-        onChangeText={search.setQuery}
-        placeholder="Search by name, set, or number"
-        returnKeyType="search"
-        testID="game-sets-search"
-        value={search.query}
+  /*
+    THE HEADER IS FIXED, and the body below it is what swaps.
+
+    It used to ride along as the set grid's `ListHeaderComponent` and move into
+    a plain `View` once a query went live. React reads those as two different
+    positions, so the search field UNMOUNTED AND REMOUNTED the moment the query
+    reached two characters — dropping first responder mid-word. Typing "luffy"
+    searched "lu" and swallowed the rest (user, 2026-09-10). Nothing that holds
+    keyboard focus may sit in a subtree that a state change replaces.
+  */
+  const body = () => {
+    if (search.hasActiveQuery) {
+      // Only once there is something to show — otherwise the grid's empty list
+      // would sit under the state card in the header.
+      if (search.results.length === 0 || search.errorMessage) {
+        return null;
+      }
+      return (
+        <CatalogResultsGrid
+          isLoadingMore={search.isLoadingMore}
+          onEndReached={search.loadMore}
+          onOpenResult={openResult}
+          openingResultId={openingResultId}
+          results={search.results}
+          testID="game-sets-results"
+        />
+      );
+    }
+    return (
+      <FlatList
+        contentContainerStyle={styles.listContent}
+        data={expansions}
+        key="sets"
+        keyExtractor={(item) => item.id}
+        keyboardShouldPersistTaps="handled"
+        numColumns={2}
+        renderItem={({ item }) => (
+          <ExpansionCell
+            expansion={item}
+            onPress={() => onSelectExpansion(item, game)}
+            testID={`game-sets-expansion-${item.id}`}
+          />
+        )}
+        showsVerticalScrollIndicator={false}
+        testID="game-sets-grid"
       />
-      {search.hasActiveQuery ? renderSearchState() : renderSetsState()}
-    </View>
-  );
+    );
+  };
 
   return (
     <SafeAreaView
       edges={['top', 'left', 'right', 'bottom']}
       style={[styles.screen, { backgroundColor: colors.gray0 }]}
     >
-      {search.hasActiveQuery ? (
-        <>
-          <View style={styles.searchHeaderWrap}>{header}</View>
-          {/*
-            Results only once there is something to show — otherwise the grid's
-            own empty list would sit under the state card above it.
-          */}
-          {search.results.length > 0 && !search.errorMessage ? (
-            <CatalogResultsGrid
-              isLoadingMore={search.isLoadingMore}
-              onEndReached={search.loadMore}
-              onOpenResult={openResult}
-              openingResultId={openingResultId}
-              results={search.results}
-              testID="game-sets-results"
-            />
-          ) : null}
-        </>
-      ) : (
-        <FlatList
-          ListHeaderComponent={header}
-          contentContainerStyle={styles.listContent}
-          data={expansions}
-          keyExtractor={(item) => item.id}
-          keyboardShouldPersistTaps="handled"
-          numColumns={2}
-          renderItem={({ item }) => (
-            <ExpansionCell
-              expansion={item}
-              onPress={() => onSelectExpansion(item, game)}
-              testID={`game-sets-expansion-${item.id}`}
-            />
-          )}
-          showsVerticalScrollIndicator={false}
-          testID="game-sets-grid"
+      <View style={styles.contentTop}>
+        <View style={styles.header}>
+          <ChromeBackButton onPress={onClose} style={styles.closeButton} testID="game-sets-back" />
+          <Text style={[theme.typography.display, { color: theme.colors.textPrimary }]}>
+            {`${gameDisplayName(game)} Sets`}
+          </Text>
+        </View>
+        <SearchField
+          ref={searchFieldRef}
+          autoCapitalize="none"
+          autoCorrect={false}
+          containerStyle={{ backgroundColor: theme.colors.surface }}
+          onChangeText={search.setQuery}
+          placeholder="Search by name, set, or number"
+          returnKeyType="search"
+          testID="game-sets-search"
+          value={search.query}
         />
-      )}
+        {search.hasActiveQuery ? renderSearchState() : renderSetsState()}
+      </View>
+      {body()}
     </SafeAreaView>
   );
 }
@@ -231,11 +241,6 @@ const styles = StyleSheet.create({
   },
   screen: {
     flex: 1,
-  },
-  // While searching the header is fixed and the results scroll under it, so the
-  // field stays reachable without scrolling back to the top of a long result set.
-  searchHeaderWrap: {
-    flexShrink: 0,
   },
   stateCard: {
     gap: 16,

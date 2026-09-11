@@ -207,4 +207,36 @@ describe('GameSetsScreen', () => {
     expect(await screen.findByTestId('game-sets-results')).toBeTruthy();
     expect(screen.queryByTestId('game-sets-grid')).toBeNull();
   });
+
+  it('keeps the same search field mounted when the results replace the sets', async () => {
+    /*
+      The field used to ride along as the set grid's `ListHeaderComponent` and
+      move into a plain View once a query went live — two different positions,
+      so React unmounted and remounted it the moment the query reached two
+      characters. On a device that drops first responder mid-word: typing
+      "luffy" searched "lu" and swallowed the rest (user, 2026-09-10).
+
+      Identity is the assertion, not presence — a remounted field is still
+      findable, which is exactly why the bug survived the test above.
+    */
+    mockListExpansions();
+    jest
+      .spyOn(MockSpotlightRepository.prototype, 'searchCatalogCardsPage')
+      .mockResolvedValue({ cards: [], hasMore: false });
+
+    renderWithProviders(
+      <GameSetsScreen
+        game="onepiece"
+        onClose={jest.fn()}
+        onOpenCard={jest.fn()}
+        onSelectExpansion={jest.fn()}
+      />,
+    );
+
+    const field = await screen.findByTestId('game-sets-search');
+    fireEvent.changeText(field, 'lu');
+    await waitFor(() => expect(screen.queryByTestId('game-sets-grid')).not.toBeOnTheScreen());
+
+    expect(screen.getByTestId('game-sets-search')).toBe(field);
+  });
 });
