@@ -279,5 +279,69 @@ class SeriesIsNeverBuiltOnARequestTests(PortfolioRangeSliceTests):
             self.assertTrue(bucket["history"]["points"], f"{key} came back with no points")
 
 
+class PerRangeHistoryEndpointIsCachedTests(PortfolioRangeSliceTests):
+    """`/portfolio/history` is what a range tap calls, and it had no cache.
+
+    The dashboard had carried one for this exact work all along; this endpoint
+    went straight to `deck_history`, so every switch was a full uncached replay
+    — 10-15s on staging (user, 2026-09-11).
+    """
+
+    def _replays(self, fn) -> list[str | None]:
+        calls: list[str | None] = []
+        original = self.service.deck_history
+
+        def counting(*args, **kwargs):
+            calls.append(kwargs.get("range_label"))
+            return original(*args, **kwargs)
+
+        self.service.deck_history = counting  # type: ignore[method-assign]
+        try:
+            fn()
+        finally:
+            self.service.deck_history = original  # type: ignore[method-assign]
+        return calls
+
+    def test_the_second_tap_on_a_range_replays_nothing(self) -> None:
+        with self.service.request_identity_context(self._identity()):
+            first = self._replays(
+                lambda: self.service.portfolio_history_cached(days=365, range_label="90D", time_zone_name="UTC")
+            )
+            second = self._replays(
+                lambda: self.service.portfolio_history_cached(days=365, range_label="90D", time_zone_name="UTC")
+            )
+        self.assertEqual(first, ["90D"])
+        self.assertEqual(second, [], "a cached range must not replay the history")
+
+    def test_each_range_is_cached_separately(self) -> None:
+        """One key for all ranges would serve 1W's numbers under 3M."""
+        with self.service.request_identity_context(self._identity()):
+            self.service.portfolio_history_cached(days=365, range_label="1W", time_zone_name="UTC")
+            replays = self._replays(
+                lambda: self.service.portfolio_history_cached(days=365, range_label="90D", time_zone_name="UTC")
+            )
+        self.assertEqual(replays, ["90D"])
+
+    def test_the_cached_answer_is_the_computed_one(self) -> None:
+        with self.service.request_identity_context(self._identity()):
+            direct = self.service.deck_history(days=365, range_label="30D", time_zone_name="UTC")
+            cached = self.service.portfolio_history_cached(days=365, range_label="30D", time_zone_name="UTC")
+        self.assertEqual(cached["summary"], direct["summary"])
+        self.assertEqual(
+            [point["date"] for point in cached["points"]],
+            [point["date"] for point in direct["points"]],
+        )
+
+    def test_a_warm_series_answers_without_replaying_at_all(self) -> None:
+        with self.service.request_identity_context(self._identity()):
+            self.service._compute_portfolio_dashboard(
+                time_zone_name="UTC", range_keys=["1W"], allow_series_compute=True
+            )
+            replays = self._replays(
+                lambda: self.service.portfolio_history_cached(days=365, range_label="1Y", time_zone_name="UTC")
+            )
+        self.assertEqual(replays, [], "a built series should be sliced, not replayed")
+
+
 if __name__ == "__main__":
     unittest.main()

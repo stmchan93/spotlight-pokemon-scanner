@@ -17783,6 +17783,80 @@ class SpotlightScanService:
             self._log_dashboard_timing(started_at, outcome="miss")
             return payload
 
+    def portfolio_history_cached(
+        self,
+        *,
+        days: int = 30,
+        range_label: str | None = None,
+        time_zone_name: str | None = None,
+        collection_id: str | None = None,
+    ) -> dict[str, Any]:
+        """One range's history, cached the way the dashboard is.
+
+        `/portfolio/history` is what the chart calls every time you tap a
+        different range, and it went straight to `deck_history` with no cache at
+        all — so every switch was a full uncached replay of every holding
+        against every day's prices, 10-15s on staging (user, 2026-09-11). The
+        dashboard had been carrying its own cache for exactly this work; this
+        endpoint was simply never given one.
+
+        Slices the widest series when that is already built (free), and
+        otherwise computes this range alone and caches it under the same version
+        token, so the second tap is instant and a data change invalidates it.
+        """
+        owner_user_id = self._current_owner_user_id()
+        resolved_tz = time_zone_name or "America/Los_Angeles"
+        normalized_range = self._normalize_portfolio_range_label(range_label)
+
+        if self._portfolio_all_history_is_cached(
+            time_zone_name=resolved_tz, collection_id=collection_id
+        ):
+            series = self._portfolio_all_history_cached(
+                time_zone_name=resolved_tz, shared_inputs=None, collection_id=collection_id
+            )
+            return self._portfolio_history_range_from_series(
+                series,
+                range_label=normalized_range or "30D",
+                time_zone_name=resolved_tz,
+                earliest_at=self._portfolio_earliest_activity_at(),
+            )
+
+        cache_key = (
+            owner_user_id,
+            resolved_tz,
+            f"history:{normalized_range or days}",
+            collection_id or "",
+        )
+        try:
+            version = self._portfolio_dashboard_version_token(owner_user_id, resolved_tz)
+        except Exception:  # noqa: BLE001 - cache bookkeeping must never break the chart
+            traceback.print_exc()
+            version = None
+        if version is not None:
+            cached = self._dashboard_cache.get(cache_key)
+            if cached is not None and cached[0] == version:
+                return cached[1]
+
+        lock = self._dashboard_cache_lock_for(cache_key)
+        with lock:
+            if version is not None:
+                cached = self._dashboard_cache.get(cache_key)
+                if cached is not None and cached[0] == version:
+                    return cached[1]
+                restored = self._hydrate_from_disk("dashboard", cache_key, version)
+                if restored is not None:
+                    self._store_dashboard_cache(cache_key, version, restored)
+                    return restored
+            payload = self.deck_history(
+                days=days,
+                range_label=range_label,
+                time_zone_name=resolved_tz,
+                collection_id=collection_id,
+            )
+            if version is not None:
+                self._store_dashboard_cache(cache_key, version, payload)
+            return payload
+
     def _portfolio_all_history_cache_key(
         self, *, time_zone_name: str, collection_id: str | None
     ) -> tuple[str, str, str, str]:
@@ -21708,7 +21782,9 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 return
             try:
                 with self.service.request_identity_context(identity):
-                    payload = self.service.deck_history(days=days, range_label=range_value, time_zone_name=time_zone_name)
+                    payload = self.service.portfolio_history_cached(
+                        days=days, range_label=range_value, time_zone_name=time_zone_name
+                    )
             except Exception as error:
                 self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"Deck history failed: {error}"})
                 return
