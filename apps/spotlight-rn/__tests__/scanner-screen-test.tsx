@@ -1142,6 +1142,79 @@ describe('ScannerScreen', () => {
     expect(screen.queryByTestId('scanner-tray-add-all')).toBeNull();
   });
 
+  it('ADD ALL to Collection sends ONE bulk request, not one per scan', async () => {
+    /*
+      This looped `createInventoryEntry` sequentially, so 45 scans were 45 round
+      trips — the cards trickled into the Collection one at a time with the
+      balance recomputing between each (user, 2026-09-11). The wire time was the
+      smaller half: every write bumps the portfolio's data-version token, so the
+      add invalidated every cached dashboard once per card and the refresh at the
+      end landed on a completely cold backend.
+
+      Asserted on the CALL SHAPE rather than on timing, which is the only part a
+      test can hold onto.
+    */
+    const bulkCalls: unknown[][] = [];
+    const singleCalls: unknown[] = [];
+    const repository = createTestSpotlightRepository({
+      matchScannerCapture: async () => ({
+        scanID: 'scan-froakie',
+        candidates: [{
+          id: 'froakie-candidate',
+          cardId: 'mcdonalds25-22',
+          name: 'Froakie',
+          cardNumber: '#22/25',
+          setName: "McDonald's Collection 2021",
+          imageUrl: 'https://cdn.spotlight.test/froakie.png',
+          marketPrice: 55,
+          currencyCode: 'USD',
+        }],
+      }),
+      createInventoryEntry: async (payload: any) => {
+        singleCalls.push(payload);
+        return {
+          deckEntryID: 'single-entry',
+          cardID: 'mcdonalds25-22',
+          confirmationID: null,
+          sourceScanID: null,
+          addedAt: '2026-09-11T00:00:00.000Z',
+        };
+      },
+      createInventoryEntriesBulk: async (entries: any[]) => {
+        bulkCalls.push(entries);
+        return {
+          results: entries.map((_entry, index) => ({
+            index,
+            deckEntryID: `bulk-entry-${index}`,
+            addedAt: '2026-09-11T00:00:00.000Z',
+          })),
+          createdCount: entries.length,
+          failedCount: 0,
+        };
+      },
+    });
+
+    renderScannerScreen({ spotlightRepository: repository });
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    });
+
+    fireEvent.press(screen.getByTestId('scanner-tray-header'));
+    fireEvent.press(await screen.findByTestId('scanner-tray-add-all'));
+    fireEvent.press(await screen.findByTestId('add-all-menu-collection'));
+    fireEvent.press(await screen.findByTestId('scan-bulk-confirm-sheet-confirm'));
+
+    await waitFor(() => {
+      expect(bulkCalls).toHaveLength(1);
+    });
+    expect(bulkCalls[0]).toHaveLength(1);
+    // The loop this replaced would have gone through here instead.
+    expect(singleCalls).toHaveLength(0);
+  });
+
   it('cancels ADD ALL without wishlisting or clearing the tray', async () => {
     const favoritePayloads: { cardId: string; isFavorite: boolean }[] = [];
     renderScannerScreen({ spotlightRepository: froakieAddAllRepository(favoritePayloads) });

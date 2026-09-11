@@ -3516,8 +3516,17 @@ export function ScannerScreen({
   // Bulk "Add to Collection": one inventory entry PER resolved scan (two scans of
   // the same card = two owned copies, mirroring the single-row Collection add),
   // reusing the same args/optimistic helpers. Clear the tray immediately, then
-  // create entries sequentially in the background (concurrent writes contend on
-  // the backend SQLite store) so the sheet dismiss stays instant.
+  // create the entries in the background so the sheet dismiss stays instant.
+  //
+  // ONE REQUEST, like the binder page. This looped `createInventoryEntry`
+  // sequentially, so 45 scans were 45 round trips — the cards trickled into the
+  // Collection one at a time with the balance recomputing between each (user,
+  // 2026-09-11). Worse than the wire time: every single write bumps the
+  // portfolio's data-version token, so a 45-card add invalidated every cached
+  // dashboard 45 times over and left the refresh at the end landing on a
+  // completely cold backend. `create-bulk` is one request, one transaction, one
+  // invalidation, with per-entry results so a single bad row still cannot take
+  // the rest down.
   const handleBulkAddToCollection = useCallback(() => {
     const targets = recentCaptures.filter(
       (capture) => !capture.isLoadingCandidates && !capture.recentlyAdded,
@@ -3530,45 +3539,79 @@ export function ScannerScreen({
     }
 
     void (async () => {
-      let attempted = 0;
-      let succeeded = 0;
-      for (const capture of targets) {
+      const addedAt = new Date().toISOString();
+      const rows = targets.flatMap((capture) => {
         const candidate = activeCandidateForCapture(capture);
-        if (!candidate) {
-          continue;
-        }
-        attempted += 1;
-        try {
-          trackCandidateSelectionIfNeeded(capture);
-          const addedAt = new Date().toISOString();
-          const condition: DeckConditionCode = priceSelection.get(capture.id)?.conditionCode ?? 'near_mint';
-          const createResponse = await spotlightRepository.createInventoryEntry(
-            buildInventoryEntryArgs(
-              capture,
-              candidate,
-              addedAt,
-              condition,
-              activeCollectionID,
-              rawVariantLabelFor(capture, candidate),
-            ),
-          );
-          prependOptimisticInventoryEntry(
-            buildOptimisticInventoryEntry(
-              candidate,
-              createResponse.addedAt || addedAt,
-              { mode: capture.mode, slabContext: capture.slabContext },
-              createResponse.deckEntryID,
-            ),
-          );
+        return candidate ? [{ capture, candidate }] : [];
+      });
+      if (rows.length === 0) {
+        return;
+      }
+
+      const entryArgsFor = ({ capture, candidate }: (typeof rows)[number]) =>
+        buildInventoryEntryArgs(
+          capture,
+          candidate,
+          addedAt,
+          priceSelection.get(capture.id)?.conditionCode ?? ('near_mint' as DeckConditionCode),
+          activeCollectionID,
+          rawVariantLabelFor(capture, candidate),
+        );
+      const applyCreated = (
+        row: (typeof rows)[number],
+        deckEntryID: string,
+        createdAt: string,
+      ) => {
+        prependOptimisticInventoryEntry(
+          buildOptimisticInventoryEntry(
+            row.candidate,
+            createdAt,
+            { mode: row.capture.mode, slabContext: row.capture.slabContext },
+            deckEntryID,
+          ),
+        );
+      };
+
+      rows.forEach(({ capture }) => trackCandidateSelectionIfNeeded(capture));
+
+      let succeeded = 0;
+      try {
+        const response = await spotlightRepository.createInventoryEntriesBulk(
+          rows.map(entryArgsFor),
+        );
+        for (const result of response.results) {
+          const row = rows[result.index];
+          if (!row || result.error || !result.deckEntryID) {
+            if (result.error) {
+              logScannerDiagnostic(`[SCANNER] addAll collection entry failed: ${result.error}`);
+            }
+            continue;
+          }
+          applyCreated(row, result.deckEntryID, result.addedAt ?? addedAt);
           succeeded += 1;
-        } catch (error) {
-          logScannerDiagnostic(`[SCANNER] addAll collection failed: ${scannerErrorMessage(error)}`, error);
+        }
+      } catch (error) {
+        const status = isSpotlightRepositoryRequestError(error) ? error.status : null;
+        if (status === 400 || status === 404 || status === 405) {
+          // Older backend without create-bulk: the original one-at-a-time path.
+          for (const row of rows) {
+            try {
+              const createResponse = await spotlightRepository.createInventoryEntry(entryArgsFor(row));
+              applyCreated(row, createResponse.deckEntryID, createResponse.addedAt || addedAt);
+              succeeded += 1;
+            } catch (rowError) {
+              logScannerDiagnostic(`[SCANNER] addAll collection failed: ${scannerErrorMessage(rowError)}`, rowError);
+            }
+          }
+        } else {
+          logScannerDiagnostic(`[SCANNER] addAll collection bulk failed: ${scannerErrorMessage(error)}`, error);
         }
       }
+
       capturePostHogEvent('scan_add_all_collection', {
-        attempted,
+        attempted: rows.length,
         succeeded,
-        failed: attempted - succeeded,
+        failed: rows.length - succeeded,
       });
       refreshData();
     })();
