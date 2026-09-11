@@ -17812,12 +17812,30 @@ class SpotlightScanService:
         })
         return payload
 
+    # BUMP THIS WHENEVER THE SHAPE OR THE MATH OF A CACHED PAYLOAD CHANGES.
+    #
+    # The version token fingerprints the owner's DATA — rows and prices — which
+    # is what makes a token match safe to serve. It says nothing about the CODE
+    # that turned that data into a payload. So a deploy that changes the
+    # computation leaves the token identical and the mirror happily serves the
+    # payload the OLD code wrote: the newest-day delta fix shipped, the box
+    # restored a pre-fix dashboard from disk, and the phantom +$415k week was
+    # still on screen (user, 2026-09-11).
+    #
+    # It rides in the digest, so bumping it orphans every existing file at once
+    # and the next read recomputes. The orphans are pruned at startup.
+    PAYLOAD_CACHE_GENERATION = 2
+
     def _payload_cache_path(self, namespace: str, cache_key: Any, version: str) -> Path | None:
         root = getattr(self, "_payload_cache_root", None)
         if root is None:
             return None
         digest = hashlib.sha256(
-            json.dumps([namespace, cache_key, version], default=str, sort_keys=True).encode("utf-8")
+            json.dumps(
+                [self.PAYLOAD_CACHE_GENERATION, namespace, cache_key, version],
+                default=str,
+                sort_keys=True,
+            ).encode("utf-8")
         ).hexdigest()
         return root / f"{namespace}-{digest}.json"
 

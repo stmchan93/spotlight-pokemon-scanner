@@ -120,3 +120,21 @@ class PayloadCachePersistenceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_bumping_the_generation_orphans_every_existing_file(self) -> None:
+        """A code change that alters the payload must not be served from disk.
+
+        The version token fingerprints the owner's DATA, so it is identical
+        across a deploy that only changed the MATH. The mirror then served the
+        payload the old code wrote — the delta fix shipped and the phantom week's
+        gain was still on screen (user, 2026-09-11).
+        """
+        key = ("owner-1", "America/Los_Angeles", "1W")
+        self.service._store_dashboard_cache(key, "token-a", {"summary": {"deltaValue": 415000}})
+
+        restarted = self._new_service()
+        self.assertIsNotNone(restarted._hydrate_from_disk("dashboard", key, "token-a"))
+
+        # Ship a computation change.
+        restarted.PAYLOAD_CACHE_GENERATION += 1
+        self.assertIsNone(restarted._hydrate_from_disk("dashboard", key, "token-a"))
