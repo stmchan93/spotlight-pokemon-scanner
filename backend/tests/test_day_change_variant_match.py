@@ -118,9 +118,13 @@ class DayChangeVariantMatchTests(unittest.TestCase):
             yesterday_rows_by_card_id=self._yesterday_rows(),
         )
 
-    def test_default_picker_alone_would_diverge_to_first_edition(self) -> None:
-        # Documents the divergence the fix bridges: with no printing hint, the
-        # day-ago resolver picks First Edition ($165.50), not Unlimited ($543.07).
+    def test_default_picker_prefers_unlimited_over_first_edition(self) -> None:
+        # This used to document a divergence the day-change code had to bridge:
+        # with no printing hint, the day-ago resolver picked First Edition
+        # ($165.50) over Unlimited ($543.07), because off-priority printings fell
+        # back to alphabetical order. The cell resolver now ranks them by the
+        # same keyword penalty as `raw_variant_sort_key`, so the picker agrees
+        # with today's printing on its own (the bridge stays as belt-and-braces).
         row = self._yesterday_rows()[CARD_ID]
         priced = self.service._portfolio_history_price_row_from_history_row(
             {"cardID": CARD_ID, "itemKind": "raw", "variantName": None},
@@ -129,7 +133,7 @@ class DayChangeVariantMatchTests(unittest.TestCase):
             require_condition_match=True,
         )
         self.assertIsNotNone(priced)
-        self.assertAlmostEqual(priced["market"], FIRST_EDITION_NM, places=2)
+        self.assertAlmostEqual(priced["market"], UNLIMITED_NM, places=2)
 
     def test_day_change_uses_todays_printing_no_phantom_jump(self) -> None:
         # Today's price resolved to Unlimited; yesterday must too → no change,

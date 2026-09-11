@@ -1646,13 +1646,17 @@ def _raw_variant_fallback_penalty(label: str) -> int:
 
     Lower is preferred.
     """
-    text = label.lower()
+    # Reduced to lowercase alphanumerics so a LABEL ("First Edition Holofoil")
+    # and a cell's MATCH KEY ("firsteditionholofoil") score the same — the
+    # cell-backed resolver ranks by key, and it must not disagree with the two
+    # label-based paths this penalty already serves.
+    text = re.sub(r"[^a-z0-9]+", "", label.lower())
     penalty = 0
-    if "first edition" in text or "1st edition" in text:
+    if "firstedition" in text or "1stedition" in text:
         penalty += 30
     if "shadowless" in text:
         penalty += 20
-    if any(token in text for token in ("metal", "jumbo", "staff", "prerelease", "pre-release")):
+    if any(token in text for token in ("metal", "jumbo", "staff", "prerelease")):
         penalty += 40
     if "unlimited" in text:
         penalty -= 5
@@ -5856,15 +5860,21 @@ _RAW_VARIANT_PRIORITY_MATCH_KEYS = tuple(_variant_match_key(label) for label in 
 _NORMAL_VARIANT_MATCH_KEYS = {"", "raw", "normal", "standard"}
 
 
-def _cell_variant_priority_rank(variant_match_key: str) -> tuple[int, str]:
+def _cell_variant_priority_rank(variant_match_key: str) -> tuple[int, int, str]:
     """Rank a cell's variant match key against RAW_VARIANT_PRIORITY. The "Normal"
     bucket collapses Normal/raw/standard/empty to the same rank the JSON resolver
-    gives the "Normal" label, so default-variant ordering is identical."""
+    gives the "Normal" label, so default-variant ordering is identical.
+
+    Off-priority keys (vintage printings) rank by the SAME keyword penalty as
+    `raw_variant_sort_key`, not alphabetically. This was the third ranking
+    path, missed when the other two were unified: search and the tray price
+    read cells, so a Neo Genesis Wooper quoted First Edition ($9.52) under a
+    printing list that led with Unlimited (user, 2026-09-10)."""
     key = "normal" if variant_match_key in _NORMAL_VARIANT_MATCH_KEYS else variant_match_key
     try:
-        return (_RAW_VARIANT_PRIORITY_MATCH_KEYS.index(key), key)
+        return (_RAW_VARIANT_PRIORITY_MATCH_KEYS.index(key), 0, key)
     except ValueError:
-        return (len(_RAW_VARIANT_PRIORITY_MATCH_KEYS), key)
+        return (len(_RAW_VARIANT_PRIORITY_MATCH_KEYS), _raw_variant_fallback_penalty(key), key)
 
 
 def _cell_summary_from_row(row: Any) -> dict[str, Any]:
