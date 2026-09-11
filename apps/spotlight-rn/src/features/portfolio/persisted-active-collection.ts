@@ -14,11 +14,19 @@ type PersistedActiveCollectionEnvelope = {
 /**
  * Read the persisted active collection ONLY if it belongs to `ownerKey`.
  *
- * SECURITY BOUNDARY: same rule as the dashboard snapshot — a value saved for
- * another account (or a legacy one saved before owner-stamping) is discarded and
- * deleted rather than used. A leaked collection id is not just a wrong default:
- * it would be sent as the scope of the next holdings read, and as the target of
- * the next add.
+ * SECURITY BOUNDARY: a value saved for another account (or a legacy one saved
+ * before owner-stamping) is never returned. A leaked collection id is not just
+ * a wrong default — it would be sent as the scope of the next holdings read and
+ * as the target of the next add.
+ *
+ * NOT RETURNING IT IS THE WHOLE BOUNDARY; DELETING IT WAS A BUG. A mismatch
+ * used to also erase the row, and the first read of every cold start is a
+ * mismatch: Supabase has not restored the session yet, so the owner key is
+ * still the "signed-out" placeholder. So the launch that was supposed to
+ * restore your choice destroyed it instead, and the account landed back on its
+ * default collection every single time (user, 2026-09-11). The read re-runs
+ * under the real owner key once the session lands, which is what actually
+ * restores it — and it can only do that if the row survived.
  */
 export async function readPersistedActiveCollection(ownerKey: string): Promise<string | null> {
   try {
@@ -28,7 +36,6 @@ export async function readPersistedActiveCollection(ownerKey: string): Promise<s
     }
     const parsed = JSON.parse(raw) as PersistedActiveCollectionEnvelope;
     if (parsed?.ownerKey !== ownerKey) {
-      void AsyncStorage.removeItem(ACTIVE_COLLECTION_STORAGE_KEY).catch(() => {});
       return null;
     }
     return parsed.collectionID?.trim() || null;
