@@ -2,10 +2,8 @@ import { act, fireEvent, screen } from '@testing-library/react-native';
 
 import { MockSpotlightRepository, type CatalogSearchResult } from '@spotlight/api-client';
 
-import {
-  CatalogSearchScreen,
-  resultsSpanMultipleGames,
-} from '@/features/catalog/screens/catalog-search-screen';
+import { resultsSpanMultipleGames } from '@/features/catalog/components/catalog-results-grid';
+import { CatalogSearchScreen } from '@/features/catalog/screens/catalog-search-screen';
 
 import { renderWithProviders } from '../test-utils';
 

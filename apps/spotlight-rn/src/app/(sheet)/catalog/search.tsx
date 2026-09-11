@@ -3,15 +3,14 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { saveCardDetailPreviewFromCatalogResult } from '@/features/cards/card-detail-preview-session';
 import { prefetchCardDetail } from '@/features/cards/card-detail-prefetch';
 import { CatalogSearchScreen } from '@/features/catalog/screens/catalog-search-screen';
-import { useScannerTargetConfig } from '@/features/scanner/use-scanner-target-config';
 import { useAppServices } from '@/providers/app-providers';
 
 export default function CatalogSearchRoute() {
   const router = useRouter();
   const { spotlightRepository } = useAppServices();
-  // The whole screen is scoped to the scanner lane's game — the browse grid AND
-  // typed queries (catalog-search-screen passes `game` to both reads).
-  const { lane } = useScannerTargetConfig();
+  // The scanner lane takes no part here any more. It is about what the camera
+  // is pointed at; typed queries search every game and the browse grid starts
+  // by asking which game you want.
   const params = useLocalSearchParams<{
     q?: string | string[];
   }>();
@@ -19,7 +18,6 @@ export default function CatalogSearchRoute() {
 
   return (
     <CatalogSearchScreen
-      game={lane.game}
       initialQuery={initialQuery}
       onClose={() => router.back()}
       onOpenCard={(result) => {
@@ -33,14 +31,10 @@ export default function CatalogSearchRoute() {
           },
         });
       }}
-      onSelectExpansion={(expansion) => {
-        router.push({
-          pathname: '/catalog/expansion/[expansionId]',
-          params: {
-            expansionId: expansion.id,
-            name: expansion.name,
-          },
-        });
+      onSelectGame={(game) => {
+        // A ROUTE, so the platform's back-swipe returns to the game grid rather
+        // than popping this search sheet.
+        router.push({ pathname: '/catalog/game/[game]', params: { game } });
       }}
     />
   );

@@ -1093,6 +1093,12 @@ export type ExpansionRecord = {
   name: string;
   series: string | null;
   code: string | null;
+  /**
+   * "English" / "Japanese" — the set browser tabs by it within a game. Null on
+   * older payloads and on games that carry a single language; the tab row only
+   * renders when a game's sets actually span more than one.
+   */
+  language?: string | null;
   releaseDate: string | null;
   imageUrl: string | null;
 };

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   Keyboard,
   ScrollView,
@@ -13,16 +12,13 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import {
   DEFAULT_CARD_GAME,
-  gameDisplayName,
   RARITY_BUCKET_LABELS,
   RARITY_FILTER_BUCKETS,
   type CardGame,
   type CatalogSearchResult,
-  type ExpansionRecord,
   type RarityFilterBucket,
 } from '@spotlight/api-client';
 import {
-  InventoryCardTile,
   PillButton,
   ScreenHeader,
   SearchField,
@@ -34,10 +30,14 @@ import {
 
 import { consumeCardAddedNotice } from '@/features/cards/card-added-notice';
 import { ChromeBackButton } from '@/components/chrome-back-button';
-import { ExpansionCell } from '@/features/catalog/components/expansion-cell';
-import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
+import {
+  CatalogResultsGrid,
+  resultsSpanMultipleGames,
+} from '@/features/catalog/components/catalog-results-grid';
+import { GameMosaicTile } from '@/features/catalog/components/game-mosaic-tile';
+import { useCatalogCardSearch } from '@/features/catalog/hooks/use-catalog-card-search';
+import { useGameExpansions } from '@/features/catalog/hooks/use-game-expansions';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
-import { useAppServices } from '@/providers/app-providers';
 
 /*
   CARDS ONLY. This screen used to carry a second "People" lane behind a
@@ -52,11 +52,6 @@ import { useAppServices } from '@/providers/app-providers';
   people-search ever comes back it belongs on its own surface, not folded into
   this one.
 */
-
-// Results load a page at a time as the user scrolls (infinite scroll), so an
-// artist search surfaces ALL of a prolific illustrator's cards, not just the
-// first page.
-const CATALOG_PAGE_SIZE = 30;
 
 type CatalogSearchScreenProps = {
   initialQuery?: string;
@@ -73,104 +68,38 @@ type CatalogSearchScreenProps = {
    * shows every expansion (logo + name) so users can drill into one and search
    * within it; typing in the search box still searches all cards globally.
    */
-  onSelectExpansion?: (expansion: ExpansionRecord) => void;
+  /** A game was picked in the browse grid — the caller pushes its set list. */
+  onSelectGame?: (game: CardGame) => void;
 };
-
-// Collectr-style results grid: chunked rows of two shared tiles (the repo's
-// grid convention — see wishlist-screen.tsx), NOT FlatList numColumns.
-const GRID_COLUMNS = 2;
-
-function chunkResultRows(entries: CatalogSearchResult[]): CatalogSearchResult[][] {
-  const rows: CatalogSearchResult[][] = [];
-  for (let index = 0; index < entries.length; index += GRID_COLUMNS) {
-    rows.push(entries.slice(index, index + GRID_COLUMNS));
-  }
-  return rows;
-}
-
-/**
- * Whether these results need a per-tile game tag.
- *
- * A TYPED QUERY SEARCHES EVERY GAME, so mixed results are the normal case and
- * a tile saying only "Ace" has to say which game it came from. Tagging every
- * tile when they all happen to share one game would just repeat one word down
- * the page, so the tag appears only when the results SPAN games.
- */
-export function resultsSpanMultipleGames(results: CatalogSearchResult[]): boolean {
-  const games = new Set<CardGame>();
-  for (const result of results) {
-    games.add(result.game ?? DEFAULT_CARD_GAME);
-    if (games.size > 1) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function SearchResultTile({
-  result,
-  onPress,
-  showGameTag = false,
-}: {
-  result: CatalogSearchResult;
-  onPress: () => void;
-  showGameTag?: boolean;
-}) {
-  return (
-    <View style={styles.gridCell} testID={`catalog-result-${result.id}`}>
-      <InventoryCardTile
-        artAspect="card"
-        cardNumber={result.cardNumber}
-        /*
-          Game UNDER THE PRICE, inside the tile's caption — it used to render
-          after the tile entirely, which put it past the tile's padding where it
-          read as a label on the row rather than on the card. Renders only when
-          the result set spans games (see `resultsSpanMultipleGames`).
-        */
-        footnote={showGameTag ? gameDisplayName(result.game) : null}
-        imageUrl={result.smallImageUrl ?? result.imageUrl ?? null}
-        isFavorite={false}
-        kind="raw"
-        name={result.name}
-        onPress={onPress}
-        priceLabel={
-          result.marketPrice != null
-            ? formatCurrency(result.marketPrice, result.currencyCode ?? 'USD')
-            : null
-        }
-        quantity={result.ownedQuantity ?? 0}
-        // Set name only — no per-row rarity tag; the chips above already say it.
-        setName={result.subtitle?.trim() ? result.subtitle : result.setName}
-        showFavorite={false}
-        showQualityLine={false}
-        // The tile's quantity readout IS the "Owned N" signal; hidden when 0.
-        showQuantity={Boolean(result.ownedQuantity)}
-        testID={`catalog-result-smoke-${result.cardId}`}
-      />
-    </View>
-  );
-}
 
 export function CatalogSearchScreen({
   initialQuery = '',
   game = DEFAULT_CARD_GAME,
   onClose,
   onOpenCard,
-  onSelectExpansion,
+  onSelectGame,
 }: CatalogSearchScreenProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
-  const { spotlightRepository } = useAppServices();
 
-  const [query, setQuery] = useState(initialQuery);
   // Single-select rarity chip; tap again to clear. Sent to the backend as the
   // `rarityBucket` search param (a chip alone is a valid browse-by-rarity).
   const [activeRarity, setActiveRarity] = useState<RarityFilterBucket | null>(null);
-  const [results, setResults] = useState<CatalogSearchResult[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [hasSearched, setHasSearched] = useState(false);
-  const [errorMessage, setErrorMessage] = useState('');
-  const [searchRevision, setSearchRevision] = useState(0);
+  /*
+    EVERY GAME. Typed queries were scoped to the SCANNER's lane, so searching
+    "Darkrai" with the lane on One Piece returned "No matching cards" — with
+    nothing on screen saying a filter was applied. A typed name is the user
+    naming the card; the lane is about what the camera is pointed at. `game`
+    still scopes the BROWSE grid below, where picking a set by game is the
+    whole point, and the per-game set list runs the same search scoped to
+    itself.
+  */
+  const search = useCatalogCardSearch({
+    initialQuery,
+    rarityBucket: activeRarity,
+    scope: 'all',
+  });
+  const { query, setQuery, results } = search;
   const [openingResultId, setOpeningResultId] = useState<string | null>(null);
   /*
     On FOCUS, not mount: this screen stays mounted under the card page, so a
@@ -194,51 +123,30 @@ export function CatalogSearchScreen({
         setQuery('');
         Keyboard.dismiss();
       }
-    }, []),
+    }, [setQuery]),
   );
-  const [hasMore, setHasMore] = useState(false);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  // The query the current results belong to — guards against a late "load more"
-  // response from a previous query being appended after the query changed.
-  const activeQueryRef = useRef('');
   const openingResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Browse grid: every expansion, shown when the search box is empty so users
-  // can drill into a set. Only fetched when a tap handler is wired.
-  const browseEnabled = Boolean(onSelectExpansion);
-  const [expansions, setExpansions] = useState<ExpansionRecord[]>([]);
-  const [isLoadingExpansions, setIsLoadingExpansions] = useState(browseEnabled);
-  const [hasLoadedExpansions, setHasLoadedExpansions] = useState(false);
-  const [expansionError, setExpansionError] = useState('');
+  /*
+    BROWSE: A GAME GRID. Picking one PUSHES that game's sets.
 
-  useEffect(() => {
-    setQuery(initialQuery);
-  }, [initialQuery]);
+    The grid used to list ONE game's sets — whichever the scanner lane was
+    pointed at — so browsing silently hid every other game's catalog with
+    nothing on screen saying so. It is also no longer a list you can scan: five
+    games carry 215 sets today and production alone holds 450 Pokémon sets.
 
-  useEffect(() => {
-    if (!browseEnabled) {
-      return;
-    }
-    let cancelled = false;
-    setIsLoadingExpansions(true);
-    setExpansionError('');
-    void spotlightRepository.listExpansions(game)
-      .then((rows) => {
-        if (cancelled) return;
-        setExpansions(rows);
-        setHasLoadedExpansions(true);
-        setIsLoadingExpansions(false);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setExpansionError('Could not load sets. Try again in a moment.');
-        setHasLoadedExpansions(true);
-        setIsLoadingExpansions(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [browseEnabled, game, spotlightRepository]);
+    The sets are a ROUTE rather than a second level of this screen's state, so
+    the platform's back-swipe returns to the grid instead of popping the whole
+    search sheet.
+  */
+  const browseEnabled = Boolean(onSelectGame);
+  const {
+    byGame,
+    error: expansionError,
+    games: browsableGames,
+    hasLoaded: hasLoadedExpansions,
+    isLoading: isLoadingExpansions,
+  } = useGameExpansions(browseEnabled);
 
   useEffect(() => {
     return () => {
@@ -248,97 +156,7 @@ export function CatalogSearchScreen({
     };
   }, []);
 
-  useEffect(() => {
-    const trimmed = query.trim();
-    // A rarity chip alone is a valid search (browse-by-rarity, no text).
-    if (trimmed.length < 2 && !activeRarity) {
-      setResults([]);
-      setHasSearched(false);
-      setIsLoading(false);
-      setErrorMessage('');
-      setOpeningResultId(null);
-      setHasMore(false);
-      setIsLoadingMore(false);
-      activeQueryRef.current = '';
-      return;
-    }
-
-    // Text + chip form one logical search; the key guards late "load more"
-    // pages when either input changes while a page is in flight.
-    const searchKey = `${trimmed}::${activeRarity ?? ''}`;
-
-    setHasSearched(false);
-    setErrorMessage('');
-
-    let isCancelled = false;
-    const timeout = setTimeout(() => {
-      setIsLoading(true);
-
-      // First page: replace results. Later pages append via loadMore below.
-      void spotlightRepository.searchCatalogCardsPage(
-        trimmed,
-        CATALOG_PAGE_SIZE,
-        0,
-        /*
-          EVERY GAME. Typed queries were scoped to the SCANNER's lane, so
-          searching "Darkrai" with the lane on One Piece returned "No matching
-          cards" — with nothing on screen saying a filter was applied. A typed
-          name is the user naming the card; the lane is about what the camera is
-          pointed at. `game` still scopes the BROWSE grid below, where picking a
-          set by game is the whole point.
-        */
-        { game: 'all', ...(activeRarity ? { rarityBucket: activeRarity } : {}) },
-      )
-        .then((page) => {
-          if (isCancelled) {
-            return;
-          }
-
-          activeQueryRef.current = searchKey;
-          // Fired on the settled query only — the 275ms debounce above means
-          // typing "charizard" costs one event, not nine.
-          //
-          // The query TEXT deliberately does not travel. `cardname` is already
-          // on the observability redact list, so shipping the same string under
-          // a friendlier key would just route around that decision. What this
-          // answers is "how often does search come back empty" — if a catalog
-          // coverage gap needs naming, that analysis belongs in backend search
-          // logs, where the text already lives.
-          capturePostHogEvent('catalog_search_performed', {
-            has_rarity_filter: activeRarity != null,
-            query_length: trimmed.length,
-            result_count: page.cards.length,
-          });
-          setResults(page.cards);
-          setHasMore(page.hasMore);
-          setIsLoadingMore(false);
-          setHasSearched(true);
-          setIsLoading(false);
-          setOpeningResultId(null);
-        })
-        .catch(() => {
-          if (isCancelled) {
-            return;
-          }
-
-          setResults([]);
-          setHasMore(false);
-          setIsLoadingMore(false);
-          setHasSearched(true);
-          setIsLoading(false);
-          setErrorMessage('Search unavailable right now. Try again in a moment.');
-          setOpeningResultId(null);
-        });
-    }, 275);
-
-    return () => {
-      isCancelled = true;
-      clearTimeout(timeout);
-    };
-  }, [activeRarity, query, searchRevision, spotlightRepository]);
-
-  const trimmedQuery = query.trim();
-  const hasActiveQuery = trimmedQuery.length >= 2 || activeRarity != null;
+  const { errorMessage, hasActiveQuery, hasSearched, isLoading, isLoadingMore, loadMore } = search;
   const hasVisibleResults = hasActiveQuery && !errorMessage && results.length > 0;
 
   const openResult = (result: CatalogSearchResult) => {
@@ -370,43 +188,6 @@ export function CatalogSearchScreen({
     }, 350);
   };
 
-  const loadMore = useCallback(() => {
-    const trimmed = query.trim();
-    if ((trimmed.length < 2 && !activeRarity) || isLoading || isLoadingMore || !hasMore) {
-      return;
-    }
-    const searchKey = `${trimmed}::${activeRarity ?? ''}`;
-    setIsLoadingMore(true);
-    const offset = results.length;
-    void spotlightRepository.searchCatalogCardsPage(
-      trimmed,
-      CATALOG_PAGE_SIZE,
-      offset,
-      // Every game, as the first page — see the note there.
-      { game: 'all', ...(activeRarity ? { rarityBucket: activeRarity } : {}) },
-    )
-      .then((page) => {
-        // Drop the page if the query/chip changed while it was in flight.
-        if (activeQueryRef.current !== searchKey) {
-          return;
-        }
-        setResults((previous) => {
-          const seen = new Set(previous.map((item) => item.id));
-          return [...previous, ...page.cards.filter((card) => !seen.has(card.id))];
-        });
-        setHasMore(page.hasMore);
-        setIsLoadingMore(false);
-      })
-      .catch(() => {
-        if (activeQueryRef.current !== searchKey) {
-          return;
-        }
-        // Stop paginating on error; the loaded results stay visible.
-        setHasMore(false);
-        setIsLoadingMore(false);
-      });
-  }, [query, activeRarity, isLoading, isLoadingMore, hasMore, results.length, spotlightRepository]);
-
   // Recomputed per results change (cheap: it short-circuits on the second
   // distinct game), so a "load more" page that brings in a second game turns
   // the tags on for the whole list rather than only the new rows.
@@ -436,7 +217,7 @@ export function CatalogSearchScreen({
               actionTestID="catalog-retry"
               centered
               message={errorMessage}
-              onActionPress={() => setSearchRevision((value) => value + 1)}
+              onActionPress={search.retry}
               style={styles.stateCard}
               title="Search unavailable"
             />
@@ -457,43 +238,13 @@ export function CatalogSearchScreen({
       }
       if (hasVisibleResults) {
         return (
-          <FlatList
-            contentContainerStyle={styles.resultsListContent}
-            data={chunkResultRows(results)}
-            key="results"
-            keyExtractor={(row) => row[0].id}
-            keyboardShouldPersistTaps="handled"
-            ListFooterComponent={isLoadingMore ? (
-              <View style={styles.loadMoreFooter} testID="catalog-load-more-spinner">
-                <ActivityIndicator color={colors.gray400} />
-              </View>
-            ) : null}
+          <CatalogResultsGrid
+            isLoadingMore={isLoadingMore}
             onEndReached={loadMore}
-            onEndReachedThreshold={0.5}
-            testID="catalog-results-list"
-            renderItem={({ item: row }) => (
-              <View style={styles.gridRow}>
-                {row.map((result) => (
-                  <SearchResultTile
-                    key={result.id}
-                    onPress={() => {
-                      // Same guard the old row's `disabled` gave: the tile just
-                      // tapped ignores re-taps until navigation settles.
-                      if (openingResultId === result.id) {
-                        return;
-                      }
-                      openResult(result);
-                    }}
-                    result={result}
-                    showGameTag={showGameTags}
-                  />
-                ))}
-                {/* A lone tile keeps one column's width, not the full row. */}
-                {row.length < GRID_COLUMNS ? <View style={styles.gridCell} /> : null}
-              </View>
-            )}
-            showsVerticalScrollIndicator={false}
-            style={styles.body}
+            onOpenResult={openResult}
+            openingResultId={openingResultId}
+            results={results}
+            showGameTags={showGameTags}
           />
         );
       }
@@ -504,7 +255,7 @@ export function CatalogSearchScreen({
     if (!browseEnabled) {
       return null;
     }
-    if (isLoadingExpansions && expansions.length === 0) {
+    if (isLoadingExpansions && !hasLoadedExpansions) {
       return (
         <View style={styles.bodyStateWrap}>
           <StateCard centered loading message="Loading expansions from your card library." style={styles.stateCard} title="Loading sets" />
@@ -518,27 +269,30 @@ export function CatalogSearchScreen({
         </View>
       );
     }
-    if (hasLoadedExpansions && expansions.length === 0) {
+    if (hasLoadedExpansions && browsableGames.length === 0) {
       return (
         <View style={styles.bodyStateWrap}>
           <StateCard centered message="No expansions are loaded yet. Sync the catalog and try again." style={styles.stateCard} title="No sets available" />
         </View>
       );
     }
+
     return (
       <FlatList
         contentContainerStyle={styles.expansionListContent}
-        data={expansions}
-        key="browse"
-        keyExtractor={(item) => item.id}
+        data={browsableGames}
+        key="browse-games"
+        keyExtractor={(item) => item}
         keyboardShouldPersistTaps="handled"
         numColumns={2}
-        testID="catalog-expansion-grid"
+        testID="catalog-game-grid"
         renderItem={({ item }) => (
-          <ExpansionCell
-            expansion={item}
-            onPress={() => onSelectExpansion?.(item)}
-            testID={`catalog-expansion-${item.id}`}
+          <GameMosaicTile
+            expansions={byGame[item] ?? []}
+            game={item}
+            onPress={() => onSelectGame?.(item)}
+            setCount={byGame[item]?.length ?? 0}
+            testID={`catalog-game-${item}`}
           />
         )}
         showsVerticalScrollIndicator={false}
@@ -658,26 +412,6 @@ const styles = StyleSheet.create({
     gap: 20,
     paddingHorizontal: 16,
     paddingTop: 12,
-  },
-  gridCell: {
-    flex: 1,
-  },
-  gridRow: {
-    alignItems: 'stretch',
-    flexDirection: 'row',
-    gap: 12,
-  },
-  resultsListContent: {
-    gap: 12,
-    paddingBottom: 48,
-    paddingHorizontal: 16,
-    // Matches the expansions grid — they share this slot, so differing top
-    // padding would shift the filter row as you type.
-    paddingTop: 0,
-  },
-  loadMoreFooter: {
-    alignItems: 'center',
-    paddingVertical: 16,
   },
   // `Toast` is unpositioned by design; without this it sits in normal flow and
   // runs edge to edge. 16 matches the card detail toast.

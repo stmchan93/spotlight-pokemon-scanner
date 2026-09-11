@@ -1,70 +1,33 @@
-import { useEffect, useState } from 'react';
-import {
-  FlatList,
-  StyleSheet,
-  View,
-} from 'react-native';
+import { FlatList, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { DEFAULT_CARD_GAME, type CardGame, type ExpansionRecord } from '@spotlight/api-client';
-import { SearchField, StateCard, Text, colors, useSpotlightTheme } from '@spotlight/design-system';
+import type { CardGame } from '@spotlight/api-client';
+import { StateCard, Text, colors, useSpotlightTheme } from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
-import { ExpansionCell } from '@/features/catalog/components/expansion-cell';
-import { useAppServices } from '@/providers/app-providers';
+import { GameMosaicTile } from '@/features/catalog/components/game-mosaic-tile';
+import { useGameExpansions } from '@/features/catalog/hooks/use-game-expansions';
 
 type ExpansionBrowserScreenProps = {
-  /**
-   * Which game's sets to list. `/expansions` is scoped per game server-side, so
-   * without this a One Piece lane browses Pokémon's 449 sets. Typed as
-   * `CardGame` so the value can only be a lane the capability table knows;
-   * absent means Pokémon, as everywhere.
-   */
-  game?: CardGame;
   onClose: () => void;
-  onSelectExpansion: (expansion: ExpansionRecord) => void;
+  /** A game was picked — the caller pushes its set list. */
+  onSelectGame: (game: CardGame) => void;
 };
 
-export function ExpansionBrowserScreen({
-  game = DEFAULT_CARD_GAME,
-  onClose,
-  onSelectExpansion,
-}: ExpansionBrowserScreenProps) {
+/**
+ * Browse Sets: a grid of games, each drawn from its own set logos.
+ *
+ * It used to list ONE game's sets, whichever the scanner lane pointed at, so
+ * every other game's catalog was invisible with nothing saying so (user,
+ * 2026-09-10). The sets themselves are a pushed route, which keeps this screen
+ * to one job and gives the back-swipe its obvious meaning.
+ */
+export function ExpansionBrowserScreen({ onClose, onSelectGame }: ExpansionBrowserScreenProps) {
   const theme = useSpotlightTheme();
-  const { spotlightRepository } = useAppServices();
+  const { byGame, error, games, hasLoaded, isLoading } = useGameExpansions();
 
-  const [expansionQuery, setExpansionQuery] = useState('');
-  const [expansions, setExpansions] = useState<ExpansionRecord[]>([]);
-  const [isLoadingExpansions, setIsLoadingExpansions] = useState(true);
-  const [hasLoadedExpansions, setHasLoadedExpansions] = useState(false);
-  const [expansionError, setExpansionError] = useState('');
-
-  useEffect(() => {
-    setIsLoadingExpansions(true);
-    setExpansionError('');
-    void spotlightRepository.listExpansions(game)
-      .then((results) => {
-        setExpansions(results);
-        setHasLoadedExpansions(true);
-        setIsLoadingExpansions(false);
-      })
-      .catch(() => {
-        setExpansionError('Could not load expansions. Try again in a moment.');
-        setHasLoadedExpansions(true);
-        setIsLoadingExpansions(false);
-      });
-  }, [game, spotlightRepository]);
-
-  const trimmedExpansionQuery = expansionQuery.trim().toLowerCase();
-  const filteredExpansions = trimmedExpansionQuery
-    ? expansions.filter((e) =>
-        e.name.toLowerCase().includes(trimmedExpansionQuery) ||
-        (e.series ?? '').toLowerCase().includes(trimmedExpansionQuery)
-      )
-    : expansions;
-
-  const renderExpansionsState = () => {
-    if (isLoadingExpansions) {
+  const renderState = () => {
+    if (isLoading && !hasLoaded) {
       return (
         <StateCard
           centered
@@ -75,33 +38,16 @@ export function ExpansionBrowserScreen({
         />
       );
     }
-    if (expansionError) {
-      return (
-        <StateCard
-          centered
-          message={expansionError}
-          style={styles.stateCard}
-          title="Could not load sets"
-        />
-      );
+    if (error) {
+      return <StateCard centered message={error} style={styles.stateCard} title="Could not load sets" />;
     }
-    if (hasLoadedExpansions && expansions.length === 0) {
+    if (hasLoaded && games.length === 0) {
       return (
         <StateCard
           centered
           message="No expansions are loaded yet. Sync the catalog and try again."
           style={styles.stateCard}
           title="No sets available"
-        />
-      );
-    }
-    if (filteredExpansions.length === 0) {
-      return (
-        <StateCard
-          centered
-          message="Try a different search term."
-          style={styles.stateCard}
-          title="No matching sets"
         />
       );
     }
@@ -118,33 +64,27 @@ export function ExpansionBrowserScreen({
           <View style={styles.contentTop}>
             <View style={styles.searchHeader}>
               <View style={styles.searchHeaderBackRow}>
-                <ChromeBackButton onPress={onClose} style={styles.closeButton} />
+                <ChromeBackButton onPress={onClose} style={styles.closeButton} testID="browse-back" />
               </View>
               <Text style={[theme.typography.display, { color: theme.colors.textPrimary }]}>
                 Browse Sets
               </Text>
             </View>
-            <SearchField
-              autoCapitalize="none"
-              autoCorrect={false}
-              containerStyle={[styles.searchField, { backgroundColor: theme.colors.surface }]}
-              onChangeText={setExpansionQuery}
-              placeholder="Search expansions"
-              returnKeyType="search"
-              value={expansionQuery}
-            />
-            {renderExpansionsState()}
+            {renderState()}
           </View>
         }
         contentContainerStyle={styles.expansionListContent}
-        data={filteredExpansions}
+        data={games}
+        keyExtractor={(item) => item}
         keyboardShouldPersistTaps="handled"
-        keyExtractor={(item) => item.id}
         numColumns={2}
         renderItem={({ item }) => (
-          <ExpansionCell
-            expansion={item}
-            onPress={() => onSelectExpansion(item)}
+          <GameMosaicTile
+            expansions={byGame[item] ?? []}
+            game={item}
+            onPress={() => onSelectGame(item)}
+            setCount={byGame[item]?.length ?? 0}
+            testID={`browse-game-${item}`}
           />
         )}
         showsVerticalScrollIndicator={false}
@@ -169,8 +109,6 @@ const styles = StyleSheet.create({
   },
   screen: {
     flex: 1,
-  },
-  searchField: {
   },
   searchHeader: {
     alignItems: 'flex-start',

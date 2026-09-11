@@ -94,35 +94,45 @@ describe('CatalogSearchScreen', () => {
     }));
   });
 
-  it('shows the expansions browse grid when the box is empty and opens a set', async () => {
-    const onSelectExpansion = jest.fn();
-    jest.spyOn(MockSpotlightRepository.prototype, 'listExpansions').mockResolvedValue([
-      { id: 'sv1', name: 'Scarlet & Violet', series: 'SV', code: 'sv1', releaseDate: '2023-03-31', imageUrl: '' },
-      { id: 'sm7', name: 'Celestial Storm', series: 'SM', code: 'sm7', releaseDate: '2018-08-03', imageUrl: '' },
-    ]);
+  it('browses GAMES, handing the pick to the caller to push', async () => {
+    /*
+      The grid used to list ONE game's sets — whichever the scanner lane pointed
+      at — so every other game's catalog was invisible with nothing saying so
+      (user, 2026-09-10). It shows games now, and the sets are a pushed route so
+      a back-swipe returns here instead of popping this sheet.
+    */
+    const onSelectGame = jest.fn();
+    jest.spyOn(MockSpotlightRepository.prototype, 'listExpansions')
+      .mockImplementation(async (game?: string) => (game === 'pokemon'
+        ? [
+          { id: 'sv1', name: 'Scarlet & Violet', series: 'SV', code: 'sv1', language: 'English', releaseDate: '2023-03-31', imageUrl: '' },
+          { id: 'sm7', name: 'Celestial Storm', series: 'SM', code: 'sm7', language: 'English', releaseDate: '2018-08-03', imageUrl: '' },
+        ]
+        : game === 'onepiece'
+          ? [{ id: 'op01', name: 'Romance Dawn', series: null, code: 'OP01', language: 'English', releaseDate: '2022-12-02', imageUrl: '' }]
+          : []));
 
     renderWithProviders(
       <CatalogSearchScreen
         onClose={jest.fn()}
         onOpenCard={jest.fn()}
-        onSelectExpansion={onSelectExpansion}
+        onSelectGame={onSelectGame}
       />,
     );
 
-    // No query typed → the expansions grid loads (logos + set names).
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
     });
 
-    expect(screen.getByTestId('catalog-expansion-sv1')).toBeTruthy();
-    expect(screen.getByTestId('catalog-expansion-sm7')).toBeTruthy();
-    // The set name is shown (rendered as the label, plus the no-image fallback).
-    expect(screen.getAllByText('Scarlet & Violet').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('catalog-game-pokemon')).toBeTruthy();
+    expect(screen.getByTestId('catalog-game-onepiece')).toBeTruthy();
+    // Sets are behind a push — and there is no second search box here.
+    expect(screen.queryByTestId('catalog-expansion-sv1')).toBeNull();
+    expect(screen.queryByPlaceholderText('Search by sets')).toBeNull();
 
-    // Tapping a set drills into it; global card search still works by typing.
-    fireEvent.press(screen.getByTestId('catalog-expansion-sv1'));
-    expect(onSelectExpansion).toHaveBeenCalledWith(expect.objectContaining({ id: 'sv1' }));
+    fireEvent.press(screen.getByTestId('catalog-game-pokemon'));
+    expect(onSelectGame).toHaveBeenCalledWith('pokemon');
   });
 
   it('searches cards only — no People segment and no collector results, however long the query', async () => {
@@ -423,11 +433,11 @@ describe('CatalogSearchScreen', () => {
   describe('the space around the rarity filters', () => {
     it('pays 16 above the chips and 16 below, with nothing added underneath', async () => {
       jest.spyOn(MockSpotlightRepository.prototype, 'listExpansions').mockResolvedValue([
-        { id: 'sv1', name: 'Scarlet & Violet', series: 'SV', code: 'sv1', releaseDate: '2023-03-31', imageUrl: '' },
+        { id: 'sv1', name: 'Scarlet & Violet', series: 'SV', code: 'sv1', language: 'English', releaseDate: '2023-03-31', imageUrl: '' },
       ]);
 
       renderWithProviders(
-        <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} onSelectExpansion={jest.fn()} />,
+        <CatalogSearchScreen onClose={jest.fn()} onOpenCard={jest.fn()} onSelectGame={jest.fn()} />,
       );
 
       await act(async () => {
@@ -440,9 +450,10 @@ describe('CatalogSearchScreen', () => {
       );
       expect(chipRow.paddingVertical).toBe(16);
 
-      // The grid must not top up that 16 — it is the whole gap.
+      // The grid under the chips must not top up that 16 — it is the whole gap.
+      // At rest that grid is the GAME grid; both levels share one style.
       const grid = StyleSheet.flatten(
-        screen.getByTestId('catalog-expansion-grid').props.contentContainerStyle,
+        screen.getByTestId('catalog-game-grid').props.contentContainerStyle,
       );
       expect(grid.paddingTop).toBe(0);
     });
