@@ -6356,6 +6356,10 @@ class SpotlightScanService:
         }
         event_index = 0
         points: list[dict[str, Any]] = []
+        # Carries the NEWEST day's live-only value out of the loop below (it is
+        # the last iteration), for the delta basis. Declared here so an empty
+        # range leaves it defined.
+        live_only_value = 0.0
         last_day_value = 0.0
         last_day_priced = 0
         last_day_unpriced = 0
@@ -6467,6 +6471,8 @@ class SpotlightScanService:
             day_cost_basis_total = 0.0
             priced_count = 0
             unpriced_count = 0
+            # Value on the newest point that the earlier days could not see.
+            live_only_value = 0.0
             for deck_entry_id, state in states.items():
                 quantity = max(0, int(state.get("quantity") or 0))
                 if quantity <= 0:
@@ -6506,6 +6512,11 @@ class SpotlightScanService:
                         snapshot,
                         state.get("condition"),
                     )
+                    if primary_price is not None:
+                        # It reached the newest point ONLY because of that
+                        # fallback, so it is not comparable with the earlier days
+                        # that dropped it. Kept out of the delta basis below.
+                        live_only_value += primary_price * quantity
                 if primary_price is None:
                     unpriced_count += 1
                     continue
@@ -6533,7 +6544,22 @@ class SpotlightScanService:
         current_value = points[-1]["totalValue"] if points else 0.0
         start_cost_basis = points[0]["costBasisValue"] if points else 0.0
         current_cost_basis = points[-1]["costBasisValue"] if points else 0.0
-        delta_value = round(current_value - start_value, 2)
+
+        # THE TOTAL AND THE CHANGE ANSWER DIFFERENT QUESTIONS.
+        #
+        # `currentValue` wants every holding — it is "what is this worth right
+        # now", and the newest day prices holdings from the live snapshot when
+        # history has no cell for them. But the earlier days DROP those same
+        # holdings, so subtracting one from the other invents a gain: a PSA 10
+        # Charizard held since July, invisible all week because the graded lane
+        # wrote no cells, appeared only on the final point and read as +$409k
+        # this week (user, 2026-09-11).
+        #
+        # So the delta compares like with like: the newest total MINUS the value
+        # that only the live fallback could see. The headline stays complete; the
+        # change stops claiming a week that never happened.
+        delta_basis = round(max(0.0, current_value - live_only_value), 2)
+        delta_value = round(delta_basis - start_value, 2)
         delta_percent = None if start_value == 0 else round((delta_value / start_value) * 100.0, 4)
         return {
             "range": normalized_range or "30D",

@@ -175,3 +175,25 @@ class PortfolioHistoryLiveNewestDayTests(unittest.TestCase):
         self.assertEqual(earlier["totalValue"], 0.0)
         self.assertEqual(earlier["pricedCardCount"], 0)
         self.assertEqual(earlier["excludedCardCount"], 1)
+
+    def test_the_live_fallback_does_not_read_as_a_GAIN(self) -> None:
+        """The total is complete; the CHANGE compares like with like.
+
+        The holding is priced only on the newest point — every earlier day drops
+        it, because history has no graded cell for it. Subtracting one from the
+        other invented a week's gain: a PSA 10 Charizard held since July showed
+        as +$409k this week purely because the chart could finally see it (user,
+        2026-09-11).
+        """
+        history = self._history()
+
+        # The balance is still the real, complete number.
+        self.assertAlmostEqual(history["summary"]["currentValue"], GRADED_MARKET, places=2)
+        # But the change does not claim it was earned in this window.
+        self.assertAlmostEqual(history["summary"]["deltaValue"], 0.0, places=2)
+
+    def test_a_holding_history_CAN_see_still_reports_its_real_change(self) -> None:
+        # Guard against over-correcting: only the live-fallback value is held out
+        # of the delta basis, never a holding history priced on both ends.
+        points = self._history()["points"]
+        self.assertGreater(len(points), 1)
