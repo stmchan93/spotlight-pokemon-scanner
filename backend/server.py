@@ -17,7 +17,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from time import monotonic, perf_counter
-from typing import Any, Iterable, Literal
+from typing import Any, Iterable, Iterator, Literal
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
 from zoneinfo import ZoneInfo
 
@@ -415,6 +415,40 @@ HEAVY_READ_ACQUIRE_TIMEOUT_S = float(
     os.environ.get("SPOTLIGHT_HEAVY_READ_ACQUIRE_TIMEOUT_S") or "3.0"
 )
 _heavy_read_semaphore = threading.BoundedSemaphore(HEAVY_READ_MAX_CONCURRENCY)
+
+
+@contextmanager
+def _background_heavy_read_slot(
+    *, attempts: int = 12, retry_wait_s: float = 0.5
+) -> Iterator[bool]:
+    """A heavy-read slot for BACKGROUND work, yielded only if one is spare.
+
+    Prewarm ran its cold reads outside the semaphore entirely, so on a 2-core box
+    it could have a heavy read in flight while both user slots were also busy —
+    three concurrent readers thrashing one disk, with users queueing on a 3s
+    acquire and getting "The server is busy right now" (user, 2026-09-11, on
+    production right after a redeploy).
+
+    NON-BLOCKING on purpose: a user's `_acquire_heavy_read_slot` waits up to 3s
+    for a slot, and background warming must never be the thing it waits behind.
+    We take a slot only when one is already free, retry briefly if not, and give
+    up rather than queue — the section we skip is warmed by the first real
+    request anyway, which is exactly the cost prewarm was trying to avoid, but
+    only for that one section rather than for everyone.
+
+    Yields True when a slot was taken (and releases it), False when the caller
+    should skip the work.
+    """
+    for attempt in range(max(1, attempts)):
+        if _heavy_read_semaphore.acquire(blocking=False):
+            try:
+                yield True
+            finally:
+                _heavy_read_semaphore.release()
+            return
+        if attempt + 1 < attempts:
+            threading.Event().wait(retry_wait_s)
+    yield False
 
 # Public-profile reads take the TARGET user id from the URL path, so it is
 # untrusted input. Backend identities are Supabase auth UUIDs; anything that is
@@ -1727,6 +1761,13 @@ def _market_movers_window_days() -> int:
         return MARKET_MOVERS_WINDOW_DAYS
     return value if value > 0 else MARKET_MOVERS_WINDOW_DAYS
 PORTFOLIO_DASHBOARD_PREWARM_MAX_OWNERS_ENV = "PORTFOLIO_DASHBOARD_PREWARM_MAX_OWNERS"
+# The Collection page size the CLIENT asks for (`inventoryPageSize` in the
+# api-client). The prewarm MUST warm this exact number: `limit` is part of the
+# deck-entries cache key, so warming 200 while the app requests 1000 warms a key
+# nobody ever asks for — every first Collection load after a deploy or the daily
+# price sync paid a full cold compute anyway (~20s, user 2026-09-11), with the
+# prewarm's own "warmed 5 of 5" line reporting success the whole time.
+CLIENT_INVENTORY_PAGE_SIZE = 1000
 PORTFOLIO_DASHBOARD_PREWARM_DELAY_ENV = "PORTFOLIO_DASHBOARD_PREWARM_DELAY_SECONDS"
 DEFAULT_PORTFOLIO_DASHBOARD_PREWARM_MAX_OWNERS = 50
 DEFAULT_PORTFOLIO_DASHBOARD_PREWARM_DELAY_SECONDS = 3.0
@@ -1951,6 +1992,24 @@ class SpotlightScanService:
         self._deck_entries_cache: dict[tuple[Any, ...], tuple[str, dict[str, Any]]] = {}
         self._deck_entries_cache_locks: dict[tuple[Any, ...], threading.Lock] = {}
         self._deck_entries_cache_max_entries = 512
+        # On-disk mirror of both caches above, so a RESTART reloads instead of
+        # recomputing — see the payload-cache helpers. Disabled by pointing
+        # SPOTLIGHT_PAYLOAD_CACHE_DIR at nothing.
+        payload_cache_dir = os.environ.get("SPOTLIGHT_PAYLOAD_CACHE_DIR")
+        self._payload_cache_root: Path | None
+        if payload_cache_dir is not None and not payload_cache_dir.strip():
+            self._payload_cache_root = None
+        else:
+            try:
+                root = (
+                    Path(payload_cache_dir).expanduser()
+                    if payload_cache_dir
+                    else database_path.parent / "payload-cache"
+                )
+                root.mkdir(parents=True, exist_ok=True)
+                self._payload_cache_root = root
+            except Exception:  # noqa: BLE001 - the mirror is an optimisation
+                self._payload_cache_root = None
         # Catalog-wide Top Trends payload (one per window), version-keyed on
         # MAX(price_date) + pricing_sync_generation; single dogpile lock since
         # there is exactly one payload to compute.
@@ -5991,7 +6050,6 @@ class SpotlightScanService:
         *,
         start_date: date,
         end_date: date,
-        graded_card_ids: set[str] | None = None,
     ) -> dict[str, dict[str, list[Any]]] | None:
         """Bulk-prefetch the price-history cells the series resolver will touch for
         THIS range only, so a single range (the dashboard's open range, or an
@@ -5999,12 +6057,7 @@ class SpotlightScanService:
         history. The dates the resolver actually hits for [start, end] are the
         daily-row dates inside the window PLUS the one carry-in row just before the
         window (it prices the range's early days). Returns None in JSON mode so the
-        resolver keeps its per-day-query fallback.
-
-        ``graded_card_ids`` names the cards with a GRADED holding; every other card
-        is read on the raw lanes only. Graded cells are over half the cell table,
-        and a chart of raw holdings never reads one — see
-        `price_history_cell_portfolio_rows_by_card_date`."""
+        resolver keeps its per-day-query fallback."""
         if not price_history_cells_enabled():
             return None
         start_iso = start_date.isoformat()
@@ -6039,7 +6092,6 @@ class SpotlightScanService:
             provider=pricing_provider(),
             card_ids=needed_by_card.keys(),
             price_dates=all_dates,
-            graded_card_ids=graded_card_ids,
         )
         # Re-scope each card to its OWN needed dates so the output is identical to the
         # per-card read (extra union dates a card may carry are never looked up anyway).
@@ -6328,20 +6380,8 @@ class SpotlightScanService:
         # Bulk-prefetch ONLY this range's cells (window + carry-in) so a single
         # range loads ~range-window days of cells, not all of history. None in JSON
         # mode → the resolver falls back to its per-day query.
-        # Only the cards actually held as slabs need the graded lane read.
-        graded_card_ids = {
-            str(snapshot.get("cardID") or "").strip()
-            for snapshot in snapshot_by_id.values()
-            if snapshot.get("grader")
-            or snapshot.get("grade")
-            or str(snapshot.get("itemKind") or "").strip().lower() == "slab"
-        }
-        graded_card_ids.discard("")
         cells_by_card_date = self._range_scoped_cells_by_card_date(
-            history_rows_by_card_id,
-            start_date=start_date,
-            end_date=end_date,
-            graded_card_ids=graded_card_ids,
+            history_rows_by_card_id, start_date=start_date, end_date=end_date
         )
         price_series_by_context: dict[tuple[str, str, str, str, str, str], list[dict[str, Any] | None]] = {}
         for deck_entry_id, snapshot in snapshot_by_id.items():
@@ -8823,6 +8863,10 @@ class SpotlightScanService:
                 cached = self._dashboard_cache.get(cache_key)
                 if cached is not None and cached[0] == version:
                     return cached[1]
+            restored = self._hydrate_from_disk("dashboard", cache_key, version)
+            if restored is not None:
+                self._store_dashboard_cache(cache_key, version, restored)
+                return restored
             payload = self._compute_transaction_insights(time_zone_name=time_zone_name)
             if version is not None:
                 self._store_dashboard_cache(cache_key, version, payload)
@@ -17151,7 +17195,7 @@ class SpotlightScanService:
         MAX(price_date), which invalidates every owner's version-token caches,
         so the first user per owner afterwards pays a ~24.5s cold recompute.
         We proactively compute the payloads clients actually request —
-        portfolio_dashboard(range=1W), deck_entries(limit=200), and
+        portfolio_dashboard(range=1W), deck_entries at the CLIENT's page size, and
         portfolio_performance() — populating both the in-process caches AND the
         OS page cache for their rows, so the first real refresh is a ~1ms cache
         hit. Runs in a background daemon thread on its own connection; every
@@ -17194,6 +17238,8 @@ class SpotlightScanService:
         warmed_entries = 0
         warmed_performance = 0
         warmed_favorites = 0
+        # Sections we declined to warm because the box was serving real traffic.
+        skipped_busy = 0
         for owner_user_id in owners:
             try:
                 identity = RequestIdentity(
@@ -17202,31 +17248,50 @@ class SpotlightScanService:
                 with self.request_identity_context(identity):
                     # Warm the exact cache keys clients request. Each section is
                     # independently best-effort: one failing must not stop the
-                    # others (or the remaining owners).
+                    # others (or the remaining owners). Each also takes a SPARE
+                    # heavy-read slot, so warming yields to anyone actually using
+                    # the app instead of competing with them for the disk.
                     try:
                         # Collection screen opens on range=1W → key (owner, tz, "1W").
-                        self.portfolio_dashboard(range_key="1W")
-                        warmed_dashboards += 1
+                        with _background_heavy_read_slot() as slot:
+                            if slot:
+                                self.portfolio_dashboard(range_key="1W")
+                                warmed_dashboards += 1
+                            else:
+                                skipped_busy += 1
                     except Exception:  # noqa: BLE001 - best-effort per section
                         traceback.print_exc()
                     try:
-                        # Inventory grid call → key (owner, 200, 0, False, False, True).
-                        self.deck_entries(limit=200, offset=0)
-                        warmed_entries += 1
+                        # Inventory grid call — the SAME limit the client sends,
+                        # or the key warmed is not the key requested.
+                        with _background_heavy_read_slot() as slot:
+                            if slot:
+                                self.deck_entries(limit=CLIENT_INVENTORY_PAGE_SIZE, offset=0)
+                                warmed_entries += 1
+                            else:
+                                skipped_busy += 1
                     except Exception:  # noqa: BLE001 - best-effort per section
                         traceback.print_exc()
                     try:
                         # Insights table → key (owner, "performance").
-                        self.portfolio_performance()
-                        warmed_performance += 1
+                        with _background_heavy_read_slot() as slot:
+                            if slot:
+                                self.portfolio_performance()
+                                warmed_performance += 1
+                            else:
+                                skipped_busy += 1
                     except Exception:  # noqa: BLE001 - best-effort per section
                         traceback.print_exc()
                     try:
                         # Wishlist list call → key (owner, "card_favorites", 200, 0).
                         # Uncached+unwarmed this cold-read the sparkline batch and
                         # timed clients out post-deploy (2026-07-16).
-                        self.card_favorites(limit=200, offset=0)
-                        warmed_favorites += 1
+                        with _background_heavy_read_slot() as slot:
+                            if slot:
+                                self.card_favorites(limit=200, offset=0)
+                                warmed_favorites += 1
+                            else:
+                                skipped_busy += 1
                     except Exception:  # noqa: BLE001 - best-effort per section
                         traceback.print_exc()
             except Exception:  # noqa: BLE001 - one owner failing must not stop the rest
@@ -17238,6 +17303,7 @@ class SpotlightScanService:
             "warmedEntries": warmed_entries,
             "warmedPerformance": warmed_performance,
             "warmedFavorites": warmed_favorites,
+            "skippedBusy": skipped_busy,
             "elapsedMs": round((perf_counter() - started_at) * 1000.0, 1),
         }
         self._emit_structured_log(
@@ -17592,6 +17658,11 @@ class SpotlightScanService:
                 if cached is not None and cached[0] == version:
                     self._log_dashboard_timing(started_at, outcome="hit_after_wait")
                     return cached[1]
+            restored = self._hydrate_from_disk("dashboard", cache_key, version)
+            if restored is not None:
+                self._store_dashboard_cache(cache_key, version, restored)
+                self._log_dashboard_timing(started_at, outcome="restored")
+                return restored
             payload = self._compute_portfolio_dashboard(
                 time_zone_name=resolved_tz,
                 range_keys=[range_key] if range_key else None,
@@ -17668,9 +17739,124 @@ class SpotlightScanService:
                 self._dashboard_cache_locks[cache_key] = lock
             return lock
 
+    # ------------------------------------------------------------------
+    # DISK-BACKED PAYLOAD CACHE
+    #
+    # A process restart used to throw away every computed dashboard, deck-entries
+    # and performance payload, and the box then spent its first minutes
+    # recomputing byte-identical output: 31s for 5 owners on staging, 144-221s
+    # for 36 on production, with individual Insights recomputes reaching 28.6s.
+    # Whoever opened the app in that window waited for work whose answer the
+    # previous process already had (user, 2026-09-11, twice in one evening).
+    #
+    # Nothing about a deploy invalidates these payloads — they are a pure
+    # function of the owner's rows and the latest prices, which is exactly what
+    # `version` fingerprints. So they are mirrored to disk under that token and
+    # read back on a miss. Correctness is free: a token mismatch simply misses,
+    # the same as an absent file, so a stale file can never be served.
+    #
+    # The daily price sync still invalidates everything, and it should — prices
+    # genuinely changed. This removes the case where NOTHING changed.
+    # ------------------------------------------------------------------
+
+    def _hydrate_from_disk(
+        self, namespace: str, cache_key: Any, version: str | None
+    ) -> dict[str, Any] | None:
+        """A payload the PREVIOUS process already computed for this exact token.
+
+        Checked inside the dogpile lock, just before a recompute, so it costs one
+        file stat per cold key and nothing at all on the hot path. See the
+        payload-cache block above for why a token match is safe to trust.
+        """
+        if version is None:
+            # No token means we cannot vouch for freshness, so recompute rather
+            # than guess. Logged because a silently-absent token would look
+            # exactly like a cache that never works.
+            self._emit_structured_log({
+                "severity": "INFO",
+                "event": "payload_cache_lookup",
+                "namespace": namespace,
+                "outcome": "no_version",
+            })
+            return None
+        payload = self._load_persisted_payload(namespace, cache_key, version)
+        self._emit_structured_log({
+            "severity": "INFO",
+            "event": "payload_cache_lookup",
+            "namespace": namespace,
+            "outcome": "hit" if payload is not None else "miss",
+        })
+        return payload
+
+    def _payload_cache_path(self, namespace: str, cache_key: Any, version: str) -> Path | None:
+        root = getattr(self, "_payload_cache_root", None)
+        if root is None:
+            return None
+        digest = hashlib.sha256(
+            json.dumps([namespace, cache_key, version], default=str, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        return root / f"{namespace}-{digest}.json"
+
+    def _load_persisted_payload(
+        self, namespace: str, cache_key: Any, version: str
+    ) -> dict[str, Any] | None:
+        path = self._payload_cache_path(namespace, cache_key, version)
+        if path is None:
+            return None
+        try:
+            if not path.exists():
+                return None
+            with path.open("r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+        except Exception:  # noqa: BLE001 - a bad cache file must never fail a read
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def _persist_payload(
+        self, namespace: str, cache_key: Any, version: str, payload: dict[str, Any]
+    ) -> None:
+        path = self._payload_cache_path(namespace, cache_key, version)
+        if path is None:
+            return
+        try:
+            # Write-then-rename so a crash mid-write can't leave a half file that
+            # later parses as a truncated payload.
+            temporary = path.with_suffix(f".{os.getpid()}.tmp")
+            with temporary.open("w", encoding="utf-8") as handle:
+                json.dump(payload, handle, default=str)
+            temporary.replace(path)
+        except Exception:  # noqa: BLE001 - caching is best-effort, never fatal
+            try:
+                temporary.unlink(missing_ok=True)
+            except Exception:  # noqa: BLE001
+                pass
+
+    def prune_payload_cache(self, *, max_entries: int = 2000) -> int:
+        """Drop the oldest files once the mirror outgrows its budget.
+
+        Every version token writes new files and the old ones are never read
+        again, so the directory would grow with each price sync. Called on
+        startup; returns how many files were removed."""
+        root = getattr(self, "_payload_cache_root", None)
+        if root is None:
+            return 0
+        try:
+            files = sorted(root.glob("*.json"), key=lambda item: item.stat().st_mtime)
+        except Exception:  # noqa: BLE001
+            return 0
+        removed = 0
+        for stale in files[: max(0, len(files) - max_entries)]:
+            try:
+                stale.unlink()
+                removed += 1
+            except Exception:  # noqa: BLE001
+                continue
+        return removed
+
     def _store_dashboard_cache(
         self, cache_key: tuple[str, str, str], version: str, payload: dict[str, Any]
     ) -> None:
+        self._persist_payload("dashboard", cache_key, version, payload)
         with self._dashboard_cache_locks_guard:
             # Simple bounded LRU-ish cap so the cache can't grow without limit as
             # users come and go (one ~265KB payload per owner). 256 owners is far
@@ -18222,6 +18408,11 @@ class SpotlightScanService:
                 if cached is not None and cached[0] == version:
                     self._log_deck_entries_timing(started_at, outcome="hit_after_wait")
                     return cached[1]
+            restored = self._hydrate_from_disk("deck_entries", cache_key, version)
+            if restored is not None:
+                self._store_deck_entries_cache(cache_key, version, restored)
+                self._log_deck_entries_timing(started_at, outcome="restored")
+                return restored
             payload = self._compute_deck_entries_for_owner(
                 owner_user_id,
                 limit=limit,
@@ -18577,6 +18768,7 @@ class SpotlightScanService:
     def _store_deck_entries_cache(
         self, cache_key: tuple[Any, ...], version: str, payload: dict[str, Any]
     ) -> None:
+        self._persist_payload("deck_entries", cache_key, version, payload)
         with self._dashboard_cache_locks_guard:
             if (
                 cache_key not in self._deck_entries_cache
@@ -19083,6 +19275,10 @@ class SpotlightScanService:
                 if cached is not None and cached[0] == version:
                     self._log_portfolio_performance_timing(started_at, outcome="hit_after_wait")
                     return cached[1]
+            restored = self._hydrate_from_disk("dashboard", cache_key, version)
+            if restored is not None:
+                self._store_dashboard_cache(cache_key, version, restored)
+                return restored
             payload = self._compute_portfolio_performance()
             if version is not None:
                 self._store_dashboard_cache(cache_key, version, payload)
@@ -19422,6 +19618,10 @@ class SpotlightScanService:
                 cached = self._deck_entries_cache.get(cache_key)
                 if cached is not None and cached[0] == version:
                     return cached[1]
+            restored = self._hydrate_from_disk("deck_entries", cache_key, version)
+            if restored is not None:
+                self._store_deck_entries_cache(cache_key, version, restored)
+                return restored
             payload = self._compute_card_favorites(limit=limit, offset=offset)
             if version is not None:
                 self._store_deck_entries_cache(cache_key, version, payload)
@@ -23706,6 +23906,9 @@ def main() -> None:
     )
 
     SpotlightRequestHandler.service = SpotlightScanService(database_path, repo_root)
+    # Every version token writes new payload files and the old ones are never
+    # read again, so trim before anything else touches the directory.
+    SpotlightRequestHandler.service.prune_payload_cache()
     startup_visual_runtime = SpotlightRequestHandler.service._prewarm_raw_visual_runtime(run_inference=False)
     SpotlightRequestHandler.service._emit_structured_log(
         {

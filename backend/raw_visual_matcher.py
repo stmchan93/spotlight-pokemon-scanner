@@ -15,6 +15,7 @@ import numpy as np
 
 from catalog_tools import (
     GAME_POKEMON,
+    SUPPORTED_GAMES,
     _collector_components,
     game_for_scan_payload,
     normalize_game,
@@ -578,6 +579,42 @@ class RawVisualMatcher:
         index = self.index_for_game(game)
         return index is not None and index.is_available()
 
+    def _prewarm_game_indexes(self) -> dict[str, int]:
+        """Load every NON-Pokémon game index that exists on this box.
+
+        Pokémon is `self.index` and is warmed by `prewarm` itself. The rest are
+        built lazily by `index_for_game` and cached on the instance, so a
+        backend RESTART throws them away and the next scan of that game pays the
+        build inside the request. On staging that pushed a raw match past the
+        client's 10s per-attempt timeout: the server logged a 200 and the app
+        showed "Photo captured, but matches could not load" (user, 2026-09-10,
+        after a deploy — `visual_index_game_resolved` fires mid-scan in the log).
+
+        Cheap to do here: the four non-Pokémon indexes total ~22MB against
+        Pokémon's 133MB, and the encoder runtime they share is already loaded.
+
+        Absent games are skipped, not an error — production carries only the
+        Pokémon index today, so this is a no-op there until multi-game ships.
+        """
+        counts: dict[str, int] = {}
+        for game in SUPPORTED_GAMES:
+            if normalize_game(game) == GAME_POKEMON:
+                continue
+            try:
+                index = self.index_for_game(game)
+                if index is None:
+                    continue
+                index.load()
+                counts[game] = len(index.entries)
+            except Exception as exc:  # noqa: BLE001 - one bad index must not block startup
+                _emit_matcher_log(
+                    "WARNING",
+                    "visual_index_game_prewarm_failed",
+                    game=game,
+                    error=str(exc),
+                )
+        return counts
+
     def prewarm(self, *, run_inference: bool = False) -> dict[str, Any]:
         if not self.is_available():
             return {
@@ -595,13 +632,19 @@ class RawVisualMatcher:
         self._ensure_runtime()
         runtime_load_ms = (perf_counter() - runtime_started_at) * 1000.0
 
+        games_started_at = perf_counter()
+        game_entry_counts = self._prewarm_game_indexes()
+        games_load_ms = (perf_counter() - games_started_at) * 1000.0
+
         result: dict[str, Any] = {
             "available": True,
             "prewarmed": True,
             "indexEntryCount": len(self.index.entries),
+            "gameIndexEntryCounts": game_entry_counts,
             "timings": {
                 "indexLoadMs": round(index_load_ms, 3),
                 "runtimeLoadMs": round(runtime_load_ms, 3),
+                "gameIndexLoadMs": round(games_load_ms, 3),
                 "totalMs": round((perf_counter() - started_at) * 1000.0, 3),
             },
         }
