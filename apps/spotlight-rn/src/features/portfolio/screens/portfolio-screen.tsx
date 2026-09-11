@@ -52,6 +52,7 @@ import {
 
 import {
   PortfolioChartCard,
+  portfolioRangeCaption,
   type PortfolioChartActivePoint,
 } from '@/features/portfolio/components/portfolio-chart-card';
 import { PortfolioBalanceHeader } from '@/features/portfolio/components/portfolio-balance-header';
@@ -563,6 +564,14 @@ export function PortfolioScreen({
 
   const summary = model.dashboard.summary;
   const baseInventory = model.dashboard.inventoryItems;
+
+  // Price history is young, so 3M / 1Y clamp to its first day and read as
+  // broken. Say what the window really is, in the header's scrub-date slot.
+  const selectedRangePoints = model.dashboard.ranges[model.selectedRange]?.portfolio;
+  const rangeCaption = useMemo(
+    () => portfolioRangeCaption(model.selectedRange, selectedRangePoints ?? []),
+    [model.selectedRange, selectedRangePoints],
+  );
 
   // Abbreviated total on the collection summary line (Figma 2749:4753). It
   // honours the balance-visibility toggle — otherwise hiding the big balance
@@ -1682,6 +1691,8 @@ export function PortfolioScreen({
           <View style={{ marginTop: TABS_TO_BALANCE_GAP }}>
             <PortfolioBalanceHeader
               summary={summary}
+              rangeSummary={model.selectedRangeSummary}
+              rangeCaption={rangeCaption}
               activeChartPoint={isChartScrubbing ? activeChartPoint : null}
               isSummaryHidden={isSummaryHidden}
               isValueKnown={isTotalKnown}

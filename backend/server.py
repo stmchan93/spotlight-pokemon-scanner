@@ -4592,6 +4592,85 @@ class SpotlightScanService:
             "percentChange": round(percent_change, 4) if percent_change is not None else None,
         }
 
+    # A ratio against a near-zero baseline is arithmetic, not information. An
+    # account whose first priced day held $1.68 reported +743,353% on its 1Y
+    # change, which reads as a broken screen rather than as a 5-month-old
+    # collection (user, 2026-09-11). Below this the change is reported in
+    # dollars only and the percent comes back null.
+    PORTFOLIO_DELTA_PERCENT_MIN_BASELINE = 1.0
+
+    @classmethod
+    def _portfolio_delta_percent(cls, delta_value: float, start_value: float) -> float | None:
+        if start_value < cls.PORTFOLIO_DELTA_PERCENT_MIN_BASELINE:
+            return None
+        return round((delta_value / start_value) * 100.0, 4)
+
+    def _portfolio_history_range_from_series(
+        self,
+        all_history: dict[str, Any],
+        *,
+        range_label: str,
+        time_zone_name: str | None,
+        earliest_at: datetime | None,
+    ) -> dict[str, Any]:
+        """One range's history, SLICED out of the widest (ALL) series.
+
+        SIX RANGES ARE SIX SLICES OF ONE COMPUTATION, not six computations. Every
+        range ends today and differs only in where it starts, and the two
+        newest-day quantities the summary needs are the same whichever start you
+        pick: the coverage counts, and the live-only value the delta subtracts
+        (it accumulates on the newest day alone, so it cannot vary by window).
+        That makes the delta BASIS range-independent, and the only thing a
+        shorter range changes is which point is the baseline.
+
+        Recomputing each range separately is what made the chart cost 2-9s per
+        range and 20-30s to flick between them — every switch replayed every
+        holding against every day's prices again (user, 2026-09-11).
+        """
+        points = list(all_history.get("points") or [])
+        summary = dict(all_history.get("summary") or {})
+        if not points:
+            return {**all_history, "range": range_label}
+
+        _, start_date, _ = self._portfolio_date_bounds(
+            days=365,
+            range_label=range_label,
+            time_zone_name=time_zone_name,
+            earliest_at=earliest_at,
+        )
+        start_iso = start_date.isoformat()
+        sliced = [point for point in points if str(point.get("date") or "") >= start_iso]
+        if not sliced:
+            # A range whose window starts after the newest point still has to
+            # report today rather than an empty chart.
+            sliced = points[-1:]
+
+        # The newest total minus the value only the live fallback could see.
+        # Recovered from the ALL summary instead of recomputed, because it is the
+        # one quantity here that does not depend on the window.
+        delta_basis = round(
+            float(summary.get("startValue") or 0.0) + float(summary.get("deltaValue") or 0.0), 2
+        )
+        start_value = round(float(sliced[0].get("totalValue") or 0.0), 2)
+        delta_value = round(delta_basis - start_value, 2)
+        delta_percent = self._portfolio_delta_percent(delta_value, start_value)
+        start_cost_basis = round(float(sliced[0].get("costBasisValue") or 0.0), 2)
+        current_cost_basis = float(summary.get("currentCostBasisValue") or 0.0)
+
+        return {
+            **all_history,
+            "range": range_label,
+            "points": sliced,
+            "summary": {
+                **summary,
+                "startValue": start_value,
+                "deltaValue": delta_value,
+                "deltaPercent": delta_percent,
+                "startCostBasisValue": start_cost_basis,
+                "deltaCostBasisValue": round(current_cost_basis - start_cost_basis, 2),
+            },
+        }
+
     def _history_points_payload(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         points = [
             {
@@ -6560,7 +6639,7 @@ class SpotlightScanService:
         # change stops claiming a week that never happened.
         delta_basis = round(max(0.0, current_value - live_only_value), 2)
         delta_value = round(delta_basis - start_value, 2)
-        delta_percent = None if start_value == 0 else round((delta_value / start_value) * 100.0, 4)
+        delta_percent = self._portfolio_delta_percent(delta_value, start_value)
         return {
             "range": normalized_range or "30D",
             "currencyCode": "USD",
@@ -17697,6 +17776,43 @@ class SpotlightScanService:
             self._log_dashboard_timing(started_at, outcome="miss")
             return payload
 
+    def _portfolio_all_history_cached(
+        self,
+        *,
+        time_zone_name: str,
+        shared_inputs: dict[str, Any] | None,
+        collection_id: str | None,
+    ) -> dict[str, Any]:
+        """The widest history series, computed once per data-version.
+
+        The dashboard payload is cached PER RANGE, so without this a user who
+        opens 1W and then taps 3M and 1Y would recompute the series once per
+        range and gain nothing. Keyed on the same version token as the dashboard
+        — the series is a pure function of the same inputs — so it invalidates
+        with them and survives in the same cache.
+        """
+        owner_user_id = self._current_owner_user_id()
+        cache_key = (owner_user_id, time_zone_name, "history-series", collection_id or "")
+        try:
+            version = self._portfolio_dashboard_version_token(owner_user_id, time_zone_name)
+        except Exception:  # noqa: BLE001 - cache bookkeeping must never break the chart
+            traceback.print_exc()
+            version = None
+        if version is not None:
+            cached = self._dashboard_cache.get(cache_key)
+            if cached is not None and cached[0] == version:
+                return cached[1]
+        payload = self.deck_history(
+            days=365,
+            range_label="ALL",
+            time_zone_name=time_zone_name,
+            shared_inputs=shared_inputs,
+            collection_id=collection_id,
+        )
+        if version is not None:
+            self._store_dashboard_cache(cache_key, version, payload)
+        return payload
+
     def _portfolio_dashboard_version_token(
         self, owner_user_id: str, resolved_tz: str
     ) -> str:
@@ -18000,12 +18116,14 @@ class SpotlightScanService:
         }
         # Only compute the requested range(s) — the client fetches the rest on
         # demand. Unknown keys are ignored; None means all six (legacy/prewarm).
+        computed_labels: list[str] | None = None
         if range_keys is None:
             keys_to_compute = list(range_labels.keys())
-            computed_labels: list[str] | None = None  # full history (all-six/prewarm)
         else:
             keys_to_compute = [key for key in range_keys if key in range_labels]
-            computed_labels = [range_labels[key] for key in keys_to_compute]
+        # The shared inputs must span the WIDEST window, because the series
+        # below is always computed over ALL and every range is sliced from it.
+        computed_labels = None
 
         # Load the range-independent history inputs (entries, events, daily prices)
         # ONCE and share them across the computed range(s) instead of re-reading
@@ -18023,28 +18141,72 @@ class SpotlightScanService:
             traceback.print_exc()
             history_shared_inputs = None
 
+        # ONE series, sliced per range. Each range used to be its own full
+        # replay of every holding against every day's prices — 2-9s each, so
+        # flicking between them cost 20-30s and a cold open close to a minute.
+        # The widest window contains every other, and everything the summary
+        # needs from the newest day is shared, so the rest are slices.
+        all_history = _section(
+            "history.series",
+            lambda: self._portfolio_all_history_cached(
+                time_zone_name=resolved_tz,
+                shared_inputs=history_shared_inputs,
+                collection_id=collection_id,
+            ),
+        )
+        earliest_activity_at = None
+        if all_history is not None:
+            try:
+                earliest_activity_at = self._portfolio_earliest_activity_at()
+            except Exception:  # noqa: BLE001 - slicing must not break on bookkeeping
+                traceback.print_exc()
+
+        # HISTORY FOR EVERY RANGE, always. Slicing one series costs nothing, and
+        # the client's headline delta reads the OPEN range's summary — when the
+        # payload carried only the requested range, switching ranges left the
+        # headline showing the range it was first loaded with, so every range
+        # appeared to have the same change (user, 2026-09-11). The LEDGER stays
+        # scoped to the requested range; it is a real query and the client
+        # fetches the others on demand.
         ranges: dict[str, Any] = {}
-        for key in keys_to_compute:
+        for key in range_labels:
             label = range_labels[key]
-            history = _section(
-                f"history.{key}",
-                lambda label=label: self.deck_history(
-                    days=365,
-                    range_label=label,
-                    time_zone_name=resolved_tz,
-                    shared_inputs=history_shared_inputs,
-                    collection_id=collection_id,
-                ),
-            )
-            ledger = _section(
-                f"ledger.{key}",
-                lambda label=label: self.portfolio_ledger(
-                    days=365,
-                    range_label=label,
-                    time_zone_name=resolved_tz,
-                    limit=50,
-                    offset=0,
-                ),
+            if all_history is not None:
+                history = _section(
+                    f"history.{key}",
+                    lambda label=label: self._portfolio_history_range_from_series(
+                        all_history,
+                        range_label=label,
+                        time_zone_name=resolved_tz,
+                        earliest_at=earliest_activity_at,
+                    ),
+                )
+            else:
+                # The series failed; fall back to computing this range outright
+                # rather than showing no chart at all.
+                history = _section(
+                    f"history.{key}",
+                    lambda label=label: self.deck_history(
+                        days=365,
+                        range_label=label,
+                        time_zone_name=resolved_tz,
+                        shared_inputs=history_shared_inputs,
+                        collection_id=collection_id,
+                    ),
+                )
+            ledger = (
+                _section(
+                    f"ledger.{key}",
+                    lambda label=label: self.portfolio_ledger(
+                        days=365,
+                        range_label=label,
+                        time_zone_name=resolved_tz,
+                        limit=50,
+                        offset=0,
+                    ),
+                )
+                if key in keys_to_compute
+                else None
             )
             ranges[key] = {"history": history, "ledger": ledger}
 

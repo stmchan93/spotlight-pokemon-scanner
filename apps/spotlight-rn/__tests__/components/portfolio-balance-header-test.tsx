@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react-native';
+import { render, screen, within } from '@testing-library/react-native';
 
 import { SpotlightThemeProvider } from '@spotlight/design-system';
 
@@ -72,6 +72,41 @@ describe('PortfolioBalanceHeader', () => {
 
     expect(screen.queryByTestId('portfolio-summary-added')).toBeNull();
     expect(screen.getByTestId('portfolio-summary-delta-date')).toBeTruthy();
+  });
+
+  // `summary` only ever carries the open range, so the header has to read the
+  // selected range's own summary or every pill shows the same change.
+  it('shows the selected range summary in place of the open-range one', () => {
+    renderHeader({
+      rangeSummary: {
+        currentValue: 194.61,
+        startValue: 73.86,
+        changeAmount: 120.75,
+        changePercent: 163.49,
+      },
+    });
+
+    const delta = within(screen.getByTestId('portfolio-summary-delta'));
+    expect(delta.getByText('$120.75')).toBeTruthy();
+    expect(delta.queryByText('$12.40')).toBeNull();
+    expect(within(screen.getByTestId('portfolio-summary-delta-percent')).getByText('(163.49%)')).toBeTruthy();
+  });
+
+  // A ratio against a near-zero baseline is noise, so the backend sends null.
+  it('drops the percentage entirely when there is no meaningful one', () => {
+    renderHeader({
+      rangeSummary: {
+        currentValue: 194.61,
+        startValue: 0.4,
+        changeAmount: 194.21,
+        changePercent: null,
+      },
+    });
+
+    // The dollar change is still honest, so it stays.
+    expect(within(screen.getByTestId('portfolio-summary-delta')).getByText('$194.21')).toBeTruthy();
+    expect(screen.queryByTestId('portfolio-summary-delta-percent')).toBeNull();
+    expect(screen.queryByText(/%/)).toBeNull();
   });
 });
 

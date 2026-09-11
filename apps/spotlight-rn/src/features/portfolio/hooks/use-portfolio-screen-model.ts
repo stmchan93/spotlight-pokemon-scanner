@@ -745,6 +745,11 @@ export function usePortfolioScreenModel({
     recentSalesExpanded,
     searchQuery,
     selectedRange,
+    // The balance header's change must follow the pill the user tapped, so it
+    // reads the selected range's own summary rather than `dashboard.summary`
+    // (which only ever carries the open range). Null on a payload predating
+    // per-range summaries — the header falls back to `dashboard.summary`.
+    selectedRangeSummary: dashboard.ranges[selectedRange]?.summary ?? null,
     // The chart shows its skeleton while the currently-selected range is being
     // fetched on demand.
     isLoadingSelectedRange: loadingRange === selectedRange,

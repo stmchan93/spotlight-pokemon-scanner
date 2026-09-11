@@ -45,13 +45,26 @@ import {
   formatSignedCurrency,
 } from './portfolio-formatting';
 
+// `nominalDays` is what the LABEL promises. Price history starts 2026-04-16, so
+// the longer ranges clamp to that first day and print identical numbers under
+// different labels — compare against this to caption the ones that fall short.
+// ALL promises no particular length, so it can never be short.
 const rangeItems = [
-  { label: '7D', value: '1W' },
-  { label: '1M', value: '1M' },
-  { label: '3M', value: '3M' },
-  { label: '1Y', value: '1Y' },
-  { label: 'ALL', value: 'ALL' },
+  { label: '7D', value: '1W', nominalDays: 7 },
+  { label: '1M', value: '1M', nominalDays: 30 },
+  { label: '3M', value: '3M', nominalDays: 90 },
+  { label: '1Y', value: '1Y', nominalDays: 365 },
+  { label: 'ALL', value: 'ALL', nominalDays: null },
 ] as const;
+
+const DAY_MS = 86400000;
+
+// A range whose first day lands within a couple of days of the nominal window
+// is honest enough — daily points and timezone edges cost about that much.
+const RANGE_CLAMP_TOLERANCE_DAYS = 2;
+
+// Below this, the baseline is too near zero to divide by.
+const MEANINGFUL_BASELINE_VALUE = 1;
 
 const skeletonBarScales = [0.42, 0.62, 0.5, 0.74, 0.58, 0.82, 0.68, 0.9, 0.76, 0.56, 0.72, 0.64];
 
@@ -190,6 +203,50 @@ function formatTooltipDateLabel(isoDate: string) {
     .toUpperCase();
 }
 
+// "Apr 2026" — the caption for a range that starts later than its label claims.
+function formatMonthYearLabel(isoDate: string) {
+  const date = new Date(normalizeChartPointDate(isoDate));
+  if (Number.isNaN(date.valueOf())) {
+    return '';
+  }
+
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+/**
+ * "Since Apr 2026" when the range's data starts materially later than its label
+ * promises, else null. 3M / 1Y / ALL all clamp to the first day of price
+ * history and then read as broken — identical numbers under different labels.
+ * Captioning beats widening the pills: 5 pills at gap 24 won't hold the string.
+ */
+export function portfolioRangeCaption(
+  range: PortfolioHistoryRange,
+  points: readonly { isoDate: string }[],
+  now: Date = new Date(),
+): string | null {
+  const nominalDays = rangeItems.find((item) => item.value === range)?.nominalDays ?? null;
+  const firstPoint = points[0];
+  if (nominalDays == null || !firstPoint) {
+    return null;
+  }
+
+  const firstTimestamp = Date.parse(normalizeChartPointDate(firstPoint.isoDate));
+  if (!Number.isFinite(firstTimestamp)) {
+    return null;
+  }
+
+  const earliestHonestStart = now.getTime() - (nominalDays - RANGE_CLAMP_TOLERANCE_DAYS) * DAY_MS;
+  if (firstTimestamp <= earliestHonestStart) {
+    return null;
+  }
+
+  return `Since ${formatMonthYearLabel(firstPoint.isoDate)}`;
+}
+
 function buildRoundedCurrencyTicks(values: number[]) {
   const maxValue = Math.max(...values, 0);
   const upperTick = maxValue > 0 ? Number(maxValue.toFixed(2)) : 1;
@@ -281,9 +338,11 @@ function portfolioChangeForPoint(
   }
 
   const amount = Number((point.value - baselinePoint.value).toFixed(2));
-  const percent = baselinePoint.value > 0
+  // A ratio against a sub-dollar baseline is meaningless (a $1.68 first day
+  // turned a normal gain into +743,353%). Same rule the backend applies.
+  const percent = baselinePoint.value >= MEANINGFUL_BASELINE_VALUE
     ? Number(((amount / baselinePoint.value) * 100).toFixed(2))
-    : 0;
+    : null;
 
   return {
     amount,
@@ -295,7 +354,8 @@ export type PortfolioChartActivePoint = {
   valueLabel: string;
   dateLabel: string;
   changeAmount: number;
-  changePercent: number;
+  /** Null when the baseline is too near zero for a ratio to mean anything. */
+  changePercent: number | null;
   changeAmountLabel: string;
   changePercentLabel: string;
   isHovering: boolean;
@@ -611,7 +671,7 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
         changeAmount: change.amount,
         changePercent: change.percent,
         changeAmountLabel: formatSignedCurrency(change.amount),
-        changePercentLabel: formatPercent(change.percent),
+        changePercentLabel: change.percent == null ? '' : formatPercent(change.percent),
         isHovering: true,
       });
     } else {

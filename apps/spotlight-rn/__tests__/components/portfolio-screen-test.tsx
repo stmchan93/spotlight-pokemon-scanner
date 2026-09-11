@@ -1794,6 +1794,119 @@ describe('PortfolioScreen', () => {
     expect(getPortfolioRange).not.toHaveBeenCalled();
   });
 
+  // The reported bug: every pill showed the same change, because the header
+  // read the open range's summary no matter which range was selected.
+  it('rewrites the headline change when a different range is selected', async () => {
+    const dashboard = {
+      ...buildDashboardWithInventory([buildInventoryEntry({ id: 'a', name: 'Alpha' })]),
+      ranges: {
+        '1W': {
+          portfolio: [{ isoDate: '2026-06-01', shortLabel: 'Jun 1', value: 100 }],
+          sales: [],
+        },
+        '1M': { portfolio: [], sales: [] },
+        '3M': { portfolio: [], sales: [] },
+        YTD: { portfolio: [], sales: [] },
+        '1Y': { portfolio: [], sales: [] },
+        ALL: { portfolio: [], sales: [] },
+      },
+    };
+    const repository = createTestSpotlightRepository({
+      loadInventoryEntries: async () => ({ state: 'success', data: dashboard.inventoryItems, errorMessage: null }),
+      loadPortfolioDashboard: async () => ({ state: 'success', data: dashboard, errorMessage: null }),
+      getPortfolioRange: jest.fn(async () => ({
+        portfolio: [
+          { isoDate: '2026-05-01', shortLabel: 'May 1', value: 79.25 },
+          { isoDate: '2026-06-01', shortLabel: 'Jun 1', value: 200 },
+        ],
+        sales: [],
+        summary: {
+          currentValue: 200,
+          startValue: 79.25,
+          changeAmount: 120.75,
+          changePercent: 152.37,
+        },
+      })),
+    });
+
+    renderPortfolioScreen({ repository });
+    await screen.findByTestId('portfolio-header-title');
+
+    // The dashboard's own summary while the open range is selected.
+    await waitFor(() => {
+      expect(within(screen.getByTestId('portfolio-summary-delta')).getByText('$5.00')).toBeTruthy();
+    });
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('range-1M'));
+    });
+
+    await waitFor(() => {
+      expect(within(screen.getByTestId('portfolio-summary-delta')).getByText('$120.75')).toBeTruthy();
+    });
+  });
+
+  // Price history is young, so a long range clamps to its first day and prints
+  // the same numbers as its neighbours. The caption says what it really covers.
+  it('captions a range that is clamped shorter than its label, and only that one', async () => {
+    const isoDaysAgo = (days: number) =>
+      new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+
+    const dashboard = {
+      ...buildDashboardWithInventory([buildInventoryEntry({ id: 'a', name: 'Alpha' })]),
+      ranges: {
+        // A full 7 days of history, so 7D covers exactly what it promises.
+        '1W': {
+          portfolio: [
+            { isoDate: isoDaysAgo(7), shortLabel: 'Start', value: 90 },
+            { isoDate: isoDaysAgo(0), shortLabel: 'Today', value: 100 },
+          ],
+          sales: [],
+        },
+        '1M': { portfolio: [], sales: [] },
+        '3M': { portfolio: [], sales: [] },
+        YTD: { portfolio: [], sales: [] },
+        '1Y': { portfolio: [], sales: [] },
+        ALL: { portfolio: [], sales: [] },
+      },
+    };
+    // 1Y comes back with a month of data — nothing like a year.
+    const getPortfolioRange = jest.fn(async () => ({
+      portfolio: [
+        { isoDate: isoDaysAgo(30), shortLabel: 'Start', value: 90 },
+        { isoDate: isoDaysAgo(0), shortLabel: 'Today', value: 100 },
+      ],
+      sales: [],
+    }));
+    const repository = createTestSpotlightRepository({
+      loadInventoryEntries: async () => ({ state: 'success', data: dashboard.inventoryItems, errorMessage: null }),
+      loadPortfolioDashboard: async () => ({ state: 'success', data: dashboard, errorMessage: null }),
+      getPortfolioRange,
+    });
+
+    renderPortfolioScreen({ repository });
+    await screen.findByTestId('portfolio-header-title');
+    // The dashboard's own change proves the open range has landed — until it
+    // does, 7D has no points and would go uncaptioned for the wrong reason.
+    await waitFor(() => {
+      expect(within(screen.getByTestId('portfolio-summary-delta')).getByText('$5.00')).toBeTruthy();
+    });
+
+    // 7D covers its full week, so it gets no caption.
+    expect(screen.queryByTestId('portfolio-summary-delta-date')).toBeNull();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('range-1Y'));
+    });
+    await waitFor(() => {
+      expect(getPortfolioRange).toHaveBeenCalledWith('1Y');
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('portfolio-summary-delta-date')).toHaveTextContent(/^Since \w{3} \d{4}$/);
+    });
+  });
+
   it('opens the drawer when the hamburger header button is pressed', async () => {
     renderPortfolioScreen();
 

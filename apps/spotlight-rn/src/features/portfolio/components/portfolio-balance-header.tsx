@@ -2,7 +2,7 @@ import { StyleSheet, View } from 'react-native';
 import { Eye, EyeClosed } from 'iconoir-react-native';
 import Svg, { Path } from 'react-native-svg';
 
-import type { PortfolioSummary } from '@spotlight/api-client';
+import type { PortfolioRangeSummary, PortfolioSummary } from '@spotlight/api-client';
 import {
   IconButton,
   RollingNumberText,
@@ -21,6 +21,20 @@ import type { PortfolioChartActivePoint } from './portfolio-chart-card';
 
 type PortfolioBalanceHeaderProps = {
   summary: PortfolioSummary;
+  /**
+   * The change for the range the chart is currently showing.
+   *
+   * `summary` carries the open range's change only, so reading it here left
+   * the same number under the balance no matter which pill was selected.
+   * Absent on a cached payload from before per-range summaries existed — then
+   * `summary` is still the best available answer.
+   */
+  rangeSummary?: PortfolioRangeSummary | null;
+  /**
+   * "Since Apr 2026" when the selected range is clamped shorter than its
+   * label promises. Shares the scrub-date slot, so it costs no layout.
+   */
+  rangeCaption?: string | null;
   activeChartPoint: PortfolioChartActivePoint | null;
   isSummaryHidden: boolean;
   /**
@@ -54,6 +68,8 @@ function formatUnsignedPercent(value: number) {
 
 export function PortfolioBalanceHeader({
   summary,
+  rangeSummary = null,
+  rangeCaption = null,
   activeChartPoint,
   isSummaryHidden,
   isValueKnown = true,
@@ -69,11 +85,16 @@ export function PortfolioBalanceHeader({
   const valueLabel = isSummaryHidden ? hiddenValueMask : rawValueLabel;
 
   // Per Figma the resting delta row omits the date; the label only appears
-  // while scrubbing the chart to show which point you're inspecting.
-  const scrubDateLabel = activeChartPoint?.dateLabel ?? null;
+  // while scrubbing the chart. At rest the slot carries the range caption, so
+  // a clamped window can say how far back it really goes.
+  const scrubDateLabel = activeChartPoint?.dateLabel ?? rangeCaption;
 
-  const changeAmount = activeChartPoint?.changeAmount ?? summary.changeAmount;
-  const changePercent = activeChartPoint?.changePercent ?? summary.changePercent;
+  // Taken whole from one source: a scrubbed point, else the selected range,
+  // else the open-range summary. Mixing them would pair one range's dollars
+  // with another's percent.
+  const restingChange = rangeSummary ?? summary;
+  const changeAmount = activeChartPoint ? activeChartPoint.changeAmount : restingChange.changeAmount;
+  const changePercent = activeChartPoint ? activeChartPoint.changePercent : restingChange.changePercent;
   const direction = directionFromValue(changeAmount);
 
   const showChange = isValueKnown || activeChartPoint != null;
@@ -82,11 +103,15 @@ export function PortfolioBalanceHeader({
     : showChange
       ? formatCurrency(Math.abs(changeAmount))
       : unknownValueMask;
-  const percentLabel = isSummaryHidden
-    ? hiddenValueMask
-    : showChange
-      ? formatUnsignedPercent(changePercent)
-      : unknownValueMask;
+  // Null percent = the baseline was too near zero for a ratio to mean
+  // anything. Drop the group entirely; the dollar change still stands.
+  const percentLabel = changePercent == null
+    ? null
+    : isSummaryHidden
+      ? hiddenValueMask
+      : showChange
+        ? formatUnsignedPercent(changePercent)
+        : unknownValueMask;
 
   const changeColor =
     direction === 'down'
@@ -132,9 +157,11 @@ export function PortfolioBalanceHeader({
             {amountLabel}
           </Text>
         </View>
-        <View style={styles.percentGroup}>
-          <Text style={[styles.changeText, { color: changeColor }]}>({percentLabel})</Text>
-        </View>
+        {percentLabel ? (
+          <View style={styles.percentGroup} testID={`${testIDPrefix}-summary-delta-percent`}>
+            <Text style={[styles.changeText, { color: changeColor }]}>({percentLabel})</Text>
+          </View>
+        ) : null}
         {scrubDateLabel ? (
           <Text
             style={[styles.dateText, { color: theme.colors.gray600 }]}

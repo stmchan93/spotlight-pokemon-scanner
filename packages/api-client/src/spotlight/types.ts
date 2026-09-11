@@ -468,9 +468,32 @@ export type PortfolioChartPoint = {
   rangeEndISO?: string;
 };
 
+/**
+ * The headline numbers for ONE chart range.
+ *
+ * Each range carries its own, because the balance header's change reads the
+ * range the user is looking at. It used to read the 1W slot unconditionally,
+ * so switching to 1M or 1Y left the same change on screen and every range
+ * appeared to have moved by the same amount (user, 2026-09-11).
+ */
+export type PortfolioRangeSummary = {
+  currentValue: number;
+  /** Value on the range's first plotted day — the baseline the change is against. */
+  startValue: number;
+  changeAmount: number;
+  /**
+   * Null when the baseline is too near zero for a ratio to mean anything (an
+   * account worth $1.68 on its first priced day reported +743,353%). The
+   * dollar change is still honest and still shown.
+   */
+  changePercent: number | null;
+};
+
 export type RangeChartData = {
   portfolio: PortfolioChartPoint[];
   sales: PortfolioChartPoint[];
+  /** Absent on a range the client fetched before summaries existed. */
+  summary?: PortfolioRangeSummary | null;
 };
 
 export type InventoryCardEntry = {

@@ -100,6 +100,7 @@ import type {
   PortfolioBuyRequestPayload,
   PortfolioBuyResponsePayload,
   PortfolioChartPoint,
+  PortfolioRangeSummary,
   PortfolioDashboard,
   PortfolioInsights,
   PortfolioPerformance,
@@ -586,6 +587,8 @@ type DeckEntryDTO = {
 type PortfolioHistoryDTO = {
   summary: {
     currentValue: number;
+    /** The range's first plotted day — what the change is measured against. */
+    startValue?: number | null;
     deltaValue: number;
     deltaPercent?: number | null;
   };
@@ -2711,8 +2714,12 @@ function normalizePortfolioHistory(value: PortfolioHistoryDTO | null | undefined
   return {
     summary: {
       currentValue: normalizeNumber(summary.currentValue) ?? 0,
+      startValue: normalizeNumber(summary.startValue) ?? 0,
       deltaValue: normalizeNumber(summary.deltaValue) ?? 0,
-      deltaPercent: normalizeNumber(summary.deltaPercent) ?? 0,
+      // NULL SURVIVES. The backend sends null when the baseline is too near
+      // zero for a ratio to mean anything; collapsing it to 0 here would show
+      // a confident "0.00%" in place of "no meaningful percentage".
+      deltaPercent: normalizeNumber(summary.deltaPercent),
     },
     currencyCode: normalizeCurrencyCode(value?.currencyCode),
     points: points.flatMap((point) => {
@@ -2790,6 +2797,23 @@ function normalizePortfolioLedger(value: PortfolioLedgerDTO | null | undefined) 
       }];
     }),
   } satisfies PortfolioLedgerDTO;
+}
+
+/**
+ * The headline numbers for one range, taken from that range's OWN history.
+ *
+ * The dashboard used to publish a single summary lifted from the 1W slot, so
+ * the balance header showed 1W's change whichever range was selected and the
+ * ranges all looked identical (user, 2026-09-11).
+ */
+function mapPortfolioRangeSummary(history: PortfolioHistoryDTO): PortfolioRangeSummary {
+  return {
+    currentValue: history.summary.currentValue,
+    startValue: normalizeNumber(history.summary.startValue) ?? 0,
+    changeAmount: history.summary.deltaValue,
+    // Null is a real answer here, not a missing one — see normalizePortfolioHistory.
+    changePercent: normalizeNumber(history.summary.deltaPercent),
+  };
 }
 
 function mapPortfolioSeries(history: PortfolioHistoryDTO): PortfolioChartPoint[] {
@@ -4853,9 +4877,12 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       this.loadPortfolioHistory(range),
       this.loadPortfolioLedger(mapRangeToBackend(range)),
     ]);
+    const history = historyResult.data ?? buildEmptyPortfolioHistory();
     return {
-      portfolio: mapPortfolioSeries(historyResult.data ?? buildEmptyPortfolioHistory()),
+      portfolio: mapPortfolioSeries(history),
       sales: buildSalesSeries(ledgerResult.data ?? buildEmptyPortfolioLedger(), range),
+      // Without this the header keeps whatever change it loaded with.
+      summary: mapPortfolioRangeSummary(history),
     };
   }
 
@@ -5091,26 +5118,32 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         '1W': {
           portfolio: mapPortfolioSeries(safeHistory1w),
           sales: buildSalesSeries(safeLedger1w, '1W'),
+          summary: mapPortfolioRangeSummary(safeHistory1w),
         },
         '1M': {
           portfolio: mapPortfolioSeries(safeHistory1m),
           sales: buildSalesSeries(safeLedger30d, '1M'),
+          summary: mapPortfolioRangeSummary(safeHistory1m),
         },
         '3M': {
           portfolio: mapPortfolioSeries(safeHistory3m),
           sales: buildSalesSeries(safeLedger90d, '3M'),
+          summary: mapPortfolioRangeSummary(safeHistory3m),
         },
         YTD: {
           portfolio: mapPortfolioSeries(safeHistoryYtd),
           sales: buildSalesSeries(safeLedgerYtd, 'YTD'),
+          summary: mapPortfolioRangeSummary(safeHistoryYtd),
         },
         '1Y': {
           portfolio: mapPortfolioSeries(safeHistory1y),
           sales: buildSalesSeries(safeLedger1y, '1Y'),
+          summary: mapPortfolioRangeSummary(safeHistory1y),
         },
         ALL: {
           portfolio: mapPortfolioSeries(safeHistoryAll),
           sales: buildSalesSeries(safeLedgerAll, 'ALL'),
+          summary: mapPortfolioRangeSummary(safeHistoryAll),
         },
       },
       insights: insights ?? null,
