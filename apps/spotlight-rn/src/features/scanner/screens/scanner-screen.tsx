@@ -129,7 +129,7 @@ import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { prefetchImageUrls } from '@/lib/card-images';
 import { useAuth } from '@/providers/auth-provider';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
-import { resolveRuntimeBoolean, resolveRuntimeValue, resolveStagingSmokeModeEnabled } from '@/lib/runtime-config';
+import { resolveRuntimeBoolean, resolveStagingSmokeModeEnabled } from '@/lib/runtime-config';
 import { useAppServices } from '@/providers/app-providers';
 
 import { AddAllMenu, type AddAllMenuAction } from '@/features/scanner/components/add-all-menu';
@@ -1240,7 +1240,6 @@ export function ScannerScreen({
     safeAreaTop: insets.top,
     trayReservedHeight: footerReservedHeight,
   });
-  const runtimeAppEnv = resolveRuntimeValue([], ['spotlightAppEnv']);
   // Card-shaped crop (not the squatter visible frame) so the normalized target
   // keeps the true card aspect with no stretch.
   reticleSnapshotRef.current = {
@@ -4467,40 +4466,44 @@ export function ScannerScreen({
               glass on iOS 26, solid white elsewhere (see `ScanTargetPill` for
               why the scheme is pinned rather than `auto`).
             */}
-            {__DEV__ || runtimeAppEnv === 'staging' ? (
-              <Pressable
-                accessibilityLabel={isBinderPageMode ? `${binderPageLayout.label}: a whole binder page at once. Change scan mode` : 'Scanning single cards. Change scan mode'}
-                accessibilityRole="button"
-                accessibilityState={{ selected: isBinderPageMode }}
-                hitSlop={6}
-                onPress={gate(handleOpenBinderLayoutMenu)}
-                ref={binderLayoutTriggerRef}
-                style={styles.binderModePill}
-                testID="scanner-binder-mode-toggle"
-              >
-                {/* Glass fills the pill behind the in-flow label (the label
-                    keeps sizing the pill; zoom pills can nest theirs because
-                    they're fixed-width circles). */}
-                <GlassSurface
-                  // The SCAN/TOTAL pill recipe: light frost with a white tint
-                  // floor + dark label. Untinted glass vanished over dark
-                  // scenes (2026-09-04); solid gray0 on fallback targets.
-                  fallbackColor={colors.gray0}
-                  glassColorScheme="light"
-                  glassEffectStyle="regular"
-                  glassTintColor={colors.frostTint}
-                  pointerEvents="none"
-                  style={styles.binderModePillSurface}
-                  testID="scanner-binder-mode-toggle-surface"
-                />
-                <View style={styles.binderModePillContent}>
-                  <Text style={styles.binderModePillLabel}>
-                    {isBinderPageMode ? binderPageLayout.label : 'Single'}
-                  </Text>
-                  <IconChevronDown color={colors.gray900} size={14} strokeWidth={2.2} />
-                </View>
-              </Pressable>
-            ) : null}
+            {/*
+              MULTI-SCAN IS ON EVERYWHERE NOW. It was `__DEV__ || staging` while
+              production had neither the binder endpoints nor the per-game
+              visual indexes; both landed on 2026-09-12, so the gate was
+              describing a gap that no longer exists.
+            */}
+            <Pressable
+              accessibilityLabel={isBinderPageMode ? `${binderPageLayout.label}: a whole binder page at once. Change scan mode` : 'Scanning single cards. Change scan mode'}
+              accessibilityRole="button"
+              accessibilityState={{ selected: isBinderPageMode }}
+              hitSlop={6}
+              onPress={gate(handleOpenBinderLayoutMenu)}
+              ref={binderLayoutTriggerRef}
+              style={styles.binderModePill}
+              testID="scanner-binder-mode-toggle"
+            >
+              {/* Glass fills the pill behind the in-flow label (the label
+                  keeps sizing the pill; zoom pills can nest theirs because
+                  they're fixed-width circles). */}
+              <GlassSurface
+                // The SCAN/TOTAL pill recipe: light frost with a white tint
+                // floor + dark label. Untinted glass vanished over dark
+                // scenes (2026-09-04); solid gray0 on fallback targets.
+                fallbackColor={colors.gray0}
+                glassColorScheme="light"
+                glassEffectStyle="regular"
+                glassTintColor={colors.frostTint}
+                pointerEvents="none"
+                style={styles.binderModePillSurface}
+                testID="scanner-binder-mode-toggle-surface"
+              />
+              <View style={styles.binderModePillContent}>
+                <Text style={styles.binderModePillLabel}>
+                  {isBinderPageMode ? binderPageLayout.label : 'Single'}
+                </Text>
+                <IconChevronDown color={colors.gray900} size={14} strokeWidth={2.2} />
+              </View>
+            </Pressable>
             {/* Zoom is meaningless for a whole page; hiding it also frees the band for the reticle. */}
             {isBinderPageMode ? null : (
             <View style={styles.zoomDock} testID="scanner-zoom-control">

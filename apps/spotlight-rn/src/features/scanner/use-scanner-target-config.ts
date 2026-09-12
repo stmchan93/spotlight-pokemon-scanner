@@ -12,8 +12,6 @@ import {
   type ScannerMode,
 } from '@spotlight/api-client';
 
-import { resolveRuntimeValue } from '@/lib/runtime-config';
-
 export const SCANNER_TARGET_CONFIG_STORAGE_KEY = '@spotlight/scanner/target-config';
 
 export type ScannerCondition = 'graded' | 'ungraded';
@@ -63,7 +61,7 @@ const DEFAULT_CONFIG: ScannerTargetConfig = {
  * `CARD_GAME_CAPABILITIES` adds its lane here (and therefore to the sheet)
  * without touching any component.
  */
-const ALL_SCANNER_LANES: readonly ScannerLane[] = CARD_GAMES.flatMap((game) => (
+export const SCANNER_LANES: readonly ScannerLane[] = CARD_GAMES.flatMap((game) => (
   gameHasLanguageLanes(game)
     ? ([
       { game, language: 'english' },
@@ -71,34 +69,6 @@ const ALL_SCANNER_LANES: readonly ScannerLane[] = CARD_GAMES.flatMap((game) => (
     ] as ScannerLane[])
     : ([{ game, language: 'english' }] as ScannerLane[])
 ));
-
-/**
- * OFFER ONLY THE GAMES THE BACKEND CAN ACTUALLY SCAN.
- *
- * A lane is a promise: pick it and the scanner will identify that game's cards.
- * The multi-TCG visual indexes live on STAGING only — production carries the
- * Pokémon index alone, and `./data` is deliberately excluded from a backend
- * deploy, so shipping code never brings them. A production user who picked
- * Lorcana got "Visual-only resolver could not run", which is the app promising
- * something the server it talks to cannot do (owner, 2026-09-11, on the first
- * TestFlight build of 1.2.0).
- *
- * Gated the same way the Multi-Scan pill is (`scanner-screen.tsx`), for the same
- * reason and with the same shape, so both lift together.
- *
- * THIS IS A STOPGAP, and the honest fix is the other direction: the backend
- * knows exactly which games resolve an index (`index_for_game` returns null for
- * the rest) and should SAY so, with this list following the server rather than a
- * build-time guess. Do that when production gets the multi-TCG indexes — at
- * which point this whole constant can go.
- */
-export const SCANNER_LANES: readonly ScannerLane[] = (() => {
-  const appEnv = resolveRuntimeValue([], ['spotlightAppEnv']);
-  if (__DEV__ || appEnv === 'staging') {
-    return ALL_SCANNER_LANES;
-  }
-  return ALL_SCANNER_LANES.filter((lane) => lane.game === 'pokemon');
-})();
 
 /**
  * Stable identity for a lane — also its React key and testID suffix. Language is
