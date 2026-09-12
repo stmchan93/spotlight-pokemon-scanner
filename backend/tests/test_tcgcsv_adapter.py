@@ -24,6 +24,7 @@ from tcgcsv_adapter import (  # noqa: E402
     build_product_price_map,
     fetch_group_ids,
     fetch_group_prices,
+    scrydex_variant_label_for_subtype,
     select_main_price_entry,
 )
 
@@ -168,6 +169,25 @@ class SelectMainPriceEntryTests(unittest.TestCase):
     def test_zero_market_price_is_skipped(self):
         prices = {"100": {"Normal": _row(0)}}
         self.assertIsNone(select_main_price_entry({"Normal": "100"}, "Normal", prices, frozenset()))
+
+    def test_bare_vintage_editions_pick_the_default_edition(self):
+        # Neo Genesis Wooper (90632): TCGCSV lists the editions BARE, and the
+        # default is Unlimited. The old map knew only "Unlimited Holofoil", so
+        # the pick fell through to row order and quoted 1st Edition.
+        prices = {"90632": {"1st Edition": _row(9.52), "Unlimited": _row(3.2)}}
+        result = select_main_price_entry(
+            {"First Edition": "90632", "Unlimited": "90632"}, "Unlimited", prices, frozenset()
+        )
+        self.assertEqual(result[1], "Unlimited")
+        self.assertEqual(result[0]["marketPrice"], 3.2)
+        self.assertEqual(scrydex_variant_label_for_subtype("Unlimited"), "Unlimited")
+        self.assertEqual(scrydex_variant_label_for_subtype("1st Edition"), "First Edition")
+
+    def test_any_fallback_never_prefers_first_edition(self):
+        # Nothing maps; the "any" tail must still put a 1st Edition row last.
+        prices = {"100": {"1st Edition Exotic": _row(9.0), "Exotic Foil": _row(7.0)}}
+        result = select_main_price_entry({"Normal": "100"}, "Normal", prices, frozenset())
+        self.assertEqual(result[1], "Exotic Foil")
 
     def test_unlisted_subtype_falls_to_any(self):
         prices = {"100": {"Exotic Foil": _row(7.0)}}

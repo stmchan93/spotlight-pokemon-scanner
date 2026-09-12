@@ -46,6 +46,7 @@ from tcgcsv_adapter import (
     card_numbers_match,
     normalized_card_number,
     select_main_price_entry,
+    present_subtype_for_variant_label,
     subtype_for_variant_label,
 )
 
@@ -269,7 +270,7 @@ def _build_printings_map(
             if product_num and card_number and not card_numbers_match(card_number, product_num):
                 continue
         subtypes = product_price_map.get(product_id) or {}
-        sub_type_name = subtype_for_variant_label(label)
+        sub_type_name = present_subtype_for_variant_label(label, subtypes)
         if not sub_type_name and pid_claims.get(product_id) == 1:
             priced = [s for s, prices in subtypes.items() if cleaned_price(prices.get("marketPrice"))]
             if len(priced) == 1:

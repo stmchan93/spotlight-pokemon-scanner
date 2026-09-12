@@ -264,6 +264,19 @@ _VARIANT_LABEL_TO_SUBTYPE = {
     "Foil": "Foil",
     "Cold Foil": "Cold Foil",
 }
+# Every TCGCSV subTypeName a Scrydex label can price under, preferred first.
+# Vintage non-holo products list their editions BARE ("1st Edition",
+# "Unlimited" — Neo Genesis Wooper 90632), holos as "… Holofoil", and some
+# as "… Normal"; one label, three spellings.
+_VARIANT_LABEL_TO_SUBTYPES: dict[str, tuple[str, ...]] = {
+    "Normal": ("Normal",),
+    "Holofoil": ("Holofoil",),
+    "Reverse Holofoil": ("Reverse Holofoil",),
+    "First Edition": ("1st Edition Holofoil", "1st Edition Normal", "1st Edition"),
+    "Unlimited": ("Unlimited Holofoil", "Unlimited Normal", "Unlimited"),
+    "Foil": ("Foil",),
+    "Cold Foil": ("Cold Foil",),
+}
 _SUBTYPE_FALLBACK_ORDER = (
     "Normal",
     "Holofoil",
@@ -272,9 +285,15 @@ _SUBTYPE_FALLBACK_ORDER = (
     "Cold Foil",
     "Unlimited Normal",
     "Unlimited Holofoil",
+    "Unlimited",
     "1st Edition Normal",
     "1st Edition Holofoil",
+    "1st Edition",
 )
+
+
+def _is_first_edition_subtype(sub_type_name: str) -> bool:
+    return "1st edition" in sub_type_name.lower()
 
 # TCGCSV subTypeName -> the Scrydex variant label whose per-condition cells it
 # prices (inverse of _VARIANT_LABEL_TO_SUBTYPE, widened with the Normal-print
@@ -285,8 +304,10 @@ SUBTYPE_TO_SCRYDEX_VARIANT_LABEL = {
     "Reverse Holofoil": "Reverse Holofoil",
     "1st Edition Holofoil": "First Edition",
     "1st Edition Normal": "First Edition",
+    "1st Edition": "First Edition",
     "Unlimited Holofoil": "Unlimited",
     "Unlimited Normal": "Unlimited",
+    "Unlimited": "Unlimited",
     "Foil": "Foil",
     "Cold Foil": "Cold Foil",
 }
@@ -295,6 +316,16 @@ SUBTYPE_TO_SCRYDEX_VARIANT_LABEL = {
 def subtype_for_variant_label(label: Any) -> str | None:
     """TCGCSV subTypeName for a Scrydex variant label; None when unmapped (never guess)."""
     return _VARIANT_LABEL_TO_SUBTYPE.get(str(label or "").strip())
+
+
+def present_subtype_for_variant_label(label: Any, subtypes: dict[str, Any]) -> str | None:
+    """The first of a label's subTypeNames that `subtypes` actually carries —
+    "Unlimited Holofoil" on a holo product, bare "Unlimited" on a Neo Genesis
+    common. None when unmapped or absent (never guess)."""
+    for sub_type_name in _VARIANT_LABEL_TO_SUBTYPES.get(str(label or "").strip(), ()):
+        if sub_type_name in subtypes:
+            return sub_type_name
+    return None
 
 
 def scrydex_variant_label_for_subtype(sub_type_name: Any) -> str | None:
@@ -330,18 +361,23 @@ def select_main_price_entry(
         if product_id not in ordered_product_ids:
             ordered_product_ids.append(product_id)
 
-    preferred_subtype = _VARIANT_LABEL_TO_SUBTYPE.get(default_label)
+    preferred_subtypes = _VARIANT_LABEL_TO_SUBTYPES.get(default_label, ())
     for product_id in ordered_product_ids:
         if product_id in colliding_product_ids:
             continue
         subtypes = prices_by_product.get(product_id)
         if not subtypes:
             continue
-        candidate_order: list[str] = []
-        if preferred_subtype:
-            candidate_order.append(preferred_subtype)
+        # The default label's OWN subtypes first (every spelling — see
+        # _VARIANT_LABEL_TO_SUBTYPES), then the fixed order, then anything
+        # else the product lists — with 1st Edition last of all. A printing
+        # the scanner cannot see must never win by being listed first: the
+        # old "any" tail took TCGCSV's row order, which put Neo Genesis
+        # Wooper's 1st Edition ($9.52) ahead of its Unlimited ($3.20) when
+        # the label→subtype map knew neither bare name.
+        candidate_order: list[str] = list(preferred_subtypes)
         candidate_order.extend(_SUBTYPE_FALLBACK_ORDER)
-        candidate_order.extend(subtypes.keys())
+        candidate_order.extend(sorted(subtypes.keys(), key=_is_first_edition_subtype))
         seen: set[str] = set()
         for sub_type_name in candidate_order:
             if sub_type_name in seen or sub_type_name not in subtypes:
