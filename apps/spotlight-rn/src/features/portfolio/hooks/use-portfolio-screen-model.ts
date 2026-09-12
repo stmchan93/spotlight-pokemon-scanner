@@ -30,6 +30,19 @@ import { useAppServices } from '@/providers/app-providers';
 
 const maxRecentSales = 9;
 
+/**
+ * How old the dashboard on screen has to be before merely returning to the
+ * Collection tab is worth re-reading it.
+ *
+ * Two minutes because that is the shape of the cost: the dashboard read is the
+ * slow one (seconds, and slower still on a cold backend cache), and prices move
+ * on a daily sync — so a snapshot a minute old is not meaningfully wrong, while
+ * paying seconds for it every time the user glances at another tab is. Anything
+ * that genuinely changes the data bumps `dataVersion` and refetches regardless
+ * of this, and pull-to-refresh always bypasses it.
+ */
+export const portfolioRefetchStaleMs = 2 * 60 * 1000;
+
 const emptyPortfolioDashboard: PortfolioDashboard = {
   summary: {
     currentValue: 0,
@@ -425,11 +438,34 @@ export function usePortfolioScreenModel({
     }
   }, [spotlightRepository]);
 
-  // On a cold launch with no in-memory cache, hydrate the last persisted
-  // dashboard so the chart appears instantly; the live refresh below then
-  // revalidates it. Runs once on mount.
+  /*
+    Hydrate the last persisted dashboard when there is no in-memory cache, so the
+    real balance and chart are on screen immediately instead of a dash and a
+    skeleton while the slow live read runs.
+
+    KEYED ON THE COLLECTION, NOT ON MOUNT — and that is the whole fix.
+
+    `readPersistedDashboard` refuses a snapshot saved for a different collection
+    (correctly: it is still valid for ITS collection, just not this one). But
+    `activeCollectionID` does not start out correct. It starts as the
+    `ALL_COLLECTIONS_ID` placeholder and is restored from disk a beat later, so a
+    mount-only effect asked storage for the PLACEHOLDER's snapshot, got the
+    deliberate null, and never ran again. The restore then changed the cache
+    scope, the reset effect above saw no cache for the new scope and set
+    `hasLoadedDashboard` back to false — and the headline printed "—" until the
+    live dashboard landed seconds later, with the correct snapshot sitting unread
+    on disk the entire time.
+
+    Re-running per collection also covers the switch case for free: opening a
+    collection you have visited before paints its saved numbers at once.
+
+    Every guard below still holds. `hasUsableDashboardRef` means a live or cached
+    dashboard already won, and the ref (not state) is what makes that true even
+    when the live read resolves before this disk read does — persisted data must
+    never overwrite fresher data, whichever order they land in.
+  */
   useEffect(() => {
-    if (portfolioDashboardCache !== null) {
+    if (portfolioDashboardCache !== null || hasUsableDashboardRef.current) {
       return;
     }
     let cancelled = false;
@@ -452,14 +488,17 @@ export function usePortfolioScreenModel({
       setHasLoadedDashboard(true);
       setIsLoadingDashboard(false);
       setLastUpdatedAt(persisted.savedAt || null);
+      displayedCollectionIDRef.current = activeCollectionID;
       hasUsableDashboardRef.current = true;
     })();
     return () => {
       cancelled = true;
     };
-    // mount-only hydration
+    // `portfolioDashboardCache` is read, not depended on: it flips to non-null as
+    // soon as this effect succeeds, and re-running on that would be a no-op that
+    // only re-reads disk. The collection scope is the real trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [activeCollectionID, sessionOwnerKey]);
 
   const loadDashboard = useCallback(async () => {
     const requestedCollectionID = activeCollectionIDRef.current;
@@ -642,6 +681,11 @@ export function usePortfolioScreenModel({
   // gate was for: the storm is repeated 13-request dashboard fans while a scan
   // is in flight, not one load of the screen the user just opened.
   const hasRunInitialLoad = useRef(false);
+  // What the last load was FOR, so a plain refocus can tell "something changed"
+  // from "I am looking at this tab again". Not state: nothing renders from them.
+  const lastLoadedCollectionIDRef = useRef<string | null>(null);
+  const lastLoadedDataVersionRef = useRef<number | null>(null);
+  const lastLoadedAtRef = useRef(0);
 
   // `activeCollectionID` is a dependency so switching collections refetches. The
   // loaders read it from a ref, so the callbacks stay stable and this effect is
@@ -652,7 +696,35 @@ export function usePortfolioScreenModel({
     // set, so the first real load still counts as the first one.
     if (!isCollectionScopeResolved) return;
     if (!isPortfolioActive && hasRunInitialLoad.current) return;
+
+    /*
+      A PLAIN RETURN TO THE TAB IS NOT A REASON TO REFETCH.
+
+      `isPortfolioActive` is in this effect's dependencies so that changes made
+      elsewhere land when the user comes back. But focus flips false whenever
+      Collection loses it — Wishlist and Social, not just the Scanner — so every
+      trip away and back re-ran the inventory read AND the dashboard, which is
+      the expensive one. Nothing had changed; the screen just went quiet for
+      seconds, repeatedly, on a tab the user bounces off constantly.
+
+      So refetch when there is an actual reason: the first load, a different
+      collection, a `dataVersion` bump (a scan, an add, an edit — the signal that
+      says the data really did change), or data old enough to be worth the wait.
+      Anything else keeps what is already on screen, which is what the user came
+      back to look at.
+    */
+    const isFirstLoad = !hasRunInitialLoad.current;
+    const scopeChanged = lastLoadedCollectionIDRef.current !== activeCollectionID;
+    const dataChanged = lastLoadedDataVersionRef.current !== dataVersion;
+    const isStale = Date.now() - lastLoadedAtRef.current >= portfolioRefetchStaleMs;
+    if (!isFirstLoad && !scopeChanged && !dataChanged && !isStale) {
+      return;
+    }
+
     hasRunInitialLoad.current = true;
+    lastLoadedCollectionIDRef.current = activeCollectionID;
+    lastLoadedDataVersionRef.current = dataVersion;
+    lastLoadedAtRef.current = Date.now();
     void loadInventory();
     void loadDashboard();
   }, [
