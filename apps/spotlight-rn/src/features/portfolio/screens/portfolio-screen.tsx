@@ -25,7 +25,6 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Rect, Stop } from 'react-native-svg';
 import { CheckCircle, Trash } from 'iconoir-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -91,6 +90,7 @@ import {
   type CollapsiblePageProps,
   type CollapsibleScrollTarget,
 } from '@/components/page-tab-pager';
+import { FocusedStatusBar } from '@/components/focused-status-bar';
 import { EkalightMark } from '@/components/ekalight-mark';
 import { ScanTabIcon } from '@/components/nav-tab-icons';
 import { useFloatingAffordanceBottom } from '@/lib/tab-bar-insets';
@@ -1646,7 +1646,10 @@ export function PortfolioScreen({
     </View>
   );
 
-  const statusBar = <StatusBar style={isBarOverCover ? 'light' : 'dark'} />;
+  // Focus-gated: this screen stays MOUNTED while the user is on another tab, and
+  // an un-gated <StatusBar> would keep setting the style from off-screen — which
+  // is exactly what stole the scanner's white bar. See `FocusedStatusBar`.
+  const statusBar = <FocusedStatusBar style={isBarOverCover ? 'light' : 'dark'} />;
 
   const pagerTabBar = (
     // paddingTop 16 = the designed gap above the labels, OPAQUE so nothing

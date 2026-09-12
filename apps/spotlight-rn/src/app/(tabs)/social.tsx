@@ -1,5 +1,5 @@
-import { StatusBar } from 'expo-status-bar';
 
+import { FocusedStatusBar } from '@/components/focused-status-bar';
 import { NativeTabsPageBridge } from '@/components/native-tabs-page-bridge';
 import { GuestScannerRedirect } from '@/features/auth/components/guest-scanner-redirect';
 import { FeedScreen } from '@/features/social/screens/feed-screen';
@@ -28,7 +28,7 @@ export default function SocialRoute() {
 
   return (
     <NativeTabsPageBridge page="portfolio">
-      <StatusBar style="dark" />
+      <FocusedStatusBar style="dark" />
       <FeedScreen />
     </NativeTabsPageBridge>
   );

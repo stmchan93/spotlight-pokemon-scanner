@@ -1,5 +1,5 @@
-import { StatusBar } from 'expo-status-bar';
 
+import { FocusedStatusBar } from '@/components/focused-status-bar';
 import { NativeTabsPageBridge } from '@/components/native-tabs-page-bridge';
 import { WishlistScreen } from '@/features/wishlist/screens/wishlist-screen';
 
@@ -15,7 +15,7 @@ import { WishlistScreen } from '@/features/wishlist/screens/wishlist-screen';
 export default function WishlistRoute() {
   return (
     <NativeTabsPageBridge page="portfolio">
-      <StatusBar style="dark" />
+      <FocusedStatusBar style="dark" />
       <WishlistScreen />
     </NativeTabsPageBridge>
   );

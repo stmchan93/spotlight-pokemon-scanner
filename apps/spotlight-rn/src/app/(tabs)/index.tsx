@@ -1,5 +1,4 @@
 import { useRouter } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
 
 import { NativeTabsPageBridge } from '@/components/native-tabs-page-bridge';
 import { GuestScannerRedirect } from '@/features/auth/components/guest-scanner-redirect';
@@ -27,10 +26,11 @@ import { useAuth } from '@/providers/auth-provider';
  * `(tabs)/you` and `(tabs)/portfolio` are redirects here, so old links and the
  * "tapped my own name in the feed" navigation still land on the collection.
  *
- * `<StatusBar>` is owned per-screen. The retired pager kept exactly one and
- * flipped it with the active page; with real tabs each screen has to declare its
- * own, or the scanner's "light" style survives onto this light surface and the
- * time/battery/Wi-Fi icons go white-on-white.
+ * NO `<StatusBar>` HERE. `PortfolioScreen` owns one, and it is scroll-aware:
+ * white over the profile cover, dark once the white sheet is pinned under the
+ * bar. A second, fixed `dark` at this level did not merely duplicate it — both
+ * set the style process-wide, so the route's `dark` kept winning and the cover
+ * never got its white time/battery at all.
  */
 export default function HomeRoute() {
   const router = useRouter();
@@ -45,7 +45,6 @@ export default function HomeRoute() {
 
   return (
     <NativeTabsPageBridge page="portfolio">
-      <StatusBar style="dark" />
       <PortfolioScreen
         onOpenInventoryEntry={(entry) => {
           const preview = cardDetailPreviewFromInventoryEntry(entry);

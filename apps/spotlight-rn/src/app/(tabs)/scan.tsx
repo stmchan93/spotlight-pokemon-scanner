@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { useNavigation } from '@react-navigation/native';
-import { StatusBar } from 'expo-status-bar';
 
+import { FocusedStatusBar } from '@/components/focused-status-bar';
 import { NativeTabsPageBridge } from '@/components/native-tabs-page-bridge';
 import { ScannerScreen } from '@/features/scanner/screens/scanner-screen';
 import { getLastActiveTab } from '@/lib/last-active-tab';
@@ -105,7 +105,7 @@ export default function ScanRoute() {
   return (
     <NativeTabsPageBridge page="scanner">
       {/* Dark viewfinder needs light status-bar icons. */}
-      <StatusBar style="light" />
+      <FocusedStatusBar style="light" />
       <ScannerScreen onExitToPortfolio={goBack} />
     </NativeTabsPageBridge>
   );
