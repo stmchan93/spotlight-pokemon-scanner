@@ -57,7 +57,16 @@ type ProfileHeaderProps = {
 
 // Overlay header (Figma 4134:48866): all profile content renders over the
 // full-bleed cover. Geometry is the frame's, measured below the status bar.
-const CONTENT_HEIGHT = 286;
+//
+// THE BLOCK IS SIZED BY ITS CONTENT, not by this number. It was a fixed 286
+// with the content absolutely filling it, which meant a profile with NO BIO
+// still reserved the bio's two lines — an empty band of cover photo between the
+// stats row and the tab bar that read as a layout bug (owner's friend,
+// 2026-09-11). The content is in normal flow now, so the block is exactly as
+// tall as what is in it and every optional row (bio, social link, action row)
+// pays for itself only when present. This survives as the FLOOR, so a sparse
+// profile still gets a cover worth looking at rather than a letterbox.
+const MIN_CONTENT_HEIGHT = 286;
 const DEFAULT_AVATAR_TOP = 66;
 const AVATAR_SIZE = 80;
 /**
@@ -67,6 +76,15 @@ const AVATAR_SIZE = 80;
  * "Collection". 16 also lets the 16pt corner radius span the full lip.
  */
 const SHEET_LIP_HEIGHT = 16;
+/**
+ * Visible gap between the last thing in the header and the tab bar's labels.
+ *
+ * Measured to what the user SEES: the sheet lip is drawn over the block's last
+ * `SHEET_LIP_HEIGHT`, so the padding has to clear the lip before any of it
+ * counts. Used only when there is no action row — that row brings its own
+ * Figma-specified spacing (4157:74906).
+ */
+const CONTENT_BOTTOM_GAP = 24;
 
 const COVER_TRANSITION_MS = 180;
 
@@ -108,7 +126,7 @@ export function ProfileHeader({
       style={[
         styles.block,
         {
-          height: CONTENT_HEIGHT + insets.top,
+          minHeight: MIN_CONTENT_HEIGHT + insets.top,
           // White text needs a dark ground even before the photo decodes (or
           // when the profile has no cover at all).
           backgroundColor: theme.colors.gray800,
@@ -156,8 +174,15 @@ export function ProfileHeader({
       <View
         style={[
           styles.content,
-          { paddingHorizontal: theme.layout.pageGutter, paddingTop: insets.top + avatarTop },
+          {
+            paddingHorizontal: theme.layout.pageGutter,
+            paddingTop: insets.top + avatarTop,
+            // The action row carries its own bottom spacing; without one this is
+            // what holds the tab bar off the stats row.
+            paddingBottom: actionRow ? 0 : SHEET_LIP_HEIGHT + CONTENT_BOTTOM_GAP,
+          },
         ]}
+        testID={`${testID}-content`}
       >
         <View style={styles.identityRow}>
           {/* No ring: the white border read as a sticker over the cover photo. */}
@@ -363,8 +388,14 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     width: '100%',
   },
+  /*
+    In FLOW, not absolutely filling the block — that is what lets the block
+    shrink to fit a profile with no bio. The cover and the scrim stay absolute
+    behind it and stretch to whatever height this ends up being; this renders
+    after both, so it paints on top without needing a z-index.
+  */
   content: {
-    ...StyleSheet.absoluteFillObject,
+    width: '100%',
   },
   identity: {
     flex: 1,

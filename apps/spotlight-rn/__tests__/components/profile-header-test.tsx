@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { AccessibilityInfo, StyleSheet } from 'react-native';
+import { AccessibilityInfo, StyleSheet, Text } from 'react-native';
 
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -44,22 +44,64 @@ describe('ProfileHeader', () => {
   });
 
   it('spans the safe area with AND without a photo', () => {
-    // The overlay header renders from the screen's very top (its pinned
-    // container starts at y0), so its height carries the status-bar inset and
-    // there is no negative-margin pull-up — that double-compensated and
-    // dragged the avatar into the toolbar.
+    /*
+      The overlay header renders from the screen's very top (its pinned
+      container starts at y0), so its height carries the status-bar inset and
+      there is no negative-margin pull-up — that double-compensated and dragged
+      the avatar into the toolbar.
+
+      286 is a FLOOR now, not a fixed height. It used to be fixed, with the
+      content absolutely filling it, which meant a profile with no bio still
+      reserved the bio's lines and left a band of bare cover above the tab bar.
+      The content sizes the block now; this keeps a sparse profile from
+      collapsing into a letterbox.
+    */
     const withPhoto = renderHeader(
       <ProfileHeader coverUrl="https://cdn.test/c.jpg" displayName="Ash" initials="AK" />,
     );
     const photoBlock = StyleSheet.flatten(screen.getByTestId('profile-header').props.style);
     expect(photoBlock.marginTop).toBeUndefined();
-    expect(photoBlock.height).toBe(286 + 59);
+    expect(photoBlock.height).toBeUndefined();
+    expect(photoBlock.minHeight).toBe(286 + 59);
     withPhoto.unmount();
 
     renderHeader(<ProfileHeader displayName="Ash" initials="AK" />);
     const block = StyleSheet.flatten(screen.getByTestId('profile-header').props.style);
     expect(block.marginTop).toBeUndefined();
-    expect(block.height).toBe(286 + 59);
+    expect(block.height).toBeUndefined();
+    expect(block.minHeight).toBe(286 + 59);
+  });
+
+  it('holds the tab bar 24pt off the stats row when there is no bio', () => {
+    /*
+      The ask, in the owner's friend's words (2026-09-11): with no bio the
+      Collection/Activity bar should "hug the top" with 24pt between it and the
+      Fame/Followers/Following row, instead of an awkward gap.
+
+      The padding is 24 PLUS the sheet lip, because the tab bar's rounded white
+      band is drawn OVER the block's last 16pt — pad only 24 and the sheet eats
+      it and the stats row sits flush against the labels.
+    */
+    renderHeader(<ProfileHeader displayName="Ash" initials="AK" />);
+
+    const content = StyleSheet.flatten(
+      screen.getByTestId('profile-header-content').props.style,
+    ) as { paddingBottom?: number };
+    expect(content.paddingBottom).toBe(16 + 24);
+  });
+
+  it('lets the action row own the bottom gap when there is one', () => {
+    // The Follow/Message row brings its own Figma-specified spacing
+    // (4157:74906); doubling it with the block's padding would push the sheet
+    // a full row away from the buttons.
+    renderHeader(
+      <ProfileHeader actionRow={<Text>Follow</Text>} displayName="Ash" initials="AK" />,
+    );
+
+    const content = StyleSheet.flatten(
+      screen.getByTestId('profile-header-content').props.style,
+    ) as { paddingBottom?: number };
+    expect(content.paddingBottom).toBe(0);
   });
 
   it('renders the display name', () => {
