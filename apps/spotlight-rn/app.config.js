@@ -244,12 +244,20 @@ function withPlugin(existingPlugins, pluginEntry) {
 // literal app.json runtimeVersion ("0.1.2"), and they MUST keep receiving
 // staging OTA updates until the production cutover — so staging, development,
 // and any unset environment keep resolving to the app.json value untouched.
-// Production's FIRST binary instead starts on a clean runtime ("0.2.0") that no
-// staging-era binary has ever declared, so a production OTA can never land on a
-// staging-era binary (and a staging OTA can never land on a production one),
-// even if a channel is ever misconfigured.
+// Production's FIRST binary instead starts on a clean runtime that no staging-era
+// binary has ever declared, so a production OTA can never land on a staging-era
+// binary (and a staging OTA can never land on a production one), even if a
+// channel is ever misconfigured.
+//
+// It TRACKS the App Store version deliberately. This was '0.2.0' — picked only
+// to be obviously distinct from the 0.1.x staging lineage — which left two
+// unrelated version numbers to hold in your head for the same binary. Apple
+// rejected build 9 because `version` 0.1.3 was already a closed train there, and
+// the bump to 1.2.0 made the mismatch pointless as well as confusing. Changing
+// it costs nothing while no production binary exists; once one ships, moving
+// this again strands its OTAs.
 const SPOTLIGHT_RUNTIME_VERSION_BY_ENV = {
-  production: '0.2.0',
+  production: '1.2.0',
 };
 
 function resolveSpotlightRuntimeVersionForEnv(resolvedAppEnv, baseConfig = baseExpoConfig) {

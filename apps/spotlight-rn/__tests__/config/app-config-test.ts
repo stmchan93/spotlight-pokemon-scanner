@@ -333,7 +333,7 @@ describe('app config local overrides bridge', () => {
     // Production resolves its own runtime (see the per-env runtimeVersion test
     // below): prod's first binary starts a clean runtime so prod OTAs can never
     // land on staging-era 0.1.2 binaries.
-    expect(config.runtimeVersion).toBe('0.2.0');
+    expect(config.runtimeVersion).toBe('1.2.0');
 
     existsSpy.mockRestore();
     readSpy.mockRestore();
@@ -354,7 +354,11 @@ describe('app config local overrides bridge', () => {
     // non-production environment keeps the app.json literal. Production's first
     // binary starts a clean runtime that no staging-era binary ever declared,
     // so a production OTA can never land on a staging-era binary.
-    expect(runtimeFor('production')).toBe('0.2.0');
+    //
+    // Production's value TRACKS the App Store version (it was an unrelated
+    // '0.2.0'); what this test actually guards is that it is never one of the
+    // staging-lineage values below.
+    expect(runtimeFor('production')).toBe('1.2.0');
     expect(runtimeFor('staging')).toBe('0.1.2');
     expect(runtimeFor('development')).toBe('0.1.2');
     expect(runtimeFor()).toBe('0.1.2');
