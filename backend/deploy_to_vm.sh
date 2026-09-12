@@ -440,6 +440,27 @@ write_runtime_override "SPOTLIGHT_VISUAL_ADAPTER_CHECKPOINT_PATH" "$VISUAL_ADAPT
 write_runtime_override "SPOTLIGHT_VISUAL_ADAPTER_METADATA_PATH" "$VISUAL_ADAPTER_METADATA_PATH"
 write_runtime_override "SPOTLIGHT_VISUAL_USER_PHOTO_RERANK_POOL_NPZ_PATH" "$VISUAL_USER_PHOTO_RERANK_POOL_NPZ_PATH"
 write_runtime_override "SPOTLIGHT_VISUAL_USER_PHOTO_RERANK_POOL_MANIFEST_PATH" "$VISUAL_USER_PHOTO_RERANK_POOL_MANIFEST_PATH"
+
+# PER-GAME VISUAL INDEXES, normalized the same way Pokemon's are.
+#
+# Without an override the matcher builds the path itself, from a repo root that
+# is NOT where the data lives on a VM — it resolved
+# /home/stephenchan/backend/data/visual-index, while the deploy puts the files
+# under ~/spotlight/data/visual-index. Pokemon never hit that because its paths
+# come from the env and go through normalize_vm_repo_path; the per-game lanes
+# had no env entry to normalize, so every non-Pokemon game reported
+# "missing_artifacts" on a box where the artifacts were present and correct
+# (production, 2026-09-12 — a Lorcana scan answered "Visual-only resolver could
+# not run").
+for game_env_suffix in LORCANA ONEPIECE GUNDAM RIFTBOUND; do
+  for path_kind in NPZ MANIFEST; do
+    game_path_key="SPOTLIGHT_VISUAL_INDEX_${path_kind}_PATH_${game_env_suffix}"
+    game_path_value="$(normalize_vm_repo_path "$(read_dotenv_value "$ENV_FILE" "$game_path_key")")"
+    if [ -n "$game_path_value" ]; then
+      write_runtime_override "$game_path_key" "$game_path_value"
+    fi
+  done
+done
 write_runtime_override "SPOTLIGHT_SCAN_ARTIFACT_UPLOADS_ENABLED" "$SCAN_ARTIFACT_UPLOADS_ENABLED"
 write_runtime_override "SPOTLIGHT_SCAN_ARTIFACTS_STORAGE" "$SCAN_ARTIFACTS_STORAGE"
 write_runtime_override "SPOTLIGHT_SCAN_ARTIFACTS_GCS_BUCKET" "$SCAN_ARTIFACTS_GCS_BUCKET"
