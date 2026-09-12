@@ -107,6 +107,20 @@ function resolveDeviceTypeLabel() {
   }
 }
 
+/**
+ * Some Samsung builds report the whole Android build fingerprint as `osName`
+ * ("samsung/a17xue/…:user/release-keys"), which splits that device into its own
+ * platform in every OS breakdown. Anything with a slash is a fingerprint, not
+ * an OS name — fall back to the platform.
+ */
+function resolveOSName() {
+  const osName = getExpoDeviceModule()?.osName;
+  if (typeof osName !== 'string' || osName.length === 0 || osName.includes('/')) {
+    return Platform.OS === 'android' ? 'Android' : Platform.OS;
+  }
+  return osName;
+}
+
 export function getObservabilityAppContext(): ObservabilityAppContext {
   const applicationModule = getExpoApplicationModule();
   return {
@@ -153,7 +167,7 @@ export function getPostHogCustomAppProperties() {
     $device_type: resolveDeviceTypeLabel(),
     $is_emulator: deviceModule ? !deviceModule.isDevice : null,
     $locale: locale,
-    $os_name: deviceModule?.osName ?? Platform.OS,
+    $os_name: resolveOSName(),
     $os_version: deviceModule?.osVersion ?? null,
     $timezone: timezone,
   };
