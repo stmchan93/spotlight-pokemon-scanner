@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { fireEvent, render, screen, within } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
 import { InventoryCardTile, SpotlightThemeProvider, colors } from '@spotlight/design-system';
@@ -109,12 +109,20 @@ describe('InventoryCardTile', () => {
     expect(screen.queryByTestId('tile-star-outlined')).toBeNull();
   });
 
-  it('renders no day-change delta pill (removed in Figma 2489:6459)', () => {
+  it('renders no day-change pill when the caller supplies no day data', () => {
+    /*
+      The OLD `tile-delta` pill from Figma 2489:6459 is gone for good — this
+      still guards its ids. What replaced it is opt-in: the tile draws a day
+      move only when a caller passes one, so every screen that does not want it
+      (catalog search, the picker) gets a clean tile by saying nothing. See the
+      day-change describe block below for the pill itself.
+    */
     renderTile();
 
     expect(screen.queryByTestId('tile-delta')).toBeNull();
     expect(screen.queryByTestId('tile-delta-arrow-up')).toBeNull();
     expect(screen.queryByTestId('tile-delta-arrow-down')).toBeNull();
+    expect(screen.queryByTestId('tile-day-change')).toBeNull();
   });
 
   it('shows the selection check-circle badge (not a purple overlay) in selectable mode', () => {
@@ -264,5 +272,59 @@ describe('InventoryCardTile', () => {
     expect(flattened.borderWidth).toBe(0);
     expect(flattened.borderRadius).toBe(0);
     expect(flattened.backgroundColor).toBe('transparent');
+  });
+});
+
+describe('InventoryCardTile day-change pill', () => {
+  /*
+    The dollar move beside the price — a tinted pill with an arrow, on the
+    `deltaUp*` / `deltaDown*` ramp (Figma 1263:3132 / 1263:3381).
+
+    Pinned because it has been removed once already, in the sweep that took the
+    since-added pills and sparklines off Collection rows. That sweep was right
+    about the percent (it moved to the PDP) and wrong about this: the dollar
+    move is the number people open the app for, and its absence is what got
+    reported (owner's friend, 2026-09-11). The percent line and this pill are
+    independent — a screen can show either, both, or neither.
+  */
+  it('shows an up arrow and the amount in the up ramp when the card gained today', () => {
+    renderTile({ dayChangeAmount: 2.84 });
+
+    const pill = screen.getByTestId('tile-day-change');
+    expect(within(pill).getByText('↑ $2.84')).toBeTruthy();
+    expect(StyleSheet.flatten(pill.props.style).backgroundColor).toBe(colors.deltaUpSurface);
+  });
+
+  it('shows a down arrow and the ABSOLUTE amount when the card lost today', () => {
+    // The arrow carries the sign, so the number must not repeat it as a minus.
+    renderTile({ dayChangeAmount: -0.93 });
+
+    const pill = screen.getByTestId('tile-day-change');
+    expect(within(pill).getByText('↓ $0.93')).toBeTruthy();
+    expect(StyleSheet.flatten(pill.props.style).backgroundColor).toBe(colors.deltaDownSurface);
+  });
+
+  it('draws nothing when the card did not move, or has no day data', () => {
+    // A flat day is not news; a badge reading "$0.00" on every untracked card
+    // would be noise on every tile.
+    for (const dayChangeAmount of [0, null, undefined, Number.NaN]) {
+      renderTile({ dayChangeAmount });
+      expect(screen.queryByTestId('tile-day-change')).toBeNull();
+      screen.unmount();
+    }
+  });
+
+  it('suppresses the pill on penny cards, like the percent above it', () => {
+    // Three cents on a four-cent card is a real number and a useless one.
+    renderTile({ dayChangeAmount: 0.03, marketPrice: 0.04 });
+
+    expect(screen.queryByTestId('tile-day-change')).toBeNull();
+  });
+
+  it('formats the amount in the entry currency the caller supplies', () => {
+    // A JPY card's move must not render as dollars beside its own yen price.
+    renderTile({ dayChangeAmount: 120, formatDayChange: (value) => `¥${value.toFixed(0)}` });
+
+    expect(within(screen.getByTestId('tile-day-change')).getByText('↑ ¥120')).toBeTruthy();
   });
 });

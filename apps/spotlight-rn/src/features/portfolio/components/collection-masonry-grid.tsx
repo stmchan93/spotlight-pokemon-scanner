@@ -294,6 +294,13 @@ function CollectionTileSlot({
       marketPrice={entry.hasMarketPrice ? entry.marketPrice : null}
       // No trend percent under the price — the since-added/30d trend UI moved
       // off the Collection screen (headed for the PDP).
+      // Percent stays off this screen (it moved to the PDP). The DOLLAR day
+      // move is back, because it is the one number people said they open the
+      // app for — see `dayChangeAmount` on the tile.
+      dayChangeAmount={entry.dayChangeAmount ?? null}
+      // Same currency as the price above it, or a JPY card's move reads in the
+      // wrong unit right next to its own price.
+      formatDayChange={(value) => formatOptionalCurrency(value, entry.currencyCode) ?? `$${value.toFixed(2)}`}
       trendChangePercent={null}
       isFavorite={entry.isFavorite === true}
       showFavorite={false}

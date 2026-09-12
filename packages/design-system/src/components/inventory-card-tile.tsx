@@ -18,7 +18,7 @@ const SLAB_ASPECT = 84 / 136;
 const CARD_FRAME_ASPECT = 0.716;
 
 import { useSpotlightTheme } from '../theme';
-import { fontFamilies } from '../tokens';
+import { fontFamilies, textStyles } from '../tokens';
 import { AppText } from './app-text';
 import { SelectionCheckCircle } from './selection-check-circle';
 import { TrendTriangle } from './trend-triangle';
@@ -79,6 +79,24 @@ export type InventoryCardTileProps = {
    * Callers pass the window-scoped percent (since-added or 30d).
    */
   trendChangePercent?: number | null;
+  /**
+   * Day-over-day DOLLAR move, rendered as a tinted pill beside the price
+   * (Figma 1263:3132 / 1263:3381): an arrow plus the absolute amount, on the
+   * `deltaUp*` / `deltaDown*` ramp.
+   *
+   * A pill of DOLLARS, deliberately, not another percent. It answers "what did
+   * this card do today" in the unit the answer matters in, and it is the one
+   * piece of trend UI on this screen that people actually named as the reason
+   * they liked the app (owner's friend, 2026-09-11). The percent line above is
+   * window-scoped (since-added / 30d) and independent of this.
+   *
+   * Null or non-finite hides it; exactly 0 hides it too (a card that did
+   * nothing today does not need a badge saying so); the same sub-$1 penny guard
+   * as `trendChangePercent` applies.
+   */
+  dayChangeAmount?: number | null;
+  /** Formats the absolute day move (e.g. `2.84` -> `$2.84`). */
+  formatDayChange?: (value: number) => string;
   isFavorite: boolean;
   /**
    * When true (default) the favorite star badge renders in the tile's
@@ -184,6 +202,8 @@ export function InventoryCardTile({
   footnote = null,
   marketPrice,
   trendChangePercent,
+  dayChangeAmount,
+  formatDayChange,
   isFavorite,
   showFavorite = true,
   showQuantity = true,
@@ -241,6 +261,19 @@ export function InventoryCardTile({
   const trendLabel = trendPercent !== null
     ? `${trendPercent > 0 ? '+' : ''}${trendPercent.toFixed(2)}%`
     : '';
+  // The day-move pill. Shares the penny guard with the percent above for the
+  // same reason: a few cents on a $0.04 card is noise wearing a badge.
+  const dayChange =
+    typeof dayChangeAmount === 'number' && Number.isFinite(dayChangeAmount) && dayChangeAmount !== 0
+      ? dayChangeAmount
+      : null;
+  const showDayChange = dayChange !== null && !isPennyPrice;
+  const dayChangeUp = (dayChange ?? 0) > 0;
+  const dayChangeLabel = dayChange === null
+    ? ''
+    : formatDayChange
+      ? formatDayChange(Math.abs(dayChange))
+      : `$${Math.abs(dayChange).toFixed(2)}`;
   // Slabs render their art inside the slab-case frame — keyed by THIS entry's
   // own grader (unknown graders get the neutral label).
   const brandedGrader = kind === 'slab' ? (graderLabel ?? '').trim() || null : null;
@@ -393,6 +426,33 @@ export function InventoryCardTile({
               >
                 {priceLabel ?? '—'}
               </AppText>
+              {showDayChange ? (
+                <View
+                  style={[
+                    styles.dayChangePill,
+                    {
+                      backgroundColor: dayChangeUp
+                        ? theme.colors.deltaUpSurface
+                        : theme.colors.deltaDownSurface,
+                    },
+                  ]}
+                  testID={testID ? `${testID}-day-change` : undefined}
+                >
+                  <AppText
+                    numberOfLines={1}
+                    style={[
+                      styles.dayChangeText,
+                      {
+                        color: dayChangeUp
+                          ? theme.colors.deltaUpText
+                          : theme.colors.deltaDownText,
+                      },
+                    ]}
+                  >
+                    {`${dayChangeUp ? '\u2191' : '\u2193'} ${dayChangeLabel}`}
+                  </AppText>
+                </View>
+              ) : null}
               {showTrend ? (
                 <View
                   style={styles.trendGroup}
@@ -618,6 +678,19 @@ const styles = StyleSheet.create({
   priceStack: {
     alignItems: 'flex-start',
     flexShrink: 1,
+  },
+  /* The day-move pill beside the price (Figma 1263:3132 / 1263:3381). */
+  dayChangePill: {
+    alignSelf: 'flex-start',
+    borderCurve: 'continuous',
+    borderRadius: 6,
+    marginTop: 2,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  dayChangeText: {
+    ...textStyles.deltaPill,
+    fontSize: 12,
   },
   trendGroup: {
     alignItems: 'center',

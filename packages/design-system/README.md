@@ -477,7 +477,16 @@ Current API concepts:
   `showQualityLine={false}` hides just the condition/grade TEXT while keeping
   the slab-case thumbnail frame (Wishlist, where copy-specific condition isn't
   shown)
-- `priceLabel` (14 Bold; no day-change delta — removed per Figma 2489:6459)
+- `priceLabel` (14 Bold)
+- optional `dayChangeAmount` + `formatDayChange` — the day-over-day DOLLAR move
+  as a tinted pill beside the price (Figma 1263:3132 / 1263:3381): an arrow plus
+  the ABSOLUTE amount on the `deltaUp*` / `deltaDown*` ramp. Opt-in, so a screen
+  with no day concept (catalog search, pickers) gets a clean tile by passing
+  nothing. Null, non-finite, and exactly 0 all hide it, and the penny guard
+  below applies. This is a different question from `trendChangePercent`: "what
+  did this card do today, in money" vs "how is it doing over my chosen window".
+  The older `tile-delta` pill removed per Figma 2489:6459 is NOT this and is not
+  coming back
 - optional `trendChangePercent` — window-scoped percent stacked directly under
   the price in the price row's left stack: a 12px `ArrowUp`/`ArrowDown` icon +
   `+10.46%` (12 SemiBold) in green400/red400. Exactly 0 renders a gray600
@@ -485,8 +494,8 @@ Current API concepts:
   hides the line. Callers pass the shared trend-window expression (since-added
   or 30d)
 - optional `marketPrice` — numeric price backing `priceLabel`, used only for
-  the penny guard: `< 1` suppresses the trend line entirely (a −50% on $0.04
-  misleads; pennies aren't investment content)
+  the penny guard: `< 1` suppresses the trend line AND the day-change pill
+  entirely (a −50% on $0.04 misleads; pennies aren't investment content)
 - `quantity` readout at the right edge of the price row (count + box icon);
   `showQuantity={false}` hides it for surfaces with no owned-quantity concept
   (Wishlist card view)
