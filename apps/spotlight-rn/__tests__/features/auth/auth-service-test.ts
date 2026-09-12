@@ -404,6 +404,47 @@ describe('auth-service profiles', () => {
       labelerEnabled: false,
     });
   });
+
+  it('reads providers from app_metadata when a restored session has no identities', async () => {
+    const supabase = makeSupabaseMock();
+    supabase.from.mockReturnValue(profileTableResult({ data: null, error: null }).table);
+
+    const { service } = await loadAuthService({ supabase });
+    const restored = makeSession({
+      user: {
+        app_metadata: { provider: 'apple', providers: ['apple'] },
+        email: '9jdg2t9ngg@privaterelay.appleid.com',
+        id: 'user-1',
+        identities: [],
+        user_metadata: {},
+      },
+    });
+
+    await expect(service.resolveAppUserFromSession(restored)).resolves.toMatchObject({
+      providers: ['apple'],
+    });
+  });
+
+  it('leaves a guest with no providers even though Supabase stamps one', async () => {
+    const supabase = makeSupabaseMock();
+    supabase.from.mockReturnValue(profileTableResult({ data: null, error: null }).table);
+
+    const { service } = await loadAuthService({ supabase });
+    const guest = makeSession({
+      user: {
+        app_metadata: { provider: 'anonymous', providers: ['anonymous'] },
+        email: null,
+        id: 'user-1',
+        identities: [],
+        is_anonymous: true,
+        user_metadata: {},
+      },
+    });
+
+    await expect(service.resolveAppUserFromSession(guest)).resolves.toMatchObject({
+      providers: [],
+    });
+  });
 });
 
 /**

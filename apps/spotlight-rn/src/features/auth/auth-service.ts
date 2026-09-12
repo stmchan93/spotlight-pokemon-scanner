@@ -129,10 +129,23 @@ function formatAppleFullName(fullName: {
 }
 
 function dedupeProviders(user: User) {
+  // A restored session decodes the JWT and leaves `identities` empty; only
+  // app_metadata survives, so fall back to it.
+  const appMetadata = (user.app_metadata ?? {}) as { provider?: unknown; providers?: unknown };
+  const fallback = Array.isArray(appMetadata.providers)
+    ? appMetadata.providers
+    : [appMetadata.provider];
+
+  const fromIdentities = (user.identities ?? []).map((identity) => identity.provider);
+  const candidates = fromIdentities.length > 0 ? fromIdentities : fallback;
+
   return [...new Set(
-    (user.identities ?? [])
-      .map((identity) => identity.provider)
-      .filter((provider): provider is string => typeof provider === 'string' && provider.length > 0),
+    candidates.filter(
+      (provider): provider is string => typeof provider === 'string'
+        && provider.length > 0
+        // Supabase stamps guests with provider "anonymous"; keeping it would read as signed in.
+        && provider !== 'anonymous',
+    ),
   )];
 }
 

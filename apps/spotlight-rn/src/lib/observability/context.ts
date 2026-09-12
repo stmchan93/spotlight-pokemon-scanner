@@ -146,6 +146,8 @@ export function getPostHogCustomAppProperties() {
     $app_name: Constants.expoConfig?.name ?? null,
     $app_namespace: applicationModule?.applicationId ?? null,
     $app_version: appContext.appVersion,
+    // Lifecycle events fire from the SDK constructor, before register() runs.
+    app_env: appContext.appEnv,
     $device_manufacturer: deviceModule?.manufacturer ?? deviceModule?.brand ?? null,
     $device_model: deviceModule?.modelName ?? null,
     $device_type: resolveDeviceTypeLabel(),
