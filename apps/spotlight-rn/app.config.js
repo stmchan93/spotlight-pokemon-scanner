@@ -304,6 +304,24 @@ function buildExpoConfigForEnv(env = process.env, overridesPath = LOCAL_OVERRIDE
   if (releaseOverrides.iosBundleIdentifier) {
     ios.bundleIdentifier = releaseOverrides.iosBundleIdentifier;
   }
+  /*
+    PRODUCTION SHIPS WITHOUT THE APP TRANSPORT SECURITY EXEMPTION.
+
+    `app.json` carries `NSAllowsArbitraryLoads: true` + `NSAllowsLocalNetworking`
+    so a dev build can reach Metro and a LAN backend over plain HTTP. Shipping
+    that to the App Store says "this app may talk to any server without TLS",
+    which is a review question at best and untrue for us at worst: the
+    production backend serves TLS 1.3 with a valid chain, so it satisfies ATS
+    with no exemption at all (checked 2026-09-11).
+
+    Removing the whole key rather than narrowing it to a domain exception — an
+    exception would be dead config the moment the host moves off sslip.io, and
+    there is nothing left to except.
+  */
+  if (trimEnvValue(resolvedAppEnv) === 'production') {
+    const { NSAppTransportSecurity: _ats, ...productionInfoPlist } = ios.infoPlist ?? {};
+    ios.infoPlist = productionInfoPlist;
+  }
   // No per-env iOS icon override: every environment uses the Icon Composer bundle
   // declared in app.json (`ios.icon: './assets/ekalight.icon'`). Staging and
   // production used to point at the flat `ekalight-e-icon.png` instead, which
