@@ -14,6 +14,9 @@ PLATFORM="${3:-ios}"
 PROFILE="${4:-$ENVIRONMENT}"
 ENV_FILE="${MOBILE_EAS_ENV_FILE:-$APP_DIR/.env.${ENVIRONMENT}}"
 TEMP_ENV_FILE=""
+# Drop the four positionals this script reads so anything AFTER them is the
+# caller's own eas-cli flags — see the submit branch, which forwards them.
+shift $(( $# < 4 ? $# : 4 )) || true
 
 if [ -z "$ENVIRONMENT" ] || [ -z "$ACTION" ]; then
   echo "Usage: $0 <development|staging|production> <build|submit|release|update> [ios|android] [profile]" >&2
@@ -331,6 +334,12 @@ if [ "$ACTION" = "release" ]; then
   exec pnpm dlx eas-cli "${BUILD_ARGS[@]}"
 fi
 
+# Extra args are forwarded (see the `exec` below) so a submit can name the build
+# it means — `... production submit ios production --id <build-id>`. Without one,
+# eas-cli prompts "What would you like to submit?" and a non-interactive shell
+# has no stdin to answer with, so the submit fails after the confirmation guard
+# has already passed. Naming the build is also the safer habit: picking from a
+# list is how you submit the wrong binary.
 SUBMIT_ARGS=(submit --platform "$PLATFORM" --profile "$PROFILE")
 if [ -n "$TESTFLIGHT_NOTES" ]; then
   if testflight_changelog_enabled; then
@@ -339,4 +348,4 @@ if [ -n "$TESTFLIGHT_NOTES" ]; then
     log_testflight_notes_skipped
   fi
 fi
-exec pnpm dlx eas-cli "${SUBMIT_ARGS[@]}"
+exec pnpm dlx eas-cli "${SUBMIT_ARGS[@]}" "$@"
