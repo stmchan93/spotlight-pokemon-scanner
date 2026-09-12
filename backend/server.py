@@ -377,6 +377,31 @@ SCAN_INFERENCE_ACQUIRE_TIMEOUT_S = float(
     os.environ.get("SPOTLIGHT_SCAN_INFERENCE_ACQUIRE_TIMEOUT_S") or "6.0"
 )
 _scan_inference_semaphore = threading.BoundedSemaphore(SCAN_INFERENCE_MAX_CONCURRENCY)
+# How many scan slots are HELD by a request that is actually running right now.
+#
+# This exists to tell the two indistinguishable reasons a slot wait times out
+# apart: the box is genuinely busy (held > 0 — back off, that is the guard
+# working), or every permit has been LEAKED and no scan will ever get one again
+# (held == 0 while the semaphore is empty — the pool is dead and only a restart
+# would clear it).
+#
+# On a 2-vCPU box the pool is ONE permit, so a single leak is not a degradation,
+# it is a total scanner outage that survives until someone redeploys — which is
+# exactly what it looked like on 2026-09-11: the first scan after a restart
+# worked and every one after it failed, and the deploy "fixed" it.
+_scan_inference_held = 0
+_scan_inference_held_lock = threading.Lock()
+
+
+def _scan_inference_slots_held() -> int:
+    with _scan_inference_held_lock:
+        return _scan_inference_held
+
+
+def _mark_scan_inference_slot_held(delta: int) -> None:
+    global _scan_inference_held
+    with _scan_inference_held_lock:
+        _scan_inference_held = max(0, _scan_inference_held + delta)
 
 # Dedicated concurrency pool for LLM-proxy endpoints ("Who's That Pokemon").
 # Claude vision calls take seconds, so they get their OWN small pool — they
@@ -10741,6 +10766,16 @@ class SpotlightScanService:
             "livePricing": self._live_pricing_state(),
             "scanArtifactUploads": self._scan_artifact_uploads_state(),
             "cardShowMode": self._card_show_mode_state(),
+            # The scan concurrency pool, because a dead pool is a TOTAL scanner
+            # outage and was previously invisible from outside the process: a
+            # leaked permit made every scan fail while every health signal here
+            # still said "ok". `heldSlots == maxConcurrency` with no scan running
+            # is the dead-pool signature.
+            "scanInferencePool": {
+                "maxConcurrency": SCAN_INFERENCE_MAX_CONCURRENCY,
+                "heldSlots": _scan_inference_slots_held(),
+                "acquireTimeoutSeconds": SCAN_INFERENCE_ACQUIRE_TIMEOUT_S,
+            },
         }
         if prewarm_visual:
             payload["visualRuntime"] = self._prewarm_raw_visual_runtime(run_inference=True)
@@ -20338,8 +20373,48 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         below the app's request timeout so its silent retry re-submits once the
         queue drains, keeping the UI on "scanning…" rather than an error.
         """
+        global _scan_inference_semaphore
         if _scan_inference_semaphore.acquire(timeout=SCAN_INFERENCE_ACQUIRE_TIMEOUT_S):
+            _mark_scan_inference_slot_held(1)
             return True
+
+        # THE WAIT TIMED OUT. Before shedding, work out which of the two very
+        # different situations this is — see `_scan_inference_held`.
+        held = _scan_inference_slots_held()
+        if held <= 0:
+            # Nothing is running, yet no permit is available: every permit has
+            # been leaked and this pool is dead for the life of the process.
+            # Rebuild it rather than 503 every scan until the next deploy. A
+            # leak is still a BUG worth finding — hence WARNING, and the counter
+            # reset — but a self-inflicted outage must not need a human.
+            print(
+                json.dumps({
+                    "severity": "WARNING",
+                    "event": "scan_inference_pool_rebuilt",
+                    "reason": "no permits available while no scan was running (leaked slot)",
+                    "maxConcurrency": SCAN_INFERENCE_MAX_CONCURRENCY,
+                    "waitedSeconds": SCAN_INFERENCE_ACQUIRE_TIMEOUT_S,
+                }),
+                flush=True,
+            )
+            _scan_inference_semaphore = threading.BoundedSemaphore(SCAN_INFERENCE_MAX_CONCURRENCY)
+            if _scan_inference_semaphore.acquire(timeout=SCAN_INFERENCE_ACQUIRE_TIMEOUT_S):
+                _mark_scan_inference_slot_held(1)
+                return True
+
+        # A real queue. Shed, and SAY SO: this path used to return in silence,
+        # so a shed scan and a scan that was never sent looked identical in the
+        # log.
+        print(
+            json.dumps({
+                "severity": "WARNING",
+                "event": "scan_inference_shed",
+                "heldSlots": held,
+                "maxConcurrency": SCAN_INFERENCE_MAX_CONCURRENCY,
+                "waitedSeconds": SCAN_INFERENCE_ACQUIRE_TIMEOUT_S,
+            }),
+            flush=True,
+        )
         self._write_json(
             HTTPStatus.SERVICE_UNAVAILABLE,
             {
@@ -22730,9 +22805,30 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         else:
             payload = self._read_json_body()
         if payload is None:
+            body_error_status = getattr(self, "_json_body_error_status", HTTPStatus.BAD_REQUEST)
+            body_error_message = getattr(self, "_json_body_error_message", "Invalid JSON body")
+            # SAY WHY. Every rejection above this line used to return in silence:
+            # the body-read log had already fired, so a scan that died here left
+            # a `multipart_body_read` line with nothing after it and no
+            # traceback — indistinguishable, from the log, from a scan that
+            # simply never matched. That cost a full debugging session on
+            # 2026-09-11 (every scan after the first in a session failing with
+            # "matches could not load", server-side cause invisible).
+            print(
+                json.dumps({
+                    "severity": "WARNING",
+                    "event": "request_body_rejected",
+                    "path": parsed.path,
+                    "status": int(body_error_status),
+                    "reason": body_error_message,
+                    "contentType": str(self.headers.get("Content-Type") or "")[:120],
+                    "contentLength": str(self.headers.get("Content-Length") or ""),
+                }),
+                flush=True,
+            )
             self._write_json(
-                getattr(self, "_json_body_error_status", HTTPStatus.BAD_REQUEST),
-                {"error": getattr(self, "_json_body_error_message", "Invalid JSON body")},
+                body_error_status,
+                {"error": body_error_message},
             )
             return
 
@@ -23493,6 +23589,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                     },
                 )
             finally:
+                _mark_scan_inference_slot_held(-1)
                 _scan_inference_semaphore.release()
             return
 
@@ -23537,6 +23634,20 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             # a failed attempt to retry (observed 2026-09-04: 80s uplink stall
             # -> aborted uploads -> empty-payload 500s).
             if not str(payload.get("scanID") or "").strip():
+                # Same rule as `request_body_rejected` above: this branch fires
+                # AFTER the body-read log, so staying quiet made a rejected scan
+                # look like a scan that was never sent. The key list is what
+                # separates "truncated upload" from "the payload part arrived
+                # but is the wrong shape" without echoing any image bytes.
+                print(
+                    json.dumps({
+                        "severity": "WARNING",
+                        "event": "scan_payload_incomplete",
+                        "path": parsed.path,
+                        "payloadKeys": sorted(str(key) for key in payload.keys())[:25],
+                    }),
+                    flush=True,
+                )
                 self._write_json(
                     HTTPStatus.BAD_REQUEST,
                     {
@@ -23573,6 +23684,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                     },
                 )
             finally:
+                _mark_scan_inference_slot_held(-1)
                 _scan_inference_semaphore.release()
             return
 
@@ -23631,6 +23743,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                     },
                 )
             finally:
+                _mark_scan_inference_slot_held(-1)
                 _scan_inference_semaphore.release()
             return
 

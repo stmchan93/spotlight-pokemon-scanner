@@ -356,18 +356,56 @@ class VisualMatchBatchRouteTests(unittest.TestCase):
             server_module._scan_inference_semaphore = original_sem
 
     def test_route_returns_503_without_running_batch_when_no_slot_frees(self) -> None:
+        """A genuinely BUSY pool still sheds.
+
+        The permit is taken AND marked held, which is what a real in-flight scan
+        does. That distinction is the whole point: an unheld-but-empty pool is a
+        leak, and is repaired rather than shed (see the test below).
+        """
         original_sem = server_module._scan_inference_semaphore
         original_timeout = server_module.SCAN_INFERENCE_ACQUIRE_TIMEOUT_S
         server_module._scan_inference_semaphore = threading.BoundedSemaphore(1)
         server_module.SCAN_INFERENCE_ACQUIRE_TIMEOUT_S = 0.05
         try:
             self.assertTrue(server_module._scan_inference_semaphore.acquire(blocking=False))
+            server_module._mark_scan_inference_slot_held(1)
             captured: dict[str, object] = {}
             handler = self._batch_handler(captured, {"items": [{"scanID": "s"}]})
             handler.do_POST()
             self.assertEqual(captured["status"], HTTPStatus.SERVICE_UNAVAILABLE)
             self.assertEqual(captured["payload"]["errorType"], "ScannerBusy")  # type: ignore[index]
             handler.service.visual_match_scan_batch.assert_not_called()
+        finally:
+            server_module._mark_scan_inference_slot_held(-1)
+            server_module._scan_inference_semaphore = original_sem
+            server_module.SCAN_INFERENCE_ACQUIRE_TIMEOUT_S = original_timeout
+
+    def test_route_rebuilds_a_leaked_pool_instead_of_shedding_forever(self) -> None:
+        """A LEAKED pool heals itself on the next scan.
+
+        The permit is gone but nothing is running — the signature of a handler
+        that took a slot and never gave it back. On a 2-vCPU box the pool is ONE
+        permit, so this is not a slowdown, it is every scan failing until someone
+        redeploys: exactly what happened on 2026-09-11, where the first scan
+        after a restart worked and every one after it did not.
+        """
+        original_sem = server_module._scan_inference_semaphore
+        original_timeout = server_module.SCAN_INFERENCE_ACQUIRE_TIMEOUT_S
+        server_module._scan_inference_semaphore = threading.BoundedSemaphore(1)
+        server_module.SCAN_INFERENCE_ACQUIRE_TIMEOUT_S = 0.05
+        try:
+            # Drain the pool WITHOUT marking it held — a leak, not a busy box.
+            self.assertTrue(server_module._scan_inference_semaphore.acquire(blocking=False))
+            captured: dict[str, object] = {}
+            handler = self._batch_handler(captured, {"items": [{"scanID": "s"}]})
+            handler.service.visual_match_scan_batch.return_value = {"results": []}
+            handler.do_POST()
+            self.assertEqual(captured["status"], HTTPStatus.OK)
+            handler.service.visual_match_scan_batch.assert_called_once()
+            # And the rebuilt pool is left usable, not drained again.
+            self.assertEqual(server_module._scan_inference_slots_held(), 0)
+            self.assertTrue(server_module._scan_inference_semaphore.acquire(blocking=False))
+            server_module._scan_inference_semaphore.release()
         finally:
             server_module._scan_inference_semaphore = original_sem
             server_module.SCAN_INFERENCE_ACQUIRE_TIMEOUT_S = original_timeout
