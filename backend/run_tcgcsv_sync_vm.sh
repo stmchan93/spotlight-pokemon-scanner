@@ -31,6 +31,8 @@ DATABASE_PATH="${SPOTLIGHT_DATABASE_PATH:-$SCRIPT_DIR/data/spotlight_scanner.sql
 HOSTNAME_VALUE="$(hostname -s 2>/dev/null || hostname)"
 export SPOTLIGHT_RUNTIME_LABEL="${SPOTLIGHT_RUNTIME_LABEL:-vm-tcgcsv-sync:${HOSTNAME_VALUE}}"
 
+# "$@" forwards manual flags (--force, --dry-run); the cron passes none.
 "$PYTHON_BIN" "$SCRIPT_DIR/sync_tcgcsv_prices.py" \
   --database-path "$DATABASE_PATH" \
-  --scheduled-for "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+  --scheduled-for "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+  "$@"
