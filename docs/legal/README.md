@@ -75,6 +75,8 @@ config, not by hand.
 | 12 | **Appeal response-time commitment** | ToS §7.3 | Optional, unless the EU DSA applies to you |
 | 13 | **CSAM reporting obligations** | ToS §8 | Needs counsel — see §4.1 |
 | 14 | **Card imagery / catalogue data licence** | ToS §11 | Confirm your Scrydex and PokemonPriceTracker agreements permit your display and redistribution of card images and data |
+| 14a | **Scrydex written authorization for third-party identity responses** | ToS §11 | Scrydex ToS §4 forbids redistribution without written authorization; a partner scan API (Treasure Hunt, 2026-09) returns set code, collector number and printing derived from the Scrydex catalog. Ask in the pending Scrydex email; keep names and images out of partner responses regardless |
+| 14b | **PokemonPriceTracker plan tier** | ToS §11 | PPT ToS §6 (2026-08-19): commercial in-app use needs a Business or Enterprise plan; redistribution to third parties is forbidden on every plan, so PPT-derived figures never leave the app |
 | 15 | **EU/UK Article 27 representative and DPO** | Privacy §1 | Only if you have EU/UK users |
 | 16 | **International transfer mechanism** (SCCs / DPF) | Privacy §5.1 | Only if you have EU/UK users |
 | 17 | **PostHog retention period** | Privacy §8 | Read it off your PostHog project settings |
