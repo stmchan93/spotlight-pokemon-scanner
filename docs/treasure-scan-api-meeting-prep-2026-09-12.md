@@ -376,14 +376,14 @@ Twenty minutes, phone in hand, laptop open. Show first, explain second, negotiat
 **8. The ask (2 minutes).** Their photo set this week. The verified transaction feed as part of the deal. A named-provider line and scan-first placement in their UI. Then the money conversation, from the pricing section above.
 
 **Technical questions they will ask, and the answers**
-- *Latency?* About half a second per card on our production box; three to four seconds for a nine-card page. Staging is slower; do not demo timing on staging as if it were prod.
-- *Concurrency?* Ten to twelve simultaneous scanners today at under three seconds p95; the box is being doubled; per-key limits protect everyone.
-- *Uptime / SLA?* Best effort in the pilot, health endpoint for their monitor, key revocation as the kill switch. An SLA is a Phase 1 conversation.
-- *What about sports?* Not covered. CardSight fits there. We are the TCG scanner.
-- *Graded slabs?* Coming, not in the pilot. Today a slab photo returns a weak raw result flagged for review.
-- *Languages?* English and Japanese Pokémon today; the response carries the language.
-- *HEIC from iPhones?* Accepted, along with JPEG and PNG, up to 8 MB.
-- *Can we cache or store your results?* Yes, they are identifiers and numbers; there is nothing licensed in the response.
-- *Can we send cropped images ourselves?* Yes; send `crop=center` and we skip detection.
-- *What happens on a bad photo?* Low confidence, needs-review true, and a message such as image_blurry or card_too_small so their UI can prompt a retake.
-- *How do we test?* A staging key, the doc, the Postman collection, and the phone test page today.
+- **Latency?** About half a second per card on our production box; three to four seconds for a nine-card page. Staging is slower; do not demo timing on staging as if it were prod.
+- **Concurrency?** Ten to twelve simultaneous scanners today at under three seconds p95; the box is being doubled; per-key limits protect everyone.
+- **Uptime / SLA?** Best effort in the pilot, health endpoint for their monitor, key revocation as the kill switch. An SLA is a Phase 1 conversation.
+- **What about sports?** Not covered. CardSight fits there. We are the TCG scanner.
+- **Graded slabs?** Coming, not in the pilot. Today a slab photo returns a weak raw result flagged for review.
+- **Languages?** English and Japanese Pokémon today; the response carries the language.
+- **HEIC from iPhones?** Accepted, along with JPEG and PNG, up to 8 MB.
+- **Can we cache or store your results?** Yes, they are identifiers and numbers; there is nothing licensed in the response.
+- **Can we send cropped images ourselves?** Yes; send `crop=center` and we skip detection.
+- **What happens on a bad photo?** Low confidence, needs-review true, and a message such as image_blurry or card_too_small so their UI can prompt a retake.
+- **How do we test?** A staging key, the doc, the Postman collection, and the phone test page today.
