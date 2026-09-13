@@ -342,3 +342,48 @@ Status at the time of writing: the API is built on branch `partner-api`, deploye
 - Cards: clear sleeve, matte sleeve, toploader; regular vs reverse holo of the same card; promo-stamped vs regular; Japanese; One Piece or Lorcana; vintage yellow-border; full art and gold; energy and trainer cards; a creased or whitened card; a slab (expect weak).
 - Multi-card: a real 9-pocket binder page with edges visible; the same with one empty pocket and one sideways card; a 4×3 page with columns=4 rows=3; cards touching vs with gaps; a tilted page.
 - Behaviour: tap "This one" on a wrong candidate once; the same photo twice after a reload (replay); a photo of no card; a credit card or business card.
+
+## Developer pitch: how to run the technical conversation (added 2026-09-13)
+
+Twenty minutes, phone in hand, laptop open. Show first, explain second, negotiate last.
+
+**Before the call (30 minutes of prep)**
+- Staging warm: open the demo page and run one scan five minutes before, so the model is loaded and the first live scan is not a cold start.
+- A fresh partner key with a generous quota minted for the demo; the demo page on your phone with the key already entered.
+- Five real cards on the table: a common, a reverse holo and its regular twin, a Japanese card, a full art with glare, and a 3×3 spread of loose cards. Plus one sleeved card.
+- Laptop: the Postman collection open with one successful response already visible; `docs/partner-scan-api.md` open; the numbers below memorized.
+- Do not open the Ekalight app during the demo. The point is that this works from any camera with no app.
+
+**1. Open with their sentence (1 minute).** "Your vendor guide says: take a clear photo of the front of your card and we'll find its exact printing. That is the whole product. I'm going to do exactly that, on a phone, against your kind of photo, right now."
+
+**2. Live demo (6 minutes).**
+- Scan the common. Point at the top row: set code, collector number, printing, TCGplayer product id. "That id is the join key into your catalog. You never need our names or images."
+- Scan the reverse holo, then its regular twin. Show the printing field change. "This is the difference between a two-dollar card and a forty-dollar card, and it is why a generic identifier was not good enough."
+- Scan the Japanese card. Show `language: ja`.
+- Scan the full art with glare. If it flags needs-review, say so out loud: "When we are not sure, we tell you, and we give you five candidates so your user taps one instead of getting a confident wrong answer. That tap comes back to us as feedback." Tap "This one."
+- Switch to page mode, shoot the 3×3 spread. Nine results in reading order. "Vendors list one card at a time in your app today. This is nine per photo."
+
+**3. What they are integrating (3 minutes).** Three calls: scan, page, feedback. One header for the key. Multipart photo in, JSON out. Rate limit and daily quota per key, idempotent replay on their scan id, an error table with retry hints, a keyless ping for their monitor. "A backend engineer wires this in a day. The Postman collection is in the doc."
+
+**4. Architecture in five sentences (2 minutes).** A visual encoder trained on real card-show photos produces an embedding; we search a catalog index of every printing we cover; a second stage reranks the shortlist on printing-level detail. The server finds and straightens the card in the photo, so any camera works with no cropping on their side. No text reading is involved, so glare and blur on the number don't break it. It runs on our infrastructure; each identification costs about a second of CPU, and a page costs nine. We isolate their traffic with per-key limits and a cap on how much of the box they can hold.
+
+**5. Accuracy, said carefully (2 minutes).** "On our card-show benchmark of 204 real booth photos we measure 84 to 87 percent top-1 depending on the crop, and over 90 percent top-5. On a desk set of 71 phone photos, 89 percent top-1 and 99 percent top-5. I am not going to quote you a number for your photos until we run them. Send us 100 to 200 real ones with the right answers and we will run ours and CardSight's on the same set, side by side, and hand you the table. If we do not win on your photos, you owe nothing." That offer is the close.
+
+**6. Data handling (1 minute).** We return identity only: no names, no images, no prices. We do not train on their images. We do not keep their photos unless they grant it in writing, and then only for 14 days for debugging. Feedback taps are stored as their user's selection, never as our trusted label.
+
+**7. What is coming, without overpromising (1 minute).** A learned detector for the hardest photos (card in hand against a bright wall). A slab lane that reads PSA certs and grades, which maps onto their Any/Raw/Graded preference. More games as we add them. Sports is not us and we will say so.
+
+**8. The ask (2 minutes).** Their photo set this week. The verified transaction feed as part of the deal. A named-provider line and scan-first placement in their UI. Then the money conversation, from the pricing section above.
+
+**Technical questions they will ask, and the answers**
+- *Latency?* About half a second per card on our production box; three to four seconds for a nine-card page. Staging is slower; do not demo timing on staging as if it were prod.
+- *Concurrency?* Ten to twelve simultaneous scanners today at under three seconds p95; the box is being doubled; per-key limits protect everyone.
+- *Uptime / SLA?* Best effort in the pilot, health endpoint for their monitor, key revocation as the kill switch. An SLA is a Phase 1 conversation.
+- *What about sports?* Not covered. CardSight fits there. We are the TCG scanner.
+- *Graded slabs?* Coming, not in the pilot. Today a slab photo returns a weak raw result flagged for review.
+- *Languages?* English and Japanese Pokémon today; the response carries the language.
+- *HEIC from iPhones?* Accepted, along with JPEG and PNG, up to 8 MB.
+- *Can we cache or store your results?* Yes, they are identifiers and numbers; there is nothing licensed in the response.
+- *Can we send cropped images ourselves?* Yes; send `crop=center` and we skip detection.
+- *What happens on a bad photo?* Low confidence, needs-review true, and a message such as image_blurry or card_too_small so their UI can prompt a retake.
+- *How do we test?* A staging key, the doc, the Postman collection, and the phone test page today.
