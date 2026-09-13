@@ -51,8 +51,17 @@ function scrubPostHogProperties(properties?: PostHogEventProperties) {
   return scrubObservabilityValue(properties) as PostHogEventProperties;
 }
 
+// The SDK's lifecycle capture is one flag: opting in for "Application Opened"
+// also emits these two, which nothing reads and which were 5.6% of ingestion.
+// Returning null from before_send drops an event before it is queued.
+const DROPPED_EVENTS = new Set(['Application Backgrounded', 'Application Became Active']);
+
 function scrubPostHogEvent(event: CaptureEvent | null) {
   if (!event) {
+    return null;
+  }
+
+  if (DROPPED_EVENTS.has(event.event)) {
     return null;
   }
 
