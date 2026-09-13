@@ -304,3 +304,41 @@ The in-app scanner's request path is untouched; the only shared resource is infe
 **Not in this build:** server OCR, slab lane, hosted web scanner page, CORS, metering dashboards, dedicated partner box, native SDK.
 
 **Built without shipping.** The `partner-api` branch lives in its own worktree (`../spotlight-partner-api`) so nothing rides along in an OTA (over-the-air update, which bundles the checked-out tree). Every route sits behind `SPOTLIGHT_PARTNER_API_ENABLED` (default off) plus a key row; merged code is inert on staging and prod until both exist. Testing is local against a restored staging DB (`tools/restore_staging_db_local.sh`) with curl. No deploy, no OTA, no VM env change. Kill switch: revoke the key, or flip the env flag off.
+
+## If it goes formal: everything outside the code (added 2026-09-13)
+
+Status at the time of writing: the API is built on branch `partner-api`, deployed to staging behind a flag with one test key, tuned on nine real photos, not merged, not on prod.
+
+**Deal and legal**
+- Send the Scrydex email: written authorization to return set code, collector number and printing derived from their catalog to a third party. Names and images stay out of the response regardless.
+- Confirm the PokemonPriceTracker plan tier for our own in-app use (Business or Enterprise). Not needed for the partner response.
+- Sign the term sheet: transaction feed (non-negotiable), named TCG provider, show-day placement, scan-first placement, photo set, training rights, roadmap seat, escape hatch (non-negotiable). Pricing per the opening / fallback / floor above, plus the 90-day re-price clause and the rev-share-if-they-charge clause.
+- Privacy policy and terms: add a line that images submitted through a partner integration are processed on the partner's behalf, not retained by default, and not used for training unless the partner grants it. Add the partner's obligations (their users' consent) to the contract.
+- Invoicing: how they pay (monthly invoice, card on file, net-30), a W-9 if they ask, and who signs.
+
+**Before their engineers touch it**
+- Merge `partner-api` into main and deploy to prod with the flag off (needs the prod confirmation step). Then mint their key on prod only when the pilot date is set. Staging keys are for testing only.
+- Resize prod to t2d-standard-8 and stack the 1-year commitment (your task). Burst to 16 on their big show days; reserve capacity a day ahead.
+- Decide the pilot limits: per-key rate (60/min today), daily quota (5,000 today), free-pilot cap (two shows or 5,000 scans), and who on our side holds and rotates keys.
+- Calibrate `needsReview`: today most correct answers on phone photos read "low" confidence because thresholds were tuned for the app's crops. Recalibrate on their photo set before launch, or their UI will show the picker on nearly every scan.
+- Run the benchmark: 100-200 of their photos through `tools/eval_partner_uncropped.py`, side by side with CardSight on the same set. Only then quote accuracy.
+- Give them `docs/partner-scan-api.md`, the Postman collection, and a staging key with a low quota for integration work.
+
+**Operating it**
+- Monitoring: an uptime check on `/api/v1/health`, and an alert on the structured `partner_artifact_retention_failed` and 503 `capacity_busy` rates. A shared channel (Slack or email) for incidents, with "best effort, no SLA" written into the pilot.
+- Retention: the 14-day cleanup of `partner-artifacts/` on the VM (the cron line is in `tools/partner_pull_artifacts.sh`), and the GCS lifecycle rule if artifacts ever go to the bucket. Retention stays off for their production account unless they grant it in writing.
+- Database growth: partner scans log lean, but watch `scan_events` and `scan_prediction_candidates` growth monthly; the split-to-a-dedicated-box triggers are in the server cost model above.
+- Show-day runbook: the day before each of their big events, confirm capacity, run the partner load test (`tools/loadtest/partner-scan.js`) against prod for a minute, and have someone reachable during the show.
+- Their transaction feed: decide the ingest shape (API pull or file drop), where it lands in our DB, and how it surfaces in the app. This is new work, roughly 3-5 evenings, and it is the whole reason for the deal.
+
+**Product decisions still open**
+- Learned card detector (Apache-2.0 only): the classical detector misses blurry cards on piles and cards held against a bright wall. Decide after the benchmark whether the miss rate justifies 4-8 evenings.
+- Slab lane on the API: only if they ask; needs server-side OCR and a PSA holdout check first.
+- Sports: out of scope; say so in the contract.
+- Kill test at two shows: transaction data delivered, and a paid renewal or a second organizer. Write the review date into the calendar now.
+
+**Testing checklist for tuning (what to photograph on staging)**
+- Framing: held in hand against wall, table, black mat, bright window; straight down, 30°, 45°, low angle; card filling the frame, half the frame, small in a wide shot; dark wood, white table, playmat, busy binder, on a pile; glare across a holo, warm lamp, dim room, flash; one slightly shaky shot.
+- Cards: clear sleeve, matte sleeve, toploader; regular vs reverse holo of the same card; promo-stamped vs regular; Japanese; One Piece or Lorcana; vintage yellow-border; full art and gold; energy and trainer cards; a creased or whitened card; a slab (expect weak).
+- Multi-card: a real 9-pocket binder page with edges visible; the same with one empty pocket and one sideways card; a 4×3 page with columns=4 rows=3; cards touching vs with gaps; a tilted page.
+- Behaviour: tap "This one" on a wrong candidate once; the same photo twice after a reload (replay); a photo of no card; a credit card or business card.
