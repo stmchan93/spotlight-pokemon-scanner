@@ -33,7 +33,10 @@ export type BinderPageRef = {
 
 export type RecentCapture = {
   candidates: CatalogSearchResult[];
+  /** One terminal `scan_row_resolved` per scan; this is what makes it once. */
   hasTrackedSelectionEvent: boolean;
+  /** Epoch ms the row first appeared, so the terminal event can carry dwell. */
+  shownAtMs?: number | null;
   id: string;
   isAddingToInventory: boolean;
   isLoadingCandidates: boolean;

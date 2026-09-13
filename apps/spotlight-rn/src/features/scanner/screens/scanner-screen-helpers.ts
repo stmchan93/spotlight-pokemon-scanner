@@ -117,12 +117,44 @@ export function activeCandidateForCapture(capture: RecentCapture) {
   return capture.candidates[capture.activeCandidateIndex] ?? null;
 }
 
-export function buildScanSelectionProperties(capture: RecentCapture) {
-  return {
+/**
+ * How a scan row left the tray. Every scan ends in exactly one of these, so the
+ * counts add up to scans attempted — the old selection event only fired when a
+ * row was acted on, which left ~57% of scans in no bucket at all.
+ *
+ * `read` is the success case for a vendor pricing a stack: the row showed a
+ * price and they moved on without needing to touch it.
+ */
+export type ScanRowOutcome =
+  | 'added'
+  | 'opened'
+  | 'dismissed'
+  | 'read'
+  | 'evicted';
+
+export function buildScanRowResolvedProperties(
+  capture: RecentCapture,
+  outcome: ScanRowOutcome,
+  nowMs: number = Date.now(),
+) {
+  const shownAt = capture.shownAtMs ?? null;
+  const properties: Record<string, number | string | boolean> = {
     candidate_count: capture.candidates.length,
     mode: capture.mode,
+    outcome,
+    // 1 = the scanner's top answer still stood; >1 means they reached past it.
     selection_rank: capture.activeCandidateIndex + 1,
+    // A dismissal with no price rendered is a different act from one after the
+    // price was read; neither is knowable from the outcome alone.
+    had_price: activeCandidateForCapture(capture) != null,
   };
+  if (shownAt != null && nowMs >= shownAt) {
+    properties.dwell_ms = nowMs - shownAt;
+  }
+  if (capture.matchConfidence) {
+    properties.match_confidence = capture.matchConfidence;
+  }
+  return properties;
 }
 
 export function buildScanMatchSuccessProperties(params: {

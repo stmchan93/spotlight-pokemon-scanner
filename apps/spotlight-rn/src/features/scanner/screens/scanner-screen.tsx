@@ -168,7 +168,8 @@ import {
   buildOptimisticInventoryEntry,
   buildScanMatchFailureProperties,
   buildScanMatchSuccessProperties,
-  buildScanSelectionProperties,
+  buildScanRowResolvedProperties,
+  type ScanRowOutcome,
   capturePrimaryLabel,
   captureFailureSubtitle,
   captureFailureTitle,
@@ -1674,10 +1675,21 @@ export function ScannerScreen({
     });
   }, [trayPriceSummary]);
 
+  // The two removal paths above run BEFORE trackRowResolved is defined, and both
+  // must keep empty dep lists (the memoized swipe rows depend on it). A ref lets
+  // them reach the live callback without taking it as a dependency.
+  const trackRowResolvedRef = useRef<(capture: RecentCapture, outcome: ScanRowOutcome) => void>(
+    () => {},
+  );
+
   const deleteRecentCapture = useCallback((captureId: string) => {
     // Reported from here rather than inside the updater below: this runs once
     // per swipe, whereas an updater can be replayed. Read through the ref so the
     // callback keeps its empty dep list and the memoized swipe rows stay stable.
+    const swiped = recentCapturesRef.current.find((capture) => capture.id === captureId);
+    if (swiped) {
+      trackRowResolvedRef.current(swiped, 'dismissed');
+    }
 
     setRecentCaptures((current) => {
       const removed = current.find((capture) => capture.id === captureId);
@@ -1780,6 +1792,10 @@ export function ScannerScreen({
     setRecentCaptures((current) => {
       const uris: string[] = [];
       current.forEach((capture) => {
+        // The vendor case: the row showed a price and they moved on without
+        // touching it. Previously this left no event at all, so ~57% of scans
+        // landed in no bucket and the outcomes never summed to scans attempted.
+        trackRowResolvedRef.current(capture, capture.isLoadingCandidates ? 'evicted' : 'read');
         if (capture.normalizedImageUri) {
           uris.push(capture.normalizedImageUri);
         }
@@ -1823,12 +1839,12 @@ export function ScannerScreen({
     )));
   }, []);
 
-  const trackCandidateSelectionIfNeeded = useCallback((capture: RecentCapture) => {
+  const trackRowResolved = useCallback((capture: RecentCapture, outcome: ScanRowOutcome) => {
     if (capture.hasTrackedSelectionEvent) {
       return;
     }
 
-    capturePostHogEvent('scan_candidate_selected', buildScanSelectionProperties(capture));
+    capturePostHogEvent('scan_row_resolved', buildScanRowResolvedProperties(capture, outcome));
     updateRecentCapture(capture.id, (current) => {
       if (current.hasTrackedSelectionEvent) {
         return current;
@@ -1840,6 +1856,8 @@ export function ScannerScreen({
       };
     });
   }, [updateRecentCapture]);
+
+  trackRowResolvedRef.current = trackRowResolved;
 
   /**
    * Post-network SUCCESS handling shared by the single-scan path and the
@@ -2672,6 +2690,7 @@ export function ScannerScreen({
         totalCandidateCount: 0,
         isLoadingMoreCandidates: false,
         hasTrackedSelectionEvent: false,
+        shownAtMs: Date.now(),
         id: captureId,
         isAddingToInventory: false,
         isLoadingCandidates: true,
@@ -3100,6 +3119,7 @@ export function ScannerScreen({
         totalCandidateCount: 0,
         isLoadingMoreCandidates: false,
         hasTrackedSelectionEvent: false,
+        shownAtMs: Date.now(),
         id: captureId,
         isAddingToInventory: false,
         isLoadingCandidates: true,
@@ -3372,7 +3392,7 @@ export function ScannerScreen({
 
     let didSucceed = false;
     try {
-      trackCandidateSelectionIfNeeded(capture);
+      trackRowResolved(capture, 'added');
       const selectedCondition: DeckConditionCode = priceSelection.get(capture.id)?.conditionCode ?? 'near_mint';
       const createResponse = await spotlightRepository.createInventoryEntry(
         buildInventoryEntryArgs(
@@ -3447,7 +3467,7 @@ export function ScannerScreen({
         recentlyAddedTimersRef.current.set(captureId, timerId);
       }
     }
-  }, [activeCollectionID, rawVariantLabelFor, prependOptimisticInventoryEntry, priceSelection, recentCaptures, refreshData, removeCaptureAfterAdd, spotlightRepository, trackCandidateSelectionIfNeeded]);
+  }, [activeCollectionID, rawVariantLabelFor, prependOptimisticInventoryEntry, priceSelection, recentCaptures, refreshData, removeCaptureAfterAdd, spotlightRepository, trackRowResolved]);
 
   // Stable wrapper for the swipe row's "Collection" action so React.memo doesn't
   // re-render every row when handleAddToInventory re-creates on recentCaptures
@@ -3571,7 +3591,7 @@ export function ScannerScreen({
         );
       };
 
-      rows.forEach(({ capture }) => trackCandidateSelectionIfNeeded(capture));
+      rows.forEach(({ capture }) => trackRowResolved(capture, 'added'));
 
       let succeeded = 0;
       try {
@@ -3623,7 +3643,7 @@ export function ScannerScreen({
     refreshData,
     spotlightRepository,
     prependOptimisticInventoryEntry,
-    trackCandidateSelectionIfNeeded,
+    trackRowResolved,
   ]);
 
   // Page overlay "Add N to collection": the tray's bulk add scoped to one
@@ -3694,7 +3714,7 @@ export function ScannerScreen({
         await Promise.all(Array.from({ length: Math.min(3, rows.length) }, () => drain()));
       };
 
-      rows.forEach(({ capture }) => trackCandidateSelectionIfNeeded(capture));
+      rows.forEach(({ capture }) => trackRowResolved(capture, 'added'));
       try {
         // Nine ~1.5s creates were 13s on the wire; create-bulk lands the whole
         // page in ONE request/transaction with per-entry results.
@@ -3740,7 +3760,7 @@ export function ScannerScreen({
     removeCaptureAfterAdd,
     spotlightRepository,
     prependOptimisticInventoryEntry,
-    trackCandidateSelectionIfNeeded,
+    trackRowResolved,
   ]);
 
   // Bulk "Remove": clear the whole scan session (same path as CLEAR ALL).
@@ -3876,7 +3896,7 @@ export function ScannerScreen({
       sourceImageRotationDegrees: capture.sourceImageRotationDegrees,
       sourceImageUri: capture.uri || null,
     });
-    trackCandidateSelectionIfNeeded(capture);
+    trackRowResolved(capture, 'opened');
     // Warm the PDP caches: a graded slab capture → graded lane on its grader,
     // otherwise the default raw lane.
     prefetchCardDetail(
@@ -3899,7 +3919,7 @@ export function ScannerScreen({
         scanReviewId,
       },
     });
-  }, [router, spotlightRepository, trackCandidateSelectionIfNeeded]);
+  }, [router, spotlightRepository, trackRowResolved]);
 
   const handleEbayTrayTap = useCallback((captureId: string, slabContext: { grader?: string | null; grade?: string | null; certNumber?: string | null; variantName?: string | null } | null) => {
     const existing = ebayTrayState.get(captureId);

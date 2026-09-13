@@ -292,6 +292,9 @@ function fromPersistedCapture(persisted: PersistedCapture): RecentCapture {
     totalCandidateCount: persisted.totalCandidateCount ?? persisted.candidates.length,
     isLoadingMoreCandidates: false,
     hasTrackedSelectionEvent: false,
+    // Restored rows have no honest dwell anchor: the clock started in a prior
+    // session, so the terminal event omits dwell rather than inventing one.
+    shownAtMs: null,
     isAddingToInventory: false,
     isLoadingCandidates: false,
     recentlyAdded: false,
