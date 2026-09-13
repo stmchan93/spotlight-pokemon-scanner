@@ -3,7 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Rect, Stop } from 'react-native-svg';
 import { useKeepAwake } from 'expo-keep-awake';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { Fragment, memo, type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, memo, type MutableRefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   IconChevronDown,
   IconChevronLeft,
@@ -1605,7 +1605,14 @@ export function ScannerScreen({
   // Hold the collapsed anchor as scans land: a binder capture prepending a new
   // page (header + row) or a lane switch changes what sits at the top of the
   // scroll content while the collapsed viewport shows exactly one row.
-  useEffect(() => {
+  //
+  // LAYOUT effect, not a passive one. The header (VIEW PAGE / DELETE PAGE) sits
+  // above the row in the scroll content and is kept mounted in both tray states
+  // so expanding stays a pure clip reveal. A passive effect runs AFTER paint, so
+  // the first binder scan painted the header at offset 0 and only then scrolled
+  // past it — iOS lands that in the same frame, Android's scrollTo does not, and
+  // the buttons flashed before the row appeared.
+  useLayoutEffect(() => {
     if (isTrayExpanded || recentCaptures.length === 0) {
       return;
     }
