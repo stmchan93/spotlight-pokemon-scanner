@@ -463,7 +463,153 @@ PY
   esac
 }
 
+# --------------------------------------------------------------------------
+# Read one value out of a JSON/text file ON THE VM. Returns empty on any
+# failure (unreachable box, missing file) so a guard can distinguish
+# "mismatch" from "could not check" and never blocks on a flaky tunnel.
+remote_probe() {
+  # $1 is a python program. It is base64'd so no layer of shell/ssh quoting can
+  # mangle it — nested quotes through `gcloud ssh --command` silently produced
+  # empty output, which reads as "could not check" rather than a real answer.
+  local encoded
+  encoded="$(printf '%s' "$1" | base64 | tr -d '\n')"
+  gcloud_cmd compute ssh "$INSTANCE" --zone "$ZONE" --tunnel-through-iap \
+    --command "echo $encoded | base64 -d | python3 -" 2>/dev/null \
+    | tr -d "\r" | tail -1 || true
+}
+
+# --------------------------------------------------------------------------
+# Adapter drift guard.
+#
+# ./data is excluded from the bundle, so the VM's adapter and reference index
+# are provisioned out-of-band and NOTHING here reports when they fall behind.
+# Production ran siglip2-384-v001 from June through two card shows while
+# staging and local were on v003, and no deploy ever said a word — the drift
+# only surfaced when the rerank guard tripped for an unrelated reason.
+guard_adapter_drift() {
+  if [ "${SPOTLIGHT_SKIP_ADAPTER_DRIFT_GUARD:-0}" = "1" ]; then
+    echo "NOTE: adapter-drift guard skipped (SPOTLIGHT_SKIP_ADAPTER_DRIFT_GUARD=1)." >&2
+    return 0
+  fi
+
+  local local_meta="$BACKEND_DIR/data/visual-models/raw_visual_adapter_active_metadata.json"
+  [ -f "$local_meta" ] || return 0
+
+  local local_version
+  local_version="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('artifactVersion') or '')" "$local_meta" 2>/dev/null || true)"
+  [ -n "$local_version" ] || return 0
+
+  local remote_version
+  remote_version="$(remote_probe "
+import json, os
+p = os.path.expanduser('$REMOTE_DIR/data/visual-models/raw_visual_adapter_active_metadata.json')
+try:
+    print(json.load(open(p)).get('artifactVersion') or '')
+except Exception:
+    print('')
+" || true)"
+
+  if [ -z "$remote_version" ]; then
+    echo "NOTE: could not read the VM's active adapter; skipping drift check." >&2
+    return 0
+  fi
+
+  echo "Active adapter — local: $local_version | $INSTANCE: $remote_version"
+  if [ "$local_version" = "$remote_version" ]; then
+    return 0
+  fi
+
+  echo >&2
+  echo "ABORT: adapter DRIFT — $INSTANCE is not running the adapter you validated." >&2
+  echo "       local=$local_version  vm=$remote_version" >&2
+  echo >&2
+  echo "       Model artifacts never ride with a deploy (./data is excluded), so" >&2
+  echo "       this gap persists silently until someone promotes them by hand:" >&2
+  echo "         1. tools/reproject_visual_index_adapter.py  (compose the VM's OWN" >&2
+  echo "            index into the new space — never copy a local index over it;" >&2
+  echo "            the VM holds rows no local index has)" >&2
+  echo "         2. copy the adapter + metadata + a rerank pool built in the SAME" >&2
+  echo "            space, then redeploy to restart" >&2
+  echo "       Back up *.pre-<version> first; that is the rollback." >&2
+  echo >&2
+  echo "       If the VM is deliberately staying on its adapter, re-run with" >&2
+  echo "       SPOTLIGHT_SKIP_ADAPTER_DRIFT_GUARD=1." >&2
+  exit 1
+}
+
+# --------------------------------------------------------------------------
+# TCGplayer history guard.
+#
+# Flipping RAW_MAIN_PRICE_SOURCE=tcgcsv changes every raw headline price to the
+# TCGplayer lane, but the graphs and Top Trends read HISTORY cells. An
+# environment with no TCGplayer history shows a TCGplayer price above a Scrydex
+# graph until a month of daily syncs accrues. The history is a one-time replay
+# per environment, so this only bites a fresh box — which is exactly when it is
+# easiest to forget.
+guard_tcgcsv_history() {
+  if [ "${SPOTLIGHT_SKIP_TCGCSV_HISTORY_GUARD:-0}" = "1" ]; then
+    echo "NOTE: TCGCSV history guard skipped (SPOTLIGHT_SKIP_TCGCSV_HISTORY_GUARD=1)." >&2
+    return 0
+  fi
+
+  local env_file="$BACKEND_DIR/.env.$ENVIRONMENT"
+  [ -f "$env_file" ] || return 0
+  local source_value
+  source_value="$(read_dotenv_value "$env_file" "RAW_MAIN_PRICE_SOURCE" 2>/dev/null || true)"
+  [ "$source_value" = "tcgcsv" ] || return 0
+
+  local min_days="${SPOTLIGHT_TCGCSV_MIN_HISTORY_DAYS:-25}"
+  local days
+  days="$(remote_probe "
+import sqlite3, os
+p = 'file:' + os.path.expanduser('$REMOTE_DIR/data/spotlight_scanner.sqlite') + '?mode=ro'
+try:
+    c = sqlite3.connect(p, uri=True)
+    print(c.execute('SELECT COUNT(DISTINCT price_date) FROM card_price_history_daily WHERE main_raw_market_price IS NOT NULL').fetchone()[0])
+except Exception:
+    print('')
+" || true)"
+
+  if [ -z "$days" ]; then
+    echo "NOTE: could not count TCGplayer history on the VM; skipping check." >&2
+    return 0
+  fi
+
+  echo "TCGplayer history on $INSTANCE: $days day(s) (need >= $min_days)"
+  if [ "$days" -ge "$min_days" ] 2>/dev/null; then
+    return 0
+  fi
+
+  echo >&2
+  echo "ABORT: RAW_MAIN_PRICE_SOURCE=tcgcsv but $INSTANCE has only $days day(s)" >&2
+  echo "       of TCGplayer history. Cards would show a TCGplayer price above a" >&2
+  echo "       Scrydex graph until ~30 days of daily syncs accrue." >&2
+  echo >&2
+  echo "       Replay the archives first (one-time per environment):" >&2
+  echo "         python3 tools/extract_tcgcsv_archives.py --start <today-32> \\" >&2
+  echo "             --end <yesterday> --out-dir ~/tcgcsv-history   # laptop, needs 7zz" >&2
+  echo "         gcloud compute scp ~/tcgcsv-history/*.gz $INSTANCE:~/tcgcsv-history/ --zone $ZONE" >&2
+  echo "         # on the VM, sourcing .vm-runtime.conf LAST (the env file stages a /tmp path):" >&2
+  echo "         ./.venv/bin/python backfill_tcgcsv_history.py \\" >&2
+  echo "             --database-path \$SPOTLIGHT_DATABASE_PATH --prices-dir ~/tcgcsv-history" >&2
+  echo >&2
+  echo "       To ship the code with the lane still dark, unset RAW_MAIN_PRICE_SOURCE." >&2
+  echo "       To override anyway: SPOTLIGHT_SKIP_TCGCSV_HISTORY_GUARD=1." >&2
+  exit 1
+}
+
 guard_rerank_pool
+guard_adapter_drift
+guard_tcgcsv_history
+
+# Preflight-only mode: run every guard against the real target and stop before
+# anything is shipped. Lets you check whether a deploy WOULD be safe without
+# restarting a box people are using.
+if [ "${SPOTLIGHT_GUARDS_ONLY:-0}" = "1" ]; then
+  echo
+  echo "Preflight guards passed for $ENVIRONMENT ($INSTANCE). Nothing was deployed."
+  exit 0
+fi
 
 # Ship the user-photo rerank pool with the bundle. It is small (~1MB) and changes
 # as new confirmed scans accrue, so unlike the large reference index (provisioned
