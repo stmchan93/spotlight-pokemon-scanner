@@ -77,6 +77,7 @@ from catalog_tools import (
     canonicalize_collector_number,
     card_by_id,
     card_price_trend_list,
+    card_tcgplayer_id,
     card_text_from_card,
     tcgplayer_variants_subset,
     build_headline_graded_reference,
@@ -14336,6 +14337,9 @@ class SpotlightScanService:
                 "sourcePayload": tcgplayer_variants_subset(
                     resolved_card.get("sourcePayload"),
                     collision_guard(self.connection)["colliding_product_ids"],
+                    priced_product_id=card_tcgplayer_id(
+                        self.connection, str(resolved_card.get("id") or "")
+                    ),
                 ),
             },
             "slabContext": self._slab_context_payload_for_pricing_context(

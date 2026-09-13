@@ -3383,9 +3383,25 @@ def extract_tcgplayer_product_id(source_payload: dict[str, Any] | None) -> str |
     return None
 
 
+def card_tcgplayer_id(connection: sqlite3.Connection, card_id: str) -> str | None:
+    """The card's own ``cards.tcgplayer_id``. Unlike the Scrydex payload this is
+    also filled by the TCGCSV backfill map, so JP vintage/promos resolve here
+    when their payload carries no marketplace entry."""
+    if not card_id or not _table_exists(connection, "cards"):
+        return None
+    if "tcgplayer_id" not in _table_columns(connection, "cards"):
+        return None
+    row = connection.execute(
+        "SELECT tcgplayer_id FROM cards WHERE id = ?", (card_id,)
+    ).fetchone()
+    product_id = str((row[0] if row else None) or "").strip()
+    return product_id or None
+
+
 def tcgplayer_variants_subset(
     source_payload: dict[str, Any] | None,
     colliding_product_ids: frozenset[str] | set[str] | None = None,
+    priced_product_id: str | None = None,
 ) -> dict[str, Any] | None:
     """Compact per-printing TCGplayer product-id map for the client deep-link
     resolver: ``{"variants": [{"name", "marketplaces": [{"name": "tcgplayer",
@@ -3398,13 +3414,9 @@ def tcgplayer_variants_subset(
     ``colliding_product_ids`` (from :func:`collision_guard`) are dropped: a product
     id shared across cards is a Scrydex mis-map, so deep-linking it would open the
     wrong card — omit it and let the PDP fall back to a name/set search."""
-    if not isinstance(source_payload, dict):
-        return None
-    variants = source_payload.get("variants")
-    if not isinstance(variants, list):
-        return None
+    variants = source_payload.get("variants") if isinstance(source_payload, dict) else None
     out_variants: list[dict[str, Any]] = []
-    for variant in variants:
+    for variant in variants if isinstance(variants, list) else []:
         if not isinstance(variant, dict):
             continue
         marketplaces = variant.get("marketplaces")
@@ -3426,6 +3438,21 @@ def tcgplayer_variants_subset(
                 "marketplaces": [{"name": "tcgplayer", "product_id": product_id}],
             })
             break  # one tcgplayer id per printing is enough for the deep link
+    priced = str(priced_product_id or "").strip()
+    if priced and colliding_product_ids and priced in colliding_product_ids:
+        priced = ""
+    if priced and priced not in {
+        v["marketplaces"][0]["product_id"] for v in out_variants
+    }:
+        # The id we PRICED from (TCGCSV-validated: number-verified against
+        # TCGplayer's own product, collision-blocked, override-aware) disagrees
+        # with the Scrydex payload — or the payload named nothing at all. It
+        # wins, unnamed, so the link opens the product the price came from. The
+        # client's label match misses and its "single distinct id" path takes it.
+        out_variants = [{
+            "name": None,
+            "marketplaces": [{"name": "tcgplayer", "product_id": priced}],
+        }]
     if not out_variants:
         return None
     return {"variants": out_variants}

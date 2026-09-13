@@ -146,6 +146,16 @@ class SyncTcgcsvPricesTests(unittest.TestCase):
         # JSON columns fall back to their schema defaults.
         self.assertEqual(json.loads(after["raw_contexts_json"]), {})
 
+    def test_sync_persists_the_product_id_it_priced_from(self):
+        # The link layer reads cards.tcgplayer_id; before this the column only
+        # ever held a payload-derived guess, so JP vintage priced correctly but
+        # deep-linked to a keyword search.
+        self._sync()
+        stored = self.connection.execute(
+            "SELECT tcgplayer_id FROM cards WHERE id = ?", ("swsh7-215",)
+        ).fetchone()[0]
+        self.assertEqual(stored, "246723")
+
     def test_daily_conflict_updates_only_main_columns(self):
         upsert_price_history_daily(
             self.connection, card_id="swsh7-215", provider="scrydex",

@@ -23,6 +23,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from catalog_tools import (  # noqa: E402
     apply_schema,
     backfill_cards_tcgplayer_id,
+    card_tcgplayer_id,
     connect,
     extract_tcgplayer_product_id,
     tcgplayer_variants_subset,
@@ -117,6 +118,57 @@ class TcgplayerVariantsSubsetTests(unittest.TestCase):
         self.assertIsNone(tcgplayer_variants_subset({}))
         self.assertIsNone(tcgplayer_variants_subset({"variants": "nope"}))
 
+    def test_fallback_id_used_when_payload_names_no_printing(self):
+        # JP vintage: Scrydex ships no marketplace entry, so the card's own
+        # tcgplayer_id (TCGCSV backfill) is the only route to a product link.
+        self.assertEqual(
+            tcgplayer_variants_subset(None, None, priced_product_id="575816"),
+            {"variants": [{"name": None, "marketplaces": [
+                {"name": "tcgplayer", "product_id": "575816"}]}]},
+        )
+
+    def test_priced_id_wins_when_the_payload_disagrees(self):
+        # Scrydex claims 111, but we priced 575816 (override/backfill, number
+        # verified). The link must open what the price came from.
+        payload = {
+            "variants": [
+                {"name": "holo", "marketplaces": [
+                    {"name": "tcgplayer", "product_id": "111"}]},
+            ]
+        }
+        subset = tcgplayer_variants_subset(payload, None, priced_product_id="575816")
+        self.assertEqual(
+            subset["variants"], [{"name": None, "marketplaces": [
+                {"name": "tcgplayer", "product_id": "575816"}]}],
+        )
+
+    def test_per_printing_ids_survive_when_they_agree(self):
+        # Multi-printing English card: the priced id IS one of the payload's, so
+        # the per-printing map is kept and each printing deep-links correctly.
+        payload = {
+            "variants": [
+                {"name": "normal", "marketplaces": [
+                    {"name": "tcgplayer", "product_id": "111"}]},
+                {"name": "reverse holofoil", "marketplaces": [
+                    {"name": "tcgplayer", "product_id": "222"}]},
+            ]
+        }
+        subset = tcgplayer_variants_subset(payload, None, priced_product_id="111")
+        self.assertEqual(
+            [v["marketplaces"][0]["product_id"] for v in subset["variants"]],
+            ["111", "222"],
+        )
+
+    def test_colliding_fallback_is_dropped(self):
+        self.assertIsNone(
+            tcgplayer_variants_subset(
+                None, {"575816"}, priced_product_id="575816"
+            )
+        )
+
+    def test_blank_fallback_changes_nothing(self):
+        self.assertIsNone(tcgplayer_variants_subset(None, None, priced_product_id="  "))
+
 
 class UpsertCardTcgplayerIdTests(unittest.TestCase):
     def setUp(self):
@@ -147,6 +199,16 @@ class UpsertCardTcgplayerIdTests(unittest.TestCase):
         return self.connection.execute(
             "SELECT tcgplayer_id FROM cards WHERE id = ?", (card_id,)
         ).fetchone()[0]
+
+    def test_card_tcgplayer_id_reads_the_column(self):
+        self._insert("sv1a-214", {}, tcgplayer_id="575816")
+        self.assertEqual(card_tcgplayer_id(self.connection, "sv1a-214"), "575816")
+
+    def test_card_tcgplayer_id_none_when_absent_or_unknown(self):
+        self._insert("sv1a-999", {})
+        self.assertIsNone(card_tcgplayer_id(self.connection, "sv1a-999"))
+        self.assertIsNone(card_tcgplayer_id(self.connection, "no-such-card"))
+        self.assertIsNone(card_tcgplayer_id(self.connection, ""))
 
     def test_auto_derives_from_payload(self):
         self._insert("swsh7-215", _payload("246723"))

@@ -330,6 +330,23 @@ def _clear_card_main_price(
     )
 
 
+def _write_card_tcgplayer_id(
+    connection: sqlite3.Connection, card_id: str, product_id: str | None
+) -> None:
+    """Persist the product this card was actually priced from. It has already
+    cleared collision blocking and number verification against TCGplayer's own
+    catalog, so it beats the Scrydex payload claim the column used to hold — and
+    it is the only route to a product id for cards Scrydex never mapped."""
+    product_id = str(product_id or "").strip()
+    if not card_id or not product_id:
+        return
+    connection.execute(
+        "UPDATE cards SET tcgplayer_id = ? WHERE id = ? "
+        "AND IFNULL(tcgplayer_id, '') != ?",
+        (product_id, card_id, product_id),
+    )
+
+
 def _write_card_main_price(
     connection: sqlite3.Connection,
     *,
@@ -561,6 +578,7 @@ def run_tcgcsv_price_sync(
                         printings=_printings_from_override(override_pid, product_price_map),
                         write_snapshot=not history_only,
                     )
+                    _write_card_tcgplayer_id(connection, card_id, product_id)
                     pending += 1
                     if pending % commit_every == 0:
                         connection.commit()
@@ -621,6 +639,7 @@ def run_tcgcsv_price_sync(
                 ),
                 write_snapshot=not history_only,
             )
+            _write_card_tcgplayer_id(connection, card_id, product_id)
             pending += 1
             if pending % commit_every == 0:
                 connection.commit()
