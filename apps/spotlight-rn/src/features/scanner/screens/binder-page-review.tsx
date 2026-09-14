@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   BackHandler,
+  Platform,
   Pressable,
   StyleSheet,
   View,
@@ -9,7 +10,7 @@ import {
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { IconChevronLeft } from '@tabler/icons-react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Text, Toast, colors, fontFamilies, spacing, textStyles } from '@spotlight/design-system';
 
@@ -99,6 +100,7 @@ export function BinderPageReview({
   totalLabel,
   testID = 'scanner-binder-page-review',
 }: BinderPageReviewProps) {
+  const insets = useSafeAreaInsets();
   const { spotlightRepository } = useAppServices();
 
   useEffect(() => {
@@ -236,8 +238,21 @@ export function BinderPageReview({
 
   return (
     <View style={styles.root} testID={testID}>
-      <BlurView intensity={40} style={StyleSheet.absoluteFill} tint="dark" />
-      <View style={styles.wash} />
+      {/*
+        REAL GLASS WHERE THE PLATFORM HAS IT, AN HONEST SOLID EVERYWHERE ELSE —
+        the same rule the tab bar follows, and this screen was breaking it.
+
+        `BlurView` does not blur on Android, so the only thing standing between
+        this screen and the live scanner behind it was the 0.6 wash — and the
+        scanner's toolbar, tray rows and back bubble read straight through it.
+        That is what made the header look misaligned (the scanner's own back
+        bubble and scan-target pill were showing THROUGH, half a step off this
+        screen's) rather than anything being mispositioned (user, 2026-09-13).
+      */}
+      {Platform.OS === 'ios' ? (
+        <BlurView intensity={40} style={StyleSheet.absoluteFill} tint="dark" />
+      ) : null}
+      <View style={[styles.wash, Platform.OS === 'ios' ? null : styles.washOpaque]} />
       <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
         <View style={styles.header}>
           <Pressable
@@ -325,7 +340,14 @@ export function BinderPageReview({
           ) : null}
         </View>
 
-        <View style={styles.footer}>
+        {/*
+          The system nav bar is drawn OVER this window on Android, and
+          `SafeAreaView`'s bottom edge does not reserve for it — so the Add
+          button sat flush against it and the lower half of its hit area was
+          the system's, not ours. That is why the button "did not work": the
+          taps were landing on the navigation bar (user, 2026-09-13).
+        */}
+        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
           {/* Floats over the grid's bottom edge so showing it never re-measures the tiles. */}
           <Toast
             durationMs={3500}
@@ -513,6 +535,10 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
   },
+  /* No blur under it, so the scrim has to do the whole job on its own. */
+  washOpaque: {
+    backgroundColor: 'rgba(0, 0, 0, 0.92)',
+  },
   safe: {
     flex: 1,
   },
@@ -546,6 +572,9 @@ const styles = StyleSheet.create({
   frame: {
     flex: 1,
     justifyContent: 'center',
+    // Clears the header rather than letting the first row of tiles sit against
+    // "Hold to edit".
+    paddingTop: 12,
     paddingHorizontal: 16,
   },
   grid: {
