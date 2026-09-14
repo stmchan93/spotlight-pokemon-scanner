@@ -1631,7 +1631,11 @@ def _json_load(value: Any, default: Any) -> Any:
 
 DEFAULT_RAW_CONDITION = "NM"
 DEFAULT_RAW_VARIANT = "Normal"
-RAW_VARIANT_PRIORITY = ("Normal", "Holofoil", "Reverse Holofoil")
+# The BASE printing of each game, best first. A card's default price should be
+# the ordinary version of it — Normal for Pokémon and Lorcana, Foil for One
+# Piece and Riftbound, whose commons print foil. Anything not on this list is a
+# parallel, a promo or an event printing, ranked by the penalty below.
+RAW_VARIANT_PRIORITY = ("Normal", "Foil", "Holofoil", "Reverse Holofoil", "Cold Foil")
 RAW_CONDITION_PRIORITY = ("NM", "LP", "MP", "HP", "DM")
 
 
@@ -1658,6 +1662,43 @@ def _raw_variant_fallback_penalty(label: str) -> int:
         penalty += 20
     if any(token in text for token in ("metal", "jumbo", "staff", "prerelease")):
         penalty += 40
+    # Parallels: a different print treatment of the same card. They trade well
+    # above the base and are never what a scanned card most likely is. Without
+    # these, One Piece fell through to the alphabetical tiebreak and "Alt Art"
+    # beat "Foil" on 480 of 2,633 cards — OP13-118 Luffy quoted $102.13 for a
+    # card whose base Foil is $28.60 (user, 2026-09-13).
+    if any(
+        token in text
+        for token in (
+            "altart",
+            "parallel",
+            "fullart",
+            "textured",
+            "manga",
+            "jollyroger",
+            "wantedposter",
+        )
+    ):
+        penalty += 25
+    # Event and promo printings — tournament stamps, anniversary and collection
+    # exclusives. Rarer again, and never the default.
+    if any(
+        token in text
+        for token in (
+            "stamp",
+            "championship",
+            "winner",
+            "participant",
+            "anniversary",
+            "giftcollection",
+            "bestselection",
+            "treasurecup",
+        )
+    ):
+        penalty += 40
+    # A real printing, just not the one to quote when the base exists.
+    if "starterdeck" in text:
+        penalty += 15
     if "unlimited" in text:
         penalty -= 5
     return penalty

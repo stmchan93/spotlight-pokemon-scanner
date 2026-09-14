@@ -56,6 +56,50 @@ class RawVariantDefaultTests(unittest.TestCase):
         self.assertEqual(variant, "Unlimited Holofoil")
         self.assertEqual(entry["market"], 333.13)
 
+    def test_one_piece_quotes_the_base_foil_not_the_alt_art(self) -> None:
+        """OP13-118 Luffy, the live case.
+
+        One Piece commons print FOIL, so Foil is that game's base printing the
+        way Normal is Pokémon's. None of this game's labels matched any keyword,
+        so every printing tied and the ranking fell through to alphabetical,
+        where "Alt Art" beats "Foil". The card quoted $102.13 and deep-linked to
+        a different card's TCGplayer page, for a card whose base is $28.60
+        (user, 2026-09-13). It affected 480 of 2,633 One Piece cards.
+        """
+        contexts = _contexts(
+            {
+                "Foil": 28.60,
+                "Alt Art": 102.13,
+                "Manga Alt Art": 2116.43,
+                "Red Manga Alt Art": 19999.0,
+                "Wanted Poster": 337.31,
+            }
+        )
+        variant, _, entry = _resolve_default_raw_context(contexts)
+        self.assertEqual(variant, "Foil")
+        self.assertEqual(entry["market"], 28.60)
+
+    def test_a_base_printing_always_outranks_a_parallel(self) -> None:
+        """The rule, stated once, rather than card by card."""
+        for base, parallel in (
+            ("Normal", "Alt Art"),
+            ("Foil", "Full Art"),
+            ("Foil", "Championship Stamp"),
+            ("Normal", "Textured Foil"),
+            ("Holofoil", "Premium Alt Art"),
+        ):
+            with self.subTest(base=base, parallel=parallel):
+                variant, _, _ = _resolve_default_raw_context(_contexts({parallel: 500.0, base: 5.0}))
+                self.assertEqual(variant, base)
+
+    def test_vintage_pokemon_ranking_is_untouched(self) -> None:
+        """The parallel rules must not disturb the rule they were added beside."""
+        contexts = _contexts(
+            {"First Edition Holofoil": 650.0, "Unlimited Holofoil": 333.13, "Jumbo": 400.0}
+        )
+        variant, _, _ = _resolve_default_raw_context(contexts)
+        self.assertEqual(variant, "Unlimited Holofoil")
+
     def test_modern_priority_is_unchanged(self) -> None:
         # Modern cards must still rank Holofoil/Reverse via the explicit priority tuple.
         contexts = _contexts({"Reverse Holofoil": 5.0, "Holofoil": 9.0, "Normal": 1.0})
