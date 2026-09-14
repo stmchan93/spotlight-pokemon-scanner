@@ -93,7 +93,7 @@ import {
 import { FocusedStatusBar } from '@/components/focused-status-bar';
 import { EkalightMark } from '@/components/ekalight-mark';
 import { ScanTabIcon } from '@/components/nav-tab-icons';
-import { useFloatingAffordanceBottom } from '@/lib/tab-bar-insets';
+import { tabBarBottomFadeHeight, useFloatingAffordanceBottom } from '@/lib/tab-bar-insets';
 import { usePortfolioScreenModel } from '@/features/portfolio/hooks/use-portfolio-screen-model';
 import { usePortfolioViewMode } from '@/features/portfolio/hooks/use-portfolio-view-mode';
 import { usePortfolioSummaryVisibility } from '@/features/portfolio/use-portfolio-summary-visibility';
@@ -2107,7 +2107,7 @@ export function PortfolioScreen({
         in RN). No top fade: the cover's own scrim in ProfileHeader (Figma
         4134:49492) handles status-bar contrast, and a white wash there read as
         a gray band over the photo. */}
-    <View pointerEvents="none" style={styles.profileBottomFade}>
+    <View pointerEvents="none" style={[styles.profileBottomFade, { height: tabBarBottomFadeHeight }]}>
       <Svg height="100%" width="100%">
         <Defs>
           <SvgLinearGradient id="profileBottomFade" x1="0" x2="0" y1="1" y2="0">
@@ -2358,7 +2358,8 @@ export function PortfolioScreen({
 const styles = StyleSheet.create({
   profileBottomFade: {
     bottom: 0,
-    height: 95,
+    // Height is `tabBarBottomFadeHeight` at the render site — the same 95 is
+    // 61 on Android, see `tab-bar-insets.tsx`.
     left: 0,
     position: 'absolute',
     right: 0,

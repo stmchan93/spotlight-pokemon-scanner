@@ -81,6 +81,28 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 export const floatingAffordanceGap = 28;
 
 /**
+ * Height of the white fade a tab screen draws over its content at the bottom
+ * edge, so scrolling content dissolves under the bar (Figma 4407:283 feed,
+ * 4134:49749 collection — both 95pt).
+ *
+ * THE SAME 95 MEANS TWO DIFFERENT THINGS ON THE TWO PLATFORMS. Those frames are
+ * iOS mocks: the floating bar is translucent, content runs under it, and ~34pt
+ * of the band sits UNDER the bar (the home-indicator inset), so ~61pt of fade
+ * is what actually shows. On Android the bar is opaque and the tab container is
+ * pre-inset above it (see the Android note at the top of this file), so
+ * `bottom: 0` IS the bar's top edge and the full 95 landed on the content — a
+ * third taller than designed, hazing the last row of cards on Home and the post
+ * above the bar on Social (user, 2026-09-13, Galaxy A17). Android gets the
+ * visible portion, so the two platforms show the same fade above the bar.
+ */
+export const TAB_BAR_BOTTOM_FADE_DESIGN_HEIGHT = 95;
+const IOS_HOME_INDICATOR_INSET_IN_MOCK = 34;
+export const tabBarBottomFadeHeight =
+  Platform.OS === 'android'
+    ? TAB_BAR_BOTTOM_FADE_DESIGN_HEIGHT - IOS_HOME_INDICATOR_INSET_IN_MOCK
+    : TAB_BAR_BOTTOM_FADE_DESIGN_HEIGHT;
+
+/**
  * True inside `src/app/(tabs)`, i.e. under a screen that `NativeTabs` owns.
  *
  * Only Android needs this — see the Android note above: its tab CONTAINER is
