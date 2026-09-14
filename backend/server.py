@@ -207,7 +207,7 @@ from ppt_adapter import (
     reconcile_recent_sales_prices,
 )
 from slab_cert_resolver import resolve_psa_cert_from_scan_cache
-from tcgcsv_adapter import scrydex_variant_label_for_subtype
+from tcgcsv_adapter import TCGCSV_PROVIDER, scrydex_variant_label_for_subtype
 from slab_set_aliases import resolve_slab_set_aliases
 from scan_artifact_store import (
     ARTIFACTS_JSON_BASENAME,
@@ -4271,7 +4271,66 @@ class SpotlightScanService:
         suppressed = suppressed_raw_variant_labels(self.connection, card_id)
         if suppressed:
             raw_contexts = filter_suppressed_raw_variants(raw_contexts, suppressed)
+        # The printing we QUOTE has to be one the user can pick. raw_contexts is
+        # Scrydex's printing list, and Scrydex knows only a Foil for P-043 while
+        # TCGplayer prices a Normal AND a Foil on one product — so the card page
+        # offered a single chip for the printing it was no longer quoting (user,
+        # 2026-09-14). ONLY the served main printing is added, and NM-only: the
+        # rest of main_raw_printings_json is stamped/player-signed promos that
+        # belong nowhere near a chip row.
+        if row is not None:
+            raw_contexts = self._with_served_main_printing(row, raw_contexts)
         return raw_contexts
+
+    @staticmethod
+    def _with_served_main_printing(
+        row: Any, raw_contexts: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Add the main lane's own printing to `raw_contexts` as an NM-only entry
+        when Scrydex has no printing under that label. Returns the input unchanged
+        on every other path — flag off, main absent/stale, or already present — so
+        the Scrydex-only read stays byte-identical."""
+        summary = resolve_main_raw_summary_from_row(row)  # flag + freshness gated
+        if summary is None:
+            return raw_contexts
+        label = _normalized_variant_label(summary.get("variant"))
+        if not label:
+            return raw_contexts
+        variants = raw_contexts.get("variants")
+        variants = variants if isinstance(variants, dict) else {}
+        match = _variant_match_key(label)
+        if any(_variant_match_key(existing) == match for existing in variants):
+            return raw_contexts
+        variant_key = match or label.lower().replace(" ", "")
+        entry = {
+            "variant": label,
+            "variantKey": variant_key,
+            "condition": DEFAULT_RAW_CONDITION,
+            "currencyCode": "USD",
+            "low": summary.get("low"),
+            "market": summary.get("market"),
+            "mid": summary.get("mid"),
+            "high": summary.get("high"),
+            "directLow": summary.get("directLow"),
+            "trend": summary.get("trend"),
+            "trendsPct": None,
+            "payload": {
+                "provider": TCGCSV_PROVIDER,
+                "variantKey": variant_key,
+                "variant": label,
+                "condition": DEFAULT_RAW_CONDITION,
+            },
+        }
+        updated = dict(raw_contexts)
+        updated["variants"] = {
+            **variants,
+            label: {
+                "variant": label,
+                "variantKey": variant_key,
+                "conditions": {DEFAULT_RAW_CONDITION: entry},
+            },
+        }
+        return updated
 
     def _snapshot_graded_contexts(self, card_id: str) -> dict[str, Any]:
         row = price_snapshot_row(self.connection, card_id)

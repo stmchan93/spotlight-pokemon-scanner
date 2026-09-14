@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = BACKEND_ROOT.parent
@@ -242,6 +245,123 @@ class RawPricingMatrixTests(unittest.TestCase):
         default_variant, _, _ = _resolve_default_raw_context(raw_contexts)
         self.assertEqual(payload["variants"][0]["variant"], default_variant)
         self.assertEqual(default_variant, "Unlimited Holofoil")
+
+    def _set_main_snapshot(self, *, market, variant):
+        self.connection.execute(
+            """
+            UPDATE card_price_snapshots
+            SET main_raw_market_price = ?,
+                main_raw_low_price = ?,
+                main_raw_mid_price = ?,
+                main_raw_high_price = ?,
+                main_raw_variant = ?,
+                main_raw_updated_at = ?
+            WHERE card_id = 'cl1-15'
+            """,
+            (
+                market,
+                market - 1,
+                market + 0.5,
+                market + 1,
+                variant,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        self.connection.commit()
+
+    def test_the_quoted_printing_is_always_offered_as_a_chip(self) -> None:
+        """One Piece P-043: Scrydex lists only a Foil, TCGplayer prices a Normal
+        AND a Foil on one product. Once the main lane quotes the Normal, the chip
+        list still offered Foil alone — the one printing the page was NOT quoting
+        (user, 2026-09-14). The served printing has to be selectable, or the user
+        cannot reach the price they are being shown."""
+        self._seed_raw_contexts(
+            {
+                "variants": {
+                    "Foil": {
+                        "variant": "Foil",
+                        "variantKey": "foil",
+                        "conditions": {
+                            "NM": {"currencyCode": "USD", "market": 460.66, "low": 335.0},
+                        },
+                    },
+                },
+            }
+        )
+        self._set_main_snapshot(market=89.78, variant="Normal")
+
+        with patch.dict(os.environ, {"RAW_MAIN_PRICE_SOURCE": "tcgcsv"}):
+            service = SpotlightScanService(self.database_path, REPO_ROOT)
+            try:
+                payload = service.raw_pricing_matrix("cl1-15")
+            finally:
+                service.connection.close()
+
+        labels = [variant["variant"] for variant in payload["variants"]]
+        self.assertIn("Normal", labels)
+        self.assertIn("Foil", labels)
+        # Normal outranks Foil, so the quoted printing is also the default chip.
+        self.assertEqual(labels[0], "Normal")
+        normal = payload["variants"][0]
+        self.assertEqual([row["code"] for row in normal["conditions"]], ["NM"])
+        self.assertEqual(normal["conditions"][0]["market"], 89.78)
+
+    def test_a_printing_scrydex_already_lists_is_not_duplicated(self) -> None:
+        # The main lane quotes a printing Scrydex knows: no synthetic chip, and
+        # its Scrydex conditions survive intact.
+        self._seed_raw_contexts(
+            {
+                "variants": {
+                    "Holofoil": {
+                        "variant": "Holofoil",
+                        "variantKey": "holofoil",
+                        "conditions": {
+                            "NM": {"currencyCode": "USD", "market": 7.36},
+                            "LP": {"currencyCode": "USD", "market": 5.10},
+                        },
+                    },
+                },
+            }
+        )
+        self._set_main_snapshot(market=6.50, variant="Holofoil")
+
+        with patch.dict(os.environ, {"RAW_MAIN_PRICE_SOURCE": "tcgcsv"}):
+            service = SpotlightScanService(self.database_path, REPO_ROOT)
+            try:
+                payload = service.raw_pricing_matrix("cl1-15")
+            finally:
+                service.connection.close()
+
+        self.assertEqual([v["variant"] for v in payload["variants"]], ["Holofoil"])
+        holofoil = payload["variants"][0]
+        self.assertEqual([row["code"] for row in holofoil["conditions"]], ["NM", "LP"])
+        # Rule 1 still applies: the TCGCSV row IS this printing's NM price.
+        self.assertEqual(holofoil["conditions"][0]["market"], 6.50)
+        self.assertEqual(holofoil["conditions"][1]["market"], 5.10)
+
+    def test_flag_off_leaves_the_scrydex_chip_list_untouched(self) -> None:
+        self._seed_raw_contexts(
+            {
+                "variants": {
+                    "Foil": {
+                        "variant": "Foil",
+                        "variantKey": "foil",
+                        "conditions": {"NM": {"currencyCode": "USD", "market": 460.66}},
+                    },
+                },
+            }
+        )
+        self._set_main_snapshot(market=89.78, variant="Normal")
+
+        with patch.dict(os.environ, {"RAW_MAIN_PRICE_SOURCE": "scrydex"}):
+            service = SpotlightScanService(self.database_path, REPO_ROOT)
+            try:
+                payload = service.raw_pricing_matrix("cl1-15")
+            finally:
+                service.connection.close()
+
+        self.assertEqual([v["variant"] for v in payload["variants"]], ["Foil"])
+        self.assertEqual(payload["variants"][0]["conditions"][0]["market"], 460.66)
 
 
 if __name__ == "__main__":

@@ -346,7 +346,15 @@ class RawConditionSurfaceCoherenceTests(unittest.TestCase):
 
     # --- 5. main variant with no matching Scrydex variant -------------------
 
-    def test_unmatched_main_variant_changes_nothing(self):
+    def test_unmatched_main_variant_is_added_as_its_own_printing(self):
+        """A main printing Scrydex does not list becomes its OWN chip, NM-only,
+        and every Scrydex printing is left exactly as it was.
+
+        This used to assert the surfaces were untouched, which meant the card
+        page QUOTED a printing it refused to offer: One Piece P-043 is one
+        TCGplayer product carrying a Normal ($89.78) and a Foil ($460.66), and
+        Scrydex lists only the Foil (user, 2026-09-14). Mapped-but-absent and
+        unmapped subtypes are both handled — no crash, nothing hidden."""
         self._seed_two_printings()
         for source in HISTORY_SOURCES:
             with self.subTest(history_source=source), self._env(source):
@@ -357,10 +365,27 @@ class RawConditionSurfaceCoherenceTests(unittest.TestCase):
                 with self.subTest(history_source=source, main_variant=main_variant), self._env(
                     source, {"RAW_MAIN_PRICE_SOURCE": "tcgcsv"}
                 ):
-                    # Mapped-but-absent and unmapped subtypes both leave the
-                    # surfaces untouched (no crash, nothing hidden, NM Scrydex).
                     self._set_main(market=80.0, variant=main_variant)
-                    self.assertEqual(self._surfaces(), baseline)
+                    surfaces = self._surfaces()
+
+                    # The Scrydex printings are untouched — neither reshaped nor
+                    # judged against a main price that is not theirs.
+                    for label in ("First Edition", "Unlimited"):
+                        self.assertEqual(
+                            self._matrix_variant(surfaces["matrix"], label),
+                            self._matrix_variant(baseline["matrix"], label),
+                        )
+                    self.assertEqual(surfaces["trends_fe"], baseline["trends_fe"])
+                    self.assertEqual(surfaces["trends_unl"], baseline["trends_unl"])
+
+                    # ...and the quoted printing is now reachable.
+                    self.assertIsNone(self._matrix_variant(baseline["matrix"], main_variant))
+                    added = self._matrix_variant(surfaces["matrix"], main_variant)
+                    self.assertIsNotNone(added)
+                    self.assertEqual([row["code"] for row in added["conditions"]], ["NM"])
+                    self.assertAlmostEqual(
+                        self._condition_row(added, "NM")["market"], 80.0, places=2
+                    )
 
     # --- graded lane is never touched ---------------------------------------
 

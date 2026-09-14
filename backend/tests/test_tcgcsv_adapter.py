@@ -27,6 +27,7 @@ from tcgcsv_adapter import (  # noqa: E402
     scrydex_variant_label_for_subtype,
     select_main_price_entry,
 )
+from catalog_tools import raw_variant_sort_key  # noqa: E402
 
 
 class _FakeResponse:
@@ -215,6 +216,43 @@ class SelectMainPriceEntryTests(unittest.TestCase):
     def test_no_match_returns_none(self):
         self.assertIsNone(select_main_price_entry({"Normal": "100"}, "Normal", {}, frozenset()))
         self.assertIsNone(select_main_price_entry({}, "Normal", {"100": {"Normal": _row(1.0)}}, frozenset()))
+
+    def test_two_printings_on_one_product_are_ranked_not_taken_from_the_default(self):
+        """One Piece P-043: TCGplayer sells the Normal ($89.78) and the Foil
+        ($460.66) as ONE product (552131), so the product walk cannot separate
+        them and the stale Scrydex default ("Foil") decided the subtype outright.
+        The card in hand is the Normal; the page quoted $460.66 (user,
+        2026-09-14). The ranking has to reach INSIDE a product, not just order
+        products."""
+        prices = {"552131": {"Normal": _row(89.78), "Foil": _row(460.66)}}
+        variant_product_ids = {"Normal": "552131", "Foil": "552131"}
+
+        # Precondition: one product id, so the product-level ranking is inert.
+        self.assertEqual(set(variant_product_ids.values()), {"552131"})
+
+        result = select_main_price_entry(
+            variant_product_ids, "Foil", prices, frozenset(), variant_rank=raw_variant_sort_key
+        )
+        self.assertEqual(result[1], "Normal")
+        self.assertEqual(result[0]["marketPrice"], 89.78)
+
+    def test_without_a_ranking_the_stored_default_still_decides(self):
+        # Back-compat: callers that pass no ranking keep the old behavior, so a
+        # flag-off/legacy path stays byte-identical.
+        prices = {"552131": {"Normal": _row(89.78), "Foil": _row(460.66)}}
+        result = select_main_price_entry(
+            {"Normal": "552131", "Foil": "552131"}, "Foil", prices, frozenset()
+        )
+        self.assertEqual(result[1], "Foil")
+
+    def test_ranking_still_skips_an_unpriced_better_printing(self):
+        # Rank order does not override "must have a market price".
+        prices = {"100": {"Normal": _row(None), "Foil": _row(4.0)}}
+        result = select_main_price_entry(
+            {"Normal": "100", "Foil": "100"}, "Foil", prices, frozenset(),
+            variant_rank=raw_variant_sort_key,
+        )
+        self.assertEqual(result[1], "Foil")
 
 
 if __name__ == "__main__":

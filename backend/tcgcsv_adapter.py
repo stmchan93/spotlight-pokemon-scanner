@@ -400,9 +400,24 @@ def select_main_price_entry(
         # old "any" tail took TCGCSV's row order, which put Neo Genesis
         # Wooper's 1st Edition ($9.52) ahead of its Unlimited ($3.20) when
         # the label→subtype map knew neither bare name.
-        candidate_order: list[str] = list(preferred_subtypes)
-        candidate_order.extend(_SUBTYPE_FALLBACK_ORDER)
-        candidate_order.extend(sorted(subtypes.keys(), key=_is_first_edition_subtype))
+        if variant_rank is None:
+            candidate_order: list[str] = list(preferred_subtypes)
+            candidate_order.extend(_SUBTYPE_FALLBACK_ORDER)
+            candidate_order.extend(sorted(subtypes.keys(), key=_is_first_edition_subtype))
+        else:
+            # The product walk above cannot separate two printings that share ONE
+            # TCGplayer product: P-043's Normal and Foil are both product 552131,
+            # so `ordered_product_ids` collapses to a single id and the stale
+            # Scrydex default decides the subtype outright. That quoted the
+            # $460.66 Foil for a card whose Normal is $89.78 (user, 2026-09-14).
+            # Same rule as one level up — with a ranking in hand the ranking IS
+            # the answer, so the main price and the first chip agree.
+            candidate_order = sorted(
+                subtypes.keys(),
+                key=lambda name: variant_rank(
+                    SUBTYPE_TO_SCRYDEX_VARIANT_LABEL.get(name, name)
+                ),
+            )
         seen: set[str] = set()
         for sub_type_name in candidate_order:
             if sub_type_name in seen or sub_type_name not in subtypes:
