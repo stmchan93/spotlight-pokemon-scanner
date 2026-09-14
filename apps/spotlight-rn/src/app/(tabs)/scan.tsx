@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { useNavigation } from '@react-navigation/native';
 
 import { FocusedStatusBar } from '@/components/focused-status-bar';
+import { MountOnFirstFocus } from '@/components/mount-on-first-focus';
 import { NativeTabsPageBridge } from '@/components/native-tabs-page-bridge';
 import { ScannerScreen } from '@/features/scanner/screens/scanner-screen';
 import { getLastActiveTab } from '@/lib/last-active-tab';
@@ -106,7 +107,10 @@ export default function ScanRoute() {
     <NativeTabsPageBridge page="scanner">
       {/* Dark viewfinder needs light status-bar icons. */}
       <FocusedStatusBar style="light" />
-      <ScannerScreen onExitToPortfolio={goBack} />
+      {/* Black until first focus: the viewfinder is black, so no white flash. */}
+      <MountOnFirstFocus placeholderColor="#000000">
+        <ScannerScreen onExitToPortfolio={goBack} />
+      </MountOnFirstFocus>
     </NativeTabsPageBridge>
   );
 }

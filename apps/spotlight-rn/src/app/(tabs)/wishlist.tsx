@@ -1,5 +1,6 @@
 
 import { FocusedStatusBar } from '@/components/focused-status-bar';
+import { MountOnFirstFocus } from '@/components/mount-on-first-focus';
 import { NativeTabsPageBridge } from '@/components/native-tabs-page-bridge';
 import { WishlistScreen } from '@/features/wishlist/screens/wishlist-screen';
 
@@ -16,7 +17,9 @@ export default function WishlistRoute() {
   return (
     <NativeTabsPageBridge page="portfolio">
       <FocusedStatusBar style="dark" />
-      <WishlistScreen />
+      <MountOnFirstFocus>
+        <WishlistScreen />
+      </MountOnFirstFocus>
     </NativeTabsPageBridge>
   );
 }
