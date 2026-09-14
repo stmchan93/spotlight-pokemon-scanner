@@ -155,10 +155,12 @@ describe('CardListRow', () => {
   it('draws only a bottom hairline by default so adjacent rows share one divider', () => {
     renderRow();
 
-    // 0.5pt gray-300 rule per current Figma rows (Wishlist 4173:82045,
+    // 1pt gray-300 rule. The 0.5pt `rule` token read too faint on device, so
+    // the rows were deliberately moved to containerRule (a30c4f02,
+    // 2026-09-03) — this pins that decision. Figma rows (Wishlist 4173:82045,
     // Collection 4134:50940).
     const merged = mergedRowStyle();
-    expect(merged.borderBottomWidth).toBe(0.5);
+    expect(merged.borderBottomWidth).toBe(1);
     expect(merged.borderBottomColor).toBe('#D4D4D4');
     // No top border by default — the previous row's bottom hairline serves as
     // the divider, so stacked rows don't double their borders.
@@ -169,9 +171,9 @@ describe('CardListRow', () => {
     renderRow({ firstInSection: true });
 
     const merged = mergedRowStyle();
-    expect(merged.borderBottomWidth).toBe(0.5);
+    expect(merged.borderBottomWidth).toBe(1);
     expect(merged.borderBottomColor).toBe('#D4D4D4');
-    expect(merged.borderTopWidth).toBe(0.5);
+    expect(merged.borderTopWidth).toBe(1);
     expect(merged.borderTopColor).toBe('#D4D4D4');
   });
 

@@ -140,12 +140,13 @@ export function CardListRow({
 }: CardListRowProps) {
   const theme = useSpotlightTheme();
 
-  // Figma rows (Wishlist 4173:82045, Collection 4134:50940) rule with a 0.5pt
-  // gray-300 hairline, not the old 1pt gray-100.
+  // Figma rows (Wishlist 4173:82045, Collection 4134:50940) rule in gray-300.
+  // Width is containerRule (1pt), not the 0.5pt `rule`: at 0.5 the gray-300
+  // divider read too faint on device (a30c4f02, 2026-09-03).
   const borderStyle = {
     borderBottomColor: theme.colors.gray300,
     ...(firstInSection
-      ? { borderTopColor: theme.colors.gray300, borderTopWidth: borderWidths.rule }
+      ? { borderTopColor: theme.colors.gray300, borderTopWidth: borderWidths.containerRule }
       : null),
   };
 
@@ -391,7 +392,7 @@ const styles = StyleSheet.create({
   },
   row: {
     alignItems: 'center',
-    borderBottomWidth: borderWidths.rule,
+    borderBottomWidth: borderWidths.containerRule,
     flexDirection: 'row',
     // Thumb ↔ copy gap is 8 in Figma (Card Content itemSpacing, 4173:82045).
     gap: 8,
