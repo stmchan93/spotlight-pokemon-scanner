@@ -3951,6 +3951,15 @@ class SpotlightScanService:
                 condition=pricing_context.preferred_condition or DEFAULT_RAW_CONDITION,
             )
             if summary is None and snapshot_row["default_raw_market_price"] is not None:
+                # LAST RESORT: the contexts held nothing usable, so fall back to
+                # the stored snapshot columns. They are ONE record — the stored
+                # prices belong to the stored variant — so the label has to come
+                # from the same row. Resolving the label live while reading these
+                # prices printed "Foil" above the Alt Art's $80.20, which is a
+                # worse answer than either source alone.
+                resolved_variant = (
+                    str(snapshot_row["default_raw_variant"] or "").strip() or resolved_variant
+                )
                 summary = {
                     "currencyCode": snapshot_row["display_currency_code"],
                     "low": snapshot_row["default_raw_low_price"],
