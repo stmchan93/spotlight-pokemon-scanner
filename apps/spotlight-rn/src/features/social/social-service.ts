@@ -250,10 +250,10 @@ async function hydratePosts(rows: PostRow[], options: HydrateOptions = {}): Prom
   }));
 }
 
-// The PostgREST filter builder's generics are deep enough that threading them
-// through a helper trips `tsc`'s instantiation-depth limit; `any` here keeps the
-// query-shaping callback ergonomic without changing runtime behavior. The result
-// is re-cast to `PostRow[]` before it leaves the module.
+// Untyped boundary: @supabase/postgrest-js. Naming the builder type
+// (`ReturnType<...['from']>['select']>`) makes tsc raise TS2589 "type
+// instantiation is excessively deep" — verified, not assumed. The result is
+// re-cast to `PostRow[]` before it leaves the module.
 type PostFilter = (query: any) => any;
 
 /**
@@ -1258,6 +1258,22 @@ const USE_SOFT_DELETE: boolean = true;
 type DeletableTable = typeof POSTS_TABLE | typeof COMMENTS_TABLE;
 
 /**
+ * The slice of the PostgREST builder `deleteOwnedRow` actually uses. Spelling
+ * out the real builder type instead trips tsc's instantiation depth (see
+ * `PostFilter`), so this names the four calls and the returning shape, and
+ * still catches a typo the way `any` would not.
+ */
+type RowMutation = {
+  eq: (column: string, value: string) => {
+    select: (columns: string) => PromiseLike<{ data: { id: string }[] | null; error: unknown }>;
+  };
+};
+type RowMutator = {
+  update: (values: Record<string, unknown>) => RowMutation;
+  delete: () => RowMutation;
+};
+
+/**
  * Delete one row by id and report whether a row was ACTUALLY affected. Returns
  * false for every failure mode — no Supabase client, unauthenticated, blank id, a
  * rejected query, and (the one that matters) an RLS-refused write that affected
@@ -1276,20 +1292,14 @@ async function deleteOwnedRow(table: DeletableTable, id: string): Promise<boolea
     return false;
   }
   try {
-    // Cast for the same reason as `PostFilter` above: threading PostgREST's
-    // builder generics through a table-name union trips tsc's instantiation
-    // depth. The runtime shape is checked below.
-    const from = supabase.from(table) as any;
+    const from = supabase.from(table) as unknown as RowMutator;
     const mutation = USE_SOFT_DELETE
       ? from
           .update({ content_status: 'deleted', deleted_at: new Date().toISOString() })
           .eq('id', trimmed)
       : from.delete().eq('id', trimmed);
 
-    const { data, error } = (await mutation.select('id')) as {
-      data: { id: string }[] | null;
-      error: unknown;
-    };
+    const { data, error } = await mutation.select('id');
     if (error) {
       return false;
     }

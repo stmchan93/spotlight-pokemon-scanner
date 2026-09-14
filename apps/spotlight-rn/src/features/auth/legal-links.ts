@@ -15,7 +15,6 @@ const LEGAL_SITE_BASE_URL = 'https://stmchan93.github.io/ekalight-legal';
 
 export const TERMS_OF_USE_URL = `${LEGAL_SITE_BASE_URL}/terms/`;
 export const PRIVACY_POLICY_URL = `${LEGAL_SITE_BASE_URL}/`;
-export const DELETE_ACCOUNT_URL = `${LEGAL_SITE_BASE_URL}/delete-account/`;
 
 /**
  * Open a known-good https legal URL. No `canOpenURL` gate: on Android 11+ that

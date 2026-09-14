@@ -357,7 +357,7 @@ const LANGUAGE_TOOLTIP_SEEN_SECURE_KEY = 'spotlight.scanner.language-tooltip-see
 type SecureStoreModule = typeof import('expo-secure-store');
 let languageTooltipSecureStore: SecureStoreModule | null = null;
 try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional native module: expo-secure-store can be unavailable or throw
   languageTooltipSecureStore = require('expo-secure-store') as SecureStoreModule;
 } catch {
   languageTooltipSecureStore = null;

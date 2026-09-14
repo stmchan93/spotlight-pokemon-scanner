@@ -119,12 +119,3 @@ export function useTabBarScrollHandler(): (
 ) => void {
   return useContext(TabBarChromeContext).handleScroll;
 }
-
-/**
- * Read the shared collapse state (false = expanded, true = icon-only pill) so
- * the bottom bar can morph on scroll. Falls back to a static false with no
- * provider, so the bar simply stays expanded.
- */
-export function useTabBarCollapsed(): boolean {
-  return useContext(TabBarChromeContext).collapsed;
-}

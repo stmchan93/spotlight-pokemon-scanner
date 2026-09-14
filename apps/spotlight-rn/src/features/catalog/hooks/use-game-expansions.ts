@@ -76,25 +76,3 @@ export function useGameExpansions(enabled = true) {
 
   return { byGame, error, games, hasLoaded, isLoading, reload };
 }
-
-/**
- * The languages a game's sets actually span, in display order. The set browser
- * only draws a tab row when this has more than one entry: today Pokémon is the
- * only game with both an English and a Japanese catalog, and a one-tab row is a
- * control that does nothing.
- */
-export function expansionLanguages(expansions: readonly ExpansionRecord[]): string[] {
-  const seen = new Set<string>();
-  expansions.forEach((expansion) => {
-    const language = (expansion.language ?? '').trim();
-    if (language) {
-      seen.add(language);
-    }
-  });
-  // English first when present; everything else alphabetical behind it.
-  return [...seen].sort((left, right) => {
-    if (left === 'English') return -1;
-    if (right === 'English') return 1;
-    return left.localeCompare(right);
-  });
-}

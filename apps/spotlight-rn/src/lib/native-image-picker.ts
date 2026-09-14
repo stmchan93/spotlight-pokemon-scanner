@@ -35,7 +35,7 @@ export function loadNativeImagePicker(): typeof import('expo-image-picker') | nu
     return null;
   }
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- deferred require: only reached after the native registry confirms the module
     return require('expo-image-picker') as typeof import('expo-image-picker');
   } catch {
     return null;

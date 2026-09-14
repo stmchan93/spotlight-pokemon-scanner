@@ -57,7 +57,7 @@ function resolveBuildStamp(): string {
   const version = Constants.expoConfig?.version ?? '';
   let updates: typeof import('expo-updates') | null = null;
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional native module: expo-updates is absent in Expo Go
     updates = require('expo-updates') as typeof import('expo-updates');
   } catch {
     updates = null;

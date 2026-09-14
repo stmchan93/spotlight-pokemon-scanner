@@ -52,17 +52,7 @@ export async function analyzePSASlabLabelNative(imageUri: string) {
   }
 
   try {
-    const analysis = await scanPSALabel(trimmedUri);
-    if (__DEV__ && process.env.NODE_ENV !== 'test') {
-      // Fixture-capture aid for PR 5: scrape Metro logs for `[slab-fixture-dump]`
-      // lines and convert each to a JSON file under __tests__/fixtures/psa-slab-mlkit/.
-       
-      console.log(
-        '[slab-fixture-dump]',
-        JSON.stringify({ imageUri: trimmedUri, analysis }),
-      );
-    }
-    return analysis;
+    return await scanPSALabel(trimmedUri);
   } catch (error) {
     const nativeMessage = error instanceof Error ? error.message : String(error);
     throw new PSASlabNativeAnalysisError(

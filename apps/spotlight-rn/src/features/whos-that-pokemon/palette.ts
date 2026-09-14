@@ -13,7 +13,7 @@ type ImageColorsModule = {
 
 function loadImageColorsModule(): ImageColorsModule | null {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional native module: react-native-image-colors may be missing from the binary
     const mod = require('react-native-image-colors') as
       | ImageColorsModule
       | { default?: ImageColorsModule };

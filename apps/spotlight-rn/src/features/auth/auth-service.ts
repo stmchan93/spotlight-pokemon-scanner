@@ -27,14 +27,14 @@ let appleAuthenticationModule: AppleAuthModule | null = null;
 let webBrowserModule: WebBrowserModule | null = null;
 
 try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional native module: probed at import time, null when the binary lacks it
   appleAuthenticationModule = require('expo-apple-authentication') as AppleAuthModule;
 } catch {
   appleAuthenticationModule = null;
 }
 
 try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional native module: probed at import time, null when the binary lacks it
   webBrowserModule = require('expo-web-browser') as WebBrowserModule;
 } catch {
   webBrowserModule = null;

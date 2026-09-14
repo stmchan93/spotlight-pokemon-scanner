@@ -1,7 +1,6 @@
 import {
   isSlabScannerNativeAvailable,
   scanPSALabel,
-  SLAB_SCANNER_NATIVE_MODULE_NAME,
   type SlabScannerNativeAnalysis,
   type SlabScannerTextBlock,
 } from '@/features/scanner/slab-scanner-native';
@@ -142,12 +141,6 @@ export async function readRawCollectorNumber(imageUri: string): Promise<string |
   }
   if (!isSlabScannerNativeAvailable()) {
     // Expo Go / no custom dev client: graceful no-op.
-    if (__DEV__ && process.env.NODE_ENV !== 'test') {
-       
-      console.log(
-        `[raw-collector-ocr] native module ${SLAB_SCANNER_NATIVE_MODULE_NAME} unavailable; skipping`,
-      );
-    }
     return null;
   }
 

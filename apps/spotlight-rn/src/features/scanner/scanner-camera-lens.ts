@@ -91,13 +91,6 @@ export function setScannerMacroLensLock(next: boolean): void {
   });
 }
 
-/** Test-only: reset the module store between cases. */
-export function resetScannerMacroLensLockForTests(): void {
-  macroLensLock = false;
-  hydrated = false;
-  hydrating = null;
-}
-
 export function useScannerMacroLensLock(): [boolean, (next: boolean) => void, boolean] {
   const enabled = useSyncExternalStore(subscribe, () => macroLensLock, () => false);
   const isHydrated = useSyncExternalStore(subscribe, () => hydrated, () => false);

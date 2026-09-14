@@ -67,7 +67,7 @@ function PaletteSwatch({ color, index, testID }: { color: string; index: number;
     return () => {
       cancelAnimation(progress);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot entrance per mount; index is fixed for this swatch
   }, []);
 
   const style = useAnimatedStyle(() => ({

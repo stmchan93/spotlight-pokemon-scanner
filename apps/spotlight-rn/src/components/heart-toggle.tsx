@@ -212,7 +212,7 @@ export function HeartToggle({
         runOnJS(setBurstKey)(burstKey + 1);
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- burstKey is incremented here, never a trigger — depending on it would loop
   }, [filled, reduceMotion, bounce, burst]);
 
   useEffect(() => {
@@ -222,7 +222,7 @@ export function HeartToggle({
       cancelAnimation(strokeMix);
       cancelAnimation(ringProgress);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- unmount-only cleanup; the shared values are stable
   }, []);
 
   const heartStyle = useAnimatedStyle(() => ({

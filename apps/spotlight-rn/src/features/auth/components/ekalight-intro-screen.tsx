@@ -175,7 +175,7 @@ export function EkalightIntroScreen({
     // completion callbacks no-op, so always schedule onDone explicitly.
     const safetyTimer = setTimeout(callDone, TOTAL_MS + 40);
     return () => clearTimeout(safetyTimer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- replays only when reduceMotion flips; the shared values and callDone are stable
   }, [reduceMotion]);
 
   const stripStyle = useAnimatedStyle(() => ({

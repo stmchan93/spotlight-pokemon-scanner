@@ -232,7 +232,7 @@ function BurstParticle({
     return () => {
       cancelAnimation(progress);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot per mount; dur is fixed for this particle
   }, []);
 
   const style = useAnimatedStyle(() => {

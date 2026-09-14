@@ -576,16 +576,6 @@ export function scannerSlabInlineLabel(capture: RecentCapture) {
   return grader ?? normalizeSlabText(capture.slabContext?.variantName);
 }
 
-export function scannerSlabSubtitle(capture: RecentCapture, candidate: CatalogSearchResult) {
-  void capture;
-  return [candidate.cardNumber?.trim(), candidate.setName].filter(Boolean).join(' • ');
-}
-
-export function scannerCapturePriceLabel(capture: RecentCapture) {
-  void capture;
-  return 'MARKET';
-}
-
 export function scannerCaptureThumbUri(capture: RecentCapture, candidate: CatalogSearchResult | null) {
   if (capture.mode === 'slabs') {
     return candidate?.smallImageUrl || candidate?.imageUrl || capture.uri || null;

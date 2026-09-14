@@ -20,7 +20,7 @@ type SharingModule = {
 };
 function loadSharingModule(): SharingModule | null {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional native module: expo-sharing may be missing from the binary
     return require('expo-sharing') as SharingModule;
   } catch {
     return null;

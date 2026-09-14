@@ -146,7 +146,7 @@ type AnonymousMintProperties = {
 
 function emitAnonymousIdentityMinted(properties: AnonymousMintProperties) {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy require: analytics must never be an import-time dependency of auth
     const observability = require('@/lib/observability/posthog') as typeof import('@/lib/observability/posthog');
     observability.capturePostHogEvent(ANONYMOUS_IDENTITY_MINTED_EVENT, properties);
   } catch {

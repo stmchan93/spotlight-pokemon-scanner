@@ -1,15 +1,5 @@
 import type { CardFavoriteEntry } from '@spotlight/api-client';
 
-/**
- * How many cards go in the message before it collapses to a count.
- *
- * A hunt list is pasted into a group chat or a dealer's DM, and past a couple
- * of dozen lines it stops being readable and starts being spam — the reader
- * scrolls past it, which is the opposite of the point. The remainder is still
- * announced, so nobody is misled about the size of the list.
- */
-export const WISHLIST_SHARE_MAX_LINES = 25;
-
 /** One card, as a line someone can actually scan: name, number, set. */
 function formatEntryLine(entry: CardFavoriteEntry): string {
   return [entry.name, entry.cardNumber, entry.setName]

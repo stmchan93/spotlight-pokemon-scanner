@@ -175,7 +175,7 @@ type PostMediaUploader = {
 // what crashed the composer's Photo/Camera chips.
 function loadImageManipulator() {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional native module: may be missing from the binary an OTA bundle runs on
     return require('expo-image-manipulator');
   } catch {
     return null;

@@ -14,14 +14,14 @@ let secureStoreModule: SecureStoreModule | null = null;
 let webBrowserModule: WebBrowserModule | null = null;
 
 try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional native module: expo-secure-store can be unavailable or throw
   secureStoreModule = require('expo-secure-store') as SecureStoreModule;
 } catch {
   secureStoreModule = null;
 }
 
 try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional native module: probed at import time, null when the binary lacks it
   webBrowserModule = require('expo-web-browser') as WebBrowserModule;
 } catch {
   webBrowserModule = null;
@@ -110,7 +110,7 @@ function getAsyncStorage(): AsyncStorageModule | null {
   }
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy require: AsyncStorage is resolved on first use, not at import
     const required = require('@react-native-async-storage/async-storage') as {
       default?: AsyncStorageModule;
     };
@@ -173,7 +173,7 @@ function reportSecureStoreFallback() {
   hasReportedFallback = true;
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy require: breaks the supabase <-> observability import cycle
     const observability = require('./observability/posthog') as typeof import('./observability/posthog');
     observability.capturePostHogEvent(SECURE_STORE_FALLBACK_EVENT, {
       error_code: fallbackErrorCode,

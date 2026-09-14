@@ -1,4 +1,4 @@
-import { Image, StyleSheet, Text } from 'react-native';
+import { Image, StyleSheet, Text, type ImageRequireSource } from 'react-native';
 
 import { fontFamilies, colors } from '../tokens';
 
@@ -14,8 +14,8 @@ import { fontFamilies, colors } from '../tokens';
  */
 
 type GraderAsset = {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  source: any;
+  // Metro resolves `require('*.png')` to an opaque asset id (a number).
+  source: ImageRequireSource;
   aspectRatio: number; // width / height of the bundled asset
 };
 

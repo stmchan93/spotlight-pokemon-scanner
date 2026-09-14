@@ -917,7 +917,7 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
       onScrubLockChangeRef.current?.(false);
       onActivePointChangeRef.current?.(null);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- unmount-only cleanup; every value it touches is a ref
   }, []);
 
   return (

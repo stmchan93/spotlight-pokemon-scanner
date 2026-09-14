@@ -61,7 +61,7 @@ const COVER_CAMERA_ICON_SIZE = 21;
 // then takes the app down instead of failing softly.
 function loadImageManipulator() {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional native module: may be missing from the binary an OTA bundle runs on
     return require('expo-image-manipulator');
   } catch {
     return null;
