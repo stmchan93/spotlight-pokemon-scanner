@@ -78,14 +78,17 @@ const gridGap = 10;
  * ghost, so the CTA moves instead: the footer reserves the bar's own height on
  * Android so the button's bottom edge stays above y=1980.
  *
- * 80 is the MenuView's measured height (225px at 2.8125x); the system
+ * 72 clears it by the minimum: the CTA's bottom edge sat 181px (64dp) inside
+ * the MenuView's 80dp, so 72 leaves ~8dp of margin above y=1980 while giving
+ * the grid back as much height as possible — the tiles are height-driven on
+ * this screen, and every dp taken here is taken from them. The system
  * navigation bar under it is already covered by the SafeAreaView. A hardcoded
  * native measurement is exactly what `tab-bar-insets.tsx` warns against, and
  * the honest fix is native: make a hidden bar untouchable (or take the
  * react-native-screens release that does) and delete this. That is a new
  * binary; this ships by OTA to the Android users who have the bug today.
  */
-const androidGhostTabBarHeight = Platform.OS === 'android' ? 80 : 0;
+const androidGhostTabBarHeight = Platform.OS === 'android' ? 72 : 0;
 // Name 15 + set line 13 + price row 15 + 3 gaps of 2 (+ slack). FIXED: the
 // printing rides on the price row rather than adding a line of its own, so a
 // batch never resizes the cards or pushes the grid into a scroll
@@ -597,8 +600,9 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     // Clears the header rather than letting the first row of tiles sit against
-    // "Hold to edit".
-    paddingTop: 12,
+    // "Hold to edit". Tighter on Android, where the lifted CTA is already
+    // costing the tiles height.
+    paddingTop: androidGhostTabBarHeight > 0 ? 8 : 12,
     paddingHorizontal: 16,
   },
   grid: {
@@ -719,9 +723,12 @@ const styles = StyleSheet.create({
   },
   footer: {
     gap: 10,
-    paddingBottom: 16 + androidGhostTabBarHeight,
+    // On Android the lifted CTA's bottom gap falls inside the ghost bar's dead
+    // strip, where nothing can be tapped anyway — so it is trimmed to give the
+    // tiles the height back. iOS keeps its 16.
+    paddingBottom: androidGhostTabBarHeight > 0 ? 8 + androidGhostTabBarHeight : 16,
     paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingTop: androidGhostTabBarHeight > 0 ? 4 : 8,
   },
   notice: {
     bottom: '100%',
