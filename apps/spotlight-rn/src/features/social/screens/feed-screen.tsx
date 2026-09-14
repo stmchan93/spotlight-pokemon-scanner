@@ -829,7 +829,7 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         expo-blur can't do gradient blur and a full BlurView reads as a hard
         band.
       */}
-      <View pointerEvents="none" style={[styles.bottomGradient, { height: 95 }]}>
+      <View pointerEvents="none" style={[styles.bottomGradient, { height: feedBottomFadeHeight }]}>
         <Svg height="100%" width="100%">
           <Defs>
             <LinearGradient id="homeBottomFade" x1="0" x2="0" y1="1" y2="0">
@@ -867,6 +867,25 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
     </DrawerEdgeSwipe>
   );
 }
+
+/*
+  THE SAME 95 MEANS TWO DIFFERENT THINGS ON THE TWO PLATFORMS.
+
+  Figma 4407:283 is an iOS mock: the floating bar is translucent, content runs
+  under it, and ~34pt of the 95pt band sits UNDER the bar (the home-indicator
+  inset), so only ~61pt of fade is ever visible above it. On Android the bar is
+  opaque and expo-router pre-insets the tab container above it (see
+  `tab-bar-insets.tsx`), so `bottom: 0` IS the bar's top edge and the whole
+  95pt lands above it — a haze a third taller than designed that read as "the
+  gradient on Social is way too high" against Home, which has no band at all
+  (user, 2026-09-13, Galaxy A17). Android gets the VISIBLE portion.
+*/
+const FEED_BOTTOM_FADE_HEIGHT = 95;
+const IOS_HOME_INDICATOR_INSET_IN_MOCK = 34;
+const feedBottomFadeHeight =
+  Platform.OS === 'android'
+    ? FEED_BOTTOM_FADE_HEIGHT - IOS_HOME_INDICATOR_INSET_IN_MOCK
+    : FEED_BOTTOM_FADE_HEIGHT;
 
 const styles = StyleSheet.create({
   bottomGradient: {
