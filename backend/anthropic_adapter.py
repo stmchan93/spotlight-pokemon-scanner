@@ -55,7 +55,8 @@ def _register_heif_opener_once() -> None:
         import pillow_heif  # optional; manylinux wheel bundles libheif
 
         pillow_heif.register_heif_opener()
-    except Exception:
+    except (ImportError, OSError):
+        # No wheel, or libheif won't load: HEIC stays unsupported, JPEG/PNG don't.
         pass
     _register_heif_opener_once._done = True  # type: ignore[attr-defined]
 

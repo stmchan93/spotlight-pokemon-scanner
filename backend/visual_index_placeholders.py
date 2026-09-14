@@ -48,7 +48,7 @@ def _raw_bytes(image_or_bytes_or_path: Any) -> bytes | None:
     if isinstance(image_or_bytes_or_path, (str, Path)):
         try:
             return Path(image_or_bytes_or_path).read_bytes()
-        except Exception:
+        except OSError:
             return None
     # PIL image: serialize to PNG bytes. Note: re-encoding a downloaded JPEG to PNG
     # would change the hash, so the saved-file/raw-bytes paths above are preferred.
@@ -60,7 +60,9 @@ def _raw_bytes(image_or_bytes_or_path: Any) -> bytes | None:
             buffer = io.BytesIO()
             save(buffer, format="PNG")
             return buffer.getvalue()
-        except Exception:
+        # Unwritable/undecodable image (OSError, ValueError) or a stub whose `save`
+        # takes a different signature (AttributeError, TypeError).
+        except (OSError, ValueError, AttributeError, TypeError):
             return None
     return None
 

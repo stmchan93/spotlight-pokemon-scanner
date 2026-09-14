@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -32,7 +32,7 @@ def _decimal_or_none(value: Any) -> Decimal | None:
         return None
     try:
         return Decimal(str(value))
-    except Exception:
+    except (InvalidOperation, TypeError, ValueError):
         return None
 
 

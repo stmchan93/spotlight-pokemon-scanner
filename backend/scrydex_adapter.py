@@ -384,7 +384,8 @@ def scrydex_request_audit_summary(
                         second=0,
                         microsecond=0,
                     )
-                except Exception:
+                except (ImportError, KeyError, ValueError):
+                    # Unknown/unavailable tz name: keep the local-tz cutoff above.
                     pass
             today_cutoff_utc = today_cutoff.astimezone(timezone.utc).isoformat()
 
@@ -1567,7 +1568,9 @@ def fetch_scrydex_expansions(game: str) -> list[dict[str, Any]]:
             f"/{scrydex_game_segment(game)}/v1/expansions",
             request_type="expansions_list",
         )
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - callers treat the catalog as best-effort
+        # An empty list reads exactly like "this game has no expansions"; say otherwise.
+        print(f"[SCRYDEX] fetch_scrydex_expansions failed game={game} error={exc}")
         return []
 
     items = payload if isinstance(payload, list) else (

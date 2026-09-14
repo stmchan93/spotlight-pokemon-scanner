@@ -539,7 +539,8 @@ def fetch_ebay_items_by_legacy_ids(
     fetch_json_fn = fetch_json or _request_json
     try:
         access_token = _ebay_app_access_token(timeout_seconds=timeout_seconds, request_json=fetch_json_fn)
-    except Exception:  # noqa: BLE001
+    # Transport failure (OSError) or missing creds / a token body with no token (ValueError).
+    except (OSError, ValueError):
         return {}
     headers = {
         "Authorization": f"Bearer {access_token}",

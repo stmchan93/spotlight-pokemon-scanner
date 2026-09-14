@@ -268,8 +268,9 @@ def append_missing_cards(
         ref_path = cache_root / f"{cid}.png"
         try:
             image.save(ref_path)
-        except Exception:
-            pass
+        except OSError as exc:
+            # No cached PNG means the card-back guard below reads a missing file.
+            _log(logger, "WARNING", f"visual_index_append reference save failed id={cid} error={exc}")
         # Content guard: even with a real image_url, the URL can SERVE a generic
         # card-back placeholder (the McDonald's promo case). Hash the saved PNG and
         # skip it so the placeholder never becomes a false attractor in the index.

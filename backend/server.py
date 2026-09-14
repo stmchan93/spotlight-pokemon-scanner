@@ -11814,7 +11814,15 @@ class SpotlightScanService:
         try:
             index.load()
             entries = list(index.entries)
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - the lane degrades, it must not fail the scan
+            self._emit_structured_log(
+                {
+                    "severity": "WARNING",
+                    "event": "visual_manifest_ocr_candidates_index_unavailable",
+                    "errorType": type(exc).__name__,
+                    "error": str(exc)[:200],
+                }
+            )
             return []
 
         query_title_tokens = set(tokenize(" ".join(filter(None, [evidence.title_text_primary, evidence.title_text_secondary]))))
@@ -15864,7 +15872,7 @@ class SpotlightScanService:
         except Exception:  # noqa: BLE001 - observability must not break the request path
             try:
                 self.connection.rollback()
-            except Exception:  # noqa: BLE001
+            except sqlite3.Error:
                 pass
 
     def store_scan_artifacts(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -17823,7 +17831,7 @@ class SpotlightScanService:
             traceback.print_exc()
             try:
                 self.connection.rollback()
-            except Exception:  # noqa: BLE001
+            except sqlite3.Error:
                 pass
         summary["elapsedMs"] = round((perf_counter() - started_at) * 1000.0, 1)
         self._emit_structured_log(
@@ -18206,7 +18214,9 @@ class SpotlightScanService:
                 return None
             with path.open("r", encoding="utf-8") as handle:
                 payload = json.load(handle)
-        except Exception:  # noqa: BLE001 - a bad cache file must never fail a read
+        # Missing/unreadable file (OSError) or unparseable JSON (ValueError) — a bad
+        # cache file must never fail a read.
+        except (OSError, ValueError):
             return None
         return payload if isinstance(payload, dict) else None
 
@@ -18226,7 +18236,8 @@ class SpotlightScanService:
         except Exception:  # noqa: BLE001 - caching is best-effort, never fatal
             try:
                 temporary.unlink(missing_ok=True)
-            except Exception:  # noqa: BLE001
+            # NameError: `temporary` is unbound when with_suffix() itself raised.
+            except (OSError, NameError):
                 pass
 
     def prune_payload_cache(self, *, max_entries: int = 2000) -> int:
@@ -18240,14 +18251,14 @@ class SpotlightScanService:
             return 0
         try:
             files = sorted(root.glob("*.json"), key=lambda item: item.stat().st_mtime)
-        except Exception:  # noqa: BLE001
+        except OSError:  # unreadable cache dir; nothing to prune
             return 0
         removed = 0
         for stale in files[: max(0, len(files) - max_entries)]:
             try:
                 stale.unlink()
                 removed += 1
-            except Exception:  # noqa: BLE001
+            except OSError:  # already gone or locked; keep pruning the rest
                 continue
         return removed
 
@@ -20660,11 +20671,23 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         try:
             with urlopen(request, timeout=10) as response:
                 raw = response.read()
-        except Exception:  # noqa: BLE001 - any failure denies access
+        except Exception as exc:  # noqa: BLE001 - any failure denies access
+            # Failing closed is right, but a silent deny-all looks exactly like
+            # "no rows" to every caller. Name the outage.
+            print(
+                json.dumps({
+                    "severity": "ERROR",
+                    "event": "supabase_rest_select_failed",
+                    "table": table,
+                    "errorType": type(exc).__name__,
+                    "error": str(exc)[:200],
+                }),
+                flush=True,
+            )
             return None
         try:
             parsed = json.loads(raw.decode("utf-8"))
-        except Exception:  # noqa: BLE001
+        except ValueError:  # non-UTF-8 or non-JSON body
             return None
         if not isinstance(parsed, list):
             # PostgREST errors are JSON objects; never mistake one for a row.
@@ -20859,12 +20882,23 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         try:
             with urlopen(request, timeout=10) as response:
                 raw = response.read()
-        except Exception:  # noqa: BLE001 - any failure denies the insert → 403
+        except Exception as exc:  # noqa: BLE001 - any failure denies the insert → 403
+            # The caller answers 403 either way; without this the reason is gone.
+            print(
+                json.dumps({
+                    "severity": "ERROR",
+                    "event": "supabase_post_media_insert_failed",
+                    "mediaId": media_id,
+                    "errorType": type(exc).__name__,
+                    "error": str(exc)[:200],
+                }),
+                flush=True,
+            )
             return None
 
         try:
             rows = json.loads(raw.decode("utf-8"))
-        except Exception:  # noqa: BLE001
+        except ValueError:  # non-UTF-8 or non-JSON body
             return None
         if isinstance(rows, dict):
             return rows or None
@@ -20964,11 +20998,22 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         try:
             with urlopen(request, timeout=10) as response:
                 raw = response.read()
-        except Exception:  # noqa: BLE001 - any failure means "not written"
+        except Exception as exc:  # noqa: BLE001 - any failure means "not written"
+            # A moderation decision that silently didn't land is worse than a loud one.
+            print(
+                json.dumps({
+                    "severity": "ERROR",
+                    "event": "supabase_rest_patch_failed",
+                    "table": table,
+                    "errorType": type(exc).__name__,
+                    "error": str(exc)[:200],
+                }),
+                flush=True,
+            )
             return None
         try:
             parsed = json.loads(raw.decode("utf-8"))
-        except Exception:  # noqa: BLE001
+        except ValueError:  # non-UTF-8 or non-JSON body
             return None
         if not isinstance(parsed, list):
             return None
@@ -21000,11 +21045,22 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         try:
             with urlopen(request, timeout=10) as response:
                 raw = response.read()
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - the write did not happen
+            # Audit-trail inserts live here; a dropped one must not be invisible.
+            print(
+                json.dumps({
+                    "severity": "ERROR",
+                    "event": "supabase_rest_insert_failed",
+                    "table": table,
+                    "errorType": type(exc).__name__,
+                    "error": str(exc)[:200],
+                }),
+                flush=True,
+            )
             return None
         try:
             parsed = json.loads(raw.decode("utf-8"))
-        except Exception:  # noqa: BLE001
+        except ValueError:  # non-UTF-8 or non-JSON body
             return None
         if isinstance(parsed, dict):
             return [parsed]
