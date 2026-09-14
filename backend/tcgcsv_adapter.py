@@ -345,6 +345,7 @@ def select_main_price_entry(
     default_raw_variant: str | None,
     prices_by_product: dict[str, dict[str, dict[str, Any]]],
     colliding_product_ids: frozenset[str] | set[str],
+    variant_rank: Any = None,
 ) -> tuple[dict[str, Any], str, str] | None:
     """Pick the one TCGCSV entry that becomes the card's main-lane price.
 
@@ -354,10 +355,34 @@ def select_main_price_entry(
     (the read path falls back to Scrydex — never guess)."""
     default_label = str(default_raw_variant or "").strip()
     ordered_product_ids: list[str] = []
+    # The stored default goes first ONLY when there is no ranking to consult.
+    # `default_raw_variant` is written by the Scrydex sync, so it can name a
+    # printing the ranking has since demoted — and on a keyless environment it
+    # never updates at all. Seeding it ahead of the ranking made OP13-118's main
+    # price the Alt Art's $80.20 for a card whose Foil is $13.75 (user,
+    # 2026-09-14). With a ranking in hand the ranking IS the answer, and the
+    # card page uses the same one, so the two agree by construction.
     default_product_id = variant_product_ids.get(default_label)
-    if default_product_id:
+    if default_product_id and variant_rank is None:
         ordered_product_ids.append(default_product_id)
-    for product_id in variant_product_ids.values():
+    # Then the card's OTHER printings, BEST FIRST — the same ranking the card
+    # page and the price matrix use, rather than dict order.
+    #
+    # `default_raw_variant` is written by the Scrydex sync, so it can name a
+    # printing this ranking has since demoted, and on a keyless environment it
+    # never updates at all. When it pointed at OP13-118's Alt Art, the main
+    # price became the Alt Art's $80.20 and every surface downstream inherited
+    # it — under a "Foil" label, for a card whose Foil is $13.75 (user,
+    # 2026-09-14). Ranking the rest means a stale default can only ever be
+    # first-choice, never the whole answer.
+    # `variant_rank` is the catalog's printing ranking, passed IN because this
+    # module stays stdlib-only (catalog_tools imports it, not the reverse).
+    # Without it the order is whatever the dict happens to hold.
+    other_labels = list(variant_product_ids)
+    if variant_rank is not None:
+        other_labels.sort(key=variant_rank)
+    for label in other_labels:
+        product_id = variant_product_ids[label]
         if product_id not in ordered_product_ids:
             ordered_product_ids.append(product_id)
 

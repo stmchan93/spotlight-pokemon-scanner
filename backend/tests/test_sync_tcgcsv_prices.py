@@ -721,6 +721,48 @@ class SyncTcgcsvPricesTests(unittest.TestCase):
         # Three printings in, three cells out, each with its own price.
         self.assertEqual(cells, {"Foil": 13.75, "Alt Art": 80.20, "Wanted Poster": 330.20})
 
+    def test_a_stale_default_variant_cannot_pick_the_main_price(self):
+        """The main price must be the base printing, not whatever the column says.
+
+        `default_raw_variant` is written by the Scrydex sync, so it can name a
+        printing the ranking has since demoted — and on a keyless environment it
+        never updates at all. Pointing at OP13-118's Alt Art made the main price
+        $80.20 and every surface downstream inherited it, under a "Foil" label,
+        for a card whose Foil is $13.75 (user, 2026-09-14).
+        """
+        self._upsert_multi_printing_card("onepiece~OP13-118", {"variants": [
+            {"name": "foil", "marketplaces": [{"name": "tcgplayer", "product_id": "657400"}]},
+            {"name": "altArt", "marketplaces": [{"name": "tcgplayer", "product_id": "657403"}]},
+        ]})
+        # The stale column names the parallel — the state a keyless staging box
+        # sits in permanently, since only the Scrydex sync rewrites it.
+        upsert_price_snapshot(
+            self.connection,
+            card_id="onepiece~OP13-118",
+            provider="scrydex",
+            default_raw_variant="Alt Art",
+            default_raw_market_price=102.13,
+        )
+        self.connection.commit()
+        self.assertEqual(
+            self.connection.execute(
+                "SELECT default_raw_variant FROM card_price_snapshots WHERE card_id=?",
+                ("onepiece~OP13-118",),
+            ).fetchone()[0],
+            "Alt Art",
+        )
+        prices = {
+            "657400": {"Foil": {"productId": 657400, "subTypeName": "Foil", "marketPrice": 13.75}},
+            "657403": {"Foil": {"productId": 657403, "subTypeName": "Foil", "marketPrice": 80.20}},
+        }
+        self._sync(product_price_map=prices)
+
+        row = self.connection.execute(
+            "SELECT main_raw_market_price FROM card_price_history_daily "
+            "WHERE card_id='onepiece~OP13-118' AND price_date='2026-08-25'"
+        ).fetchone()
+        self.assertEqual(row[0], 13.75)
+
     def test_printings_json_two_pids_both_priced_writes_one_cell_each(self):
         self._upsert_multi_printing_card("sv1-1", {"variants": [
             {"name": "Holofoil", "marketplaces": [{"name": "tcgplayer", "product_id": "111"}]},

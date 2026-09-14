@@ -30,6 +30,7 @@ from catalog_tools import (
     collision_guard,
     pricing_provider,
     runtime_setting,
+    raw_variant_sort_key,
     start_provider_sync_run,
     tcgplayer_product_index_is_authoritative,
     update_provider_sync_run,
@@ -616,7 +617,8 @@ def run_tcgcsv_price_sync(
             owned = owned_pids_by_card.get(card_id)
             blocked = colliding - owned if owned else colliding
             selection = select_main_price_entry(
-                variant_product_ids, defaults.get(card_id), product_price_map, blocked
+                variant_product_ids, defaults.get(card_id), product_price_map, blocked,
+                variant_rank=raw_variant_sort_key,
             )
             if selection is None:
                 stats["skipped_no_match"] += 1
