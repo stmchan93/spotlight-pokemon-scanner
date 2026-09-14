@@ -624,6 +624,16 @@ export function RawScannerCaptureSurface({
               top: frameRect.y,
               width: frameRect.width,
             },
+            /*
+              DIMMED UNTIL THE SHUTTER IS ARMED. The capture Pressable is
+              correctly disabled until the camera session reports started, but
+              it is invisible, so a tap on a full-brightness reticle simply did
+              nothing and the app read as frozen. On a cold Android start the
+              session opened and closed seven times over ~11s before it held,
+              which is two or three dead taps (user, 2026-09-14). The frame is
+              the affordance, so the frame carries the state.
+            */
+            canCapture ? null : styles.reticleShellDisarmed,
             lockShellStyle,
           ]}
           testID={`${testIDPrefix}-reticle`}
@@ -785,6 +795,11 @@ const styles = StyleSheet.create({
   pageGridLine: {
     backgroundColor: reticleRestingOutlineColor,
     position: 'absolute',
+  },
+  reticleShellDisarmed: {
+    // Visibly present but plainly not ready — enough to stop a tap without
+    // implying an error, since the camera is starting, not broken.
+    opacity: 0.35,
   },
   reticleShell: {
     position: 'absolute',

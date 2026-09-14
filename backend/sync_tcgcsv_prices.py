@@ -413,15 +413,34 @@ def _write_card_main_price(
         "DELETE FROM card_price_history_cell WHERE card_id = ? AND price_date = ? AND lane = 'raw_main'",
         (card_id, price_date),
     )
-    # One cell per priced printing; the main selection keeps its cell even when
-    # its subtype fell outside the exact per-printing mapping (fallback-walk mains).
-    cell_values: dict[str, dict[str, Any]] = {
-        entry["subTypeName"]: entry for entry in printings.values()
-    }
-    cell_values.setdefault(sub_type_name, {
-        "subTypeName": sub_type_name, "market": market, "low": low,
-        "mid": mid, "high": high, "directLow": direct_low,
-    })
+    # One cell per priced printing.
+    #
+    # The key is TCGplayer's subTypeName while that is unambiguous, which is
+    # every Pokémon card: one product carrying Normal / Holofoil / Reverse
+    # Holofoil as subtypes, so each printing has a subtype of its own.
+    #
+    # One Piece breaks that. Each parallel is its OWN product whose subtype is
+    # ALSO "Foil", so Foil, Alt Art and Wanted Poster all landed on the key
+    # "Foil" and the last one written won. OP13-118 served the Wanted Poster's
+    # $330.20 under a Foil label for a card whose Foil is $13.75 (user,
+    # 2026-09-14). When printings collide on a subtype, they key by their
+    # Scrydex label instead — the identity the rest of the app already uses.
+    subtype_counts: dict[str, int] = {}
+    for entry in printings.values():
+        name = entry["subTypeName"]
+        subtype_counts[name] = subtype_counts.get(name, 0) + 1
+    cell_values: dict[str, dict[str, Any]] = {}
+    for label, entry in printings.items():
+        key = entry["subTypeName"] if subtype_counts[entry["subTypeName"]] == 1 else label
+        cell_values[key] = {**entry, "variantLabel": key}
+    # The main selection keeps its own cell when its subtype fell outside the
+    # per-printing mapping (fallback-walk mains).
+    if sub_type_name not in {entry.get("subTypeName") for entry in cell_values.values()}:
+        cell_values.setdefault(sub_type_name, {
+            "subTypeName": sub_type_name, "variantLabel": sub_type_name,
+            "market": market, "low": low,
+            "mid": mid, "high": high, "directLow": direct_low,
+        })
     placeholders = ",".join(["?"] * len(_PRICE_HISTORY_CELL_COLUMNS))
     for entry in cell_values.values():
         cell_row = {
@@ -429,8 +448,10 @@ def _write_card_main_price(
             "provider": TCGCSV_PROVIDER,
             "price_date": price_date,
             "lane": "raw_main",
-            "cell_key": f"raw_main|{entry['subTypeName']}|NM",
-            "variant_key": entry["subTypeName"],
+            # The Scrydex label is the printing's identity; the TCGplayer
+            # subtype is only how that marketplace spells the finish.
+            "cell_key": f"raw_main|{entry.get('variantLabel') or entry['subTypeName']}|NM",
+            "variant_key": entry.get("variantLabel") or entry["subTypeName"],
             "condition": "NM",
             "grader": None,
             "grade": None,

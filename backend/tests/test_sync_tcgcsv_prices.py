@@ -694,6 +694,33 @@ class SyncTcgcsvPricesTests(unittest.TestCase):
         ).fetchall()
         self.assertEqual([c[0] for c in cells], ["raw_main|1st Edition Holofoil|NM"])
 
+    def test_one_piece_parallels_stop_overwriting_each_other(self):
+        """Each One Piece parallel is its OWN product, all spelled "Foil".
+
+        Keying the cells by TCGplayer's subTypeName collapsed them: Foil, Alt
+        Art and Wanted Poster all wrote to "Foil" and the last one won, so
+        OP13-118 served the Wanted Poster's $330.20 under a Foil label for a
+        card whose Foil is $13.75 (user, 2026-09-14).
+        """
+        self._upsert_multi_printing_card("onepiece~OP13-118", {"variants": [
+            {"name": "foil", "marketplaces": [{"name": "tcgplayer", "product_id": "657400"}]},
+            {"name": "altArt", "marketplaces": [{"name": "tcgplayer", "product_id": "657403"}]},
+            {"name": "wantedPoster", "marketplaces": [{"name": "tcgplayer", "product_id": "657404"}]},
+        ]})
+        prices = {
+            "657400": {"Foil": {"productId": 657400, "subTypeName": "Foil", "marketPrice": 13.75}},
+            "657403": {"Foil": {"productId": 657403, "subTypeName": "Foil", "marketPrice": 80.20}},
+            "657404": {"Foil": {"productId": 657404, "subTypeName": "Foil", "marketPrice": 330.20}},
+        }
+        self._sync(product_price_map=prices)
+
+        cells = dict(self.connection.execute(
+            "SELECT variant_key, market FROM card_price_history_cell "
+            "WHERE card_id='onepiece~OP13-118' AND price_date='2026-08-25' AND lane='raw_main'"
+        ).fetchall())
+        # Three printings in, three cells out, each with its own price.
+        self.assertEqual(cells, {"Foil": 13.75, "Alt Art": 80.20, "Wanted Poster": 330.20})
+
     def test_printings_json_two_pids_both_priced_writes_one_cell_each(self):
         self._upsert_multi_printing_card("sv1-1", {"variants": [
             {"name": "Holofoil", "marketplaces": [{"name": "tcgplayer", "product_id": "111"}]},

@@ -30,11 +30,14 @@ const layout = makeRawScannerCaptureLayout({
   safeAreaTop: 59,
 });
 
-function renderSurface(pageGrid: { columns: number; rows: number } | null) {
+function renderSurface(
+  pageGrid: { columns: number; rows: number } | null,
+  { canCapture = true }: { canCapture?: boolean } = {},
+) {
   return render(
     <RawScannerCaptureSurface
       cameraRef={createRef<RawScannerCameraHandle>()}
-      canCapture
+      canCapture={canCapture}
       captureResolution="page"
       hasCameraPermission
       layout={layout}
@@ -61,6 +64,26 @@ describe('the scanner frame', () => {
     // No translucent fill: Figma composites one over flat artwork, but over a
     // live viewfinder it scrims the very card being scanned.
     expect(outline.backgroundColor).toBeUndefined();
+  });
+
+  it('dims itself while the shutter is disarmed, and only then', () => {
+    /*
+      The capture Pressable is correctly disabled until the camera session
+      reports started, but it is invisible — so a tap on a full-brightness
+      frame did nothing at all and the app read as frozen. On a cold Android
+      start the session opened and closed seven times over ~11s before it held,
+      which is two or three dead taps (user, 2026-09-14).
+
+      Asserted both ways: a frame that dimmed permanently would be worse than
+      one that never dimmed.
+    */
+    renderSurface(null, { canCapture: false });
+    expect(StyleSheet.flatten(screen.getByTestId('frame-reticle').props.style).opacity).toBe(0.35);
+
+    screen.unmount();
+    renderSurface(null, { canCapture: true });
+    const armed = StyleSheet.flatten(screen.getByTestId('frame-reticle').props.style).opacity;
+    expect(armed === undefined || armed === 1).toBe(true);
   });
 
   it('draws no pocket grid in single-card mode', () => {
