@@ -3801,7 +3801,13 @@ class SpotlightScanService:
 
         resolved_variant, _, summary = resolve_raw_summary_from_cells(
             day_cells,
-            variant=pricing_context.preferred_variant or snapshot_row["default_raw_variant"],
+            # No stored column as the fallback. `default_raw_variant` is written
+            # at price-sync time, so it lags a ranking change and served the
+            # OLD default long after everything else had moved: OP13-118 quoted
+            # the Alt Art's $80.20 under a printing list that led with Foil at
+            # $13.75 (user, 2026-09-13). Passing None lets the resolver rank the
+            # variants actually present, which is the same ranking the chips use.
+            variant=pricing_context.preferred_variant or None,
             condition=pricing_context.preferred_condition or DEFAULT_RAW_CONDITION,
         )
         if summary is None:
@@ -3939,7 +3945,9 @@ class SpotlightScanService:
         else:
             resolved_variant, _, summary = _resolve_raw_context_summary(
                 raw_contexts,
-                variant=pricing_context.preferred_variant or snapshot_row["default_raw_variant"],
+                # Resolved from the contexts, not the stored column — see the
+                # cells twin above.
+                variant=pricing_context.preferred_variant or None,
                 condition=pricing_context.preferred_condition or DEFAULT_RAW_CONDITION,
             )
             if summary is None and snapshot_row["default_raw_market_price"] is not None:
