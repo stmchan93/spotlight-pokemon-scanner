@@ -1262,7 +1262,26 @@ export function ScannerScreen({
     // ready synchronously, matching isCameraReady.)
     && (zoomHydrated || isTestEnv);
   const canToggleTray = recentCaptures.length > 0;
-  const isTopLevelSwipeEnabled = Object.keys(openActionRailKeys).length === 0;
+  /*
+    THE BINDER REVIEW COUNTS AS "SOMETHING OPEN" — and on Android that is the
+    difference between its Add button working and not.
+
+    The review is an in-tree overlay drawn over the tray. React Native's own
+    hit-testing respects that: the review is the topmost view, so its button is
+    the touch target. react-native-gesture-handler does not go through that
+    path on Android — it intercepts at the root and hit-tests ITS handlers by
+    view bounds, and the tray's pan handler owns the strip of screen the
+    review's footer sits in. So a tap on Add was claimed by a swipe-to-collapse
+    gesture on a tray the user could not even see, the button's onPress never
+    ran, and nothing happened (user, 2026-09-13, Android only — iOS arbitrates
+    gestures against the visible view and was fine). The review's tiles work
+    because they sit above the tray's bounds.
+
+    Disabling the pan while the review is open is also simply correct: you
+    should not be able to drag the tray out from under the screen covering it.
+  */
+  const isTopLevelSwipeEnabled =
+    Object.keys(openActionRailKeys).length === 0 && activeBinderPageId == null;
   // Every capture row stays mounted regardless of expand/collapse — the
   // collapsed tray just clips them to a single-row viewport height. Keeping the
   // row set stable means toggling never mounts/unmounts rows, so the rows'
@@ -4602,7 +4621,24 @@ export function ScannerScreen({
         )}
 
         <GestureDetector gesture={trayPanGesture}>
-        <View style={styles.trayShell} testID="scanner-tray">
+        {/*
+          INERT WHILE THE BINDER REVIEW COVERS IT. The review is drawn over this
+          shell, and React Native hit-tests by what is on top — but on Android
+          react-native-gesture-handler intercepts at the root and hit-tests its
+          handlers by VIEW BOUNDS, and this shell is `position: absolute,
+          bottom: 0`: the exact strip the review's Add button sits in. So a tap
+          on Add was claimed natively by the tray's pan/scroll handlers before
+          React ever saw a touch — the button's onPress, its onPressIn, and even
+          a raw onTouchStart on its parent all stayed silent (measured
+          2026-09-13, Android only; iOS arbitrates against the visible view).
+          `pointerEvents="none"` removes this subtree from BOTH hit-tests, which
+          is also simply correct: a covered tray must not react to touches.
+        */}
+        <View
+          pointerEvents={activeBinderPageId ? 'none' : 'auto'}
+          style={styles.trayShell}
+          testID="scanner-tray"
+        >
           {/*
             ONE BACKDROP EVERYWHERE: blur + a light dark scrim (Figma
             3594:25846 — `backdrop-blur(20px)` over rgba(0,0,0,0.15)).

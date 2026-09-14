@@ -60,6 +60,32 @@ export type BinderPageReviewProps = {
 
 const cardAspect = rawCardNormalizedTargetWidth / rawCardNormalizedTargetHeight;
 const gridGap = 10;
+/**
+ * ANDROID: THE HIDDEN TAB BAR STILL EATS TOUCHES IN ITS OWN RECT.
+ *
+ * The Scanner hides the native tab bar (`hidden` on <NativeTabs>), and on iOS
+ * that is the end of it. On Android the bar is only marked GONE — and in the
+ * live native tree (`adb shell dumpsys activity top`, Galaxy A17 / Android 16 /
+ * One UI 8.5, 2026-09-13) its children were still VISIBLE + ENABLED +
+ * CLICKABLE: `BottomNavigationMenuView` at y 1980–2205 with four
+ * `BottomNavigationItemView`s, drawn AFTER everything in the tab, i.e. on top.
+ * A tap there lands on an invisible tab item that does nothing because the bar
+ * is "hidden". The accessibility tree omits them (it honours GONE), which is
+ * why every earlier measurement said the button was reachable.
+ *
+ * This review's CTA sat at y 2025–2161: inside that rect. Twelve rounds of
+ * JS-side fixes (blur, padding, flex, gestures, tray) could not move a native
+ * ghost, so the CTA moves instead: the footer reserves the bar's own height on
+ * Android so the button's bottom edge stays above y=1980.
+ *
+ * 80 is the MenuView's measured height (225px at 2.8125x); the system
+ * navigation bar under it is already covered by the SafeAreaView. A hardcoded
+ * native measurement is exactly what `tab-bar-insets.tsx` warns against, and
+ * the honest fix is native: make a hidden bar untouchable (or take the
+ * react-native-screens release that does) and delete this. That is a new
+ * binary; this ships by OTA to the Android users who have the bug today.
+ */
+const androidGhostTabBarHeight = Platform.OS === 'android' ? 80 : 0;
 // Name 15 + set line 13 + price row 15 + 3 gaps of 2 (+ slack). FIXED: the
 // printing rides on the price row rather than adding a line of its own, so a
 // batch never resizes the cards or pushes the grid into a scroll
@@ -693,7 +719,7 @@ const styles = StyleSheet.create({
   },
   footer: {
     gap: 10,
-    paddingBottom: 16,
+    paddingBottom: 16 + androidGhostTabBarHeight,
     paddingHorizontal: 16,
     paddingTop: 8,
   },
