@@ -1,50 +1,32 @@
-diff --git a/android/src/main/java/com/swmansion/rnscreens/gamma/tabs/TabsHostAppearanceApplicator.kt b/android/src/main/java/com/swmansion/rnscreens/gamma/tabs/TabsHostAppearanceApplicator.kt
-index 0f9fc4eda832d2ddef4cde774825766e7bb47d4f..ade8b301df56de086707a5187733dcc26733e6ed 100644
---- a/android/src/main/java/com/swmansion/rnscreens/gamma/tabs/TabsHostAppearanceApplicator.kt
-+++ b/android/src/main/java/com/swmansion/rnscreens/gamma/tabs/TabsHostAppearanceApplicator.kt
-@@ -19,6 +19,37 @@ class TabsHostAppearanceApplicator(
-     private val context: ContextThemeWrapper,
-     private val bottomNavigationView: BottomNavigationView,
- ) {
-+    /**
-+     * A hidden bar must also be UNTOUCHABLE.
-+     *
-+     * `isVisible = false` sets the bar GONE, and on stock Android that alone
-+     * keeps touches away from it. In practice it did not: on a Galaxy A17
-+     * (Android 16 / One UI 8.5) the GONE bar kept its last layout rect at the
-+     * bottom of the screen and its menu items stayed VISIBLE, ENABLED and
-+     * CLICKABLE, and every touch landing in that rect went to an invisible tab
-+     * item — silently, since the bar was "hidden" — instead of the React view
-+     * drawn over it. Android lets a GONE view receive pointer events whenever
-+     * it still carries an Animation, and a lingering one is enough.
-+     *
-+     * So when hidden: clear any animation on the bar and its menu view, and
-+     * make the bar, the menu and every item non-clickable and non-focusable,
-+     * so no dispatch path can land on them. When shown again, restore the
-+     * flags; Material re-inflates items with the defaults regardless.
-+     */
-+    private fun applyHiddenTouchability(hidden: Boolean) {
-+        val touchable = !hidden
-+        fun apply(view: android.view.View) {
-+            if (hidden) view.clearAnimation()
-+            view.isClickable = touchable
-+            view.isFocusable = touchable
-+        }
-+        apply(bottomNavigationView)
-+        bottomNavigationView.children.forEach { menu ->
-+            apply(menu)
-+            (menu as? ViewGroup)?.children?.forEach { item -> apply(item) }
-+        }
-+    }
-+
-     private fun resolveColorAttr(attr: Int): Int {
-         val typedValue = TypedValue()
-         context.theme.resolveAttribute(attr, typedValue, true)
-@@ -27,6 +58,7 @@ class TabsHostAppearanceApplicator(
+diff --git a/android/src/main/java/com/swmansion/rnscreens/gamma/tabs/TabsHost.kt b/android/src/main/java/com/swmansion/rnscreens/gamma/tabs/TabsHost.kt
+index bc5d93818cfa2528783634c71baead15325661cf..eba24813209cec52322fe17979dc0573ee0b27d2 100644
+--- a/android/src/main/java/com/swmansion/rnscreens/gamma/tabs/TabsHost.kt
++++ b/android/src/main/java/com/swmansion/rnscreens/gamma/tabs/TabsHost.kt
+@@ -11,8 +11,11 @@ import android.widget.FrameLayout
+ import androidx.appcompat.view.ContextThemeWrapper
+ import androidx.core.graphics.drawable.toDrawable
+ import androidx.core.view.children
++import androidx.core.view.isVisible
+ import androidx.fragment.app.FragmentManager
+ import com.facebook.react.modules.core.ReactChoreographer
++import com.facebook.react.uimanager.PointerEvents
++import com.facebook.react.uimanager.ReactPointerEventsView
+ import com.facebook.react.uimanager.ThemedReactContext
+ import com.google.android.material.bottomnavigation.BottomNavigationView
+ import com.swmansion.rnscreens.BuildConfig
+@@ -126,7 +129,14 @@ class TabsHost(
+         )
  
-     fun updateSharedAppearance(tabsHost: TabsHost) {
-         bottomNavigationView.isVisible = !tabsHost.tabBarHidden
-+        applyHiddenTouchability(tabsHost.tabBarHidden)
-         bottomNavigationView.setBackgroundColor(
-             tabsHost.tabBarBackgroundColor
-                 ?: resolveColorAttr(com.google.android.material.R.attr.colorSurfaceContainer),
+     private val bottomNavigationView: BottomNavigationView =
+-        BottomNavigationView(wrappedContext).apply {
++        object : BottomNavigationView(wrappedContext), ReactPointerEventsView {
++            // React's touch targeting (TouchTargetHelper) walks children by layout rect and
++            // never checks Android visibility. A GONE bar keeps its last rect, so a hidden
++            // bar would still claim every touch in its strip at the bottom of the screen and
++            // starve the React views drawn there. Opt out of targeting while hidden.
++            override val pointerEvents: PointerEvents
++                get() = if (isVisible) PointerEvents.AUTO else PointerEvents.NONE
++        }.apply {
+             layoutParams =
+                 LayoutParams(
+                     LayoutParams.MATCH_PARENT,
