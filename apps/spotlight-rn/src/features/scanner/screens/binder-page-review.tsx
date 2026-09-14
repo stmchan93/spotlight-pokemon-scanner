@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { IconChevronLeft } from '@tabler/icons-react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button, Text, Toast, colors, fontFamilies, spacing, textStyles } from '@spotlight/design-system';
 
@@ -100,7 +100,6 @@ export function BinderPageReview({
   totalLabel,
   testID = 'scanner-binder-page-review',
 }: BinderPageReviewProps) {
-  const insets = useSafeAreaInsets();
   const { spotlightRepository } = useAppServices();
 
   useEffect(() => {
@@ -341,13 +340,12 @@ export function BinderPageReview({
         </View>
 
         {/*
-          The system nav bar is drawn OVER this window on Android, and
-          `SafeAreaView`'s bottom edge does not reserve for it — so the Add
-          button sat flush against it and the lower half of its hit area was
-          the system's, not ours. That is why the button "did not work": the
-          taps were landing on the navigation bar (user, 2026-09-13).
+          The bottom inset is the `SafeAreaView` above's job — adding
+          `insets.bottom` here as well padded it twice. This is the plain gap
+          between the CTA and whatever the platform draws under it, so the
+          button never sits flush against the Android navigation bar.
         */}
-        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+        <View style={styles.footer}>
           {/* Floats over the grid's bottom edge so showing it never re-measures the tiles. */}
           <Toast
             durationMs={3500}
@@ -695,6 +693,7 @@ const styles = StyleSheet.create({
   },
   footer: {
     gap: 10,
+    paddingBottom: 16,
     paddingHorizontal: 16,
     paddingTop: 8,
   },
