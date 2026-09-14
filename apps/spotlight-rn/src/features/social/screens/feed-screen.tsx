@@ -834,7 +834,12 @@ export function FeedScreen({ testID = 'feed' }: { testID?: string }) {
         <Svg height="100%" width="100%">
           <Defs>
             <LinearGradient id="homeBottomFade" x1="0" x2="0" y1="1" y2="0">
-              <Stop offset="0" stopColor="#FFFFFF" stopOpacity="1" />
+              {/* Android: 70% at the edge, matched to the Collection's band
+                  (4134:49749) so the two tabs dissolve under the opaque bar the
+                  same way (owner, 2026-09-13). iOS keeps the feed frame's own
+                  100% (4407:283), where the band also runs under a translucent
+                  bar and reads lighter. */}
+              <Stop offset="0" stopColor="#FFFFFF" stopOpacity={Platform.OS === 'android' ? 0.7 : 1} />
               <Stop offset="0.93684" stopColor="#FFFFFF" stopOpacity="0" />
             </LinearGradient>
           </Defs>
