@@ -61,34 +61,17 @@ export type BinderPageReviewProps = {
 const cardAspect = rawCardNormalizedTargetWidth / rawCardNormalizedTargetHeight;
 const gridGap = 10;
 /**
- * ANDROID: THE HIDDEN TAB BAR STILL EATS TOUCHES IN ITS OWN RECT.
+ * Was a 72dp Android-only lift that kept this footer's CTA above the native tab
+ * bar's rect: the bar is hidden on the Scanner, but on Android a hidden bar kept
+ * eating touches in its own strip (see the patched react-native-screens
+ * `TabsHostAppearanceApplicator` — `applyHiddenTouchability`). The native fix
+ * makes a hidden bar inert, so the CTA sits where the design puts it again.
  *
- * The Scanner hides the native tab bar (`hidden` on <NativeTabs>), and on iOS
- * that is the end of it. On Android the bar is only marked GONE — and in the
- * live native tree (`adb shell dumpsys activity top`, Galaxy A17 / Android 16 /
- * One UI 8.5, 2026-09-13) its children were still VISIBLE + ENABLED +
- * CLICKABLE: `BottomNavigationMenuView` at y 1980–2205 with four
- * `BottomNavigationItemView`s, drawn AFTER everything in the tab, i.e. on top.
- * A tap there lands on an invisible tab item that does nothing because the bar
- * is "hidden". The accessibility tree omits them (it honours GONE), which is
- * why every earlier measurement said the button was reachable.
- *
- * This review's CTA sat at y 2025–2161: inside that rect. Twelve rounds of
- * JS-side fixes (blur, padding, flex, gestures, tray) could not move a native
- * ghost, so the CTA moves instead: the footer reserves the bar's own height on
- * Android so the button's bottom edge stays above y=1980.
- *
- * 72 clears it by the minimum: the CTA's bottom edge sat 181px (64dp) inside
- * the MenuView's 80dp, so 72 leaves ~8dp of margin above y=1980 while giving
- * the grid back as much height as possible — the tiles are height-driven on
- * this screen, and every dp taken here is taken from them. The system
- * navigation bar under it is already covered by the SafeAreaView. A hardcoded
- * native measurement is exactly what `tab-bar-insets.tsx` warns against, and
- * the honest fix is native: make a hidden bar untouchable (or take the
- * react-native-screens release that does) and delete this. That is a new
- * binary; this ships by OTA to the Android users who have the bug today.
+ * Kept as a named zero so the three places that read it document the history
+ * instead of a bare number, and so the lift can come back in one line if a
+ * binary without the patch ever needs an OTA.
  */
-const androidGhostTabBarHeight = Platform.OS === 'android' ? 72 : 0;
+const androidGhostTabBarHeight = 0;
 // Name 15 + set line 13 + price row 15 + 3 gaps of 2 (+ slack). FIXED: the
 // printing rides on the price row rather than adding a line of its own, so a
 // batch never resizes the cards or pushes the grid into a scroll

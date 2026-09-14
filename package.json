@@ -39,6 +39,9 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "sharp"
-    ]
+    ],
+    "patchedDependencies": {
+      "react-native-screens@4.23.0": "patches/react-native-screens@4.23.0.patch"
+    }
   }
 }
