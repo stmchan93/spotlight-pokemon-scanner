@@ -9,13 +9,6 @@ export const rawCardReticleAspectRatio = rawCardNormalizedTargetHeight / rawCard
 const rawCardTargetWidthToHeightRatio = rawCardNormalizedTargetWidth / rawCardNormalizedTargetHeight;
 const normalizedTargetCompress = 0.82;
 
-type ImageRect = {
-  height: number;
-  width: number;
-  x: number;
-  y: number;
-};
-
 type PreviewLayout = {
   height: number;
   width: number;
@@ -312,8 +305,8 @@ export async function buildBinderPocketTargets({
   let sourceImage: Awaited<ReturnType<typeof sourceContext.renderAsync>> | null = null;
   let rotateContext: ReturnType<typeof ImageManipulator.manipulate> | null = null;
   let rotatedImage: Awaited<ReturnType<typeof sourceContext.renderAsync>> | null = null;
-  const cropContexts: Array<ReturnType<typeof ImageManipulator.manipulate>> = [];
-  const cropRefs: Array<Awaited<ReturnType<typeof sourceContext.renderAsync>>> = [];
+  const cropContexts: ReturnType<typeof ImageManipulator.manipulate>[] = [];
+  const cropRefs: Awaited<ReturnType<typeof sourceContext.renderAsync>>[] = [];
 
   try {
     sourceImage = await sourceContext.renderAsync();

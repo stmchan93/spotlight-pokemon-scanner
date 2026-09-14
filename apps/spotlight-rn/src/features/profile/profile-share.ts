@@ -18,7 +18,6 @@
  */
 
 /** The product name that appears in the message. */
-const APP_NAME = 'Ekalight';
 
 export type ProfileShareIdentity = {
   displayName?: string | null;

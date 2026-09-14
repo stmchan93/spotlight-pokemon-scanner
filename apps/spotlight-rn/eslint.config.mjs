@@ -28,6 +28,17 @@ export default [
     },
   },
   {
+    // Jest files drive module mocking, which is a load-order problem, not a
+    // style one: `jest.mock` is hoisted above `import`, so a mock factory (and
+    // anything that must be read AFTER the mock is installed) has to use
+    // `require()` to be evaluated at the right moment. Static imports cannot
+    // express that. The rule stays on for `src/**`, where it is real advice.
+    files: ['__tests__/**/*.{ts,tsx}', 'jest.setup.ts', 'test-support/**/*.{ts,tsx}'],
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
+  {
     // Flake guard: `expect(element).toBeNull()` makes Jest pretty-print the
     // whole ReactTestInstance — including its `_fiber` graph — when it fails.
     // That costs ~700ms PER ATTEMPT, and `waitFor` retries on a 1s budget, so a

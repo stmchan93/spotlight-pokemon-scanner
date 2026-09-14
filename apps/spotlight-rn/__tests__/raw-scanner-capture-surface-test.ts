@@ -4,8 +4,6 @@ import {
   getRawScannerCollapsedTrayReservedHeight,
   getRawScannerEmptyTrayVisualHeight,
   makeRawScannerCaptureLayout,
-  rawScannerControlsRowHeight,
-  rawScannerControlsRowLift,
   rawScannerModeToggleGap,
   reticleLockedOutlineColor,
   reticleRestingOutlineColor,

@@ -70,9 +70,9 @@ jest.mock('@/features/profile/profile-service', () => ({
 // to undefined and breaks the render. Override iconoir here with a Proxy that
 // returns a no-op View component for every icon name.
 jest.mock('iconoir-react-native', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const React = require('react');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const { View } = require('react-native');
 
   const make = (name: string) => {

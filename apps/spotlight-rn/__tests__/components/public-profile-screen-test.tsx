@@ -197,8 +197,12 @@ describe('PublicProfileScreen', () => {
       expect(screen.getByTestId('public-profile-total-value')).toBeTruthy();
     });
 
-    expect(screen.getByTestId('public-profile-total-value')).toHaveTextContent('$1,234.50');
-    expect(screen.getByTestId('public-profile-total-count')).toHaveTextContent('2 cards');
+    // Figma 4157:74912/74917 collapsed the old two-line headline into one
+    // compact "Main Collection / Total Value" row — no separate count line.
+    expect(screen.getByText('Main Collection')).toBeTruthy();
+    expect(screen.getByTestId('public-profile-total-value')).toHaveTextContent(
+      'Total Value: $1,234.50',
+    );
     expect(screen.getByTestId('public-profile-collection-grid-row-0')).toBeTruthy();
     expect(screen.getByText('Pikachu')).toBeTruthy();
   });

@@ -12,6 +12,10 @@ else
   PYTHON_BIN="${PYTHON_BIN_OVERRIDE:-python3}"
 fi
 
+# NOT the gate's default any more. The gate discovers every module under
+# backend/tests; this hand-maintained list drifted (77 of 137 modules) and let
+# real breakage through. Kept only for a fast focused run: `targeted` /
+# `coverage-targeted`.
 TEST_MODULES=(
   backend.tests.test_backend_reset_phase1
   backend.tests.test_raw_evidence_phase3
@@ -133,20 +137,23 @@ run_coverage() {
 }
 
 case "$MODE" in
-  test)
-    run_targeted_tests
-    ;;
-  coverage)
-    run_coverage targeted
-    ;;
-  discover)
+  test|discover)
     run_discover_tests
     ;;
-  coverage-discover)
+  coverage|coverage-discover)
     run_coverage discover
     ;;
+  targeted)
+    run_targeted_tests
+    ;;
+  coverage-targeted)
+    run_coverage targeted
+    ;;
   *)
-    echo "Usage: bash backend/run_all_tests.sh [test|coverage|discover|coverage-discover]" >&2
+    echo "Usage: bash backend/run_all_tests.sh [test|coverage|targeted|coverage-targeted|discover|coverage-discover]" >&2
+    echo "  test / discover            full discovery run over backend/tests (default)" >&2
+    echo "  coverage / coverage-discover  full discovery run with coverage report" >&2
+    echo "  targeted / coverage-targeted  fast focused run over TEST_MODULES only" >&2
     exit 1
     ;;
 esac

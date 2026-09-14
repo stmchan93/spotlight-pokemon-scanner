@@ -28,9 +28,6 @@ import Svg, {
   Stop,
 } from 'react-native-svg';
 
-// Small graph-paper grid drawn inside the line chart's fill area (Figma 809-12748).
-const CHART_GRID_CELL = 14;
-
 import type {
   ChartMode,
   PortfolioDashboard,
@@ -44,6 +41,9 @@ import {
   formatPercent,
   formatSignedCurrency,
 } from './portfolio-formatting';
+
+// Small graph-paper grid drawn inside the line chart's fill area (Figma 809-12748).
+const CHART_GRID_CELL = 14;
 
 // `nominalDays` is what the LABEL promises. Price history starts 2026-04-16, so
 // the longer ranges clamp to that first day and print identical numbers under

@@ -565,7 +565,7 @@ function registerRoute(
 
 function tryLoadRouteComponent(modulePath: string): ComponentType<any> | null {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+     
     const module = require(modulePath);
     return module.default ?? module;
   } catch (error) {

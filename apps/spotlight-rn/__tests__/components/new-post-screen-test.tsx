@@ -124,7 +124,7 @@ describe('NewPostScreen', () => {
       arrayBuffer: async () => new ArrayBuffer(8),
     })) as unknown as typeof fetch;
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+     
     const ImagePicker = require('expo-image-picker');
     (ImagePicker.launchCameraAsync as jest.Mock).mockResolvedValueOnce({
       canceled: false,
@@ -164,7 +164,7 @@ describe('NewPostScreen', () => {
       arrayBuffer: async () => new ArrayBuffer(8),
     })) as unknown as typeof fetch;
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+     
     const ImagePicker = require('expo-image-picker');
     (ImagePicker.launchImageLibraryAsync as jest.Mock).mockResolvedValueOnce({
       canceled: false,

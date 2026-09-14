@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
-import { useSpotlightTheme } from '@spotlight/design-system';
 
 import { AuthScreenLayout } from './auth-screen-layout';
 import { AppleLogo, GoogleLogo } from './social-icons';
@@ -58,7 +57,6 @@ export function LoginScreen({
   onSignUp,
   password,
 }: LoginScreenProps) {
-  const theme = useSpotlightTheme();
   const canContinue = isValidLookingEmail(email) && password.length > 0 && !isBusy;
   // Surface WHY Continue is disabled once they've left the field with a malformed
   // address (don't nag mid-typing). Blank field shows nothing.

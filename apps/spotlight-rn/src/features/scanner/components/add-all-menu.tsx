@@ -40,7 +40,7 @@ const FALLBACK_LEFT = 16;
  * Anchored dropdown for the scanner tray's "ADD ALL ▾" control — Figma
  * 1379:2323 (second frame). A small white rounded card pops just below the
  * header trigger over the dark tray and lists three stacked rows: Collection,
- * Wishlist, and a destructive-red Remove. Selecting a row only reports the
+ * Wishlist, and a destructive-red Clear. Selecting a row only reports the
  * action; the parent closes this menu and opens the matching confirm sheet.
  */
 export function AddAllMenu({

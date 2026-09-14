@@ -178,7 +178,7 @@ function normalizeGrade(value: string) {
 
 function firstCapturedField(
   value: string,
-  patterns: Array<{ pattern: RegExp; confidence: number; reason: string }>,
+  patterns: { pattern: RegExp; confidence: number; reason: string }[],
 ): SlabFieldCandidate | null {
   for (const entry of patterns) {
     const match = firstCapturedGroup(value, entry.pattern);
@@ -565,7 +565,7 @@ function resolveGradeCandidate(params: {
       return explicit;
     }
 
-    const adjectiveOnlyMappings: Array<{ pattern: RegExp; mappedGrade: string }> = [
+    const adjectiveOnlyMappings: { pattern: RegExp; mappedGrade: string }[] = [
       { pattern: /\bGEM M\b/i, mappedGrade: '10' },
       { pattern: /\bGEM MT\b/i, mappedGrade: '10' },
       { pattern: /\bGEM MINT\b/i, mappedGrade: '10' },

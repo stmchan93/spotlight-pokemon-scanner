@@ -7,7 +7,7 @@ import { renderWithProviders } from '../test-utils';
 
 type TabValue = 'portfolio' | 'recent-sales' | 'favorites';
 
-const TABS: ReadonlyArray<{ value: TabValue; label: string }> = [
+const TABS: readonly { value: TabValue; label: string }[] = [
   { value: 'portfolio', label: 'Portfolio' },
   { value: 'recent-sales', label: 'Recent Sales' },
   { value: 'favorites', label: 'Favorites' },

@@ -37,7 +37,6 @@ import type {
   InventoryCardEntry,
 } from '@spotlight/api-client';
 import {
-  Avatar,
   EmptyStatePrompt,
   InlineLoader,
   PageTabs,

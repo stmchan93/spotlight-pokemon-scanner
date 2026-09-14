@@ -14,7 +14,7 @@ function jsonResponse(status: number, body?: unknown) {
 }
 
 function findQuantityCall(): [string, RequestInit | undefined] {
-  const calls = (global.fetch as jest.Mock).mock.calls as Array<[string, RequestInit | undefined]>;
+  const calls = (global.fetch as jest.Mock).mock.calls as [string, RequestInit | undefined][];
   const match = calls.find(([url]) => String(url).includes('deck/entries/quantity'));
   if (!match) {
     throw new Error('set-quantity request was never issued');

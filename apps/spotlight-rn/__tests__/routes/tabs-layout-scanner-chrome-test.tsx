@@ -45,7 +45,7 @@ jest.mock('@/lib/use-keyboard-visible', () => ({
 
 jest.mock('expo-router/unstable-native-tabs', () => {
   // Required inline because a jest.mock factory is hoisted above the imports.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const { Text, View } = require('react-native');
   const Trigger = Object.assign(
     ({
@@ -89,7 +89,7 @@ jest.mock('expo-router/unstable-native-tabs', () => {
 function renderTabsLayout() {
   // Required after the mocks so the layout picks them up, and re-required per
   // test so `Platform.OS` is read at the render that needs it.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const TabsLayout = require('@/app/(tabs)/_layout').default;
   return render(<TabsLayout />);
 }

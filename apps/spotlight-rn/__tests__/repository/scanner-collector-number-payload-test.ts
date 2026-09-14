@@ -30,7 +30,7 @@ function rawPayload(overrides: Partial<ScannerCapturePayload> = {}): ScannerCapt
 }
 
 function findVisualMatchBody(): Record<string, unknown> {
-  const calls = (global.fetch as jest.Mock).mock.calls as Array<[string, RequestInit | undefined]>;
+  const calls = (global.fetch as jest.Mock).mock.calls as [string, RequestInit | undefined][];
   const matchCall = calls.find(([url]) => String(url).includes('scan/visual-match'));
   if (!matchCall) {
     throw new Error('visual-match request was never issued');

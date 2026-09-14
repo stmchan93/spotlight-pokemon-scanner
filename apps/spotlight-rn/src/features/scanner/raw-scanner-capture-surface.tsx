@@ -27,7 +27,6 @@ import { resolveScannerCameraDevice } from '@/features/scanner/scanner-camera-le
 import {
   Text,
   colors,
-  spacing,
   textStyles,
 } from '@spotlight/design-system';
 

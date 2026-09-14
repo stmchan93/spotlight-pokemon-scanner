@@ -11,9 +11,9 @@ import { createTestSpotlightRepository, renderWithProviders } from '../test-util
 // The shared jest.setup.ts iconoir mock only allowlists a subset of icon names;
 // this screen also uses Camera / NavArrowRight, so extend the mock here.
 jest.mock('iconoir-react-native', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const React = require('react');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const { View } = require('react-native');
   const make = (name: string) => {
     const Component = (props: Record<string, unknown>) =>
@@ -169,7 +169,7 @@ describe('EditProfileScreen', () => {
     }
 
     function pickCoverImage() {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
+       
       const ImagePicker = require('expo-image-picker');
       (ImagePicker.launchImageLibraryAsync as jest.Mock).mockResolvedValueOnce({
         canceled: false,

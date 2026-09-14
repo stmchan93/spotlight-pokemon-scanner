@@ -10,9 +10,9 @@ import type { PortfolioChartActivePoint } from '@/features/portfolio/components/
 // tests can assert the displayed portfolio value directly.
 jest.mock('@spotlight/design-system', () => {
   const actual = jest.requireActual('@spotlight/design-system');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const React = require('react');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const { Text: RNText } = require('react-native');
   return {
     ...actual,

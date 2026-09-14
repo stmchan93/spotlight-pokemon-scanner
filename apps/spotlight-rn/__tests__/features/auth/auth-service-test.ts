@@ -165,7 +165,7 @@ async function loadAuthService(options: LoadOptions = {}) {
   jest.doMock('expo-web-browser', () => webBrowserModule);
   jest.doMock('expo-apple-authentication', () => appleModule);
 
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const service = require('@/features/auth/auth-service');
 
   return {
@@ -1132,7 +1132,7 @@ describe('auth-service anonymous-identity churn metric', () => {
     // The provider flips this flag for every non-anonymous session it observes,
     // which is what a conversion produces. Required lazily so the AsyncStorage
     // mock factory is not evaluated before `mockStore` is initialised.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+     
     const { markHasSignedIn } = require('@/features/auth/guest-first-launch') as typeof import('@/features/auth/guest-first-launch');
     await markHasSignedIn();
 

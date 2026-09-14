@@ -16,7 +16,7 @@ function jsonResponse(status: number, body?: unknown) {
 }
 
 function createBody() {
-  const calls = (global.fetch as jest.Mock).mock.calls as Array<[string, RequestInit | undefined]>;
+  const calls = (global.fetch as jest.Mock).mock.calls as [string, RequestInit | undefined][];
   const match = calls.find(([url]) => String(url).endsWith('/api/v1/deck/entries'));
   if (!match) {
     throw new Error('create request was never issued');

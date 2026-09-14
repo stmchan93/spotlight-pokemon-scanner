@@ -1047,7 +1047,7 @@ const styles = StyleSheet.create({
     // 10 under the image where the rest of the stack runs on 8.
     marginTop: 2,
     justifyContent: 'space-between',
-    // NO `paddingBottom`. `cardContent.paddingBottom: 12` already supplies the
+    // NO `paddingBottom`. `cardContent.paddingBottom: 10` already supplies the
     // frame's gap between the action glyphs and the band; a pad here is ADDED
     // to it and doubles the distance.
     paddingHorizontal: 16,

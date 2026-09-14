@@ -65,12 +65,12 @@ const RAW_CAPTURE_BASE64 = 'bW9jay1zY2FuLWJhc2U2NA==';
 const UPRIGHT_BASE64 = 'bm9ybWFsaXplZC1zY2FuLWJhc2U2NA==';
 
 function imageManipulatorMock() {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   return require('expo-image-manipulator') as { manipulateAsync: jest.Mock };
 }
 
 function legacyFileSystemMock() {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   return require('expo-file-system/legacy') as {
     deleteAsync: jest.Mock;
     writeAsStringAsync: jest.Mock;
@@ -259,7 +259,7 @@ describe('WhosThatPokemonScreen', () => {
     );
 
     // The PNG was written to the cache dir and handed to the share sheet.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+     
     const legacyFs = require('expo-file-system/legacy');
     await waitFor(() => {
       expect(legacyFs.writeAsStringAsync).toHaveBeenCalledWith(
@@ -339,7 +339,7 @@ describe('WhosThatPokemonScreen', () => {
     a double flip, which is the same bug wearing the opposite sign.
   */
   it('cancels the front camera mirror in the pass that bakes it, and only there', async () => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+     
     const { usePhotoOutput } = require('react-native-vision-camera') as {
       usePhotoOutput: () => { capturePhoto: jest.Mock };
     };

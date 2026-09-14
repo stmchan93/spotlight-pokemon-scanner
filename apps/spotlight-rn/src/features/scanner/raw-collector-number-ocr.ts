@@ -143,7 +143,7 @@ export async function readRawCollectorNumber(imageUri: string): Promise<string |
   if (!isSlabScannerNativeAvailable()) {
     // Expo Go / no custom dev client: graceful no-op.
     if (__DEV__ && process.env.NODE_ENV !== 'test') {
-      // eslint-disable-next-line no-console
+       
       console.log(
         `[raw-collector-ocr] native module ${SLAB_SCANNER_NATIVE_MODULE_NAME} unavailable; skipping`,
       );

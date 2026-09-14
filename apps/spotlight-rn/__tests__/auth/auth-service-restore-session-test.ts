@@ -47,7 +47,7 @@ async function loadAuthService(options: LoadOptions = {}) {
     signInAsync: jest.fn(),
   }));
 
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const service = require('@/features/auth/auth-service') as typeof import('@/features/auth/auth-service');
 
   return { service, supabase };

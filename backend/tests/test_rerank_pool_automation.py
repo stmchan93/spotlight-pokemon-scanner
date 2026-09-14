@@ -13,6 +13,16 @@ if str(TOOLS_ROOT) not in sys.path:
 
 import rerank_pool_promote as promote  # noqa: E402
 
+try:
+    import numpy as np  # noqa: E402
+    from rerank_pool_curation import CurationParams, curate_card_embeddings  # noqa: E402
+    _IMPORT_ERROR: Exception | None = None
+except Exception as exc:  # pragma: no cover - host-python dependency fallback
+    np = None  # type: ignore[assignment]
+    CurationParams = None  # type: ignore[assignment]
+    curate_card_embeddings = None  # type: ignore[assignment]
+    _IMPORT_ERROR = exc
+
 
 # A representative chunk of eval_rerank_with_user_photos.py stdout. The column
 # format is fixed-width: "  {alpha:6.2f} {threshold:7.3f}  {n:>3}/{total:<3}    ...".
@@ -144,12 +154,9 @@ class ParseEvalTop1Tests(unittest.TestCase):
         self.assertEqual(top1, 45)
 
 
+@unittest.skipIf(_IMPORT_ERROR is not None, f"rerank pool curation deps unavailable: {_IMPORT_ERROR}")
 class CurationDroppedOutlierIndicesTests(unittest.TestCase):
     def test_outlier_indices_surfaced(self) -> None:
-        import numpy as np
-
-        from rerank_pool_curation import CurationParams, curate_card_embeddings
-
         # 4 tightly clustered rows + 1 obvious far-from-centroid outlier.
         base = np.array([1.0, 0.0, 0.0], dtype=np.float32)
         cluster = np.tile(base, (4, 1)) + np.random.RandomState(0).normal(0, 0.01, (4, 3))

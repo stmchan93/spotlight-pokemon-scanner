@@ -18,9 +18,9 @@ jest.mock('@/providers/auth-provider', () => ({
 // handle-claim-screen-test); the gate tests only care that it is shown and
 // wired, so a marker stub keeps them synchronous.
 jest.mock('@/features/auth/components/handle-claim-screen', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const React = require('react') as typeof import('react');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const { Pressable, Text: RNText } = require('react-native') as typeof import('react-native');
   return {
     HandleClaimScreen: ({

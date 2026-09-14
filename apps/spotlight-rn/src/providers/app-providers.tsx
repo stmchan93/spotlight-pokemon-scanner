@@ -443,7 +443,7 @@ export function AppProviders({
     return () => {
       cancelled = true;
     };
-  }, [activeCollectionID, dataVersion, isActiveCollectionRestored, spotlightRepository]);
+  }, [activeCollectionID, dataVersion, isActiveCollectionRestored, setInventoryEntriesCache, spotlightRepository]);
 
   const services = useMemo<AppServices>(() => {
     return {

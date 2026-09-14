@@ -20,7 +20,7 @@ jest.mock('expo-router', () => ({
     so stand it in with a plain effect — the screen only needs the callback to
     run once per mount, which is what focus does here anyway.
   */
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   useFocusEffect: (callback: () => void) => require('react').useEffect(callback, [callback]),
 }));
 

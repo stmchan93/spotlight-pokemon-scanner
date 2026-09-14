@@ -102,7 +102,7 @@ function makeSupabase(
 function loadService(supabase: unknown) {
   jest.resetModules();
   jest.doMock('@/lib/supabase', () => ({ supabase }));
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   return require('@/features/social/social-service') as typeof import('@/features/social/social-service');
 }
 

@@ -1850,7 +1850,7 @@ describe('ScannerScreen', () => {
     // The inline ADD ▾ pill opens the per-row menu; picking Wishlist favorites
     // the active candidate immediately (no confirm sheet).
     const addPill = await screen.findByTestId('scanner-tray-add-0');
-    expect(addPill).toHaveTextContent('ADD');
+    expect(addPill).toHaveTextContent('ADD ITEM');
     fireEvent.press(addPill, {
       // A real press always carries both; the handler reads the tap point
       // BEFORE the async measure so Android's flaky measureInWindow cannot

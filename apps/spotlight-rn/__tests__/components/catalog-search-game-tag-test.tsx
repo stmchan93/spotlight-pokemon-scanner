@@ -8,7 +8,7 @@ import { CatalogSearchScreen } from '@/features/catalog/screens/catalog-search-s
 import { renderWithProviders } from '../test-utils';
 
 jest.mock('expo-router', () => ({
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   useFocusEffect: (callback: () => void | (() => void)) => require('react').useEffect(callback, [callback]),
 }));
 

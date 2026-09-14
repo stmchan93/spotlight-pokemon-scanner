@@ -170,30 +170,24 @@ import {
   buildScanMatchSuccessProperties,
   buildScanRowResolvedProperties,
   type ScanRowOutcome,
-  capturePrimaryLabel,
   captureFailureSubtitle,
   captureFailureTitle,
   formatCurrency,
   formatTrayTotal,
   isFinitePrice,
-  isNonPSAUnsupportedSlabCapture,
   logScannerDiagnostic,
   resolveCaptureTrayPrice,
-  scannerCapturePriceLabel,
   scannerCaptureThumbUri,
   scannerErrorKind,
   scannerErrorMessage,
   scannerLaneUnavailableReason,
   scannerPreparationReviewReason,
   scannerSlabInlineLabel,
-  scannerSlabSubtitle,
   slabContextFromAnalysis,
   summarizeTrayPrices,
   supportedTrayCurrencyCode,
   triggerScannerHaptic,
   triggerScannerProcessedHaptic,
-  unsupportedSlabSubtitle,
-  unsupportedSlabTitle,
   withOptimisticInventoryAdd,
   withUpdatedCaptureFavoriteState,
   withUpdatedInventoryFavoriteState,
@@ -2074,7 +2068,6 @@ export function ScannerScreen({
       // never fails the scan (the promise resolves to null on any error).
       let resolvedMatchPayload = matchPayload;
       if (rawCollectorNumberPromise) {
-        const ocrAwaitStartedAt = Date.now();
         // Cap the blocking wait: a slow read must not delay the match request.
         const raced = await Promise.race([
           rawCollectorNumberPromise,
@@ -3121,7 +3114,6 @@ export function ScannerScreen({
     scanLane,
     triggerCaptureFlash,
     triggerReticleLock,
-    updateRecentCapture,
     zoomFactor,
   ]);
 
@@ -3230,19 +3222,6 @@ export function ScannerScreen({
       }));
     }
   }, [isCapturing, scanLane, scannerSmokeEnabled, runMatchForCapture, updateRecentCapture]);
-
-  const cycleCandidate = useCallback((captureId: string) => {
-    setRecentCaptures((current) => current.map((capture) => {
-      if (capture.id !== captureId || capture.candidates.length <= 1) {
-        return capture;
-      }
-
-      return {
-        ...capture,
-        activeCandidateIndex: (capture.activeCandidateIndex + 1) % capture.candidates.length,
-      };
-    }));
-  }, []);
 
   const setActiveCandidate = useCallback((captureId: string, nextIndex: number) => {
     // A hand-picked match means the scanner's top result was wrong — the one

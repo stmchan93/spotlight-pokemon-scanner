@@ -20,7 +20,7 @@ import { renderWithProviders } from '../test-utils';
   focused one, and it keeps every existing test in this file navigator-free.
 */
 jest.mock('expo-router', () => ({
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   useFocusEffect: (callback: () => void | (() => void)) => require('react').useEffect(callback, [callback]),
 }));
 

@@ -78,7 +78,7 @@ function flatten(node: { props: { style?: unknown } }) {
 
 /**
  * The card's VERTICAL RHYTHM, which nothing asserted until a double-counted gap
- * shipped (Figma "Home" 3523:15499; post card now 4299:94902).
+ * shipped (Figma "Home" 3523:15499; post card now 5085:15398).
  *
  * `metricsRow` once carried a `paddingBottom` on top of the content block's own
  * spacing, so every separator sat twice as far below the action glyphs as the
@@ -88,16 +88,17 @@ function flatten(node: { props: { style?: unknown } }) {
  * does.
  */
 describe('PostCard layout', () => {
-  it('stacks the content on a single 10pt gap with a 12pt inset to the band on each side', async () => {
+  it('stacks the content on an 8pt rhythm, 8 above and 10 below to the band', async () => {
     await renderCard();
 
     const content = flatten(screen.getByTestId('post-card-content'));
 
-    // One rhythm for header→body→image→metrics (Figma 4299:94902).
-    expect(content.gap).toBe(10);
-    // 12 above and below — the gap to the 4pt band on each side of a card.
-    expect(content.paddingTop).toBe(12);
-    expect(content.paddingBottom).toBe(12);
+    // header→body→image run on 8; image→metrics is 10 via metricsRow's
+    // marginTop (design-map.json: 5085:15398 supersedes the old flat 10).
+    expect(content.gap).toBe(8);
+    // Band seams: 8 above the content, 10 below it (5085:15398).
+    expect(content.paddingTop).toBe(8);
+    expect(content.paddingBottom).toBe(10);
   });
 
   it('closes the card with the 4pt full-bleed gray band as its last layout child', async () => {
@@ -118,13 +119,13 @@ describe('PostCard layout', () => {
     expect(band.backgroundColor).toBe('#F2F2F2');
   });
 
-  it('leaves the action row no padding of its own, so the band sits 12pt below the glyphs', async () => {
+  it('leaves the action row no padding of its own, so the band sits 10pt below the glyphs', async () => {
     await renderCard();
 
     const metricsRow = flatten(screen.getByTestId('post-card-metrics'));
 
     // MUST stay undefined. Any value here is ADDED to `cardContent`'s
-    // `paddingBottom: 12` and pushes the band further from the glyphs than the
+    // `paddingBottom: 10` and pushes the band further from the glyphs than the
     // frame specifies.
     expect(metricsRow.paddingBottom).toBeUndefined();
     // Still the 16pt page gutter — the row's horizontal inset is unrelated.

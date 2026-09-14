@@ -7,7 +7,6 @@ import type {
 import { type NormalizedScannerTarget, makeOrientationFixedSourceImageDimensions } from '@/features/scanner/scanner-normalized-target';
 import {
   slabLabelAnalysisBottomRatio,
-  slabLabelDividerRatio,
 } from '@/features/scanner/raw-scanner-capture-surface';
 
 type PreviewLayout = {
@@ -16,13 +15,6 @@ type PreviewLayout = {
 };
 
 type ReticleLayout = {
-  height: number;
-  width: number;
-  x: number;
-  y: number;
-};
-
-type ImageRect = {
   height: number;
   width: number;
   x: number;
@@ -119,18 +111,6 @@ function makeSlabLabelSourceImageCrop(reticleCrop: ScanSourceImageCrop): ScanSou
   };
 }
 
-function makeSlabGuideLineSourceImageCrop(reticleCrop: ScanSourceImageCrop): ImageRect {
-  const guideHeight = roundPositiveInt(Math.max(2, reticleCrop.height * 0.02));
-  const guideY = Math.round(reticleCrop.y + (reticleCrop.height * slabLabelDividerRatio) - (guideHeight / 2));
-
-  return {
-    height: guideHeight,
-    width: reticleCrop.width,
-    x: reticleCrop.x,
-    y: clamp(guideY, reticleCrop.y, reticleCrop.y + reticleCrop.height - guideHeight),
-  };
-}
-
 export async function buildSlabScannerTarget({
   previewLayout,
   reticle,
@@ -162,7 +142,6 @@ export async function buildSlabScannerTarget({
   }
 
   const sourceImageCrop = makeSlabLabelSourceImageCrop(reticleCrop);
-  const guideLineCrop = makeSlabGuideLineSourceImageCrop(reticleCrop);
 
   const context = ImageManipulator.manipulate(sourceImageUri);
   let normalizedImageRef: {

@@ -24,9 +24,9 @@ let mockWebViewProps: CapturedWebViewProps | null = null;
 // Override the global jest.setup mock: the host tests need to reach the
 // WebView's onMessage/onError props to play the widget's side of the exchange.
 jest.mock('react-native-webview', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const React = require('react');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const { View } = require('react-native');
   return {
     WebView: (props: CapturedWebViewProps) => {
@@ -47,7 +47,7 @@ function setSiteKey(value: string | undefined) {
 }
 
 describe('turnstile token provider', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const turnstile = require('@/features/auth/captcha/turnstile') as typeof import('@/features/auth/captcha/turnstile');
 
   afterEach(() => {
@@ -128,9 +128,9 @@ describe('turnstile token provider', () => {
 });
 
 describe('TurnstileCaptchaHost', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const turnstile = require('@/features/auth/captcha/turnstile') as typeof import('@/features/auth/captcha/turnstile');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const { TurnstileCaptchaHost } = require('@/features/auth/captcha/turnstile-captcha-host') as typeof import('@/features/auth/captcha/turnstile-captcha-host');
 
   beforeEach(() => {
@@ -298,7 +298,7 @@ async function loadAuthServiceWithCaptcha(token: string | null) {
   }));
   jest.doMock('expo-linking', () => ({ openURL: jest.fn() }));
 
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const service = require('@/features/auth/auth-service') as typeof import('@/features/auth/auth-service');
 
   return { getCaptchaToken, service, supabase };

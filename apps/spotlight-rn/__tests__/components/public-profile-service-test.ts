@@ -27,7 +27,7 @@ function loadProfileService(supabase: SupabaseMock | null) {
     },
   }));
 
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   return require('@/features/profile/profile-service') as typeof import('@/features/profile/profile-service');
 }
 

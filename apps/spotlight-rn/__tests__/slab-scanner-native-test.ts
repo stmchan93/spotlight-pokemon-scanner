@@ -17,7 +17,7 @@ function loadModule({ scanPSALabel }: LoadOptions = {}): {
       name === 'SpotlightSlabScanner' ? nativeBindings : null,
   }));
 
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const loaded = require('@/features/scanner/slab-scanner-native') as SlabScannerNativeModule;
   return { module: loaded, scanPSALabelMock };
 }

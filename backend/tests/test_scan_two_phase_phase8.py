@@ -796,20 +796,73 @@ class ScanInferenceGuardTests(unittest.TestCase):
     def test_returns_503_without_running_inference_when_no_slot_frees(self) -> None:
         original_sem = server_module._scan_inference_semaphore
         original_timeout = server_module.SCAN_INFERENCE_ACQUIRE_TIMEOUT_S
-        server_module._scan_inference_semaphore = threading.BoundedSemaphore(1)
+        original_held = server_module._scan_inference_held
+        busy_sem = threading.BoundedSemaphore(1)
+        server_module._scan_inference_semaphore = busy_sem
         server_module.SCAN_INFERENCE_ACQUIRE_TIMEOUT_S = 0.05
         try:
-            # Hold the only slot so the request waits, then sheds.
-            self.assertTrue(server_module._scan_inference_semaphore.acquire(blocking=False))
+            # Hold the only slot so the request waits, then sheds. Marking the
+            # slot HELD is what a real in-flight scan does, and it is load-bearing
+            # here: with the counter at 0 the guard reads an empty pool as a
+            # LEAKED one, rebuilds it and serves a 200, so this test silently
+            # stopped covering the shed path it asserts.
+            self.assertTrue(busy_sem.acquire(blocking=False))
+            server_module._mark_scan_inference_slot_held(1)
             captured: dict[str, object] = {}
             handler = self._visual_match_handler(captured)
-            handler.do_POST()
+            with contextlib.redirect_stdout(io.StringIO()):
+                handler.do_POST()
             self.assertEqual(captured["status"], HTTPStatus.SERVICE_UNAVAILABLE)
             self.assertEqual(captured["payload"]["errorType"], "ScannerBusy")  # type: ignore[index]
             handler.service.visual_match_scan.assert_not_called()
+            # A busy pool is NOT a leaked pool: it must be left alone.
+            self.assertIs(server_module._scan_inference_semaphore, busy_sem)
         finally:
             server_module._scan_inference_semaphore = original_sem
             server_module.SCAN_INFERENCE_ACQUIRE_TIMEOUT_S = original_timeout
+            server_module._scan_inference_held = original_held
+
+    def test_rebuilds_leaked_pool_instead_of_shedding_every_scan(self) -> None:
+        """A permit acquired and never released cannot recover on its own: on a
+        2-vCPU box the pool is ONE permit, so a single leak 503s every scan for
+        the life of the process and only a redeploy clears it (seen 2026-09-11).
+        So when the wait times out while the held counter says NOTHING is
+        running, the pool is leaked rather than busy: the guard rebuilds it,
+        takes a slot, and the request proceeds."""
+        original_sem = server_module._scan_inference_semaphore
+        original_timeout = server_module.SCAN_INFERENCE_ACQUIRE_TIMEOUT_S
+        original_held = server_module._scan_inference_held
+        leaked_sem = threading.BoundedSemaphore(1)
+        server_module._scan_inference_semaphore = leaked_sem
+        server_module.SCAN_INFERENCE_ACQUIRE_TIMEOUT_S = 0.05
+        try:
+            # Drain the pool WITHOUT marking a slot held: that is what a leaked
+            # permit looks like — no permits, no scan running.
+            self.assertTrue(leaked_sem.acquire(blocking=False))
+            server_module._scan_inference_held = 0
+            captured: dict[str, object] = {}
+            handler = self._visual_match_handler(captured)
+            logs = io.StringIO()
+            with contextlib.redirect_stdout(logs):
+                handler.do_POST()
+
+            # The recovery actually happened: the dead pool was replaced, the
+            # leak was reported, and the scan ran instead of shedding.
+            self.assertIsNot(server_module._scan_inference_semaphore, leaked_sem)
+            self.assertIn("scan_inference_pool_rebuilt", logs.getvalue())
+            self.assertEqual(captured["status"], HTTPStatus.OK)
+            handler.service.visual_match_scan.assert_called_once()
+            # The rebuilt pool is whole: the slot this request took was released
+            # in the finally, so every permit is available again.
+            rebuilt = server_module._scan_inference_semaphore
+            for _ in range(server_module.SCAN_INFERENCE_MAX_CONCURRENCY):
+                self.assertTrue(rebuilt.acquire(blocking=False))
+            self.assertFalse(rebuilt.acquire(blocking=False))
+            self.assertEqual(server_module._scan_inference_slots_held(), 0)
+        finally:
+            server_module._scan_inference_semaphore = original_sem
+            server_module.SCAN_INFERENCE_ACQUIRE_TIMEOUT_S = original_timeout
+            server_module._scan_inference_held = original_held
 
     def test_releases_slot_after_success(self) -> None:
         original_sem = server_module._scan_inference_semaphore

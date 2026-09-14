@@ -51,7 +51,7 @@ export function BinderLayoutMenu({
     return null;
   }
 
-  const rows: Array<{ id: BinderLayoutMenuSelection; label: string }> = [
+  const rows: { id: BinderLayoutMenuSelection; label: string }[] = [
     { id: 'single', label: 'Single' },
     ...binderPageLayouts.map((layout) => ({ id: layout.id, label: layout.label })),
   ];

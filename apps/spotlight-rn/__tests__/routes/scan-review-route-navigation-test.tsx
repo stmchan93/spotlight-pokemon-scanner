@@ -1,5 +1,13 @@
 import { fireEvent, screen } from '@testing-library/react-native';
 
+import ScanReviewRoute from '@/app/(modal)/cards/[cardId]/scan-review';
+import {
+  clearScanCandidateReviewSessions,
+  saveScanCandidateReviewSession,
+} from '@/features/scanner/scan-candidate-review-session';
+
+import { renderWithProviders } from '../test-utils';
+
 const mockBack = jest.fn();
 const mockPush = jest.fn();
 const mockUseLocalSearchParams = jest.fn();
@@ -11,14 +19,6 @@ jest.mock('expo-router', () => ({
     push: mockPush,
   }),
 }));
-
-import ScanReviewRoute from '@/app/(modal)/cards/[cardId]/scan-review';
-import {
-  clearScanCandidateReviewSessions,
-  saveScanCandidateReviewSession,
-} from '@/features/scanner/scan-candidate-review-session';
-
-import { renderWithProviders } from '../test-utils';
 
 describe('scan review modal route navigation', () => {
   beforeEach(() => {

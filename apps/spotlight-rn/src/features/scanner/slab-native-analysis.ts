@@ -56,7 +56,7 @@ export async function analyzePSASlabLabelNative(imageUri: string) {
     if (__DEV__ && process.env.NODE_ENV !== 'test') {
       // Fixture-capture aid for PR 5: scrape Metro logs for `[slab-fixture-dump]`
       // lines and convert each to a JSON file under __tests__/fixtures/psa-slab-mlkit/.
-      // eslint-disable-next-line no-console
+       
       console.log(
         '[slab-fixture-dump]',
         JSON.stringify({ imageUri: trimmedUri, analysis }),

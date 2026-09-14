@@ -34,8 +34,8 @@ function rawPayloadWithSource(): ScannerCapturePayload {
   };
 }
 
-function artifactBodies(): Array<Record<string, unknown>> {
-  const calls = (global.fetch as jest.Mock).mock.calls as Array<[string, RequestInit | undefined]>;
+function artifactBodies(): Record<string, unknown>[] {
+  const calls = (global.fetch as jest.Mock).mock.calls as [string, RequestInit | undefined][];
   return calls
     .filter(([url]) => String(url).includes('scan-artifacts'))
     .map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>);

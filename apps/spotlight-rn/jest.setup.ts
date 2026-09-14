@@ -30,9 +30,9 @@ jest.mock('expo-haptics', () => ({
 }));
 
 jest.mock('iconoir-react-native', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const React = require('react');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const { View } = require('react-native');
 
   const make = (name: string) => {
@@ -245,7 +245,7 @@ jest.mock('posthog-react-native', () => {
 });
 
 jest.mock('expo-blur', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const { View } = require('react-native');
 
   return {
@@ -254,7 +254,7 @@ jest.mock('expo-blur', () => {
 });
 
 jest.mock('expo-glass-effect', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const { View } = require('react-native');
 
   // Real Liquid Glass only exists on an iOS 26 device + Xcode-26 build, so in
@@ -266,9 +266,9 @@ jest.mock('expo-glass-effect', () => {
 });
 
 jest.mock('expo-image', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const React = require('react');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const { View } = require('react-native');
 
   const MockExpoImage = React.forwardRef(({ children, ...props }: any, ref: any) =>
@@ -289,9 +289,9 @@ jest.mock('expo-keep-awake', () => ({
 }));
 
 jest.mock('expo-apple-authentication', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const React = require('react');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const { View } = require('react-native');
 
   const MockAppleAuthenticationButton = ({ children, ...props }: any) => React.createElement(View, props, children);
@@ -330,9 +330,9 @@ jest.mock('expo-secure-store', () => ({
 }));
 
 jest.mock('react-native-vision-camera', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const React = require('react');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const { View } = require('react-native');
 
   // capturePhoto -> Photo. saveToTemporaryFileAsync returns '/mock-scan.jpg', which
@@ -556,9 +556,9 @@ jest.mock('expo-router/unstable-native-tabs', () => {
     NativeTabs: Object.assign(
       () => {
         // createElement, not JSX: this setup file is .ts, not .tsx.
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
+         
         const { Slot } = require('expo-router');
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
+         
         return require('react').createElement(Slot);
       },
       { Trigger },
@@ -572,7 +572,7 @@ jest.mock('expo-router/unstable-native-tabs', () => {
 // no native module exists, so hand back the mocked JS below; the missing-module
 // path is what binaries in the field hit, not what these tests cover.
 jest.mock('@/lib/native-image-picker', () => ({
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   loadNativeImagePicker: () => require('expo-image-picker'),
 }));
 

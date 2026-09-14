@@ -2,7 +2,6 @@ import { createContext, type PropsWithChildren, useCallback, useContext, useEffe
 import * as Linking from 'expo-linking';
 import type { Session } from '@supabase/supabase-js';
 
-import type { AppUser, AuthState } from '@/features/auth/auth-models';
 import {
   AuthCanceledError,
   bootstrapProfileIfNeeded,
@@ -41,6 +40,8 @@ import {
 import {
   PENDING_GUEST_USER_ID,
   getResolvedDisplayName,
+  type AppUser,
+  type AuthState,
   type ProfileUpdate,
 } from '@/features/auth/auth-models';
 import { TurnstileCaptchaHost } from '@/features/auth/captcha/turnstile-captcha-host';

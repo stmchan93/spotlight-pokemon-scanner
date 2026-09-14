@@ -5,9 +5,9 @@ import { render, screen } from '@testing-library/react-native';
 // dependency-free stub so the heart renders synchronously and all animation
 // helpers no-op. Declared before importing the component under test.
 jest.mock('react-native-reanimated', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const React = require('react');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const { View, Text, Image } = require('react-native');
 
   const passthrough = (value: unknown) => value;

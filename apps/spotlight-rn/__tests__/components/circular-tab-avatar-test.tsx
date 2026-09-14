@@ -15,9 +15,9 @@ import {
 const mockToDataURL = jest.fn((callback: (base64: string) => void) => callback('PNGBYTES'));
 
 jest.mock('react-native-svg', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const React = require('react');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const { View } = require('react-native');
 
   const Svg = React.forwardRef(

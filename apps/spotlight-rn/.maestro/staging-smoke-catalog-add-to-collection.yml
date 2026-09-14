@@ -1,23 +1,56 @@
 appId: com.ekalight.app.staging
 ---
+# Starts on the portfolio (Home tab). The catalog opens from the top bar's
+# magnifier bubble — the old `portfolio-add-card` grid tile is gone.
 - tapOn:
-    id: portfolio-add-card
+    id: portfolio-header-search
 - assertVisible:
     id: catalog-header
 - tapOn:
     text: "Search by name, set, or number"
 - inputText: "${SPOTLIGHT_MAESTRO_CATALOG_QUERY}"
-- tapOn:
+# PRECONDITION: the fixture card must come back for this query AND must not
+# already be in the smoke account's collection — an owned card turns the card
+# page's SAVE button into UPDATE (`detail-save-edit`) and there is no add to make.
+- assertVisible:
     id: "${SPOTLIGHT_MAESTRO_CATALOG_RESULT_ID}"
 - tapOn:
-    id: detail-add-to-collection
-    optional: true
+    id: "${SPOTLIGHT_MAESTRO_CATALOG_RESULT_ID}"
 - assertVisible:
-    text: "Add to Collection"
-    optional: true
+    id: detail-name
+# SAVE stays disabled until the card detail resolves, so a tap before then is a
+# silent no-op. The configurator's variant skeleton is on screen for exactly that
+# window — wait for it to clear.
+- extendedWaitUntil:
+    notVisible:
+      id: detail-configurator-variant-skeleton
+    timeout: 20000
+- assertVisible:
+    id: detail-add-item
 - tapOn:
-    id: submit-add-to-collection
-    optional: true
+    id: detail-add-item
+# The behaviour under test — the sheet must really open, so none of this is optional.
 - assertVisible:
-    id: detail-sell-card
+    id: detail-add-sheet
+- assertVisible: "Add to Collection"
+- assertVisible:
+    id: detail-add-sheet-quantity-value
+- tapOn:
+    id: detail-add-sheet-confirm
+# SUCCESS PROOF. A successful createInventoryEntry closes the sheet, pops the
+# card page and leaves catalog search the "Added to your collection" notice,
+# which it renders as `catalog-added-toast`. The toast mounts only on a real add
+# — a failed add keeps the card page up with "Could not add this card right now."
+- extendedWaitUntil:
+    visible:
+      id: catalog-added-toast
+    timeout: 15000
+- assertVisible: "Added to your collection"
+- assertNotVisible:
+    id: detail-add-sheet
 - takeScreenshot: staging-smoke-catalog-add
+# Hand the next flow in the suite a portfolio, not an open catalog modal.
+- tapOn:
+    id: catalog-close
+- assertVisible:
+    id: portfolio-header

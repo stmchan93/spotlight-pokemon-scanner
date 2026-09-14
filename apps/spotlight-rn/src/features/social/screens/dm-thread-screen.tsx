@@ -965,6 +965,7 @@ export function DmThreadScreen({
       myUserId,
       openProfile,
       otherUser?.avatarUrl,
+      spotlightRepository,
       timeSeparatorIds,
       router,
       testID,

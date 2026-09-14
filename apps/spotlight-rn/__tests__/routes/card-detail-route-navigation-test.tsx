@@ -1,5 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 
+import CardDetailRoute from '@/app/(stack)/cards/[cardId]';
+
 const mockPush = jest.fn();
 const mockBack = jest.fn();
 const mockUseLocalSearchParams = jest.fn();
@@ -30,8 +32,6 @@ jest.mock('@/features/cards/screens/card-detail-screen', () => ({
     );
   },
 }));
-
-import CardDetailRoute from '@/app/(stack)/cards/[cardId]';
 
 describe('card detail route navigation', () => {
   beforeEach(() => {

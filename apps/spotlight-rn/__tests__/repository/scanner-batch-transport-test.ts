@@ -262,7 +262,14 @@ describe('prepareBinderPage transport', () => {
     // fetch must generate the multipart boundary itself.
     expect((init?.headers as Record<string, string> | undefined)?.['Content-Type']).toBeUndefined();
 
-    expect(prepared).toEqual({ pageToken: 'tok-1', pocketCount: 9, expiresInSeconds: 600 });
+    // A backend that reports no empty pockets still yields the field, empty —
+    // callers filter on it unconditionally.
+    expect(prepared).toEqual({
+      pageToken: 'tok-1',
+      pocketCount: 9,
+      expiresInSeconds: 600,
+      emptyPocketIndexes: [],
+    });
   });
 
   it('falls back to the JSON pageImage body when multipart is rejected', async () => {

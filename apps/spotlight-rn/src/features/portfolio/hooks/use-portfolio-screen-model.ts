@@ -31,6 +31,29 @@ import { useAppServices } from '@/providers/app-providers';
 const maxRecentSales = 9;
 
 /**
+ * Which ranges a payload actually answered.
+ *
+ * The backend used to compute only the open range, so a switch always meant a
+ * network round trip — and after the first cold one that round trip could cost
+ * seconds. It now returns all six (they are slices of one series), so a range
+ * that arrived with points needs no fetch at all and the chart redraws from
+ * state. A range that came back empty stays unloaded so the next tap still
+ * retries it.
+ *
+ * Module-scoped on purpose: it closes over nothing from the component, so it
+ * needs no identity in any hook dependency list.
+ */
+const rangesWithData = (source: PortfolioDashboard): Set<PortfolioHistoryRange> => {
+  const loaded = new Set<PortfolioHistoryRange>();
+  for (const range of historyRanges) {
+    if ((source.ranges[range]?.portfolio.length ?? 0) > 0) {
+      loaded.add(range);
+    }
+  }
+  return loaded;
+};
+
+/**
  * How old the dashboard on screen has to be before merely returning to the
  * Collection tab is worth re-reading it.
  *
@@ -599,24 +622,6 @@ export function usePortfolioScreenModel({
   // Switch the chart range. If the range hasn't been loaded yet (the dashboard
   // only computed the open range), fetch just that range on demand and merge it
   // in; the chart shows its skeleton via `loadingRange` until it arrives.
-  // Which ranges a payload actually answered.
-  //
-  // The backend used to compute only the open range, so a switch always meant
-  // a network round trip — and after the first cold one that round trip could
-  // cost seconds. It now returns all six (they are slices of one series), so a
-  // range that arrived with points needs no fetch at all and the chart redraws
-  // from state. A range that came back empty stays unloaded so the next tap
-  // still retries it.
-  const rangesWithData = useCallback((source: PortfolioDashboard): Set<PortfolioHistoryRange> => {
-    const loaded = new Set<PortfolioHistoryRange>();
-    for (const range of historyRanges) {
-      if ((source.ranges[range]?.portfolio.length ?? 0) > 0) {
-        loaded.add(range);
-      }
-    }
-    return loaded;
-  }, []);
-
   const selectRange = useCallback((range: PortfolioHistoryRange) => {
     setSelectedRange(range);
     if (loadedRangesRef.current.has(range)) {

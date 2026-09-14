@@ -432,9 +432,9 @@ describe('misc route wrappers', () => {
   // This does NOT apply to pushed stack screens. They keep UIKit's interactive
   // back-swipe, which is deliberately the app's only horizontal nav gesture.
   it('keeps every tab screen free of a horizontal swipe-to-navigate gesture', () => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+     
     const fs = require('node:fs');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+     
     const path = require('node:path');
     const tabsDir = path.join(__dirname, '..', '..', 'src', 'app', '(tabs)');
 
@@ -468,9 +468,9 @@ describe('misc route wrappers', () => {
     // the composer rendered as a plain push with its close button under the
     // status bar. Nothing about that is visible to a render test; only the
     // route's PLACEMENT prevents it, so that placement is what gets pinned.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+     
     const fs = require('node:fs');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+     
     const path = require('node:path');
     const appDir = path.join(__dirname, '..', '..', 'src', 'app');
 

@@ -44,9 +44,9 @@ jest.mock('@/lib/use-keyboard-visible', () => ({
 
 jest.mock('expo-router/unstable-native-tabs', () => {
   // Required inline because a jest.mock factory is hoisted above the imports.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const React = require('react');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const { Text, View } = require('react-native');
 
   // The real `Icon` writes into navigation options and renders nothing, so its
@@ -93,7 +93,7 @@ const AVATAR_SOURCE = {
 function renderTabsLayout() {
   // Required after the mocks so the layout picks them up, and re-required per
   // test so `Platform.OS` is read at the render that needs it.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const TabsLayout = require('@/app/(tabs)/_layout').default;
   return render(<TabsLayout />);
 }
