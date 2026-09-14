@@ -66,6 +66,7 @@ from catalog_tools import (
     RAW_CONDITION_PRIORITY,
     PSA_GRADE_PRICING_MODE,
     RAW_PRICING_MODE,
+    RAW_VARIANT_PRIORITY,
     raw_variant_sort_key,
     RawDecisionResult,
     RawEvidence,
@@ -4291,17 +4292,25 @@ class SpotlightScanService:
                 return (0, 0, value)
             if value in normalized_priority:
                 return (1, normalized_priority[value], value)
-            return (2, len(normalized_priority), value)
+            # Not preferred, not a named priority: fall to the catalog's own
+            # printing ranking rather than to alphabetical order, which is what
+            # floated "Alt Art" above "Foil" in the variant chips.
+            return (2, len(normalized_priority) + raw_variant_sort_key(value)[1], value)
 
         return sorted(ordered, key=sort_key)
 
     def _raw_history_variants(self, card_id: str) -> list[str]:
-        row = price_snapshot_row(self.connection, card_id)
         raw_contexts = self._snapshot_raw_contexts(card_id)
+        # RESOLVED LIVE, not read from `default_raw_variant`. That column is
+        # written at price-sync time, so it lags a ranking change: after One
+        # Piece stopped defaulting to the Alt Art everywhere else, the stored
+        # column still said Alt Art and pinned it first in the variant chips
+        # (user, 2026-09-13).
+        preferred, _, _ = _resolve_default_raw_context(raw_contexts)
         return self._ordered_history_codes(
             _raw_context_variants(raw_contexts),
-            preferred=str(row["default_raw_variant"] or "").strip() or "Normal" if row is not None else "Normal",
-            priority=("Normal", "Holofoil", "Reverse Holofoil"),
+            preferred=preferred,
+            priority=RAW_VARIANT_PRIORITY,
         )
 
     def _raw_history_conditions(self, card_id: str, variant: str | None) -> list[str]:
