@@ -1470,7 +1470,16 @@ export function ScannerScreen({
     // `canAskAgain`. Request once on first mount; if the user denies, the
     // camera simply doesn't mount (no re-prompt loop).
     hasPromptedForPermissionRef.current = true;
-    void requestPermission();
+    capturePostHogEvent('scan_camera_permission_prompted', {});
+    void requestPermission().then((granted) => {
+      // Denial was previously invisible: the scanner just showed a black frame
+      // and a line of text, which reads as a broken screen rather than a
+      // choice. Without this, a user who denies is indistinguishable from one
+      // who opened the scanner and didn't press the shutter.
+      capturePostHogEvent('scan_camera_permission_result', { granted: granted === true });
+    }).catch(() => {
+      capturePostHogEvent('scan_camera_permission_result', { granted: false, errored: true });
+    });
   }, [hasPermission, requestPermission]);
 
   useEffect(() => {
@@ -4347,6 +4356,37 @@ export function ScannerScreen({
         testIDPrefix="scanner"
         zoomFactor={zoomFactor}
       >
+        {/*
+          Denied camera permission used to be a dead end: the viewfinder is a
+          black frame with one line of text, and that text lives in a
+          `pointerEvents="none"` overlay so nothing on it can be tapped. On
+          Android a second denial stops the system prompt appearing at all, so
+          the only route back was the OS settings app — which nothing told the
+          user about. This is the way out.
+        */}
+        {!hasPermission ? (
+          <View style={styles.cameraDeniedCard} testID="scanner-camera-denied">
+            <Text style={styles.cameraDeniedTitle}>Camera access is off</Text>
+            <Text style={styles.cameraDeniedBody}>
+              Scanning needs the camera. Turn it on in Settings, then come back.
+            </Text>
+            <ArenaPressable
+              accessibilityLabel="Open settings to allow camera access"
+              accessibilityRole="button"
+              onPress={() => {
+                capturePostHogEvent('scan_camera_permission_settings_opened', {});
+                void Linking.openSettings();
+              }}
+              style={({ pressed }) => [
+                styles.cameraDeniedButton,
+                pressed ? styles.captureChangeChipPressed : null,
+              ]}
+              testID="scanner-camera-denied-settings"
+            >
+              <Text style={styles.cameraDeniedButtonLabel}>OPEN SETTINGS</Text>
+            </ArenaPressable>
+          </View>
+        ) : null}
         {isTrayExpanded ? (
           <Pressable
             accessibilityLabel="Collapse recent scans"
@@ -5450,6 +5490,41 @@ const styles = StyleSheet.create({
   captureThumbColumn: {
     alignItems: 'flex-start',
     gap: 4,
+  },
+  cameraDeniedCard: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    backgroundColor: colors.gray900,
+    borderCurve: 'continuous',
+    borderRadius: radii.lg,
+    gap: 8,
+    marginHorizontal: 32,
+    maxWidth: 320,
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+  },
+  cameraDeniedTitle: {
+    ...textStyles.labelStrong,
+    color: colors.gray0,
+    textAlign: 'center',
+  },
+  cameraDeniedBody: {
+    ...textStyles.caption,
+    color: colors.gray300,
+    textAlign: 'center',
+  },
+  cameraDeniedButton: {
+    alignItems: 'center',
+    backgroundColor: colors.purple500,
+    borderCurve: 'continuous',
+    borderRadius: radii.pill,
+    marginTop: 4,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+  },
+  cameraDeniedButtonLabel: {
+    ...textStyles.labelStrong,
+    color: colors.gray0,
   },
   captureChangeChip: {
     // Recessive dark gray, not the scanner's purple action fill: the row's
