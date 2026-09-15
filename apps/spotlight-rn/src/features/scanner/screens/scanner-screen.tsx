@@ -1864,7 +1864,10 @@ export function ScannerScreen({
       return;
     }
 
-    capturePostHogEvent('scan_row_resolved', buildScanRowResolvedProperties(capture, outcome));
+    capturePostHogEvent(
+      'scan_row_resolved',
+      buildScanRowResolvedProperties(capture, outcome, Date.now(), scanLane.game),
+    );
     updateRecentCapture(capture.id, (current) => {
       if (current.hasTrackedSelectionEvent) {
         return current;
@@ -1875,7 +1878,7 @@ export function ScannerScreen({
         hasTrackedSelectionEvent: true,
       };
     });
-  }, [updateRecentCapture]);
+  }, [scanLane.game, updateRecentCapture]);
 
   trackRowResolvedRef.current = trackRowResolved;
 
@@ -1965,6 +1968,7 @@ export function ScannerScreen({
       }));
     })();
     capturePostHogEvent('scan_match_succeeded', buildScanMatchSuccessProperties({
+      game: scanLane.game,
       candidateCount: matchResult.candidates.length,
       captureMs,
       endToEndMs,
@@ -2035,6 +2039,7 @@ export function ScannerScreen({
     }));
     void triggerScannerProcessedHaptic();
     capturePostHogEvent('scan_match_failed', buildScanMatchFailureProperties({
+      game: scanLane.game,
       captureMs,
       endToEndMs: Date.now() - scanStartedAt,
       errorKind: scannerErrorKind(error),
@@ -2746,6 +2751,7 @@ export function ScannerScreen({
       captureMsForAnalytics = captureMs;
 
       capturePostHogEvent('scan_capture_started', {
+        game: scanLane.game,
         mode: isSlab ? 'slabs' : 'raw',
       });
 
@@ -2764,6 +2770,7 @@ export function ScannerScreen({
 
       if (!photo?.uri) {
         capturePostHogEvent('scan_match_failed', buildScanMatchFailureProperties({
+          game: scanLane.game,
           captureMs,
           endToEndMs: Date.now() - scanStartedAt,
           errorKind: 'source_capture_unavailable',
@@ -3071,6 +3078,7 @@ export function ScannerScreen({
         });
       }
       capturePostHogEvent('scan_match_failed', buildScanMatchFailureProperties({
+        game: scanLane.game,
         captureMs: captureMsForAnalytics,
         endToEndMs: Date.now() - scanStartedAt,
         errorKind: scannerErrorKind(error),
@@ -3124,6 +3132,7 @@ export function ScannerScreen({
 
     void triggerScannerHaptic();
     capturePostHogEvent('scan_capture_started', {
+      game: scanLane.game,
       mode: 'raw',
     });
     const scanStartedAt = Date.now();
@@ -3214,6 +3223,7 @@ export function ScannerScreen({
       }));
       void triggerScannerProcessedHaptic();
       capturePostHogEvent('scan_match_failed', buildScanMatchFailureProperties({
+        game: scanLane.game,
         captureMs: 0,
         endToEndMs: Date.now() - scanStartedAt,
         errorKind: scannerErrorKind(error),

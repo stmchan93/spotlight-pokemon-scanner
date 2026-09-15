@@ -136,10 +136,12 @@ export function buildScanRowResolvedProperties(
   capture: RecentCapture,
   outcome: ScanRowOutcome,
   nowMs: number = Date.now(),
+  game?: string | null,
 ) {
   const shownAt = capture.shownAtMs ?? null;
   const properties: Record<string, number | string | boolean> = {
     candidate_count: capture.candidates.length,
+    ...(game ? { game } : {}),
     mode: capture.mode,
     outcome,
     // 1 = the scanner's top answer still stood; >1 means they reached past it.
@@ -160,6 +162,7 @@ export function buildScanRowResolvedProperties(
 export function buildScanMatchSuccessProperties(params: {
   candidateCount: number;
   captureMs?: number | null;
+  game?: string | null;
   endToEndMs?: number | null;
   mode: ScannerMode;
   normalizeMs?: number | null;
@@ -172,6 +175,7 @@ export function buildScanMatchSuccessProperties(params: {
 }) {
   const properties: Record<string, number | string> = {
     candidate_count: params.candidateCount,
+    ...(params.game ? { game: params.game } : {}),
     mode: params.mode,
   };
 
@@ -221,12 +225,14 @@ export function buildScanMatchFailureProperties(params: {
   captureMs?: number | null;
   endToEndMs?: number | null;
   errorKind: string;
+  game?: string | null;
   mode: ScannerMode;
   normalizeMs?: number | null;
   slabAnalysisMs?: number | null;
 }) {
   const properties: Record<string, number | string> = {
     error_kind: params.errorKind,
+    ...(params.game ? { game: params.game } : {}),
     mode: params.mode,
   };
 

@@ -76,6 +76,20 @@ describe('scan_row_resolved properties', () => {
     expect(properties.candidate_count).toBe(0);
   });
 
+  it('carries the lane game, so outcomes break down per TCG', () => {
+    const properties = buildScanRowResolvedProperties(
+      makeCapture(),
+      'read',
+      3_500,
+      'onepiece',
+    );
+    expect(properties.game).toBe('onepiece');
+  });
+
+  it('omits game when the lane does not name one', () => {
+    expect(buildScanRowResolvedProperties(makeCapture(), 'read', 3_500).game).toBeUndefined();
+  });
+
   it('every outcome produces one bucket, so outcomes sum to scans attempted', () => {
     const outcomes: ScanRowOutcome[] = ['added', 'opened', 'dismissed', 'read', 'evicted'];
     const buckets = outcomes.map(
