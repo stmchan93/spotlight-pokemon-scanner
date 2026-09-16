@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 
+import { NativeModules } from 'react-native';
 import { PostHog, PostHogProvider } from 'posthog-react-native';
 import type { CaptureEvent, PostHogEventProperties } from '@posthog/core';
 
@@ -12,6 +13,28 @@ import {
   getPostHogCustomAppProperties,
 } from './context';
 import { scrubObservabilityValue } from './privacy';
+
+/**
+ * Whether the session-replay NATIVE module is actually in this binary.
+ *
+ * Replay records frames natively, so `posthog-react-native-session-replay` is
+ * a separate package that only exists after a native build — an OTA can never
+ * deliver it. Asking for replay without it is not harmless: the package's JS
+ * entry does not throw on import, it exports a Proxy that throws a linking
+ * error on EVERY property access, so the SDK's optional-require sees a truthy
+ * value and drives it. Each call is caught and logged by the SDK, so nothing
+ * crashes, but it is pure error noise on every session.
+ *
+ * Gating on the native module makes the JS-only state a clean no-op and lights
+ * replay up by itself on the first native build that includes the pod.
+ */
+const isSessionReplayLinked = (() => {
+  try {
+    return Boolean(NativeModules.PosthogReactNativeSessionReplay);
+  } catch {
+    return false;
+  }
+})();
 
 const posthogApiKey = resolveRuntimeValue(
   ['EXPO_PUBLIC_SPOTLIGHT_POSTHOG_API_KEY'],
@@ -128,7 +151,8 @@ function createPostHogClient() {
     // users drop off — NOT their content. Privacy-first masking: card scan images
     // and thumbnails are blocked out, and text inputs (email/password) are masked.
     // Only active where PostHog itself is (production). Free under 5k recordings/mo.
-    enableSessionReplay: true,
+    // Gated on the native module — see isSessionReplayLinked.
+    enableSessionReplay: isSessionReplayLinked,
     sessionReplayConfig: {
       maskAllImages: true,
       maskAllTextInputs: true,

@@ -58,6 +58,7 @@
     "iconoir-react-native": "^7.11.0",
     "js-sha256": "^0.11.1",
     "posthog-react-native": "^4.43.13",
+    "posthog-react-native-session-replay": "^1.6.0",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "react-native": "0.83.6",
