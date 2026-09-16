@@ -18,7 +18,7 @@ import unicodedata
 
 # TCGCSV printing (subTypeName) <-> Scrydex variant label, for the main-lane
 # series merge. tcgcsv_adapter is stdlib-only, so no import cycle.
-from tcgcsv_adapter import scrydex_variant_label_for_subtype, subtype_for_variant_label
+from tcgcsv_adapter import TCGCSV_PROVIDER, scrydex_variant_label_for_subtype, subtype_for_variant_label
 
 
 MATCHER_VERSION = "raw-backend-reset-v1"
@@ -7700,6 +7700,10 @@ def card_price_trend_list(
     snapshot_raw = (
         _raw_contexts_payload(snapshot_row["raw_contexts_json"]) if snapshot_row is not None else _empty_raw_contexts()
     )
+    if snapshot_row is not None:
+        # The printing we QUOTE must be resolvable here, or the fallback below
+        # serves another printing's condition ladder under its label.
+        snapshot_raw = with_served_main_printing(snapshot_row, snapshot_raw)
     # Suppress illiquid "phantom" raw prices (raw NM > own PSA 10): null the
     # currentPrice and flag the row so the trend surface matches the headline read.
     snapshot_graded_for_phantom = (
@@ -8113,6 +8117,65 @@ def slab_recent_sales_cache(
             for row in sale_rows
         ],
     }
+
+
+def with_served_main_printing(row: Any, raw_contexts: dict[str, Any]) -> dict[str, Any]:
+    """Add the main lane's own printing to `raw_contexts` as an NM-only entry
+    when Scrydex has no printing under that label.
+
+    Scrydex decides which printings a card HAS, and it is sometimes missing one
+    TCGplayer sells: One Piece P-043 is a single product carrying a Normal
+    ($89.78) and a Foil ($460.66), and Scrydex lists only the Foil. Without
+    this, asking for the printing we QUOTE finds nothing and every caller
+    silently falls back to the Scrydex default — serving the Foil's ladder
+    under a "Normal" label (user, 2026-09-16).
+
+    Returns the input unchanged on every other path — flag off, main
+    absent/stale, or the label already present — so a Scrydex-only read stays
+    byte-identical. Lives here, not on the service, because three separate
+    surfaces load raw contexts from a snapshot row and all three must agree.
+    """
+    summary = resolve_main_raw_summary_from_row(row)  # flag + freshness gated
+    if summary is None:
+        return raw_contexts
+    label = _normalized_variant_label(summary.get("variant"))
+    if not label:
+        return raw_contexts
+    variants = raw_contexts.get("variants")
+    variants = variants if isinstance(variants, dict) else {}
+    match = _variant_match_key(label)
+    if any(_variant_match_key(existing) == match for existing in variants):
+        return raw_contexts
+    variant_key = match or label.lower().replace(" ", "")
+    entry = {
+        "variant": label,
+        "variantKey": variant_key,
+        "condition": DEFAULT_RAW_CONDITION,
+        "currencyCode": "USD",
+        "low": summary.get("low"),
+        "market": summary.get("market"),
+        "mid": summary.get("mid"),
+        "high": summary.get("high"),
+        "directLow": summary.get("directLow"),
+        "trend": summary.get("trend"),
+        "trendsPct": None,
+        "payload": {
+            "provider": TCGCSV_PROVIDER,
+            "variantKey": variant_key,
+            "variant": label,
+            "condition": DEFAULT_RAW_CONDITION,
+        },
+    }
+    updated = dict(raw_contexts)
+    updated["variants"] = {
+        **variants,
+        label: {
+            "variant": label,
+            "variantKey": variant_key,
+            "conditions": {DEFAULT_RAW_CONDITION: entry},
+        },
+    }
+    return updated
 
 
 def remember_ebay_listing_images(

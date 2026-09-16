@@ -145,6 +145,7 @@ from catalog_tools import (
     replace_scan_prediction_candidates,
     replace_scan_price_observations,
     ebay_listing_images_by_item_id,
+    with_served_main_printing,
     remember_ebay_listing_images,
     replace_slab_recent_sales_cache,
     card_ebay_listings_cache,
@@ -4281,58 +4282,8 @@ class SpotlightScanService:
         # rest of main_raw_printings_json is stamped/player-signed promos that
         # belong nowhere near a chip row.
         if row is not None:
-            raw_contexts = self._with_served_main_printing(row, raw_contexts)
+            raw_contexts = with_served_main_printing(row, raw_contexts)
         return raw_contexts
-
-    @staticmethod
-    def _with_served_main_printing(
-        row: Any, raw_contexts: dict[str, Any]
-    ) -> dict[str, Any]:
-        """Add the main lane's own printing to `raw_contexts` as an NM-only entry
-        when Scrydex has no printing under that label. Returns the input unchanged
-        on every other path — flag off, main absent/stale, or already present — so
-        the Scrydex-only read stays byte-identical."""
-        summary = resolve_main_raw_summary_from_row(row)  # flag + freshness gated
-        if summary is None:
-            return raw_contexts
-        label = _normalized_variant_label(summary.get("variant"))
-        if not label:
-            return raw_contexts
-        variants = raw_contexts.get("variants")
-        variants = variants if isinstance(variants, dict) else {}
-        match = _variant_match_key(label)
-        if any(_variant_match_key(existing) == match for existing in variants):
-            return raw_contexts
-        variant_key = match or label.lower().replace(" ", "")
-        entry = {
-            "variant": label,
-            "variantKey": variant_key,
-            "condition": DEFAULT_RAW_CONDITION,
-            "currencyCode": "USD",
-            "low": summary.get("low"),
-            "market": summary.get("market"),
-            "mid": summary.get("mid"),
-            "high": summary.get("high"),
-            "directLow": summary.get("directLow"),
-            "trend": summary.get("trend"),
-            "trendsPct": None,
-            "payload": {
-                "provider": TCGCSV_PROVIDER,
-                "variantKey": variant_key,
-                "variant": label,
-                "condition": DEFAULT_RAW_CONDITION,
-            },
-        }
-        updated = dict(raw_contexts)
-        updated["variants"] = {
-            **variants,
-            label: {
-                "variant": label,
-                "variantKey": variant_key,
-                "conditions": {DEFAULT_RAW_CONDITION: entry},
-            },
-        }
-        return updated
 
     def _snapshot_graded_contexts(self, card_id: str) -> dict[str, Any]:
         row = price_snapshot_row(self.connection, card_id)
@@ -5245,6 +5196,11 @@ class SpotlightScanService:
         snapshot_raw = (
             _raw_contexts_payload(snapshot_row["raw_contexts_json"]) if snapshot_row is not None else {"variants": {}}
         )
+        if snapshot_row is not None:
+            # Mirror card_price_trend_list exactly: it augments with the served
+            # main printing before resolving, so this must too or the overlay
+            # reshapes a different printing than the rows belong to.
+            snapshot_raw = with_served_main_printing(snapshot_row, snapshot_raw)
         resolved_variant = _normalized_variant_label(requested_variant) if requested_variant else None
         if resolved_variant is None or not _raw_context_conditions(snapshot_raw, resolved_variant):
             default_variant, _, _ = _resolve_default_raw_context(snapshot_raw)
