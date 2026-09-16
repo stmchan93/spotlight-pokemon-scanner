@@ -1334,6 +1334,27 @@ export function ScannerScreen({
   const collapsedAnchorOffset = recentCaptures[0]?.binderPage
     ? binderPageHeaderHeight + captureRowGap
     : 0;
+  /**
+   * The anchor as an INITIAL offset, because the imperative scrollTo cannot
+   * reach the first binder scan.
+   *
+   * The tray ScrollView is unmounted while the tray is empty, so the first
+   * binder scan of a session MOUNTS it. The layout effect below fires with the
+   * ref already attached — but the native scroll view was created this frame
+   * and its content size is still 0, so scrollTo(y: 64) CLAMPS to 0. Content
+   * lays out a frame later at full height with the offset still at 0, and the
+   * page header (VIEW PAGE / DELETE PAGE) sits at the top of the viewport for
+   * a beat before the row appears (user, 2026-09-15, on iOS).
+   *
+   * `contentOffset` is applied when the scroll view is created, so the FIRST
+   * paint is already past the header and no such frame exists. Memoized so the
+   * prop only changes when the value does — a fresh object each render would
+   * re-apply the offset and fight a scroll in progress.
+   */
+  const trayInitialContentOffset = useMemo(
+    () => ({ x: 0, y: isTrayExpanded ? 0 : collapsedAnchorOffset }),
+    [collapsedAnchorOffset, isTrayExpanded],
+  );
   const shouldLoadInventory = recentCaptures.length > 0 || dataVersion > 0;
 
   // Which rows render full content (vs a fixed-height shell): everything
@@ -4848,6 +4869,7 @@ export function ScannerScreen({
                   // 2-row tray never enables scrolling, which is why it was
                   // always smooth.)
                   bounces={false}
+                  contentOffset={trayInitialContentOffset}
                   overScrollMode="never"
                   onScroll={handleTrayScroll}
                   scrollEnabled={isTrayExpanded && trayScrollEnabled}

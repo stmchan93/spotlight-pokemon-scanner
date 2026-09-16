@@ -420,4 +420,21 @@ describe('ScannerScreen binder page review — batch editing', () => {
     expect(screen.getByTestId(`${REVIEW}-batch-variant`)).toBeTruthy();
     expect(screen.queryByTestId(`${REVIEW}-batch-condition`)).toBeNull();
   });
+
+  it('opens the collapsed tray already scrolled past the page header', async () => {
+    // The tray ScrollView is UNMOUNTED while the tray is empty, so the first
+    // binder scan of a session creates it. The imperative scrollTo cannot fix
+    // that frame: the native scroll view exists but its content size is still
+    // 0, so scrollTo(y) clamps to 0, and the header — VIEW PAGE / DELETE PAGE —
+    // paints at the top of the one-row viewport before the row appears
+    // (user, 2026-09-15, on iOS). `contentOffset` is applied at creation, so
+    // the first paint is already past it.
+    await seedPersistedPage();
+    renderScannerWithPage();
+
+    const scroll = await screen.findByTestId('scanner-tray-scroll');
+    // binderPageHeaderHeight (40) + captureRowGap (24) — the header's full
+    // footprint in the scroll content.
+    expect(scroll.props.contentOffset).toEqual({ x: 0, y: 64 });
+  });
 });

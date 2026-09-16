@@ -441,3 +441,105 @@ Bonus scanner-UX quotes worth keeping: "Other card scanning apps don't even need
 - Elite Fourum thread is Mar 2025 (older than the 12-month window) and only contains praise for Collectr.
 
 Raw data kept in `/private/tmp/claude-501/-Users-stephenchan-Code-spotlight/c0c02c54-c470-46e7-96c3-817cba0d1878/scratchpad/reviews/` (`collectr_ios.json`, `collectr_android.json`, `tcgplayer_ios.json`, `tcgplayer_android.json`) plus the negative-review dumps `q_*.txt` and `refined.py` if you want to re-cut the counts.
+
+---
+
+# Part D — CollX + Ludex (researched 2026-09-12)
+
+The two big sports-first scanners. Both cross into TCG, so they set the
+scanning bar our users have already been trained on. Evidence is store reviews
+and review-site aggregation only — see caveats at the end of this part.
+
+## 1. Profiles
+
+### Ludex (LUDEX Sports Card Scanner +TCG, iOS id1616691213, `com.ludexmobile`)
+
+**Pricing model.** Free tier gives UNLIMITED scans but caps the collection at
+60 saved cards, plus 5 eBay listings/month (US). Lite $4.99/mo or $44.99/yr;
+Standard $89.99/yr. Note the shape: they gate STORAGE, not scanning — the
+opposite of Collectr's 35-lifetime-scan cap, and it draws far less anger.
+
+**Complaints.**
+- Incorrect / inconsistent valuations — ~10% of reviewers.
+- "Cards scan incorrectly too often" set against the subscription price. The
+  paid tier raises the accuracy expectation; a miss reads as theft.
+- Crashes, slow performance, camera crashes on launch — ~10% of reviewers.
+- Weak on vintage and on specific parallels; missed 90s inserts that CollX
+  later handled.
+- **No automatic bulk scanning at all.** One card at a time.
+
+**Praise.** Fast; front-only capture (no back required); clean UI.
+
+### CollX (CollX Sports Card Scanner, iOS id1581164444)
+
+**Pricing model.** Pro ≈ $10/mo. Free tier caps collection size; Pro unlocks
+unlimited collection, CSV export, bulk pricing tools, and a monthly marketplace
+credit. Again: storage and tooling gated, scanning free.
+
+**Complaints.**
+- **Pricing accuracy is the headline failure.** Documented examples: a Justin
+  Herbert rookie worth ~$100 valued at $0.14; cards shown at $15–200 that
+  actually sell for $1–3.
+- **No provenance.** The app does not show the sold listings behind its
+  estimate, so a wrong number cannot be checked. Reviewers describe this as the
+  reason they cannot trust it.
+- Misidentification: wrong player/year/parallel; base cards flagged as rare
+  variants; vintage misread as a much later reprint. Some users report
+  "unrecognized" on nearly every card.
+- **Marketplace seller protection is the most serious grievance** — sellers
+  report losing both the card and the money in disputes, with the platform
+  siding with buyers and no transparency on how decisions are made.
+- Lag, frozen screens, repeated login prompts.
+
+**Praise.** UI; frequent updates; set-completion visualisation (own vs missing
+in an insert set); genuine marketplace bargains; "Scan Back" credits for
+improving the database.
+
+## 2. What this adds to the complaint map
+
+Parts A–C already ranked scanner accuracy #1 and pricing trust #3. CollX splits
+pricing trust into two distinct failures worth separating:
+
+1. the number is wrong, and
+2. the number cannot be checked.
+
+(2) is the one that destroys trust, because it makes (1) unfalsifiable. It is
+also the cheapest for us to beat.
+
+New to this part:
+- **Storage caps beat scan caps.** Both CollX and Ludex gate the collection,
+  not the camera, and neither draws Collectr's rage. If we ever monetise, this
+  is the shape the market tolerates.
+- **Marketplace disputes are a liability, not a feature.** CollX's worst
+  reviews are about its marketplace, not its scanner.
+- **Bulk scanning is still unserved by the two biggest sports apps.**
+
+## 3. Where we already win (unshipped or shipped-but-unmarketed)
+
+- **Verifiable pricing.** We show recent sales with a per-row verification tier
+  and lowest-listed with listing photos, sourced from eBay Browse + PPT +
+  Scrydex with currency reconciliation. This is the direct answer to CollX's
+  central complaint, and it is already built.
+- **Binder-page scanning (9 cards).** Ludex has none; CollX has none.
+- **We do not cap scans.** Keep it that way — it is the #1 gripe in the
+  category (Collectr), and both apps here avoid it too.
+- **Top-N alternates on low confidence** instead of a confident wrong answer.
+
+## 4. Gaps worth considering
+
+- **Set-completion visualisation** (CollX's most-praised feature) is our
+  DEFERRED "My Sets" work — see the set-completion plan doc.
+- **CSV export** is behind both apps' paywalls and is a natural vendor feature.
+- **Front-only capture speed** — Ludex is praised for not needing the back.
+- Neither app serves vendors at all. Still our clearest opening.
+
+## 5. Caveats
+
+- Evidence is store reviews plus secondary review sites (Ball Card Genius,
+  cardsaiapp, justuseapp, trackalacker). No first-party data, no Reddit.
+- Percentages ("~10% of users") are the aggregators' figures, not our own
+  regex cut — not comparable to the Part C counts.
+- Ludex tier names/prices vary across sources; treat as approximate and
+  re-check before citing externally.
+- Neither app was installed or tested. Accuracy claims are reported, not
+  measured.
