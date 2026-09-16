@@ -144,6 +144,8 @@ from catalog_tools import (
     upsert_scan_event,
     replace_scan_prediction_candidates,
     replace_scan_price_observations,
+    ebay_listing_images_by_item_id,
+    remember_ebay_listing_images,
     replace_slab_recent_sales_cache,
     card_ebay_listings_cache,
     replace_card_ebay_listings_cache,
@@ -14760,23 +14762,51 @@ class SpotlightScanService:
         # eBay only answers getItem for ~90 days of ended listings, so look up
         # the newest PPT-only rows inside that window and skip the rest.
         lookup_cutoff = datetime.now(timezone.utc) - timedelta(days=RECENT_SALES_PPT_LOOKUP_DAYS)
+        # NEWEST FIRST before the cap. The cap exists to bound Browse calls, but
+        # taking rows in arrival order spent them arbitrarily — on a heavily
+        # traded card the 40 lookups could all land on rows nobody scrolls to,
+        # while the newest (the ones still answerable, and the ones about to
+        # age out of the window forever) got nothing.
+        in_window_ppt = sorted(
+            (r for r in ppt_only
+             if sale_sort_date(str(r.get("soldDate") or "")[:10].replace("-", "/")) >= lookup_cutoff),
+            key=lambda r: sale_sort_date(str(r.get("soldDate") or "")[:10].replace("-", "/")),
+            reverse=True,
+        )
         ppt_lookup_ids = [
-            str(r.get("listingId") or "").strip()
-            for r in ppt_only
-            if sale_sort_date(str(r.get("soldDate") or "")[:10].replace("-", "/")) >= lookup_cutoff
+            str(r.get("listingId") or "").strip() for r in in_window_ppt
         ][:RECENT_SALES_PPT_LOOKUP_CAP]
         ebay_items = fetch_ebay_items_by_legacy_ids([*scrydex_item_ids, *ppt_lookup_ids])
+        # Keep every photo Browse just gave us, then fill the rest from what we
+        # kept on earlier views. eBay answers getItem for ~90 days but serves the
+        # image far longer, so this is the difference between an old comp
+        # carrying its photo and going grey forever.
+        remember_ebay_listing_images(self.connection, ebay_items)
+        stored_images = ebay_listing_images_by_item_id(
+            self.connection,
+            [
+                *scrydex_item_ids,
+                *(str(r.get("listingId") or "").strip() for r in ppt_only),
+            ],
+        )
         counts = reconcile_recent_sales_prices(
             sales,
             ppt_rows,
             to_usd=lambda amount, code: _amount_to_usd(self.connection, amount, code),
             ebay_items_by_item_id=ebay_items,
+            stored_images_by_item_id=stored_images,
         )
         if counts.get("ebay") or counts.get("fx") or counts.get("unconverted"):
             print(f"[recent-sales] {card_id}: non-USD comps reconciled {counts}", flush=True)
         if grader and grade:
             tiers = merge_ppt_sold_listings(
-                sales, ppt_only, card=card, grader=grader, grade=grade, ebay_items_by_item_id=ebay_items
+                sales,
+                ppt_only,
+                card=card,
+                grader=grader,
+                grade=grade,
+                ebay_items_by_item_id=ebay_items,
+                stored_images_by_item_id=stored_images,
             )
             if ppt_only:
                 print(f"[recent-sales] {card_id} {grader} {grade}: merged PPT rows {tiers}", flush=True)

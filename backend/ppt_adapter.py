@@ -367,6 +367,7 @@ def reconcile_recent_sales_prices(
     *,
     to_usd: Callable[[float | None, str | None], float | None],
     ebay_items_by_item_id: dict[str, dict[str, Any]] | None = None,
+    stored_images_by_item_id: dict[str, str] | None = None,
 ) -> dict[str, int]:
     """Rewrite each Scrydex sale's price/currency in place so every row is USD.
 
@@ -402,6 +403,11 @@ def reconcile_recent_sales_prices(
             str(ebay_row.get("convertedFromCurrency") or "").upper() if isinstance(ebay_row, dict) else ""
         )
         image_url = str(ebay_row.get("imageURL") or "").strip() if isinstance(ebay_row, dict) else ""
+        if not image_url and item_id:
+            # Browse stopped answering for this listing (~90 days after it
+            # ended) but the photo is still served, so the URL we stored the
+            # one time we could ask is the only way this row is not grey.
+            image_url = str((stored_images_by_item_id or {}).get(item_id) or "").strip()
         if image_url:
             sale["imageURL"] = image_url
         ppt_row = ppt_rows_by_item_id.get(item_id) if item_id else None

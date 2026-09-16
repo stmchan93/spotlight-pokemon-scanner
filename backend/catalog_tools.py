@@ -8115,6 +8115,66 @@ def slab_recent_sales_cache(
     }
 
 
+def remember_ebay_listing_images(
+    connection: sqlite3.Connection, ebay_items: dict[str, dict[str, Any]] | None
+) -> int:
+    """Persist every listing photo eBay just handed us, keyed by item id.
+
+    Browse stops answering ~90 days after a listing ends, but the image itself
+    stays served. Recording the URL the one time we can ask is what makes an
+    old comp keep its photo instead of going grey forever. Returns how many
+    rows were written."""
+    if not ebay_items or not _table_exists(connection, "ebay_listing_images"):
+        return 0
+    now = utc_now()
+    rows = [
+        (str(item_id).strip(), url, now, now)
+        for item_id, item in ebay_items.items()
+        if str(item_id or "").strip()
+        and isinstance(item, dict)
+        and (url := str(item.get("imageURL") or "").strip())
+    ]
+    if not rows:
+        return 0
+    connection.executemany(
+        """
+        INSERT INTO ebay_listing_images (item_id, image_url, first_seen_at, last_seen_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(item_id) DO UPDATE SET
+            image_url = excluded.image_url,
+            last_seen_at = excluded.last_seen_at
+        """,
+        rows,
+    )
+    return len(rows)
+
+
+def ebay_listing_images_by_item_id(
+    connection: sqlite3.Connection, item_ids: Iterable[str]
+) -> dict[str, str]:
+    """Stored photo URLs for the given eBay item ids. Empty when the table is
+    absent, so a database that has not taken the patch yet behaves exactly as
+    before."""
+    if not _table_exists(connection, "ebay_listing_images"):
+        return {}
+    unique = sorted({str(item_id).strip() for item_id in item_ids if str(item_id or "").strip()})
+    if not unique:
+        return {}
+    found: dict[str, str] = {}
+    # Chunked to stay clear of SQLite's variable limit on a card with many comps.
+    for start in range(0, len(unique), 400):
+        chunk = unique[start:start + 400]
+        placeholders = ",".join("?" for _ in chunk)
+        for row in connection.execute(
+            f"SELECT item_id, image_url FROM ebay_listing_images WHERE item_id IN ({placeholders})",
+            chunk,
+        ).fetchall():
+            url = str(_cell_field(row, "image_url") or "").strip()
+            if url:
+                found[str(_cell_field(row, "item_id"))] = url
+    return found
+
+
 def replace_slab_recent_sales_cache(
     connection: sqlite3.Connection,
     *,

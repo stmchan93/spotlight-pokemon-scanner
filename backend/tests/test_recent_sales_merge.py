@@ -232,6 +232,129 @@ class CacheWriteTests(unittest.TestCase):
             self.assertEqual([sale_verification(s) for s in read_back["sales"]], ["title", "title", "title", "scrydex", "scrydex"])
 
 
+class StoredListingImageTests(unittest.TestCase):
+    """eBay answers `getItem` for ~90 days after a listing ends but serves the
+    PHOTO far longer (June comps still 200 in September 2026). The sold-comp
+    cache is rebuilt from scratch every refresh, so a row photographed at day 30
+    had its URL replaced with NULL the day the listing crossed 90 — we discarded
+    images we already held, and old comps went grey forever (user, 2026-09-15).
+    """
+
+    def _conn(self, tmp):
+        from catalog_tools import apply_schema, connect
+        conn = connect(Path(tmp) / "images.sqlite")
+        apply_schema(conn, BACKEND_ROOT / "schema.sql")
+        return conn
+
+    def test_a_photo_survives_the_listing_falling_out_of_browse(self):
+        import tempfile
+        from catalog_tools import ebay_listing_images_by_item_id, remember_ebay_listing_images
+        from ppt_adapter import reconcile_recent_sales_prices
+
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = self._conn(tmp)
+            photo = "https://i.ebayimg.com/images/g/abc/s-l1600.jpg"
+
+            # Day 30: Browse still answers, so the URL is recorded.
+            self.assertEqual(remember_ebay_listing_images(conn, {"100": {"imageURL": photo}}), 1)
+            conn.commit()
+
+            # Day 91: Browse returns nothing for that item at all.
+            sale = {
+                "title": "Gengar VMAX", "soldAt": "2026/06/18", "price": 210.0,
+                "currencyCode": "USD", "listingURL": "https://www.ebay.com/itm/100",
+                "sourcePayload": {},
+            }
+            stored = ebay_listing_images_by_item_id(conn, ["100"])
+            self.assertEqual(stored, {"100": photo})
+            reconcile_recent_sales_prices(
+                [sale], {}, to_usd=lambda a, c: a,
+                ebay_items_by_item_id={},
+                stored_images_by_item_id=stored,
+            )
+            self.assertEqual(sale["imageURL"], photo)
+            self.assertEqual(sale["sourcePayload"]["_spotlight"]["imageURL"], photo)
+
+    def test_a_live_browse_photo_still_wins_and_refreshes_the_store(self):
+        import tempfile
+        from catalog_tools import ebay_listing_images_by_item_id, remember_ebay_listing_images
+        from ppt_adapter import reconcile_recent_sales_prices
+
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = self._conn(tmp)
+            old_photo = "https://i.ebayimg.com/images/g/old/s-l1600.jpg"
+            new_photo = "https://i.ebayimg.com/images/g/new/s-l1600.jpg"
+            remember_ebay_listing_images(conn, {"100": {"imageURL": old_photo}})
+            remember_ebay_listing_images(conn, {"100": {"imageURL": new_photo}})
+            conn.commit()
+            self.assertEqual(ebay_listing_images_by_item_id(conn, ["100"]), {"100": new_photo})
+
+            sale = {
+                "title": "Gengar VMAX", "soldAt": "2026/09/02", "price": 210.0,
+                "currencyCode": "USD", "listingURL": "https://www.ebay.com/itm/100",
+                "sourcePayload": {},
+            }
+            reconcile_recent_sales_prices(
+                [sale], {}, to_usd=lambda a, c: a,
+                ebay_items_by_item_id={"100": {"imageURL": new_photo}},
+                stored_images_by_item_id={"100": old_photo},
+            )
+            self.assertEqual(sale["imageURL"], new_photo)
+
+    def test_a_ppt_only_row_past_the_window_keeps_its_photo(self):
+        photo = "https://i.ebayimg.com/images/g/ppt/s-l1600.jpg"
+        title = "Gengar VMAX 157/264 Fusion Strike PSA 10"
+        row = {"listingId": "900", "gradeKey": "psa10", "title": title,
+               "price": 200.0, "currency": "USD", "soldDate": "2026-06-18T00:00:00.000Z"}
+
+        sale = ppt_row_to_sale(row, card=GENGAR, grader="PSA", grade="10",
+                               ebay_item=None, stored_image_url=photo)
+        self.assertEqual(sale["imageURL"], photo)
+        self.assertEqual(sale["sourcePayload"]["_spotlight"]["imageURL"], photo)
+
+        # A stored photo must NOT buy a row any credibility it did not earn:
+        # the tier is decided by aspects and title, never by having an image.
+        without = ppt_row_to_sale(row, card=GENGAR, grader="PSA", grade="10", ebay_item=None)
+        self.assertEqual(sale_verification(sale), sale_verification(without))
+
+    def test_no_stored_photo_leaves_the_row_exactly_as_before(self):
+        import tempfile
+        from catalog_tools import ebay_listing_images_by_item_id
+        from ppt_adapter import reconcile_recent_sales_prices
+
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = self._conn(tmp)
+            self.assertEqual(ebay_listing_images_by_item_id(conn, ["404"]), {})
+            sale = {
+                "title": "Gengar VMAX", "soldAt": "2026/06/18", "price": 210.0,
+                "currencyCode": "USD", "listingURL": "https://www.ebay.com/itm/404",
+                "sourcePayload": {},
+            }
+            reconcile_recent_sales_prices(
+                [sale], {}, to_usd=lambda a, c: a,
+                ebay_items_by_item_id={}, stored_images_by_item_id={},
+            )
+            self.assertIsNone(sale.get("imageURL"))
+            self.assertIsNone(sale["sourcePayload"]["_spotlight"]["imageURL"])
+
+    def test_helpers_no_op_on_a_database_without_the_table(self):
+        # A database that has not taken the schema patch must behave exactly as
+        # it did before, not raise.
+        import sqlite3
+        from catalog_tools import ebay_listing_images_by_item_id, remember_ebay_listing_images
+        bare = sqlite3.connect(":memory:")
+        self.assertEqual(remember_ebay_listing_images(bare, {"1": {"imageURL": "x"}}), 0)
+        self.assertEqual(ebay_listing_images_by_item_id(bare, ["1"]), {})
+
+    def test_nothing_is_written_for_an_item_with_no_photo(self):
+        import tempfile
+        from catalog_tools import ebay_listing_images_by_item_id, remember_ebay_listing_images
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = self._conn(tmp)
+            self.assertEqual(remember_ebay_listing_images(conn, {"1": {"imageURL": ""}, "2": {}}), 0)
+            self.assertEqual(ebay_listing_images_by_item_id(conn, ["1", "2"]), {})
+
+
 class ServeTimeTests(unittest.TestCase):
     def _cached(self, sales):
         return {"sales": sales, "status": "available", "fetchedAt": None}

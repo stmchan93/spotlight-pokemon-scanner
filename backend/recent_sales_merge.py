@@ -267,6 +267,7 @@ def ppt_row_to_sale(
     grader: str,
     grade: str,
     ebay_item: dict[str, Any] | None,
+    stored_image_url: str | None = None,
 ) -> dict[str, Any]:
     item_id = str(row.get("listingId") or "").strip()
     title = clean_ppt_title(row.get("title"))
@@ -294,6 +295,9 @@ def ppt_row_to_sale(
     except (TypeError, ValueError):
         price = None
     image_url = str(ebay_item.get("imageURL") or "").strip() if isinstance(ebay_item, dict) else ""
+    # See reconcile_recent_sales_prices: past eBay's getItem window the stored
+    # URL is the only photo left.
+    image_url = image_url or str(stored_image_url or "").strip()
     return {
         "sourceSaleID": f"ppt:{item_id}",
         "title": title or None,
@@ -343,6 +347,7 @@ def merge_ppt_sold_listings(
     grader: str,
     grade: str,
     ebay_items_by_item_id: dict[str, dict[str, Any]] | None = None,
+    stored_images_by_item_id: dict[str, str] | None = None,
 ) -> dict[str, int]:
     """Append PPT-only rows to `sales` (in place), stamp every row's verification
     tier, and order the list newest-first with verified rows ahead of the rest
@@ -363,7 +368,14 @@ def merge_ppt_sold_listings(
         counts["scrydex"] += 1
     for row in ppt_only_rows:
         item_id = str(row.get("listingId") or "").strip()
-        sale = ppt_row_to_sale(row, card=card, grader=grader, grade=grade, ebay_item=ebay_items.get(item_id))
+        sale = ppt_row_to_sale(
+            row,
+            card=card,
+            grader=grader,
+            grade=grade,
+            ebay_item=ebay_items.get(item_id),
+            stored_image_url=(stored_images_by_item_id or {}).get(item_id),
+        )
         counts[sale["sourcePayload"]["_spotlight"]["verification"]] += 1
         sales.append(sale)
     counts["outlier"] = _demote_price_outliers(sales)

@@ -523,6 +523,24 @@ CREATE TABLE IF NOT EXISTS slab_recent_sales_cache (
     PRIMARY KEY (card_id, grader, grade, source)
 );
 
+-- eBay listing photos, kept FOREVER, keyed by eBay item id.
+--
+-- eBay's Browse `getItem` only answers for ~90 days after a listing ends, but
+-- the image CDN serves the photo long after that (verified 2026-09-15: June
+-- comps still 200 with full bytes). The sold-comp cache is rebuilt from
+-- scratch every RECENT_SALES_FRESHNESS_HOURS, so a row photographed at day 30
+-- had its URL overwritten with NULL the day the listing crossed 90 — we were
+-- discarding images we already held. This table is the durable side: written
+-- whenever Browse hands us an image, read as the fallback when it no longer
+-- will. Item id (not card id) is the key, so one row serves every card,
+-- grader, grade and variant that cites the same listing.
+CREATE TABLE IF NOT EXISTS ebay_listing_images (
+    item_id TEXT PRIMARY KEY,
+    image_url TEXT NOT NULL,
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL
+);
+
 -- Cheapest ACTIVE eBay listings ("Lowest Listed"), cached as the whole response
 -- blob keyed by card+grader+grade+variant (edition-scoped). eBay Browse is a free
 -- rate-limited token (not Scrydex credits), so this is a short-TTL cache (see
