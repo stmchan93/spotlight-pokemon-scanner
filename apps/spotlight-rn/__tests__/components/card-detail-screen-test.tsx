@@ -797,6 +797,69 @@ describe('CardDetailScreen', () => {
     })),
   };
 
+  /*
+    The graded row's price IS this average once comps load — displayedPriceTrends
+    swaps the provider figure for it silently. Without the caption the number
+    changes under the user with nothing saying why, and an average of ONE sale
+    looks identical to an average of three. The sample size is the whole point:
+    it is what lets someone decide how much to trust the figure.
+  */
+  it('names the sample behind the graded price, so one sale cannot pass for three', async () => {
+    const getCardPriceTrends = jest.fn(async (query: { mode: string }) => ({
+      mode: query.mode as 'raw' | 'graded',
+      provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
+      rows: trendRows(query.mode),
+    }));
+    const getCardRecentSales = jest.fn(async () => ({
+      ...recentSalesRecord,
+      recentAverage: {
+        amount: 101,
+        currencyCode: 'USD',
+        sampleSize: 3,
+        windowDays: 180,
+        latestSoldAt: '2026/07/10',
+        oldestSoldAt: '2026/07/08',
+      },
+    }));
+
+    renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />, {
+      spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends, getCardRecentSales }),
+    });
+
+    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA 10'));
+
+    expect(await screen.findByText('Avg. last 3 sales · $101.00')).toBeTruthy();
+  });
+
+  it('says "sale" not "sales" when the average rests on a single comp', async () => {
+    const getCardPriceTrends = jest.fn(async (query: { mode: string }) => ({
+      mode: query.mode as 'raw' | 'graded',
+      provider: (query.mode === 'graded' ? 'ebay' : 'tcgplayer') as 'ebay' | 'tcgplayer',
+      rows: trendRows(query.mode),
+    }));
+    const getCardRecentSales = jest.fn(async () => ({
+      ...recentSalesRecord,
+      recentAverage: {
+        amount: 100,
+        currencyCode: 'USD',
+        sampleSize: 1,
+        windowDays: 180,
+        latestSoldAt: '2026/07/10',
+        oldestSoldAt: '2026/07/10',
+      },
+    }));
+
+    renderWithProviders(<CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />, {
+      spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends, getCardRecentSales }),
+    });
+
+    fireEvent.press(await screen.findByTestId('detail-configurator-grader-PSA'));
+    fireEvent.press(await screen.findByTestId('detail-price-trends-row-PSA 10'));
+
+    expect(await screen.findByText('Avg. last 1 sale · $100.00')).toBeTruthy();
+  });
+
   it('graded price-trend row expands the inline last-solds accordion (no browser exit)', async () => {
     const getCardPriceTrends = jest.fn(async (query: { mode: string }) => ({
       mode: query.mode as 'raw' | 'graded',

@@ -1039,10 +1039,23 @@ export function CardDetailScreen({
         {/* No window caption: the list is the newest sales on record for this
             grade, which reach back years on thin combos. Each row shows its
             own sold date. */}
-        <View style={styles.compsSectionHeader}>
+        <View style={[styles.compsSectionHeader, styles.compsSectionHeaderRow]}>
           <Text style={[theme.typography.labelStrong, { color: theme.colors.gray900 }]}>
             Recent Sales
           </Text>
+          {/*
+            DISCLOSURE, not decoration. Once comps load, the graded row's price
+            IS this average (see displayedPriceTrends) — the number silently
+            changed from the provider's figure and nothing said so. Naming the
+            sample is what lets someone judge it: an average of 3 sales and an
+            average of 1 deserve very different trust, and only this caption
+            tells them apart.
+          */}
+          {record?.recentAverage ? (
+            <Text style={[theme.typography.overline, { color: theme.colors.gray400 }]}>
+              {`Avg. last ${record.recentAverage.sampleSize} ${record.recentAverage.sampleSize === 1 ? 'sale' : 'sales'} · ${formatCurrency(record.recentAverage.amount, record.recentAverage.currencyCode)}`}
+            </Text>
+          ) : null}
         </View>
         <CardRecentSalesPanel
           isLoading={recentSalesLoadingKey === expandedTrendRowKey}
