@@ -17,6 +17,13 @@ export type ScanSourceImageCrop = {
 export type ScanCandidateReviewSession = {
   candidates: CatalogSearchResult[];
   id: string;
+  /**
+   * The BACKEND scan id (`id` above is the local tray row). Carried so an add
+   * made from card detail can be attributed to the scan that produced it —
+   * without it those confirmations reach the scan log with no scan attached,
+   * and the matcher never learns it was right.
+   */
+  scanID: string | null;
   normalizedImageDimensions: ScanImageDimensions | null;
   normalizedImageUri: string | null;
   selectedCardId: string;
@@ -33,6 +40,7 @@ const sessions = new Map<string, ScanCandidateReviewSession>();
 type SaveScanCandidateReviewSessionInput = {
   candidates: CatalogSearchResult[];
   id: string;
+  scanID?: string | null;
   normalizedImageDimensions?: ScanImageDimensions | null;
   normalizedImageUri?: string | null;
   sourceImageCrop?: ScanSourceImageCrop | null;
@@ -46,6 +54,7 @@ type SaveScanCandidateReviewSessionInput = {
 export function saveScanCandidateReviewSession({
   candidates,
   id,
+  scanID = null,
   normalizedImageDimensions = null,
   normalizedImageUri = null,
   sourceImageCrop = null,
@@ -58,6 +67,7 @@ export function saveScanCandidateReviewSession({
   const session: ScanCandidateReviewSession = {
     candidates: candidates.slice(0, 10),
     id,
+    scanID,
     normalizedImageDimensions,
     normalizedImageUri,
     slabContext,

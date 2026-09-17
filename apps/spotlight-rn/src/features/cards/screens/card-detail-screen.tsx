@@ -1560,13 +1560,21 @@ export function CardDetailScreen({
     const addedQuantity = Math.max(1, quantity);
     const addedCondition = addIsRaw ? addCondition : null;
     const addedVariantName = addIsRaw ? (addVariantLabel ?? null) : addConfiguredSlabContext?.variantName ?? null;
+    // An add that came from a scan carries the scan id, so the confirmation
+    // lands on the scan row and becomes a training label. Only when the card
+    // being added is one the scan actually proposed: the sheet's EN/JP toggle
+    // can retarget the add at a counterpart the matcher never returned, and
+    // labelling the scan with that card would teach the matcher a wrong answer.
+    const addSourceScanID = scanReviewSession?.candidates.some(
+      (candidate) => candidate.cardId === addDetail.cardId,
+    ) ? scanReviewSession.scanID : null;
     void spotlightRepository.createInventoryEntry({
       cardID: addDetail.cardId,
       slabContext: addConfiguredSlabContext,
       variantName: addIsRaw ? (addVariantLabel ?? null) : null,
       condition: addedCondition,
       quantity: addedQuantity,
-      sourceScanID: null,
+      sourceScanID: addSourceScanID,
       addedAt,
       // Adds land in the collection the Collection tab is showing; "All" has no
       // single target, so the backend files those into the default collection.
@@ -1644,6 +1652,7 @@ export function CardDetailScreen({
     quantity,
     refreshData,
     router,
+    scanReviewSession,
     spotlightRepository,
   ]);
 

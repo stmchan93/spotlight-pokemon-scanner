@@ -515,6 +515,60 @@ describe('CardDetailScreen', () => {
     );
   });
 
+  // An add that came from a scan is the scanner's only free training label: it
+  // says the top match was right. Before this, adds made from card detail
+  // reached the backend with no scan attached, so a correct scan taught nothing.
+  it('ADD ITEM attributes the add to the scan that opened the page', async () => {
+    const createInventoryEntry = jest.fn(async () => ({
+      deckEntryID: 'new-entry',
+      cardID: 'sm7-1',
+      addedAt: '2026-06-04T00:00:00.000Z',
+    }));
+    const scanReviewId = saveScanCandidateReviewSession({
+      id: 'scan-review-treecko',
+      scanID: 'scan-treecko',
+      selectedCardId: 'sm7-1',
+      candidates: [{
+        id: 'sm7-1-candidate',
+        cardId: 'sm7-1',
+        name: 'Treecko',
+        cardNumber: '#1/168',
+        setName: 'Celestial Storm',
+        imageUrl: 'https://images.pokemontcg.io/sm7/1.png',
+        marketPrice: 0.25,
+        currencyCode: 'USD',
+      }],
+    });
+
+    renderWithProviders(
+      <CardDetailScreen
+        cardId="sm7-1"
+        onBack={jest.fn()}
+        scanReviewId={scanReviewId}
+      />,
+      {
+        spotlightRepository: createTestSpotlightRepository({ createInventoryEntry }),
+      },
+    );
+
+    // The scan preview paints the name before the fetched detail lands, and SAVE
+    // stays disabled until it does — so press until the sheet actually opens
+    // rather than pressing once against a disabled button.
+    await screen.findByTestId('detail-name');
+    await waitFor(() => {
+      fireEvent.press(screen.getByTestId('detail-add-item'));
+      expect(screen.getByTestId('detail-add-sheet-confirm')).toBeTruthy();
+    });
+    fireEvent.press(screen.getByTestId('detail-add-sheet-confirm'));
+
+    await waitFor(() => {
+      expect(createInventoryEntry).toHaveBeenCalledWith(expect.objectContaining({
+        cardID: 'sm7-1',
+        sourceScanID: 'scan-treecko',
+      }));
+    });
+  });
+
   it('ADD ITEM builds a graded slabContext when a non-Raw grader is selected', async () => {
     const createInventoryEntry = jest.fn(async () => ({
       deckEntryID: 'new-graded-entry',

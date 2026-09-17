@@ -1898,6 +1898,24 @@ export function ScannerScreen({
       'scan_row_resolved',
       buildScanRowResolvedProperties(capture, outcome, Date.now(), scanLane.game),
     );
+    // The same verdict, sent to the scan log. Analytics knows how every scan
+    // ended; scan_events did not, which left a scan the user silently accepted
+    // indistinguishable from one nobody ever resolved. `opened` is excluded on
+    // purpose — the card-detail add reports that one when it lands.
+    if (capture.scanID && outcome !== 'opened') {
+      const abandoned = outcome === 'dismissed' || outcome === 'evicted';
+      const active = capture.candidates[capture.activeCandidateIndex] ?? null;
+      const choseTop = capture.activeCandidateIndex === 0;
+      void spotlightRepository.submitScanFeedback({
+        scanID: capture.scanID,
+        selectedCardID: abandoned ? null : active?.cardId ?? null,
+        correctionType: abandoned ? 'abandoned' : (choseTop ? 'acceptedTop' : 'choseAlternative'),
+        selectionSource: abandoned ? 'abandoned' : (choseTop ? 'top' : 'alternate'),
+        selectedRank: abandoned ? null : capture.activeCandidateIndex + 1,
+        wasTopPrediction: abandoned ? null : choseTop,
+        submittedAt: new Date().toISOString(),
+      }).catch(() => {});
+    }
     updateRecentCapture(capture.id, (current) => {
       if (current.hasTrackedSelectionEvent) {
         return current;
@@ -1908,7 +1926,7 @@ export function ScannerScreen({
         hasTrackedSelectionEvent: true,
       };
     });
-  }, [scanLane.game, updateRecentCapture]);
+  }, [scanLane.game, spotlightRepository, updateRecentCapture]);
 
   trackRowResolvedRef.current = trackRowResolved;
 
@@ -2146,8 +2164,20 @@ export function ScannerScreen({
           if (!artifactUpload) {
             return;
           }
-          if (artifactUpload.status === 'uploaded') {
-          } else if (artifactUpload.status === 'failed') {
+          // Success stays unreported (pruned 2026-08-11 for volume). The two
+          // loss paths do not: a failed upload and a server-disabled one both
+          // mean no training artifact, and `skipped` was previously silent —
+          // kill-switch on meant zero artifacts AND zero signal.
+          if (artifactUpload.status === 'failed') {
+            capturePostHogEvent('scan_artifact_upload_failed', {
+              error_kind: artifactUpload.errorKind ?? 'request_failed',
+              mode,
+            });
+          } else if (artifactUpload.status === 'skipped') {
+            capturePostHogEvent('scan_artifact_upload_skipped', {
+              reason: artifactUpload.reason ?? 'unknown',
+              mode,
+            });
           }
         },
       });
@@ -2498,6 +2528,17 @@ export function ScannerScreen({
           )),
           onArtifactUploadComplete: (pocketIndex, artifactUpload) => {
             if (artifactUpload?.status === 'failed') {
+              capturePostHogEvent('scan_artifact_upload_failed', {
+                error_kind: artifactUpload.errorKind ?? 'request_failed',
+                mode: 'raw',
+                pocket_index: pocketIndex,
+              });
+            } else if (artifactUpload?.status === 'skipped') {
+              capturePostHogEvent('scan_artifact_upload_skipped', {
+                reason: artifactUpload.reason ?? 'unknown',
+                mode: 'raw',
+                pocket_index: pocketIndex,
+              });
             }
           },
         }));
@@ -3264,10 +3305,41 @@ export function ScannerScreen({
   }, [isCapturing, scanLane, scannerSmokeEnabled, runMatchForCapture, updateRecentCapture]);
 
   const setActiveCandidate = useCallback((captureId: string, nextIndex: number) => {
+    // Read from the ref, not from state, so the tray rows keep their memoized
+    // identity.
+    const corrected = recentCapturesRef.current.find((capture) => capture.id === captureId);
     // A hand-picked match means the scanner's top result was wrong — the one
     // number that says whether the matcher is improving, straight from use
     // rather than from a holdout set. `rank` is how far down the right card was.
-    capturePostHogEvent('scan_match_corrected', { rank: nextIndex });
+    capturePostHogEvent('scan_match_corrected', {
+      rank: nextIndex,
+      ...(corrected ? { from_rank: corrected.activeCandidateIndex } : {}),
+      // Landing back on rank 0 is BROWSING, not a correction. Without this the
+      // metric counts someone flipping through alternates and returning to the
+      // top card as a miss — which is how a 7-for-7 session read as 2 errors.
+      switched_back: nextIndex === 0,
+    });
+    // The rank alone can't be trained on. This sends the pair the analytics
+    // event can't carry — which card was predicted, which the user picked — to
+    // scan_events, where the confirmed labels already live.
+    if (corrected?.scanID && corrected.candidates.length > 0) {
+      const safeIndex = Math.max(0, Math.min(nextIndex, corrected.candidates.length - 1));
+      const picked = corrected.candidates[safeIndex];
+      if (picked && safeIndex !== corrected.activeCandidateIndex) {
+        const choseTop = safeIndex === 0;
+        // Fire-and-forget: a correction must never block the tray or raise.
+        void spotlightRepository.submitScanFeedback({
+          scanID: corrected.scanID,
+          selectedCardID: picked.cardId,
+          correctionType: choseTop ? 'acceptedTop' : 'choseAlternative',
+          selectionSource: choseTop ? 'top' : 'alternate',
+          // scan_events ranks from 1; the tray indexes from 0.
+          selectedRank: safeIndex + 1,
+          wasTopPrediction: choseTop,
+          submittedAt: new Date().toISOString(),
+        }).catch(() => {});
+      }
+    }
     setRecentCaptures((current) => current.map((capture) => {
       if (capture.id !== captureId) {
         return capture;
@@ -3288,7 +3360,7 @@ export function ScannerScreen({
       next.delete(captureId);
       return next;
     });
-  }, []);
+  }, [spotlightRepository]);
 
   const loadMoreCandidates = useCallback(async (captureId: string) => {
     const capture = recentCaptures.find((entry) => entry.id === captureId);
@@ -3932,6 +4004,7 @@ export function ScannerScreen({
     const scanReviewId = saveScanCandidateReviewSession({
       candidates: capture.candidates,
       id: capture.id,
+      scanID: capture.scanID ?? null,
       normalizedImageDimensions: capture.normalizedImageDimensions,
       normalizedImageUri: capture.normalizedImageUri,
       selectedCardId: candidate.cardId,

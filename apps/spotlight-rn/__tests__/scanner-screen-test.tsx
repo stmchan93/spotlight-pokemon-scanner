@@ -1924,6 +1924,112 @@ describe('ScannerScreen', () => {
     expect(addPayloads[0]?.sourceScanID).toBeNull();
   });
 
+  // A correction is the only free training label the scanner gets: the user
+  // says which card the matcher should have picked. The analytics event carries
+  // rank alone, so without this the pair never reaches scan_events.
+  it('reports a hand-picked candidate to the scan log as a correction', async () => {
+    const feedbackPayloads: Parameters<
+      ReturnType<typeof createTestSpotlightRepository>['submitScanFeedback']
+    >[0][] = [];
+    const repository = createTestSpotlightRepository({
+      submitScanFeedback: async (payload) => {
+        feedbackPayloads.push(payload);
+      },
+      matchScannerCapture: async () => ({
+        scanID: 'scan-oshawott',
+        candidates: [
+          {
+            id: 'mcdonalds25-21',
+            cardId: 'mcdonalds25-21',
+            name: 'Oshawott',
+            cardNumber: '#21/25',
+            setName: "McDonald's Collection 2021",
+            imageUrl: 'https://images.pokemontcg.io/mcdonalds25/21.png',
+            marketPrice: 0.56,
+            currencyCode: 'USD',
+          },
+          {
+            id: 'mcdonalds25-16',
+            cardId: 'mcdonalds25-16',
+            name: 'Scorbunny',
+            cardNumber: '#16/25',
+            setName: "McDonald's Collection 2021",
+            imageUrl: 'https://images.pokemontcg.io/mcdonalds25/16.png',
+            marketPrice: 0.38,
+            currencyCode: 'USD',
+          },
+        ],
+      }),
+    });
+
+    renderScannerScreen({ spotlightRepository: repository });
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    expect(await screen.findByText('Oshawott')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('scanner-tray-change-0'));
+    fireEvent.press(await screen.findByTestId('change-card-picker-row-1'));
+
+    await waitFor(() => {
+      expect(feedbackPayloads).toHaveLength(1);
+    });
+    expect(feedbackPayloads[0]).toMatchObject({
+      scanID: 'scan-oshawott',
+      selectedCardID: 'mcdonalds25-16',
+      correctionType: 'choseAlternative',
+      selectionSource: 'alternate',
+      // scan_events ranks from 1; the second row is rank 2.
+      selectedRank: 2,
+      wasTopPrediction: false,
+    });
+  });
+
+  // Without this the scan log cannot tell a scan the user threw away from one
+  // nobody ever resolved — both are just rows with no selected card.
+  it('reports a dismissed row to the scan log as abandoned', async () => {
+    const feedbackPayloads: Parameters<
+      ReturnType<typeof createTestSpotlightRepository>['submitScanFeedback']
+    >[0][] = [];
+    const repository = createTestSpotlightRepository({
+      submitScanFeedback: async (payload) => {
+        feedbackPayloads.push(payload);
+      },
+      matchScannerCapture: async () => ({
+        scanID: 'scan-oshawott',
+        candidates: [{
+          id: 'mcdonalds25-21',
+          cardId: 'mcdonalds25-21',
+          name: 'Oshawott',
+          cardNumber: '#21/25',
+          setName: "McDonald's Collection 2021",
+          imageUrl: 'https://images.pokemontcg.io/mcdonalds25/21.png',
+          marketPrice: 0.56,
+          currencyCode: 'USD',
+        }],
+      }),
+    });
+
+    renderScannerScreen({ spotlightRepository: repository });
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    expect(await screen.findByText('Oshawott')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-reveal-actions', { hidden: true }));
+    fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-delete-button'));
+
+    await waitFor(() => {
+      expect(feedbackPayloads).toHaveLength(1);
+    });
+    expect(feedbackPayloads[0]).toMatchObject({
+      scanID: 'scan-oshawott',
+      selectedCardID: null,
+      correctionType: 'abandoned',
+      selectionSource: 'abandoned',
+    });
+  });
+
   it('cycles candidates and then opens card detail for the active result', async () => {
     const repository = createTestSpotlightRepository({
       matchScannerCapture: async () => ({
