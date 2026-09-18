@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import sys
 import tempfile
 import unittest
@@ -15,15 +14,13 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from catalog_tools import apply_schema, connect, upsert_catalog_card  # noqa: E402
 import server as server_module  # noqa: E402
-from server import SpotlightScanService, scan_keep_crosslang_candidates_enabled  # noqa: E402
+from server import SpotlightScanService  # noqa: E402
 
 if str(BACKEND_ROOT / "tests") not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT / "tests"))
 
 from test_scan_two_phase_phase8 import catalog_card, raw_payload  # type: ignore  # noqa: E402
 
-
-CROSSLANG_ENV = server_module.SCAN_KEEP_CROSSLANG_CANDIDATES_ENV
 
 
 def _en_match(card_id: str, similarity: float) -> SimpleNamespace:
@@ -113,15 +110,8 @@ class CrossLanguageCandidateTests(unittest.TestCase):
         connection.close()
         self.service = SpotlightScanService(self.database_path, REPO_ROOT)
         self._install_matcher()
-        # Ensure tests start from a known flag environment.
-        self._original_env = os.environ.get(CROSSLANG_ENV)
-        os.environ.pop(CROSSLANG_ENV, None)
 
     def tearDown(self) -> None:
-        if self._original_env is None:
-            os.environ.pop(CROSSLANG_ENV, None)
-        else:
-            os.environ[CROSSLANG_ENV] = self._original_env
         self.service.connection.close()
         self.tempdir.cleanup()
 
@@ -147,11 +137,7 @@ class CrossLanguageCandidateTests(unittest.TestCase):
         payload["cardLanguage"] = "english"
         return payload
 
-    def test_default_flag_is_on(self) -> None:
-        self.assertTrue(scan_keep_crosslang_candidates_enabled())
-
-    def test_flag_on_keeps_top1_english_and_appends_japanese_tail(self) -> None:
-        os.environ[CROSSLANG_ENV] = "1"
+    def test_keeps_top1_english_and_appends_japanese_tail(self) -> None:
         response = self.service.visual_match_scan(self._english_payload("scan-on"))
         candidates = response["topCandidates"]
         ids = [c["candidate"]["id"] for c in candidates]
@@ -167,34 +153,7 @@ class CrossLanguageCandidateTests(unittest.TestCase):
         self.assertEqual(jp_candidate["candidate"]["language"], "Japanese")
         self.assertTrue(jp_candidate.get("crossLanguageSwitch"))
 
-    def test_flag_off_drops_japanese_entirely(self) -> None:
-        os.environ[CROSSLANG_ENV] = "0"
-        response = self.service.visual_match_scan(self._english_payload("scan-off"))
-        ids = [c["candidate"]["id"] for c in response["topCandidates"]]
-
-        self.assertEqual(ids[0], "en-1")
-        self.assertNotIn("jp-1", ids)
-        # Only the toggle-language English cards remain.
-        self.assertEqual(set(ids), {"en-1", "en-2"})
-
-    def test_ranked_order_identical_flag_on_vs_off_except_tail(self) -> None:
-        os.environ[CROSSLANG_ENV] = "0"
-        off = self.service.visual_match_scan(self._english_payload("scan-cmp-off"))
-        off_ids = [c["candidate"]["id"] for c in off["topCandidates"]]
-
-        os.environ[CROSSLANG_ENV] = "1"
-        on = self.service.visual_match_scan(self._english_payload("scan-cmp-on"))
-        on_ids = [c["candidate"]["id"] for c in on["topCandidates"]]
-
-        # The decision/ranking head is byte-for-byte identical; only a tail is added.
-        self.assertEqual(on_ids[: len(off_ids)], off_ids)
-        self.assertEqual(on_ids[len(off_ids):], ["jp-1"])
-        # Confidence/top-1 decision are computed pre-append, so they match exactly.
-        self.assertEqual(on["confidence"], off["confidence"])
-        self.assertEqual(on["topCandidates"][0], off["topCandidates"][0])
-
     def test_no_toggle_returns_no_crosslang_tail(self) -> None:
-        os.environ[CROSSLANG_ENV] = "1"
         payload = raw_payload(scan_id="scan-no-toggle")  # no cardLanguage
         response = self.service.visual_match_scan(payload)
         ids = [c["candidate"]["id"] for c in response["topCandidates"]]

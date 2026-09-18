@@ -1741,17 +1741,7 @@ def _env_flag(name: str, *, default: bool = False) -> bool:
 # leaving it unreachable. When this flag is on we keep the toggle-language pick
 # as top-1 (ranking unchanged) but append the top 1-2 other-language matches to
 # the TAIL of the candidate list so a "Switch" can still reach the real card.
-# Default ON; set to a falsey value ("0"/"false"/"off") to restore the strict
-# hard-filter behavior.
-SCAN_KEEP_CROSSLANG_CANDIDATES_ENV = "SCAN_KEEP_CROSSLANG_CANDIDATES"
 SCAN_KEEP_CROSSLANG_CANDIDATES_MAX = 2
-
-
-def scan_keep_crosslang_candidates_enabled() -> bool:
-    """True when the raw-visual lane should append other-language matches to the
-    tail of the candidate list (so the actually-scanned card stays reachable as a
-    "Switch"). Default on; disable with a falsey ``SCAN_KEEP_CROSSLANG_CANDIDATES``."""
-    return _env_flag(SCAN_KEEP_CROSSLANG_CANDIDATES_ENV, default=True)
 
 
 # Startup portfolio-dashboard prewarm: after a reboot the OS page cache is empty
@@ -1770,8 +1760,6 @@ SINCE_ADDED_SPARK_MAX_CONTEXTS = 800
 ADDED_BASELINE_BACKFILL_FLAG = "added_baseline_backfilled"
 
 PORTFOLIO_DASHBOARD_PREWARM_ENV = "PORTFOLIO_DASHBOARD_PREWARM"
-# Catalog-wide "Top Trends" (feed) prewarm — same shape as the portfolio one.
-MARKET_MOVERS_PREWARM_ENV = "MARKET_MOVERS_PREWARM"
 # Lookback for the Top Trends ranking. 30 by default; staging runs shorter
 # while its (Scrydex-keyless) history only has TCGCSV days since 2026-08-25.
 MARKET_MOVERS_WINDOW_DAYS_ENV = "MARKET_MOVERS_WINDOW_DAYS"
@@ -2592,7 +2580,7 @@ class SpotlightScanService:
         # scanned card stays reachable as a "Switch". Highest similarity first is
         # preserved by `match_payload`'s ordering (all_matches is already ranked).
         other_language_matches: list[Any] = []
-        if scan_language in ("english", "japanese") and scan_keep_crosslang_candidates_enabled():
+        if scan_language in ("english", "japanese"):
             want_japanese = scan_language == "japanese"
             kept_ids = {
                 str(getattr(match, "entry", {}).get("providerCardId") or "")
@@ -24391,14 +24379,13 @@ def main() -> None:
             daemon=True,
         ).start()
 
-    if _env_flag(MARKET_MOVERS_PREWARM_ENV, default=True):
-        threading.Thread(
-            target=SpotlightRequestHandler.service.prewarm_market_movers,
-            # After the portfolio prewarm has had its head start on the disk.
-            kwargs={"delay_seconds": DEFAULT_PORTFOLIO_DASHBOARD_PREWARM_DELAY_SECONDS + 5.0},
-            name="market-movers-prewarm",
-            daemon=True,
-        ).start()
+    threading.Thread(
+        target=SpotlightRequestHandler.service.prewarm_market_movers,
+        # After the portfolio prewarm has had its head start on the disk.
+        kwargs={"delay_seconds": DEFAULT_PORTFOLIO_DASHBOARD_PREWARM_DELAY_SECONDS + 5.0},
+        name="market-movers-prewarm",
+        daemon=True,
+    ).start()
 
     try:
         server.serve_forever()
