@@ -1,4 +1,5 @@
 import { usePathname } from 'expo-router';
+import { useDeferredValue } from 'react';
 import { Platform } from 'react-native';
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
 
@@ -122,7 +123,18 @@ export default function TabsLayout() {
   // this route ever looks vertically shifted on Android, the bar is not the
   // suspect — the JS wrapper called out on the Scan trigger below is.
   const pathname = usePathname();
-  const isScanner = pathname === '/scan';
+  const isScannerNow = pathname === '/scan';
+  /*
+    DEFERRED on purpose. expo-router hands the native bar the focused tab via
+    `useDeferredValue(focusedIndex)` (NativeTabsView.js), so the "select Scan"
+    commit can trail the route change by a render. Hiding the bar from the
+    un-deferred pathname committed `tabBarHidden` FIRST, and on Android that
+    left the native tabs on Home while JS had already focused the scanner:
+    black dead camera, taps on the bar doing nothing until a later tap landed
+    (Galaxy, 2026-09-17; reproduced 3 of 4 single-tap launches). Deferring the
+    hide keeps it in the same lane as the focus change.
+  */
+  const isScanner = useDeferredValue(isScannerNow);
   // Remember where the user was so leaving the Scanner can put them back. This
   // is the only place that sees every tab change, and `rememberActiveTab`
   // ignores `/scan` itself — otherwise opening the Scanner would immediately
