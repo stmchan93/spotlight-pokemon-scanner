@@ -14,12 +14,17 @@ from PIL import Image
 from transformers import CLIPModel, CLIPProcessor
 
 
-DEFAULT_VISUAL_MODEL_ID = "openai/clip-vit-base-patch32"
+# SigLIP2 has been the served backbone since 2026-06-08 (validated 2026-06-06:
+# SigLIP2-base + the trained adapter scored 69/85/86 on the show holdout vs
+# CLIP-B/32 v011's 48/69/73). Staging and production both pin this via
+# SPOTLIGHT_VISUAL_MODEL_ID, so the default only decides what an environment
+# that sets nothing gets — and that should be the model we actually serve, not
+# the one we replaced.
+DEFAULT_VISUAL_MODEL_ID = "google/siglip2-base-patch16-384"
 
-# Encoder model families. The default CLIP path is unchanged; SigLIP2 is supported
-# additively (validated 2026-06-06: SigLIP2-base + the trained adapter scored 69/85/86
-# on the show holdout vs CLIP-B/32 v011's 48/69/73). SigLIP exposes get_image_features
-# like CLIP but uses Auto* loaders and has no projection_dim on its config.
+# Encoder model families. CLIP remains loadable for reproducing pre-2026-06
+# numbers; SigLIP exposes get_image_features like CLIP but uses Auto* loaders
+# and has no projection_dim on its config.
 CLIP_MODEL_FAMILY = "clip"
 SIGLIP_MODEL_FAMILY = "siglip"
 

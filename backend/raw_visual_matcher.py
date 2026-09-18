@@ -21,7 +21,12 @@ from catalog_tools import (
     normalize_game,
 )
 from raw_visual_index import RawVisualIndex, RawVisualSearchMatch
-from raw_visual_model import RawVisualFrozenEncoder, load_projection_adapter, project_embeddings_numpy
+from raw_visual_model import (
+    DEFAULT_VISUAL_MODEL_ID,
+    RawVisualFrozenEncoder,
+    load_projection_adapter,
+    project_embeddings_numpy,
+)
 from raw_visual_user_photo_rerank import RawVisualUserPhotoRerankPool
 
 
@@ -254,15 +259,19 @@ class RawVisualMatcher:
         default_root = repo_root / "backend" / "data" / "visual-index"
         self.visual_index_root = default_root
         default_model_root = repo_root / "backend" / "data" / "visual-models"
-        self.model_id = model_id or os.environ.get("SPOTLIGHT_VISUAL_MODEL_ID", "openai/clip-vit-base-patch32")
-        active_index_npz_path = default_root / "visual_index_active_clip-vit-base-patch32.npz"
-        active_index_manifest_path = default_root / "visual_index_active_manifest.json"
-        fallback_index_npz_path = default_root / "visual_index_v003-b8_clip-vit-base-patch32.npz"
-        fallback_index_manifest_path = default_root / "visual_index_v003-b8_manifest.json"
-        default_index_npz_path = active_index_npz_path if active_index_npz_path.exists() else fallback_index_npz_path
-        default_index_manifest_path = (
-            active_index_manifest_path if active_index_manifest_path.exists() else fallback_index_manifest_path
-        )
+        self.model_id = model_id or os.environ.get("SPOTLIGHT_VISUAL_MODEL_ID", DEFAULT_VISUAL_MODEL_ID)
+        # The `clip-vit-base-patch32` slug here is frozen history, not a claim
+        # about the contents: this is the name the Pokemon index has carried on
+        # every VM since before multi-game, and the file holds whatever the
+        # active backbone produced. See game_index_artifact_names().
+        #
+        # There is deliberately NO fallback to the v003-b8 pair any more. That
+        # was a CLIP index (20,175 cards, 512-dim) and, under the SigLIP2
+        # default above, could only ever be loaded with a mismatched encoder —
+        # two backbones behind on half the catalog. A missing index should fail
+        # loudly instead.
+        default_index_npz_path = default_root / "visual_index_active_clip-vit-base-patch32.npz"
+        default_index_manifest_path = default_root / "visual_index_active_manifest.json"
         self.index = RawVisualIndex(
             npz_path=index_npz_path
             or resolve_repo_relative_path(
@@ -287,16 +296,12 @@ class RawVisualMatcher:
         self._game_index_lock = threading.Lock()
         adapter_checkpoint_value = os.environ.get("SPOTLIGHT_VISUAL_ADAPTER_CHECKPOINT_PATH")
         adapter_metadata_value = os.environ.get("SPOTLIGHT_VISUAL_ADAPTER_METADATA_PATH")
-        active_adapter_checkpoint_path = default_model_root / "raw_visual_adapter_active.pt"
-        active_adapter_metadata_path = default_model_root / "raw_visual_adapter_active_metadata.json"
-        fallback_adapter_checkpoint_path = default_model_root / "raw_visual_adapter_v003-b8.pt"
-        fallback_adapter_metadata_path = default_model_root / "raw_visual_adapter_v003-b8_metadata.json"
-        default_adapter_checkpoint_path = (
-            active_adapter_checkpoint_path if active_adapter_checkpoint_path.exists() else fallback_adapter_checkpoint_path
-        )
-        default_adapter_metadata_path = (
-            active_adapter_metadata_path if active_adapter_metadata_path.exists() else fallback_adapter_metadata_path
-        )
+        # Same reasoning as the index above: the v003-b8 adapter was trained on
+        # CLIP's 512-dim embeddings and cannot load into a SigLIP2 768-dim
+        # projection, so falling back to it only turns a clear error into a
+        # confusing one.
+        default_adapter_checkpoint_path = default_model_root / "raw_visual_adapter_active.pt"
+        default_adapter_metadata_path = default_model_root / "raw_visual_adapter_active_metadata.json"
         self.adapter_checkpoint_path = adapter_checkpoint_path or resolve_repo_relative_path(
             repo_root,
             adapter_checkpoint_value,

@@ -122,7 +122,15 @@ class PokemonIndexResolutionIsUnchangedTests(unittest.TestCase):
                 self.assertIs(matcher.index_for_game(game), matcher.index, game)
             self.assertTrue(matcher.is_available())
 
-    def test_pokemon_falls_back_to_the_v003_artifacts_when_active_is_missing(self) -> None:
+    def test_pokemon_does_not_fall_back_across_backbones(self) -> None:
+        """A missing active index must fail loudly, not quietly serve v003-b8.
+
+        v003-b8 is a CLIP artifact: 20,175 cards at 512 dimensions. Under the
+        SigLIP2 default it can only be loaded with an encoder that disagrees
+        with it, so silently selecting it would answer scans from two backbones
+        ago on less than half the catalog. Resolution therefore stays pinned to
+        the active names even when the old pair is sitting right there.
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             repo_root = Path(tmpdir)
             index_dir = repo_root / "backend" / "data" / "visual-index"
@@ -130,8 +138,9 @@ class PokemonIndexResolutionIsUnchangedTests(unittest.TestCase):
 
             matcher = RawVisualMatcher(repo_root=repo_root)
 
-            self.assertEqual(matcher.index.npz_path, index_dir / POKEMON_FALLBACK_NPZ_NAME)
-            self.assertEqual(matcher.index.manifest_path, index_dir / POKEMON_FALLBACK_MANIFEST_NAME)
+            self.assertEqual(matcher.index.npz_path, index_dir / POKEMON_ACTIVE_NPZ_NAME)
+            self.assertEqual(matcher.index.manifest_path, index_dir / POKEMON_ACTIVE_MANIFEST_NAME)
+            self.assertFalse(matcher.is_available())
 
     def test_pokemon_env_overrides_still_win(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -221,7 +230,10 @@ class PerGameIndexResolutionTests(unittest.TestCase):
             _write_index_artifacts(index_dir, POKEMON_ACTIVE_NPZ_NAME, POKEMON_ACTIVE_MANIFEST_NAME)
             npz_path, manifest_path = _write_index_artifacts(
                 index_dir,
-                "visual_index_active_onepiece_clip-vit-base-patch32.npz",
+                # Per-game names carry the ACTIVE backbone's slug, so this
+                # tracks DEFAULT_VISUAL_MODEL_ID — and matches the filenames
+                # the deployed env files point at.
+                "visual_index_active_onepiece_siglip2-base-patch16-384.npz",
                 "visual_index_active_onepiece_manifest.json",
             )
 
