@@ -191,6 +191,17 @@ export default function TabsLayout() {
       minimizeBehavior="onScrollDown"
       rippleColor={colors.gray200}
       tintColor={colors.gray900}
+      /*
+        UNSELECTED colour. `tintColor` only styles the selected tab; the other
+        three were left to Material's theme, which on a phone in dark mode is a
+        near-white `onSurfaceVariant` painted over our white bar — Scan,
+        Wishlist and Social were invisible (Galaxy, 2026-09-17). Pin them.
+        Android-only: iOS keeps its own glass defaults, and setting `iconColor`
+        there would only re-state the template tint the icons already declare.
+      */
+      {...(Platform.OS === 'android'
+        ? { iconColor: colors.gray600, labelStyle: { color: colors.gray600 } }
+        : {})}
     >
       {/*
         Home / Scan / Wishlist / Social, in that order.
