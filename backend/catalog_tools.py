@@ -7986,10 +7986,6 @@ def price_snapshot_for_card(
     return result
 
 
-def raw_pricing_summary_for_card(connection: sqlite3.Connection, card_id: str) -> dict[str, Any] | None:
-    return price_snapshot_for_card(connection, card_id, pricing_mode=RAW_PRICING_MODE)
-
-
 def contextual_pricing_summary_for_card(
     connection: sqlite3.Connection,
     card_id: str,

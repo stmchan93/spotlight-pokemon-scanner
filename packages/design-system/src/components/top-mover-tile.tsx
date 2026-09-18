@@ -25,7 +25,7 @@ export type TopMoverTileProps = {
 
 // Figma 4969:4105 "Card container": 354×142 tile, 90×126 art, 232-wide details.
 export const TOP_MOVER_TILE_WIDTH = 354;
-export const TOP_MOVER_TILE_HEIGHT = 142;
+const TOP_MOVER_TILE_HEIGHT = 142;
 const ART_WIDTH = 90;
 const ART_HEIGHT = 126;
 const ART_RADIUS = 6;

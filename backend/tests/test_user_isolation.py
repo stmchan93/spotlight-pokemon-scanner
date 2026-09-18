@@ -199,29 +199,6 @@ class UserIsolationTests(unittest.TestCase):
                     }
                 )
 
-    def test_import_jobs_are_private_to_the_request_owner(self) -> None:
-        self._insert_card(card_id="base-pikachu-58", name="Pikachu", set_name="Base Set", number="58/102", set_code="BS")
-
-        with self.service.request_identity_context(self._identity("user-a")):
-            preview = self.service.preview_portfolio_import(
-                {
-                    "sourceType": "tcgplayer_csv_v1",
-                    "fileName": "tcgplayer.csv",
-                    "csvText": "\n".join(
-                        [
-                            "Collection Name,Product Name,Set Name,Set Code,Number,Language,Condition,Quantity",
-                            "Case A,Pikachu,Base Set,BS,58/102,English,Near Mint,1",
-                        ]
-                    ),
-                }
-            )
-
-        with self.service.request_identity_context(self._identity("user-b")):
-            with self.assertRaises(FileNotFoundError):
-                self.service.portfolio_import_job(preview["jobID"])
-            with self.assertRaises(FileNotFoundError):
-                self.service.commit_portfolio_import(preview["jobID"])
-
     def test_cross_user_buy_and_sale_transaction_edits_are_rejected(self) -> None:
         self._insert_card(card_id="gym1-60", name="Sabrina's Slowbro")
 

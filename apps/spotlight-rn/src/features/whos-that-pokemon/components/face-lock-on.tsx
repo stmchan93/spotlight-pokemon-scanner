@@ -72,7 +72,7 @@ type FaceLockOnProps = {
    */
   personOutline?: NormalizedPoint[] | null;
   speciesOutline?: NormalizedPoint[] | null;
-  /** Top selfie palette swatch — paints the silhouette, as in `morph-loop`. */
+  /** Top selfie palette swatch — paints the silhouette, as in `result-panel`. */
   washColor: string;
   /** Fired once the silhouette has settled and the reveal should take over. */
   onDone: () => void;

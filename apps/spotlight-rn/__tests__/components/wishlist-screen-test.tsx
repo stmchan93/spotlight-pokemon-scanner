@@ -4,7 +4,6 @@ import { useRouter } from 'expo-router';
 
 import type { CardFavoriteEntry } from '@spotlight/api-client';
 
-import { __resetTrendWindowForTests } from '@/features/portfolio/hooks/use-trend-window';
 import {
   WISHLIST_HEADER_BAR_HEIGHT,
   WISHLIST_TITLE_HIDE_DISTANCE,
@@ -119,7 +118,6 @@ describe('WishlistScreen', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    __resetTrendWindowForTests();
     (useRouter as jest.Mock).mockReturnValue({
       push,
       back: jest.fn(),

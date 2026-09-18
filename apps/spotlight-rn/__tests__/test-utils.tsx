@@ -290,22 +290,6 @@ export function createTestSpotlightRepository(
       return overrides.updateVendorWalletHandles?.(...args)
         ?? baseRepository.updateVendorWalletHandles(...args);
     },
-    previewPortfolioImport: (...args) => {
-      return overrides.previewPortfolioImport?.(...args)
-        ?? baseRepository.previewPortfolioImport(...args);
-    },
-    fetchPortfolioImportJob: (...args) => {
-      return overrides.fetchPortfolioImportJob?.(...args)
-        ?? baseRepository.fetchPortfolioImportJob(...args);
-    },
-    resolvePortfolioImportRow: (...args) => {
-      return overrides.resolvePortfolioImportRow?.(...args)
-        ?? baseRepository.resolvePortfolioImportRow(...args);
-    },
-    commitPortfolioImportJob: (...args) => {
-      return overrides.commitPortfolioImportJob?.(...args)
-        ?? baseRepository.commitPortfolioImportJob(...args);
-    },
     createLabelingSession: async (...args) => {
       return overrides.createLabelingSession?.(...args)
         ?? baseRepository.createLabelingSession(...args);
@@ -454,13 +438,6 @@ export function renderAppRouter(
     candidates: [
       { key: '(modal)/account', modulePath: '@/app/(modal)/account' },
       { key: 'account', modulePath: '@/app/account' },
-    ],
-    optional: true,
-  });
-  registerRoute(routeMap, routeAliases, {
-    candidates: [
-      { key: '(modal)/account/import', modulePath: '@/app/(modal)/account/import' },
-      { key: 'account/import', modulePath: '@/app/account/import' },
     ],
     optional: true,
   });

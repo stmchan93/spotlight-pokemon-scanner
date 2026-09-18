@@ -22,7 +22,7 @@ const MARK_WIDTH = 56;
 const MARK_HEIGHT = 52;
 
 // Brand ink. The mark is drawn in pure black artwork black, not the gray-900
-// text token (#1A1A1A) — same convention as `ekalight-intro-screen.tsx`.
+// text token (#1A1A1A).
 const BRAND_INK = '#000000';
 
 const MARK_PATHS = [

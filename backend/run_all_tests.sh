@@ -30,7 +30,6 @@ TEST_MODULES=(
   backend.tests.test_pricing_provider
   backend.tests.test_fx_rates
   backend.tests.test_ebay_comps
-  backend.tests.test_portfolio_imports
   backend.tests.test_portfolio_history_live_newest_day
   backend.tests.test_portfolio_range_slices_one_series
   backend.tests.test_visual_index_game_prewarm

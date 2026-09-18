@@ -56,7 +56,7 @@ function centroidOf(points: readonly Point[]): Point {
  * the coloured PNG will appear. YOUR outline has no such anchor — the cutout is
  * a whole selfie frame, so a raw projection would drop a tall, off-centre sliver
  * wherever you happened to stand. Fitting the bbox instead puts both shapes in
- * the same box at comparable size, which is the trick `morph-loop` already
+ * the same box at comparable size, which is the trick `face-lock-on` already
  * relies on: same box, same colour, so the ONLY thing that changes is the
  * outline.
  *

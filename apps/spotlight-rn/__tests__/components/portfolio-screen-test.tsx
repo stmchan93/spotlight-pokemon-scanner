@@ -18,7 +18,6 @@ import {
   __resetPortfolioSummaryVisibilityForTests,
 } from '@/features/portfolio/use-portfolio-summary-visibility';
 import { __resetPortfolioViewModeForTests } from '@/features/portfolio/hooks/use-portfolio-view-mode';
-import { __resetTrendWindowForTests } from '@/features/portfolio/hooks/use-trend-window';
 import { deletePost, fetchAuthorActivity } from '@/features/social/social-service';
 import * as posthogObservability from '@/lib/observability/posthog';
 
@@ -251,7 +250,6 @@ describe('PortfolioScreen', () => {
     jest.clearAllMocks();
     __resetPortfolioSummaryVisibilityForTests();
     __resetPortfolioViewModeForTests();
-    __resetTrendWindowForTests();
     (useRouter as jest.Mock).mockReturnValue({
       push,
       back: jest.fn(),

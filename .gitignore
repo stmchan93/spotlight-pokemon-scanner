@@ -73,7 +73,7 @@ node_modules/
 .pnpm-store/
 coverage/
 dist/
-.expo/prebuild/
+.expo/
 apps/spotlight-rn/.expo/
 apps/spotlight-rn/.eas/
 apps/spotlight-rn/.metro-health-check*

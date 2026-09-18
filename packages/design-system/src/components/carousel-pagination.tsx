@@ -24,14 +24,6 @@ const ACTIVE_WIDTH = 24;
 /** Space between dots (Figma: dots start every 10pt, so 6 + 4). */
 const GAP = 4;
 
-/** Width of the indicator for `count` slides, for callers reserving space. */
-export function carouselPaginationWidth(count: number): number {
-  if (count < 2) {
-    return 0;
-  }
-  return ACTIVE_WIDTH + (count - 1) * (DOT_SIZE + GAP) + GAP;
-}
-
 export type CarouselPaginationProps = {
   /** Number of slides. Under 2 the indicator renders nothing — one slide has no position to report. */
   count: number;

@@ -1,11 +1,10 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { screen, waitFor } from '@testing-library/react-native';
 import { AccessibilityInfo, Dimensions, StyleSheet } from 'react-native';
 
 import { resolveArtworkRect } from '@/features/whos-that-pokemon/face-geometry';
 import type { EvolutionHapticBeat } from '@/features/whos-that-pokemon/evolution-haptics';
 import { EvolutionCue } from '@/features/whos-that-pokemon/components/evolution-cue';
 import { FaceLockOn } from '@/features/whos-that-pokemon/components/face-lock-on';
-import { MorphLoop } from '@/features/whos-that-pokemon/components/morph-loop';
 import { RevealMorph } from '@/features/whos-that-pokemon/components/reveal-morph';
 import { ScanningTheater } from '@/features/whos-that-pokemon/components/scanning-theater';
 import {
@@ -72,13 +71,6 @@ function ellipseOutline(count: number, radiusX: number, radiusY: number): Point[
       x: 0.5 + Math.cos(angle) * radiusX,
       y: 0.5 + Math.sin(angle) * radiusY,
     };
-  });
-}
-
-/** RNTL never fires layout on its own, so measured-geometry views need a nudge. */
-function layout(testID: string, width: number, height: number) {
-  fireEvent(get(testID), 'layout', {
-    nativeEvent: { layout: { x: 0, y: 0, width, height } },
   });
 }
 
@@ -566,81 +558,5 @@ describe('RevealMorph', () => {
     await waitFor(() => {
       expect(onDone).toHaveBeenCalledTimes(1);
     });
-  });
-});
-
-describe('MorphLoop', () => {
-  const baseProps = {
-    artworkUrl: ARTWORK,
-    cutoutUri: 'data:image/png;base64,Y3V0b3V0',
-    selfieUri: 'file:///selfie.jpg',
-    washColor: '#112233',
-  };
-
-  it('deforms one path instead of crossfading two silhouettes', async () => {
-    renderWithProviders(
-      <MorphLoop
-        {...baseProps}
-        personOutline={ellipseOutline(48, 0.16, 0.44)}
-        speciesOutline={ellipseOutline(48, 0.42, 0.3)}
-      />,
-    );
-
-    await screen.findByTestId('wtp-morph-loop');
-    layout('wtp-morph-loop', 320, 320);
-
-    // The result-panel loop and the reveal now play the SAME geometric morph.
-    expect(get('wtp-morph-loop-shape')).toBeTruthy();
-    expect(pathD('wtp-morph-loop-shape-path').startsWith('M ')).toBe(true);
-    // The two opacity-crossfaded silhouettes it replaced are gone — a 200ms
-    // crossfade between them read as a flash, not as a deformation.
-    expect(query('wtp-morph-loop-person-shape')).toBeNull();
-    expect(query('wtp-morph-loop-species-shape')).toBeNull();
-    // The palette glow behind the subject stays.
-    expect(get('wtp-morph-loop-glow')).toBeTruthy();
-    // …and the white glow echoes the reveal's, so the card reads as a replay of
-    // the beat rather than as a different animation of the same two pictures.
-    // ONE peak per direction of a ~5.7s loop — a pulse TRAIN on something that
-    // never stops would be the repeated flashing the reveal avoids.
-    expect(get('wtp-morph-loop-pulse')).toBeTruthy();
-  });
-
-  it('keeps the silhouette crossfade when the backend traced no outlines', async () => {
-    renderWithProviders(<MorphLoop {...baseProps} />);
-
-    await screen.findByTestId('wtp-morph-loop');
-    layout('wtp-morph-loop', 320, 320);
-
-    expect(query('wtp-morph-loop-shape')).toBeNull();
-    expect(get('wtp-morph-loop-person-shape')).toBeTruthy();
-    expect(get('wtp-morph-loop-species-shape')).toBeTruthy();
-    // The cutout is a silhouette SOURCE only, never drawn as a photo.
-    expect(query('wtp-morph-loop-cutout')).toBeNull();
-  });
-
-  it('shows the whole selfie, because this box is square and the capture is not', async () => {
-    renderWithProviders(<MorphLoop {...baseProps} />);
-
-    await screen.findByTestId('wtp-morph-loop');
-    layout('wtp-morph-loop', 320, 320);
-
-    // `cover` in a 1:1 box crops a 9:16 capture by 44% of its HEIGHT — head and
-    // legs gone from the full-body shot the capture screen asks for, which is
-    // what made the result read as "that isn't the photo I took".
-    expect(get('wtp-morph-loop-selfie').props.contentFit).toBe('contain');
-  });
-
-  it('fills the pillarbox with a blurred copy of the selfie, not black', async () => {
-    renderWithProviders(<MorphLoop {...baseProps} />);
-
-    await screen.findByTestId('wtp-morph-loop');
-    layout('wtp-morph-loop', 320, 320);
-
-    // `contain` alone left dead black down both sides ("black space between the
-    // sides"). The backdrop is the SAME photo, `cover`-scaled and blurred, so
-    // nothing is cropped away and nothing is dead black.
-    const backdrop = get('wtp-morph-loop-selfie-backdrop');
-    expect(backdrop.props.contentFit).toBe('cover');
-    expect(backdrop.props.source).toEqual({ uri: baseProps.selfieUri });
   });
 });

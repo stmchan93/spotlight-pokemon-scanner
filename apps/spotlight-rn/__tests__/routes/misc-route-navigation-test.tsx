@@ -1,7 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import type { CatalogSearchResult, InventoryCardEntry } from '@spotlight/api-client';
 
-import AccountImportRoute from '@/app/(modal)/account/import';
 import ModalLayout from '@/app/(modal)/_layout';
 import AccountRoute from '@/app/(modal)/account';
 import CatalogSearchRoute from '@/app/(sheet)/catalog/search';
@@ -157,18 +156,6 @@ jest.mock('@/features/auth/screens/account-screen', () => ({
   AccountScreen: () => {
     const { Text } = require('react-native');
     return <Text testID="account-screen">account</Text>;
-  },
-}));
-
-jest.mock('@/features/portfolio-import/screens/portfolio-import-screen', () => ({
-  PortfolioImportScreen: ({ onClose }: { onClose: () => void }) => {
-    const { Pressable, Text } = require('react-native');
-    return (
-      <>
-        <Text testID="portfolio-import-screen">import</Text>
-        <Pressable onPress={onClose} testID="portfolio-import-close" />
-      </>
-    );
   },
 }));
 
@@ -518,14 +505,6 @@ describe('misc route wrappers', () => {
   it('renders the account route screen', () => {
     render(<AccountRoute />);
     expect(screen.getByTestId('account-screen')).toBeTruthy();
-  });
-
-  it('wires account import close back to the router', () => {
-    render(<AccountImportRoute />);
-
-    fireEvent.press(screen.getByTestId('portfolio-import-close'));
-
-    expect(mockBack).toHaveBeenCalledTimes(1);
   });
 
   it('hydrates the catalog search route and pushes card detail with a saved preview', () => {

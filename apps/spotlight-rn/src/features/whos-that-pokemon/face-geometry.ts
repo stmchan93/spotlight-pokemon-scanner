@@ -159,8 +159,8 @@ export function resolveHeadRect(options: {
  * `REVEAL_ARTWORK_BOX`; official artwork PNGs are square, so the default
  * aspect is 1.
  *
- * `box` exists because the result panel's morph loop draws the same artwork in
- * a different percentage box (`morph-loop.tsx`'s subject box). Both surfaces
+ * `box` exists because the evolution cue draws the same artwork in a different
+ * percentage box (`evolution-cue.tsx`'s subject box). Both surfaces
  * need the exact rect the PNG lands in so an outline path can be laid over it
  * without drifting, and there should only ever be one letterbox-fit routine.
  */

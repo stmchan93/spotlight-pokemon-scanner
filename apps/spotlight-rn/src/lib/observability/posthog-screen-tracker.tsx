@@ -38,7 +38,7 @@ function resolveScreenName(pathname: string) {
   }
 
   if (pathname === '/account' || pathname.startsWith('/account/')) {
-    return pathname === '/account/import' ? 'portfolio_import' : 'account';
+    return 'account';
   }
 
   if (pathname === '/catalog/search' || pathname.startsWith('/catalog/search/')) {

@@ -2,13 +2,6 @@ export const historyRanges = ['1W', '1M', '3M', 'YTD', '1Y', 'ALL'] as const;
 
 export type PortfolioHistoryRange = (typeof historyRanges)[number];
 
-// Backend accepts the legacy `7D` token as an alias for `1W` for at least one
-// release cycle. The mobile app emits `1W`; older clients can keep sending `7D`
-// and the backend will treat it the same.
-export const legacyPortfolioHistoryRangeAliases: Record<string, PortfolioHistoryRange> = {
-  '7D': '1W',
-};
-
 export type ChartMode = 'portfolio' | 'sales';
 export type ScannerMode = 'raw' | 'slabs';
 export type ScannerCardLanguage = 'english' | 'japanese';
@@ -1940,115 +1933,6 @@ export type VendorWalletHandles = {
 
 export type VendorWalletHandlesUpdate = Partial<Omit<VendorWalletHandles, 'updatedAt'>>;
 
-export const portfolioImportSourceTypes = ['collectr_csv_v1', 'tcgplayer_csv_v1'] as const;
-
-export type PortfolioImportSourceType = (typeof portfolioImportSourceTypes)[number];
-
-export const portfolioImportJobStatuses = [
-  'previewing',
-  'needs_review',
-  'ready',
-  'committing',
-  'completed',
-  'failed',
-  'unknown',
-] as const;
-
-export type PortfolioImportJobStatus = (typeof portfolioImportJobStatuses)[number];
-
-export const portfolioImportRowStates = [
-  'matched',
-  'review',
-  'unresolved',
-  'unsupported',
-  'skipped',
-  'ready',
-  'committed',
-  'failed',
-  'unknown',
-] as const;
-
-export type PortfolioImportRowState = (typeof portfolioImportRowStates)[number];
-
-export const portfolioImportResolveActions = ['match', 'skip'] as const;
-
-export type PortfolioImportResolveAction = (typeof portfolioImportResolveActions)[number];
-
-export const portfolioImportRowFilters = [
-  'all',
-  'ready',
-  'review',
-  'unresolved',
-  'unsupported',
-  'committed',
-] as const;
-
-export type PortfolioImportRowFilter = (typeof portfolioImportRowFilters)[number];
-
-export type PortfolioImportPreviewRequestPayload = {
-  sourceType: PortfolioImportSourceType;
-  fileName: string;
-  csvText: string;
-};
-
-export type PortfolioImportResolveRequestPayload = {
-  rowID: string;
-  action: PortfolioImportResolveAction;
-  matchedCardID?: string | null;
-};
-
-export type PortfolioImportSummary = {
-  totalRowCount: number;
-  matchedCount: number;
-  reviewCount: number;
-  unresolvedCount: number;
-  unsupportedCount: number;
-  readyToCommitCount: number;
-  committedCount: number;
-  skippedCount: number;
-};
-
-export type PortfolioImportCandidateRecord = CatalogSearchResult;
-
-export type PortfolioImportRowRecord = {
-  id: string;
-  rowIndex: number;
-  sourceCollectionName?: string | null;
-  sourceCardName: string;
-  setName?: string | null;
-  collectorNumber?: string | null;
-  quantity: number;
-  conditionLabel?: string | null;
-  currencyCode?: string | null;
-  acquisitionUnitPrice?: number | null;
-  marketUnitPrice?: number | null;
-  matchState: PortfolioImportRowState;
-  matchStrategy?: string | null;
-  matchedCard?: PortfolioImportCandidateRecord | null;
-  candidateCards: PortfolioImportCandidateRecord[];
-  warnings: string[];
-  rawSummary?: string | null;
-};
-
-export type PortfolioImportJobRecord = {
-  id: string;
-  sourceType: PortfolioImportSourceType;
-  status: PortfolioImportJobStatus;
-  sourceFileName: string;
-  summary: PortfolioImportSummary;
-  rows: PortfolioImportRowRecord[];
-  warnings: string[];
-  errorText?: string | null;
-};
-
-export type PortfolioImportCommitResponsePayload = {
-  jobID: string;
-  status: PortfolioImportJobStatus;
-  summary: PortfolioImportSummary;
-  job?: PortfolioImportJobRecord | null;
-  message?: string | null;
-};
-
 export type BulkSellDraftLine = {
   entryId: string;
   cardId: string;
@@ -2095,10 +1979,6 @@ export type CardRecentSalesQuery = CardDetailQuery & {
   limit?: number;
   refresh?: boolean;
 };
-
-export function deckConditionFromCode(code?: DeckConditionCode | null) {
-  return deckConditionOptions.find((option) => option.code === code) ?? null;
-}
 
 // --- Access gate (public-launch gating) ---
 // When the backend "access gate" is CLOSED, only allowed users (admin,

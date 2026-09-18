@@ -5,7 +5,7 @@ Repo-specific workflow notes for future coding agents.
 ## Scope
 
 - This repo's active product is a React Native app plus a Python backend for the Spotlight card scanner.
-- `Spotlight/` is a legacy Swift/iOS implementation that is expected to be removed. Do not add new product work there unless the user explicitly asks for legacy Swift support.
+- The legacy Swift/iOS implementation (`Spotlight/`, `Spotlight.xcodeproj/`) and the stale root-level Expo prebuild (`ios/`, root `app.json`, root `eas.json`) were deleted on 2026-09-18. `apps/spotlight-rn/` is the only mobile app; recover the old files from git history if ever needed.
 
 ## Read First
 
@@ -40,7 +40,6 @@ Repo-specific workflow notes for future coding agents.
 - Active docs/specs: `docs/`
 - Tools and validation scripts: `tools/`
 - QA fixtures and manifests: `qa/`
-- Legacy Swift implementation: `Spotlight/`
 
 ## Routing
 

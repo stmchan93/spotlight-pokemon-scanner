@@ -76,12 +76,6 @@ export function psaGradeDescriptor(grade: string): string | null {
   return map[key] ?? null;
 }
 
-/** True when we have an official mark for this grader (else callers may keep
- * their existing plain-text treatment). */
-export function hasGraderWordmark(grader: string | null | undefined): boolean {
-  return grader != null && normalizeGrader(grader) in GRADER_ASSETS;
-}
-
 /** The bundled logo asset for a grader (source + native aspect ratio), or
  * null when we don't carry its mark. Lets composites like SlabFrame render
  * the logo at custom heights. */

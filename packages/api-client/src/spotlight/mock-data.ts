@@ -1,5 +1,4 @@
 import type {
-  AddToCollectionOptions,
   CardDetailQuery,
   CardDetailRecord,
   CardTransactionRecord,
@@ -906,33 +905,6 @@ export const mockPortfolioDashboard: PortfolioDashboard = buildMockDashboard(
   mockInventoryEntries,
   mockRecentSales,
 );
-
-export const mockAddToCollectionOptions: Record<string, AddToCollectionOptions> = {
-  'sm7-1': {
-    variants: [
-      { id: 'normal', label: 'Normal' },
-      { id: 'raw', label: 'Raw' },
-    ],
-    defaultVariant: 'normal',
-    defaultPrice: 0.31,
-  },
-  'mcdonalds25-21': {
-    variants: [
-      { id: 'normal', label: 'Normal' },
-      { id: 'raw', label: 'Raw' },
-    ],
-    defaultVariant: 'normal',
-    defaultPrice: 0.56,
-  },
-  'xyp-111': {
-    variants: [
-      { id: 'normal', label: 'Normal' },
-      { id: 'raw', label: 'Raw' },
-    ],
-    defaultVariant: 'normal',
-    defaultPrice: 37.54,
-  },
-};
 
 function cloneEntry(entry: InventoryCardEntry): InventoryCardEntry {
   return { ...entry, slabContext: entry.slabContext ? { ...entry.slabContext } : null };

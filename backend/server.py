@@ -172,12 +172,6 @@ from ebay_comps import (
 from anthropic_adapter import identify_pokemon_lookalike
 from pricecharting_adapter import PriceChartingProvider
 from pricing_provider import PricingProviderRegistry
-from portfolio_imports import (
-    commit_portfolio_import,
-    get_portfolio_import_job,
-    preview_portfolio_import,
-    resolve_portfolio_import,
-)
 from scrydex_adapter import (
     SCRYDEX_FULL_CATALOG_SYNC_SCOPE,
     SCRYDEX_PROVIDER,
@@ -8605,31 +8599,9 @@ class SpotlightScanService:
             "deleted": quantity == 0,
         }
 
-    def preview_portfolio_import(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return preview_portfolio_import(self.connection, payload, owner_user_id=self._current_owner_user_id())
 
-    def portfolio_import_job(
-        self,
-        job_id: str,
-        *,
-        status_filter: str | None = None,
-        limit: int = 50,
-        offset: int = 0,
-    ) -> dict[str, Any]:
-        return get_portfolio_import_job(
-            self.connection,
-            job_id,
-            owner_user_id=self._current_owner_user_id(),
-            status_filter=status_filter,
-            limit=limit,
-            offset=offset,
-        )
 
-    def resolve_portfolio_import(self, job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        return resolve_portfolio_import(self.connection, job_id, payload, owner_user_id=self._current_owner_user_id())
 
-    def commit_portfolio_import(self, job_id: str) -> dict[str, Any]:
-        return commit_portfolio_import(self.connection, job_id, owner_user_id=self._current_owner_user_id())
 
     def _record_sale_without_commit(self, payload: dict[str, Any]) -> dict[str, Any]:
         owner_user_id = self._current_owner_user_id()
@@ -22221,46 +22193,6 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, payload)
             return
 
-        if parsed.path.startswith("/api/v1/portfolio/imports/"):
-            identity = self._require_request_identity()
-            if identity is None:
-                return
-            job_id = unquote(parsed.path.removeprefix("/api/v1/portfolio/imports/").strip("/"))
-            if not job_id or "/" in job_id:
-                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
-                return
-            query_params = parse_qs(parsed.query)
-            try:
-                limit = int(query_params.get("limit", ["50"])[0])
-            except (TypeError, ValueError):
-                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "limit must be an integer"})
-                return
-            try:
-                offset = int(query_params.get("offset", ["0"])[0])
-            except (TypeError, ValueError):
-                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "offset must be an integer"})
-                return
-            status_filter = query_params.get("filter", [""])[0].strip() or query_params.get("status", [""])[0].strip() or None
-            try:
-                with self.service.request_identity_context(identity):
-                    payload = self.service.portfolio_import_job(
-                        job_id,
-                        status_filter=status_filter,
-                        limit=limit,
-                        offset=offset,
-                    )
-            except ValueError as error:
-                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
-                return
-            except FileNotFoundError as error:
-                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
-                return
-            except Exception as error:
-                traceback.print_exc()
-                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Import job lookup failed: {error}"})
-                return
-            self._write_json(HTTPStatus.OK, payload)
-            return
 
         if parsed.path == "/api/v1/market/top-movers":
             query_params = parse_qs(parsed.query)
@@ -23493,74 +23425,8 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, hydration_payload)
             return
 
-        if parsed.path == "/api/v1/portfolio/imports/preview":
-            identity = self._require_request_identity()
-            if identity is None:
-                return
-            try:
-                with self.service.request_identity_context(identity):
-                    import_payload = self.service.preview_portfolio_import(payload)
-            except ValueError as error:
-                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
-                return
-            except Exception as error:
-                traceback.print_exc()
-                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Import preview failed: {error}"})
-                return
-            self._write_json(HTTPStatus.OK, import_payload)
-            return
 
-        if parsed.path.startswith("/api/v1/portfolio/imports/") and parsed.path.endswith("/resolve"):
-            identity = self._require_request_identity()
-            if identity is None:
-                return
-            job_id = unquote(
-                parsed.path.removeprefix("/api/v1/portfolio/imports/").removesuffix("/resolve").strip("/")
-            )
-            if not job_id:
-                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "jobID is required"})
-                return
-            try:
-                with self.service.request_identity_context(identity):
-                    import_payload = self.service.resolve_portfolio_import(job_id, payload)
-            except ValueError as error:
-                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
-                return
-            except FileNotFoundError as error:
-                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
-                return
-            except Exception as error:
-                traceback.print_exc()
-                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Import resolve failed: {error}"})
-                return
-            self._write_json(HTTPStatus.OK, import_payload)
-            return
 
-        if parsed.path.startswith("/api/v1/portfolio/imports/") and parsed.path.endswith("/commit"):
-            identity = self._require_request_identity()
-            if identity is None:
-                return
-            job_id = unquote(
-                parsed.path.removeprefix("/api/v1/portfolio/imports/").removesuffix("/commit").strip("/")
-            )
-            if not job_id:
-                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "jobID is required"})
-                return
-            try:
-                with self.service.request_identity_context(identity):
-                    import_payload = self.service.commit_portfolio_import(job_id)
-            except ValueError as error:
-                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
-                return
-            except FileNotFoundError as error:
-                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
-                return
-            except Exception as error:
-                traceback.print_exc()
-                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Import commit failed: {error}"})
-                return
-            self._write_json(HTTPStatus.OK, import_payload)
-            return
 
         if parsed.path in {"/api/v1/sales/batch", "/api/v1/deck/sales/batch", "/api/v1/portfolio/sales/batch"}:
             identity = self._require_request_identity()

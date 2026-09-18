@@ -29,10 +29,10 @@ describe('PostHogScreenTracker', () => {
       expect(mockCapturePostHogScreen).toHaveBeenCalledWith('feed');
     });
 
-    mockedPathname = '/account/import';
+    mockedPathname = '/account/blocked';
     view.rerender(<PostHogScreenTracker />);
     await waitFor(() => {
-      expect(mockCapturePostHogScreen).toHaveBeenNthCalledWith(2, 'portfolio_import');
+      expect(mockCapturePostHogScreen).toHaveBeenNthCalledWith(2, 'account');
     });
 
     mockedPathname = '/cards/base1-4/scan-review';

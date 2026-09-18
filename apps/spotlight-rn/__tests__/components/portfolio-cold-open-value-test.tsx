@@ -12,7 +12,6 @@ import { TabsPageContext } from '@/contexts/tabs-page-context';
 import { PortfolioScreen } from '@/features/portfolio/screens/portfolio-screen';
 import { __resetPortfolioSummaryVisibilityForTests } from '@/features/portfolio/use-portfolio-summary-visibility';
 import { __resetPortfolioViewModeForTests } from '@/features/portfolio/hooks/use-portfolio-view-mode';
-import { __resetTrendWindowForTests } from '@/features/portfolio/hooks/use-trend-window';
 
 import * as mockApiClient from '../mock-api-client';
 import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
@@ -156,7 +155,6 @@ function totalValueText(): string {
 beforeEach(async () => {
   __resetPortfolioSummaryVisibilityForTests();
   __resetPortfolioViewModeForTests();
-  __resetTrendWindowForTests();
   await AsyncStorage.clear();
   // The state a returning user is actually in: a collection chosen last session,
   // and that collection's dashboard saved next to it.

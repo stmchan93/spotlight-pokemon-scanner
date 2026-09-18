@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from urllib.parse import urlencode
 
 from pricing_provider import ProviderMetadata, PricingProvider, PsaPricingResult, RawPricingResult
 
@@ -13,12 +12,6 @@ PRICECHARTING_BASE_URL = "https://www.pricecharting.com/api"
 def pricecharting_credentials() -> str | None:
     api_key = os.environ.get("PRICECHARTING_API_KEY", "").strip()
     return api_key or None
-
-
-def pricecharting_request_url(path: str, **params: str) -> str:
-    base_url = os.environ.get("PRICECHARTING_BASE_URL", PRICECHARTING_BASE_URL).rstrip("/")
-    query_string = urlencode(params)
-    return f"{base_url}{path}?{query_string}" if query_string else f"{base_url}{path}"
 
 
 class PriceChartingProvider(PricingProvider):

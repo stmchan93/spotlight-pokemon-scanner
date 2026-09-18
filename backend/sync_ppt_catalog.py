@@ -22,7 +22,6 @@ are thin wrappers.
 
 from __future__ import annotations
 
-import gzip
 import json
 import time
 import urllib.error
@@ -416,24 +415,6 @@ def _request(url: str, api_key: str, *, timeout: float = 120.0) -> tuple[int, by
         return exc.code, exc.read(), exc.headers.get("Content-Type", "") if exc.headers else ""
 
 
-def fetch_ppt_card_by_tcgplayer_id(
-    api_key: str, tcgplayer_id: str, *, language: str = "english", include_both: bool = True
-) -> dict[str, Any] | None:
-    """Per-card fetch (credit-metered) — for sampling/validation. Returns the PPT
-    card dict or None."""
-    params = {"tcgPlayerId": str(tcgplayer_id), "language": language}
-    if include_both:
-        params["includeBoth"] = "true"
-    status, body, _ = _request(f"{PPT_API_BASE}/cards?{urllib.parse.urlencode(params)}", api_key)
-    if status != 200:
-        return None
-    payload = json.loads(body.decode("utf-8", "replace"))
-    data = payload.get("data") if isinstance(payload, dict) else None
-    if isinstance(data, list):
-        return data[0] if data else None
-    return data if isinstance(data, dict) else None
-
-
 def fetch_ppt_population(
     api_key: str, tcgplayer_ids: list[str], *, language: str = "english"
 ) -> list[dict[str, Any]]:
@@ -455,18 +436,6 @@ def fetch_ppt_population(
     if isinstance(data, list):
         return [d for d in data if isinstance(d, dict)]
     return [data] if isinstance(data, dict) else []
-
-
-def download_ppt_export(api_key: str, export_type: str) -> bytes:
-    """Business `/export` (type in cards/ebay/sealed/population). Returns decompressed
-    CSV bytes (the endpoint 302-redirects to a gzip blob; urllib follows the redirect).
-    Raises RuntimeError on non-200 (e.g. 403 on non-Business keys)."""
-    status, body, content_type = _request(f"{PPT_API_BASE}/export?type={urllib.parse.quote(export_type)}", api_key)
-    if status != 200:
-        raise RuntimeError(f"PPT /export type={export_type} returned {status}: {body[:200]!r}")
-    if "gzip" in content_type or body[:2] == b"\x1f\x8b":
-        return gzip.decompress(body)
-    return body
 
 
 # --- /export CSV parsers (column layout confirmed against a real Business dump) -----
