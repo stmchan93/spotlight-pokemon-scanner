@@ -12,9 +12,21 @@ TEMP_MOBILE_ENV_FILE=""
 SIMULATOR_DEVICE="${SPOTLIGHT_IOS_SIMULATOR_DEVICE:-${SPOTLIGHT_MAESTRO_IOS_SIMULATOR_DEVICE:-${IOS_SIMULATOR_DEVICE:-iPhone 16}}}"
 AUTH_SETTLE_SECONDS="${SPOTLIGHT_STAGING_SMOKE_AUTH_SETTLE_SECONDS:-8}"
 DERIVED_DATA_PATH="${SPOTLIGHT_STAGING_SMOKE_DERIVED_DATA_PATH:-$REPO_ROOT/.derivedData/staging-smoke}"
-IOS_SCHEME="${SPOTLIGHT_STAGING_SMOKE_IOS_SCHEME:-Spotlight}"
+# Resolved from the generated project rather than hardcoded. These were pinned
+# to "Spotlight"/"Spotlight.xcworkspace" and silently stopped matching at the
+# Ekalight rebrand, so every run of this gate failed at xcodebuild. Expo
+# regenerates the workspace from app config, so read the name back off disk and
+# a future rename costs nothing.
+IOS_WORKSPACE_PATH="$(find "$APP_DIR/ios" -maxdepth 1 -name '*.xcworkspace' -print -quit 2>/dev/null || true)"
+if [ -z "$IOS_WORKSPACE_PATH" ]; then
+  echo "No .xcworkspace under $APP_DIR/ios — run 'npx expo prebuild -p ios' (and 'pod install') first." >&2
+  exit 1
+fi
+IOS_WORKSPACE_NAME="$(basename "$IOS_WORKSPACE_PATH")"
+IOS_PROJECT_NAME="${IOS_WORKSPACE_NAME%.xcworkspace}"
+IOS_SCHEME="${SPOTLIGHT_STAGING_SMOKE_IOS_SCHEME:-$IOS_PROJECT_NAME}"
 IOS_CONFIGURATION="${SPOTLIGHT_STAGING_SMOKE_IOS_CONFIGURATION:-Release}"
-IOS_APP_PRODUCT_NAME="${SPOTLIGHT_STAGING_SMOKE_IOS_APP_PRODUCT_NAME:-Spotlight}"
+IOS_APP_PRODUCT_NAME="${SPOTLIGHT_STAGING_SMOKE_IOS_APP_PRODUCT_NAME:-$IOS_PROJECT_NAME}"
 SIMULATOR_UDID=""
 SKIP_FIXTURE_RESET="${SPOTLIGHT_STAGING_SMOKE_SKIP_FIXTURE_RESET:-0}"
 STAGING_SMOKE_APP_ENV_TEST_ID=""
@@ -240,7 +252,7 @@ build_install_and_launch_app() {
     cd "$APP_DIR/ios"
     RCT_NO_LAUNCH_PACKAGER=1 \
       xcodebuild \
-      -workspace Spotlight.xcworkspace \
+      -workspace "$IOS_WORKSPACE_NAME" \
       -scheme "$IOS_SCHEME" \
       -configuration "$IOS_CONFIGURATION" \
       -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
