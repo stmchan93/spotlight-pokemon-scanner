@@ -8,16 +8,8 @@ if (__globalAny.window && typeof __globalAny.window.dispatchEvent !== 'function'
   __globalAny.window.dispatchEvent = () => true;
 }
 
-// `jest.resetModules()` empties the module registry, so a test that re-requires
-// a component afterwards gets a SECOND copy of React while the renderer it
-// renders into still holds the first. Every real hook in that tree then reads a
-// null dispatcher — "invalid hook call" / "Cannot read properties of null". The
-// factory closes over one module object and hands it to every require, reset or
-// not, so React stays a singleton across resets and re-required trees may use
-// hooks normally.
-// (the `mock` name prefix is jest's escape hatch for referencing an
-// out-of-scope variable from a mock factory; the factory is lazy, so the
-// binding is assigned by the time the first require('react') runs.)
+// Keep React a singleton across jest.resetModules(): a re-required module
+// otherwise gets a second copy and every hook in it reads a null dispatcher.
 const mockReactSingleton = jest.requireActual('react');
 jest.mock('react', () => mockReactSingleton);
 

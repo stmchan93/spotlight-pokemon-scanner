@@ -12,11 +12,8 @@ TEMP_MOBILE_ENV_FILE=""
 SIMULATOR_DEVICE="${SPOTLIGHT_IOS_SIMULATOR_DEVICE:-${SPOTLIGHT_MAESTRO_IOS_SIMULATOR_DEVICE:-${IOS_SIMULATOR_DEVICE:-iPhone 16}}}"
 AUTH_SETTLE_SECONDS="${SPOTLIGHT_STAGING_SMOKE_AUTH_SETTLE_SECONDS:-8}"
 DERIVED_DATA_PATH="${SPOTLIGHT_STAGING_SMOKE_DERIVED_DATA_PATH:-$REPO_ROOT/.derivedData/staging-smoke}"
-# Resolved from the generated project rather than hardcoded. These were pinned
-# to "Spotlight"/"Spotlight.xcworkspace" and silently stopped matching at the
-# Ekalight rebrand, so every run of this gate failed at xcodebuild. Expo
-# regenerates the workspace from app config, so read the name back off disk and
-# a future rename costs nothing.
+# Read off disk, not hardcoded — these were pinned to "Spotlight" and broke at
+# the Ekalight rebrand.
 IOS_WORKSPACE_PATH="$(find "$APP_DIR/ios" -maxdepth 1 -name '*.xcworkspace' -print -quit 2>/dev/null || true)"
 if [ -z "$IOS_WORKSPACE_PATH" ]; then
   echo "No .xcworkspace under $APP_DIR/ios — run 'npx expo prebuild -p ios' (and 'pod install') first." >&2

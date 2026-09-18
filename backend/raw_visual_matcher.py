@@ -260,16 +260,9 @@ class RawVisualMatcher:
         self.visual_index_root = default_root
         default_model_root = repo_root / "backend" / "data" / "visual-models"
         self.model_id = model_id or os.environ.get("SPOTLIGHT_VISUAL_MODEL_ID", DEFAULT_VISUAL_MODEL_ID)
-        # The `clip-vit-base-patch32` slug here is frozen history, not a claim
-        # about the contents: this is the name the Pokemon index has carried on
-        # every VM since before multi-game, and the file holds whatever the
-        # active backbone produced. See game_index_artifact_names().
-        #
-        # There is deliberately NO fallback to the v003-b8 pair any more. That
-        # was a CLIP index (20,175 cards, 512-dim) and, under the SigLIP2
-        # default above, could only ever be loaded with a mismatched encoder —
-        # two backbones behind on half the catalog. A missing index should fail
-        # loudly instead.
+        # Frozen filename, not a claim about contents — see
+        # game_index_artifact_names(). No v003-b8 fallback: it is a CLIP index
+        # and would load against a mismatched encoder.
         default_index_npz_path = default_root / "visual_index_active_clip-vit-base-patch32.npz"
         default_index_manifest_path = default_root / "visual_index_active_manifest.json"
         self.index = RawVisualIndex(
@@ -296,10 +289,7 @@ class RawVisualMatcher:
         self._game_index_lock = threading.Lock()
         adapter_checkpoint_value = os.environ.get("SPOTLIGHT_VISUAL_ADAPTER_CHECKPOINT_PATH")
         adapter_metadata_value = os.environ.get("SPOTLIGHT_VISUAL_ADAPTER_METADATA_PATH")
-        # Same reasoning as the index above: the v003-b8 adapter was trained on
-        # CLIP's 512-dim embeddings and cannot load into a SigLIP2 768-dim
-        # projection, so falling back to it only turns a clear error into a
-        # confusing one.
+        # No v003-b8 fallback: CLIP-dim adapter, cannot load under SigLIP2.
         default_adapter_checkpoint_path = default_model_root / "raw_visual_adapter_active.pt"
         default_adapter_metadata_path = default_model_root / "raw_visual_adapter_active_metadata.json"
         self.adapter_checkpoint_path = adapter_checkpoint_path or resolve_repo_relative_path(
