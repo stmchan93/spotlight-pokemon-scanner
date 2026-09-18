@@ -8,6 +8,19 @@ if (__globalAny.window && typeof __globalAny.window.dispatchEvent !== 'function'
   __globalAny.window.dispatchEvent = () => true;
 }
 
+// `jest.resetModules()` empties the module registry, so a test that re-requires
+// a component afterwards gets a SECOND copy of React while the renderer it
+// renders into still holds the first. Every real hook in that tree then reads a
+// null dispatcher — "invalid hook call" / "Cannot read properties of null". The
+// factory closes over one module object and hands it to every require, reset or
+// not, so React stays a singleton across resets and re-required trees may use
+// hooks normally.
+// (the `mock` name prefix is jest's escape hatch for referencing an
+// out-of-scope variable from a mock factory; the factory is lazy, so the
+// binding is assigned by the time the first require('react') runs.)
+const mockReactSingleton = jest.requireActual('react');
+jest.mock('react', () => mockReactSingleton);
+
 // Reanimated v4 delegates its worklet runtime to react-native-worklets, whose
 // native module isn't present under jest. Mock it first so requiring the
 // reanimated mock doesn't try to initialize native worklets.
