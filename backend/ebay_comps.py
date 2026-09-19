@@ -3,6 +3,7 @@ from __future__ import annotations
 from base64 import b64encode
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
+import inspect
 import json
 import os
 import re
@@ -39,6 +40,122 @@ _EBAY_TOKEN_CACHE: dict[str, Any] = {
     "access_token": None,
     "expires_at": 0.0,
 }
+
+# --- Per-consumer call accounting -------------------------------------------
+# The whole app shares ONE eBay allocation (5k calls/day by default), so every
+# call carries a consumer label and the counters live behind `_request_json`,
+# the single HTTP choke point. Cache hits are counted separately from API calls:
+# the useful readout is "220 requests, 9 API calls, 96% cache hit", and a lane
+# that serves everything from cache must not look idle.
+EBAY_CONSUMER_PDP_LOWEST_LISTED = "pdp_lowest_listed"
+EBAY_CONSUMER_SOLD_COMP_ENRICHMENT = "sold_comp_enrichment"
+EBAY_CONSUMER_WATCH_SCAN = "watch_scan"
+EBAY_CONSUMER_OAUTH = "oauth"
+EBAY_CONSUMERS: tuple[str, ...] = (
+    EBAY_CONSUMER_PDP_LOWEST_LISTED,
+    EBAY_CONSUMER_SOLD_COMP_ENRICHMENT,
+    EBAY_CONSUMER_WATCH_SCAN,
+    EBAY_CONSUMER_OAUTH,
+)
+# Unlabelled callers land on the panel that has always owned the quota.
+DEFAULT_EBAY_CONSUMER = EBAY_CONSUMER_PDP_LOWEST_LISTED
+EBAY_USAGE_EVENTS: tuple[str, ...] = ("api_calls", "cache_hits", "errors")
+
+_EBAY_USAGE_LOCK = Lock()
+_EBAY_USAGE: dict[str, dict[str, int]] = {}
+_EBAY_USAGE_SINK: Callable[[str, str, int], None] | None = None
+
+
+def normalize_ebay_consumer(consumer: object) -> str:
+    label = str(consumer or "").strip().lower()
+    return label if label in EBAY_CONSUMERS else DEFAULT_EBAY_CONSUMER
+
+
+def _record_ebay_usage(consumer: object, event: str, count: int = 1) -> None:
+    if event not in EBAY_USAGE_EVENTS or count <= 0:
+        return
+    label = normalize_ebay_consumer(consumer)
+    with _EBAY_USAGE_LOCK:
+        bucket = _EBAY_USAGE.setdefault(label, {name: 0 for name in EBAY_USAGE_EVENTS})
+        bucket[event] += int(count)
+        sink = _EBAY_USAGE_SINK
+    # Outside the lock: a slow/failing sink must not stall an eBay request.
+    if sink is not None:
+        try:
+            sink(label, event, int(count))
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def record_ebay_api_call(consumer: object, *, count: int = 1) -> None:
+    """One real HTTP call against the eBay allocation."""
+    _record_ebay_usage(consumer, "api_calls", count)
+
+
+def record_ebay_cache_hit(consumer: object, *, count: int = 1) -> None:
+    """A request this consumer served WITHOUT spending an eBay call. Callers that
+    own a cache (the 1h `card_ebay_listings_cache`, the OAuth token cache) record
+    this so the hit rate is measurable."""
+    _record_ebay_usage(consumer, "cache_hits", count)
+
+
+def record_ebay_error(consumer: object, *, count: int = 1) -> None:
+    """A call that was spent but failed (transport, auth, rate limit)."""
+    _record_ebay_usage(consumer, "errors", count)
+
+
+def set_ebay_usage_sink(sink: Callable[[str, str, int], None] | None) -> None:
+    """Install the persistence hook. `sink(consumer, event, count)` is invoked
+    after every increment, off the counter lock; exceptions are swallowed.
+
+    The wiring agent's sink should buffer and upsert into `ebay_usage_daily`
+    rather than writing a row per call. `drain_ebay_usage_rows()` is the pull
+    alternative for a periodic flush."""
+    global _EBAY_USAGE_SINK
+    _EBAY_USAGE_SINK = sink
+
+
+def ebay_usage_snapshot() -> dict[str, dict[str, Any]]:
+    """Per-consumer counters since process start (or the last drain/reset)."""
+    with _EBAY_USAGE_LOCK:
+        raw = {label: dict(bucket) for label, bucket in _EBAY_USAGE.items()}
+    snapshot: dict[str, dict[str, Any]] = {}
+    for label, bucket in raw.items():
+        api_calls = int(bucket.get("api_calls", 0))
+        cache_hits = int(bucket.get("cache_hits", 0))
+        requests = api_calls + cache_hits
+        snapshot[label] = {
+            "api_calls": api_calls,
+            "cache_hits": cache_hits,
+            "errors": int(bucket.get("errors", 0)),
+            "requests": requests,
+            "cache_hit_rate": round(cache_hits / requests, 4) if requests else 0.0,
+        }
+    return snapshot
+
+
+def drain_ebay_usage_rows(*, date: str | None = None) -> list[dict[str, Any]]:
+    """Snapshot AND reset, as `ebay_usage_daily` rows. Atomic so a concurrent
+    request cannot be counted twice or lost between the read and the reset."""
+    day = str(date or "").strip() or datetime.now(timezone.utc).date().isoformat()
+    with _EBAY_USAGE_LOCK:
+        raw = {label: dict(bucket) for label, bucket in _EBAY_USAGE.items()}
+        _EBAY_USAGE.clear()
+    return [
+        {
+            "date": day,
+            "consumer": label,
+            "api_calls": int(bucket.get("api_calls", 0)),
+            "cache_hits": int(bucket.get("cache_hits", 0)),
+            "errors": int(bucket.get("errors", 0)),
+        }
+        for label, bucket in sorted(raw.items())
+    ]
+
+
+def reset_ebay_usage() -> None:
+    with _EBAY_USAGE_LOCK:
+        _EBAY_USAGE.clear()
 
 
 def _utc_now() -> str:
@@ -192,11 +309,18 @@ def _build_live_search_url(search_query: str, *, limit: int, exclude: str | None
     return f"{EBAY_WEB_SEARCH_BASE_URL}?{urlencode(params)}"
 
 
-def _build_browse_search_url(search_query: str, *, limit: int, marketplace_id: str) -> str:
+def _build_browse_search_url(
+    search_query: str,
+    *,
+    limit: int,
+    marketplace_id: str,
+    max_page_size: int = 100,
+    filter_expression: str = DEFAULT_BROWSE_FILTER,
+) -> str:
     params = {
         "q": search_query,
-        "limit": str(max(1, min(int(limit), 100))),
-        "filter": DEFAULT_BROWSE_FILTER,
+        "limit": str(max(1, min(int(limit), int(max_page_size)))),
+        "filter": filter_expression,
         "sort": EBAY_BROWSE_LOWEST_PRICE_SORT,
     }
     return f"{_ebay_api_base_url().rstrip('/')}/buy/browse/v1/item_summary/search?{urlencode(params)}"
@@ -209,19 +333,59 @@ def _request_json(
     headers: dict[str, str] | None = None,
     data: bytes | None = None,
     timeout_seconds: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    consumer: str = DEFAULT_EBAY_CONSUMER,
 ) -> dict[str, Any]:
+    """The single HTTP choke point for every eBay call. `consumer` is the quota
+    attribution label (see EBAY_CONSUMERS); the call is counted here so no lane
+    can spend the shared allocation without showing up in the accounting."""
+    record_ebay_api_call(consumer)
     request = Request(url, data=data, method=method)
     request.add_header("Accept", "application/json")
     if headers:
         for key, value in headers.items():
             request.add_header(key, value)
-    with urlopen(request, timeout=timeout_seconds) as response:
-        charset = response.headers.get_content_charset() or "utf-8"
-        raw = response.read().decode(charset, errors="replace")
-        payload = json.loads(raw or "{}")
-        if not isinstance(payload, dict):
-            raise ValueError("Expected JSON object")
-        return payload
+    try:
+        with urlopen(request, timeout=timeout_seconds) as response:
+            charset = response.headers.get_content_charset() or "utf-8"
+            raw = response.read().decode(charset, errors="replace")
+            payload = json.loads(raw or "{}")
+            if not isinstance(payload, dict):
+                raise ValueError("Expected JSON object")
+            return payload
+    except Exception:
+        record_ebay_error(consumer)
+        raise
+
+
+def _accepts_consumer_kwarg(fetch_json: Callable[..., Any]) -> bool:
+    """Injected transports predate the consumer label; only hand it to one that
+    declares the parameter, so existing fakes keep their exact signature."""
+    try:
+        return "consumer" in inspect.signature(fetch_json).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def _call_ebay_json(
+    fetch_json: Callable[..., dict[str, Any]] | None,
+    url: str,
+    *,
+    consumer: str = DEFAULT_EBAY_CONSUMER,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Call the real or injected transport with the call tagged and counted
+    exactly once: `_request_json` counts itself, everything else is counted here."""
+    transport = fetch_json or _request_json
+    if transport is _request_json:
+        return _request_json(url, consumer=consumer, **kwargs)
+    if _accepts_consumer_kwarg(transport):
+        kwargs["consumer"] = consumer
+    record_ebay_api_call(consumer)
+    try:
+        return transport(url, **kwargs)
+    except Exception:
+        record_ebay_error(consumer)
+        raise
 
 
 def _ebay_api_base_url() -> str:
@@ -273,6 +437,8 @@ def _ebay_app_access_token(
         cached_token = str(_EBAY_TOKEN_CACHE.get("access_token") or "").strip()
         expires_at = float(_EBAY_TOKEN_CACHE.get("expires_at") or 0.0)
         if cached_token and expires_at > now + 60:
+            # A reused app token is a request the `oauth` lane served for free.
+            record_ebay_cache_hit(EBAY_CONSUMER_OAUTH)
             return cached_token
 
     token_url = f"{_ebay_api_base_url().rstrip('/')}/identity/v1/oauth2/token"
@@ -283,9 +449,10 @@ def _ebay_app_access_token(
         "Authorization": f"Basic {credentials}",
         "Content-Type": "application/x-www-form-urlencoded",
     }
-    fetch_json = request_json or _request_json
-    payload = fetch_json(
+    payload = _call_ebay_json(
+        request_json,
         token_url,
+        consumer=EBAY_CONSUMER_OAUTH,
         method="POST",
         headers=request_headers,
         data=body,
@@ -409,6 +576,9 @@ def _transaction_payload(
         ),
         "title": normalized_title,
         "saleType": sale_type,
+        # MISNOMER, kept for the clients that read it: these are ACTIVE listings,
+        # so this is the listing's creation date, NOT a sale date. The raw lane
+        # (`ebay_listings.py`) calls the same value `listedAt`.
         "soldAt": listing_date,
         "listingDate": listing_date,
         "price": {
@@ -526,6 +696,7 @@ def fetch_ebay_items_by_legacy_ids(
     timeout_seconds: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
     max_workers: int = 6,
     fetch_json: Callable[..., dict[str, Any]] | None = None,
+    consumer: str = EBAY_CONSUMER_SOLD_COMP_ENRICHMENT,
 ) -> dict[str, dict[str, Any]]:
     """Browse `get_item_by_legacy_id` for each eBay item id, in parallel, keyed
     by id. Works for ended/sold listings too (verified on 366618245287). Any
@@ -551,7 +722,13 @@ def fetch_ebay_items_by_legacy_ids(
     def fetch_one(item_id: str) -> tuple[str, dict[str, Any] | None]:
         url = f"{base_url}/buy/browse/v1/item/get_item_by_legacy_id?{urlencode({'legacy_item_id': item_id})}"
         try:
-            payload = fetch_json_fn(url, headers=headers, timeout_seconds=timeout_seconds)
+            payload = _call_ebay_json(
+                fetch_json_fn,
+                url,
+                consumer=consumer,
+                headers=headers,
+                timeout_seconds=timeout_seconds,
+            )
         except Exception:  # noqa: BLE001
             return item_id, None
         if not isinstance(payload, dict) or not payload.get("itemId"):
@@ -644,6 +821,7 @@ def fetch_graded_card_ebay_comps(
     limit: int = DEFAULT_RESULT_LIMIT,
     fetch_json: Callable[..., dict[str, Any]] | None = None,
     timeout_seconds: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    consumer: str = EBAY_CONSUMER_PDP_LOWEST_LISTED,
 ) -> dict[str, Any]:
     normalized_grader = str(grader or "").strip().upper() or None
     normalized_selected_grade = _normalize_grade_label(selected_grade) or None
@@ -724,8 +902,10 @@ def fetch_graded_card_ebay_comps(
         "X-EBAY-C-MARKETPLACE-ID": _ebay_marketplace_id(),
     }
     try:
-        payload = fetch_json_fn(
+        payload = _call_ebay_json(
+            fetch_json_fn,
             browse_url,
+            consumer=consumer,
             headers=browse_headers,
             timeout_seconds=timeout_seconds,
         )
