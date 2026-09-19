@@ -4,6 +4,8 @@ import {
   marketplaceKeywordForGame,
 } from '@spotlight/api-client';
 
+import { resolveRuntimeValue } from '@/lib/runtime-config';
+
 // Pokémon TCG name glyphs → the words real eBay/TCGplayer listings use. Curated
 // from a scan of every catalog card name. Deliberately Pokémon-ONLY: these are
 // Pokémon set mechanics (Gold Star, Delta Species, Prism Star, gender variants).
@@ -340,6 +342,65 @@ function buildEbayCollectorNumberTerm(cardNumber: string): string | null {
   return `${Number.parseInt(numerator, 10)}/${Number.parseInt(denominator, 10)}`;
 }
 
+/*
+  eBay Partner Network (EPN) tagging.
+
+  The CAMPAIGN ID is the switch: it is account-specific, only the EPN dashboard
+  can issue it, and with it absent/blank we append NOTHING — the URL stays
+  byte-identical to the untagged one it has always been. An untagged link that
+  works beats a tagged one that 404s or trips eBay's tracking validation.
+
+  Values ride expoConfig `extra` as well as process.env: Metro does NOT inline
+  dynamic `process.env[key]` reads, so a key missing from app.config.js's
+  EXPO_EXTRA_ENV_MAPPINGS is silently empty in every OTA build.
+*/
+const EBAY_EPN_TOOL_ID = '10001';
+// eBay's published US rotation id (the ebay.com marketplace), not a guess at an
+// account value. Override per marketplace via EXPO_PUBLIC_EBAY_EPN_ROTATION_ID.
+const EBAY_EPN_DEFAULT_ROTATION_ID = '711-53200-19255-0';
+
+function resolveEbayEpnCampaignId() {
+  return resolveRuntimeValue(['EXPO_PUBLIC_EBAY_EPN_CAMPAIGN_ID'], ['ebayEpnCampaignId']);
+}
+
+function resolveEbayEpnRotationId() {
+  return (
+    resolveRuntimeValue(['EXPO_PUBLIC_EBAY_EPN_ROTATION_ID'], ['ebayEpnRotationId']) ||
+    EBAY_EPN_DEFAULT_ROTATION_ID
+  );
+}
+
+// EPN echoes customid back verbatim in reports: keep it to a report-safe
+// charset and eBay's 256-char ceiling so an odd surface name can't void a click.
+function cleanedEpnCustomId(value: string | null | undefined): string | null {
+  const cleaned = (value ?? '')
+    .trim()
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 256);
+  return cleaned || null;
+}
+
+// Appends the EPN params in place; a no-op (and so a byte-identical URL) when
+// no campaign id is configured.
+function appendEbayEpnParams(searchParams: URLSearchParams, customId: string | null | undefined) {
+  const campaignId = resolveEbayEpnCampaignId();
+  if (!campaignId) {
+    return;
+  }
+
+  searchParams.set('mkevt', '1');
+  searchParams.set('mkcid', '1');
+  searchParams.set('mkrid', resolveEbayEpnRotationId());
+  searchParams.set('campid', campaignId);
+  searchParams.set('toolid', EBAY_EPN_TOOL_ID);
+
+  const cleanedCustomId = cleanedEpnCustomId(customId);
+  if (cleanedCustomId) {
+    searchParams.set('customid', cleanedCustomId);
+  }
+}
+
 export function buildEbaySearchUrl(params: {
   cardNumber: string;
   name: string;
@@ -367,6 +428,12 @@ export function buildEbaySearchUrl(params: {
    * eBay's own definition of lowest listed, and it matches what the panel says.
    */
   listingType?: 'sold' | 'active';
+  /**
+   * Optional EPN sub-id echoed back in affiliate reports, e.g. `pdp_recent_sales`
+   * vs `portfolio_share`, so outbound clicks can be attributed per surface.
+   * Ignored entirely when no EPN campaign id is configured.
+   */
+  epnCustomId?: string | null;
 }) {
   const graderToken = cleanedMarketplaceToken(params.grader);
   const gradeToken = cleanedMarketplaceToken(params.grade);
@@ -445,6 +512,8 @@ export function buildEbaySearchUrl(params: {
           LH_Complete: '1',
           _sop: '13',
         });
+
+  appendEbayEpnParams(searchParams, params.epnCustomId);
 
   return `https://www.ebay.com/sch/i.html?${searchParams.toString()}`;
 }

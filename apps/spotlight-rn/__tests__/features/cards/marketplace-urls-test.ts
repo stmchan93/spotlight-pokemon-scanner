@@ -781,3 +781,84 @@ describe('marketplace URLs are scoped to the card game', () => {
     );
   });
 });
+
+/**
+ * eBay Partner Network tagging.
+ *
+ * The contract: the campaign id is the switch. Without it the URL must be the
+ * exact one the app has always opened — a working untagged link beats a broken
+ * tagged one — and with it the standard EPN quintet rides along unchanged
+ * keywords.
+ */
+describe('eBay Partner Network tagging', () => {
+  const CARD = { setName: 'Base Set', name: 'Charizard', cardNumber: '4/102' };
+  const EPN_KEYS = ['EXPO_PUBLIC_EBAY_EPN_CAMPAIGN_ID', 'EXPO_PUBLIC_EBAY_EPN_ROTATION_ID'];
+
+  const clearEpnEnv = () => {
+    for (const key of EPN_KEYS) {
+      delete process.env[key];
+    }
+  };
+
+  beforeEach(clearEpnEnv);
+  afterEach(clearEpnEnv);
+
+  it('appends nothing when no campaign id is configured', () => {
+    expect(buildEbaySearchUrl(CARD)).toBe(
+      'https://www.ebay.com/sch/i.html?_nkw=Charizard+4%2F102+Base+Set&LH_Sold=1&LH_Complete=1&_sop=13',
+    );
+  });
+
+  it('treats a blank campaign id as absent (no stray params, no trailing &)', () => {
+    const untagged = buildEbaySearchUrl(CARD);
+    process.env.EXPO_PUBLIC_EBAY_EPN_CAMPAIGN_ID = '   ';
+    expect(buildEbaySearchUrl(CARD)).toBe(untagged);
+    expect(buildEbaySearchUrl({ ...CARD, epnCustomId: 'pdp_recent_sales' })).toBe(untagged);
+  });
+
+  it('tags the url with the EPN params when a campaign id is configured', () => {
+    process.env.EXPO_PUBLIC_EBAY_EPN_CAMPAIGN_ID = '5338999999';
+    const url = buildEbaySearchUrl(CARD)!;
+    const parsed = new URL(url);
+
+    expect(parsed.origin + parsed.pathname).toBe('https://www.ebay.com/sch/i.html');
+    expect(parsed.searchParams.get('mkevt')).toBe('1');
+    expect(parsed.searchParams.get('mkcid')).toBe('1');
+    expect(parsed.searchParams.get('mkrid')).toBe('711-53200-19255-0');
+    expect(parsed.searchParams.get('campid')).toBe('5338999999');
+    expect(parsed.searchParams.get('toolid')).toBe('10001');
+    // Keywords and listing filters are untouched by tagging.
+    expect(parsed.searchParams.get('_nkw')).toBe('Charizard 4/102 Base Set');
+    expect(parsed.searchParams.get('LH_Sold')).toBe('1');
+    expect(parsed.searchParams.get('_sop')).toBe('13');
+  });
+
+  it('tags an active-listings search the same way', () => {
+    process.env.EXPO_PUBLIC_EBAY_EPN_CAMPAIGN_ID = '5338999999';
+    const url = buildEbaySearchUrl({ ...CARD, listingType: 'active' })!;
+    expect(url).toContain('mkevt=1');
+    expect(url).toContain('campid=5338999999');
+    expect(url).toContain('_sop=15');
+    expect(url).not.toContain('LH_Sold');
+  });
+
+  it('honours a configured rotation id', () => {
+    process.env.EXPO_PUBLIC_EBAY_EPN_CAMPAIGN_ID = '5338999999';
+    process.env.EXPO_PUBLIC_EBAY_EPN_ROTATION_ID = '710-53481-19255-0';
+    expect(new URL(buildEbaySearchUrl(CARD)!).searchParams.get('mkrid')).toBe('710-53481-19255-0');
+  });
+
+  it('passes a customid through for per-surface attribution', () => {
+    process.env.EXPO_PUBLIC_EBAY_EPN_CAMPAIGN_ID = '5338999999';
+    const url = buildEbaySearchUrl({ ...CARD, epnCustomId: 'pdp_recent_sales' })!;
+    expect(new URL(url).searchParams.get('customid')).toBe('pdp_recent_sales');
+  });
+
+  it('omits customid when none is given and sanitizes an unsafe one', () => {
+    process.env.EXPO_PUBLIC_EBAY_EPN_CAMPAIGN_ID = '5338999999';
+    expect(buildEbaySearchUrl(CARD)).not.toContain('customid');
+
+    const url = buildEbaySearchUrl({ ...CARD, epnCustomId: ' pdp recent/sales! ' })!;
+    expect(new URL(url).searchParams.get('customid')).toBe('pdp-recent-sales');
+  });
+});
