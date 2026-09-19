@@ -10,6 +10,12 @@ import { fetchProfileById } from '@/features/profile/profile-service';
 
 export type SharedProfileTab = 'collection' | 'wishlist';
 
+// `tab` is a route key; "wishlist" is not what the UI calls it any more.
+const TAB_LABEL: Record<SharedProfileTab, string> = {
+  collection: 'collection',
+  wishlist: 'watchlist',
+};
+
 /**
  * One tile of the collage: a fixed-size grey slot that shows art once it lands.
  *
@@ -281,18 +287,18 @@ export function SharedProfileBubble({
   const { profile, cards } = state;
   const owner = profile.displayName?.trim() || (profile.handle ? `@${profile.handle}` : 'Collector');
   /*
-    An INVITATION, not a caption. "Misty's wishlist" labels the card; "See
-    Misty's wishlist!" is the thing the sender would have typed, which is the
+    An INVITATION, not a caption. "Misty's watchlist" labels the card; "See
+    Misty's watchlist!" is the thing the sender would have typed, which is the
     whole message now that no body travels beside it.
 
     "See" rather than "Check out" because the line has to survive a long display
-    name on a 240pt card: "Check out stephen chanted's wishlist!" truncated to
+    name on a 240pt card: "Check out stephen chanted's watchlist!" truncated to
     "Check out stephen chanted'…", losing the part that says WHICH list it is.
   */
-  const label = `See ${owner}'s ${tab}!`;
+  const label = `See ${owner}'s ${TAB_LABEL[tab]}!`;
   // Without the invitation wrapper, so a screen reader announces the action
   // rather than reading the sender's phrasing back as a button name.
-  const destination = `${owner}'s ${tab}`;
+  const destination = `${owner}'s ${TAB_LABEL[tab]}`;
   // Four slots always, so a two-card list still renders a 2x2 grid rather than a
   // ragged row that changes the card's height.
   /*

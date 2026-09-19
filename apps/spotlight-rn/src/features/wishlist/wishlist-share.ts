@@ -38,5 +38,5 @@ export function buildWishlistShareMessage(
   const who = name || (rawHandle ? `@${rawHandle}` : '');
 
   // Nameless but non-empty: still worth sending, just without the possessive.
-  return who ? `Check out ${who}'s wishlist` : 'Check out this wishlist';
+  return who ? `Check out ${who}'s watchlist` : 'Check out this watchlist';
 }

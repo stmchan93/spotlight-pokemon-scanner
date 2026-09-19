@@ -546,7 +546,7 @@ describe('WishlistScreen', () => {
     expect(shareSpy).not.toHaveBeenCalled();
     const sheet = await screen.findByTestId('wishlist-share-sheet');
     expect(sheet).toBeTruthy();
-    expect(screen.getByText('Send wishlist to')).toBeTruthy();
+    expect(screen.getByText('Send watchlist to')).toBeTruthy();
 
     // Pick a recipient and assert what actually lands in the thread.
     await act(async () => {

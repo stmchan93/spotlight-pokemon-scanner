@@ -1236,7 +1236,7 @@ export function CardDetailScreen({
       })
       .catch(() => {
         setFavoriteState(previousFavoriteState);
-        setErrorMessage('Could not update wishlist right now.');
+        setErrorMessage('Could not update watchlist right now.');
         setIsFavoritePending(false);
       });
   }, [activeCardId, favoriteState, isFavoritePending, spotlightRepository]);
@@ -1349,7 +1349,7 @@ export function CardDetailScreen({
             baselineDate: detail.favoriteContext.sinceAddedBaselineDate,
             openedDate: detail.favoriteContext.favoritedAt,
             currencyCode: detail.currencyCode ?? 'USD',
-            label: 'since wishlisted',
+            label: 'since watched',
           }
         : null;
     if (source == null || source.amount == null || source.baselineDate == null) {

@@ -9,7 +9,7 @@ import Animated, {
 import { useSpotlightTheme } from '@spotlight/design-system';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
-import { HeartToggle } from '@/components/heart-toggle';
+import { WatchToggle } from '@/components/heart-toggle';
 
 type CardDetailHeroProps = {
   imageUrl: string | null;
@@ -100,7 +100,7 @@ export function CardDetailHero({
       </GestureDetector>
 
       <Pressable
-        accessibilityLabel={isFavorite ? 'Remove from wishlist' : 'Add to wishlist'}
+        accessibilityLabel={isFavorite ? 'Remove from watchlist' : 'Add to watchlist'}
         accessibilityRole="button"
         accessibilityState={{ selected: isFavorite }}
         hitSlop={8}
@@ -115,11 +115,11 @@ export function CardDetailHero({
         ]}
         testID={testID ? `${testID}-favorite` : undefined}
       >
-        <HeartToggle
+        <WatchToggle
           bounce="lively"
           burst
           filled={isFavorite}
-          fill={theme.colors.dangerStrong}
+          fill={theme.colors.brandStrong}
           size={20}
           stroke={theme.colors.gray600}
         />
@@ -135,7 +135,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     // 36×36 to match the header's share/back IconButtons (size 36) — same right
-    // inset (16) + same size keeps the heart on the same vertical axis as share.
+    // inset (16) + same size keeps the toggle on the same vertical axis as share.
     height: 36,
     justifyContent: 'center',
     position: 'absolute',

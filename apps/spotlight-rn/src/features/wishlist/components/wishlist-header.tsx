@@ -39,7 +39,7 @@ type WishlistHeaderProps = {
    */
   floating?: boolean;
   /**
-   * The page's scroll offset. Drives the centred "Wishlist" title sliding up out
+   * The page's scroll offset. Drives the centred "Watchlist" title sliding up out
    * of the row while the bubbles either side of it stay put; omit to keep the
    * title solid and static.
    *
@@ -71,7 +71,7 @@ type WishlistHeaderProps = {
 };
 
 // Lean top bar for the Wishlist screen: a circular menu button, centred
-// "Wishlist" title, and an edit slot.
+// "Watchlist" title, and an edit slot.
 //
 // The left slot used to be a BACK chevron, from when Wishlist was pushed in from
 // the drawer. It is one of the four TABS now, so there was nothing behind it to
@@ -244,7 +244,7 @@ export function WishlistHeader({
         any further up the row would shave the glass controls instead.
 
         Safe to clip tight to the text: `titleMedium`'s 23.4pt line box already
-        contains the font's descenders, and "Wishlist" has none to lose anyway.
+        contains the font's descenders, and "Watchlist" has none to lose anyway.
       */}
       <View style={styles.headerTitleClip} testID={`${testID}-title-clip`}>
         <Animated.View
@@ -264,7 +264,7 @@ export function WishlistHeader({
             testID="wishlist-header-title"
             variant="titleMedium"
           >
-            Wishlist
+            Watchlist
           </AppText>
         </Animated.View>
       </View>
@@ -314,7 +314,7 @@ export function WishlistHeader({
                 ...(onToggleEditMode
                   ? [
                       {
-                        accessibilityLabel: 'Edit wishlist',
+                        accessibilityLabel: 'Edit watchlist',
                         children: (
                           <EditPencil
                             color={theme.colors.gray900}
@@ -335,7 +335,7 @@ export function WishlistHeader({
                 ...(onShare
                   ? [
                       {
-                        accessibilityLabel: 'Share wishlist',
+                        accessibilityLabel: 'Share watchlist',
                         children: (
                           <ShareIos
                             color={theme.colors.gray900}

@@ -385,7 +385,7 @@ describe('PublicProfileScreen', () => {
       fireEvent.press(screen.getByTestId('public-profile-tabs-tab-wishlist'));
 
       await waitFor(() => {
-        expect(screen.getByText('No cards on their wishlist yet')).toBeTruthy();
+        expect(screen.getByText('No cards on their watchlist yet')).toBeTruthy();
       });
     });
 
@@ -402,7 +402,7 @@ describe('PublicProfileScreen', () => {
       fireEvent.press(screen.getByTestId('public-profile-tabs-tab-wishlist'));
 
       await waitFor(() => {
-        expect(screen.getByText('Could not load this wishlist')).toBeTruthy();
+        expect(screen.getByText('Could not load this watchlist')).toBeTruthy();
       });
 
       // A failed read must not pin the error for the rest of the visit.

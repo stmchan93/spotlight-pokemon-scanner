@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react-native';
 
 // Reanimated v4's official `/mock` entrypoint pulls in the native worklets
 // runtime, which throws under jest. Override it locally with a self-contained,
-// dependency-free stub so the heart renders synchronously and all animation
+// dependency-free stub so the toggle renders synchronously and all animation
 // helpers no-op. Declared before importing the component under test.
 jest.mock('react-native-reanimated', () => {
    
@@ -57,53 +57,53 @@ jest.mock('react-native-reanimated', () => {
 });
 
 // eslint-disable-next-line import/first
-import { HeartToggle } from '@/components/heart-toggle';
+import { WatchToggle } from '@/components/heart-toggle';
 
 // With reanimated mocked, all animations no-op and these assertions exercise
 // the static render output only.
-describe('HeartToggle', () => {
+describe('WatchToggle', () => {
   it('mounts without throwing in the resting (unfilled) state', () => {
     expect(() =>
-      render(<HeartToggle filled={false} testID="heart" />),
+      render(<WatchToggle filled={false} testID="watch" />),
     ).not.toThrow();
 
-    expect(screen.getByTestId('heart')).toBeTruthy();
+    expect(screen.getByTestId('watch')).toBeTruthy();
     // The SVG glyph layer is always rendered (outline + cross-fade fill).
-    expect(screen.getByTestId('heart-svg')).toBeTruthy();
+    expect(screen.getByTestId('watch-svg')).toBeTruthy();
   });
 
   it('mounts without throwing in the filled state', () => {
     expect(() =>
-      render(<HeartToggle filled testID="heart" />),
+      render(<WatchToggle filled testID="watch" />),
     ).not.toThrow();
 
-    expect(screen.getByTestId('heart')).toBeTruthy();
-    expect(screen.getByTestId('heart-svg')).toBeTruthy();
+    expect(screen.getByTestId('watch')).toBeTruthy();
+    expect(screen.getByTestId('watch-svg')).toBeTruthy();
   });
 
   it('accepts the full prop surface (size, colors, bounce, burst) without throwing', () => {
     expect(() =>
       render(
-        <HeartToggle
+        <WatchToggle
           bounce="springy"
           burst
           filled
           fill="#D93025"
           size={32}
           stroke="#999999"
-          testID="heart"
+          testID="watch"
         />,
       ),
     ).not.toThrow();
 
-    expect(screen.getByTestId('heart')).toBeTruthy();
+    expect(screen.getByTestId('watch')).toBeTruthy();
   });
 
-  it('re-renders cleanly when toggling from unfilled to filled (like transition)', () => {
-    const { rerender } = render(<HeartToggle filled={false} testID="heart" />);
-    expect(screen.getByTestId('heart')).toBeTruthy();
+  it('re-renders cleanly when toggling from unfilled to filled (watch transition)', () => {
+    const { rerender } = render(<WatchToggle filled={false} testID="watch" />);
+    expect(screen.getByTestId('watch')).toBeTruthy();
 
-    expect(() => rerender(<HeartToggle filled testID="heart" />)).not.toThrow();
-    expect(screen.getByTestId('heart')).toBeTruthy();
+    expect(() => rerender(<WatchToggle filled testID="watch" />)).not.toThrow();
+    expect(screen.getByTestId('watch')).toBeTruthy();
   });
 });

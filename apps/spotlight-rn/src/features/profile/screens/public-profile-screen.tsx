@@ -74,7 +74,7 @@ const COLLECTION_PAGE_SIZE = 200;
 type ProfileTab = 'collection' | 'wishlist' | 'forsale' | 'activity';
 const ALL_PROFILE_TABS: readonly PageTab<ProfileTab>[] = [
   { value: 'collection', label: 'Collection' },
-  { value: 'wishlist', label: 'Wishlist' },
+  { value: 'wishlist', label: 'Watchlist' },
   { value: 'forsale', label: 'For Sale' },
   { value: 'activity', label: 'Activity' },
 ];
@@ -970,18 +970,18 @@ export function PublicProfileScreen({
 
   const wishlistEmpty =
     wishlistStatus === 'loading' || wishlistStatus === 'idle' ? (
-      <InlineLoader label="Fetching wishlist" testID={`${testID}-wishlist-empty`} />
+      <InlineLoader label="Fetching watchlist" testID={`${testID}-wishlist-empty`} />
     ) : (
       <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
         <StateCard
           message={
             wishlistStatus === 'error'
               ? 'Please try again in a moment.'
-              : "This collector hasn't wishlisted any cards yet."
+              : "This collector isn't watching any cards yet."
           }
           style={styles.stateCard}
           testID={`${testID}-wishlist-empty`}
-          title={wishlistStatus === 'error' ? 'Could not load this wishlist' : 'No cards on their wishlist yet'}
+          title={wishlistStatus === 'error' ? 'Could not load this watchlist' : 'No cards on their watchlist yet'}
           variant="field"
         />
       </View>

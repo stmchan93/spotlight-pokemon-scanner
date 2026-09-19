@@ -28,7 +28,7 @@ describe('buildProfileShareMessage', () => {
   it('names the wishlist when that is what was shared', () => {
     expect(
       buildProfileShareMessage({ destination: 'wishlist', displayName: 'Ash Ketchum', handle: 'ash' }),
-    ).toBe("Check out Ash Ketchum's wishlist");
+    ).toBe("Check out Ash Ketchum's watchlist");
   });
 
   it('prefers the human name over the handle rather than printing both', () => {

@@ -3977,8 +3977,8 @@ export function ScannerScreen({
       }
     : activeBulkAction === 'wishlist'
       ? {
-          title: `Add ${bulkEligibleCount} ${itemWord(bulkEligibleCount)} to Wishlist?`,
-          description: 'These items will be added to your Wishlist using their current scan details.',
+          title: `Add ${bulkEligibleCount} ${itemWord(bulkEligibleCount)} to Watchlist?`,
+          description: 'These items will be added to your Watchlist using their current scan details.',
           confirmLabel: 'Add All',
           confirmVariant: 'dark' as const,
         }

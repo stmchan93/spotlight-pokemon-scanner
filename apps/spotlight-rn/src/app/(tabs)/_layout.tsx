@@ -232,8 +232,8 @@ export default function TabsLayout() {
         owns, which is what makes matching them cheap:
 
           Home      iconoir `HomeSimple`  — the house plus its `M9 17H15` slot
-          Wishlist  iconoir `Bookmark`    — ink is exactly 14x18 in a 24 box,
-                                            which is the size Figma reports
+          Watchlist iconoir `Eye`         — the watch metaphor, matching the
+                                            eye used on the PDP and in menus
           Scan      Apple's SF `viewfinder`
 
         A NATIVE bar takes a platform symbol name or a raster image, never a
@@ -242,7 +242,7 @@ export default function TabsLayout() {
         `tools/generate_tab_icons.py` (not from a Figma export, which expires
         and drifts from the icons the rest of the app draws) and land here as
         `src` images. Both also get a FILLED `selected` variant (Figma
-        4299:95029) from the same script — solid Bookmark from the package;
+        4299:95029) from the same script — solid Eye from the package;
         filled home built from the outline shell since iconoir ships no solid
         HomeSimple, with the door slot knocked out of the alpha because only
         alpha survives template tinting. Regenerate after an iconoir upgrade.
@@ -336,7 +336,7 @@ export default function TabsLayout() {
             selected: require('../../../assets/images/tab-icons/wishlist-filled.png'),
           }}
         />
-        <Label>Wishlist</Label>
+        <Label>Watchlist</Label>
       </Trigger>
       <Trigger name="social">
         {/*

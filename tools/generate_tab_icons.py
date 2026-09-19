@@ -49,19 +49,19 @@ OUT = REPO / "apps" / "spotlight-rn" / "assets" / "images" / "tab-icons"
 # they can be checked against the Figma layer names directly.
 ICONS = {
     "home": "HomeSimple",
-    "wishlist": "Bookmark",
+    "wishlist": "Eye",
 }
 
 # SELECTED-STATE VARIANTS (Figma 4299:95029): the same glyphs, filled.
-# Wishlist ships as iconoir `solid/Bookmark`. iconoir has no solid HomeSimple,
+# Watchlist ships as iconoir `solid/Eye`. iconoir has no solid HomeSimple,
 # so the filled home is the regular shell filled — with the door slot KNOCKED
 # OUT of the alpha rather than painted white as the Figma asset does: a tab
 # icon is template-tinted, only alpha survives, and white ink would simply
 # vanish into the fill.
 
-# Rendered in a 24pt box for BOTH glyphs. Figma reports Wishlist as 14x18 because
-# that is the bookmark's ink inside iconoir's 24x24 viewBox — rendering it in the
-# same box as Home is what keeps their relative weights right in the bar.
+# Rendered in a 24pt box for BOTH glyphs. Each glyph's ink fills its own share of
+# iconoir's 24x24 viewBox — rendering both in the same box is what keeps their
+# relative weights right in the bar.
 BOX_PT = 24
 # React Native picks `@2x` / `@3x` off the filename; the base file is 1x.
 SCALES = (1, 2, 3)
@@ -162,7 +162,7 @@ def main() -> int:
     rasterize(
         "wishlist-filled",
         build_solid_svg(extract_paths(ICONS["wishlist"], variant="solid")),
-        "solid/Bookmark",
+        "solid/Eye",
     )
     return 0
 

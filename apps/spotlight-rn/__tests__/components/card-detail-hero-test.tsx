@@ -32,12 +32,12 @@ describe('CardDetailHero', () => {
     renderHero();
     expect(screen.getByTestId('hero')).toBeTruthy();
     const favorite = screen.getByTestId('hero-favorite');
-    expect(favorite.props.accessibilityLabel).toBe('Add to wishlist');
+    expect(favorite.props.accessibilityLabel).toBe('Add to watchlist');
   });
 
   it('reflects the favorited state in the accessibility label', () => {
     renderHero({ isFavorite: true });
-    expect(screen.getByTestId('hero-favorite').props.accessibilityLabel).toBe('Remove from wishlist');
+    expect(screen.getByTestId('hero-favorite').props.accessibilityLabel).toBe('Remove from watchlist');
   });
 
   it('invokes onToggleFavorite when the heart is pressed', () => {

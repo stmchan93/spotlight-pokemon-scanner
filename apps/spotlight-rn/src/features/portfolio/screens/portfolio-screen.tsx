@@ -1211,14 +1211,14 @@ export function PortfolioScreen({
           savedIsFavorite ? 'wishlist_item_added' : 'wishlist_item_removed',
           { source: 'collection_menu' },
         );
-        setWishlistToast(savedIsFavorite ? 'Added to Wishlist' : 'Removed from Wishlist');
+        setWishlistToast(savedIsFavorite ? 'Added to Watchlist' : 'Removed from Watchlist');
         refreshData();
       })
       .catch(() => {
         setWishlistToast(
           nextIsFavorite
-            ? "Couldn't add that card to your Wishlist. Please try again."
-            : "Couldn't remove that card from your Wishlist. Please try again.",
+            ? "Couldn't add that card to your Watchlist. Please try again."
+            : "Couldn't remove that card from your Watchlist. Please try again.",
         );
       });
   }, [actionMenuEntry, refreshData, spotlightRepository]);

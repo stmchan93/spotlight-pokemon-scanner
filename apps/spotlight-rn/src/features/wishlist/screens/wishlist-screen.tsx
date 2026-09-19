@@ -211,7 +211,7 @@ export function WishlistScreen() {
       setFavorites(result);
       setErrorMessage(null);
     } catch {
-      setErrorMessage('Could not load your wishlist right now.');
+      setErrorMessage('Could not load your watchlist right now.');
     }
   }, [spotlightRepository]);
 
@@ -230,7 +230,7 @@ export function WishlistScreen() {
 
   /*
     The bar FLOATS: the bubbles stay pinned at the top while the centred
-    "Wishlist" title slides up out of the row, so the list scrolls beneath the
+    "Watchlist" title slides up out of the row, so the list scrolls beneath the
     whole thing. The offset is handed to `WishlistHeader` raw — the bar owns the
     motion, this screen only measures the scroll.
   */
@@ -550,13 +550,13 @@ export function WishlistScreen() {
         <View style={styles.searchRow}>
           <View style={styles.searchFieldWrap}>
             <SearchField
-              accessibilityLabel="Search your wishlist"
+              accessibilityLabel="Search your watchlist"
               autoCapitalize="none"
               autoCorrect={false}
               clearButtonMode="while-editing"
               containerTestID="wishlist-search-input"
               onChangeText={setQuery}
-              placeholder="Search your wishlist"
+              placeholder="Search your watchlist"
               returnKeyType="search"
               size="collection"
               surface="muted"
@@ -622,7 +622,7 @@ export function WishlistScreen() {
 
   const listEmpty = showLoading ? (
     <Text style={[styles.emptyText, { color: theme.colors.gray600 }]} testID="wishlist-loading">
-      Loading your wishlist…
+      Loading your watchlist…
     </Text>
   ) : errorMessage ? (
     <Text style={[styles.emptyText, { color: theme.colors.gray600 }]} testID="wishlist-error">
@@ -631,7 +631,7 @@ export function WishlistScreen() {
   ) : (
     <Text style={[styles.emptyText, { color: theme.colors.gray600 }]} testID="wishlist-empty">
       {favorites.length === 0
-        ? 'Scan a card to add it to your wishlist.'
+        ? 'Scan a card to add it to your watchlist.'
         : 'No cards match your filters.'}
     </Text>
   );
@@ -773,11 +773,11 @@ export function WishlistScreen() {
       <ConfirmDeleteSheet
         confirmLabel="Remove"
         confirmPending={isDeleting}
-        message={`You're about to remove ${selectedCount} card${selectedCount === 1 ? '' : 's'} from your Wishlist. Are you sure you want to proceed?`}
+        message={`You're about to remove ${selectedCount} card${selectedCount === 1 ? '' : 's'} from your Watchlist. Are you sure you want to proceed?`}
         onClose={() => setDeleteConfirmOpen(false)}
         onConfirm={handleConfirmBulkRemove}
         testID="wishlist-bulk-remove-sheet"
-        title="Remove from Wishlist"
+        title="Remove from Watchlist"
         visible={deleteConfirmOpen}
       />
 
@@ -805,7 +805,7 @@ export function WishlistScreen() {
               : { kind: 'text', body: shareBody }
           }
           testID="wishlist-share-sheet"
-          title="Send wishlist to"
+          title="Send watchlist to"
           visible={shareSheetOpen}
         />
       ) : null}
@@ -883,7 +883,7 @@ function WishlistListRow({
   // flash back open mid-animation.
   const renderRightActions = () => (
     <Pressable
-      accessibilityLabel="Remove from wishlist"
+      accessibilityLabel="Remove from watchlist"
       accessibilityRole="button"
       onPress={() => {
         swipeableRef.current?.close();

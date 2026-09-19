@@ -1401,7 +1401,7 @@ describe('PortfolioScreen', () => {
     });
     expect(setCardFavorite).toHaveBeenCalledWith('card-lp-1', true);
     // The write is invisible on the Collection row itself, so it has to say so.
-    expect(await screen.findByText('Added to Wishlist')).toBeTruthy();
+    expect(await screen.findByText('Added to Watchlist')).toBeTruthy();
   });
 
   it('omits Duplicate from the card actions menu', async () => {
@@ -1451,7 +1451,7 @@ describe('PortfolioScreen', () => {
     });
 
     expect(setCardFavorite).toHaveBeenCalledWith('card-lp-1', false);
-    expect(await screen.findByText('Removed from Wishlist')).toBeTruthy();
+    expect(await screen.findByText('Removed from Watchlist')).toBeTruthy();
   });
 
   it('surfaces an error when the wishlist write fails instead of failing silently', async () => {
@@ -1480,7 +1480,7 @@ describe('PortfolioScreen', () => {
 
     expect(setCardFavorite).toHaveBeenCalledWith('card-lp-1', true);
     expect(
-      await screen.findByText("Couldn't add that card to your Wishlist. Please try again."),
+      await screen.findByText("Couldn't add that card to your Watchlist. Please try again."),
     ).toBeTruthy();
     expect(screen.getByTestId('collection-wishlist-toast')).toBeTruthy();
   });

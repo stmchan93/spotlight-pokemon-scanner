@@ -1155,7 +1155,7 @@ describe('ScannerScreen', () => {
     // Confirmation sheet with the count + wishlist copy.
     expect(await screen.findByTestId('scan-bulk-confirm-sheet')).toBeTruthy();
     expect(screen.getByTestId('scan-bulk-confirm-sheet-title').props.children)
-      .toBe('Add 1 item to Wishlist?');
+      .toBe('Add 1 item to Watchlist?');
 
     fireEvent.press(screen.getByTestId('scan-bulk-confirm-sheet-confirm'));
 

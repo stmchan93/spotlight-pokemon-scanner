@@ -50,7 +50,7 @@ const filterOptions: { label: string; value: InventoryFilterOption }[] = [
   { label: 'All', value: 'all' },
   { label: 'Raw', value: 'raw' },
   { label: 'Graded', value: 'graded' },
-  { label: 'Wishlist', value: 'favorite' },
+  { label: 'Watchlist', value: 'favorite' },
 ];
 
 const PAGE_GUTTER = 16;

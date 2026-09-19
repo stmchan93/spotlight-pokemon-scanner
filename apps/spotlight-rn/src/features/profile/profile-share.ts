@@ -26,6 +26,15 @@ export type ProfileShareIdentity = {
 };
 
 /**
+ * `destination` is an internal route key, so it cannot be interpolated into copy
+ * directly — `'wishlist'` is the route, "watchlist" is what users call it.
+ */
+const DESTINATION_LABEL: Record<'collection' | 'wishlist', string> = {
+  collection: 'collection',
+  wishlist: 'watchlist',
+};
+
+/**
  * "Check out <name>'s collection".
  *
  * Was "Check out <name> (@<handle>) on Ekalight" — the app name and the
@@ -57,5 +66,5 @@ export function buildProfileShareMessage({
   if (!who) {
     return null;
   }
-  return `Check out ${who}'s ${destination}`;
+  return `Check out ${who}'s ${DESTINATION_LABEL[destination]}`;
 }

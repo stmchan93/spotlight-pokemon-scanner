@@ -1,12 +1,12 @@
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { DataTransferBoth, Heart } from 'iconoir-react-native';
+import { DataTransferBoth, Eye } from 'iconoir-react-native';
 
 import { PillButton, useSpotlightTheme } from '@spotlight/design-system';
 
 // Insights chip row (Figma 2206-20251): All / Likes / Price / A-Z / Ungraded /
 // Graded. Mirrors the Collection chip semantics ('favorites' stays the internal
-// key for the user-facing "Likes") but with the Insights ordering, the "Price"
-// label, and the heart / sort-arrows chip icons from the design.
+// key for the user-facing "Watching") but with the Insights ordering, the "Price"
+// label, and the eye / sort-arrows chip icons from the design.
 export type InsightsFilterKey =
   | 'all'
   | 'favorites'
@@ -26,7 +26,7 @@ export const INSIGHTS_FILTER_ORDER: InsightsFilterKey[] = [
 
 const FILTER_LABELS: Record<InsightsFilterKey, string> = {
   all: 'All',
-  favorites: 'Likes',
+  favorites: 'Watching',
   price: 'Price',
   az: 'A-Z',
   ungraded: 'Ungraded',
@@ -49,7 +49,7 @@ export function InsightsFilterChipRow({
   const chipIcon = (key: InsightsFilterKey, selected: boolean) => {
     const color = selected ? theme.colors.gray0 : theme.colors.gray900;
     if (key === 'favorites') {
-      return <Heart color={color} height={16} width={16} />;
+      return <Eye color={color} height={16} width={16} />;
     }
     if (key === 'price') {
       return <DataTransferBoth color={color} height={16} width={16} />;

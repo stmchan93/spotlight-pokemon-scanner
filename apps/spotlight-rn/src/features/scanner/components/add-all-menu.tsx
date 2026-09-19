@@ -40,7 +40,7 @@ const FALLBACK_LEFT = 16;
  * Anchored dropdown for the scanner tray's "ADD ALL ▾" control — Figma
  * 1379:2323 (second frame). A small white rounded card pops just below the
  * header trigger over the dark tray and lists three stacked rows: Collection,
- * Wishlist, and a destructive-red Clear. Selecting a row only reports the
+ * Watchlist, and a destructive-red Clear. Selecting a row only reports the
  * action; the parent closes this menu and opens the matching confirm sheet.
  */
 export function AddAllMenu({
@@ -124,7 +124,7 @@ export function AddAllMenu({
 
         {actions.includes('wishlist') ? (
         <Pressable
-          accessibilityLabel="Add to wishlist"
+          accessibilityLabel="Add to watchlist"
           accessibilityRole="button"
           onPress={() => onSelect('wishlist')}
           style={({ pressed }) => [
@@ -135,7 +135,7 @@ export function AddAllMenu({
         >
           <Bookmark color={theme.colors.gray900} height={20} width={20} />
           <Text style={[theme.typography.body, styles.label, { color: theme.colors.gray900 }]}>
-            Wishlist
+            Watchlist
           </Text>
         </Pressable>
         ) : null}

@@ -63,7 +63,7 @@ describe('SharedProfileBubble', () => {
     expect(await screen.findByTestId('bubble-card')).toBeTruthy();
     // An invitation, not a caption — no body text travels beside the card, so
     // this line IS the message.
-    expect(screen.getByText("See Misty's wishlist!")).toBeTruthy();
+    expect(screen.getByText("See Misty's watchlist!")).toBeTruthy();
   });
 
   it('reads the WISHLIST for a wishlist share and the collection for a collection share', async () => {

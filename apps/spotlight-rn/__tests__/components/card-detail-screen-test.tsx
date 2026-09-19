@@ -1445,20 +1445,20 @@ describe('CardDetailScreen', () => {
     );
 
     const heart = await screen.findByTestId('detail-hero-card-favorite');
-    expect(heart.props.accessibilityLabel).toBe('Add to wishlist');
+    expect(heart.props.accessibilityLabel).toBe('Add to watchlist');
 
     fireEvent.press(heart);
     await waitFor(() => {
       expect(setCardFavorite).toHaveBeenLastCalledWith('sm7-1', true);
       expect(screen.getByTestId('detail-hero-card-favorite').props.accessibilityLabel)
-        .toBe('Remove from wishlist');
+        .toBe('Remove from watchlist');
     });
 
     fireEvent.press(screen.getByTestId('detail-hero-card-favorite'));
     await waitFor(() => {
       expect(setCardFavorite).toHaveBeenLastCalledWith('sm7-1', false);
       expect(screen.getByTestId('detail-hero-card-favorite').props.accessibilityLabel)
-        .toBe('Add to wishlist');
+        .toBe('Add to watchlist');
     });
   });
 
@@ -1647,7 +1647,7 @@ describe('CardDetailScreen', () => {
     expect(screen.queryByTestId('detail-since-added')).toBeNull();
   });
 
-  it('shows the "since wishlisted" position row from favoriteContext for a wishlisted-but-unowned card', async () => {
+  it('shows the "since watched" position row from favoriteContext for a wishlisted-but-unowned card', async () => {
     const baseRepository = createTestSpotlightRepository();
     renderWithProviders(
       <CardDetailScreen cardId="sm7-1" onBack={jest.fn()} />,
@@ -1677,7 +1677,7 @@ describe('CardDetailScreen', () => {
     expect(within(row).getByTestId('detail-since-added-amount').props.children)
       .toBe('$12.50 (4.10%)');
     expect(within(row).getByTestId('detail-since-added-caption').props.children)
-      .toBe('since wishlisted Jul 2');
+      .toBe('since watched Jul 2');
   });
 
   it('an owned entry beats favoriteContext: only the owned "since added" variant renders', async () => {

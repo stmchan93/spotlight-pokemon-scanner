@@ -37,7 +37,7 @@ describe('buildWishlistShareMessage', () => {
 
   it('names whose wishlist it is, and nothing else', () => {
     expect(buildWishlistShareMessage(cards, { displayName: 'Ash Ketchum' })).toBe(
-      "Check out Ash Ketchum's wishlist",
+      "Check out Ash Ketchum's watchlist",
     );
   });
 
@@ -49,14 +49,14 @@ describe('buildWishlistShareMessage', () => {
   });
 
   it('falls back to the handle when there is no display name', () => {
-    expect(buildWishlistShareMessage(cards, { handle: 'ash' })).toBe("Check out @ash's wishlist");
-    expect(buildWishlistShareMessage(cards, { handle: '@ash' })).toBe("Check out @ash's wishlist");
+    expect(buildWishlistShareMessage(cards, { handle: 'ash' })).toBe("Check out @ash's watchlist");
+    expect(buildWishlistShareMessage(cards, { handle: '@ash' })).toBe("Check out @ash's watchlist");
   });
 
   it('still sends something when there is no identity at all', () => {
     // Unlike a profile share, a nameless wishlist is still worth sending: the
     // link resolves and names its owner on arrival.
-    expect(buildWishlistShareMessage(cards)).toBe('Check out this wishlist');
+    expect(buildWishlistShareMessage(cards)).toBe('Check out this watchlist');
   });
 
   /*
