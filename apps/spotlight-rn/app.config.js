@@ -39,6 +39,10 @@ const EXPO_EXTRA_ENV_MAPPINGS = [
   // Supabase enforces captcha; when absent (or the TBD placeholder) the app
   // sends auth requests tokenless, which is correct for staging/dev.
   ['EXPO_PUBLIC_TURNSTILE_SITE_KEY', 'turnstileSiteKey'],
+  // eBay Partner Network. Absent campaign id = eBay links ship untagged,
+  // byte-identical to before — so omitting these is silent, not loud.
+  ['EXPO_PUBLIC_EBAY_EPN_CAMPAIGN_ID', 'ebayEpnCampaignId'],
+  ['EXPO_PUBLIC_EBAY_EPN_ROTATION_ID', 'ebayEpnRotationId'],
 ];
 
 const PLACEHOLDER_ENV_VALUES = new Set([
