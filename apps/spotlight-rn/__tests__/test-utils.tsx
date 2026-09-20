@@ -210,6 +210,25 @@ export function createTestSpotlightRepository(
       return overrides.getCardFavorites?.(...args)
         ?? baseRepository.getCardFavorites(...args);
     },
+    setCardFavoriteTarget: (...args) => {
+      return overrides.setCardFavoriteTarget?.(...args)
+        ?? baseRepository.setCardFavoriteTarget(...args);
+    },
+    listDealAlerts: (...args) => {
+      return overrides.listDealAlerts?.(...args) ?? baseRepository.listDealAlerts(...args);
+    },
+    markDealAlertSeen: (...args) => {
+      return overrides.markDealAlertSeen?.(...args)
+        ?? baseRepository.markDealAlertSeen(...args);
+    },
+    markDealAlertTapped: (...args) => {
+      return overrides.markDealAlertTapped?.(...args)
+        ?? baseRepository.markDealAlertTapped(...args);
+    },
+    getRawEbayListingCandidates: (...args) => {
+      return overrides.getRawEbayListingCandidates?.(...args)
+        ?? baseRepository.getRawEbayListingCandidates(...args);
+    },
     getAddToCollectionOptions: (...args) => {
       return overrides.getAddToCollectionOptions?.(...args)
         ?? baseRepository.getAddToCollectionOptions(...args);

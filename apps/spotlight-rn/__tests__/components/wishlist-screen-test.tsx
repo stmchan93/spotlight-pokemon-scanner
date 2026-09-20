@@ -26,6 +26,14 @@ jest.mock('@react-navigation/native', () => ({
   useIsFocused: () => mockIsFocused,
 }));
 
+// The Deals band reads `watchDealRadarEnabled` off the access gate, which at
+// runtime wraps the whole app. Supply the status directly instead of standing
+// up the provider.
+let mockAccessStatus: { watchDealRadarEnabled?: boolean } | null = null;
+jest.mock('@/features/auth/access-gate-provider', () => ({
+  useAccessGate: () => ({ refresh: jest.fn(), state: 'allowed', status: mockAccessStatus }),
+}));
+
 const mockOpenLogin = jest.fn();
 let mockIsGuest = false;
 jest.mock('@/features/auth/use-guest-gate', () => ({

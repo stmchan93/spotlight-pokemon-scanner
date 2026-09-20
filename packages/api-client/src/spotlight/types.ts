@@ -1647,6 +1647,13 @@ export type CardFavoriteEntry = {
   sparkPoints?: number[] | null;
   /** Percent change across `sparkPoints`; drives the sparkline tint. */
   sparkTrendPct?: number | null;
+  /**
+   * The watchlist target price, in USD CENTS (not the dollars used by
+   * `marketPrice`). null/undefined = no target set. Written through
+   * `setCardFavoriteTarget`; the deal radar's `target_hit` signal reads the
+   * same column.
+   */
+  targetPriceCents?: number | null;
 };
 
 export type CardFavoritesQuery = {
@@ -2008,6 +2015,14 @@ export type AccessStatus = {
    * fetch failure) means no gate, so a backend blip can never trap users.
    */
   handleClaimRequired: boolean;
+  /**
+   * Whether the watchlist deal radar is on for this user. FAILS OPEN: an older
+   * backend that never sends the field — and any fetch failure — reads as
+   * `true`, so a server blip hides the feature from nobody. (This is the
+   * opposite direction from `handleClaimRequired`, which fails open to `false`
+   * because it GATES the app.)
+   */
+  watchDealRadarEnabled: boolean;
 };
 
 export type AccessRedeemResult = {
@@ -2025,4 +2040,172 @@ export type CardShowModeResult = {
 
 export type AccessWhitelist = {
   emails: string[];
+};
+
+
+// --- Watchlist deal radar -------------------------------------------------
+// The radar watches the raw eBay lane for the cards on a user's watchlist and
+// files an alert when a listing is cheap against some baseline. Units are
+// mixed on purpose and the field names say which is which: alert money is
+// integer USD CENTS (server-computed), listing money is DOLLARS (floats, eBay's
+// own units). Never add one to the other without converting.
+
+/**
+ * Why the radar fired. Server-owned vocabulary:
+ * - `under_added`   — listed under what the card cost when it was watchlisted
+ * - `trailing_low`  — under the trailing low
+ * - `drawdown_30d`  — a 30-day drawdown
+ * - `since_watched` — moved since it was watchlisted
+ * - `target_hit`    — crossed the user's own `targetPriceCents`
+ * An unrecognized kind normalizes to `under_added` rather than dropping the
+ * alert, so a new server signal still renders.
+ */
+export type DealAlertKind =
+  | 'under_added'
+  | 'trailing_low'
+  | 'drawdown_30d'
+  | 'since_watched'
+  | 'target_hit';
+
+/**
+ * How confidently a raw eBay listing was matched to the card. Only these three
+ * tiers are servable — the backend never emits `unverified` to a client.
+ */
+export type RawEbayVerificationTier = 'scrydex' | 'aspects' | 'title';
+
+/** Fixed price, or an auction inside its final window. */
+export type RawEbayBuyingOption = 'fixed_price' | 'auction';
+
+export type DealAlert = {
+  /** Server alert id (hex). Pass this to `markDealAlertSeen` / `...Tapped`. */
+  id: string;
+  cardId: string;
+  /** The eBay listing this alert points at; opaque, for dedupe/analytics only. */
+  listingId: string;
+  kind: DealAlertKind;
+  /** Shipping-inclusive listing total, USD CENTS. */
+  totalCents: number;
+  /** What `totalCents` was judged against, USD CENTS. */
+  baselineCents: number;
+  /** Market price at alert time, USD CENTS; null when none could be resolved. */
+  marketCents: number | null;
+  /** Percent below the baseline (e.g. 22.22), or null. */
+  discountPct: number | null;
+  /** `baselineCents - totalCents`, USD CENTS, or null. */
+  savingsCents: number | null;
+  /** The eBay item URL to open on tap; null when the server had none. */
+  url: string | null;
+  verificationTier: RawEbayVerificationTier | null;
+  createdAt: string | null;
+  /** Stamped ONCE by `markDealAlertSeen`; a second call never moves it. */
+  seenAt: string | null;
+  /** Stamped ONCE by `markDealAlertTapped`; a second call never moves it. */
+  tappedAt: string | null;
+};
+
+export type DealAlertsPage = {
+  /** Newest first. */
+  alerts: DealAlert[];
+  /** The limit the server actually applied (it clamps to 1..200). */
+  limit: number;
+  /**
+   * The owner's ALL-TIME unseen alert count — NOT the number of unseen rows in
+   * `alerts`. This is the badge number; do not recompute it from the page.
+   */
+  unseenCount: number;
+};
+
+/** The watchlist target row for one card, as returned by the target write. */
+export type CardFavoriteTarget = {
+  cardId: string;
+  /** USD CENTS, or null when the target was cleared. */
+  targetPriceCents: number | null;
+  /** 'USD' while a target is set; null once it is cleared. */
+  targetCurrency: string | null;
+  targetSetAt: string | null;
+  /**
+   * When the target last fired. Changing the target CLEARS this (the re-arm
+   * clock belongs to the old price); re-sending the same value preserves it.
+   */
+  targetTriggeredAt: string | null;
+};
+
+/**
+ * Outcome of a target write. Non-throwing so the UI can branch instead of
+ * try/catch — `not_watchlisted` is the server's 404 and means the card has to be
+ * favorited first.
+ */
+export type CardFavoriteTargetResult =
+  | { status: 'ok'; target: CardFavoriteTarget }
+  | { status: 'not_watchlisted'; target: null }
+  | { status: 'failed'; target: null };
+
+/**
+ * One validated raw eBay listing. MONEY HERE IS DOLLARS (floats) — eBay's own
+ * units — unlike the integer cents used by `DealAlert` and `targetPriceCents`.
+ * The `...Dollars` suffixes are there so the two can never be mixed silently.
+ */
+export type RawEbayListingCandidate = {
+  itemId: string | null;
+  title: string;
+  itemUrl: string | null;
+  imageUrl: string | null;
+  /** Item price, DOLLARS. */
+  priceDollars: number | null;
+  /** Shipping, DOLLARS; null when eBay did not report it. */
+  shippingDollars: number | null;
+  /**
+   * Whether shipping was actually known. When false, `totalDollars` is the item
+   * price alone and must not be presented as a shipping-inclusive total.
+   */
+  shippingKnown: boolean;
+  /** Shipping-inclusive total, DOLLARS. This is the server's sort key. */
+  totalDollars: number | null;
+  currencyCode: string;
+  buyingOption: RawEbayBuyingOption;
+  /** ISO end time for auctions; null for fixed price. */
+  auctionEndAt: string | null;
+  /** Minutes left on an auction (may be fractional); null for fixed price. */
+  auctionMinutesRemaining: number | null;
+  verification: RawEbayVerificationTier | null;
+  /** Always false — graded listings are rejected before they reach a candidate. */
+  isGraded: boolean;
+};
+
+/**
+ * The raw eBay lowest-listed panel payload.
+ *
+ * RENDER `candidates`. The wire also carries a `listings` array — the raw,
+ * UNVALIDATED page straight off eBay, in no useful order — and it is
+ * deliberately NOT exposed on this type. `candidates` is the validated,
+ * cheapest-shipping-inclusive-first, limit-capped list, and it is the only one
+ * safe to show a user.
+ *
+ * `status: 'unavailable'` means eBay is off or unreachable. Show NOTHING, not an
+ * error — this panel is always optional.
+ */
+export type RawEbayListingsResponse = {
+  cardId: string;
+  status: 'available' | 'unavailable';
+  /** e.g. 'no_results'; null when a page came back. */
+  statusReason: string | null;
+  /** Why the lane is off/unreachable; only set when status is 'unavailable'. */
+  unavailableReason: string | null;
+  /** Whether the page was served from the per-card cache (no eBay call). */
+  cached: boolean;
+  /** The printing filter that was applied to the response, if any. */
+  variant: string | null;
+  /** THE ONE TO RENDER. Cheapest shipping-inclusive first, already limit-capped. */
+  candidates: RawEbayListingCandidate[];
+  candidateCount: number;
+  /** Size of the unvalidated `listings` page. Diagnostics only — never render it. */
+  listingCount: number;
+};
+
+export type RawEbayListingsQuery = {
+  cardId: string;
+  /** Server clamps this; defaults to the backend's panel limit. */
+  limit?: number;
+  /** Printing filter (e.g. '1st Edition'). Shapes the response only. */
+  variant?: string | null;
 };

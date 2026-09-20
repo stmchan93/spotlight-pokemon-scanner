@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useIsFocused } from '@react-navigation/native';
 import {
   Animated,
+  Linking,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -21,6 +22,7 @@ import {
   RARITY_BUCKET_LABELS,
   RARITY_FILTER_BUCKETS,
   type CardFavoriteEntry,
+  type DealAlert,
   type RarityFilterBucket,
 } from '@spotlight/api-client';
 import {
@@ -47,6 +49,13 @@ import {
   WISHLIST_TITLE_HIDE_DISTANCE,
   WishlistHeader,
 } from '@/features/wishlist/components/wishlist-header';
+import { DealRadarBand } from '@/features/wishlist/components/deal-radar-band';
+import {
+  TargetPriceSheet,
+  type TargetPriceSubmitResult,
+} from '@/features/wishlist/components/target-price-sheet';
+import { buildDealShareMessage, centsToCurrency } from '@/features/wishlist/deal-radar';
+import { useDealAlerts } from '@/features/wishlist/use-deal-alerts';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { buildWishlistShareMessage } from '@/features/wishlist/wishlist-share';
 import { buildProfileDeepLink } from '@/features/profile/profile-link';
@@ -176,6 +185,12 @@ export function WishlistScreen() {
   // Your own identity, for the `spotlight://` link the share message carries.
   const { currentUser } = useAuth();
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
+  // A caught deal, as a message. Separate from the wishlist share above: that
+  // one sends a profile REFERENCE, a deal is always text because the listing
+  // URL is the payload and it has to survive leaving the app.
+  const [dealShareBody, setDealShareBody] = useState<string | null>(null);
+  // The card whose target price is being edited, or null when the sheet is shut.
+  const [targetEntry, setTargetEntry] = useState<CardFavoriteEntry | null>(null);
   const [favorites, setFavorites] = useState<CardFavoriteEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -204,6 +219,14 @@ export function WishlistScreen() {
   // UIKit's inset would just leave ~100px of dead space under the last row. All
   // that's left is the list's own breathing room.
   const listBottomPadding = 16;
+
+  const {
+    alerts: dealAlerts,
+    markSeen: markDealSeen,
+    markTapped: markDealTapped,
+    refresh: refreshDealAlerts,
+    unseenCount: dealUnseenCount,
+  } = useDealAlerts();
 
   const loadFavorites = useCallback(async () => {
     try {
@@ -280,9 +303,81 @@ export function WishlistScreen() {
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
-    await loadFavorites();
+    await Promise.all([loadFavorites(), refreshDealAlerts()]);
     setIsRefreshing(false);
-  }, [loadFavorites]);
+  }, [loadFavorites, refreshDealAlerts]);
+
+  // The deal payload carries only a card id, so the band is joined against the
+  // watchlist for the name and art.
+  const favoritesById = useMemo(
+    () => new Map(favorites.map((entry) => [entry.cardId, entry])),
+    [favorites],
+  );
+
+  /*
+    Opening a deal WRITES `tappedAt` first, and waits for it.
+
+    That column is what the deal radar is judged on — engagement, reliance,
+    concentration are all computed from it — so it is a requirement of the tap,
+    not telemetry alongside it. `Linking.openURL` hands the app to the browser a
+    beat later, and a fire-and-forget request loses exactly the taps that matter
+    most. The listing still opens if the write fails (see `markTapped`).
+  */
+  const handleOpenDeal = useCallback(async (alert: DealAlert, card: CardFavoriteEntry) => {
+    capturePostHogEvent('watch_deal_tapped', {
+      cardId: card.cardId,
+      discountPct: alert.discountPct ?? null,
+      kind: alert.kind,
+    });
+    await markDealTapped(alert.id);
+    if (alert.url) {
+      void Linking.openURL(alert.url).catch(() => {
+        // A dead listing URL is the marketplace's problem, not a screen error.
+      });
+    }
+  }, [markDealTapped]);
+
+  const handleShareDeal = useCallback((alert: DealAlert, card: CardFavoriteEntry) => {
+    const body = buildDealShareMessage(alert, card, card.currencyCode ?? 'USD');
+    if (!body) {
+      return;
+    }
+    capturePostHogEvent('watch_deal_shared', { cardId: card.cardId, kind: alert.kind });
+    setDealShareBody(body);
+  }, []);
+
+  /*
+    Set or clear a target price on a watched card.
+
+    `setCardFavoriteTarget` does not throw — `not_watchlisted` IS the server's
+    404, meaning the card left the watchlist (another device, or while this
+    sheet was open). That is a real answer with a plain sentence, so it is
+    passed through for the sheet to say and the watchlist is re-synced to drop
+    the row that is already gone server-side.
+  */
+  const handleSubmitTarget = useCallback(async (
+    targetPriceCents: number | null,
+  ): Promise<TargetPriceSubmitResult> => {
+    const cardId = targetEntry?.cardId;
+    if (!cardId) {
+      return 'error';
+    }
+    const result = await spotlightRepository.setCardFavoriteTarget(cardId, targetPriceCents);
+    if (result.status === 'not_watchlisted') {
+      void loadFavorites();
+      return 'not_found';
+    }
+    if (result.status !== 'ok') {
+      return 'error';
+    }
+    setFavorites((current) => current.map((entry) => (
+      entry.cardId === cardId
+        ? { ...entry, targetPriceCents: result.target.targetPriceCents }
+        : entry
+    )));
+    void refreshDealAlerts();
+    return 'saved';
+  }, [loadFavorites, refreshDealAlerts, spotlightRepository, targetEntry?.cardId]);
 
   const visibleEntries = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -509,6 +604,7 @@ export function WishlistScreen() {
             entry={item.entry}
             firstInSection={item.firstInSection}
             onDelete={handleRemoveEntry}
+            onEditTarget={setTargetEntry}
             onPress={handlePressEntry}
             selected={editMode && selectedIds.has(item.entry.cardId)}
             theme={theme}
@@ -546,6 +642,24 @@ export function WishlistScreen() {
   // below the height the list reserves for that bar.
   const listHeader = (
     <View>
+      {/*
+        The Deals band rides at the TOP of the list header — above search and
+        the filter chips, because it is not part of the watchlist and the
+        filters do not apply to it. It renders NOTHING when there are no deals
+        (or when the radar is off), and it owns its own gutter/margin so that
+        empty case leaves no gap either — a wrapper here would still spend its
+        margin on nothing.
+      */}
+      <DealRadarBand
+        alerts={dealAlerts}
+        cardsById={favoritesById}
+        onMarkSeen={markDealSeen}
+        onOpenDeal={(alert, card) => void handleOpenDeal(alert, card)}
+        onShareDeal={handleShareDeal}
+        style={[styles.dealBand, { paddingHorizontal: theme.layout.pageGutter }]}
+        unseenCount={dealUnseenCount}
+      />
+
       <View style={[styles.controls, { paddingHorizontal: theme.layout.pageGutter }]}>
         <View style={styles.searchRow}>
           <View style={styles.searchFieldWrap}>
@@ -809,6 +923,28 @@ export function WishlistScreen() {
           visible={shareSheetOpen}
         />
       ) : null}
+
+      {/*
+        The deal share. Its own sheet rather than a mode of the one above: the
+        payloads are different kinds (a profile reference vs. the listing text),
+        and a caught deal is the most forwardable thing this app produces — it
+        should not have to borrow the list share's state to get sent.
+      */}
+      {dealShareBody ? (
+        <SharePostSheet
+          onClose={() => setDealShareBody(null)}
+          payload={{ kind: 'text', body: dealShareBody }}
+          testID="wishlist-deal-share-sheet"
+          title="Send deal to"
+          visible
+        />
+      ) : null}
+
+      <TargetPriceSheet
+        entry={targetEntry}
+        onClose={() => setTargetEntry(null)}
+        onSubmit={handleSubmitTarget}
+      />
     </SafeAreaView>
     </DrawerEdgeSwipe>
   );
@@ -819,6 +955,8 @@ type WishlistListRowProps = {
   entry: CardFavoriteEntry;
   firstInSection: boolean;
   onDelete: (cardId: string) => void;
+  /** Long-press opens the target-price sheet for this card. */
+  onEditTarget: (entry: CardFavoriteEntry) => void;
   onPress: (entry: CardFavoriteEntry) => void;
   selected?: boolean;
   theme: ReturnType<typeof useSpotlightTheme>;
@@ -829,6 +967,7 @@ function WishlistListRow({
   entry,
   firstInSection,
   onDelete,
+  onEditTarget,
   onPress,
   selected = false,
   theme,
@@ -838,21 +977,29 @@ function WishlistListRow({
   // activation range below so closed rows never claim rightward pans.
   const [deleteRailOpen, setDeleteRailOpen] = useState(false);
 
+  // The row's only free text line is the condition/grade one, so a set target
+  // rides there ("Near Mint · Target $40.00"). `CardListRow` has no footnote
+  // slot; adding one is the tidier fix if a second caller ever needs it.
+  const targetCents = entry.targetPriceCents;
+  const targetLabel = targetCents != null && targetCents > 0
+    ? `Target ${centsToCurrency(targetCents, entry.currencyCode ?? 'USD')}`
+    : null;
+  const priceLaneLabel = entry.slabContext?.grader
+    ? [entry.slabContext.grader, entry.slabContext.grade].filter(Boolean).join(' ')
+    : entry.conditionLabel ?? (entry.marketPrice != null ? 'Near Mint' : null);
+
   const row = (
     <CardListRow
       cardNumber={entry.cardNumber}
       currencyCode={entry.currencyCode ?? 'USD'}
+      delayLongPress={350}
       firstInSection={firstInSection}
       // Condition/grade line per Figma 4173:82045 ("PSA 10" / "Near Mint").
       // The line labels the lane the row's PRICE resolved on: graded copies
       // their grade, owned raw copies their stored condition, and every other
       // raw row "Near Mint" — the default lane raw market prices resolve on —
       // so long as there is a price to label. No price → no line.
-      gradeLabel={
-        entry.slabContext?.grader
-          ? [entry.slabContext.grader, entry.slabContext.grade].filter(Boolean).join(' ')
-          : entry.conditionLabel ?? (entry.marketPrice != null ? 'Near Mint' : null)
-      }
+      gradeLabel={[priceLaneLabel, targetLabel].filter(Boolean).join(' · ') || null}
       // Slab-case frame on the thumbnail — keyed by THIS entry's grader; kept
       // so graded copies still read as slabs even without the text line.
       grader={entry.slabContext?.grader ?? null}
@@ -860,6 +1007,9 @@ function WishlistListRow({
       imageUrl={entry.smallImageUrl ?? entry.imageUrl ?? null}
       marketPrice={entry.marketPrice ?? null}
       name={entry.name}
+      // Not while multi-selecting: the row is a selection target then, and the
+      // bottom edit bar owns the screen.
+      onLongPress={editMode ? undefined : () => onEditTarget(entry)}
       onPress={() => onPress(entry)}
       quantity={1}
       selectable={editMode}
@@ -1075,6 +1225,11 @@ const styles = StyleSheet.create({
   controls: {
     // 16px between the search row and the filter chip row (Figma 1874-21756).
     gap: 16,
+    marginTop: 24,
+  },
+  // Same 24 rhythm the controls block uses, so the band reads as the first
+  // block under the floating bar and the search row keeps its own gap.
+  dealBand: {
     marginTop: 24,
   },
   searchRow: {

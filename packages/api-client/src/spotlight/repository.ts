@@ -36,6 +36,8 @@ import type {
   CardDetailGradedReference,
   CardDetailRecord,
   CardFavoriteContext,
+  CardFavoriteTarget,
+  CardFavoriteTargetResult,
   CardGame,
   CardPopulation,
   TcgPlayerVariantMarketplace,
@@ -62,6 +64,9 @@ import type {
   CardTransactionRecord,
   CatalogSearchResult,
   CreateCardTransactionPayload,
+  DealAlert,
+  DealAlertKind,
+  DealAlertsPage,
   ExpansionRecord,
   InventoryEntryBulkCreateResponsePayload,
   InventoryEntryBulkCreateResultEntry,
@@ -107,6 +112,11 @@ import type {
   PostMediaUploadResult,
   ProfileDeckEntriesQuery,
   ProfilePortfolioSummary,
+  RawEbayBuyingOption,
+  RawEbayListingCandidate,
+  RawEbayListingsQuery,
+  RawEbayListingsResponse,
+  RawEbayVerificationTier,
   RawPricingMatrix,
   RawPricingMatrixConditionRow,
   RarityBucket,
@@ -310,6 +320,43 @@ export interface SpotlightRepository {
   setCardFavorite(cardId: string, isFavorite?: boolean | null): Promise<CardFavoriteRecord>;
   setCardLike(cardId: string, isLiked?: boolean | null): Promise<CardLikeRecord>;
   getCardFavorites(query?: CardFavoritesQuery): Promise<CardFavoriteEntry[]>;
+  /**
+   * Set (or clear, with `null`) the watchlist target price for one card, in USD
+   * CENTS. Never throws: the result's `status` distinguishes
+   * `not_watchlisted` — the server's 404, meaning `setCardFavorite` has to run
+   * first — from a plain `failed` request.
+   */
+  setCardFavoriteTarget(
+    cardId: string,
+    targetPriceCents: number | null,
+  ): Promise<CardFavoriteTargetResult>;
+  /**
+   * The owner's deal-radar alerts, newest first. Never throws — a failure is an
+   * empty page. `unseenCount` on the result is the ALL-TIME badge number, not a
+   * count of this page.
+   */
+  listDealAlerts(limit?: number): Promise<DealAlertsPage>;
+  /**
+   * Stamp `seenAt` on one alert and return it. Idempotent server-side: a second
+   * call never moves the first timestamp. null = unknown id (or another
+   * owner's) / request failed.
+   */
+  markDealAlertSeen(alertId: string): Promise<DealAlert | null>;
+  /**
+   * Stamp `tappedAt` on one alert and return it. Same idempotency as
+   * {@link markDealAlertSeen}. This timestamp is load-bearing for the
+   * monetization read, so call it on every tap and let the server dedupe.
+   */
+  markDealAlertTapped(alertId: string): Promise<DealAlert | null>;
+  /**
+   * Validated raw eBay listings for the "lowest listed" panel.
+   *
+   * Render `result.candidates` — the wire's unvalidated `listings` array is not
+   * exposed. Never throws: eBay being off/unreachable comes back as
+   * `status: 'unavailable'` with an empty `candidates`, which the UI shows as
+   * nothing rather than an error.
+   */
+  getRawEbayListingCandidates(query: RawEbayListingsQuery): Promise<RawEbayListingsResponse>;
   getAddToCollectionOptions(cardId: string): Promise<AddToCollectionOptions>;
   createInventoryEntry(payload: InventoryEntryCreateRequestPayload): Promise<InventoryEntryCreateResponsePayload>;
   /**
@@ -1385,6 +1432,200 @@ function normalizeSparkPoints(value: unknown): number[] | null {
   }
   const points = value.filter((point): point is number => typeof point === 'number' && Number.isFinite(point));
   return points.length > 0 ? points : null;
+}
+
+// --- Watchlist deal radar -------------------------------------------------
+// Mirrors the backend's own clamp (server.py DEFAULT/MAX_DEAL_ALERT_LIMIT) so a
+// caller's limit is already legal by the time it reaches the wire.
+const DEFAULT_DEAL_ALERT_LIMIT = 50;
+const MAX_DEAL_ALERT_LIMIT = 200;
+
+// Every normalizer below degrades instead of throwing: a malformed row is
+// dropped, a malformed field falls back, and a malformed page becomes an empty
+// page. The radar is an optional surface — it must never be able to take a
+// screen down.
+
+/** Integer USD cents, or null when the field is absent/malformed. */
+function normalizeCentsOrNull(value: unknown): number | null {
+  const amount = normalizeNumber(value);
+  return amount === null ? null : Math.round(amount);
+}
+
+const DEAL_ALERT_KIND_VALUES: readonly DealAlertKind[] = [
+  'under_added',
+  'trailing_low',
+  'drawdown_30d',
+  'since_watched',
+  'target_hit',
+];
+
+/**
+ * An unknown kind falls back to `under_added` rather than dropping the alert: a
+ * signal the server adds later should still render as a deal, just generically.
+ */
+function normalizeDealAlertKind(value: unknown): DealAlertKind {
+  const kind = normalizeString(value)?.toLowerCase();
+  return DEAL_ALERT_KIND_VALUES.includes(kind as DealAlertKind)
+    ? (kind as DealAlertKind)
+    : 'under_added';
+}
+
+const RAW_EBAY_VERIFICATION_TIERS: readonly RawEbayVerificationTier[] = [
+  'scrydex',
+  'aspects',
+  'title',
+];
+
+function normalizeRawEbayVerificationTier(value: unknown): RawEbayVerificationTier | null {
+  const tier = normalizeString(value)?.toLowerCase();
+  return RAW_EBAY_VERIFICATION_TIERS.includes(tier as RawEbayVerificationTier)
+    ? (tier as RawEbayVerificationTier)
+    : null;
+}
+
+function normalizeRawEbayBuyingOption(value: unknown): RawEbayBuyingOption {
+  return normalizeString(value)?.toLowerCase() === 'auction' ? 'auction' : 'fixed_price';
+}
+
+/** One deal-alert row, or null when it has no id (nothing can be stamped). */
+function buildDealAlert(value: unknown): DealAlert | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const id = normalizeString(value.id);
+  if (!id) {
+    return null;
+  }
+  return {
+    id,
+    // The wire says cardID/listingID; the client type says cardId/listingId.
+    cardId: normalizeString(value.cardID) ?? normalizeString(value.cardId) ?? '',
+    listingId: normalizeString(value.listingID) ?? normalizeString(value.listingId) ?? '',
+    kind: normalizeDealAlertKind(value.kind),
+    totalCents: normalizeCentsOrNull(value.totalCents) ?? 0,
+    baselineCents: normalizeCentsOrNull(value.baselineCents) ?? 0,
+    marketCents: normalizeCentsOrNull(value.marketCents),
+    discountPct: normalizeNumber(value.discountPct),
+    savingsCents: normalizeCentsOrNull(value.savingsCents),
+    url: normalizeString(value.url),
+    verificationTier: normalizeRawEbayVerificationTier(value.verificationTier),
+    createdAt: normalizeString(value.createdAt),
+    seenAt: normalizeString(value.seenAt),
+    tappedAt: normalizeString(value.tappedAt),
+  };
+}
+
+const EMPTY_DEAL_ALERTS_PAGE: DealAlertsPage = { alerts: [], limit: 0, unseenCount: 0 };
+
+function buildDealAlertsPage(value: unknown, requestedLimit: number): DealAlertsPage {
+  if (!isRecord(value)) {
+    return { ...EMPTY_DEAL_ALERTS_PAGE, limit: requestedLimit };
+  }
+  const alerts = Array.isArray(value.alerts)
+    ? value.alerts.map(buildDealAlert).filter((alert): alert is DealAlert => alert !== null)
+    : [];
+  return {
+    alerts,
+    limit: normalizeInteger(value.limit, requestedLimit),
+    // ALL-TIME unseen count, straight from the server. Never recomputed from
+    // `alerts` — the page is capped and the badge is not.
+    unseenCount: normalizeInteger(value.unseenCount, 0),
+  };
+}
+
+function buildCardFavoriteTarget(value: unknown, fallbackCardId: string): CardFavoriteTarget | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  return {
+    cardId:
+      normalizeString(value.cardID) ?? normalizeString(value.cardId) ?? fallbackCardId,
+    targetPriceCents: normalizeCentsOrNull(value.targetPriceCents),
+    targetCurrency: normalizeString(value.targetCurrency),
+    targetSetAt: normalizeString(value.targetSetAt),
+    targetTriggeredAt: normalizeString(value.targetTriggeredAt),
+  };
+}
+
+/** One validated raw eBay listing, or null when it has no title to render. */
+function buildRawEbayListingCandidate(value: unknown): RawEbayListingCandidate | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const title = normalizeString(value.title);
+  if (!title) {
+    return null;
+  }
+  return {
+    itemId: normalizeString(value.itemID) ?? normalizeString(value.legacyItemID),
+    title,
+    itemUrl: normalizeString(value.itemURL),
+    imageUrl: normalizeString(value.imageURL),
+    // DOLLARS on this lane, not cents — see RawEbayListingCandidate.
+    priceDollars: normalizeNumber(value.priceAmount),
+    shippingDollars: normalizeNumber(value.shippingAmount),
+    shippingKnown: normalizeBoolean(value.shippingKnown) ?? false,
+    totalDollars: normalizeNumber(value.totalAmount),
+    currencyCode: normalizeCurrencyCode(value.currencyCode),
+    buyingOption: normalizeRawEbayBuyingOption(value.buyingOption),
+    auctionEndAt: normalizeString(value.auctionEndAt),
+    auctionMinutesRemaining: normalizeNumber(value.auctionMinutesRemaining),
+    verification: normalizeRawEbayVerificationTier(value.verification),
+    isGraded: normalizeBoolean(value.isGraded) ?? false,
+  };
+}
+
+/**
+ * The "eBay is off / unreachable" shape. Callers render nothing for this, which
+ * is why a transport failure returns it instead of throwing.
+ */
+function unavailableRawEbayListings(
+  cardId: string,
+  unavailableReason: string,
+  variant?: string | null,
+): RawEbayListingsResponse {
+  return {
+    cardId,
+    status: 'unavailable',
+    statusReason: null,
+    unavailableReason,
+    cached: false,
+    variant: normalizeString(variant),
+    candidates: [],
+    candidateCount: 0,
+    listingCount: 0,
+  };
+}
+
+function buildRawEbayListingsResponse(
+  value: unknown,
+  fallbackCardId: string,
+): RawEbayListingsResponse {
+  if (!isRecord(value)) {
+    return unavailableRawEbayListings(fallbackCardId, 'invalid_response');
+  }
+  // `listings` (the unvalidated page) is read only for its COUNT. Consumers get
+  // `candidates`, which is validated, cheapest-total-first and limit-capped.
+  const candidates = Array.isArray(value.candidates)
+    ? value.candidates
+      .map(buildRawEbayListingCandidate)
+      .filter((candidate): candidate is RawEbayListingCandidate => candidate !== null)
+    : [];
+  const status = normalizeString(value.status) === 'unavailable' ? 'unavailable' : 'available';
+  return {
+    cardId: normalizeString(value.cardID) ?? normalizeString(value.cardId) ?? fallbackCardId,
+    status,
+    statusReason: normalizeString(value.statusReason),
+    unavailableReason: normalizeString(value.unavailableReason),
+    cached: normalizeBoolean(value.cached) ?? false,
+    variant: normalizeString(value.variant),
+    candidates,
+    candidateCount: normalizeInteger(value.candidateCount, candidates.length),
+    listingCount: normalizeInteger(
+      value.listingCount,
+      Array.isArray(value.listings) ? value.listings.length : 0,
+    ),
+  };
 }
 
 function normalizeInteger(value: unknown, fallback = 0) {
@@ -3000,6 +3241,48 @@ async function safeResponseErrorDetail(
   };
 }
 
+/**
+ * Two deal alerts for the dev screens: one unseen, one already seen, so the
+ * badge, the row states and the "mark seen" transition all have something to
+ * render before anything is favorited.
+ */
+function seedMockDealAlerts(): DealAlert[] {
+  return [
+    {
+      id: 'dealalert-mock-0001',
+      cardId: 'mcdonalds25-21',
+      listingId: 'v1|mock|0',
+      kind: 'under_added',
+      totalCents: 7000,
+      baselineCents: 9000,
+      marketCents: 9000,
+      discountPct: 22.22,
+      savingsCents: 2000,
+      url: 'https://www.ebay.com/itm/mock-0001',
+      verificationTier: 'title',
+      createdAt: '2026-09-18T17:04:00.000Z',
+      seenAt: null,
+      tappedAt: null,
+    },
+    {
+      id: 'dealalert-mock-0002',
+      cardId: 'xyp-111',
+      listingId: 'v1|mock|1',
+      kind: 'target_hit',
+      totalCents: 4250,
+      baselineCents: 5000,
+      marketCents: 5200,
+      discountPct: 15,
+      savingsCents: 750,
+      url: 'https://www.ebay.com/itm/mock-0002',
+      verificationTier: 'aspects',
+      createdAt: '2026-09-17T09:12:00.000Z',
+      seenAt: '2026-09-17T09:40:00.000Z',
+      tappedAt: null,
+    },
+  ];
+}
+
 /** The mock's stand-in for the default collection every real owner is given. */
 const MOCK_DEFAULT_COLLECTION_ID = 'collection:mock-default';
 
@@ -3012,6 +3295,14 @@ export class MockSpotlightRepository implements SpotlightRepository {
   private cardDetails = seedMockCardDetails();
   private favoriteCardTimestamps = new Map<string, string>();
   private likeCardTimestamps = new Map<string, string>();
+  // Watchlist targets, USD CENTS, keyed by card id. Only cards present in
+  // `favoriteCardTimestamps` may have one — the real route 404s otherwise.
+  private favoriteTargetCents = new Map<
+    string,
+    { cents: number | null; setAt: string | null; triggeredAt: string | null }
+  >();
+  // Seeded so the dev screens have a populated radar with nothing favorited.
+  private dealAlerts: DealAlert[] = seedMockDealAlerts();
   private labelingSessions = new Map<string, LabelingSessionRecord>();
   private labelingSessionArtifacts = new Map<string, LabelingSessionArtifactRecord>();
   // Access gate is OPEN in mock/dev so local + test flows aren't gated.
@@ -3755,9 +4046,137 @@ export class MockSpotlightRepository implements SpotlightRepository {
         slabContext: ownedEntry?.slabContext ?? null,
         dayChangeAmount: ownedEntry?.dayChangeAmount ?? null,
         dayChangePercent: ownedEntry?.dayChangePercent ?? null,
+        targetPriceCents: this.favoriteTargetCents.get(cardId)?.cents ?? null,
       });
     }
     return entries;
+  }
+
+  async setCardFavoriteTarget(
+    cardId: string,
+    targetPriceCents: number | null,
+  ): Promise<CardFavoriteTargetResult> {
+    // Mirrors the route's 404: a target can only exist on a watchlisted card.
+    if (!this.favoriteCardTimestamps.has(cardId)) {
+      return { status: 'not_watchlisted', target: null };
+    }
+    const target =
+      typeof targetPriceCents === 'number' && Number.isFinite(targetPriceCents)
+        ? Math.round(targetPriceCents)
+        : null;
+    if (target !== null && target <= 0) {
+      return { status: 'failed', target: null };
+    }
+    const existing = this.favoriteTargetCents.get(cardId) ?? null;
+    // A CHANGED target clears the re-arm clock; re-sending the same one keeps it.
+    const changed = (existing?.cents ?? null) !== target;
+    const now = new Date().toISOString();
+    const next = {
+      cents: target,
+      setAt: target === null ? null : now,
+      triggeredAt: changed ? null : existing?.triggeredAt ?? null,
+    };
+    this.favoriteTargetCents.set(cardId, next);
+    return {
+      status: 'ok',
+      target: {
+        cardId,
+        targetPriceCents: next.cents,
+        targetCurrency: next.cents === null ? null : 'USD',
+        targetSetAt: next.setAt,
+        targetTriggeredAt: next.triggeredAt,
+      },
+    };
+  }
+
+  async listDealAlerts(limit?: number): Promise<DealAlertsPage> {
+    const requested = normalizeInteger(limit, DEFAULT_DEAL_ALERT_LIMIT) || DEFAULT_DEAL_ALERT_LIMIT;
+    const safeLimit = Math.max(1, Math.min(requested, MAX_DEAL_ALERT_LIMIT));
+    const sorted = [...this.dealAlerts].sort((left, right) =>
+      (right.createdAt ?? '').localeCompare(left.createdAt ?? ''),
+    );
+    return {
+      alerts: sorted.slice(0, safeLimit),
+      limit: safeLimit,
+      // ALL-TIME, like the server: counted across every alert, not the page.
+      unseenCount: this.dealAlerts.filter((alert) => alert.seenAt === null).length,
+    };
+  }
+
+  private stampMockDealAlert(alertId: string, field: 'seenAt' | 'tappedAt'): DealAlert | null {
+    const alert = this.dealAlerts.find((row) => row.id === alertId.trim());
+    if (!alert) {
+      return null;
+    }
+    // Idempotent: the first stamp wins and a second call never moves it.
+    if (alert[field] === null) {
+      alert[field] = new Date().toISOString();
+    }
+    return { ...alert };
+  }
+
+  async markDealAlertSeen(alertId: string): Promise<DealAlert | null> {
+    return this.stampMockDealAlert(alertId, 'seenAt');
+  }
+
+  async markDealAlertTapped(alertId: string): Promise<DealAlert | null> {
+    return this.stampMockDealAlert(alertId, 'tappedAt');
+  }
+
+  async getRawEbayListingCandidates(query: RawEbayListingsQuery): Promise<RawEbayListingsResponse> {
+    const cardId = query.cardId.trim();
+    const detail = cardId
+      ? getMockCardDetail(this.cardDetails, this.inventoryEntries, { cardId })
+      : null;
+    if (!detail) {
+      return {
+        cardId,
+        status: 'unavailable',
+        statusReason: null,
+        unavailableReason: 'card_not_found',
+        cached: false,
+        variant: query.variant?.trim() || null,
+        candidates: [],
+        candidateCount: 0,
+        listingCount: 0,
+      };
+    }
+    const limit = Math.max(1, Math.min(Math.round(query.limit ?? 3), 20));
+    const basePrice = detail.marketPrice ?? 20;
+    // Cheapest shipping-inclusive first, exactly like the server orders them.
+    const candidates: RawEbayListingCandidate[] = [0.72, 0.88, 1.04]
+      .slice(0, limit)
+      .map((factor, index) => {
+        const priceDollars = Math.round(basePrice * factor * 100) / 100;
+        const shippingDollars = index === 0 ? 0 : 4.99;
+        return {
+          itemId: `mock-listing-${cardId}-${index}`,
+          title: `${detail.name} ${detail.cardNumber} ${detail.setName}`,
+          itemUrl: `https://www.ebay.com/itm/mock-${cardId}-${index}`,
+          imageUrl: detail.imageUrl,
+          priceDollars,
+          shippingDollars,
+          shippingKnown: true,
+          totalDollars: Math.round((priceDollars + shippingDollars) * 100) / 100,
+          currencyCode: detail.currencyCode ?? 'USD',
+          buyingOption: 'fixed_price',
+          auctionEndAt: null,
+          auctionMinutesRemaining: null,
+          verification: index === 0 ? 'aspects' : 'title',
+          isGraded: false,
+        } satisfies RawEbayListingCandidate;
+      });
+    return {
+      cardId,
+      status: 'available',
+      statusReason: candidates.length ? null : 'no_results',
+      unavailableReason: null,
+      cached: true,
+      variant: query.variant?.trim() || null,
+      candidates,
+      candidateCount: candidates.length,
+      listingCount: candidates.length,
+    };
   }
 
   async getAddToCollectionOptions(cardId: string) {
@@ -4152,6 +4571,8 @@ export class MockSpotlightRepository implements SpotlightRepository {
         remainingSeconds: 0,
       },
       handleClaimRequired: false,
+      // The radar is ON in mock/dev so the dev screens render it.
+      watchDealRadarEnabled: true,
     };
   }
 
@@ -6139,9 +6560,113 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           sinceAddedBaselineDate: normalizeString(entry.sinceAddedBaselineDate) ?? null,
           sparkPoints: normalizeSparkPoints(entry.sparkPoints),
           sparkTrendPct: normalizeNumber(entry.sparkTrendPct) ?? null,
+          // USD CENTS (the rest of this row is dollars). null = no target set.
+          targetPriceCents: normalizeCentsOrNull(entry.targetPriceCents),
         };
       })
       .filter((entry): entry is CardFavoriteEntry => entry !== null);
+  }
+
+  async setCardFavoriteTarget(
+    cardId: string,
+    targetPriceCents: number | null,
+  ): Promise<CardFavoriteTargetResult> {
+    const encodedCardID = encodeURIComponent(cardId);
+    // The server rejects a JSON bool outright (`isinstance(True, int)` is True
+    // in Python), so only an integer or null ever goes on the wire.
+    const target =
+      typeof targetPriceCents === 'number' && Number.isFinite(targetPriceCents)
+        ? Math.round(targetPriceCents)
+        : null;
+    const response = await this.requestJson<Record<string, unknown>>(
+      `${this.baseUrl}/api/v1/card-favorites/${encodedCardID}/target`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetPriceCents: target }),
+      },
+      { allowNotFound: true },
+    );
+
+    // A 404 here is specific: the card is not on this owner's watchlist yet, so
+    // the UI should favorite it first rather than show a generic failure.
+    if (response.kind === 'not_found') {
+      return { status: 'not_watchlisted', target: null };
+    }
+    if (response.kind !== 'success') {
+      return { status: 'failed', target: null };
+    }
+    const built = buildCardFavoriteTarget(response.data, cardId);
+    return built ? { status: 'ok', target: built } : { status: 'failed', target: null };
+  }
+
+  async listDealAlerts(limit?: number): Promise<DealAlertsPage> {
+    const requestedLimit = normalizeInteger(limit, DEFAULT_DEAL_ALERT_LIMIT) || DEFAULT_DEAL_ALERT_LIMIT;
+    const safeLimit = Math.max(1, Math.min(requestedLimit, MAX_DEAL_ALERT_LIMIT));
+    const response = await this.requestJson<unknown>(
+      `${this.baseUrl}/api/v1/deal-alerts?limit=${safeLimit}`,
+    );
+    if (response.kind !== 'success' || response.data == null) {
+      // An empty radar is the correct degraded state; the badge just reads 0.
+      return { alerts: [], limit: safeLimit, unseenCount: 0 };
+    }
+    return buildDealAlertsPage(response.data, safeLimit);
+  }
+
+  private async markDealAlert(alertId: string, stamp: 'seen' | 'tapped'): Promise<DealAlert | null> {
+    const normalizedId = alertId.trim();
+    if (!normalizedId) {
+      return null;
+    }
+    const response = await this.requestJson<unknown>(
+      `${this.baseUrl}/api/v1/deal-alerts/${encodeURIComponent(normalizedId)}/${stamp}`,
+      { method: 'POST' },
+      { allowNotFound: true },
+    );
+    // 404 = unknown id, or another owner's — indistinguishable by design.
+    if (response.kind !== 'success' || response.data == null) {
+      return null;
+    }
+    return buildDealAlert(response.data);
+  }
+
+  async markDealAlertSeen(alertId: string): Promise<DealAlert | null> {
+    return this.markDealAlert(alertId, 'seen');
+  }
+
+  async markDealAlertTapped(alertId: string): Promise<DealAlert | null> {
+    return this.markDealAlert(alertId, 'tapped');
+  }
+
+  async getRawEbayListingCandidates(query: RawEbayListingsQuery): Promise<RawEbayListingsResponse> {
+    const cardId = query.cardId.trim();
+    if (!cardId) {
+      return unavailableRawEbayListings(query.cardId, 'missing_card_id', query.variant);
+    }
+    const params = new URLSearchParams();
+    if (typeof query.limit === 'number' && Number.isFinite(query.limit)) {
+      params.set('limit', String(Math.max(1, Math.round(query.limit))));
+    }
+    const variant = query.variant?.trim();
+    if (variant) {
+      params.set('variant', variant);
+    }
+    const queryString = params.toString();
+    const response = await this.requestJson<unknown>(
+      `${this.baseUrl}/api/v1/cards/${encodeURIComponent(cardId)}/ebay/raw-listings${queryString ? `?${queryString}` : ''}`,
+      undefined,
+      { allowNotFound: true },
+    );
+    // Transport failure, a 404 and the lane's 502 all mean the same thing to
+    // this panel: show nothing. It is never an error state.
+    if (response.kind !== 'success' || response.data == null) {
+      return unavailableRawEbayListings(
+        cardId,
+        response.kind === 'not_found' ? 'card_not_found' : 'request_failed',
+        query.variant,
+      );
+    }
+    return buildRawEbayListingsResponse(response.data, cardId);
   }
 
   async getAddToCollectionOptions(cardId: string) {
@@ -6511,6 +7036,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         remainingSeconds?: number | null;
       } | null;
       handleClaimRequired?: boolean | null;
+      watchDealRadarEnabled?: boolean | null;
     }>(`${this.baseUrl}/api/v1/access/status`);
 
     if (response.kind !== 'success' || !response.data) {
@@ -6522,6 +7048,8 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         isAdmin: false,
         showMode: { active: false, until: null, remainingSeconds: 0 },
         handleClaimRequired: false,
+        // The radar fails open the SAME way the gate does: no answer → on.
+        watchDealRadarEnabled: true,
       };
     }
 
@@ -6536,6 +7064,9 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         remainingSeconds: normalizeNumber(data.showMode?.remainingSeconds) ?? 0,
       },
       handleClaimRequired: normalizeBoolean(data.handleClaimRequired) ?? false,
+      // FAIL OPEN: an older backend omits the field entirely, and that must read
+      // as "radar on" — only an explicit `false` turns the feature off.
+      watchDealRadarEnabled: normalizeBoolean(data.watchDealRadarEnabled) ?? true,
     };
   }
 

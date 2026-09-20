@@ -41,6 +41,8 @@ describe('HttpSpotlightRepository access gate', () => {
       showMode: { active: true, until: '2026-06-18T00:00:00.000Z', remainingSeconds: 3600 },
       // Absent in the payload → false: an older backend must read as "no claim gate".
       handleClaimRequired: false,
+      // Absent → TRUE: the deal radar fails OPEN, the other direction.
+      watchDealRadarEnabled: true,
     });
   });
 
